@@ -141,7 +141,6 @@ impl Platform for Windows {
             *self.staged.lock().unwrap_or_else(|e| e.into_inner()) = Some(Staged { version: found.version, sha256: found.target.sha256, dir: staged_dir });
             return Ok(());
         }
-        let staged_dir = beside(&self.root, &format!("ready-{}", found.target.sha256));
         if let Ok(staged) = self.staged.lock()
             && let Some(st) = staged.as_ref()
             && st.sha256 == found.target.sha256
@@ -164,25 +163,13 @@ impl Platform for Windows {
             unpack_zip(&zip, &unpack)?;
             let app = locate(&unpack)?;
             self.verify(&app)?;
-            let dest = match std::fs::symlink_metadata(&staged_dir) {
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => staged_dir.clone(),
-                Ok(_) => match bundle::retire(&staged_dir) {
-                    Ok(_) => staged_dir.clone(),
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => staged_dir.clone(),
-                    Err(why) => {
-                        // A stale dir with a file held open by another process or a planted
-                        // junction/reparse point is left untouched (preserving any link target),
-                        // while we route around to a unique sibling directory so the update completes.
-                        log(&format!("updater: leaving obstructed stage {} untouched ({why}); routing around", staged_dir.display()));
-                        let alt = beside(&self.root, &format!("ready-{}-{}-{seq}", found.target.sha256, std::process::id()));
-                        if std::fs::symlink_metadata(&alt).is_ok() {
-                            return Err(format!("could not stage the update: fallback path {} already exists", alt.display()));
-                        }
-                        alt
-                    }
-                },
-                Err(e) => return Err(format!("could not inspect staged path: {e}")),
-            };
+            // Always stage into a PID-tagged sibling directory so another profile sharing this
+            // install root sees our live PID in `sweep()` and never retires our active stage, and
+            // an obstructed legacy `.ready-<sha256>` (locked file or reparse point) is never touched.
+            let dest = beside(&self.root, &format!("ready-{}-{}-{seq}", found.target.sha256, std::process::id()));
+            if std::fs::symlink_metadata(&dest).is_ok() {
+                return Err(format!("could not stage the update: stage path {} already exists", dest.display()));
+            }
             std::fs::rename(&app, &dest).map_err(|e| format!("could not stage the update: {e}"))?;
             receipt::stage(&dest, &found.version, &found.target.sha256)?;
             Ok(Staged { version: found.version, sha256: found.target.sha256, dir: dest })
@@ -350,6 +337,19 @@ fn binaries(dir: &Path, out: &mut Vec<PathBuf>) {
 /// downloads, and the helper's copies.
 fn sweep(root: &Path, updates: &Path) {
     repair_interrupted(root);
+    let mut helper_running = false;
+    if let Ok(entries) = std::fs::read_dir(updates) {
+        for e in entries.flatten() {
+            let n = e.file_name().to_string_lossy().into_owned();
+            if let Some(pid) = n.strip_prefix("download-").and_then(|s| s.split_once('-')).and_then(|(p, _)| p.parse::<u32>().ok())
+                && bundle::process_gone(pid)
+            {
+                std::fs::remove_dir_all(e.path()).ok();
+            } else if n.starts_with("opencode-update-helper-") && std::fs::remove_file(e.path()).is_err() {
+                helper_running = true;
+            }
+        }
+    }
     let root_intact = root.join(EXE).is_file();
     let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let keep_ready = receipt::staged()
@@ -360,43 +360,39 @@ fn sweep(root: &Path, updates: &Path) {
         let old_prefix = format!(".{name}.old-");
         let staging_prefix = format!(".{name}.staging-");
         let ready_prefix = format!(".{name}.ready-");
-        for e in entries.flatten() {
-            let n = e.file_name().to_string_lossy().into_owned();
-            if root_intact && n.strip_prefix(&old_prefix).and_then(|pid| pid.parse::<u32>().ok()).is_some() {
+        let entries: Vec<(String, PathBuf)> = entries.flatten().map(|e| (e.file_name().to_string_lossy().into_owned(), e.path())).collect();
+        let swap_in_progress = entries
+            .iter()
+            .any(|(n, _)| n.strip_prefix(&old_prefix).and_then(|pid| pid.parse::<u32>().ok()).is_some_and(|pid| !bundle::process_gone(pid)));
+        for (n, path) in &entries {
+            if root_intact
+                && let Some(pid) = n.strip_prefix(&old_prefix).and_then(|pid| pid.parse::<u32>().ok())
+                && bundle::process_gone(pid)
+            {
                 // A locked image does not protect the assets beside it. Never remove even one
                 // entry on a refusal; another launch tries again. Stages belong to their helper.
-                bundle::retire(&e.path()).ok();
+                bundle::retire(path).ok();
             } else if let Some(pid) = n.strip_prefix(&staging_prefix).and_then(|s| s.split_once('-')).and_then(|(p, _)| p.parse::<u32>().ok())
                 && bundle::process_gone(pid)
             {
-                bundle::retire(&e.path()).ok();
+                bundle::retire(path).ok();
             } else if root_intact
+                && !swap_in_progress
+                && !helper_running
                 && let Some(rest) = n.strip_prefix(&ready_prefix)
-                && keep_ready.as_deref().is_none_or(|k| !k.eq_ignore_ascii_case(&n))
+                && keep_ready.as_deref().is_none_or(|k| !k.eq_ignore_ascii_case(n))
             {
-                // Reclaim orphaned `.ready-<older_sha>` folders from skipped releases (matching
-                // official `installer.nsh:152-215` `removeStagedUpdates`), keeping any routed-around
-                // stage owned by a still-living process.
+                // Reclaim orphaned `.ready-*` folders from skipped releases (matching official
+                // `installer.nsh:152-215` `removeStagedUpdates`), keeping any stage owned by a
+                // still-living process (including another profile sharing this install root).
                 let live_owner = rest
                     .split_once('-')
                     .and_then(|(_, tail)| tail.split_once('-'))
                     .and_then(|(pid, _)| pid.parse::<u32>().ok())
                     .is_some_and(|pid| pid == std::process::id() || !bundle::process_gone(pid));
                 if !live_owner {
-                    bundle::retire(&e.path()).ok();
+                    bundle::retire(path).ok();
                 }
-            }
-        }
-    }
-    if let Ok(entries) = std::fs::read_dir(updates) {
-        for e in entries.flatten() {
-            let n = e.file_name().to_string_lossy().into_owned();
-            if let Some(pid) = n.strip_prefix("download-").and_then(|s| s.split_once('-')).and_then(|(p, _)| p.parse::<u32>().ok())
-                && bundle::process_gone(pid)
-            {
-                std::fs::remove_dir_all(e.path()).ok();
-            } else if n.starts_with("opencode-update-helper-") {
-                std::fs::remove_file(e.path()).ok();
             }
         }
     }
