@@ -312,6 +312,11 @@ fn phase_deadline(phase: &ExecPhase, now: Instant) -> Instant {
     match phase {
         ExecPhase::Wait(w) => (w.deadline + Duration::from_secs(1)).min(now + MAX_WAIT_CMD_TIMEOUT),
         ExecPhase::WaitLoad(w) => w.deadline,
+        ExecPhase::Profile(p)
+            if matches!(p.stage, profile::ProfileStage::TraceStop { .. } | profile::ProfileStage::CpuStop { .. }) =>
+        {
+            now + Duration::from_secs(10)
+        }
         _ => now + DEFAULT_CMD_TIMEOUT,
     }
 }
