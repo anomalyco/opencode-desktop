@@ -446,6 +446,10 @@ pub fn filter_field<H: SettingsHost + 'static>(
             .size(20.0, 20.0)
             .center()
             .radius(4.0)
+            .cursor(rune::Cursor::Pointer)
+            .focus_default(p)
+            .hover(p.hover)
+            .press(p.pressed)
             .on_press_tx(move |s: &mut H, tx: &mut Tx| clear_filter_field(s, field, tx))
             .child(icon(&ic::CIRCLE_XMARK, 16.0).color(p.icon_faint))
     });
