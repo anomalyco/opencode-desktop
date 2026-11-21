@@ -79,6 +79,7 @@ fn launcher_card_shell(host: &dyn PanelsHost, p: &Pal, plugin: &'static str, des
         .radius(8.0)
         .fill(p.layer1)
         .border(0.5, p.border)
+        .border_layout()
         .hover(p.layer2)
         .hover_motion(INSTANT, INSTANT)
         .child(left);
