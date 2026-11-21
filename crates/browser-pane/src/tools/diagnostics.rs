@@ -98,15 +98,29 @@ impl NetworkHop {
         obj
     }
 
+    /// Official `diagnostics-machine.ts:312`:
+    /// `^(text\/|application\/(json|.*\+json|javascript|xml|.*\+xml|x-www-form-urlencoded))`, case-insensitive.
     pub fn is_text_response(&self) -> bool {
         let m = self.mime_type.to_ascii_lowercase();
-        m.starts_with("text/")
-            || m.starts_with("application/json")
-            || m.contains("+json")
-            || m.starts_with("application/javascript")
-            || m.starts_with("application/xml")
-            || m.contains("+xml")
-            || m.starts_with("application/x-www-form-urlencoded")
+        if m.starts_with("text/") {
+            return true;
+        }
+        let Some(app) = m.strip_prefix("application/") else {
+            return false;
+        };
+        ["json", "javascript", "xml", "x-www-form-urlencoded"].iter().any(|p| app.starts_with(p))
+            || app.contains("+json")
+            || app.contains("+xml")
+    }
+
+    /// A hop with no response, or a WebSocket, has no body to read (`diagnostics-machine.ts:308-309`).
+    fn response_captured(&self) -> bool {
+        self.status_code.is_some() && self.resource_type != "websocket"
+    }
+
+    /// Whether `Network.getResponseBody` may be asked for this hop's body.
+    pub fn response_body_fetchable(&self) -> bool {
+        !matches!(self.phase, HopPhase::Pending { .. }) && self.response_captured() && self.is_text_response()
     }
 }
 
@@ -408,7 +422,6 @@ impl TabDiagnostics {
         include_body: bool,
         include_response_body: bool,
         max_body_chars: usize,
-        fetched_request: Option<Result<String, &'static str>>,
         fetched_response: Option<Result<String, &'static str>>,
     ) -> Value {
         let req_headers: Vec<Value> = hop
@@ -426,25 +439,18 @@ impl TabDiagnostics {
         } else if let Some(data) = &hop.post_data {
             let truncated = hop.post_data_truncated || data.chars().count() > max_body_chars;
             json!({ "state": "text", "text": truncate_chars(data, max_body_chars), "truncated": truncated })
-        } else if let Some(Ok(data)) = fetched_request {
-            if data.is_empty() {
-                json!({ "state": "empty" })
-            } else {
-                let truncated = data.chars().count() > max_body_chars;
-                json!({ "state": "text", "text": truncate_chars(&data, max_body_chars), "truncated": truncated })
-            }
-        } else if let Some(Err(reason)) = fetched_request {
-            json!({ "state": "unavailable", "reason": reason })
         } else if hop.has_post_data {
             json!({ "state": "unavailable", "reason": "notCaptured" })
         } else {
             json!({ "state": "empty" })
         };
-        let want_resp = include_response_body || include_body;
-        let resp_body = if !want_resp {
+        // `include_response_body` is already `includeResponseBody ?? includeBody` (`diagnostics.ts:287`).
+        let resp_body = if !include_response_body {
             json!({ "state": "notRequested" })
         } else if matches!(hop.phase, HopPhase::Pending { .. }) {
             json!({ "state": "pending" })
+        } else if !hop.response_captured() {
+            json!({ "state": "unavailable", "reason": "notCaptured" })
         } else if !hop.is_text_response() {
             json!({ "state": "unavailable", "reason": "binary" })
         } else {
