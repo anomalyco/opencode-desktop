@@ -8,6 +8,7 @@ use opencode_i18n::t;
 use opencode_kit::model::{Project, SessionInfo};
 use opencode_kit::servers::ServerKey;
 use opencode_search::fulltext::{Kind as FullTextKind, Snippet};
+use opencode_ui::focus::FocusExt as _;
 use opencode_ui::keymap::{LABEL as KEYMAP_LABEL, caps as keymap_caps, chips as keymap_chips};
 use opencode_ui::widgets::DialogSize;
 use rune::{Color, Cx, Direction, El, PointerEvent, Span, Spring, TextStyle, Transition, Tx, col, el, icon, row, text};
@@ -308,8 +309,9 @@ fn build_dialog_card(p: &Pal, placeholder: &'static str, w: f32, total_h: f32, s
         .transition(Transition::none())
         .motion(Spring::NONE)
         .child(col().key("switcher-search").w_full().pt(6.0).px(6.0).child(search))
-        // `::after`: a 0.5 hairline in `border-base` across the dialog, 8 above the block's foot.
-        .child(el().key("switcher-divider").w_full().h(0.5).mt(6.25).mb(2.25).fill(p.border))
+        // `::after`: a 1 pt rule drawn at half its height (`scaleY(0.5)`) across the dialog
+        // (`commands/dialog.css:152-158`).
+        .child(rune::hairline(p.border).key("switcher-divider").w_full().mt(6.0).mb(2.0))
         .child(scroll)
 }
 
@@ -432,6 +434,7 @@ fn entry_row_shell(s: &dyn SwitcherHost, p: &Pal, e: &Entry, active: bool, q: &s
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
         .fill(if active { p.hover } else { Color::TRANSPARENT })
         // A contrast theme's highlight is an edge, not only a wash it may lose.
         .border(if active && p.forced { 2.0 } else { 0.0 }, p.text)
@@ -476,6 +479,8 @@ fn unhide_button_shell(p: &Pal) -> (El, f32) {
         .px(8.0)
         .center_y()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_inset(p)
         .hover(p.hover)
         .press(p.pressed)
         .child(text(label.to_owned()).font(UI).color(p.muted));

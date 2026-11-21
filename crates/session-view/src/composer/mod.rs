@@ -104,6 +104,7 @@ pub fn ghost_with(p: &Pal, key: &str, label: El, chevron: bool, open: bool) -> E
         .gap(4.0)
         .center_y()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         .focus_inset(p)
@@ -133,6 +134,7 @@ pub fn attach_button<S: ComposerHost>(p: &Pal) -> El {
         .mr(2.0)
         .radius(6.0)
         .center()
+        .cursor(rune::Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         .focus_inset(p)
@@ -386,7 +388,7 @@ pub fn submit_surface(base: El, p: &Pal, live: bool) -> El {
         return b.opacity(0.4).disabled(true).focusable(false);
     }
     let (hover, pressed) = if p.dark { (black.alpha(0.08), black.alpha(0.4)) } else { (white.alpha(0.12), white.alpha(0.24)) };
-    b.hover(hover).press(pressed).focus_default(p)
+    b.cursor(rune::Cursor::Pointer).hover(hover).press(pressed).focus_default(p)
 }
 
 /// Renders the shared composer (`key("composer")`).
@@ -424,8 +426,10 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
         let live = ready || stop || s.composer_dictating();
         let label = if stop { opencode_i18n::t!("ui.promptInput.stop") } else { opencode_i18n::t!("ui.promptInput.send") };
         let b = submit_button(p, live).label(label).child(glyph.color(p.q.submit_text).transition(stop_glyph_swap()));
-        // Official `<Tooltip placement="top" inactive={!stopping && disabled}>` (`editor.tsx:1546-1569`).
+        // Official `<Tooltip placement="top" inactive={!stopping && disabled}>` and
+        // `tabIndex={mode === "normal" ? undefined : -1}` (`editor.tsx:1546-1569`).
         if live {
+            let b = if s.composer_shell_mode() { b.tab_index(-1) } else { b };
             b.help(label).help_above().on_press_tx(move |s: &mut S, tx: &mut Tx| {
                 if stop {
                     s.composer_stop(tx);
@@ -481,6 +485,20 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
     match face {
         Some(face) => box_el.children(face),
         None => box_el
+            // Clicking empty space on the composer card (padding, gutter, toolbar spacer) puts
+            // pointer focus in the prompt without a keyboard ring (`field-focus.tsx` `pointer()`),
+            // instead of blurring it so typing enters via `type_to_compose` as a stray keyboard focus.
+            .preserve_focus_on_press(true)
+            .press_on_down()
+            .on_press_tx(|s: &mut S, tx: &mut Tx| {
+                if !s.composer_edit().focused {
+                    let end = s.composer_edit().text.len();
+                    let e = s.composer_edit_mut();
+                    e.set_selection(end, end);
+                    e.focused = true;
+                }
+                tx.focus("prompt", false);
+            })
             // Shell mode sends no attachments, so it shows none (`editor.tsx:272`).
             .children(if s.composer_shell_mode() { None } else { attachments::chips(s, p) })
             .child(
@@ -490,7 +508,6 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                     .w_full()
                     .shrink()
                     .grow(if held.is_some() { 1.0 } else { 0.0 })
-                    .pb(8.0)
                     // `composer-scroll`: a plain `overflow-y: auto` box's bar (`editor.tsx:296-300`), in
                     // the room `editor-pad` keeps for it.
                     .child(crate::scroller::scroller("editor-scroll").bar(crate::scroller::Bar::Styled(crate::scroller::native_bar(p))).build::<S>(
@@ -498,7 +515,7 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                         col()
                             .w_full()
                             .shrink()
-                            .max_h(COMPOSER_MAX_H - 8.0)
+                            .max_h(COMPOSER_MAX_H)
                             // `editor.css:9-20`: a fixed 16 fade over the top padding, and the
                             // bottom feathering by as much as is left to scroll, up to 16.
                             .clip_fade_linear(0.0, 16.0, 0.0, 0.0)
@@ -515,15 +532,16 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                                         s.composer_shell_mode(),
                                     )
                                     .key("prompt"))
-                                    // `ps-4 pt-4`, and 12 less the gutter at the end
-                                    // (`editor.css:29-34`), on the editor itself, so they follow
-                                    // its own direction as Desktop's `#editor` padding does.
+                                    // `ps-4 pt-4 pb-2`, and 12 less the gutter at the end
+                                    // (`editor.tsx:314`, `editor.css:29-34`), on the editor itself,
+                                    // so they follow its own direction and cover the full 44 pt hit box.
                                     .pl(16.0)
                                     .pr(12.0 - SCROLLBAR)
                                     .pt(16.0)
+                                    .pb(8.0)
                                     .color(p.text)
                                     .w_full()
-                                    .min_h(20.0 + 16.0)
+                                    .min_h(20.0 + 16.0 + 8.0)
                                     .animate_edit_layout()
                                     .placeholder(s.composer_placeholder(), p.faint)
                                     .caret(p.text, p.selection).selection_style(p.field_selection)

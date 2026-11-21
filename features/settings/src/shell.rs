@@ -80,7 +80,11 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, (width, heigh
         // `--settings-mobile-inner-inset`: 8 in a narrow window, else 16 (`settings.css:33`).
         let inset = if s.narrow() { 8.0 } else { 16.0 };
         let field = col().key("settings-search-list").w_full().child(search::field(s, p, true));
-        let field = if search::active(s) { field.child(search::results(s, p).max_h((height - 96.0).max(120.0))) } else { field };
+        let field = if search::active(s) && !s.settings_pages().find.collapsed_narrow {
+            field.child(search::results(s, p).max_h((height - 96.0).max(120.0)))
+        } else {
+            field
+        };
         return col()
             .key("settings-page")
             .w_full()

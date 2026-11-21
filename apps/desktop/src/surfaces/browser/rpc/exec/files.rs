@@ -11,35 +11,40 @@
 use std::path::{Path, PathBuf};
 
 use opencode_kit::browser_rpc::{Command, MAX_FILE_BYTES, Outcome, WireFile, failure_code, new_file_id};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::super::session::SessionAttachment;
-use super::input::quad_center;
+use super::point::PointResolver;
 use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards};
 use crate::App;
 
 const UPLOADS_DIR: &str = "opencode-page-uploads";
 const UPLOADS_MARKER: &str = ".opencode-page-uploads";
 const MAX_UPLOAD_FILES: usize = 8;
+/// Staged files one tab keeps at once, and their bytes.
+const MAX_TAB_UPLOAD_FILES: usize = 64;
+const MAX_TAB_UPLOAD_BYTES: u64 = 64 * 1024 * 1024;
 
 pub(super) struct UploadState {
     pub host_id: u64,
     pub stage: UploadStage,
 }
 
-pub(super) enum UploadStage {
-    WaitUpload { cdp_req: u64 },
-    DropScroll { bid: i64, staged: Vec<String>, cdp_req: u64 },
-    DropCenter { staged: Vec<String>, cdp_req: u64 },
-    WaitDrop { cdp_req: u64 },
-}
-
-impl UploadStage {
-    pub fn cdp_req(&self) -> u64 {
-        match self {
-            Self::WaitUpload { cdp_req } | Self::DropScroll { cdp_req, .. } | Self::DropCenter { cdp_req, .. } | Self::WaitDrop { cdp_req } => *cdp_req,
+impl UploadState {
+    pub fn cancel_cleanup(&mut self, app: &mut App) {
+        match &mut self.stage {
+            UploadStage::WaitUpload { cdp_req } | UploadStage::WaitDrop { cdp_req } => {
+                app.workspace_panes.browser.host.cancel_cdp(*cdp_req);
+            }
+            UploadStage::DropPoint { resolver, .. } => resolver.cancel_cleanup(app),
         }
     }
+}
+
+pub(super) enum UploadStage {
+    WaitUpload { cdp_req: u64 },
+    DropPoint { resolver: Box<PointResolver>, staged: Vec<String> },
+    WaitDrop { cdp_req: u64 },
 }
 
 pub(super) fn try_start(
@@ -74,18 +79,16 @@ fn start_upload_or_drop(
     let Some(raw_ref) = cmd.action.get("ref").and_then(Value::as_str) else {
         return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Missing ref."));
     };
-    let Some((bid, ref_session)) = att.refs.get(&host_id).and_then(|r| r.resolve(raw_ref)) else {
+    let Some((bid, ref_session, frame_id)) = att
+        .refs
+        .get(&host_id)
+        .and_then(|r| r.resolve(raw_ref).map(|(b, s)| (b, s, r.frame_of(raw_ref))))
+    else {
         return StepOutcome::Done(Outcome::fail(
             failure_code::STALE_REF,
             format!("Element ref {raw_ref} is stale or absent. Refresh the snapshot first."),
         ));
     };
-    if ref_session.is_some() {
-        return StepOutcome::Done(Outcome::fail(
-            failure_code::OPERATION_FAILED,
-            "Uploading or dropping files into a cross-origin frame is not supported yet.",
-        ));
-    }
     if cmd.files.is_empty() {
         return StepOutcome::Done(Outcome::fail(
             failure_code::OPERATION_FAILED,
@@ -111,7 +114,7 @@ fn start_upload_or_drop(
 
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     if !is_drop {
-        match app.workspace_panes.browser.host.upload_files(host_id, bid, staged) {
+        match app.workspace_panes.browser.host.upload_files(host_id, bid, staged, ref_session, frame_id) {
             Ok(cdp_req) => StepOutcome::Pending(ExecPhase::Upload(UploadState {
                 host_id,
                 stage: UploadStage::WaitUpload { cdp_req },
@@ -119,17 +122,12 @@ fn start_upload_or_drop(
             Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
         }
     } else {
-        match app.workspace_panes.browser.host.send_typed_cdp(
-            host_id,
-            "DOM.scrollIntoViewIfNeeded",
-            json!({ "backendNodeId": bid }),
-            None,
-        ) {
-            Ok(cdp_req) => StepOutcome::Pending(ExecPhase::Upload(UploadState {
+        match PointResolver::start(att, app, host_id, (bid, ref_session, frame_id)) {
+            Ok(resolver) => StepOutcome::Pending(ExecPhase::Upload(UploadState {
                 host_id,
-                stage: UploadStage::DropScroll { bid, staged, cdp_req },
+                stage: UploadStage::DropPoint { resolver: Box::new(resolver), staged },
             })),
-            Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
+            Err(o) => StepOutcome::Done(o),
         }
     }
 }
@@ -154,41 +152,14 @@ pub(super) fn step_upload(
                 Err(e) => Some(Outcome::fail(failure_code::OPERATION_FAILED, cdp_err_msg(&e))),
             }
         }
-        UploadStage::DropScroll { bid, staged, cdp_req } => {
-            let Some(resp) = app.workspace_panes.browser.host.take_cdp_response(cdp_req) else {
-                st.stage = UploadStage::DropScroll { bid, staged, cdp_req };
+        UploadStage::DropPoint { mut resolver, staged } => {
+            let Some(res) = resolver.step(app) else {
+                st.stage = UploadStage::DropPoint { resolver, staged };
                 return None;
             };
-            if let Err(e) = resp {
-                return Some(Outcome::fail(failure_code::STALE_REF, cdp_err_msg(&e)));
-            }
-            match app.workspace_panes.browser.host.send_typed_cdp(
-                st.host_id,
-                "DOM.getContentQuads",
-                json!({ "backendNodeId": bid }),
-                None,
-            ) {
-                Ok(next_req) => {
-                    st.stage = UploadStage::DropCenter { staged, cdp_req: next_req };
-                    None
-                }
-                Err(e) => Some(Outcome::fail(failure_code::OPERATION_FAILED, e)),
-            }
-        }
-        UploadStage::DropCenter { staged, cdp_req } => {
-            let Some(resp) = app.workspace_panes.browser.host.take_cdp_response(cdp_req) else {
-                st.stage = UploadStage::DropCenter { staged, cdp_req };
-                return None;
-            };
-            let val = match resp {
-                Ok(v) => v,
-                Err(e) => return Some(Outcome::fail(failure_code::STALE_REF, cdp_err_msg(&e))),
-            };
-            let Some((x, y)) = quad_center(&val) else {
-                return Some(Outcome::fail(
-                    failure_code::STALE_REF,
-                    "Drop target has no visible layout box. Refresh the snapshot first.",
-                ));
+            let (x, y) = match res {
+                Ok(pt) => pt,
+                Err(o) => return Some(o),
             };
             match app.workspace_panes.browser.host.drop_files(st.host_id, x, y, staged) {
                 Ok(next_req) => {
@@ -225,6 +196,19 @@ fn stage_files(profile_dir: &Path, host_id: u64, files: &[WireFile]) -> Result<V
     std::fs::write(root.join(UPLOADS_MARKER), b"")
         .map_err(|e| format!("Could not mark upload staging dir: {e}"))?;
 
+    // Staged files stay while the page may still submit them (until the tab closes), so a tab
+    // gets a bounded number: a further upload is refused, never one the page holds deleted.
+    let tab_dir = root.join(host_id.to_string());
+    let (slots, bytes) = std::fs::read_dir(&tab_dir).map_or((0, 0u64), |dir| {
+        dir.flatten()
+            .flat_map(|slot| std::fs::read_dir(slot.path()).into_iter().flatten().flatten())
+            .fold((0usize, 0u64), |(n, b), f| (n + 1, b + f.metadata().map_or(0, |m| m.len())))
+    });
+    if slots + files.len() > MAX_TAB_UPLOAD_FILES || bytes > MAX_TAB_UPLOAD_BYTES {
+        return Err(format!(
+            "This tab already holds {slots} uploaded files; at most {MAX_TAB_UPLOAD_FILES} (64 MiB) stay staged per tab. Open the page in a new tab to upload more; closing this tab frees its files."
+        ));
+    }
     let mut total_bytes = 0usize;
     let mut staged = Vec::with_capacity(files.len());
     for file in files {

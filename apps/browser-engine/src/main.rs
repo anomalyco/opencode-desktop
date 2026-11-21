@@ -35,6 +35,7 @@ mod diagnostics;
 mod favicon;
 mod frame_authority;
 mod find;
+mod input_guard;
 mod media_gate;
 mod menu;
 mod passkeys;
@@ -101,6 +102,8 @@ pub enum Event {
         title: Option<String>,
         loading: Option<bool>,
     },
+    /// Frame-level navigation signal for `chrome.webNavigation` (main frame + subframes).
+    WebNav(extensions::web_nav::WebNavSignal),
     /// Linux: a tab's frames can't come the way they do.
     #[cfg(target_os = "linux")]
     FramesFailed(dmabuf_frames::Failure),
@@ -138,6 +141,19 @@ fn main() {
         } else if let Some(dir) = cef_dll_sys::get_cef_dir() {
             println!("{}", dir.display());
         }
+        return;
+    }
+    // Debug builds only: which profile and cookie key a start would use, without starting CEF (so
+    // a proof never reaches the Keychain).
+    #[cfg(target_os = "macos")]
+    if cfg!(debug_assertions) && args.iter().any(|a| a == "--print-profile-decision") {
+        let profile = profile::Profile::open();
+        println!(
+            "key={} lasting={} root={}",
+            mac_app::cookie_key().name(),
+            !profile.temporary,
+            profile.root.display()
+        );
         return;
     }
     let arg = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1));
@@ -284,9 +300,10 @@ fn main() {
         io_pipes_switch,
         events.clone(),
     );
+    let menu_storage_dir = _cef.download_roots().profile.join("opencode-ext-menus");
     let ext_host = ext_pipe_bundle.map(|(pipe, rx_in, wake)| {
         pipe.mark_adopted_by_cef();
-        extensions::ExtensionHost::new(pipe, rx_in, wake, stub_dirs_by_id)
+        extensions::ExtensionHost::new(pipe, rx_in, wake, stub_dirs_by_id, Some(menu_storage_dir))
     });
     step("cef_initialized");
 
@@ -413,6 +430,10 @@ fn main() {
                     manager.on_tab_meta(tab_id, url, title, loading);
                     true
                 }
+                Event::WebNav(sig) => {
+                    manager.on_web_navigation(sig);
+                    true
+                }
             }
         };
     }
@@ -442,6 +463,7 @@ fn main() {
             last_pump = now;
             cef::do_message_loop_work();
             manager.poll_picks();
+            manager.release_passkey_held();
         }
         #[cfg(target_os = "macos")]
         mac_app::pump_run_loop(0.004);

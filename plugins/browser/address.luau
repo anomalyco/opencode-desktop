@@ -64,6 +64,7 @@ export type Event =
 
 export type Effect =
     { type: "select" }
+    | { type: "select-completion", start: number }
     | { type: "blur" }
     | { type: "prepare" }
     | { type: "set-text", text: string }
@@ -234,6 +235,13 @@ local function completionSuffix(edit: Edit, rows: { Row }): string
     return ""
 end
 
+local function selecting(edit: Edit, visits: { history.Visit }): { Effect }
+    if edit.status == "editing" and completionSuffix(edit, computeRows(edit, visits)) ~= "" then
+        return { { type = "select-completion", start = #edit.text } }
+    end
+    return {}
+end
+
 local function typedText(state: State, tab: string, epoch: Epoch): string
     local edit = state.edit
     if edit.status == "editing" and edit.tab == tab then
@@ -304,6 +312,9 @@ function address.step(state: State, event: Event): (State, { Effect })
         if searching then
             table.insert(effects, { type = "ask", attempt = asked, query = event.value })
         end
+        for _, eff in selecting(nextEdit, event.visits) do
+            table.insert(effects, eff)
+        end
         return { asked = asked, edit = nextEdit, holds = state.holds }, effects
     elseif event.type == "answered" then
         if edit.status ~= "editing" or event.attempt ~= state.asked or edit.list.type == "held" then
@@ -318,7 +329,7 @@ function address.step(state: State, event: Event): (State, { Effect })
             answer = event.pages,
             completing = edit.completing,
         }
-        return { asked = state.asked, edit = nextEdit, holds = state.holds }, {}
+        return { asked = state.asked, edit = nextEdit, holds = state.holds }, selecting(nextEdit, event.visits)
     elseif event.type == "forget" then
         if edit.status ~= "editing" then
             if event.url ~= nil and event.url ~= "" then
@@ -400,7 +411,7 @@ function address.step(state: State, event: Event): (State, { Effect })
                     answer = edit.answer,
                     completing = edit.completing,
                 }
-                return { asked = state.asked, edit = nextEdit, holds = state.holds }, { { type = "set-text", text = edit.text } }
+                return { asked = state.asked, edit = nextEdit, holds = state.holds }, selecting(nextEdit, event.visits)
             end
             if open then
                 local nextEdit: Edit = {
@@ -448,7 +459,11 @@ function address.step(state: State, event: Event): (State, { Effect })
                 answer = edit.answer,
                 completing = edit.typed and edit.completing,
             }
-            return { asked = asked, edit = nextEdit, holds = state.holds }, { { type = "ask", attempt = asked, query = edit.text } }
+            local effects: { Effect } = { { type = "ask", attempt = asked, query = edit.text } }
+            for _, eff in selecting(nextEdit, event.visits) do
+                table.insert(effects, eff)
+            end
+            return { asked = asked, edit = nextEdit, holds = state.holds }, effects
         end
         local line = if edit.list.type == "held" then edit.list.line else 1
         local by = if event.key == "ArrowDown" or event.key == "Tab" then 1 else -1
@@ -492,6 +507,7 @@ export type View = {
     active: number,
     chosen: Row?,
     completion: string,
+    completing: boolean,
     navigating: boolean,
 }
 
@@ -519,6 +535,7 @@ function address.view(state: State, tab: string, epoch: Epoch, visits: { history
         active = active,
         chosen = picked,
         completion = completed,
+        completing = editing and edit.status == "editing" and edit.typed and edit.list.type == "following" and edit.completing,
         navigating = hold ~= nil and hold.moved == epoch.moved,
     }
 end

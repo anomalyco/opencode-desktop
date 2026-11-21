@@ -27,18 +27,23 @@ pub(crate) fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return true;
     }
     #[cfg(not(target_arch = "wasm32"))]
-    if !(ev.mods.ctrl || ev.mods.cmd || ev.mods.alt || ev.mods.shift)
-        && let Some(id) = s.active_browser_tab_id()
-    {
-        if s.workspace_panes.browser.host.tab(id).is_some_and(|t| t.inspecting) {
-            s.workspace_panes.browser.host.toggle_inspect(id);
+    if !(ev.mods.ctrl || ev.mods.cmd || ev.mods.alt || ev.mods.shift) {
+        if s.workspace_panes.browser.host.popup_tab_id().is_some() {
+            s.workspace_panes.browser.host.close_extension_popup();
             tx.instant();
             return true;
         }
-        if s.browser_overlay_active(id) {
-            s.close_browser_overlay();
-            tx.instant();
-            return true;
+        if let Some(id) = s.active_browser_tab_id() {
+            if s.workspace_panes.browser.host.tab(id).is_some_and(|t| t.inspecting) {
+                s.workspace_panes.browser.host.toggle_inspect(id);
+                tx.instant();
+                return true;
+            }
+            if s.browser_overlay_active(id) {
+                s.close_browser_overlay();
+                tx.instant();
+                return true;
+            }
         }
     }
     false

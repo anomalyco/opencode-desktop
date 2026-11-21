@@ -10,6 +10,7 @@ use serde_json::Value;
 
 use crate::TimelineHost;
 use crate::disclosure::toggle;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::{UI, UI_MED, arrow, readable};
 
@@ -76,8 +77,17 @@ fn answered<S: TimelineHost>(s: &S, p: &Pal, key: &str, input: &Value, metadata:
     }
     if answers.is_some() {
         let a = arrow(p, open);
-        // The arrow fades in and out over 0.15 s ease (`collapsible.css:27-44`).
-        trigger = trigger.hover_group().hover_motion(crate::style::HOVER_FADE, crate::style::HOVER_FADE).on_press_tx(toggle::<S>(closed, format!("{key}/trigger"))).child(if open { a } else { a.group_opacity(0.0, 1.0) });
+        // The arrow fades in and out over 0.15 s ease (`collapsible.css:27-44`); pointer cursor
+        // matches `basic-tool.css:11`.
+        trigger = trigger
+            .self_start()
+            .radius(4.0)
+            .cursor(rune::Cursor::Pointer)
+            .focus_default(p)
+            .hover_group()
+            .hover_motion(crate::style::HOVER_FADE, crate::style::HOVER_FADE)
+            .on_press_tx(toggle::<S>(closed, format!("{key}/trigger")))
+            .child(if open { a } else { a.group_opacity(0.0, 1.0) });
     }
     let mut c = col().key(key.to_owned()).w_full().child(trigger);
     if let (true, Some(answers)) = (open, answers) {

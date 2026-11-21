@@ -561,6 +561,7 @@ fn user_menu_shell(host: &dyn RewindHost, p: &Pal, session: &str, id: &str, pend
     let open = host.rewind().menu_is(session, id);
     Some(
         session_view::timeline::user_menu_button(p, menu_key(id), opencode_i18n::t!("ui.message.moreActions"), open)
+            .expanded(open)
             .child(icon(&ic::CHEVRON_DOWN, 14.0).color(if open { p.icon } else { p.icon_muted })),
     )
 }
@@ -598,26 +599,27 @@ pub fn message_items(host: &dyn RewindHost, session: &str, mid: &str, mut menu: 
     let pending = delivered.is_none();
     let body = delivered.or_else(|| pending_body(host, session, mid))?;
     let root = can_rewind_session(host, session);
+    let busy = host.rewind().busy(session);
     let when = if pending { opencode_i18n::t!("ui.message.pending").to_owned() } else { sent_label(mid, now_ms).unwrap_or_default() };
     if !when.is_empty() {
         menu = menu.group(when).separator();
     }
     if pending {
-        menu = menu.item(Item::new("queue", opencode_i18n::t!("ui.message.moveToQueue")).icon(&ic::BULLET_LIST));
+        menu = menu.item(Item::new("queue", opencode_i18n::t!("ui.message.moveToQueue")).icon(&ic::BULLET_LIST).enabled(!busy));
     }
     menu = menu.item(Item::new("copy", opencode_i18n::t!("ui.message.copyMessage")).icon(&ic::OUTLINE_COPY).enabled(!body.trim().is_empty()));
     if pending {
-        return Some(menu.separator().item(Item::new("delete", opencode_i18n::t!("ui.message.deletePending")).icon(&ic::OUTLINE_TRASH).danger(true)));
+        return Some(menu.separator().item(Item::new("delete", opencode_i18n::t!("ui.message.deletePending")).icon(&ic::OUTLINE_TRASH).danger(true).enabled(!busy)));
     }
-    menu = menu.item(Item::new("fork", opencode_i18n::t!("ui.message.forkMessage")).icon(&ic::FORK).enabled(root));
+    menu = menu.item(Item::new("fork", opencode_i18n::t!("ui.message.forkMessage")).icon(&ic::FORK).enabled(root && !busy));
     if !root {
         return Some(menu);
     }
     let latest = visible_user_ids(host, session).last().is_some_and(|l| l == mid);
     let revert = if latest {
-        Item::new("revert", opencode_i18n::t!("ui.message.undoMessage")).icon(&ic::OUTLINE_UNDO)
+        Item::new("revert", opencode_i18n::t!("ui.message.undoMessage")).icon(&ic::OUTLINE_UNDO).enabled(!busy)
     } else {
-        Item::new("revert", opencode_i18n::t!("ui.message.revertMessage")).icon(&ic::RESET)
+        Item::new("revert", opencode_i18n::t!("ui.message.revertMessage")).icon(&ic::RESET).enabled(!busy)
     };
     Some(menu.separator().item(revert))
 }

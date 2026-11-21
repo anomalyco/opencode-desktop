@@ -665,15 +665,22 @@ impl Server {
         self.write("PATCH", &format!("/api/session/{session}/inbox/{item}"), Some(body)).map(|_| ())
     }
 
+    /// Open permission requests for `session`, propagating errors so callers never prune on failure.
+    pub fn pending_permissions(&self, session: &str) -> Result<Vec<Pending>, WireError> {
+        let v = self.get(&format!("/api/session/{session}/permission"))?;
+        Ok(list(&v).iter().filter_map(model::parse_permission).collect())
+    }
+
+    /// Open structured forms for `session`, propagating errors so callers never prune on failure.
+    pub fn pending_forms(&self, session: &str) -> Result<Vec<Pending>, WireError> {
+        let v = self.get(&format!("/api/session/{session}/form"))?;
+        Ok(list(&v).iter().filter_map(model::parse_form).collect())
+    }
+
     /// The session's open permission requests and forms.
     pub fn pending(&self, session: &str) -> Vec<Pending> {
-        let mut out = Vec::new();
-        if let Ok(v) = self.get(&format!("/api/session/{session}/permission")) {
-            out.extend(list(&v).iter().filter_map(model::parse_permission));
-        }
-        if let Ok(v) = self.get(&format!("/api/session/{session}/form")) {
-            out.extend(list(&v).iter().filter_map(model::parse_form));
-        }
+        let mut out = self.pending_permissions(session).unwrap_or_default();
+        out.extend(self.pending_forms(session).unwrap_or_default());
         out
     }
 

@@ -10,24 +10,19 @@ use opencode_i18n::t;
 use opencode_kit::integration::{McpServer, McpStatus};
 use opencode_kit::model::{PluginInfo, SkillInfo};
 use opencode_kit::servers::ServerKey;
-use opencode_ui::palette::Pal;
+use opencode_ui::focus::FocusExt;
+use opencode_ui::palette::{Pal, kit};
 use opencode_ui::popup::PopupHost;
 use opencode_ui::widgets;
-use rune::{El, Icon, TextStyle, Tx, col, icon, row, rule, text};
+use rune::{Cursor, El, TextStyle, Tx, col, icon, row, rule, text};
+use rune_kit::{ButtonVariant, ControlSize};
 use rune_theme_opencode::icons as ic;
 
 use super::console_link::{ConsoleSources, console_connect_button, console_name, console_replaced, console_signed_in, load_failed};
 use super::plugin_update::{self, Effect as UpdateEffect, Event as UpdateEvent, State as UpdateState};
-use super::{BODY, ExtensionsTab, LINE, NAME, Page, catalog_with, ghost_button, header_with, page};
+use super::{BODY, ExtensionsTab, LINE, NAME, Page, catalog_with, header_with, page};
 use crate::host::SettingsHost;
 use crate::jobs::{SettingsJob, SettingsRequest};
-
-/// The scroll Desktop draws for a skill (`packages/ui/src/icons/catalog.ts:369`, `post-skill`).
-static SKILL: Icon = Icon {
-    name: "post-skill",
-    view: 16.0,
-    body: r#"<path d="M3 2.5C3.5 2.5 4.5 2.8 4.5 4L4.5 5.5V12C4.5 12.5 4.8 13.5 6 13.5M6 13.5C7.2 13.5 7.5 12.5 7.5 12V10.5H14.5V12C14.5 12.5 14.2 13.5 13 13.5H6ZM4.5 5.5H1.5V4C1.5 3.5 1.8 2.5 3 2.5M12.5 8.5V4.5C12.5 3.39543 11.6046 2.5 10.5 2.5H3" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor"/><path d="M6.5 5.5H10.5M6.5 7.5H9" stroke-linecap="square" stroke-linejoin="round" stroke="currentColor"/>"#,
-};
 
 /// A tab's label: 13 on 16 at 440.
 const TAB: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
@@ -178,7 +173,8 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
         .min_h(24.0)
         .gap(8.0)
         .center_y()
-        .child(text(t!("settings.extensions.availableAll")).font(LINE).color(p.text).grow(1.0))
+        .wrap()
+        .child(text(t!("settings.extensions.availableAll")).font(LINE).color(p.text).grow(1.0).shrink().min_w(0.0))
         .child(link);
     let body = col()
         .key("settings-extensions")
@@ -191,7 +187,7 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
 
 /// Pill tabs (`tabs-v2` pill in `.settings-subtabs`).
 fn tabs<H: SettingsHost + 'static>(p: &Pal, on: ExtensionsTab) -> El {
-    let mut list = row().key("settings-extensions-tabs").w(280.0).gap(6.0).pb(8.0);
+    let mut list = row().key("settings-extensions-tabs").role("tablist").focus_group().w_full().max_w(280.0).gap(6.0).pb(8.0);
     for (tab, id, label) in [
         (ExtensionsTab::Mcps, "mcps", t!("settings.extensions.tab.mcps")),
         (ExtensionsTab::Plugins, "plugins", t!("settings.extensions.tab.plugins")),
@@ -199,17 +195,24 @@ fn tabs<H: SettingsHost + 'static>(p: &Pal, on: ExtensionsTab) -> El {
     ] {
         let picked = tab == on;
         let edge = if picked { p.border_muted } else { rune::Color::TRANSPARENT };
+        let label_el = text(label).font(TAB).color(if picked { p.text } else { p.muted });
+        let label_el = if picked { label_el } else { label_el.group_color(p.text) };
         let mut pill = row()
             .key(format!("settings-extensions-tab-{id}"))
             .role("tab")
             .label(label)
+            .focusable(true)
+            .focus_selected(picked)
+            .focus_default(p)
+            .cursor(Cursor::Pointer)
+            .hover_group()
             .h(24.0)
             .center()
             .radius(6.0)
             .border(0.5, edge)
             .border_layout()
             .on_press_tx(move |s: &mut H, tx: &mut Tx| select_tab(s, tab, tx))
-            .child(row().px(8.0).border(0.5, rune::Color::TRANSPARENT).border_layout().center().child(text(label).font(TAB).color(if picked { p.text } else { p.muted })));
+            .child(row().px(8.0).border(0.5, rune::Color::TRANSPARENT).border_layout().center().child(label_el));
         pill = if picked { pill.fill(p.layer3) } else { pill.hover(p.layer3) };
         list = list.child(pill);
     }
@@ -230,10 +233,13 @@ fn plugins_header_actions<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
     let check_btn = (has_packages && plugin_update::supported(&st.updates)).then(|| {
         let checking = plugin_update::checking(&st.updates);
         let label = if checking { t!("settings.plugins.checking") } else { t!("settings.plugins.check") };
-        ghost_button::<H>(p, "settings-plugins-check", label, None, true, !checking, |s, tx| {
-            dispatch_update(s, UpdateEvent::CheckRequested, tx);
-        })
-        .busy(checking)
+        widgets::button(label, ButtonVariant::GhostMuted)
+            .control_size(ControlSize::Regular)
+            .disabled(checking)
+            .on_press_tx(|s: &mut H, tx: &mut Tx| dispatch_update(s, UpdateEvent::CheckRequested, tx))
+            .build(kit(p))
+            .key("settings-plugins-check")
+            .busy(checking)
     });
     row().gap(12.0).center_y().child(manage(p)).children(check_btn)
 }
@@ -296,7 +302,13 @@ fn mcps<H: SettingsHost + 'static>(s: &H, p: &Pal) -> Vec<El> {
             };
             let name_el = match (managed, &links) {
                 (Some(_), Some(l)) => console_name::<H>(p, format!("settings-mcp-console-{}", m.name), &m.name, l.manage.clone(), disabled),
-                _ => text(m.name.clone()).font(NAME).color(if disabled { p.muted } else { p.text }).shrink().truncate(),
+                _ => text(m.name.clone())
+                    .font(NAME)
+                    .color(if disabled { p.muted } else { p.text })
+                    .shrink()
+                    .truncate()
+                    .help_when_truncated(m.name.clone())
+                    .help_above(),
             };
             let badge = st
                 .sources
@@ -378,19 +390,16 @@ fn plugins_body<H: SettingsHost + 'static>(s: &H, p: &Pal) -> Vec<El> {
                         (v.outdated || v.updating).then(|| {
                             let target_owned = target.to_owned();
                             let btn_text = if v.updating { t!("settings.plugins.updating") } else { t!("settings.plugins.update") };
-                            ghost_button::<H>(
-                                p,
-                                &format!("settings-plugin-update-{target}"),
-                                btn_text,
-                                None,
-                                false,
-                                !v.updating,
-                                move |s, tx| {
+                            widgets::button(btn_text, ButtonVariant::GhostMuted)
+                                .control_size(ControlSize::Regular)
+                                .disabled(v.updating)
+                                .on_press_tx(move |s: &mut H, tx: &mut Tx| {
                                     dispatch_update(s, UpdateEvent::UpdateRequested { target: target_owned.clone() }, tx);
-                                },
-                            )
-                            .label(t!("settings.plugins.update.label", name = label))
-                            .busy(v.updating)
+                                })
+                                .build(kit(p))
+                                .key(format!("settings-plugin-update-{target}"))
+                                .label(t!("settings.plugins.update.label", name = label))
+                                .busy(v.updating)
                         })
                     })
                     .flatten();
@@ -425,12 +434,18 @@ fn skills_body<H: SettingsHost + 'static>(s: &H, p: &Pal) -> Vec<El> {
         .map(|(k, sk)| {
             let name_el = match st.sources.skill(sk, signed_in) {
                 Some(href) => console_name::<H>(p, format!("settings-skill-console-{}", sk.name), &sk.name, href, false),
-                None => text(sk.name.clone()).font(NAME).color(p.text).shrink().truncate(),
+                None => text(sk.name.clone())
+                    .font(NAME)
+                    .color(p.text)
+                    .shrink()
+                    .truncate()
+                    .help_when_truncated(sk.name.clone())
+                    .help_above(),
             };
             extension_row(
                 p,
                 format!("settings-skills-{}", sk.name),
-                icon(&SKILL, 16.0).color(p.icon_muted),
+                icon(&ic::POST_SKILL, 16.0).color(p.icon_muted),
                 name_el,
                 None,
                 None,

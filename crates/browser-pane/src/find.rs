@@ -99,6 +99,10 @@ impl crate::BrowserHost {
         self.caps.context_menu()
     }
 
+    pub fn engine_menu_extras(&self) -> bool {
+        self.caps.menu_extras()
+    }
+
     pub fn engine_partitions(&self) -> bool {
         self.caps.partitions()
     }
@@ -197,14 +201,33 @@ impl crate::BrowserHost {
         self.caps.agent_files()
     }
 
+    /// The engine isolates traces to the committed main-frame renderer OS PID and holds one engine-wide trace lock (`Ready.trace_isolation`).
+    pub fn engine_trace_isolation(&self) -> bool {
+        self.caps.trace_isolation()
+    }
+
     /// Sends confined `UploadFiles` for files staged in `<profile>/opencode-page-uploads/<tab_id>/`.
-    pub fn upload_files(&mut self, tab_id: u64, backend_node_id: i64, files: Vec<String>) -> Result<u64, String> {
+    pub fn upload_files(
+        &mut self,
+        tab_id: u64,
+        backend_node_id: i64,
+        files: Vec<String>,
+        session_id: Option<String>,
+        frame_id: Option<String>,
+    ) -> Result<u64, String> {
         if !self.engine_agent_files() {
             return Err("File uploads require an updated browser engine.".into());
         }
         let request_id = self.next_req_id;
         self.next_req_id += 1;
-        self.send(crate::protocol::HostMsg::UploadFiles { tab_id, request_id, backend_node_id, files });
+        self.send(crate::protocol::HostMsg::UploadFiles {
+            tab_id,
+            request_id,
+            backend_node_id,
+            files,
+            session_id,
+            frame_id,
+        });
         Ok(request_id)
     }
 

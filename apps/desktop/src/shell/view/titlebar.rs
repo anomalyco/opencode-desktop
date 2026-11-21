@@ -83,6 +83,10 @@ pub(super) fn titlebar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         None => bar,
     };
     if let Some(items) = crate::plugin_host::titlebar_items(s, p) {
+        let items = match ui_direction() {
+            rune::Direction::Rtl => items.ml(12.0),
+            _ => items.mr(12.0),
+        };
         bar = bar.trailing(items);
     }
     Some(bar.tabs(strip).build(crate::palette::kit(p)))
@@ -111,9 +115,10 @@ fn nav_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon, pressed: bo
         .label(label.to_owned())
         .size(36.0, 28.0)
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .center()
-        .hover(if pressed { p.pressed } else { p.hover })
+        .hover(if pressed { rune::Color::TRANSPARENT } else { p.hover })
         // `ghost-muted`'s `:active` brightens the icon to `icon-base`; its pressed wash loses to the
         // hover rule, whose `:not([data-expanded])` makes it the more specific, so the hover wash stays.
         .press_color(p.icon)
@@ -152,6 +157,7 @@ fn new_button(p: &Pal) -> El {
         .label_static(t!("command.session.new"))
         .size(28.0, 28.0)
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .center()
         .hover(p.hover)

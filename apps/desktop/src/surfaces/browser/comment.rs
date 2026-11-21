@@ -6,13 +6,12 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use browser_pane::PickedElement;
-use opencode_feature_annotations::quote::comment::{self, Config, Field, FieldEffect, FieldEvent};
+use opencode_feature_annotations::quote::comment::{self, Config, Field, FieldEffect, FieldEvent, Mention};
 use opencode_feature_annotations::quote::editor::{
     self, CHECK, FollowUp, PathSearch, key_of, mention_rows, neutral_lift, prepare_path_search,
     request_path_search,
 };
 use opencode_feature_annotations::quote::QuoteHost as _;
-use opencode_kit::model::NoteComment;
 use opencode_ui::palette::Elevate as _;
 use rune::machine::{Attempt, Seq};
 use rune::{
@@ -31,8 +30,9 @@ const GAP: f32 = 8.0;
 const ELEMENT_EDITOR_W: f32 = 320.0;
 const PAGE_EDITOR_W: f32 = 400.0;
 const FIELD: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
+const NOTE_FIELD: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
+const META: TextStyle = TextStyle::new(11.0, 530.0).lh(14.0).tracking(0.05);
 const MONO: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0).mono();
-const HEADER: TextStyle = TextStyle::new(13.0, 530.0).lh(18.0).tracking(-0.04);
 
 pub enum Overlay {
     Idle,
@@ -63,6 +63,7 @@ impl Default for Overlay {
 #[derive(Default)]
 pub struct BrowserOverlay {
     pub state: Overlay,
+    pub(super) describe: super::comment_describe::PendingDescribe,
     seq: Seq,
     mention_fetch: rune::Latest<(Attempt, Option<Vec<String>>)>,
     spare: TextEdit,
@@ -89,11 +90,68 @@ impl BrowserOverlay {
         matches!(&self.state, Overlay::Commenting { tab_id: id, .. } if *id == tab_id)
     }
 
-    pub fn version_tag(&self) -> (u8, u64) {
+    pub(super) fn commenting_backend_id(&self, tab_id: u64) -> Option<i64> {
         match &self.state {
-            Overlay::Idle => (0, 0),
-            Overlay::Commenting { tab_id, .. } => (1, *tab_id),
-            Overlay::Noting { tab_id, .. } => (2, *tab_id),
+            Overlay::Commenting { tab_id: id, element, .. } if *id == tab_id => Some(element.backend_node_id),
+            _ => None,
+        }
+    }
+
+    pub(super) fn apply_described(&mut self, tab_id: u64, obj: &serde_json::Map<String, serde_json::Value>) -> bool {
+        let Overlay::Commenting { tab_id: id, element, editor_initial_h, .. } = &mut self.state else {
+            return false;
+        };
+        if *id != tab_id {
+            return false;
+        }
+        let got_rect = super::comment_describe::apply_object(element, obj);
+        if got_rect {
+            editor_initial_h.set(0.0);
+        }
+        got_rect
+    }
+
+    pub(super) fn apply_rect(&mut self, tab_id: u64, rect: [f32; 4]) -> bool {
+        let Overlay::Commenting { tab_id: id, element, editor_initial_h, .. } = &mut self.state else {
+            return false;
+        };
+        if *id != tab_id {
+            return false;
+        }
+        element.rect = rect;
+        editor_initial_h.set(0.0);
+        true
+    }
+
+    /// Hashes all rendered overlay state so the browser pane redraws on CDP resolve, typing,
+    /// `@file` mention updates, and held-Ctrl submit-button flips.
+    pub fn hash_state(&self, h: &mut impl std::hash::Hasher) {
+        use std::hash::Hash as _;
+        match &self.state {
+            Overlay::Idle => 0u8.hash(h),
+            Overlay::Commenting { tab_id, element, draft, field, editor_h, editor_initial_h, .. } => {
+                1u8.hash(h);
+                tab_id.hash(h);
+                element.selector.hash(h);
+                element.label.hash(h);
+                element.rect.map(f32::to_bits).hash(h);
+                editor_h.get().to_bits().hash(h);
+                editor_initial_h.get().to_bits().hash(h);
+                draft.hash(h);
+                field.alternate.hash(h);
+                field.mention.items().hash(h);
+                field.mention.active().hash(h);
+            }
+            Overlay::Noting { tab_id, url, title, draft, field } => {
+                2u8.hash(h);
+                tab_id.hash(h);
+                url.hash(h);
+                title.hash(h);
+                draft.hash(h);
+                field.alternate.hash(h);
+                field.mention.items().hash(h);
+                field.mention.active().hash(h);
+            }
         }
     }
 
@@ -117,13 +175,6 @@ impl BrowserOverlay {
             Overlay::Commenting { field, .. } | Overlay::Noting { field, .. } => Some(field),
         }
     }
-
-    fn field_mut(&mut self) -> Option<&mut Field> {
-        match &mut self.state {
-            Overlay::Idle => None,
-            Overlay::Commenting { field, .. } | Overlay::Noting { field, .. } => Some(field),
-        }
-    }
 }
 
 impl App {
@@ -138,19 +189,25 @@ impl App {
 
     /// Opens the spotlight + floating comment editor for a picked element (`overlay-machine.ts`).
     pub fn open_browser_element_comment(&mut self, element: PickedElement) {
-        let Some(tab) = self.workspace_panes.browser.host.tab(element.tab_id) else {
+        let tab_id = element.tab_id;
+        let backend_id = element.backend_node_id;
+        let needs_describe =
+            element.rect[2] <= 0.0 || element.rect[3] <= 0.0 || element.selector.starts_with("node#");
+        let Some(tab) = self.workspace_panes.browser.host.tab(tab_id) else {
             return;
         };
         let url = tab.url.clone();
         if url.is_empty() || url == "about:blank" {
             return;
         }
+        // Hide Chromium's blue DevTools overlay so only our dimmed spotlight + focus outline shows.
+        self.workspace_panes.browser.host.highlight_node(tab_id, None);
         let mut draft = TextEdit::new("");
         draft.focused = true;
         self.composer.focused = false;
         crate::plugin_host::blur_fields(self);
         self.workspace_panes.browser.overlay.state = Overlay::Commenting {
-            tab_id: element.tab_id,
+            tab_id,
             url,
             element,
             draft,
@@ -158,6 +215,9 @@ impl App {
             editor_h: Cell::new(0.0),
             editor_initial_h: Cell::new(0.0),
         };
+        if needs_describe && backend_id > 0 {
+            super::comment_describe::PendingDescribe::start(self, tab_id, backend_id);
+        }
     }
 
     /// Opens the floating `"Add page to session"` note editor (`overlay-machine.ts` `note.opened`).
@@ -165,16 +225,15 @@ impl App {
         if matches!(&self.workspace_panes.browser.overlay.state, Overlay::Noting { tab_id: id, .. } if *id == tab_id) {
             return;
         }
-        let Some(tab) = self.workspace_panes.browser.host.tab(tab_id) else {
+        let Some((url, title, inspecting)) = self.workspace_panes.browser.host.tab(tab_id).and_then(|tab| {
+            (!tab.url.is_empty() && tab.url != "about:blank" && tab.load_error.is_none())
+                .then(|| (tab.url.clone(), tab.title.clone(), tab.inspecting))
+        }) else {
             return;
         };
-        if tab.url.is_empty() || tab.url == "about:blank" || tab.load_error.is_some() {
-            return;
-        }
-        if tab.inspecting {
+        if inspecting {
             self.workspace_panes.browser.host.toggle_inspect(tab_id);
         }
-        let (url, title) = (tab.url.clone(), tab.title.clone());
         let mut draft = TextEdit::new("");
         draft.focused = true;
         self.composer.focused = false;
@@ -189,6 +248,10 @@ impl App {
     }
 
     pub fn close_browser_overlay(&mut self) {
+        if let Overlay::Commenting { tab_id, .. } = self.workspace_panes.browser.overlay.state {
+            self.workspace_panes.browser.host.highlight_node(tab_id, None);
+        }
+        self.workspace_panes.browser.overlay.describe.clear();
         self.workspace_panes.browser.overlay.state = Overlay::Idle;
     }
 
@@ -221,6 +284,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
             changed = true;
         }
     }
+    changed |= super::comment_describe::PendingDescribe::poll(app);
     if let Some((attempt, items)) = app.workspace_panes.browser.overlay.mention_fetch.take() {
         step_field(
             app,
@@ -229,9 +293,13 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         );
         changed = true;
     }
-    if let Some(due) = app.workspace_panes.browser.overlay.field().and_then(|f| f.mention.due()) {
-        if tx.clock() >= due {
-            step_field(app, FieldEvent::TimedOut { now: tx.clock() }, tx);
+    let timed_out = app.workspace_panes.browser.overlay.field().and_then(|f| match f.mention {
+        Mention::Loading { due, .. } => Some((due, f.attempt)),
+        _ => None,
+    });
+    if let Some((due, attempt)) = timed_out {
+        if tx.clock() + 1e-9 >= due {
+            step_field(app, FieldEvent::Failed { attempt }, tx);
             changed = true;
         } else {
             tx.wake_at(due);
@@ -253,27 +321,34 @@ pub fn modifiers(app: &mut App, mods: Mods, tx: &mut Tx) -> bool {
 }
 
 fn field_config(app: &App) -> Config {
-    let blank = app.workspace_panes.browser.overlay.draft().is_none_or(|d| d.text.trim().is_empty());
-    let can_send = app.can_send_quote();
-    Config { alternate: Some(!can_send), submitting: false, allow_empty: true, blank }
+    let ov = &app.workspace_panes.browser.overlay;
+    let blank = ov.draft().is_none_or(|d| d.text.trim().is_empty());
+    let allow_empty = matches!(ov.state, Overlay::Commenting { .. });
+    let can_send = app.can_send_comment();
+    Config { alternate: Some(!can_send), submitting: false, allow_empty, blank }
 }
 
 fn delivery_label(app: &App) -> &'static str {
+    // Matches official `host-apis.ts:690-693` (`UP-137` `#65264`): browser comments follow Enter's
+    // delivery (`send` when idle, user's follow-up setting `steer` or `queue` when working).
     match (app.quote_session_busy(), app.quote_follow_up()) {
         (false, _) => opencode_i18n::t!("rune.browser.comment.send"),
-        (true, FollowUp::Queue) => opencode_i18n::t!("rune.browser.comment.steer"),
-        (true, FollowUp::Steer) => opencode_i18n::t!("rune.browser.comment.queue"),
+        (true, FollowUp::Steer) => opencode_i18n::t!("rune.browser.comment.steer"),
+        (true, FollowUp::Queue) => opencode_i18n::t!("rune.browser.comment.queue"),
     }
+}
+
+fn mod_enter_keys() -> [String; 2] {
+    let mod_key = if cfg!(target_os = "macos") { "⌘".to_owned() } else { opencode_i18n::t!("common.key.ctrl").to_owned() };
+    [mod_key, "⏎".to_owned()]
 }
 
 fn step_field(app: &mut App, event: FieldEvent, tx: &mut Tx) -> bool {
     let (effects, handled) = {
         let ov = &mut app.workspace_panes.browser.overlay;
-        let Some(f) = match &mut ov.state {
-            Overlay::Idle => None,
-            Overlay::Commenting { field, .. } | Overlay::Noting { field, .. } => Some(field),
-        } else {
-            return false;
+        let f = match &mut ov.state {
+            Overlay::Idle => return false,
+            Overlay::Commenting { field, .. } | Overlay::Noting { field, .. } => field,
         };
         comment::field_step(&mut ov.seq, f, event)
     };
@@ -321,13 +396,15 @@ fn submit_overlay(app: &mut App, send: bool, tx: &mut Tx) {
                 .host
                 .tab(tab_id)
                 .is_some_and(|t| t.url == url);
-            element_note(tab_id, &url, &element, live, draft.text.trim())
+            super::comment_describe::element_note(tab_id, &url, &element, live, draft.text.trim())
         }
-        Overlay::Noting { tab_id, url, title, draft, .. } => page_note(tab_id, &url, &title, draft.text.trim()),
+        Overlay::Noting { tab_id, url, title, draft, .. } => {
+            super::comment_describe::page_note(tab_id, &url, &title, draft.text.trim())
+        }
     };
     let key = app.quotes_mut().push(note);
     if send {
-        if app.send_quote(key, tx).is_some() {
+        if app.send_comment(key, false, tx).is_some() {
             app.quotes_mut().remove(key);
         }
     } else if !session_view::style::touch_controls() {
@@ -336,104 +413,12 @@ fn submit_overlay(app: &mut App, send: bool, tx: &mut Tx) {
     }
 }
 
-fn element_note(tab_id: u64, url: &str, element: &PickedElement, live: bool, comment: &str) -> NoteComment {
-    let label = if element.label.is_empty() {
-        element.selector.clone()
-    } else {
-        element.label.clone()
-    };
-    let title = if element.selector.is_empty() {
-        label.clone()
-    } else {
-        element.selector.clone()
-    };
-    let durable = format_element_subject(tab_id, url, element, None);
-    let live_subject = (live && !element.eref.is_empty())
-        .then(|| format_element_subject(tab_id, url, element, Some(&element.eref)));
-    let live_href = (live && !element.eref.is_empty()).then(|| format!("{tab_id}#{}", element.eref));
-    NoteComment {
-        origin: "browser".into(),
-        label,
-        title: Some(title),
-        subtitle: Some(opencode_i18n::t!("plugin.browser.comment.annotation").to_owned()),
-        icon: Some("select-element".into()),
-        subject: durable,
-        comment: comment.to_owned(),
-        href: Some(tab_id.to_string()),
-        live_subject,
-        live_href,
-    }
-}
-
-fn page_note(tab_id: u64, url: &str, title: &str, comment: &str) -> NoteComment {
-    let host = url
-        .split("://")
-        .nth(1)
-        .and_then(|rest| rest.split(['/', '?', '#']).next())
-        .unwrap_or("");
-    let label = if !title.is_empty() {
-        title.to_owned()
-    } else if !host.is_empty() {
-        host.to_owned()
-    } else {
-        url.to_owned()
-    };
-    let titled = if title.is_empty() {
-        String::new()
-    } else {
-        format!(" titled {}", serde_json::to_string(title).unwrap_or_default())
-    };
-    NoteComment {
-        origin: "browser".into(),
-        label,
-        title: None,
-        subtitle: None,
-        icon: Some("globe".into()),
-        subject: format!("the page in browser tab {tab_id} at {url}{titled}"),
-        comment: comment.to_owned(),
-        href: Some(tab_id.to_string()),
-        live_subject: None,
-        live_href: None,
-    }
-}
-
-fn format_element_subject(tab_id: u64, url: &str, el: &PickedElement, eref: Option<&str>) -> String {
-    let mut details: Vec<String> = Vec::new();
-    if let Some(role) = el.role.as_deref().filter(|s| !s.is_empty()) {
-        details.push(format!("role {role}"));
-    }
-    if let Some(name) = el.name.as_deref().filter(|s| !s.is_empty()) {
-        details.push(format!("accessible name {}", serde_json::to_string(name).unwrap_or_default()));
-    }
-    if let Some(txt) = el.text.as_deref().filter(|s| !s.is_empty() && Some(*s) != el.name.as_deref()) {
-        let short: String = txt.chars().take(80).collect();
-        details.push(format!("text {}", serde_json::to_string(&short).unwrap_or_default()));
-    }
-    if !el.selector.is_empty() {
-        let shadow = if el.selector.contains(" >>> ") {
-            " (\">>>\" enters a shadow root)"
-        } else {
-            ""
-        };
-        details.push(format!("selector {}{shadow}", serde_json::to_string(&el.selector).unwrap_or_default()));
-    }
-    if let Some(r) = eref {
-        let trimmed = r.strip_prefix('@').unwrap_or(r);
-        details.push(format!(
-            "browser ref @{trimmed}, usable as ref in any browser tool including browser.evaluate until the page navigates"
-        ));
-    }
-    let label_q = serde_json::to_string(&el.label).unwrap_or_else(|_| "\"element\"".into());
-    if details.is_empty() {
-        format!("the {label_q} element in browser tab {tab_id} at {url}")
-    } else {
-        format!("the {label_q} element in browser tab {tab_id} at {url} ({})", details.join("; "))
-    }
-}
-
 fn on_edit_draft(app: &mut App) -> &mut TextEdit {
     let ov = &mut app.workspace_panes.browser.overlay;
-    ov.draft_mut().unwrap_or(&mut ov.spare)
+    match &mut ov.state {
+        Overlay::Commenting { draft, .. } | Overlay::Noting { draft, .. } => draft,
+        Overlay::Idle => &mut ov.spare,
+    }
 }
 
 fn on_input_change(app: &mut App, tx: &mut Tx) {
@@ -493,20 +478,25 @@ pub fn view(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
             let sh = rh.max(0.0).min((pane_h - sy).max(0.0));
 
             let dim = p.scrim.alpha(p.scrim.a * 0.5);
-            let spotlight_layer = el()
-                .key("browser-comment-spotlight-layer")
-                .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
-                .child(el().absolute(0.0, 0.0).w(pane_w).h(sy).fill(dim))
-                .child(el().absolute(0.0, sy + sh).w(pane_w).h((pane_h - (sy + sh)).max(0.0)).fill(dim))
-                .child(el().absolute(0.0, sy).w(sx).h(sh).fill(dim))
-                .child(el().absolute(sx + sw, sy).w((pane_w - (sx + sw)).max(0.0)).h(sh).fill(dim))
-                .child(
-                    el().key("browser-comment-spotlight")
-                        .absolute(sx, sy)
-                        .size(sw, sh)
-                        .radius(2.0)
-                        .border(1.0, p.v2.border_focus),
-                );
+            let spotlight_layer = if sw > 0.0 && sh > 0.0 {
+                el().key("browser-comment-spotlight-layer")
+                    .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
+                    .child(el().absolute(0.0, 0.0).w(pane_w).h(sy).fill(dim))
+                    .child(el().absolute(0.0, sy + sh).w(pane_w).h((pane_h - (sy + sh)).max(0.0)).fill(dim))
+                    .child(el().absolute(0.0, sy).w(sx).h(sh).fill(dim))
+                    .child(el().absolute(sx + sw, sy).w((pane_w - (sx + sw)).max(0.0)).h(sh).fill(dim))
+                    .child(
+                        el().key("browser-comment-spotlight")
+                            .absolute(sx, sy)
+                            .size(sw, sh)
+                            .radius(2.0)
+                            .border(1.0, p.v2.border_focus),
+                    )
+            } else {
+                el().key("browser-comment-spotlight-layer")
+                    .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
+                    .fill(dim)
+            };
 
             let width = (pane_w - GAP * 2.0).clamp(160.0, ELEMENT_EDITOR_W);
             let surface_h = (pane_h - GAP * 2.0).max(80.0);
@@ -558,7 +548,7 @@ pub fn view(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
 
             let input = session_view::style::field(draft, FIELD)
                 .key("browser-comment-field")
-                .label_static(opencode_i18n::t!("plugin.browser.comment.label"))
+                .label_static(opencode_i18n::t!("rune.browser.comment.label"))
                 .color(p.text)
                 .w_full()
                 .min_h(20.0)
@@ -573,18 +563,18 @@ pub fn view(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
                 .on_input_change(on_input_change)
                 .on_input_key(on_input_key);
             let mentions = mention_rows::<App>(p, &field.mention, act);
-            let field_col = col().grow(1.0).shrink().min_w(0.0).child(input).children(mentions);
+            let field_col = col().grow(1.0).shrink().min_w(0.0).gap(8.0).child(input).children(mentions);
 
             let empty = draft.text.trim().is_empty();
             let alternate = field.alternate;
-            let available = s.can_send_quote();
+            let available = s.can_send_comment();
             let primary_label = if empty {
-                opencode_i18n::t!("plugin.browser.comment.attach")
+                opencode_i18n::t!("rune.browser.comment.attach")
             } else {
-                opencode_i18n::t!("plugin.browser.comment.submit")
+                opencode_i18n::t!("rune.browser.comment.submit")
             };
             let alt_label = delivery_label(s);
-            let alt_keys = [opencode_i18n::t!("common.key.ctrl").to_owned(), "⏎".to_owned()];
+            let alt_keys = mod_enter_keys();
             let label = if alternate { alt_label } else { primary_label };
             let glyph = if alternate {
                 icon(&ic::ARROW_UP, 16.0).color(p.q.submit_text)
@@ -673,23 +663,33 @@ pub fn view(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
             } else {
                 url.clone()
             };
-            let header = row()
+            let footer_meta = row()
                 .key("browser-note-header")
-                .w_full()
-                .gap(6.0)
+                .grow(1.0)
+                .shrink()
+                .min_w(0.0)
+                .gap(4.0)
                 .center_y()
                 .dir(rune::Direction::Ltr)
-                .child(icon(&ic::GLOBE, 14.0).color(p.icon_muted))
-                .child(text(heading).font(HEADER).color(p.text).truncate().grow(1.0).shrink().min_w(0.0));
+                .child(icon(&ic::GLOBE, 14.0).color(p.icon_faint))
+                .child(
+                    text(heading)
+                        .font(META)
+                        .color(p.faint)
+                        .truncate()
+                        .grow(1.0)
+                        .shrink()
+                        .min_w(0.0),
+                );
 
-            let input = session_view::style::field(draft, FIELD)
+            let input = session_view::style::field(draft, NOTE_FIELD)
                 .key("browser-note-field")
                 .label_static(opencode_i18n::t!("plugin.browser.page.add"))
                 .color(p.text)
                 .w_full()
-                .min_h(44.0)
+                .min_h(64.0)
                 .max_h(160.0)
-                .placeholder(opencode_i18n::t!("plugin.browser.page.placeholder"), p.faint)
+                .placeholder(opencode_i18n::t!("rune.browser.page.placeholder"), p.faint)
                 .caret(p.text, p.selection)
                 .selection_style(p.field_selection)
                 .spellcheck(s.settings.spellcheck)
@@ -699,12 +699,17 @@ pub fn view(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
                 .on_input_change(on_input_change)
                 .on_input_key(on_input_key);
             let mentions = mention_rows::<App>(p, &field.mention, act);
-            let field_col = col().w_full().child(input).children(mentions);
+            let field_col = col().w_full().gap(8.0).child(input).children(mentions);
 
             let k = kit(p);
-            let can_send = s.can_send_quote();
+            let empty = draft.text.trim().is_empty();
+            let alternate = field.alternate;
+            let can_send = s.can_send_comment();
+            let primary_label = opencode_i18n::t!("ui.lineComment.submit");
             let alt_label = delivery_label(s);
-            let alt_keys = [opencode_i18n::t!("common.key.ctrl").to_owned(), "⏎".to_owned()];
+            let alt_keys = mod_enter_keys();
+            let submit_label = if alternate { alt_label } else { primary_label };
+            let submit_disabled = empty || (alternate && !can_send);
             #[allow(deprecated)]
             let cancel_btn = crate::widgets::button(opencode_i18n::t!("ui.lineComment.cancel"), rune_kit::ButtonVariant::Ghost)
                 .size(rune_kit::ButtonSize::Small)
@@ -712,34 +717,25 @@ pub fn view(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
                 .build(k)
                 .key("browser-note-cancel");
             #[allow(deprecated)]
-            let add_btn = crate::widgets::button(opencode_i18n::t!("plugin.browser.comment.attach"), rune_kit::ButtonVariant::Neutral)
+            let submit_btn = crate::widgets::button(submit_label, rune_kit::ButtonVariant::Contrast)
                 .size(rune_kit::ButtonSize::Small)
-                .on_press_tx(|app: &mut App, tx: &mut Tx| on_action_press(app, Some(false), tx))
+                .disabled(submit_disabled)
+                .on_press_tx(|app: &mut App, tx: &mut Tx| on_action_press(app, None, tx))
                 .build(k)
-                .key("browser-note-add")
-                .help(opencode_i18n::t!("plugin.browser.comment.attach"))
+                .key("browser-note-submit")
+                .help(primary_label)
                 .help_keys(["⏎".to_owned()])
-                .help_above();
-            #[allow(deprecated)]
-            let send_btn = crate::widgets::button(alt_label, rune_kit::ButtonVariant::Contrast)
-                .size(rune_kit::ButtonSize::Small)
-                .disabled(!can_send)
-                .on_press_tx(|app: &mut App, tx: &mut Tx| on_action_press(app, Some(true), tx))
-                .build(k)
-                .key("browser-note-send")
-                .help(alt_label)
+                .help_row(alt_label)
                 .help_keys(alt_keys)
                 .help_above();
             let footer = row()
                 .w_full()
-                .gap(6.0)
-                .justify_end()
+                .gap(4.0)
                 .center_y()
-                .child(cancel_btn)
-                .child(add_btn)
-                .child(send_btn);
+                .child(footer_meta)
+                .child(row().gap(8.0).center_y().child(cancel_btn).child(submit_btn));
 
-            let shell = col().w_full().padding(12.0).gap(10.0).child(header).child(field_col).child(footer);
+            let shell = col().w_full().padding(12.0).gap(12.0).child(field_col).child(footer);
             let body = session_view::scroller::scroller("browser-note-scroll")
                 .bar(session_view::scroller::Bar::MenuScroll)
                 .build::<App>(p, col().w_full().max_h(max_h), shell);

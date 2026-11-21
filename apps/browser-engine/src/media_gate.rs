@@ -120,13 +120,19 @@ impl TabMediaGate {
     /// Installs the binding and wrapper on the root session (`None`) or a paused OOPIF session.
     pub fn attach_messages(&self, session_id: Option<&str>) -> Vec<String> {
         vec![
-            self.build_cdp("Runtime.addBinding", json!({ "name": self.binding }), session_id),
+            self.binding_msg(session_id),
             self.build_cdp(
                 "Page.addScriptToEvaluateOnNewDocument",
                 json!({ "source": media_gate_script(&self.binding, &self.answer), "runImmediately": true }),
                 session_id,
             ),
         ]
+    }
+
+    /// `Runtime.addBinding` for the wrapper's channel. A `Runtime.disable` on the session drops it
+    /// (as for the passkey gate, #438), so the engine sends it again after each one it sends.
+    pub fn binding_msg(&self, session_id: Option<&str>) -> String {
+        self.build_cdp("Runtime.addBinding", json!({ "name": self.binding }), session_id)
     }
 
     fn answer_msg(&self, ask_id: u32, allowed: bool, context_id: i64, session_id: Option<&str>) -> String {

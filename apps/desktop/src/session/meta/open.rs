@@ -66,7 +66,6 @@ impl App {
         // Its own draft is in the composer on the first frame.
         let _ = self.show_draft();
         let root = self.root_of(id).to_owned();
-        crate::session_menu::unread::set(self, &crate::servers::runtime::current(), &root, false);
         // As in Desktop, you can type straight away, handing focus on from whatever control held it
         // when the session opened (including a titlebar button or side panel via a tab shortcut,
         // `session/composer/focus.tsx` #64418/#64504). A subagent's page waits for a click into its
@@ -82,10 +81,7 @@ impl App {
             self.composer.focused = true;
             tx.focus("prompt", tx.focus_visible());
         }
-        // Viewing it reads it, and its tab, locally.
-        for s in self.sessions.iter_mut().filter(|s| s.id == root || s.id == id) {
-            s.viewed = s.idle.max(s.viewed);
-        }
+        // Reading it, and reporting it read, waits for a focused window (`session_viewed::poll`).
         crate::notifications::seen(self, &root);
         crate::windows::peer::touch(self);
         if !self.tabs.iter().any(|t| t.id == root) {
@@ -122,8 +118,8 @@ impl App {
     /// once for all its windows (`App::apply_shared`).
     pub(crate) fn resync_shared(&mut self) {
         self.refresh_recent();
+        crate::reconnect::request_active(self, true);
         let Source::Live { requests: Some(r), .. } = &*self.source else { return };
-        r.send(Request::Active).ok();
         r.send(Request::Sessions).ok();
         r.send(Request::Projects).ok();
         r.send(Request::DefaultDirectory).ok();

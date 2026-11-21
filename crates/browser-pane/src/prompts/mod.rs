@@ -688,10 +688,14 @@ pub struct TabPromptState {
     /// True once the host has forwarded real user pointer/key input to the current document
     /// (cleared on navigation/reload/context switch; matches official `chromium.ts:377,399,424,871,887,907`).
     pub document_input: bool,
+    /// Bumped on every input or navigation the person sends this tab, on any tab, driven or not.
+    /// A plugin's close right ends at the first one (official `pane.ts:846,1245`: `userInput`).
+    pub user_takeovers: u64,
 }
 
 impl TabPromptState {
     pub fn record_document_input(&mut self) {
+        self.user_takeovers = self.user_takeovers.wrapping_add(1);
         if !self.agent_driven {
             self.document_input = true;
         }
@@ -794,6 +798,7 @@ impl TabPromptState {
 
     /// User started a navigation/reload/back/forward: dismissed auth sites ask again (`prompt-machine.ts:182`).
     pub fn on_user_nav(&mut self) {
+        self.user_takeovers = self.user_takeovers.wrapping_add(1);
         self.auth_attempts.clear();
         self.auth_dismissed.clear();
         self.popup.dismiss();

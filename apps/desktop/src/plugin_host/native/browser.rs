@@ -28,6 +28,8 @@ mod cookies;
 #[cfg(not(target_arch = "wasm32"))]
 mod extensions;
 #[cfg(not(target_arch = "wasm32"))]
+mod devtools;
+#[cfg(not(target_arch = "wasm32"))]
 mod history;
 #[cfg(not(target_arch = "wasm32"))]
 mod scope;
@@ -219,16 +221,16 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     let raw: Function = vmx.asyncs.raw_get("Browser.OpenAsync")?;
     let open: Function = lua.load("local raw = ... return function(self, spec) local id = raw(spec) return if id then self:Get(id) else nil end").set_name("=Browser:OpenAsync").call(raw)?;
     t.raw_set("OpenAsync", open)?;
-    lazy_signals(lua, vmx, t, "Browser", &["Changed", "Picked", "SiteBack"])
+    lazy_signals(lua, vmx, t, "Browser", &["Changed", "Picked", "SiteBack", "AddressSelectionChanged"])
 }
 
 /// The host's async functions: `Browser:OpenAsync` and `BrowserTab`'s async methods.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
     t.raw_set("Browser.OpenAsync", host.async_function("Browser:OpenAsync", open)?)?;
-    t.raw_set("BrowserTab.DevtoolsAsync", host.async_function("BrowserTab:DevtoolsAsync", devtools)?)?;
-    t.raw_set("BrowserTab.SiteCookiesAsync", host.async_function("BrowserTab:SiteCookiesAsync", site_cookies)?)?;
-    t.raw_set("BrowserTab.ClearSiteAsync", host.async_function("BrowserTab:ClearSiteAsync", clear_site)?)?;
+    t.raw_set("BrowserTab.DevtoolsAsync", host.async_function("BrowserTab:DevtoolsAsync", devtools::devtools)?)?;
+    t.raw_set("BrowserTab.SiteCookiesAsync", host.async_function("BrowserTab:SiteCookiesAsync", devtools::site_cookies)?)?;
+    t.raw_set("BrowserTab.ClearSiteAsync", host.async_function("BrowserTab:ClearSiteAsync", devtools::clear_site)?)?;
     extensions::asyncs(host, t)?;
     history::asyncs(host, t)?;
     chrome::asyncs(host, t)
@@ -283,106 +285,6 @@ fn open(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
                 s.open_new_browser_tab_for_session(sid.as_deref(), url, None, spec.background != Some(true))
             };
             done.complete(Data::String(id.to_string()));
-        }));
-        Ok(())
-    })
-}
-
-/// Sends the allow-listed DevTools command on the next poll; `poll` answers it with `{ result }`,
-/// or with `{ error }` when the policy or engine refused it, isn't running, or took too long.
-#[cfg(not(target_arch = "wasm32"))]
-fn devtools(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
-    let (id, cdp, params, target): (String, String, Value, Option<String>) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
-    let scope = scope::TabScope::capture(lua);
-    let params = match <Data as mlua::FromLua>::from_lua(params, lua)?.to_json() {
-        serde_json::Value::Object(o) => serde_json::Value::Object(o),
-        _ => serde_json::json!({}),
-    };
-    with_app("BrowserTab:DevtoolsAsync", |app| {
-        app.later(Box::new(move |s: &mut App, _: &mut Tx| {
-            let failed = |message: String| map([("error", Data::String(message))]);
-            let Some(id) = id.parse::<u64>().ok().filter(|&id| s.workspace_panes.browser.host.tab(id).is_some()) else {
-                return done.complete(failed(format!("No browser tab with tabID {id}")));
-            };
-            if let Err(err) = scope.check_tab(s, id, true) {
-                return done.complete(failed(err));
-            }
-            if !s.workspace_panes.browser.host.has_live_sidecar() {
-                return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
-            }
-            // Every `BrowserTab:DevtoolsAsync` caller (agent MCP tools and third-party Luau plugins)
-            // marks the tab controlled so OS file choosers, HTTP auth, and permissions stay guarded.
-            let driver = scope.driver(s).unwrap_or(browser_pane::TabDriver::Agent);
-            let is_agent = matches!(driver, browser_pane::TabDriver::Agent);
-            s.workspace_panes.browser.host.set_tab_driver(id, driver);
-            if is_agent {
-                s.mark_browser_tab_unseen(id);
-            }
-            let is_dialog = cdp == "Page.handleJavaScriptDialog";
-            if !is_dialog && s.workspace_panes.browser.host.tab(id).is_some_and(|t| t.prompts.dialog.open().is_some()) {
-                return done.complete(failed(format!("[browser.dialog_open] A JavaScript dialog is open in tab {id}. Answer or dismiss the dialog before continuing.")));
-            }
-            match s.workspace_panes.browser.host.send_cdp(id, cdp, params, target) {
-                Ok(request) => {
-                    s.workspace_panes.browser.devtools.insert(request, crate::surfaces::browser::PendingDevtools { done, deadline: Instant::now() + DEVTOOLS_TIMEOUT, tab_id: id, is_dialog });
-                }
-                Err(err) => done.complete(failed(err)),
-            }
-        }));
-        Ok(())
-    })
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn site_cookies(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
-    let (id,): (String,) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
-    let scope = scope::TabScope::capture(lua);
-    with_app("BrowserTab:SiteCookiesAsync", |app| {
-        app.later(Box::new(move |s: &mut App, _: &mut Tx| {
-            let failed = |message: String| map([("error", Data::String(message))]);
-            let Some(id) = id.parse::<u64>().ok().filter(|&id| s.workspace_panes.browser.host.tab(id).is_some()) else {
-                return done.complete(failed(format!("No browser tab with tabID {id}")));
-            };
-            if let Err(err) = scope.check_tab(s, id, true) {
-                return done.complete(failed(err));
-            }
-            if !s.workspace_panes.browser.host.has_live_sidecar() {
-                return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
-            }
-            match s.workspace_panes.browser.host.site_cookies(id) {
-                Ok(request) => {
-                    s.workspace_panes.browser.devtools.insert(request, crate::surfaces::browser::PendingDevtools { done, deadline: Instant::now() + DEVTOOLS_TIMEOUT, tab_id: id, is_dialog: false });
-                }
-                Err(err) => done.complete(failed(err)),
-            }
-        }));
-        Ok(())
-    })
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn clear_site(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
-    let (id,): (String,) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
-    let scope = scope::TabScope::capture(lua);
-    with_app("BrowserTab:ClearSiteAsync", |app| {
-        app.later(Box::new(move |s: &mut App, _: &mut Tx| {
-            let failed = |message: String| map([("error", Data::String(message))]);
-            let Some(id) = id.parse::<u64>().ok().filter(|&id| s.workspace_panes.browser.host.tab(id).is_some()) else {
-                return done.complete(failed(format!("No browser tab with tabID {id}")));
-            };
-            if let Err(err) = scope.check_tab(s, id, true) {
-                return done.complete(failed(err));
-            }
-            if !s.workspace_panes.browser.host.has_live_sidecar() {
-                return done.complete(failed(not_running(&s.workspace_panes.browser.host.status())));
-            }
-            scope.mark_tab_driven(s, id);
-            match s.workspace_panes.browser.host.clear_site(id) {
-                Ok(request) => {
-                    s.workspace_panes.browser.devtools.insert(request, crate::surfaces::browser::PendingDevtools { done, deadline: Instant::now() + DEVTOOLS_TIMEOUT, tab_id: id, is_dialog: false });
-                }
-                Err(err) => done.complete(failed(err)),
-            }
         }));
         Ok(())
     })
@@ -675,6 +577,7 @@ pub fn version(app: &App) -> u64 {
     app.workspace_panes.browser.host.engine_cookies().hash(&mut h);
     app.workspace_panes.browser.host.share_sign_ins().hash(&mut h);
     app.workspace_panes.browser.host.engine_preview().hash(&mut h);
+    app.workspace_panes.browser.app_icons.finished().hash(&mut h);
     for t in app.workspace_panes.browser.host.tabs() {
         if let Some(d) = &t.device { (&d.preset, d.width, d.height, d.scale.map(f32::to_bits)).hash(&mut h); }
         (t.id, &t.url, &t.title, t.loading, t.can_go_back, t.can_go_forward, t.zoom.to_bits(), t.inspecting, &t.load_error, &t.favicon, &t.refusal, t.rejected).hash(&mut h);
@@ -685,7 +588,7 @@ pub fn version(app: &App) -> u64 {
         t.files.iter().for_each(|f| (&f.id, f.bytes, f.state as u8, &f.error).hash(&mut h));
     }
     app.workspace_panes.browser.host.focused_tab_id().hash(&mut h);
-    app.workspace_panes.browser.overlay.version_tag().hash(&mut h);
+    app.workspace_panes.browser.overlay.hash_state(&mut h);
     app.workspace_panes.browser.openers.unnamed_ids_sorted().hash(&mut h);
     {
         let reviews = app.workspace_panes.browser.active_app_reviews.borrow();
@@ -769,21 +672,15 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
             changed = true;
         }
     }
-    changed |= crate::surfaces::browser::prompts::poll(app, tx, now)
-        | crate::surfaces::browser::context_menu::poll(app, tx)
-        | crate::surfaces::browser::comment::poll(app, tx);
-    if let Some(next) = app.workspace_panes.browser.devtools.values().map(|p| p.deadline).min() {
-        tx.wake_after(next.saturating_duration_since(now).max(Duration::from_millis(25)));
-    }
+    changed |= crate::surfaces::browser::prompts::poll(app, tx, now) | crate::surfaces::browser::context_menu::poll(app, tx) | crate::surfaces::browser::comment::poll(app, tx) | crate::surfaces::browser::extensions::poll_popup_focus(app, tx);
+    if let Some(next) = app.workspace_panes.browser.devtools.values().map(|p| p.deadline).min() { tx.wake_after(next.saturating_duration_since(now).max(Duration::from_millis(25))); }
     let picks: Vec<_> = if app.workspace_panes.browser.host.has_picked() { app.workspace_panes.browser.host.drain_picked_elements().collect() } else { Vec::new() };
     for pick in picks {
         app.open_browser_element_comment(pick.clone());
         let third_party_ok = scope::tab_visible_to_third_party(app, pick.tab_id);
         let payload = map([("tabId", Data::String(pick.tab_id.to_string())), ("ref", Data::String(pick.eref)), ("selector", Data::String(pick.selector))]);
         for i in 0..app.plugins.list.len() {
-            if third_party_ok || app.plugins.list[i].half.is_builtin("browser") {
-                changed |= super::super::fire_named(app, i, "Browser.Picked", payload.clone());
-            }
+            if third_party_ok || app.plugins.list[i].half.is_builtin("browser") { let _ = super::super::fire_named(app, i, "Browser.Picked", payload.clone()); }
         }
         changed = true;
     }

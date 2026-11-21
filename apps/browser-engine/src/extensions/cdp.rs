@@ -64,6 +64,7 @@ impl ExtensionHost {
                         Some(sess) if sess.kind != SessionKind::ServiceWorker => {
                             if extension_id_from_url(url) == Some(sess.ext_id.as_str()) {
                                 sess.main_frame_id = frame_id;
+                                sess.url = url.to_owned();
                                 false
                             } else {
                                 // Main frame left `chrome-extension://<ext_id>/` (or an initially
@@ -251,15 +252,18 @@ impl ExtensionHost {
 
     pub(super) fn tick_timeouts(&mut self) -> Vec<ExtEffect> {
         let mut effects = Vec::new();
-        if let Some(ref probe) = self.probe_in_flight
-            && probe.sent_at.elapsed() >= PROBE_TIMEOUT
-        {
-            let stale_sid = probe.sid.clone();
+        let expired: Vec<(String, String)> = self
+            .probe_in_flight
+            .iter()
+            .filter(|(_, p)| p.sent_at.elapsed() >= PROBE_TIMEOUT)
+            .map(|(ext_id, p)| (ext_id.clone(), p.sid.clone()))
+            .collect();
+        for (ext_id, stale_sid) in expired {
             self.failed_probe_sessions.insert(stale_sid);
-            self.probe_in_flight = None;
-            self.trigger_tab_id_probe();
-            if self.probe_in_flight.is_none() && !self.pending_rpcs.is_empty() {
-                effects.extend(self.flush_pending_rpcs());
+            self.probe_in_flight.remove(&ext_id);
+            self.trigger_tab_id_probe_for(&ext_id);
+            if !self.probe_in_flight.contains_key(&ext_id) {
+                effects.extend(self.flush_pending_rpcs_for(&ext_id));
             }
         }
         effects
@@ -267,11 +271,12 @@ impl ExtensionHost {
 
     pub(super) fn on_frame_dropped(&mut self) -> Vec<ExtEffect> {
         let mut effects = Vec::new();
-        if let Some(probe) = self.probe_in_flight.take() {
+        let dropped: Vec<(String, ProbeInFlight)> = self.probe_in_flight.drain().collect();
+        for (ext_id, probe) in dropped {
             self.failed_probe_sessions.insert(probe.sid);
-            self.trigger_tab_id_probe();
-            if self.probe_in_flight.is_none() && !self.pending_rpcs.is_empty() {
-                effects.extend(self.flush_pending_rpcs());
+            self.trigger_tab_id_probe_for(&ext_id);
+            if !self.probe_in_flight.contains_key(&ext_id) {
+                effects.extend(self.flush_pending_rpcs_for(&ext_id));
             }
         }
         effects
@@ -279,7 +284,7 @@ impl ExtensionHost {
 
     pub(super) fn on_pipe_closed(&mut self) -> Vec<ExtEffect> {
         let mut effects = Vec::new();
-        self.probe_in_flight = None;
+        self.probe_in_flight.clear();
         self.pending_rpcs.clear();
         if !self.filters_ready_emitted {
             self.filters_ready_emitted = true;
@@ -320,9 +325,14 @@ impl ExtensionHost {
         self.execution_contexts.retain(|(s, _), _| s != sid);
         self.pending_fetch_resume.retain(|_, s| s != sid);
         self.failed_probe_sessions.remove(sid);
-        if self.probe_in_flight.as_ref().is_some_and(|p| p.sid == sid) {
-            self.probe_in_flight = None;
-            self.trigger_tab_id_probe();
+        let detached_probe_ext = self
+            .probe_in_flight
+            .iter()
+            .find(|(_, p)| p.sid == sid)
+            .map(|(ext_id, _)| ext_id.clone());
+        if let Some(ext_id) = detached_probe_ext {
+            self.probe_in_flight.remove(&ext_id);
+            self.trigger_tab_id_probe_for(&ext_id);
         }
         self.subscribers.retain(|_, by_ext| {
             by_ext.retain(|_, set| {
@@ -423,7 +433,10 @@ impl ExtensionHost {
             if ok {
                 self.extensions.remove(&ext_id);
                 self.actions.remove(&ext_id);
-                self.context_menus.remove(&ext_id);
+                self.context_menus.lock().unwrap().remove_extension(&ext_id);
+                self.ext_tab_ids.remove(&ext_id);
+                self.ext_last_known_session_id.remove(&ext_id);
+                self.probe_in_flight.remove(&ext_id);
                 self.subscribers.retain(|_, by_ext| {
                     by_ext.remove(&ext_id);
                     !by_ext.is_empty()
@@ -481,10 +494,8 @@ impl ExtensionHost {
                 && seed_val > 0
                 && seed_val < (i32::MAX - 1024) as i64
             {
-                let seed = seed_val as i32;
-                self.seed_session_id = Some(seed);
-                self.last_known_session_id = self.last_known_session_id.max(seed);
-                self.trigger_tab_id_probe();
+                self.seed_session_id = Some(seed_val as i32);
+                self.trigger_tab_id_probes_all();
             }
             effects.push(ExtEffect::CloseSeedProbe);
             return effects;
@@ -547,7 +558,7 @@ impl ExtensionHost {
                     ];
                     self.pipe.send_batch(&batch);
                 }
-                if let Some(cid) = self.active_chromium_tab_id() {
+                if let Some(cid) = self.active_chromium_tab_id_for(&ext_id) {
                     self.push_to_session(&sid, &json!({ "kind": "active_tab", "tabId": cid }));
                 }
                 if is_sw {
@@ -559,7 +570,7 @@ impl ExtensionHost {
                         }
                     }
                 }
-                self.trigger_tab_id_probe();
+                self.trigger_tab_id_probe_for(&ext_id);
             }
         }
         effects
@@ -602,6 +613,8 @@ impl ExtensionHost {
                 AttachedSession {
                     ext_id,
                     kind: SessionKind::ServiceWorker,
+                    url: url.to_owned(),
+                    chromium_tab_id: None,
                     main_frame_id: None,
                     last_popup_size: None,
                     attach_started: Instant::now(),
@@ -657,6 +670,8 @@ impl ExtensionHost {
                 AttachedSession {
                     ext_id: ext_id.to_owned(),
                     kind: SessionKind::FileGuardOnly,
+                    url: url.to_owned(),
+                    chromium_tab_id: None,
                     main_frame_id: None,
                     last_popup_size: None,
                     attach_started: Instant::now(),
@@ -670,16 +685,28 @@ impl ExtensionHost {
             if waiting {
                 self.pending_fetch_resume.insert(fetch_id, sid.to_owned());
             }
-            let batch = vec![
+            let mut batch = vec![
                 auto_attach_cmd(self.alloc_id(), sid),
                 fetch_enable_cmd(fetch_id, sid),
             ];
+            if ttype == "iframe" {
+                // Neutralize native `chrome.tabs`/`windows`/etc. inside extension iframes while
+                // keeping `chrome.runtime` native (never installs `__ocExtCall`, READER-12 C2).
+                batch.push(json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Page.enable", "params": {} }));
+                batch.push(json!({
+                    "id": self.alloc_id(),
+                    "sessionId": sid,
+                    "method": "Page.addScriptToEvaluateOnNewDocument",
+                    "params": { "source": IFRAME_LOCKDOWN_JS }
+                }));
+            }
             self.pipe.send_batch(&batch);
             return effects;
         }
 
-        // Never attach shims to iframes, dedicated/shared workers, or non-page targets.
-        let is_page_like = matches!(ttype, "page" | "other");
+        // Never attach shims to iframes, dedicated/shared workers, or non-page targets;
+        // include MV2 `background_page` so it is never detached unshimmed (READER-12 #441).
+        let is_page_like = matches!(ttype, "page" | "other" | "background_page");
         let ext_target = if is_page_like
             && let Some(ext_id) = super::manifest::extension_id_from_target_url(url)
             && self.extensions.contains_key(ext_id)
@@ -716,6 +743,8 @@ impl ExtensionHost {
                 AttachedSession {
                     ext_id,
                     kind,
+                    url: url.to_owned(),
+                    chromium_tab_id: None,
                     main_frame_id: None,
                     last_popup_size: None,
                     attach_started: Instant::now(),
@@ -773,10 +802,10 @@ impl ExtensionHost {
                 if let Some(sess) = self.sessions.get_mut(sid) {
                     sess.shimmed = true;
                 }
-                if let Some(cid) = self.active_chromium_tab_id() {
+                if let Some(cid) = self.active_chromium_tab_id_for(&sess_ext_id) {
                     self.push_to_session(sid, &json!({ "kind": "active_tab", "tabId": cid }));
                 }
-                self.trigger_tab_id_probe();
+                self.trigger_tab_id_probe_for(&sess_ext_id);
             }
             "subscribe" => {
                 let Some(name) = payload.get("name").and_then(Value::as_str) else {
@@ -837,33 +866,46 @@ impl ExtensionHost {
                     }
                 }
             }
+            "self_tab" => {
+                // Binding an extension page's own Chromium tab ID (`tabs.ts:345-349`); strictly
+                // restricted to `ExtensionPage` sessions and re-validated against `visible_tabs` +
+                // `extension_id_from_url == ext_id` in `rpc.rs` so no page can forge another tab.
+                if let Some(cid_i64) = payload.get("id").and_then(Value::as_i64)
+                    && cid_i64 > 0
+                    && cid_i64 < (i32::MAX - 1024) as i64
+                    && let Some(sess) = self.sessions.get_mut(sid)
+                    && sess.kind == SessionKind::ExtensionPage
+                {
+                    sess.chromium_tab_id = Some(cid_i64 as i32);
+                }
+            }
             "tab_seen" => {
-                // Bounded strictly around known session IDs; never allows untrusted extensions to
-                // jump `last_known_session_id` to huge values (`review-rd274.md` §4).
+                // Scoped strictly to `sess_ext_id` and bounded around `seed_session_id` so one
+                // extension can never poison another extension's tab IDs (`review-rd294.md` #6).
                 if let (Some(cid_i64), Some(url)) = (
                     payload.get("id").and_then(Value::as_i64),
                     payload.get("url").and_then(Value::as_str),
                 ) && cid_i64 > 0
                     && cid_i64 < (i32::MAX - 1024) as i64
                 {
-                    self.reconcile_chromium_tab_id(cid_i64 as i32, url);
+                    self.reconcile_chromium_tab_id(&sess_ext_id, cid_i64 as i32, url);
                 }
             }
             "probe_tabs_reply" => {
-                // Strictly require matching BOTH `probe_id` AND `sid` against `probe_in_flight`.
+                // Strictly require matching `ext_id`, `probe_id`, AND `sid` against `probe_in_flight`.
                 let probe_id = payload.get("probeId").and_then(Value::as_i64);
                 let matched = self
                     .probe_in_flight
-                    .as_ref()
+                    .get(&sess_ext_id)
                     .is_some_and(|p| Some(p.probe_id) == probe_id && p.sid == sid);
                 if !matched {
                     return effects;
                 }
-                let in_flight = self.probe_in_flight.take().unwrap();
+                let in_flight = self.probe_in_flight.remove(&sess_ext_id).unwrap();
                 if let Some(found) = payload.get("found").and_then(Value::as_array) {
-                    self.apply_probed_tabs(found, &in_flight.candidates);
+                    self.apply_probed_tabs_for(&sess_ext_id, found, &in_flight.candidates);
                 }
-                effects.extend(self.flush_pending_rpcs());
+                effects.extend(self.flush_pending_rpcs_for(&sess_ext_id));
             }
             "call" => {
                 self.metrics.rpc_calls += 1;
@@ -872,21 +914,27 @@ impl ExtensionHost {
                 let args = payload.get("args").and_then(Value::as_array).cloned().unwrap_or_default();
                 let needs_tab_ids = matches!(
                     name.as_str(),
-                    "tabs.query" | "tabs.get" | "windows.get" | "windows.getCurrent" | "windows.getLastFocused" | "windows.getAll"
+                    "tabs.query"
+                        | "tabs.get"
+                        | "tabs.getCurrent"
+                        | "windows.get"
+                        | "windows.getCurrent"
+                        | "windows.getLastFocused"
+                        | "windows.getAll"
                 );
                 if needs_tab_ids
-                    && self.tabs.iter().any(|t| t.chromium_tab_id.is_none())
+                    && self.has_unbound_visible_tab_for(&sess_ext_id)
                     && self.seed_session_id.is_some()
                     && self.pending_rpcs.len() < MAX_PENDING_RPCS
                 {
                     self.pending_rpcs.push(PendingRpc {
                         session_id: sid.to_owned(),
-                        ext_id: sess_ext_id,
+                        ext_id: sess_ext_id.clone(),
                         req_id,
                         name,
                         args,
                     });
-                    self.trigger_tab_id_probe();
+                    self.trigger_tab_id_probe_for(&sess_ext_id);
                     return effects;
                 }
                 effects.extend(self.dispatch_rpc(sid, &sess_ext_id, req_id, &name, &args));
@@ -915,21 +963,31 @@ impl ExtensionHost {
         }]
     }
 
-    pub(super) fn trigger_tab_id_probe(&mut self) {
-        if self.probe_in_flight.is_some() {
+    pub(super) fn trigger_tab_id_probes_all(&mut self) {
+        let ext_ids: Vec<String> = self.extensions.keys().cloned().collect();
+        for ext_id in ext_ids {
+            self.trigger_tab_id_probe_for(&ext_id);
+        }
+    }
+
+    pub(super) fn trigger_tab_id_probe_for(&mut self, ext_id: &str) {
+        if self.probe_in_flight.contains_key(ext_id) {
             return;
         }
         let Some(seed) = self.seed_session_id else {
             return;
         };
-        if !self.tabs.iter().any(|t| t.chromium_tab_id.is_none()) {
+        if !self.has_unbound_visible_tab_for(ext_id) {
             return;
         }
+        // Strictly probe using a shimmed session belonging to `ext_id` itself so a low-privilege
+        // extension can never supply or poison another extension's `chromium_tab_id` map.
         let Some(sid) = self
             .sessions
             .iter()
             .find(|(id, s)| {
-                s.shimmed
+                s.ext_id == ext_id
+                    && s.shimmed
                     && !matches!(s.kind, SessionKind::SeedProbe | SessionKind::FileGuardOnly)
                     && !self.failed_probe_sessions.contains(*id)
             })
@@ -938,26 +996,33 @@ impl ExtensionHost {
             return;
         };
         // Bounded candidate window (<= 49 IDs, saturating arithmetic — zero overflow / OOM).
-        let base = self.last_known_session_id.max(seed);
+        let base = self.ext_last_known_session_id.get(ext_id).copied().unwrap_or(0).max(seed);
         let lo = base.saturating_sub(16).max(1);
         let hi = base.saturating_add(32);
         let candidates: Vec<i32> = (lo..=hi).collect();
         let probe_id = self.next_probe_id;
         self.next_probe_id += 1;
-        self.probe_in_flight = Some(ProbeInFlight {
-            probe_id,
-            sid: sid.clone(),
-            sent_at: Instant::now(),
-            candidates: candidates.clone(),
-        });
+        self.probe_in_flight.insert(
+            ext_id.to_owned(),
+            ProbeInFlight {
+                probe_id,
+                sid: sid.clone(),
+                sent_at: Instant::now(),
+                candidates: candidates.clone(),
+            },
+        );
         self.push_to_session(
             &sid,
             &json!({ "kind": "probe_tabs", "probeId": probe_id, "candidates": candidates }),
         );
     }
 
-    fn apply_probed_tabs(&mut self, found: &[Value], allowed_candidates: &[i32]) {
-        let already_used: HashSet<i32> = self.tabs.iter().filter_map(|t| t.chromium_tab_id).collect();
+    fn apply_probed_tabs_for(&mut self, ext_id: &str, found: &[Value], allowed_candidates: &[i32]) {
+        let already_used: HashSet<i32> = self
+            .ext_tab_ids
+            .get(ext_id)
+            .map(|m| m.values().copied().collect())
+            .unwrap_or_default();
         let mut available: Vec<(i32, String)> = found
             .iter()
             .take(64)
@@ -974,62 +1039,90 @@ impl ExtensionHost {
                 Some((id, url))
             })
             .collect();
-        for tab in &mut self.tabs {
-            if tab.chromium_tab_id.is_some() {
+        let map = self.ext_tab_ids.entry(ext_id.to_owned()).or_default();
+        let last_known = self.ext_last_known_session_id.entry(ext_id.to_owned()).or_insert(0);
+        for tab in &self.tabs {
+            if tab.agent_driven || map.contains_key(&tab.engine_tab_id) {
                 continue;
             }
             if let Some(pos) = available.iter().position(|(_, u)| !u.is_empty() && u == &tab.url) {
                 let (cid, _) = available.remove(pos);
-                tab.chromium_tab_id = Some(cid);
-                self.last_known_session_id = self.last_known_session_id.max(cid);
+                map.insert(tab.engine_tab_id, cid);
+                *last_known = (*last_known).max(cid);
             }
         }
-        for tab in &mut self.tabs {
-            if tab.chromium_tab_id.is_some() {
-                continue;
-            }
-            if !available.is_empty() {
-                let (cid, _) = available.remove(0);
-                tab.chromium_tab_id = Some(cid);
-                self.last_known_session_id = self.last_known_session_id.max(cid);
-            }
+        // Only fall back to positional matching when there is unambiguously a single remaining
+        // unbound visible tab and a single remaining candidate ID.
+        let remaining_unbound: Vec<u64> = self
+            .tabs
+            .iter()
+            .filter(|t| !t.agent_driven && !map.contains_key(&t.engine_tab_id))
+            .map(|t| t.engine_tab_id)
+            .collect();
+        if remaining_unbound.len() == 1 && available.len() == 1 {
+            let (cid, _) = available.remove(0);
+            map.insert(remaining_unbound[0], cid);
+            *last_known = (*last_known).max(cid);
         }
-        if let Some(cid) = self.active_chromium_tab_id() {
-            self.broadcast_active_tab(cid);
+        if let Some(cid) = self.active_chromium_tab_id_for(ext_id) {
+            self.broadcast_active_tab_for(ext_id, cid);
         }
     }
 
-    fn reconcile_chromium_tab_id(&mut self, cid: i32, url: &str) {
+    fn reconcile_chromium_tab_id(&mut self, ext_id: &str, cid: i32, url: &str) {
         let Some(seed) = self.seed_session_id else {
             return;
         };
+        let prev_last = self.ext_last_known_session_id.get(ext_id).copied().unwrap_or(0);
         let min_ok = seed.saturating_sub(16).max(1);
-        let max_ok = self.last_known_session_id.max(seed).saturating_add(64);
+        let max_ok = prev_last.max(seed).saturating_add(64);
         if cid < min_ok || cid > max_ok {
             return;
         }
-        if self.tabs.iter().any(|t| t.chromium_tab_id == Some(cid)) {
+        let map = self.ext_tab_ids.entry(ext_id.to_owned()).or_default();
+        if map.values().any(|&v| v == cid) {
             return;
         }
-        if let Some(tab) = self
-            .tabs
-            .iter_mut()
-            .find(|t| t.chromium_tab_id.is_none() && (t.url == url || t.url == "about:blank"))
-        {
-            tab.chromium_tab_id = Some(cid);
-            self.last_known_session_id = self.last_known_session_id.max(cid);
+        if let Some(tab) = self.tabs.iter().find(|t| {
+            !t.agent_driven
+                && !map.contains_key(&t.engine_tab_id)
+                && (t.url == url || t.url == "about:blank")
+        }) {
+            map.insert(tab.engine_tab_id, cid);
+            let last_known = self.ext_last_known_session_id.entry(ext_id.to_owned()).or_insert(0);
+            *last_known = (*last_known).max(cid);
         }
     }
 
-    fn flush_pending_rpcs(&mut self) -> Vec<ExtEffect> {
-        let queued = std::mem::take(&mut self.pending_rpcs);
+    fn flush_pending_rpcs_for(&mut self, ext_id: &str) -> Vec<ExtEffect> {
+        let mut ready = Vec::new();
+        let mut keep = Vec::new();
+        for rpc in std::mem::take(&mut self.pending_rpcs) {
+            if rpc.ext_id == ext_id {
+                ready.push(rpc);
+            } else {
+                keep.push(rpc);
+            }
+        }
+        self.pending_rpcs = keep;
         let mut effects = Vec::new();
-        for rpc in queued {
+        for rpc in ready {
             effects.extend(self.dispatch_rpc(&rpc.session_id, &rpc.ext_id, rpc.req_id, &rpc.name, &rpc.args));
         }
         effects
     }
 }
+
+const IFRAME_LOCKDOWN_JS: &str = r#"(() => {
+  for (const rootName of ["chrome", "browser"]) {
+    let root;
+    try { root = globalThis[rootName]; } catch { continue; }
+    if (!root) continue;
+    for (const api of ["tabs", "windows", "action", "browserAction", "pageAction", "contextMenus", "webNavigation"]) {
+      try { Object.defineProperty(root, api, { value: undefined, configurable: false, enumerable: false, writable: false }); } catch {}
+    }
+  }
+})();"#;
 
 fn push_bounded(vec: &mut Vec<u64>, val: u64) {
     if vec.len() < MAX_METRIC_SAMPLES {

@@ -388,6 +388,9 @@ local function renderInstallReview(env: DialogEnv, view: View, rev: InstallRevie
     local st = env.state
     local hardBlocked = extensions.isHardBlocked(rev.compatibility)
     local access: { string } = (rev.grants and rev.grants.access) or {}
+    local permissions: { string } = (rev.grants and rev.grants.permissions) or {}
+    local extConnect: { string } = (rev.grants and rev.grants.externally_connectable) or {}
+    local webAccessible: { string } = (rev.grants and rev.grants.web_accessible_resources) or {}
     local sites: { string } = rev.sites or {}
     local hasAllSites = false
     for _, item in access do
@@ -397,11 +400,31 @@ local function renderInstallReview(env: DialogEnv, view: View, rev: InstallRevie
         end
     end
 
+    local function hasPerm(list: { string }, name: string): boolean
+        for _, p in list do
+            if p == name then
+                return true
+            end
+        end
+        return false
+    end
+
     local body: { ui.Node } = {}
 
-    if #access > 0 then
+    local accessItems: { string } = {}
+    for _, item in access do
+        table.insert(accessItems, item)
+    end
+    if hasPerm(permissions, "scripting") then
+        table.insert(accessItems, "scripting")
+    end
+    if hasPerm(permissions, "offscreen") then
+        table.insert(accessItems, "offscreen")
+    end
+
+    if #accessItems > 0 then
         local bullets: { ui.Node } = {}
-        for idx, item in access do
+        for idx, item in accessItems do
             table.insert(bullets, ui.text(`•  {accessLabel(i18n, item)}`, BODY, { key = `rev-access-{idx}` }))
         end
         table.insert(body, ui.col({ key = "rev-access-group", w = "full", gap = 4 }, {
@@ -437,9 +460,58 @@ local function renderInstallReview(env: DialogEnv, view: View, rev: InstallRevie
         }))
     end
 
+    if #permissions > 0 then
+        local permLines: { ui.Node } = {}
+        local shown = math.min(#permissions, 10)
+        for i = 1, shown do
+            table.insert(permLines, ui.text(`•  {permissions[i]}`, BODY, { key = `rev-perm-{i}`, dir = "ltr" }))
+        end
+        if #permissions > shown then
+            local rem = #permissions - shown
+            table.insert(permLines, ui.text(i18n:T(if rem == 1 then "review.more.one" else "review.more.other", { count = rem }), MUTED_META, { key = "rev-perm-more" }))
+        end
+        table.insert(body, ui.col({ key = "rev-perms-group", w = "full", gap = 4 }, {
+            ui.text(i18n:T("review.permissions"), STRONG_LINE),
+            ui.col({ w = "full", pl = 6, gap = 2 }, permLines),
+        }))
+    end
+
+    if #extConnect > 0 then
+        local lines: { ui.Node } = {}
+        local shown = math.min(#extConnect, 5)
+        for i = 1, shown do
+            table.insert(lines, ui.text(`•  {extConnect[i]}`, BODY, { key = `rev-extconn-{i}`, dir = "ltr" }))
+        end
+        if #extConnect > shown then
+            local rem = #extConnect - shown
+            table.insert(lines, ui.text(i18n:T(if rem == 1 then "review.more.one" else "review.more.other", { count = rem }), MUTED_META, { key = "rev-extconn-more" }))
+        end
+        table.insert(body, ui.col({ key = "rev-extconn-group", w = "full", gap = 4 }, {
+            ui.text(i18n:T("review.externalConnect"), STRONG_LINE),
+            ui.col({ w = "full", pl = 6, gap = 2 }, lines),
+        }))
+    end
+
+    if #webAccessible > 0 then
+        local lines: { ui.Node } = {}
+        local shown = math.min(#webAccessible, 5)
+        for i = 1, shown do
+            table.insert(lines, ui.text(`•  {webAccessible[i]}`, BODY, { key = `rev-war-{i}`, dir = "ltr" }))
+        end
+        if #webAccessible > shown then
+            local rem = #webAccessible - shown
+            table.insert(lines, ui.text(i18n:T(if rem == 1 then "review.more.one" else "review.more.other", { count = rem }), MUTED_META, { key = "rev-war-more" }))
+        end
+        table.insert(body, ui.col({ key = "rev-war-group", w = "full", gap = 4 }, {
+            ui.text(i18n:T("review.webAccessible"), STRONG_LINE),
+            ui.col({ w = "full", pl = 6, gap = 2 }, lines),
+        }))
+    end
+
     if rev.added ~= nil then
         local addedAccess: { string } = rev.added.access or {}
         local addedHosts: { string } = rev.added.hosts or {}
+        local addedPerms: { string } = rev.added.permissions or {}
         local addedBullets: { ui.Node } = {}
         local mentionsSites = false
         for idx, item in addedAccess do
@@ -449,6 +521,12 @@ local function renderInstallReview(env: DialogEnv, view: View, rev: InstallRevie
             else
                 table.insert(addedBullets, ui.text(`•  {accessLabel(i18n, item)}`, BODY, { key = `rev-add-{idx}` }))
             end
+        end
+        if hasPerm(addedPerms, "scripting") then
+            table.insert(addedBullets, ui.text(`•  {accessLabel(i18n, "scripting")}`, BODY, { key = "rev-add-scripting" }))
+        end
+        if hasPerm(addedPerms, "offscreen") then
+            table.insert(addedBullets, ui.text(`•  {accessLabel(i18n, "offscreen")}`, BODY, { key = "rev-add-offscreen" }))
         end
         if #addedHosts > 0 and not mentionsSites then
             table.insert(addedBullets, ui.text(`•  {i18n:T("review.moreSites")}`, BODY, { key = "rev-add-hosts" }))
@@ -582,9 +660,11 @@ function extensions.renderAddDialog(env: DialogEnv, view: View): ui.Node
     end
 
     if selected ~= nil then
-        local headerRight: ui.Node
+        local headerChildren: { ui.Node } = {
+            ui.text(i18n:T("settings.extensions.browser.title"), SECTION_LABEL),
+        }
         if #st.choices > 1 then
-            headerRight = ui.row({
+            table.insert(headerChildren, ui.row({
                 key = "ext-browser-profile-btn",
                 role = "button",
                 label = i18n:T("settings.extensions.browser.select"),
@@ -603,9 +683,7 @@ function extensions.renderAddDialog(env: DialogEnv, view: View): ui.Node
             }, {
                 ui.text(extensions.choiceLabel(selected), SECTION_LABEL),
                 ui.icon("chevron-down", { size = 14, color = "icon-weak" }),
-            })
-        else
-            headerRight = ui.text(extensions.choiceLabel(selected), BODY_SINGLE)
+            }))
         end
 
         local listItems: { ui.Node } = {}
@@ -659,10 +737,7 @@ function extensions.renderAddDialog(env: DialogEnv, view: View): ui.Node
         end
 
         table.insert(middle, ui.col({ key = "ext-from-browsers", w = "full", gap = 4 }, {
-            ui.row({ w = "full", h = 28, align = "center", justify = "between", gap = 8 }, {
-                ui.text(i18n:T("settings.extensions.browser.title"), SECTION_LABEL),
-                headerRight,
-            }),
+            ui.row({ w = "full", h = 28, align = "center", justify = "between", gap = 8 }, headerChildren),
             ui.col({ w = "full", gap = 0 }, listItems),
         }))
     end

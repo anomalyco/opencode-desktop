@@ -19,11 +19,13 @@
 #![deny(unsafe_code)]
 
 mod cdp;
+pub mod context_menus;
 pub mod integrity;
 pub mod manifest;
 pub mod pipe;
 mod png;
 mod rpc;
+pub mod web_nav;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -118,7 +120,6 @@ pub struct ShimMetrics {
 #[derive(Clone, Debug)]
 pub(super) struct ExtTab {
     pub engine_tab_id: u64,
-    pub chromium_tab_id: Option<i32>,
     pub url: String,
     pub title: String,
     pub loading: bool,
@@ -153,6 +154,8 @@ pub(super) struct ExecutionContextMeta {
 pub(super) struct AttachedSession {
     pub ext_id: String,
     pub kind: SessionKind,
+    pub url: String,
+    pub chromium_tab_id: Option<i32>,
     pub main_frame_id: Option<String>,
     pub last_popup_size: Option<(u32, u32)>,
     pub attach_started: Instant,
@@ -257,15 +260,19 @@ pub struct ExtensionHost {
     pub(super) subscribers: HashMap<String, HashMap<String, HashSet<String>>>,
     pub(super) tabs: Vec<ExtTab>,
     pub(super) actions: HashMap<String, ActionState>,
-    pub(super) context_menus: HashMap<String, Vec<Value>>,
+    pub(super) context_menus: Arc<std::sync::Mutex<context_menus::ExtensionContextMenuCatalog>>,
+    pub(super) web_nav: web_nav::WebNavTracker,
     pub(super) expected_targets: VecDeque<ExpectedTarget>,
     pub(super) seed_session_id: Option<i32>,
     pub(super) seed_probe_started: bool,
     pub(super) seed_eval_id: Option<i64>,
-    pub(super) last_known_session_id: i32,
+    /// Per-extension `engine_tab_id -> chromium_tab_id` map so one low-privilege extension can
+    /// never poison another extension's Chromium tab ID mappings (READER-12 #6).
+    pub(super) ext_tab_ids: HashMap<String, HashMap<u64, i32>>,
+    pub(super) ext_last_known_session_id: HashMap<String, i32>,
     pub(super) next_probe_id: i64,
     pub(super) pending_rpcs: Vec<PendingRpc>,
-    pub(super) probe_in_flight: Option<ProbeInFlight>,
+    pub(super) probe_in_flight: HashMap<String, ProbeInFlight>,
     pub(super) failed_probe_sessions: HashSet<String>,
     pub(super) pending_startup_loads: HashMap<i64, String>,
     pub(super) pending_filter_ids: HashSet<String>,
@@ -291,7 +298,12 @@ impl ExtensionHost {
         inbound_rx: Receiver<PipeInbound>,
         wake_pending: Arc<AtomicBool>,
         stub_dirs_by_id: HashMap<String, PathBuf>,
+        menu_storage_dir: Option<PathBuf>,
     ) -> Self {
+        let catalog = match menu_storage_dir {
+            Some(dir) => context_menus::ExtensionContextMenuCatalog::with_storage_dir(dir),
+            None => context_menus::ExtensionContextMenuCatalog::default(),
+        };
         Self {
             pipe,
             inbound_rx,
@@ -305,15 +317,17 @@ impl ExtensionHost {
             subscribers: HashMap::new(),
             tabs: Vec::new(),
             actions: HashMap::new(),
-            context_menus: HashMap::new(),
+            context_menus: Arc::new(std::sync::Mutex::new(catalog)),
+            web_nav: web_nav::WebNavTracker::default(),
             expected_targets: VecDeque::new(),
             seed_session_id: None,
             seed_probe_started: false,
             seed_eval_id: None,
-            last_known_session_id: 0,
+            ext_tab_ids: HashMap::new(),
+            ext_last_known_session_id: HashMap::new(),
             next_probe_id: 1,
             pending_rpcs: Vec::new(),
-            probe_in_flight: None,
+            probe_in_flight: HashMap::new(),
             failed_probe_sessions: HashSet::new(),
             pending_startup_loads: HashMap::new(),
             pending_filter_ids: HashSet::new(),
@@ -438,7 +452,7 @@ impl ExtensionHost {
 
     pub fn action_snapshot(&self, ext_id: &str) -> Option<ExtensionActionSnapshot> {
         let ext = self.extensions.get(ext_id)?;
-        let active_tid = self.active_chromium_tab_id();
+        let active_tid = self.active_chromium_tab_id_for(ext_id);
         let vals = self.actions.get(ext_id).map(|s| s.for_tab(active_tid)).unwrap_or_default();
         let def_title = ext
             .manifest
@@ -483,7 +497,7 @@ impl ExtensionHost {
         if let Some(popup_url) = snap.popup {
             return vec![ExtEffect::OpenPopup { ext_id: ext_id.to_owned(), url: popup_url }];
         }
-        if let Some(tab) = self.tabs.iter().find(|t| t.active).cloned()
+        if let Some(tab) = self.tabs.iter().find(|t| t.active && !t.agent_driven).cloned()
             && !is_private_url(&tab.url)
             && let Some(ext) = self.extensions.get(ext_id).cloned()
         {
@@ -491,7 +505,7 @@ impl ExtensionHost {
             // (and never reveal another extension's `chrome-extension://` page; `review-rd274.md` §6).
             let reveal_via_active_tab =
                 ext.manifest.has_permission("activeTab") && !is_extension_scheme(&tab.url);
-            let info = self.tab_json(&tab, &ext.manifest, reveal_via_active_tab);
+            let info = self.tab_json(ext_id, &tab, &ext.manifest, reveal_via_active_tab);
             self.emit_event("action.onClicked", vec![info], Some(ext_id));
         }
         Vec::new()
@@ -599,8 +613,24 @@ impl ExtensionHost {
     }
 
     pub fn set_tab_agent_driven(&mut self, engine_tab_id: u64, agent_driven: bool) {
-        if let Some(tab) = self.tabs.iter_mut().find(|t| t.engine_tab_id == engine_tab_id) {
-            tab.agent_driven = agent_driven;
+        let Some(tab) = self.tabs.iter_mut().find(|t| t.engine_tab_id == engine_tab_id) else {
+            return;
+        };
+        let was = tab.agent_driven;
+        tab.agent_driven = agent_driven;
+        if !was && agent_driven {
+            let removed: Vec<(String, i32)> = self
+                .ext_tab_ids
+                .iter_mut()
+                .filter_map(|(ext_id, map)| map.remove(&engine_tab_id).map(|cid| (ext_id.clone(), cid)))
+                .collect();
+            for (ext_id, cid) in removed {
+                self.emit_event(
+                    "tabs.onRemoved",
+                    vec![json!(cid), json!({ "windowId": WINDOW_ID, "isWindowClosing": false })],
+                    Some(&ext_id),
+                );
+            }
         }
     }
 
@@ -619,7 +649,6 @@ impl ExtensionHost {
         }
         self.tabs.push(ExtTab {
             engine_tab_id,
-            chromium_tab_id: None,
             url: url.to_owned(),
             title: String::new(),
             loading: true,
@@ -631,35 +660,54 @@ impl ExtensionHost {
             audible: false,
         });
         let effects = self.maybe_start_seed_probe();
-        self.trigger_tab_id_probe();
+        self.trigger_tab_id_probes_all();
         effects
     }
 
     pub fn on_tab_closed(&mut self, engine_tab_id: u64) {
+        self.web_nav.remove_tab(engine_tab_id);
         if let Some(pos) = self.tabs.iter().position(|t| t.engine_tab_id == engine_tab_id) {
             let tab = self.tabs.remove(pos);
-            if let Some(cid) = tab.chromium_tab_id {
-                self.emit_event(
-                    "tabs.onRemoved",
-                    vec![json!(cid), json!({ "windowId": WINDOW_ID, "isWindowClosing": false })],
-                    None,
-                );
+            let removed: Vec<(String, i32)> = self
+                .ext_tab_ids
+                .iter_mut()
+                .filter_map(|(ext_id, map)| map.remove(&engine_tab_id).map(|cid| (ext_id.clone(), cid)))
+                .collect();
+            if !tab.agent_driven {
+                for (ext_id, cid) in removed {
+                    self.emit_event(
+                        "tabs.onRemoved",
+                        vec![json!(cid), json!({ "windowId": WINDOW_ID, "isWindowClosing": false })],
+                        Some(&ext_id),
+                    );
+                }
             }
         }
     }
 
     pub fn on_tab_focused(&mut self, engine_tab_id: u64) {
-        let mut activated_cid = None;
+        let mut newly_active_visible = false;
         for t in &mut self.tabs {
             let is_this = t.engine_tab_id == engine_tab_id;
-            if is_this && !t.active {
-                activated_cid = t.chromium_tab_id;
+            if is_this && !t.active && !t.agent_driven {
+                newly_active_visible = true;
             }
             t.active = is_this;
         }
-        if let Some(cid) = activated_cid {
-            self.broadcast_active_tab(cid);
-            self.emit_event("tabs.onActivated", vec![json!({ "tabId": cid, "windowId": WINDOW_ID })], None);
+        if newly_active_visible {
+            let pairs: Vec<(String, i32)> = self
+                .ext_tab_ids
+                .iter()
+                .filter_map(|(ext_id, map)| map.get(&engine_tab_id).copied().map(|cid| (ext_id.clone(), cid)))
+                .collect();
+            for (ext_id, cid) in pairs {
+                self.broadcast_active_tab_for(&ext_id, cid);
+                self.emit_event(
+                    "tabs.onActivated",
+                    vec![json!({ "tabId": cid, "windowId": WINDOW_ID })],
+                    Some(&ext_id),
+                );
+            }
         }
     }
 
@@ -671,21 +719,12 @@ impl ExtensionHost {
             return;
         }
         tab.url = url.to_owned();
+        if tab.agent_driven {
+            return;
+        }
         let tab_clone = tab.clone();
-        if let Some(cid) = tab_clone.chromium_tab_id
-            && !is_private_url(url)
-        {
+        if !is_private_url(url) {
             self.emit_tab_updated(&tab_clone, json!({ "url": url }), true);
-            if !is_extension_scheme(url) {
-                self.emit_event(
-                    "webNavigation.onCommitted",
-                    vec![json!({
-                        "tabId": cid, "url": url, "processId": 0, "frameId": 0, "parentFrameId": -1,
-                        "transitionType": "link", "transitionQualifiers": [], "timeStamp": now_ms(),
-                    })],
-                    None,
-                );
-            }
         }
     }
 
@@ -697,8 +736,11 @@ impl ExtensionHost {
             return;
         }
         tab.title = title.to_owned();
+        if tab.agent_driven {
+            return;
+        }
         let tab_clone = tab.clone();
-        if tab_clone.chromium_tab_id.is_some() && !is_private_url(&tab_clone.url) {
+        if !is_private_url(&tab_clone.url) {
             self.emit_tab_updated(&tab_clone, json!({ "title": title }), true);
         }
     }
@@ -711,19 +753,38 @@ impl ExtensionHost {
             return;
         }
         tab.loading = loading;
+        if tab.agent_driven {
+            return;
+        }
         let tab_clone = tab.clone();
-        if let Some(cid) = tab_clone.chromium_tab_id {
-            let status = if loading { "loading" } else { "complete" };
-            self.emit_tab_updated(&tab_clone, json!({ "status": status }), false);
-            if !loading && !is_private_url(&tab_clone.url) && !is_extension_scheme(&tab_clone.url) {
-                self.emit_event(
-                    "webNavigation.onCompleted",
-                    vec![json!({
-                        "tabId": cid, "url": tab_clone.url, "processId": 0, "frameId": 0,
-                        "parentFrameId": -1, "timeStamp": now_ms(),
-                    })],
-                    None,
-                );
+        let status = if loading { "loading" } else { "complete" };
+        self.emit_tab_updated(&tab_clone, json!({ "status": status }), false);
+    }
+
+    /// Processes a CEF frame navigation signal and emits full `chrome.webNavigation` events
+    /// (main frame + subframes) to subscribed extensions (`web-navigation.ts:28-126`).
+    pub fn on_web_navigation(&mut self, sig: web_nav::WebNavSignal) {
+        let tab_id = sig.tab_id;
+        let Some(tab) = self.tabs.iter().find(|t| t.engine_tab_id == tab_id && !t.agent_driven) else {
+            return;
+        };
+        let tab_url = tab.url.clone();
+        let events = self.web_nav.ingest(&tab_url, sig, now_ms());
+        if events.is_empty() {
+            return;
+        }
+        let pairs: Vec<(String, i32)> = self
+            .ext_tab_ids
+            .iter()
+            .filter_map(|(ext_id, map)| map.get(&tab_id).copied().map(|cid| (ext_id.clone(), cid)))
+            .collect();
+        for (ev_name, base_details) in events {
+            for (ext_id, cid) in &pairs {
+                let mut details = base_details.clone();
+                if let Some(obj) = details.as_object_mut() {
+                    obj.insert("tabId".into(), json!(cid));
+                }
+                self.emit_event(ev_name, vec![details], Some(ext_id));
             }
         }
     }
@@ -731,9 +792,9 @@ impl ExtensionHost {
     pub fn finish_tab_create(&mut self, sid: &str, req_id: i64, ext_id: &str, engine_tab_id: u64) {
         if let (Some(ext), Some(tab)) = (
             self.extensions.get(ext_id),
-            self.tabs.iter().find(|t| t.engine_tab_id == engine_tab_id),
+            self.tabs.iter().find(|t| t.engine_tab_id == engine_tab_id && !t.agent_driven),
         ) {
-            let val = self.tab_json(tab, &ext.manifest, false);
+            let val = self.tab_json(ext_id, tab, &ext.manifest, false);
             self.reply_ok(sid, req_id, val);
         } else {
             self.reply_ok(sid, req_id, Value::Null);
@@ -745,16 +806,22 @@ impl ExtensionHost {
     }
 
     fn emit_tab_updated(&mut self, tab: &ExtTab, change: Value, needs_access: bool) {
-        let Some(cid) = tab.chromium_tab_id else {
+        if tab.agent_driven {
             return;
-        };
-        let exts: Vec<(String, ExtensionManifest)> =
-            self.extensions.iter().map(|(id, e)| (id.clone(), e.manifest.clone())).collect();
-        for (ext_id, manifest) in exts {
+        }
+        let exts: Vec<(String, ExtensionManifest, i32)> = self
+            .extensions
+            .iter()
+            .filter_map(|(id, e)| {
+                let cid = self.ext_chromium_tab_id(id, tab.engine_tab_id)?;
+                Some((id.clone(), e.manifest.clone(), cid))
+            })
+            .collect();
+        for (ext_id, manifest, cid) in exts {
             if needs_access && !manifest.reveals_tab(&tab.url) {
                 continue;
             }
-            let info = self.tab_json(tab, &manifest, false);
+            let info = self.tab_json(&ext_id, tab, &manifest, false);
             self.emit_event("tabs.onUpdated", vec![json!(cid), change.clone(), info], Some(&ext_id));
         }
     }
@@ -774,12 +841,14 @@ impl ExtensionHost {
         }
     }
 
-    pub(super) fn broadcast_active_tab(&mut self, cid: i32) {
+    pub(super) fn broadcast_active_tab_for(&mut self, ext_id: &str, cid: i32) {
         let sids: Vec<String> = self
             .sessions
             .iter()
             .filter(|(_, s)| {
-                s.shimmed && !matches!(s.kind, SessionKind::SeedProbe | SessionKind::FileGuardOnly)
+                s.ext_id == ext_id
+                    && s.shimmed
+                    && !matches!(s.kind, SessionKind::SeedProbe | SessionKind::FileGuardOnly)
             })
             .map(|(sid, _)| sid.clone())
             .collect();
@@ -808,8 +877,35 @@ impl ExtensionHost {
         }));
     }
 
-    pub(super) fn active_chromium_tab_id(&self) -> Option<i32> {
-        self.tabs.iter().find(|t| t.active).and_then(|t| t.chromium_tab_id)
+    pub(super) fn visible_tabs(&self) -> impl Iterator<Item = &ExtTab> {
+        self.tabs.iter().filter(|t| !t.agent_driven)
+    }
+
+    pub(super) fn ext_chromium_tab_id(&self, ext_id: &str, engine_tab_id: u64) -> Option<i32> {
+        self.ext_tab_ids.get(ext_id)?.get(&engine_tab_id).copied()
+    }
+
+    pub(super) fn find_visible_tab_by_ext_cid(&self, ext_id: &str, cid: i32) -> Option<&ExtTab> {
+        let map = self.ext_tab_ids.get(ext_id)?;
+        let (&engine_tab_id, _) = map.iter().find(|&(_, &v)| v == cid)?;
+        self.tabs.iter().find(|t| t.engine_tab_id == engine_tab_id && !t.agent_driven)
+    }
+
+    pub(super) fn find_tab_pos_by_ext_cid(&self, ext_id: &str, cid: i32) -> Option<usize> {
+        let map = self.ext_tab_ids.get(ext_id)?;
+        let (&engine_tab_id, _) = map.iter().find(|&(_, &v)| v == cid)?;
+        self.tabs.iter().position(|t| t.engine_tab_id == engine_tab_id)
+    }
+
+    pub(super) fn active_chromium_tab_id_for(&self, ext_id: &str) -> Option<i32> {
+        let tab = self.tabs.iter().find(|t| t.active && !t.agent_driven)?;
+        self.ext_chromium_tab_id(ext_id, tab.engine_tab_id)
+    }
+
+    pub(super) fn has_unbound_visible_tab_for(&self, ext_id: &str) -> bool {
+        let map = self.ext_tab_ids.get(ext_id);
+        self.visible_tabs()
+            .any(|t| map.is_none_or(|m| !m.contains_key(&t.engine_tab_id)))
     }
 
     pub(super) fn register_extension(
@@ -821,10 +917,54 @@ impl ExtensionHost {
         is_unpacked: bool,
         loaded: bool,
     ) {
+        self.context_menus.lock().unwrap().configure_extension(
+            &id,
+            &manifest.name,
+            &manifest.version,
+            manifest.has_permission("contextMenus"),
+        );
         self.extensions.insert(
             id,
             LoadedExt { dir, sha256, manifest, is_unpacked, loaded, boot_count: 0 },
         );
+    }
+
+    pub fn context_menu_catalog(&self) -> Arc<std::sync::Mutex<context_menus::ExtensionContextMenuCatalog>> {
+        self.context_menus.clone()
+    }
+
+    /// Dispatches a user click on a page context-menu extension item (`context-menus.ts:206-233`).
+    pub fn on_context_menu_clicked(
+        &mut self,
+        engine_tab_id: u64,
+        ext_id: &str,
+        item_id: &str,
+        target: &context_menus::MenuTarget,
+    ) {
+        let Some(ext) = self.extensions.get(ext_id).cloned() else {
+            return;
+        };
+        if !ext.manifest.has_permission("contextMenus") {
+            return;
+        }
+        let Some(tab) = self.tabs.iter().find(|t| t.engine_tab_id == engine_tab_id && !t.agent_driven).cloned() else {
+            return;
+        };
+        if is_private_url(&tab.url) || is_extension_scheme(&tab.url) || target.has_private_url() {
+            return;
+        }
+        let Some(info) = self
+            .context_menus
+            .lock()
+            .unwrap()
+            .choose_and_build_click_info(ext_id, item_id, target)
+        else {
+            return;
+        };
+        let reveal_via_active_tab =
+            ext.manifest.has_permission("activeTab") && target.page_url == tab.url && !is_extension_scheme(&tab.url);
+        let tab_info = self.tab_json(ext_id, &tab, &ext.manifest, reveal_via_active_tab);
+        self.emit_event("contextMenus.onClicked", vec![info, tab_info], Some(ext_id));
     }
 
     pub(super) fn allow_open_tab(&mut self, ext_id: &str) -> bool {

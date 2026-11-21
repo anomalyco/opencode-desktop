@@ -85,7 +85,12 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
                 session_view::jump::timeline_scroll(s, p, shown, scroll, has_pills)
             });
             // Previous and Next message read the prompt in view from where it lies (`message_nav`).
-            session_view::jump::over_scroll(s, p, shown, scroll_fade, pill_list, top).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
+            // Scope scrollbar hover to the timeline area above `composer_dock`, matching
+            // `jump::over` (`jump.rs:308`) and official `screen.tsx:446-455` + `session-composer-region.tsx:52-60`
+            // (where the composer dock is a `z-[70]` sibling above `viewRoot`, not inside it).
+            session_view::jump::over_scroll(s, p, shown, scroll_fade, pill_list, top)
+                .scroll_bar_hover(&format!("scroll-{shown}"))
+                .on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
                 s.kernel.slots.get_mut(&crate::message_nav::MESSAGE_NAV).view = Some(r);
                 if let Some((id, row, place_y)) = s.layout.narrow.reading.borrow_mut().take()
                     && s.narrow() && s.active_session_id() == Some(id.as_str()) && !s.timeline_fx.ends.due(&id)
@@ -119,12 +124,7 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
         .child(if s.opening.as_ref().is_some_and(|o| !o.loading()) { timeline.inert() } else { timeline })
         .child(composer_dock(s, p));
     page = page.children(s.diag.debug.then(|| status_bar(s, p, info))).children(displayed.and_then(|shown| timeline_ring(p, shown)));
-    // The thumb follows the hover of the whole session frame including the composer dock,
-    // matching official `thumbHoverTarget={viewRoot()}` (`virtualizer.tsx:1145,1189`).
-    match displayed {
-        Some(shown) => page.scroll_bar_hover(&format!("scroll-{shown}")),
-        None => page,
-    }
+    page
 }
 
 /// The timeline's keyboard focus ring (`session-timeline-visible::after`, opencode#65192): drawn

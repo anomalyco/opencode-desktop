@@ -5,10 +5,16 @@ use std::time::Duration;
 
 use opencode_kit::client::Server;
 use rune::Tx;
-use rune::machine::Attempt;
+use rune::machine::{Attempt, Seq};
 use serde_json::Value;
 
 use crate::{ConnectHost, ConnectJob, ConnectReply, ConnectRequest};
+
+/// Trailing debounce window for SSE `*.updated` bursts (seconds; matches official `settleMs` in
+/// `packages/client/src/solid/data.ts:346-356`).
+const SETTLE_SECS: f64 = 0.25;
+/// Minimum interval between SSE-triggered refetches for the same catalog list (seconds).
+const MIN_GAP_SECS: f64 = 1.0;
 
 /// One of the four server-wide catalogs the composer's pickers read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,6 +33,15 @@ const LISTS: [PickerList; 4] = [
 ];
 
 impl PickerList {
+    fn idx(self) -> usize {
+        match self {
+            Self::Providers => 0,
+            Self::Config => 1,
+            Self::Models => 2,
+            Self::Agents => 3,
+        }
+    }
+
     fn path(self) -> &'static str {
         match self {
             Self::Providers => "/api/provider",
@@ -47,6 +62,25 @@ impl PickerList {
             Self::Agents => host.load_agents(list),
         }
         true
+    }
+}
+
+/// Per-list generation & coalescing state for server-wide picker catalog reads. Each catalog has
+/// its own generation so refreshing one list never drops another list's in-flight reply.
+#[derive(Default)]
+pub struct PickerReads {
+    seq: [Seq; 4],
+    due: [Option<f64>; 4],
+    last_sent: [Option<f64>; 4],
+}
+
+impl PickerReads {
+    fn next(&mut self, list: PickerList) -> Attempt {
+        self.seq[list.idx()].next()
+    }
+
+    fn current(&self, list: PickerList) -> Attempt {
+        self.seq[list.idx()].current()
     }
 }
 
@@ -77,19 +111,65 @@ impl PickerRead {
 /// Applies the launch read's `[providers, config, models, agents]` replies and schedules retries
 /// for any list that didn't arrive.
 pub fn first(host: &mut dyn ConnectHost, replies: [Option<Value>; 4]) {
-    let generation = host.next_picker_reads_generation();
     for (list, reply) in LISTS.into_iter().zip(replies) {
+        let generation = {
+            let pr = host.picker_reads_mut();
+            pr.due[list.idx()] = None;
+            pr.next(list)
+        };
         if !list.apply(host, reply.as_ref()) {
             request(host, generation, list, PickerRead::Retry(0));
         }
     }
 }
 
-/// Refreshes all four picker catalogs against the active server.
+/// Refreshes all four picker catalogs against the active server immediately (reconnect / connect
+/// completion / one-shot empty-model boot).
 pub fn refresh(host: &mut dyn ConnectHost) {
-    let generation = host.next_picker_reads_generation();
     for list in LISTS {
+        let generation = {
+            let pr = host.picker_reads_mut();
+            pr.due[list.idx()] = None;
+            pr.next(list)
+        };
         request(host, generation, list, PickerRead::Fresh);
+    }
+}
+
+/// Coalesces an SSE `*.updated` notification for a single catalog list: multiple events within
+/// [`SETTLE_SECS`] (or within [`MIN_GAP_SECS`] of the prior SSE-triggered read) collapse into one
+/// HTTP GET without bumping generation mid-flight (`packages/client/src/solid/data.ts:346-356,1460-1528`).
+pub fn schedule(host: &mut dyn ConnectHost, list: PickerList, now: f64) {
+    let i = list.idx();
+    let pr = host.picker_reads_mut();
+    let min_at = pr.last_sent[i].map_or(0.0, |last| last + MIN_GAP_SECS);
+    pr.due[i] = Some((now + SETTLE_SECS).max(min_at));
+}
+
+/// Dispatches any coalesced single-list catalog reads whose deadline has elapsed and schedules
+/// the next wake for pending deadlines.
+pub fn poll(host: &mut dyn ConnectHost, now: f64, tx: &mut Tx) {
+    let mut fire = Vec::new();
+    let mut next_due = None::<f64>;
+    {
+        let pr = host.picker_reads_mut();
+        for list in LISTS {
+            let i = list.idx();
+            let Some(due) = pr.due[i] else { continue };
+            if due <= now + 1e-9 {
+                pr.due[i] = None;
+                pr.last_sent[i] = Some(now);
+                fire.push((list, pr.next(list)));
+            } else {
+                next_due = Some(next_due.map_or(due, |best| best.min(due)));
+            }
+        }
+    }
+    for (list, generation) in fire {
+        request(host, generation, list, PickerRead::Fresh);
+    }
+    if let Some(due) = next_due {
+        tx.wake_after(Duration::from_secs_f64((due - now).max(0.0)));
     }
 }
 
@@ -117,7 +197,7 @@ pub(crate) fn apply(
     client_error: bool,
     tx: &mut Tx,
 ) {
-    if host.current_picker_reads_generation() != generation {
+    if host.picker_reads().current(list) != generation {
         return;
     }
     if list.apply(host, value.as_ref()) {

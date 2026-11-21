@@ -174,10 +174,11 @@ impl RowSpec {
                                 .code_wrap_overrides()
                                 .filter(|m| !m.is_empty())
                                 .map(|m| {
-                                    let prefix = format!("{}:", self.key);
+                                    // Its blocks' toggles: `<row>:<n>`, and in a reply with `ui` blocks
+                                    // or videos `<row>-md-<start>:<n>` / `<row>-v-<start>:<n>`.
                                     let mut v: Vec<(String, bool)> = m
                                         .iter()
-                                        .filter(|(k, _)| k.starts_with(&prefix))
+                                        .filter(|(k, _)| k.strip_prefix(self.key.as_str()).is_some_and(|rest| rest.starts_with(':') || rest.starts_with("-md-") || rest.starts_with("-v-")))
                                         .map(|(k, &on)| (k.clone(), on))
                                         .collect();
                                     v.sort();
@@ -186,7 +187,13 @@ impl RowSpec {
                                 .unwrap_or_default();
                             (default, overrides)
                         });
-                        let math_gen = rune_kit::math::may_have_math_fence(body).then(rune_kit::math::generation);
+                        // Display math: the row's own version, which moves only when an equation it
+                        // drew while that was still rendering finishes (`rune_kit::math::collect`).
+                        let has_math = rune_kit::math::may_have_math_fence(body);
+                        if has_math && let Some(m) = s.math_client() {
+                            m.hold();
+                        }
+                        let math_gen = has_math.then(|| rune_kit::math::version(&self.key));
                         // A picture landing (an image, a link's favicon), the viewer opening one, or
                         // the session's directory its paths read from becoming known rebuilds the row.
                         let footer = footer_text(t, *message, *part);
@@ -212,6 +219,9 @@ impl RowSpec {
                         let ver = (&t.session, body.as_str(), *live, pt.to_bits(), fade.to_bits(), look, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, wrap, math_gen, pictures, footer, crate::style::content_w().to_bits(), scale_bits, chips, own, (code, videos)));
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
+                            if has_math {
+                                return rune_kit::math::collect(&self.key, || self.text_row(s, p, t, *message, *part, body, fade, *live, *pt, footer, keep_copy));
+                            }
                             self.text_row(s, p, t, *message, *part, body, fade, *live, *pt, footer, keep_copy)
                         });
                     }
@@ -578,9 +588,11 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
     // a session header the top one is Desktop's `session-header-fade`: a 16 pt linear ramp of
     // the page's colour under the header's bottom edge, whole as soon as rows go under it; the
     // bottom one is Desktop's 20 px smoothstep viewport mask (`packages/app/src/index.css:96-106`).
+    // Without a session header (narrow windows, `virtualizer.tsx:1182-1208`), official has only
+    // the bottom 20 px fade (`end_only`) and never fades rows under the narrow location bar.
     let fade = match header {
         Some(_) => rune::ScrollFade::strength(16.0).linear().full_at(0.01).below_sticky().with_end(rune::ScrollFade::strength(20.0)),
-        None => rune::ScrollFade::strength(20.0),
+        None => rune::ScrollFade::strength(20.0).end_only(),
     };
     let mut scroll = marks.view(col())
         .key(format!("scroll-{id}"))

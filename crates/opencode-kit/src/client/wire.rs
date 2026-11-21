@@ -41,8 +41,15 @@ pub enum Incoming {
     /// A rename, delete or restore this window sent (`client.session.write`'s `data`), and its
     /// error when it failed.
     SessionWrite { data: Value, error: Option<WireError> },
-    /// A session's open permission requests and forms.
-    Pending { session: String, items: Vec<Pending> },
+    /// A session's open permission requests and forms, reported separately so a transient HTTP
+    /// error on one endpoint never prunes cached items, tagged with the fetch's `epoch` so a
+    /// delayed snapshot never drops a request that arrived over SSE while the GET was in flight.
+    Pending {
+        session: String,
+        epoch: u64,
+        permissions: Result<Vec<Pending>, WireError>,
+        forms: Result<Vec<Pending>, WireError>,
+    },
     /// A session this app just created (its first prompt is already sent).
     Created(SessionInfo),
     /// The event stream is back after a drop: anything may have changed in the gap.
@@ -52,6 +59,8 @@ pub enum Incoming {
     Opened,
     /// The sessions running right now (the reply to `Request::Active`).
     Active(Vec<String>),
+    /// `Request::Active` failed; the app keeps its unsettled-turn fallback and retries with backoff.
+    ActiveFailed(WireError),
     /// The server's project list (`/api/project`).
     Projects(Vec<model::Project>),
     /// The folder the server was started in, its default location (the reply to
@@ -90,6 +99,8 @@ pub enum TicketKind {
     Fork,
     /// A queued or pending prompt's steer, move, removal or undo (`Deliver`, `Cancel`).
     Inbox,
+    /// `Write::View`, reporting a session viewed.
+    View,
 }
 
 pub enum Request {
@@ -105,7 +116,7 @@ pub enum Request {
     /// [`Request::Info`] for a session named in a message, which may not exist: replied as
     /// `Incoming::Info`, or `Incoming::LookupMissing` when the server can't give it.
     Lookup(String),
-    Pending(String),
+    Pending { session: String, epoch: u64 },
     /// A session's undelivered items (`Incoming::Inbox`).
     Inbox(String),
     /// Which sessions are running (`/api/session/active`).

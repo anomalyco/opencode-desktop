@@ -128,7 +128,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         .set_name("=Browser:OpenAsync")
         .call(raw)?;
     t.raw_set("OpenAsync", open)?;
-    lazy_signals(lua, vmx, t, "Browser", &["Changed", "Picked", "SiteBack"])
+    lazy_signals(lua, vmx, t, "Browser", &["Changed", "Picked", "SiteBack", "AddressSelectionChanged"])
 }
 
 pub fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {

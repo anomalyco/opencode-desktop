@@ -298,6 +298,7 @@ impl App {
     }
 
     pub(crate) fn sync_browser_openers(&mut self) -> bool {
+        let mut changed = self.sync_browser_strip_tabs();
         if let Some(sid) = self.active_session_id().map(str::to_owned)
             && let Some(active) = self.active_browser_tab_id()
         {
@@ -307,7 +308,58 @@ impl App {
             }
         }
         let browser: &mut super::BrowserPane = &mut self.workspace_panes.browser;
-        browser.openers.sync_unnamed(&browser.host)
+        changed |= browser.openers.sync_unnamed(&browser.host);
+        changed
+    }
+
+    /// `UP-148` (`#65322`): keeps every live open browser tab for the active session present in
+    /// its side-panel strip, restoring any tab the strip lost without an explicit close in exact
+    /// relative order after its predecessor.
+    fn sync_browser_strip_tabs(&mut self) -> bool {
+        let Some(sid) = self.active_session_id().map(str::to_owned) else {
+            return false;
+        };
+        let live_ids: Vec<u64> = {
+            let browser = &self.workspace_panes.browser;
+            let Some(ids) = browser.session_tabs.get(&sid) else {
+                return false;
+            };
+            ids.iter()
+                .copied()
+                .filter(|id| !browser.closing_tabs.contains(id) && browser.host.tab(*id).is_some())
+                .collect()
+        };
+        if live_ids.is_empty() {
+            return false;
+        }
+        let missing: Vec<(u64, Option<u64>)> = {
+            let side = self.kernel.slots.get(&crate::panels::SIDE);
+            let stored = side.sessions.get(&sid).map(|st| &st.tab_state.tabs.all);
+            live_ids
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, &id)| {
+                    let key = panel_key(PLUGIN, &id.to_string());
+                    let present = stored.is_some_and(|all| all.contains(&key));
+                    if present {
+                        None
+                    } else {
+                        let after = idx.checked_sub(1).and_then(|prev| live_ids.get(prev).copied());
+                        Some((id, after))
+                    }
+                })
+                .collect()
+        };
+        if missing.is_empty() {
+            return false;
+        }
+        let st = self.session_side_mut(&sid);
+        for (id, after) in missing {
+            let key = panel_key(PLUGIN, &id.to_string());
+            let after_key = after.map(|prev| panel_key(PLUGIN, &prev.to_string()));
+            st.tab_state.tabs = crate::panels::tabs::append_session_tab(&st.tab_state.tabs, &key, after_key.as_deref());
+        }
+        true
     }
 
     pub fn browser_tab_unnamed(&self, id: u64) -> bool {
@@ -321,6 +373,57 @@ impl App {
         let popups: Vec<_> = self.workspace_panes.browser.host.drain_popup_opens().collect();
         let mut changed = false;
         for popup in popups {
+            if self.workspace_panes.browser.host.popup_tab_id() == Some(popup.opener_tab_id) {
+                let (ext_id, about_tab) = self
+                    .workspace_panes
+                    .browser
+                    .host
+                    .extension_popup()
+                    .map(|p| (p.ext_id.to_owned(), p.about_tab))
+                    .unwrap_or_default();
+                self.workspace_panes.browser.host.close_extension_popup();
+                let own_prefix = format!("chrome-extension://{ext_id}/");
+                let allowed_ext = !ext_id.is_empty() && popup.url.starts_with(&own_prefix);
+                if allowed_ext {
+                    let new_id = self.workspace_panes.browser.host.open_extension_page_tab(&popup.url);
+                    let sid = about_tab
+                        .and_then(|t| self.browser_tab_session(t).map(str::to_owned))
+                        .or_else(|| self.active_session_id().map(str::to_owned));
+                    if let Some(sid) = sid {
+                        if let Some(opener) = about_tab {
+                            self.attach_browser_tab_beside(&sid, new_id, opener, !popup.background);
+                        } else {
+                            self.attach_browser_tab_to_session(Some(&sid), new_id, None, !popup.background);
+                        }
+                    }
+                    changed = true;
+                } else if browser_policy::destination_origin(&popup.url).is_some() {
+                    let sid = about_tab
+                        .and_then(|t| self.browser_tab_session(t).map(str::to_owned))
+                        .or_else(|| self.active_session_id().map(str::to_owned));
+                    if let Some(opener) = about_tab {
+                        let _ = self.open_new_browser_tab_beside(
+                            sid.as_deref(),
+                            &popup.url,
+                            opener,
+                            !popup.background,
+                            browser_pane::ContextKind::Default,
+                            None,
+                        );
+                    } else if let Some(sid) = sid {
+                        let new_id = self.workspace_panes.browser.host.open_tab_with_context(
+                            &popup.url,
+                            Vec::new(),
+                            browser_pane::ContextKind::Default,
+                            false,
+                            false,
+                        );
+                        self.attach_browser_tab_to_session(Some(&sid), new_id, None, !popup.background);
+                    }
+                    changed = true;
+                }
+                continue;
+            }
             let Some((driver, opener_ctx)) = self.browser_context_for_opener(popup.opener_tab_id) else {
                 // Opener closed before drain: refuse rather than downgrading to direct `Private`.
                 continue;

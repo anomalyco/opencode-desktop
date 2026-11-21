@@ -26,6 +26,42 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
                 Ok(())
             })
         })?,
+    )?;
+    // Selects the address-bar inline-completion range (`panel.tsx:255`, backward so caret sits at `focus`).
+    t.raw_set(
+        "SetAddressSelection",
+        lua.create_function(|lua, (_this, anchor, focus): (Table, usize, usize)| {
+            let sc = scope::TabScope::capture(lua);
+            if !sc.is_builtin_browser || sc.tool_sid.is_some() {
+                return Ok(());
+            }
+            crate::plugin_host::editors::set_selection("browser", 0, anchor, focus);
+            let plugin: std::rc::Rc<str> = std::rc::Rc::from("browser");
+            crate::plugin_host::cx::ask(&plugin, crate::plugin_host::cx::Request::Redraw);
+            Ok(())
+        })?,
+    )?;
+    t.raw_set(
+        "AddressSelection",
+        lua.create_function(|lua, _this: Table| {
+            let sc = scope::TabScope::capture(lua);
+            if !sc.is_builtin_browser || sc.tool_sid.is_some() {
+                return Ok(mlua::Value::Nil);
+            }
+            with_app("Browser:AddressSelection", |app| {
+                let (start, end, len, composing, focused) =
+                    crate::plugin_host::editors::selection_in(app, "browser", 0);
+                let pasted = crate::plugin_host::editors::take_pasted("browser", 0);
+                let out = lua.create_table()?;
+                out.raw_set("start", start)?;
+                out.raw_set("end", end)?;
+                out.raw_set("len", len)?;
+                out.raw_set("composing", composing)?;
+                out.raw_set("focused", focused)?;
+                out.raw_set("pasted", pasted)?;
+                Ok(mlua::Value::Table(out))
+            })
+        })?,
     )
 }
 
@@ -133,8 +169,9 @@ pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
             if !sc.is_builtin_browser || sc.tool_sid.is_some() {
                 return Ok(());
             }
+            let shift = with_app("BrowserTab:ReloadFromClick", |app| Ok(app.workspace_panes.browser.shift_held))?;
             later(lua, &this, "BrowserTab:ReloadFromClick", move |s, id, tx| {
-                if tx.mods().shift {
+                if shift || tx.mods().shift {
                     s.workspace_panes.browser.host.reload_ignore_cache(id);
                 } else {
                     s.workspace_panes.browser.host.reload(id);

@@ -6,6 +6,7 @@ use rune::{El, Tx, col, el, row, text};
 
 use super::{Call, directory, field, file_name, files_count, path};
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::{INSTANT, TOOL_CODE, UI, UI_MED, arrow, readable};
 
@@ -52,6 +53,10 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
         .min_w(0.0)
         .role("button")
         .label(opencode_i18n::t!("rune.tool.failed", tool = title))
+        .expanded(open)
+        .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(crate::disclosure::set::<S>(k.clone(), open, id.clone()))
         .child(words)
@@ -61,7 +66,7 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
         line = line.child(row().key("actions").child(action));
     }
     // Its Copy fades in and out over 0.15 s ease (`tool-error-card.css:132-140`).
-    let card = col().key("error-card").w_full().hover_group().hover_motion(crate::style::HOVER_FADE, crate::style::HOVER_FADE).child(line);
+    let card = col().key("error-card").w_full().hover_group_focus().hover_motion(crate::style::HOVER_FADE, crate::style::HOVER_FADE).child(line);
     if !open {
         return card;
     }
@@ -78,10 +83,11 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
         .size(24.0, 24.0)
         .center()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
-        .group_opacity(0.0, 1.0)
         .on_press_tx({
             let copy_key = copy_key.clone();
             move |s: &mut S, tx: &mut Tx| {
@@ -90,6 +96,7 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
             }
         })
         .child(crate::copied::glyph_of(s, &copy_key, 16.0, p.text, &rune_theme_opencode::icons::COPY));
+    let copy = crate::style::hover_reveal(copy);
     // `tool-error-card.css:151-172`: a selection in the content is state-bg-danger under text-base,
     // the window active or not.
     let picked = rune::SelectionStyle::new(p.danger_bg).ink(p.text).inactive(p.danger_bg, Some(p.text));

@@ -66,7 +66,7 @@ local function text(content: string, color: string, extra: { [string]: any }?): 
 end
 
 -- Desktop's `IconButton variant="ghost-muted" size="large"`: 28 square, 16 pt icon.
-local function large(view: View, key: string, icon: string, tip: string, enabled: boolean, press: () -> (), extra: { [string]: any }?): ui.Node
+local function large(view: View, key: string, icon: string, tip: string, enabled: boolean, press: (ev: any?) -> (), extra: { [string]: any }?): ui.Node
     local props: { [string]: any } = {
         key = key,
         icon = icon,
@@ -76,8 +76,8 @@ local function large(view: View, key: string, icon: string, tip: string, enabled
         help = tip,
         helpSide = "top",
         disabled = not enabled,
-        onPress = if enabled then view:Handler(function()
-            press()
+        onPress = if enabled then view:Handler(function(ev: any)
+            press(ev)
         end) else nil,
     }
     if extra then
@@ -235,7 +235,7 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
         end
     end
     local body: { ui.Node } = {}
-    local textAvail = math.max(80, fieldWidth - 44 - (if zoomed then 48 else 0))
+    local textAvail = math.max(16, fieldWidth - 44 - (if zoomed then 48 else 0))
     if bar.editing then
         table.insert(body, ui.field({
             key = "browser-address-input",
@@ -247,19 +247,12 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
             label = env.I18n:T("address.label"),
             grow = 1,
         }))
-        -- Inline completion suffix after what the user typed (`address-machine.ts::completion`).
-        if bar.completion ~= "" and #bar.query <= address.HINT_MAX_LENGTH then
-            table.insert(body, ui.row({ key = "browser-address-completion", pin = { left = 0, top = 0, bottom = 0 }, gap = 0, align = "center" }, {
-                text(bar.query, "text-muted", { opacity = 0 }),
-                text(bar.completion, "text-muted", { truncate = true, shrink = true, minW = 0 }),
-            }))
-        end
     elseif bar.field ~= "" then
         table.insert(body, display(bar.field, textAvail))
     else
         table.insert(body, text(env.I18n:T("address.search"), "text-faint", { truncate = true, shrink = true, minW = 0 }))
     end
-    table.insert(items, ui.box({ key = "browser-address-text", grow = 1, shrink = true, minW = 0, h = "full", align = "center" }, { ui.row({ w = "full", h = "full", align = "center" }, body) }))
+    table.insert(items, ui.box({ key = "browser-address-text", grow = 1, shrink = true, minW = 0, h = "full", clip = true, align = "center" }, { ui.row({ w = "full", h = "full", clip = true, align = "center" }, body) }))
     -- Any zoom but 100% stays in sight; a click resets it.
     if zoomed then
         table.insert(items, ui.row({
@@ -333,9 +326,11 @@ local function bar(env: Env, view: View, tab: BrowserTab, state: address.View, w
             end),
         }, { ui.loader({ size = 16 }) })
     else
-        reload = large(view, "browser-reload", "outline-rotate-clockwise", env.I18n:T("action.reload"), page ~= "", function()
+        reload = large(view, "browser-reload", "outline-rotate-clockwise", env.I18n:T("action.reload"), page ~= "", function(ev: any?)
             local tAny = tab :: any
-            if type(tAny.ReloadFromClick) == "function" then
+            if type(ev) == "table" and ev.shift == true and type(tAny.ReloadIgnoreCache) == "function" then
+                tAny:ReloadIgnoreCache()
+            elseif type(tAny.ReloadFromClick) == "function" then
                 tAny:ReloadFromClick()
             else
                 tab:Reload()
@@ -590,7 +585,7 @@ local function omniboxRow(
     local textW = math.max(0, width - 16 - 16 - 8 - 28)
     -- Render IDN hosts as punycode (`xn--...`) in omnibox suggestions to prevent homograph spoofing.
     local shownUrl = (string.gsub(history.bare(page.url), "^([^/?#]+)/$", "%1"))
-    local web = hostDisplay.webParts(page.url)
+    local web = hostDisplay.parts(page.url)
     if web ~= nil then
         local hostBare = string.gsub(web.host, "^www%.", "")
         local restClean = if web.rest == "/" then "" else web.rest

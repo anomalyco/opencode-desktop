@@ -2,6 +2,7 @@
 //! `<Dialog size="large" fit>` on `bg-base` with `--v2-elevation-overlay` and 12 pt corners.
 
 use opencode_i18n::t;
+use opencode_ui::focus::FocusExt as _;
 use opencode_ui::keymap::{Bind, keycaps};
 use opencode_ui::widgets::DialogSize;
 use rune::{Color, Cx, Direction, El, PointerEvent, Span, Spring, TextStyle, Transition, Tx, col, el, icon, row, text};
@@ -85,7 +86,7 @@ pub fn view<H: ProjectSwitcherHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> [El
         let after_actions = idx > 0 && matches!(r.kind, RowKind::Worktree { main: false, .. }) && !matches!(list_rows[idx - 1].kind, RowKind::Worktree { main: false, .. });
         if idx > 0 && (r.kind == RowKind::Add || after_actions) {
             // `new-session-location-action-divider`: a 1 pt rule at half its height, 2 above and below.
-            list = list.child(col().key(format!("psw-divider-{idx}")).h(1.0).my(2.0).mx(-6.0).py(0.25).child(el().w_full().h(0.5).fill(p.border_muted)));
+            list = list.child(rune::hairline(p.border).key(format!("psw-divider-{idx}")).my(2.0).mx(-6.0));
             content_h += 9.0;
         }
         let checked = current.is_some_and(|dir| matches!(&r.kind, RowKind::Worktree { directory, .. } if same_dir(directory, dir)));
@@ -125,6 +126,8 @@ fn search_back_shell(p: &Pal) -> El {
         .mx(-4.0)
         .center()
         .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_inset(p)
         .hover(p.hover)
         .child(icon(&ic::ARROW_LEFT, 16.0).color(p.icon_muted).mirror_in_rtl())
 }
@@ -167,6 +170,8 @@ fn step_back_shell(p: &Pal, title: &'static str) -> El {
         .role("button")
         .label_static(t!("session.new.location.back"))
         .radius(2.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_inset(p)
         .child(text(title).font(GROUP_TITLE).color(p.faint))
 }
 
@@ -204,7 +209,7 @@ fn build_dialog_card(p: &Pal, placeholder: &'static str, w: f32, total_h: f32, s
         .motion(Spring::NONE)
         .child(col().key("project-switcher-search").w_full().pt(6.0).px(6.0).child(search))
         // A 1 pt rule drawn at half its height (`scaleY(0.5)`), 6 under the field and 2 above the rows.
-        .child(col().key("project-switcher-divider").w_full().h(1.0).mt(6.0).mb(2.0).py(0.25).child(el().w_full().h(0.5).fill(p.border)))
+        .child(rune::hairline(p.border).key("project-switcher-divider").w_full().mt(6.0).mb(2.0))
         .child(scroll)
 }
 
@@ -304,6 +309,7 @@ fn row_shell(p: &Pal, r: &SwitcherRow, active: bool, main: El) -> El {
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
         .transition(Transition::none())
         .motion(Spring::NONE)
         .fill(if active { p.hover } else { Color::TRANSPARENT })
@@ -318,6 +324,8 @@ fn drill_shell(p: &Pal, key: &str, label: &str) -> El {
         .mx(-2.0)
         .radius(4.0)
         .center()
+        .cursor(rune::Cursor::Pointer)
+        .focus_inset(p)
         .hover_group()
         .hover(p.hover)
         .child(icon(&ic::CHEVRON_RIGHT, 16.0).mirror_in_rtl().color(p.icon_faint).group_color(p.icon))

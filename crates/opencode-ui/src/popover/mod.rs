@@ -177,16 +177,16 @@ pub fn search_row(p: &Pal, key: &str, field: El, trailing: Vec<El>) -> El {
         .children((!trailing.is_empty()).then(|| row().key("search-trailing").gap(4.0).center_y().children(trailing)));
     col().key(key.to_owned()).w_full().pt(LIST.inset).gap(LIST.inset)
         .child(row().w_full().px(LIST.inset).child(field))
-        // A 1 pt box drawn at half its height (`transform: scaleY(0.5)`), so the list starts
-        // a whole point under it.
-        .child(col().key("search-rule").w_full().h(1.0).pt(0.25).child(divider(p, "search-divider")))
+        // A 1 pt box drawn at half its height (`transform: scaleY(0.5)`), `border-base`
+        // (`select-dialog.css:54-58`).
+        .child(rune::hairline(p.border).key("search-rule").w_full())
 }
 
 /// A 24 pt `ghost-muted` icon button at the search row's end (`icon-button.css`): a muted 14 pt
 /// icon on the hover and pressed overlays, its name in a tooltip.
 pub fn search_button<S: 'static>(p: &Pal, key: &str, glyph: &'static rune::Icon, label: &str, press: impl Fn(&mut S, &mut Tx) + 'static) -> El {
     row().key(key.to_owned()).role("button").label(label.to_owned()).help(label.to_owned())
-        .size(24.0, 24.0).center().radius(6.0).hover(p.hover).press(p.pressed)
+        .size(24.0, 24.0).center().radius(6.0).cursor(rune::Cursor::Pointer).hover(p.hover).press(p.pressed)
         .on_press_tx(press)
         .child(icon(glyph, 14.0).color(p.icon_muted))
 }
@@ -272,10 +272,11 @@ pub fn option_tx<S: 'static>(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut S,
         .radius(look.row_radius)
         .fill(lit(p, o.active && !o.slides && !o.disabled));
     let r = if o.disabled {
-        // `[data-component="menu-v2-item"][data-disabled]` (`menu.css:154-157`): fades the whole row to 0.5.
+        // `[data-component="menu-v2-item"][data-disabled]` (`menu.css:157-160`): fades the whole row to 0.5.
         r.disabled(true).opacity(0.5)
     } else {
-        r.press(p.pressed)
+        r.cursor(rune::Cursor::Pointer)
+            .press(p.pressed)
             // Not `on_hover`: its commit would animate the highlight's fill from row to row.
             .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| {
                 if inside {

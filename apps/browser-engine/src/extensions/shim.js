@@ -6,12 +6,174 @@
 // Keeps all working native Chromium APIs (declarativeNetRequest, storage, scripting, alarms,
 // offscreen, runtime, tabs.sendMessage, tabs.connect, webRequest, cookies) native!
 (() => {
+  const LOCKDOWN_APIS = ["tabs", "windows", "action", "browserAction", "pageAction", "contextMenus", "webNavigation"];
+  const neutralizeChrome = (win) => {
+    if (!win) return;
+    for (const rootName of ["chrome", "browser"]) {
+      let root;
+      try { root = win[rootName]; } catch { continue; }
+      if (!root) continue;
+      for (const api of LOCKDOWN_APIS) {
+        try {
+          Object.defineProperty(root, api, { value: undefined, configurable: false, enumerable: false, writable: false });
+        } catch {}
+      }
+    }
+  };
+  const sweepFrames = (win) => {
+    if (!win) return;
+    let len = 0;
+    try { len = win.length | 0; } catch { return; }
+    for (let i = 0; i < len; i++) {
+      let cw;
+      try { cw = win[i]; } catch { continue; }
+      if (cw && cw !== globalThis && !cw.__ocExtInstalled) {
+        neutralizeChrome(cw);
+        sweepFrames(cw);
+      }
+    }
+  };
+
+  const isSubframe = Boolean(globalThis.window && globalThis.top && globalThis.window !== globalThis.top);
+  if (globalThis.location) {
+    const href = String(globalThis.location.href || "");
+    const origin = String(globalThis.location.origin || "");
+    // Neutralize chrome.tabs/windows/etc. in ANY child subframe (about:blank, about:srcdoc,
+    // same-origin iframe, <object>, <embed>) instead of leaving native APIs reachable (READER-12 C2).
+    if (isSubframe || href === "about:blank" || href === "about:srcdoc" || origin === "null") {
+      neutralizeChrome(globalThis);
+      sweepFrames(globalThis);
+      return "NEUTRALIZED";
+    }
+    if (!origin.startsWith("chrome-extension://")) {
+      return "DENIED";
+    }
+  }
+  // Must check `getManifest` BEFORE matching `chrome.runtime.id`: service workers' initial
+  // `Runtime.executionContextCreated` fires before Chromium attaches `chrome.runtime`, so
+  // returning `"WAIT"` keeps `cdp.rs` attached until `scriptFirstStatement` rather than detaching.
   if (!globalThis.chrome?.runtime?.getManifest) return "WAIT";
-  if (globalThis.location && globalThis.location.origin !== "chrome-extension://" + chrome.runtime.id) {
-    return "DENIED";
+  if (globalThis.location) {
+    const extId = globalThis.chrome?.runtime?.id;
+    if (!extId || String(globalThis.location.origin || "") !== "chrome-extension://" + extId) {
+      return "DENIED";
+    }
   }
   if (globalThis.__ocExtInstalled) return "ALREADY";
   globalThis.__ocExtInstalled = true;
+
+  // Harden synchronous child frame creation (`about:blank`, `srcdoc`, `<object>`, `<embed>`,
+  // `innerHTML`, `insertAdjacentHTML`, `document.write`/`open`, `window[0]`, `window.open`).
+  if (typeof globalThis.window !== "undefined") {
+    const patchAccessor = (proto, prop, after) => {
+      if (!proto) return;
+      const desc = Object.getOwnPropertyDescriptor(proto, prop);
+      if (!desc) return;
+      try {
+        Object.defineProperty(proto, prop, {
+          configurable: false,
+          enumerable: desc.enumerable,
+          get: desc.get
+            ? function () {
+                const v = desc.get.call(this);
+                after(v, this);
+                return v;
+              }
+            : undefined,
+          set: desc.set
+            ? function (val) {
+                const r = desc.set.call(this, val);
+                after(val, this);
+                return r;
+              }
+            : undefined,
+        });
+      } catch {}
+    };
+    const patchMethod = (proto, method, after) => {
+      if (!proto) return;
+      const orig = proto[method];
+      if (typeof orig !== "function") return;
+      try {
+        Object.defineProperty(proto, method, {
+          configurable: false,
+          writable: false,
+          value: function (...a) {
+            const res = orig.apply(this, a);
+            after(res, this, a);
+            return res;
+          },
+        });
+      } catch {}
+    };
+    for (const ctor of [
+      globalThis.HTMLIFrameElement,
+      globalThis.HTMLFrameElement,
+      globalThis.HTMLObjectElement,
+      globalThis.HTMLEmbedElement,
+    ]) {
+      patchAccessor(ctor?.prototype, "contentWindow", (cw) => {
+        try {
+          if (cw && cw !== globalThis && !cw.__ocExtInstalled) neutralizeChrome(cw);
+        } catch {}
+      });
+      patchAccessor(ctor?.prototype, "contentDocument", (doc) => {
+        try {
+          const cw = doc?.defaultView;
+          if (cw && cw !== globalThis && !cw.__ocExtInstalled) neutralizeChrome(cw);
+        } catch {}
+      });
+      patchMethod(ctor?.prototype, "getSVGDocument", (doc) => {
+        try {
+          const cw = doc?.defaultView;
+          if (cw && cw !== globalThis && !cw.__ocExtInstalled) neutralizeChrome(cw);
+        } catch {}
+      });
+    }
+    const sweepAll = () => sweepFrames(globalThis);
+    for (const m of ["appendChild", "insertBefore", "replaceChild"]) {
+      patchMethod(globalThis.Node?.prototype, m, sweepAll);
+    }
+    for (const m of ["insertNode", "surroundContents"]) {
+      patchMethod(globalThis.Range?.prototype, m, sweepAll);
+    }
+    for (const m of [
+      "append",
+      "prepend",
+      "after",
+      "before",
+      "replaceWith",
+      "replaceChildren",
+      "insertAdjacentElement",
+      "insertAdjacentHTML",
+      "setHTMLUnsafe",
+    ]) {
+      patchMethod(globalThis.Element?.prototype, m, sweepAll);
+    }
+    for (const m of ["append", "prepend", "replaceChildren", "setHTMLUnsafe"]) {
+      patchMethod(globalThis.ShadowRoot?.prototype, m, sweepAll);
+    }
+    for (const m of ["append", "prepend", "replaceChildren"]) {
+      patchMethod(globalThis.Document?.prototype, m, sweepAll);
+    }
+    patchAccessor(globalThis.Element?.prototype, "innerHTML", sweepAll);
+    patchAccessor(globalThis.Element?.prototype, "outerHTML", sweepAll);
+    patchAccessor(globalThis.ShadowRoot?.prototype, "innerHTML", sweepAll);
+    for (const m of ["write", "writeln", "open"]) {
+      patchMethod(globalThis.Document?.prototype, m, (_res, doc) => {
+        try {
+          const cw = doc?.defaultView;
+          if (cw && cw !== globalThis && !cw.__ocExtInstalled) neutralizeChrome(cw);
+        } catch {}
+        sweepFrames(globalThis);
+      });
+    }
+    patchMethod(globalThis.Window?.prototype || globalThis, "open", (w) => {
+      try {
+        if (w && w !== globalThis && !w.__ocExtInstalled) neutralizeChrome(w);
+      } catch {}
+    });
+  }
 
   const isPopup = __IS_POPUP__;
   const manifest = chrome.runtime.getManifest();
@@ -123,6 +285,24 @@
     return typeof val === "function" ? undefined : val;
   }
 
+  function makeLocalEvent() {
+    const set = new Set();
+    return {
+      addListener(fn) {
+        if (typeof fn === "function") set.add(fn);
+      },
+      removeListener(fn) {
+        set.delete(fn);
+      },
+      hasListener(fn) {
+        return set.has(fn);
+      },
+      hasListeners() {
+        return set.size > 0;
+      },
+    };
+  }
+
   function makeEvent(name) {
     return {
       addListener(fn) {
@@ -157,7 +337,9 @@
       }
       const syncId = isSyncCreate ? args[0]?.id : undefined;
 
-      const promise = invoke(name, clean(args));
+      const promise = invoke(name, clean(args)).then((value) =>
+        name === "tabs.getCurrent" && value === null ? undefined : value,
+      );
       if (!cb) return isSyncCreate ? syncId : promise;
 
       promise.then(
@@ -272,7 +454,12 @@
   const NAMESPACES = [
     {
       path: "tabs",
-      methods: ["query", "get", "getCurrent", "create", "update", "remove", "reload", "highlight"],
+      methods: [
+        "query", "get", "getCurrent", "create", "update", "remove", "reload", "highlight",
+        "goBack", "goForward", "setZoom", "getZoom", "setZoomSettings", "getZoomSettings",
+        "captureVisibleTab", "duplicate", "move", "discard", "group", "ungroup",
+        "detectLanguage", "executeScript", "insertCSS", "removeCSS",
+      ],
       events: ["onCreated", "onUpdated", "onActivated", "onRemoved", "onHighlighted", "onReplaced", "onMoved"],
       constants: { TAB_ID_NONE: -1, TAB_INDEX_NONE: -1 },
     },
@@ -347,11 +534,67 @@
       permissions: ["sidePanel"],
       methods: ["setOptions", "getOptions", "setPanelBehavior", "getPanelBehavior", "open", "close"],
       events: ["onOpened", "onClosed"],
+      stubEvents: true,
     },
     {
       path: "fontSettings",
       permissions: ["fontSettings"],
       methods: ["getFontList", "getFont", "setFont", "clearFont"],
+    },
+    {
+      path: "history",
+      permissions: ["history"],
+      methods: ["search", "getVisits", "addUrl", "deleteUrl", "deleteRange", "deleteAll"],
+      events: ["onVisited", "onVisitRemoved"],
+      stubEvents: true,
+    },
+    {
+      path: "bookmarks",
+      permissions: ["bookmarks"],
+      methods: [
+        "get", "getChildren", "getRecent", "getTree", "getSubTree", "search",
+        "create", "move", "update", "remove", "removeTree",
+      ],
+      events: [
+        "onCreated", "onRemoved", "onChanged", "onMoved",
+        "onChildrenReordered", "onImportBegan", "onImportEnded",
+      ],
+      stubEvents: true,
+    },
+    {
+      path: "sessions",
+      permissions: ["sessions"],
+      methods: ["getRecentlyClosed", "getDevices", "restore"],
+      events: ["onChanged"],
+      constants: { MAX_SESSION_RESULTS: 25 },
+      stubEvents: true,
+    },
+    {
+      path: "search",
+      permissions: ["search"],
+      methods: ["query"],
+    },
+    {
+      path: "downloads",
+      permissions: ["downloads"],
+      methods: [
+        "download", "search", "pause", "resume", "cancel", "getFileIcon",
+        "open", "show", "showDefaultFolder", "erase", "removeFile",
+        "acceptDanger", "setUiOptions",
+      ],
+      events: ["onCreated", "onErased", "onChanged", "onDeterminingFilename"],
+      stubEvents: true,
+    },
+    {
+      path: "identity",
+      permissions: ["identity"],
+      methods: [
+        "getAuthToken", "getProfileUserInfo", "getAccounts",
+        "removeCachedAuthToken", "clearAllCachedAuthTokens",
+        "launchWebAuthFlow", "getRedirectURL",
+      ],
+      events: ["onSignInChanged"],
+      stubEvents: true,
     },
     {
       path: "commands",
@@ -378,7 +621,7 @@
     }
     const eventObjs = {};
     for (const ev of ns.events || []) {
-      eventObjs[ev] = makeEvent(`${ns.path}.${ev}`);
+      eventObjs[ev] = ns.stubEvents ? makeLocalEvent() : makeEvent(`${ns.path}.${ev}`);
     }
 
     const targets = new Set();
@@ -398,28 +641,48 @@
       targets.add(cur);
     }
 
+    const nativeAllow = ns.path === "tabs" ? new Set(["sendMessage", "connect"]) : null;
     for (const target of targets) {
       for (const [k, v] of Object.entries(members)) def(target, k, v);
       for (const [k, v] of Object.entries(eventObjs)) def(target, k, v);
+      // Sweep any remaining native methods on `chrome.tabs` / `chrome.windows` so newly added
+      // Chromium methods cannot bypass our RPC/agent_driven guards (READER-12 C2).
+      if (ns.path === "tabs" || ns.path === "windows") {
+        for (const prop of Object.getOwnPropertyNames(target)) {
+          if (Object.prototype.hasOwnProperty.call(members, prop)) continue;
+          if (Object.prototype.hasOwnProperty.call(eventObjs, prop)) continue;
+          if (nativeAllow?.has(prop)) continue;
+          let curVal;
+          try { curVal = target[prop]; } catch { continue; }
+          if (typeof curVal === "function") {
+            def(target, prop, makeMethod(`${ns.path}.${prop}`, false));
+          }
+        }
+      }
     }
   }
 
-  // Also stub privacy.* settings if "privacy" is declared (Bitwarden / password managers).
+  // Stub all 16 `privacy.*` settings when `"privacy"` is declared (`stubs.ts:6-23`).
   if (declared.has("privacy")) {
-    const PRIV = {
-      "privacy.network.networkPredictionEnabled": true,
-      "privacy.network.webRTCIPHandlingPolicy": "default",
-      "privacy.services.autofillAddressEnabled": true,
-      "privacy.services.autofillCreditCardEnabled": true,
-      "privacy.services.autofillEnabled": true,
-      "privacy.services.passwordSavingEnabled": true,
-      "privacy.services.safeBrowsingEnabled": true,
-      "privacy.websites.hyperlinkAuditingEnabled": true,
-      "privacy.websites.referrersEnabled": true,
-      "privacy.websites.thirdPartyCookiesAllowed": true,
-      "privacy.websites.doNotTrackEnabled": false,
-    };
-    for (const [fullPath, defaultVal] of Object.entries(PRIV)) {
+    const PRIV = [
+      "privacy.network.networkPredictionEnabled",
+      "privacy.network.webRTCIPHandlingPolicy",
+      "privacy.services.alternateErrorPagesEnabled",
+      "privacy.services.autofillAddressEnabled",
+      "privacy.services.autofillCreditCardEnabled",
+      "privacy.services.autofillEnabled",
+      "privacy.services.passwordSavingEnabled",
+      "privacy.services.safeBrowsingEnabled",
+      "privacy.services.searchSuggestEnabled",
+      "privacy.services.spellingServiceEnabled",
+      "privacy.services.translationServiceEnabled",
+      "privacy.websites.hyperlinkAuditingEnabled",
+      "privacy.websites.referrersEnabled",
+      "privacy.websites.thirdPartyCookiesAllowed",
+      "privacy.websites.doNotTrackEnabled",
+      "privacy.websites.protectedContentEnabled",
+    ];
+    for (const fullPath of PRIV) {
       const segs = fullPath.split(".");
       for (const root of roots) {
         let cur = root;
@@ -430,7 +693,7 @@
         def(cur, "get", makeMethod(`${fullPath}.get`, false));
         def(cur, "set", makeMethod(`${fullPath}.set`, false));
         def(cur, "clear", makeMethod(`${fullPath}.clear`, false));
-        def(cur, "onChange", makeEvent(`${fullPath}.onChange`));
+        def(cur, "onChange", makeLocalEvent());
       }
     }
   }
@@ -463,9 +726,20 @@
     window.addEventListener("load", reportSize);
   }
 
-  // Expose native getCurrent once for seed probe pages if needed.
+  // Expose native getCurrent once for seed probe pages, and bind non-popup extension pages to
+  // their own Chromium tab ID so `chrome.tabs.getCurrent()` matches official `tabs.ts:345-349`.
   if (nativeTabsGetCurrent) {
     globalThis.__ocNativeGetCurrent = nativeTabsGetCurrent;
+    if (typeof globalThis.window !== "undefined" && !isPopup) {
+      Promise.resolve()
+        .then(() => nativeTabsGetCurrent())
+        .then((t) => {
+          if (t && typeof t.id === "number" && t.id > 0) {
+            sendRaw({ op: "self_tab", id: t.id });
+          }
+        })
+        .catch(() => {});
+    }
   }
 
   sendRaw({ op: "shim_ready" });

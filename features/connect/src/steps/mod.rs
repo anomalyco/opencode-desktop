@@ -109,17 +109,19 @@ pub fn body<H: ConnectHost + 'static>(s: &H, p: &Pal, frame: Frame) -> El {
     let d = &open.dialog;
     let Some(provider) = d.provider.as_ref() else { return col() };
     let console = provider.id == CONSOLE;
-    let content = match dialog::body(d) {
+    let kind = dialog::body(d);
+    let is_methods = matches!(kind, Body::Screen(Screen::Methods));
+    let content = match kind {
         Body::Models => return models::view(s, p, &provider.id),
         Body::Accounts => accounts::view(s, p),
         Body::Claude { checking, can_check, timed_out } => claude(s, p, checking, can_check, timed_out),
         Body::NoModels { pending, refreshing } => no_models::<H>(p, pending, refreshing),
-        Body::ConsoleSignIn { copied } => col().px(12.0).child(console_sign_in(s, p, copied)),
-        Body::Screen(Screen::Busy) => col().px(12.0).child(ui::status_row(p, "connect-busy", opencode_i18n::t!("provider.connect.status.inProgress"))),
-        Body::Screen(Screen::EnvironmentOnly) => col().px(12.0).child(text(opencode_i18n::t!("dialog.provider.environmentOnly")).font(BODY).color(p.muted)),
+        Body::ConsoleSignIn { copied } => col().px(8.0).child(console_sign_in(s, p, copied)),
+        Body::Screen(Screen::Busy) => col().px(8.0).child(ui::status_row(p, "connect-busy", opencode_i18n::t!("provider.connect.status.inProgress"))),
+        Body::Screen(Screen::EnvironmentOnly) => col().px(8.0).child(text(opencode_i18n::t!("dialog.provider.environmentOnly")).font(BODY).color(p.muted)),
         Body::Screen(Screen::Methods) => methods(s, p),
         Body::Screen(Screen::Form) => form::view(s, p),
-        Body::Screen(Screen::Failed) => col().px(12.0).child(failed(s, p, console)),
+        Body::Screen(Screen::Failed) => col().px(8.0).child(failed(s, p, console)),
         Body::Screen(Screen::Command) => auth::command(s, p),
         Body::Screen(Screen::Key) => auth::key(s, p, console),
         Body::Screen(Screen::Code) => auth::code(s, p),
@@ -128,11 +130,17 @@ pub fn body<H: ConnectHost + 'static>(s: &H, p: &Pal, frame: Frame) -> El {
     };
     // Every step fits its content and scrolls in it past the dialog's height
     // (`provider-connect-content`: `flex min-h-0 flex-1 flex-col overflow-y-auto`, `dialog.tsx`),
-    // with a plain `overflow-y-auto` box's bar.
+    // with a plain `overflow-y-auto` box's bar and `pb-2` for non-methods provider steps.
     let body = col().w_full().child(content.w_full());
-    let pad = if console && frame != Frame::Accounts { 16.0 } else { 0.0 };
+    let pad = if console && frame != Frame::Accounts {
+        16.0
+    } else if frame == Frame::Provider && !is_methods {
+        8.0
+    } else {
+        0.0
+    };
     let inner = opencode_ui::scroller::scroller("connect-content").build::<H>(p, col().w_full().shrink().min_h(0.0).pb(pad), body);
-    let (px, pb) = if frame == Frame::Accounts { (6.0, 6.0) } else { (8.0, if console { 0.0 } else { 8.0 }) };
+    let (px, pb) = if frame == Frame::Accounts { (8.0, 8.0) } else { (8.0, if console { 0.0 } else { 8.0 }) };
     col().key("connect-body").w_full().grow(1.0).shrink().min_h(0.0).px(px).pb(pb).child(inner)
 }
 
@@ -186,7 +194,7 @@ fn failed<H: ConnectHost + 'static>(s: &H, p: &Pal, console: bool) -> El {
     } else {
         opencode_i18n::t!("common.retry")
     };
-    let retry = ui::button(retry_label, ButtonVariant::Contrast)
+    let retry = ui::button(retry_label, ButtonVariant::Submit)
         .on_press_tx(|s: &mut H, tx: &mut Tx| input(s, Input::Retry, tx))
         .build(kit(p))
         .key("connect-retry");
@@ -289,7 +297,7 @@ fn no_models<H: ConnectHost + 'static>(p: &Pal, pending: bool, refreshing: bool)
             .on_press_tx(|s: &mut H, tx: &mut Tx| open_url(s, "https://opencode.ai/console", tx))
             .build(kit(p))
     });
-    let refresh = ui::button(opencode_i18n::t!("provider.connect.console.refresh"), ButtonVariant::Contrast)
+    let refresh = ui::button(opencode_i18n::t!("provider.connect.console.refresh"), ButtonVariant::Submit)
         .disabled(refreshing)
         .on_press_tx(|s: &mut H, tx: &mut Tx| input(s, Input::Refresh, tx))
         .build(kit(p))
@@ -307,7 +315,7 @@ fn build_no_models_layout(p: &Pal, pending: bool, open_again: Option<El>, refres
     col()
         .key("connect-no-models")
         .role("status")
-        .px(12.0)
+        .px(8.0)
         .gap(20.0)
         .child(
             col()
@@ -332,8 +340,7 @@ fn claude<H: ConnectHost + 'static>(s: &H, p: &Pal, checking: bool, can_check: b
         .or_else(|| timed_out.then(|| opencode_i18n::t!("provider.connect.claudeAgent.timeout").to_owned()));
     let mut e = col()
         .key("claude-agent-setup")
-        .px(12.0)
-        .pb(8.0)
+        .px(8.0)
         .gap(20.0)
         .child(step_text(p, opencode_i18n::t!("provider.connect.claudeAgent.description").into()));
     if let Some(w) = words {
@@ -365,7 +372,7 @@ fn claude<H: ConnectHost + 'static>(s: &H, p: &Pal, checking: bool, can_check: b
         } else {
             opencode_i18n::t!("provider.connect.claudeAgent.connect")
         };
-        ui::button(submit_label, ButtonVariant::Contrast)
+        ui::button(submit_label, ButtonVariant::Submit)
             .disabled(!can_check)
             .on_press_tx(|s: &mut H, tx: &mut Tx| trigger_claude_check(s, tx))
             .build(kit(p))

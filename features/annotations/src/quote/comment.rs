@@ -361,7 +361,7 @@ pub fn field_step(seq: &mut Seq, f: &mut Field, event: FieldEvent) -> (Effects<F
             }
             let alternate = modified && config.alternate.is_some();
             if !alternate && !config.can_submit() {
-                return (cancel(f), true);
+                return if config.allow_empty { (cancel(f), true) } else { (Effects::none(), false) };
             }
             (submit(f, config, alternate), true)
         }
@@ -394,7 +394,11 @@ fn key_step(f: &mut Field, key: FieldKey, config: Config) -> (Effects<FieldEffec
             (Effects::none(), true)
         }
         FieldKey::Escape => (cancel(f), true),
-        FieldKey::Enter { modified: true, repeat } if config.alternate.is_some() => {
+        // A full-size editor (`!allow_empty`) whose alternate send is disabled lets Mod+Enter save
+        // as Enter does; a compact editor (`allow_empty`) swallows it (`line-comment/machine.ts:371`).
+        FieldKey::Enter { modified: true, repeat }
+            if config.alternate.is_some() && (config.allow_empty || config.alternate == Some(false)) =>
+        {
             if repeat { (Effects::none(), true) } else { (submit(f, config, true), true) }
         }
         FieldKey::Enter { .. } if open => (insert(f, active), true),
