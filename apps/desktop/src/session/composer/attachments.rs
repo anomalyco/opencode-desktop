@@ -264,7 +264,7 @@ impl Feature<App> for ComposerInputFeature {
             OverlayRegistration::<App>::new("overlay.add_menu")
                 .with_render(crate::overlays::layer::SURFACE_POPOVER, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));
-                    crate::add_menu::menu(s, p).into_iter().collect()
+                    crate::add_menu::menu(s, p).into_iter().flatten().collect()
                 })
                 .above("overlay.history_suggestions"),
         );

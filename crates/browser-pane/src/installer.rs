@@ -377,7 +377,7 @@ pub fn installed() -> Option<Installed> {
         .into_iter()
         .filter(|v| {
             let dir = root.join(v.to_string());
-            v.accepted() && crate::source::accepts_install(&dir) && is_complete(&dir)
+            v.accepted() && is_complete(&dir) && crate::source::accepts_install(&dir)
         })
         .max()
         .map(|version| Installed { version: Some(version), bin: bin_in(&root.join(version.to_string())) })
@@ -442,6 +442,9 @@ pub(crate) fn remove_old(root: &Path, keep: Version) {
             continue;
         }
         let dir = root.join(v.to_string());
+        if is_reparse_or_symlink(&dir) {
+            continue;
+        }
         #[cfg(target_os = "linux")]
         let _executables = {
             if Some(v) == other || *v == keep { continue; }
@@ -454,7 +457,8 @@ pub(crate) fn remove_old(root: &Path, keep: Version) {
             let Ok(helper) = open(bin.with_file_name("opencode-browser-engine-helper")) else { continue };
             (main, helper)
         };
-        let trash = root.join(format!(".{v}.old-{}", std::process::id()));
+        let seq = DISCARD_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let trash = root.join(format!(".{v}.old-{}-{seq}", std::process::id()));
         if std::fs::rename(&dir, &trash).is_ok() {
             std::fs::remove_dir_all(&trash).ok();
         }

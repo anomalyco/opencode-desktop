@@ -39,6 +39,26 @@ impl ExtensionHost {
                     self.cleanup_detached_session(sid);
                 }
             }
+            "Runtime.exceptionThrown" => {
+                if let Some(sid) = session_id
+                    && let Some(ext_id) = self
+                        .sessions
+                        .get(&sid)
+                        .filter(|s| s.kind == SessionKind::ServiceWorker)
+                        .map(|s| s.ext_id.clone())
+                {
+                    self.metrics.sw_uncaught_exceptions += 1;
+                    if self.metrics.sw_exception_samples.len() < 16 {
+                        let details = params.get("exceptionDetails");
+                        let desc = details
+                            .and_then(|d| d.pointer("/exception/description").or_else(|| d.get("text")))
+                            .and_then(Value::as_str)
+                            .unwrap_or("uncaught exception");
+                        let sample: String = format!("{ext_id}: {desc}").chars().take(200).collect();
+                        self.metrics.sw_exception_samples.push(sample);
+                    }
+                }
+            }
             "Fetch.requestPaused" => {
                 if let Some(sid) = session_id
                     && let Some(req_id) = params.get("requestId").and_then(Value::as_str)
@@ -117,12 +137,33 @@ impl ExtensionHost {
                 if let Some(sid) = session_id
                     && let Some(ctx_id) = params.get("executionContextId").and_then(Value::as_i64)
                 {
-                    self.execution_contexts.remove(&(sid, ctx_id));
+                    self.execution_contexts.remove(&(sid.clone(), ctx_id));
+                    if self.sessions.get(&sid).is_some_and(|s| s.kind == SessionKind::ServiceWorker)
+                        && !self.execution_contexts.keys().any(|(s, _)| s == &sid)
+                    {
+                        self.remove_session_subscribers(&sid);
+                    }
                 }
             }
             "Runtime.executionContextsCleared" => {
                 if let Some(sid) = session_id {
                     self.execution_contexts.retain(|(s, _), _| s != &sid);
+                    if self.sessions.get(&sid).is_some_and(|s| s.kind == SessionKind::ServiceWorker) {
+                        self.remove_session_subscribers(&sid);
+                    }
+                }
+            }
+            "Inspector.targetCrashed" => {
+                if let Some(sid) = session_id
+                    && let Some(sess) = self.sessions.get_mut(&sid)
+                {
+                    sess.shimmed = false;
+                    sess.pending_shim_eval_id = None;
+                    sess.fetch_confirmed = false;
+                    self.execution_contexts.retain(|(s, _), _| s != &sid);
+                    self.pending_fetch_resume.retain(|_, (s, _)| s != &sid);
+                    self.pending_loaded_resume.retain(|(s, _)| s != &sid);
+                    self.remove_session_subscribers(&sid);
                 }
             }
             "Inspector.targetReloadedAfterCrash" => {
@@ -140,6 +181,7 @@ impl ExtensionHost {
                     self.execution_contexts.retain(|(s, _), _| s != &sid);
                     self.pending_fetch_resume.retain(|_, (s, _)| s != &sid);
                     self.pending_loaded_resume.retain(|(s, _)| s != &sid);
+                    self.remove_session_subscribers(&sid);
                     let fetch_id = self.alloc_id();
                     self.pending_fetch_resume.insert(fetch_id, (sid.clone(), true));
                     let batch = match kind {
@@ -357,6 +399,10 @@ impl ExtensionHost {
             self.probe_in_flight.remove(&ext_id);
             self.trigger_tab_id_probe_for(&ext_id);
         }
+        self.remove_session_subscribers(sid);
+    }
+
+    fn remove_session_subscribers(&mut self, sid: &str) {
         self.subscribers.retain(|_, by_ext| {
             by_ext.retain(|_, set| {
                 set.remove(sid);
@@ -418,6 +464,7 @@ impl ExtensionHost {
                 }
             } else {
                 self.drop_loaded_resumes_for(&expected_id);
+                self.sw_wake.remove_extension(&expected_id, true);
                 if let Some(removed) = self.extensions.remove(&expected_id)
                     && let Some(staged) = removed.staged_dir
                 {
@@ -474,6 +521,7 @@ impl ExtensionHost {
             let ok = msg.get("error").is_none();
             if ok {
                 self.drop_loaded_resumes_for(&ext_id);
+                self.sw_wake.remove_extension(&ext_id, true);
                 if let Some(removed) = self.extensions.remove(&ext_id)
                     && let Some(staged) = removed.staged_dir
                 {
@@ -513,6 +561,7 @@ impl ExtensionHost {
                 effects.push(ExtEffect::ExtensionReloaded { ext_id: loaded_id, ok: true, error: None });
             } else {
                 self.drop_loaded_resumes_for(&expected_id);
+                self.sw_wake.remove_extension(&expected_id, true);
                 if let Some(removed) = self.extensions.remove(&expected_id)
                     && let Some(staged) = removed.staged_dir
                 {
@@ -932,17 +981,44 @@ impl ExtensionHost {
                     return effects;
                 }
                 let listen = payload.get("listen").and_then(Value::as_bool).unwrap_or(true);
+                let is_sw = self.sessions.get(sid).is_some_and(|s| s.kind == SessionKind::ServiceWorker);
+                let ext_version = self
+                    .is_loaded_extension(&sess_ext_id)
+                    .then(|| self.extensions.get(&sess_ext_id).map(|e| e.manifest.version.clone()))
+                    .flatten();
                 if listen {
                     self.subscribers
                         .entry(name.to_owned())
                         .or_default()
-                        .entry(sess_ext_id)
+                        .entry(sess_ext_id.clone())
                         .or_default()
                         .insert(sid.to_owned());
+                    if is_sw
+                        && super::sw_wake::is_wakeable_event(name)
+                        && let Some(ref version) = ext_version
+                    {
+                        self.sw_wake.record_sw_listener(&sess_ext_id, version, name, true);
+                        // Atomically drain and deliver any queued wake events for this event
+                        // strictly once to the woken service worker session.
+                        for (ev_name, ev_args) in self.sw_wake.take_matching(&sess_ext_id, name) {
+                            let msg = json!({ "kind": "event", "name": ev_name, "args": ev_args });
+                            self.push_to_session(sid, &msg);
+                        }
+                    }
                 } else if let Some(by_ext) = self.subscribers.get_mut(name)
                     && let Some(set) = by_ext.get_mut(&sess_ext_id)
                 {
                     set.remove(sid);
+                    let any_sw_left = set.iter().any(|other| {
+                        self.sessions.get(other).is_some_and(|s| s.kind == SessionKind::ServiceWorker)
+                    });
+                    if is_sw
+                        && !any_sw_left
+                        && super::sw_wake::is_wakeable_event(name)
+                        && let Some(ref version) = ext_version
+                    {
+                        self.sw_wake.record_sw_listener(&sess_ext_id, version, name, false);
+                    }
                     if set.is_empty() {
                         by_ext.remove(&sess_ext_id);
                     }

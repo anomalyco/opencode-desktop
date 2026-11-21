@@ -4,7 +4,7 @@
 //! the newly installed version runs, `engine::read_installed_sha` matches `rune.installedRelease`
 //! as before without reporting a false `Installed`, and if the old build never swapped, the
 //! running old version mismatches `rune.installedRelease` and stages cleanly.
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +20,25 @@ pub(crate) struct Release {
     pub version: String,
     pub sha256: String,
     pub bundle: BundleId,
+    /// Sibling folder name beside `root` when routed around an obstructed `.ready-<sha256>`.
+    #[serde(default)]
+    pub dir: Option<String>,
+}
+
+impl Release {
+    /// Returns the staged directory path beside `root`, validating any recorded sibling name.
+    pub(super) fn staged_path(&self, root: &Path) -> PathBuf {
+        let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let base = format!(".{name}.ready-{}", self.sha256);
+        if let Some(dir) = self.dir.as_deref()
+            && (dir == base || dir.starts_with(&format!("{base}-")))
+            && !dir.contains(['/', '\\', '\0', ':'])
+            && !dir.contains("..")
+        {
+            return root.parent().unwrap_or(root).join(dir);
+        }
+        super::beside(root, &format!("ready-{}", self.sha256))
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -38,12 +57,18 @@ fn read(key: &str) -> Option<Release> {
 
 pub(super) fn stage(path: &Path, version: &str, sha256: &str) -> Result<(), String> {
     let bundle = bundle::identify(path).map_err(|e| format!("could not identify staged bundle: {e}"))?;
-    opencode_platform::storage::write_json(NAMESPACE, STAGE, &serde_json::json!(Release { version: version.into(), sha256: sha256.into(), bundle }));
+    let dir = path.file_name().map(|n| n.to_string_lossy().into_owned());
+    opencode_platform::storage::write_json(NAMESPACE, STAGE, &serde_json::json!(Release { version: version.into(), sha256: sha256.into(), bundle, dir }));
     Ok(())
 }
 
-pub(super) fn staged_matches(path: &Path, version: &str, sha256: &str) -> bool {
-    read(STAGE).is_some_and(|r| r.version == version && r.sha256 == sha256 && bundle::matches_id(path, &r.bundle))
+pub(super) fn staged_dir_if_matches(root: &Path, version: &str, sha256: &str) -> Option<PathBuf> {
+    let r = read(STAGE)?;
+    if r.version != version || r.sha256 != sha256 {
+        return None;
+    }
+    let path = r.staged_path(root);
+    bundle::matches_id(&path, &r.bundle).then_some(path)
 }
 
 pub(super) fn at(root: &Path) -> Option<Release> {

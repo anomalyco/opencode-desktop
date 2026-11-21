@@ -210,6 +210,19 @@ pub fn tell_storage_notice(host: &mut dyn RestoreHost) -> bool {
         Some(StorageNotice::NotSaving { full: false, why }) => {
             host.toast_fail(t!("rune.storage.notSaving.title"), &t!("rune.storage.writeFailed.description", why = toast::plain(&why)));
         }
+        Some(StorageNotice::SeedDroppedDrafts { count, official_dir }) => {
+            let title = if count == 1 {
+                t!("rune.storage.seedDroppedDrafts.titleOne").to_owned()
+            } else {
+                t!("rune.storage.seedDroppedDrafts.titleMany", count = count)
+            };
+            let desc = if official_dir.is_empty() {
+                t!("rune.storage.seedDroppedDrafts.description").to_owned()
+            } else {
+                t!("rune.storage.seedDroppedDrafts.descriptionPath", path = toast::plain(&official_dir))
+            };
+            host.toast_fail(&title, &desc);
+        }
         None => return false,
     }
     true
