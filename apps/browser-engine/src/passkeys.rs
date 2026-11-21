@@ -331,13 +331,6 @@ impl TabPasskeyGate {
             && !self.ended.swap(true, Ordering::AcqRel)
     }
 
-    /// `Runtime.addBinding` for the wrapper's report channel on `session_id`. A `Runtime.disable`
-    /// on that session drops it (V8 `V8RuntimeAgentImpl::disable` removes `globalBindings`), so
-    /// the engine sends it again after each `Runtime.disable` it sends.
-    pub fn binding_msg(&self, session_id: Option<&str>) -> String {
-        self.build_cdp("Runtime.addBinding", json!({ "name": self.report }), session_id).1
-    }
-
     /// Observes a CDP event. Returns `(queued_cdp_messages, consumed)` where `consumed == true`
     /// indicates our private `Runtime.bindingCalled` token and MUST NOT be forwarded to the host.
     pub fn observe_event(
