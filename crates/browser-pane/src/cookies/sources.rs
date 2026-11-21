@@ -284,6 +284,19 @@ pub fn list_source_sites(
     }
 }
 
+/// The browsing-history database of a validated `(source_id, profile_id)` (`sources.ts:300-318`
+/// `readSourceHistory`): Chromium's `<profile>/History`, Firefox's `<profile>/places.sqlite`,
+/// Safari's `~/Library/Safari/History.db`. Only ids `list_sources()` returned resolve.
+pub fn source_history_database(source_id: &str, profile_id: &str) -> Option<(BrowserEngineKind, PathBuf)> {
+    let (def, target) = locate_one(source_id, profile_id)?;
+    let path = match def.engine {
+        BrowserEngineKind::Chromium => target.directory.join("History"),
+        BrowserEngineKind::Firefox => target.directory.join("places.sqlite"),
+        BrowserEngineKind::Safari => def.root.join("Safari").join("History.db"),
+    };
+    Some((def.engine, path))
+}
+
 /// Reads plain-text cookie hosts & timestamps for a validated `(source_id, profile_id)`.
 pub fn read_source_hosts(
     source_id: &str,
