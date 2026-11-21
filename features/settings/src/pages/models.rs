@@ -143,7 +143,7 @@ fn search<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
         .radius(6.0)
         .fill(if focused { p.layer2 } else { p.search_bg })
         .hover(p.layer2)
-        .child(el().pl(16.0).child(icon(&ic::MAGNIFYING_GLASS, 14.0).color(p.icon_muted)))
+        .child(el().pl(16.0).child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted)))
         .child(
             opencode_ui::style::field(&s.settings_pages().search, NAME_REGULAR)
                 .key("settings-models-input")

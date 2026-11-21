@@ -222,7 +222,7 @@ fn card<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, x: &Project, _oth
         .help(x.directory.clone())
         .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
         .pl(if alone { 16.0 } else { 12.0 })
-        .pr(if alone { 16.0 } else { 12.0 } + 24.0 + 8.0)
+        .pr(if alone { 16.0 } else { 12.0 } + 20.0 + 8.0)
         .radius(if alone { 8.0 } else { 4.0 })
         .focus_inset(p)
         .gap(8.0)
@@ -230,7 +230,7 @@ fn card<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, x: &Project, _oth
         .on_press_tx(move |s: &mut H, tx: &mut Tx| open_project_general(s, &dir, tx))
         .child(SettingsHost::project_badge(s, p, Some(x), &label))
         .child(text(label).font(NAME).color(p.text).truncate());
-    card.child(open).child(rune::spacer()).child(super::project::options_with(s, p, x, &format!("settings-project-menu-{}", x.id), 24.0, true))
+    card.child(open).child(rune::spacer()).child(super::project::options_with(s, p, x, &format!("settings-project-menu-{}", x.id), 20.0, true))
 }
 
 /// A row's field lost focus: the rename is dropped, as a click away drops Desktop's.
