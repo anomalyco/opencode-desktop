@@ -771,7 +771,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     }
     changed |= crate::surfaces::browser::prompts::poll(app, tx, now)
         | crate::surfaces::browser::context_menu::poll(app, tx)
-        | crate::surfaces::browser::comment::poll(app, tx);
+        | crate::surfaces::browser::comment::poll(app, tx) | crate::surfaces::browser::extensions::poll_popup_focus(app, tx);
     if let Some(next) = app.workspace_panes.browser.devtools.values().map(|p| p.deadline).min() {
         tx.wake_after(next.saturating_duration_since(now).max(Duration::from_millis(25)));
     }
