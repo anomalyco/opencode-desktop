@@ -542,8 +542,8 @@ pub fn ghost_menu_button<H: SettingsHost + PopupHost + 'static>(
 }
 
 fn ghost_face(p: &Pal, key: &str, label: &str, glyph: Option<&'static Icon>, muted: bool, enabled: bool, open: bool) -> El {
-    let ink = if !enabled { p.faint } else if muted && !open { p.muted } else { p.text };
-    let glyph_ink = if !enabled { p.icon_faint } else if open { p.icon } else { p.icon_muted };
+    let ink = if muted && !open { p.muted } else { p.text };
+    let glyph_ink = if open { p.icon } else { p.icon_muted };
     let b = row()
         .key(key.to_owned())
         .role("button")
@@ -557,7 +557,8 @@ fn ghost_face(p: &Pal, key: &str, label: &str, glyph: Option<&'static Icon>, mut
         .children(glyph.map(|g| icon(g, 16.0).color(glyph_ink)))
         .child(text(label.to_owned()).font(if muted { UI } else { UI_MED }.features("\"tnum\"")).color(ink));
     if !enabled {
-        return b.disabled(true);
+        // `[data-component="button-v2"][data-variant="ghost|ghost-muted"]:disabled` (`button.css:256-297`).
+        return b.disabled(true).opacity(0.5);
     }
     let b = if open { b.fill(p.pressed) } else { b };
     b.hover(p.hover).press(p.pressed)

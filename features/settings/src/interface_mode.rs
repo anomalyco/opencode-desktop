@@ -180,6 +180,8 @@ fn rail(fill: Color, border: Color) -> El {
 fn page(p: &Pal) -> El {
     let c = &kit(p).c;
     let line = |f: f32| el().w_frac(f).h(3.0).radius(1.5).fill(c.layer_03);
+    // Keep `gap(4.0)` on the two lines only so `spacer()` acts like CSS `margin-top: auto` on the
+    // composer (`interface-mode.css:154-160`) without adding an extra 4 pt gap that pushes it 1 px low.
     col()
         .key("page")
         .grow(1.0)
@@ -187,9 +189,7 @@ fn page(p: &Pal) -> El {
         .min_w(0.0)
         .min_h(0.0)
         .padding(6.0)
-        .gap(4.0)
-        .child(line(0.8))
-        .child(line(0.56))
+        .child(col().w_full().gap(4.0).child(line(0.8)).child(line(0.56)))
         .child(rune::spacer())
         .child(el().w_full().h(8.0).radius(3.0).fill(c.layer_02).box_shadow(Pal::ring_in(c.border_base)))
 }
