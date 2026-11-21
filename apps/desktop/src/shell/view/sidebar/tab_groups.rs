@@ -430,7 +430,7 @@ fn tab_row(s: &App, p: &Pal, g: &Group, t: &crate::tabs::Tab, tab_index: usize, 
         .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .fill(if active || dragging.is_some() { p.pressed } else if marked { p.hover } else { Color::TRANSPARENT })
-        .hover(if active { p.pressed } else { p.hover })
+        .hover(if active || dragging.is_some() || marked { Color::TRANSPARENT } else { p.hover })
         .hover_group()
         .hover_motion(INSTANT, INSTANT)
         .matched(format!("{}-{uid}", crate::view::tab_strip::MATCHED))

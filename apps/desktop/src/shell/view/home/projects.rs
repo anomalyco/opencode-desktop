@@ -353,7 +353,7 @@ pub(super) fn scope_trigger(s: &App, p: &Pal, selected: Option<&model::Project>)
         .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .fill(if open { p.pressed } else { rune::Color::TRANSPARENT })
-        .hover(if open { p.pressed } else { p.hover })
+        .hover(if open { rune::Color::TRANSPARENT } else { p.hover })
         .hover_group()
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             tx.instant();
