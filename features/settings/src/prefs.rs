@@ -37,8 +37,25 @@ macro_rules! choice {
 pub use crate::choice;
 
 choice! {
-    /// Where a new session starts (`workspaces.defaultDestination`).
-    Destination { LastUsed => "last-used", "settings.workspaces.default.lastUsed", Local => "local", "settings.workspaces.default.local", New => "new", "settings.workspaces.default.new" } default LastUsed
+    /// Where Ctrl+N and New session start a draft (`workspaces.startIn`): the project on screen
+    /// (or the last one looked at), or the server's default directory (`GET /api/location`).
+    StartIn { Project => "project", "rune.settings.newSession.startIn.project", Directory => "directory", "rune.settings.newSession.startIn.directory" } default Project
+}
+
+choice! {
+    /// Which checkout of the current project a new draft uses (`workspaces.worktree`).
+    Worktree { Default => "default", "rune.settings.newSession.worktree.default", New => "new", "rune.settings.newSession.worktree.new", LastUsed => "last-used", "rune.settings.newSession.worktree.lastUsed" } default Default
+}
+
+impl Worktree {
+    /// The setting this replaced (`workspaces.defaultDestination`): only an explicit New
+    /// worktree carries over, since Last used was written for everyone as the old default.
+    pub fn migrate(old: Option<&str>) -> Worktree {
+        match old {
+            Some("new") => Worktree::New,
+            _ => Worktree::Default,
+        }
+    }
 }
 
 choice! {

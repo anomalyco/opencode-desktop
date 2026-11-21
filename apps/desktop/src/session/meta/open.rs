@@ -126,6 +126,7 @@ impl App {
         r.send(Request::Active).ok();
         r.send(Request::Sessions).ok();
         r.send(Request::Projects).ok();
+        r.send(Request::DefaultDirectory).ok();
         // Requests asked while the stream was down never arrive as events: read again what shows
         // them, as Desktop's store invalidates its syncs on a disconnect.
         self.forget_request_reads();

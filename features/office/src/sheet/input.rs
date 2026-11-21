@@ -77,7 +77,13 @@ pub fn run(app: &mut dyn OfficeHost, effect: UiEffect, tx: &mut Tx) {
         UiEffect::Copy { text, html } => tx.copy_rich(rune::ClipboardContent::new(text).with_html(html)),
         UiEffect::Open(url) => {
             if app.is_live() {
-                tx.open_url(&url).ok();
+                let trimmed = url.trim();
+                if browser_policy::is_safe_os_external_url(trimmed) {
+                    tx.open_url(trimmed).ok();
+                } else if browser_policy::classify_app_link(trimmed, browser_policy::AppSchemeSource::Conversation).is_some() {
+                    tx.copy(trimmed.to_owned());
+                    app.toast_say("Copied".to_owned(), String::new());
+                }
             }
         }
         UiEffect::Toast(title) => app.toast_say(title, String::new()),

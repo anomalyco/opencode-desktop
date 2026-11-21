@@ -97,6 +97,9 @@ pub(crate) enum EngineEvent {
     /// The start-up index read found no engine published for this platform.
     #[cfg(feature = "engine")]
     ProbeNotPublished,
+    /// A later index read found an engine for this platform.
+    #[cfg(feature = "engine")]
+    ProbePublished,
     #[cfg(feature = "engine")]
     Hung { generation: u64 },
     #[cfg(feature = "engine")]
@@ -357,6 +360,15 @@ impl SharedEngine {
                 self.phase = EnginePhase::Disconnected(EngineStatus::Failed(crate::installer::Fault::NotPublished.into()));
                 EngineEffect::Wake
             }
+            // Back to unknown, so the next page downloads the engine the index now lists.
+            #[cfg(feature = "engine")]
+            EngineEvent::ProbePublished => {
+                if !matches!(&self.phase, EnginePhase::Disconnected(s) if s.is_not_published()) {
+                    return EngineEffect::None;
+                }
+                self.phase = EnginePhase::Disconnected(EngineStatus::Unchecked);
+                EngineEffect::Wake
+            }
             #[cfg(feature = "engine")]
             EngineEvent::Hung { generation } => {
                 if self.generation != generation {
@@ -429,6 +441,7 @@ pub(crate) enum EngineCaps {
         agent_tools: bool,
         preview: bool,
         permission_sync: bool,
+        cookies: bool,
     },
 }
 

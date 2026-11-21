@@ -90,11 +90,12 @@ impl NewWorktreeHost for App {
         self.session_search.invalidate();
     }
 
-    fn default_destination(&self) -> DefaultDestination {
-        match self.settings.default_destination {
-            crate::settings::Destination::New => DefaultDestination::New,
-            crate::settings::Destination::Local => DefaultDestination::Local,
-            crate::settings::Destination::LastUsed => DefaultDestination::LastUsed,
+    fn draft_worktree(&self) -> DraftWorktree {
+        use crate::settings::{StartIn, Worktree};
+        match (self.settings.start_in, self.settings.worktree) {
+            (StartIn::Directory, _) | (StartIn::Project, Worktree::Default) => DraftWorktree::Default,
+            (StartIn::Project, Worktree::New) => DraftWorktree::New,
+            (StartIn::Project, Worktree::LastUsed) => DraftWorktree::LastUsed,
         }
     }
 
@@ -233,6 +234,7 @@ impl Feature<App> for WorkspaceToolsFeature {
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder
             .register_slot(&NEW_WORKTREE)
+            .register_slot(&crate::start_location::SERVER_DIRECTORIES)
             .register_slot(&crate::fulltext::FULLTEXT)
             .register_slot(&crate::home_search::HOME_SEARCH)
             .register_slot(&crate::rune_mcp::RUNE_MCP);

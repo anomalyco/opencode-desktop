@@ -641,6 +641,12 @@ impl TabPromptState {
         self.dialog.open().is_some() || self.auth.active().is_some()
     }
 
+    /// The tab waits on the user: a page dialog, a permission request or a sign-in (official
+    /// `PromptView`, `packages/gui-plugins/src/browser/ipc.ts:97-145`). A blocked pop-up is not one.
+    pub fn waiting_on_user(&self) -> bool {
+        self.has_blocking_modal() || self.permission.active().is_some()
+    }
+
     pub fn wake_at(&self) -> Option<Instant> {
         [
             self.dialog.wake_at(),

@@ -77,6 +77,7 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         // The first open: the link was never down, but the health poll can stand down now.
         Incoming::Opened => {
             reconnect::back(s);
+            crate::start_location::ask(s);
             crate::files::watch::connected(s);
             #[cfg(not(target_arch = "wasm32"))]
             {
@@ -288,6 +289,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.sort_projects();
             s.list_unlisted_worktrees();
         }
+        Incoming::DefaultDirectory(directory) => crate::start_location::answered(s, directory),
         Incoming::ProjectOpened { location, projects, session } => {
             s.apply_project_opened(location, projects, session, tx);
         }

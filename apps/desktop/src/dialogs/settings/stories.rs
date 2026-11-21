@@ -104,6 +104,17 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     ("settings-projects", |s| on(s, Page::Projects)),
     ("settings-worktrees", |s| on(s, Page::Worktrees)),
     ("settings-preferences", |s| on(s, Page::General)),
+    // Preferences with new sessions in a new worktree of the current project.
+    ("settings-new-session-worktree", |s| {
+        on(s, Page::General);
+        s.settings.worktree = crate::settings::Worktree::New;
+    }),
+    // Preferences with new sessions in the server's default directory, as it reported it.
+    ("settings-new-session-directory", |s| {
+        on(s, Page::General);
+        s.settings.start_in = crate::settings::StartIn::Directory;
+        crate::start_location::answered(s, "/home/me".into());
+    }),
     ("settings-appearance", |s| on(s, Page::Appearance)),
     ("settings-notifications", |s| on(s, Page::Notifications)),
     ("settings-shortcuts", |s| on(s, Page::Shortcuts)),

@@ -75,7 +75,7 @@ struct BrowserDef {
 /// Discovers installed browsers with readable history databases (most recently modified first).
 /// When `OPENCODE_BROWSER_IMPORT_ROOT` is set, ONLY inspects synthetic profiles inside that root.
 pub fn discover_sources() -> Vec<ImportBrowser> {
-    let defs = if let Some(override_root) = std::env::var_os("OPENCODE_BROWSER_IMPORT_ROOT").filter(|v| !v.is_empty()) {
+    let defs = if let Some(override_root) = crate::installer::dev_override("OPENCODE_BROWSER_IMPORT_ROOT") {
         let base = PathBuf::from(override_root);
         vec![
             BrowserDef { id: "chrome", name: "Google Chrome", engine: ImportEngine::Chromium, root: base.join("chrome"), flat: false },

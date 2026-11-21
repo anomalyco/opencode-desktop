@@ -31,7 +31,11 @@ pub const FINDER: &str = "finder";
 
 #[cfg(target_arch = "wasm32")]
 pub fn open_external(tx: &mut Tx, url: &str) -> bool {
-    tx.open_url(url).is_ok()
+    let trimmed = url.trim();
+    if !browser_policy::is_safe_os_external_url(trimmed) {
+        return false;
+    }
+    tx.open_url(trimmed).is_ok()
 }
 
 #[cfg(target_arch = "wasm32")]

@@ -129,6 +129,10 @@ impl SettingsHost for App {
         App::settings_open(self)
     }
 
+    fn server_directory(&self) -> Option<&str> {
+        crate::start_location::server_directory(self)
+    }
+
     fn set_settings_open(&mut self, open: bool) {
         App::set_settings_open(self, open);
     }
@@ -581,7 +585,18 @@ impl SettingsHost for App {
     }
 
     fn open_external(&mut self, url: &str, tx: &mut Tx) {
-        tx.open_url(url).ok();
+        let trimmed = url.trim();
+        let is_http = trimmed.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("http://"))
+            || trimmed.get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://"));
+        if !browser_policy::is_safe_os_external_url(trimmed) {
+            return;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if is_http && !self.external_url_allowed_for_session(self.active_session_id(), trimmed) {
+            return;
+        }
+        let _ = is_http;
+        crate::open_in::open_external(tx, trimmed);
     }
 
     fn toast_failed_wire(&mut self, title: String, err: &WireError) {

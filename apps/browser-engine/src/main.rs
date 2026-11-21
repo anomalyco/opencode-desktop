@@ -29,6 +29,7 @@ mod linux_gpu;
 mod mac_app;
 mod cdp_ledger;
 mod cef_runtime;
+mod cookies;
 mod diagnostics;
 mod favicon;
 mod find;

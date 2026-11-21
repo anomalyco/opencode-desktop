@@ -41,6 +41,7 @@ return plugin.defineWindow(function(ctx)
     local Servers = ctx:GetService("Servers")
     local Popover = ctx:GetService("Popover")
     local Dialog = ctx:GetService("Dialog")
+    local Menu = ctx:GetService("Menu")
     local Workspace = ctx:GetService("Workspace")
 
     -- The window's address field and find field.
@@ -1316,8 +1317,24 @@ return plugin.defineWindow(function(ctx)
     local settingsHandle: Contribution? = nil
     local importDialogHandle: Contribution? = nil
     local clearNoticeText: string? = nil
+    -- Browsers are listed only while Settings > Browser draws (never at startup), read again once a
+    -- listing is a few seconds old, so a visit sees browsers installed since the last one.
     local importSources: { settings.ImportBrowser } = {}
-    local importStatus: string? = nil
+    local importSourcesAt: number? = nil
+    -- The profile the import dialog is for, what its last import said, and each row's last outcome.
+    local importTarget: { browser: string, profile: string, label: string }? = nil
+    local importFailure: settings.ImportMessage? = nil
+    local importResults: { [string]: settings.ImportMessage } = {}
+
+    local function listImportSources(): { settings.ImportBrowser }
+        local now = System:Now()
+        if importSourcesAt == nil or now - importSourcesAt > 5000 then
+            local bAny = Browser :: any
+            importSources = if type(bAny.HistoryImportSources) == "function" then (bAny:HistoryImportSources() :: any) or {} else {}
+            importSourcesAt = now
+        end
+        return importSources
+    end
 
     local function refreshSettings()
         if settingsHandle then
@@ -1371,21 +1388,28 @@ return plugin.defineWindow(function(ctx)
         id = "import-history",
         title = I18n:T("settings.import.title"),
         render = function(view)
-            return settings.renderImportDialog(I18n, view, importSources, importStatus, function(browserId: string, profileId: string)
+            local target = importTarget
+            if target == nil then
+                return nil
+            end
+            return settings.renderImportDialog(I18n, view, target.label, importFailure, function()
                 local bAny = Browser :: any
-                if type(bAny.HistoryImportProfile) ~= "function" then
-                    importStatus = I18n:T("settings.import.history.failed")
+                local res = if type(bAny.HistoryImportProfile) == "function"
+                    then bAny:HistoryImportProfile(target.browser, target.profile)
+                    else nil
+                local imported = if type(res) == "table" and type(res.imported) == "number" then res.imported else nil
+                if imported ~= nil and imported > 0 then
+                    -- `site-chooser.tsx:164-176`: a clean import closes the dialog; its row says so.
+                    importResults[`{target.browser}\n{target.profile}`] = {
+                        text = I18n:T("signins.imported.history.only.from", { browser = target.label }),
+                        error = false,
+                        live = true,
+                    }
+                    Dialog:Close()
+                elseif imported ~= nil then
+                    importFailure = { text = I18n:T("signins.imported.none.from", { browser = target.label }), error = false, live = true }
                 else
-                    local res = bAny:HistoryImportProfile(browserId, profileId)
-                    if type(res) == "table" and type(res.imported) == "number" then
-                        if res.imported > 0 then
-                            importStatus = I18n:T("settings.import.history.done", { count = res.imported })
-                        else
-                            importStatus = I18n:T("settings.import.history.empty")
-                        end
-                    else
-                        importStatus = I18n:T("settings.import.history.failed")
-                    end
+                    importFailure = { text = I18n:T("signins.failed.read"), error = true, live = true }
                 end
                 if importDialogHandle then
                     importDialogHandle:Refresh()
@@ -1396,8 +1420,8 @@ return plugin.defineWindow(function(ctx)
             end)
         end,
         onDismiss = function()
-            importSources = {}
-            importStatus = nil
+            importTarget = nil
+            importFailure = nil
         end,
     })
 
@@ -1422,30 +1446,36 @@ return plugin.defineWindow(function(ctx)
             removeSitePermission(origin, permission)
             refreshSettings()
         end,
-        historyCount = function(): number
-            ensureAdopted()
-            local bAny = Browser :: any
-            if type(bAny.HistoryCount) == "function" then
-                local n = bAny:HistoryCount()
-                if type(n) == "number" then
-                    return n
-                end
-            end
-            return #visits()
-        end,
         clearNotice = function(): string?
             return clearNoticeText
         end,
         requestClearBrowsingData = function()
             Dialog:Open("clear-data")
         end,
-        openImportHistory = function()
-            -- Discover installed browsers ONLY on explicit user click, never on startup.
-            local bAny = Browser :: any
-            importStatus = nil
-            importSources = if type(bAny.HistoryImportSources) == "function" then (bAny:HistoryImportSources() :: any) or {} else {}
-            Dialog:Open("import-history")
+        importSources = listImportSources,
+        importMessage = function(browserId: string, profileId: string): settings.ImportMessage?
+            return importResults[`{browserId}\n{profileId}`]
         end,
+        openImport = function(browserId: string, profileId: string)
+            for _, browser in importSources do
+                if browser.id == browserId then
+                    for _, prof in browser.profiles do
+                        if prof.id == profileId then
+                            -- `choices.tsx` `choiceLabel`: the profile's name only for a browser with several.
+                            importTarget = {
+                                browser = browserId,
+                                profile = profileId,
+                                label = if #browser.profiles > 1 then `{browser.name} · {prof.name}` else browser.name,
+                            }
+                            importFailure = nil
+                            Dialog:Open("import-history")
+                            return
+                        end
+                    end
+                end
+            end
+        end,
+        Menu = Menu,
         renderImport = function(view)
             local prof = profileContract:Get()
             if type(prof) == "table" and type(prof.renderImport) == "function" then

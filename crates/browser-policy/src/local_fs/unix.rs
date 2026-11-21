@@ -284,6 +284,19 @@ pub(super) fn verify_path(clean: &str) -> Result<VerifiedLocalPath, LocalPathErr
     verify_path_open(clean, false).map(|(verified, _)| verified)
 }
 
+#[cfg(target_os = "macos")]
+fn is_case_insensitive_volume(fd: i32) -> bool {
+    // `_PC_CASE_SENSITIVE` returns `0` on case-insensitive APFS/HFS+ volumes, `1` on
+    // case-sensitive volumes, and `-1` on error (fail closed to case-sensitive).
+    // SAFETY: `fd` is an open directory file descriptor.
+    unsafe { libc::fpathconf(fd, libc::_PC_CASE_SENSITIVE) == 0 }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn is_case_insensitive_volume(_fd: i32) -> bool {
+    false
+}
+
 /// Strictly non-alias containment walk: `root` must already be a physical non-symlink root
 /// (callers supporting symlinked workspaces resolve and pin `root` once up front via
 /// `resolve_safe_local_workspace_root`).
@@ -291,11 +304,10 @@ pub(super) fn verify_within_root(target_lex: &str, root: &str, require_existing_
     let (verified_root, mut held) = verify_path_open(&safe_local_reveal_path(root)?, true).ok()?;
     let target_norm = normalize_unix_root(&safe_local_reveal_path(target_lex)?);
     let root_trim = verified_root.path.trim_end_matches('/');
-    let rel = if target_norm == root_trim
-        || (cfg!(target_os = "macos") && target_norm.eq_ignore_ascii_case(root_trim))
-    {
+    let ci = is_case_insensitive_volume(held.0);
+    let rel = if target_norm == root_trim || (ci && target_norm.eq_ignore_ascii_case(root_trim)) {
         ""
-    } else if cfg!(target_os = "macos")
+    } else if ci
         && target_norm.len() > root_trim.len()
         && target_norm.as_bytes()[root_trim.len()] == b'/'
         && target_norm.as_bytes()[..root_trim.len()].eq_ignore_ascii_case(root_trim.as_bytes())
