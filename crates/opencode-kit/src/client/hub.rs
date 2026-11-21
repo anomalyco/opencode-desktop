@@ -22,9 +22,37 @@ pub struct EventHub {
 /// Where a hub's stream goes.
 enum Fan {
     /// To these subscribers, each woken once per batch.
-    Open(Vec<(Sender<Incoming>, Waker)>),
+    Open(Vec<Sub>),
     /// Nowhere: the hub dropped, and its threads end.
     Closed,
+}
+
+/// One subscriber: its channel, its waker, and the one event type it takes, if it takes only one.
+struct Sub {
+    tx: Sender<Incoming>,
+    wake: Waker,
+    only: Option<&'static str>,
+}
+
+impl Sub {
+    fn wants(&self, m: &Incoming) -> bool {
+        self.only.is_none_or(|ty| matches!(m, Incoming::Event { ty: t, .. } if t == ty))
+    }
+
+    /// Sends what it wants of `batch`, woken once if that's anything; false once it stopped listening.
+    fn send(&self, batch: &[Incoming]) -> bool {
+        let mut sent = false;
+        for m in batch.iter().filter(|m| self.wants(m)) {
+            if self.tx.send(m.clone()).is_err() {
+                return false;
+            }
+            sent = true;
+        }
+        if sent {
+            (self.wake)();
+        }
+        true
+    }
 }
 
 impl EventHub {
@@ -68,9 +96,20 @@ impl EventHub {
 
     /// Everything the stream says from now on, with `wake` called once per batch.
     pub fn subscribe(&self, wake: Waker) -> Receiver<Incoming> {
+        self.add(wake, None)
+    }
+
+    /// Only the stream's events of type `ty` from now on, with `wake` called once per batch that
+    /// has one: for a reader that answers them sooner than a window's next frame. Its main
+    /// subscription still gets them too.
+    pub fn subscribe_to(&self, ty: &'static str, wake: Waker) -> Receiver<Incoming> {
+        self.add(wake, Some(ty))
+    }
+
+    fn add(&self, wake: Waker, only: Option<&'static str>) -> Receiver<Incoming> {
         let (tx, rx) = channel();
         if let Fan::Open(subs) = &mut *self.fan.lock().unwrap_or_else(|e| e.into_inner()) {
-            subs.push((tx, wake));
+            subs.push(Sub { tx, wake, only });
         }
         rx
     }
@@ -110,13 +149,7 @@ fn fan_out(inbox: &Receiver<Incoming>, fan: &Mutex<Fan>) {
             }
         }
         let Fan::Open(subs) = &mut *fan.lock().unwrap_or_else(|e| e.into_inner()) else { return };
-        subs.retain(|(tx, wake)| {
-            let alive = batch.iter().all(|m| tx.send(m.clone()).is_ok());
-            if alive {
-                wake();
-            }
-            alive
-        });
+        subs.retain(|sub| sub.send(&batch));
     }
 }
 
@@ -130,13 +163,7 @@ fn fan_one(mut m: Incoming, fan: &Mutex<Fan>) -> std::ops::ControlFlow<()> {
         map.insert(HUB_AT.into(), (epoch.elapsed().as_micros() as u64).into());
     }
     let Fan::Open(subs) = &mut *fan.lock().unwrap_or_else(|e| e.into_inner()) else { return std::ops::ControlFlow::Break(()) };
-    subs.retain(|(tx, wake)| {
-        let alive = tx.send(m.clone()).is_ok();
-        if alive {
-            wake();
-        }
-        alive
-    });
+    subs.retain(|sub| sub.send(std::slice::from_ref(&m)));
     std::ops::ControlFlow::Continue(())
 }
 

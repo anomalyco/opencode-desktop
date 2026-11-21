@@ -5,6 +5,7 @@
 //! keeps every session's tab namespace (`tab_<uuid>`) isolated by construction.
 
 mod exec;
+pub mod express;
 mod frames;
 mod session;
 mod start_gate;
@@ -21,8 +22,7 @@ use opencode_kit::browser_rpc::{
 };
 use opencode_kit::client::Server;
 use opencode_kit::servers::ServerKey;
-use rune::time::Instant;
-use rune::{Tx, Waker};
+use rune::{Tx, Waker, time::Instant};
 use serde_json::Value;
 
 use self::session::SessionAttachment;
