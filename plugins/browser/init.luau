@@ -1517,10 +1517,9 @@ return plugin.defineWindow(function(ctx)
     local importDialogHandle: Contribution? = nil
     local extDialogHandle: Contribution? = nil
     local clearNoticeText: string? = nil
-    -- Browsers are listed only while Settings > Browser draws (never at startup), read again once a
+    -- Browsers are listed only when asked (never at startup), by the host off the UI thread, again once a
     -- listing is a few seconds old, so a visit sees browsers installed since the last one.
     local importSources: { settings.ImportBrowser } = {}
-    local importSourcesAt: number? = nil
     -- The profile the import dialog is for, what its last import said, and each row's last outcome.
     local importTarget: { browser: string, profile: string, label: string }? = nil
     local importFailure: settings.ImportMessage? = nil
@@ -1541,12 +1540,9 @@ return plugin.defineWindow(function(ctx)
     }
 
     local function listImportSources(): { settings.ImportBrowser }
-        local now = System:Now()
-        if importSourcesAt == nil or now - importSourcesAt > 5000 then
-            local bAny = Browser :: any
-            importSources = if type(bAny.HistoryImportSources) == "function" then (bAny:HistoryImportSources() :: any) or {} else {}
-            importSourcesAt = now
-        end
+        -- The host lists them off the UI thread and keeps the last listing, so asking is cheap.
+        local bAny = Browser :: any
+        importSources = if type(bAny.HistoryImportSources) == "function" then (bAny:HistoryImportSources() :: any) or {} else {}
         return importSources
     end
 

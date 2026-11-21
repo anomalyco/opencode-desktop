@@ -8,7 +8,7 @@ use std::sync::{Mutex, OnceLock};
 
 use browser_pane::cookies::BrowserEngineKind;
 use browser_pane::cookies::icons::AppIcon;
-use browser_pane::cookies::sources::{list_sources, source_history_database};
+use browser_pane::cookies::sources::source_history_database;
 use browser_pane::history::{
     HistoryStore, ImportEngine, PageVisit, read_profile_history_in, sweep_stale_import_dirs,
 };
@@ -155,7 +155,10 @@ pub(super) fn service_methods(lua: &Lua, vmx: &Vmx, t: &Table) -> mlua::Result<(
     // profile counts when it has a cookie database, named from `Local State` or `profiles.ini`.
     method(lua, t, "HistoryImportSources", |lua, ()| {
         require_builtin_browser(lua, "Browser:HistoryImportSources")?;
-        let list: Vec<Data> = list_sources()
+        // Listed off the UI thread; the page draws again when a listing lands.
+        cx::read(Dep::Browser);
+        let sources = with_app("Browser:HistoryImportSources", |app| Ok(app.workspace_panes.browser.import_sources.get((*app.waker).clone())))?;
+        let list: Vec<Data> = sources
             .into_iter()
             .map(|b| {
                 let profiles: Vec<Data> = b

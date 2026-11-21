@@ -138,6 +138,8 @@ mod native {
         pub cookie_import: Option<super::cookie_import::CookieImport>,
         /// Each other browser's icon for Settings > Browser, read off the UI thread (`app_icons`).
         pub app_icons: super::app_icons::AppIcons,
+        /// The other browsers and their profiles, listed off the UI thread (`app_icons::ImportSources`).
+        pub import_sources: super::app_icons::ImportSources,
         /// Last observed Luau store version for `plugin.browser/rune.sitePermissions`.
         pub site_permissions_version: u64,
         /// Async preview proxy errors `(tab_id, binding_generation, code)` (e.g. artifact 404).
