@@ -266,6 +266,7 @@ pub fn on_plugin_updated(app: &mut App, server_key: &ServerKey) {
 /// Routes an SSE `rpc.experimental.browser.control` frame to the owning attachment (`connectionID`).
 pub fn on_control_event(app: &mut App, server_key: &ServerKey, data: &Value) {
     let Some(conn_id) = data.get("connectionID").and_then(Value::as_str) else { return };
+    browser_pane::rpc_trace::t("sse.control", format_args!("heard {:?} ago {}", opencode_kit::client::heard_at(data).map(|h| h.elapsed()), data));
     let now = Instant::now();
     let mut pending_effects = Vec::new();
     {
@@ -319,6 +320,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     let now = Instant::now();
     let mut changed = false;
 
+    browser_pane::rpc_trace::t("rpc.tick", "");
     // 1. Drain worker messages (attach outcomes & fetched commands).
     let msgs: Vec<WorkerMsg> = {
         let st = app.kernel.slots.get_mut(&BROWSER_RPC);
@@ -734,6 +736,7 @@ fn apply_batch_effects(
                     std::thread::Builder::new()
                         .name("browser-rpc-cmd".into())
                         .spawn(move || {
+                            browser_pane::rpc_trace::t("fetch.start", &request_id);
                             let result = server.browser_rpc_command_abortable(
                                 &location,
                                 &sid,
@@ -741,6 +744,7 @@ fn apply_batch_effects(
                                 &request_id,
                                 &abort,
                             );
+                            browser_pane::rpc_trace::t("fetch.end", &request_id);
                             let _ = tx.send(WorkerMsg::CommandFetched {
                                 server_key: skey,
                                 session_id: sid,

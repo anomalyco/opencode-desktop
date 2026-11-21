@@ -766,6 +766,9 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                         surfaces.entry(tab.tab_id).or_default();
                     }
                 }
+                if let EngineMsg::CdpResponse { request_id, .. } = &msg {
+                    crate::rpc_trace::t("cdp.wire", request_id);
+                }
                 link.inbox_tx.send(msg).ok();
                 link.wake();
             }
