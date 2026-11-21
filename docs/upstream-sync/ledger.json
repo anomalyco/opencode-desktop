@@ -4236,8 +4236,8 @@
       ],
       "summary": "A browser tab stays in the pane after a failed or timed-out navigation or a page crash; only the person or the agent closing it removes it.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "To check in plugins/browser (tab model, navigation errors).",
+      "status": "have it",
+      "status_evidence": "apps/desktop/src/surfaces/browser/rpc/exec/nav.rs aligns LOAD_TIMEOUT to 15s and keeps tabs open past the navigation deadline when still loading with no load_error (returning official's tabID reuse message to agents; user tabs also remain open on load_error), logging 'browser tab closed: its open failed' on rollback (PR #511).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-6"
@@ -4260,8 +4260,8 @@
       ],
       "summary": "Every open browser tab keeps its place in the side strip, including tabs restored or opened while the pane was hidden.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "To check in plugins/browser (pane machine, restore).",
+      "status": "have it",
+      "status_evidence": "apps/desktop/src/surfaces/browser/{mod,openers}.rs and plugin_host/ui/panels.rs track in-flight strip closes (closing_tabs) and reconcile missing live open browser tabs back into the active session's side strip in exact predecessor order via sync_browser_strip_tabs (PR #511).",
       "depends_on": "UP-147 (#65313)",
       "risks": "none",
       "workstream": "WS-6"
