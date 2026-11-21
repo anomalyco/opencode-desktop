@@ -351,7 +351,7 @@ wrap_completion_callback! {
     }
 }
 
-fn completion_cb<F: FnOnce() + Send + 'static>(cb: F) -> CompletionCallback {
+pub(crate) fn completion_cb<F: FnOnce() + Send + 'static>(cb: F) -> CompletionCallback {
     OnceCompletion::new(Arc::new(CompletionOnce {
         cb: Mutex::new(Some(Box::new(cb))),
     }))
@@ -718,12 +718,7 @@ impl CookieController {
     /// both the default profile and every active remote server partition (`profile/index.ts:509-524`).
     /// Note: open tabs also receive CDP `Storage.clearDataForOrigin` + `Network.clearBrowserCache`
     /// from `EngineManager` right beside this call.
-    pub fn clear_all(
-        &mut self,
-        contexts: &ContextPool,
-        request_id: u64,
-        out_tx: Output,
-    ) {
+    pub fn clear_all(&mut self, contexts: &ContextPool, done: Box<dyn FnOnce(bool) + Send>) {
         // End every mirror so a reconcile in flight writes nothing more and removes what it raced in;
         // the next reconcile starts a fresh one.
         for entry in self.mirrors.values() {
@@ -751,15 +746,12 @@ impl CookieController {
             global_ctx.clear_http_auth_credentials(Some(&mut auth_cb));
         }
         let Some(mgr) = cef::cookie_manager_get_global_manager(None) else {
-            let _ = out_tx.send(EngineMsg::ProfileActionDone { request_id, ok: false });
-            return;
+            return done(false);
         };
         let mgr_done = mgr.clone();
         let mut del_cb = delete_cookies_cb(move |deleted| {
             let ok = deleted >= 0;
-            let mut flush = completion_cb(move || {
-                let _ = out_tx.send(EngineMsg::ProfileActionDone { request_id, ok });
-            });
+            let mut flush = completion_cb(move || done(ok));
             let _ = mgr_done.flush_store(Some(&mut flush));
         });
         let _ = mgr.delete_cookies(None, None, Some(&mut del_cb));
