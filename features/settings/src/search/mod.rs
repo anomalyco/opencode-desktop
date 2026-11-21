@@ -15,7 +15,11 @@ use rune_theme_opencode::icons as ic;
 use crate::host::SettingsHost;
 use crate::pages::{self, ExtensionsTab, Page};
 
-mod view;\n\npub use view::{field, results};\n\n/// How many results show before "Narrow your search" (`shown`'s 60).
+mod view;
+
+pub use view::{field, results};
+
+/// How many results show before "Narrow your search" (`shown`'s 60).
 const SHOWN: usize = 60;
 /// How long a revealed row stays lit before starting its fade.
 const REVEAL_LIT_S: f64 = 0.05;
