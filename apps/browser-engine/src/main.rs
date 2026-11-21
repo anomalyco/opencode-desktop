@@ -20,12 +20,14 @@ mod dmabuf_frames;
 mod engine;
 mod extensions;
 mod output;
+mod permissions;
 mod handlers;
 mod keys;
 #[cfg(target_os = "linux")]
 mod linux_gpu;
 #[cfg(target_os = "macos")]
 mod mac_app;
+mod cdp_ledger;
 mod cef_runtime;
 mod diagnostics;
 mod favicon;

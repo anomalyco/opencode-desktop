@@ -413,8 +413,10 @@ pub(crate) enum EngineCaps {
         context_menu: bool,
         partitions: bool,
         remote_proxy: bool,
+        agent_tools: bool,
         preview: bool,
         extensions: bool,
+        permission_sync: bool,
     },
 }
 
@@ -451,12 +453,20 @@ impl EngineCaps {
         matches!(self, Self::Known { remote_proxy: true, .. })
     }
 
+    pub(crate) fn agent_tools(self) -> bool {
+        matches!(self, Self::Known { agent_tools: true, .. })
+    }
+
     pub(crate) fn preview(self) -> bool {
         matches!(self, Self::Known { preview: true, .. })
     }
 
     pub(crate) fn extensions(self) -> bool {
         matches!(self, Self::Known { extensions: true, .. })
+    }
+
+    pub(crate) fn permission_sync(self) -> bool {
+        matches!(self, Self::Known { permission_sync: true, .. })
     }
 }
 

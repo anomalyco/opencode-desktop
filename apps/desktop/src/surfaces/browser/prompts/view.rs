@@ -155,10 +155,12 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
     if let Some(queued) = tab.prompts.permission.active() {
         let req_id = queued.request.id;
         let agent = queued.agent_driven;
-        let preview = tab.preview.is_some()
-            || tab.context.is_isolated()
-            || queued.request.origin.to_ascii_lowercase().starts_with("oc-preview:");
-        let can_remember = !agent && !preview;
+        // RemoteServer, Private, Artifact, Preview, and agent-driven tabs are strictly visit-only
+        // (never offer "Always allow" / "Never allow").
+        let can_remember = !agent
+            && tab.preview.is_none()
+            && tab.context.is_default()
+            && !queued.request.origin.to_ascii_lowercase().starts_with("oc-preview:");
         let waiting = tab.prompts.permission.waiting_count();
         let sentence = permission_sentence(&queued.request.origin, &queued.request.kinds);
 

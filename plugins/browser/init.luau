@@ -1696,6 +1696,10 @@ return plugin.defineWindow(function(ctx)
         end,
         capabilities = settingsCapabilities,
         sitePermissions = sitePermissionsList,
+        permissionRestartNote = function(): boolean
+            local eng = Browser:Engine() :: any
+            return eng ~= nil and eng.state == "ready" and eng.permissionSync ~= true
+        end,
         setSitePermission = function(origin, permission, setting)
             setSitePermission(origin, permission, setting)
             refreshSettings()

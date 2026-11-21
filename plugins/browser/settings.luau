@@ -52,6 +52,7 @@ export type Env = {
     updatePreferences: (patch: { [string]: any }) -> (),
     capabilities: () -> Capabilities,
     sitePermissions: () -> { SiteDecision },
+    permissionRestartNote: (() -> boolean)?,
     setSitePermission: (origin: string, permission: string, setting: "allow" | "block") -> (),
     removeSitePermission: (origin: string, permission: string) -> (),
     historyCount: () -> number,
@@ -413,10 +414,14 @@ function settings.create(env: Env, refresh: () -> ())
                     ))
                 end
             end
-            table.insert(sections, ui.col({ key = "settings-browser-sites-section", w = "full", gap = 16 }, {
+            local sitesNotes: { ui.Node } = {
                 ui.settingsList({ key = "settings-browser-sites-list", title = i18n:T("settings.sites.title") }, siteRows),
                 ui.text(i18n:T("settings.sites.note"), NOTE),
-            }))
+            }
+            if env.permissionRestartNote and env.permissionRestartNote() then
+                table.insert(sitesNotes, ui.text(i18n:T("settings.sites.restartNote"), NOTE))
+            end
+            table.insert(sections, ui.col({ key = "settings-browser-sites-section", w = "full", gap = 16 }, sitesNotes))
 
             -- 4d. Browser data section (`settings-browser-cookies`, UP-117 #65124 confirm before clearing)
             local count = env.historyCount()

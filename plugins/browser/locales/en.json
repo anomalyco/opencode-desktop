@@ -249,6 +249,7 @@
   "settings.advanced.summary": "Remote servers, site permissions, browsing data, cookie file",
   "settings.sites.title": "Site permissions",
   "settings.sites.note": "Agent and remote server tabs ask again. Clearing browsing data keeps saved permissions.",
+  "settings.sites.restartNote": "Changes to saved site permissions take effect after the browser restarts.",
   "settings.sites.none": "No saved permissions",
   "settings.sites.allow": "Allowed",
   "settings.sites.block": "Blocked",

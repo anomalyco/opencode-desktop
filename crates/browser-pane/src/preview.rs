@@ -365,6 +365,7 @@ impl BrowserHost {
             t.file_roots.clear();
             t.load_error = None;
             t.engine_confirmed = false;
+            t.prompts.reset_for_context_switch();
             if let Some(code) = &refused {
                 t.url = "about:blank".into();
                 t.loading = false;
@@ -437,6 +438,7 @@ impl BrowserHost {
             t.load_error = None;
             t.refusal = None;
             t.engine_confirmed = false;
+            t.prompts.reset_for_context_switch();
             t.has_engine_tab = !(connected && ready && !engine_preview);
             (t.viewport_pt, t.scale, had, t.prompts.agent_driven)
         };

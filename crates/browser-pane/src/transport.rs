@@ -54,6 +54,7 @@ pub(crate) struct Link {
     pub opens: Vec<(u64, HostMsg)>,
     /// Verified `<id>:<sha256>:<dir>` specs passed as `--extension` arguments when spawning.
     pub extension_args: Vec<String>,
+    pub profile_permissions: Vec<crate::prompts::SiteDecision>,
     pub preview_chunk_budget: Arc<crate::preview::PreviewChunkBudget>,
 }
 
@@ -146,6 +147,7 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
     if !link.current() {
         return;
     }
+    crate::prompts::scrub_chromium_preferences_for_older_engine(profile, &link.profile_permissions);
     let mut child = match engine_command(&engine.bin, sock, profile, &link.extension_args).spawn() {
         Ok(child) => child,
         Err(e) => {
