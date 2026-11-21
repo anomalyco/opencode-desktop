@@ -79,12 +79,102 @@ unsafe extern "C" {
     fn SecCodeCopySelf(flags: u32, self_code: *mut *const c_void) -> i32;
     fn SecRequirementCreateWithString(text: *const c_void, flags: u32, requirement: *mut *const c_void) -> i32;
     fn SecCodeCheckValidity(code: *const c_void, flags: u32, requirement: *const c_void) -> i32;
+    fn SecKeychainCopyDefault(keychain: *mut *const c_void) -> i32;
+    fn SecKeychainOpen(path: *const std::ffi::c_char, keychain: *mut *const c_void) -> i32;
+    fn SecKeychainGetStatus(keychain: *const c_void, status: *mut u32) -> i32;
+}
+
+/// What encrypts the profile's cookies on macOS: the engine's own Keychain item, or Chromium's
+/// fixed mock key (`--use-mock-keychain`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CookieKey {
+    Keychain,
+    Mock,
+}
+
+impl CookieKey {
+    pub fn name(self) -> &'static str {
+        match self {
+            CookieKey::Keychain => "keychain",
+            CookieKey::Mock => "mock",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "keychain" => Some(CookieKey::Keychain),
+            "mock" => Some(CookieKey::Mock),
+            _ => None,
+        }
+    }
+}
+
+/// This run's key, with what decided it.
+pub struct KeyDecision {
+    pub key: CookieKey,
+    /// A valid Developer ID build from Anomaly's team (`is_developer_id_signed`).
+    pub signed: bool,
+}
+
+static COOKIE_KEY: std::sync::OnceLock<CookieKey> = std::sync::OnceLock::new();
+
+/// Decides this run's key once, in the browser process, before CEF starts (`Profile::open`). Only
+/// a Developer ID build without `OPENCODE_BROWSER_MOCK_KEYCHAIN=1` whose default keychain is
+/// unlocked, readable and writable uses the Keychain. A locked keychain would make Chromium show
+/// macOS's unlock dialog and hold every cookie until it is answered, and a missing one (or no
+/// login session) fails the read outright, so such a run uses the mock key; `Profile::open` then
+/// gives it a throwaway profile (READER-9 #378 should-fix 2).
+pub fn decide_cookie_key() -> KeyDecision {
+    let signed = is_developer_id_signed() || debug_override("OPENCODE_BROWSER_FAULT_SIGNED").is_some();
+    let mock = std::env::var_os("OPENCODE_BROWSER_MOCK_KEYCHAIN").as_deref() == Some(std::ffi::OsStr::new("1"));
+    let key = if signed && !mock && keychain_ready() { CookieKey::Keychain } else { CookieKey::Mock };
+    let _ = COOKIE_KEY.set(key);
+    KeyDecision { key, signed }
+}
+
+/// This run's key (`decide_cookie_key`); the mock key if it was never decided.
+pub fn cookie_key() -> CookieKey {
+    COOKIE_KEY.get().copied().unwrap_or(CookieKey::Mock)
+}
+
+/// Debug builds only: lets a proof stand in for a Developer ID signature
+/// (`OPENCODE_BROWSER_FAULT_SIGNED=1`) or for the default keychain
+/// (`OPENCODE_BROWSER_FAULT_KEYCHAIN=<throwaway keychain path>`). Release builds never read them.
+fn debug_override(name: &str) -> Option<std::ffi::OsString> {
+    if cfg!(debug_assertions) { std::env::var_os(name).filter(|v| !v.is_empty()) } else { None }
+}
+
+/// Whether the default keychain exists and is unlocked, readable and writable now. Asking never
+/// shows UI.
+fn keychain_ready() -> bool {
+    const K_SEC_UNLOCK_STATE_STATUS: u32 = 1;
+    const K_SEC_READ_PERM_STATUS: u32 = 2;
+    const K_SEC_WRITE_PERM_STATUS: u32 = 4;
+    const READY: u32 = K_SEC_UNLOCK_STATE_STATUS | K_SEC_READ_PERM_STATUS | K_SEC_WRITE_PERM_STATUS;
+    unsafe {
+        let mut keychain: *const c_void = std::ptr::null();
+        let opened = match debug_override("OPENCODE_BROWSER_FAULT_KEYCHAIN")
+            .and_then(|p| std::ffi::CString::new(p.into_encoded_bytes()).ok())
+        {
+            Some(path) => SecKeychainOpen(path.as_ptr(), &mut keychain),
+            None => SecKeychainCopyDefault(&mut keychain),
+        };
+        if opened != 0 || keychain.is_null() {
+            return false;
+        }
+        let mut status = 0u32;
+        let read = SecKeychainGetStatus(keychain, &mut status);
+        CFRelease(keychain);
+        read == 0 && status & READY == READY
+    }
 }
 
 /// A Developer ID Application signature from Anomaly's team: Apple's Developer ID intermediate
 /// (`1.2.840.113635.100.6.2.6`) and leaf (`1.2.840.113635.100.6.1.13`) marker extensions, and
-/// team `5NZ4Q7NXJ4` (the shape `apps/desktop/update-requirement.txt` pins for the app).
-const DEVELOPER_ID_REQUIREMENT: &str = "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"5NZ4Q7NXJ4\"";
+/// team `5NZ4Q7NXJ4` (the shape `apps/desktop/update-requirement.txt` pins for the app), on the
+/// engine's own bundle identifier (`scripts/package-release.sh`), so no other Anomaly binary
+/// passes for it.
+const DEVELOPER_ID_REQUIREMENT: &str = "anchor apple generic and identifier \"co.anomaly.opencode.browser-engine\" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"5NZ4Q7NXJ4\"";
 
 /// Whether the running engine is a valid Developer ID build signed by Anomaly's team
 /// (`SecCodeCheckValidity` against [`DEVELOPER_ID_REQUIREMENT`]). Only such a build opens the real

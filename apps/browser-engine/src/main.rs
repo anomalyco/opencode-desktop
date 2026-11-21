@@ -35,6 +35,7 @@ mod diagnostics;
 mod favicon;
 mod frame_authority;
 mod find;
+mod input_guard;
 mod menu;
 mod passkeys;
 mod preview;
@@ -137,6 +138,19 @@ fn main() {
         } else if let Some(dir) = cef_dll_sys::get_cef_dir() {
             println!("{}", dir.display());
         }
+        return;
+    }
+    // Debug builds only: which profile and cookie key a start would use, without starting CEF (so
+    // a proof never reaches the Keychain).
+    #[cfg(target_os = "macos")]
+    if cfg!(debug_assertions) && args.iter().any(|a| a == "--print-profile-decision") {
+        let profile = profile::Profile::open();
+        println!(
+            "key={} lasting={} root={}",
+            mac_app::cookie_key().name(),
+            !profile.temporary,
+            profile.root.display()
+        );
         return;
     }
     let arg = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1));

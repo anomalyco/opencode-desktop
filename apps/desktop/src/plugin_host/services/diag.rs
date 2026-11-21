@@ -25,9 +25,10 @@ use crate::plugin_host::vm::Vmx;
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const DEFAULT_INTERVAL: Duration = Duration::from_secs(30);
 
-/// Local and beta builds: memory diagnostics and the motion tools.
+/// Local and beta builds: memory diagnostics and the motion tools. Matches `app::channel()` so
+/// PR builds (`pr-*`, mapped to `Channel::Local`) do not disagree with `App.Channel`.
 pub fn debug_build() -> bool {
-    matches!(crate::updater::build_channel(), "local" | "beta")
+    matches!(super::app::channel(), opencode_plugin_spec::Channel::Local | opencode_plugin_spec::Channel::Beta)
 }
 
 pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {

@@ -133,8 +133,8 @@ pub(super) fn controls(s: &App, p: &Pal) -> El {
     }
     let open = s.popup.open_at(MENU_TRIGGER);
     let menu = super::super::home::projects::icon_button(p, MENU_TRIGGER, t!("tabs.groups.menu"), &ic::OUTLINE_SLIDERS, open)
-        .help(t!("tabs.groups.menu"))
         .menu_button(MENU_TRIGGER, open_grouping_menu);
+    let menu = if open { menu } else { menu.help(t!("tabs.groups.menu")) };
     row().key("tab-groups-controls").w_full().my(10.0).child(field.child(menu))
 }
 
@@ -313,6 +313,7 @@ fn header(s: &App, p: &Pal, g: &Group) -> El {
         .gap(6.0)
         .center_y()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| tg::header_press(s, &press_key, tx))
         .on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| header_drag(s, &drag_key, d, tx))
@@ -388,6 +389,7 @@ fn tab_row(s: &App, p: &Pal, g: &Group, t: &crate::tabs::Tab, tab_index: usize, 
         .size(20.0, 20.0)
         .center()
         .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .hover(p.hover)
         .press(p.pressed)
@@ -425,6 +427,7 @@ fn tab_row(s: &App, p: &Pal, g: &Group, t: &crate::tabs::Tab, tab_index: usize, 
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .fill(if active || dragging.is_some() { p.pressed } else if marked { p.hover } else { Color::TRANSPARENT })
         .hover(if active { p.pressed } else { p.hover })

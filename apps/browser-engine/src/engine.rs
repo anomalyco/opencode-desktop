@@ -42,6 +42,8 @@ pub(crate) struct ManagedTab {
     pub(crate) cdp_id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
     pub(crate) cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
     pub(crate) passkeys: Arc<crate::passkeys::TabPasskeyGate>,
+    pub(crate) input_guard: Arc<Mutex<crate::input_guard::InputGuard>>,
+    pub(crate) emulation_scale: Arc<std::sync::atomic::AtomicU32>,
     internal_picked: Arc<Mutex<Vec<i64>>>,
     pending_clears: Arc<Mutex<Vec<PendingClear>>>,
     pub(crate) prompts: Arc<crate::prompts::TabPrompts>,
@@ -76,7 +78,7 @@ pub struct EngineManager {
     unmanaged_ext_tabs: usize,
     seed_probe: Option<BrowserHost>,
     next_ext_tab_id: u64,
-    next_cdp_id: AtomicI32,
+    pub(super) next_cdp_id: Arc<AtomicI32>,
     next_eref: u64,
     /// Agent commands waiting, in arrival order, for their tab's `WebAuthn.enable` reply.
     passkey_held: Vec<HostMsg>,
@@ -141,7 +143,7 @@ impl EngineManager {
             unmanaged_ext_tabs: 0,
             seed_probe: None,
             next_ext_tab_id: 1_000_000,
-            next_cdp_id: AtomicI32::new(100),
+            next_cdp_id: Arc::new(AtomicI32::new(100)),
             next_eref: 1,
             passkey_held: Vec::new(),
             dark: None,
@@ -479,6 +481,8 @@ impl EngineManager {
                 if let Some(t) = self.tabs.get(&tab_id)
                     && self.contexts.is_tab_ready(tab_id)
                 {
+                    let applied = if device.is_some() && scale.is_finite() { scale.clamp(0.25, 4.0) } else { 1.0 };
+                    t.emulation_scale.store(applied.to_bits(), Ordering::Release);
                     emulation::apply(device.as_ref(), scale, |method, params| self.send_internal_cdp(&t.host, method, params));
                 }
             }
@@ -623,50 +627,7 @@ impl EngineManager {
                     crate::cdp_ledger::handle_site_cookies(tab_id, request_id, not_ready, t, &self.next_cdp_id, &self.out_tx);
                 }
             }
-            HostMsg::ClearSite { tab_id, request_id } => {
-                if let Some(t) = self.tabs.get(&tab_id) {
-                    if !self.contexts.is_tab_ready(tab_id) {
-                        let reason = self.contexts.not_ready_reason(tab_id);
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id,
-                            request_id,
-                            ok: false,
-                            result: json!({ "message": reason }),
-                        });
-                        return true;
-                    }
-                    let url = t.snap.lock().unwrap().url.clone();
-                    let Some(origin) = browser_policy::destination_origin(&url) else {
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id,
-                            request_id,
-                            ok: true,
-                            result: json!({}),
-                        });
-                        return true;
-                    };
-                    let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
-                    t.cdp_id_map
-                        .lock()
-                        .unwrap()
-                        .insert(msg_id, CdpPending::ClearSite { request_id, origin });
-                    let raw = json!({
-                        "id": msg_id,
-                        "method": "Network.getCookies",
-                        "params": { "urls": [url] },
-                    })
-                    .to_string();
-                    if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
-                        t.cdp_id_map.lock().unwrap().remove(&msg_id);
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id,
-                            request_id,
-                            ok: false,
-                            result: json!({ "message": "send_dev_tools_message rejected" }),
-                        });
-                    }
-                }
-            }
+            HostMsg::ClearSite { tab_id, request_id } => self.handle_clear_site(tab_id, request_id),
             #[cfg(target_os = "linux")]
             HostMsg::FrameRead { tab_id, pool, frame_id } => {
                 if let Some(ring) = self.tabs.get(&tab_id).and_then(|t| t.frames.as_ref()) {
@@ -752,7 +713,7 @@ impl EngineManager {
                     let not_ready = (!self.contexts.is_tab_ready(tab_id))
                         .then(|| self.contexts.not_ready_reason(tab_id))
                         .or_else(|| self.whole_tab_granted(t));
-                    crate::agent::handle_drop_files(t, &self.profile_dir, tab_id, request_id, not_ready, x, y, &files, &self.next_cdp_id, &self.out_tx);
+                    crate::agent::handle_drop_files(t, &self.permissions, &self.profile_dir, tab_id, request_id, not_ready, x, y, &files, &self.next_cdp_id, &self.out_tx);
                 }
             }
             HostMsg::ClearSiteCache { tab_id, request_id } => {
@@ -1167,6 +1128,8 @@ impl EngineManager {
             self.out_tx.clone(),
             self.events.clone(),
         );
+        let input_guard = Arc::new(Mutex::new(crate::input_guard::InputGuard::default()));
+        let emulation_scale = Arc::new(std::sync::atomic::AtomicU32::new(1.0f32.to_bits()));
         let request = TabRequestHandler::new(
             tab_id,
             file_roots.clone(),
@@ -1180,6 +1143,8 @@ impl EngineManager {
             snap.clone(),
             self.prompt_shared.clone(),
             prompts.clone(),
+            input_guard.clone(),
+            emulation_scale.clone(),
             self.permissions.clone(),
             scope_id,
             diagnostics,
@@ -1360,6 +1325,9 @@ impl EngineManager {
             pending_clears.clone(),
             cdp_ledger.clone(),
             passkeys.clone(),
+            input_guard.clone(),
+            emulation_scale.clone(),
+            self.next_cdp_id.clone(),
             prompts.clone(),
             self.permissions.clone(),
             self.extensions.is_some(),
@@ -1403,6 +1371,8 @@ impl EngineManager {
                 cdp_id_map,
                 cdp_ledger,
                 passkeys,
+                input_guard,
+                emulation_scale,
                 internal_picked,
                 pending_clears,
                 prompts,

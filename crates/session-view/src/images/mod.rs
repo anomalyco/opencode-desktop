@@ -472,7 +472,7 @@ pub fn markdown_pictures<S: TimelineHost>(md: rune_kit::Markdown, m: markdown::M
             let image = f.image.clone();
             let dragged = Dragged::Markdown { directory: m.directory.as_deref().map(str::to_owned), src: f.src.to_owned() };
             let img = menu::on_image::<S>(draggable::<S>(img, dragged.clone()), dragged.clone(), m.message.as_deref());
-            el().w_full().child(img.key("img").matched(id.clone()).token_motion(m.flight).role("button").focusable(true).on_press_tx(move |s: &mut S, tx: &mut rune::Tx| {
+            el().w_full().child(img.key("img").matched(id.clone()).token_motion(m.flight).role("button").focusable(true).cursor(rune::Cursor::Pointer).on_press_tx(move |s: &mut S, tx: &mut rune::Tx| {
                 viewer::open(s, Viewing { id: id.clone(), name: name.clone(), image: image.clone(), dragged: dragged.clone() }, tx);
             }))
         })
