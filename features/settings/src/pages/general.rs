@@ -4,13 +4,14 @@
 //! prompt marks), and the sections plugins put on the page (`PluginSettingsSections page="general"`).
 
 use opencode_i18n::t;
+use opencode_ui::focus::FocusExt;
 use opencode_ui::keymap::Bind;
 use opencode_ui::popup::PopupHost;
-use rune::{Color, El, Tx, col, row, text};
+use rune::{Color, Cursor, El, Tx, col, row, text};
 use opencode_ui::palette::Pal;
 use opencode_ui::style::UI;
 
-use super::{choice, header, page_with, select};
+use super::{choice, header_with, page_with, select};
 use crate::host::SettingsHost;
 use crate::types::{DockPlacement, TerminalMarkShell};
 use crate::{Choice as _, FollowUp, StartIn, TitlebarPosition, Worktree, change_settings, list, set_show_agent, set_terminal_placement, setting, setting_at, switch};
@@ -259,7 +260,46 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
         .child(general)
         .child(super::timeline::section(s, p))
         .children(s.plugin_sections_for_page(p, "general"));
-    page_with(p, "settings-general-page", header(p, t!("settings.tab.preferences"), t!("settings.preferences.description")), body, true)
+    page_with(
+        p,
+        "settings-general-page",
+        header_with(p, t!("settings.tab.preferences"), t!("settings.preferences.description"), Some(help_feedback_link::<H>(p))),
+        body,
+        true,
+    )
+}
+
+/// Official Preferences header link (`packages/app/src/settings/general/general.tsx:335-343`):
+/// `no-underline hover:text-v2-text-text-base hover:underline`.
+fn help_feedback_link<H: SettingsHost + 'static>(p: &Pal) -> El {
+    const URL: &str = "https://opencode.ai/desktop-feedback";
+    let words = t!("settings.helpFeedback");
+    row()
+        .key("settings-help-feedback")
+        .role("link")
+        .label(words)
+        .gap(6.0)
+        .center_y()
+        .radius(4.0)
+        .cursor(Cursor::Pointer)
+        .focus_default(p)
+        .hover_group()
+        .on_press_tx(|s: &mut H, tx: &mut Tx| crate::open_external(s, URL, tx))
+        .child(
+            col()
+                .key("help-label")
+                .child(text(words).font(super::NAME_REGULAR).color(p.muted).group_color(p.text))
+                // Official `general.tsx:339` uses `no-underline hover:text-v2-text-text-base hover:underline`.
+                .child(
+                    rune::el()
+                        .key("help-underline")
+                        .pin(Some(0.0), None, Some(0.0), Some(1.0))
+                        .h(1.0)
+                        .fill(p.text)
+                        .group_opacity(0.0, 1.0),
+                ),
+        )
+        .child(rune::icon(&super::console_link::ARROW_UP_RIGHT, 14.0).color(p.muted).group_color(p.text))
 }
 
 /// Side or Bottom: where the terminal opens.
@@ -283,6 +323,8 @@ fn placement<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
                 .key(format!("placement-{}", pl.name()))
                 .role("radio")
                 .focus_selected(on)
+                .focus_default(p)
+                .cursor(Cursor::Pointer)
                 .h(24.0)
                 .px(10.0)
                 .center()

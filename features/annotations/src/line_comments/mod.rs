@@ -321,8 +321,8 @@ pub fn line_comment(host: &mut dyn LineCommentsHost, spot: &Spot, event: machine
     for effect in effects {
         match effect {
             machine::Effect::Sync(range) => sync_view_selection(host, spot, range),
-            machine::Effect::SubmitDraft { comment, selection } => add_line_comment(host, spot, selection, comment, tx),
-            machine::Effect::SubmitEdit { id, comment, selection } => update_line_comment(host, spot, &id, selection, comment),
+            machine::Effect::SubmitDraft { comment, selection, send } => add_line_comment(host, spot, selection, comment, send, tx),
+            machine::Effect::SubmitEdit { id, comment, selection, send } => update_line_comment(host, spot, &id, selection, comment, send, tx),
             machine::Effect::Delete { id } => remove_line_comment(host, &spot.session, &id),
             machine::Effect::Discarded { comment, selection, edit } => {
                 let discarded = Discarded { spot: spot.clone(), selection, comment, edit };
@@ -374,8 +374,17 @@ pub fn line_comment_field(host: &mut dyn LineCommentsHost, spot: &Spot, event: F
                     d.text.insert(&format!("@{path} "));
                 }
             }
-            FieldEffect::Submit { .. } => {
-                line_comment(host, spot, if editing { machine::Event::EditSubmitted } else { machine::Event::DraftSubmitted }, tx);
+            FieldEffect::Submit { alternate } => {
+                line_comment(
+                    host,
+                    spot,
+                    if editing {
+                        machine::Event::EditSubmitted { send: alternate }
+                    } else {
+                        machine::Event::DraftSubmitted { send: alternate }
+                    },
+                    tx,
+                );
             }
             FieldEffect::Cancel => {
                 line_comment(host, spot, if editing { machine::Event::EditCancelled } else { machine::Event::DraftCancelled }, tx);
@@ -385,11 +394,38 @@ pub fn line_comment_field(host: &mut dyn LineCommentsHost, spot: &Spot, event: F
     handled
 }
 
-/// What the editor's field reads at `spot` (`LineCommentEditorConfig`): no alternate send,
-/// and an empty draft doesn't submit.
+/// Tracks held `Ctrl` / `Cmd` so open file and review comment editors flip live between Comment/Save
+/// and Send/Steer/Queue comment (`UP-137` `#65264`).
+pub fn modifiers(host: &mut dyn LineCommentsHost, mods: rune::Mods, tx: &mut Tx) -> bool {
+    let held = (mods.ctrl || mods.cmd) && !mods.alt && !mods.shift;
+    let has_change = host.line_comments().sessions.values().any(|s| {
+        s.modes
+            .values()
+            .flat_map(|m| m.values())
+            .filter_map(Mode::draft)
+            .any(|d| d.field.alternate != held)
+    });
+    if !has_change {
+        return false;
+    }
+    for session in host.line_comments_mut().sessions.values_mut() {
+        for modes in session.modes.values_mut() {
+            for mode in modes.values_mut() {
+                if let Some(d) = mode.draft_mut() {
+                    d.field.alternate = held;
+                }
+            }
+        }
+    }
+    tx.instant();
+    true
+}
+
+/// What the editor's field reads at `spot` (`LineCommentEditorConfig`): offers `Mod+Enter` direct
+/// send when the session can send (`UP-137` `#65264`), and an empty draft doesn't submit.
 pub fn line_comment_config(host: &dyn LineCommentsHost, spot: &Spot) -> Config {
     let blank = host.line_comments().mode(spot).draft().is_none_or(|d| d.text.text.trim().is_empty());
-    Config { alternate: None, submitting: false, allow_empty: false, blank }
+    Config { alternate: Some(!host.can_send_comment()), submitting: false, allow_empty: false, blank }
 }
 
 /// A view's lines: the mode holds the view's selection (`sync-selected`). The lines a view
@@ -402,8 +438,9 @@ pub(crate) fn sync_view_selection(host: &mut dyn LineCommentsHost, spot: &Spot, 
 }
 
 /// `comment.add` and `composer.attach`: the comment shows under its lines and waits in the
-/// composer as a card, and the view that wrote it reveals it (`focus.set`).
-fn add_line_comment(host: &mut dyn LineCommentsHost, spot: &Spot, selection: Range, comment: String, tx: &mut Tx) {
+/// composer as a card, and the view that wrote it reveals it (`focus.set`). When `send` is true
+/// (`Mod+Enter`, `UP-137`), sends it straight to the session and drops it once sent.
+fn add_line_comment(host: &mut dyn LineCommentsHost, spot: &Spot, selection: Range, comment: String, send: bool, tx: &mut Tx) {
     let time = host.now_ms();
     let preview = host.line_preview(spot, selection);
     let now = tx.clock();
@@ -422,18 +459,22 @@ fn add_line_comment(host: &mut dyn LineCommentsHost, spot: &Spot, selection: Ran
         }
         id
     };
-    host.quotes_mut().push(FileComment {
+    let key = host.quotes_mut().push(FileComment {
         path: spot.path.clone(),
         lines: Some(selection.ordered()),
         comment,
         preview,
         origin: Some(spot.surface.origin()),
-        id: Some(id),
+        id: Some(id.clone()),
     });
+    if send && host.send_comment(key, tx).is_some() {
+        remove_line_comment(host, &spot.session, &id);
+    }
 }
 
-/// `comment.update` and `composer.update`.
-fn update_line_comment(host: &mut dyn LineCommentsHost, spot: &Spot, id: &str, selection: Range, comment: String) {
+/// `comment.update` and `composer.update`; when `send` is true (`Mod+Enter`), sends the updated
+/// comment straight to the session and drops it once sent.
+fn update_line_comment(host: &mut dyn LineCommentsHost, spot: &Spot, id: &str, selection: Range, comment: String, send: bool, tx: &mut Tx) {
     let preview = host.line_preview(spot, selection);
     {
         let lc = host.line_comments_mut();
@@ -442,6 +483,7 @@ fn update_line_comment(host: &mut dyn LineCommentsHost, spot: &Spot, id: &str, s
             lc.saved.touch(&spot.session);
         }
     }
+    let mut key = None;
     for item in &mut host.quotes_mut().items {
         if let PromptComment::File(f) = &mut item.comment
             && f.id.as_deref() == Some(id)
@@ -450,7 +492,11 @@ fn update_line_comment(host: &mut dyn LineCommentsHost, spot: &Spot, id: &str, s
             if preview.is_some() {
                 f.preview = preview.clone();
             }
+            key = Some(item.key);
         }
+    }
+    if send && let Some(key) = key && host.send_comment(key, tx).is_some() {
+        remove_line_comment(host, &spot.session, id);
     }
 }
 

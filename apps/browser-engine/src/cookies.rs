@@ -10,7 +10,7 @@
 //!   never mirroring `IsolatedPreview` contexts. Turning sharing off clears remote partition cookies.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -393,10 +393,19 @@ fn delete_cookies_cb<F: FnOnce(i32) + Send + 'static>(cb: F) -> DeleteCookiesCal
 
 // --- Controller & Mirror ---
 
+/// Why a mirror ended (`MirrorPartition::cancel`): still mirroring, sharing turned off, or signed out
+/// everywhere. A reconcile in flight reads it before every read and write, as official's
+/// `state.stopped` (`profile/link.ts:51,55`), and once its last write lands it removes what it
+/// raced in (`stop(forget)` waits for the queues first, `link.ts:104-115`).
+const LIVE: u8 = 0;
+const STOPPED: u8 = 1;
+const SIGNED_OUT: u8 = 2;
+
 struct MirrorPartition {
     base: Arc<Mutex<HashMap<CookieKey, WireCookie>>>,
     in_flight: Arc<AtomicBool>,
     pending_side: Arc<Mutex<Option<LinkSide>>>,
+    cancel: Arc<AtomicU8>,
 }
 
 impl MirrorPartition {
@@ -405,13 +414,53 @@ impl MirrorPartition {
             base: Arc::new(Mutex::new(HashMap::new())),
             in_flight: Arc::new(AtomicBool::new(false)),
             pending_side: Arc::new(Mutex::new(None)),
+            cancel: Arc::new(AtomicU8::new(LIVE)),
         }
+    }
+}
+
+/// A cookie for this machine's own loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`):
+/// on a remote server's partition it belongs to that other machine, so it never crosses the mirror
+/// either way (stricter than official's `link.ts`, which mirrors every key).
+fn is_loopback_host(host: &str) -> bool {
+    // `.localhost.` and `[::ffff:127.0.0.1]` are the same hosts as `localhost` and `127.0.0.1`.
+    let h = host.trim_start_matches('.').trim_end_matches('.').trim_start_matches('[').trim_end_matches(']').to_ascii_lowercase();
+    h == "localhost"
+        || h.ends_with(".localhost")
+        || match h.parse::<std::net::IpAddr>() {
+            Ok(std::net::IpAddr::V6(v6)) => v6.is_loopback() || v6.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback()),
+            Ok(ip) => ip.is_loopback(),
+            Err(_) => false,
+        }
+}
+
+/// Counts what still acts on a remote partition from an ended mirror (a batch of writes in flight,
+/// a wipe queued): while it is above zero no new mirror starts there, so an old batch's wipe can
+/// never land after a new mirror seeded the partition and read as the remote signing out of
+/// everything (which would delete the person's own sign-ins from the profile).
+struct Draining(Arc<AtomicUsize>);
+
+impl Draining {
+    fn start(&self) -> DrainGuard {
+        self.0.fetch_add(1, Ordering::AcqRel);
+        DrainGuard(self.0.clone())
+    }
+}
+
+/// Ends one draining action when dropped (after its callback ran, or with it if it never runs).
+struct DrainGuard(Arc<AtomicUsize>);
+
+impl Drop for DrainGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
 pub struct CookieController {
     share_sign_ins: bool,
     mirrors: HashMap<String, MirrorPartition>,
+    /// Per remote partition: actions of ended mirrors still running (`Draining`).
+    draining: HashMap<String, Arc<AtomicUsize>>,
     dirty_all_profile: Arc<AtomicBool>,
     last_periodic: Instant,
     pump: Sender<crate::Event>,
@@ -422,6 +471,7 @@ impl CookieController {
         Self {
             share_sign_ins: false,
             mirrors: HashMap::new(),
+            draining: HashMap::new(),
             dirty_all_profile: Arc::new(AtomicBool::new(false)),
             last_periodic: Instant::now(),
             pump,
@@ -644,19 +694,23 @@ impl CookieController {
         request_id: u64,
         out_tx: Output,
     ) {
-        // Clear all mirror bases so nothing re-propagates stale cookies.
+        // End every mirror so a reconcile in flight writes nothing more and removes what it raced in;
+        // the next reconcile starts a fresh one.
         for entry in self.mirrors.values() {
-            entry.base.lock().unwrap().clear();
-            *entry.pending_side.lock().unwrap() = None;
+            entry.cancel.store(SIGNED_OUT, Ordering::Release);
         }
-        // Clear remote partitions first (fire-and-forget flush + auth clear).
-        for (_partition, ctx) in contexts.remote_partitions() {
+        self.mirrors.clear();
+        // Clear remote partitions first (flush + auth clear).
+        for (partition, ctx) in contexts.remote_partitions() {
             let mut auth_cb = completion_cb(|| {});
             ctx.clear_http_auth_credentials(Some(&mut auth_cb));
             if let Some(mgr) = ctx.cookie_manager(None) {
+                // No new mirror starts on this partition until the wipe and its flush are done.
+                let guard = Draining(self.draining.entry(partition.clone()).or_default().clone()).start();
                 let mgr_f = mgr.clone();
                 let mut del_cb = delete_cookies_cb(move |_| {
-                    let _ = mgr_f.flush_store(None);
+                    let mut flushed = completion_cb(move || drop(guard));
+                    let _ = mgr_f.flush_store(Some(&mut flushed));
                 });
                 let _ = mgr.delete_cookies(None, None, Some(&mut del_cb));
             }
@@ -694,13 +748,23 @@ impl CookieController {
             }
             return;
         }
-        // Disabling: stop mirroring and wipe shared cookies from every remote partition.
+        // Disabling: end every mirror (a reconcile in flight writes nothing more and, once its last
+        // write lands, wipes the remote partition again), then wipe every remote partition's cookies
+        // and HTTP sign-ins now.
+        for entry in self.mirrors.values() {
+            entry.cancel.store(STOPPED, Ordering::Release);
+        }
         self.mirrors.clear();
-        for (_partition, ctx) in contexts.remote_partitions() {
+        for (partition, ctx) in contexts.remote_partitions() {
+            let mut auth_cb = completion_cb(|| {});
+            ctx.clear_http_auth_credentials(Some(&mut auth_cb));
             if let Some(mgr) = ctx.cookie_manager(None) {
+                // No new mirror starts on this partition until the wipe and its flush are done.
+                let guard = Draining(self.draining.entry(partition.clone()).or_default().clone()).start();
                 let mgr_f = mgr.clone();
                 let mut del_cb = delete_cookies_cb(move |_| {
-                    let _ = mgr_f.flush_store(None);
+                    let mut flushed = completion_cb(move || drop(guard));
+                    let _ = mgr_f.flush_store(Some(&mut flushed));
                 });
                 let _ = mgr.delete_cookies(None, None, Some(&mut del_cb));
             }
@@ -708,7 +772,9 @@ impl CookieController {
     }
 
     pub fn on_partition_dropped(&mut self, partition: &str) {
-        self.mirrors.remove(partition);
+        if let Some(entry) = self.mirrors.remove(partition) {
+            entry.cancel.store(STOPPED, Ordering::Release);
+        }
     }
 
     pub fn on_partition_dirty(&mut self, contexts: &ContextPool, partition: &str, side: LinkSide) {
@@ -797,6 +863,14 @@ impl CookieController {
             }
             return;
         };
+        // A new mirror waits until every action of an ended one on this partition is done (`Draining`).
+        let drain = self.draining.entry(partition.to_owned()).or_default().clone();
+        if !self.mirrors.contains_key(partition) && drain.load(Ordering::Acquire) > 0 {
+            if let Some((request_id, out_tx)) = notify {
+                let _ = out_tx.send(EngineMsg::ProfileActionDone { request_id, ok: true });
+            }
+            return;
+        }
         let entry = self
             .mirrors
             .entry(partition.to_owned())
@@ -814,6 +888,9 @@ impl CookieController {
         }
         let base_arc = entry.base.clone();
         let in_flight = entry.in_flight.clone();
+        let cancel = entry.cancel.clone();
+        // Held by this batch until its last callback: an ended mirror's batch keeps the partition draining.
+        let batch = Arc::new(Draining(drain.clone()).start());
         let pump = self.pump.clone();
         let profile_mgr_w = profile_mgr.clone();
         let remote_mgr_r = remote_mgr.clone();
@@ -821,6 +898,14 @@ impl CookieController {
 
         visit_all(&profile_mgr, false, move |profile_list| {
             visit_all(&remote_mgr_r, false, move |remote_list| {
+                let batch = batch;
+                if cancel.load(Ordering::Acquire) != LIVE {
+                    in_flight.store(false, Ordering::Release);
+                    if let Some((request_id, out_tx)) = notify {
+                        let _ = out_tx.send(EngineMsg::ProfileActionDone { request_id, ok: true });
+                    }
+                    return;
+                }
                 let mut profile_map = HashMap::with_capacity(profile_list.len());
                 for c in profile_list {
                     profile_map.insert(CookieKey::from_cookie(&c), c);
@@ -839,6 +924,9 @@ impl CookieController {
 
                 let mut ops: Vec<(LinkSide, CookieKey, Option<WireCookie>, bool)> = Vec::new();
                 for key in keys {
+                    if is_loopback_host(&key.host) {
+                        continue;
+                    }
                     let step = reconcile_cookie(
                         base.get(&key),
                         profile_map.get(&key),
@@ -871,6 +959,9 @@ impl CookieController {
 
                 let now = now_unix_secs();
                 let rem = Arc::new(AtomicUsize::new(ops.len()));
+                // What this batch wrote into the profile, removed again if the person signs out
+                // everywhere while it is in flight.
+                let profile_writes: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(Vec::new()));
                 let notify_arc = Arc::new(Mutex::new(notify));
                 for (to, key, maybe_cookie, target_secure) in ops {
                     let target = match to {
@@ -883,10 +974,30 @@ impl CookieController {
                     let pump_c = pump.clone();
                     let p_flush = profile_mgr_w.clone();
                     let r_flush = remote_mgr_w.clone();
+                    let cancel_c = cancel.clone();
+                    let written_c = profile_writes.clone();
+                    let batch_c = batch.clone();
                     let finish_one = move || {
                         if rem_c.fetch_sub(1, Ordering::AcqRel) == 1 {
+                            // Every write of this batch has landed: one that raced the end of the
+                            // mirror is undone now, after it, never before.
+                            let ended = cancel_c.load(Ordering::Acquire);
+                            if ended != LIVE {
+                                let _ = r_flush.delete_cookies(None, None, None);
+                            }
+                            if ended == SIGNED_OUT {
+                                for (url, name) in written_c.lock().unwrap().drain(..) {
+                                    let url_cef = CefString::from(url.as_str());
+                                    let name_cef = CefString::from(name.as_str());
+                                    let _ = p_flush.delete_cookies(Some(&url_cef), Some(&name_cef), None);
+                                }
+                            }
                             let _ = p_flush.flush_store(None);
+                            // The partition stops draining only once this last flush (after any wipe
+                            // above, which the cookie store runs first) is done.
+                            let batch_done = batch_c.clone();
                             let mut cb = completion_cb(move || {
+                                drop(batch_done);
                                 in_flight_c.store(false, Ordering::Release);
                                 let _ = pump_c.send(crate::Event::Pump(0));
                                 if let Some((request_id, out_tx)) = notify_c.lock().unwrap().take()
@@ -901,8 +1012,15 @@ impl CookieController {
                         }
                     };
 
+                    if cancel.load(Ordering::Acquire) != LIVE {
+                        finish_one();
+                        continue;
+                    }
                     if let Some(cookie) = maybe_cookie {
                         if let Some((url, cef_cookie)) = to_cef_cookie(&cookie, now) {
+                            if matches!(to, LinkSide::Profile) {
+                                profile_writes.lock().unwrap().push((url.clone(), cookie.name.clone()));
+                            }
                             let mut cb = set_cookie_cb(move |_| finish_one());
                             let url_cef = CefString::from(url.as_str());
                             let _ = target.set_cookie(Some(&url_cef), Some(&cef_cookie), Some(&mut cb));

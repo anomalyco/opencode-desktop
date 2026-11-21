@@ -285,7 +285,16 @@ pub enum HostMsg {
         frame_id: Option<String>,
     },
     /// Sets files on a `<input type="file">` strictly from `<profile>/opencode-page-uploads/<tab_id>/`.
-    UploadFiles { tab_id: u64, request_id: u64, backend_node_id: i64, files: Vec<String> },
+    UploadFiles {
+        tab_id: u64,
+        request_id: u64,
+        backend_node_id: i64,
+        files: Vec<String>,
+        #[serde(default)]
+        session_id: Option<String>,
+        #[serde(default)]
+        frame_id: Option<String>,
+    },
     /// Drops staged files onto `(x, y)` strictly from `<profile>/opencode-page-uploads/<tab_id>/`.
     DropFiles { tab_id: u64, request_id: u64, x: f64, y: f64, files: Vec<String> },
     /// App-proxied response headers for a remote workspace or artifact `EngineMsg::PreviewFetch`.
@@ -353,6 +362,9 @@ pub enum EngineMsg {
         cookies: bool,
         #[serde(default)]
         agent_files: bool,
+        /// The engine enforces the WebAuthn / passkey gate (`TabPasskeyGate`) and emits `PasskeyRefused`.
+        #[serde(default)]
+        passkeys: bool,
     },
     ProfileCookies { request_id: u64, cookies: Vec<WireCookie> },
     ProfileCookiesImported { request_id: u64, imported: u32, failed: u32 },
@@ -392,6 +404,16 @@ pub enum EngineMsg {
     /// A user-activated non-agent page click on an allow-listed app scheme (`slack:`, `vscode:`,
     /// `mailto:`, etc.) was cancelled in CEF and forwarded to the desktop review bar.
     AppLinkBlocked { tab_id: u64, url: String },
+    /// A site asked for a passkey or security key (`navigator.credentials.{get,create}` with
+    /// `publicKey`) and the tab's passkey gate refused it (`webauthn-gate.ts`).
+    PasskeyRefused {
+        tab_id: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin: Option<String>,
+        #[serde(default)]
+        main_frame: bool,
+        kind: String,
+    },
     FileChooserBlocked { tab_id: u64 },
     FindResult { tab_id: u64, count: u32, active_match: u32, final_update: bool },
     ContextMenu { tab_id: u64, menu: PageContextMenu },
@@ -567,6 +589,42 @@ pub struct AuthChallenge {
     pub scheme: String,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExtensionMenuItemKind {
+    #[default]
+    Normal,
+    Checkbox,
+    Radio,
+    Separator,
+}
+
+fn default_menu_enabled() -> bool {
+    true
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionMenuItem {
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub kind: ExtensionMenuItemKind,
+    #[serde(default)]
+    pub checked: bool,
+    #[serde(default = "default_menu_enabled")]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<ExtensionMenuItem>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionMenuGroup {
+    pub ext_id: String,
+    pub title: String,
+    pub items: Vec<ExtensionMenuItem>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PageContextMenu {
     pub id: u64,
@@ -600,6 +658,8 @@ pub struct PageContextMenu {
     pub misspelled_word: Option<String>,
     #[serde(default)]
     pub suggestions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extensions: Vec<ExtensionMenuGroup>,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -694,6 +754,7 @@ pub enum ContextMenuCommand {
     SaveImage { url: String },
     ReplaceMisspelling { word: String },
     AddToDictionary { word: String },
+    ExtensionItem { ext_id: String, item_id: String },
 }
 
 fn default_cookie_path() -> String {

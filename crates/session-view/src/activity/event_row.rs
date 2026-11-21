@@ -12,9 +12,18 @@ use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::{INSTANT, ROW_GAP, TOOL_CODE, UI, UI_MED, arrow, readable};
 
-/// The row of `events` in session `session`; `open` lists them, and a press on the
-/// label runs `press`. Nothing when nothing in it has happened yet.
-pub fn view<S: TimelineHost>(s: &S, p: &Pal, session: &str, events: &[Event], open: bool, press: impl Fn(&mut S, &mut Tx) + 'static) -> El {
+/// The row of `events` in session `session`; `open` lists them, a press on the label runs `press`,
+/// and clicking the nested rail runs `collapse` (which only collapses and never re-opens mid-fold).
+/// Nothing when nothing in it has happened yet.
+pub fn view<S: TimelineHost>(
+    s: &S,
+    p: &Pal,
+    session: &str,
+    events: &[Event],
+    open: bool,
+    press: impl Fn(&mut S, &mut Tx) + 'static,
+    collapse: impl Fn(&mut S, &mut Tx) + 'static,
+) -> El {
     let (buckets, failed) = events::summarize_shells(events);
     if buckets.is_empty() {
         return col();
@@ -68,7 +77,7 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, session: &str, events: &[Event], op
     for (k, e) in items.into_iter().enumerate() {
         list = list.child(item(s, p, session, k, e));
     }
-    c.child(crate::disclosure::reveal(s.knobs(), crate::style::nested(p, ROW_GAP, list)))
+    c.child(crate::disclosure::reveal(s.knobs(), crate::style::nested_collapsible(p, ROW_GAP, list, collapse)))
 }
 
 /// One shell an events row lists (`TimelineEventItem`): "Shell", its command on one line as a
@@ -213,7 +222,7 @@ pub fn subagent<S: TimelineHost>(s: &S, p: &Pal, session: &str, e: &Event) -> El
         .children((!title.is_empty()).then(|| text(title.clone()).key("title").font(UI).color(p.text).truncate_fade().shrink().min_w(0.0)));
     let Some(child) = child else { return row().w_full().child(line.role("group")) };
     let (parent, agent) = (session.to_owned(), e.agent.clone().unwrap_or_default());
-    let line = line.role("link").radius(4.0).focus_default(p)
+    let line = line.role("link").radius(4.0).cursor(rune::Cursor::Pointer).focus_default(p)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             // A click with a modifier opens nothing (`event-row.tsx`).
             if crate::plain_click(tx) {

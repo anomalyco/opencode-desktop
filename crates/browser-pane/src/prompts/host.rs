@@ -293,6 +293,20 @@ impl crate::BrowserHost {
         self.diagnostics.push_back(crate::find::PageDiagnostic { tab_id, level, event, fields });
     }
 
+    pub fn take_agent_passkey_refused(&mut self, tab_id: u64) -> Option<String> {
+        self.tabs
+            .iter_mut()
+            .find(|t| t.id == tab_id)
+            .and_then(|t| t.prompts.agent_passkey_refused.take())
+    }
+
+    pub fn take_agent_file_chooser_blocked(&mut self, tab_id: u64) -> bool {
+        self.tabs
+            .iter_mut()
+            .find(|t| t.id == tab_id)
+            .is_some_and(|t| std::mem::take(&mut t.prompts.agent_file_chooser_blocked))
+    }
+
     pub(crate) fn handle_prompt_msg(&mut self, msg: EngineMsg) -> bool {
         let now = Instant::now();
         match msg {
@@ -413,9 +427,45 @@ impl crate::BrowserHost {
                     false
                 }
             }
+            EngineMsg::PasskeyRefused { tab_id, origin, main_frame, .. } => {
+                let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else {
+                    return false;
+                };
+                let main_origin = crate::policy::destination_origin(&t.url);
+                if !main_frame && (origin.is_none() || origin != main_origin) {
+                    return false;
+                }
+                let mut ui_changed = false;
+                if t.prompts.agent_driven && !t.prompts.passkey_interrupted {
+                    t.prompts.passkey_interrupted = true;
+                    let site = main_origin
+                        .as_deref()
+                        .or(origin.as_deref())
+                        .and_then(|o| o.split_once("://").map(|(_, rest)| rest))
+                        .unwrap_or("")
+                        .to_owned();
+                    t.prompts.agent_passkey_refused = Some(site);
+                    ui_changed = true;
+                }
+                if !t.prompts.passkey_noticed {
+                    t.prompts.passkey_noticed = true;
+                    t.prompts.set_blocked_guard_notice(
+                        BlockedGuardReason::Passkey {
+                            native: cfg!(windows),
+                            url: Some(t.url.clone()),
+                        },
+                        now,
+                    );
+                    ui_changed = true;
+                }
+                ui_changed
+            }
             EngineMsg::FileChooserBlocked { tab_id } => {
                 if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
                     t.prompts.file_chooser_blocked = t.prompts.file_chooser_blocked.saturating_add(1);
+                    if t.prompts.agent_driven {
+                        t.prompts.agent_file_chooser_blocked = true;
+                    }
                     t.prompts.set_blocked_guard_notice(BlockedGuardReason::Action, now);
                     true
                 } else {

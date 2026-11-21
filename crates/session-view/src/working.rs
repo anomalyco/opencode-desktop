@@ -142,21 +142,23 @@ pub fn sync<S: TimelineHost>(s: &mut S) -> bool {
 /// The label alone on the text column, as Desktop's Working is. Hidden, it is drawn still: its
 /// loops would keep waking frames.
 pub fn row<S: TimelineHost>(s: &S, p: &Pal, session: &str, live: bool) -> El {
-    rune::row().h(H).center_y().child(label(s, p, session, live && !s.reduced_motion()))
+    rune::row().h(16.0).center_y().child(label(s, p, session, live && !s.reduced_motion()))
 }
 
 /// Desktop's Working lane under a turn (`h-9 pt-3`): its row is the bottom 24 of 36.
+/// Official's `StatusLane` (`timeline-next.css:523-541`) lays the 16 pt label flush at its top
+/// gap without the extra 4 pt centering of a 24 pt box (`LANE_TEXT_TOP`).
 pub const LANE_PAD: f32 = 12.0;
+pub const LANE_TEXT_TOP: f32 = 10.0;
 pub const H: f32 = 24.0;
 pub const LANE: f32 = LANE_PAD + H;
 
 /// Desktop's reply Copy in that lane (`text-part-copy-wrapper`): a 20 pt square holding a 14 pt
-/// glyph in its middle, 8 pt under the reply's last line. The square hangs into the gutter so
-/// at rest the glyph's ink, not its square, lines up with the reply's letters, which start
-/// about half a point inside their box.
+/// glyph in its middle, 8 pt under the reply's last line, pulled 2 pt toward the text edge when
+/// it leads the footer (`message-part.css:607-609`, `margin-inline-start: -2px`).
 pub const COPY: f32 = 20.0;
 pub const COPY_GLYPH: f32 = 14.0;
-pub const COPY_AT: (f32, f32) = (-3.5, 8.0);
+pub const COPY_AT: (f32, f32) = (-2.0, 8.0);
 
 /// A label's width at the row's 13 px Inter.
 pub fn width(label: &str) -> f32 {
@@ -165,11 +167,14 @@ pub fn width(label: &str) -> f32 {
 
 fn label<S: TimelineHost>(s: &S, p: &Pal, session: &str, on: bool) -> El {
     let words = status(s, session);
+    if !on {
+        // Under reduced motion official inherits `[data-slot="timeline-status-label"]`'s muted ink
+        // (`timeline-next.css:566`, `packages/ui/src/typography/text-shimmer/text-shimmer.css:135-147`),
+        // not shimmer's faint base color.
+        return rune::row().child(text(words).key("label").font(UI).color(p.muted));
+    }
     let (weak, strong) = colors(p);
     let base = text(words).key("label").font(UI).color(weak);
-    if !on {
-        return rune::row().child(base);
-    }
     let clock = s.clock();
     let run = Run { since: s.working_state().since.get(session).copied().unwrap_or(clock), now: clock };
     let lit = weak.mix(strong, s.knobs().get(&WORKING_INTENSITY));

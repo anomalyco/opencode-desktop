@@ -3,11 +3,12 @@
 //! then the popular providers to connect and Show more providers, which opens the connect list.
 
 use opencode_i18n::t;
-use opencode_kit::integration::{Connection, Integration};
-use opencode_ui::popup::PopupHost;
+use opencode_kit::integration::Integration;
+use opencode_ui::focus::FocusExt;
+use opencode_ui::popup::{self, Item, Menu as PopupMenu, MenuButton as _, PopupHost};
 use opencode_ui::widgets::{self, DialogSize, Fit, badge, button, dialog_window, sized_modal};
 use rune::machine::Effects;
-use rune::{Color, Cx, El, Key, KeyEvent, TextEdit, Tx, col, el, icon, row, spacer, text};
+use rune::{Align, Color, Cursor, Cx, El, Key, KeyEvent, Link, LinkPaint, TextEdit, TextStyle, Tx, col, el, icon, row, spacer, text};
 use rune_kit::ButtonVariant;
 use rune_theme_opencode::icons as ic;
 use opencode_ui::palette::{Pal, kit};
@@ -17,23 +18,18 @@ use crate::PROVIDER_REMOVAL_OVERLAY_ID;
 use crate::host::{ProviderRow, SettingsHost};
 use crate::jobs::{SettingsJob, SettingsRequest};
 
+/// `dialog-title`: 15 on 20 at 530, -0.13 tracking.
+const DIALOG_TITLE: TextStyle = TextStyle::new(15.0, 530.0).lh(20.0).tracking(-0.13);
+
 /// Desktop's popular providers, in its order (`catalog/order.ts`).
 const POPULAR: [&str; 8] = ["opencode-go", "opencode", "anthropic", "github-copilot", "openai", "google", "openrouter", "vercel"];
 
-/// Which of a provider's account menus is open.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Menu {
-    Accounts,
-    Options,
-}
-
-/// The Connected rows' account controls. At most one row's menu or rename field is open, named
-/// by its provider.
+/// The Connected rows' account rename/removal state. At most one row's rename field or removal
+/// confirmation is open.
 #[derive(Default)]
 pub enum Accounts {
     #[default]
     Idle,
-    Menu { provider: String, menu: Menu },
     Renaming { provider: String, credential: String, field: Box<TextEdit> },
     Confirm(Removal),
 }
@@ -45,12 +41,10 @@ pub enum Removal {
 }
 
 pub enum Event {
-    /// A row's account trigger or options button: opens its menu, or closes it when already open.
-    Toggle { provider: String, menu: Menu },
-    /// An item was picked, or the page changed: the open menu closes.
+    /// Page changed or menu closed.
     Close,
-    /// Rename in the open row's options: its active account becomes a field.
-    Rename { credential: String, label: String },
+    /// Rename in the row's options menu: its active account becomes a field.
+    Rename { provider: String, credential: String, label: String },
     Cancel,
     Submit,
     Ask(Removal),
@@ -70,18 +64,13 @@ impl Accounts {
             }
             (Accounts::Confirm(target), Event::Submit) => Effects::one(Effect::Remove(target)),
             (Accounts::Confirm(_), Event::Cancel | Event::Close) => Effects::none(),
-            (Accounts::Menu { provider, menu }, Event::Toggle { provider: p, menu: m }) if provider == p && menu == m => Effects::none(),
-            (_, Event::Toggle { provider, menu }) => {
-                *self = Accounts::Menu { provider, menu };
-                Effects::none()
-            }
-            (Accounts::Menu { provider, .. }, Event::Rename { credential, label }) => {
+            (_, Event::Rename { provider, credential, label }) => {
                 let mut field = TextEdit::new(&label);
                 field.focused = true;
                 *self = Accounts::Renaming { provider, credential, field: Box::new(field) };
                 Effects::none()
             }
-            (Accounts::Menu { .. }, Event::Close) | (Accounts::Renaming { .. }, Event::Cancel) => Effects::none(),
+            (Accounts::Renaming { .. }, Event::Cancel | Event::Close) => Effects::none(),
             (Accounts::Renaming { credential, field, .. }, Event::Submit) => {
                 let label = field.text.trim().to_owned();
                 if label.is_empty() { Effects::none() } else { Effects::one(Effect::Rename { credential, label }) }
@@ -96,13 +85,6 @@ impl Accounts {
     pub fn blur(&mut self) {
         if let Accounts::Renaming { field, .. } = self {
             field.focused = false;
-        }
-    }
-
-    fn open(&self, row: &str) -> Option<Menu> {
-        match self {
-            Accounts::Menu { provider, menu } if provider == row => Some(*menu),
-            _ => None,
         }
     }
 
@@ -200,22 +182,26 @@ pub fn confirmation<H: SettingsHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> Ve
         }
     };
     let cancel = |s: &mut H, tx: &mut Tx| step_accounts(s, Event::Cancel, tx);
-    let card = widgets::overlay(p, col())
-        .key("provider-removal")
-        .role("alertdialog")
-        .label(title.clone())
-        .radius(12.0)
-        .fill(p.layer1)
-        .modal_tx(true, cancel)
-        .child(col().padding(16.0).gap(4.0).child(text(title).font(NAME).color(p.text)).child(text(description).font(BODY).color(p.muted).wrap()))
+    let inner = col()
+        .w_full()
+        .clip_rounded(12.0)
+        .child(col().padding(16.0).gap(4.0).child(text(title.clone()).font(DIALOG_TITLE).color(p.text).wrap()).child(text(description).font(BODY).color(p.muted).wrap()))
         .child(
             row()
                 .padding(16.0)
                 .gap(8.0)
                 .child(spacer())
-                .child(button(t!("common.cancel"), ButtonVariant::Neutral).on_press_tx(cancel).build(kit(p)).autofocus())
+                .child(button(t!("common.cancel"), ButtonVariant::Ghost).on_press_tx(cancel).build(kit(p)).autofocus())
                 .child(button(action, ButtonVariant::Danger).on_press_tx(|s: &mut H, tx| step_accounts(s, Event::Submit, tx)).build(kit(p))),
         );
+    let card = widgets::overlay(p, col())
+        .key("provider-removal")
+        .role("alertdialog")
+        .label(title)
+        .radius(12.0)
+        .fill(p.layer1)
+        .modal_tx(true, cancel)
+        .child(inner);
     sized_modal("provider-removal-modal", p, DialogSize::Normal, Fit::Content, dialog_window(cx, s.zoom()), card)
 }
 
@@ -236,9 +222,23 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
     let console_connected = console.is_some_and(|i| !i.connections.is_empty());
     let paid = |id: &str| s.models().iter().any(|m| m.provider == id && !m.free);
     let provider_rows = s.provider_rows(None);
-    let mut connected: Vec<&ProviderRow> = provider_rows.iter().filter(|pi| pi.id != "opencode" || console_connected || paid(&pi.id)).collect();
+    let managed = super::models::console_group(s);
+    let mut connected: Vec<&ProviderRow> = provider_rows
+        .iter()
+        .filter(|pi| pi.id != "opencode" || managed.is_some() || console_connected || paid(&pi.id))
+        .collect();
     connected.sort_by_key(|pi| pi.id != "opencode-go");
-    let rows: Vec<El> = connected.iter().map(|pi| connected_row(s, p, pi, integration(pi))).collect();
+    let displayed: Vec<&ProviderRow> = match &managed {
+        Some(cg) => connected.iter().copied().filter(|pi| pi.id == cg.root_id || !cg.ids.contains(&pi.id)).collect(),
+        None => connected.clone(),
+    };
+    let rows: Vec<El> = displayed
+        .iter()
+        .map(|pi| match &managed {
+            Some(cg) if cg.root_id == pi.id => console_row(s, p, pi, cg, integration(pi)),
+            _ => connected_row(s, p, pi, integration(pi)),
+        })
+        .collect();
     let connected_list = if rows.is_empty() {
         catalog(p, "connected-providers", vec![el().py(16.0).child(text(t!("settings.providers.connected.empty")).font(super::NAME_REGULAR).color(p.muted))])
     } else {
@@ -258,13 +258,15 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
         .map(|i| (i.id.clone(), i.name.clone()))
         .collect();
     popular.sort_by_key(|(id, _)| POPULAR.iter().position(|p| p == id));
-    let more = text(t!("dialog.provider.viewAll"))
+    let more_words = t!("dialog.provider.viewAll");
+    let more = text(more_words)
         .key("settings-providers-view-all")
-        .role("button")
         .font(NAME)
         .color(p.accent)
-        .mt(20.0)
-        .on_press_tx(|s: &mut H, tx: &mut Tx| open_connect_from_settings(s, None, tx));
+        // Inside `.settings-section` (`gap: 16px`) plus `.settings-providers-view-all { margin-top: 20px }` (`settings.css`).
+        .mt(36.0)
+        .link(Link::new(0..more_words.len(), "more").role("button").label(more_words).hover(LinkPaint::new().color(p.accent_hover)))
+        .on_link(|s: &mut H, _: &str, tx: &mut Tx| open_connect_from_settings(s, None, tx));
     let body = col()
         .key("settings-providers")
         .w_full()
@@ -285,7 +287,139 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
     page(p, "settings-providers-page", header_with(p, t!("settings.providers.title"), t!("settings.providers.description"), super::servers::switcher(s, p)), body)
 }
 
-fn connected_row<H: SettingsHost + 'static>(s: &H, p: &Pal, pi: &ProviderRow, integration: Option<&Integration>) -> El {
+fn toggle_console_providers(s: &mut dyn SettingsHost, tx: &mut Tx) {
+    tx.instant();
+    let pages = s.settings_pages_mut();
+    pages.console_expanded = !pages.console_expanded;
+}
+
+/// Connected OpenCode Console workspace row (`providers.tsx:551-612`, `settings.css:1079-1200`):
+/// `OpenCode` + workspace badge, expandable provider list where clicking any provider jumps to
+/// Settings › Models, expands its section, and scrolls/focuses it.
+fn console_row<H: SettingsHost + PopupHost + 'static>(
+    s: &H,
+    p: &Pal,
+    pi: &ProviderRow,
+    cg: &super::models::ConsoleGroup,
+    integration: Option<&Integration>,
+) -> El {
+    let expanded = s.settings_pages().console_expanded;
+    let display = t!("provider.connect.opencode.name");
+    let toggle = (cg.providers.len() > 1).then(|| {
+        let count_label = opencode_i18n::plural!("settings.providers.console.available", cg.providers.len());
+        row()
+            .key("settings-provider-console-toggle")
+            .role("button")
+            .label(count_label.clone())
+            .expanded(expanded)
+            .h(28.0)
+            .px(4.0)
+            .gap(2.0)
+            .center_y()
+            .radius(4.0)
+            .cursor(Cursor::Pointer)
+            .focus_default(p)
+            .hover_group()
+            .hover(p.hover)
+            .on_press_tx(|s: &mut H, tx: &mut Tx| toggle_console_providers(s, tx))
+            .child(text(count_label).font(super::NAME_REGULAR).color(p.muted).group_color(p.text))
+            .child(
+                icon(&ic::CHEVRON_DOWN, 14.0)
+                    .color(p.icon_muted)
+                    .rotate(if expanded { 0.0 } else { -std::f32::consts::FRAC_PI_2 })
+                    .mirror_in_rtl(),
+            )
+    });
+    let summary = row()
+        .gap(4.0)
+        .shrink()
+        .min_w(0.0)
+        .wrap()
+        .center_y()
+        .child(
+            row()
+                .gap(8.0)
+                .shrink()
+                .min_w(0.0)
+                .center_y()
+                .child(text(display).font(NAME).color(p.text).truncate())
+                .child(badge(p, &cg.workspace)),
+        )
+        .children(toggle);
+    let lead = row()
+        .grow(1.0)
+        .shrink()
+        .min_w(0.0)
+        .gap(8.0)
+        .center_y()
+        .child(widgets::provider_mark("opencode", if p.dark { Color::WHITE } else { Color::BLACK }))
+        .child(summary);
+    let accounts = integration.map(Integration::accounts).unwrap_or_default();
+    let id = pi.integration.clone().unwrap_or_else(|| pi.id.clone());
+    let trailing = if !accounts.is_empty() {
+        account_menu(s, p, &pi.id, &id, display, integration)
+    } else {
+        let id_owned = id.clone();
+        button(t!("common.disconnect"), ButtonVariant::GhostMuted)
+            .on_press_tx(move |s: &mut H, tx: &mut Tx| ask_disconnect_provider(s, &id_owned, display, tx))
+            .build(kit(p))
+    };
+    let mut header = row()
+        .key("settings-provider-console-header")
+        .w_full()
+        .min_h(48.0)
+        .py(10.0)
+        .gap(16.0)
+        .center_y()
+        .child(lead)
+        .child(trailing);
+    if crate::rows_wrap() {
+        header = header.wrap();
+    }
+    let mut block = col().key(format!("settings-provider-{}", pi.id)).w_full().child(header);
+    if expanded {
+        let mut list = col()
+            .key("settings-provider-console-list")
+            .w_full()
+            .gap(2.0)
+            .pb(10.0)
+            .child(el().w_full().h(0.5).mb(6.0).fill(p.border));
+        for prov in &cg.providers {
+            let label = prov.name.strip_prefix(&cg.prefix).unwrap_or(&prov.name).to_owned();
+            let pid = prov.id.clone();
+            list = list.child(
+                row()
+                    .key(format!("settings-provider-console-item-{}", prov.id))
+                    .role("button")
+                    .label(label.clone())
+                    .w_full()
+                    .min_h(24.0)
+                    .px(10.0)
+                    .gap(2.0)
+                    .center_y()
+                    .radius(4.0)
+                    .cursor(Cursor::Pointer)
+                    .focus_default(p)
+                    .hover(p.hover)
+                    .hover_group()
+                    .hover_group_focus()
+                    .on_press_tx(move |s: &mut H, tx: &mut Tx| super::models::open_for_provider(s, &pid, tx))
+                    .child(text(label).font(super::NAME_REGULAR).color(p.text).truncate())
+                    .child(
+                        icon(&ic::CHEVRON_DOWN, 14.0)
+                            .color(p.icon)
+                            .rotate(-std::f32::consts::FRAC_PI_2)
+                            .mirror_in_rtl()
+                            .group_opacity(0.0, 1.0),
+                    ),
+            );
+        }
+        block = block.child(list);
+    }
+    block
+}
+
+fn connected_row<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, pi: &ProviderRow, integration: Option<&Integration>) -> El {
     let lead = row()
         .grow(1.0)
         .shrink()
@@ -293,21 +427,31 @@ fn connected_row<H: SettingsHost + 'static>(s: &H, p: &Pal, pi: &ProviderRow, in
         .gap(8.0)
         .center_y()
         .child(widgets::provider_mark(&pi.id, if p.dark { Color::WHITE } else { Color::BLACK }))
-        .child(row().gap(8.0).center_y().child(text(pi.name.clone()).font(NAME).color(p.text).truncate()).child(badge(p, source(integration))));
+        .child(
+            row()
+                .gap(8.0)
+                .shrink()
+                .min_w(0.0)
+                .center_y()
+                .child(text(pi.name.clone()).font(NAME).color(p.text).truncate().help_when_truncated(pi.name.clone()).help_above())
+                .child(badge(p, source(integration))),
+        );
     let accounts = integration.map(Integration::accounts).unwrap_or_default();
     let can_disconnect = integration.is_some_and(|i| i.connections.iter().any(|c| c.credential));
     let id = pi.integration.clone().unwrap_or_else(|| pi.id.clone());
     let trailing = if !accounts.is_empty() {
         let mut e = row().gap(0.0).center_y();
-        if accounts.first().is_some_and(|a| a.status.is_some()) {
+        if let Some(status) = accounts.first().and_then(|a| a.status.as_ref()) {
             let (again, warning) = (id.clone(), p.warning);
-            e = e.child(
-                button(t!("dialog.provider.needsSignIn"), ButtonVariant::GhostMuted)
-                    .label_with(move |font, _| text(t!("dialog.provider.needsSignIn")).font(font).color(warning))
-                    .on_press_tx(move |s: &mut H, tx: &mut Tx| open_connect_from_settings(s, Some(&again), tx))
-                    .build(kit(p))
-                    .key("settings-provider-sign-in"),
-            );
+            let mut btn = button(t!("dialog.provider.needsSignIn"), ButtonVariant::GhostMuted)
+                .label_with(move |font, _| text(t!("dialog.provider.needsSignIn")).font(font).color(warning))
+                .on_press_tx(move |s: &mut H, tx: &mut Tx| open_connect_from_settings(s, Some(&again), tx))
+                .build(kit(p))
+                .key("settings-provider-sign-in");
+            if !status.message.is_empty() {
+                btn = btn.help(status.message.clone()).help_above();
+            }
+            e = e.child(btn);
         }
         e.child(account_menu(s, p, &pi.id, &id, &pi.name, integration))
     } else if can_disconnect {
@@ -366,10 +510,9 @@ fn popular_row<H: SettingsHost + 'static>(p: &Pal, id: &str, name: &str) -> El {
         )
 }
 
-fn account_menu<H: SettingsHost + 'static>(s: &H, p: &Pal, provider: &str, id: &str, name: &str, integration: Option<&Integration>) -> El {
+fn account_menu<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, provider: &str, id: &str, name: &str, integration: Option<&Integration>) -> El {
     let accounts = integration.map(Integration::accounts).unwrap_or_default();
     let active = accounts.first().map(|a| (a.id.clone(), a.label.clone()));
-    let open = s.settings_pages().accounts.open(provider);
     if let (Accounts::Renaming { provider: row, credential, field }, Some((active_id, _))) = (&s.settings_pages().accounts, &active)
         && row == provider
         && credential == active_id
@@ -384,94 +527,78 @@ fn account_menu<H: SettingsHost + 'static>(s: &H, p: &Pal, provider: &str, id: &
             .on_key(|s: &mut H, ev: &KeyEvent, tx: &mut Tx| rename_key(s, ev, tx))
             .build(kit(p));
     }
-    let (menu_id, options_id) = (provider.to_owned(), provider.to_owned());
     let label = active.as_ref().map(|a| a.1.clone()).unwrap_or_default();
-    let options = t!("dialog.provider.accounts.options", account = label);
+    let accounts_anchor = format!("settings-provider-accounts-{provider}");
+    let options_anchor = format!("settings-provider-options-{provider}");
+    let accounts_open = s.popup().open_at(&accounts_anchor);
+    let options_open = s.popup().open_at(&options_anchor);
+    let account_list: Vec<(String, String)> = accounts.iter().map(|a| (a.id.clone(), a.label.clone())).collect();
+    let add_id = id.to_owned();
+    let provider_name = name.to_owned();
+    let accounts_anchor_click = accounts_anchor.clone();
     let trigger = button(label.clone(), ButtonVariant::GhostMuted)
-        .label_with(move |font, ink| row().gap(6.0).center_y().child(text(label.clone()).font(font).color(ink).truncate()).child(icon(&ic::CHEVRON_DOWN, 14.0).color(ink)))
-        .expanded(open == Some(Menu::Accounts))
-        .on_press_tx(move |s: &mut H, tx: &mut Tx| step_accounts(s, Event::Toggle { provider: menu_id.clone(), menu: Menu::Accounts }, tx))
+        .label_with(move |font, ink| row().gap(6.0).center_y().child(text(label.clone()).font(font).color(ink).truncate()).child(icon(&ic::CHEVRON_DOWN, 16.0).color(ink)))
+        .expanded(accounts_open)
         .build(kit(p))
-        .key(format!("settings-provider-accounts-{provider}"));
+        .key(accounts_anchor.clone())
+        .menu_button(accounts_anchor, move |s: &mut H, tx: &mut Tx| {
+            let items = account_list.iter().enumerate().map(|(at, (cid, clabel))| Item::new(format!("acct:{cid}"), clabel.clone()).checked(at == 0));
+            let menu = PopupMenu::new(t!("settings.providers.account.group"))
+                .align(Align::End)
+                .gap(6.0)
+                .min_width(220.0)
+                .group(t!("settings.providers.account.group"))
+                .items(items)
+                .separator()
+                .item(Item::new("add", t!("settings.providers.account.add")).slot_icon(&ic::PLUS));
+            let (account_list, add_id, provider_name) = (account_list.clone(), add_id.clone(), provider_name.clone());
+            popup::open(s, menu, accounts_anchor_click.clone(), tx, move |s: &mut H, picked, tx| match picked {
+                Some("add") => add_account(s, &add_id, tx),
+                Some(raw) => {
+                    if let Some(cid) = raw.strip_prefix("acct:")
+                        && let Some((_, clabel)) = account_list.iter().find(|(id, _)| id == cid)
+                    {
+                        activate_account(s, cid, &provider_name, clabel, tx);
+                    }
+                }
+                None => {}
+            });
+        });
+    let options_label = t!("dialog.provider.accounts.options", account = active.as_ref().map(|a| a.1.as_str()).unwrap_or_default());
+    let (opt_provider, opt_name, opt_active, opt_last) = (provider.to_owned(), name.to_owned(), active.clone(), accounts.len() == 1);
+    let options_anchor_click = options_anchor.clone();
     let dots = el()
-        .key(format!("settings-provider-options-{provider}"))
+        .key(options_anchor.clone())
         .role("button")
-        .label(options)
+        .label(options_label)
         .size(32.0, 32.0)
         .radius(6.0)
         .center()
-        .fill(if open == Some(Menu::Options) { p.pressed } else { Color::TRANSPARENT })
-        .hover(p.hover)
+        .cursor(Cursor::Pointer)
+        .focus_default(p)
+        .fill(if options_open { p.pressed } else { Color::TRANSPARENT })
+        .hover(if options_open { p.pressed } else { p.hover })
         .press(p.pressed)
-        .on_press_tx(move |s: &mut H, tx: &mut Tx| step_accounts(s, Event::Toggle { provider: options_id.clone(), menu: Menu::Options }, tx))
+        .menu_button(options_anchor, move |s: &mut H, tx: &mut Tx| {
+            let Some((cid, clabel)) = opt_active.clone() else { return };
+            let menu = PopupMenu::new(t!("common.moreOptions"))
+                .align(Align::End)
+                .gap(6.0)
+                .item(Item::new("rename", t!("common.rename")))
+                .item(Item::new("remove", t!("dialog.provider.accounts.remove")));
+            let (opt_provider, opt_name) = (opt_provider.clone(), opt_name.clone());
+            popup::open(s, menu, options_anchor_click.clone(), tx, move |s: &mut H, picked, tx| match picked {
+                Some("rename") => step_accounts(s, Event::Rename { provider: opt_provider.clone(), credential: cid.clone(), label: clabel.clone() }, tx),
+                Some("remove") => step_accounts(
+                    s,
+                    Event::Ask(Removal::Account { credential: cid.clone(), provider: opt_name.clone(), label: clabel.clone(), last: opt_last }),
+                    tx,
+                ),
+                _ => {}
+            });
+        })
         .child(icon(&ic::OUTLINE_DOTS, 16.0).color(p.icon_muted));
-    let mut e = row().key("settings-provider-account-actions").gap(0.0).center_y().child(trigger).child(dots);
-    if let Some(which) = open {
-        e = e.child(menu::<H>(p, id, name, &accounts, which));
-    }
-    e
-}
-
-fn menu<H: SettingsHost + 'static>(p: &Pal, id: &str, name: &str, accounts: &[&Connection], which: Menu) -> El {
-    let item = |key: String, label: String| {
-        row()
-            .key(key)
-            .role("menuitem")
-            .label(label.clone())
-            .w_full()
-            .h(28.0)
-            .px(8.0)
-            .gap(8.0)
-            .center_y()
-            .radius(4.0)
-            .hover(p.hover)
-            .child(text(label).font(super::NAME_REGULAR).color(p.text).truncate())
-    };
-    let mut list = col().w_full();
-    match which {
-        Menu::Accounts => {
-            list = list.child(el().px(8.0).py(4.0).child(text(t!("settings.providers.account.group")).font(super::NAME_REGULAR).color(p.muted)));
-            for (at, a) in accounts.iter().enumerate() {
-                let (credential, provider, label) = (a.id.clone(), name.to_owned(), a.label.clone());
-                list = list.child(
-                    item(format!("settings-account-{}", a.id), a.label.clone())
-                        .child(spacer())
-                        .children((at == 0).then(|| icon(&ic::CHECK_SMALL, 14.0).color(p.icon)))
-                        .on_press_tx(move |s: &mut H, tx: &mut Tx| activate_account(s, &credential, &provider, &label, tx)),
-                );
-            }
-            let open = id.to_owned();
-            list = list.child(el().w_full().h(0.5).my(4.0).fill(p.border)).child(
-                item("settings-account-add".into(), t!("settings.providers.account.add").into())
-                    .on_press_tx(move |s: &mut H, tx: &mut Tx| add_account(s, &open, tx)),
-            );
-        }
-        Menu::Options => {
-            let active = accounts.first().map(|a| (a.id.clone(), a.label.clone())).unwrap_or_default();
-            let (rename_id, label) = (active.0.clone(), active.1.clone());
-            let (remove_id, provider, last) = (active.0.clone(), name.to_owned(), accounts.len() == 1);
-            list = list
-                .child(item("settings-account-rename".into(), t!("common.rename").into()).on_press_tx(move |s: &mut H, tx: &mut Tx| {
-                    step_accounts(s, Event::Rename { credential: rename_id.clone(), label: label.clone() }, tx);
-                }))
-                .child(item("settings-account-remove".into(), t!("dialog.provider.accounts.remove").into()).on_press_tx(move |s: &mut H, tx: &mut Tx| {
-                    step_accounts(
-                        s,
-                        Event::Ask(Removal::Account { credential: remove_id.clone(), provider: provider.clone(), label: active.1.clone(), last }),
-                        tx,
-                    );
-                }));
-        }
-    }
-    widgets::overlay(p, col())
-        .key("settings-provider-menu")
-        .pin(None, Some(34.0), Some(0.0), None)
-        .w(220.0)
-        .padding(4.0)
-        .radius(8.0)
-        .fill(p.bg_base)
-        .raise()
-        .child(list)
+    row().key("settings-provider-account-actions").gap(0.0).center_y().child(trigger).child(dots)
 }
 
 fn require_writable(s: &mut dyn SettingsHost) -> bool {

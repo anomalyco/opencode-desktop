@@ -59,7 +59,7 @@ pub fn default_user_menu<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) 
 /// pressed fill while its menu is `open`, which no hover or press adds to, as
 /// `:not([data-expanded])` keeps Desktop's hover off it. The host adds the glyph and the press.
 pub fn user_menu_button(p: &Pal, key: String, label: &str, open: bool) -> El {
-    let b = row().key(key).role("button").label(label.to_owned()).size(20.0, 20.0).center().radius(4.0);
+    let b = row().key(key).role("button").label(label.to_owned()).size(20.0, 20.0).center().radius(4.0).cursor(rune::Cursor::Pointer);
     if open { b.fill(p.pressed) } else { b.hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT) }
 }
 
@@ -305,17 +305,18 @@ pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usi
         Some(Part::Text { text }) => text.clone(),
         _ => String::new(),
     };
+    let code_tail = if ends_with_code(&body) { 16.0 } else { 0.0 };
     let copy_key = format!("copy-{}-{part}", a.id);
     let key = copy_key.clone();
     let done = crate::copied::is_copied(s, &copy_key);
     let label = if done { opencode_i18n::t!("ui.message.copied") } else { opencode_i18n::t!("ui.message.copyResponse") };
     let button = row().key("copy").role("button").label_static(label).help(label).help_above().help_open(done)
-        .size(COPY, COPY).center().radius(4.0).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
+        .size(COPY, COPY).center().radius(4.0).cursor(rune::Cursor::Pointer).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             tx.copy(body.clone());
             crate::copied::mark_copied(s, key.clone(), tx);
         })
-        .child(crate::copied::glyph(s, &copy_key, COPY_GLYPH, p.muted))
+        .child(crate::copied::glyph(s, &copy_key, COPY_GLYPH, p.icon_muted))
         .ml(COPY_AT.0);
     let interrupted = a.failure.as_ref().is_some_and(|f| super::interrupted(&f.kind));
     let mut items = reply_meta(s, t, message);
@@ -329,7 +330,7 @@ pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usi
         }
         meta = meta.child(text(label).key(format!("item{k}")).font(META).color(p.faint));
     }
-    let wrapper = row().key("reply-footer").h(COPY).mt(COPY_AT.1).gap(4.0).center_y();
+    let wrapper = row().key("reply-footer").h(COPY).mt(COPY_AT.1 + code_tail).gap(4.0).center_y();
     let wrapper = if interrupted { wrapper.w_full().child(rune::spacer()) } else { wrapper };
     if keep_copy {
         wrapper.child(button).child(crate::style::hover_reveal(meta))
@@ -402,14 +403,22 @@ fn reply_meta<S: TimelineHost>(s: &S, t: &Transcript, message: usize) -> Vec<(St
 pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, last: bool, session: &str, index: usize, message: &Message) -> El {
     // These share a footprint and swap at once: a crossfade would lay the copy icon's outline
     // over the W in Working.
-    let has_text = matches!(message, Message::Assistant(a) if a.parts.iter().any(|part| matches!(part, Part::Text { text } if !text.trim().is_empty())));
+    let last_text = match message {
+        Message::Assistant(a) => a.parts.iter().rev().find_map(|part| match part {
+            Part::Text { text } if !text.trim().is_empty() => Some(text.as_str()),
+            _ => None,
+        }),
+        _ => None,
+    };
+    let has_text = last_text.is_some();
+    let code_tail = if last_text.is_some_and(ends_with_code) { 16.0 } else { 0.0 };
     let copy_key = format!("copy-{}", message.id());
     use crate::working::{COPY, COPY_AT, COPY_GLYPH};
     let mut button = row().key("copy").role("button").label_static(opencode_i18n::t!("ui.message.copyResponse"))
-        .size(COPY, COPY).center().radius(4.0).hover(p.hover).press(p.pressed)
+        .size(COPY, COPY).center().radius(4.0).cursor(rune::Cursor::Pointer).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
         .opacity(if busy || !has_text { 0.0 } else { 1.0 })
         .opacity_motion(INSTANT)
-        .child(crate::copied::glyph(s, &copy_key, COPY_GLYPH, p.muted));
+        .child(crate::copied::glyph(s, &copy_key, COPY_GLYPH, p.icon_muted));
     if !busy && has_text {
         let done = crate::copied::is_copied(s, &copy_key);
         let label = if done { opencode_i18n::t!("ui.message.copied") } else { opencode_i18n::t!("ui.message.copyResponse") };
@@ -469,24 +478,25 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, 
     // A finished reply's footer (`text-part-copy-wrapper`: 8 under it, 20 tall) sits over the
     // Working lane, which Desktop's timeline tail keeps empty under it (`virtualizer.tsx:152`).
     // Input waiting under the turn lands at once, so the footer doesn't push it down meanwhile.
+    let copy_y = COPY_AT.1 + code_tail;
     let footer = if busy || !last || !(has_text || interrupted) {
         0.0
     } else if sources.is_some() && !interrupted {
         16.0 + COPY
     } else {
-        COPY_AT.1 + COPY
+        copy_y + COPY
     };
     let working = busy && !crate::working::thinking(s, session);
     let lane = el().w_full().h(footer + crate::working::LANE).token_motion(crate::knobs::actions_tail(s.knobs()))
         .hover_group_shared(REPLY_HOVER)
         .hover_group_focus()
         .hover_motion(INSTANT, INSTANT)
-        .child(crate::working::row(s, p, session, working).key("working").absolute(0.0, crate::working::LANE_PAD).opacity(if working { 1.0 } else { 0.0 }).opacity_motion(INSTANT));
+        .child(crate::working::row(s, p, session, working).key("working").absolute(0.0, crate::working::LANE_TEXT_TOP).opacity(if working { 1.0 } else { 0.0 }).opacity_motion(INSTANT));
     if interrupted {
         // A stopped turn's footer runs to the reply's end edge, "Model · 3s · Interrupted"
         // after Copy (`text-part-copy-wrapper[data-interrupted]`, `message-part.css:652-655`).
         // Interrupted stays in view and rises out of Working's place as the run settles.
-        let mut tail = row().key("tail").pin(None, Some(COPY_AT.1), Some(0.0), None).h(COPY).gap(4.0).center_y();
+        let mut tail = row().key("tail").pin(None, Some(copy_y), Some(0.0), None).h(COPY).gap(4.0).center_y();
         if has_text {
             tail = tail.child(button);
             if !items.is_empty() {
@@ -495,18 +505,49 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, 
         }
         return lane.child(tail.child(interrupted_label(p))).children(s.turn_tail_extra(p, session, busy));
     }
-    let (dx, y) = match &sources {
+    let (x, y) = match &sources {
         Some(c) => (chip_width(c) + 8.0, 16.0),
-        None => (0.0, COPY_AT.1),
+        None => (COPY_AT.0, copy_y),
     };
     let lane = match &sources {
         Some(c) => lane.child(crate::sources_chip::chip(s, p, c).absolute(0.0, 16.0)),
         None => lane,
     };
-    let button = button.absolute(COPY_AT.0 + dx, y);
+    let button = button.absolute(x, y);
     lane.child(button)
-        .children((!items.is_empty()).then(|| meta(items).absolute(COPY_AT.0 + dx + COPY + 4.0, y)))
+        .children((!items.is_empty()).then(|| meta(items).absolute(x + COPY + 4.0, y)))
         .children(s.turn_tail_extra(p, session, busy))
+}
+
+/// Whether a Markdown reply ends with a fenced code block (`pre` inside `[data-component="markdown-code"]`
+/// keeps its `margin-bottom: 24px`, collapsing with `[data-slot="text-part-copy-wrapper"]`'s `margin-top: 8px`
+/// to `24px`, i.e. 16 pt below `COPY_AT.1`, `markdown.css:486-488`).
+fn ends_with_code(src: &str) -> bool {
+    let mut fence: Option<(u8, usize)> = None;
+    let mut last_code = false;
+    for line in src.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let bytes = trimmed.as_bytes();
+        let mark = bytes[0];
+        let run = bytes.iter().take_while(|&&b| b == mark).count();
+        if let Some((open, len)) = fence {
+            if mark == open && run >= len && bytes[run..].iter().all(|b| b.is_ascii_whitespace()) {
+                fence = None;
+                last_code = true;
+            }
+            continue;
+        }
+        if (mark == b'`' || mark == b'~') && run >= 3 && (mark == b'~' || !bytes[run..].contains(&b'`')) {
+            fence = Some((mark, run));
+            last_code = true;
+        } else {
+            last_code = false;
+        }
+    }
+    last_code
 }
 
 /// The Sources chip's width: 2 in, its tiles (or the globe), 6, its words, 8 out.

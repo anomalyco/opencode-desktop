@@ -5,11 +5,12 @@
 //! command's. Unbind clears it while recording; Reset to defaults clears every change.
 
 use opencode_i18n::t;
+use opencode_ui::focus::FocusExt;
 use opencode_ui::keymap::{self, Section, all, overrides};
-use rune::{Chord, ChordKey, ChordMod, El, Key, KeyEvent, KeyPlatform, Keybind, TextEdit, TextStyle, Tx, col, row, text};
+use rune::{Chord, ChordKey, ChordMod, Cursor, El, Key, KeyEvent, KeyPlatform, Keybind, TextEdit, TextStyle, Tx, col, row, text};
 use opencode_ui::palette::Pal;
 
-use super::{filter_field, ghost_button, header_beside, no_results};
+use super::{filter_field, ghost_button, header_beside, tab_no_results};
 use crate::change_settings;
 use crate::host::SettingsHost;
 
@@ -143,14 +144,14 @@ pub fn view<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
                 .mb(if ruled { 16.0 } else { 0.0 })
                 .border_sides([0.0, 0.0, if ruled { 0.5 } else { 0.0 }, 0.0], p.border)
                 .border_layout()
-                .child(text(e.title.clone()).font(TITLE).color(p.text).grow(1.0).shrink().min_w(0.0).truncate())
+                .child(text(e.title.clone()).font(TITLE).color(p.text).grow(1.0).shrink().min_w(0.0).truncate().help_when_truncated(e.title.clone()).help_above())
                 .child(controls(s, p, e));
             card = card.child(super::revealable(s, p, &target, 20.0, r));
         }
         body = body.child(super::section(p, &format!("settings-shortcuts-section-{}", section.title()), Some(section.title()), card));
     }
     if !any && !query.is_empty() {
-        body = body.child(no_results(p, "settings-shortcuts-empty", &query));
+        body = body.child(tab_no_results(p, "settings-shortcuts-empty", &query));
     }
     super::page(p, "settings-shortcuts-page", head, body)
 }
@@ -170,10 +171,13 @@ fn controls<H: SettingsHost + 'static>(s: &H, p: &Pal, e: &Entry) -> El {
         .key(format!("shortcut-button-{}", e.id))
         .role("button")
         .label(format!("{}: {words}", e.title))
+        .expanded(recording)
         .h(24.0)
         .px(9.0)
         .center_y()
         .radius(4.0)
+        .cursor(Cursor::Pointer)
+        .focus_default(p)
         .fill(if recording { p.pressed } else { rune::Color::TRANSPARENT })
         .hover(if recording { p.pressed } else { p.hover })
         .press(p.pressed)
@@ -189,6 +193,8 @@ fn controls<H: SettingsHost + 'static>(s: &H, p: &Pal, e: &Entry) -> El {
             .px(9.0)
             .center_y()
             .radius(4.0)
+            .cursor(Cursor::Pointer)
+            .focus_default(p)
             .hover(p.danger_bg)
             .press(p.pressed)
             .on_press_tx(move |s: &mut H, tx: &mut Tx| unbind_shortcut(s, &id, tx))
@@ -263,6 +269,15 @@ fn chord_of(ev: &KeyEvent, tx: &Tx) -> Option<Chord> {
 /// The recording's keys (`transitionKeybindCapture`), and typing on the page into its search.
 pub fn key(s: &mut dyn SettingsHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if s.settings_pages().page != super::Page::Shortcuts {
+        return false;
+    }
+    // A text field, such as the search box, gets its keys; typing there ends the recording (`keybinds.tsx:377-378`).
+    let editing = s.settings_pages().shortcuts.filter.focused || s.settings_pages().find.query.focused;
+    if editing {
+        if s.settings_pages().shortcuts.capture.is_some() {
+            tx.instant();
+            s.settings_pages_mut().shortcuts.capture = None;
+        }
         return false;
     }
     let Some(id) = s.settings_pages().shortcuts.capture.clone() else { return type_to_search(s, ev, tx) };

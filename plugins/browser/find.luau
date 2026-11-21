@@ -85,7 +85,7 @@ function find.render(
             dir = "auto",
             placeholder = i18n:T("find.open"),
             label = i18n:T("find.open"),
-            keys = { "Escape" },
+            keys = { "Escape", "Shift+Enter" },
             grow = 1,
             ml = 4,
         }),

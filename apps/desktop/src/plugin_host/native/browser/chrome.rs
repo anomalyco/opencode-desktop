@@ -11,7 +11,56 @@ use super::{App, DEVTOOLS_TIMEOUT, Vmx, id_of, later, map, not_running, read_tab
 pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
     // App-scheme link reviews are rendered natively by the host (`surfaces/browser/prompts/app_link.rs`)
     // so review tokens never cross into Luau; keep `TakeAppLinkReview` returning nil for compatibility.
-    t.raw_set("TakeAppLinkReview", lua.create_function(|_, ()| Ok(mlua::Value::Nil))?)
+    t.raw_set("TakeAppLinkReview", lua.create_function(|_, ()| Ok(mlua::Value::Nil))?)?;
+    t.raw_set(
+        "SetSiteDetailed",
+        lua.create_function(|lua, (_this, detailed): (Table, bool)| {
+            let sc = scope::TabScope::capture(lua);
+            if !sc.is_builtin_browser || sc.tool_sid.is_some() {
+                return Ok(());
+            }
+            with_app("Browser:SetSiteDetailed", |app| {
+                app.later(Box::new(move |s: &mut App, _: &mut Tx| {
+                    s.workspace_panes.browser.site_detailed = detailed;
+                }));
+                Ok(())
+            })
+        })?,
+    )?;
+    // Selects the address-bar inline-completion range (`panel.tsx:255`, backward so caret sits at `focus`).
+    t.raw_set(
+        "SetAddressSelection",
+        lua.create_function(|lua, (_this, anchor, focus): (Table, usize, usize)| {
+            let sc = scope::TabScope::capture(lua);
+            if !sc.is_builtin_browser || sc.tool_sid.is_some() {
+                return Ok(());
+            }
+            crate::plugin_host::editors::set_selection("browser", 0, anchor, focus);
+            let plugin: std::rc::Rc<str> = std::rc::Rc::from("browser");
+            crate::plugin_host::cx::ask(&plugin, crate::plugin_host::cx::Request::Redraw);
+            Ok(())
+        })?,
+    )?;
+    t.raw_set(
+        "AddressSelection",
+        lua.create_function(|lua, _this: Table| {
+            let sc = scope::TabScope::capture(lua);
+            if !sc.is_builtin_browser || sc.tool_sid.is_some() {
+                return Ok(mlua::Value::Nil);
+            }
+            with_app("Browser:AddressSelection", |app| {
+                let (start, end, len, composing, focused) =
+                    crate::plugin_host::editors::selection_in(app, "browser", 0);
+                let out = lua.create_table()?;
+                out.raw_set("start", start)?;
+                out.raw_set("end", end)?;
+                out.raw_set("len", len)?;
+                out.raw_set("composing", composing)?;
+                out.raw_set("focused", focused)?;
+                Ok(mlua::Value::Table(out))
+            })
+        })?,
+    )
 }
 
 pub(super) fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
@@ -108,6 +157,44 @@ pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
         "Unnamed",
         lua.create_function(|lua, this: Table| {
             read_tab(lua, &this, "BrowserTab:Unnamed", |app, id| Ok(app.browser_tab_unnamed(id)))
+        })?,
+    )?;
+    // Shift+Click on the toolbar Reload button triggers hard reload (`panel.tsx:973`).
+    m.raw_set(
+        "ReloadFromClick",
+        lua.create_function(|lua, this: Table| {
+            let sc = scope::TabScope::capture(lua);
+            if !sc.is_builtin_browser || sc.tool_sid.is_some() {
+                return Ok(());
+            }
+            let shift = with_app("BrowserTab:ReloadFromClick", |app| Ok(app.workspace_panes.browser.shift_held))?;
+            later(lua, &this, "BrowserTab:ReloadFromClick", move |s, id, tx| {
+                if shift || tx.mods().shift {
+                    s.workspace_panes.browser.host.reload_ignore_cache(id);
+                } else {
+                    s.workspace_panes.browser.host.reload(id);
+                }
+            })
+        })?,
+    )?;
+    // Opens the floating "Add page to session" note editor (`panel.tsx:1615-1665`).
+    m.raw_set(
+        "OpenNote",
+        lua.create_function(|lua, this: Table| {
+            let sc = scope::TabScope::capture(lua);
+            if !sc.is_builtin_browser || sc.tool_sid.is_some() {
+                return Ok(());
+            }
+            later(lua, &this, "BrowserTab:OpenNote", move |s, id, _| {
+                s.open_browser_page_note(id);
+            })
+        })?,
+    )?;
+    // True while element picker or element-comment spotlight is active (`panel.tsx:1244`).
+    m.raw_set(
+        "OverlayAccent",
+        lua.create_function(|lua, this: Table| {
+            read_tab(lua, &this, "BrowserTab:OverlayAccent", |app, id| Ok(app.browser_overlay_accent(id)))
         })?,
     )?;
     m.raw_set(

@@ -32,15 +32,18 @@ pub(crate) struct ManagedTab {
     allowed_ext_ids: Arc<Mutex<Vec<String>>>,
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     allow_extension_pages: bool,
-    pub(super) isolated: bool,
+    pub(crate) isolated: bool,
     pub(crate) is_popup: bool,
-    preview: Option<Arc<PreviewGrant>>,
+    pub(crate) preview: Option<Arc<PreviewGrant>>,
     #[cfg(target_os = "linux")]
     preview_spec: Option<PreviewSpec>,
     view_state: Arc<Mutex<ViewRectState>>,
     pub(crate) snap: Arc<Mutex<TabSnapshot>>,
     pub(crate) cdp_id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
     pub(crate) cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
+    pub(crate) passkeys: Arc<crate::passkeys::TabPasskeyGate>,
+    pub(crate) input_guard: Arc<Mutex<crate::input_guard::InputGuard>>,
+    pub(crate) emulation_scale: Arc<std::sync::atomic::AtomicU32>,
     internal_picked: Arc<Mutex<Vec<i64>>>,
     pending_clears: Arc<Mutex<Vec<PendingClear>>>,
     pub(crate) prompts: Arc<crate::prompts::TabPrompts>,
@@ -75,8 +78,10 @@ pub struct EngineManager {
     unmanaged_ext_tabs: usize,
     seed_probe: Option<BrowserHost>,
     next_ext_tab_id: u64,
-    next_cdp_id: AtomicI32,
+    pub(super) next_cdp_id: Arc<AtomicI32>,
     next_eref: u64,
+    /// Agent commands waiting, in arrival order, for their tab's `WebAuthn.enable` reply.
+    passkey_held: Vec<HostMsg>,
     /// The app's scheme, once it said (`HostMsg::SetColorScheme`).
     dark: Option<bool>,
     /// The user's home directory, for filtering overly broad workspace `file_roots`.
@@ -138,8 +143,9 @@ impl EngineManager {
             unmanaged_ext_tabs: 0,
             seed_probe: None,
             next_ext_tab_id: 1_000_000,
-            next_cdp_id: AtomicI32::new(100),
+            next_cdp_id: Arc::new(AtomicI32::new(100)),
             next_eref: 1,
+            passkey_held: Vec::new(),
             dark: None,
             home: crate::profile::home_dir(),
             downloads: crate::downloads::Downloads::open(&downloads),
@@ -170,6 +176,13 @@ impl EngineManager {
         if self.refuse_if_controlled_tab_blocked(&msg) {
             return true;
         }
+        let Some(msg) = self.wait_for_passkey_refusal(msg) else {
+            return true;
+        };
+        self.handle_msg(msg)
+    }
+
+    fn handle_msg(&mut self, msg: HostMsg) -> bool {
         match msg {
             HostMsg::Hello { mach_service, prompts, extensions, download_save, .. } => {
                 self.prompt_shared.enabled.store(prompts, Ordering::Relaxed);
@@ -201,6 +214,7 @@ impl EngineManager {
                     extensions: true,
                     cookies: true,
                     agent_files: true,
+                    passkeys: true,
                 });
                 for (&tab_id, t) in &self.tabs {
                     t.menu.cancel_all();
@@ -467,6 +481,8 @@ impl EngineManager {
                 if let Some(t) = self.tabs.get(&tab_id)
                     && self.contexts.is_tab_ready(tab_id)
                 {
+                    let applied = if device.is_some() && scale.is_finite() { scale.clamp(0.25, 4.0) } else { 1.0 };
+                    t.emulation_scale.store(applied.to_bits(), Ordering::Release);
                     emulation::apply(device.as_ref(), scale, |method, params| self.send_internal_cdp(&t.host, method, params));
                 }
             }
@@ -502,6 +518,11 @@ impl EngineManager {
                 }
             }
             HostMsg::MouseButton { tab_id, x, y, button, up, clicks, mods } => {
+                // The person's press takes the tab back before the click reaches the page, so a
+                // file picker this click opens is theirs (official `policy.ts:121-125`).
+                if !up {
+                    self.set_user_reclaimed(tab_id, true);
+                }
                 if let Some(t) = self.tabs.get_mut(&tab_id) {
                     let (btn, flag): (MouseButtonType, u32) = match button {
                         PointerBtn::Secondary => (
@@ -523,7 +544,7 @@ impl EngineManager {
                         t.held_buttons |= flag;
                         t.host.set_focus(1);
                         t.prompts.popup_credit.store(true, Ordering::Release);
-                        t.prompts.user_reclaimed.store(true, Ordering::Release);
+                        t.prompts.menu_suppressed.store(false, Ordering::Release);
                     }
                     let ev = MouseEvent {
                         x: x.round() as i32,
@@ -545,10 +566,13 @@ impl EngineManager {
                 }
             }
             HostMsg::Key { tab_id, down, text, named, mods } => {
+                if down {
+                    self.set_user_reclaimed(tab_id, true);
+                }
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if down {
                         t.prompts.popup_credit.store(true, Ordering::Release);
-                        t.prompts.user_reclaimed.store(true, Ordering::Release);
+                        t.prompts.menu_suppressed.store(false, Ordering::Release);
                     }
                     send_key(&t.host, down, text.as_deref(), named.as_deref(), cef_mods(mods));
                 }
@@ -589,11 +613,11 @@ impl EngineManager {
             HostMsg::SetInspect { tab_id, enabled } => self.handle_set_inspect(tab_id, enabled),
             HostMsg::HighlightNode { tab_id, backend_node_id } => self.handle_highlight_node(tab_id, backend_node_id),
             HostMsg::CdpCall { tab_id, request_id, method, params, session_id } => {
-                if let Some(t) = self.tabs.get(&tab_id) {
-                    if method.starts_with("Input.") {
-                        t.prompts.popup_credit.store(true, Ordering::Release);
-                    }
-                    t.prompts.user_reclaimed.store(false, Ordering::Release);
+                self.set_user_reclaimed(tab_id, false);
+                if let Some(t) = self.tabs.get(&tab_id)
+                    && method.starts_with("Input.")
+                {
+                    t.prompts.agent_input();
                 }
                 self.handle_cdp_call(tab_id, request_id, method, params, session_id);
             }
@@ -603,50 +627,7 @@ impl EngineManager {
                     crate::cdp_ledger::handle_site_cookies(tab_id, request_id, not_ready, t, &self.next_cdp_id, &self.out_tx);
                 }
             }
-            HostMsg::ClearSite { tab_id, request_id } => {
-                if let Some(t) = self.tabs.get(&tab_id) {
-                    if !self.contexts.is_tab_ready(tab_id) {
-                        let reason = self.contexts.not_ready_reason(tab_id);
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id,
-                            request_id,
-                            ok: false,
-                            result: json!({ "message": reason }),
-                        });
-                        return true;
-                    }
-                    let url = t.snap.lock().unwrap().url.clone();
-                    let Some(origin) = browser_policy::destination_origin(&url) else {
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id,
-                            request_id,
-                            ok: true,
-                            result: json!({}),
-                        });
-                        return true;
-                    };
-                    let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
-                    t.cdp_id_map
-                        .lock()
-                        .unwrap()
-                        .insert(msg_id, CdpPending::ClearSite { request_id, origin });
-                    let raw = json!({
-                        "id": msg_id,
-                        "method": "Network.getCookies",
-                        "params": { "urls": [url] },
-                    })
-                    .to_string();
-                    if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
-                        t.cdp_id_map.lock().unwrap().remove(&msg_id);
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id,
-                            request_id,
-                            ok: false,
-                            result: json!({ "message": "send_dev_tools_message rejected" }),
-                        });
-                    }
-                }
-            }
+            HostMsg::ClearSite { tab_id, request_id } => self.handle_clear_site(tab_id, request_id),
             #[cfg(target_os = "linux")]
             HostMsg::FrameRead { tab_id, pool, frame_id } => {
                 if let Some(ring) = self.tabs.get(&tab_id).and_then(|t| t.frames.as_ref()) {
@@ -708,28 +689,31 @@ impl EngineManager {
                 self.handle_set_agent_driven(tab_id, agent_driven);
             }
             HostMsg::TypedCdpCall { tab_id, request_id, method, params, session_id, frame_id } => {
+                self.set_user_reclaimed(tab_id, false);
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if method.starts_with("Input.") {
-                        t.prompts.popup_credit.store(true, Ordering::Release);
+                        t.prompts.agent_input();
                     }
-                    t.prompts.user_reclaimed.store(false, Ordering::Release);
                     let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
                     crate::cdp_ledger::handle_typed_cdp_call(
-                        tab_id, request_id, not_ready, t, &self.next_cdp_id, &self.out_tx,
+                        tab_id, request_id, not_ready, t, &self.permissions, &self.next_cdp_id, &self.out_tx,
                         self.extensions.is_some(), method, params, session_id, frame_id,
                     );
                 }
             }
-            HostMsg::UploadFiles { tab_id, request_id, backend_node_id, files } => {
+            HostMsg::UploadFiles { tab_id, request_id, backend_node_id, files, session_id, frame_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
-                    crate::agent::handle_upload_files(t, &self.profile_dir, tab_id, request_id, not_ready, backend_node_id, &files, &self.next_cdp_id, &self.out_tx);
+                    crate::agent::handle_upload_files(t, &self.permissions, &self.profile_dir, tab_id, request_id, not_ready, backend_node_id, &files, session_id, frame_id, &self.next_cdp_id, &self.out_tx);
                 }
             }
             HostMsg::DropFiles { tab_id, request_id, x, y, files } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
-                    crate::agent::handle_drop_files(t, &self.profile_dir, tab_id, request_id, not_ready, x, y, &files, &self.next_cdp_id, &self.out_tx);
+                    t.prompts.agent_input();
+                    let not_ready = (!self.contexts.is_tab_ready(tab_id))
+                        .then(|| self.contexts.not_ready_reason(tab_id))
+                        .or_else(|| self.whole_tab_granted(t));
+                    crate::agent::handle_drop_files(t, &self.permissions, &self.profile_dir, tab_id, request_id, not_ready, x, y, &files, &self.next_cdp_id, &self.out_tx);
                 }
             }
             HostMsg::ClearSiteCache { tab_id, request_id } => {
@@ -786,17 +770,13 @@ impl EngineManager {
                             crate::wire::ContextKind::Preview { .. }
                                 | crate::wire::ContextKind::Artifact { .. }
                         );
-                    t.menu.execute(
-                        tab_id,
-                        t.download_gen,
-                        id,
-                        action,
-                        &t.browser,
-                        &t.host,
-                        &roots,
-                        block_downloads,
-                        &self.downloads,
-                    );
+                    let ext_click = t.menu.execute(tab_id, t.download_gen, id, action, &t.browser, &t.host, &roots, block_downloads, &self.downloads);
+                    if let Some((ext_id, item_id, target)) = ext_click
+                        && !t.isolated && !t.is_popup && t.preview.is_none()
+                        && let Some(ext) = self.extensions.as_mut()
+                    {
+                        ext.on_context_menu_clicked(tab_id, &ext_id, &item_id, &target);
+                    }
                 }
             }
             HostMsg::SetPartitionProxy { server_id, proxy } => {
@@ -1148,6 +1128,8 @@ impl EngineManager {
             self.out_tx.clone(),
             self.events.clone(),
         );
+        let input_guard = Arc::new(Mutex::new(crate::input_guard::InputGuard::default()));
+        let emulation_scale = Arc::new(std::sync::atomic::AtomicU32::new(1.0f32.to_bits()));
         let request = TabRequestHandler::new(
             tab_id,
             file_roots.clone(),
@@ -1161,6 +1143,8 @@ impl EngineManager {
             snap.clone(),
             self.prompt_shared.clone(),
             prompts.clone(),
+            input_guard.clone(),
+            emulation_scale.clone(),
             self.permissions.clone(),
             scope_id,
             diagnostics,
@@ -1218,11 +1202,16 @@ impl EngineManager {
             self.out_tx.clone(),
             std::sync::Arc::new(crate::find::FindState::default()),
         );
+        let ext_menus = (!isolated && !is_popup && preview_grant.is_none())
+            .then(|| self.extensions.as_ref().map(|e| e.context_menu_catalog()))
+            .flatten();
         let context_menu = crate::menu::TabContextMenuHandler::new(
             tab_id,
             self.prompt_shared.clone(),
+            prompts.clone(),
             file_roots.clone(),
             preview_grant.clone(),
+            ext_menus,
             menu_state.clone(),
             self.out_tx.clone(),
         );
@@ -1238,6 +1227,7 @@ impl EngineManager {
             dialog,
             find,
             context_menu,
+            prompts.clone(),
         );
 
         let mut win_info = WindowInfo::default().set_as_windowless(Default::default());
@@ -1321,6 +1311,7 @@ impl EngineManager {
 
         let cdp_id_map = Arc::new(Mutex::new(HashMap::new()));
         let cdp_ledger = Arc::new(Mutex::new(crate::cdp_ledger::EngineCdpLedger::default()));
+        let passkeys = Arc::new(crate::passkeys::TabPasskeyGate::new(tab_id, agent_driven));
         let internal_picked = Arc::new(Mutex::new(Vec::new()));
         let pending_clears = Arc::new(Mutex::new(Vec::new()));
         let mut observer = TabCdpObserver::new(
@@ -1333,6 +1324,10 @@ impl EngineManager {
             internal_picked.clone(),
             pending_clears.clone(),
             cdp_ledger.clone(),
+            passkeys.clone(),
+            input_guard.clone(),
+            emulation_scale.clone(),
+            self.next_cdp_id.clone(),
             prompts.clone(),
             self.permissions.clone(),
             self.extensions.is_some(),
@@ -1342,7 +1337,14 @@ impl EngineManager {
         let cdp_reg = host.add_dev_tools_message_observer(Some(&mut observer));
         // Every tab is armed, as official arms every page (`chromium.ts:1391-1398`). The lock is
         // released first: CEF may deliver the observer callback inside the send.
-        let arm = cdp_ledger.lock().unwrap().arm();
+        let mut arm = cdp_ledger.lock().unwrap().arm();
+        arm.extend(passkeys.attach_messages(None));
+        if agent_driven || is_preview {
+            arm.push(passkeys.file_chooser_intercept_msg(true, None));
+        }
+        if !passkeys.native() || agent_driven {
+            arm.extend(passkeys.enforce_messages());
+        }
         for raw in arm {
             host.send_dev_tools_message(Some(raw.as_bytes()));
         }
@@ -1368,6 +1370,9 @@ impl EngineManager {
                 snap,
                 cdp_id_map,
                 cdp_ledger,
+                passkeys,
+                input_guard,
+                emulation_scale,
                 internal_picked,
                 pending_clears,
                 prompts,

@@ -8,6 +8,7 @@ use super::{Calls, Label, Loc, Step, call, file_like, file_tool, grouped_read, l
 use crate::TimelineHost;
 use crate::activity::{event_row, events, label as activity};
 use crate::detail::Category;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::{HOVER_FADE, ROW_GAP, UI, arrow, reasoning};
 
@@ -35,7 +36,15 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
     let work = activity::work_events(steps);
     let work_only = !work.is_empty() && steps.iter().all(is_work);
     if work_only {
-        return event_row::view(s, p, session, &work, open, crate::disclosure::toggle_group::<S>(key.to_owned()));
+        return event_row::view(
+            s,
+            p,
+            session,
+            &work,
+            open,
+            crate::disclosure::toggle_group::<S>(key.to_owned()),
+            crate::disclosure::collapse_group::<S>(key.to_owned()),
+        );
     }
     let shutting = !open && crate::disclosure::is_shutting(s, key);
     let named = activity::activity(steps);
@@ -48,6 +57,9 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
         .h(28.0)
         .gap(4.0)
         .center_y()
+        .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .hover_group()
         // The arrow fades in under the pointer (`collapsible.css:26-29`).
         .hover_motion(HOVER_FADE, HOVER_FADE)
@@ -109,8 +121,14 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
                 col().w_full().pt(if j == 0 { 0.0 } else { GROUP_GAP }).child(built).fold_glide(crate::disclosure::fold(s.knobs())).fold_feather(feather)
             })
             .virtual_rows_version(version);
-        let line = p.border.alpha(p.border.a * 0.5);
-        let rail = el().key("rail").pin(Some(2.0), Some(GROUP_GAP + 6.0), None, Some(6.0)).w(1.0).fill(line);
+        // Rail only collapses open groups; while `shutting` (`!open`) it stays non-interactive so
+        // clicking or double-clicking mid-fold never re-opens the group (`nested-rail.ts`).
+        let rail = if open {
+            crate::style::nested_rail(&p, GROUP_GAP + 6.0, 6.0, crate::disclosure::collapse_group::<S>(key.to_owned()))
+        } else {
+            let line = p.border.alpha(p.border.a * 0.5);
+            el().key("rail").pin(Some(2.0), Some(GROUP_GAP + 6.0), None, Some(6.0)).w(1.0).fill(line)
+        };
         let list = col().key("steps").w_full().pt(GROUP_GAP).pb(pb).pl(14.0).transition(rune::Transition::none()).child(rail).child(list);
 
         // Shutting, the steps stay laid out below a row that's only the header, and the row's
@@ -227,7 +245,15 @@ fn step_item<S: TimelineHost>(s: &S, p: &Pal, cx: crate::tools::Ctx, group: &str
         st if is_work(st) => {
             let key = format!("{group}:events:{}", item_key(steps, 0));
             let open = s.expanded().contains(&key);
-            col().key(format!("work-{key}")).w_full().child(event_row::view(s, p, cx.session, &run_events(steps), open, crate::disclosure::set::<S>(key.clone(), open, String::new())))
+            col().key(format!("work-{key}")).w_full().child(event_row::view(
+                s,
+                p,
+                cx.session,
+                &run_events(steps),
+                open,
+                crate::disclosure::set::<S>(key.clone(), open, String::new()),
+                crate::disclosure::set::<S>(key.clone(), true, String::new()),
+            ))
         }
         st @ Step::Thought { .. } => thought(s, p, st, live, fade),
         // 28 high like the steps around it (`py-1`).
@@ -276,7 +302,15 @@ pub fn thought<S: TimelineHost>(s: &S, p: &Pal, st: &Step, live: bool, fade: f32
 pub fn events<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &[Step]) -> El {
     let open = s.expanded().contains(key);
     let list: Vec<events::Event> = steps.iter().filter_map(activity::step_event).collect();
-    event_row::view(s, p, session, &list, open, crate::disclosure::toggle_group::<S>(key.to_owned()))
+    event_row::view(
+        s,
+        p,
+        session,
+        &list,
+        open,
+        crate::disclosure::toggle_group::<S>(key.to_owned()),
+        crate::disclosure::collapse_group::<S>(key.to_owned()),
+    )
 }
 
 /// Calls on their own row (`AssistantContent`, `SessionReadToolGroup`, `FileGroup`), drawn as

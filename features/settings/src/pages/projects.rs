@@ -9,12 +9,12 @@ use opencode_kit::path;
 use opencode_ui::focus::FocusExt;
 use opencode_ui::popup::PopupHost;
 use opencode_ui::widgets;
-use rune::{El, Key, KeyEvent, TextEdit, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Align, Color, Cursor, El, Key, KeyEvent, TextEdit, TextStyle, Tx, col, el, icon, row, text};
 use rune_kit::ButtonVariant;
 use rune_theme_opencode::icons as ic;
 use opencode_ui::palette::{Pal, kit};
 
-use super::{filter_field, ghost_button, header_with, no_results, page};
+use super::{filter_field, ghost_button, header_with, page, tab_no_results};
 use crate::host::SettingsHost;
 
 /// A project's name: 13 on 20 at 530.
@@ -62,6 +62,13 @@ fn rename_key(s: &mut dyn SettingsHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
     true
 }
 
+/// Whether the Projects filter search bar is visible (more than 7 projects or any "other" projects).
+pub(crate) fn searchable(s: &dyn SettingsHost) -> bool {
+    let used = s.used_projects();
+    let others = s.other_projects();
+    used.len() + others.len() > 7 || !others.is_empty()
+}
+
 pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
     let used = s.used_projects();
     let others = s.other_projects();
@@ -83,7 +90,7 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
     let body = if used.is_empty() && others.is_empty() {
         empty::<H>(p)
     } else if added.is_empty() && rest.is_empty() {
-        no_results(p, "settings-projects-empty", &query)
+        tab_no_results(p, "settings-projects-empty", &query)
     } else {
         let mut list = col().key("settings-projects").w_full().gap(12.0);
         if !added.is_empty() {
@@ -109,6 +116,7 @@ fn empty<H: SettingsHost + 'static>(p: &Pal) -> El {
     col()
         .key("settings-project-empty-card")
         .w_full()
+        .px(24.0)
         .py(96.0)
         .gap(8.0)
         .items_center()
@@ -116,8 +124,8 @@ fn empty<H: SettingsHost + 'static>(p: &Pal) -> El {
         .fill(p.layer1)
         .box_shadow(Pal::ring_in(p.border_muted))
         .child(icon(&ic::FOLDER, 24.0).color(p.icon_muted).mb(8.0))
-        .child(text(t!("settings.projects.empty.title")).font(FOLD).color(p.text))
-        .child(text(t!("settings.projects.empty.description")).font(super::NAME_REGULAR).color(p.muted))
+        .child(text(t!("settings.projects.empty.title")).font(FOLD).color(p.text).wrap().align(Align::Center))
+        .child(text(t!("settings.projects.empty.description")).font(super::NAME_REGULAR).color(p.muted).wrap().align(Align::Center))
         .child(el().mt(24.0).child(widgets::button(t!("home.project.add"), ButtonVariant::Neutral).icon(&ic::PLUS).on_press_tx(|s: &mut H, tx: &mut Tx| open_add_project(s, tx)).build(kit(p))))
 }
 
@@ -127,6 +135,7 @@ fn fold<H: SettingsHost + 'static>(p: &Pal, count: usize, open: bool) -> El {
         .key("settings-projects-others")
         .role("button")
         .label_static(t!("settings.projects.other"))
+        .expanded(open)
         .h(28.0)
         .pl(4.0)
         .pr(8.0)
@@ -134,6 +143,8 @@ fn fold<H: SettingsHost + 'static>(p: &Pal, count: usize, open: bool) -> El {
         .center_y()
         .radius(4.0)
         .self_start()
+        .cursor(Cursor::Pointer)
+        .focus_default(p)
         .hover(p.layer2)
         .on_press_tx(|s: &mut H, tx: &mut Tx| toggle_others(s, tx))
         .child(
@@ -146,7 +157,7 @@ fn fold<H: SettingsHost + 'static>(p: &Pal, count: usize, open: bool) -> El {
                 .gap(6.0)
                 .center_y()
                 .child(text(t!("settings.projects.other")).font(FOLD).color(p.text))
-                .child(row().h(16.0).min_w(16.0).px(4.0).center().radius(4.0).fill(p.layer3).child(text(count.to_string()).font(COUNT).color(p.muted))),
+                .child(row().h(16.0).min_w(16.0).px(4.0).center().radius(3.0).fill(p.layer2).child(text(count.to_string()).font(COUNT).color(p.muted))),
         )
 }
 
@@ -181,6 +192,10 @@ fn project_list<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, key: &str
 /// `SettingsProjectRow`: the project's avatar and name, which open its own pages, and its menu.
 fn card<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, x: &Project, _other: bool, alone: bool) -> El {
     let label = name(x);
+    let menu_key = format!("settings-project-menu-{}", x.id);
+    let menu_open = s.popup().open_at(&menu_key);
+    let st = &s.settings_pages().project;
+    let renaming = st.renaming.as_deref() == Some(x.directory.as_str());
     let card = row()
         .key(format!("settings-project-{}", x.id))
         .role("listitem")
@@ -191,9 +206,9 @@ fn card<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, x: &Project, _oth
         .gap(8.0)
         .center_y()
         .radius(if alone { 8.0 } else { 4.0 })
+        .fill(if menu_open || renaming { p.layer2 } else { Color::TRANSPARENT })
         .hover(p.layer2);
-    let st = &s.settings_pages().project;
-    if st.renaming.as_deref() == Some(x.directory.as_str()) {
+    if renaming {
         let field = opencode_ui::style::field(&st.rename, NAME)
             .key("settings-project-rename")
             .spellcheck(s.settings().spellcheck)
@@ -222,15 +237,16 @@ fn card<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, x: &Project, _oth
         .help(x.directory.clone())
         .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
         .pl(if alone { 16.0 } else { 12.0 })
-        .pr(if alone { 16.0 } else { 12.0 } + 24.0 + 8.0)
+        .pr(if alone { 16.0 } else { 12.0 } + 20.0 + 8.0)
         .radius(if alone { 8.0 } else { 4.0 })
+        .cursor(Cursor::Pointer)
         .focus_inset(p)
         .gap(8.0)
         .center_y()
         .on_press_tx(move |s: &mut H, tx: &mut Tx| open_project_general(s, &dir, tx))
         .child(SettingsHost::project_badge(s, p, Some(x), &label))
         .child(text(label).font(NAME).color(p.text).truncate());
-    card.child(open).child(rune::spacer()).child(super::project::options_with(s, p, x, &format!("settings-project-menu-{}", x.id), 24.0, true))
+    card.child(open).child(rune::spacer()).child(super::project::options_with(s, p, x, &menu_key, 20.0, true))
 }
 
 /// A row's field lost focus: the rename is dropped, as a click away drops Desktop's.

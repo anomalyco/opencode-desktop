@@ -10,9 +10,17 @@ pub mod links;
 #[cfg(not(target_arch = "wasm32"))]
 mod activity;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod app_icons;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod comment;
+#[cfg(not(target_arch = "wasm32"))]
+mod comment_describe;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod context_menu;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod cookie_import;
+#[cfg(not(target_arch = "wasm32"))]
+mod keys;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod extensions;
 #[cfg(not(target_arch = "wasm32"))]
@@ -105,11 +113,10 @@ mod native {
     use rune::time::Instant;
 
     use browser_pane::{BrowserHost, EngineStatus, bare_url};
-    use rune::{Key, KeyEvent, Tx, Waker};
+    use rune::{Tx, Waker};
 
     use super::PLUGIN;
     use crate::App;
-    use crate::keymap::Bind;
     use crate::panels::{SessionPane, panel_key, split_panel_key};
 
     /// One DevTools call in flight for a plugin or MCP tool.
@@ -129,6 +136,8 @@ mod native {
         pub devtools: HashMap<u64, PendingDevtools>,
         /// Settings > Browser's cookie-file import waiting on the engine (`cookie_import`).
         pub cookie_import: Option<super::cookie_import::CookieImport>,
+        /// Each other browser's icon for Settings > Browser, read off the UI thread (`app_icons`).
+        pub app_icons: super::app_icons::AppIcons,
         /// Last observed Luau store version for `plugin.browser/rune.sitePermissions`.
         pub site_permissions_version: u64,
         /// Async preview proxy errors `(tab_id, binding_generation, code)` (e.g. artifact 404).
@@ -150,41 +159,19 @@ mod native {
         pub save_dialog_open: bool,
         /// Tabs an agent opened or drove while hidden (`machine.ts` `unseen`, blue `tab.activity` dot).
         pub unseen_tabs: std::collections::HashSet<u64>,
+        /// Tabs whose strip close is in flight (`UP-148` `strip.closing`) so reconciliation never re-adds them.
+        pub closing_tabs: std::collections::HashSet<u64>,
         /// Chrome-style opener chains and initial `"New tab"` title holds (`UP-118`).
         pub openers: super::openers::TabOpeners,
+        /// Floating element-comment spotlight/editor and whole-page note editor (`panel.tsx:1525-1665`).
+        pub overlay: super::comment::BrowserOverlay,
+        /// True while Site information popover is on View 2 ("Site settings") so Escape steps back.
+        pub site_detailed: bool,
+        /// Live Shift key state tracked in `home_modifiers` for synchronous Shift+Click checks.
+        pub shift_held: bool,
     }
 
-    /// App-level shortcuts that a focused web page must yield to OpenCode (Rune) rather than swallow,
-    /// matching Desktop's `packages/gui-plugins/src/browser/keys.ts` (`pageShortcut`): in-page chords
-    /// such as ⌘K, ⌘B, ⌘F and ⌘G stay with the page.
-    pub fn claims_app_shortcut(ev: &KeyEvent) -> bool {
-        if PAGE_KEYS.iter().any(|c| c.matches(ev)) {
-            return false;
-        }
-        if crate::shortcuts::claims_from_browser(ev) {
-            return true;
-        }
-        if [Bind::Rename, Bind::Background].iter().any(|b| b.matches(ev)) || crate::keymap::TERMINAL_TOGGLE.matches(ev) {
-            return true;
-        }
-        let Key::Command(c) = ev.key else { return false };
-        let ch = c.to_ascii_lowercase();
-        if ev.mods.alt {
-            return !ev.mods.shift && matches!(ch, 'r' | 'b' | 'p');
-        }
-        if ev.mods.shift {
-            if ch == 'm' && matches!(crate::updater::build_channel(), "dev" | "local") { return true; }
-            return matches!(ch, 't' | '[' | ']' | '{' | '}' | 'r' | 'p' | 'l' | 'e' | 'o' | 's' | 'c');
-        }
-        matches!(ch, 'l' | 't' | 'n' | 'w' | ',' | '\\' | '[' | ']')
-    }
-
-    static PAGE_KEYS: std::sync::LazyLock<Vec<rune::Chord>> = std::sync::LazyLock::new(|| {
-        ["mod+a", "mod+c", "mod+v", "mod+x", "mod+z", "mod+r", "mod+shift+z"]
-            .into_iter()
-            .filter_map(|c| rune::Chord::parse(c).ok())
-            .collect()
-    });
+    pub use super::keys::claims_app_shortcut;
 
     /// `url` when the default browser can open it: a credential-free `http:` or `https:` page,
     /// not `about:blank`, `chrome:`, `data:`, or embedded credentials.
@@ -257,6 +244,7 @@ mod native {
         }
 
         pub fn setup_browser(&mut self, waker: Waker) {
+            self.workspace_panes.browser.overlay.set_waker(waker.clone());
             self.workspace_panes.browser.host.set_waker(waker);
             self.workspace_panes.browser.host.set_shell_shortcut(claims_app_shortcut);
             // The levels live in the app's state (`plugin.browser`, Desktop's browser plugin namespace),
@@ -311,7 +299,7 @@ mod native {
         pub fn browser_plugin_ready(&self) -> bool {
             !self.browser_unsupported()
                 && !self.narrow()
-                && self.plugins.list.iter().any(|p| p.manifest.id == PLUGIN && p.running())
+                && self.plugins.plugin_available(PLUGIN)
         }
 
         /// Whether `path`, inside the session's folder, opens as a preview page in the browser pane
@@ -372,6 +360,7 @@ mod native {
         /// A press on page `id`: the keyboard is in its pane now, as a click inside Desktop's side
         /// region makes it, so ⌘W, ⌘L and ⌘T act on the browser rather than the session's tab.
         pub fn focus_browser_page(&mut self, id: u64) {
+            self.workspace_panes.browser.host.close_extension_popup();
             let Some(sid) = self.browser_tab_session(id).map(str::to_owned) else { return };
             let key = panel_key(PLUGIN, &id.to_string());
             let side = self.kernel.slots.get_mut(&crate::panels::SIDE);
@@ -594,6 +583,7 @@ mod native {
         pub fn navigate_browser_tab_with_agent(&mut self, id: u64, url: &str, agent: bool) {
             if !agent {
                 self.note_browser_addressed(id);
+                crate::plugin_host::services::browser_contract::revoke_tab(self, id);
             }
             let sid = self.browser_tab_session(id).map(str::to_owned);
             let resolved = browser_pane::resolve_address(url);
@@ -693,8 +683,10 @@ mod native {
 
         /// Page `id`'s tab left its strip: the page closes and any preview server binding revokes.
         pub fn forget_browser_tab(&mut self, id: u64) {
+            self.workspace_panes.browser.closing_tabs.remove(&id);
             self.workspace_panes.browser.active_app_reviews.borrow_mut().remove(&id);
             self.workspace_panes.browser.openers.on_close(id);
+            crate::plugin_host::services::browser_contract::revoke_tab(self, id);
             self.revoke_preview_binding(id);
             for ids in self.workspace_panes.browser.session_tabs.values_mut() {
                 ids.retain(|&x| x != id);
@@ -740,6 +732,7 @@ mod native {
             let engine_closed: Vec<(u64, bool)> =
                 self.workspace_panes.browser.host.drain_closed_tabs().collect();
             for (closed_id, fatal_close) in engine_closed {
+                self.workspace_panes.browser.closing_tabs.remove(&closed_id);
                 self.workspace_panes.browser.active_app_reviews.borrow_mut().remove(&closed_id);
                 self.revoke_preview_binding(closed_id);
                 let owner_sid = self.browser_tab_session(closed_id).map(str::to_owned);

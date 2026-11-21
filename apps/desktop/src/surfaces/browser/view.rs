@@ -5,6 +5,7 @@
 use browser_pane::{Distrust, ENGINE_DOWNLOAD_MB, EngineStatus, Fault, Net};
 use rune::{Anim, Cursor, El, Spring, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
+use session_view::palette::Elevate;
 
 use crate::App;
 use crate::odometer::odometer_end;
@@ -118,14 +119,49 @@ pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
             let tab = s.workspace_panes.browser.host.tab(tab_id)?;
             let bars = super::prompts::view_bars(s, p, tab.id);
             let modal = super::prompts::view_modal(s, p, tab.id);
+            let ext_popup = s
+                .workspace_panes
+                .browser
+                .host
+                .popup_surface_el(
+                    "browser-ext-popup",
+                    scale / *s.zoom,
+                    *s.zoom,
+                    |app: &mut App| &mut app.workspace_panes.browser.host,
+                )
+                .map(|surface| {
+                    let card = el()
+                        .key("browser-ext-popup-card")
+                        .pin(Some(4.0), Some(8.0), None, None)
+                        .radius(8.0)
+                        .fill(p.bg_base)
+                        .border(1.0, p.border)
+                        .elevate(p.overlay)
+                        .clip_rounded(8.0)
+                        .on_press(|_: &mut App| {})
+                        .child(surface);
+                    el().key("browser-ext-popup-backdrop")
+                        .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
+                        .on_press(|app: &mut App| {
+                            app.workspace_panes.browser.host.close_extension_popup();
+                        })
+                        .child(card)
+                });
+            let comment_overlay = super::comment::view(s, p, tab.id);
             // `embeds.View`: the page on the pane's base background, with top prompt/popup bars
-            // above the page and any page modal (JS dialog / HTTP auth) overlaid cleanly on top.
+            // above the page and any comment/note overlay, page modal, or extension popup overlaid.
             let page_stack = col()
                 .key("browser-page-stack")
                 .grow(1.0)
                 .min_h(0.0)
                 .w_full()
+                .on_layout(|app: &mut App, [_, _, w, h]| {
+                    app.workspace_panes.browser.overlay.set_pane_size(w, h);
+                    app.workspace_panes.browser.host.set_pane_size(w, h);
+                })
                 .child(s.workspace_panes.browser.host.surface_el("browser-surface", tab.id, scale / *s.zoom, *s.zoom, |app: &mut App| &mut app.workspace_panes.browser.host, App::focus_browser_page))
+                .children(ext_popup)
+                .children(comment_overlay)
                 .children(modal);
             col()
                 .key("browser-viewport")

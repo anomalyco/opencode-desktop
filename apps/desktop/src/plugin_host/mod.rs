@@ -52,7 +52,7 @@ pub use contrib::{
 pub use flyout::{Flyout, FlyoutEvent, Overlay};
 pub use machines::{Hot, HotEffect, Life, LifeEffect, LifeEvent, Trust, TrustEffect, TrustEvent};
 pub use plugin::Half;
-pub use runtime::boot::{boot_builtin, doze_owed, first_frame, setup};
+pub use runtime::boot::{boot_builtin, doze_owed, ensure_plugin_running, first_frame, setup};
 pub use runtime::lifecycle::{drive, fire_named, poll, reload, step_trust, toggle};
 pub use servers::{
     ServerRec, all as contributed_servers, authenticating as server_authenticating, changed as servers_changed,
@@ -284,6 +284,20 @@ impl PluginHost {
         self.list.iter().any(|p| p.half.is_builtin(id) && p.running())
     }
 
+    /// Whether plugin `id` is running, dormant (ready to wake on first use), or a bundled
+    /// built-in queued for deferred boot and not disabled by the user.
+    pub fn plugin_available(&self, id: &str) -> bool {
+        if let Some(p) = self.list.iter().find(|p| p.manifest.id == id) {
+            return p.life.listed();
+        }
+        !self.disabled.contains(id)
+            && self
+                .boot
+                .later()
+                .iter()
+                .any(|f| f.manifest.id == id && f.tier == Tier::Bundled && f.error.is_none())
+    }
+
     /// The running plugins.
     pub fn running(&self) -> impl Iterator<Item = (usize, &Plugin)> {
         self.list.iter().enumerate().filter(|(_, p)| p.running())
@@ -503,10 +517,23 @@ pub(super) fn mark(host: &PluginHost, now: f64) {
     eprintln!("luau metrics: mark at {now:.2} s");
 }
 
-/// Esc closes the open plugin popover.
+/// Esc closes the open plugin popover (stepping back from Site settings view 2 to view 1 first).
 pub fn popover_key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if ev.key != rune::Key::Escape || !app.plugins.overlay.is_open() {
         return false;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    if matches!(&app.plugins.overlay, Overlay::Popover { plugin, id, .. } if &**plugin == "browser" && id == "site")
+        && app.workspace_panes.browser.site_detailed
+    {
+        app.workspace_panes.browser.site_detailed = false;
+        for i in 0..app.plugins.list.len() {
+            if app.plugins.list[i].half.is_builtin("browser") {
+                let _ = runtime::lifecycle::fire_named(app, i, "Browser.SiteBack", rune_luau::Data::Nil);
+            }
+        }
+        tx.instant();
+        return true;
     }
     requests::close_popover(app, tx);
     true

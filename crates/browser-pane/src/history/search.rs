@@ -148,6 +148,14 @@ struct HostSum {
     best: f64,
 }
 
+impl HostSum {
+    /// Caps summed multi-page host score at 4x the host's single best page so one site spamming
+    /// `history.pushState` paths cannot hijack row-1 inline autocomplete over a typed site.
+    fn capped_score(&self) -> f64 {
+        self.score.min(self.best * 4.0)
+    }
+}
+
 /// Compact in-memory search index synchronized with `history.sqlite`.
 #[derive(Default)]
 pub struct PageIndex {
@@ -273,7 +281,7 @@ impl PageIndex {
             })
             .collect();
 
-        let best_host = sums.into_values().max_by(|a, b| a.score.total_cmp(&b.score));
+        let best_host = sums.into_values().max_by(|a, b| a.capped_score().total_cmp(&b.capped_score()));
         if let Some(host_sum) = best_host
             && let Some((best_url, _)) = shown(host_sum.page)
             && let Some(origin) = origin_of(&best_url)
@@ -282,7 +290,7 @@ impl PageIndex {
             let site_url = front_row.as_ref().map(|(u, _)| u.clone()).unwrap_or_else(|| format!("{origin}/"));
             let site_title = front_row.map(|(_, t)| t).unwrap_or_default();
             pages.retain(|(p, _)| p.url != site_url);
-            let site_page = FoundPage { url: site_url, title: site_title, score: host_sum.score };
+            let site_page = FoundPage { url: site_url, title: site_title, score: host_sum.capped_score() };
             let insert_at = pages
                 .iter()
                 .position(|(p, q)| *q < START || p.score <= site_page.score)

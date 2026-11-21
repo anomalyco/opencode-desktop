@@ -10,7 +10,7 @@ use super::{App, Dep, Vmx, cx, method, scope::TabScope, with_app};
 
 fn require_settings_caller(lua: &Lua, what: &str) -> mlua::Result<()> {
     let scope = TabScope::capture(lua);
-    if scope.is_builtin_browser && scope.tool_sid.is_none() {
+    if scope.is_builtin_browser && scope.tool_sid.is_none() && scope.in_flight.is_empty() {
         return Ok(());
     }
     Err(mlua::Error::runtime(format!("{what}: browser.cookies.denied")))

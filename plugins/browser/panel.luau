@@ -38,6 +38,9 @@ export type Env = {
     -- Popover states.
     siteOpen: () -> boolean,
     optionsOpen: () -> boolean,
+    hasExtensions: (() -> boolean)?,
+    extMenuOpen: (() -> boolean)?,
+    serverConnected: (() -> boolean)?,
     -- Active notices and find state per tab.
     refusalNotice: (tab: BrowserTab) -> refusal.Notice?,
     failureNotice: (tab: BrowserTab) -> failure.Notice?,
@@ -63,7 +66,7 @@ local function text(content: string, color: string, extra: { [string]: any }?): 
 end
 
 -- Desktop's `IconButton variant="ghost-muted" size="large"`: 28 square, 16 pt icon.
-local function large(view: View, key: string, icon: string, tip: string, enabled: boolean, press: () -> (), extra: { [string]: any }?): ui.Node
+local function large(view: View, key: string, icon: string, tip: string, enabled: boolean, press: (ev: any?) -> (), extra: { [string]: any }?): ui.Node
     local props: { [string]: any } = {
         key = key,
         icon = icon,
@@ -73,8 +76,8 @@ local function large(view: View, key: string, icon: string, tip: string, enabled
         help = tip,
         helpSide = "top",
         disabled = not enabled,
-        onPress = if enabled then view:Handler(function()
-            press()
+        onPress = if enabled then view:Handler(function(ev: any)
+            press(ev)
         end) else nil,
     }
     if extra then
@@ -212,10 +215,27 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
             ui.box({ key = "browser-site-anchor", pin = { left = -10, top = 0, bottom = 0 }, w = 1 }),
         }))
     else
-        table.insert(items, ui.icon("outline-globe", { size = 16, color = "icon-weak" }))
+        local tAny = tab :: any
+        local liveFav: string? = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
+        local chosen = bar.chosen
+        -- Editing leading icon (`panel.tsx:277-285,987`): search glass for search rows,
+        -- chosen page's favicon, or current page's favicon before typing.
+        if bar.editing and chosen ~= nil and chosen.type == "search" then
+            table.insert(items, ui.icon("magnifying-glass", { size = 16, color = "icon-weak" }))
+        elseif bar.editing and chosen ~= nil and chosen.type == "page" and chosen.page.icon ~= nil and chosen.page.icon ~= "" then
+            table.insert(items, ui.image({ src = chosen.page.icon, w = 16, h = 16 }, {
+                ui.icon("outline-globe", { size = 16, color = "icon-weak" }),
+            }))
+        elseif bar.editing and not bar.typed and bar.field ~= "" and liveFav ~= nil and liveFav ~= "" then
+            table.insert(items, ui.image({ src = liveFav, w = 16, h = 16 }, {
+                ui.icon("outline-globe", { size = 16, color = "icon-weak" }),
+            }))
+        else
+            table.insert(items, ui.icon("outline-globe", { size = 16, color = "icon-weak" }))
+        end
     end
     local body: { ui.Node } = {}
-    local textAvail = math.max(80, fieldWidth - 44 - (if zoomed then 48 else 0))
+    local textAvail = math.max(16, fieldWidth - 44 - (if zoomed then 48 else 0))
     if bar.editing then
         table.insert(body, ui.field({
             key = "browser-address-input",
@@ -227,19 +247,12 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
             label = env.I18n:T("address.label"),
             grow = 1,
         }))
-        -- Inline completion suffix after what the user typed (`address-machine.ts::completion`).
-        if bar.completion ~= "" and #bar.query <= address.HINT_MAX_LENGTH then
-            table.insert(body, ui.row({ key = "browser-address-completion", pin = { left = 0, top = 0, bottom = 0 }, gap = 0, align = "center" }, {
-                text(bar.query, "text-muted", { opacity = 0 }),
-                text(bar.completion, "text-muted", { truncate = true, shrink = true, minW = 0 }),
-            }))
-        end
     elseif bar.field ~= "" then
         table.insert(body, display(bar.field, textAvail))
     else
         table.insert(body, text(env.I18n:T("address.search"), "text-faint", { truncate = true, shrink = true, minW = 0 }))
     end
-    table.insert(items, ui.box({ key = "browser-address-text", grow = 1, shrink = true, minW = 0, h = "full", align = "center" }, { ui.row({ w = "full", h = "full", align = "center" }, body) }))
+    table.insert(items, ui.box({ key = "browser-address-text", grow = 1, shrink = true, minW = 0, h = "full", clip = true, align = "center" }, { ui.row({ w = "full", h = "full", clip = true, align = "center" }, body) }))
     -- Any zoom but 100% stays in sight; a click resets it.
     if zoomed then
         table.insert(items, ui.row({
@@ -313,15 +326,37 @@ local function bar(env: Env, view: View, tab: BrowserTab, state: address.View, w
             end),
         }, { ui.loader({ size = 16 }) })
     else
-        reload = large(view, "browser-reload", "outline-rotate-clockwise", env.I18n:T("action.reload"), page ~= "", function()
-            tab:Reload()
+        reload = large(view, "browser-reload", "outline-rotate-clockwise", env.I18n:T("action.reload"), page ~= "", function(ev: any?)
+            local tAny = tab :: any
+            if type(ev) == "table" and ev.shift == true and type(tAny.ReloadIgnoreCache) == "function" then
+                tAny:ReloadIgnoreCache()
+            elseif type(tAny.ReloadFromClick) == "function" then
+                tAny:ReloadFromClick()
+            else
+                tab:Reload()
+            end
         end, { keybind = "browser.reload" })
     end
-    local picking = tab:Inspecting()
-    local rightCount = 1 + (if env.device then 1 else 0)
+    local tAny = tab :: any
+    local picking = tab:Inspecting() or (type(tAny.OverlayAccent) == "function" and tAny:OverlayAccent() == true)
+    local showExt = env.hasExtensions ~= nil and env.hasExtensions()
+    local rightCount = 1 + (if env.device then 1 else 0) + (if showExt then 1 else 0)
     local rightW = rightCount * 28 + math.max(0, rightCount - 1) * 4
-    local fieldW = math.max(120, width - 24 - 92 - 8 - 8 - rightW)
+    local fieldW = math.max(40, width - 24 - 92 - 8 - 8 - rightW)
     local rightControls: { ui.Node } = {}
+    if showExt then
+        table.insert(rightControls, large(
+            view,
+            "browser-extensions",
+            "puzzle",
+            env.I18n:T("settings.extensions.title"),
+            true,
+            function()
+                env.act("extensions", tab)
+            end,
+            { pressed = env.extMenuOpen ~= nil and env.extMenuOpen(), menuTrigger = env.menuTrigger }
+        ))
+    end
     if env.device then
         local devOpen = if env.deviceOpen then env.deviceOpen(tab) else false
         table.insert(rightControls, large(
@@ -343,7 +378,7 @@ local function bar(env: Env, view: View, tab: BrowserTab, state: address.View, w
         env.I18n:T("options"),
         true,
         function()
-            env.act("options", tab)
+            env.act("options", tab, width)
         end,
         {
             pressed = env.optionsOpen(),
@@ -548,7 +583,14 @@ local function omniboxRow(
     end
     local page = row.page
     local textW = math.max(0, width - 16 - 16 - 8 - 28)
+    -- Render IDN hosts as punycode (`xn--...`) in omnibox suggestions to prevent homograph spoofing.
     local shownUrl = (string.gsub(history.bare(page.url), "^([^/?#]+)/$", "%1"))
+    local web = hostDisplay.parts(page.url)
+    if web ~= nil then
+        local hostBare = string.gsub(web.host, "^www%.", "")
+        local restClean = if web.rest == "/" then "" else web.rest
+        shownUrl = `{hostBare}{restClean}`
+    end
     local items: { ui.Node } = {}
     if page.title ~= "" then
         table.insert(items, marked(page.title, query, "text-chrome", { maxW = textW * 0.55, truncate = true, shrink = true, minW = 0 }))
@@ -719,13 +761,36 @@ function panel.render(env: Env, view: View, props: PanelProps): ui.Node
         chromeH += 36
     end
 
-    -- 5. Page area: failed-load plain page, empty new tab home, or live browser surface.
+    -- 5. Page area: suspended/offline notice, failed-load plain page, empty new tab home, or live browser surface.
     local url = tab:Url()
+    local lowerUrl = string.lower(url)
+    local isServerPreview = string.sub(lowerUrl, 1, 12) == "workspace://" or string.sub(lowerUrl, 1, 11) == "artifact://"
+    local offline = isServerPreview and env.serverConnected ~= nil and not env.serverConnected()
+    local suspended = offline or tab:Refusal() == "browser.proxy.required"
     local blank = (url == "" or url == "about:blank")
         and not tab:Loading()
         and not state.navigating
         and tab:Refusal() ~= "browser.controlled.inherited_permission"
-    if loadErr ~= nil and not tab:Loading() then
+    if suspended then
+        table.insert(items, ui.col({
+            key = "browser-suspended",
+            role = "status",
+            w = "full",
+            grow = 1,
+            minH = 0,
+            px = 24,
+            center = true,
+        }, {
+            ui.text(env.I18n:T(if offline then "preview.offline" else "suspended"), {
+                size = 13,
+                weight = "regular",
+                lineHeight = 20,
+                color = "text-muted",
+                textAlign = "center",
+                wrap = true,
+            }),
+        }))
+    elseif loadErr ~= nil and not tab:Loading() then
         table.insert(items, failed(env, view, tab, loadErr))
     elseif blank and (engine == "ready" or engine == "starting") then
         table.insert(items, home(env, view, tab, props.width))

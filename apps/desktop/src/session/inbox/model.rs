@@ -412,144 +412,8 @@ impl ArchivedFetch {
 }
 
 /// Branch lookups each run git on the server, so a few at a time (`BRANCH_BATCH`).
-const BRANCH_BATCH: usize = 4;
-const BRANCH_RETRY_DELAY: f64 = 1.0;
-const BRANCH_RETRY_MAX_DELAY: f64 = 4.0;
-/// Retries after the first failed lookup before the folder rests as failed until a reconnect.
-const BRANCH_RETRY_LIMIT: u32 = 2;
-
-/// One folder's git branch load (`InboxBranchEntry`).
-#[derive(Clone, Debug, PartialEq)]
-enum Branch {
-    /// A row displays this folder, but nobody has selected it. Listen for server events only.
-    Observed,
-    Queued { failures: u32 },
-    Loading { failures: u32 },
-    Retrying { failures: u32, due: f64 },
-    Ok(Option<String>),
-    Failed,
-}
-
-type BranchResult = (String, Result<Option<String>, ()>);
-
-/// The rows' branches by folder: git info isn't on the session, so each shown folder loads it
-/// from `/api/vcs`, and `vcs.branch.updated` keeps it current.
-#[derive(Default)]
-pub struct Branches {
-    by_dir: HashMap<String, Branch>,
-    queue: Vec<String>,
-    landed: Arc<Mutex<Vec<BranchResult>>>,
-}
-
-impl Branches {
-    pub fn get(&self, dir: &str) -> Option<&str> {
-        match self.by_dir.get(dir) {
-            Some(Branch::Ok(b)) => b.as_deref(),
-            _ => None,
-        }
-    }
-
-    /// Merely showing a row must not boot its server location: booting advances project recency.
-    fn observe(&mut self, dirs: impl IntoIterator<Item = String>) {
-        for dir in dirs { if !dir.is_empty() { self.by_dir.entry(dir).or_insert(Branch::Observed); } }
-    }
-
-    /// A deliberate operation (choosing a draft folder or entering its picker) needs its branch.
-    pub(crate) fn enqueue(&mut self, dirs: impl IntoIterator<Item = String>) {
-        for dir in dirs {
-            if dir.is_empty() || !matches!(self.by_dir.get(&dir), None | Some(Branch::Observed | Branch::Failed)) {
-                continue;
-            }
-            self.by_dir.insert(dir.clone(), Branch::Queued { failures: 0 });
-            self.queue.push(dir);
-        }
-    }
-
-    /// A folder's branch changed on the server.
-    pub fn updated(&mut self, dir: &str, branch: Option<String>) {
-        if self.by_dir.contains_key(dir) {
-            self.by_dir.insert(dir.to_owned(), Branch::Ok(branch));
-        }
-    }
-
-    /// A reconnect isn't a visit. Do not re-open locations for failed decoration reads.
-    pub fn reconnected(&mut self) {
-        for b in self.by_dir.values_mut() {
-            if *b == Branch::Failed {
-                *b = Branch::Observed;
-            }
-        }
-    }
-
-    fn loading(&self) -> usize {
-        self.by_dir.values().filter(|b| matches!(b, Branch::Loading { .. })).count()
-    }
-
-    /// Takes in finished loads, starts due retries and fills the free slots. True on a change.
-    fn poll(&mut self, s: &Source, waker: Option<&rune::Waker>, now: f64, tx: &mut Tx) -> bool {
-        let landed = std::mem::take(&mut *self.landed.lock().unwrap_or_else(|e| e.into_inner()));
-        let mut changed = !landed.is_empty();
-        for (dir, result) in landed {
-            let Some(Branch::Loading { failures }) = self.by_dir.get(&dir).cloned() else { continue };
-            let next = match result {
-                Ok(branch) => Branch::Ok(branch),
-                Err(()) if failures >= BRANCH_RETRY_LIMIT => Branch::Failed,
-                Err(()) => {
-                    let delay = (BRANCH_RETRY_DELAY * f64::from(1u32 << failures)).min(BRANCH_RETRY_MAX_DELAY);
-                    Branch::Retrying { failures: failures + 1, due: now + delay }
-                }
-            };
-            self.by_dir.insert(dir, next);
-        }
-        let mut next_due = None::<f64>;
-        for (dir, b) in &mut self.by_dir {
-            if let Branch::Retrying { failures, due } = *b {
-                if due <= now + 1e-9 {
-                    *b = Branch::Queued { failures };
-                    self.queue.push(dir.clone());
-                } else {
-                    next_due = Some(next_due.map_or(due, |d| d.min(due)));
-                }
-            }
-        }
-        if let Some(due) = next_due {
-            tx.wake_after(Duration::from_secs_f64((due - now).max(0.0)));
-        }
-        let Source::Live { server, .. } = s else {
-            // A fixture has no git: its rows show none.
-            for dir in self.queue.drain(..) {
-                self.by_dir.insert(dir, Branch::Ok(None));
-                changed = true;
-            }
-            return changed;
-        };
-        while self.loading() < BRANCH_BATCH && !self.queue.is_empty() {
-            let dir = self.queue.remove(0);
-            let Some(Branch::Queued { failures }) = self.by_dir.get(&dir).cloned() else { continue };
-            self.by_dir.insert(dir.clone(), Branch::Loading { failures });
-            let (server, landed, wake) = (server.clone(), Arc::clone(&self.landed), waker.cloned());
-            let spawned = rune::task::spawn("inbox-branch", move || {
-                let path = format!("/api/vcs?location%5Bdirectory%5D={}", crate::switcher::encode(&dir));
-                // A folder the server hasn't loaded yet (a worktree just picked, say) answers before
-                // its VCS provider has, with neither provider nor branch: that read is retried, as
-                // Desktop reads the folder again once `vcs.branch.updated` says it loaded.
-                let result = server.get(&path).map_err(|_| ()).and_then(|v| {
-                    let data = v.get("data").unwrap_or(&v);
-                    let branch = data["branch"]["current"].as_str().map(str::to_owned);
-                    if branch.is_none() && data["provider"].is_null() { Err(()) } else { Ok(branch) }
-                });
-                landed.lock().unwrap_or_else(|e| e.into_inner()).push((dir, result));
-                if let Some(w) = wake {
-                    w();
-                }
-            });
-            if spawned.is_err() {
-                break;
-            }
-        }
-        changed
-    }
-}
+pub use super::branches::Branches;
+use super::branches::{BRANCH_RETRY_DELAY, BRANCH_RETRY_LIMIT, BRANCH_RETRY_MAX_DELAY};
 
 impl SidebarInbox {
     /// What of the other servers' rows a row's place depends on (`inbox_order`).
@@ -600,7 +464,7 @@ impl SidebarInbox {
 pub fn settle_now(s: &mut App, tx: &mut Tx) -> bool {
     if s.sidebar_inbox.settled() { return false; }
     let live = s.live();
-    let working: Vec<String> = s.sessions.iter().filter(|i| i.parent.is_none() && s.has_live_family(&i.id)).map(|i| i.id.clone()).collect();
+    let working = s.inbox_request_ids();
     s.sidebar_inbox.settle(live, &working, *s.now_ms, tx)
 }
 
@@ -609,15 +473,15 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if s.sidebar_inbox.asked.keys().any(|id| !s.requests.iter().any(|(_, r)| r == id)) {
         s.sidebar_inbox.asked.retain(|id, _| s.requests.iter().any(|(_, r)| r == id));
     }
-    // The new-session page names its folder's branch the same way (`NewSessionBranch`).
-    let draft = matches!(*s.route, crate::Route::Draft(_)).then(|| s.draft_dir().to_owned());
+    // The new-session page names its folder's branch (`NewSessionBranch`); an explicit draft on
+    // screen always loads its branch, while passive Home/Inbox rows stay on `observe`.
+    let draft_dir = matches!(*s.route, crate::Route::Draft(_)).then(|| s.draft_dir().to_owned());
     // So does a Home row under the pointer, as Desktop syncs a row's location on hover.
     let hs = s.kernel.slots.get(&crate::home_search::HOME_SEARCH);
     let hovered = (s.route == crate::Route::Home)
         .then(|| hs.hovered.as_deref().and_then(|id| s.session(id).or_else(|| hs.loaded.iter().find(|x| x.id == id))))
         .flatten()
         .map(|i| i.directory.clone());
-    let draft: Option<String> = draft.or(hovered);
     // Alt held on Home shows every row's location, so their branches load (`alt-hold.ts`).
     let revealed: Vec<String> = if s.route == crate::Route::Home && hs.alt_held {
         s.home_sessions(None).iter().map(|i| i.directory.clone()).collect()
@@ -625,10 +489,11 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         Vec::new()
     };
     if s.tab_layout() != TabLayout::Inbox {
-        if draft.is_none() && revealed.is_empty() {
+        if draft_dir.is_none() && hovered.is_none() && revealed.is_empty() {
             return false;
         }
-        s.sidebar_inbox.branches.observe(draft.into_iter().chain(revealed));
+        s.sidebar_inbox.branches.enqueue_draft(draft_dir);
+        s.sidebar_inbox.branches.observe(hovered.into_iter().chain(revealed));
         let waker = (*s.waker).clone();
         return s.sidebar_inbox.branches.poll(&s.source, waker.as_ref(), now, tx);
     }
@@ -662,7 +527,8 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     tx.wake_after(Duration::from_millis((step - s.now_ms.rem_euclid(step)).max(1) as u64));
-    s.sidebar_inbox.branches.observe(dirs.into_iter().chain(draft).chain(revealed));
+    s.sidebar_inbox.branches.enqueue_draft(draft_dir);
+    s.sidebar_inbox.branches.observe(dirs.into_iter().chain(hovered).chain(revealed));
     let waker = (*s.waker).clone();
     changed |= s.sidebar_inbox.branches.poll(&s.source, waker.as_ref(), now, tx);
     changed

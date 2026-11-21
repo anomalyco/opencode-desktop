@@ -106,6 +106,9 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         mlua::IntoLua::into_lua(map([("ok", Data::Bool(false))]), lua)
     })?;
     method(lua, t, "ExtSync", |_, _: mlua::MultiValue| Ok(()))?;
+    method(lua, t, "ExtActions", |lua, _: mlua::MultiValue| lua.create_table())?;
+    method(lua, t, "ExtClick", |_, _: mlua::MultiValue| Ok(()))?;
+    method(lua, t, "ExtClosePopup", |_, ()| Ok(()))?;
     for (method_name, async_key) in [
         ("ExtStageStoreAsync", "Browser.ExtStageStoreAsync"),
         ("ExtStageBrowserAsync", "Browser.ExtStageBrowserAsync"),
@@ -125,7 +128,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         .set_name("=Browser:OpenAsync")
         .call(raw)?;
     t.raw_set("OpenAsync", open)?;
-    lazy_signals(lua, vmx, t, "Browser", &["Changed", "Picked"])
+    lazy_signals(lua, vmx, t, "Browser", &["Changed", "Picked", "SiteBack", "AddressSelection"])
 }
 
 pub fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {

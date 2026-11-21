@@ -264,15 +264,25 @@ impl App {
     }
 
     /// Desktop's `quote.send` (`composer/machine.ts` `quote`, `submit.ts:144-166`): a prompt of
-    /// quote `key` alone, with its comment, in the delivery Return doesn't use; the draft and the
-    /// composer's other quotes and files stay, and so does this quote, which leaves only once
-    /// the send went (`quote::editor`). The id it went out under, `None` when nothing went, or
-    /// `Some(None)` when it went with no id to wait on (a fixture's).
+    /// quote `key` alone, with its comment, in the delivery Return doesn't use.
     pub(crate) fn send_quote(&mut self, key: u64, tx: &mut Tx) -> Option<Option<String>> {
+        self.send_comment(key, true, tx)
+    }
+
+    /// Desktop's `comment.send` (`submit.ts:383-409`, `UP-137` `#65264`): sends one attached
+    /// quote, browser note, or file/review line comment as its own prompt without disturbing the
+    /// composer draft, other attachments, or other file/review line comments. Uses
+    /// `SubmitMode::Alternate` when `alternate` is true (timeline/terminal quotes) and
+    /// `SubmitMode::Default` when false (browser, file, review comments — Enter's delivery).
+    pub(crate) fn send_comment(&mut self, key: u64, alternate: bool, tx: &mut Tx) -> Option<Option<String>> {
         let quote = self.kernel.slots.get(&crate::quote::QUOTE).items.iter().find(|q| q.key == key)?.clone();
         let before = self.newest_send(None);
-        // What the composer holds steps aside while the quote goes on its own.
+        // What the composer holds steps aside while the comment goes on its own.
         let composer = std::mem::replace(&mut *self.composer, TextEdit::new(""));
+        let saved_lc = self.active_session_id().map(str::to_owned).and_then(|sid| {
+            let list = self.kernel.slots.get(&crate::line_comments::LINE_COMMENTS).sessions.get(&sid)?.list.clone();
+            Some((sid, list))
+        });
         let q = self.kernel.slots.get_mut(&crate::quote::QUOTE);
         let others: Vec<_> = q.items.iter().filter(|q| q.key != key).cloned().collect();
         q.items = vec![quote.clone()];
@@ -280,7 +290,13 @@ impl App {
         let files = std::mem::take(&mut self.composer_ext.attach.files);
         let paths = std::mem::take(&mut self.composer_ext.attach.paths);
         let context = std::mem::take(&mut self.composer_ext.attach.context);
-        self.send_prompt(SubmitMode::Alternate, tx);
+        let mode = if alternate { SubmitMode::Alternate } else { SubmitMode::Default };
+        self.send_prompt(mode, tx);
+        if let Some((sid, list)) = saved_lc
+            && let Some(session) = self.kernel.slots.get_mut(&crate::line_comments::LINE_COMMENTS).sessions.get_mut(&sid)
+        {
+            session.list = list;
+        }
         let q = self.kernel.slots.get_mut(&crate::quote::QUOTE);
         let went = q.items.is_empty();
         q.comment = comment;

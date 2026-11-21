@@ -194,10 +194,18 @@ return plugin.defineWindow(function(ctx)
         end
     end
 
+    local lastEditorField = ""
+
     local function setEditorText(text: string)
+        lastEditorField = text
         syncingEditor = true
         editor:SetText(text)
         syncingEditor = false
+    end
+
+    local function editing(): BrowserTab?
+        local e = state.edit
+        return if e.status == "editing" then Browser:Get(e.tab) else nil
     end
 
     local dispatch: (event: address.Event) -> ()
@@ -207,6 +215,16 @@ return plugin.defineWindow(function(ctx)
         for _, effect in effects do
             if effect.type == "select" then
                 editor:SelectAll()
+            elseif effect.type == "select-completion" then
+                local tab = editing()
+                if tab and type(bAny.SetAddressSelection) == "function" then
+                    local bar = address.view(state, tab.Id, epoch(tab), visits())
+                    if bar.completion ~= "" then
+                        syncingEditor = true
+                        bAny:SetAddressSelection(#bar.field, #bar.field - #bar.completion)
+                        syncingEditor = false
+                    end
+                end
             elseif effect.type == "blur" then
                 editor:Blur()
             elseif effect.type == "prepare" then
@@ -249,6 +267,15 @@ return plugin.defineWindow(function(ctx)
     dispatch = function(event: address.Event)
         local nextState, effects = address.step(state, event)
         state = nextState
+        local tab = editing()
+        if tab then
+            local bar = address.view(state, tab.Id, epoch(tab), visits())
+            if editor:Text() ~= bar.field then
+                setEditorText(bar.field)
+            else
+                lastEditorField = bar.field
+            end
+        end
         run(effects)
         refresh()
     end
@@ -264,11 +291,6 @@ return plugin.defineWindow(function(ctx)
         editor:Focus()
         run(effects)
         refresh()
-    end
-
-    local function editing(): BrowserTab?
-        local e = state.edit
-        return if e.status == "editing" then Browser:Get(e.tab) else nil
     end
 
     local editorFocused = false
@@ -287,11 +309,47 @@ return plugin.defineWindow(function(ctx)
             return
         end
         local e = state.edit
-        if e.status ~= "editing" or e.text == value then
+        if e.status ~= "editing" or value == lastEditorField then
             return
         end
-        dispatch({ type = "input", value = value, deleting = #value < #e.text, visits = visits() })
+        local bAny = Browser :: any
+        local sel = if type(bAny.AddressSelection) == "function" then bAny:AddressSelection() else nil
+        local atEnd = sel == nil or (not sel.composing and sel.start == sel.len and sel["end"] == sel.len)
+        local prevTyped = if e.typed then e.text else ""
+        local deletedCompletion = lastEditorField ~= e.text and value == e.text
+        local deleting = deletedCompletion or #value < #prevTyped or not atEnd
+        lastEditorField = value
+        dispatch({ type = "input", value = value, deleting = deleting, visits = visits() })
     end)
+    local bSelSig = Browser :: any
+    if bSelSig.AddressSelection ~= nil then
+        bSelSig.AddressSelection:Connect(function(sel: any)
+            if syncingEditor or type(sel) ~= "table" or sel.focused ~= true then
+                return
+            end
+            local tab = editing()
+            if not tab then
+                return
+            end
+            local bar = address.view(state, tab.Id, epoch(tab), visits())
+            if not bar.completing then
+                return
+            end
+            local value = editor:Text()
+            if value ~= bar.field or sel.len ~= #value then
+                return
+            end
+            if sel.start == #bar.field - #bar.completion and sel["end"] == sel.len then
+                return
+            end
+            dispatch({
+                type = "input",
+                value = value,
+                deleting = not (sel.start == sel.len and sel["end"] == sel.len),
+                visits = visits(),
+            })
+        end)
+    end
     editor.Submitted:Connect(function()
         local tab = editing()
         if tab then
@@ -381,10 +439,19 @@ return plugin.defineWindow(function(ctx)
         end
     end)
     findEditor.KeyPressed:Connect(function(key: string)
-        if key == "Escape" and activeFindTab ~= nil then
-            local tab = Browser:Get(activeFindTab)
-            if tab then
-                closeFind(tab)
+        if activeFindTab == nil then
+            return
+        end
+        local tab = Browser:Get(activeFindTab)
+        if tab == nil then
+            return
+        end
+        if key == "Escape" then
+            closeFind(tab)
+        elseif key == "Shift+Enter" then
+            local cur = getFind(activeFindTab)
+            if cur.query ~= "" then
+                runFind(tab, cur.query, false, true)
             end
         end
     end)
@@ -475,11 +542,19 @@ return plugin.defineWindow(function(ctx)
                 ensureAdopted()
                 if sameUrl then
                     if type(bAny.HistoryRetitle) == "function" then
-                        bAny:HistoryRetitle(url, title)
+                        bAny:HistoryRetitle(url, title, id)
                     end
                 else
-                    local wasTyped = typedNavs[id] ~= nil
+                    local typedTarget = typedNavs[id]
                     typedNavs[id] = nil
+                    -- Only credit double-frecency `typed` when the settled host matches what the
+                    -- user typed (stripping `www.`), so redirects cannot steal typed frecency.
+                    local wasTyped = false
+                    if typedTarget ~= nil then
+                        local wantHost = string.gsub(string.lower(hostDisplay.displayHost(typedTarget)), "^www%.", "")
+                        local gotHost = string.gsub(string.lower(hostDisplay.displayHost(url)), "^www%.", "")
+                        wasTyped = wantHost ~= "" and wantHost == gotHost
+                    end
                     if type(bAny.HistoryVisit) == "function" then
                         bAny:HistoryVisit(url, title, wasTyped, id)
                     end
@@ -531,10 +606,7 @@ return plugin.defineWindow(function(ctx)
         refresh()
     end)
 
-    -- A picked element goes into the composer as a pill naming its `@eN` ref and selector.
-    Browser.Picked:Connect(function(pick: BrowserPick)
-        Composer:InsertPill(`browser:{pick.ref}`, `{pick.ref} ({pick.selector})`)
-    end)
+    -- Picked elements open the native spotlight + comment editor (`surfaces/browser/comment.rs`).
 
     -- A loopback address opens on the machine that runs the server; the system browser here
     -- reaches it only when the server runs here too (authoritative Rust policy via CanOpenExternally).
@@ -579,10 +651,25 @@ return plugin.defineWindow(function(ctx)
     -- Site information: the page it describes, and its two-view cookie/cache state machine.
     local siteState: site.State = site.initial
     local sitePage: { tab: string, url: string }? = nil
+    local serverConnected = true
+    if Server.Connected ~= nil then
+        Server.Connected:Connect(function(up: boolean)
+            serverConnected = up
+            refresh()
+        end)
+    end
+
+    local function syncSiteDetailed(detailed: boolean)
+        local bAny = Browser :: any
+        if type(bAny.SetSiteDetailed) == "function" then
+            bAny:SetSiteDetailed(detailed)
+        end
+    end
 
     local function siteDispatch(event: site.Event)
         local nextState, effects = site.step(siteState, event)
         siteState = nextState
+        syncSiteDetailed(siteState.detailed)
         for _, effect in effects do
             local described = sitePage
             if effect.type == "notify-clear-failed" then
@@ -659,6 +746,15 @@ return plugin.defineWindow(function(ctx)
         end,
     }
 
+    local bSig = Browser :: any
+    if bSig.SiteBack ~= nil then
+        bSig.SiteBack:Connect(function()
+            if siteState.detailed then
+                siteDispatch({ type = "details", shown = false })
+            end
+        end)
+    end
+
     ctx:AddPopover({
         id = "site",
         title = I18n:T("site.info"),
@@ -691,11 +787,16 @@ return plugin.defineWindow(function(ctx)
             tab:SetZoom(arg :: any)
         elseif what == "page" then
             Popover:Close()
-            local url = pageUrl(tab)
-            local shownHost = hostDisplay.displayHost(url)
-            local title = tab:Title()
-            local labelText = if title ~= "" then title elseif shownHost ~= "" then shownHost else url
-            Composer:InsertPill(`browser:{url}`, `{labelText} ({url})`)
+            local tAny = tab :: any
+            if type(tAny.OpenNote) == "function" then
+                tAny:OpenNote()
+            else
+                local url = pageUrl(tab)
+                local shownHost = hostDisplay.displayHost(url)
+                local title = tab:Title()
+                local labelText = if title ~= "" then title elseif shownHost ~= "" then shownHost else url
+                Composer:InsertPill(`browser:{url}`, `{labelText} ({url})`)
+            end
         elseif what == "link.copy" then
             Popover:Close()
             local url = pageUrl(tab)
@@ -804,6 +905,7 @@ return plugin.defineWindow(function(ctx)
                 canFind = canFind,
                 canHardReload = true,
                 canClearHistory = #visits() > 0,
+                paneWidth = if type(arg) == "number" then arg else nil,
             }
             Popover:Toggle({
                 id = "options",
@@ -812,6 +914,15 @@ return plugin.defineWindow(function(ctx)
                 align = "end",
                 gap = 4,
                 data = menuData :: any,
+            })
+        elseif what == "extensions" then
+            Popover:Toggle({
+                id = "extensions",
+                anchorKey = "browser-extensions",
+                side = "bottom",
+                align = "end",
+                gap = 4,
+                data = { tabId = tab.Id } :: any,
             })
         elseif what == "site" then
             local url = pageUrl(tab)
@@ -851,6 +962,52 @@ return plugin.defineWindow(function(ctx)
         end,
     })
 
+    local function enabledExtActions(): { extensions.ToolbarAction }
+        if not Server:IsLocal() then
+            return {}
+        end
+        local bAny = Browser :: any
+        if type(bAny.ExtActions) ~= "function" then
+            return {}
+        end
+        local raw = extensionsStore:Get()
+        local stored = if type(raw) == "table" then raw else {}
+        local ok, res = pcall(function()
+            return bAny:ExtActions(stored)
+        end)
+        if ok and type(res) == "table" then
+            return res :: any
+        end
+        return {}
+    end
+
+    ctx:AddPopover({
+        id = "extensions",
+        title = I18n:T("settings.extensions.title"),
+        render = function(view, props)
+            local tabId = if type(props.data) == "table" then (props.data :: any).tabId else nil
+            return extensions.renderToolbarMenu(
+                enabledExtActions(),
+                I18n,
+                view,
+                function(item)
+                    Popover:Close("extensions")
+                    local bAny = Browser :: any
+                    if type(bAny.ExtClick) == "function" then
+                        local optUrl = if item.options and item.options ~= "" and (item.popup == nil or item.popup == "")
+                            then (if string.sub(item.options, 1, 19) == "chrome-extension://" then item.options else `chrome-extension://{item.id}/{item.options}`)
+                            else nil
+                        bAny:ExtClick(item.id, tabId, optUrl)
+                    end
+                end,
+                function()
+                    Popover:Close("extensions")
+                    act("settings", if tabId then Browser:Get(tabId) else nil)
+                end
+            )
+        end,
+    })
+
     local env: panel.Env = {
         device = if device then device.render else nil,
         deviceOpen = if device then device.isOpen else nil,
@@ -872,6 +1029,15 @@ return plugin.defineWindow(function(ctx)
         end,
         optionsOpen = function()
             return Popover:IsOpen("options")
+        end,
+        hasExtensions = function()
+            return #enabledExtActions() > 0
+        end,
+        extMenuOpen = function()
+            return Popover:IsOpen("extensions")
+        end,
+        serverConnected = function()
+            return serverConnected
         end,
         refusalNotice = function(tab: BrowserTab)
             return refusalNotices[tab.Id]
@@ -988,7 +1154,6 @@ return plugin.defineWindow(function(ctx)
                     maxW = 160,
                 }),
             }
-            local tAny = tab :: any
             local asking = type(tAny.Asking) == "function" and tAny:Asking() == true
             local unseen = not asking
                 and (unseenTabs[id] == true or (type(tAny.Unseen) == "function" and tAny:Unseen() == true))
@@ -1142,14 +1307,14 @@ return plugin.defineWindow(function(ctx)
         openFind(tab)
         return true
     end)
-    scoped("find.next", "mod+g", false, I18n:T("find.next"), function(tab)
+    scoped("find.next", if App.Platform == "macos" then "mod+g" else "mod+g,f3", false, I18n:T("find.next"), function(tab)
         if pageUrl(tab) == "" or tab:LoadError() ~= nil then
             return false
         end
         act("find.next", tab)
         return true
     end)
-    scoped("find.previous", "mod+shift+g", false, I18n:T("find.previous"), function(tab)
+    scoped("find.previous", if App.Platform == "macos" then "mod+shift+g" else "mod+shift+g,shift+f3", false, I18n:T("find.previous"), function(tab)
         if pageUrl(tab) == "" or tab:LoadError() ~= nil then
             return false
         end
@@ -1705,7 +1870,9 @@ return plugin.defineWindow(function(ctx)
             end
             return settings.renderImportDialog(I18n, view, target.label, importFailure, function()
                 local bAny = Browser :: any
-                local res = if type(bAny.HistoryImportProfile) == "function"
+                local res = if type(bAny.HistoryImportProfileAsync) == "function"
+                    then bAny:HistoryImportProfileAsync(target.browser, target.profile)
+                    elseif type(bAny.HistoryImportProfile) == "function"
                     then bAny:HistoryImportProfile(target.browser, target.profile)
                     else nil
                 local imported = if type(res) == "table" and type(res.imported) == "number" then res.imported else nil
@@ -1780,6 +1947,9 @@ return plugin.defineWindow(function(ctx)
                     image = Images:FromRgba(data, width, height)
                 elseif ok and kind == "png" then
                     image = Images:FromEncoded(data)
+                elseif not ok or kind == nil then
+                    -- Still being read off the UI thread: the page draws again when it is.
+                    return nil
                 end
             end
             importIcons[browserId] = if image ~= nil then image else false

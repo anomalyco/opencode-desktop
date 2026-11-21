@@ -251,6 +251,45 @@ pub fn nested(p: &Pal, gap: f32, content: El) -> El {
     col().key("nested").w_full().pt(gap).pl(14.0).child(rail).child(content)
 }
 
+/// Interactive nested rail strip (`nested-rail.ts`, `timeline-next.css:130-146`): 14 pt hit strip
+/// holding a 1 pt rail 2 pt in that rests at half `p.border`, brightens to full `p.border` on
+/// hover, and runs `collapse` on click without entering Tab order.
+pub fn nested_rail<S: 'static>(
+    p: &Pal,
+    top: f32,
+    bottom: f32,
+    collapse: impl Fn(&mut S, &mut rune::Tx) + 'static,
+) -> El {
+    let line = el()
+        .key("rail-line")
+        .pin(Some(2.0), Some(0.0), None, Some(0.0))
+        .w(1.0)
+        .fill(p.border)
+        .group_opacity(0.5, 1.0);
+    el().key("rail")
+        .pin(Some(0.0), Some(top), None, Some(bottom))
+        .w(14.0)
+        .cursor(rune::Cursor::Pointer)
+        .hover_group()
+        .hover_motion(INSTANT, INSTANT)
+        .focusable(false)
+        .on_press_tx(collapse)
+        .child(line)
+}
+
+/// Like [`nested`], with an interactive rail strip that brightens on hover and collapses the
+/// open row on click (`nested-rail.ts`, `timeline-next.css:130-146`).
+pub fn nested_collapsible<S: 'static>(
+    p: &Pal,
+    gap: f32,
+    content: El,
+    collapse: impl Fn(&mut S, &mut rune::Tx) + 'static,
+) -> El {
+    let ink = if gap < NESTED_GAP { 6.0 } else { 2.0 };
+    let rail = nested_rail(p, gap + ink, ink, collapse);
+    col().key("nested").w_full().pt(gap).pl(14.0).child(rail).child(content)
+}
+
 /// Match `i` of a row in plain text, as `text_highlights` paints it.
 pub fn text_mark(p: &Pal, r: Range<usize>, i: usize, active: bool) -> TextHighlight {
     if active {
@@ -297,7 +336,7 @@ pub fn markdown_style(p: &Pal, color: Color, width: f32) -> MarkdownStyle {
         .inline_code_pad(4.0)
         .code_block(p.code_bg, p.border)
         // Kit's default code margins are Desktop's: 12 over a block, 24 under it, so two blocks in a
-        // row stand 24 apart (`markdown.css:420-422`, `pre { margin: 12px 0 24px }`).
+        // row stand 24 apart (`markdown.css:486-488`, `pre { margin: 12px 0 24px }`).
         // Code no token colours: Pierre's `editor.foreground`, the v1 `text-base`.
         .code_block_text(p.syntax.parameter)
         // A fence no highlighter colours takes `.highlights`' muted text (`markdown.css:276`).

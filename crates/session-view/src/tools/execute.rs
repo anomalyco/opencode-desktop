@@ -10,6 +10,7 @@ use super::console::{capped, console};
 use super::plain::{linked, one_line, strip_ansi};
 use super::{Call, Ctx, Display, Press, Trigger, body, disclosure, field, output, sub_key, trigger};
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::{INSTANT, TOOL_CODE, readable};
 
@@ -125,7 +126,15 @@ fn call_row<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, id: &str, n: usize, call: 
         line = line.child(chevron(p, open));
     }
     if opens {
-        line = line.role("button").hover_group().hover_motion(INSTANT, INSTANT).on_press_tx(crate::disclosure::toggle::<S>(k, format!("tool-{id}")));
+        line = line
+            .role("button")
+            .expanded(open)
+            .radius(4.0)
+            .cursor(rune::Cursor::Pointer)
+            .focus_default(p)
+            .hover_group()
+            .hover_motion(INSTANT, INSTANT)
+            .on_press_tx(crate::disclosure::toggle::<S>(k, format!("tool-{id}")));
     }
     let mut item = col().key(format!("call-item-{n}")).w_full().child(line);
     if !open {
@@ -165,6 +174,10 @@ fn output_row<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, out: &st
         .gap(6.0)
         .center_y()
         .role("button")
+        .expanded(open)
+        .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .hover_group()
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(crate::disclosure::toggle::<S>(k, format!("tool-{id}")))
@@ -186,6 +199,8 @@ fn view_code_button<S: TimelineHost>(p: &Pal, session: &str, id: &str) -> El {
         .size(24.0, 24.0)
         .center()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)

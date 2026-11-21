@@ -61,9 +61,26 @@ pub fn model_trigger<S: PickerHost>(s: &S, p: &Pal, provider: Option<&str>, mode
 /// list on a press.
 fn wrap<S: PickerHost>(s: &S, p: &Pal, kind: Kind, button: El) -> El {
     // A new label resizes it and moves its neighbours in the choice, with no glide.
+    let open_here = s.pickers().open() == Some(kind);
     let mut button = button.label(kind.choose_label()).motion(Spring::NONE);
-    if s.pickers().open() == Some(kind) && kind != Kind::Model {
+    if kind != Kind::Model {
+        button = button.expanded(open_here);
+    }
+    if open_here && kind != Kind::Model {
         button = button.fill(p.pressed).hover(Color::TRANSPARENT);
+    }
+    // Official wraps toolbar pickers in `<Tooltip placement="top">` with their shortcut keycaps,
+    // inactive while the menu is open or in narrow mobile drawers (`editor.tsx:498-524,1158-1166`).
+    if !open_here && !(crate::style::narrow() && kind != Kind::Project) {
+        button = button.help(kind.choose_label()).help_above();
+        if let Some(bind) = match kind {
+            Kind::Agent => Some(opencode_ui::keymap::Bind::Agent),
+            Kind::Model => Some(opencode_ui::keymap::Bind::Model),
+            Kind::Effort => Some(opencode_ui::keymap::Bind::Variant),
+            Kind::Project => None,
+        } {
+            button = button.help_keys(bind.keycaps());
+        }
     }
     let button = button.on_press_tx(move |s: &mut S, tx: &mut Tx| open::<S>(s, kind, tx));
     // A Kobalte `Menu.Trigger` (`editor.tsx:1153`) opens on the mouse's `pointerdown`; the model's
@@ -72,21 +89,30 @@ fn wrap<S: PickerHost>(s: &S, p: &Pal, kind: Kind, button: El) -> El {
 }
 
 /// The agent's picker folded to its mark; it still opens the agent list.
-pub fn agent_icon<S: PickerHost>(_: &S, p: &Pal, name: &str) -> El {
+pub fn agent_icon<S: PickerHost>(s: &S, p: &Pal, name: &str) -> El {
+    let open_here = s.pickers().open() == Some(Kind::Agent);
     let b = el()
         .key(Kind::Agent.key())
         .role("button")
         .label_static(opencode_i18n::t!("ui.promptInput.chooseAgent"))
-        .help(format!("{} ({name})", opencode_i18n::t!("ui.promptInput.chooseAgent")))
+        .expanded(open_here)
         .size(28.0, 28.0)
         .radius(6.0)
         .center()
-        .hover(p.hover)
-        .press(p.pressed)
+        .cursor(rune::Cursor::Pointer)
         .motion(Spring::NONE)
         .focus_inset(p)
-        .child(icon(&ic::BRAIN, 16.0).color(p.icon_muted));
-    b.on_press_tx(|s: &mut S, tx: &mut Tx| open::<S>(s, Kind::Agent, tx)).press_on_down()
+        .child(icon(&ic::BRAIN, 16.0).color(if open_here { p.icon } else { p.icon_muted }))
+        .on_press_tx(|s: &mut S, tx: &mut Tx| open::<S>(s, Kind::Agent, tx))
+        .press_on_down();
+    if open_here {
+        b.fill(p.pressed)
+    } else {
+        b.help(format!("{} ({name})", opencode_i18n::t!("ui.promptInput.chooseAgent")))
+            .help_above()
+            .hover(p.hover)
+            .press(p.pressed)
+    }
 }
 
 fn open<S: PickerHost>(s: &mut S, kind: Kind, tx: &mut Tx) {
@@ -128,15 +154,15 @@ pub fn triggers<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
 }
 
 /// The effort's button. "Default", the absence of a choice, shows only while the pointer is
-/// over the composer, the keyboard is on it or its list is open (`editor.css:75-80`); it keeps
-/// its room meanwhile.
+/// over the composer, keyboard focus is on the effort button itself, or its list is open
+/// (`editor.css:87`); it keeps its room meanwhile without leaking on prompt keyboard focus.
 pub fn effort_trigger<S: PickerHost>(s: &S, p: &Pal, variant: &str, chevron: bool) -> El {
     let default = variant.is_empty() || variant == "default";
     let label = if default { opencode_i18n::t!("common.default").to_owned() } else { capitalize(variant) };
     let button = trigger(s, p, Kind::Effort, &label, p.muted, chevron);
-    // Rune shows it at its hovered opacity while the keyboard is on it (`:focus-visible`).
-    let shown = crate::style::hover_none() || !default || s.pickers().open() == Some(Kind::Effort);
-    if shown { button } else { button.group_opacity(0.0, 1.0) }
+    let shown = crate::style::hover_none() || !default || s.pickers().open() == Some(Kind::Effort) || s.pickers().composer_hovered;
+    let button = if shown { button } else { button.group_opacity(0.0, 1.0) };
+    el().key("effort-slot").hover_group().hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT).child(button)
 }
 
 /// The open menu (agent, effort or project), above its trigger.

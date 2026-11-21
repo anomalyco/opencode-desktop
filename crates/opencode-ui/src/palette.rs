@@ -405,10 +405,11 @@ fn build(theme: usize, dark: bool, raised: bool) -> Pal {
             (false, true) => Color::WHITE.alpha(0.422),
             (false, false) => hex("#8f8f8f"),
         },
+        // Resolved `oc-2` `--icon-warning-base` (`amber[isDark ? 8 : 6]`, `theme/resolve.ts:17,327`).
         v1_icon_warning: match (themed, dark) {
             (true, _) => c("state-fg-warning"),
-            (false, true) => hex("#fbb73c"),
-            (false, false) => hex("#ebb76e"),
+            (false, true) => hex("#c78b05"),
+            (false, false) => hex("#f9b13f"),
         },
         v1_icon_strong: match (themed, dark) {
             (true, _) => text,

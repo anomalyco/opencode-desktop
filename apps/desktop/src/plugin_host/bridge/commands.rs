@@ -403,7 +403,16 @@ pub fn mcp_call(app: &mut App, call: McpCall, session: &str, directory: &str, tx
 
 /// App menu items Luau app halves add, as `(key, menu, label, order, enabled)`.
 pub fn menubar_items() -> Vec<(&'static str, String, String, i64, bool)> {
-    let rows = |c: &plugin::Contribs| c.menubar_items.iter().map(|c| (c.key, c.spec.menu.as_str().to_owned(), c.spec.label.clone(), c.spec.order.unwrap_or(0), c.spec.enabled.unwrap_or(true))).collect::<Vec<_>>();
+    let updater_on = crate::updater::shared_enabled();
+    let rows = |c: &plugin::Contribs| {
+        c.menubar_items
+            .iter()
+            .map(|c| {
+                let enabled = if c.key == "updater.check" { updater_on } else { c.spec.enabled.unwrap_or(true) };
+                (c.key, c.spec.menu.as_str().to_owned(), c.spec.label.clone(), c.spec.order.unwrap_or(0), enabled)
+            })
+            .collect::<Vec<_>>()
+    };
     let running = app_half::each(|a| Some(rows(&a.half.contribs.borrow()))).into_iter().flatten();
     running.chain(dormant::each_app_half(|_, c| Some(rows(c))).into_iter().flatten()).collect()
 }

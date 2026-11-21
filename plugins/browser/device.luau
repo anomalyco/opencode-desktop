@@ -298,7 +298,7 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
                     selectPreset(tabId, p.id)
                 end, 30, 5))
             end
-            table.insert(items, ui.col({ w = "full", h = 1, my = 4, fill = "border-muted" }))
+            table.insert(items, ui.col({ w = "full", h = 1, my = 4, fill = "border-weak" }))
             table.insert(items, ui.flyoutRow({
                 key = "vp-more-devices",
                 text = t("moreDevices"),
@@ -314,7 +314,7 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
                 key = "browser-viewport-preset-menu",
                 role = "list",
                 label = t("preset"),
-                w = 224,
+                w = math.min(224, math.max(160, (tonumber(data.paneW) or 400) - 16)),
                 pad = 4,
                 radius = 10,
                 fill = "bg-base",
@@ -365,7 +365,7 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
                 checkRow(view, "vp-scale-fit", t("fit"), currentScale == nil, function()
                     selectScale(tabId, nil, autoW, autoH)
                 end),
-                ui.col({ w = "full", h = 1, my = 4, fill = "border-muted" }),
+                ui.col({ w = "full", h = 1, my = 4, fill = "border-weak" }),
             }
             for _, factor in SCALES do
                 local pct = i18n:T("zoom.percent", { percent = math.floor(factor * 100 + 0.5) })
@@ -454,7 +454,7 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
                     side = "bottom",
                     align = "start",
                     gap = 4,
-                    data = { tabId = tab.Id, selected = selected },
+                    data = { tabId = tab.Id, selected = selected, paneW = props.width },
                 })
             end) else nil,
         }, {
@@ -538,7 +538,7 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
                 })
             return ui.row({
                 key = key,
-                role = "textbox",
+                role = if editing then nil else "button",
                 label = ariaLabel,
                 dir = "ltr",
                 w = 50,

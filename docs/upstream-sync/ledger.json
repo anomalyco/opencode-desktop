@@ -2,29 +2,29 @@
   "generated_at": "2026-11-21",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "b9a60d9d078d87bfb90f039e431090508f88ac02",
+  "upstream_head": "32ae0197715f822fb1247504f81e3eefc7d3c8fb",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "6e98fc2b726ec52bb0f79f78c8d02d506a8ef66d",
-  "post_1114_commit_count": 377,
-  "post_1114_in_ledger": 143,
-  "post_1114_skipped": 234,
+  "rune_desktop_head": "835bbd74464567069bd389762aa382e91e491915",
+  "post_1114_commit_count": 412,
+  "post_1114_in_ledger": 157,
+  "post_1114_skipped": 255,
   "post_1114_skipped_breakdown": {
-    "test-only": 17,
+    "test-only": 21,
     "ci-bench-deps": 15,
     "docs-site-data": 37,
     "tui-only": 11,
-    "cli-acp-only": 4,
-    "server-core-ai-codemode-internal": 150
+    "cli-acp-only": 8,
+    "server-core-ai-codemode-internal": 163
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 164,
+  "total_ledger_rows": 178,
   "status_counts": {
-    "have it": 132,
+    "have it": 148,
     "not applicable": 23,
-    "missing": 5,
     "differs on purpose": 1,
-    "partly": 3
+    "partly": 2,
+    "missing": 4
   },
   "rows": [
     {
@@ -2282,8 +2282,8 @@
       ],
       "summary": "Drop translations left unused after retiring the Projects sidebar mode.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Assigned to BROWSER-UI agent (check behaviour vs pure strings; unified 63-locale sync remains held awaiting orchestrator go-ahead).",
+      "status": "have it",
+      "status_evidence": "Dropped unused sidebar.organize.{projects,showLess,empty} keys across all 63 official and 7 fill locale catalogs (crates/opencode-i18n/locales/{official,fill}/*.json), matching anomalyco/opencode#64728 (3dc66ab6e5).",
       "depends_on": "UP-074 (#64727)",
       "risks": "none",
       "workstream": "BROWSER-UI",
@@ -3379,14 +3379,13 @@
       ],
       "summary": "Replace local rune_mcp browser tools on modern servers with pure-Rust experimental.browser v4 RPC client, 45 typed executors, <=1 s durable PromptGate, and authenticated remote tunnel proxy.",
       "size": "XL",
-      "status": "partly",
-      "rune_pr": "#275, #287, #301, #296, #298, #302, #331, #333",
-      "status_evidence": "experimental.browser v4 client (#275 c397d0b9), session-isolated nav/read runtime (#287 a974a664), official routed-session attach (#301 6522f112), legacy rune_mcp browser suppression + Half::is_builtin + hardened check_cdp (#296 95cb36a8), RPC auth/bounds/OOPIFs/wait spin (#298 d6cf8659), remote TunnelProxy hardening/wiring (#302 8b42a094), tabs.open focus:false (#331 5aa677f7), and BrowserTab:Asking() (#333 11dca016) are merged on dev; acting/dialog/files/profiling PR 3 in flight; narrow 3P browser contract tracked in UP-095-3P-CONTRACT.",
+      "status": "have it",
+      "rune_pr": "#275, #287, #301, #296, #298, #302, #325, #331, #333, #386",
+      "status_evidence": "All 43 non-Lighthouse experimental.browser v4 typed operations complete on dev: nav/read/snapshot/screenshot (#275, #287, #298, #331), routed attach & suppression (#301, #296), remote TunnelProxy (#302), prompt gate (#325), prompt.tab data (#333), acting/dialog/confined uploads/diagnostics/profiling (#386), plus OOPIF pointer coords, HTML5 drag interception, OOPIF upload/drop, request post-data fallback, and trace/cpu auto-stop timers; profiling-with-extensions refusal and lighthouse unsupported recorded in ours.md. Narrow 3P contract tracked separately in UP-095-3P-CONTRACT.",
       "depends_on": "UP-095 (#63002), PRE-08 (#63500)",
       "risks": "Remote server attachment must fail closed until engine Ready.remote_proxy lands (WS-1 Phase 3a); older servers must keep full rune_mcp fallback.",
       "workstream": "BROWSER-TOOLS",
-      "reviewed": "#301, #296, #298, #302, #325, #331, #333 merged on dev; acting/dialog/files/profiling PR 3 in flight",
-      "open_pr_note": "Acting, dialog, confined upload/drop, network response bodies, and profiling executors (PR 3)"
+      "reviewed": "Complete through PR 4; 3P contract next in UP-095-3P-CONTRACT"
     },
     {
       "id": "UP-114",
@@ -3552,11 +3551,11 @@
       ],
       "summary": "Render detected browser profiles inline in Settings > Browser and tighten Settings > Browser copy.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "plugins/browser/settings.luau currently lists browser import via a modal/picker rather than inline profile rows with the updated #65174 copy.",
+      "status": "have it",
+      "status_evidence": "Merged on dev in rune-desktop #327 (bf798741, PREVIEWS): Settings > Browser lists detected browser profiles inline with per-row Import..., the import dialog, site permission Selects and official's copy; sign-in import, Choose sites, Share sign-ins with remote servers, Import cookie file and the cookie count follow WS-1's #286 (UP-151 depends on them). The row was left missing by a later ledger merge.",
       "depends_on": "UP-095-UI (#63002), UP-106 (#65073)",
       "risks": "Red flag: gui-plugins/browser.",
-      "workstream": "BROWSER-UI",
+      "workstream": "PREVIEWS",
       "reviewed": "pre-merge review required when opened"
     },
     {
@@ -3922,12 +3921,12 @@
       ],
       "summary": "Expose official's narrow third-party plugin browser contract (attached, canOpen, open, openFile, experimental.{open,close}); #296 refuses Browser:OpenAsync for third-party plugins on modern/remote servers until this contract exists.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Known gap from #296 (95cb36a8): third-party plugins get narrower browser access than Official until Rune exposes Official's narrow contract from packages/plugin/src/gui/browser.ts:9-57.",
+      "status": "have it",
+      "status_evidence": "Host-provided narrow 'browser' contract (attached, canOpen, open, openFile, experimental.{open,close}) exposed per-consumer via Contracts:Use('browser') in apps/desktop/src/plugin_host/services/browser_contract.rs, matching official packages/plugin/src/gui/browser.ts:1-60; window halves only, while the built-in browser runs in a wide window, routed session on the window's server only; opaque per-VM handles bound to their window, revoked on reload/unload/window close/tab close and at the person's first input or navigation or an agent's touch; opens bounded at 4/s per VM and 16 live tabs per plugin; raw CDP/ReadFileAsync/SiteCookiesAsync remain blocked for third-party plugins.",
       "depends_on": "UP-095-TOOLS (#296)",
       "risks": "Must keep third-party plugins blocked from raw CDP, ReadFileAsync, SiteCookiesAsync, and oc-preview:// minting.",
       "workstream": "BROWSER-TOOLS",
-      "reviewed": "Tracked follow-up gap from #296 (confirmed 5th read + merge check)"
+      "reviewed": "Shipped as dedicated UP-095-3P-CONTRACT PR"
     },
     {
       "id": "UP-095-PROMPT-GATE",
@@ -4149,6 +4148,334 @@
       "risks": "none",
       "workstream": "WS-2",
       "rune_pr": "#349"
+    },
+    {
+      "id": "UP-144",
+      "window": "post-1120",
+      "pr": 65303,
+      "sha": "80f41d7852",
+      "title": "fix(app): keep foreground Code Mode scripts out of the background pill",
+      "merged": "2026-11-21",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/session/requests/background.ts"
+      ],
+      "summary": "The background pill lists a running Code Mode script only once its execute call has ended with the job id: a script still running in the foreground stays out of it.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "features/subagents/src/jobs.rs scripts() lists a running Code Mode job only once a completed execute call names it by metadata.jobID, so a script still in the foreground stays out of the background pill (PR #424)",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-145",
+      "window": "post-1120",
+      "pr": 65312,
+      "sha": "b83ea51365",
+      "title": "fix(app): keep the background pill's rows in place",
+      "merged": "2026-11-20",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/session/requests/background.ts"
+      ],
+      "summary": "The background pill orders subagents, shells and jobs by when each started (then by id), so a row never moves when the session list re-sorts by last update.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "Already so: the pill's subagents (features/subagents/src/lib.rs), shells (shells/mod.rs) and scripts (jobs.rs) are each sorted by start time, then id, so a row never moves when the session list re-sorts",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-146",
+      "window": "post-1120",
+      "pr": 65308,
+      "sha": "656c273638",
+      "title": "fix: fix Windows MCP pool and review toggle CI failures (review toggle focus)",
+      "merged": "2026-11-20",
+      "packages": [
+        "app",
+        "core"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/plugin/panels.tsx",
+        "packages/app/e2e/regression/review.spec.ts"
+      ],
+      "summary": "Closing the side panel from the review toggle in its strip hands focus to the header's copy of the toggle, not to the prompt (the strip toggle counts as the session's, not the panel's).",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "features/panels/src/state/actions.rs: closing the side region from the toggle in its strip hands focus to the header's copy of the toggle, not to the prompt (PR #424)",
+      "depends_on": "UP-131 (#65213)",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-147",
+      "window": "post-1120",
+      "pr": 65313,
+      "sha": "34411562e4",
+      "title": "fix(browser): keep the pane's tabs unless the person or the agent closes them",
+      "merged": "2026-11-20",
+      "packages": [
+        "app",
+        "gui-plugins",
+        "plugin"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/model.ts",
+        "packages/gui-plugins/src/browser/pane.ts",
+        "packages/gui-plugins/src/browser/chromium.ts",
+        "packages/gui-plugins/src/browser/errors.ts",
+        "packages/gui-plugins/src/browser/navigation-deadline.ts",
+        "packages/plugin/src/gui/browser.ts"
+      ],
+      "summary": "A browser tab stays in the pane after a failed or timed-out navigation or a page crash; only the person or the agent closing it removes it.",
+      "size": "M",
+      "status": "have it",
+      "status_evidence": "apps/desktop/src/surfaces/browser/rpc/exec/nav.rs aligns LOAD_TIMEOUT to 15s and keeps tabs open past the navigation deadline when still loading with no load_error (returning official's tabID reuse message to agents; user tabs also remain open on load_error), logging 'browser tab closed: its open failed' on rollback (PR #511).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-6"
+    },
+    {
+      "id": "UP-148",
+      "window": "post-1120",
+      "pr": 65322,
+      "sha": "1bd37e7903",
+      "title": "fix(browser): keep every open tab in the strip",
+      "merged": "2026-11-20",
+      "packages": [
+        "app",
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/machine.ts",
+        "packages/gui-plugins/src/browser/model.ts",
+        "packages/gui-plugins/src/browser/pane-machine.ts"
+      ],
+      "summary": "Every open browser tab keeps its place in the side strip, including tabs restored or opened while the pane was hidden.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "apps/desktop/src/surfaces/browser/{mod,openers}.rs and plugin_host/ui/panels.rs track in-flight strip closes (closing_tabs) and reconcile missing live open browser tabs back into the active session's side strip in exact predecessor order via sync_browser_strip_tabs (PR #511).",
+      "depends_on": "UP-147 (#65313)",
+      "risks": "none",
+      "workstream": "WS-6"
+    },
+    {
+      "id": "UP-149",
+      "window": "post-1120",
+      "pr": 65328,
+      "sha": "0811b42484",
+      "title": "fix(app): keep an open session's side tabs when old sessions are forgotten",
+      "merged": "2026-11-20",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/state/layout.tsx",
+        "packages/app/src/shell/state/helpers.ts",
+        "packages/app/src/shell/routes/routes.tsx"
+      ],
+      "summary": "Pruning remembered layout for old sessions no longer drops the side panel tabs of a session that is open.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "Already so, by a different rule: rune-desktop never forgets a session's side panel state. features/restore/src/persist.rs window_keys saves every session's side state, the sessions with a tab open here as 'side' (read for the first frame) and all others as 'side.rest' (read after it); nothing prunes SideState.sessions by count. So an open session's side tabs can't be dropped when old sessions' layout is pruned, which is what #65328 fixed in Desktop's max-N prune.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-150",
+      "window": "post-1120",
+      "pr": 65317,
+      "sha": "7f513b15b7",
+      "title": "feat(desktop): show session status on Windows taskbar progress bar",
+      "merged": "2026-11-20",
+      "packages": [
+        "app",
+        "desktop"
+      ],
+      "main_files": [
+        "packages/desktop/src/main/windows/taskbar-progress.ts",
+        "packages/desktop/src/main/ipc-handlers/window.ts",
+        "packages/app/src/desktop.ts",
+        "packages/app/src/shell/layout/project-avatar-state.ts",
+        "packages/desktop/src/renderer/desktop-app.tsx"
+      ],
+      "summary": "On Windows the taskbar button shows session status: an indeterminate bar while a session works, paused or error when one waits on a request or failed.",
+      "size": "M",
+      "status": "have it",
+      "status_evidence": "apps/desktop/src/workspace/windows/taskbar.rs shows each window's tabs on its Windows taskbar button with Rune's Taskbar (ITaskbarList3), with Desktop's states and order: waiting -> paused, an unviewed failure -> error, working -> indeterminate, waiting first. Muted sessions never wait or end unread and a working one hasn't ended (PR #430), as useWindowTabActivity. Extra: a badge and a bounded flash. Scope: the window's tabs on the server it's checked out on.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-151",
+      "window": "post-1120",
+      "pr": 65339,
+      "sha": "46f56ea2d0",
+      "title": "fix(browser): copy sign-ins to a remote server's pages without stalling the app",
+      "merged": "2026-11-20",
+      "packages": [
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/profile/link.ts",
+        "packages/gui-plugins/src/browser/profile/link-machine.ts",
+        "packages/gui-plugins/src/browser/pane.ts",
+        "packages/gui-plugins/src/browser/chromium.ts"
+      ],
+      "summary": "Sharing sign-ins with a remote server's pages copies cookies off the main thread, in batches, so the app doesn't stall.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "\"Share sign-ins with remote servers\" is not built yet (follows WS-1's #286; see UP-120).",
+      "depends_on": "#286 (OS cookie encryption, CefCookieManager), UP-120 follow-ups",
+      "risks": "none",
+      "workstream": "WS-1"
+    },
+    {
+      "id": "UP-152",
+      "window": "post-1120",
+      "pr": 65320,
+      "sha": "f05c0fdc06",
+      "title": "feat(desktop): open in Windows Terminal and list only installed apps on Windows",
+      "merged": "2026-11-21",
+      "packages": [
+        "desktop",
+        "app"
+      ],
+      "main_files": [
+        "packages/desktop/src/main/files/apps.ts",
+        "packages/gui-plugins/src/file/open-in-app.tsx"
+      ],
+      "summary": "Open in lists Windows Terminal and only the apps installed on this machine.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "Ported to official FROM rune-desktop by WINDOWS-UPSTREAM; features/open-in/src/lib.rs lists only installed apps (checked once, off the UI thread) and has Windows Terminal (wt).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-153",
+      "window": "post-1120",
+      "pr": 65319,
+      "sha": "844a6aa6fe",
+      "title": "feat(desktop): flash the Windows taskbar button for requests that wait on you",
+      "merged": "2026-11-21",
+      "packages": [
+        "desktop",
+        "app"
+      ],
+      "main_files": [
+        "packages/desktop/src/main/windows/attention.ts",
+        "packages/app/src/shell/notifications/notification.tsx"
+      ],
+      "summary": "The taskbar button flashes for a new permission or question while the app isn't in front.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "Ported to official FROM rune-desktop by WINDOWS-UPSTREAM; apps/desktop/src/workspace/windows/taskbar.rs: bounded flash for a new permission or question when the app is not in front and no toast announced it.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-154",
+      "window": "post-1120",
+      "pr": 65318,
+      "sha": "edacc8686a",
+      "title": "feat(desktop): show a count badge for sessions that need you on the Windows taskbar",
+      "merged": "2026-11-21",
+      "packages": [
+        "desktop",
+        "app"
+      ],
+      "main_files": [
+        "packages/desktop/src/main/windows/taskbar-badge.ts",
+        "packages/app/src/shell/layout/project-avatar-state.ts"
+      ],
+      "summary": "A count badge on the taskbar button for sessions that need you.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "Ported to official FROM rune-desktop by WINDOWS-UPSTREAM; apps/desktop/src/workspace/windows/taskbar.rs: badge = waiting + ended-unread tabs (Rune Taskbar overlay icon).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-155",
+      "window": "post-1120",
+      "pr": 65332,
+      "sha": "b310a05b54",
+      "title": "fix(desktop): open projects and new sessions from opencode:// links again",
+      "merged": "2026-11-21",
+      "packages": [
+        "desktop",
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/deep-links/machine.ts",
+        "packages/desktop/src/main/lifecycle/launch-links.ts",
+        "packages/desktop/src/renderer/startup/deep-links.ts"
+      ],
+      "summary": "opencode://open-project?directory=<folder> opens the folder as a project in a new session; opencode://new-session?directory=<folder>&prompt=<text> does the same with the prompt typed in, not sent; links given at a cold start open too.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "apps/desktop/src/workspace/system/deep_links.rs takes open?project=<folder> and the jump list's new-session (no directory or prompt), not official's open-project?directory= / new-session?directory=&prompt= forms.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-156",
+      "window": "post-1120",
+      "pr": 65323,
+      "sha": "3aff591323",
+      "title": "fix(desktop): reopen snapped, moved and minimized windows where they were on Windows",
+      "merged": "2026-11-21",
+      "packages": [
+        "desktop",
+        "app"
+      ],
+      "main_files": [
+        "packages/desktop/src/main/windows/window-state.ts"
+      ],
+      "summary": "Windows reopen where they were when snapped, moved or minimized.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "Ported to official FROM rune-desktop by WINDOWS-UPSTREAM; apps/desktop/src/workspace/windows/placement.rs: a minimized window keeps its last shown frame; snapped or restored saves where it is on screen.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-157",
+      "window": "post-1120",
+      "pr": 65321,
+      "sha": "32ae019771",
+      "title": "fix(desktop): resync server event streams after Windows resumes from sleep",
+      "merged": "2026-11-21",
+      "packages": [
+        "desktop",
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/server/client.tsx",
+        "packages/desktop/src/main/ipc.ts"
+      ],
+      "summary": "After Windows resumes from sleep the server event streams resync.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "Ported to official FROM rune-desktop by WINDOWS-UPSTREAM; apps/desktop/src/workspace/lifecycle/launch/network.rs: PowerRegisterSuspendResumeNotification wakes every window on resume to recheck and reconnect its servers.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
     }
   ],
   "browser_security_review": {

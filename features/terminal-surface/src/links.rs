@@ -291,18 +291,24 @@ pub fn follow(host: &mut dyn TerminalSurfaceHost, wk: &str, tid: &str, col: u16,
     let shift = tx.mods().shift;
     if let Some(url) = osc8 {
         let visible = osc8_visible.unwrap_or_default();
-        let is_web = url.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("http://"))
-            || url.get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://"));
-        let is_file = url.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("file://"));
+        if browser_policy::is_http_with_credentials(&url) {
+            host.open_web_link(&sid, &url, shift, tx);
+            return;
+        }
+        if browser_policy::is_raw_unc_href(&url) {
+            host.open_link(&sid, &url, tx);
+            return;
+        }
+        let is_file = url.trim().get(..5).is_some_and(|s| s.eq_ignore_ascii_case("file:"));
         if is_file {
-            if visible != url {
+            if browser_policy::osc8_needs_confirm(&visible, &url) {
                 crate::osc8::ask(host, crate::osc8::Pending { sid, visible, url, shift }, tx);
             } else {
                 host.open_link(&sid, &url, tx);
             }
             return;
         }
-        if !is_web || visible != url {
+        if browser_policy::osc8_needs_confirm(&visible, &url) {
             crate::osc8::ask(host, crate::osc8::Pending { sid, visible, url, shift }, tx);
             return;
         }

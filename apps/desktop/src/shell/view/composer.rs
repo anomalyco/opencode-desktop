@@ -235,6 +235,11 @@ impl ComposerHost for App {
         crate::quote::typed(self, tx);
         self.suggest_input(tx);
     }
+    fn composer_set_hovered(&mut self, hovered: bool) {
+        if self.composer_ext.pickers.composer_hovered != hovered {
+            self.composer_ext.pickers.composer_hovered = hovered;
+        }
+    }
     fn composer_on_pill_secondary(&mut self, id: &str, press: rune::PointerPress, tx: &mut Tx) -> bool {
         let Some(sid) = id.strip_prefix("session:") else { return false };
         if !crate::mentions::wire::session_id_ok(sid) {

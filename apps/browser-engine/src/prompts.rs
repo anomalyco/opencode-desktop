@@ -14,7 +14,7 @@
 //! - Native file choosers on agent-driven tabs are cancelled immediately (`FileChooserBlocked`).
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cef::rc::Rc as _;
@@ -68,11 +68,20 @@ enum HeldPermission {
 pub struct TabPrompts {
     pub agent_driven: AtomicBool,
     /// One pop-up per input event, as Chromium's blocker allows per user activation (it is off:
-    /// `--disable-popup-blocking`). Set by the person's click/key and the agent's `Input.*` command.
+    /// `--disable-popup-blocking`). Set only by the person's click/key; the agent's `Input.*` clears
+    /// it, so a page cannot open a tab off the agent's input (official `window-open.ts:78-80,106`).
     pub popup_credit: AtomicBool,
+    /// Set by the agent's `Input.*`, cleared by the person's next press or key: until then the page
+    /// gets no native context menu (official `chromium.ts:2500-2501`, `nativeMenu`).
+    pub menu_suppressed: AtomicBool,
     /// The person's own click or key on a controlled tab hands its downloads back to them until
     /// the agent acts again (official `policy.ts:121-125, 175-177` `control: "reclaimed"`).
     pub user_reclaimed: AtomicBool,
+    /// Authoritative OS PID of this tab's current main-frame renderer process (`0` until reported
+    /// by `opencode-browser-engine-helper`). Used to isolate browser-wide CDP traces to this tab.
+    pub renderer_pid: AtomicU32,
+    /// Renderer OS PID locked when `Tracing.start` succeeded on this tab (`0` when not tracing).
+    pub trace_pid: AtomicU32,
     pub proxy: Mutex<Option<RemoteProxyConfig>>,
     dialogs: Mutex<Vec<(PageDialog, JsdialogCallback)>>,
     permissions: Mutex<Vec<HeldPermission>>,
@@ -85,6 +94,21 @@ pub struct TabPrompts {
 }
 
 impl TabPrompts {
+    /// The agent sent the page input: no pop-up and no native menu off it until the person's own press or key.
+    pub fn agent_input(&self) {
+        self.popup_credit.store(false, Ordering::Release);
+        self.menu_suppressed.store(true, Ordering::Release);
+    }
+
+    /// Whether the agent owns the tab's native dialogs now: driven by the agent and not taken back
+    /// by the person's own input since its last command (official `policy.ts:175-177`
+    /// `activityOwner`; `control: "reclaimed"` is `user_reclaimed`). File pickers follow this, not
+    /// `agent_driven`, which stays set for the restrictions that outlive a takeover (passkeys,
+    /// inherited permissions: `policy.ts:132-135`).
+    pub fn agent_owns_dialogs(&self) -> bool {
+        self.agent_driven.load(Ordering::Acquire) && !self.user_reclaimed.load(Ordering::Acquire)
+    }
+
     pub fn set_pending_top_url(&self, url: Option<String>) {
         *self.pending_top_url.lock().unwrap() = url;
     }
@@ -122,6 +146,22 @@ impl TabPrompts {
         !set.is_empty()
     }
 
+
+    pub fn is_covered(&self) -> bool {
+        !self.dialogs.lock().unwrap().is_empty() || !self.auth.lock().unwrap().is_empty()
+    }
+
+    pub fn has_any_pending_ext_subframe(&self) -> bool {
+        !self.pending_ext_subframes.lock().unwrap().is_empty()
+    }
+
+    pub fn has_leave_dialog(&self) -> bool {
+        self.dialogs
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(d, _)| d.kind == DialogKind::Leave)
+    }
 
     pub fn answer_dialog(&self, id: u64, accept: bool, text: &str) -> bool {
         let cb = {
@@ -270,6 +310,7 @@ impl TabPrompts {
     }
 
     pub fn reset_on_crash(&self, tab_id: u64, out_tx: &Output) {
+        self.renderer_pid.store(0, Ordering::Release);
         self.set_pending_top_url(None);
         self.clear_all_ext_frame_tracking();
         let dialogs = std::mem::take(&mut *self.dialogs.lock().unwrap());
@@ -285,6 +326,7 @@ impl TabPrompts {
     }
 
     pub fn dismiss_all(&self) {
+        self.trace_pid.store(0, Ordering::Release);
         for (_, cb) in std::mem::take(&mut *self.dialogs.lock().unwrap()) {
             cb.cont(0, None);
         }
@@ -860,7 +902,7 @@ wrap_dialog_handler! {
             _accept_descriptions: Option<&mut CefStringList>,
             callback: Option<&mut FileDialogCallback>,
         ) -> ::std::os::raw::c_int {
-            if self.is_preview || self.prompts.agent_driven.load(Ordering::Relaxed) {
+            if self.is_preview || self.prompts.agent_owns_dialogs() {
                 if let Some(cb) = callback {
                     cb.cancel();
                 }

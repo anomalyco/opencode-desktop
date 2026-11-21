@@ -143,7 +143,11 @@ pub fn toggle_side_region(host: &mut dyn PanelsHost, tx: &mut Tx) {
     if was_open {
         // Closing gives focus back to the prompt when it was in the region (`panels.tsx`
         // `toggle`'s `giveBackFocus`), rather than to nothing.
-        if host.side().focus.is_focused() {
+        // The toggle in the region's strip belongs to the session: its focus goes to the header's
+        // copy that takes its place (`panels.tsx`, opencode#65308).
+        if tx.focused() == Some("side-toggle") {
+            tx.focus_when_shown("side-toggle", tx.focus_visible());
+        } else if host.side().focus.is_focused() {
             tx.return_focus("prompt", tx.focus_visible());
         }
         {
@@ -239,6 +243,9 @@ pub fn open_side_tab_for_session(
     preview: bool,
     first: bool,
 ) {
+    if let Some((plugin, _)) = split_panel_key(key) {
+        host.ensure_panel_plugin(plugin);
+    }
     let was = host
         .side()
         .sessions
@@ -320,6 +327,9 @@ pub fn hide_side_tab(host: &mut dyn PanelsHost, key: &str, tx: &mut Tx) {
 /// new tab lands in `target`, else beside its plugin's last tab, else in its panel's default
 /// pane.
 pub fn show_side_tab(host: &mut dyn PanelsHost, session_id: &str, key: &str, target: Option<SessionPane>) {
+    if let Some((plugin, _)) = split_panel_key(key) {
+        host.ensure_panel_plugin(plugin);
+    }
     let was = host
         .side()
         .sessions

@@ -21,6 +21,7 @@ export type MenuData = {
     canFind: boolean,
     canHardReload: boolean,
     canClearHistory: boolean,
+    paneWidth: number?,
 }
 
 export type Callbacks = {
@@ -41,7 +42,7 @@ local function menuItem(
     fitWidth: boolean?
 ): ui.Node
     local textExtra: { [string]: any } = if fitWidth
-        then { color = if enabled then "text-chrome" else "text-faint", grow = 1 }
+        then { color = if enabled then "text-chrome" else "text-faint" }
         else { color = if enabled then "text-chrome" else "text-faint", grow = 1, shrink = true, minW = 0, truncate = true }
     local children: { ui.Node } = {
         ui.text(label, ROW_TEXT, textExtra),
@@ -54,6 +55,7 @@ local function menuItem(
         role = "button",
         label = label,
         w = if fitWidth then nil else "full",
+        justify = if fitWidth then "between" else nil,
         h = 28,
         pl = 12,
         pr = 6,
@@ -77,7 +79,7 @@ local function menuHint(text: string): ui.Node
 end
 
 local function separator(): ui.Node
-    return ui.col({ w = "full", h = 1, my = 2, fill = "border-muted" })
+    return ui.col({ w = "full", h = 1, my = 2, fill = "border-weak" })
 end
 
 -- Renders the top-level 220 pt '...' options popover (`menu.css`, `panel.tsx:1255-1346`).

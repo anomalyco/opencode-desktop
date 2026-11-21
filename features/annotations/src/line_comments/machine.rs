@@ -97,14 +97,14 @@ pub enum Event {
     /// The gutter's `+` (`draft.opened`).
     DraftOpened(Range),
     DraftCancelled,
-    DraftSubmitted,
+    DraftSubmitted { send: bool },
     CommentHovered(Range),
     CommentToggled { id: String, range: Range },
     CommentFocused { id: String, range: Range },
     CommentDeleted { id: String },
     EditOpened { id: String, range: Range, text: String },
     EditCancelled,
-    EditSubmitted,
+    EditSubmitted { send: bool },
     PassiveCleared,
     Reset,
 }
@@ -114,8 +114,8 @@ pub enum Event {
 pub enum Effect {
     /// The view shows these lines selected (`sync-selected`).
     Sync(Option<Range>),
-    SubmitDraft { comment: String, selection: Range },
-    SubmitEdit { id: String, comment: String, selection: Range },
+    SubmitDraft { comment: String, selection: Range, send: bool },
+    SubmitEdit { id: String, comment: String, selection: Range, send: bool },
     Delete { id: String },
     /// Beyond Desktop: a box closed with `comment` typed in it (the edit of `edit`, or a new
     /// one), which an undo can open again.
@@ -236,7 +236,7 @@ pub fn step(mode: &mut Mode, event: Event) -> Step {
             s.effects.extend(discarded);
             s
         }
-        Event::DraftSubmitted => {
+        Event::DraftSubmitted { send } => {
             let Mode::Drafting { range, draft } = &*mode else { return stay() };
             let comment = draft.text.text.trim().to_owned();
             if comment.is_empty() {
@@ -244,7 +244,7 @@ pub fn step(mode: &mut Mode, event: Event) -> Step {
             }
             let selection = *range;
             let mut s = enter(mode, Mode::Idle);
-            s.effects.push(Effect::SubmitDraft { comment, selection });
+            s.effects.push(Effect::SubmitDraft { comment, selection, send });
             s
         }
         Event::CommentHovered(r) => match mode {
@@ -293,7 +293,7 @@ pub fn step(mode: &mut Mode, event: Event) -> Step {
             s.effects.extend(discarded);
             s
         }
-        Event::EditSubmitted => {
+        Event::EditSubmitted { send } => {
             let Mode::Editing { id, range, draft } = &*mode else { return stay() };
             let comment = draft.text.text.trim().to_owned();
             if comment.is_empty() {
@@ -301,7 +301,7 @@ pub fn step(mode: &mut Mode, event: Event) -> Step {
             }
             let (id, selection) = (id.clone(), *range);
             let mut s = enter(mode, Mode::Idle);
-            s.effects.push(Effect::SubmitEdit { id, comment, selection });
+            s.effects.push(Effect::SubmitEdit { id, comment, selection, send });
             s
         }
         // A passive mode and a reset end without moving the view's selection.

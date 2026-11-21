@@ -3,7 +3,7 @@
 //! (`windows::peer`, `events`).
 
 use opencode_kit::client::{Incoming, Ticket, TicketKind};
-use opencode_kit::model::{SessionInfo, Transcript};
+use opencode_kit::model::{Pending, SessionInfo, Transcript};
 use rune::Tx;
 
 use crate::{App, Route, attachments, fork, permission, reconnect, status_toast, stop, windows};
@@ -25,7 +25,7 @@ pub(crate) fn poll(s: &mut App, tx: &mut Tx) -> bool {
         let is_status = matches!(
             &*h,
             crate::events::Heard::Message(m)
-                if matches!(**m, Incoming::Status(_) | Incoming::Failed(_) | Incoming::StreamDown(_) | Incoming::Unanswered(_))
+                if matches!(**m, Incoming::Status(_) | Incoming::Failed(_) | Incoming::ActiveFailed(_) | Incoming::StreamDown(_) | Incoming::Unanswered(_))
         );
         if !is_status {
             changed |= reconnect::heard(s);
@@ -62,6 +62,7 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             // Terminals that failed under the old connection attach again (`server.connected`).
             s.kernel.slots.get_mut(&crate::terminal::TERMINAL).connections += 1;
             s.pump_outbox();
+            crate::session_viewed::connected(s);
             s.stream_back();
             s.check_sends();
             s.resync_view();
@@ -87,6 +88,7 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         }
         Incoming::Status(e) => status_toast::from_server(s, e),
         Incoming::Failed(e) => failed(s, e, tx),
+        Incoming::ActiveFailed(e) => reconnect::active_failed(s, &e, tx),
         Incoming::StreamDown(e) => {
             #[cfg(not(target_arch = "wasm32"))]
             {
@@ -123,12 +125,13 @@ fn settled(s: &mut App, ticket: Ticket, result: Result<Option<SessionInfo>, open
         TicketKind::Revert => s.revert_settled(session, attempt, result.map(|_| ())),
         TicketKind::Fork => fork::settled(s, attempt, result, tx),
         TicketKind::Inbox => s.queue_settled(session, attempt, result.map(|_| ()).map_err(Some)),
+        TicketKind::View => crate::session_viewed::settled(s, session, attempt, result),
     }
 }
 
 /// One reply to this window's own reads and writes.
 fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
-    if !matches!(m, Incoming::Status(_) | Incoming::Failed(_) | Incoming::StreamDown(_) | Incoming::Unanswered(_) | Incoming::SendFailed { .. }) {
+    if !matches!(m, Incoming::Status(_) | Incoming::Failed(_) | Incoming::ActiveFailed(_) | Incoming::StreamDown(_) | Incoming::Unanswered(_) | Incoming::SendFailed { .. }) {
         reconnect::heard(s);
     }
     match m {
@@ -243,6 +246,10 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         }
         Incoming::Status(e) => status_toast::from_server(s, e),
         Incoming::Failed(e) => failed(s, e, tx),
+        Incoming::ActiveFailed(e) => {
+            reconnect::active_failed(s, &e, tx);
+            return false;
+        }
         Incoming::StreamDown(e) => reconnect::stream_down(s, e, tx),
         Incoming::Unanswered(e) => reconnect::unanswered(s, e, tx),
         Incoming::SessionWrite { data, error } => {
@@ -256,17 +263,29 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
                 status_toast::from_wire(s, error);
             }
         }
-        Incoming::Pending { session, items } => {
-            let inbox = !s.sidebar_inbox.settled() && s.sidebar_inbox.heard_pending(&session);
-            let drop_any = s.pending.iter().any(|p| p.session() == session && !items.iter().any(|i| i.id() == p.id()));
-            if drop_any {
-                s.pending.retain(|p| p.session() != session || items.iter().any(|i| i.id() == p.id()));
+        Incoming::Pending { session, epoch, permissions, forms } => {
+            if s.request_reads.is_stale(&session, epoch) {
+                return false;
             }
-            let mut added = false;
-            for p in items {
-                added |= s.add_pending(p);
+            let is_not_found = |e: &opencode_kit::wire_error::WireError| {
+                matches!(e.kind, opencode_kit::wire_error::WireKind::Status { status: 404, .. })
+            };
+            let perm_failed = matches!(&permissions, Err(e) if !is_not_found(e));
+            let form_failed = matches!(&forms, Err(e) if !is_not_found(e));
+            let any_failed = perm_failed || form_failed;
+            s.settle_pending(&session, epoch, any_failed, tx);
+            let inbox = !any_failed && !s.sidebar_inbox.settled() && s.sidebar_inbox.heard_pending(&session);
+            let mut changed = inbox;
+            // Sync permissions and forms independently: a transient HTTP error on either endpoint
+            // never prunes cached items, and a delayed GET never deletes a request that arrived
+            // over SSE after `epoch` was stamped (`data.ts:2132,2182`).
+            if let Ok(items) = permissions {
+                changed |= apply_pending_kind(s, &session, epoch, false, items);
             }
-            return inbox || drop_any || added;
+            if let Ok(items) = forms {
+                changed |= apply_pending_kind(s, &session, epoch, true, items);
+            }
+            return changed;
         }
         // Only the stream sends this in the app (`windows::peer::heard`); a test's or the fuzz
         // link's inbox gets the same resync.
@@ -274,13 +293,28 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.resync_shared();
             return message(s, Incoming::Reconnected, tx);
         }
-        Incoming::Opened => return message(s, Incoming::Opened, tx),
+        Incoming::Opened => {
+            reconnect::request_active(s, false);
+            return message(s, Incoming::Opened, tx);
+        }
         Incoming::Active(ids) => {
             tx.instant();
-            s.stops.reconcile(&ids);
-            reconnect::active(s, &ids);
+            // Overlay execution SSE events received while `Request::Active` was in flight so live
+            // transitions supersede the snapshot (`packages/client/src/solid/data.ts:783-807`).
+            let deltas = s.stops.active_sync.landed();
+            let mut merged: std::collections::HashSet<String> = ids.into_iter().collect();
+            for (sid, started) in deltas {
+                if started {
+                    merged.insert(sid);
+                } else {
+                    merged.remove(&sid);
+                }
+            }
+            let reconciled: Vec<String> = merged.iter().cloned().collect();
+            s.stops.reconcile(&reconciled);
+            reconnect::active(s, &reconciled);
             // A stop the server hasn't confirmed yet stays stopped, whichever window pressed it.
-            *s.running = ids.into_iter().filter(|id| !s.stops.pending(id)).collect();
+            *s.running = merged.into_iter().filter(|id| !s.stops.pending(id)).collect();
         }
         Incoming::Projects(projects) => {
             s.session_search.invalidate();
@@ -314,4 +348,53 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         }
     }
     true
+}
+
+/// Applies one successful `/permission` (`is_form = false`) or `/form` (`is_form = true`) snapshot
+/// for `session` at `epoch`: prunes only entries of that kind absent from `items` and NOT received
+/// over SSE after `epoch` was stamped, then merges `items`.
+fn apply_pending_kind(s: &mut App, session: &str, epoch: u64, is_form: bool, items: Vec<Pending>) -> bool {
+    let matches_kind = |p: &Pending| matches!(p, Pending::Form { .. }) == is_form;
+    let to_drop: Vec<String> = s
+        .requests
+        .iter()
+        .filter(|(sid, id)| {
+            sid == session
+                && !items.iter().any(|i| i.id() == id)
+                && !s.request_reads.arrived_after(id, epoch)
+                && match s.pending.iter().find(|p| p.id() == id) {
+                    Some(p) => matches_kind(p),
+                    None => (!id.starts_with("per")) == is_form,
+                }
+        })
+        .map(|(_, id)| id.clone())
+        .collect();
+    let mut changed = false;
+    let drop_pending = s.pending.iter().any(|p| {
+        p.session() == session
+            && matches_kind(p)
+            && !items.iter().any(|i| i.id() == p.id())
+            && !s.request_reads.arrived_after(p.id(), epoch)
+    });
+    if drop_pending {
+        let reads = &s.request_reads;
+        s.pending.retain(|p| {
+            p.session() != session
+                || !matches_kind(p)
+                || items.iter().any(|i| i.id() == p.id())
+                || reads.arrived_after(p.id(), epoch)
+        });
+        changed = true;
+    }
+    if !to_drop.is_empty() {
+        s.requests.retain(|(sid, id)| sid != session || !to_drop.iter().any(|d| d == id));
+        for id in &to_drop {
+            s.request_reads.forget_sse(id);
+        }
+        changed = true;
+    }
+    for p in items {
+        changed |= s.add_pending(p);
+    }
+    changed
 }
