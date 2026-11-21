@@ -62,6 +62,10 @@ pub struct TabSnapshot {
     /// Whether this tab is agent-driven (preserved across reconnects so file choosers / HTTP auth stay guarded).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub agent_driven: bool,
+    /// Counts main-frame document loads (`on_load_start`); unchanged by `history.pushState`,
+    /// `replaceState` and hash changes. `0` from engines before it existed.
+    #[serde(default)]
+    pub document: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,6 +103,7 @@ pub enum HostMsg {
     /// `prompts`: the app shows and answers page dialogs, permission prompts, and HTTP auth;
     /// older apps leave it false so the engine suppresses dialogs and denies permissions/auth.
     /// `extensions`: the app handles extension-initiated tab opens (`EngineMsg::ExtensionOpenTab`).
+    /// `download_save`: the app handles `EngineMsg::DownloadSaveRequest` via a native Save dialog.
     Hello {
         mach_service: Option<String>,
         pid: u32,
@@ -106,6 +111,8 @@ pub enum HostMsg {
         prompts: bool,
         #[serde(default)]
         extensions: bool,
+        #[serde(default)]
+        download_save: bool,
     },
     OpenTab {
         tab_id: u64,
@@ -261,6 +268,8 @@ pub enum HostMsg {
     SyncSitePermissions { entries: Vec<SitePermissionEntry> },
     /// The app's answer to an HTTP 401 auth challenge (`EngineMsg::AuthRequest`); `None` cancels.
     AnswerAuth { tab_id: u64, id: u64, username: Option<String>, password: Option<String> },
+    /// The app's answer to a human download Save dialog (`EngineMsg::DownloadSaveRequest`); `None` cancels.
+    AnswerDownloadSave { tab_id: u64, id: u64, path: Option<String> },
     /// Marks a tab as agent-driven (cancels native file choosers, skips `beforeunload`, rejects HTTP auth).
     SetAgentDriven { tab_id: u64, agent_driven: bool },
     /// Typed CDP call issued strictly by Rune's native Rust `experimental.browser` executors
@@ -377,8 +386,18 @@ pub enum EngineMsg {
     /// named shared fence to `frame_id` once it has read it, and the engine reuses the texture
     /// only after that.
     SharedFrame { tab_id: u64, frame_id: u64, width: u32, height: u32, texture: String, release_fence: String },
-    /// A download started, moved on or ended. An app from before it skips the message.
+    /// A download started, moved on or ended (agent-driven tabs only). An app from before it skips the message.
     Download { tab_id: u64, file: DownloadFile },
+    /// A human-initiated download (or right-click "Save image as…") awaiting an OS Save dialog path
+    /// outside the engine profile and `opencode-page-downloads`.
+    DownloadSaveRequest {
+        tab_id: u64,
+        id: u64,
+        name: String,
+        mime: String,
+        #[serde(default)]
+        executable: bool,
+    },
     /// Linux: a tab's new linear ARGB8888 dmabufs, one file descriptor each, sent with this line
     /// (`SCM_RIGHTS`). Frames name them by `pool` and index.
     DmabufPool { tab_id: u64, pool: u64, buffers: u32, width: u32, height: u32, stride: u32, offset: u32, modifier: u64 },

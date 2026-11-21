@@ -22,6 +22,7 @@ mod execute;
 mod files;
 mod lists;
 mod log;
+pub mod script;
 pub(crate) mod plain;
 
 use std::borrow::Cow;
@@ -256,10 +257,12 @@ pub fn cached<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call], build: i
         fingerprint(c.metadata, &mut h);
         // The output the host read from the call's shell (`console::follow`).
         console::follow(c, |_| false).and_then(|(id, _)| s.shell_output(id)).map(str::len).hash(&mut h);
+        // Each part of it the reader touched, and how: one shut where it opens by default reads
+        // apart from one never touched.
         let own = key(c.id);
-        let mut open: Vec<&String> = s.expanded().iter().filter(|k| k.starts_with(&own)).collect();
-        open.sort();
-        open.hash(&mut h);
+        let mut touched: Vec<(&String, bool)> = s.expanded().touched().filter(|(k, _)| k.starts_with(&own)).collect();
+        touched.sort_by(|a, b| a.0.cmp(b.0));
+        touched.hash(&mut h);
         copied.iter().filter(|k| k.contains(c.id)).for_each(|k| k.hash(&mut h));
     }
     // The memo keys its root with its own id, so the row keeps its keys one level down.

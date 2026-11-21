@@ -136,6 +136,8 @@ mod native {
         pub pending_app_links: std::cell::RefCell<std::collections::VecDeque<(u64, String)>>,
         /// Persistent SQLite browsing history store (`history.sqlite`, lazily opened).
         pub history: std::cell::RefCell<Option<browser_pane::history::HistoryStore>>,
+        /// Serializes human download OS Save dialogs (`EngineMsg::DownloadSaveRequest`) one at a time.
+        pub save_dialog_open: bool,
     }
 
     /// App-level shortcuts that a focused web page must yield to OpenCode (Rune) rather than swallow,
@@ -375,12 +377,7 @@ mod native {
                 return Vec::new();
             };
             let dir = self.link_directory(id);
-            let home = (!self.home.is_empty()).then_some(self.home.as_str());
-            if browser_pane::policy::is_safe_local_workspace_root(&dir, home) {
-                vec![dir]
-            } else {
-                Vec::new()
-            }
+            self.pinned_sidecar_root(&dir).into_iter().collect()
         }
 
         /// Default browser isolation context for tabs opened in session `sid`: derived from `sid`'s

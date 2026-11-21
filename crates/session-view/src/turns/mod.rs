@@ -43,6 +43,10 @@ pub enum Step<'a> {
     Notice(&'a Notice),
     /// Commentary folded into the group: text a later tool call in the turn follows.
     Text { body: &'a str },
+    /// A change script `script` in assistant message `msg` made to a file, at offset `index` of
+    /// its `metadata.files` (`rules::script_changes`), placed by the Edits setting as a direct
+    /// edit's file is (`placeScriptChange`, `scriptChangeItems`).
+    Change { msg: &'a str, script: &'a str, index: usize, file: &'a serde_json::Value },
 }
 
 /// How calls on their own row draw.
@@ -70,6 +74,9 @@ impl Loc {
     /// A notice's entry has no part.
     const NOTICE: u32 = u32::MAX;
 
+    /// A tool part's `n` is 0 for the call itself, else 1 past its change's offset in the
+    /// script's `metadata.files`.
+    ///
     /// The step this names in the turn's `messages` (one entry each, as [`fold_with`] read them).
     pub fn step<'a>(self, messages: &'a [opencode_kit::model::Message]) -> Option<Step<'a>> {
         use opencode_kit::model::Message;
@@ -94,6 +101,10 @@ impl Loc {
                 secs: completed.map(|c| ((c - started) as f64 / 1000.0).round().max(0.0) as i64),
                 started: *started,
             },
+            Part::Tool { id, status, name, metadata, .. } if self.n > 0 => {
+                let index = self.n as usize - 1;
+                Step::Change { msg: &a.id, script: id, index, file: rules::script_change_at(name, status, metadata, index)? }
+            }
             Part::Tool { id, name, title, status, input, files, metadata } => Step::Tool { id, name, title, status, files, input, metadata },
         })
     }
@@ -272,7 +283,12 @@ pub fn fold_with<'a>(entries: &[Entry<'a>], live: bool, detail: &Detail) -> Vec<
                     let rule = rules::rule(name, input);
                     // A call stopped before the model finished writing it did nothing.
                     let empty = input.as_object().is_none_or(|o| o.is_empty());
-                    if rule.hidden || (rules::stopped(status, metadata) && empty) {
+                    if rule.hidden {
+                        continue;
+                    }
+                    // Its changes still show: they happened (`scriptChangeItems` reads every part).
+                    if rules::stopped(status, metadata) && empty {
+                        place_changes(&mut out, &mut group, &mut at, &mut key, detail, (mi, pi), (&a.id, id, name, status, metadata));
                         continue;
                     }
                     let failed = rules::failed(name, status, metadata);
@@ -318,12 +334,51 @@ pub fn fold_with<'a>(entries: &[Entry<'a>], live: bool, detail: &Detail) -> Vec<
                             }
                         }
                     }
+                    place_changes(&mut out, &mut group, &mut at, &mut key, detail, (mi, pi), (&a.id, id, name, status, metadata));
                 }
             }
         }
     }
     flush(&mut out, &mut group, &mut at, &mut key);
     out
+}
+
+/// A script's changes, right after it, placed by the Edits setting even where the script itself
+/// hides (`scriptChangeItems`, `placeScriptChange`): in the group, beside the files edited around
+/// them, or not at all. `(mi, pi)`: the script's entry and part.
+#[allow(clippy::type_complexity)]
+fn place_changes<'a>(
+    out: &mut Vec<Block<'a>>,
+    group: &mut Vec<Step<'a>>,
+    at: &mut Vec<Loc>,
+    key: &mut Option<String>,
+    detail: &Detail,
+    (mi, pi): (usize, usize),
+    (msg, id, name, status, metadata): (&'a str, &'a str, &str, &ToolStatus, &'a serde_json::Value),
+) {
+    let placement = detail.placement(Category::Edit);
+    if placement == Placement::Hidden {
+        return;
+    }
+    for (k, file) in rules::script_changes(name, status, metadata) {
+        let step = Step::Change { msg, script: id, index: k, file };
+        if placement == Placement::Grouped {
+            if group.is_empty() {
+                *key = Some(format!("c-{msg}-{id}-f{k}"));
+            }
+            group.push(step);
+            at.push(Loc { entry: mi as u32, part: pi as u32, n: k as u32 + 1 });
+            continue;
+        }
+        if !group.is_empty() {
+            let key = key.take().unwrap_or_else(|| String::from("c-"));
+            out.push(Block::Group { key, steps: std::mem::take(group), at: std::mem::take(at) });
+        }
+        match out.last_mut() {
+            Some(Block::Calls { kind: Calls::Files, steps, .. }) => steps.push(step),
+            _ => out.push(Block::Calls { key: format!("p-{msg}-{id}-f{k}"), kind: Calls::Files, steps: vec![step] }),
+        }
+    }
 }
 
 /// The turn's commentary (`turnCommentary`, `session-ui/src/timeline/commentary.ts`,
@@ -473,7 +528,7 @@ pub fn elapsed(ms: i64) -> String {
 fn call<'a>(st: &Step<'a>) -> Option<crate::tools::Call<'a>> {
     match st {
         Step::Tool { id, name, status, input, metadata, .. } => Some(crate::tools::Call { id, name, status, input, metadata }),
-        Step::Thought { .. } | Step::Notice(_) | Step::Text { .. } => None,
+        Step::Thought { .. } | Step::Notice(_) | Step::Text { .. } | Step::Change { .. } => None,
     }
 }
 
@@ -493,6 +548,16 @@ fn grouped_read(st: &Step) -> bool {
 /// An edit, write or patch that didn't fail: it joins the file card of the steps beside it.
 fn file_tool(st: &Step) -> bool {
     call(st).is_some_and(|c| crate::tools::is_file_tool(&c))
+}
+
+/// A change a script made, which shows with the files edited beside it.
+fn script_change(st: &Step) -> bool {
+    matches!(st, Step::Change { .. })
+}
+
+/// A file edit or a script's change: they share a row, in the order they happened (`fileRuns`).
+fn file_like(st: &Step) -> bool {
+    file_tool(st) || script_change(st)
 }
 
 /// A skill call with a name that didn't fail: it joins the "Loaded" line of the skills beside it.

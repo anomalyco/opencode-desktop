@@ -206,8 +206,9 @@ impl EngineManager {
                         self.permissions.on_tab_closed(engine_tab_id);
                         tab.menu.cancel_all();
                         tab.prompts.dismiss_all();
+                        tab.download_alive.store(false, Ordering::Release);
                         tab.host.close_browser(1);
-                        self.downloads.close_tab(engine_tab_id);
+                        self.downloads.close_tab(engine_tab_id, tab.download_gen);
                         self.release_tab_context(engine_tab_id);
                         if engine_tab_id >= 1_000_000 {
                             self.unmanaged_ext_tabs = self.unmanaged_ext_tabs.saturating_sub(1);
@@ -276,8 +277,9 @@ impl EngineManager {
                             if let Some(tab) = self.tabs.remove(&pid) {
                                 tab.menu.cancel_all();
                                 tab.prompts.dismiss_all();
+                                tab.download_alive.store(false, Ordering::Release);
                                 tab.host.close_browser(1);
-                                self.downloads.close_tab(pid);
+                                self.downloads.close_tab(pid, tab.download_gen);
                                 let _ = self.out_tx.send(EngineMsg::TabClosed { tab_id: pid });
                             }
                         }
@@ -332,6 +334,7 @@ impl EngineManager {
             context: ContextKind::Default,
             preview: None,
             agent_driven: false,
+            document: 0,
         }));
         let allowed_ext = vec![ext_id.clone()];
         let file_roots = Arc::new(Mutex::new(Vec::new()));
@@ -393,16 +396,20 @@ impl EngineManager {
             diagnostics,
             null_out.clone(),
         );
+        let download_gen = self.downloads.alloc_tab_gen();
+        let download_alive = Arc::new(AtomicBool::new(true));
         let download = crate::downloads::TabDownloadHandler::new(
             u64::MAX,
-            file_roots.clone(),
+            download_gen,
+            download_alive,
             true,
             false,
             context_ready.clone(),
+            prompts.clone(),
             self.downloads.clone(),
             null_out.clone(),
         );
-        let life_span = TabLifeSpanHandler::new(u64::MAX, false, context_ready.clone(), null_out.clone());
+        let life_span = TabLifeSpanHandler::new(u64::MAX, false, context_ready.clone(), prompts.clone(), null_out.clone());
         let jsdialog = TabDialogHandler::new(
             u64::MAX,
             prompt_shared.clone(),
@@ -699,6 +706,7 @@ impl EngineManager {
             | M::AnswerDialog { .. }
             | M::AnswerPermission { .. }
             | M::AnswerAuth { .. }
+            | M::AnswerDownloadSave { .. }
             | M::SetInspect { enabled: false, .. }
             | M::HighlightNode { backend_node_id: None, .. }
             | M::ContextMenuAction { action: None, .. } => return false,
@@ -791,6 +799,7 @@ impl EngineManager {
     pub(super) fn handle_set_agent_driven(&mut self, tab_id: u64, agent_driven: bool) {
         if let Some(t) = self.tabs.get(&tab_id) {
             let was = t.prompts.agent_driven.swap(agent_driven, Ordering::AcqRel);
+            t.prompts.user_reclaimed.store(false, Ordering::Release);
             t.snap.lock().unwrap().agent_driven = agent_driven;
             if agent_driven {
                 // Agent-driven tabs may never navigate to `chrome-extension://` pages.

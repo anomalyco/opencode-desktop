@@ -202,6 +202,7 @@ fn section<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, part: Part,
         .role("button")
         .label(if done { opencode_i18n::t!("ui.message.copied") } else { label })
         .help(if done { opencode_i18n::t!("ui.message.copied") } else { label })
+        .help_open(done)
         .size(24.0, 24.0)
         .center()
         .radius(6.0)

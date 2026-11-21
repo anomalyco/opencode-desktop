@@ -299,8 +299,12 @@ impl Transcript {
                 let id = s(&d["id"]);
                 let mut hit = false;
                 for p in &mut a.parts {
-                    if let Part::Tool { id: tid, metadata, .. } = p
+                    // Progress counts only while the call runs, as the official reducer takes it:
+                    // a late report never rewrites a finished call (a completed script reading
+                    // as backgrounded).
+                    if let Part::Tool { id: tid, metadata, status, .. } = p
                         && *tid == id
+                        && *status == ToolStatus::Running
                         && d["metadata"].is_object()
                     {
                         replace_tool_metadata(metadata, &d["metadata"]);

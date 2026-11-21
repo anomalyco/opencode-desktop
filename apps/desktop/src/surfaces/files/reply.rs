@@ -14,19 +14,35 @@ fn target(app: &App, href: &str) -> Option<(String, Link)> {
         return None;
     }
     let href = href.strip_prefix(opencode_ui::style::CODE_LINK).unwrap_or(href).trim();
-    let dir = links::link_directory(app, app.active_session_id()?);
+    let raw_dir = links::link_directory(app, app.active_session_id()?);
+    let pinned = if app.can_reveal_outside() {
+        app.pinned_local_root(&raw_dir)
+    } else {
+        Some(raw_dir.clone())
+    };
     if is_file_scheme(href) {
         // This form names a file inside the workspace, never a foreign host or a path
         // escaping its root through a symlink. Remote paths use the server's file route.
         browser_policy::local_file_path(href)?;
-        if app.can_open_in() && !file_url_within(href, std::slice::from_ref(&dir)) {
+        let root = pinned.as_deref()?;
+        if app.can_open_in() && !file_url_within(href, &[root.to_owned()]) {
             return None;
         }
     }
-    let link = links::classify(href, "", &dir, app.home_directory());
+    let mut link = links::classify(href, "", &raw_dir, app.home_directory());
+    if matches!(link, Link::Outside { .. })
+        && let Some(ref phys) = pinned
+        && phys != &raw_dir
+    {
+        let phys_link = links::classify(href, "", phys, app.home_directory());
+        if matches!(phys_link, Link::Inside { .. }) {
+            link = phys_link;
+        }
+    }
     if is_file_scheme(href) && !matches!(link, Link::Inside { .. }) {
         return None;
     }
+    let dir = pinned.unwrap_or(raw_dir);
     Some((dir, link))
 }
 
@@ -73,9 +89,11 @@ pub(crate) fn video(app: &App, href: &str) -> Option<String> {
                 }
                 Some(path)
             } else {
-                // Pure lexical pre-check on display (zero disk/SMB/autofs I/O); full
+                // A workspace whose aliased root was refused at start-up (`pinned_local_root`)
+                // shows no Play control. Pure lexical pre-check on display; full
                 // `verify_within_root` runs in `load_video` only when the user clicks Play.
-                let abs = opencode_kit::path::absolute(&dir, &path);
+                let root = app.pinned_local_root(&dir)?;
+                let abs = opencode_kit::path::absolute(&root, &path);
                 browser_policy::safe_local_reveal_path(&abs).map(display_local_path)
             }
         }
@@ -104,7 +122,11 @@ pub(crate) fn load_video(app: &mut App, href: &str) -> Option<String> {
     let remote = is_remote_session(app);
     match link {
         Link::Inside { path, .. } if video::is_video(&path) => {
-            let src = video::source(app.live_server(), &dir, &path);
+            let src = if remote {
+                video::source(app.live_server(), &dir, &path)
+            } else {
+                app.pinned_local_root(&dir).and_then(|root| video::source(app.live_server(), &root, &path))
+            };
             if src.is_none() {
                 crate::status_toast::fail(app, t!("rune.openIn.failed"), t!("rune.files.link.outside"));
             }
@@ -143,7 +165,10 @@ pub(crate) fn menu(app: &mut App, href: &str, press: PointerPress, tx: &mut Tx) 
     if !app.can_reveal_outside() { return false; }
     let Some((dir, link)) = target(app, href) else { return false };
     let (inside, path) = match link {
-        Link::Inside { path, .. } => (true, opencode_kit::path::absolute(&dir, &path)),
+        Link::Inside { path, .. } => {
+            let Some(root) = app.pinned_local_root(&dir) else { return false };
+            (true, opencode_kit::path::absolute(&root, &path))
+        }
         Link::Outside { path } => (false, path),
         _ => return false,
     };

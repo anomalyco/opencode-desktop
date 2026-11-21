@@ -18,7 +18,12 @@ use super::{
 };
 use crate::App;
 use crate::palette::{Pal, kit};
-use crate::view::{UI_MED, UI_SMALL};
+use crate::view::{UI, UI_MED, UI_SMALL};
+
+/// Official's notice copy (`refusal-bar.tsx`): 13 px regular on 24 px lines.
+const NOTICE: rune::TextStyle = rune::TextStyle::new(13.0, 440.0).lh(24.0);
+/// The notice's destination row (`text-12-regular`): 12 px on 20 px lines, muted.
+const NOTICE_TARGET: rune::TextStyle = rune::TextStyle::new(12.0, 440.0).lh(20.0);
 
 /// Top-of-viewport strips (blocked pop-up notice, site permission bar) rendered above the page.
 pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
@@ -51,6 +56,11 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
         };
         let can_reopen = !reopen_url.is_empty()
             && !reopen_url.eq_ignore_ascii_case("about:blank")
+            && tab.preview.is_none()
+            && !matches!(
+                tab.context,
+                browser_pane::ContextKind::Preview { .. } | browser_pane::ContextKind::Artifact { .. }
+            )
             && tab.refusal.as_deref() != Some("browser.proxy.required");
         let mut actions = row().gap(4.0).center_y();
         if can_reopen {
@@ -61,6 +71,15 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
             )
             .size(rune_kit::ButtonSize::Small)
             .on_press(move |app: &mut App| {
+                if !app
+                    .workspace_panes
+                    .browser
+                    .host
+                    .tab(tab_id)
+                    .is_some_and(|t| t.prompts.blocked_guard_armed())
+                {
+                    return;
+                }
                 if let Some((_, mut ctx)) = app.browser_context_for_opener(tab_id) {
                     let url = reopen_url.clone();
                     let proxy_ok = match &mut ctx {
@@ -109,18 +128,20 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
 
     if let Some((url, count, _armed)) = tab.prompts.popup.blocked() {
         let isolated = tab.preview.is_some() || tab.context.is_isolated();
-        let dest = if isolated {
-            bounded_origin_url(url)
-        } else {
-            short_host(url)
+        // Official's notice (`refusal-bar.tsx`): the opener's origin and the refusal stacked in one
+        // cell beside the buttons, the destination on a muted row of its own under all three.
+        let opener = match browser_pane::policy::destination_origin(&tab.url) {
+            Some(site) if site.starts_with("http://") || site.starts_with("https://") => {
+                t!("rune.browser.prompt.popup.fromSite", site = site)
+            }
+            _ => t!("rune.browser.prompt.popup.fromPage").to_owned(),
         };
         let msg = if count > 1 {
-            format!("{} ({count}) — {dest}", t!("rune.browser.prompt.popup.blocked"))
-        } else if !dest.is_empty() {
-            format!("{} — {dest}", t!("rune.browser.prompt.popup.blocked"))
+            format!("{} ({count})", t!("rune.browser.prompt.popup.blocked"))
         } else {
             t!("rune.browser.prompt.popup.blocked").to_owned()
         };
+        let target = popup_target(p, url, isolated);
         #[allow(deprecated)]
         let open_btn = crate::widgets::button(t!("rune.browser.prompt.popup.open"), ButtonVariant::Neutral)
             .size(rune_kit::ButtonSize::Small)
@@ -137,26 +158,28 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
             })
             .build(k)
             .key("browser-popup-open");
-        let close_btn = dismiss_icon_btn(p, "browser-popup-dismiss", t!("common.close"), move |app: &mut App| {
+        let close_btn = sized_dismiss_btn(p, "browser-popup-dismiss", t!("common.close"), 20.0, 4.0, move |app: &mut App| {
             app.workspace_panes.browser.host.dismiss_blocked_popup(tab_id);
         });
+        let lines = col()
+            .grow(1.0)
+            .shrink()
+            .min_w(0.0)
+            .child(text(opener).font(NOTICE).color(p.text).wrap_anywhere())
+            .child(text(msg).font(NOTICE).color(p.text).wrap_anywhere());
         out.push(
             col()
                 .key("browser-popup-bar")
                 .w_full()
                 .child(
-                    row()
+                    col()
                         .role("status")
                         .w_full()
-                        .min_h(36.0)
                         .px(12.0)
                         .py(8.0)
-                        .gap(12.0)
-                        .center_y()
                         .fill(p.layer1)
-                        .child(icon(&ic::WARNING, 14.0).color(p.icon_muted))
-                        .child(text(msg).font(UI_SMALL).color(p.text).grow(1.0).shrink().min_w(0.0).truncate_fade())
-                        .child(row().gap(4.0).center_y().child(open_btn).child(close_btn)),
+                        .child(row().w_full().gap(12.0).center_y().child(lines).child(open_btn).child(close_btn))
+                        .children(target),
                 )
                 .child(el().w_full().h(0.5).fill(p.border_muted)),
         );
@@ -179,7 +202,7 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
             .shrink()
             .min_w(0.0)
             .gap(2.0)
-            .child(text(sentence).font(UI_SMALL).color(p.text).wrap());
+            .child(text(sentence).font(UI).color(p.text).wrap());
         if agent {
             let driver_copy = match tab.prompts.driver.as_ref() {
                 Some(browser_pane::TabDriver::Plugin(name)) => {
@@ -259,7 +282,8 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
                 .key("browser-perm-allow-once");
             actions = actions.child(block).child(once);
         }
-        let close_btn = dismiss_icon_btn(p, "browser-perm-dismiss", t!("rune.browser.prompt.dismiss"), move |app: &mut App| {
+        // Official's dismiss is `IconButton size="large"` (28 pt, `prompts.tsx:557-563`).
+        let close_btn = sized_dismiss_btn(p, "browser-perm-dismiss", t!("rune.browser.prompt.dismiss"), 28.0, 6.0, move |app: &mut App| {
             app.workspace_panes
                 .browser
                 .host
@@ -421,7 +445,11 @@ pub fn view_modal(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
         );
         body = body.child(footer);
 
-        let refocus = if kind == DialogKind::Prompt { PROMPT_INPUT_KEY } else { PROMPT_OK_KEY };
+        let refocus = match kind {
+            DialogKind::Prompt => PROMPT_INPUT_KEY,
+            DialogKind::Alert => PROMPT_CARD_KEY,
+            DialogKind::Confirm | DialogKind::Leave => PROMPT_CANCEL_KEY,
+        };
         return Some(modal_frame(p, tab_id, PROMPT_CARD_KEY, refocus, title, body));
     }
 
@@ -544,6 +572,51 @@ fn dismiss_icon_btn(p: &Pal, key: &'static str, label: &'static str, on_press: i
         .child(icon(&ic::CLOSE, 12.0).color(p.icon_muted))
 }
 
+/// Official's ghost-muted `IconButton` with its 16 pt `close` icon: `side` 20 (small) or 28 (large).
+fn sized_dismiss_btn(
+    p: &Pal,
+    key: &'static str,
+    label: &'static str,
+    side: f32,
+    radius: f32,
+    on_press: impl Fn(&mut App) + 'static,
+) -> El {
+    el().key(key)
+        .role("button")
+        .focusable(true)
+        .label_static(label)
+        .w(side)
+        .h(side)
+        .radius(radius)
+        .center()
+        .cursor(Cursor::Pointer)
+        .hover(p.hover)
+        .on_press(on_press)
+        .child(icon(&ic::CLOSE, 16.0).color(p.icon_muted))
+}
+
+/// The blocked pop-up's destination row: a web address's host whole, then the rest cut short
+/// (`refusal-bar.tsx`'s `hostDisplay`); an isolated tab's or another scheme's address in full
+/// (bounded), so the scheme is never hidden.
+fn popup_target(p: &Pal, url: &str, isolated: bool) -> Option<El> {
+    let lower = url.to_ascii_lowercase();
+    let web = !isolated && (lower.starts_with("http://") || lower.starts_with("https://"));
+    let row = row().w_full().min_w(0.0).dir(rune::Direction::Ltr);
+    if !web {
+        let shown = bounded_origin_url(url);
+        return (!shown.is_empty()).then(|| {
+            row.child(text(shown).font(NOTICE_TARGET).color(p.muted).truncate().grow(1.0).shrink().min_w(0.0))
+        });
+    }
+    let host = short_host(url);
+    let after = url.split_once("://").map_or(url, |(_, r)| r);
+    let rest = after.find(['/', '?', '#']).map_or("", |i| &after[i..]);
+    Some(
+        row.child(text(host).font(NOTICE_TARGET).color(p.muted))
+            .child(text(rest.to_owned()).font(NOTICE_TARGET).color(p.muted).truncate().shrink().min_w(0.0)),
+    )
+}
+
 fn modal_frame(
     p: &Pal,
     tab_id: u64,
@@ -605,16 +678,18 @@ fn bounded_origin_url(url: &str) -> String {
     }
 }
 
-/// UTF-8 safe left-elided authority display (up to 64 characters, keeping the registrable tail).
+/// UTF-8 safe left-elided authority display (up to 64 characters, keeping the registrable tail),
+/// with bidi overrides and control characters stripped.
 fn short_host(url: &str) -> String {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
-    let count = authority.chars().count();
+    let clean = browser_pane::prompts::sanitize_single_line_prompt(authority, 256);
+    let count = clean.chars().count();
     if count > 64 {
-        let tail: String = authority.chars().skip(count - 63).collect();
+        let tail: String = clean.chars().skip(count - 63).collect();
         format!("…{tail}")
     } else {
-        authority.to_owned()
+        clean
     }
 }
 
@@ -624,7 +699,9 @@ fn prompt_site(origin: &str, top_url: &str) -> String {
     let embedded = if orig.is_some() {
         orig != top
     } else {
-        !origin.is_empty() && origin != top_url
+        // Empty, `about:srcdoc`, `data:`, or `blob:` dialog origins on a web page come from an
+        // embedded/sandboxed frame rather than the top-level site (`review-rd-engine.md`).
+        top.is_some() || (!origin.is_empty() && origin != top_url)
     };
     let lower = origin.to_ascii_lowercase();
     if lower.starts_with("file:") || lower.starts_with("oc-preview:") {
