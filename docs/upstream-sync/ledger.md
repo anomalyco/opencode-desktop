@@ -3,7 +3,7 @@
 - **Updated:** 2026-11-21
 - **Upstream `origin/dev` audited:** `f6e0c2d083` -> `b9a60d9d07` (**377** post-14 Nov commits: **143** in ledger + **234** skipped) plus **15** pre-14 Nov carry-over rows (`3751be8138..f6e0c2d083`) and 6 owner-split sub-rows of `UP-095`.
 - **`rune-desktop` `origin/dev` checked:** `6e98fc2b72`.
-- **Total ledger rows:** **164** — **113** have it · **4** partly · **23** not applicable · **23** missing · **1** differs on purpose.
+- **Total ledger rows:** **164** — **114** have it · **4** partly · **23** not applicable · **22** missing · **1** differs on purpose.
 - **Machine-readable twin:** `docs/upstream-sync/ledger.json` (generated together; identical rows).
 - **Status vs. Reviewed:** a row is **have it** only when its code is merged on `dev`; security-review tracking for browser rows lives in the separate **Reviewed** column.
 - **Open PR note column:** informational only (lists unmerged open PRs on `anomalyco/rune-desktop` that touch the same upstream PR; does not change row status).
@@ -16,7 +16,7 @@
 | **BROWSER-UI** | 6 | 0 | 6 | `UP-075`, `UP-115`, `UP-116`, `UP-118`, `UP-120`, `UP-137` |
 | **PREVIEWS** | 0 | 0 | 0 | _done_ |
 | **BROWSER-TOOLS** | 2 | 1 | 3 | `UP-095-TOOLS`, `UP-095-3P-CONTRACT`, `UP-095-PROMPT-GATE` |
-| **WS-2** | 2 | 0 | 2 | `UP-126`, `UP-143` |
+| **WS-2** | 1 | 0 | 1 | `UP-143` |
 | **WS-3** | 7 | 1 | 8 | `PRE-02`, `UP-033`, `UP-060`, `UP-065`, `UP-119`, `UP-136`, `UP-139`, `UP-141` |
 | **WS-4** | 0 | 0 | 0 | _done_ |
 | **WS-5** | 0 | 0 | 0 | _done_ |
@@ -24,7 +24,7 @@
 | **WS-7** | 0 | 0 | 0 | _done_ |
 | **WS-8** | 6 | 0 | 6 | `UP-114`, `UP-122`, `UP-127`, `UP-131`, `UP-135`, `UP-142` |
 | **WS-9** | 0 | 1 | 1 | `UP-095-EXT` |
-| **Total** | **23** | **4** | **27** | |
+| **Total** | **22** | **4** | **26** | |
 
 ## Browser Security Review Status (Tracked Separately in `Reviewed` Column)
 
@@ -186,7 +186,7 @@
 | UP-123 | #65076 (`8e1c6a43a2`)<br>feat(core): session_search and session_read tools behind sqlite_fts | 2026-11-20 | **core, schema**<br>`packages/schema/src/config/flag.ts`, `packages/core/src/session/search.ts`, `packages/core/src/tool/plugin/session-search.ts` | Add server-side session_search and session_read tools behind the sqlite_fts flag. | S | **not applicable** |  | Server-core tools and server config flag only; no desktop UI changes. | none | none | none |  |
 | UP-124 | #65186 (`b7f0b90dc0`)<br>feat(automation): run a fixed shell command as an automation action | 2026-11-20 | **core, protocol, schema**<br>`packages/schema/src/automation.ts`, `packages/protocol/src/groups/automation.ts`, `packages/core/src/automation/shell.ts` | Add { type: 'shell', command } as an automation action variant in server protocol/schema. | S | **not applicable** |  | Verified on dev (5d50c6f7): Rune does not deserialize Automation.Action enums (desktop only folds automation session titles in Home/Inbox). | none | none | none |  |
 | UP-125 | #65189 (`bf006b5e4f`)<br>fix(app): keep the model picker responsive with large catalogs | 2026-11-20 | **app, ui**<br>`packages/app/src/providers/models/select-dialog.tsx`, `packages/ui/src/forms/search-list/search-list.tsx`, `packages/app/src/usage/format.ts` | Optimize SolidJS DOM rendering and formatting in the model picker for large provider catalogs. | S | **not applicable** |  | SolidJS DOM reactivity/layout optimization; Rune draws model picker rows natively without DOM node churn. | none | none | none |  |
-| UP-126 | #65190 (`6b661050cb`)<br>fix(app): show the new session's target worktree in the header while it starts | 2026-11-20 | **app**<br>`packages/app/src/new-session/machine.ts`, `packages/app/src/session/session-identity-header.tsx` | Display the pending session's target worktree/project directory in the session identity header while worktree creation and session start are in flight. | S | **missing** |  | Carry target directory through new-session startup states and read it in the session header while pending. | none | none | WS-2 |  |
+| UP-126 | #65190 (`6b661050cb`)<br>fix(app): show the new session's target worktree in the header while it starts | 2026-11-20 | **app**<br>`packages/app/src/new-session/machine.ts`, `packages/app/src/session/session-identity-header.tsx` | Display the pending session's target worktree/project directory in the session identity header while worktree creation and session start are in flight. | S | **have it** |  | Code merged on dev in rune-desktop #348: Start::Worktree carries project_directory, Starts::directory exposes the target worktree across Worktree/Mcp/Creating, add_project_sandbox records created worktrees immediately, and session header/location card read Starts::directory while pending (new_session/mod.rs, header.rs, location_card.rs). (PR #348) | none | none | WS-2 |  |
 | UP-127 | #65192 (`7afef17923`)<br>fix(app): draw the whole timeline focus ring with rounded corners | 2026-11-20 | **app**<br>`packages/app/src/index.css` | Draw the focused timeline viewport ring on the visible session frame above header/composer with 10 px rounded corners instead of being clipped by the fade mask. | S | **missing** |  | Timeline scroll viewport currently uses standard inset focus ring without 10 px outer-frame overlay above header/composer fade. | UP-088 (#64909) | none | WS-8 |  |
 | UP-128 | #65209 (`ef68b7ef67`)<br>feat(app): open a Home session in the background from its menu | 2026-11-20 | **app**<br>`packages/app/src/home/sessions/view.tsx` | Add background-open action to the Home session row context menu (refined by UP-129 #65212). | S | **have it** |  | Code merged on dev in rune-desktop #345: the Home session row menu leads with Open (as a click: clears Home search, opens) and Open in background (a tab behind the current page), then a separator, Rename, Export..., Mark as read/unread, separator, Delete... (features/session-menu open_home; home.sessions.openInBackground). (PR #345) | none | none | WS-2 |  |
 | UP-129 | #65212 (`1607d4e624`)<br>feat(app): split Open and Open in background in the Home session menu | 2026-11-20 | **app**<br>`packages/app/src/home/sessions/view.tsx`, `packages/app/src/runtime/i18n/en.ts` | Show separate 'Open' and 'Open in background' items above a separator in the Home session row menu (i18n key home.sessions.openInBackground). | S | **have it** |  | Code merged on dev in rune-desktop #345: the Home session row menu leads with Open (as a click: clears Home search, opens) and Open in background (a tab behind the current page), then a separator, Rename, Export..., Mark as read/unread, separator, Delete... (features/session-menu open_home; home.sessions.openInBackground). (PR #345) | UP-128 (#65209) | none | WS-2 |  |
