@@ -111,6 +111,8 @@ function failure.refusalKey(code: string): string
         return "refused.proxyRequired"
     elseif code == "browser.proxy.invalid" then
         return "refused.proxyInvalid"
+    elseif code == "browser.passkeys.unrestricted" then
+        return "refused.passkeysUnrestricted"
     end
     return "refused.web"
 end

@@ -159,7 +159,48 @@ pub fn comment_card(p: &Pal, c: &PromptComment, hint: bool, active: bool, wide: 
     match c {
         PromptComment::Quote(q) => quote_card(p, q, hint, active, wide),
         PromptComment::File(f) => file_card(p, f, active, wide),
+        PromptComment::Note(n) => note_card(p, n, active, wide),
     }
+}
+
+fn note_card(p: &Pal, n: &opencode_kit::model::NoteComment, active: bool, wide: bool) -> El {
+    let comment = n.comment.trim();
+    let heading = if comment.is_empty() { one_line(&n.label) } else { one_line(comment) };
+    let sub_label = if comment.is_empty() {
+        n.subtitle.as_deref().unwrap_or(&n.label)
+    } else {
+        &n.label
+    };
+    let glyph = match n.icon.as_deref() {
+        Some("select-element") => &ic::SELECT_ELEMENT,
+        _ => &ic::GLOBE,
+    };
+    let title = text(heading).key("title").font(CARD_TITLE).color(p.text).truncate_fade().w_full();
+    let subtitle = row()
+        .key("subtitle")
+        .w_full()
+        .h(16.0)
+        .gap(4.0)
+        .center_y()
+        .min_w(0.0)
+        .child(icon(glyph, 12.0).color(p.muted))
+        .child(text(sub_label.to_owned()).font(CARD_SUBTITLE).color(p.muted).truncate_fade());
+    let c = col()
+        .key("card")
+        .padding(8.0)
+        .gap(6.0)
+        .radius(6.0)
+        .fill(if p.dark { p.hover } else { p.bg_base })
+        .box_shadow(Pal::ring_in(if active { p.q.border_strong } else { p.border }))
+        .child(title)
+        .child(subtitle);
+    let c = if wide { c.w_full() } else { c.w(160.0) };
+    let tip = if comment.is_empty() {
+        n.title.clone().unwrap_or_else(|| n.label.clone())
+    } else {
+        comment.to_owned()
+    };
+    c.help(tip).help_above()
 }
 
 /// `getFilenameTruncated`: a name over `max` characters keeps its extension after an ellipsis.

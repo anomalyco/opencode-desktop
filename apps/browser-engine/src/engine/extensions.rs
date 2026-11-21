@@ -840,6 +840,14 @@ impl EngineManager {
             let was = t.prompts.agent_driven.swap(agent_driven, Ordering::AcqRel);
             t.prompts.user_reclaimed.store(false, Ordering::Release);
             t.snap.lock().unwrap().agent_driven = agent_driven;
+            let intercept_choosers = agent_driven || t.preview.is_some();
+            let root_fc = t.passkeys.file_chooser_intercept_msg(intercept_choosers, None);
+            t.host.send_dev_tools_message(Some(root_fc.as_bytes()));
+            let child_sids = t.cdp_ledger.lock().unwrap().web_session_ids();
+            for sid in child_sids {
+                let raw = t.passkeys.file_chooser_intercept_msg(intercept_choosers, Some(&sid));
+                t.host.send_dev_tools_message(Some(raw.as_bytes()));
+            }
             if agent_driven {
                 // Agent-driven tabs permanently refuse WebAuthn/passkeys (`chromium.ts:834-845`).
                 for raw in t.passkeys.enforce_messages() {

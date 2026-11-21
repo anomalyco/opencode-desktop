@@ -369,6 +369,11 @@ pub(super) fn poll_commands(
                     failure_code::SIGN_IN_REQUIRED,
                     browser_pane::prompts::agent_passkey_refusal_message((!site.is_empty()).then_some(site.as_str())),
                 ))
+            } else if app.workspace_panes.browser.host.take_agent_file_chooser_blocked(host_id) {
+                Some(Outcome::fail(
+                    failure_code::OPERATION_FAILED,
+                    "Agent actions cannot open a native file picker. Use browser.files.upload({ tabID, ref, paths }) for a file input.",
+                ))
             } else if let Some(tab) = app.workspace_panes.browser.host.tab(host_id) {
                 if tab.prompts.dialog.open().is_some() {
                     Some(Outcome::fail(

@@ -167,6 +167,9 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         if code == "browser.controlled.inherited_permission" then
             return "Controlled browser actions are blocked on this site because it holds a profile permission."
         end
+        if code == "browser.passkeys.unrestricted" then
+            return "This tab's page was stopped: passkeys could not be turned off for it, which a tab the agent drives requires."
+        end
         return "Only HTTP, HTTPS, and about:blank URLs are supported."
     end
 
