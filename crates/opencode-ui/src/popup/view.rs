@@ -139,7 +139,7 @@ fn build<S: PopupHost + 'static>(
             Entry::Item(i) if i.detail => list.other(detail_row(p, &row_key(&i.id), i), MENU.row_h),
             Entry::Item(i) => {
                 let o = Opt::new(row_key(&i.id), i.title.clone())
-                    .role(role)
+                    .role(if i.radio { "menuitemradio" } else { role })
                     .active(active == Some(n))
                     .checked(i.checked)
                     .danger(i.danger)
