@@ -39,9 +39,9 @@ on:
   workflow_dispatch:
     inputs:
       channel:
-        description: Run from dev. check (build and verify), dev or stable (desktop), engine (browser engines), or engine-linux (sidecar preview)
+        description: Run from dev. check (build and verify), dev or stable (desktop), or engine (browser engines)
         type: choice
-        options: [check, dev, stable, engine, engine-linux]
+        options: [check, dev, stable, engine]
         default: check
       bump:
         description: Stable only. Raises the latest vX.Y.Z tag by patch, minor or major
@@ -52,7 +52,6 @@ on:
 run-name: >-
   ${{ (github.event_name == 'schedule' || inputs.channel == 'dev') && 'dev: full desktop matrix'
   || inputs.channel == 'engine' && 'browser engine release'
-  || inputs.channel == 'engine-linux' && 'linux x64 browser engine preview'
   || inputs.channel == 'stable' && format('stable: {0} bump (dispatched)', inputs.bump)
   || 'check: full desktop matrix' }}
 
@@ -76,7 +75,7 @@ env:
 
 jobs:
   plan:
-    if: github.ref == 'refs/heads/dev' && inputs.channel != 'engine-linux'
+    if: github.ref == 'refs/heads/dev'
     runs-on: blacksmith-2vcpu-ubuntu-2404
     permissions:
       contents: read
@@ -1194,48 +1193,6 @@ jobs:
           {
             echo '### Desktop Manifest'; echo '```json'; cat "$RUNNER_TEMP/manifest.json"; echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-
-  # ---- Browser engine: manually published Linux preview ----
-  build-engine-linux:
-    timeout-minutes: 45
-    if: github.ref == 'refs/heads/dev' && inputs.channel == 'engine-linux'
-    runs-on: blacksmith-2vcpu-ubuntu-2404
-    outputs:
-      digest: ${{ steps.upload.outputs.digest }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Package Linux x64 CEF sidecar
-        run: apps/browser-engine/scripts/package-linux.sh "$RUNNER_TEMP/engine"
-      - id: upload
-        uses: ./.github/release/upload
-        with:
-          name: browser-engine-linux-x64
-          path: ${{ runner.temp }}/engine
-
-  publish-engine-linux:
-    timeout-minutes: 20
-    needs: build-engine-linux
-    runs-on: blacksmith-2vcpu-ubuntu-2404
-    environment: release
-    permissions:
-      contents: write
-    steps:
-      - *checkout-release
-      - uses: ./.github/release/download
-        with:
-          pattern: browser-engine-linux-x64
-          digests: browser-engine-linux-x64=${{ needs.build-engine-linux.outputs.digest }}
-      - name: Publish versioned Linux engine preview
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          cd "$RUNNER_TEMP/in/browser-engine-linux-x64"
-          tag="browser-engine-linux-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false \
-            --title 'linux browser engine' --notes 'linux x64 sidecar and installer index' \
-            index.json SHA256SUMS OpenCode-Browser-Engine-*-linux-x64.tar.zst
 
   # ---- Publish Windows dev: rolling GitHub pre-release of the unsigned setups --
   # Every dev build replaces the setups it built on opencode-rune-windows-dev, under names that stay
