@@ -30,14 +30,41 @@ pub fn cookie_url(host: &str, path: &str, secure: bool) -> String {
     format!("{scheme}://{bracketed}{norm_path}")
 }
 
-/// Filters out cookies no browser would send again (expired, empty host, or nameless + empty)
-/// before sending to the engine, returning `(valid, skipped_count)`.
+/// A cookie host a browser would store: a plain hostname (letters, digits, `-`, `_`, dot-separated
+/// labels of at most 63, at most 253 in all) or an IPv4 / IPv6 literal (bracketed or not), with at
+/// most one leading dot. Nothing that would change the meaning of the URL a cookie is set through
+/// (`user@host`, `?`, `#`, `%`, a port, a stray `:`, controls, spaces) passes.
+pub fn valid_cookie_host(host: &str) -> bool {
+    let bare = host.strip_prefix('.').unwrap_or(host);
+    if bare.is_empty() || bare.len() > 253 {
+        return false;
+    }
+    if let Some(inner) = bare.strip_prefix('[').and_then(|r| r.strip_suffix(']')) {
+        return inner.parse::<std::net::Ipv6Addr>().is_ok();
+    }
+    if bare.contains(':') {
+        return bare.parse::<std::net::Ipv6Addr>().is_ok();
+    }
+    bare.split('.').all(|label| {
+        !label.is_empty() && label.len() <= 63 && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    })
+}
+
+/// Filters out cookies no browser would send again (expired, nameless + empty, or a host that is
+/// not `valid_cookie_host`) before sending to the engine, returning `(valid, skipped_count)`.
 pub fn prepare_for_import(cookies: &[WireCookie], now_secs: f64) -> (Vec<WireCookie>, u32) {
     let mut valid = Vec::with_capacity(cookies.len());
     let mut skipped = 0u32;
     for c in cookies {
         let bare = c.host.trim_start_matches('.');
-        if bare.is_empty() || (c.name.is_empty() && c.value.is_empty()) {
+        // The engine's own field caps (`apps/browser-engine/src/cookies.rs` `MAX_COOKIE_*`): a cookie
+        // past them would only be refused there, after riding a batch over the wire.
+        if !valid_cookie_host(&c.host)
+            || (c.name.is_empty() && c.value.is_empty())
+            || c.name.len() > 4096
+            || c.value.len() > 8192
+            || c.path.len() > 4096
+        {
             skipped = skipped.saturating_add(1);
             continue;
         }
@@ -95,11 +122,10 @@ struct JsonCookie {
     same_site: Option<String>,
 }
 
+/// Playwright's storage state: `{ "cookies": [...] }`.
 #[derive(Deserialize)]
-#[serde(untagged)]
-enum JsonCookieDoc {
-    List(Vec<JsonCookie>),
-    Wrapped { cookies: Vec<JsonCookie> },
+struct WrappedCookies {
+    cookies: Vec<JsonCookie>,
 }
 
 /// Parses an exported cookie file: Chrome/Cookie-Editor/EditThisCookie JSON array, Playwright
@@ -107,11 +133,14 @@ enum JsonCookieDoc {
 /// Returns `None` if the text matches none of those formats.
 pub fn parse_cookie_file(text: &str) -> Option<CookieRead> {
     let trimmed = text.trim();
-    if let Ok(doc) = serde_json::from_str::<JsonCookieDoc>(trimmed) {
-        let list = match doc {
-            JsonCookieDoc::List(v) => v,
-            JsonCookieDoc::Wrapped { cookies } => cookies,
-        };
+    // The first character says which JSON shape it is, so the text is parsed once, straight into
+    // cookies (an untagged enum would first buffer the whole document as a generic tree).
+    let json = match trimmed.as_bytes().first() {
+        Some(b'[') => serde_json::from_str::<Vec<JsonCookie>>(trimmed).ok(),
+        Some(b'{') => serde_json::from_str::<WrappedCookies>(trimmed).ok().map(|w| w.cookies),
+        _ => None,
+    };
+    if let Some(list) = json {
         let cookies = list.into_iter().map(from_json).collect();
         return Some(CookieRead {
             cookies,
