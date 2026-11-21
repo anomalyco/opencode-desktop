@@ -118,8 +118,11 @@ pub fn scripts(host: &dyn SubagentsHost, id: &str) -> Vec<Script> {
             }
         }
     }
+    // Every script runs as a job, so one still in the foreground only counts once its `execute`
+    // call has ended with the job's id (opencode#65303).
     let mut out: Vec<Script> = running
         .into_iter()
+        .filter(|j| named.contains_key(j.id.as_str()))
         .map(|j| Script {
             id: j.id.clone(),
             label: named.get(j.id.as_str()).cloned().flatten().unwrap_or_else(|| j.id.clone()),

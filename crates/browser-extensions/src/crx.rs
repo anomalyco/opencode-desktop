@@ -317,7 +317,10 @@ pub fn download_crx(target: &StoreTarget, chrome_version: &str) -> Option<Vec<u8
 /// verifies AND at least one verified key derives `expected_id` matching `signed_header_data.crx_id`.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn parse_crx<'a>(bytes: &'a [u8], expected_id: &str) -> Option<VerifiedCrx<'a>> {
-    use ring::signature::{ECDSA_P256_SHA256_ASN1, RSA_PKCS1_2048_8192_SHA256, UnparsedPublicKey};
+    use ring::signature::{
+        ECDSA_P256_SHA256_ASN1, RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY,
+        RSA_PKCS1_2048_8192_SHA256, UnparsedPublicKey,
+    };
 
     if !is_valid_ext_id(expected_id)
         || bytes.len() < 12
@@ -359,6 +362,11 @@ pub fn parse_crx<'a>(bytes: &'a [u8], expected_id: &str) -> Option<VerifiedCrx<'
     signed_msg.extend_from_slice(zip);
 
     let mut developer_key: Option<Vec<u8>> = None;
+    // Legacy pre-2013 Chrome Web Store extensions (e.g. LastPass) still carry an RSA-1024
+    // developer key alongside Chrome Web Store's own RSA-2048 and ECDSA-P256 publisher proofs.
+    // Accept RSA-1024 only when the CRX3 header also carries at least one verified >=2048-bit RSA
+    // or ECDSA-P256 proof.
+    let mut has_strong_proof = false;
     for &(field_num, proof_bytes) in &proofs {
         let pfields = protobuf_fields(proof_bytes)?;
         let key_spki = single_field(&pfields, 1)?;
@@ -368,14 +376,26 @@ pub fn parse_crx<'a>(bytes: &'a [u8], expected_id: &str) -> Option<VerifiedCrx<'
         }
         let ok = if *field_num == 2 {
             let rsa_pkcs1 = parse_canonical_rsa_spki(key_spki)?;
-            UnparsedPublicKey::new(&RSA_PKCS1_2048_8192_SHA256, rsa_pkcs1)
+            if UnparsedPublicKey::new(&RSA_PKCS1_2048_8192_SHA256, rsa_pkcs1)
                 .verify(&signed_msg, sig)
                 .is_ok()
+            {
+                has_strong_proof = true;
+                true
+            } else {
+                UnparsedPublicKey::new(&RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY, rsa_pkcs1)
+                    .verify(&signed_msg, sig)
+                    .is_ok()
+            }
         } else {
             let ec_point = parse_canonical_p256_spki(key_spki)?;
-            UnparsedPublicKey::new(&ECDSA_P256_SHA256_ASN1, ec_point)
+            let valid = UnparsedPublicKey::new(&ECDSA_P256_SHA256_ASN1, ec_point)
                 .verify(&signed_msg, sig)
-                .is_ok()
+                .is_ok();
+            if valid {
+                has_strong_proof = true;
+            }
+            valid
         };
         if !ok {
             return None;
@@ -385,6 +405,9 @@ pub fn parse_crx<'a>(bytes: &'a [u8], expected_id: &str) -> Option<VerifiedCrx<'
         }
     }
 
+    if !has_strong_proof {
+        return None;
+    }
     developer_key.map(|key| VerifiedCrx { zip, key })
 }
 

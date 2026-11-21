@@ -30,7 +30,7 @@ mod view;
 pub use keys::key;
 pub use menu::{Indicator, Item, Menu};
 pub use rune::{Align, PopupAnchor, PopupItem, PopupMenu, Side};
-pub use state::{dismiss, open, open_drawn, open_searchable, poll};
+pub use state::{dismiss, open, open_drawn, open_searchable, open_with_field, poll};
 pub use trigger::{MenuButton, menu_button};
 pub use view::{surface, view};
 
@@ -115,11 +115,25 @@ pub(super) type SearchRows<S> = Rc<dyn Fn(&S, &str) -> Menu>;
 pub(super) struct Search<S> {
     pub(super) placeholder: String,
     pub(super) rows: SearchRows<S>,
+    /// A field that edits a value instead of filtering ([`open_with_field`]).
+    pub(super) field: Option<Field<S>>,
 }
 
 impl<S> Clone for Search<S> {
     fn clone(&self) -> Self {
-        Self { placeholder: self.placeholder.clone(), rows: Rc::clone(&self.rows) }
+        Self { placeholder: self.placeholder.clone(), rows: Rc::clone(&self.rows), field: self.field.clone() }
+    }
+}
+
+/// What an editing field draws before its text, and what each edit does.
+pub(super) struct Field<S> {
+    pub(super) lead: Rc<dyn Fn(&S, &Pal) -> El>,
+    pub(super) changed: Rc<dyn Fn(&mut S, &str, &mut Tx)>,
+}
+
+impl<S> Clone for Field<S> {
+    fn clone(&self) -> Self {
+        Self { lead: Rc::clone(&self.lead), changed: Rc::clone(&self.changed) }
     }
 }
 

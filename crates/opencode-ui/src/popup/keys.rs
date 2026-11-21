@@ -13,7 +13,9 @@ pub fn key<S: PopupHost + 'static>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> boo
     if s.popup().shown.as_ref().is_some_and(|m| m.search.is_some()) {
         refresh(s);
         // Typing and moving in the search field are the field's; the rest move in the menu.
-        let field = !matches!(ev.key, Key::Escape | Key::Tab | Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Enter);
+        // An editing field keeps Return, which a search field gives to the lit row.
+        let editing = s.popup().shown.as_ref().is_some_and(|m| m.search.as_ref().is_some_and(|x| x.field.is_some()));
+        let field = !matches!(ev.key, Key::Escape | Key::Tab | Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Enter) || (editing && ev.key == Key::Enter);
         if field {
             return false;
         }

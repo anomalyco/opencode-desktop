@@ -14,6 +14,9 @@ use super::state::{choose, query_changed, refresh};
 pub(super) const SEARCH_H: f32 = 28.0 + 8.0;
 
 pub(super) fn search_field<S: PopupHost + 'static>(s: &S, p: &Pal, placeholder: &str) -> El {
+    if let Some(field) = s.popup().shown.as_ref().and_then(|m| m.search.as_ref()).and_then(|x| x.field.clone()) {
+        return edit_field(s, p, placeholder, field);
+    }
     let k = kit(p);
     let edit = &s.popup().query;
     let typed = !edit.text.is_empty();
@@ -79,3 +82,43 @@ pub(super) fn search_field<S: PopupHost + 'static>(s: &S, p: &Pal, placeholder: 
 
 /// The search field's text: 13/440, the compact line height.
 const INPUT: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0);
+
+/// [`super::open_with_field`]'s field: Desktop's bare `TextInput` in the group menu
+/// (`pinned-group-name`: 28 tall, transparent, no shadow and no ring, the full width), its lead
+/// before the text, each edit handed to the menu's `changed`.
+fn edit_field<S: PopupHost + 'static>(s: &S, p: &Pal, label: &str, field: super::Field<S>) -> El {
+    let changed = field.changed.clone();
+    let input = crate::style::field(&s.popup().query, INPUT)
+        .key("popup-field-input")
+        .label(label.to_owned())
+        .single_line()
+        .dir(rune::Direction::Auto)
+        .grow(1.0)
+        .shrink()
+        .min_w(0.0)
+        .color(p.text)
+        .placeholder(label.to_owned(), p.faint)
+        .caret(p.text, p.selection)
+        .selection_style(p.field_selection)
+        .on_edit(|s: &mut S| &mut s.popup_mut().query)
+        .on_input_change(move |s: &mut S, tx: &mut Tx| {
+            let text = s.popup().query.text.clone();
+            changed(s, &text, tx);
+            refresh(s);
+        })
+        .on_input_key(|s: &mut S, ev, tx: &mut Tx| {
+            matches!(ev.key, Key::Up | Key::Down | Key::Escape | Key::Tab | Key::PageUp | Key::PageDown) && key(s, ev, tx)
+        });
+    let line = row()
+        .key("popup-field")
+        .w_full()
+        .h(28.0)
+        .pl(8.0)
+        .pr(6.0)
+        .gap(6.0)
+        .center_y()
+        .radius(6.0)
+        .child((field.lead)(s, p))
+        .child(input);
+    row().key("popup-search-wrap").w_full().padding(4.0).child(line)
+}
