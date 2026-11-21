@@ -28,6 +28,8 @@ stories = []
 browser = ["browser-pane/engine"]
 # Harness builds: the browser engine install's injected faults (OPENCODE_BROWSER_FAULT_DISK_FULL).
 browser-faults = ["browser-pane/faults"]
+# Proof builds only: RUNE_STORAGE_DELAY_MS holds every lazy namespace load's reply on the storage thread.
+storage-delay = []
 # Measuring builds: heap dumps by allocation site, with the GPU's allocations, each plugin VM's
 # Luau heap and SQLite's (procwatch `alloc-sites`).
 alloc-sites = ["procwatch/alloc-sites", "rune/alloc-sites"]

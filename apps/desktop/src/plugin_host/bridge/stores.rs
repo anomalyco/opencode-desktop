@@ -181,7 +181,11 @@ fn load_now(ns: &str) {
             tx.send(()).ok();
         }),
     );
+    #[cfg(feature = "storage-delay")]
+    let started = std::time::Instant::now();
     rx.recv_timeout(Duration::from_secs(2)).ok();
+    #[cfg(feature = "storage-delay")]
+    eprintln!("storage-delay: load_now({ns}) held the UI thread {} µs", started.elapsed().as_micros());
 }
 
 /// Whether plugin `id`'s first reads have its saved values: they're in memory, or the boot record
