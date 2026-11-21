@@ -209,7 +209,7 @@ impl EngineManager {
                         tab.download_alive.store(false, Ordering::Release);
                         tab.host.close_browser(1);
                         self.downloads.close_tab(engine_tab_id, tab.download_gen);
-                        self.contexts.release_tab(engine_tab_id);
+                        self.release_tab_context(engine_tab_id);
                         if engine_tab_id >= 1_000_000 {
                             self.unmanaged_ext_tabs = self.unmanaged_ext_tabs.saturating_sub(1);
                         }
@@ -672,6 +672,14 @@ impl EngineManager {
             | M::PreviewResponseHead { .. }
             | M::PreviewResponseChunk { .. }
             | M::PreviewResponseEnd { .. }
+            // Profile cookie store messages from Settings > Browser (`#286`): not tab-addressed.
+            | M::ProfileCookiesList { .. }
+            | M::ProfileCookiesSet { .. }
+            | M::ProfileCookieDelete { .. }
+            | M::ProfileProbeCookies { .. }
+            | M::ClearProfileData { .. }
+            | M::SetShareSignIns { .. }
+            | M::SyncRemoteCookies { .. }
             | M::Shutdown => return false,
             // Exempt tab-addressed lifecycle, cleanup, layout/zoom, human input, prompt answers,
             // and `OpenTab`/`Navigate` (guarded by destination pre-check + Guard 2 commit check so

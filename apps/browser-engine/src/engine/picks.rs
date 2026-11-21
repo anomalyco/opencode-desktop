@@ -43,6 +43,7 @@ impl EngineManager {
                 clears.push(clear);
             }
         }
+        self.poll_cookie_mirror();
         for clear in clears {
             if let Some(tab) = self.tabs.get(&clear.tab_id) {
                 if !self.contexts.is_tab_ready(clear.tab_id) {

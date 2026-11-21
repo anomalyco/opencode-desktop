@@ -134,6 +134,8 @@ pub struct BrowserHost {
     pub(crate) context_menus: VecDeque<(u64, crate::protocol::PageContextMenu)>,
     pub(crate) download_save_requests: VecDeque<crate::protocol::DownloadSaveRequest>,
     pub(crate) diagnostics: VecDeque<crate::find::PageDiagnostic>,
+    pub(crate) profile_events: VecDeque<crate::cookies::ProfileEvent>,
+    pub(crate) share_sign_ins: bool,
     /// Tab IDs closed by the engine (`EngineMsg::TabClosed`) paired with `fatal_close` (`true` only
     /// on unrecoverable proxy/context failure, never explicit `DropContext` of a suspended tab).
     pub(crate) closed_tabs: VecDeque<(u64, bool)>,
@@ -201,6 +203,8 @@ impl BrowserHost {
             context_menus: VecDeque::new(),
             download_save_requests: VecDeque::new(),
             diagnostics: VecDeque::new(),
+            profile_events: VecDeque::new(),
+            share_sign_ins: false,
             closed_tabs: VecDeque::new(),
             remote_proxies: HashMap::new(),
             site_permissions: crate::prompts::SitePermissions::default(),
@@ -282,7 +286,7 @@ impl BrowserHost {
     pub fn engine_configured() -> bool {
         #[cfg(feature = "engine")]
         {
-            let set = |k| std::env::var_os(k).is_some_and(|v| !v.is_empty());
+            let set = |k| crate::installer::dev_override(k).is_some();
             crate::source::configured()
                 || crate::source::has_trust()
                 || set("OPENCODE_BROWSER_ENGINE_BIN")
@@ -906,6 +910,7 @@ impl BrowserHost {
                     agent_tools,
                     preview,
                     permission_sync,
+                    cookies,
                     ..
                 } => {
                     if !matches!(
@@ -926,8 +931,12 @@ impl BrowserHost {
                         agent_tools,
                         preview,
                         permission_sync,
+                        cookies,
                     };
                     self.sync_site_permissions();
+                    if cookies && self.share_sign_ins {
+                        self.send(HostMsg::SetShareSignIns { enabled: true });
+                    }
                     // A new engine starts with an empty downloads folder and numbers its files
                     // from 1 again: the last one's files are gone. Held prompts replay if live.
                     self.download_save_requests.clear();
@@ -1139,6 +1148,36 @@ impl BrowserHost {
                 }
                 EngineMsg::PageDiagnostic { tab_id, level, event, fields } => {
                     self.diagnostics.push_back(crate::find::PageDiagnostic { tab_id, level, event, fields });
+                    changed = true;
+                }
+                EngineMsg::ProfileCookies { request_id, cookies } => {
+                    self.profile_events.push_back(crate::cookies::ProfileEvent::CookiesListed {
+                        request_id,
+                        cookies,
+                    });
+                    changed = true;
+                }
+                EngineMsg::ProfileCookiesImported { request_id, imported, failed } => {
+                    self.profile_events.push_back(crate::cookies::ProfileEvent::CookiesImported {
+                        request_id,
+                        imported,
+                        failed,
+                    });
+                    changed = true;
+                }
+                EngineMsg::ProfileProbeReady { request_id, written, cache_dir } => {
+                    self.profile_events.push_back(crate::cookies::ProfileEvent::ProbeReady {
+                        request_id,
+                        written,
+                        cache_dir,
+                    });
+                    changed = true;
+                }
+                EngineMsg::ProfileActionDone { request_id, ok } => {
+                    self.profile_events.push_back(crate::cookies::ProfileEvent::ActionDone {
+                        request_id,
+                        ok,
+                    });
                     changed = true;
                 }
                 EngineMsg::PreviewFetch { req_id, tab_id, kind, path, method, range } => {

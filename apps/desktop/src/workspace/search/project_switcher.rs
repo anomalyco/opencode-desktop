@@ -73,6 +73,10 @@ impl ProjectSwitcherHost for App {
         App::draft_project(self)
     }
 
+    fn draft_dir(&self) -> Option<&str> {
+        Some(App::draft_dir(self))
+    }
+
     fn open_branch_picker(&mut self, tx: &mut Tx) {
         App::open_branch_picker(self, tx);
     }

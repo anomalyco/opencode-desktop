@@ -556,14 +556,19 @@ fn on_row_press(host: &mut dyn ForkHost, sid: &str, mid: &str, tx: &mut Tx) {
     fork_from(host, sid, mid, tx);
 }
 
-/// The search block (`.fork-dialog [data-slot="search-list-search"]`): 6 above the 28-tall
-/// field and 9 below it, the hairline at its foot.
-const HEAD_H: f32 = 6.0 + 28.0 + 9.0;
-/// `fork-dialog-section`: the description, 4 above and below its 20-tall line.
-const SECTION_H: f32 = 28.0;
-/// A row (`.fork-dialog [data-slot="search-list-row"]`), and the 2 between rows.
-const ROW_H: f32 = 28.0;
+/// The search block (`.command-palette-compact [data-slot="search-list-search"]`,
+/// `shell/commands/dialog.css:145-158`): 6 above the 28-tall field, 6 to its 1 pt `::after`
+/// hairline, 2 under it.
+const HEAD_H: f32 = 6.0 + 28.0 + 6.0 + 1.0 + 2.0;
+/// `fork-dialog-section` (`shell/search-list.css:249-263`): 10 above and 2 below its 18-tall line.
+const SECTION_H: f32 = 10.0 + 18.0 + 2.0;
+/// A row (`.fork-dialog [data-slot="search-list-row"]`, 32 tall), and the 2 between rows.
+const ROW_H: f32 = 32.0;
 const ROW_GAP: f32 = 2.0;
+/// `fork-dialog-section`'s words: 12 at 440 on an 18 line, `text-faint`.
+const SECTION: rune::TextStyle = rune::TextStyle::new(12.0, 440.0).lh(18.0).tracking(0.05);
+/// `.fork-dialog .search-list-trailing`: 11, tabular.
+const TIME: rune::TextStyle = rune::TextStyle::new(11.0, 440.0).lh(16.0).tracking(0.05).features("'tnum' 1");
 /// `search-list-empty`.
 const EMPTY_H: f32 = 120.0;
 
@@ -599,7 +604,7 @@ fn row_shell(p: &Pal, item: &ForkableMessage, is_active: bool, is_pending: bool,
         let words = slow.then(|| text(opencode_i18n::t!("rune.fork.slow")).key("slow").font(UI).color(p.muted));
         Some(row().key("pending").gap(6.0).center_y().children(words).child(activity_ring_sized(p, 12.0)))
     } else {
-        (!item.time.is_empty()).then(|| text(item.time.clone()).key("time").font(UI.features("\"tnum\"")).color(p.muted))
+        (!item.time.is_empty()).then(|| text(item.time.clone()).key("time").font(TIME).color(p.muted))
     };
     // `search-list-row`: 8 in, 12 between the text and the time, 6 pt corners, the hover
     // overlay while lit; the text 13 at 440 in `text-base`, the time in `text-muted`.
@@ -609,7 +614,8 @@ fn row_shell(p: &Pal, item: &ForkableMessage, is_active: bool, is_pending: bool,
         .label(item.text.clone())
         .w_full()
         .h(ROW_H)
-        .px(8.0)
+        .pl(8.0)
+        .pr(6.0)
         .gap(12.0)
         .center_y()
         .radius(6.0)
@@ -634,16 +640,19 @@ fn dialog_shell(p: &Pal, w: f32, scroll_h: f32, search: El, scroll: El) -> El {
         .transition(Transition::none())
         .motion(Spring::NONE)
         .child(col().key("fork-search").w_full().pt(6.0).px(6.0).child(search))
-        // `::after`: a 0.5 hairline in `border-muted` across the dialog at the block's foot.
-        .child(el().key("fork-divider").w_full().h(0.5).mt(8.5).fill(p.border_muted))
+        // `::after`: a 1 pt rule drawn at half its height (`scaleY(0.5)`) across the dialog, 6
+        // under the field and 2 above the section.
+        .child(col().key("fork-divider").w_full().h(1.0).mt(6.0).mb(2.0).py(0.25).child(el().w_full().h(0.5).fill(p.border_muted)))
         .child(
             row()
                 .key("fork-desc")
                 .w_full()
                 .h(SECTION_H)
                 .px(14.0)
+                .pt(10.0)
+                .pb(2.0)
                 .center_y()
-                .child(text(opencode_i18n::t!("dialog.fork.description")).font(UI.lh(20.0)).color(p.muted)),
+                .child(text(opencode_i18n::t!("dialog.fork.description")).font(SECTION).color(p.faint)),
         )
         .child(scroll)
 }

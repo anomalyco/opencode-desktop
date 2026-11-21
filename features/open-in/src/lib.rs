@@ -475,9 +475,15 @@ pub trait OpenInHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     fn write_json(&self, ns: &str, key: &str, val: &Value);
 }
 
-/// Opens `url` in the system browser, or appends it to `HARNESS_OPEN_EXTERNAL_LOG` in debug or
-/// headless driver runs (matching `harness/electron-open-external-stub.cjs`).
+/// Opens `url` in the system browser/mail client ONLY when it passes the explicit OS scheme
+/// allow-list (`browser_policy::is_safe_os_external_url`: credential-free `http:`/`https:`, or
+/// attachment-free `mailto:`). In debug builds and headless driver runs it appends to
+/// `HARNESS_OPEN_EXTERNAL_LOG` instead when that is set.
 pub fn open_external(tx: &mut Tx, url: &str) -> bool {
+    let trimmed = url.trim();
+    if !browser_policy::is_safe_os_external_url(trimmed) {
+        return false;
+    }
     #[cfg(not(target_arch = "wasm32"))]
     if allow_harness_log()
         && let Some(log) = std::env::var_os("HARNESS_OPEN_EXTERNAL_LOG").filter(|v| !v.is_empty())
@@ -491,13 +497,13 @@ pub fn open_external(tx: &mut Tx, url: &str) -> bool {
             let entry = json!({
                 "pid": std::process::id(),
                 "kind": "openExternal",
-                "url": url,
+                "url": trimmed,
             });
             drop(writeln!(f, "{entry}"));
         }
         return true;
     }
-    tx.open_url(url).is_ok()
+    tx.open_url(trimmed).is_ok()
 }
 
 /// Strips a trailing ` (os error N)` suffix and normalizes known transport error wording.
