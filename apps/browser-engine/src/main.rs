@@ -33,6 +33,7 @@ mod cef_runtime;
 mod cookies;
 mod diagnostics;
 mod favicon;
+mod frame_authority;
 mod find;
 mod menu;
 mod preview;
@@ -319,7 +320,7 @@ fn main() {
     #[cfg(windows)]
     let mut manager = EngineManager::new(
         out_tx,
-        _cef.profile_root(),
+        _cef.download_roots(),
         events.clone(),
         previews,
         gpu.join().ok().flatten(),
@@ -330,7 +331,7 @@ fn main() {
     #[cfg(target_os = "linux")]
     let mut manager = EngineManager::new(
         out_tx,
-        _cef.profile_root(),
+        _cef.download_roots(),
         events.clone(),
         previews,
         linux_gpu::transport(gpu.join().ok().flatten()),
@@ -341,7 +342,7 @@ fn main() {
     #[cfg(target_os = "macos")]
     let mut manager = EngineManager::new(
         out_tx,
-        _cef.profile_root(),
+        _cef.download_roots(),
         events.clone(),
         previews,
         ext_host,
@@ -506,12 +507,48 @@ fn read_messages(
     previews: Arc<preview::PreviewRegistry>,
 ) {
     let _ = std::thread::Builder::new().name("engine-sock-rx".into()).spawn(move || {
-        for line in BufReader::new(stream).lines() {
-            let Ok(line) = line else { break };
+        // Hard cap on one NDJSON command line from the host (32 MiB accommodates large cookie
+        // import batches and base64 preview chunks while stopping unbounded allocation).
+        const MAX_WIRE_LINE_BYTES: usize = 32 * 1024 * 1024;
+        let mut reader = BufReader::new(stream);
+        let mut buf: Vec<u8> = Vec::new();
+        'outer: loop {
+            buf.clear();
+            let mut oversized = false;
+            loop {
+                let Ok(avail) = reader.fill_buf() else { break 'outer };
+                if avail.is_empty() {
+                    if buf.is_empty() {
+                        break 'outer;
+                    }
+                    break;
+                }
+                if let Some(pos) = avail.iter().position(|&b| b == b'\n') {
+                    if !oversized && buf.len() + pos <= MAX_WIRE_LINE_BYTES {
+                        buf.extend_from_slice(&avail[..pos]);
+                    } else {
+                        oversized = true;
+                    }
+                    reader.consume(pos + 1);
+                    break;
+                }
+                let n = avail.len();
+                if !oversized && buf.len() + n <= MAX_WIRE_LINE_BYTES {
+                    buf.extend_from_slice(avail);
+                } else {
+                    oversized = true;
+                    buf.clear();
+                }
+                reader.consume(n);
+            }
+            if oversized || buf.is_empty() {
+                continue;
+            }
+            let Ok(line) = std::str::from_utf8(&buf) else { continue };
             if line.trim().is_empty() {
                 continue;
             }
-            let Ok(msg) = serde_json::from_str::<HostMsg>(&line) else { continue };
+            let Ok(msg) = serde_json::from_str::<HostMsg>(line) else { continue };
             match msg {
                 HostMsg::PreviewResponseHead { req_id, ok, status, mime, content_length, content_range } => {
                     previews.deliver_head(req_id, ok, status, &mime, content_length, content_range);

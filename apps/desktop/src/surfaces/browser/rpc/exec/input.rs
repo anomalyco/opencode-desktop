@@ -64,8 +64,9 @@ const CHECK_POST_JS: &str = r#"function() {
   return Boolean(this.checked);
 }"#;
 
-/// An element: its `backendNodeId` and the OOPIF CDP session that owns it (`None`: the page).
-type Target = (i64, Option<String>);
+/// An element: its `backendNodeId`, the OOPIF CDP session that owns it (`None`: the page), and
+/// the frame ID its snapshot came from (verified by `#350`'s engine frame authority).
+type Target = (i64, Option<String>, Option<String>);
 
 pub(super) enum InputStep {
     ScrollIntoView(Target),
@@ -96,6 +97,7 @@ pub(super) struct InputState {
     saved_from: Option<(f64, f64)>,
     saved_obj: Option<String>,
     obj_session: Option<String>,
+    obj_frame: Option<String>,
 }
 
 impl InputState {
@@ -148,7 +150,7 @@ fn resolve_ref(att: &SessionAttachment, host_id: u64, cmd: &Command, field: &str
         .ok_or_else(|| Outcome::fail(failure_code::OPERATION_FAILED, format!("Missing {field}.")))?;
     att.refs
         .get(&host_id)
-        .and_then(|r| r.resolve(raw_ref))
+        .and_then(|r| r.resolve(raw_ref).map(|(bid, sid)| (bid, sid, r.frame_of(raw_ref))))
         .ok_or_else(|| {
             Outcome::fail(
                 failure_code::STALE_REF,
@@ -294,7 +296,7 @@ fn start_fill_form(att: &mut SessionAttachment, app: &mut App, cmd: &Command) ->
         let Some(r) = f.get("ref").and_then(Value::as_str) else {
             return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Form field missing ref."));
         };
-        let Some(bid) = att.refs.get(&host_id).and_then(|t| t.resolve(r)) else {
+        let Some(bid) = att.refs.get(&host_id).and_then(|t| t.resolve(r).map(|(b, s)| (b, s, t.frame_of(r)))) else {
             return StepOutcome::Done(Outcome::fail(
                 failure_code::STALE_REF,
                 format!("Element ref {r} is stale or absent. Refresh the snapshot first."),
@@ -372,7 +374,7 @@ fn push_check_steps(steps: &mut VecDeque<InputStep>, bid: Target, checked: bool)
 }
 
 fn launch_steps(app: &mut App, host_id: u64, steps: VecDeque<InputStep>) -> StepOutcome {
-    let mut state = InputState { host_id, steps, current: None, saved_pos: None, saved_from: None, saved_obj: None, obj_session: None };
+    let mut state = InputState { host_id, steps, current: None, saved_pos: None, saved_from: None, saved_obj: None, obj_session: None, obj_frame: None };
     if let Some(err) = dispatch_next_step(app, &mut state) {
         return StepOutcome::Done(err);
     }
@@ -421,7 +423,7 @@ fn call_fn(app: &mut App, st: &InputState, decl: &str, arg: Option<Value>) -> Re
     if let Some(a) = arg {
         params["arguments"] = json!([{ "value": a }]);
     }
-    app.workspace_panes.browser.host.send_typed_cdp(st.host_id, "Runtime.callFunctionOn", params, st.obj_session.clone()).map(Some)
+    app.workspace_panes.browser.host.send_typed_cdp_in_frame(st.host_id, "Runtime.callFunctionOn", params, st.obj_session.clone(), st.obj_frame.clone()).map(Some)
 }
 
 fn dispatch_next_step(app: &mut App, st: &mut InputState) -> Option<Outcome> {
@@ -430,14 +432,14 @@ fn dispatch_next_step(app: &mut App, st: &mut InputState) -> Option<Outcome> {
     let host = &mut app.workspace_panes.browser.host;
     let res: Result<Option<u64>, String> = match &step {
         // Page coordinates come from the page's own session; a cross-origin frame's quads are its own.
-        InputStep::ScrollIntoView((_, Some(_))) | InputStep::GetCenter((_, Some(_))) => {
+        InputStep::ScrollIntoView((_, Some(_), _)) | InputStep::GetCenter((_, Some(_), _)) => {
             return Some(Outcome::fail(
                 failure_code::OPERATION_FAILED,
                 "Pointer input inside a cross-origin frame is not supported yet. Use fill, select or evaluate with its frameID.",
             ));
         }
-        InputStep::ScrollIntoView((bid, None)) => host.send_typed_cdp(hid, "DOM.scrollIntoViewIfNeeded", json!({ "backendNodeId": bid }), None).map(Some),
-        InputStep::GetCenter((bid, None)) => host.send_typed_cdp(hid, "DOM.getContentQuads", json!({ "backendNodeId": bid }), None).map(Some),
+        InputStep::ScrollIntoView((bid, None, fid)) => host.send_typed_cdp_in_frame(hid, "DOM.scrollIntoViewIfNeeded", json!({ "backendNodeId": bid }), None, fid.clone()).map(Some),
+        InputStep::GetCenter((bid, None, fid)) => host.send_typed_cdp_in_frame(hid, "DOM.getContentQuads", json!({ "backendNodeId": bid }), None, fid.clone()).map(Some),
         InputStep::StoreFromCenter => {
             st.saved_from = st.saved_pos;
             return None;
@@ -477,13 +479,14 @@ fn dispatch_next_step(app: &mut App, st: &mut InputState) -> Option<Outcome> {
             }
             host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseReleased", "x": tx.round(), "y": ty.round(), "button": "left", "clickCount": 1 }), None).map(Some)
         }
-        InputStep::ResolveNode((bid, sid)) => {
+        InputStep::ResolveNode((bid, sid, fid)) => {
             st.obj_session = sid.clone();
-            host.send_typed_cdp(hid, "DOM.resolveNode", json!({ "backendNodeId": bid }), sid.clone()).map(Some)
+            st.obj_frame = fid.clone();
+            host.send_typed_cdp_in_frame(hid, "DOM.resolveNode", json!({ "backendNodeId": bid }), sid.clone(), fid.clone()).map(Some)
         }
         InputStep::CheckEditable { .. } => call_fn(app, st, CHECK_EDITABLE_JS, None),
         InputStep::SetStructured { text } => call_fn(app, st, SET_STRUCTURED_JS, Some(json!(text))),
-        InputStep::FocusNode((bid, sid)) => host.send_typed_cdp(hid, "DOM.focus", json!({ "backendNodeId": bid }), sid.clone()).map(Some),
+        InputStep::FocusNode((bid, sid, fid)) => host.send_typed_cdp_in_frame(hid, "DOM.focus", json!({ "backendNodeId": bid }), sid.clone(), fid.clone()).map(Some),
         InputStep::InsertText(text) => host.send_typed_cdp(hid, "Input.insertText", json!({ "text": text }), None).map(Some),
         InputStep::DispatchKey(spec) => {
             let mut down = json!({ "type": "keyDown", "key": spec.key, "windowsVirtualKeyCode": spec.windows_virtual_key_code, "modifiers": spec.modifiers });
@@ -631,7 +634,7 @@ fn handle_step_response(st: &mut InputState, step: InputStep, resp: Result<Value
 
 fn release_saved_obj(app: &mut App, st: &mut InputState) {
     if let Some(oid) = st.saved_obj.take() {
-        let _ = app.workspace_panes.browser.host.send_typed_cdp(st.host_id, "Runtime.releaseObject", json!({ "objectId": oid }), st.obj_session.clone());
+        let _ = app.workspace_panes.browser.host.send_typed_cdp_in_frame(st.host_id, "Runtime.releaseObject", json!({ "objectId": oid }), st.obj_session.clone(), st.obj_frame.clone());
     }
 }
 

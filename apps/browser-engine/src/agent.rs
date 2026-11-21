@@ -38,41 +38,6 @@ pub fn remove_tab_uploads(profile_dir: &Path, tab_id: u64) {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn handle_typed_cdp(
-    t: &ManagedTab,
-    tab_id: u64,
-    request_id: u64,
-    not_ready_reason: Option<&str>,
-    extensions_active: bool,
-    method: String,
-    params: Value,
-    session_id: Option<String>,
-    next_cdp_id: &AtomicI32,
-    out_tx: &Output,
-) {
-    // Profiling is refused while extensions are active: stricter than official (`ours.md`).
-    let profiling = method.starts_with("Profiler.")
-        || method.starts_with("Tracing.")
-        || method.starts_with("HeapProfiler.");
-    let refusal = if profiling && extensions_active {
-        Some("Profiling is refused while browser extensions are active.")
-    } else {
-        not_ready_reason
-    };
-    crate::cdp_ledger::handle_typed_cdp_call(
-        tab_id,
-        request_id,
-        refusal,
-        t,
-        next_cdp_id,
-        out_tx,
-        method,
-        params,
-        session_id,
-    );
-}
-
-#[allow(clippy::too_many_arguments)]
 pub fn handle_upload_files(
     t: &ManagedTab,
     profile_dir: &Path,
@@ -88,7 +53,9 @@ pub fn handle_upload_files(
         send_err(out_tx, tab_id, request_id, reason);
         return;
     }
-    if crate::engine::tab_is_extension_surface(t) {
+    if crate::engine::classify_surface(Some(&t.browser), t.is_popup, &t.snap, &t.prompts, &t.cdp_ledger)
+        != crate::engine::Surface::Clean
+    {
         send_err(out_tx, tab_id, request_id, "Agent browser tools cannot upload files into extension pages or tabs with extension frames.");
         return;
     }
@@ -128,7 +95,9 @@ pub fn handle_drop_files(
         send_err(out_tx, tab_id, request_id, reason);
         return;
     }
-    if crate::engine::tab_is_extension_surface(t) {
+    if crate::engine::classify_surface(Some(&t.browser), t.is_popup, &t.snap, &t.prompts, &t.cdp_ledger)
+        != crate::engine::Surface::Clean
+    {
         send_err(out_tx, tab_id, request_id, "Agent browser tools cannot drop files onto extension pages or tabs with extension frames.");
         return;
     }
@@ -208,7 +177,7 @@ fn dispatch_cdp(
     out_tx: &Output,
 ) {
     let msg_id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
-    t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::Raw { request_id, max_bytes: 64 * 1024 });
+    t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::Raw { request_id, max_bytes: 64 * 1024, typed: None });
     let mut payload = json!({
         "id": msg_id,
         "method": method,

@@ -438,6 +438,16 @@ pub trait TimelineHost: Sized + 'static {
     fn turn_diffs(&self) -> bool {
         false
     }
+    /// Settings › Preferences › Wrap code blocks (`general.wrapCodeBlocks`, anomalyco/opencode#64545).
+    fn wrap_code_blocks(&self) -> bool {
+        false
+    }
+    /// Per-block code-wrap overrides keyed by `"{row_key}:{block_index}"`.
+    fn code_wrap_overrides(&self) -> Option<&std::collections::HashMap<String, bool>> {
+        None
+    }
+    /// Sets or clears a per-block code-wrap override (`None` resumes following `wrap_code_blocks`).
+    fn set_code_wrap_override(&mut self, _key: String, _override: Option<bool>) {}
     /// The diff of session `session`'s run from prompt `from`, for Changed files; a host loads
     /// it when first asked.
     fn turn_diff(&self, _session: &str, _from: &str) -> turn_diff::State<'_> {
@@ -507,7 +517,22 @@ pub fn poll<S: TimelineHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
     changed |= copied::poll(s, now, tx);
     changed |= diagram::poll(s, now, tx);
     changed |= images::poll(s, now, tx);
+    changed |= poll_math();
     changed
+}
+
+/// Reports true on the frame a background LaTeX math render finishes so settled timelines swap
+/// from the code fallback to the rendered equation without waiting for user input.
+fn poll_math() -> bool {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEEN: AtomicU64 = AtomicU64::new(0);
+    let now = rune_kit::math::generation();
+    let prev = SEEN.load(Ordering::Relaxed);
+    if now != prev {
+        SEEN.store(now, Ordering::Relaxed);
+        return true;
+    }
+    false
 }
 
 /// All ⌘⇧K knob groups owned by `session-view`.

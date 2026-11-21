@@ -409,6 +409,12 @@ The complete license, source credits, and verbatim component notices ship in `ap
   - `Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors`
 - **Chromium Embedded Framework (CEF)** (`https://github.com/chromiumembedded/cef`, used by the on-demand `apps/browser-engine` sidecar) — BSD-3-Clause License
   - `Copyright (c) 2008-2020 Marshall A. Greenblatt. Portions Copyright (c) 2006-2009 Google Inc. All rights reserved.` (The Chromium Embedded Framework Authors)
+- **KaTeX Math Fonts** (`https://github.com/KaTeX/KaTeX`, 20 TrueType faces with Reserved Font Names `KaTeX_*`, embedded via `rune-kit` `math` feature from `ratex-katex-fonts 0.1.16`) — SIL Open Font License, Version 1.1 (full license text in Section 2 above)
+  - `Copyright (c) 2009-2010 Design Science, Inc.; Copyright (c) 2014-2018 Khan Academy (KaTeX)`
+- **Sandboxed LaTeX Display-Math Typesetter** (`ratex-math.wasm`, embedded via `rune-kit` `math` feature):
+  - **RaTeX** (`ratex-parser`, `ratex-layout`, `ratex-types`, `ratex-font`, `ratex-lexer` `0.1.16`, `https://github.com/erweixin/RaTeX`) — MIT License
+  - **unicode-normalization** (`0.1.26`, compiled inside `ratex-math.wasm`, `https://github.com/unicode-rs/unicode-normalization`) — (MIT OR Apache-2.0) AND Unicode-3.0
+  - **wasmi** (`wasmi`, `wasmi_core`, `wasmi_ir`, `wasmi_collections` `1.1.0`, native sandbox interpreter, `https://github.com/wasmi-labs/wasmi`) — MIT OR Apache-2.0
 
 ```text
 Copyright (c) 2008-2020 Marshall A. Greenblatt. Portions Copyright (c)

@@ -509,7 +509,7 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         },
                         Request::Pending(id) => send(Incoming::Pending { items: server.pending(&id), session: id }),
                         Request::Worktrees { project, root } => match server.get(&format!("/api/worktree?projectID={}", encode_component(&project))) {
-                            Ok(v) => send(Incoming::Worktrees { project, directories: model::parse_worktrees(&v, &root) }),
+                            Ok(v) => send(Incoming::Worktrees { project, directories: model::parse_worktrees(&v, &root), managed: model::parse_managed_worktrees(&v, &root) }),
                             Err(e) => send(Incoming::Failed(e)),
                         },
                         Request::Branches { directory, search } => {

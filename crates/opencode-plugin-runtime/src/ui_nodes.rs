@@ -170,16 +170,21 @@ fn metric(a: &mut NodeArgs) -> Result<El, String> {
 }
 
 fn keybind(a: &mut NodeArgs, catalog_chord: fn(&str) -> Option<Chord>) -> Result<El, String> {
-    let label = match (a.string("keys"), a.string("command")) {
-        (Some(keys), _) => keys.parse::<rune::Keybind>().ok().and_then(|k| k.chords().first().copied()).map(keymap::label).unwrap_or_else(|| keys.to_owned()),
+    let caps = match (a.string("keys"), a.string("command")) {
+        (Some(keys), _) => keys
+            .parse::<rune::Keybind>()
+            .ok()
+            .and_then(|k| k.chords().first().copied())
+            .map(keymap::caps)
+            .unwrap_or_else(|| vec![keys.to_owned()]),
         (None, Some(command)) => keymap::overrides::command(command)
             .and_then(|k| k.chords().first().copied())
             .or_else(|| catalog_chord(command))
-            .map(keymap::label)
+            .map(keymap::caps)
             .unwrap_or_default(),
-        _ => String::new(),
+        _ => Vec::new(),
     };
-    Ok(keymap::view::chips(&p(a), vec![label]))
+    Ok(keymap::view::chips(&p(a), caps))
 }
 
 fn variant(name: Option<&str>) -> ButtonVariant {

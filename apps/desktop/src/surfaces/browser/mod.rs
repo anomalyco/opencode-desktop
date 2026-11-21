@@ -8,7 +8,11 @@
 
 pub mod links;
 #[cfg(not(target_arch = "wasm32"))]
+mod activity;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod context_menu;
+#[cfg(not(target_arch = "wasm32"))]
+mod openers;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod preview;
 #[cfg(not(target_arch = "wasm32"))]
@@ -136,6 +140,12 @@ mod native {
         pub pending_app_links: std::cell::RefCell<std::collections::VecDeque<(u64, String)>>,
         /// Persistent SQLite browsing history store (`history.sqlite`, lazily opened).
         pub history: std::cell::RefCell<Option<browser_pane::history::HistoryStore>>,
+        /// Serializes human download OS Save dialogs (`EngineMsg::DownloadSaveRequest`) one at a time.
+        pub save_dialog_open: bool,
+        /// Tabs an agent opened or drove while hidden (`machine.ts` `unseen`, blue `tab.activity` dot).
+        pub unseen_tabs: std::collections::HashSet<u64>,
+        /// Chrome-style opener chains and initial `"New tab"` title holds (`UP-118`).
+        pub openers: super::openers::TabOpeners,
     }
 
     /// App-level shortcuts that a focused web page must yield to OpenCode (Rune) rather than swallow,
@@ -375,12 +385,7 @@ mod native {
                 return Vec::new();
             };
             let dir = self.link_directory(id);
-            let home = (!self.home.is_empty()).then_some(self.home.as_str());
-            if browser_pane::policy::is_safe_local_workspace_root(&dir, home) {
-                vec![dir]
-            } else {
-                Vec::new()
-            }
+            self.pinned_sidecar_root(&dir).into_iter().collect()
         }
 
         /// Default browser isolation context for tabs opened in session `sid`: derived from `sid`'s
@@ -563,10 +568,14 @@ mod native {
                     .host
                     .open_tab_with_context(url, roots, context, from_address, agent_driven)
             };
+            let is_agent = matches!(driver, Some(browser_pane::TabDriver::Agent));
             if let Some(driver) = driver {
                 self.workspace_panes.browser.host.set_tab_driver(id, driver);
             }
             self.attach_browser_tab_to_session(sid, id, target_pane, steal_focus);
+            if is_agent {
+                self.mark_browser_tab_unseen(id);
+            }
             id
         }
 
@@ -577,6 +586,9 @@ mod native {
         }
 
         pub fn navigate_browser_tab_with_agent(&mut self, id: u64, url: &str, agent: bool) {
+            if !agent {
+                self.note_browser_addressed(id);
+            }
             let sid = self.browser_tab_session(id).map(str::to_owned);
             let resolved = browser_pane::resolve_address(url);
             match self.resolve_preview_target(sid.as_deref(), &resolved, agent) {
@@ -675,6 +687,7 @@ mod native {
 
         /// Page `id`'s tab left its strip: the page closes and any preview server binding revokes.
         pub fn forget_browser_tab(&mut self, id: u64) {
+            self.workspace_panes.browser.openers.on_close(id);
             self.revoke_preview_binding(id);
             for ids in self.workspace_panes.browser.session_tabs.values_mut() {
                 ids.retain(|&x| x != id);
@@ -742,26 +755,7 @@ mod native {
                     changed = true;
                 }
             }
-            if self.workspace_panes.browser.host.has_popup_opens() {
-                let popups: Vec<_> = self.workspace_panes.browser.host.drain_popup_opens().collect();
-                for popup in popups {
-                    let Some((driver, opener_ctx)) = self.browser_context_for_opener(popup.opener_tab_id) else {
-                        // Opener closed before drain: refuse rather than downgrading to direct `Private`.
-                        continue;
-                    };
-                    let sid = self.browser_tab_session(popup.opener_tab_id).map(str::to_owned);
-                    let _new_id = self.open_new_browser_tab_with_context(
-                        sid.as_deref(),
-                        &popup.url,
-                        None,
-                        !popup.background,
-                        false,
-                        opener_ctx,
-                        driver,
-                    );
-                    changed = true;
-                }
-            }
+            changed |= self.drain_browser_popups();
             // Reload persisted site permissions when Settings > Browser edits `rune.sitePermissions`.
             let perm_ver = crate::plugin_host::services::store::store_version("browser", "rune.sitePermissions");
             if perm_ver != self.workspace_panes.browser.site_permissions_version {
@@ -785,6 +779,8 @@ mod native {
                 self.workspace_panes.browser.host.focus_tab(id);
                 changed = true;
             }
+            changed |= self.prune_browser_unseen();
+            changed |= self.sync_browser_openers();
             changed
         }
     }

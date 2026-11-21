@@ -1,7 +1,8 @@
 //! A group's label, named by what the agent did (`context-group.tsx`'s `activityLabel` and
 //! `workEvents`): its main mode, then what its other calls did. "Edited 2 files · 3 reads,
 //! 1 command", "Explored 4 files, 2 searches", "Started 1 shell · finished 1 shell". Subagents
-//! never count: each is a row of its own (anomalyco/opencode#64017).
+//! never count: each is a row of its own (anomalyco/opencode#64017). Every count comes from the
+//! steps' parts, never from the rows drawn (`timeline/facts.ts`' `summarize`, #65012).
 
 use std::collections::{HashMap, HashSet};
 
@@ -65,15 +66,37 @@ pub fn work_events(steps: &[Step]) -> Vec<Event> {
 const PRIORITY: [Mode; 4] = [Mode::Edit, Mode::Run, Mode::Tool, Mode::Explore];
 
 /// A group's activity label, or `None` for one with neither calls nor work that runs on.
-pub fn activity(steps: &[Step]) -> Option<Activity> {
+pub fn activity<'s>(steps: &[Step<'s>]) -> Option<Activity> {
     use opencode_i18n::{plural, t};
-    let tools: Vec<(&str, &serde_json::Value, &serde_json::Value, rules::Rule)> = steps.iter().filter_map(|st| match st {
+    let tools: Vec<(&'s str, &'s serde_json::Value, &'s serde_json::Value, rules::Rule)> = steps.iter().filter_map(|st| match st {
         Step::Tool { name, input, metadata, .. } => Some((*name, *input, *metadata, rules::rule(name, input))),
         _ => None,
     }).filter(|(.., r)| r.layout != Layout::Event).collect();
     let (buckets, _) = events::summarize_shells(&work_events(steps));
     let launched: Vec<String> = buckets.iter().map(|b| events::launch_count(b.verb, b.count)).collect();
-    let Some(mode) = PRIORITY.into_iter().find(|m| tools.iter().any(|t| t.3.mode == *m)) else {
+    // Each path once, in the order first seen.
+    let mut files: Vec<&'s str> = Vec::new();
+    let mut seen: HashSet<&'s str> = HashSet::new();
+    let mut add = |p: &'s str| {
+        if seen.insert(p) {
+            files.push(p);
+        }
+    };
+    for t in tools.iter().filter(|t| t.3.mode == Mode::Edit) {
+        let changed: Vec<&'s str> = t.2["files"].as_array().into_iter().flatten().filter_map(|f| f["file"].as_str()).collect();
+        let paths = if changed.is_empty() { crate::tools::path(t.1).into_iter().collect() } else { changed };
+        paths.into_iter().for_each(&mut add);
+    }
+    // A script counts once, as a command; the files it changed count as files where they are
+    // placed in the group, after the rest (`activityFacts`), and name it as edits do.
+    for st in steps {
+        if let &Step::Change { file, .. } = st
+            && let Some(p) = file["file"].as_str()
+        {
+            add(p);
+        }
+    }
+    let Some(mode) = PRIORITY.into_iter().find(|m| tools.iter().any(|t| t.3.mode == *m) || (*m == Mode::Edit && !files.is_empty())) else {
         let first = buckets.first()?;
         return Some(Activity {
             verb: events::verb_word(first.verb).to_owned(),
@@ -89,16 +112,6 @@ pub fn activity(steps: &[Step]) -> Option<Activity> {
             && !reads.contains(&p)
         {
             reads.push(p);
-        }
-    }
-    let mut files: Vec<String> = Vec::new();
-    for t in of(Mode::Edit) {
-        let changed: Vec<String> = t.2["files"].as_array().into_iter().flatten().filter_map(|f| f["file"].as_str().map(str::to_owned)).collect();
-        let paths = if changed.is_empty() { crate::tools::path(t.1).map(str::to_owned).into_iter().collect() } else { changed };
-        for p in paths {
-            if !files.contains(&p) {
-                files.push(p);
-            }
         }
     }
     // Reads count as files where exploring names the group, and as reads beside other work.

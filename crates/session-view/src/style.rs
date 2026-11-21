@@ -70,6 +70,25 @@ pub fn reasoning<S: TimelineHost>(s: &S, p: &Pal, key: &str, body: &str, secs: O
     c
 }
 
+/// Per-markdown code-block wrapping state (`Settings › Timeline › Wrap code blocks` plus any
+/// per-block hover toggles keyed by `"{scope}:{index}"`).
+#[derive(Clone, Default)]
+pub struct CodeWrap {
+    pub default: bool,
+    pub scope: std::rc::Rc<str>,
+    pub overrides: Option<std::rc::Rc<std::collections::HashMap<String, bool>>>,
+}
+
+impl CodeWrap {
+    pub fn of<S: TimelineHost>(s: &S, scope: &str) -> Self {
+        let overrides = s
+            .code_wrap_overrides()
+            .filter(|m| !m.is_empty())
+            .map(|m| std::rc::Rc::new(m.clone()));
+        Self { default: s.wrap_code_blocks(), scope: std::rc::Rc::from(scope), overrides }
+    }
+}
+
 /// `copied` are the copy buttons showing their ticks (`copied::current`), for code blocks' own.
 /// `chips` are the tooltips of the session chips in `src` (`session_chips::tips`), by link.
 /// `code_links` is the inline code naming files the host found (`TimelineHost::code_links`).
@@ -87,9 +106,29 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
     tentative: Option<rune::Direction>,
     code_links: Option<std::rc::Rc<std::collections::HashSet<String>>>,
 ) -> El {
+    markdown_styled_wrap::<S, H>(p, src, fade, streaming, style, highlights, copied, media, chips, tentative, code_links, CodeWrap::default())
+}
+
+/// Like [`markdown_styled`], with explicit code-block wrapping preference and per-block overrides.
+#[allow(clippy::too_many_arguments)]
+pub fn markdown_styled_wrap<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
+    p: &Pal,
+    src: &str,
+    fade: f32,
+    streaming: bool,
+    style: MarkdownStyle,
+    highlights: Vec<H>,
+    copied: Vec<String>,
+    media: Option<crate::images::markdown::MdMedia>,
+    chips: &[(String, String)],
+    tentative: Option<rune::Direction>,
+    code_links: Option<std::rc::Rc<std::collections::HashSet<String>>>,
+    code_wrap: CodeWrap,
+) -> El {
     use crate::user_parts::{session_of_link, session_of_raw_link};
     // Its texts join the timeline's selection group rather than forming one of their own, so
     // a drag runs on out of this reply into the rest of the timeline.
+    let style = style.math_scale(crate::scroller::device_scale());
     let full = std::rc::Rc::new(style.clone());
     let pal = *p;
     let rewritten = S::rewrite_markdown(src);
@@ -99,6 +138,8 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
     let code_click = code_links.clone();
     let code_help = code_links.clone();
     let code_menu = code_links.clone();
+    let wrap_default = code_wrap.default;
+    let wrap_scope = code_wrap.scope.clone();
     let mut md = Markdown::new(md_src)
         .style(style)
         .highlights(highlights)
@@ -106,8 +147,9 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
         .streaming(streaming)
         .selectable(true)
         .scroll_wide(true)
+        .wrap_code(wrap_default)
         .diagram_frame(move |card, d| crate::diagram::frame::<S>(&pal, card, d, &full))
-        .code_frame(move |card, c| code_card::<S>(&pal, card, c, &copied))
+        .code_frame(move |card, c| code_card::<S>(&pal, card, c, &copied, wrap_default, &wrap_scope))
         .on_link_tx(move |s: &mut S, url: &str, tx: &mut Tx| match session_of_link(url) {
             // A session's chip is the app's own address: a middle click opens nothing (Desktop's
             // window-open handler refuses its own pages).
@@ -132,6 +174,10 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
                 false => tips.iter().find(|(l, _)| l == url).map(|(_, t)| t.clone()).or_else(|| S::reply_link_help(url)),
             }
         });
+    if let Some(overrides) = code_wrap.overrides {
+        let scope = code_wrap.scope;
+        md = md.code_wrap(move |index, _| overrides.get(&format!("{scope}:{index}")).copied().unwrap_or(wrap_default));
+    }
     if has_session_refs {
         md = md.link_style(move |url| crate::session_chips::look(&pal, url));
     }
@@ -175,18 +221,33 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
     }.build(crate::palette::kit(p)).selection_group(false)
 }
 
-/// A code block with Desktop's Copy button (`markdown.css`'s `markdown-copy-button`): a 24 pt
-/// ghost icon button 4 pt in from the top right, fading in over 0.15 s while the pointer is over
-/// the block (`markdown.css:352-381`), its glyph a tick for a moment after a copy.
-fn code_card<S: TimelineHost>(p: &Pal, card: El, c: &rune_kit::CodeFrame<'_>, copied: &[String]) -> El {
+/// A code block with Desktop's hover toolbar (`markdown.css`'s `markdown-code-toolbar`): optional
+/// plugin actions, per-block Wrap button (when the block overflows), and Copy button, sitting 4 pt
+/// in from the top right over an opaque background fade that stops 1 pt inside the block's 0.5 pt
+/// border (`anomalyco/opencode#64545`, `#64576`).
+fn code_card<S: TimelineHost>(p: &Pal, card: El, c: &rune_kit::CodeFrame<'_>, copied: &[String], wrap_default: bool, scope: &str) -> El {
     let key = copy_key("code-copy", &(c.index, c.source));
-    let button = copy_button::<S>(p, c.source, key, opencode_i18n::t!("ui.message.copy"), copied);
+    let copy = copy_button::<S>(p, c.source, key, opencode_i18n::t!("ui.message.copy"), copied);
     let actions = if c.open { Vec::new() } else { S::code_block_actions(p, c.language, c.source) };
-    let buttons = if actions.is_empty() {
-        button.pin(None, Some(4.0), Some(4.0), None)
-    } else {
-        row().key("code-actions").gap(2.0).pin(None, Some(4.0), Some(4.0), None).children(actions).child(button)
-    };
+    let wrap = (!c.open && c.overflows_at(crate::scroller::device_scale()))
+        .then(|| wrap_button::<S>(p, format!("{scope}:{}", c.index), c.wrapped, wrap_default));
+    // `markdown.css:421-432` (UP-065 #64576): opaque code background behind the hover buttons,
+    // fading 24 pt left and 8 pt down so lines soften instead of cutting, stopping 1 pt inside
+    // the block's 0.5 pt hairline border (`inset: -3px -3px -8px -24px` around the 4 pt-inset buttons).
+    let backdrop = el()
+        .key("code-actions-bg")
+        .pin(Some(-24.0), Some(-3.0), Some(-3.0), Some(-8.0))
+        .clip_fade_linear(24.0, 0.0, 0.0, 8.0)
+        .inert()
+        .child(el().w_full().h_full().radius(5.0).fill(p.code_bg));
+    let buttons = row()
+        .key("code-actions")
+        .gap(2.0)
+        .pin(None, Some(4.0), Some(4.0), None)
+        .child(backdrop)
+        .children(actions)
+        .children(wrap)
+        .child(copy);
     // It also shows while the keyboard is on it or a plugin's action beside it
     // (`markdown.css:379-382`'s `:focus-within`), and always where nothing hovers: its
     // `opacity: 0` is `@media (hover: hover)` only (`markdown.css:359`).
@@ -197,6 +258,29 @@ fn code_card<S: TimelineHost>(p: &Pal, card: El, c: &rune_kit::CodeFrame<'_>, co
         .hover_motion(HOVER_FADE, HOVER_FADE)
         .child(card)
         .child(buttons.group_opacity(idle, 1.0))
+}
+
+/// The 24 pt ghost button that toggles soft-wrapping for one code block (`markdown.tsx:240-264`).
+fn wrap_button<S: TimelineHost>(p: &Pal, key: String, wrapped: bool, wrap_default: bool) -> El {
+    let label = if wrapped { opencode_i18n::t!("ui.message.unwrapLines") } else { opencode_i18n::t!("ui.message.wrapLines") };
+    row()
+        .key("wrap")
+        .role("button")
+        .label(label)
+        .help(label)
+        .help_above()
+        .size(24.0, 24.0)
+        .center()
+        .radius(6.0)
+        .hover(p.hover)
+        .press(p.pressed)
+        .hover_motion(INSTANT, INSTANT)
+        .on_press_tx(move |s: &mut S, _tx: &mut Tx| {
+            let next = !wrapped;
+            // Choosing the default again follows Settings › Timeline › Wrap code blocks from then on.
+            s.set_code_wrap_override(key.clone(), (next != wrap_default).then_some(next));
+        })
+        .child(icon(&ic::TEXT_WRAP, 16.0).color(p.icon_muted))
 }
 
 /// A copy button's `copied::mark_copied` mark: `prefix` and a hash of `what`.
@@ -219,6 +303,8 @@ fn copy_button<S: TimelineHost>(p: &Pal, text: &str, key: String, label: &'stati
         .label(label)
         .help(label)
         .help_above()
+        // `forceOpen`: "Copied" stays up for the tick's time, though the press hid the tooltip.
+        .help_open(done)
         .size(24.0, 24.0)
         .center()
         .radius(6.0)

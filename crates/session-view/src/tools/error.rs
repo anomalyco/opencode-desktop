@@ -35,9 +35,9 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
         let room = super::lists::column(session) - 14.0 - 16.0 - rune::text::measure(&title, &[], UI, None).0 - 16.0 - 20.0;
         t.contains('\n') || rune::text::measure(t, &[], sub_font, None).0 + tag > room
     });
-    // A failed call reads like the other rows (`timeline-next/tools/error-card.tsx`): the tool
-    // muted, its subject bright, then a Failed tag, open or shut; opening it shows the error.
-    let mut words = row().key("words").gap(8.0).center_y().shrink().min_w(0.0).child(text(title.clone()).key("title").font(UI).color(p.muted));
+    // A failed call reads like the other rows (`timeline-next/tools/error-card.tsx`,
+    // `basic-tool.css:229`): the tool muted, its subject bright, then a Failed tag, 6 apart.
+    let mut words = row().key("words").gap(6.0).center_y().shrink().min_w(0.0).child(text(title.clone()).key("title").font(UI).color(p.muted));
     if let Some(t) = sub.as_deref().filter(|_| !(open && clipped)) {
         let first = t.lines().next().unwrap_or("").to_owned();
         words = words.child(readable(p, text(first).key("subtitle").font(sub_font).color(p.text).truncate_fade()).shrink().min_w(0.0));
@@ -74,6 +74,7 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
         .role("button")
         .label(label)
         .help(label)
+        .help_open(done)
         .size(24.0, 24.0)
         .center()
         .radius(6.0)

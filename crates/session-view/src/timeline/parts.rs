@@ -307,7 +307,9 @@ pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usi
     };
     let copy_key = format!("copy-{}-{part}", a.id);
     let key = copy_key.clone();
-    let button = row().key("copy").role("button").label_static(opencode_i18n::t!("ui.message.copyResponse"))
+    let done = crate::copied::is_copied(s, &copy_key);
+    let label = if done { opencode_i18n::t!("ui.message.copied") } else { opencode_i18n::t!("ui.message.copyResponse") };
+    let button = row().key("copy").role("button").label_static(label).help(label).help_above().help_open(done)
         .size(COPY, COPY).center().radius(4.0).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             tx.copy(body.clone());
@@ -409,6 +411,9 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, 
         .opacity_motion(INSTANT)
         .child(crate::copied::glyph(s, &copy_key, COPY_GLYPH, p.muted));
     if !busy && has_text {
+        let done = crate::copied::is_copied(s, &copy_key);
+        let label = if done { opencode_i18n::t!("ui.message.copied") } else { opencode_i18n::t!("ui.message.copyResponse") };
+        button = button.label_static(label).help(label).help_above().help_open(done);
         let session = session.to_owned();
         let id = message.id().to_owned();
         button = button.on_press_tx(move |s: &mut S, tx: &mut Tx| {
@@ -537,8 +542,21 @@ pub fn markdown_view_find<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &
     // A reply with a ```ui outline in it draws it as parts (`genui`); any other takes this path.
     let media = crate::images::markdown::MdMedia { message: message.map(std::rc::Rc::from), scope: Some(std::rc::Rc::from(row_key)), ..crate::images::md_media(s) };
     let render = |body: &str, section_hits, highlights| {
-        crate::genui::reply(s, p, body, fade, streaming, section_hits, &tips, links.clone()).unwrap_or_else(|| {
-            markdown_with_highlights::<S>(p, body, fade, streaming, p.text, crate::genui::width(s), highlights, crate::copied::current(s), Some(media.clone()), &tips, prompt, links.clone())
+        crate::genui::reply(s, p, row_key, body, fade, streaming, section_hits, &tips, links.clone()).unwrap_or_else(|| {
+            crate::style::markdown_styled_wrap::<S, _>(
+                p,
+                body,
+                fade,
+                streaming,
+                markdown_style(p, p.text, crate::genui::width(s)),
+                highlights,
+                crate::copied::current(s),
+                Some(media.clone()),
+                &tips,
+                prompt,
+                links.clone(),
+                crate::style::CodeWrap::of(s, row_key),
+            )
         })
     };
     let el = crate::video::reply(s, p, row_key, src, streaming, |range, suffix| {
@@ -553,11 +571,25 @@ pub fn markdown_view_find<S: TimelineHost>(s: &S, p: &Pal, row_key: &str, src: &
             owned = format!("{}{suffix}", &src[range.clone()]);
             owned.as_str()
         };
+        let seg_scope = format!("{row_key}-v-{}", range.start);
         // Only segments with a generated UI block need its own Find ranges.
-        if let Some(view) = crate::genui::reply(s, p, segment, fade, streaming, hits.map(|_| (ranges.as_slice(), active)), &tips, links.clone()) {
+        if let Some(view) = crate::genui::reply(s, p, &seg_scope, segment, fade, streaming, hits.map(|_| (ranges.as_slice(), active)), &tips, links.clone()) {
             return view;
         }
-        markdown_with_highlights::<S>(p, segment, fade, streaming, p.text, crate::genui::width(s), highlights, crate::copied::current(s), Some(media.clone()), &tips, prompt, links.clone())
+        crate::style::markdown_styled_wrap::<S, _>(
+            p,
+            segment,
+            fade,
+            streaming,
+            markdown_style(p, p.text, crate::genui::width(s)),
+            highlights,
+            crate::copied::current(s),
+            Some(media.clone()),
+            &tips,
+            prompt,
+            links.clone(),
+            crate::style::CodeWrap::of(s, &seg_scope),
+        )
     }).unwrap_or_else(|| render(src, hits, s.find_markdown_highlights(p, row_key)));
     match message {
         Some(id) => crate::images::menu::on_message::<S>(el, "", id),

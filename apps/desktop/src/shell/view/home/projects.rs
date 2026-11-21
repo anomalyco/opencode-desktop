@@ -219,7 +219,8 @@ pub(crate) fn open_project_menu(s: &mut App, id: &str, anchor: String, tx: &mut 
             Some("edit") => s.edit_project(&proj.directory, tx),
             Some("history") => super::browse::history(s, &server, &proj, tx),
             Some("reveal") => {
-                if let Err(e) = super::super::location_card::reveal(&proj.directory) {
+                let target = super::super::location_card::reveal_target(s, &proj.directory);
+                if let Err(e) = target.and_then(|t| super::super::location_card::reveal(&t)) {
                     if e == super::super::location_card::MISSING_DIR_ERR {
                         let name = super::super::project_or_dir(Some(&proj), &proj.directory);
                         crate::status_toast::fail(

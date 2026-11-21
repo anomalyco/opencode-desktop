@@ -109,6 +109,9 @@ pub struct TabSnapshot {
     /// Whether this tab is agent-driven (preserved across reconnects).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub agent_driven: bool,
+    /// Counts main-frame document loads (`on_load_start`); unchanged by same-document URL changes.
+    #[serde(default)]
+    pub document: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -151,6 +154,9 @@ pub enum HostMsg {
         /// This app shows and answers page dialogs, permissions, and HTTP auth (`prompts.rs`).
         #[serde(default)]
         prompts: bool,
+        /// This app handles `EngineMsg::DownloadSaveRequest` via a native OS Save dialog.
+        #[serde(default)]
+        download_save: bool,
     },
     OpenTab {
         tab_id: u64,
@@ -314,6 +320,11 @@ pub enum HostMsg {
         username: Option<String>,
         password: Option<String>,
     },
+    AnswerDownloadSave {
+        tab_id: u64,
+        id: u64,
+        path: Option<String>,
+    },
     SetAgentDriven {
         tab_id: u64,
         agent_driven: bool,
@@ -387,6 +398,9 @@ pub enum HostMsg {
         method: String,
         params: Value,
         session_id: Option<String>,
+        /// The frame an element ref came from; the engine checks it belongs to `session_id`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        frame_id: Option<String>,
     },
     UploadFiles {
         tab_id: u64,
@@ -468,6 +482,9 @@ pub enum EngineMsg {
         /// The engine emits `EngineMsg::PreviewCredit` for end-to-end preview flow control.
         #[serde(default)]
         preview_credit: bool,
+        /// The engine owns `Target.setAutoAttach` and frame exclusion authority (`EngineCdpLedger`).
+        #[serde(default)]
+        frame_authority: bool,
         /// The engine stages agent files for confined `UploadFiles` and `DropFiles`.
         #[serde(default)]
         agent_files: bool,
@@ -623,10 +640,20 @@ pub enum EngineMsg {
         texture: String,
         release_fence: String,
     },
-    /// A download started, moved on or ended. An engine from before it sends none.
+    /// A download started, moved on or ended (agent-driven tabs only). An engine from before it sends none.
     Download {
         tab_id: u64,
         file: DownloadFile,
+    },
+    /// A human-initiated download (or right-click "Save image as…") awaiting a native OS Save
+    /// dialog path outside the engine profile and `opencode-page-downloads`.
+    DownloadSaveRequest {
+        tab_id: u64,
+        id: u64,
+        name: String,
+        mime: String,
+        #[serde(default)]
+        executable: bool,
     },
     /// Linux: a tab's new linear ARGB8888 dmabufs, their descriptors sent with the line
     /// (`SCM_RIGHTS`, `fd_lines.rs`), one per buffer.
@@ -647,6 +674,16 @@ pub enum EngineMsg {
         pool: u64,
         slot: u32,
     },
+}
+
+/// A human download awaiting an OS Save dialog choice in the host app (`EngineMsg::DownloadSaveRequest`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DownloadSaveRequest {
+    pub tab_id: u64,
+    pub id: u64,
+    pub name: String,
+    pub mime: String,
+    pub executable: bool,
 }
 
 /// A file a page downloaded, kept in the engine's private downloads folder for the agent's tools

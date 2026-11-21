@@ -240,6 +240,17 @@ impl PanelsHost for App {
         crate::plugin_host::panels::tab_lead_stamp(self, p, plugin, tab, selected)
     }
 
+    fn panel_tab_extra_w(&self, plugin: &str, tab: &PanelTabDesc) -> f32 {
+        #[cfg(not(target_arch = "wasm32"))]
+        if plugin == crate::surfaces::browser::PLUGIN
+            && tab.id.parse::<u64>().ok().is_some_and(|id| self.browser_tab_asking(id) || self.browser_tab_unseen(id))
+        {
+            return 12.0;
+        }
+        let _ = (plugin, tab);
+        0.0
+    }
+
     fn panel_home_pane(&self, plugin: &str) -> Option<SessionPane> {
         crate::plugin_host::panels::home_pane(self, plugin)
     }

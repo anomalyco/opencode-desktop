@@ -310,6 +310,49 @@ pub fn open_session_tab(
     first: bool,
     target: Option<SessionPane>,
 ) -> SessionTabState {
+    open_session_tab_at(current, tab, launchers, first, None, target)
+}
+
+/// Opens and selects `tab`, placing a new tab directly after `after` when present (`UP-118`).
+pub fn open_session_tab_after(
+    current: &SessionTabState,
+    tab: &str,
+    launchers: &HashSet<String>,
+    after: Option<&str>,
+    target: Option<SessionPane>,
+) -> SessionTabState {
+    open_session_tab_at(current, tab, launchers, false, after, target)
+}
+
+/// Inserts `tab` without selecting it or touching preview: directly after `after` when present,
+/// else at the end (`session-tabs.ts` `appendSessionTab`, UP-118).
+pub fn append_session_tab(current: &SessionTabs, tab: &str, after: Option<&str>) -> SessionTabs {
+    if current.all.iter().any(|k| k == tab) {
+        return current.clone();
+    }
+    let pos = after
+        .and_then(|a| current.all.iter().position(|k| k == a))
+        .map_or(current.all.len(), |i| i + 1);
+    let mut all = current.all.clone();
+    all.insert(pos, tab.to_owned());
+    let target = after
+        .filter(|a| current.all.iter().any(|k| k == *a))
+        .map(|a| session_tab_pane(current, a));
+    place_session_tabs(
+        current,
+        SessionTabs { all, active: current.active.clone(), ..Default::default() },
+        target,
+    )
+}
+
+fn open_session_tab_at(
+    current: &SessionTabState,
+    tab: &str,
+    launchers: &HashSet<String>,
+    first: bool,
+    after: Option<&str>,
+    target: Option<SessionPane>,
+) -> SessionTabState {
     let preview = preview_slot(current, launchers).map(str::to_owned);
     if first {
         let mut all = vec![tab.to_owned()];
@@ -339,6 +382,12 @@ pub fn open_session_tab(
                 .cloned()
                 .collect()
         }
+    } else if let Some(anchor) = after
+        && let Some(ai) = current.tabs.all.iter().position(|k| k == anchor)
+    {
+        let mut v = current.tabs.all.clone();
+        v.insert(ai + 1, tab.to_owned());
+        v
     } else if let Some(pi) = preview_idx {
         current
             .tabs

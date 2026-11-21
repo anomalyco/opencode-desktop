@@ -67,6 +67,10 @@ fn toggle_turn_diffs(s: &mut dyn SettingsHost) {
     change_settings(s, |x| x.turn_diffs = !x.turn_diffs);
 }
 
+fn toggle_wrap_code_blocks(s: &mut dyn SettingsHost) {
+    change_settings(s, |x| x.wrap_code_blocks = !x.wrap_code_blocks);
+}
+
 fn drag_scale(s: &mut dyn SettingsHost, g: &Drag, tx: &mut Tx) {
     if !matches!(g.phase, Phase::Down | Phase::Move) {
         return;
@@ -165,6 +169,18 @@ pub fn section<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                 t!("settings.timeline.row.turnDiffs.title"),
                 t!("settings.timeline.row.turnDiffs.description"),
                 switch(p, "turn-diffs-switch", st.turn_diffs).on_press(|s: &mut H| toggle_turn_diffs(s)),
+            ),
+        ),
+        (
+            "settings-wrap-code-blocks",
+            setting(
+                p,
+                "settings-wrap-code-blocks",
+                t!("settings.timeline.row.wrapCodeBlocks.title"),
+                t!("settings.timeline.row.wrapCodeBlocks.description"),
+                switch(p, "wrap-code-blocks-switch", st.wrap_code_blocks)
+                    .label_static(t!("settings.timeline.row.wrapCodeBlocks.title"))
+                    .on_press(|s: &mut H| toggle_wrap_code_blocks(s)),
             ),
         ),
     ];

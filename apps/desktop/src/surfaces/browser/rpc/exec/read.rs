@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use super::super::frames::EvalTargetError;
 use super::super::session::SessionAttachment;
 use super::target_url::parse_agent_url;
-use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards, send_rpc_cdp};
+use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards, send_rpc_cdp, send_rpc_cdp_in_frame};
 use crate::App;
 
 const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(120);
@@ -226,12 +226,7 @@ pub(super) fn queue_live_frame_refresh(
     host_id: u64,
 ) -> Vec<(u64, Option<String>)> {
     let mut pending = Vec::new();
-    if let Ok(req) = app
-        .workspace_panes
-        .browser
-        .host
-        .send_cdp(host_id, "Page.getFrameTree", json!({}), None)
-    {
+    if let Ok(req) = send_rpc_cdp(app, host_id, "Page.getFrameTree", json!({}), None) {
         pending.push((req, None));
     }
     if app.workspace_panes.browser.host.engine_agent_tools() {
@@ -429,12 +424,14 @@ fn start_evaluate(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> 
                 format!("Element ref {r} is stale or absent. Refresh the snapshot first."),
             ));
         };
-        match send_rpc_cdp(
+        let ref_frame = att.refs.get(&host_id).and_then(|t| t.frame_of(r));
+        match send_rpc_cdp_in_frame(
             app,
             host_id,
             "DOM.resolveNode",
             json!({ "backendNodeId": bid }),
             ref_session.clone(),
+            ref_frame,
         ) {
             Ok(cdp_req) => StepOutcome::Pending(ExecPhase::Eval(EvalState {
                 host_id,

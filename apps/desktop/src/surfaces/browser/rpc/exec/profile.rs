@@ -110,7 +110,8 @@ pub(super) fn try_start(
 /// Recording needs the engine that refuses profiling while extensions are active (`agent_files`
 /// ships with that check), so an older engine never profiles beside an extension.
 fn require_profiling_engine(app: &App, name: &str) -> Result<(), Outcome> {
-    if !app.workspace_panes.browser.host.engine_agent_files() {
+    let host = &app.workspace_panes.browser.host;
+    if !host.engine_frame_authority() && !host.engine_agent_files() {
         return Err(Outcome::fail(
             failure_code::UNSUPPORTED,
             format!("browser.{name} requires an updated browser engine."),

@@ -40,7 +40,7 @@ pub use plugin::{PluginFeatures, PluginInfo, PluginSource, PluginState, SkillInf
 pub use tool::{shell_message, tool_error, tool_error_metadata, tool_output, tool_ran};
 use tool::{keep_tool_error, keep_tool_output, keep_tool_ran, replace_tool_metadata};
 pub use transcript::{Transcript, UNSEEN};
-pub use crate::project::{LocationInfo, ProjectMeta, parse_location, parse_project, parse_worktrees, project_git, project_meta, project_sandboxes, project_sandboxes_version, set_project_sandboxes};
+pub use crate::project::{LocationInfo, ProjectMeta, add_project_sandbox, parse_location, parse_managed_worktrees, parse_project, parse_worktrees, project_git, project_meta, project_sandboxes, project_sandboxes_version, set_project_sandboxes};
 pub use crate::quote::{CommentOrigin, FileComment, PromptComment, Quote, set_user_comments, user_comments};
 
 #[derive(Clone, Debug)]

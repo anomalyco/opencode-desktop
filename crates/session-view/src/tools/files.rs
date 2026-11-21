@@ -70,8 +70,8 @@ struct Entry<'a> {
     call: Call<'a>,
     path: &'a str,
     kind: Kind,
-    additions: usize,
-    deletions: usize,
+    additions: u64,
+    deletions: u64,
     source: Source<'a>,
 }
 
@@ -99,10 +99,10 @@ impl Item<'_> {
         contents.windows(2).all(|w| w[0].1 == w[1].0).then(|| FileDiff::from_texts_with_context(self.path, &contents[0].0, &contents[contents.len() - 1].1, TEXT_CONTEXT))
     }
 
-    fn counts(&self) -> (usize, usize) {
+    fn counts(&self) -> (u64, u64) {
         match self.chained() {
-            Some(fd) => (fd.additions(), fd.deletions()),
-            None => self.entries.iter().fold((0, 0), |(a, d), e| (a + e.additions, d + e.deletions)),
+            Some(fd) => (fd.additions() as u64, fd.deletions() as u64),
+            None => self.entries.iter().fold((0u64, 0u64), |(a, d), e| (a.saturating_add(e.additions), d.saturating_add(e.deletions))),
         }
     }
 
@@ -126,11 +126,11 @@ fn entries<'a>(c: &Call<'a>) -> Vec<Entry<'a>> {
         "edit" | "multiedit" => {
             let (Some(old), Some(new)) = (c.input["oldString"].as_str(), c.input["newString"].as_str()) else { return Vec::new() };
             let fd = FileDiff::from_texts_with_context(path, old, new, TEXT_CONTEXT);
-            let (a, d) = (fd.additions(), fd.deletions());
+            let (a, d) = (fd.additions() as u64, fd.deletions() as u64);
             if a + d == 0 { Vec::new() } else { vec![entry(Source::Texts(old, new), a, d)] }
         }
         "write" => match field(c.input, "content") {
-            Some(content) => vec![entry(Source::Texts("", content), content.split('\n').count() - usize::from(content.ends_with('\n')), 0)],
+            Some(content) => vec![entry(Source::Texts("", content), (content.split('\n').count() - usize::from(content.ends_with('\n'))) as u64, 0)],
             None => Vec::new(),
         },
         _ => Vec::new(),
@@ -140,14 +140,16 @@ fn entries<'a>(c: &Call<'a>) -> Vec<Entry<'a>> {
 /// One of `metadata.files`, when it is a change (`changedFileDiff`).
 fn changed<'a>(c: &Call<'a>, f: &'a Value) -> Option<Entry<'a>> {
     let (path, patch) = (f["file"].as_str()?, f["patch"].as_str()?);
-    let (additions, deletions) = (f["additions"].as_u64()? as usize, f["deletions"].as_u64()? as usize);
+    // A count is a whole number of lines: `1.0` counts (`rules::count`).
+    let present = |k: &str| f.get(k).filter(|v| v.is_number()).map(crate::activity::rules::count);
+    let (additions, deletions) = (present("additions")?, present("deletions")?);
     let kind = match f["status"].as_str()? {
         "added" => Kind::Add,
         "deleted" => Kind::Delete,
         "modified" => Kind::Update,
         _ => return None,
     };
-    (additions + deletions > 0).then_some(Entry { call: *c, path, kind, additions, deletions, source: Source::Patch(patch) })
+    (additions > 0 || deletions > 0).then_some(Entry { call: *c, path, kind, additions, deletions, source: Source::Patch(patch) })
 }
 
 /// A run of file tools: one card of a row per path they changed, each shut until pressed or
@@ -182,22 +184,23 @@ fn group_with<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call], open: bo
         let d = Display::of(s, cx, pending, false);
         return still(trigger(s, p, cx, first, d, Trigger { title: title.into(), ..Default::default() }, Press::None, None));
     }
-    let n = items.len();
-    let mut card = col().key("files").w_full();
+    // Each changed file is its own rounded card, separated by the small timeline gap
+    // (`timeline-next.css:53-68`).
+    let mut card = col().key("files").w_full().gap(crate::timeline::rhythm::S);
     let mut keyed: Vec<&str> = Vec::new();
     for (i, item) in items.iter().enumerate() {
         let owner = item.entries[0].call;
         // The first row a call shows carries its key, so opening the call from the host keeps it in view.
         let row_key = if keyed.contains(&owner.id) { format!("file-{}-{i}", first.id) } else { format!("tool-{}", owner.id) };
         keyed.push(owner.id);
-        card = card.child(file_item(s, p, cx, first.id, item, row_key, (i == 0, i + 1 == n), open));
+        card = card.child(file_item(s, p, cx, first.id, item, row_key, open));
     }
     card
 }
 
-/// One row of the card, and under it the change while open, and the file's errors.
+/// One file's card, and under it the change while open, and the file's errors.
 #[allow(clippy::too_many_arguments)]
-fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item, row_key: String, (first, last): (bool, bool), default_open: bool) -> El {
+fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item, row_key: String, default_open: bool) -> El {
     let shown = super::session_relative(s, cx.session, item.path);
     let k = sub_key(group, format!("file:{shown}"));
     // Until pressed, `default_open` decides: Timeline detail's Edits, or shut in Changed files.
@@ -205,8 +208,8 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
     let owner = item.entries[0].call;
     let errors = diagnostics(p, owner.metadata, path(owner.input).unwrap_or(item.path));
     // The card's bottom corners round whichever section ends it: the errors, the change or the row.
-    let end = last && errors.is_none();
-    let top = if first { RADIUS } else { 0.0 };
+    let end = errors.is_none();
+    let top = RADIUS;
     let bottom = if end && !open { RADIUS } else { 0.0 };
     let (dir, name) = match shown.rfind(['/', '\\']) {
         Some(at) => (&shown[..=at], &shown[at + 1..]),
@@ -221,6 +224,9 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
     words = words.child(text(name.to_owned()).key("file").font(PATH).color(p.text).truncate_fade().shrink().min_w(0.0));
     let change = change(p, item);
     let toggle = || crate::disclosure::set::<S>(k.clone(), open, row_key.clone());
+    // `apply-patch-file-info` (`patch.tsx:77-105`, `timeline-next.css:89-105`): the change counts
+    // follow the file's name, and the grabber sits 4 pt closer to the right edge so its arrows
+    // balance the file icon on the left.
     let info = row()
         .key("info")
         .h_full()
@@ -234,14 +240,13 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
         .on_press_tx(toggle())
         .expanded(open)
         .child(icon(rune_theme_opencode::file_icons::file(name), 16.0).key("icon").color(p.text))
-        .child(words);
+        .child(words)
+        .children(change);
     let marks = row()
         .key("marks")
         .h_full()
-        .gap(16.0)
         .center_y()
-        .children(change)
-        .child(icon(&rune_theme_opencode::icons::CHEVRON_GRABBER_VERTICAL, 14.0).key("grabber").color(p.text));
+        .child(icon(&rune_theme_opencode::icons::CHEVRON_GRABBER_VERTICAL, 16.0).key("grabber").mr(-4.0).color(p.text));
     // The row eases its hover in and out over 0.15 s (`accordion.css`: `transition:
     // background-color 0.15s ease`).
     let trigger = row()
@@ -254,6 +259,7 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
         .fill(p.bg_base)
         .hover(p.hover)
         .border(1.0, p.border)
+        .border_layout()
         .corners([top, top, bottom, bottom])
         .hover_group()
         .hover_motion(HOVER_FADE, HOVER_FADE)
@@ -268,9 +274,6 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
     let header = row().key("head").w_full().fill(p.bg_base).sticky_top(cx.sticky).child(trigger);
     // A key holds no `/`, which separates the parts of a path.
     let mut out = col().key(format!("item-{}", shown.replace(['/', '\\'], ":"))).w_full().child(header);
-    if !first {
-        out = out.mt(-1.0);
-    }
     if open {
         let corner = if end { RADIUS } else { 0.0 };
         let views = col().key("views").w_full().children(item.diffs().into_iter().map(|fd| super::diff::view::<S>(p, fd)));
@@ -294,8 +297,7 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
         // An intentional Rune extra: Desktop lists a file's errors under a lone edit or write but
         // never in a group's file card. Here they close the file's part of the card, 1 pt up so
         // their divider stands in for the bottom border of the row or the change above.
-        let corner = if last { RADIUS } else { 0.0 };
-        let inner = (corner - 1.0).max(0.0);
+        let inner = (RADIUS - 1.0).max(0.0);
         out = out.child(
             col()
                 .key("errors")
@@ -304,15 +306,16 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
                 .border_sides([0.0, 1.0, 1.0, 1.0], p.border)
                 .border_layout()
                 .fill(p.bg_base)
-                .corners([0.0, 0.0, corner, corner])
-                .clip_corners([0.0, 0.0, corner, corner])
+                .corners([0.0, 0.0, RADIUS, RADIUS])
+                .clip_corners([0.0, 0.0, RADIUS, RADIUS])
                 .child(errors.corners([0.0, 0.0, inner, inner])),
         );
     }
     out
 }
 
-/// "Created", "Deleted" (13 px medium) or `+N -M`.
+/// "Created", "Deleted" (13 px medium) or `+N` / `-M`, showing only the side that changed
+/// (`[data-component="diff-changes"] [data-empty] { display: none }`, `timeline-next.css:99-101`).
 fn change(p: &Pal, item: &Item) -> Option<El> {
     let word = |w: &'static str, c| Some(text(w).key("change").font(UI_MED.lh(19.5)).color(c));
     match item.kind() {
@@ -320,14 +323,60 @@ fn change(p: &Pal, item: &Item) -> Option<El> {
         Kind::Delete => word(opencode_i18n::t!("ui.patch.action.deleted"), p.diff.del_icon),
         Kind::Update => {
             let (a, d) = item.counts();
-            (a + d > 0).then(|| {
-                row().key("change").gap(8.0).center_y()
-                    .child(text(format!("+{a}")).dir(rune::Direction::Ltr).font(COUNTS).color(p.diff.add_text))
-                    .child(text(format!("-{d}")).dir(rune::Direction::Ltr).font(COUNTS).color(p.diff.del_text))
+            (a > 0 || d > 0).then(|| {
+                row()
+                    .key("change")
+                    .gap(8.0)
+                    .center_y()
+                    .children((a > 0).then(|| text(format!("+{a}")).dir(rune::Direction::Ltr).font(COUNTS).color(p.diff.add_text)))
+                    .children((d > 0).then(|| text(format!("-{d}")).dir(rune::Direction::Ltr).font(COUNTS).color(p.diff.del_text)))
             })
         }
     }
 }
+/// A script's change without a diff to show (`ScriptChanges`' `file-counts`, past the size cap,
+/// a binary file or counts alone): the file's icon, its muted directory and name, then "Created",
+/// "Deleted" or its `+N -M`, each count only where it isn't zero (`markEmpty`). 13 px on a line
+/// 6 above and below, with no card around it, so such rows sit flush.
+pub fn counts_row<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, key: String, file: &Value) -> El {
+    let path = file["file"].as_str().unwrap_or("");
+    let shown = super::session_relative(s, cx.session, path);
+    let (dir, name) = match shown.rfind(['/', '\\']) {
+        Some(at) => (&shown[..=at], &shown[at + 1..]),
+        None => ("", shown),
+    };
+    let mut words = row().key("name").dir(rune::Direction::Ltr).grow(1.0).shrink().min_w(0.0).center_y();
+    if !dir.is_empty() {
+        words = words.child(text(dir.to_owned()).key("dir").font(PATH).color(p.muted).truncate_head().shrink().min_w(0.0));
+    }
+    words = words.child(text(name.to_owned()).key("file").font(PATH).color(p.text).truncate_fade().shrink().min_w(0.0));
+    // "Created" and "Deleted" read as the counts do (`diff-changes-additions`,
+    // `diff-changes-deletions`): 14 pt mono in the diff's text colours.
+    let word = |w: &'static str, c| text(w).key("change").font(COUNTS).color(c);
+    let (a, d) = (crate::activity::rules::count(&file["additions"]), crate::activity::rules::count(&file["deletions"]));
+    let change = match file["status"].as_str() {
+        Some("added") => Some(word(opencode_i18n::t!("ui.patch.action.created"), p.diff.add_text)),
+        Some("deleted") => Some(word(opencode_i18n::t!("ui.patch.action.deleted"), p.diff.del_text)),
+        _ if a > 0 || d > 0 => Some(
+            row().key("change").dir(rune::Direction::Ltr).gap(8.0).center_y()
+                .children((a > 0).then(|| text(format!("+{a}")).dir(rune::Direction::Ltr).font(COUNTS).color(p.diff.add_text)))
+                .children((d > 0).then(|| text(format!("-{d}")).dir(rune::Direction::Ltr).font(COUNTS).color(p.diff.del_text))),
+        ),
+        _ => None,
+    };
+    row()
+        .key(key)
+        .w_full()
+        .py(6.0)
+        .gap(8.0)
+        .center_y()
+        .role("group")
+        .label(shown.to_owned())
+        .child(icon(rune_theme_opencode::file_icons::file(name), 16.0).key("icon").color(p.text).a11y_hidden())
+        .child(words)
+        .children(change)
+}
+
 /// A file's errors after the change (severity 1, the first three), as Desktop's
 /// `DiagnosticsDisplay` lists them (`[data-component="diagnostics"]`): 13/19.5 mono in
 /// `state-fg-danger` on `state-bg-danger`, 8 by 12 in, under a 0.5 pt `state-border-danger`

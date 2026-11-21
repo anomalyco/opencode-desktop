@@ -114,9 +114,13 @@ impl CefRuntime {
         }
     }
 
-    /// The profile the pages' downloads go in (`downloads::DIR_NAME`), so a throwaway profile's go with it.
-    pub fn profile_root(&self) -> std::path::PathBuf {
-        self.profile.root.clone()
+    /// The profile and sibling isolated-downloads roots for `Downloads::open`.
+    pub fn download_roots(&self) -> crate::downloads::DownloadRoots {
+        crate::downloads::DownloadRoots {
+            profile: self.profile.root.clone(),
+            lasting_profile: self.profile.lasting_root.clone(),
+            isolated_base: self.profile.isolated_downloads_base.clone(),
+        }
     }
 }
 
@@ -125,6 +129,7 @@ impl Drop for CefRuntime {
         cef::shutdown();
         // The pages' downloads and staged agent uploads end with the engine.
         crate::downloads::remove_owned(&self.profile.root);
+        crate::downloads::remove_owned_isolated(&self.profile.isolated_downloads_base, std::process::id());
         crate::agent::remove_owned_uploads(&self.profile.root);
         if self.profile.temporary {
             let _ = std::fs::remove_dir_all(&self.profile.root);
@@ -166,6 +171,17 @@ wrap_app! {
                     "allow-file-access-from-files",
                     "user-data-dir",
                     "disable-site-isolation-trials",
+                    "proxy-server",
+                    "proxy-pac-url",
+                    "proxy-bypass-list",
+                    "host-resolver-rules",
+                    "ignore-certificate-errors",
+                    "use-mock-keychain",
+                    "password-store",
+                    "unsafely-treat-insecure-origin-as-secure",
+                    "js-flags",
+                    "renderer-cmd-prefix",
+                    "utility-cmd-prefix",
                 ] {
                     cmd.remove_switch(Some(&sw.into()));
                 }
@@ -195,8 +211,16 @@ wrap_app! {
             // host's "Pop-up blocked" bar) instead of silently swallowing them before CEF sees them.
             cmd.append_switch(Some(&"disable-popup-blocking".into()));
             cmd.append_switch(Some(&"mute-audio".into()));
-            // Real OS cookie encryption is enabled (DPAPI on Windows, Keychain on macOS,
-            // Secret Service / KWallet on Linux); `ProfileProbeCookies` detects locked key stores.
+            // Windows keeps real DPAPI cookie encryption (silent, logon-bound).
+            // macOS restores `--use-mock-keychain` until the `-67030` process-requirement /
+            // dedicated Keychain service name fix lands in a follow-up PR, so the first load never
+            // raises a `SecurityAgent` prompt or stalls.
+            // Linux sets `--password-store=basic` so a locked or absent Secret Service / KWallet
+            // keyring can never prompt or stall the first load.
+            #[cfg(target_os = "macos")]
+            cmd.append_switch(Some(&"use-mock-keychain".into()));
+            #[cfg(target_os = "linux")]
+            cmd.append_switch_with_value(Some(&"password-store".into()), Some(&"basic".into()));
             cmd.append_switch(Some(&"no-startup-window".into()));
             cmd.append_switch(Some(&"noerrdialogs".into()));
             cmd.append_switch(Some(&"hide-crash-restore-bubble".into()));

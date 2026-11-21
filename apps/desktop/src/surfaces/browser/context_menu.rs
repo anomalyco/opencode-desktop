@@ -5,9 +5,9 @@
 use std::fs::OpenOptions;
 use std::io::Write as _;
 
-use browser_pane::{ContextMenuCommand, PageContextMenu, PageDiagnostic};
+use browser_pane::{ContextMenuCommand, DownloadSaveRequest, PageContextMenu, PageDiagnostic};
 use opencode_i18n::t;
-use rune::Tx;
+use rune::{FileDialogOptions, Tx};
 
 use crate::App;
 use crate::popup::{Item, Menu};
@@ -30,7 +30,51 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
             app.workspace_panes.browser.host.drain_diagnostics().collect();
         log_diagnostics(app, records);
     }
+    if !app.workspace_panes.browser.save_dialog_open
+        && let Some(req) = app.workspace_panes.browser.host.pop_download_save_request()
+    {
+        open_download_save_dialog(app, req, tx);
+        changed = true;
+    }
     changed
+}
+
+fn open_download_save_dialog(app: &mut App, req: DownloadSaveRequest, tx: &mut Tx) {
+    let Some(tab) = app.workspace_panes.browser.host.tab(req.tab_id) else {
+        app.workspace_panes.browser.host.answer_download_save(req.tab_id, req.id, None);
+        return;
+    };
+    if tab.preview.is_some() || tab.refusal.as_deref() == Some("browser.proxy.required") {
+        app.workspace_panes.browser.host.answer_download_save(req.tab_id, req.id, None);
+        return;
+    }
+    app.workspace_panes.browser.save_dialog_open = true;
+    let options = FileDialogOptions {
+        title: t!("desktop.dialog.saveFile").to_owned(),
+        file_name: Some(browser_pane::policy::sanitize_download_name(&req.name)),
+        ..Default::default()
+    };
+    let tab_id = req.tab_id;
+    let id = req.id;
+    tx.save_file(options, move |s: &mut App, answer, _| {
+        s.workspace_panes.browser.save_dialog_open = false;
+        let chosen = match answer {
+            Ok(Some(path))
+                if s.workspace_panes
+                    .browser
+                    .host
+                    .tab(tab_id)
+                    .is_some_and(|t| {
+                        t.preview.is_none()
+                            && t.refusal.as_deref() != Some("browser.proxy.required")
+                    }) =>
+            {
+                path.to_str().map(str::to_owned)
+            }
+            _ => None,
+        };
+        s.workspace_panes.browser.host.answer_download_save(tab_id, id, chosen);
+    });
 }
 
 fn live_driver(
@@ -170,7 +214,7 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
                     };
                     if proxy_ok {
                         let sid = s.browser_tab_session(tab_id).map(str::to_owned).or_else(|| captured_sid.clone());
-                        s.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx, driver);
+                        s.open_new_browser_tab_beside(sid.as_deref(), &url, tab_id, true, ctx, driver);
                     }
                 }
             }
@@ -202,7 +246,7 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
                     };
                     if proxy_ok {
                         let sid = s.browser_tab_session(tab_id).map(str::to_owned).or_else(|| captured_sid.clone());
-                        s.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx, driver);
+                        s.open_new_browser_tab_beside(sid.as_deref(), &url, tab_id, true, ctx, driver);
                     }
                 }
             }
@@ -265,11 +309,23 @@ fn log_diagnostics(app: &App, records: Vec<PageDiagnostic>) {
         if std::fs::create_dir_all(&logs_dir).is_err() {
             return;
         }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let _ = std::fs::set_permissions(&logs_dir, std::fs::Permissions::from_mode(0o700));
+        }
         let path = logs_dir.join("browser-page.log");
         if std::fs::metadata(&path).is_ok_and(|m| m.len() >= MAX_DIAG_LOG_BYTES) {
             let _ = std::fs::remove_file(&path);
         }
-        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) {
+        let mut opts = OpenOptions::new();
+        opts.create(true).append(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            opts.mode(0o600);
+        }
+        if let Ok(mut file) = opts.open(&path) {
             for line in lines {
                 let _ = writeln!(file, "{line}");
             }

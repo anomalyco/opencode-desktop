@@ -504,11 +504,25 @@ pub(super) fn send_rpc_cdp(
     params: Value,
     session_id: Option<String>,
 ) -> Result<u64, String> {
-    if session_id.is_some() {
+    send_rpc_cdp_in_frame(app, host_id, method, params, session_id, None)
+}
+
+/// Sends one agent CDP call: typed whenever the engine takes typed calls (it decides every frame
+/// rule there, so tabs with extension frames keep working), raw otherwise. `frame_id` names the
+/// frame an element ref came from.
+pub(super) fn send_rpc_cdp_in_frame(
+    app: &mut App,
+    host_id: u64,
+    method: &str,
+    params: Value,
+    session_id: Option<String>,
+    frame_id: Option<String>,
+) -> Result<u64, String> {
+    if session_id.is_some() || app.workspace_panes.browser.host.engine_agent_tools() {
         app.workspace_panes
             .browser
             .host
-            .send_typed_cdp(host_id, method, params, session_id)
+            .send_typed_cdp_in_frame(host_id, method, params, session_id, frame_id)
     } else {
         app.workspace_panes
             .browser

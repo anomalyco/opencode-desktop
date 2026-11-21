@@ -37,10 +37,14 @@ local function menuItem(
     label: string,
     enabled: boolean,
     press: () -> (),
-    commandId: string?
+    commandId: string?,
+    fitWidth: boolean?
 ): ui.Node
+    local textExtra: { [string]: any } = if fitWidth
+        then { color = if enabled then "text-chrome" else "text-faint", grow = 1 }
+        else { color = if enabled then "text-chrome" else "text-faint", grow = 1, shrink = true, minW = 0, truncate = true }
     local children: { ui.Node } = {
-        ui.text(label, ROW_TEXT, { color = if enabled then "text-chrome" else "text-faint", grow = 1, shrink = true, minW = 0, truncate = true }),
+        ui.text(label, ROW_TEXT, textExtra),
     }
     if commandId then
         table.insert(children, ui.keybind({ command = commandId }))
@@ -49,10 +53,11 @@ local function menuItem(
         key = key,
         role = "button",
         label = label,
-        w = "full",
+        w = if fitWidth then nil else "full",
         h = 28,
-        px = 10,
-        gap = 12,
+        pl = 12,
+        pr = 6,
+        gap = 8,
         radius = 4,
         align = "center",
         hover = if enabled then "surface-hover" else nil,
@@ -66,16 +71,16 @@ local function menuItem(
 end
 
 local function menuHint(text: string): ui.Node
-    return ui.row({ w = "full", px = 10, pb = 6 }, {
+    return ui.row({ w = "full", px = 12, pb = 6 }, {
         ui.text(text, HINT_TEXT),
     })
 end
 
 local function separator(): ui.Node
-    return ui.col({ w = "full", h = 1, my = 4, fill = "border-weak", opacity = 0.5 })
+    return ui.col({ w = "full", h = 1, my = 2, fill = "border-muted" })
 end
 
--- Renders the top-level 220 pt '...' options popover (`live-browser-menu-dark.png`).
+-- Renders the top-level 220 pt '...' options popover (`menu.css`, `panel.tsx:1255-1346`).
 function options.renderMain(cb: Callbacks, view: View, d: MenuData): ui.Node
     local hasUrl = d.url ~= ""
     local zoomed = hasUrl and math.abs(d.zoom - 1) > 0.001
@@ -88,26 +93,33 @@ function options.renderMain(cb: Callbacks, view: View, d: MenuData): ui.Node
         end, "browser.find"))
     end
 
-    -- Inline Zoom row (`Menu.ItemRow`): "Zoom" on left, `-` / `100%` / `+` inline on right.
-    table.insert(items, ui.row({ key = "browser-menu-zoom", w = "full", h = 28, pl = 10, pr = 4, gap = 4, align = "center" }, {
+    -- Inline Zoom row (`Menu.ItemRow`, `menu.css:168-181`): "Zoom" on left, `-` / `100%` / `+` on right.
+    table.insert(items, ui.row({ key = "browser-menu-zoom", w = "full", h = 28, pl = 12, pr = 6, gap = 2, align = "center" }, {
         ui.text(cb.I18n:T("zoom.label"), ROW_TEXT, { color = "text-chrome", grow = 1, shrink = true, minW = 0 }),
-        ui.iconButton({
+        ui.row({
             key = "browser-menu-zoom-out",
-            icon = "minus",
-            variant = "ghost-muted",
-            size = "small",
+            role = "button",
             label = cb.I18n:T("zoom.out"),
-            disabled = not hasUrl,
+            w = 20,
+            h = 20,
+            radius = 4,
+            center = true,
+            hover = if hasUrl then "surface-hover" else nil,
+            press = if hasUrl then "surface-press" else nil,
+            hoverTransition = "instant",
+            opacity = if hasUrl then nil else 0.5,
             onPress = if hasUrl then view:Handler(function()
                 cb.act("zoom", d.tabId, "out")
             end) else nil,
+        }, {
+            ui.icon("minus", { size = 14, color = "icon-weak" }),
         }),
         ui.row({
             key = "browser-menu-zoom-reset",
             role = "button",
             label = cb.I18n:T("zoom.reset"),
-            h = 22,
-            px = 6,
+            h = 20,
+            px = 3,
             radius = 4,
             center = true,
             hover = if zoomed then "surface-hover" else nil,
@@ -119,16 +131,23 @@ function options.renderMain(cb: Callbacks, view: View, d: MenuData): ui.Node
         }, {
             ui.text(pct, { size = 12, weight = "regular", lineHeight = 16, tabular = true, noWrap = true, color = if zoomed then "text-chrome" else "text-muted" }),
         }),
-        ui.iconButton({
+        ui.row({
             key = "browser-menu-zoom-in",
-            icon = "plus",
-            variant = "ghost-muted",
-            size = "small",
+            role = "button",
             label = cb.I18n:T("zoom.in"),
-            disabled = not hasUrl,
+            w = 20,
+            h = 20,
+            radius = 4,
+            center = true,
+            hover = if hasUrl then "surface-hover" else nil,
+            press = if hasUrl then "surface-press" else nil,
+            hoverTransition = "instant",
+            opacity = if hasUrl then nil else 0.5,
             onPress = if hasUrl then view:Handler(function()
                 cb.act("zoom", d.tabId, "in")
             end) else nil,
+        }, {
+            ui.icon("plus", { size = 14, color = "icon-weak" }),
         }),
     }))
 
@@ -169,25 +188,23 @@ function options.renderMain(cb: Callbacks, view: View, d: MenuData): ui.Node
         role = "list",
         label = cb.I18n:T("options"),
         w = 220,
-        pad = 4,
-        radius = 8,
+        pad = 2,
+        radius = 6,
         fill = "surface-1",
-        border = "border-base",
-        borderWidth = 0.5,
         shadow = "floating",
     }, items)
 end
 
--- Renders the nested "More tools" submenu (`live-browser-more-tools-dark.png`).
+-- Renders the nested "More tools" submenu (`panel.tsx:1298`: `w-max min-w-[220px]`).
 function options.renderMore(cb: Callbacks, view: View, d: MenuData): ui.Node
     local hasUrl = d.url ~= ""
     local items: { ui.Node } = {
         menuItem(view, "browser-more-inspect", cb.I18n:T("inspect"), d.inspectable, function()
             cb.act("inspect", d.tabId)
-        end, "browser.inspect"),
+        end, "browser.inspect", true),
         menuItem(view, "browser-more-external", cb.I18n:T("menu.openPage"), d.canOpenExternal, function()
             cb.act("external", d.tabId)
-        end),
+        end, nil, true),
     }
     if not d.canOpenExternal then
         table.insert(items, menuHint(cb.I18n:T("menu.pageUnavailable")))
@@ -195,27 +212,25 @@ function options.renderMore(cb: Callbacks, view: View, d: MenuData): ui.Node
     if d.canRevealFile then
         table.insert(items, menuItem(view, "browser-more-reveal", cb.I18n:T("external.reveal"), true, function()
             cb.act("reveal", d.tabId)
-        end))
+        end, nil, true))
     end
     if d.canHardReload then
         table.insert(items, menuItem(view, "browser-more-hard-reload", cb.I18n:T("menu.hardReload"), hasUrl, function()
             cb.act("hard.reload", d.tabId)
-        end, "browser.hardReload"))
+        end, "browser.hardReload", true))
     end
     table.insert(items, menuItem(view, "browser-more-clear-history", cb.I18n:T("history.clear"), d.canClearHistory, function()
         cb.act("history.clear", d.tabId)
-    end))
+    end, nil, true))
 
     return ui.col({
         key = "browser-more-tools-menu",
         role = "list",
         label = cb.I18n:T("menu.more"),
         minW = 220,
-        pad = 4,
-        radius = 8,
+        pad = 2,
+        radius = 6,
         fill = "surface-1",
-        border = "border-base",
-        borderWidth = 0.5,
         shadow = "floating",
     }, items)
 end
