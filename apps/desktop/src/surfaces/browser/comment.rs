@@ -6,7 +6,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use browser_pane::PickedElement;
-use opencode_feature_annotations::quote::comment::{self, Config, Field, FieldEffect, FieldEvent};
+use opencode_feature_annotations::quote::comment::{self, Config, Field, FieldEffect, FieldEvent, Mention};
 use opencode_feature_annotations::quote::editor::{
     self, CHECK, FollowUp, PathSearch, key_of, mention_rows, neutral_lift, prepare_path_search,
     request_path_search,
@@ -165,16 +165,15 @@ impl App {
         if matches!(&self.workspace_panes.browser.overlay.state, Overlay::Noting { tab_id: id, .. } if *id == tab_id) {
             return;
         }
-        let Some(tab) = self.workspace_panes.browser.host.tab(tab_id) else {
+        let Some((url, title, inspecting)) = self.workspace_panes.browser.host.tab(tab_id).and_then(|tab| {
+            (!tab.url.is_empty() && tab.url != "about:blank" && tab.load_error.is_none())
+                .then(|| (tab.url.clone(), tab.title.clone(), tab.inspecting))
+        }) else {
             return;
         };
-        if tab.url.is_empty() || tab.url == "about:blank" || tab.load_error.is_some() {
-            return;
-        }
-        if tab.inspecting {
+        if inspecting {
             self.workspace_panes.browser.host.toggle_inspect(tab_id);
         }
-        let (url, title) = (tab.url.clone(), tab.title.clone());
         let mut draft = TextEdit::new("");
         draft.focused = true;
         self.composer.focused = false;
@@ -229,9 +228,13 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         );
         changed = true;
     }
-    if let Some(due) = app.workspace_panes.browser.overlay.field().and_then(|f| f.mention.due()) {
-        if tx.clock() >= due {
-            step_field(app, FieldEvent::TimedOut { now: tx.clock() }, tx);
+    let timed_out = app.workspace_panes.browser.overlay.field().and_then(|f| match f.mention {
+        Mention::Loading { due, .. } => Some((due, f.attempt)),
+        _ => None,
+    });
+    if let Some((due, attempt)) = timed_out {
+        if tx.clock() + 1e-9 >= due {
+            step_field(app, FieldEvent::Failed { attempt }, tx);
             changed = true;
         } else {
             tx.wake_at(due);
@@ -269,11 +272,9 @@ fn delivery_label(app: &App) -> &'static str {
 fn step_field(app: &mut App, event: FieldEvent, tx: &mut Tx) -> bool {
     let (effects, handled) = {
         let ov = &mut app.workspace_panes.browser.overlay;
-        let Some(f) = match &mut ov.state {
-            Overlay::Idle => None,
-            Overlay::Commenting { field, .. } | Overlay::Noting { field, .. } => Some(field),
-        } else {
-            return false;
+        let f = match &mut ov.state {
+            Overlay::Idle => return false,
+            Overlay::Commenting { field, .. } | Overlay::Noting { field, .. } => field,
         };
         comment::field_step(&mut ov.seq, f, event)
     };
@@ -433,7 +434,10 @@ fn format_element_subject(tab_id: u64, url: &str, el: &PickedElement, eref: Opti
 
 fn on_edit_draft(app: &mut App) -> &mut TextEdit {
     let ov = &mut app.workspace_panes.browser.overlay;
-    ov.draft_mut().unwrap_or(&mut ov.spare)
+    match &mut ov.state {
+        Overlay::Commenting { draft, .. } | Overlay::Noting { draft, .. } => draft,
+        Overlay::Idle => &mut ov.spare,
+    }
 }
 
 fn on_input_change(app: &mut App, tx: &mut Tx) {
