@@ -5,8 +5,9 @@
 //! whole screen scrolls, the rail holding at its top, so the wheel anywhere moves the page.
 
 use opencode_i18n::t;
+use opencode_ui::focus::FocusExt;
 use opencode_ui::popup::{self, Item, Menu, MenuButton as _, PopupHost};
-use rune::{Color, Drag, El, Icon, Phase, PointerButton, Tx, col, icon, row, text};
+use rune::{Color, Cursor, Drag, El, Icon, Phase, PointerButton, Tx, col, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use opencode_ui::palette::Pal;
 
@@ -224,7 +225,9 @@ fn back_button<H: SettingsHost + 'static>(p: &Pal, project: bool) -> El {
         .center_y()
         .radius(4.0)
         .self_start()
-        .hover_group()
+        .cursor(Cursor::Pointer)
+        .focus_default(p)
+        .hover_group_focus()
         .hover(p.layer3)
         .on_press_tx(move |s: &mut H, tx: &mut Tx| press_back(s, project, tx))
         .child(icon(&ic::ARROW_LEFT, 16.0).mirror_in_rtl().color(p.muted).group_color(p.text))

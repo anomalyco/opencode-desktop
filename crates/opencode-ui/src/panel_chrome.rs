@@ -116,7 +116,7 @@ fn filter_clear_shell(p: &Pal) -> El {
         .hover_motion(INSTANT, INSTANT)
         .role("button")
         .label_static(opencode_i18n::t!("ui.list.clearFilter"))
-        .child(icon(&ic::XMARK_SMALL, 16.0).color(p.icon_muted))
+        .child(icon(&ic::CLOSE, 16.0).color(p.icon_muted))
 }
 
 fn filter_field_frame(p: &Pal, hovered_key: &str, focused: bool, input: El, clear: Option<El>) -> El {
