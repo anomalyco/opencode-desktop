@@ -65,12 +65,35 @@ pub(super) fn try_start(
     }
 }
 
+fn require_remote_proxy_if_remote(att: &SessionAttachment, app: &App) -> Result<(), Outcome> {
+    let same_machine = att.server_key.is_sidecar() && att.server.is_local();
+    if same_machine {
+        return Ok(());
+    }
+    if app
+        .workspace_panes
+        .browser
+        .host
+        .remote_proxy(att.server_key.as_str())
+        .is_none()
+    {
+        return Err(Outcome::fail(
+            failure_code::NAVIGATION_FAILED,
+            "Remote-server browser navigation refused (browser.proxy.required): no live tunnel proxy is registered for this server.",
+        ));
+    }
+    Ok(())
+}
+
 fn start_tabs_open(
     att: &mut SessionAttachment,
     app: &mut App,
     cmd: &Command,
     now: Instant,
 ) -> StepOutcome {
+    if let Err(o) = require_remote_proxy_if_remote(att, app) {
+        return StepOutcome::Done(o);
+    }
     let raw_url = cmd
         .action
         .get("url")
@@ -189,6 +212,9 @@ fn start_navigate(
     cmd: &Command,
     now: Instant,
 ) -> StepOutcome {
+    if let Err(o) = require_remote_proxy_if_remote(att, app) {
+        return StepOutcome::Done(o);
+    }
     let Some(wire_id) = cmd.tab_id() else {
         return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Missing tabID."));
     };
