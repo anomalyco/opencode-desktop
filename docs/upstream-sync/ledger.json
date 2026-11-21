@@ -20,9 +20,9 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 164,
   "status_counts": {
-    "have it": 127,
+    "have it": 129,
     "not applicable": 23,
-    "missing": 10,
+    "missing": 8,
     "differs on purpose": 1,
     "partly": 3
   },
@@ -3805,8 +3805,8 @@
       ],
       "summary": "Keep the side panel '+' add trigger reachable in Tab order and place the settled open panel's review toggle in the panel strip's Tab order (and reveal hover-hidden triggers on focus-visible).",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Audit side-panel add button and review toggle Tab order and focus-visible reveal in features/panels and apps/desktop.",
+      "status": "have it",
+      "status_evidence": "The '+' after the side strip's tabs is a Tab stop, and while the side region is open the review toggle sits in its first strip's reserved slot, so Tab reaches it after '+' (driven: prompt, add, agent, model, effort, submit, the strip's tabs, '+', Toggle review); open and closed look pixel-identical (PR #351)",
       "depends_on": "UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"
@@ -4119,8 +4119,8 @@
       ],
       "summary": "Preserve focus on a focused programmatic/non-tabbable panel container when surrounding page nodes change instead of rescuing focus away.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Audit Rune focus rescue / panel focus preservation when surrounding content updates in WS-8.",
+      "status": "have it",
+      "status_evidence": "Rune's rescue runs only when the focused element leaves or can no longer take focus; a focused tab_index(-1) region (Settings' page, the side panel) still takes it, so it keeps focus as its page changes around it (PR #351)",
       "depends_on": "UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"
