@@ -70,6 +70,7 @@ export type Env = {
     importSources: () -> { ImportBrowser },
     importMessage: (browserId: string, profileId: string) -> ImportMessage?,
     openImport: (browserId: string, profileId: string) -> (),
+    importIcon: (browserId: string) -> ImageId?,
     Menu: MenuService,
     -- Optional contract-backed sections provided by WS-9 (extensions) or WS-1 (cookies/remote).
     renderImport: ((view: View) -> ui.Node?)?,
@@ -188,8 +189,12 @@ local function advancedSummary(i18n: I18nService, caps: Capabilities): string
     return i18n:T("settings.advanced.summary.local")
 end
 
--- `choices.tsx` `Glyph`: a 20 pt box holding a muted 16 pt icon.
-local function glyph(name: string): ui.Node
+-- `choices.tsx` `Glyph`: the browser's own icon at 20 pt (`size-5`, square), or a 20 pt box holding
+-- a muted 16 pt icon where it has none.
+local function glyph(name: string, image: ImageId?): ui.Node
+    if image ~= nil then
+        return ui.image({ image = image, w = 20, h = 20, fit = "contain", shrink = false })
+    end
     return ui.row({ w = 20, h = 20, center = true, shrink = false }, {
         ui.icon(name, { size = 16, color = "icon-weak" }),
     })
@@ -201,6 +206,7 @@ local function identityRow(
     key: string,
     id: string?,
     icon: string,
+    image: ImageId?,
     name: string,
     aside: string?,
     detail: ImportMessage?,
@@ -219,7 +225,7 @@ local function identityRow(
     end
     local items: { ui.Node } = {
         ui.row({ grow = 1, shrink = true, minW = 0, gap = 12, align = "center" }, {
-            glyph(icon),
+            glyph(icon, image),
             ui.col({ grow = 1, shrink = true, minW = 0, gap = 4 }, words),
         }),
     }
@@ -280,6 +286,7 @@ function settings.create(env: Env, refresh: () -> ())
                             `import-source-{idx}`,
                             if idx == 1 then "settings-browser-import" else nil,
                             "outline-globe",
+                            env.importIcon(bid),
                             browser.name,
                             if #browser.profiles > 1 then prof.name else nil,
                             env.importMessage(bid, pid),
@@ -522,6 +529,7 @@ function settings.create(env: Env, refresh: () -> ())
                         `site-perm-{idx}`,
                         if idx == 1 then "settings-browser-sites" else nil,
                         "outline-globe",
+                        nil,
                         host,
                         nil,
                         { text = permLabel, error = false },
