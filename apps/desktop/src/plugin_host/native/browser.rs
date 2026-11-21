@@ -311,7 +311,11 @@ fn devtools(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             // Every `BrowserTab:DevtoolsAsync` caller (agent MCP tools and third-party Luau plugins)
             // marks the tab controlled so OS file choosers, HTTP auth, and permissions stay guarded.
             let driver = scope.driver(s).unwrap_or(browser_pane::TabDriver::Agent);
+            let is_agent = matches!(driver, browser_pane::TabDriver::Agent);
             s.workspace_panes.browser.host.set_tab_driver(id, driver);
+            if is_agent {
+                s.mark_browser_tab_unseen(id);
+            }
             let is_dialog = cdp == "Page.handleJavaScriptDialog";
             if !is_dialog && s.workspace_panes.browser.host.tab(id).is_some_and(|t| t.prompts.dialog.open().is_some()) {
                 return done.complete(failed(format!("[browser.dialog_open] A JavaScript dialog is open in tab {id}. Answer or dismiss the dialog before continuing.")));
@@ -437,7 +441,15 @@ fn id_of(this: &Table) -> mlua::Result<u64> {
 fn later(lua: &Lua, this: &Table, what: &str, f: impl FnOnce(&mut App, u64, &mut Tx) + Send + 'static) -> mlua::Result<()> {
     let id = id_of(this)?;
     let scope = scope::TabScope::capture(lua);
-    let mark_driven = what != "BrowserTab:Close";
+    let mark_driven = !matches!(
+        what,
+        "BrowserTab:Close"
+            | "BrowserTab:Show"
+            | "BrowserTab:SetZoom"
+            | "BrowserTab:Find"
+            | "BrowserTab:StopFinding"
+            | "BrowserTab:SetViewport"
+    );
     with_app(what, |app| {
         scope.check_tab(app, id, true).map_err(mlua::Error::runtime)?;
         app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
@@ -679,7 +691,11 @@ pub fn version(app: &App) -> u64 {
         t.files.iter().for_each(|f| (&f.id, f.bytes, f.state as u8, &f.error).hash(&mut h));
     }
     app.workspace_panes.browser.host.focused_tab_id().hash(&mut h);
+    app.workspace_panes.browser.openers.unnamed_ids_sorted().hash(&mut h);
     app.workspace_panes.browser.pending_app_links.borrow().len().hash(&mut h);
+    let mut unseen: Vec<u64> = app.workspace_panes.browser.unseen_tabs.iter().copied().collect();
+    unseen.sort_unstable();
+    unseen.hash(&mut h);
     let mut sessions: Vec<_> = app.workspace_panes.browser.session_tabs.iter().collect();
     sessions.sort();
     sessions.hash(&mut h);
@@ -702,7 +718,7 @@ pub fn pages(app: &App, include_find: bool) -> Vec<(String, u64)> {
         .iter()
         .map(|t| {
             let mut h = std::hash::DefaultHasher::new();
-            (&t.url, &t.title, t.loading, t.preview.map(|p| p as u8), &t.refusal, t.rejected, &t.favicon).hash(&mut h);
+            (&t.url, &t.title, t.loading, t.preview.map(|p| p as u8), &t.refusal, t.rejected, &t.favicon, app.browser_tab_unnamed(t.id)).hash(&mut h);
             if include_find {
                 t.find.hash_state(&mut h);
             }

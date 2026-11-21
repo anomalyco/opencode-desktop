@@ -6,13 +6,13 @@
 #           service's dev channel. Every release contains the full desktop matrix. A scheduled
 #           run builds nothing when dev hasn't changed an app or engine file since the last
 #           successful run and the live browser-engine index already serves this commit's engines.
-#   check   a dispatch from dev: builds, signs and verifies all desktop targets and all four
+#   check   a dispatch from dev: builds, signs and verifies all desktop targets and all six
 #           browser engines, published nowhere. Its last job pushes and deletes a throwaway
 #           v0.0.0-test-<run> tag to prove it can tag.
 #   stable  a dispatch from dev with BUMP (patch, minor or major): the latest vX.Y.Z tag (0.0.0
 #           when there is none) bumped, on the stable channel, every platform. Tags start nothing:
 #           the workflow tags v<version> and creates the GitHub release only after publishing.
-#   engine  a dispatch from dev: builds, signs, verifies and publishes the four browser engines
+#   engine  a dispatch from dev: builds, signs, verifies and publishes the six browser engines
 #           without building desktop; refuses if this commit's engine version is already complete
 #           in the live index (bump ENGINE_REVISION or CEF to publish a new engine).
 #
@@ -83,10 +83,12 @@ engine_release_version="$cef_build-$engine_revision"
 # Query the live browser-engine index (fail hard on network, HTTP, or JSON errors).
 engine_state=$(bash "$release_dir/opencode-rune-check-engine.sh" --plan-state --version "$engine_release_version")
 engine_complete=$(sed -n 's/^complete=//p' <<< "$engine_state")
-live_linux_sha256=$(sed -n 's/^linux_x64_sha256=//p' <<< "$engine_state")
+live_linux_x64_sha256=$(sed -n 's/^linux_x64_sha256=//p' <<< "$engine_state")
+live_linux_arm64_sha256=$(sed -n 's/^linux_arm64_sha256=//p' <<< "$engine_state")
 [[ "$engine_complete" = true || "$engine_complete" = false ]] || die "Unexpected engine index state '$engine_complete'."
 if [ "$engine_complete" = true ]; then
-  [[ "$live_linux_sha256" =~ ^[0-9a-f]{64}$ ]] || die "Invalid linux-x64 sha256 '$live_linux_sha256' from engine index."
+  [[ "$live_linux_x64_sha256" =~ ^[0-9a-f]{64}$ ]] || die "Invalid linux-x64 sha256 '$live_linux_x64_sha256' from engine index."
+  [[ "$live_linux_arm64_sha256" =~ ^[0-9a-f]{64}$ ]] || die "Invalid linux-arm64 sha256 '$live_linux_arm64_sha256' from engine index."
 fi
 
 # Only full-matrix runs from this workflow generation can serve as the comparison base.
@@ -111,6 +113,7 @@ fi
 
 build_engine=false
 linux_x64_sha256=""
+linux_arm64_sha256=""
 case "$CHANNEL" in
   check)
     build_engine=true
@@ -128,13 +131,15 @@ case "$CHANNEL" in
       build_desktop=true
       reason=""
     else
-      linux_x64_sha256=$live_linux_sha256
+      linux_x64_sha256=$live_linux_x64_sha256
+      linux_arm64_sha256=$live_linux_arm64_sha256
     fi
     ;;
 esac
 
 if [ "$build_engine" = false ] && [ "$build_desktop" = true ]; then
   [[ "$linux_x64_sha256" =~ ^[0-9a-f]{64}$ ]] || die "Missing valid linux-x64 sha256 for desktop build."
+  [[ "$linux_arm64_sha256" =~ ^[0-9a-f]{64}$ ]] || die "Missing valid linux-arm64 sha256 for desktop build."
 fi
 
 {
@@ -149,6 +154,7 @@ fi
   echo "engine-release-version=$engine_release_version"
   echo "build-engine=$build_engine"
   echo "linux-x64-sha256=$linux_x64_sha256"
+  echo "linux-arm64-sha256=$linux_arm64_sha256"
 } >> "$GITHUB_OUTPUT"
 if [ "$build_desktop" = false ] && [ "$build_engine" = false ]; then
   echo "Nothing to build: $reason (browser engine $engine_release_version is already complete)." >> "$GITHUB_STEP_SUMMARY"

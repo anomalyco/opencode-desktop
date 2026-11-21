@@ -14,10 +14,9 @@ pub fn check_cdp(method: &str, params: &serde_json::Value, engine_has_policy: bo
         };
     }
     match method {
+        "DOM.getDocument" | "DOM.describeNode" => check_no_pierce(method, params),
         "Accessibility.getFullAXTree"
         | "DOM.enable"
-        | "DOM.getDocument"
-        | "DOM.describeNode"
         | "DOM.getBoxModel"
         | "DOM.getContentQuads"
         | "DOM.scrollIntoViewIfNeeded"
@@ -62,6 +61,15 @@ fn check_no_context_params(method: &str, params: &serde_json::Value) -> Result<(
         }
     }
     Ok(())
+}
+
+/// A pierced walk crosses into frames and shadow roots, extensions' included; official never
+/// pierces (`packages/plugin-browser/src/rpc.ts:292-664` has no raw DOM at all).
+fn check_no_pierce(method: &str, params: &serde_json::Value) -> Result<(), String> {
+    match params.get("pierce") {
+        None | Some(serde_json::Value::Null | serde_json::Value::Bool(false)) => Ok(()),
+        Some(_) => Err(format!("DevTools method '{method}' cannot pierce frames or shadow roots.")),
+    }
 }
 
 fn check_runtime_params(method: &str, params: &serde_json::Value) -> Result<(), String> {

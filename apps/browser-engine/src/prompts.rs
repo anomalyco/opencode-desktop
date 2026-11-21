@@ -82,9 +82,6 @@ pub struct TabPrompts {
     /// frame identifier until commit, cancel/error, main-frame nav, or renderer crash — NO
     /// time-out that fails open (`review-rd274.md` Round-4 ruling).
     pending_ext_subframes: Mutex<HashSet<String>>,
-    /// Tracks extension frames observed via real CDP `frameId` (`devtools_frame_token`) in
-    /// `TabCdpObserver::on_dev_tools_event` (`Page.frameNavigated` / `frameDetached`).
-    cdp_ext_frames: Mutex<HashSet<String>>,
 }
 
 impl TabPrompts {
@@ -110,7 +107,6 @@ impl TabPrompts {
 
     pub fn clear_all_ext_frame_tracking(&self) {
         self.pending_ext_subframes.lock().unwrap().clear();
-        self.cdp_ext_frames.lock().unwrap().clear();
     }
 
     /// Retains only pending extension sub-frames whose `RenderFrameHost` is still alive and has
@@ -126,29 +122,6 @@ impl TabPrompts {
         !set.is_empty()
     }
 
-    pub fn has_any_pending_ext_subframes(&self) -> bool {
-        !self.pending_ext_subframes.lock().unwrap().is_empty()
-    }
-
-    pub fn set_cdp_ext_frame(&self, cdp_frame_id: &str, is_ext: bool) {
-        if cdp_frame_id.is_empty() {
-            return;
-        }
-        let mut set = self.cdp_ext_frames.lock().unwrap();
-        if is_ext {
-            set.insert(cdp_frame_id.to_owned());
-        } else {
-            set.remove(cdp_frame_id);
-        }
-    }
-
-    pub fn clear_cdp_ext_frames(&self) {
-        self.cdp_ext_frames.lock().unwrap().clear();
-    }
-
-    pub fn has_cdp_ext_frames(&self) -> bool {
-        !self.cdp_ext_frames.lock().unwrap().is_empty()
-    }
 
     pub fn answer_dialog(&self, id: u64, accept: bool, text: &str) -> bool {
         let cb = {

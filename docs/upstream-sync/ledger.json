@@ -3455,11 +3455,11 @@
       ],
       "summary": "Navigate back and forward through desktop route history when mouse Back/Forward side buttons are released.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Rune already maps mouse side buttons to PointerButton::Back and PointerButton::Forward (crates/rune/src/window.rs:762-763), and GoBack/GoForward exist in keymap, but apps/desktop does not handle PointerButton::Back/Forward yet.",
+      "status": "have it",
+      "status_evidence": "Ported in apps/desktop/src/shell/view/mod.rs (non-wasm32 desktop shell root opts into PointerButton::Back/Forward and invokes App::navigate(false/true, tx) on release; browser surface excludes Back/Forward so embedded pointer capture never conflicts).",
       "depends_on": "none",
-      "risks": "Ensure embedded browser pane / pointer capture does not conflict with desktop history navigation.",
-      "workstream": "BROWSER-UI"
+      "risks": "none",
+      "workstream": "none"
     },
     {
       "id": "UP-117",
@@ -3507,11 +3507,11 @@
       ],
       "summary": "Insert a new browser tab opened from a page link or context menu beside its opener tab (Chrome opener-chain order) and keep its new-tab label until the first page names itself.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Browser tabs opened from links/popups currently append at the end of the side-panel tab strip without opener-chain placement (`placed.after`) or `unnamed` initial title hold.",
+      "status": "have it",
+      "status_evidence": "Ported in apps/desktop/src/surfaces/browser/openers.rs, features/panels/src/tabs.rs (append_session_tab / open_session_tab_after), apps/desktop/src/surfaces/browser/{mod,context_menu}.rs, apps/desktop/src/plugin_host/native/browser/chrome.rs (BrowserTab:Unnamed), and plugins/browser/init.luau (Chrome opener-chain placement + initial New tab title hold without changing contract.json).",
       "depends_on": "UP-095 (#63002), UP-112 (#65091)",
-      "risks": "Red flag: gui-plugins/browser, plugin/gui contract (adds optional `after` placement on tab open).",
-      "workstream": "BROWSER-UI",
+      "risks": "none",
+      "workstream": "none",
       "reviewed": "pre-merge review required when opened"
     },
     {

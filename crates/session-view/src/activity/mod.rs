@@ -14,10 +14,22 @@ use crate::palette::Pal;
 
 /// Desktop's `Badge` after a row's words: "Failed", "Exit 1", "Stopped". `danger` in the
 /// danger state's colours, else neutral.
+/// `[data-component="tag"]` (`badge.css:1-39`): 16 tall, 4 in, 2 round, 0.5 border, 11 at 530.
 pub fn tag(p: &Pal, label: &str, danger: bool) -> El {
-    let (fill, ink) = if danger { (p.danger_bg, p.danger) } else { (p.layer2, p.muted) };
-    row().key(format!("tag-{label}")).h(18.0).px(6.0).center().radius(4.0).fill(fill)
+    let (fill, border, ink) = if danger {
+        (p.danger_bg, p.danger_border, p.danger)
+    } else {
+        (p.layer2, p.border, p.muted)
+    };
+    row()
+        .key(format!("tag-{label}"))
+        .h(16.0)
+        .px(4.0)
+        .center()
+        .radius(2.0)
+        .border(0.5, border)
+        .fill(fill)
         .child(text(label.to_owned()).font(TAG).color(ink))
 }
 
-const TAG: rune::TextStyle = rune::TextStyle::new(12.0, 530.0).lh(16.0);
+const TAG: rune::TextStyle = rune::TextStyle::new(11.0, 530.0).lh(11.0).tracking(0.05);

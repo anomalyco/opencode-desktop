@@ -4,16 +4,18 @@
 #
 # Modes:
 #   --plan-state --version <cef-rev>
-#       Prints `complete=true|false` and `linux_x64_sha256=<64-hex or empty>`.
-#       Fails hard on network, HTTP, or JSON schema errors.
+#       Prints `complete=true|false`, `linux_x64_sha256=<64-hex or empty>`, and
+#       `linux_arm64_sha256=<64-hex or empty>`. Fails hard on network, HTTP, or
+#       JSON schema errors.
 #   --assert-not-complete --version <cef-rev>
-#       Fails if <cef-rev> already has all four targets in the live index
+#       Fails if <cef-rev> already has all six targets in the live index
 #       (refuses overwriting a complete engine version with new archive hashes).
-#   --assert-published --version <cef-rev> [--linux-sha256 <64-hex>] [--source-rs <path>]
-#       Verifies the live index serves <cef-rev> exactly, all four targets are
+#   --assert-published --version <cef-rev> --linux-x64-sha256 <64-hex>
+#       --linux-arm64-sha256 <64-hex> [--source-rs <path>]
+#       Verifies the live index serves <cef-rev> exactly, all six targets are
 #       present and reachable (HEAD HTTP 200 + matching Content-Length), the
-#       linux-x64 sha256 matches --linux-sha256, and --source-rs points at the
-#       same hardcoded index URL.
+#       linux-x64 and linux-arm64 sha256 values match the pins, and --source-rs
+#       points at the same hardcoded index URL for all six targets.
 #
 # Testing only: --index-url http://127.0.0.1:<port>/... overrides the hardcoded
 # URL strictly for loopback fixtures; release.yml never passes --index-url.
@@ -22,7 +24,7 @@
 readonly DEFAULT_INDEX_URL="https://anoma.ly/release/opencode-rune/browser-engine/stable.json"
 readonly EXPECTED_WIN_TRUST="publisher:Anomaly Innovations, Inc https://anoma.ly/"
 readonly EXPECTED_MAC_TRUST="publisher:5NZ4Q7NXJ4"
-readonly ENGINE_TARGETS=(windows-x64 windows-arm64 macos-arm64 linux-x64)
+readonly ENGINE_TARGETS=(windows-x64 windows-arm64 macos-arm64 macos-x64 linux-x64 linux-arm64)
 
 for cmd in curl jq sed awk; do
   command -v "$cmd" > /dev/null || die "opencode-rune-check-engine.sh needs $cmd."
@@ -30,8 +32,10 @@ done
 
 mode=""
 version=""
-linux_sha256=""
-linux_sha256_set=false
+linux_x64_sha256=""
+linux_x64_sha256_set=false
+linux_arm64_sha256=""
+linux_arm64_sha256_set=false
 source_rs=""
 index_url="$DEFAULT_INDEX_URL"
 
@@ -47,11 +51,18 @@ while [ $# -gt 0 ]; do
       version=$2
       shift 2
       ;;
-    --linux-sha256)
-      [ $# -ge 2 ] || die "--linux-sha256 requires a value."
-      [[ "$2" =~ ^[0-9a-f]{64}$ ]] || die "Invalid --linux-sha256 '$2' (expected 64 lowercase hex characters)."
-      linux_sha256=$2
-      linux_sha256_set=true
+    --linux-x64-sha256 | --linux-sha256)
+      [ $# -ge 2 ] || die "$1 requires a value."
+      [[ "$2" =~ ^[0-9a-f]{64}$ ]] || die "Invalid $1 '$2' (expected 64 lowercase hex characters)."
+      linux_x64_sha256=$2
+      linux_x64_sha256_set=true
+      shift 2
+      ;;
+    --linux-arm64-sha256)
+      [ $# -ge 2 ] || die "--linux-arm64-sha256 requires a value."
+      [[ "$2" =~ ^[0-9a-f]{64}$ ]] || die "Invalid --linux-arm64-sha256 '$2' (expected 64 lowercase hex characters)."
+      linux_arm64_sha256=$2
+      linux_arm64_sha256_set=true
       shift 2
       ;;
     --source-rs)
@@ -76,7 +87,8 @@ done
 [ -n "$mode" ] || die "Usage: opencode-rune-check-engine.sh --plan-state|--assert-not-complete|--assert-published --version <cef-rev> ..."
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$ ]] || die "Invalid engine release version '$version' (expected X.Y.Z-R)."
 if [ "$mode" = --assert-published ]; then
-  [ "$linux_sha256_set" = true ] || die "--assert-published requires --linux-sha256 <64-hex>."
+  [ "$linux_x64_sha256_set" = true ] || die "--assert-published requires --linux-x64-sha256 <64-hex>."
+  [ "$linux_arm64_sha256_set" = true ] || die "--assert-published requires --linux-arm64-sha256 <64-hex>."
 fi
 
 work=$(mktemp -d)
@@ -139,11 +151,21 @@ check_source_rs() {
     BEGIN {
       cfg = ""
       release_source = ""
+      in_target = 0
       has_win = 0
-      has_mac = 0
-      has_linux = 0
+      has_mac_arm64 = 0
+      has_mac_x64 = 0
+      has_linux_x64 = 0
+      has_linux_arm64 = 0
       has_win_trust = 0
-      has_mac_trust = 0
+      has_mac_arm64_trust = 0
+      has_mac_x64_trust = 0
+      has_t_win_x64 = 0
+      has_t_win_arm64 = 0
+      has_t_mac_arm64 = 0
+      has_t_mac_x64 = 0
+      has_t_linux_x64 = 0
+      has_t_linux_arm64 = 0
       err = ""
     }
     {
@@ -151,6 +173,21 @@ check_source_rs() {
       sub(/\r$/, "", line)
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
       if (line == "" || line ~ /^\/\//) next
+      if (in_target) {
+        if (line ~ /"windows-x64"/) has_t_win_x64 = 1
+        if (line ~ /"windows-arm64"/) has_t_win_arm64 = 1
+        if (line ~ /"macos-arm64"/) has_t_mac_arm64 = 1
+        if (line ~ /"macos-x64"/) has_t_mac_x64 = 1
+        if (line ~ /"linux-x64"/) has_t_linux_x64 = 1
+        if (line ~ /"linux-arm64"/) has_t_linux_arm64 = 1
+        if (line ~ /^};$/) in_target = 0
+        next
+      }
+      if (line ~ /^const[[:space:]]+TARGET[[:space:]]*:[[:space:]]*&str[[:space:]]*=/) {
+        in_target = 1
+        cfg = ""
+        next
+      }
       if (line ~ /^#\[cfg\(/) {
         cfg = line
         next
@@ -193,12 +230,24 @@ check_source_rs() {
           if (cfg == "#[cfg(all(windows, not(debug_assertions)))]") {
             if (val == expected) has_win = 1
             else err = err "windows release DEV_SOURCE is \"" val "\", expected \"" expected "\"\n"
-          } else if (cfg == "#[cfg(all(target_os = \"macos\", target_arch = \"aarch64\"))]" || cfg == "#[cfg(target_os = \"macos\")]") {
-            if (val == expected) has_mac = 1
+          } else if (cfg == "#[cfg(target_os = \"macos\")]" || cfg == "#[cfg(all(target_os = \"macos\", any(target_arch = \"aarch64\", target_arch = \"x86_64\")))]") {
+            if (val == expected) { has_mac_arm64 = 1; has_mac_x64 = 1 }
+            else err = err "macos DEV_SOURCE is \"" val "\", expected \"" expected "\"\n"
+          } else if (cfg == "#[cfg(all(target_os = \"macos\", target_arch = \"aarch64\"))]") {
+            if (val == expected) has_mac_arm64 = 1
             else err = err "macos arm64 DEV_SOURCE is \"" val "\", expected \"" expected "\"\n"
+          } else if (cfg == "#[cfg(all(target_os = \"macos\", target_arch = \"x86_64\"))]") {
+            if (val == expected) has_mac_x64 = 1
+            else err = err "macos x64 DEV_SOURCE is \"" val "\", expected \"" expected "\"\n"
+          } else if (cfg == "#[cfg(target_os = \"linux\")]" || cfg == "#[cfg(all(target_os = \"linux\", any(target_arch = \"x86_64\", target_arch = \"aarch64\")))]") {
+            if (val == expected) { has_linux_x64 = 1; has_linux_arm64 = 1 }
+            else err = err "linux DEV_SOURCE is \"" val "\", expected \"" expected "\"\n"
           } else if (cfg == "#[cfg(all(target_os = \"linux\", target_arch = \"x86_64\"))]") {
-            if (val == expected) has_linux = 1
+            if (val == expected) has_linux_x64 = 1
             else err = err "linux x86_64 DEV_SOURCE is \"" val "\", expected \"" expected "\"\n"
+          } else if (cfg == "#[cfg(all(target_os = \"linux\", target_arch = \"aarch64\"))]") {
+            if (val == expected) has_linux_arm64 = 1
+            else err = err "linux aarch64 DEV_SOURCE is \"" val "\", expected \"" expected "\"\n"
           }
         }
         cfg = ""
@@ -211,9 +260,15 @@ check_source_rs() {
         if (cfg == "#[cfg(all(windows, not(debug_assertions)))]") {
           if (rhs == win_trust) has_win_trust = 1
           else err = err "windows release DEV_TRUST is \"" rhs "\", expected \"" win_trust "\"\n"
-        } else if (cfg == "#[cfg(all(target_os = \"macos\", target_arch = \"aarch64\"))]" || cfg == "#[cfg(target_os = \"macos\")]") {
-          if (rhs == mac_trust) has_mac_trust = 1
+        } else if (cfg == "#[cfg(target_os = \"macos\")]" || cfg == "#[cfg(all(target_os = \"macos\", any(target_arch = \"aarch64\", target_arch = \"x86_64\")))]") {
+          if (rhs == mac_trust) { has_mac_arm64_trust = 1; has_mac_x64_trust = 1 }
+          else err = err "macos DEV_TRUST is \"" rhs "\", expected \"" mac_trust "\"\n"
+        } else if (cfg == "#[cfg(all(target_os = \"macos\", target_arch = \"aarch64\"))]") {
+          if (rhs == mac_trust) has_mac_arm64_trust = 1
           else err = err "macos arm64 DEV_TRUST is \"" rhs "\", expected \"" mac_trust "\"\n"
+        } else if (cfg == "#[cfg(all(target_os = \"macos\", target_arch = \"x86_64\"))]") {
+          if (rhs == mac_trust) has_mac_x64_trust = 1
+          else err = err "macos x64 DEV_TRUST is \"" rhs "\", expected \"" mac_trust "\"\n"
         }
         cfg = ""
         next
@@ -222,16 +277,25 @@ check_source_rs() {
     }
     END {
       if (!has_win) err = err "missing windows release DEV_SOURCE == " expected "\n"
-      if (!has_mac) err = err "missing macos arm64 DEV_SOURCE == " expected "\n"
-      if (!has_linux) err = err "missing linux x86_64 DEV_SOURCE == " expected "\n"
+      if (!has_mac_arm64) err = err "missing macos arm64 DEV_SOURCE == " expected "\n"
+      if (!has_mac_x64) err = err "missing macos x64 DEV_SOURCE == " expected "\n"
+      if (!has_linux_x64) err = err "missing linux x86_64 DEV_SOURCE == " expected "\n"
+      if (!has_linux_arm64) err = err "missing linux aarch64 DEV_SOURCE == " expected "\n"
       if (!has_win_trust) err = err "missing windows release DEV_TRUST == " win_trust "\n"
-      if (!has_mac_trust) err = err "missing macos arm64 DEV_TRUST == " mac_trust "\n"
+      if (!has_mac_arm64_trust) err = err "missing macos arm64 DEV_TRUST == " mac_trust "\n"
+      if (!has_mac_x64_trust) err = err "missing macos x64 DEV_TRUST == " mac_trust "\n"
+      if (!has_t_win_x64) err = err "TARGET missing windows-x64\n"
+      if (!has_t_win_arm64) err = err "TARGET missing windows-arm64\n"
+      if (!has_t_mac_arm64) err = err "TARGET missing macos-arm64\n"
+      if (!has_t_mac_x64) err = err "TARGET missing macos-x64\n"
+      if (!has_t_linux_x64) err = err "TARGET missing linux-x64\n"
+      if (!has_t_linux_arm64) err = err "TARGET missing linux-arm64\n"
       if (err != "") {
         printf "%s", err > "/dev/stderr"
         exit 1
       }
     }
-    ' "$file" || die "$file does not configure the required release engine defaults for Windows, macOS arm64, and Linux x86_64."
+    ' "$file" || die "$file does not configure the required release engine defaults for all six targets (Windows x64/arm64, macOS arm64/x64, Linux x64/arm64)."
 }
 
 index_file=$(fetch_index)
@@ -239,13 +303,17 @@ index_file=$(fetch_index)
 case "$mode" in
   --plan-state)
     if index_complete "$index_file"; then
-      linux_hash=$(jq -r '.release.targets["linux-x64"].sha256' "$index_file")
-      [[ "$linux_hash" =~ ^[0-9a-f]{64}$ ]] || die "Invalid linux-x64 sha256 '$linux_hash' in $index_url."
+      linux_x64_hash=$(jq -r '.release.targets["linux-x64"].sha256' "$index_file")
+      linux_arm64_hash=$(jq -r '.release.targets["linux-arm64"].sha256' "$index_file")
+      [[ "$linux_x64_hash" =~ ^[0-9a-f]{64}$ ]] || die "Invalid linux-x64 sha256 '$linux_x64_hash' in $index_url."
+      [[ "$linux_arm64_hash" =~ ^[0-9a-f]{64}$ ]] || die "Invalid linux-arm64 sha256 '$linux_arm64_hash' in $index_url."
       echo "complete=true"
-      echo "linux_x64_sha256=$linux_hash"
+      echo "linux_x64_sha256=$linux_x64_hash"
+      echo "linux_arm64_sha256=$linux_arm64_hash"
     else
       echo "complete=false"
       echo "linux_x64_sha256="
+      echo "linux_arm64_sha256="
     fi
     ;;
 
@@ -277,9 +345,12 @@ case "$mode" in
       [ "$actual_size" = "$expected_size" ] ||
         die "Target '$target' at $resolved has Content-Length $actual_size, expected $expected_size."
     done
-    live_linux=$(jq -r '.release.targets["linux-x64"].sha256' "$index_file")
-    [ "$live_linux" = "$linux_sha256" ] ||
-      die "Published linux-x64 sha256 '$live_linux' does not match Linux app pin '$linux_sha256'."
-    echo "ok - $index_url serves $version (${#ENGINE_TARGETS[@]} targets verified, linux-x64 sha256 matched)"
+    live_linux_x64=$(jq -r '.release.targets["linux-x64"].sha256' "$index_file")
+    [ "$live_linux_x64" = "$linux_x64_sha256" ] ||
+      die "Published linux-x64 sha256 '$live_linux_x64' does not match Linux x64 app pin '$linux_x64_sha256'."
+    live_linux_arm64=$(jq -r '.release.targets["linux-arm64"].sha256' "$index_file")
+    [ "$live_linux_arm64" = "$linux_arm64_sha256" ] ||
+      die "Published linux-arm64 sha256 '$live_linux_arm64' does not match Linux arm64 app pin '$linux_arm64_sha256'."
+    echo "ok - $index_url serves $version (${#ENGINE_TARGETS[@]} targets verified, linux-x64 and linux-arm64 sha256 matched)"
     ;;
 esac
