@@ -17,7 +17,7 @@ path = "src/main.rs"
 test = false
 
 [features]
-default = ["knobs", "office", "stories"]
+default = ["knobs", "office", "stories", "frame-profile"]
 # Word, Excel and PowerPoint previews (`office`): BetterOffice's engines and Vello, which draws
 # their display lists on the GPU. About 6 MB of font packs and the engines; a build without it
 # shows Office files as binary.
