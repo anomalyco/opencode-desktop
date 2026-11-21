@@ -393,6 +393,7 @@ impl App {
             "permission.asked" | "form.created" => {
                 let parsed = if ty == "form.created" { opencode_kit::model::parse_form(data) } else { opencode_kit::model::parse_permission(data) };
                 let Some(p) = parsed else { return false };
+                self.request_reads.note_sse(p.id());
                 self.add_pending(p)
             }
             "permission.replied" | "form.replied" | "form.cancelled" => {
@@ -400,6 +401,7 @@ impl App {
                 let had = self.requests.iter().any(|(_, r)| *r == rid) || self.pending.iter().any(|p| p.id() == rid);
                 self.pending.retain(|p| p.id() != rid);
                 self.requests.retain(|(_, r)| *r != rid);
+                self.request_reads.forget_sse(&rid);
                 crate::notifications::answered(self, &rid);
                 had
             }
