@@ -8,13 +8,14 @@ use std::collections::{BTreeMap, HashSet};
 
 use serde_json::{Value, json};
 
-use crate::extensions::manifest::{extension_label, is_private_url, matches_host};
+use crate::extensions::manifest::{extension_label, is_extension_scheme, is_private_url, matches_host};
 use crate::wire::{ExtensionMenuGroup, ExtensionMenuItem, ExtensionMenuItemKind};
 
 const MAX_ITEMS_PER_EXT: usize = 256;
 const MAX_SERIALIZED_BYTES: usize = 256 * 1024;
 const MAX_MENU_DEPTH: usize = 6;
 const MAX_GROUPS: usize = 32;
+const MAX_TOTAL_ITEMS: usize = 512;
 
 /// What was right-clicked on a page (`context-menus.ts:45-51`).
 #[derive(Clone, Debug, Default)]
@@ -57,11 +58,15 @@ impl MenuTarget {
         ctxs
     }
 
-    fn has_private_url(&self) -> bool {
-        is_private_url(&self.page_url)
-            || is_private_url(&self.frame_url)
-            || self.link_url.as_deref().is_some_and(is_private_url)
-            || self.src_url.as_deref().is_some_and(is_private_url)
+    /// Returns `true` if any target URL is private (`file:`, `oc-preview:`, `artifact:`,
+    /// `workspace:`) or `chrome-extension://` so cross-extension pages/frames/resources never
+    /// leak into another extension's `contextMenus.onClicked` (`review-rd294.md` #447 SF #1).
+    pub fn has_private_url(&self) -> bool {
+        let excluded = |u: &str| is_private_url(u) || is_extension_scheme(u);
+        excluded(&self.page_url)
+            || excluded(&self.frame_url)
+            || self.link_url.as_deref().is_some_and(excluded)
+            || self.src_url.as_deref().is_some_and(excluded)
     }
 }
 
@@ -170,6 +175,7 @@ impl ExtensionContextMenuCatalog {
         let Some(pos) = entry.items.iter().position(|i| i.id == id) else {
             return Err(format!("Cannot find menu item with id {id}."));
         };
+        let mut updated = entry.items[pos].clone();
         if let Some((pid, is_num)) = obj.get("parentId").and_then(|v| parse_id(Some(v))) {
             if !entry.items.iter().any(|i| i.id == pid) {
                 return Err(format!("Cannot find menu item with id {pid}."));
@@ -177,34 +183,40 @@ impl ExtensionContextMenuCatalog {
             if is_ancestor(&entry.items, &pid, &id) {
                 return Err(format!("Cannot make menu item {id} a descendant of itself."));
             }
-            entry.items[pos].parent_id = Some(pid);
-            entry.items[pos].parent_is_num = is_num;
+            updated.parent_id = Some(pid);
+            updated.parent_is_num = is_num;
         }
-        let item = &mut entry.items[pos];
         if let Some(t) = obj.get("title").and_then(Value::as_str) {
-            item.title = t.chars().take(256).collect();
+            updated.title = t.chars().take(256).collect();
         }
         if obj.get("type").is_some() {
-            item.kind = parse_kind(obj.get("type"));
+            updated.kind = parse_kind(obj.get("type"));
         }
         if let Some(c) = parse_str_list(obj.get("contexts")) {
-            item.contexts = c;
+            updated.contexts = c;
         }
         if let Some(v) = obj.get("checked").and_then(Value::as_bool) {
-            item.checked = v;
+            updated.checked = v;
         }
         if let Some(v) = obj.get("enabled").and_then(Value::as_bool) {
-            item.enabled = v;
+            updated.enabled = v;
         }
         if let Some(v) = obj.get("visible").and_then(Value::as_bool) {
-            item.visible = v;
+            updated.visible = v;
         }
         if let Some(v) = parse_str_list(obj.get("documentUrlPatterns")) {
-            item.document_url_patterns = Some(v);
+            updated.document_url_patterns = Some(v);
         }
         if let Some(v) = parse_str_list(obj.get("targetUrlPatterns")) {
-            item.target_url_patterns = Some(v);
+            updated.target_url_patterns = Some(v);
         }
+        let next_bytes = approx_bytes(&entry.items)
+            .saturating_sub(approx_item_bytes(&entry.items[pos]))
+            .saturating_add(approx_item_bytes(&updated));
+        if next_bytes > MAX_SERIALIZED_BYTES {
+            return Err("Context menu storage limit exceeded.".into());
+        }
+        entry.items[pos] = updated;
         Ok(())
     }
 
@@ -232,18 +244,20 @@ impl ExtensionContextMenuCatalog {
     }
 
     /// Builds sanitized, context-matched extension menu groups for a right-click on a regular web
-    /// tab (`context-menus.ts:235-268`). Returns empty on `file://` targets.
+    /// tab (`context-menus.ts:235-268`). Returns empty on `file://` or `chrome-extension://`
+    /// targets and bounds total emitted items to `MAX_TOTAL_ITEMS`.
     pub fn build_groups(&self, target: &MenuTarget) -> Vec<ExtensionMenuGroup> {
         if target.has_private_url() {
             return Vec::new();
         }
         let ctxs = target.contexts();
         let mut groups = Vec::new();
+        let mut remaining = MAX_TOTAL_ITEMS;
         for (ext_id, entry) in &self.by_ext {
-            if groups.len() >= MAX_GROUPS {
+            if groups.len() >= MAX_GROUPS || remaining == 0 {
                 break;
             }
-            let top = build_level(&entry.items, target, &ctxs, None, 0);
+            let top = build_level(&entry.items, target, &ctxs, None, 0, &mut remaining);
             if !top.is_empty() {
                 let title = if entry.name.is_empty() { ext_id.clone() } else { entry.name.clone() };
                 groups.push(ExtensionMenuGroup { ext_id: ext_id.clone(), title, items: top });
@@ -260,6 +274,9 @@ impl ExtensionContextMenuCatalog {
         item_id: &str,
         target: &MenuTarget,
     ) -> Option<Value> {
+        if target.has_private_url() {
+            return None;
+        }
         let entry = self.by_ext.get_mut(ext_id)?;
         let idx = entry.items.iter().position(|i| i.id == item_id && i.visible && i.enabled)?;
         let chosen = entry.items[idx].clone();
@@ -317,12 +334,16 @@ fn build_level(
     ctxs: &[&str],
     parent_id: Option<&str>,
     depth: usize,
+    remaining: &mut usize,
 ) -> Vec<ExtensionMenuItem> {
-    if depth >= MAX_MENU_DEPTH {
+    if depth >= MAX_MENU_DEPTH || *remaining == 0 {
         return Vec::new();
     }
     let mut out = Vec::new();
     for item in items {
+        if *remaining == 0 {
+            break;
+        }
         if item.parent_id.as_deref() != parent_id || !item.visible {
             continue;
         }
@@ -343,10 +364,11 @@ fn build_level(
                 continue;
             }
         }
-        let children = if item.kind == ExtensionMenuItemKind::Separator {
+        *remaining -= 1;
+        let children = if item.kind == ExtensionMenuItemKind::Separator || *remaining == 0 {
             Vec::new()
         } else {
-            build_level(items, target, ctxs, Some(&item.id), depth + 1)
+            build_level(items, target, ctxs, Some(&item.id), depth + 1, remaining)
         };
         let sel = extension_label(&target.selection_text);
         let title = extension_label(&extension_label(&item.title).replace("%s", &sel));
