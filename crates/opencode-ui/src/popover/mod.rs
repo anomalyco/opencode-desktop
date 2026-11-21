@@ -272,7 +272,7 @@ pub fn option_tx<S: 'static>(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut S,
         .radius(look.row_radius)
         .fill(lit(p, o.active && !o.slides && !o.disabled));
     let r = if o.disabled {
-        // `[data-component="menu-v2-item"][data-disabled]` (`menu.css:154-157`): fades the whole row to 0.5.
+        // `[data-component="menu-v2-item"][data-disabled]` (`menu.css:157-160`): fades the whole row to 0.5.
         r.disabled(true).opacity(0.5)
     } else {
         r.press(p.pressed)
