@@ -675,9 +675,12 @@ impl EngineManager {
             }
             HostMsg::ResetPermission { origin, kind } => {
                 self.permissions.reset_profile_permission(&origin, kind);
+                // No unused media-gate Allow outlives a change to the site's permissions.
+                self.tabs.values().for_each(|t| t.prompts.clear_media_gate_allows());
             }
             HostMsg::SyncSitePermissions { entries } => {
                 self.permissions.sync_profile_permissions(&entries);
+                self.tabs.values().for_each(|t| t.prompts.clear_media_gate_allows());
                 if entries.iter().any(|e| e.allow) {
                     self.flush_bfcache_for_default_tabs();
                 }
@@ -1234,7 +1237,7 @@ impl EngineManager {
         let permission = crate::prompts::TabPermissionHandler::new(
             tab_id,
             is_preview,
-            context_ready,
+            context_ready.clone(),
             self.prompt_shared.clone(),
             prompts.clone(),
             self.out_tx.clone(),
@@ -1356,7 +1359,7 @@ impl EngineManager {
         let mut observer = TabCdpObserver::new(
             tab_id, is_popup, isolated, is_preview, snap.clone(), cdp_id_map.clone(),
             internal_picked.clone(), pending_clears.clone(), cdp_ledger.clone(), passkeys.clone(),
-            media_gate.clone(), self.prompt_shared.clone(), input_guard.clone(), emulation_scale.clone(),
+            media_gate.clone(), context_ready, self.prompt_shared.clone(), input_guard.clone(), emulation_scale.clone(),
             self.next_cdp_id.clone(), prompts.clone(), self.permissions.clone(),
             self.extensions.is_some(), self.events.clone(), self.out_tx.clone(),
         );
