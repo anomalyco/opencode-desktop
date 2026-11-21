@@ -312,6 +312,11 @@ pub(crate) fn is_http_url(url: &str) -> bool {
 
 impl BrowserHost {
     /// Whether the connected engine advertises MV3 extension support (`Ready.extensions`).
+    /// Whether the running engine was started with extensions: it then keeps its pages' Page.*`n    /// DevTools events to itself (cdp_ledger.rs), and frames come only from frame-tree replies.
+    pub fn extensions_active(&self) -> bool {
+        !self.extensions.launched_ext_ids.is_empty()
+    }
+
     pub fn engine_extensions(&self) -> bool {
         self.caps.extensions()
     }

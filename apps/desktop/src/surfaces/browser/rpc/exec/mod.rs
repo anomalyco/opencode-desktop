@@ -75,7 +75,8 @@ impl ExecPhase {
     pub fn next_wake(&self) -> Option<Instant> {
         match self {
             Self::WaitLoad(s) => {
-                if s.saw_loading {
+                // A history wait also waits for the frame tracker, at most until the grace.
+                if s.saw_loading && s.history_from.is_none() {
                     Some(s.deadline)
                 } else {
                     Some((s.started_at + Duration::from_millis(1_200)).min(s.deadline))
