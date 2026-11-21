@@ -369,7 +369,7 @@ fn hover_at<S: PopupHost + 'static>(s: &mut S, level: usize, n: usize, tx: &mut 
 /// Row `n` of the menu `level` deep lights, opening its submenu in place of the open one; a row
 /// without one leaves the open submenu to the machine's delay.
 fn light<S: PopupHost + 'static>(s: &mut S, level: usize, n: usize) {
-    let highlight_id = {
+    let (opens, highlight_id) = {
         let Some(shown) = s.popup_mut().shown.as_mut() else { return };
         let changed = level == 0 && shown.active != Some(n);
         shown.set_active(level, n);
@@ -384,11 +384,12 @@ fn light<S: PopupHost + 'static>(s: &mut S, level: usize, n: usize) {
                 }
             }
         }
-        if opens {
-            super::submenu::step(&mut s.popup_mut().submenu, super::submenu::Event::Returned);
-        }
-        changed.then(|| shown.menu.item_at(n).filter(|i| i.enabled).map(|i| i.id.clone())).flatten()
+        let id = changed.then(|| shown.menu.item_at(n).filter(|i| i.enabled).map(|i| i.id.clone())).flatten();
+        (opens, id)
     };
+    if opens {
+        super::submenu::step(&mut s.popup_mut().submenu, super::submenu::Event::Returned);
+    }
     if let Some(id) = highlight_id {
         notify_highlight(s, &id);
     }
