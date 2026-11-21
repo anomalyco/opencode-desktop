@@ -193,7 +193,9 @@ pub(super) fn tab_bar<H: PanelsHost + 'static>(
         );
     } else if reserve_toggle {
         // Reserves space at the end of the top tab bar for the floating `side-toggle` button (`size-7`).
-        bar = bar.child(el().key("side-toggle-slot").size(28.0, 28.0));
+        // While the region is open the toggle sits in it, in the strip's Tab order.
+        let toggle = super::toggle_in_strip(host).then(|| super::strip_toggle(host, p)).flatten();
+        bar = bar.child(el().key("side-toggle-slot").size(28.0, 28.0).children(toggle));
     }
 
     bar
