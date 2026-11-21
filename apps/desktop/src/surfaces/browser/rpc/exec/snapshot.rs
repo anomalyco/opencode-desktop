@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 use super::super::session::SessionAttachment;
 use super::read::{queue_live_frame_refresh, step_live_frame_refresh};
-use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards, send_rpc_cdp, verify_authorized_state};
+use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards, send_rpc_cdp, send_rpc_cdp_in_frame, verify_authorized_state};
 use crate::App;
 
 const MAX_SNAPSHOT_PROBES: usize = 200;
@@ -152,9 +152,9 @@ fn start_snapshot(
     if let Err(o) = check_page_guards(app, host_id, if is_find { "find" } else { "snapshot" }) {
         return StepOutcome::Done(o);
     }
-    let (root, ref_session) = if let Some(r) = cmd.action.get("ref").and_then(Value::as_str) {
-        match att.refs.get(&host_id).and_then(|t| t.resolve(r)) {
-            Some((bid, sid)) => (Some(bid), sid),
+    let (root, ref_session, ref_frame) = if let Some(r) = cmd.action.get("ref").and_then(Value::as_str) {
+        match att.refs.get(&host_id).and_then(|t| t.resolve(r).map(|(b, s)| (b, s, t.frame_of(r)))) {
+            Some((bid, sid, rf)) => (Some(bid), sid, rf),
             None => {
                 return StepOutcome::Done(Outcome::fail(
                     failure_code::STALE_REF,
@@ -163,9 +163,9 @@ fn start_snapshot(
             }
         }
     } else {
-        (None, None)
+        (None, None, None)
     };
-    let frame_id = cmd.action.get("frameID").and_then(Value::as_str).map(str::to_owned);
+    let frame_id = cmd.action.get("frameID").and_then(Value::as_str).map(str::to_owned).or(ref_frame);
     let opts = SnapshotOptions {
         root,
         depth: cmd.action.get("depth").and_then(Value::as_u64).map(|v| v as usize),
@@ -286,20 +286,11 @@ pub(super) fn step_snapshot(
                     "Agent browser tools cannot inspect extension frames.",
                 ));
             }
-            let (cap_exceeded, tracked_known, oopif_session, is_oopif_subframe) = att
+            let (cap_exceeded, tracked_known, oopif_session) = att
                 .frames
                 .get(&st.host_id)
-                .map(|f| {
-                    let sid = f.frame_sessions.get(want).cloned();
-                    let subframe = sid.as_ref().is_some_and(|s| {
-                        f.frame_parents
-                            .get(want)
-                            .and_then(|p| f.frame_sessions.get(p))
-                            .is_some_and(|ps| ps == s)
-                    });
-                    (f.frame_cap_exceeded, f.frame_urls.contains_key(want), sid, subframe)
-                })
-                .unwrap_or((false, false, None, false));
+                .map(|f| (f.frame_cap_exceeded, f.frame_urls.contains_key(want), f.frame_sessions.get(want).cloned()))
+                .unwrap_or((false, false, None));
             if cap_exceeded {
                 return Some(Outcome::fail(
                     failure_code::OPERATION_FAILED,
@@ -313,11 +304,7 @@ pub(super) fn step_snapshot(
                 ));
             }
             st.cdp_session = oopif_session.clone();
-            let ax_params = if oopif_session.is_some() && !is_oopif_subframe {
-                json!({})
-            } else {
-                json!({ "frameId": want })
-            };
+            let ax_params = json!({ "frameId": want });
             match send_rpc_cdp(app, st.host_id, "Accessibility.getFullAXTree", ax_params, oopif_session) {
                 Ok(req) => {
                     st.stage = SnapshotStage::FetchAx { cdp_req: req };
@@ -345,12 +332,13 @@ pub(super) fn step_snapshot(
             let mut box_queue = prepared.box_targets();
             box_queue.truncate(MAX_SNAPSHOT_PROBES);
             if let Some((first_id, first_name)) = val_queue.pop() {
-                match send_rpc_cdp(
+                match send_rpc_cdp_in_frame(
                     app,
                     st.host_id,
                     "DOM.resolveNode",
                     json!({ "backendNodeId": first_id }),
                     st.cdp_session.clone(),
+                    st.frame_id.clone(),
                 ) {
                     Ok(req) => {
                         st.stage = SnapshotStage::ResolveFields {
@@ -455,12 +443,13 @@ pub(super) fn step_snapshot(
                 }
             }
             if let Some((next_id, next_name)) = queue.pop()
-                && let Ok(req) = send_rpc_cdp(
+                && let Ok(req) = send_rpc_cdp_in_frame(
                     app,
                     st.host_id,
                     "DOM.resolveNode",
                     json!({ "backendNodeId": next_id }),
                     st.cdp_session.clone(),
+                    st.frame_id.clone(),
                 )
             {
                 st.stage = SnapshotStage::ResolveFields {
@@ -536,12 +525,13 @@ fn advance_boxes_or_finish(
     ref_counter: &mut u64,
 ) -> Option<Outcome> {
     if let Some(next_id) = box_queue.pop()
-        && let Ok(req) = send_rpc_cdp(
+        && let Ok(req) = send_rpc_cdp_in_frame(
             app,
             st.host_id,
             "DOM.getContentQuads",
             json!({ "backendNodeId": next_id }),
             st.cdp_session.clone(),
+            st.frame_id.clone(),
         )
     {
         st.stage = SnapshotStage::FetchBoxes {
@@ -595,7 +585,7 @@ fn finish_snapshot(
     att.refs
         .entry(host_id)
         .or_default()
-        .update_from_snapshot(out.refs, st.cdp_session.clone());
+        .update_from_snapshot(out.refs, st.cdp_session.clone(), st.frame_id.clone());
     let Some(tab) = att.wire_tab(app, host_id) else {
         return Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable.");
     };

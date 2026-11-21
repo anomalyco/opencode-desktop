@@ -92,6 +92,38 @@ fn is_terminal(exe: &Path) -> bool {
     exe.file_stem().is_some_and(|s| s.eq_ignore_ascii_case("wt"))
 }
 
+/// Opens a user-confirmed allow-listed app-scheme URI via Windows Shell association
+/// (`ShellExecuteExW` with `lpVerb = "open"` and `SEE_MASK_FLAG_NO_UI`, never splicing a shell
+/// command line ourselves).
+///
+/// Windows' Shell association engine resolves both classic `HKCR\<scheme>\shell\open\command`
+/// (`"%1"` substitution) and modern MSIX/UWP `DelegateExecute` handlers. Because classic `%1`
+/// substitution injects the URI text inside `"%1"`, `browser_policy::is_strict_rfc3986_uri` is
+/// re-verified here to ban `"`, `\`, spaces/whitespace, controls, `< > ` ^ { | }`, non-ASCII, and
+/// malformed `%XX`, preventing quote break-out and argument injection.
+#[allow(unsafe_code)]
+pub(crate) fn open_app_uri(uri: &str) -> bool {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::{SEE_MASK_FLAG_NO_UI, SHELLEXECUTEINFOW, ShellExecuteExW};
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    if !browser_policy::is_strict_rfc3986_uri(uri) {
+        return false;
+    }
+    let verb: Vec<u16> = OsStr::new("open").encode_wide().chain([0]).collect();
+    let target: Vec<u16> = OsStr::new(uri).encode_wide().chain([0]).collect();
+    // SAFETY: zero-initialized `SHELLEXECUTEINFOW` with exact `cbSize`, valid NUL-terminated
+    // UTF-16 `verb` and `target` buffers live across the synchronous `ShellExecuteExW` call.
+    let mut info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
+    info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+    info.fMask = SEE_MASK_FLAG_NO_UI;
+    info.lpVerb = verb.as_ptr();
+    info.lpFile = target.as_ptr();
+    info.nShow = SW_SHOWNORMAL;
+    unsafe { ShellExecuteExW(&mut info) != 0 }
+}
+
 /// Starts `cmd` on its own: the app keeps running after the launch answers.
 fn start(cmd: &mut Command) -> Result<(), String> {
     cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().map(|_| ()).map_err(|e| e.to_string())

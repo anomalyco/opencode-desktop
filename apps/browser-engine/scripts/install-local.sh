@@ -53,6 +53,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   </dict>
 </dict></plist>
 PLIST
+/usr/bin/plutil -convert xml1 "$APP/Contents/Info.plist"
 
 ditto "$CEF_DIR/Chromium Embedded Framework.framework" "$APP/Contents/Frameworks/Chromium Embedded Framework.framework"
 # Strip software Vulkan fallback (macOS uses Metal) and unused locale dirs (~40 MiB saved).
@@ -86,6 +87,7 @@ for SUFFIX in "Helper" "Helper (GPU)" "Helper (Renderer)" "Helper (Plugin)" "Hel
   </dict>
 </dict></plist>
 PLIST
+  /usr/bin/plutil -convert xml1 "$HAPP/Contents/Info.plist"
   codesign --force --sign "$SIGN_ID" "$HAPP" >/dev/null 2>&1 || codesign --force --sign - "$HAPP" >/dev/null 2>&1 || true
 done
 

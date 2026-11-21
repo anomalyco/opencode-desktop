@@ -148,7 +148,7 @@ fn compute_bar_hash(
                 e.tab.missing,
                 e.tab.transient,
                 e.tab.draggable,
-                e.provider.lead_stamp(host, p, &e.tab, active),
+                e.provider.lead_stamp(host, p, &e.tab, active && focused),
             ),
         )
             .hash(&mut h);

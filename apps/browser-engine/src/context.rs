@@ -155,6 +155,15 @@ pub fn proxy_matches_challenge(
 /// Applies full privacy/network lockdown (and mandatory `fixed_servers` + `<-loopback>` proxy for
 /// `RemoteServer` contexts) AND reads every required preference back via `ctx.preference(...)` to
 /// verify the written values actually took effect. Never falls back to `mode: "direct"`.
+/// Disables non-proxied UDP WebRTC ICE host gathering on `ctx` (used on the global `Default`
+/// context alongside `--disable-features=MediaRouter,DialMediaRouteProvider,CastMediaRouteProvider,WebRtcHideLocalIpsWithMdns`
+/// so `NetworkService` opens zero non-loopback UDP listeners and exposes zero local LAN IPs).
+pub fn disable_non_proxied_udp(ctx: &RequestContext) {
+    let _ = set_and_verify_string_pref(ctx, "webrtc.ip_handling_policy", "disable_non_proxied_udp");
+    let _ = set_optional_bool_pref(ctx, "webrtc.multiple_routes_enabled", false);
+    let _ = set_optional_bool_pref(ctx, "webrtc.nonproxied_udp_enabled", false);
+}
+
 fn apply_context_prefs(
     ctx: &RequestContext,
     proxy: Option<&RemoteProxyConfig>,

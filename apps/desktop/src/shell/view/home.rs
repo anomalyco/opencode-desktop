@@ -267,12 +267,15 @@ fn new_session_button(p: &Pal) -> El {
 }
 
 /// `HomeSessionsEmpty`: centred 52 below the list's top, 16 apart: the title, the line under it
-/// and, when a session can start, a neutral New session button.
+/// and, when a session can start, a neutral New session button. Official's `home-sessions-list`
+/// carries `-mr-3` while `HomeSessionsEmpty` uses `px-6` without the non-empty list's `pr-3`,
+/// shifting its centre +6 pt (`pl(36.0).pr(24.0)`).
 fn empty(p: &Pal, can_create: bool) -> El {
     let mut e = col()
         .key("home-empty")
         .w_full()
-        .px(24.0)
+        .pl(36.0)
+        .pr(24.0)
         .pt(52.0)
         .gap(16.0)
         .items_center()
@@ -405,7 +408,7 @@ fn list_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc::Rc<Vec<Strin
             parts.labels
         }
     };
-    crate::session_menu::on(r.child(labels).children(parts.ring), target)
+    crate::session_menu::on_home(r.child(labels).children(parts.ring), target)
 }
 
 /// A middle click, or ⌘-click (Ctrl+click off macOS) without Shift or Alt, opens a session as a

@@ -6,7 +6,8 @@
 //! | Where | Items |
 //! | --- | --- |
 //! | Sidebar tab | Rename, Close tab, Close other tabs, Close tabs to the right, —, Delete session… |
-//! | Home row, session header | Rename, Export…, Make project, —, Delete… |
+//! | Home row | Open, Open in background, —, Rename, Export…, Mark as read or unread, —, Delete… |
+//! | Session header | Rename, Export…, —, Delete… |
 //! | Recent row | Pin (or Unpin, Move up, Move down), Mute or Unmute, Hide, —, Rename, Archive, —, Delete… |
 //! | Inbox card, project sidebar row | Rename (a dialog: `rename_dialog`), Export…, Mark as read or unread, Archive (the inbox), —, Delete… |
 //!
@@ -300,12 +301,30 @@ pub fn open_dialog(host: &mut dyn SessionMenuHost, t: Target, at: impl Into<Popu
     open_at(host, t, at.into(), true, tx);
 }
 
+/// [`open`] for a Home row: Open and Open in background lead the menu (`home/sessions/view.tsx`
+/// `HomeSessionRow`, upstream #65209 and #65212).
+pub fn open_home(host: &mut dyn SessionMenuHost, t: Target, at: impl Into<PopupAnchor>, tx: &mut Tx) {
+    let lead = vec![
+        item("open", opencode_i18n::t!("common.open"), true),
+        item("open-background", opencode_i18n::t!("home.sessions.openInBackground"), true),
+        Line::Sep,
+    ];
+    open_with(host, t, at.into(), false, lead, tx);
+}
+
 /// Non-generic core behind [`open`] and [`open_dialog`].
 pub fn open_at(host: &mut dyn SessionMenuHost, t: Target, at: PopupAnchor, dialog: bool, tx: &mut Tx) {
+    open_with(host, t, at, dialog, Vec::new(), tx);
+}
+
+fn open_with(host: &mut dyn SessionMenuHost, t: Target, at: PopupAnchor, dialog: bool, lead: Vec<Line>, tx: &mut Tx) {
     if host.menus().renaming().is_some_and(|r| r.spot == Spot::Row) {
         return;
     }
     let mut items = lines(host, &t);
+    if !items.is_empty() {
+        items.splice(0..0, lead);
+    }
     let is_draft = t.tab(host).is_some_and(|x| x.is_draft);
     if !is_draft && (dialog || t.spot == Spot::Tab) {
         if host.navigation_prototype() {
@@ -364,6 +383,11 @@ pub fn on<H: SessionMenuHost + 'static>(e: El, t: Target) -> El {
     e.on_secondary_press(move |s: &mut H, press: PointerPress, tx: &mut Tx| open(s, t.clone(), press, tx))
 }
 
+/// [`on`] for a Home row: its menu leads with Open and Open in background.
+pub fn on_home<H: SessionMenuHost + 'static>(e: El, t: Target) -> El {
+    e.on_secondary_press(move |s: &mut H, press: PointerPress, tx: &mut Tx| open_home(s, t.clone(), press, tx))
+}
+
 /// [`on`] for a project sidebar's session row (`project-session-row.tsx:185-197`): Rename opens
 /// the dialog.
 pub fn on_dialog<H: SessionMenuHost + 'static>(e: El, t: Target) -> El {
@@ -382,6 +406,8 @@ pub fn run(host: &mut dyn SessionMenuHost, t: &Target, id: &str, tx: &mut Tx) {
         return;
     }
     match id {
+        "open" => host.open_session(&t.server, &t.id, tx),
+        "open-background" => host.open_session_in_background(&t.server, &t.id),
         "pin-toggle" => host.toggle_session_pin(&t.server, &t.id),
         "mute-toggle" => preferences::update(host, preferences::Kind::Muted, &t.server, &t.id, !preferences::muted(&t.server, &t.id)),
         "rename" => begin_rename(host, t),

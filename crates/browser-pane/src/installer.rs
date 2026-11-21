@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 /// revision (`156.0.26.1`). Bump it when the app needs an engine built from newer engine code (a
 /// protocol change); a release of a newer CEF with the same revision is an update for every app
 /// that accepts it.
-pub const ENGINE_REVISION: u32 = 2;
+pub const ENGINE_REVISION: u32 = 3;
 #[cfg(not(any(windows, target_os = "linux")))]
 pub const ENGINE_BUNDLE_NAME: &str = "OpenCode Browser Engine.app";
 #[cfg(not(any(windows, target_os = "linux")))]
@@ -46,7 +46,7 @@ pub(crate) const TRUST_MARKER: &str = "trust";
 pub(crate) const NO_DIRS: &str = "the OS has no folder for the browser's data";
 
 /// A development override from the environment (`OPENCODE_BROWSER_ENGINE_BIN`, `_APP`,
-/// `OPENCODE_BROWSER_SOCKET`, `OPENCODE_BROWSER_IMPORT_ROOT`): read only in a debug build, as
+/// `OPENCODE_BROWSER_SOCKET`): read only in a debug build, as
 /// `source::inputs` reads `_SOURCE` and `_TRUST`, so a variable can't make a shipped app run an
 /// engine past its trust rule (whoever sets one could also pass a headless flag).
 pub(crate) fn dev_override(name: &str) -> Option<std::ffi::OsString> {

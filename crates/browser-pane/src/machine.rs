@@ -440,7 +440,9 @@ pub(crate) enum EngineCaps {
         remote_proxy: bool,
         agent_tools: bool,
         preview: bool,
+        extensions: bool,
         permission_sync: bool,
+        frame_authority: bool,
         cookies: bool,
     },
 }
@@ -486,8 +488,16 @@ impl EngineCaps {
         matches!(self, Self::Known { preview: true, .. })
     }
 
+    pub(crate) fn extensions(self) -> bool {
+        matches!(self, Self::Known { extensions: true, .. })
+    }
+
     pub(crate) fn permission_sync(self) -> bool {
         matches!(self, Self::Known { permission_sync: true, .. })
+    }
+
+    pub(crate) fn frame_authority(self) -> bool {
+        matches!(self, Self::Known { frame_authority: true, .. })
     }
 }
 

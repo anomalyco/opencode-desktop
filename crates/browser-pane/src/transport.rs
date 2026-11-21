@@ -52,6 +52,8 @@ pub(crate) struct Link {
     /// held them for 20-650 ms); stored into `Connected::early` on attach so that turn doesn't
     /// send them again and corrects what changed meanwhile.
     pub opens: Vec<(u64, HostMsg)>,
+    /// Verified `<id>:<sha256>:<dir>` specs passed as `--extension` arguments when spawning.
+    pub extension_args: Vec<String>,
     pub profile_permissions: Vec<crate::prompts::SiteDecision>,
     pub preview_chunk_budget: Arc<crate::preview::PreviewChunkBudget>,
 }
@@ -99,9 +101,12 @@ impl Link {
 /// The engine at `bin`, serving `sock` and keeping its sign-ins in `profile`, in the app's
 /// language. On Windows it renders on the GPU Rune draws this app's windows with, so its frames
 /// open there.
-pub(crate) fn engine_command(bin: &Path, sock: &Path, profile: &Path) -> Command {
+pub(crate) fn engine_command(bin: &Path, sock: &Path, profile: &Path, extension_args: &[String]) -> Command {
     let mut cmd = Command::new(bin);
     cmd.arg("--socket").arg(sock).arg("--lang").arg(chromium_locale(opencode_i18n::locale().id())).env(profile::PROFILE_ENV, profile);
+    for spec in extension_args {
+        cmd.arg("--extension").arg(spec);
+    }
     // The engine's own log goes nowhere, unless its start is being traced (OPENCODE_BROWSER_ENGINE_TRACE).
     let trace = std::env::var_os("OPENCODE_BROWSER_ENGINE_TRACE").is_some();
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(if trace { Stdio::inherit() } else { Stdio::null() });
@@ -143,7 +148,7 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
         return;
     }
     crate::prompts::scrub_chromium_preferences_for_older_engine(profile, &link.profile_permissions);
-    let mut child = match engine_command(&engine.bin, sock, profile).spawn() {
+    let mut child = match engine_command(&engine.bin, sock, profile, &link.extension_args).spawn() {
         Ok(child) => child,
         Err(e) => {
             let fault = spawn_fault(&e);
@@ -455,6 +460,10 @@ fn expects_answer(msg: &HostMsg) -> bool {
             | HostMsg::CdpCall { .. }
             | HostMsg::SiteCookies { .. }
             | HostMsg::ClearSite { .. }
+            | HostMsg::ListExtensions { .. }
+            | HostMsg::UninstallExtension { .. }
+            | HostMsg::ReloadExtension { .. }
+            | HostMsg::ClickExtension { .. }
     )
 }
 
@@ -590,7 +599,14 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
         return if lost(link, None) { WireResult::Failed } else { WireResult::Stale };
     };
     let (tx, rx) = mpsc::channel::<HostMsg>();
-    tx.send(HostMsg::Hello { mach_service, pid: std::process::id(), prompts: true }).ok();
+    tx.send(HostMsg::Hello {
+        mach_service,
+        pid: std::process::id(),
+        prompts: true,
+        extensions: true,
+        download_save: true,
+    })
+    .ok();
     let mut early = EarlyOpensMap::new();
     for (id, open) in &link.opens {
         let is_agent = matches!(open, HostMsg::OpenTab { agent_driven: true, .. });
@@ -660,6 +676,8 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
             #[cfg(target_os = "linux")]
             let (mut pools, mut frames) = (crate::dmabuf::Pools::new(frames_tx), crate::dmabuf::Frames::None);
             let mut line = String::new();
+            #[cfg(not(target_os = "linux"))]
+            let mut raw_buf: Vec<u8> = Vec::new();
             loop {
                 line.clear();
                 #[cfg(target_os = "linux")]
@@ -667,7 +685,18 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                 #[cfg(target_os = "linux")]
                 if !link.current() { break; }
                 #[cfg(not(target_os = "linux"))]
-                if !matches!(reader.read_line(&mut line), Ok(1..)) || !link.current() { break; }
+                {
+                    match read_bounded_wire_line(&mut reader, &mut raw_buf, &mut line) {
+                        BoundedLine::Line => {
+                            if !link.current() { break; }
+                        }
+                        BoundedLine::Oversized => {
+                            if !link.current() { break; }
+                            continue;
+                        }
+                        BoundedLine::Eof => break,
+                    }
+                }
                 // The sidecar writes the type tag first. Borrow the large base64 field directly
                 // from the reusable line buffer. Other layouts still go through the wire enum.
                 if line.starts_with("{\"type\":\"cpu_frame\",")
@@ -816,6 +845,56 @@ fn push_shared(surfaces: &Surfaces, tab_id: u64, frame_id: u64, width: u32, heig
         let frame = rune::native_surface::windows::SharedTexture::named(texture, width, height)
             .release_fence(release_fence, frame_id);
         surface.push_shared(frame, frame_id).ok();
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+enum BoundedLine {
+    Line,
+    Oversized,
+    Eof,
+}
+
+#[cfg(not(target_os = "linux"))]
+fn read_bounded_wire_line<R: BufRead>(reader: &mut R, raw: &mut Vec<u8>, out: &mut String) -> BoundedLine {
+    const MAX_WIRE_LINE_BYTES: usize = 32 * 1024 * 1024;
+    raw.clear();
+    let mut oversized = false;
+    loop {
+        let Ok(avail) = reader.fill_buf() else { return BoundedLine::Eof };
+        if avail.is_empty() {
+            if raw.is_empty() && !oversized {
+                return BoundedLine::Eof;
+            }
+            break;
+        }
+        if let Some(pos) = avail.iter().position(|&b| b == b'\n') {
+            if !oversized && raw.len() + pos <= MAX_WIRE_LINE_BYTES {
+                raw.extend_from_slice(&avail[..pos]);
+            } else {
+                oversized = true;
+            }
+            reader.consume(pos + 1);
+            break;
+        }
+        let n = avail.len();
+        if !oversized && raw.len() + n <= MAX_WIRE_LINE_BYTES {
+            raw.extend_from_slice(avail);
+        } else {
+            oversized = true;
+            raw.clear();
+        }
+        reader.consume(n);
+    }
+    if oversized {
+        return BoundedLine::Oversized;
+    }
+    match std::str::from_utf8(raw) {
+        Ok(s) => {
+            out.push_str(s);
+            BoundedLine::Line
+        }
+        Err(_) => BoundedLine::Oversized,
     }
 }
 

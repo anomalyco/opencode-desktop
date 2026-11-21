@@ -267,7 +267,6 @@ fn row_main(s: &dyn ProjectSwitcherHost, p: &Pal, r: &SwitcherRow, q: &str, w: f
             main.child(s.project_badge(p, project, &r.title))
                 .child(row().key("text").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(name).child(description(&r.subtitle)))
         }
-        RowKind::Base { .. } => main.child(icon(&ic::BRANCH, 16.0).color(p.icon_muted)).child(title).child(description(&r.subtitle)).child(keycaps(p, Bind::BranchChoose)),
         RowKind::Branch => main.child(icon(&ic::BRANCH_OUT, 16.0).color(p.icon_muted)).child(title.dir(Direction::Auto)),
         RowKind::Server { key } => main.child(icon(servers::glyph(servers::kind(s, key)), 16.0).color(p.icon_muted)).child(
             row()

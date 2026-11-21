@@ -235,6 +235,14 @@ impl ComposerHost for App {
         crate::quote::typed(self, tx);
         self.suggest_input(tx);
     }
+    fn composer_on_pill_secondary(&mut self, id: &str, press: rune::PointerPress, tx: &mut Tx) -> bool {
+        let Some(sid) = id.strip_prefix("session:") else { return false };
+        if !crate::mentions::wire::session_id_ok(sid) {
+            return false;
+        }
+        crate::mentions::refs::open_session_chip_menu(self, sid, press, tx);
+        true
+    }
     fn composer_on_key(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         crate::tab_hints::key_down(self, ev, tx);
         // editor.tsx:343: even above suggestions, Return writes a line, never sends a prompt.

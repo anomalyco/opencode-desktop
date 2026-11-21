@@ -183,6 +183,11 @@ pub trait PanelsHost: opencode_kernel::AppEnv {
         let _ = (p, plugin, tab, selected);
         None
     }
+    /// Extra horizontal width inside a custom strip label beyond icon + title (e.g. a 6 pt status dot + 6 pt gap).
+    fn panel_tab_extra_w(&self, plugin: &str, tab: &PanelTabDesc) -> f32 {
+        let _ = (plugin, tab);
+        0.0
+    }
     /// Returns the preferred home pane for a new tab of `plugin`, overriding `default_pane` when `Some`.
     fn panel_home_pane(&self, plugin: &str) -> Option<SessionPane> {
         let _ = plugin;

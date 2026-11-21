@@ -15,7 +15,8 @@ input=${1:?Usage: opencode-rune-sign-engine-macos.sh <unsigned.zip> <out dir> [a
 out=${2:?Usage: opencode-rune-sign-engine-macos.sh <unsigned.zip> <out dir> [arch]}
 arch=${3:-arm64}
 
-[[ "$arch" = arm64 ]] || die "Unsupported macOS engine architecture '$arch'."
+[[ "$arch" = arm64 || "$arch" = x64 ]] || die "Unsupported macOS engine architecture '$arch'."
+expected_cpu=$([ "$arch" = arm64 ] && echo arm64 || echo x86_64)
 [[ "${ENGINE_VERSION:-}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
   die "ENGINE_VERSION must be X.Y.Z.R, got '${ENGINE_VERSION:-}'."
 
@@ -109,7 +110,7 @@ check_helper "Helper (Renderer)" "helper-renderer"
 check_helper "Helper (Plugin)" "helper-plugin"
 check_helper "Helper (Alerts)" "helper-alerts"
 
-# Exact Mach-O allowlist across the entire bundle (derived from real arm64 assembly).
+# Exact Mach-O allowlist across the entire bundle (derived from real arm64 and x64 assemblies).
 expected_macho=$(printf '%s\n' \
   'Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework' \
   'Contents/Frameworks/Chromium Embedded Framework.framework/Libraries/libcef_sandbox.dylib' \
@@ -131,7 +132,12 @@ if [ "$found_macho" != "$expected_macho" ]; then
   diff_out=$(diff <(printf '%s\n' "$expected_macho") <(printf '%s\n' "$found_macho") || true)
   die "Unexpected Mach-O code in OpenCode Browser Engine.app: $diff_out"
 fi
-echo "ok - verified OpenCode Browser Engine.app $ENGINE_VERSION (8 allowlisted Mach-O files, 5 helper bundles)"
+while IFS= read -r rel; do
+  actual_cpu=$(lipo -archs "$app/$rel")
+  [ "$actual_cpu" = "$expected_cpu" ] ||
+    die "$rel has Mach-O architecture '$actual_cpu', expected '$expected_cpu' for macos-$arch."
+done <<< "$expected_macho"
+echo "ok - verified OpenCode Browser Engine.app $ENGINE_VERSION ($arch; 8 allowlisted Mach-O files, 5 helper bundles)"
 
 # Fail hard before signing if any signing or notarization credential is absent.
 [ -n "${SEER_KEYCHAIN:-}" ] || die "SEER_KEYCHAIN is required to sign the macOS browser engine."

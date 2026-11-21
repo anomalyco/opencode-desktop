@@ -203,6 +203,8 @@ impl BrowserHost {
             }
         };
         let profile = profile::for_spawn(self.profile_dir.as_deref());
+        self.record_launched_extensions();
+        let extension_args = self.startup_extension_args();
         let link = Link {
             generation,
             shared: self.shared.clone(),
@@ -211,6 +213,7 @@ impl BrowserHost {
             waker: self.waker.clone(),
             sock: sock.clone(),
             opens: self.pending_open_msgs(),
+            extension_args,
             profile_permissions: self.site_permissions.list().to_vec(),
             preview_chunk_budget: self.preview_chunk_budget.clone(),
         };

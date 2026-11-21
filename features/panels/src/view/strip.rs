@@ -88,13 +88,14 @@ pub(super) fn tab_bar<H: PanelsHost + 'static>(
     let controls = pane == SessionPane::Bottom || reserve_toggle;
     let room = pane_w - 24.0 - if controls { 36.0 } else { 0.0 } - 36.0;
     let new_natural = 10.0 + rune::text::measure(opencode_i18n::t!("session.tab.new"), &[], TAB_UI, None).0 + CLOSE_END;
+    let focused = is_pane_focused(host, pane, entries, pane_active);
     let active_of = |e: &ResolvedEntry| shown_new_id.is_none() && pane_active == Some(e.key.as_str());
-    // A panel's own label (`PanelTab.label`) takes the icon's and the title's place.
-    let leads: Vec<Option<El>> = entries.iter().map(|e| e.provider.lead(host, p, &e.tab, active_of(e))).collect();
+    // A panel's own label (`PanelTab.label`) takes the icon's and the title's place, dimmed when the pane is unfocused (`tabs.css:561-582`).
+    let leads: Vec<Option<El>> = entries.iter().map(|e| e.provider.lead(host, p, &e.tab, active_of(e) && focused)).collect();
     let naturals: Vec<f32> = entries
         .iter()
         .zip(&leads)
-        .map(|(e, l)| tab_natural(e, l.is_some()))
+        .map(|(e, l)| tab_natural(e, l.is_some()) + host.panel_tab_extra_w(e.plugin, &e.tab))
         .chain(live_new.iter().map(|_| new_natural))
         .collect();
     let gaps = 8.0 * naturals.len().saturating_sub(1) as f32;
@@ -116,7 +117,6 @@ pub(super) fn tab_bar<H: PanelsHost + 'static>(
             on_strip_layout(&laid_at, slot, &sid, lead, &laid_key, w, tx);
         });
 
-    let focused = is_pane_focused(host, pane, entries, pane_active);
     for (entry, lead_el) in entries.iter().zip(leads) {
         let dragging = host.side().pane_drag.dragging() == Some(entry.key.as_str());
         let width = widths.next().unwrap_or(TAB_MIN_W);
@@ -275,7 +275,7 @@ fn strip_widths(naturals: &[f32], room: f32) -> Vec<f32> {
 /// end, or 10 without one. A panel's own label (`lead`) is taken as the icon and the title it shows; a
 /// terminal's title stops at 160 (`TerminalTabLabel`).
 fn tab_natural(entry: &ResolvedEntry, lead: bool) -> f32 {
-    let title = rune::text::measure(&entry.tab.title, &[], TAB_UI, None).0;
+    let title = rune::text::measure(&entry.tab.title, &[], TAB_UI, None).0.ceil();
     let body = match (lead, entry.tab.icon) {
         (true, _) if entry.plugin == TERMINAL_PLUGIN => 22.0 + title.min(160.0),
         (true, _) => 22.0 + title,

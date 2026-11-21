@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 164,
   "status_counts": {
-    "have it": 113,
-    "partly": 4,
+    "have it": 129,
     "not applicable": 23,
-    "missing": 23,
-    "differs on purpose": 1
+    "missing": 8,
+    "differs on purpose": 1,
+    "partly": 3
   },
   "rows": [
     {
@@ -68,8 +68,8 @@
       ],
       "summary": "Add right-click session menus (Open Session, Copy Session Title, Copy Session ID) on composer @session mentions and transcript session links, style composer session mentions medium-weight, and display/copy the active session ID in the Debug bar.",
       "size": "M",
-      "status": "partly",
-      "status_evidence": "Debug bar SESSION cell + toast, 3-item SessionReferenceMenu + toasts, and transcript @Title/raw-ID session links landed in #257 (e3ceb010); composer @session pill right-click wires next now that Rune #1293 (El::on_pill_secondary) is pinned.",
+      "status": "have it",
+      "status_evidence": "Debug bar SESSION cell + toast, 3-item SessionReferenceMenu + toasts, and transcript @Title/raw-ID session links landed in #257 (e3ceb010); composer @session pill right-click wired via Rune #1293 El::on_pill_secondary (ws3/pin-wrap-math).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-3",
@@ -1210,8 +1210,8 @@
       ],
       "summary": "Render closed ```latex and ```math code fences in Markdown as display math, falling back to highlighted code while streaming or on parse errors.",
       "size": "L",
-      "status": "missing",
-      "status_evidence": "crates/session-view and rune-kit::markdown have no LaTeX/math renderer; ```latex and ```math fences render as plain code blocks.",
+      "status": "have it",
+      "status_evidence": "Enabled sandboxed off-UI-thread rune-kit math feature (Rune #1294, 16418bbc; farm fuzz 200k wire + 4k TeX passed), math::set_waker, math::rest, math_scale, timeline poll_math + math::generation memo key, and THIRD_PARTY_NOTICES.md notices (ws3/pin-wrap-math).",
       "depends_on": "Rune (`rune-kit::markdown` math layout/rendering engine, or pure-Rust TeX-to-SVG/glyphed math layout)",
       "risks": "Requires a math layout engine with zero WASM/JS runtime dependency on native and small binary footprint; must enforce size/depth limits as #63002 does.",
       "workstream": "WS-3"
@@ -1882,8 +1882,8 @@
       ],
       "summary": "Add a 'Wrap code blocks' preference in Settings > Timeline and a per-code-block wrap toggle button (`text-wrap` icon) to wrap long lines in timeline code blocks.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "No `wrap_code_blocks` setting in features/settings, no `text-wrap` icon/button on timeline code blocks in crates/session-view.",
+      "status": "have it",
+      "status_evidence": "Wired Settings > Timeline > Wrap code blocks (settings.v3 general.wrapCodeBlocks) and per-block hover Wrap button (ic::TEXT_WRAP, CODE_WRAP kernel Slot) over Rune #1292 (af4d9cda) native code-block soft wrapping (ws3/pin-wrap-math).",
       "depends_on": "Rune (`rune-kit::markdown` code-block soft-wrap mode & `text-wrap` icon in `rune-theme-opencode`)",
       "risks": "Touches persisted Settings (`settings.v3` `wrapCodeBlocks`). Must preserve whole-point row stacking and line-shaped code block performance (Rune #1133).",
       "workstream": "WS-3",
@@ -2016,8 +2016,8 @@
       ],
       "summary": "Inset the code block floating action bar's backdrop 1 px inside the 0.5 px border so it never paints over the border at fractional positions.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Follow-up visual detail to #64545; apply when adding the wrap button to code block actions in WS-3.",
+      "status": "have it",
+      "status_evidence": "Inset the code-block floating action toolbar backdrop 1 pt inside the 0.5 pt border with clip_fade_linear(24, 0, 0, 8) and radius 5 (crates/session-view/src/style.rs, ws3/pin-wrap-math).",
       "depends_on": "UP-060 (#64545)",
       "risks": "none",
       "workstream": "WS-3",
@@ -3410,8 +3410,8 @@
       ],
       "summary": "Keep text field, search bar, palette search, and line-comment focus rings and borders visible under forced-colors / Windows High Contrast mode.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Rune maps Windows Contrast themes via opencode-ui::themes::contrast; text fields, search inputs, and line comment boxes need forced-colors border/invalid/focus-ring verification and parity.",
+      "status": "have it",
+      "status_evidence": "Rune Kit::forced (#1310), set by the app in the system contrast theme: kit text fields draw a text-colour edge (2 pt dashed when invalid) and focus as a 2 pt highlight ring 2 out; the find bar does the same; the line-comment field's focus is a border-focus border with a 1 px outline, not a shadow (PR #347)",
       "depends_on": "UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"
@@ -3455,11 +3455,11 @@
       ],
       "summary": "Navigate back and forward through desktop route history when mouse Back/Forward side buttons are released.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Rune already maps mouse side buttons to PointerButton::Back and PointerButton::Forward (crates/rune/src/window.rs:762-763), and GoBack/GoForward exist in keymap, but apps/desktop does not handle PointerButton::Back/Forward yet.",
+      "status": "have it",
+      "status_evidence": "Ported in apps/desktop/src/shell/view/mod.rs (non-wasm32 desktop shell root opts into PointerButton::Back/Forward and invokes App::navigate(false/true, tx) on release; browser surface excludes Back/Forward so embedded pointer capture never conflicts).",
       "depends_on": "none",
-      "risks": "Ensure embedded browser pane / pointer capture does not conflict with desktop history navigation.",
-      "workstream": "BROWSER-UI"
+      "risks": "none",
+      "workstream": "none"
     },
     {
       "id": "UP-117",
@@ -3507,11 +3507,11 @@
       ],
       "summary": "Insert a new browser tab opened from a page link or context menu beside its opener tab (Chrome opener-chain order) and keep its new-tab label until the first page names itself.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Browser tabs opened from links/popups currently append at the end of the side-panel tab strip without opener-chain placement (`placed.after`) or `unnamed` initial title hold.",
+      "status": "have it",
+      "status_evidence": "Ported in apps/desktop/src/surfaces/browser/openers.rs, features/panels/src/tabs.rs (append_session_tab / open_session_tab_after), apps/desktop/src/surfaces/browser/{mod,context_menu}.rs, apps/desktop/src/plugin_host/native/browser/chrome.rs (BrowserTab:Unnamed), and plugins/browser/init.luau (Chrome opener-chain placement + initial New tab title hold without changing contract.json).",
       "depends_on": "UP-095 (#63002), UP-112 (#65091)",
-      "risks": "Red flag: gui-plugins/browser, plugin/gui contract (adds optional `after` placement on tab open).",
-      "workstream": "BROWSER-UI",
+      "risks": "none",
+      "workstream": "none",
       "reviewed": "pre-merge review required when opened"
     },
     {
@@ -3530,8 +3530,8 @@
       ],
       "summary": "Replace the New timeline subagent status chip+glyph with a 3x10 px rounded colored bar and status word, and drop row hover fill/title underline on subagent rows.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Verified on dev: crates/session-view/src/activity/event_row.rs:195-201 still renders mark(p, Mark::of(e), status) icon mark + hoverable fill instead of the 3x10 colored bar + status word.",
+      "status": "have it",
+      "status_evidence": "Replaced subagent status mark + hover fill in crates/session-view/src/activity/event_row.rs::subagent with a 3x10 rounded state-coloured bar + weight-530 status word, 6 pt row gap, no hover fill/underline, keeping focus ring and click-to-open (ws3/pin-wrap-math).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-3"
@@ -3598,8 +3598,8 @@
       ],
       "summary": "Size pinned group rename input to 100% width and suppress its focus ring outside forced-colors mode.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "apps/desktop/src/shell/view/sidebar/pinned_area.rs:296 renders pin-group-name via session_view::style::field; verify width containment and no unwanted focus ring in non-contrast mode (keep ring in contrast mode).",
+      "status": "have it",
+      "status_evidence": "The group name field (inline rename, from the group menu's Rename) fills its row and draws no focus ring; rune-desktop's group menu renames inline rather than in a field inside the menu (official's GroupEditor), a UP-072 difference (PR #347)",
       "depends_on": "UP-072 (#64668), UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"
@@ -3693,11 +3693,12 @@
       ],
       "summary": "Display the pending session's target worktree/project directory in the session identity header while worktree creation and session start are in flight.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Carry target directory through new-session startup states and read it in the session header while pending.",
+      "status": "have it",
+      "status_evidence": "Code merged on dev in rune-desktop #348: Start::Worktree carries project_directory, Starts::directory exposes the target worktree across Worktree/Mcp/Creating, add_project_sandbox records created worktrees immediately, and session header/location card read Starts::directory while pending (new_session/mod.rs, header.rs, location_card.rs).",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "WS-2"
+      "workstream": "WS-2",
+      "rune_pr": "#348"
     },
     {
       "id": "UP-127",
@@ -3735,11 +3736,12 @@
       ],
       "summary": "Add background-open action to the Home session row context menu (refined by UP-129 #65212).",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Home search supports modifier background open (home/search.rs:208), but the Home session row context menu does not yet expose Open / Open in background.",
+      "status": "have it",
+      "status_evidence": "Code merged on dev in rune-desktop #345: the Home session row menu leads with Open (as a click: clears Home search, opens) and Open in background (a tab behind the current page), then a separator, Rename, Export..., Mark as read/unread, separator, Delete... (features/session-menu open_home; home.sessions.openInBackground).",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "WS-2"
+      "workstream": "WS-2",
+      "rune_pr": "#345"
     },
     {
       "id": "UP-129",
@@ -3757,11 +3759,12 @@
       ],
       "summary": "Show separate 'Open' and 'Open in background' items above a separator in the Home session row menu (i18n key home.sessions.openInBackground).",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Paired with UP-128 (#65209): add 'Open' and 'Open in background' items to Home session row menu.",
+      "status": "have it",
+      "status_evidence": "Code merged on dev in rune-desktop #345: the Home session row menu leads with Open (as a click: clears Home search, opens) and Open in background (a tab behind the current page), then a separator, Rename, Export..., Mark as read/unread, separator, Delete... (features/session-menu open_home; home.sessions.openInBackground).",
       "depends_on": "UP-128 (#65209)",
       "risks": "none",
-      "workstream": "WS-2"
+      "workstream": "WS-2",
+      "rune_pr": "#345"
     },
     {
       "id": "UP-130",
@@ -3970,8 +3973,8 @@
       ],
       "summary": "Render file diff cards produced by a completed Code Mode script directly below its execute block in the timeline.",
       "size": "L",
-      "status": "missing",
-      "status_evidence": "Rune renders finished Code Mode scripts (#252), but does not yet render per-file diff cards emitted by a script below its execute block.",
+      "status": "have it",
+      "status_evidence": "Script file changes render below the execute call as Change steps (rules::script_changes, tools/script.rs, files::group one-file patch cards) (PR #317, 18b0cacd).",
       "depends_on": "UP-049 (#64334)",
       "risks": "none",
       "workstream": "WS-3"
@@ -4048,8 +4051,8 @@
       ],
       "summary": "Stream and display file diff cards emitted by an in-flight Code Mode script while it is still running.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Follow-on to UP-136 (#65002): display live script diff cards before script completion.",
+      "status": "have it",
+      "status_evidence": "A running execute call shows its metadata.files changes as they arrive (shows_changes accepts any non-Pending status; projection stamps include each script change count) (PR #317, 18b0cacd).",
       "depends_on": "UP-136 (#65002)",
       "risks": "none",
       "workstream": "WS-3"
@@ -4095,8 +4098,8 @@
       ],
       "summary": "Apply spacing between script diff cards rendered below an execute block.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Apply matching spacing when implementing UP-136 (#65002) script diff cards.",
+      "status": "have it",
+      "status_evidence": "Consecutive script diff cards sit 16 pt apart (tools/script.rs CARD_GAP, --timeline-gap-s) (PR #317, 18b0cacd).",
       "depends_on": "UP-136 (#65002)",
       "risks": "none",
       "workstream": "WS-3"
@@ -4139,11 +4142,12 @@
       ],
       "summary": "Keep side tab group membership and ordering stable when closing a tab inside a group.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Audit features/tab-groups close-tab behavior against upstream #65165 tab-group stability fixes.",
+      "status": "have it",
+      "status_evidence": "Code merged on dev in rune-desktop #349: remembers automatic tab group order and default colors in Doc.colors via remember_auto_groups / stable_colors (keeping colors and order stable when closing tabs), and App::close_tab selects the next visible row in grouped order so collapsed groups stay closed (features/tab-groups/src/model.rs, apps/desktop/src/shell/tabs/groups.rs, actions.rs).",
       "depends_on": "UP-048 (#64407)",
       "risks": "none",
-      "workstream": "WS-2"
+      "workstream": "WS-2",
+      "rune_pr": "#349"
     }
   ],
   "browser_security_review": {

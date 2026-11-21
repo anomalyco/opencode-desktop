@@ -134,7 +134,8 @@ pub fn classify_app_link(value: &str, source: AppSchemeSource) -> Option<AppSche
         if tail.is_empty() || tail.starts_with("//") || percent_decode_strict(tail).is_none() {
             return None;
         }
-        return Some(if mailto_query_allowed(tail) {
+        let fits_len = source != AppSchemeSource::Page || value.len() <= 200;
+        return Some(if fits_len && mailto_query_allowed(tail) {
             AppSchemeAction::Mail
         } else {
             AppSchemeAction::Copy
@@ -156,6 +157,17 @@ pub fn classify_app_link(value: &str, source: AppSchemeSource) -> Option<AppSche
     } else {
         AppSchemeAction::Copy
     })
+}
+
+/// Whether `value` uses one of the page-only editor schemes (`vscode:`, `vscode-insiders:`,
+/// `cursor:`, `zed:`, `jetbrains:`) that require host-recorded document input before offering
+/// Open (`refusal-notice.ts:52-54`).
+pub fn is_page_only_app_scheme(value: &str) -> bool {
+    let Some((raw, _)) = value.split_once(':') else {
+        return false;
+    };
+    let scheme = raw.to_ascii_lowercase();
+    PAGE_ONLY.contains(&scheme.as_str())
 }
 
 /// Explicit allow-list of URLs permitted to reach the OS shell automatically or without the

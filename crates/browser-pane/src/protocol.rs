@@ -109,6 +109,9 @@ pub struct TabSnapshot {
     /// Whether this tab is agent-driven (preserved across reconnects).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub agent_driven: bool,
+    /// Counts main-frame document loads (`on_load_start`); unchanged by same-document URL changes.
+    #[serde(default)]
+    pub document: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -142,6 +145,10 @@ pub struct PickedElement {
     pub rect: [f32; 4],
 }
 
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum HostMsg {
@@ -151,6 +158,12 @@ pub enum HostMsg {
         /// This app shows and answers page dialogs, permissions, and HTTP auth (`prompts.rs`).
         #[serde(default)]
         prompts: bool,
+        /// This app handles extension-initiated tab opens (`EngineMsg::ExtensionOpenTab`).
+        #[serde(default)]
+        extensions: bool,
+        /// This app handles `EngineMsg::DownloadSaveRequest` via a native OS Save dialog.
+        #[serde(default)]
+        download_save: bool,
     },
     OpenTab {
         tab_id: u64,
@@ -167,6 +180,31 @@ pub enum HostMsg {
         preview: Option<PreviewSpec>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         agent_driven: bool,
+        /// Allows navigating to loaded `chrome-extension://` pages (user tabs & popups only;
+        /// never set for agent-driven or isolated tabs).
+        #[serde(default, skip_serializing_if = "is_false")]
+        allow_extension_pages: bool,
+        /// True when this tab is an anchored extension popup (enables content auto-sizing).
+        #[serde(default, skip_serializing_if = "is_false")]
+        is_popup: bool,
+        /// When answering `EngineMsg::ExtensionOpenTab`, correlates this newly opened pane tab.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ext_open_request_id: Option<u64>,
+    },
+    ClickExtension {
+        ext_id: String,
+    },
+    ListExtensions {
+        request_id: u64,
+    },
+    UninstallExtension {
+        ext_id: String,
+    },
+    ReloadExtension {
+        ext_id: String,
+    },
+    CancelExtensionOpenTab {
+        request_id: u64,
     },
     SetTabPolicy {
         tab_id: u64,
@@ -314,6 +352,11 @@ pub enum HostMsg {
         username: Option<String>,
         password: Option<String>,
     },
+    AnswerDownloadSave {
+        tab_id: u64,
+        id: u64,
+        path: Option<String>,
+    },
     SetAgentDriven {
         tab_id: u64,
         agent_driven: bool,
@@ -387,6 +430,9 @@ pub enum HostMsg {
         method: String,
         params: Value,
         session_id: Option<String>,
+        /// The frame an element ref came from; the engine checks it belongs to `session_id`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        frame_id: Option<String>,
     },
     /// App-proxied response headers for a remote workspace or artifact `EngineMsg::PreviewFetch`.
     PreviewResponseHead {
@@ -455,6 +501,12 @@ pub enum EngineMsg {
         /// The engine emits `EngineMsg::PreviewCredit` for end-to-end preview flow control.
         #[serde(default)]
         preview_credit: bool,
+        /// The engine hosts verified MV3 extensions over its private in-process CDP pipe.
+        #[serde(default)]
+        extensions: bool,
+        /// The engine owns `Target.setAutoAttach` and frame exclusion authority (`EngineCdpLedger`).
+        #[serde(default)]
+        frame_authority: bool,
         /// The engine exposes `CefCookieManager` list/import/delete/probe/clear & two-way remote cookie mirroring.
         #[serde(default)]
         cookies: bool,
@@ -545,6 +597,12 @@ pub enum EngineMsg {
         tab_id: u64,
         url: String,
     },
+    /// A user-activated non-agent page click on an allow-listed app scheme was cancelled in CEF
+    /// and forwarded to the desktop review bar.
+    AppLinkBlocked {
+        tab_id: u64,
+        url: String,
+    },
     FileChooserBlocked {
         tab_id: u64,
     },
@@ -607,10 +665,20 @@ pub enum EngineMsg {
         texture: String,
         release_fence: String,
     },
-    /// A download started, moved on or ended. An engine from before it sends none.
+    /// A download started, moved on or ended (agent-driven tabs only). An engine from before it sends none.
     Download {
         tab_id: u64,
         file: DownloadFile,
+    },
+    /// A human-initiated download (or right-click "Save image as…") awaiting a native OS Save
+    /// dialog path outside the engine profile and `opencode-page-downloads`.
+    DownloadSaveRequest {
+        tab_id: u64,
+        id: u64,
+        name: String,
+        mime: String,
+        #[serde(default)]
+        executable: bool,
     },
     /// Linux: a tab's new linear ARGB8888 dmabufs, their descriptors sent with the line
     /// (`SCM_RIGHTS`, `fd_lines.rs`), one per buffer.
@@ -631,6 +699,82 @@ pub enum EngineMsg {
         pool: u64,
         slot: u32,
     },
+    ExtensionsState {
+        request_id: Option<u64>,
+        extensions: Vec<ExtensionActionSnapshot>,
+    },
+    ExtensionAction {
+        action: ExtensionActionSnapshot,
+    },
+    ExtensionPopupRequested {
+        ext_id: String,
+        url: String,
+    },
+    ExtensionPopupResized {
+        ext_id: String,
+        width: u32,
+        height: u32,
+    },
+    ExtensionOpenTab {
+        request_id: u64,
+        ext_id: String,
+        url: String,
+        active: bool,
+    },
+    ExtensionFocusTab {
+        tab_id: u64,
+    },
+    ExtensionFiltersReady,
+    ExtensionUninstalled {
+        ext_id: String,
+        ok: bool,
+        error: Option<String>,
+    },
+    ExtensionReloaded {
+        ext_id: String,
+        ok: bool,
+        error: Option<String>,
+    },
+    ExtensionIntegrityFailed {
+        ext_id: String,
+    },
+}
+
+/// Live toolbar button snapshot for one loaded extension (`apps/browser-engine/src/extensions/mod.rs`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionActionSnapshot {
+    pub ext_id: String,
+    pub name: String,
+    pub version: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub popup: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub badge_text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge_color: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge_text_color: Option<String>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// A human download awaiting an OS Save dialog choice in the host app (`EngineMsg::DownloadSaveRequest`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DownloadSaveRequest {
+    pub tab_id: u64,
+    pub id: u64,
+    pub name: String,
+    pub mime: String,
+    pub executable: bool,
 }
 
 /// A file a page downloaded, kept in the engine's private downloads folder for the agent's tools
