@@ -474,7 +474,7 @@ pub(super) fn step_input(att: &SessionAttachment, app: &mut App, st: &mut InputS
             st.current = Some((step, req_id));
             return None;
         };
-        if let Err(outcome) = handle_step_response(st, step, resp) {
+        if let Err(outcome) = handle_step_response(app, st, step, resp) {
             st.cancel_cleanup(app);
             return Some(outcome);
         }
@@ -662,7 +662,7 @@ fn dispatch_next_step(att: &SessionAttachment, app: &mut App, st: &mut InputStat
     }
 }
 
-fn handle_step_response(st: &mut InputState, step: InputStep, resp: Result<Value, Value>) -> Result<(), Outcome> {
+fn handle_step_response(app: &App, st: &mut InputState, step: InputStep, resp: Result<Value, Value>) -> Result<(), Outcome> {
     let val = match resp {
         Ok(v) => v,
         Err(e) => {
@@ -752,7 +752,8 @@ fn handle_step_response(st: &mut InputState, step: InputStep, resp: Result<Value
             let vp = val.get("cssVisualViewport").or_else(|| val.get("visualViewport"));
             let w = vp.and_then(|v| v.get("clientWidth")).and_then(Value::as_f64).unwrap_or(800.0);
             let h = vp.and_then(|v| v.get("clientHeight")).and_then(Value::as_f64).unwrap_or(600.0);
-            st.saved_pos = Some((w / 2.0, h / 2.0));
+            let scale = app.workspace_panes.browser.host.tab(st.host_id).map_or(1.0, |t| t.emulation_info().0);
+            st.saved_pos = Some(((w / 2.0) * scale, (h / 2.0) * scale));
         }
         _ => {}
     }
