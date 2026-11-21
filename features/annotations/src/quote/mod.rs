@@ -65,6 +65,13 @@ pub trait QuoteHost: opencode_kernel::AppEnv {
         self.quote_session().is_some()
     }
 
+    /// Whether a browser, file, or review comment can be sent straight to the session right now
+    /// (`mounted-session.ts:298`, `UP-137`): disabled on subagent/child sessions, shell mode,
+    /// Settings, in-flight uploads, or while opening a session.
+    fn can_send_comment(&self) -> bool {
+        self.quote_session().is_some() && self.can_send_quote()
+    }
+
     /// Sends a standalone prompt carrying only quote `key` (Desktop's `quote.send`).
     ///
     /// Returns:
@@ -72,6 +79,13 @@ pub trait QuoteHost: opencode_kernel::AppEnv {
     /// - `Some(None)` when it went locally with no server prompt id to wait on (fixture/story),
     /// - `Some(Some(id))` when it went out under prompt id `id` (settled via [`send_result`]).
     fn send_quote(&mut self, key: u64, tx: &mut Tx) -> Option<Option<String>> {
+        let _ = (key, tx);
+        None
+    }
+
+    /// Sends a standalone browser, file, or review comment using the composer's default delivery
+    /// (Send when idle; Steer or Queue matching the user's follow-up setting when busy; `UP-137`).
+    fn send_comment(&mut self, key: u64, tx: &mut Tx) -> Option<Option<String>> {
         let _ = (key, tx);
         None
     }

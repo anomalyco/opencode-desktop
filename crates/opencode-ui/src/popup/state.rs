@@ -103,8 +103,10 @@ pub fn open_searchable<S: PopupHost + 'static>(
 /// A drawn menu under a field that edits a value as it's typed rather than filtering its rows,
 /// as Desktop's group menu edits the group's name over its colours (`pinned-area.tsx`'s
 /// `GroupEditor`). `value` fills the field, which takes the keys as the menu opens; `lead`
-/// draws before its text and `changed` runs on every edit. `label` names it. Up and Down light
-/// the rows, Escape closes; Return stays in the field.
+/// draws before its text and `changed` runs on every edit. `label` names it. The menu takes focus
+/// as any menu does (a press on the field moves it there); in the field, Up and Down light the
+/// rows, Escape closes, Return stays in it. Choosing a `Item::radio` row runs `radio` with its id
+/// and leaves the menu open, its rows built again (the check moves).
 #[allow(clippy::too_many_arguments)]
 pub fn open_with_field<S: PopupHost + 'static>(
     s: &mut S,
@@ -112,18 +114,17 @@ pub fn open_with_field<S: PopupHost + 'static>(
     value: &str,
     lead: impl Fn(&S, &Pal) -> El + 'static,
     changed: impl Fn(&mut S, &str, &mut Tx) + 'static,
+    radio: impl Fn(&mut S, &str, &mut Tx) + 'static,
     rows: impl Fn(&S) -> Menu + 'static,
     anchor: impl Into<PopupAnchor>,
     tx: &mut Tx,
     pick: impl FnOnce(&mut S, Option<&str>, &mut Tx) + 'static,
 ) {
     let initial = rows(s);
-    let field = super::Field { lead: Rc::new(lead), changed: Rc::new(changed) };
+    let field = super::Field { lead: Rc::new(lead), changed: Rc::new(changed), radio: Rc::new(radio) };
     let search = Search { placeholder: label.into(), rows: Rc::new(move |s: &S, _: &str| rows(s)), field: Some(field) };
     open_drawn_inner(s, initial, Some(search), anchor.into(), tx, pick);
-    let query = &mut s.popup_mut().query;
-    *query = TextEdit::new(value);
-    query.focused = true;
+    s.popup_mut().query = TextEdit::new(value);
 }
 
 fn open_drawn_inner<S: PopupHost + 'static>(
@@ -136,6 +137,8 @@ fn open_drawn_inner<S: PopupHost + 'static>(
 ) {
     close(s, None, focus::Reason::Outside, tx);
     let has_search = search.is_some();
+    // An editing field leaves focus to the menu, as Kobalte's menu takes it when it opens.
+    let field_takes_keys = search.as_ref().is_some_and(|x| x.field.is_none());
     // A menu's max-content width comes from its rows, not the width left on its anchor's
     // end side. Measure once at open; placement can then shift the whole menu on screen.
     let menu = if menu.width.is_none() && menu.look == Look::Menu && !has_search { menu.hug() } else { menu };
@@ -158,10 +161,10 @@ fn open_drawn_inner<S: PopupHost + 'static>(
     {
         let popup = s.popup_mut();
         popup.query = TextEdit::new("");
-        popup.query.focused = has_search;
+        popup.query.focused = field_takes_keys;
         popup.remembered = menu.remembers_focus.then(|| tx.focused().filter(|k| !k.starts_with('#')).map(str::to_owned)).flatten();
     }
-    if has_search {
+    if field_takes_keys {
         s.on_focus_taken();
     } else {
         let lit = active.filter(|_| modality == focus::Modality::Keyboard).and_then(|n| key_at(&menu, n));
@@ -258,8 +261,15 @@ pub(super) fn close<S: PopupHost + 'static>(s: &mut S, picked: Option<&str>, rea
 /// Picks row `n`, if it's offered.
 pub(super) fn choose<S: PopupHost + 'static>(s: &mut S, n: usize, tx: &mut Tx) {
     refresh(s);
-    let Some(id) = s.popup().shown.as_ref().and_then(|m| m.menu.item_at(n)).filter(|i| i.enabled).map(|i| i.id.clone()) else { return };
-    close(s, Some(&id), focus::Reason::Picked, tx);
+    let Some(item) = s.popup().shown.as_ref().and_then(|m| m.menu.item_at(n)).filter(|i| i.enabled).cloned() else { return };
+    // A radio row under an editing field sets its value and leaves the menu open (`Menu.RadioItem`).
+    let radio = s.popup().shown.as_ref().and_then(|m| m.search.as_ref()?.field.as_ref()).filter(|_| item.radio).map(|f| Rc::clone(&f.radio));
+    if let Some(radio) = radio {
+        radio(s, &item.id, tx);
+        refresh(s);
+        return;
+    }
+    close(s, Some(&item.id), focus::Reason::Picked, tx);
 }
 
 /// Picks row `m` of the first open submenu, if it's offered.

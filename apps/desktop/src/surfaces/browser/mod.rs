@@ -155,6 +155,8 @@ mod native {
         pub save_dialog_open: bool,
         /// Tabs an agent opened or drove while hidden (`machine.ts` `unseen`, blue `tab.activity` dot).
         pub unseen_tabs: std::collections::HashSet<u64>,
+        /// Tabs whose strip close is in flight (`UP-148` `strip.closing`) so reconciliation never re-adds them.
+        pub closing_tabs: std::collections::HashSet<u64>,
         /// Chrome-style opener chains and initial `"New tab"` title holds (`UP-118`).
         pub openers: super::openers::TabOpeners,
         /// Floating element-comment spotlight/editor and whole-page note editor (`panel.tsx:1525-1665`).
@@ -293,7 +295,7 @@ mod native {
         pub fn browser_plugin_ready(&self) -> bool {
             !self.browser_unsupported()
                 && !self.narrow()
-                && self.plugins.list.iter().any(|p| p.manifest.id == PLUGIN && p.running())
+                && self.plugins.plugin_available(PLUGIN)
         }
 
         /// Whether `path`, inside the session's folder, opens as a preview page in the browser pane
@@ -577,6 +579,7 @@ mod native {
         pub fn navigate_browser_tab_with_agent(&mut self, id: u64, url: &str, agent: bool) {
             if !agent {
                 self.note_browser_addressed(id);
+                crate::plugin_host::services::browser_contract::revoke_tab(self, id);
             }
             let sid = self.browser_tab_session(id).map(str::to_owned);
             let resolved = browser_pane::resolve_address(url);
@@ -676,8 +679,10 @@ mod native {
 
         /// Page `id`'s tab left its strip: the page closes and any preview server binding revokes.
         pub fn forget_browser_tab(&mut self, id: u64) {
+            self.workspace_panes.browser.closing_tabs.remove(&id);
             self.workspace_panes.browser.active_app_reviews.borrow_mut().remove(&id);
             self.workspace_panes.browser.openers.on_close(id);
+            crate::plugin_host::services::browser_contract::revoke_tab(self, id);
             self.revoke_preview_binding(id);
             for ids in self.workspace_panes.browser.session_tabs.values_mut() {
                 ids.retain(|&x| x != id);
@@ -722,6 +727,7 @@ mod native {
             let engine_closed: Vec<(u64, bool)> =
                 self.workspace_panes.browser.host.drain_closed_tabs().collect();
             for (closed_id, fatal_close) in engine_closed {
+                self.workspace_panes.browser.closing_tabs.remove(&closed_id);
                 self.workspace_panes.browser.active_app_reviews.borrow_mut().remove(&closed_id);
                 self.revoke_preview_binding(closed_id);
                 let owner_sid = self.browser_tab_session(closed_id).map(str::to_owned);

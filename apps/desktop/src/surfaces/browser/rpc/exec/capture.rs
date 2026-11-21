@@ -72,8 +72,6 @@ pub(super) struct NetworkGetState {
     pub include_resp: bool,
     pub max_body: usize,
     pub cdp_req: u64,
-    pub fetching_post_data: bool,
-    pub fetched_request: Option<Result<String, &'static str>>,
 }
 
 impl ScreenshotState {
@@ -296,33 +294,17 @@ fn exec_network_get(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -
         ));
     };
     let include_body = cmd.action.get("includeBody").and_then(Value::as_bool).unwrap_or(false);
-    let include_resp = cmd
-        .action
-        .get("includeResponseBody")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+    // Official `diagnostics.ts:287`: `includeResponseBody ?? includeBody`.
+    let include_resp = cmd.action.get("includeResponseBody").and_then(Value::as_bool).unwrap_or(include_body);
     let max_body = cmd
         .action
         .get("maxBodyChars")
         .and_then(Value::as_u64)
         .map_or(20_000, |v| (v as usize).clamp(1, 20_000));
-    let need_post = include_body && hop.has_post_data && hop.post_data.is_none() && app.workspace_panes.browser.host.engine_agent_tools();
-    if need_post
-        && let Ok(cdp_req) = app.workspace_panes.browser.host.send_typed_cdp(
-            host_id,
-            "Network.getRequestPostData",
-            json!({ "requestId": hop.native_id }),
-            hop.session_id.clone(),
-        )
-    {
-        return StepOutcome::Pending(ExecPhase::NetworkGet(NetworkGetState {
-            host_id, req_id: req_id.to_owned(), include_body, include_resp, max_body,
-            cdp_req, fetching_post_data: true, fetched_request: None,
-        }));
-    }
-    if (include_resp || include_body)
-        && hop.is_text_response()
-        && !matches!(hop.phase, browser_pane::tools::diagnostics::HopPhase::Pending { .. })
+    // The request body is only what Chromium captured inline (`maxPostDataSize`), never
+    // `Network.getRequestPostData`, as official (`diagnostics-machine.ts:289-300`).
+    if include_resp
+        && hop.response_body_fetchable()
         && app.workspace_panes.browser.host.engine_agent_tools()
         && let Ok(cdp_req) = app.workspace_panes.browser.host.send_typed_cdp(
             host_id,
@@ -332,11 +314,10 @@ fn exec_network_get(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -
         )
     {
         return StepOutcome::Pending(ExecPhase::NetworkGet(NetworkGetState {
-            host_id, req_id: req_id.to_owned(), include_body, include_resp, max_body,
-            cdp_req, fetching_post_data: false, fetched_request: None,
+            host_id, req_id: req_id.to_owned(), include_body, include_resp, max_body, cdp_req,
         }));
     }
-    let mut val = TabDiagnostics::format_network_get(&hop, include_body, include_resp, max_body, None, None);
+    let mut val = TabDiagnostics::format_network_get(&hop, include_body, include_resp, max_body, None);
     val["tab"] = serde_json::to_value(tab).unwrap_or(Value::Null);
     StepOutcome::Done(Outcome::ok(val, Vec::new()))
 }
@@ -353,29 +334,6 @@ pub(super) fn step_network_get(
     let Some(hop) = att.diagnostics.get(&st.host_id).and_then(|d| d.network_hop(&st.req_id)).cloned() else {
         return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Request ID is no longer retained."));
     };
-    if st.fetching_post_data {
-        st.fetching_post_data = false;
-        st.fetched_request = Some(match resp {
-            Ok(v) => v.get("postData").and_then(Value::as_str).map(str::to_owned).ok_or("notCaptured"),
-            Err(_) => Err("notCaptured"),
-        });
-        if (st.include_resp || st.include_body)
-            && hop.is_text_response()
-            && !matches!(hop.phase, browser_pane::tools::diagnostics::HopPhase::Pending { .. })
-            && let Ok(cdp_req) = app.workspace_panes.browser.host.send_typed_cdp(
-                st.host_id,
-                "Network.getResponseBody",
-                json!({ "requestId": hop.native_id }),
-                hop.session_id.clone(),
-            )
-        {
-            st.cdp_req = cdp_req;
-            return None;
-        }
-        let mut val = TabDiagnostics::format_network_get(&hop, st.include_body, st.include_resp, st.max_body, st.fetched_request.take(), None);
-        val["tab"] = serde_json::to_value(tab).unwrap_or(Value::Null);
-        return Some(Outcome::ok(val, Vec::new()));
-    }
     let fetched = match resp {
         Ok(v) => {
             let raw = v.get("body").and_then(Value::as_str).unwrap_or("");
@@ -392,7 +350,7 @@ pub(super) fn step_network_get(
         }
         Err(_) => Err("backendUnavailable"),
     };
-    let mut val = TabDiagnostics::format_network_get(&hop, st.include_body, st.include_resp, st.max_body, st.fetched_request.take(), Some(fetched));
+    let mut val = TabDiagnostics::format_network_get(&hop, st.include_body, st.include_resp, st.max_body, Some(fetched));
     val["tab"] = serde_json::to_value(tab).unwrap_or(Value::Null);
     Some(Outcome::ok(val, Vec::new()))
 }
