@@ -39,7 +39,24 @@ impl EngineManager {
             Some(ext) => ext.on_startup_verified(startup),
             None => return,
         };
+        self.refresh_ext_clipboard_write_ids();
         self.run_ext_effects(effects);
+    }
+
+    fn refresh_ext_clipboard_write_ids(&self) {
+        let next = self.extensions.as_ref().map(|e| e.clipboard_write_ext_ids()).unwrap_or_default();
+        *self.ext_clipboard_write_ids.lock().unwrap() = next;
+    }
+
+    fn push_ext_clipboard_write_for_tabs(&self, ext_id: &str, allowed: bool) {
+        for t in self.tabs.values() {
+            let cur_url = t.snap.lock().unwrap().url.clone();
+            if crate::extensions::manifest::extension_id_from_url(&cur_url) == Some(ext_id) {
+                for raw in t.clipboard_gate.sync_ext_contexts_for(ext_id, allowed) {
+                    t.host.send_dev_tools_message(Some(raw.as_bytes()));
+                }
+            }
+        }
     }
 
     pub fn poll_extensions(&mut self) -> bool {
@@ -252,6 +269,7 @@ impl EngineManager {
                     let _ = self.out_tx.send(EngineMsg::ExtensionAction { action });
                 }
                 ExtEffect::ExtensionsSynced(extensions) => {
+                    self.refresh_ext_clipboard_write_ids();
                     let _ = self.out_tx.send(EngineMsg::ExtensionsState {
                         request_id: None,
                         extensions,
@@ -264,6 +282,8 @@ impl EngineManager {
                     if !self.rejected_exts.contains(&ext_id) {
                         self.rejected_exts.push(ext_id.clone());
                     }
+                    self.ext_clipboard_write_ids.lock().unwrap().remove(&ext_id);
+                    self.push_ext_clipboard_write_for_tabs(&ext_id, false);
                     let _ = self.out_tx.send(EngineMsg::ExtensionIntegrityFailed { ext_id });
                 }
                 ExtEffect::PopupResized { ext_id, width, height } => {
@@ -274,6 +294,7 @@ impl EngineManager {
                 }
                 ExtEffect::ExtensionUninstalled { ext_id, ok, error } => {
                     if ok {
+                        self.ext_clipboard_write_ids.lock().unwrap().remove(&ext_id);
                         let prefix = format!("chrome-extension://{ext_id}/");
                         let stale_popups: Vec<u64> = self
                             .tabs
@@ -292,29 +313,24 @@ impl EngineManager {
                             }
                         }
                         for t in self.tabs.values() {
-                            let mut ids = t.allowed_ext_ids.lock().unwrap();
-                            let had = ids.iter().any(|id| id == &ext_id);
-                            ids.retain(|id| id != &ext_id);
-                            drop(ids);
-                            if had {
-                                for raw in t.clipboard_gate.set_ext_clipboard_write_messages(false) {
-                                    t.host.send_dev_tools_message(Some(raw.as_bytes()));
-                                }
-                            }
+                            t.allowed_ext_ids.lock().unwrap().retain(|id| id != &ext_id);
                         }
+                        self.push_ext_clipboard_write_for_tabs(&ext_id, false);
                     }
                     let _ = self.out_tx.send(EngineMsg::ExtensionUninstalled { ext_id, ok, error });
                 }
                 ExtEffect::ExtensionReloaded { ext_id, ok, error } => {
                     if ok {
                         let has_cw = self.extensions.as_ref().is_some_and(|e| e.has_clipboard_write(&ext_id));
-                        for t in self.tabs.values() {
-                            if t.allowed_ext_ids.lock().unwrap().iter().any(|id| id == &ext_id) {
-                                for raw in t.clipboard_gate.set_ext_clipboard_write_messages(has_cw) {
-                                    t.host.send_dev_tools_message(Some(raw.as_bytes()));
-                                }
+                        {
+                            let mut set = self.ext_clipboard_write_ids.lock().unwrap();
+                            if has_cw {
+                                set.insert(ext_id.clone());
+                            } else {
+                                set.remove(&ext_id);
                             }
                         }
+                        self.push_ext_clipboard_write_for_tabs(&ext_id, has_cw);
                     }
                     let _ = self.out_tx.send(EngineMsg::ExtensionReloaded { ext_id, ok, error });
                 }

@@ -24,7 +24,7 @@
 //!   (`CEF_PERMISSION_TYPE_CLIPBOARD` -> `PermissionKind::ClipboardRead`) and inherited-grant checks.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 
 use serde::Deserialize;
@@ -289,7 +289,7 @@ pub struct TabClipboardGate {
     pass_through_popup: bool,
     is_preview: bool,
     blocked: AtomicBool,
-    ext_clipboard_write: AtomicBool,
+    ext_clipboard_write_ids: Arc<Mutex<HashSet<String>>>,
     generation: AtomicU64,
     binding: String,
     answer: String,
@@ -300,16 +300,22 @@ pub struct TabClipboardGate {
 }
 
 impl TabClipboardGate {
-    pub fn new(is_popup: bool, is_preview: bool, agent_driven: bool, ext_clipboard_write: bool) -> Self {
+    pub fn new(
+        is_popup: bool,
+        is_preview: bool,
+        agent_driven: bool,
+        initial_ext_cw: bool,
+        ext_clipboard_write_ids: Arc<Mutex<HashSet<String>>>,
+    ) -> Self {
         // Extension popups that explicitly declared `"clipboardWrite"` (e.g. Bitwarden) pass
         // through without page-side wrapping; popups without `"clipboardWrite"` stay gated.
-        let pass_through_popup = is_popup && ext_clipboard_write && !is_preview && !agent_driven;
-        let initially_blocked = !pass_through_popup && (is_preview || agent_driven || (is_popup && !ext_clipboard_write));
+        let pass_through_popup = is_popup && initial_ext_cw && !is_preview && !agent_driven;
+        let initially_blocked = !pass_through_popup && (is_preview || agent_driven || (is_popup && !initial_ext_cw));
         Self {
             pass_through_popup,
             is_preview,
             blocked: AtomicBool::new(initially_blocked),
-            ext_clipboard_write: AtomicBool::new(ext_clipboard_write),
+            ext_clipboard_write_ids,
             generation: AtomicU64::new(0),
             binding: crate::passkeys::random_token(),
             answer: crate::passkeys::random_token(),
@@ -320,12 +326,14 @@ impl TabClipboardGate {
         }
     }
 
-    pub fn ext_clipboard_write(&self) -> bool {
-        self.ext_clipboard_write.load(Ordering::Acquire)
+    pub fn ext_has_clipboard_write(&self, ext_id: &str) -> bool {
+        self.ext_clipboard_write_ids.lock().unwrap().contains(ext_id)
     }
 
     fn build_cdp(&self, method: &str, params: Value, session_id: Option<&str>) -> (i32, String) {
-        let id = CLIPBOARD_GATE_ID_BASE + self.next_id.fetch_add(1, Ordering::Relaxed).rem_euclid(20_000_000);
+        // Strictly bounded to `1_575_000_000..1_590_000_000`, disjoint from `TabPasskeyGate`
+        // (`1_500M..1_550M`), `TabMediaGate` (`1_550M..1_575M`), and `SW_WAKE_ID_BASE` (`1_590M`).
+        let id = CLIPBOARD_GATE_ID_BASE + self.next_id.fetch_add(1, Ordering::Relaxed).rem_euclid(15_000_000);
         let mut payload = json!({ "id": id, "method": method, "params": params });
         if let Some(sid) = session_id.filter(|s| !s.is_empty()) {
             payload["sessionId"] = Value::String(sid.to_owned());
@@ -334,8 +342,9 @@ impl TabClipboardGate {
     }
 
     fn add_script_msg(&self, session_id: Option<&str>, blocked: bool, epoch: u64, run_immediately: bool) -> String {
-        let ext_ok = self.ext_clipboard_write.load(Ordering::Acquire);
-        let source = clipboard_gate_script(&self.binding, &self.answer, &self.sync_fn, &self.secret, blocked, ext_ok);
+        // Non-popup extension contexts start fail-closed (`false`) and receive their exact
+        // per-extension verdict in `Runtime.executionContextCreated` (`#643-B4`).
+        let source = clipboard_gate_script(&self.binding, &self.answer, &self.sync_fn, &self.secret, blocked, false);
         let (id, msg) = self.build_cdp(
             "Page.addScriptToEvaluateOnNewDocument",
             json!({ "source": source, "runImmediately": run_immediately }),
@@ -357,10 +366,9 @@ impl TabClipboardGate {
         .1
     }
 
-    fn sync_context_msg(&self, blocked: bool, context_id: i64, session_id: Option<&str>) -> String {
+    fn sync_context_msg_with_ext(&self, blocked: bool, ext_ok: bool, context_id: i64, session_id: Option<&str>) -> String {
         let sync_json = serde_json::to_string(&self.sync_fn).unwrap_or_else(|_| "\"\"".to_owned());
         let secret_json = serde_json::to_string(&self.secret).unwrap_or_else(|_| "\"\"".to_owned());
-        let ext_ok = self.ext_clipboard_write.load(Ordering::Acquire);
         self.build_cdp(
             "Runtime.evaluate",
             json!({
@@ -370,6 +378,11 @@ impl TabClipboardGate {
             session_id,
         )
         .1
+    }
+
+    fn ext_ok_for_origin(&self, origin: &str) -> bool {
+        crate::extensions::manifest::extension_id_from_url(origin)
+            .is_some_and(|id| self.ext_has_clipboard_write(id))
     }
 
     fn answer_msg(&self, ask_id: u32, allowed: bool, context_id: i64, session_id: Option<&str>) -> String {
@@ -426,31 +439,45 @@ impl TabClipboardGate {
         self.broadcast_state(effective)
     }
 
-    /// Updates `ext_clipboard_write` (e.g. on extension reload/uninstall) and re-syncs live contexts.
-    pub fn set_ext_clipboard_write_messages(&self, ext_allowed: bool) -> Vec<String> {
+    /// Updates ONLY contexts whose recorded origin belongs to `ext_id` (preventing any
+    /// cross-extension clobber on reload/uninstall; READER-7 `#643-B4`).
+    pub fn sync_ext_contexts_for(&self, ext_id: &str, ext_allowed: bool) -> Vec<String> {
         if self.pass_through_popup {
             return Vec::new();
         }
-        let prev = self.ext_clipboard_write.swap(ext_allowed, Ordering::AcqRel);
-        if prev == ext_allowed {
-            return Vec::new();
-        }
-        self.broadcast_state(self.blocked.load(Ordering::Acquire))
+        let blocked = self.blocked.load(Ordering::Acquire);
+        let matching: Vec<(String, i64)> = self
+            .state
+            .lock()
+            .unwrap()
+            .contexts
+            .iter()
+            .filter(|(_, origin)| crate::extensions::manifest::extension_id_from_url(origin) == Some(ext_id))
+            .map(|(k, _)| k.clone())
+            .collect();
+        matching
+            .into_iter()
+            .map(|(sid, ctx_id)| {
+                let sess = (!sid.is_empty()).then_some(sid.as_str());
+                self.sync_context_msg_with_ext(blocked, ext_allowed, ctx_id, sess)
+            })
+            .collect()
     }
 
     fn broadcast_state(&self, effective: bool) -> Vec<String> {
         let epoch = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
-        let (contexts, sessions, old_scripts): (Vec<(String, i64)>, Vec<String>, Vec<(String, String)>) = {
+        let (contexts, sessions, old_scripts): (Vec<(String, i64, String)>, Vec<String>, Vec<(String, String)>) = {
             let mut st = self.state.lock().unwrap();
-            let contexts = st.contexts.keys().cloned().collect();
+            let contexts = st.contexts.iter().map(|((s, id), o)| (s.clone(), *id, o.clone())).collect();
             let sessions = st.sessions.iter().cloned().collect();
             let old_scripts = st.script_ids.drain().collect();
             (contexts, sessions, old_scripts)
         };
         let mut out = Vec::with_capacity(contexts.len() + sessions.len() + old_scripts.len());
-        for (sid, ctx_id) in contexts {
+        for (sid, ctx_id, origin) in contexts {
             let sess = (!sid.is_empty()).then_some(sid.as_str());
-            out.push(self.sync_context_msg(effective, ctx_id, sess));
+            let ext_ok = self.ext_ok_for_origin(&origin);
+            out.push(self.sync_context_msg_with_ext(effective, ext_ok, ctx_id, sess));
         }
         for (sid, ident) in old_scripts {
             let sess = (!sid.is_empty()).then_some(sid.as_str());
@@ -523,10 +550,15 @@ impl TabClipboardGate {
                     && let Some(id) = ctx["id"].as_i64()
                 {
                     let origin = ctx["origin"].as_str().unwrap_or("").to_owned();
+                    let is_ext_ctx = crate::extensions::manifest::is_extension_scheme(&origin);
+                    let ext_ok = is_ext_ctx && self.ext_ok_for_origin(&origin);
                     self.state.lock().unwrap().contexts.insert((sid.clone(), id), origin);
-                    if self.generation.load(Ordering::Acquire) > 0 {
+                    // Always push per-extension `ext_ok` on `chrome-extension://<id>` contexts
+                    // (covers web tabs navigated to extension pages; `#643-B4`), and also push
+                    // on any context created after a `blocked` generation swap.
+                    if is_ext_ctx || self.generation.load(Ordering::Acquire) > 0 {
                         let sess = session_id.filter(|s| !s.is_empty());
-                        sync.push(self.sync_context_msg(self.blocked.load(Ordering::Acquire), id, sess));
+                        sync.push(self.sync_context_msg_with_ext(self.blocked.load(Ordering::Acquire), ext_ok, id, sess));
                     }
                 }
                 (false, sync, None)

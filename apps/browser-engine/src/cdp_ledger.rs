@@ -984,10 +984,12 @@ impl TabCdpObserver {
             let req_id = crate::extensions::manifest::extension_id_from_url(req_raw);
             let top_id = crate::extensions::manifest::extension_id_from_url(&top_raw);
             let allowed = !self.isolated
-                && self.clipboard_gate.ext_clipboard_write()
                 && req_id.is_some()
                 && req_id == top_id
-                && req_id.is_some_and(|id| self.allowed_ext_ids.lock().unwrap().iter().any(|a| a == id));
+                && req_id.is_some_and(|id| {
+                    self.clipboard_gate.ext_has_clipboard_write(id)
+                        && self.allowed_ext_ids.lock().unwrap().iter().any(|a| a == id)
+                });
             return if allowed { ask.allow_msg } else { ask.deny_msg };
         }
         let top = crate::prompts::origin_of(&top_raw);
