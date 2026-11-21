@@ -137,7 +137,7 @@ fn observe(app: &App, plugin: &str, name: &str) -> Option<(u64, Data)> {
             Some((u64::from(focused), Data::Bool(focused)))
         }
         "Updater.StateChanged" => Some((crate::updater::revision(app), crate::updater::state_data(app))),
-        "Browser.AddressSelection" if plugin == crate::surfaces::browser::PLUGIN => {
+        "Browser.AddressSelectionChanged" if plugin == crate::surfaces::browser::PLUGIN => {
             let (start, end, len, composing, focused) = super::super::editors::selection_in(app, plugin, 0);
             Some((
                 hash((start, end, len, composing, focused)),
