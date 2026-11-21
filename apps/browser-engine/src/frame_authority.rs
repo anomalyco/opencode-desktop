@@ -51,6 +51,14 @@ pub enum Dispatch {
     ReEnable,
 }
 
+/// What an agent call can act in (`EngineCdpLedger::reach`), checked against inherited grants
+/// when it is sent and again when its reply comes back.
+#[derive(Clone, Debug)]
+pub enum Reach {
+    Frames(Vec<String>),
+    WholeTab,
+}
+
 enum Internal {
     Resume { session: String, worker: bool },
     Prepare { session: Option<String> },
@@ -145,29 +153,82 @@ impl EngineCdpLedger {
         self.web_sessions.keys().cloned().collect()
     }
 
-    /// Resolves the target frame URL (or origin fallback) of a typed CDP call so controlled
-    /// `Default` tabs can also reject OOPIF calls into origins holding an inherited grant
-    /// (READER-9 `#319` follow-up #1).
-    pub fn target_frame_url(&self, session: Option<&str>, frame_id: Option<&str>, params: &Value) -> Option<String> {
-        let fid = frame_id
-            .map(str::to_owned)
-            .or_else(|| {
-                params
-                    .get("contextId")
-                    .and_then(Value::as_i64)
-                    .and_then(|cid| self.contexts.get(&(cid, session.map(str::to_owned))).cloned())
-            })
-            .or_else(|| {
-                params
-                    .get("objectId")
-                    .and_then(Value::as_str)
-                    .and_then(|oid| self.objects.get(oid).map(|(_, f)| f.clone()))
-            })
-            .or_else(|| self.session_root(session))?;
-        let f = self.frames.get(&fid)?;
-        f.url
-            .clone()
-            .or_else(|| (!f.origin.is_empty() && f.origin != "null").then(|| f.origin.clone()))
+    /// Every frame an agent call can act in, so a controlled `Default` tab refuses calls into a
+    /// frame whose origin holds an inherited grant (READER-9 #411 C3): the app's ref frame, a
+    /// `frameId` parameter, the frames of `contextId` / `executionContextId`, of `objectId` and of
+    /// each `arguments[*].objectId`, and the session's own root. Input lands wherever the pointer
+    /// or focus is, and a context or object the engine cannot place could be in any frame, so
+    /// those reach the whole tab.
+    pub fn reach(&self, method: &str, session: Option<&str>, frame_id: Option<&str>, params: &Value) -> Reach {
+        if method.starts_with("Input.") || params.get("uniqueContextId").is_some() {
+            return Reach::WholeTab;
+        }
+        let sess = session.map(str::to_owned);
+        let mut frames: Vec<String> = frame_id.map(str::to_owned).into_iter().collect();
+        frames.extend(params.get("frameId").and_then(Value::as_str).map(str::to_owned));
+        for key in ["contextId", "executionContextId"] {
+            if let Some(cid) = params.get(key).and_then(Value::as_i64) {
+                let Some(fid) = self.contexts.get(&(cid, sess.clone())) else { return Reach::WholeTab };
+                frames.push(fid.clone());
+            }
+        }
+        let args = params.get("arguments").and_then(Value::as_array).into_iter().flatten();
+        let object_ids = params.get("objectId").into_iter().chain(args.filter_map(|a| a.get("objectId")));
+        for oid in object_ids {
+            let Some(oid) = oid.as_str() else { return Reach::WholeTab };
+            // An object the engine did not resolve still names its context: V8's remote object
+            // ids are `<isolate>.<context>.<id>`.
+            let fid = self.objects.get(oid).map(|(_, f)| f.clone()).or_else(|| {
+                let cid = oid.split('.').nth(1)?.parse::<i64>().ok()?;
+                self.contexts.get(&(cid, sess.clone())).cloned()
+            });
+            let Some(fid) = fid else { return Reach::WholeTab };
+            frames.push(fid);
+        }
+        frames.extend(self.session_root(session));
+        Reach::Frames(frames)
+    }
+
+    /// The first origin in `reach` that `granted` says holds an inherited grant (`Some(None)` when
+    /// the engine cannot tell: the frame table overflowed). A frame the engine does not know
+    /// widens the check to the whole tab.
+    pub fn granted_origin(&self, reach: &Reach, granted: &dyn Fn(&str) -> bool) -> Option<Option<String>> {
+        if self.overflow {
+            return Some(None);
+        }
+        let in_frame = |id: &String| self.frame_origins(id).into_iter().find(|o| granted(o));
+        let found = match reach {
+            Reach::Frames(ids) if ids.iter().all(|id| self.frames.contains_key(id)) => ids.iter().find_map(in_frame),
+            _ => self.frames.keys().find_map(in_frame),
+        };
+        found.map(Some)
+    }
+
+    /// The origins a frame's document can run as: the origin Chromium reports for it, its own URL,
+    /// and for a document that inherits its creator's origin (`about:blank`, `about:srcdoc`, or not
+    /// yet committed) every ancestor's too, so a blank or `srcdoc` child of a granted frame is
+    /// decided as the granted frame.
+    fn frame_origins(&self, frame_id: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut id = frame_id;
+        for _ in 0..=self.frames.len() {
+            let Some(f) = self.frames.get(id) else { break };
+            if !f.origin.is_empty() && f.origin != "null" && !f.origin.starts_with("://") {
+                out.push(f.origin.clone());
+            }
+            match f.url.as_deref() {
+                Some(u) if !inherits_origin(u) => {
+                    out.push(u.to_owned());
+                    break;
+                }
+                _ => {}
+            }
+            match &f.parent {
+                Some(p) => id = p,
+                None => break,
+            }
+        }
+        out
     }
 
     fn msg(&mut self, method: &str, params: Value, session: Option<&str>, track: Option<Internal>) -> String {
@@ -824,6 +885,16 @@ fn auto_attach(on: bool) -> Value {
         "flatten": true,
         "filter": [{ "type": "iframe", "exclude": false }, { "type": "worker", "exclude": false }, { "exclude": true }],
     })
+}
+
+/// Documents that run as the origin of the frame that created them (HTML "about:blank" and
+/// `srcdoc` origin inheritance), plus a frame with nothing committed yet.
+fn inherits_origin(url: &str) -> bool {
+    let l = url.trim().to_ascii_lowercase();
+    l.is_empty()
+        || ["about:blank", "about:srcdoc"]
+            .iter()
+            .any(|p| l.strip_prefix(p).is_some_and(|rest| rest.is_empty() || rest.starts_with(['?', '#'])))
 }
 
 /// Documents that may receive agent input (`policy.ts:216-222`), without `file://` (`#303` bans it).

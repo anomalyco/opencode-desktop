@@ -177,7 +177,10 @@ fn dispatch_cdp(
     out_tx: &Output,
 ) {
     let msg_id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
-    t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::Raw { request_id, max_bytes: 64 * 1024, typed: None });
+    // A file input or drop target can be in any frame: checked against inherited grants again at
+    // reply time across the whole tab (`TabCdpObserver::refuse_reply`).
+    let reach = Some(crate::frame_authority::Reach::WholeTab);
+    t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::Raw { request_id, max_bytes: 64 * 1024, typed: None, reach });
     let mut payload = json!({
         "id": msg_id,
         "method": method,
