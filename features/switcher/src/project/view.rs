@@ -2,6 +2,7 @@
 //! `<Dialog size="large" fit>` on `bg-base` with `--v2-elevation-overlay` and 12 pt corners.
 
 use opencode_i18n::t;
+use opencode_ui::focus::FocusExt as _;
 use opencode_ui::keymap::{Bind, keycaps};
 use opencode_ui::widgets::DialogSize;
 use rune::{Color, Cx, Direction, El, PointerEvent, Span, Spring, TextStyle, Transition, Tx, col, el, icon, row, text};
@@ -125,6 +126,8 @@ fn search_back_shell(p: &Pal) -> El {
         .mx(-4.0)
         .center()
         .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_inset(p)
         .hover(p.hover)
         .child(icon(&ic::ARROW_LEFT, 16.0).color(p.icon_muted).mirror_in_rtl())
 }
@@ -167,6 +170,8 @@ fn step_back_shell(p: &Pal, title: &'static str) -> El {
         .role("button")
         .label_static(t!("session.new.location.back"))
         .radius(2.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_inset(p)
         .child(text(title).font(GROUP_TITLE).color(p.faint))
 }
 
@@ -304,6 +309,7 @@ fn row_shell(p: &Pal, r: &SwitcherRow, active: bool, main: El) -> El {
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
         .transition(Transition::none())
         .motion(Spring::NONE)
         .fill(if active { p.hover } else { Color::TRANSPARENT })
@@ -318,6 +324,8 @@ fn drill_shell(p: &Pal, key: &str, label: &str) -> El {
         .mx(-2.0)
         .radius(4.0)
         .center()
+        .cursor(rune::Cursor::Pointer)
+        .focus_inset(p)
         .hover_group()
         .hover(p.hover)
         .child(icon(&ic::CHEVRON_RIGHT, 16.0).mirror_in_rtl().color(p.icon_faint).group_color(p.icon))
