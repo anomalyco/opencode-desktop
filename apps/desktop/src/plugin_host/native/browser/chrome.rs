@@ -12,6 +12,12 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
     t.raw_set(
         "TakeAppLinkReview",
         lua.create_function(|lua, ()| {
+            let cap = scope::TabScope::capture(lua);
+            if !cap.is_builtin_browser || cap.tool_sid.is_some() {
+                return Err(mlua::Error::runtime(
+                    "Browser:TakeAppLinkReview is restricted to the built-in browser.",
+                ));
+            }
             cx::read(Dep::Browser);
             let next = with_app("Browser:TakeAppLinkReview", |app| {
                 Ok(app.workspace_panes.browser.pending_app_links.borrow_mut().pop_front())

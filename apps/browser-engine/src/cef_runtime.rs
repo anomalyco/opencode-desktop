@@ -170,6 +170,17 @@ wrap_app! {
                     "allow-file-access-from-files",
                     "user-data-dir",
                     "disable-site-isolation-trials",
+                    "proxy-server",
+                    "proxy-pac-url",
+                    "proxy-bypass-list",
+                    "host-resolver-rules",
+                    "ignore-certificate-errors",
+                    "use-mock-keychain",
+                    "password-store",
+                    "unsafely-treat-insecure-origin-as-secure",
+                    "js-flags",
+                    "renderer-cmd-prefix",
+                    "utility-cmd-prefix",
                 ] {
                     cmd.remove_switch(Some(&sw.into()));
                 }
