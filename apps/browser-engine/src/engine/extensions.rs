@@ -303,6 +303,12 @@ impl EngineManager {
                 ExtEffect::ExtensionReloaded { ext_id, ok, error } => {
                     let _ = self.out_tx.send(EngineMsg::ExtensionReloaded { ext_id, ok, error });
                 }
+                ExtEffect::NotificationShow { ext_id, ext_name, notif_id, body } => {
+                    let _ = self.out_tx.send(EngineMsg::ExtensionNotificationShow { ext_id, ext_name, notif_id, body });
+                }
+                ExtEffect::NotificationClear { ext_id, notif_id } => {
+                    let _ = self.out_tx.send(EngineMsg::ExtensionNotificationClear { ext_id, notif_id });
+                }
             }
         }
     }
@@ -820,7 +826,9 @@ impl EngineManager {
             | M::AnswerDownloadSave { .. }
             | M::SetInspect { enabled: false, .. }
             | M::HighlightNode { backend_node_id: None, .. }
-            | M::ContextMenuAction { action: None, .. } => return false,
+            | M::ContextMenuAction { action: None, .. }
+            | M::ExtensionNotificationEvent { .. }
+            | M::SetNotificationsEnabled { .. } => return false,
             // `user_initiated` is set only by the bundled find bar (`#312`), whose `FindResult`
             // never reaches agents or third-party plugins.
             M::Find { query, user_initiated, .. } if query.is_empty() || *user_initiated => return false,

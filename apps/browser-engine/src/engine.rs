@@ -852,6 +852,16 @@ impl EngineManager {
             HostMsg::PreviewResponseEnd { req_id, ok } => {
                 self.previews.deliver_end(req_id, ok);
             }
+            HostMsg::ExtensionNotificationEvent { ext_id, notif_id, clicked, by_user } => {
+                if let Some(ext) = &mut self.extensions {
+                    ext.on_notification_event(&ext_id, &notif_id, clicked, by_user);
+                }
+            }
+            HostMsg::SetNotificationsEnabled { enabled } => {
+                if let Some(ext) = &mut self.extensions {
+                    ext.set_notifications_enabled(enabled);
+                }
+            }
             HostMsg::Shutdown => {
                 self.permissions.shutdown();
                 let drained: Vec<_> = self.tabs.drain().collect();

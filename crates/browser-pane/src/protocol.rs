@@ -472,6 +472,15 @@ pub enum HostMsg {
         req_id: u64,
         ok: bool,
     },
+    /// User clicked or dismissed an OS notification posted by an extension (`chrome.notifications`).
+    ExtensionNotificationEvent {
+        ext_id: String,
+        notif_id: String,
+        clicked: bool,
+        by_user: bool,
+    },
+    /// Whether the app's OS notification sink & Settings > Notifications allow extension toasts.
+    SetNotificationsEnabled { enabled: bool },
     Shutdown,
 }
 
@@ -776,6 +785,16 @@ pub enum EngineMsg {
     },
     ExtensionIntegrityFailed {
         ext_id: String,
+    },
+    ExtensionNotificationShow {
+        ext_id: String,
+        ext_name: String,
+        notif_id: String,
+        body: String,
+    },
+    ExtensionNotificationClear {
+        ext_id: String,
+        notif_id: String,
     },
 }
 

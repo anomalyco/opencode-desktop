@@ -273,6 +273,13 @@ pub enum ExtensionLifecycleEvent {
     Reloaded { ext_id: String, ok: bool, error: Option<String> },
 }
 
+/// Extension `chrome.notifications` OS delivery request queued for the desktop app.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExtensionNotificationOp {
+    Show { ext_id: String, ext_name: String, notif_id: String, body: String },
+    Clear { ext_id: String, notif_id: String },
+}
+
 /// Extension state owned by [`BrowserHost`].
 #[derive(Default)]
 pub(crate) struct BrowserExtensionsState {
@@ -293,6 +300,8 @@ pub(crate) struct BrowserExtensionsState {
     pub focus_requests: VecDeque<u64>,
     pub integrity_failures: VecDeque<String>,
     pub lifecycle_events: VecDeque<ExtensionLifecycleEvent>,
+    pub notification_ops: VecDeque<ExtensionNotificationOp>,
+    pub notifications_enabled: Option<bool>,
 }
 
 pub(crate) fn is_http_url(url: &str) -> bool {
@@ -583,6 +592,26 @@ impl BrowserHost {
         self.extensions.lifecycle_events.drain(..)
     }
 
+    pub fn drain_extension_notification_ops(&mut self) -> impl Iterator<Item = ExtensionNotificationOp> + '_ {
+        self.extensions.notification_ops.drain(..)
+    }
+
+    pub fn send_extension_notification_event(&self, ext_id: String, notif_id: String, clicked: bool, by_user: bool) {
+        if self.caps.extensions() {
+            self.send(HostMsg::ExtensionNotificationEvent { ext_id, notif_id, clicked, by_user });
+        }
+    }
+
+    pub fn set_extension_notifications_enabled(&mut self, enabled: bool) {
+        if self.extensions.notifications_enabled == Some(enabled) {
+            return;
+        }
+        self.extensions.notifications_enabled = Some(enabled);
+        if self.caps.extensions() {
+            self.send(HostMsg::SetNotificationsEnabled { enabled });
+        }
+    }
+
     /// Renders the open anchored extension popup's OSR surface (`[25..800]×[25..600]`) with
     /// pointer, wheel, and keyboard forwarding (Escape dismisses the popup).
     pub fn popup_surface_el<S: 'static>(
@@ -831,11 +860,30 @@ impl BrowserHost {
                 self.extensions.integrity_failures.push_back(ext_id);
                 true
             }
+            EngineMsg::ExtensionNotificationShow { ext_id, ext_name, notif_id, body } => {
+                if self.extensions.notification_ops.len() >= 64 {
+                    self.extensions.notification_ops.pop_front();
+                }
+                self.extensions.notification_ops.push_back(ExtensionNotificationOp::Show { ext_id, ext_name, notif_id, body });
+                true
+            }
+            EngineMsg::ExtensionNotificationClear { ext_id, notif_id } => {
+                if self.extensions.notification_ops.len() >= 64 {
+                    self.extensions.notification_ops.pop_front();
+                }
+                self.extensions.notification_ops.push_back(ExtensionNotificationOp::Clear { ext_id, notif_id });
+                true
+            }
             _ => false,
         }
     }
 
     pub(crate) fn on_extensions_ready(&mut self, extensions: bool) {
+        if extensions
+            && let Some(enabled) = self.extensions.notifications_enabled
+        {
+            self.send(HostMsg::SetNotificationsEnabled { enabled });
+        }
         if !extensions || !self.extensions.startup_has_filters {
             for (tab_id, url) in self.extensions.filter_gate.release() {
                 self.send(HostMsg::Navigate { tab_id, url });
