@@ -143,7 +143,9 @@ impl ComposerHost for App {
         self.suggest_edited();
     }
     fn composer_paste_attachment(&mut self, a: Attachment) -> bool {
-        self.composer_ext.attach.add(a);
+        if !self.composer_ext.attach.add(a) {
+            crate::status_toast::say(self, t!("prompt.toast.attachmentDuplicate.title").into(), String::new());
+        }
         self.suggest_edited();
         true
     }
