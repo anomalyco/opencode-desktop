@@ -939,7 +939,10 @@ wrap_request_handler! {
                     && self.ext_policy.allowed_ext_ids.lock().unwrap().iter().any(|id| id == own_id)
                 {
                     if opens_new_tab {
-                        if user_gesture == 0 {
+                        if url.len() > crate::prompts::MAX_POPUP_URL_BYTES
+                            || user_gesture == 0
+                            || !self.prompts.popup_credit.swap(false, Ordering::AcqRel)
+                        {
                             return 1;
                         }
                         let background = *target_disposition.as_ref() == D::CEF_WOD_NEW_BACKGROUND_TAB;
@@ -953,8 +956,14 @@ wrap_request_handler! {
                     return 0;
                 }
                 // Links opened in a new tab from a popup (`target="_blank"`) require a user
-                // gesture and open as a managed pane tab when allowed by URL policy (`popup.ts:169-180`).
-                if opens_new_tab && user_gesture != 0 && browser_policy::destination_origin(&url).is_some() {
+                // gesture, one-shot `popup_credit`, and `MAX_POPUP_URL_BYTES` (`popup.ts:169-180`;
+                // READER-12 #441 Should-Fix #2).
+                if opens_new_tab
+                    && url.len() <= crate::prompts::MAX_POPUP_URL_BYTES
+                    && user_gesture != 0
+                    && browser_policy::destination_origin(&url).is_some()
+                    && self.prompts.popup_credit.swap(false, Ordering::AcqRel)
+                {
                     let background = *target_disposition.as_ref() == D::CEF_WOD_NEW_BACKGROUND_TAB;
                     let _ = self.out_tx.send(EngineMsg::PopupOpen {
                         tab_id: self.tab_id,
@@ -974,6 +983,12 @@ wrap_request_handler! {
                 && self.ext_policy.allowed_ext_ids.lock().unwrap().iter().any(|id| id == ext_id)
             {
                 if opens_new_tab {
+                    if url.len() > crate::prompts::MAX_POPUP_URL_BYTES
+                        || user_gesture == 0
+                        || !self.prompts.popup_credit.swap(false, Ordering::AcqRel)
+                    {
+                        return 1;
+                    }
                     let background = *target_disposition.as_ref() == D::CEF_WOD_NEW_BACKGROUND_TAB;
                     let _ = self.out_tx.send(EngineMsg::PopupOpen {
                         tab_id: self.tab_id,

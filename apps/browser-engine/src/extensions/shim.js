@@ -98,7 +98,12 @@
         });
       } catch {}
     };
-    for (const ctor of [globalThis.HTMLIFrameElement, globalThis.HTMLFrameElement, globalThis.HTMLObjectElement]) {
+    for (const ctor of [
+      globalThis.HTMLIFrameElement,
+      globalThis.HTMLFrameElement,
+      globalThis.HTMLObjectElement,
+      globalThis.HTMLEmbedElement,
+    ]) {
       patchAccessor(ctor?.prototype, "contentWindow", (cw) => {
         try {
           if (cw && cw !== globalThis && !cw.__ocExtInstalled) neutralizeChrome(cw);
@@ -110,13 +115,38 @@
           if (cw && cw !== globalThis && !cw.__ocExtInstalled) neutralizeChrome(cw);
         } catch {}
       });
+      patchMethod(ctor?.prototype, "getSVGDocument", (doc) => {
+        try {
+          const cw = doc?.defaultView;
+          if (cw && cw !== globalThis && !cw.__ocExtInstalled) neutralizeChrome(cw);
+        } catch {}
+      });
     }
     const sweepAll = () => sweepFrames(globalThis);
     for (const m of ["appendChild", "insertBefore", "replaceChild"]) {
       patchMethod(globalThis.Node?.prototype, m, sweepAll);
     }
-    for (const m of ["append", "prepend", "after", "before", "replaceWith", "insertAdjacentElement", "insertAdjacentHTML"]) {
+    for (const m of ["insertNode", "surroundContents"]) {
+      patchMethod(globalThis.Range?.prototype, m, sweepAll);
+    }
+    for (const m of [
+      "append",
+      "prepend",
+      "after",
+      "before",
+      "replaceWith",
+      "replaceChildren",
+      "insertAdjacentElement",
+      "insertAdjacentHTML",
+      "setHTMLUnsafe",
+    ]) {
       patchMethod(globalThis.Element?.prototype, m, sweepAll);
+    }
+    for (const m of ["append", "prepend", "replaceChildren", "setHTMLUnsafe"]) {
+      patchMethod(globalThis.ShadowRoot?.prototype, m, sweepAll);
+    }
+    for (const m of ["append", "prepend", "replaceChildren"]) {
+      patchMethod(globalThis.Document?.prototype, m, sweepAll);
     }
     patchAccessor(globalThis.Element?.prototype, "innerHTML", sweepAll);
     patchAccessor(globalThis.Element?.prototype, "outerHTML", sweepAll);
