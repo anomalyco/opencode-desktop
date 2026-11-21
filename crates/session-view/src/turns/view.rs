@@ -204,8 +204,7 @@ fn step_foot<S: TimelineHost>(s: &S, session: &str, live: bool, steps: &[Step]) 
         }
         Step::Notice(_) => 4.0,
         Step::Text { body } => if body.trim_end().ends_with("```") { 0.0 } else { crate::timeline::rhythm::prose_insets().1 },
-        st @ Step::Tool { .. } if grouped_read(st) || named_skill(st) => 6.0,
-        st @ Step::Tool { .. } if file_tool(st) => 0.0,
+        st @ Step::Tool { .. } if grouped_read(st) || named_skill(st) || file_tool(st) => 6.0,
         st @ Step::Tool { files, .. } => {
             if !files.is_empty() {
                 return 0.0;
@@ -236,7 +235,9 @@ fn step_item<S: TimelineHost>(s: &S, p: &Pal, cx: crate::tools::Ctx, group: &str
         }
         st @ Step::Tool { .. } if file_tool(st) => {
             let calls: Vec<crate::tools::Call> = steps.iter().filter_map(call).collect();
-            col().key(format!("files-{}", calls[0].id)).w_full().child(crate::tools::cached(s, p, cx, &calls, || crate::tools::file_group(s, p, cx, &calls)))
+            // A card has no 6 pt text overhang of its own, so `py(6.0)` keeps the 16 pt
+            // `--timeline-gap-s` clear above and below it among the 28 pt text rows.
+            col().key(format!("files-{}", calls[0].id)).w_full().py(6.0).child(crate::tools::cached(s, p, cx, &calls, || crate::tools::file_group(s, p, cx, &calls)))
         }
         st @ Step::Tool { .. } if named_skill(st) => {
             let calls: Vec<crate::tools::Call> = steps.iter().filter_map(call).collect();

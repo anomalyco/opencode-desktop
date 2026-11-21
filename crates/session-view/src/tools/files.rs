@@ -182,22 +182,23 @@ fn group_with<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call], open: bo
         let d = Display::of(s, cx, pending, false);
         return still(trigger(s, p, cx, first, d, Trigger { title: title.into(), ..Default::default() }, Press::None, None));
     }
-    let n = items.len();
-    let mut card = col().key("files").w_full();
+    // Each changed file is its own rounded card, separated by the small timeline gap
+    // (`timeline-next.css:53-68`).
+    let mut card = col().key("files").w_full().gap(crate::timeline::rhythm::S);
     let mut keyed: Vec<&str> = Vec::new();
     for (i, item) in items.iter().enumerate() {
         let owner = item.entries[0].call;
         // The first row a call shows carries its key, so opening the call from the host keeps it in view.
         let row_key = if keyed.contains(&owner.id) { format!("file-{}-{i}", first.id) } else { format!("tool-{}", owner.id) };
         keyed.push(owner.id);
-        card = card.child(file_item(s, p, cx, first.id, item, row_key, (i == 0, i + 1 == n), open));
+        card = card.child(file_item(s, p, cx, first.id, item, row_key, open));
     }
     card
 }
 
-/// One row of the card, and under it the change while open, and the file's errors.
+/// One file's card, and under it the change while open, and the file's errors.
 #[allow(clippy::too_many_arguments)]
-fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item, row_key: String, (first, last): (bool, bool), default_open: bool) -> El {
+fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item, row_key: String, default_open: bool) -> El {
     let shown = super::session_relative(s, cx.session, item.path);
     let k = sub_key(group, format!("file:{shown}"));
     // Until pressed, `default_open` decides: Timeline detail's Edits, or shut in Changed files.
@@ -205,8 +206,8 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
     let owner = item.entries[0].call;
     let errors = diagnostics(p, owner.metadata, path(owner.input).unwrap_or(item.path));
     // The card's bottom corners round whichever section ends it: the errors, the change or the row.
-    let end = last && errors.is_none();
-    let top = if first { RADIUS } else { 0.0 };
+    let end = errors.is_none();
+    let top = RADIUS;
     let bottom = if end && !open { RADIUS } else { 0.0 };
     let (dir, name) = match shown.rfind(['/', '\\']) {
         Some(at) => (&shown[..=at], &shown[at + 1..]),
@@ -221,6 +222,9 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
     words = words.child(text(name.to_owned()).key("file").font(PATH).color(p.text).truncate_fade().shrink().min_w(0.0));
     let change = change(p, item);
     let toggle = || crate::disclosure::set::<S>(k.clone(), open, row_key.clone());
+    // `apply-patch-file-info` (`patch.tsx:77-105`, `timeline-next.css:89-105`): the change counts
+    // follow the file's name, and the grabber sits 4 pt closer to the right edge so its arrows
+    // balance the file icon on the left.
     let info = row()
         .key("info")
         .h_full()
@@ -234,14 +238,13 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
         .on_press_tx(toggle())
         .expanded(open)
         .child(icon(rune_theme_opencode::file_icons::file(name), 16.0).key("icon").color(p.text))
-        .child(words);
+        .child(words)
+        .children(change);
     let marks = row()
         .key("marks")
         .h_full()
-        .gap(16.0)
         .center_y()
-        .children(change)
-        .child(icon(&rune_theme_opencode::icons::CHEVRON_GRABBER_VERTICAL, 14.0).key("grabber").color(p.text));
+        .child(icon(&rune_theme_opencode::icons::CHEVRON_GRABBER_VERTICAL, 16.0).key("grabber").mr(-4.0).color(p.text));
     // The row eases its hover in and out over 0.15 s (`accordion.css`: `transition:
     // background-color 0.15s ease`).
     let trigger = row()
@@ -254,6 +257,7 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
         .fill(p.bg_base)
         .hover(p.hover)
         .border(1.0, p.border)
+        .border_layout()
         .corners([top, top, bottom, bottom])
         .hover_group()
         .hover_motion(HOVER_FADE, HOVER_FADE)
@@ -268,9 +272,6 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
     let header = row().key("head").w_full().fill(p.bg_base).sticky_top(cx.sticky).child(trigger);
     // A key holds no `/`, which separates the parts of a path.
     let mut out = col().key(format!("item-{}", shown.replace(['/', '\\'], ":"))).w_full().child(header);
-    if !first {
-        out = out.mt(-1.0);
-    }
     if open {
         let corner = if end { RADIUS } else { 0.0 };
         let views = col().key("views").w_full().children(item.diffs().into_iter().map(|fd| super::diff::view::<S>(p, fd)));
@@ -294,8 +295,7 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
         // An intentional Rune extra: Desktop lists a file's errors under a lone edit or write but
         // never in a group's file card. Here they close the file's part of the card, 1 pt up so
         // their divider stands in for the bottom border of the row or the change above.
-        let corner = if last { RADIUS } else { 0.0 };
-        let inner = (corner - 1.0).max(0.0);
+        let inner = (RADIUS - 1.0).max(0.0);
         out = out.child(
             col()
                 .key("errors")
@@ -304,15 +304,16 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
                 .border_sides([0.0, 1.0, 1.0, 1.0], p.border)
                 .border_layout()
                 .fill(p.bg_base)
-                .corners([0.0, 0.0, corner, corner])
-                .clip_corners([0.0, 0.0, corner, corner])
+                .corners([0.0, 0.0, RADIUS, RADIUS])
+                .clip_corners([0.0, 0.0, RADIUS, RADIUS])
                 .child(errors.corners([0.0, 0.0, inner, inner])),
         );
     }
     out
 }
 
-/// "Created", "Deleted" (13 px medium) or `+N -M`.
+/// "Created", "Deleted" (13 px medium) or `+N` / `-M`, showing only the side that changed
+/// (`[data-component="diff-changes"] [data-empty] { display: none }`, `timeline-next.css:99-101`).
 fn change(p: &Pal, item: &Item) -> Option<El> {
     let word = |w: &'static str, c| Some(text(w).key("change").font(UI_MED.lh(19.5)).color(c));
     match item.kind() {
@@ -321,9 +322,12 @@ fn change(p: &Pal, item: &Item) -> Option<El> {
         Kind::Update => {
             let (a, d) = item.counts();
             (a + d > 0).then(|| {
-                row().key("change").gap(8.0).center_y()
-                    .child(text(format!("+{a}")).dir(rune::Direction::Ltr).font(COUNTS).color(p.diff.add_text))
-                    .child(text(format!("-{d}")).dir(rune::Direction::Ltr).font(COUNTS).color(p.diff.del_text))
+                row()
+                    .key("change")
+                    .gap(8.0)
+                    .center_y()
+                    .children((a > 0).then(|| text(format!("+{a}")).dir(rune::Direction::Ltr).font(COUNTS).color(p.diff.add_text)))
+                    .children((d > 0).then(|| text(format!("-{d}")).dir(rune::Direction::Ltr).font(COUNTS).color(p.diff.del_text)))
             })
         }
     }
