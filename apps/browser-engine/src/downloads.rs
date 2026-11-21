@@ -584,14 +584,14 @@ wrap_download_handler! {
             let mime = browser_policy::sanitize_download_mime(&CefString::from(&item.mime_type()).to_string());
             let dangerous = browser_policy::is_dangerous_download(&clean_name, &mime);
             let is_save_image = self.downloads.take_pending_save_image(self.tab_id, self.tab_gen, &orig_url, &url);
-            let is_agent = self.prompts.agent_driven.load(Ordering::Acquire);
+            // Official `policy.ts:166-177`: the agent owns a download only while it drives the tab;
+            // the person's own input reclaims it (`TabPrompts::user_reclaimed`).
+            let is_agent = self.prompts.agent_driven.load(Ordering::Acquire)
+                && !self.prompts.user_reclaimed.load(Ordering::Acquire);
 
-            // Human downloads (`!agent_driven`) and explicit right-click "Save image as…" NEVER
-            // write to agent-readable staging folders and NEVER enter `BrowserTab.files`.
+            // The person's downloads and right-click "Save image as…" go to the OS Save dialog
+            // (official `chromium.ts:1055-1080`), never to agent-readable staging or `BrowserTab.files`.
             if !is_agent || is_save_image {
-                if is_save_image && dangerous {
-                    return 1;
-                }
                 if !self.downloads.download_save_enabled() {
                     return 1;
                 }
@@ -614,11 +614,10 @@ wrap_download_handler! {
                     },
                 );
                 drop(pending);
-                let save_name = browser_policy::neutralize_download_name(&clean_name, &mime);
                 let _ = self.out_tx.send(EngineMsg::DownloadSaveRequest {
                     tab_id: self.tab_id,
                     id: req_id,
-                    name: save_name,
+                    name: clean_name,
                     mime,
                     executable: dangerous,
                 });
@@ -650,9 +649,6 @@ wrap_download_handler! {
                 self.send(file);
                 1
             };
-            if dangerous {
-                return fail(file, "dangerous_file_type");
-            }
             if u64::try_from(item.total_bytes()).is_ok_and(|total| total > MAX_FILE_BYTES) {
                 return fail(file, "too_large");
             }
@@ -683,8 +679,7 @@ wrap_download_handler! {
             if !ensure_safe_dir(&tab_dir) || !ensure_safe_dir(&folder) {
                 return fail(file, "file_failed");
             }
-            let disk_name = browser_policy::neutralize_download_name(&clean_name, &mime);
-            let path = folder.join(&disk_name);
+            let path = folder.join(&clean_name);
             let Some(path_str) = path.to_str() else {
                 let _ = std::fs::remove_dir(&folder);
                 return fail(file, "file_failed");

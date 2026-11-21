@@ -49,14 +49,9 @@ fn open_download_save_dialog(app: &mut App, req: DownloadSaveRequest, tx: &mut T
         return;
     }
     app.workspace_panes.browser.save_dialog_open = true;
-    let file_name = if req.executable || browser_pane::policy::is_dangerous_download(&req.name, &req.mime) {
-        browser_pane::policy::neutralize_download_name(&req.name, &req.mime)
-    } else {
-        browser_pane::policy::sanitize_download_name(&req.name)
-    };
     let options = FileDialogOptions {
         title: t!("desktop.dialog.saveFile").to_owned(),
-        file_name: Some(file_name),
+        file_name: Some(browser_pane::policy::sanitize_download_name(&req.name)),
         ..Default::default()
     };
     let tab_id = req.tab_id;

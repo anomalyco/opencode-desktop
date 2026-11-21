@@ -1086,15 +1086,10 @@ impl BrowserHost {
                     } else {
                         let clean_mime = crate::policy::sanitize_download_mime(&mime);
                         let dangerous = executable || crate::policy::is_dangerous_download(&name, &clean_mime);
-                        let safe = if dangerous {
-                            crate::policy::neutralize_download_name(&name, &clean_mime)
-                        } else {
-                            crate::policy::sanitize_download_name(&name)
-                        };
                         self.download_save_requests.push_back(crate::protocol::DownloadSaveRequest {
                             tab_id,
                             id,
-                            name: safe,
+                            name: crate::policy::sanitize_download_name(&name),
                             mime: clean_mime,
                             executable: dangerous,
                         });

@@ -651,6 +651,7 @@ impl EngineManager {
     pub(super) fn handle_set_agent_driven(&mut self, tab_id: u64, agent_driven: bool) {
         if let Some(t) = self.tabs.get(&tab_id) {
             t.prompts.agent_driven.store(agent_driven, Ordering::Release);
+            t.prompts.user_reclaimed.store(false, Ordering::Release);
             t.snap.lock().unwrap().agent_driven = agent_driven;
             if agent_driven {
                 // Agent-driven tabs may never navigate to `chrome-extension://` pages.

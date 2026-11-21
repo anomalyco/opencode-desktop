@@ -598,6 +598,7 @@ impl EngineManager {
                     } else {
                         t.held_buttons |= flag;
                         t.host.set_focus(1);
+                        t.prompts.user_reclaimed.store(true, Ordering::Release);
                     }
                     let ev = MouseEvent {
                         x: x.round() as i32,
@@ -620,6 +621,9 @@ impl EngineManager {
             }
             HostMsg::Key { tab_id, down, text, named, mods } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
+                    if down {
+                        t.prompts.user_reclaimed.store(true, Ordering::Release);
+                    }
                     send_key(&t.host, down, text.as_deref(), named.as_deref(), cef_mods(mods));
                 }
             }
@@ -659,6 +663,9 @@ impl EngineManager {
             HostMsg::SetInspect { tab_id, enabled } => self.handle_set_inspect(tab_id, enabled),
             HostMsg::HighlightNode { tab_id, backend_node_id } => self.handle_highlight_node(tab_id, backend_node_id),
             HostMsg::CdpCall { tab_id, request_id, method, params, session_id } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    t.prompts.user_reclaimed.store(false, Ordering::Release);
+                }
                 self.handle_cdp_call(tab_id, request_id, method, params, session_id);
             }
             HostMsg::SiteCookies { tab_id, request_id } => {
@@ -767,6 +774,7 @@ impl EngineManager {
             }
             HostMsg::TypedCdpCall { tab_id, request_id, method, params, session_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
+                    t.prompts.user_reclaimed.store(false, Ordering::Release);
                     let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
                     crate::cdp_ledger::handle_typed_cdp_call(
                         tab_id,

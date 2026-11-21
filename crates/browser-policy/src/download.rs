@@ -5,8 +5,6 @@
 pub const MAX_DOWNLOAD_NAME_CHARS: usize = 120;
 /// Maximum character count for a reported download MIME type.
 const MAX_DOWNLOAD_MIME_CHARS: usize = 128;
-/// Suffix appended when neutralizing an executable filename for a human Save dialog or disk path.
-const NEUTRALIZE_SUFFIX: &str = ".download";
 
 /// Returns `true` for Unicode bidirectional formatting controls and BOM/ZWNBSP that can spoof
 /// filenames (for example `invoice_\u{202E}fdp.exe`).
@@ -219,35 +217,6 @@ pub fn is_dangerous_download_mime(mime: &str) -> bool {
 /// Returns `true` when either the sanitized filename extension or the MIME type is executable.
 pub fn is_dangerous_download(name: &str, mime: &str) -> bool {
     is_dangerous_download_extension(name) || is_dangerous_download_mime(mime)
-}
-
-/// Returns a sanitized filename with `.download` appended whenever the filename or MIME type is
-/// dangerous, staying within `MAX_DOWNLOAD_NAME_CHARS`.
-pub fn neutralize_download_name(raw: &str, mime: &str) -> String {
-    let clean = sanitize_download_name(raw);
-    if !is_dangerous_download(&clean, mime) {
-        return clean;
-    }
-    let max_prefix = MAX_DOWNLOAD_NAME_CHARS - NEUTRALIZE_SUFFIX.len();
-    let chars: Vec<char> = clean.chars().collect();
-    let prefix: String = chars[chars.len().saturating_sub(max_prefix)..].iter().collect();
-    let prefix = prefix.trim_start_matches(' ').trim_end_matches(['.', ' ']);
-    let prefix = if prefix.is_empty() || prefix == "." || prefix == ".." { "file" } else { prefix };
-    let stem = prefix.split('.').next().unwrap_or_default().trim_end();
-    if crate::is_windows_device_name(stem) {
-        let mut out = String::with_capacity(prefix.len() + NEUTRALIZE_SUFFIX.len() + 1);
-        out.push('_');
-        if prefix.chars().count() >= max_prefix {
-            for c in prefix.chars().skip(1) {
-                out.push(c);
-            }
-        } else {
-            out.push_str(prefix);
-        }
-        let trimmed = out.trim_end_matches(['.', ' ']);
-        return format!("{trimmed}{NEUTRALIZE_SUFFIX}");
-    }
-    format!("{prefix}{NEUTRALIZE_SUFFIX}")
 }
 
 /// Strict allow-list for download URLs (`can_download`, `on_before_download`, and `SaveImage`).
