@@ -225,7 +225,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         }
         Incoming::LookupMissing(_) => return false,
         Incoming::Inbox { session, items } => s.inbox_listed(&session, &items),
-        Incoming::Worktrees { project, directories } => s.worktrees_listed(project, directories),
+        Incoming::Worktrees { project, directories, managed } => s.worktrees_listed(project, directories, managed),
         Incoming::Branches { directory, search, result } => return s.branches_listed(&directory, &search, result.ok()),
         Incoming::InterruptAcknowledged { session, interrupted } => {
             if !interrupted { stop::confirmed(s, &session); }
