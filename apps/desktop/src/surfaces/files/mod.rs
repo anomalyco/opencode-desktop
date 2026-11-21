@@ -293,6 +293,10 @@ impl FilesHost for App {
     }
 
     fn open_page_tab(&mut self, sid: &str, url: &str) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.browser_unsupported() {
+            return;
+        }
         self.open_new_browser_tab_for_session(Some(sid), url, None, true);
     }
 

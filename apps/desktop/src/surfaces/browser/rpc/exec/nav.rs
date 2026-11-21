@@ -517,6 +517,12 @@ pub(super) fn step_wait_load(
                 let sid = att.session_id.clone();
                 app.close_browser_tab_for_session(&sid, st.host_id, tx);
             }
+            if matches!(why.fault, browser_pane::Fault::NotPublished) {
+                return Some(Outcome::fail(
+                    failure_code::UNSUPPORTED,
+                    "Embedded browser engine is unavailable in this build.",
+                ));
+            }
             return Some(Outcome::fail(
                 failure_code::NAVIGATION_FAILED,
                 format!("Browser engine failed to start: {}", why.fault),

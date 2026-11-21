@@ -94,6 +94,9 @@ pub(crate) enum EngineEvent {
     LinkStatus { generation: u64, status: EngineStatus },
     #[cfg(feature = "engine")]
     InstallStatus(EngineStatus),
+    /// The start-up index read found no engine published for this platform.
+    #[cfg(feature = "engine")]
+    ProbeNotPublished,
     #[cfg(feature = "engine")]
     Hung { generation: u64 },
     #[cfg(feature = "engine")]
@@ -342,6 +345,16 @@ impl SharedEngine {
                     return EngineEffect::None;
                 }
                 self.phase = EnginePhase::Disconnected(status);
+                EngineEffect::Wake
+            }
+            // Only before anything else looked for the engine: a page that started a connect or
+            // download meanwhile keeps its own outcome.
+            #[cfg(feature = "engine")]
+            EngineEvent::ProbeNotPublished => {
+                if !matches!(self.phase, EnginePhase::Disconnected(EngineStatus::Unchecked)) {
+                    return EngineEffect::None;
+                }
+                self.phase = EnginePhase::Disconnected(EngineStatus::Failed(crate::installer::Fault::NotPublished.into()));
                 EngineEffect::Wake
             }
             #[cfg(feature = "engine")]

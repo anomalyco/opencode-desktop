@@ -3,8 +3,8 @@
 use rune::time::Instant;
 
 use super::{
-    AuthGate, PermissionDecision, PermissionScope, PermissionStore, PopupGate, PopupRequest,
-    SitePermissions, SiteSetting, TabDriver,
+    AuthGate, BlockedGuardReason, PermissionDecision, PermissionScope, PermissionStore, PopupGate,
+    PopupRequest, SitePermissions, SiteSetting, TabDriver,
 };
 use crate::protocol::{EngineMsg, HostMsg, SitePermissionEntry};
 
@@ -93,7 +93,7 @@ impl crate::BrowserHost {
 
     pub fn dismiss_blocked_guard_notice(&mut self, tab_id: u64) {
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
-            t.prompts.blocked_guard_notice = false;
+            t.prompts.blocked_guard_notice = None;
         }
     }
 
@@ -314,7 +314,7 @@ impl crate::BrowserHost {
                         // Defense in depth against older engines where `OpenTab` doesn't carry
                         // `agent_driven` yet and a fast 401 on `TID_IO` races `SetAgentDriven`.
                         t.prompts.agent_auth_required = Some(challenge.origin);
-                        t.prompts.blocked_guard_notice = true;
+                        t.prompts.blocked_guard_notice = Some(BlockedGuardReason::Action);
                         (Some(challenge.id), true)
                     } else {
                         let cancel = t.prompts.auth_challenge(challenge, now);
@@ -340,7 +340,7 @@ impl crate::BrowserHost {
             EngineMsg::AuthAgentRequired { tab_id, origin } => {
                 if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
                     t.prompts.agent_auth_required = Some(origin);
-                    t.prompts.blocked_guard_notice = true;
+                    t.prompts.blocked_guard_notice = Some(BlockedGuardReason::Action);
                     true
                 } else {
                     false
@@ -361,7 +361,7 @@ impl crate::BrowserHost {
             EngineMsg::FileChooserBlocked { tab_id } => {
                 if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
                     t.prompts.file_chooser_blocked = t.prompts.file_chooser_blocked.saturating_add(1);
-                    t.prompts.blocked_guard_notice = true;
+                    t.prompts.blocked_guard_notice = Some(BlockedGuardReason::Action);
                     true
                 } else {
                     false

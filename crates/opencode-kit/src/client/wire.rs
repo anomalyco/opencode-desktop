@@ -59,6 +59,11 @@ pub enum Incoming {
     /// A `Write::Tracked` write's outcome, under the ticket it was sent with: `Ok(Some(session))`
     /// for a fork (the session it made), `Ok(None)` for any other write, or the raw error.
     Settled { ticket: Ticket, result: Result<Option<SessionInfo>, WireError> },
+    /// Fail-open new-session start gate: emitted on the owning `Server`'s write thread right after
+    /// `POST /api/session` succeeds and before `POST /prompt`. Dropping or sending on `release`
+    /// immediately wakes the worker (which also times out fail-open after `PROMPT_GATE_TIMEOUT_MS`).
+    #[cfg(not(target_arch = "wasm32"))]
+    PromptGate { session: String, directory: String, release: std::sync::mpsc::Sender<()> },
 }
 
 /// Which machine asked for a tracked write, for which session, at which attempt: the write's
