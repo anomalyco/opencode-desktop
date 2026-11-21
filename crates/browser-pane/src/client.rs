@@ -321,6 +321,10 @@ impl BrowserHost {
         }
     }
 
+    /// Without the engine there is no source to read (`EngineStatus::Unsupported` already).
+    #[cfg(not(feature = "engine"))]
+    pub fn probe_availability(&self) {}
+
     pub fn with_socket(socket: PathBuf) -> Self {
         let mut h = Self::new();
         h.socket_override = Some(socket);

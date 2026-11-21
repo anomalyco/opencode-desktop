@@ -101,14 +101,15 @@ fn inputs() -> (String, String) {
     )
 }
 
-/// Whether this build has a source at all (else the pane says the browser isn't available).
+/// Whether this build has a source at all (else the pane says the browser isn't available). A
+/// platform no engine is built for (`TARGET` "unsupported", such as an Intel Mac) has none.
 pub(crate) fn configured() -> bool {
-    !inputs().0.trim().is_empty()
+    TARGET != "unsupported" && !inputs().0.trim().is_empty()
 }
 
 /// Whether this build has a valid trust rule for an installed engine.
 pub(crate) fn has_trust() -> bool {
-    parse_trust(&inputs().1).is_some()
+    TARGET != "unsupported" && parse_trust(&inputs().1).is_some()
 }
 
 /// Reads the index and picks this platform's release: one the build accepts (its engine

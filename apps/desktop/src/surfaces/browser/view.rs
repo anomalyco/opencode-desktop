@@ -36,12 +36,19 @@ fn open_external_btn(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
     )
 }
 
+/// The address "Open in system browser" opens, in text: the views without an engine hide the
+/// address bar, and the button must not open something the person can't see.
+fn requested_url(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
+    let url = s.browser_tab_external_url(tab_id)?;
+    Some(text(url).key("browser-requested-url").font(UI_SMALL).color(p.text).wrap().align(rune::Align::Center).max_w(360.0))
+}
+
 /// Page `tab_id`'s surface, `scale` device pixels a point, or the engine's state while it can't
 /// show pages; `None` when the engine is ready and the page isn't open.
 pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
     let ext_btn = open_external_btn(s, p, tab_id);
     Some(match s.workspace_panes.browser.host.status() {
-        EngineStatus::Unsupported => unsupported(p, ext_btn),
+        EngineStatus::Unsupported => unsupported(p, requested_url(s, p, tab_id), ext_btn),
         // The background download, when the pane opens on it, shows here and goes on.
         EngineStatus::Downloading { downloaded_bytes, total_bytes } => {
             let frac = total_bytes.filter(|&t| t > 0).map_or(0.25, |t| (downloaded_bytes as f32 / t as f32).clamp(0.03, 1.0));
@@ -94,6 +101,7 @@ pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
             });
             let actions = (retry_btn.is_some() || ext_btn.is_some())
                 .then(|| row().gap(8.0).center_y().children(retry_btn).children(ext_btn));
+            let url = (failure.fault == Fault::NotPublished).then(|| requested_url(s, p, tab_id)).flatten();
             col()
                 .key("browser-download-failed")
                 .grow(1.0)
@@ -103,6 +111,7 @@ pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
                 .gap(14.0)
                 .child(icon(&ic::WARNING, 20.0).color(p.icon_muted))
                 .child(text(fault_text(&failure.fault)).font(UI_SMALL).color(p.muted).wrap().align(rune::Align::Center).max_w(320.0))
+                .children(url)
                 .children(actions)
         }
         EngineStatus::Unchecked | EngineStatus::Installed | EngineStatus::Connecting | EngineStatus::Ready => {
@@ -198,7 +207,7 @@ fn progress(p: &Pal, label: &str, bytes: Option<(u64, Option<u64>)>, frac: f32, 
 }
 
 /// This build has no browser engine for its platform: no address bar, nothing to download.
-fn unsupported(p: &Pal, ext_btn: Option<El>) -> El {
+fn unsupported(p: &Pal, url: Option<El>, ext_btn: Option<El>) -> El {
     col()
         .key("browser-unsupported")
         .grow(1.0)
@@ -209,5 +218,6 @@ fn unsupported(p: &Pal, ext_btn: Option<El>) -> El {
         .child(icon(&ic::GLOBE, 22.0).color(p.icon_muted))
         .child(text(opencode_i18n::t!("rune.browser.unsupported.title")).font(UI_MED).color(p.text).truncate_fade())
         .child(text(opencode_i18n::t!("rune.browser.unsupported.description")).font(UI_SMALL).color(p.muted).wrap().align(rune::Align::Center).max_w(320.0))
+        .children(url.map(|u| u.mt(6.0)))
         .children(ext_btn.map(|b| b.mt(6.0)))
 }
