@@ -211,6 +211,7 @@ impl BrowserHost {
                     changed = true;
                 }
                 EngineMsg::CdpResponse { request_id, ok, result, .. } => {
+                    crate::rpc_trace::t("cdp.recv", request_id);
                     if let Some(pos) = self.cancelled_cdp.iter().position(|&id| id == request_id) {
                         self.cancelled_cdp.remove(pos);
                         continue;

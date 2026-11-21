@@ -14,6 +14,7 @@
 //! tabs, and reports `EngineStatus::Unsupported` instead of starting an engine.
 
 pub mod address;
+pub mod rpc_trace;
 #[cfg(feature = "engine")]
 mod background;
 mod client;

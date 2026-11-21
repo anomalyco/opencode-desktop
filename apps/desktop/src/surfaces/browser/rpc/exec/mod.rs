@@ -243,6 +243,7 @@ pub(super) fn start_command(
     waker: Option<Waker>,
     tx: &mut Tx,
 ) {
+    browser_pane::rpc_trace::t("cmd.start", format_args!("{request_id} {}", cmd.action_type().unwrap_or("?")));
     if !att.attach.is_request_in_flight(&connection_id, &request_id) {
         return;
     }
@@ -503,6 +504,7 @@ fn finish_and_reply(
     outcome: Outcome,
     now: Instant,
 ) {
+    browser_pane::rpc_trace::t("cmd.done", &request_id);
     if !att.attach.is_request_in_flight(connection_id, &request_id) {
         return;
     }

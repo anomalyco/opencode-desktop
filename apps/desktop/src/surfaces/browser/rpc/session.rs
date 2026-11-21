@@ -691,7 +691,9 @@ fn spawn_outbound_worker(
                                 }
                             }
                         }
+                        browser_pane::rpc_trace::t("post.state.start", "");
                         send_state_with_retry(&server, &location, &session_id, &connection_id, &state, &abort);
+                        browser_pane::rpc_trace::t("post.state.end", "");
                         if let Some(d) = deferred {
                             match d {
                                 OutboundMsg::Stop => break,
@@ -748,10 +750,19 @@ fn send_result(
     request_id: &str,
     outcome: &Outcome,
 ) {
+    browser_pane::rpc_trace::t("post.result.start", request_id);
+    let _end = Ended(request_id);
     let outcome = match server.browser_rpc_result(location, session_id, connection_id, request_id, outcome) {
         Ok(()) => return,
         Err(RpcCallError::InvalidInput(msg)) => Outcome::fail(failure_code::OPERATION_FAILED, msg),
         Err(_) => return,
     };
     let _ = server.browser_rpc_result(location, session_id, connection_id, request_id, &outcome);
+}
+
+struct Ended<'a>(&'a str);
+impl Drop for Ended<'_> {
+    fn drop(&mut self) {
+        browser_pane::rpc_trace::t("post.result.end", self.0);
+    }
 }
