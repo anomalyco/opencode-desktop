@@ -1309,7 +1309,7 @@ return plugin.defineWindow(function(ctx)
             available = avail,
             import = avail,
             extensions = type(ext) == "table" and type(ext.renderSettings) == "function",
-            remoteSignIns = type(prof) == "table" and type(prof.remoteSignIns) == "function" and type(prof.setRemoteSignIns) == "function",
+            remoteSignIns = avail and type((Browser :: any).ShareSignIns) == "function",
             cookieFile = type(prof) == "table" and type(prof.pickCookieFile) == "function",
         }
     end
@@ -1490,15 +1490,19 @@ return plugin.defineWindow(function(ctx)
             end
             return nil
         end,
-        remoteSignInsEnabled = function()
-            local prof = profileContract:Get()
-            return type(prof) == "table" and type(prof.remoteSignIns) == "function" and prof.remoteSignIns() == true
+        remoteSignInsEnabled = function(): boolean?
+            local bAny = Browser :: any
+            if type(bAny.ShareSignIns) ~= "function" or bAny:ShareSignIns() == nil then
+                return nil
+            end
+            return preferences().remoteSignIns
         end,
         setRemoteSignIns = function(enabled: boolean)
-            local prof = profileContract:Get()
-            if type(prof) == "table" and type(prof.setRemoteSignIns) == "function" then
-                prof.setRemoteSignIns(enabled)
-            end
+            -- Kept across restarts as official keeps `remote-sign-ins` (`profile/index.ts:118,657-661`).
+            local bAny = Browser :: any
+            updatePreferences({ remoteSignIns = enabled })
+            bAny:SetShareSignIns(enabled)
+            refreshSettings()
         end,
         pickCookieFile = function()
             local prof = profileContract:Get()
@@ -1507,6 +1511,22 @@ return plugin.defineWindow(function(ctx)
             end
         end,
     }, refreshSettings)
+
+    -- The host re-sends it to every engine that starts with a cookie store (`#286`), so setting it
+    -- once here carries the person's choice across restarts without starting the engine.
+    local function syncRemoteSignIns()
+        local bAny = Browser :: any
+        if type(bAny.SetShareSignIns) == "function" then
+            bAny:SetShareSignIns(preferences().remoteSignIns)
+        end
+    end
+    if preferences().remoteSignIns then
+        syncRemoteSignIns()
+    end
+    prefsStore.Changed:Connect(function()
+        syncRemoteSignIns()
+        refreshSettings()
+    end)
 
     settingsHandle = ctx:AddSettingsPage({
         id = "browser",
