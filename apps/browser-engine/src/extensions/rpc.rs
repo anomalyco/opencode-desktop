@@ -18,6 +18,22 @@ use super::{ExtEffect, ExtTab, ExtensionHost, SessionKind, WINDOW_ID, WINDOW_ID_
 
 const MAX_NAV_URL_BYTES: usize = 8192;
 
+fn format_notification_body(opts: Option<&serde_json::Map<String, Value>>) -> String {
+    let Some(obj) = opts else { return String::new() };
+    let clean_field = |k: &str| {
+        obj.get(k)
+            .and_then(Value::as_str)
+            .map(|s| s.chars().filter(|c| !c.is_control() || *c == ' ').take(256).collect::<String>())
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
+    };
+    let parts: Vec<String> = ["title", "message", "contextMessage"]
+        .into_iter()
+        .filter_map(clean_field)
+        .collect();
+    parts.join("\n").chars().take(512).collect()
+}
+
 /// Exact `privacy.*` defaults from official `extension-api/stubs.ts:6-23` (`edacc868`).
 fn privacy_setting_default(path: &str) -> Option<Value> {
     Some(match path {
@@ -449,17 +465,93 @@ impl ExtensionHost {
             }
 
             "notifications.create" => {
-                let id = args
-                    .first()
-                    .and_then(Value::as_str)
+                // Official `extension-api/notifications.ts:68-73`: accepts `(id, options)` or `(options)`.
+                let (raw_id, opts) = if args.len() >= 2 {
+                    (args[0].as_str(), args.get(1).and_then(Value::as_object))
+                } else if args.first().is_some_and(Value::is_object) {
+                    (None, args.first().and_then(Value::as_object))
+                } else {
+                    (args.first().and_then(Value::as_str), None)
+                };
+                let id = raw_id
                     .map(extension_label)
                     .filter(|s| !s.is_empty())
                     .unwrap_or_else(|| format!("n-{}", self.alloc_id()));
+                if self.notifications_enabled && self.allow_notification(ext_id) {
+                    let body = format_notification_body(opts);
+                    let ext_name = {
+                        let clean = extension_label(&ext.manifest.name);
+                        if clean.is_empty() { ext_id.to_owned() } else { clean }
+                    };
+                    let evicted = {
+                        let list = self.notifications.entry(ext_id.to_owned()).or_default();
+                        list.retain(|existing| existing != &id);
+                        let oldest = (list.len() >= 32).then(|| list.remove(0));
+                        list.push(id.clone());
+                        oldest
+                    };
+                    if let Some(oldest) = evicted {
+                        effects.push(ExtEffect::NotificationClear {
+                            ext_id: ext_id.to_owned(),
+                            notif_id: oldest.clone(),
+                        });
+                        self.emit_event("notifications.onClosed", vec![json!(oldest), json!(false)], Some(ext_id));
+                    }
+                    effects.push(ExtEffect::NotificationShow {
+                        ext_id: ext_id.to_owned(),
+                        ext_name,
+                        notif_id: id.clone(),
+                        body,
+                    });
+                }
                 Ok(Value::String(id))
             }
-            "notifications.update" | "notifications.clear" => Ok(Value::Bool(true)),
-            "notifications.getAll" => Ok(json!({})),
-            "notifications.getPermissionLevel" => Ok(json!("granted")),
+            "notifications.update" => {
+                let id = args.first().and_then(Value::as_str).map(extension_label).unwrap_or_default();
+                let opts = args.get(1).and_then(Value::as_object);
+                let exists = !id.is_empty()
+                    && self.notifications.get(ext_id).is_some_and(|list| list.iter().any(|x| x == &id));
+                if exists && self.notifications_enabled && self.allow_notification(ext_id) {
+                    let body = format_notification_body(opts);
+                    let ext_name = {
+                        let clean = extension_label(&ext.manifest.name);
+                        if clean.is_empty() { ext_id.to_owned() } else { clean }
+                    };
+                    effects.push(ExtEffect::NotificationShow {
+                        ext_id: ext_id.to_owned(),
+                        ext_name,
+                        notif_id: id,
+                        body,
+                    });
+                }
+                Ok(Value::Bool(exists))
+            }
+            "notifications.clear" => {
+                let id = args.first().and_then(Value::as_str).map(extension_label).unwrap_or_default();
+                let removed = !id.is_empty()
+                    && self.notifications.get_mut(ext_id).is_some_and(|list| {
+                        let before = list.len();
+                        list.retain(|x| x != &id);
+                        list.len() != before
+                    });
+                if removed {
+                    effects.push(ExtEffect::NotificationClear { ext_id: ext_id.to_owned(), notif_id: id.clone() });
+                    self.emit_event("notifications.onClosed", vec![json!(id), json!(false)], Some(ext_id));
+                }
+                Ok(Value::Bool(removed))
+            }
+            "notifications.getAll" => {
+                let mut map = serde_json::Map::new();
+                if let Some(list) = self.notifications.get(ext_id) {
+                    for id in list {
+                        map.insert(id.clone(), Value::Bool(true));
+                    }
+                }
+                Ok(Value::Object(map))
+            }
+            "notifications.getPermissionLevel" => {
+                Ok(json!(if self.notifications_enabled { "granted" } else { "denied" }))
+            }
 
             "permissions.getAll" => {
                 let perms: Vec<&String> = ext
