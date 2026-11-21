@@ -1,7 +1,7 @@
 //! ↑ and ↓ in the composer recall sent prompts (`p254`), matching OpenCode Desktop's
 //! `composer/editor/interaction.ts` (`navigateHistory`).
 //!
-//! - Up to 100 prompts newest-first, kept apart for normal vs shell mode.
+//! - Up to 200 prompts newest-first, kept apart for normal vs shell mode (`MAX_HISTORY`).
 //! - ↑ starts only on an empty composer with the caret at 0. Once a recalled prompt is showing,
 //!   ↑ and ↓ step while the caret sits at 0 or at the end; anywhere else the arrow moves the caret.
 //! - ↑ places the caret at 0, ↓ at the end, and ↓ past the newest restores the earlier draft.
@@ -12,7 +12,8 @@ use std::ops::Range;
 use rune::{Key, KeyEvent, Mark, MarkRange, TextEdit};
 use serde_json::{Value, json};
 
-const MAX: usize = 100;
+/// `MAX_HISTORY` (`packages/app/src/composer/history/entry.ts:12`).
+const MAX: usize = 200;
 
 /// A prompt as typed: its text and its `@` pills (byte range, id).
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -149,6 +150,19 @@ impl<Scope: Clone + PartialEq> PromptHistory<Scope> {
         list.insert(0, entry);
         list.truncate(MAX);
         true
+    }
+
+    /// Removes entries matching `entry` (`removeHistoryEntry`, `entry.ts:67-76`), used when a
+    /// failed send restores its draft back into the composer. Returns `true` if the list changed.
+    pub fn remove(&mut self, entry: &Entry, shell: bool) -> bool {
+        let list = if shell { &mut self.shell } else { &mut self.normal };
+        let before = list.len();
+        list.retain(|item| item != entry);
+        let changed = list.len() != before;
+        if changed {
+            self.recall = Recall::Idle;
+        }
+        changed
     }
 
     /// ↑ or ↓ on the composer: `true` when it recalled or restored a prompt. OpenCode (Rune)
