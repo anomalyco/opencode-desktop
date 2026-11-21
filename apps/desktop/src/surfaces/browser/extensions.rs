@@ -265,6 +265,21 @@ fn poll_extension_notifications(app: &mut App) {
         .browser
         .host
         .set_extension_notifications_enabled(allowed);
+    // Settings > Notifications off takes this window's extension toasts down; an engine that
+    // idled out or crashed can't hear their clicks, so its toasts go too.
+    let host = &app.workspace_panes.browser.host;
+    let engine = host.engine_extensions() && matches!(host.status(), browser_pane::EngineStatus::Ready);
+    if !allowed || !engine {
+        let cleared = crate::notifications::clear_all_extensions(app);
+        if engine {
+            for (ext_id, notif_id) in cleared {
+                app.workspace_panes.browser.host.send_extension_notification_event(ext_id, notif_id, false, false);
+            }
+        }
+    }
+    for (ext_id, notif_id) in crate::notifications::take_extension_evicted(app) {
+        app.workspace_panes.browser.host.send_extension_notification_event(ext_id, notif_id, false, false);
+    }
     let ops: Vec<_> = app
         .workspace_panes
         .browser
@@ -280,7 +295,7 @@ fn poll_extension_notifications(app: &mut App) {
                 body,
             } => {
                 let os_id = format!("ext-{ext_id}-{notif_id}");
-                let title = format!("Extension: {ext_name}");
+                let title = opencode_i18n::t!("rune.browser.extension.notification.title", name = ext_name).to_string();
                 if !crate::notifications::post_extension(app, &os_id, &title, &body, &ext_id, &notif_id) {
                     app.workspace_panes.browser.host.send_extension_notification_event(
                         ext_id, notif_id, false, false,

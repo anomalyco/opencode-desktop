@@ -134,4 +134,9 @@ pub trait NotificationsHost: opencode_kernel::AppEnv {
     fn on_extension_notification_clicked(&mut self, ext_id: &str, notif_id: &str) {
         let _ = (ext_id, notif_id);
     }
+    /// Whether this window's browser engine runs extensions, so an extension toast's click can
+    /// reach them when the window that posted it has gone.
+    fn takes_extension_clicks(&self) -> bool {
+        false
+    }
 }

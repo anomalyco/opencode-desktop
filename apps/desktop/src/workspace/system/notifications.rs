@@ -8,8 +8,8 @@
 #[allow(unused_imports)]
 pub use opencode_feature_notifications::{
     Ask, CAP, Choice, Coordinator, Kind, Kinds, Note, NotificationReply, NotificationsHost,
-    Notifier, Outcome, Sink, actions, answered, clear_extension, extension_notifications_allowed,
-    host, notify_event, notify_plugin, on_action, poll, post_extension, quitting, seen,
+    Notifier, Outcome, Sink, actions, answered, clear_all_extensions, clear_extension, extension_notifications_allowed,
+    host, notify_event, notify_plugin, on_action, poll, post_extension, quitting, seen, take_extension_evicted,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -161,6 +161,10 @@ impl NotificationsHost for App {
             true,
             true,
         );
+    }
+
+    fn takes_extension_clicks(&self) -> bool {
+        self.workspace_panes.browser.host.engine_extensions()
     }
 }
 

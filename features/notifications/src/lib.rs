@@ -126,7 +126,19 @@ pub struct Coordinator {
     /// Posted ids, oldest first, with the server they're from.
     shown: VecDeque<(String, String)>,
     asked: VecDeque<String>,
+    /// Browser-extension toasts, oldest first: `(os id, extension id, its notification id, the
+    /// window whose engine posted it)`. Kept apart from `shown` so an extension can never push one
+    /// of OpenCode's own toasts out.
+    ext_shown: VecDeque<(String, String, String, String)>,
+    /// Extension toasts the cap pushed out, (window, extension id, notification id), until that window's poll.
+    ext_evicted: Vec<(String, String, String)>,
 }
+
+/// Browser-extension toasts the app keeps in the system's list at once, across all extensions.
+/// Official sets none (`extension-api/notifications.ts`: one Electron `Notification` each, the OS
+/// keeps them); here they share the app's list with permission and question toasts, so they get a
+/// quarter of `CAP`: room for a few extensions to have a couple each.
+pub const EXT_CAP: usize = 10;
 
 thread_local! {
     static COORDINATOR: std::cell::RefCell<Coordinator> = std::cell::RefCell::default();
@@ -192,13 +204,60 @@ impl Notifier {
             return;
         };
         COORDINATOR.with_borrow_mut(|c| {
-            let before = c.shown.len();
+            let before = c.shown.len() + c.ext_shown.len();
             c.shown.retain(|(shown, _)| shown != id);
-            if c.shown.len() != before {
+            c.ext_shown.retain(|(shown, ..)| shown != id);
+            if c.shown.len() + c.ext_shown.len() != before {
                 sink.remove(id);
             }
         });
     }
+}
+
+/// Takes every browser-extension toast out of the system's list (Settings > Notifications turned
+/// off, or the engine that posted them is gone), answering `(extension id, notification id)` of each.
+pub fn clear_all_extensions(host: &mut dyn NotificationsHost) -> Vec<(String, String)> {
+    let window = host.window_id().to_owned();
+    let SinkState::Ready(sink) = &mut host.notifier_mut().state else {
+        return Vec::new();
+    };
+    COORDINATOR.with_borrow_mut(|c| {
+        let mut cleared = Vec::new();
+        c.ext_shown.retain(|(os_id, ext, notif, owner)| {
+            if *owner != window {
+                return true;
+            }
+            sink.remove(os_id);
+            cleared.push((ext.clone(), notif.clone()));
+            false
+        });
+        cleared
+    })
+}
+
+/// The extension toasts the cap pushed out that this window's engine posted, to tell it they
+/// closed (`notifications.onClosed`, and out of its `getAll`). A gone window's are dropped.
+pub fn take_extension_evicted(host: &dyn NotificationsHost) -> Vec<(String, String)> {
+    let window = host.window_id();
+    COORDINATOR.with_borrow_mut(|c| {
+        let mut mine = Vec::new();
+        c.ext_evicted.retain(|(owner, ext, notif)| {
+            if owner == window {
+                mine.push((ext.clone(), notif.clone()));
+                return false;
+            }
+            host.window_exists(owner)
+        });
+        mine
+    })
+}
+
+/// Text an extension supplies, without the bidi controls that could reorder it to pass for the
+/// app's or another extension's words (`U+061C`, `U+200E`/`F`, `U+202A`-`U+202E`, `U+2066`-`U+2069`).
+pub fn strip_bidi(text: &str) -> String {
+    text.chars()
+        .filter(|c| !matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'))
+        .collect()
 }
 
 /// Request `id` was answered (here, in another window, from its toast, or the server settled
@@ -221,13 +280,15 @@ pub fn quitting(host: &mut dyn NotificationsHost) {
     let own = ServerKey::sidecar();
     COORDINATOR.with_borrow_mut(|c| {
         c.shown.retain(|(id, server)| {
-            let ends = id.starts_with("ext-")
-                || (id.starts_with("req-") && click_server(own_base.as_deref(), server) == own);
+            let ends = id.starts_with("req-") && click_server(own_base.as_deref(), server) == own;
             if ends {
                 sink.remove(id);
             }
             !ends
         });
+        for (id, ..) in c.ext_shown.drain(..) {
+            sink.remove(&id);
+        }
     });
 }
 
@@ -238,8 +299,9 @@ pub fn extension_notifications_allowed(host: &dyn NotificationsHost) -> bool {
 }
 
 /// Posts a browser-extension OS notification through the app's native notification sink
-/// (`extension-api/notifications.ts:24-50`), respecting Settings > Notifications and the shared
-/// active notification cap (`CAP`). Returns `false` when notifications are disabled or unavailable.
+/// (`extension-api/notifications.ts:24-50`), respecting Settings > Notifications and the
+/// extensions' own cap (`EXT_CAP`, apart from OpenCode's toasts; the oldest extension toast goes,
+/// for its window to report closed: [`take_extension_evicted`]). Answers whether it was shown.
 pub fn post_extension(
     host: &mut dyn NotificationsHost,
     os_id: &str,
@@ -261,16 +323,18 @@ pub fn post_extension(
         ("ext_notif_id", notif_id),
         ("window", window.as_str()),
     ];
+    let (title, body) = (strip_bidi(title), strip_bidi(body));
     COORDINATOR.with_borrow_mut(|c| {
-        c.shown.retain(|(id, _)| id != os_id);
-        if c.shown.len() >= CAP
-            && let Some((oldest, _)) = c.shown.pop_front()
+        c.ext_shown.retain(|(id, ..)| id != os_id);
+        while c.ext_shown.len() >= EXT_CAP
+            && let Some((oldest, ext, notif, owner)) = c.ext_shown.pop_front()
         {
             sink.remove(&oldest);
+            c.ext_evicted.push((owner, ext, notif));
         }
-        let posted = sink.post_raw(os_id, title, body, &info);
+        let posted = sink.post_raw(os_id, &title, &body, &info);
         if posted {
-            c.shown.push_back((os_id.to_owned(), String::new()));
+            c.ext_shown.push_back((os_id.to_owned(), ext_id.to_owned(), notif_id.to_owned(), window.clone()));
         }
         posted
     })
