@@ -4,9 +4,10 @@
 //! prompt marks), and the sections plugins put on the page (`PluginSettingsSections page="general"`).
 
 use opencode_i18n::t;
+use opencode_ui::focus::FocusExt;
 use opencode_ui::keymap::Bind;
 use opencode_ui::popup::PopupHost;
-use rune::{Color, El, Tx, col, row, text};
+use rune::{Color, Cursor, El, Link, LinkPaint, Tx, col, row, text};
 use opencode_ui::palette::Pal;
 use opencode_ui::style::UI;
 
@@ -268,17 +269,16 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
     )
 }
 
-/// Official Preferences header link (`packages/app/src/settings/general/general.tsx:335-343`).
+/// Official Preferences header link (`packages/app/src/settings/general/general.tsx:335-343`):
+/// `no-underline hover:text-v2-text-text-base hover:underline`.
 fn help_feedback_link<H: SettingsHost + 'static>(p: &Pal) -> El {
     const URL: &str = "https://opencode.ai/desktop-feedback";
     let words = t!("settings.helpFeedback");
     row()
         .key("settings-help-feedback")
-        .role("link")
-        .label_static(words)
         .gap(6.0)
         .center_y()
-        .cursor(rune::Cursor::Pointer)
+        .cursor(Cursor::Pointer)
         .hover_group()
         .on_press_tx(|s: &mut H, tx: &mut Tx| crate::open_external(s, URL, tx))
         .child(
@@ -286,7 +286,8 @@ fn help_feedback_link<H: SettingsHost + 'static>(p: &Pal) -> El {
                 .font(super::NAME_REGULAR)
                 .color(p.muted)
                 .group_color(p.text)
-                .spans(vec![rune::Span::new(0, words.len()).underline(p.muted)]),
+                .link(Link::new(0..words.len(), URL).role("link").label(words).hover(LinkPaint::new().color(p.text).underline(p.text)))
+                .on_link(|s: &mut H, href: &str, tx: &mut Tx| crate::open_external(s, href, tx)),
         )
         .child(rune::icon(&super::console_link::ARROW_UP_RIGHT, 14.0).color(p.muted).group_color(p.text))
 }
@@ -312,6 +313,8 @@ fn placement<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
                 .key(format!("placement-{}", pl.name()))
                 .role("radio")
                 .focus_selected(on)
+                .focus_default(p)
+                .cursor(Cursor::Pointer)
                 .h(24.0)
                 .px(10.0)
                 .center()
