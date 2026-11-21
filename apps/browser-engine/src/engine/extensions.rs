@@ -32,9 +32,6 @@ impl EngineManager {
         if let Some(ext) = &self.extensions {
             ext.close_pipe();
         }
-        if let Some(root) = self.stub_root.take() {
-            crate::extensions::integrity::cleanup_stub_root(&root);
-        }
     }
 
     pub fn on_extensions_verified(&mut self, startup: crate::extensions::integrity::StartupExtensions) {

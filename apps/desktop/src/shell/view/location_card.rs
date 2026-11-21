@@ -185,7 +185,7 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
     if let Some((_, label)) = crate::open_in::current_non_finder(s) {
         folder = folder.item(Item::new("open-in", t!("plugin.file.open.ariaLabel", app = label)).icon(&ic::OUTLINE_ARROW_UP_RIGHT));
     }
-    menu = menu.submenu_icon("path", elide_middle(&dir, PATH_W), &ic::FOLDER, folder);
+    menu = menu.submenu_path("path", dir.clone(), &ic::FOLDER, folder);
     menu = menu.separator().item(Item::new("settings", t!("dialog.project.edit.title")).icon(&ic::SETTINGS_GEAR).enabled(project.is_some()));
 
     let project_id = project.as_ref().map(|p| p.id.clone());
@@ -295,31 +295,6 @@ fn move_session(s: &mut App, sid: &str, dir: &str, project: Option<&str>, root: 
             Err(e) => crate::status_toast::fail(s, t!("plugin.details.move.failed"), e),
         }) as Apply
     });
-}
-
-/// The folder row's room for its path in the 320 card: less the card's inset, the row's
-/// padding, the glyph, the chevron and their gaps.
-const PATH_W: f32 = 320.0 - 4.0 - 8.0 - 8.0 - 16.0 - 8.0 - 8.0 - 16.0;
-
-/// `path` cut in the middle to fit `max` (the folder row's `bdi`): the parent folders shrink
-/// behind an ellipsis, the last folder stays whole.
-fn elide_middle(path: &str, max: f32) -> String {
-    let style = rune::TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
-    let w = |s: &str| rune::text::measure(s, &[], style, None).0;
-    if w(path) <= max {
-        return path.to_owned();
-    }
-    let cut = path.rfind(['/', '\\']).unwrap_or(0);
-    let (head, tail) = path.split_at(cut);
-    let mut head: Vec<char> = head.chars().collect();
-    while !head.is_empty() {
-        head.pop();
-        let candidate = format!("{}…{tail}", head.iter().collect::<String>());
-        if w(&candidate) <= max {
-            return candidate;
-        }
-    }
-    tail.to_owned()
 }
 
 fn copied(s: &mut App, value: &str, tx: &mut Tx) {

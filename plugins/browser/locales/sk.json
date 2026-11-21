@@ -66,5 +66,6 @@
   "zoom.reset": "Obnoviť priblíženie",
   "zoom.percent": "{{percent}} %",
   "link.copy": "Kopírovať odkaz",
-  "history.clear": "Vymazať históriu"
+  "history.clear": "Vymazať históriu",
+  "extensions.compat.feature.management": "Správa ostatných rozšírení"
 }

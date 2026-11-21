@@ -116,6 +116,9 @@ pub enum StorageNotice {
     Saving,
     /// Writes to the database fail: changes stay in memory until a write succeeds.
     NotSaving { full: bool, why: String },
+    /// Some Official Desktop drafts could not be migrated (missing chunk/attachment blob); Official's
+    /// folder was not modified and still holds them at `official_dir`.
+    SeedDroppedDrafts { count: usize, official_dir: String },
 }
 
 /// The inbox's disclosures, as Desktop's `sidebar.inbox` (`inbox.tsx`): Working open, Recent

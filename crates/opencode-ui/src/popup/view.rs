@@ -237,6 +237,7 @@ fn build<S: PopupHost + 'static>(
                     .role("menuitem")
                     .active(sub.enabled && (active == Some(n) || open == Some(n)))
                     .disabled(!sub.enabled)
+                    .middle_split(sub.split_at)
                     .trailing(icon(&CHEVRON, 16.0).key("chevron").color(p.icon_muted).mirror_in_rtl());
                 let o = match sub.glyph.and_then(Glyph::mono) {
                     Some(g) => o.lead(icon(g, 16.0).color(p.icon_muted)),

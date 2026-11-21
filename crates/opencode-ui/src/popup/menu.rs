@@ -252,6 +252,8 @@ pub(super) struct Sub {
     /// The glyph before the title (drawn menus only).
     pub(super) glyph: Option<Glyph>,
     pub(super) enabled: bool,
+    /// Optional byte offset splitting `title` into shrinking parent + fixed tail (`submenu_path`).
+    pub(super) split_at: Option<usize>,
 }
 
 /// How a drawn menu looks.
@@ -373,19 +375,28 @@ impl Menu {
 
     /// A row titled `title` that opens `menu` beside it; its items answer the same `pick`.
     pub fn submenu(mut self, id: impl Into<String>, title: impl Into<String>, menu: Menu) -> Menu {
-        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: None, enabled: true })));
+        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: None, enabled: true, split_at: None })));
         self
     }
 
     /// [`Menu::submenu`] that may be disabled (stays visible at disabled opacity and never opens).
     pub fn submenu_enabled(mut self, id: impl Into<String>, title: impl Into<String>, enabled: bool, menu: Menu) -> Menu {
-        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: None, enabled })));
+        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: None, enabled, split_at: None })));
         self
     }
 
     /// [`Menu::submenu`] led by `glyph`, as the location card's branch and folder rows are.
     pub fn submenu_icon(mut self, id: impl Into<String>, title: impl Into<String>, glyph: &'static Icon, menu: Menu) -> Menu {
-        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: Some(Glyph::Ink(glyph)), enabled: true })));
+        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: Some(Glyph::Ink(glyph)), enabled: true, split_at: None })));
+        self
+    }
+
+    /// [`Menu::submenu_icon`] for a filesystem path that truncates parent folders while keeping
+    /// the final separator + segment whole (`session-identity-header.tsx:404-407`).
+    pub fn submenu_path(mut self, id: impl Into<String>, path: impl Into<String>, glyph: &'static Icon, menu: Menu) -> Menu {
+        let title = path.into();
+        let split_at = title.rfind(['/', '\\']).filter(|&i| i > 0);
+        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title, menu, glyph: Some(Glyph::Ink(glyph)), enabled: true, split_at })));
         self
     }
 
