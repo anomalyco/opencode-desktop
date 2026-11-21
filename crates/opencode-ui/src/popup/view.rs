@@ -255,7 +255,8 @@ fn build<S: PopupHost + 'static>(
         .min_w(menu.min_w)
         .on_pointer_move_local(|s: &mut S, e: rune::PointerEvent, tx: &mut Tx| moved(s, [e.window_x, e.window_y], tx));
     // An open menu holds focus (`menu-v2-content`, tabindex -1) and takes the keys from there.
-    let holds_focus = search_placeholder.is_none();
+    // A menu under an editing field holds it too ([`super::open_with_field`]); a search field keeps it.
+    let holds_focus = search_placeholder.is_none() || s.is_some_and(|s| s.popup().holds_focus());
     let surface = match s {
         Some(_) if holds_focus => surface.focusable(true).tab_index(-1).no_focus_ring().on_key(|s: &mut S, ev, tx: &mut Tx| key(s, ev, tx)),
         _ => surface,

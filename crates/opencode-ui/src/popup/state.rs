@@ -265,8 +265,13 @@ pub(super) fn choose<S: PopupHost + 'static>(s: &mut S, n: usize, tx: &mut Tx) {
     // A radio row under an editing field sets its value and leaves the menu open (`Menu.RadioItem`).
     let radio = s.popup().shown.as_ref().and_then(|m| m.search.as_ref()?.field.as_ref()).filter(|_| item.radio).map(|f| Rc::clone(&f.radio));
     if let Some(radio) = radio {
+        let lit = s.popup().shown.as_ref().and_then(|m| m.active);
         radio(s, &item.id, tx);
+        // Its rows change (the check moves); the lit row stays as the pointer or keys left it.
         refresh(s);
+        if let Some(shown) = s.popup_mut().shown.as_mut() {
+            shown.active = lit;
+        }
         return;
     }
     close(s, Some(&item.id), focus::Reason::Picked, tx);
