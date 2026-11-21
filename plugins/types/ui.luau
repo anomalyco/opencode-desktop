@@ -22,6 +22,7 @@ export type MetricProps = UiMetricProps
 export type ButtonProps = UiButtonProps
 export type IconButtonProps = UiIconButtonProps
 export type SwitchProps = UiSwitchProps
+export type CheckboxProps = UiCheckboxProps
 export type RadioProps = UiRadioProps
 export type FieldProps = UiFieldProps
 export type SegmentedItem = UiSegmentedItem

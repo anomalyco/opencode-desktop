@@ -105,6 +105,7 @@ impl App {
                 self.read_open_requests(id);
                 if let Some(dir) = self.session(id).map(|i| i.directory.clone()) {
                     crate::subagents::shells::list(self, &dir);
+                    self.prefetch_review_vcs(&dir);
                 }
                 crate::subagents::jobs::list(self, id);
             }

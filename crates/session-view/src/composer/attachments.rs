@@ -27,6 +27,16 @@ pub fn native_mime(path: &Path) -> Option<&'static str> {
     }
 }
 
+/// Like [`native_mime`], filtered to modalities the selected model reads natively
+/// (`attachments.ts:224-231`).
+pub fn native_mime_for(path: &Path, input: crate::pickers::AttachmentInput) -> Option<&'static str> {
+    match native_mime(path)? {
+        "application/pdf" if input.pdf => Some("application/pdf"),
+        m if m.starts_with("image/") && input.image => Some(m),
+        _ => None,
+    }
+}
+
 /// `attachmentMime`: native media by extension; otherwise text when the first 4 KB has no NUL
 /// and few control bytes, else binary.
 pub fn mime_for(path: &Path, head: &[u8]) -> &'static str {
@@ -82,11 +92,13 @@ pub fn paste<S: ComposerHost>(s: &mut S, content: &ClipboardContent, _: &mut Tx)
     })
 }
 
-/// Deduplicating push helper for a host's `Vec<Attachment>`.
-pub fn push_unique(list: &mut Vec<Attachment>, a: Attachment) {
-    if !list.iter().any(|f| f.bytes == a.bytes && f.media == a.media) {
-        list.push(a);
+/// Deduplicating push helper for a host's `Vec<Attachment>`; returns `true` if inserted.
+pub fn push_unique(list: &mut Vec<Attachment>, a: Attachment) -> bool {
+    if list.iter().any(|f| f.bytes == a.bytes && f.media == a.media) {
+        return false;
     }
+    list.push(a);
+    true
 }
 
 /// Settles local prompt echoes against freshly fetched server messages.

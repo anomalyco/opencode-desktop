@@ -25,7 +25,7 @@ use rune_knobs::Knobs;
 use rune_theme_opencode::icons as ic;
 
 use crate::palette::{Elevate as _, Pal};
-use crate::style::UI;
+use crate::style::{UI, UI_MED};
 
 pub use nav::{Highlight, HighlightEvent, Lit, Nav, cycle, nav, nav_step};
 pub use slide::jump as jump_highlight;
@@ -229,13 +229,20 @@ pub struct Opt {
     pub disabled: bool,
     /// The stretch of the label a search matched, in the accent (`search-list.css:170-173`).
     pub mark: Option<Range<usize>>,
+    /// Medium weight (530, `UI_MED`), as the session location card's project title uses (`session-identity-header.tsx:278`).
+    pub medium: bool,
+    /// Optional byte offset in `label` where the non-shrinking tail starts (`session-identity-header.tsx:404-407`),
+    /// laying out `label[..at]` with `min-w-0 truncate` beside `label[at..]` in LTR order.
+    pub middle_split: Option<usize>,
 }
 
 impl Opt {
     pub fn new(key: impl Into<String>, label: impl Into<String>) -> Opt {
-        Opt { key: key.into(), label: label.into(), role: "menuitemradio", active: false, checked: false, lead: None, after: vec![], trailing: vec![], slides: false, danger: false, disabled: false, mark: None }
+        Opt { key: key.into(), label: label.into(), role: "menuitemradio", active: false, checked: false, lead: None, after: vec![], trailing: vec![], slides: false, danger: false, disabled: false, mark: None, medium: false, middle_split: None }
     }
     pub fn mark(mut self, r: Option<Range<usize>>) -> Opt { self.mark = r; self }
+    pub fn medium(mut self, on: bool) -> Opt { self.medium = on; self }
+    pub fn middle_split(mut self, at: Option<usize>) -> Opt { self.middle_split = at; self }
     pub fn danger(mut self, on: bool) -> Opt { self.danger = on; self }
     pub fn disabled(mut self, on: bool) -> Opt { self.disabled = on; self }
     pub fn role(mut self, r: &'static str) -> Opt { self.role = r; self }
@@ -288,13 +295,29 @@ pub fn option_tx<S: 'static>(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut S,
             .on_press_tx(pick)
     };
     let ink = if o.danger { p.danger } else { p.text };
-    let label = match o.mark.filter(|r| r.end <= o.label.len() && o.label.is_char_boundary(r.start) && o.label.is_char_boundary(r.end)) {
-        Some(r) => rich(o.label, vec![Span::new(r.start, r.end).color(p.accent)]),
-        None => text(o.label),
+    let font = if o.medium { UI_MED } else { UI };
+    let words = if let Some(at) = o.middle_split.filter(|&at| at > 0 && at < o.label.len() && o.label.is_char_boundary(at)) {
+        // `session-identity-header.tsx:404-407`: `<bdi dir="ltr" class="flex min-w-0">` holding
+        // `<span class="min-w-0 truncate">{parent}</span><span class="max-w-full shrink-0 truncate">{last}</span>`.
+        let (head, tail) = o.label.split_at(at);
+        let split = row()
+            .key("label")
+            .dir(rune::Direction::Ltr)
+            .shrink()
+            .min_w(0.0)
+            .center_y()
+            .child(text(head.to_owned()).key("head").font(font).color(ink).shrink().min_w(0.0).truncate())
+            .child(text(tail.to_owned()).key("tail").font(font).color(ink).truncate());
+        row().key("words").grow(1.0).shrink().min_w(0.0).gap(look.gap).center_y().child(split).children(o.after)
+    } else {
+        let label = match o.mark.filter(|r| r.end <= o.label.len() && o.label.is_char_boundary(r.start) && o.label.is_char_boundary(r.end)) {
+            Some(r) => rich(o.label, vec![Span::new(r.start, r.end).color(p.accent)]),
+            None => text(o.label),
+        };
+        row().key("words").grow(1.0).shrink().min_w(0.0).gap(look.gap).center_y()
+            .child(label.key("label").font(font).color(ink).shrink().truncate_fade())
+            .children(o.after)
     };
-    let words = row().key("words").grow(1.0).shrink().min_w(0.0).gap(look.gap).center_y()
-        .child(label.key("label").font(UI).color(ink).shrink().truncate_fade())
-        .children(o.after);
     r.children(o.lead)
         .child(words)
         .children(o.checked.then(|| icon(&ic::CHECK_SMALL, SLOT).key("check").color(p.icon)))

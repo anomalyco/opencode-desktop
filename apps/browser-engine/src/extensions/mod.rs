@@ -25,6 +25,7 @@ pub mod manifest;
 pub mod pipe;
 mod png;
 mod rpc;
+pub mod sw_wake;
 pub mod web_nav;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -90,6 +91,10 @@ pub enum ExtEffect {
     ExtensionReloaded { ext_id: String, ok: bool, error: Option<String> },
     NotificationShow { ext_id: String, ext_name: String, notif_id: String, body: String },
     NotificationClear { ext_id: String, notif_id: String },
+    /// Wakes a Chromium-suspended MV3 service worker via `ServiceWorker.startWorker` so queued
+    /// user-initiated events (`action.onClicked`, `contextMenus.onClicked`, `notifications.*`)
+    /// deliver reliably after >30 s idle (`worker-events.ts:48`).
+    WakeExtensionWorker { ext_id: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -117,6 +122,12 @@ pub struct ShimMetrics {
     pub page_shim_eval_us: Vec<u64>,
     pub rpc_calls: u64,
     pub sw_restarts: u64,
+    #[serde(default)]
+    pub sw_uncaught_exceptions: u64,
+    #[serde(default)]
+    pub sw_exception_samples: Vec<String>,
+    #[serde(default)]
+    pub sw_wakes: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -165,6 +176,10 @@ pub(super) struct AttachedSession {
     pub pause_started: Option<Instant>,
     pub pending_shim_eval_id: Option<i64>,
     pub was_paused: bool,
+    /// Becomes `true` strictly when Chromium replies with no error to this session's `Fetch.enable`
+    /// barrier command. Stays `false` forever if `Fetch.enable` errors or never replies, so
+    /// duplicate SW attaches can never bypass a fail-closed hold.
+    pub fetch_confirmed: bool,
     pub shimmed: bool,
 }
 
@@ -217,6 +232,10 @@ impl ActionState {
 #[derive(Clone, Debug)]
 pub(super) struct LoadedExt {
     pub dir: PathBuf,
+    /// When the extension was staged into a per-stage `_rt/<ext_id>-<seq>` mirror (because its
+    /// manifest declared permissions stripped from Chromium C++), holds that mirror path so
+    /// uninstall, failed post-load verify, or reload replacement cleans it up promptly (F1).
+    pub staged_dir: Option<PathBuf>,
     pub sha256: String,
     pub manifest: ExtensionManifest,
     pub is_unpacked: bool,
@@ -288,7 +307,18 @@ pub struct ExtensionHost {
     pub(super) pending_reload_cmd: HashMap<i64, String>,
     /// Tracks `Fetch.enable` command IDs waiting for Chromium's reply (`UpdateSubresourceLoaderFactories`
     /// completed) before sending `Runtime.runIfWaitingForDebugger` (`review-rd274.md` Round-2 §1c).
-    pub(super) pending_fetch_resume: HashMap<i64, String>,
+    /// Value is `(session_id, send_resume_when_confirmed)`.
+    pub(super) pending_fetch_resume: HashMap<i64, (String, bool)>,
+    /// Sessions whose `Fetch.enable` confirmed cleanly while their extension was still awaiting
+    /// post-load `verify_extension_file_access_disabled` (`ext.loaded == false`, READER-7 F2).
+    /// Value is `(session_id, send_resume_when_loaded)`. Resumed strictly after
+    /// `verify_extension_file_access_disabled` passes and `ext.loaded = true`.
+    pub(super) pending_loaded_resume: Vec<(String, bool)>,
+    /// Duplicate SW `Target.attachedToTarget` sessions held quiet while the primary SW session is
+    /// still waiting on `Fetch.enable` or post-load verification (`ext.loaded`), keyed by `targetId`.
+    /// Released only after BOTH confirm (fail-closed if either fails; avoids waitForDebugger deadlock).
+    pub(super) deferred_dup_sw_detaches: HashMap<String, Vec<(String, bool)>>,
+    sw_wake: sw_wake::SwWakeState,
     pub(super) pipe_closed: bool,
     pub(super) open_tab_rates: HashMap<String, RateWindow>,
     pub(super) action_rates: HashMap<String, RateWindow>,
@@ -308,6 +338,9 @@ impl ExtensionHost {
         stub_root: Option<PathBuf>,
         menu_storage_dir: Option<PathBuf>,
     ) -> Self {
+        let listener_storage_dir = menu_storage_dir
+            .as_deref()
+            .and_then(|d| d.parent().map(|p| p.join("opencode-ext-listeners")));
         let catalog = match menu_storage_dir {
             Some(dir) => context_menus::ExtensionContextMenuCatalog::with_storage_dir(dir),
             None => context_menus::ExtensionContextMenuCatalog::default(),
@@ -347,13 +380,18 @@ impl ExtensionHost {
             pending_uninstall_cmd: HashMap::new(),
             pending_reload_cmd: HashMap::new(),
             pending_fetch_resume: HashMap::new(),
+            pending_loaded_resume: Vec::new(),
+            deferred_dup_sw_detaches: HashMap::new(),
+            sw_wake: sw_wake::SwWakeState::with_storage_dir(listener_storage_dir),
             pipe_closed: false,
             open_tab_rates: HashMap::new(),
             action_rates: HashMap::new(),
             popup_resize_rates: HashMap::new(),
             notification_rates: HashMap::new(),
             notifications: HashMap::new(),
-            notifications_enabled: true,
+            // Off until the app says Settings > Notifications allows them, so `getPermissionLevel`
+            // never answers "granted" in the moment before `SetNotificationsEnabled` arrives.
+            notifications_enabled: false,
             metrics: ShimMetrics::default(),
         }
     }
@@ -392,6 +430,7 @@ impl ExtensionHost {
     pub fn on_startup_verified(&mut self, startup: StartupExtensions) -> Vec<ExtEffect> {
         let mut effects = Vec::new();
         for bad_id in startup.rejected_ids {
+            self.sw_wake.remove_extension(&bad_id, true);
             self.uninstall_inert_stub(&bad_id);
             effects.push(ExtEffect::IntegrityFailed { ext_id: bad_id });
         }
@@ -403,7 +442,12 @@ impl ExtensionHost {
         for item in ordered {
             let is_filter = item.manifest.is_filter_extension();
             let id = item.id.clone();
+            let staged_dir = (item.load_dir != item.dir).then(|| item.load_dir.clone());
             let Some(path_str) = crate::context::canonical_extension_load_path(&item.load_dir) else {
+                if let Some(ref staged) = staged_dir {
+                    integrity::cleanup_staged_dir(staged);
+                }
+                self.sw_wake.remove_extension(&id, true);
                 self.uninstall_inert_stub(&id);
                 effects.push(ExtEffect::IntegrityFailed { ext_id: id });
                 continue;
@@ -411,6 +455,10 @@ impl ExtensionHost {
             // Fail closed if Chromium refuses to revoke `ALLOW_FILE_ACCESS` before load
             // (hashes the exact single `path_str` passed to `loadUnpacked`; `review-rd274.md` Round-3 §1).
             if !crate::context::disallow_extension_file_access(&id, &path_str) {
+                if let Some(ref staged) = staged_dir {
+                    integrity::cleanup_staged_dir(staged);
+                }
+                self.sw_wake.remove_extension(&id, true);
                 self.uninstall_inert_stub(&id);
                 effects.push(ExtEffect::IntegrityFailed { ext_id: id });
                 continue;
@@ -419,7 +467,7 @@ impl ExtensionHost {
                 self.pending_filter_ids.insert(id.clone());
             }
             self.verified_startup.insert(id.clone(), item.clone());
-            self.register_extension(id.clone(), item.dir, item.sha256, item.manifest, false, false);
+            self.register_extension(id.clone(), item.dir, staged_dir, item.sha256, item.manifest, false, false);
             let cmd_id = self.send_cdp("Extensions.loadUnpacked", json!({ "path": path_str }), None);
             self.pending_startup_loads.insert(cmd_id, id);
         }
@@ -491,6 +539,9 @@ impl ExtensionHost {
     }
 
     pub fn click_extension(&mut self, ext_id: &str) -> Vec<ExtEffect> {
+        if self.is_uninstalling(ext_id) {
+            return Vec::new();
+        }
         let Some(ext_entry) = self.extensions.get(ext_id) else {
             return Vec::new();
         };
@@ -509,7 +560,12 @@ impl ExtensionHost {
         if let Some(popup_url) = snap.popup {
             return vec![ExtEffect::OpenPopup { ext_id: ext_id.to_owned(), url: popup_url }];
         }
-        if let Some(tab) = self.tabs.iter().find(|t| t.active && !t.agent_driven).cloned()
+        let active_tab = self
+            .tabs
+            .iter()
+            .find(|t| t.active)
+            .or_else(|| self.tabs.iter().rev().find(|t| !t.agent_driven));
+        if let Some(tab) = active_tab.filter(|t| !t.agent_driven).cloned()
             && !is_private_url(&tab.url)
             && let Some(ext) = self.extensions.get(ext_id).cloned()
         {
@@ -518,13 +574,19 @@ impl ExtensionHost {
             let reveal_via_active_tab =
                 ext.manifest.has_permission("activeTab") && !is_extension_scheme(&tab.url);
             let info = self.tab_json(ext_id, &tab, &ext.manifest, reveal_via_active_tab);
-            self.emit_event("action.onClicked", vec![info], Some(ext_id));
+            if let Some(wake) = self.emit_or_wake_event("action.onClicked", vec![info], ext_id) {
+                return vec![wake];
+            }
         }
         Vec::new()
     }
 
     /// Runtime disable / uninstall with ZERO engine restart.
     pub fn uninstall_extension(&mut self, ext_id: &str) -> Vec<ExtEffect> {
+        // Immediately drop any queued clicks, wake events & listener records so a disable-in-flight
+        // extension can never be woken or receive a late click while uninstalling.
+        self.queued_clicks.retain(|id| id != ext_id);
+        self.sw_wake.remove_extension(ext_id, true);
         let Some(ext) = self.extensions.get(ext_id).cloned() else {
             return vec![ExtEffect::ExtensionUninstalled {
                 ext_id: ext_id.to_owned(),
@@ -548,7 +610,11 @@ impl ExtensionHost {
                     error: Some("Extension files changed on disk; restart required.".into()),
                 }];
             };
+            let staged_dir = (load_dir != ext.dir).then(|| load_dir.clone());
             let Some(path_str) = crate::context::canonical_extension_load_path(&load_dir) else {
+                if let Some(ref staged) = staged_dir {
+                    integrity::cleanup_staged_dir(staged);
+                }
                 return vec![ExtEffect::ExtensionUninstalled {
                     ext_id: ext_id.to_owned(),
                     ok: false,
@@ -556,11 +622,24 @@ impl ExtensionHost {
                 }];
             };
             if !crate::context::disallow_extension_file_access(ext_id, &path_str) {
+                if let Some(ref staged) = staged_dir {
+                    integrity::cleanup_staged_dir(staged);
+                }
                 return vec![ExtEffect::ExtensionUninstalled {
                     ext_id: ext_id.to_owned(),
                     ok: false,
                     error: Some("Could not disable file:// access before uninstall upgrade.".into()),
                 }];
+            }
+            if let Some(cur) = self.extensions.get_mut(ext_id) {
+                if let Some(old) = cur.staged_dir.replace(staged_dir.unwrap_or_default())
+                    && !old.as_os_str().is_empty()
+                {
+                    integrity::cleanup_staged_dir(&old);
+                }
+                if cur.staged_dir.as_ref().is_some_and(|p| p.as_os_str().is_empty()) {
+                    cur.staged_dir = None;
+                }
             }
             let id = self.send_cdp("Extensions.loadUnpacked", json!({ "path": path_str }), None);
             self.pending_uninstall_upgrade.insert(id, ext_id.to_owned());
@@ -586,13 +665,18 @@ impl ExtensionHost {
             &item.sha256,
             self.stub_root.as_deref(),
         ) else {
+            self.sw_wake.remove_extension(ext_id, true);
             return vec![ExtEffect::ExtensionReloaded {
                 ext_id: ext_id.to_owned(),
                 ok: false,
                 error: Some("Extension integrity digest mismatch.".into()),
             }];
         };
+        let staged_dir = (load_dir != item.dir).then(|| load_dir.clone());
         let Some(path_str) = crate::context::canonical_extension_load_path(&load_dir) else {
+            if let Some(ref staged) = staged_dir {
+                integrity::cleanup_staged_dir(staged);
+            }
             return vec![ExtEffect::ExtensionReloaded {
                 ext_id: ext_id.to_owned(),
                 ok: false,
@@ -600,13 +684,16 @@ impl ExtensionHost {
             }];
         };
         if !crate::context::disallow_extension_file_access(&item.id, &path_str) {
+            if let Some(ref staged) = staged_dir {
+                integrity::cleanup_staged_dir(staged);
+            }
             return vec![ExtEffect::ExtensionReloaded {
                 ext_id: ext_id.to_owned(),
                 ok: false,
                 error: Some("Could not disable file:// access for extension.".into()),
             }];
         }
-        self.register_extension(item.id.clone(), item.dir, item.sha256, manifest, true, false);
+        self.register_extension(item.id.clone(), item.dir, staged_dir, item.sha256, manifest, true, false);
         let id = self.send_cdp("Extensions.loadUnpacked", json!({ "path": path_str }), None);
         self.pending_reload_cmd.insert(id, item.id);
         Vec::new()
@@ -848,6 +935,15 @@ impl ExtensionHost {
         }
     }
 
+    pub(super) fn is_uninstalling(&self, ext_id: &str) -> bool {
+        self.pending_uninstall_upgrade.values().any(|id| id == ext_id)
+            || self.pending_uninstall_cmd.values().any(|id| id == ext_id)
+    }
+
+    pub fn is_loaded_extension(&self, ext_id: &str) -> bool {
+        self.extensions.get(ext_id).is_some_and(|e| e.loaded) && !self.is_uninstalling(ext_id)
+    }
+
     fn emit_event(&mut self, event: &str, args: Vec<Value>, only_ext: Option<&str>) {
         let Some(by_ext) = self.subscribers.get(event) else {
             return;
@@ -860,6 +956,30 @@ impl ExtensionHost {
         let msg = json!({ "kind": "event", "name": event, "args": args });
         for sid in targets {
             self.push_to_session(&sid, &msg);
+        }
+    }
+
+    /// Delivers a user-initiated event to `ext_id` immediately when a live subscriber exists, or
+    /// queues it (bounded to 16 entries / 64 KiB / 10 s TTL) ONLY if `ext_id` is currently loaded
+    /// AND its service worker is known to listen for `event`, returning `WakeExtensionWorker`.
+    fn emit_or_wake_event(&mut self, event: &str, args: Vec<Value>, ext_id: &str) -> Option<ExtEffect> {
+        if !self.is_loaded_extension(ext_id) {
+            return None;
+        }
+        let has_live = self
+            .subscribers
+            .get(event)
+            .and_then(|by_ext| by_ext.get(ext_id))
+            .is_some_and(|sids| !sids.is_empty());
+        if has_live {
+            self.emit_event(event, args, Some(ext_id));
+            return None;
+        }
+        if self.sw_wake.enqueue_if_listening(ext_id, event, args) {
+            self.metrics.sw_wakes += 1;
+            Some(ExtEffect::WakeExtensionWorker { ext_id: ext_id.to_owned() })
+        } else {
+            None
         }
     }
 
@@ -934,6 +1054,7 @@ impl ExtensionHost {
         &mut self,
         id: String,
         dir: PathBuf,
+        staged_dir: Option<PathBuf>,
         sha256: String,
         manifest: ExtensionManifest,
         is_unpacked: bool,
@@ -945,10 +1066,14 @@ impl ExtensionHost {
             &manifest.version,
             manifest.has_permission("contextMenus"),
         );
-        self.extensions.insert(
+        self.sw_wake.configure_extension(&id, &manifest.version);
+        if let Some(prev) = self.extensions.insert(
             id,
-            LoadedExt { dir, sha256, manifest, is_unpacked, loaded, boot_count: 0 },
-        );
+            LoadedExt { dir, staged_dir, sha256, manifest, is_unpacked, loaded, boot_count: 0 },
+        ) && let Some(old_staged) = prev.staged_dir
+        {
+            integrity::cleanup_staged_dir(&old_staged);
+        }
     }
 
     pub fn context_menu_catalog(&self) -> Arc<std::sync::Mutex<context_menus::ExtensionContextMenuCatalog>> {
@@ -962,18 +1087,21 @@ impl ExtensionHost {
         ext_id: &str,
         item_id: &str,
         target: &context_menus::MenuTarget,
-    ) {
+    ) -> Vec<ExtEffect> {
+        if !self.is_loaded_extension(ext_id) {
+            return Vec::new();
+        }
         let Some(ext) = self.extensions.get(ext_id).cloned() else {
-            return;
+            return Vec::new();
         };
         if !ext.manifest.has_permission("contextMenus") {
-            return;
+            return Vec::new();
         }
         let Some(tab) = self.tabs.iter().find(|t| t.engine_tab_id == engine_tab_id && !t.agent_driven).cloned() else {
-            return;
+            return Vec::new();
         };
         if is_private_url(&tab.url) || is_extension_scheme(&tab.url) || target.has_private_url() {
-            return;
+            return Vec::new();
         }
         let Some(info) = self
             .context_menus
@@ -981,12 +1109,14 @@ impl ExtensionHost {
             .unwrap()
             .choose_and_build_click_info(ext_id, item_id, target)
         else {
-            return;
+            return Vec::new();
         };
         let reveal_via_active_tab =
             ext.manifest.has_permission("activeTab") && target.page_url == tab.url && !is_extension_scheme(&tab.url);
         let tab_info = self.tab_json(ext_id, &tab, &ext.manifest, reveal_via_active_tab);
-        self.emit_event("contextMenus.onClicked", vec![info, tab_info], Some(ext_id));
+        self.emit_or_wake_event("contextMenus.onClicked", vec![info, tab_info], ext_id)
+            .into_iter()
+            .collect()
     }
 
     pub(super) fn allow_open_tab(&mut self, ext_id: &str) -> bool {
@@ -1021,12 +1151,27 @@ impl ExtensionHost {
         self.notifications_enabled = enabled;
     }
 
+    /// Drops extension `ext_id`'s notifications, for the app to take its toasts down.
+    pub(super) fn forget_notifications(&mut self, ext_id: &str) -> Vec<ExtEffect> {
+        self.notifications
+            .remove(ext_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|notif_id| ExtEffect::NotificationClear { ext_id: ext_id.to_owned(), notif_id })
+            .collect()
+    }
+
     /// Delivers a desktop OS notification click or dismissal back to the owning extension
     /// (`extension-api/notifications.ts:43-48`).
-    pub fn on_notification_event(&mut self, ext_id: &str, notif_id: &str, clicked: bool, by_user: bool) {
-        let Some(ext) = self.extensions.get(ext_id) else { return };
+    pub fn on_notification_event(&mut self, ext_id: &str, notif_id: &str, clicked: bool, by_user: bool) -> Vec<ExtEffect> {
+        if !self.is_loaded_extension(ext_id) {
+            return Vec::new();
+        }
+        let Some(ext) = self.extensions.get(ext_id) else {
+            return Vec::new();
+        };
         if !ext.manifest.has_permission("notifications") {
-            return;
+            return Vec::new();
         }
         let existed = self
             .notifications
@@ -1036,12 +1181,17 @@ impl ExtensionHost {
                 list.retain(|id| id != notif_id);
                 list.len() != before
             });
+        let mut wake = None;
         if clicked {
-            self.emit_event("notifications.onClicked", vec![json!(notif_id)], Some(ext_id));
+            wake = self.emit_or_wake_event("notifications.onClicked", vec![json!(notif_id)], ext_id);
         }
         if existed || clicked {
-            self.emit_event("notifications.onClosed", vec![json!(notif_id), json!(by_user)], Some(ext_id));
+            let w2 = self.emit_or_wake_event("notifications.onClosed", vec![json!(notif_id), json!(by_user)], ext_id);
+            if wake.is_none() {
+                wake = w2;
+            }
         }
+        wake.into_iter().collect()
     }
 
     pub(super) fn alloc_id(&mut self) -> i64 {

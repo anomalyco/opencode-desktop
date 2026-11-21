@@ -19,9 +19,9 @@ use crate::host::SettingsHost;
 
 /// A project's name: 13 on 20 at 530.
 const NAME: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04);
-/// The fold's title and count.
-const FOLD: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04);
-const COUNT: TextStyle = TextStyle::new(11.0, 530.0).lh(14.0);
+/// The fold's title and count (`.settings-models-group-title` `settings.css:1555-1559`, `.project-settings-shared-count` `project.css:178-191`).
+const FOLD: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0);
+const COUNT: TextStyle = TextStyle::new(11.0, 530.0).lh(16.0);
 
 #[derive(Default)]
 pub struct State {
@@ -183,7 +183,8 @@ fn project_list<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, key: &str
             .px(if alone { 0.0 } else { 4.0 })
             .py(if alone { 0.0 } else { 4.0 })
             .child(card)
-            .children((i + 1 < n).then(|| el().pin(Some(12.0), None, Some(12.0), Some(0.0)).h(0.5).fill(p.border)));
+            // `.settings-project-row-shell` (`margin-inline: 4px`) + `::after { inset-inline: 12px }` = 16 pt from card edge.
+            .children((i + 1 < n).then(|| el().pin(Some(16.0), None, Some(16.0), Some(0.0)).h(0.5).fill(p.border)));
         list = list.child(super::revealable(s, p, &target, 0.0, shell));
     }
     list

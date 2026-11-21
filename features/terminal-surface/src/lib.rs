@@ -63,7 +63,7 @@ pub const MAX_TERMINAL_WORKSPACES: usize = 20;
 pub const STORY_WORKSPACE_KEY: &str = "story\0/workspace/lumen";
 
 /// Tab title style matching Desktop's tabular panel strip (`tabs.css:313`).
-pub const TAB_UI: TextStyle = opencode_ui::style::UI.features("tnum");
+pub const TAB_UI: TextStyle = opencode_ui::style::UI.features("\"tnum\"");
 
 pub const TERM_FONT: Knob = Knob::choice(
     "Terminal font",

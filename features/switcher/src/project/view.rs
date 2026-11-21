@@ -268,7 +268,7 @@ fn row_main(s: &dyn ProjectSwitcherHost, p: &Pal, r: &SwitcherRow, q: &str, w: f
                 .center_y()
                 .child(title.shrink().min_w(0.0))
                 .children(tag)
-                .children(branch.map(|b| row().gap(4.0).center_y().child(icon(&ic::BRANCH, 12.0).color(p.icon_muted)).child(text(b.to_owned()).font(UI).color(p.muted).truncate())));
+                .children(branch.map(|b| row().gap(4.0).center_y().child(icon(&ic::BRANCH, 16.0).color(p.icon_muted)).child(text(b.to_owned()).font(UI).color(p.muted).truncate())));
             main.child(s.project_badge(p, project, &r.title))
                 .child(row().key("text").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y().child(name).child(description(&r.subtitle)))
         }

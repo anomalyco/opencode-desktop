@@ -64,5 +64,6 @@
   "zoom.reset": "Վերակայել մասշտաբը",
   "zoom.percent": "{{percent}}%",
   "link.copy": "Պատճենել հղումը",
-  "history.clear": "Մաքրել պատմությունը"
+  "history.clear": "Մաքրել պատմությունը",
+  "extensions.compat.feature.management": "Այլ ընդլայնումների կառավարում"
 }

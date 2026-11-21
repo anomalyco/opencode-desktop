@@ -432,7 +432,7 @@ fn shows_the_same(conn: &Connection, shown: &BootPacket) -> bool {
         })
         .and_then(|()| boot_record::from_sqlite(conn));
     match fresh {
-        Ok(Some(bytes)) => BootPacket::parse(bytes).is_some_and(|p| p.body() == shown.body()),
+        Ok(Some(bytes)) => BootPacket::parse(bytes).is_some_and(|p| p.shown_entries().eq(shown.shown_entries())),
         _ => false,
     }
 }

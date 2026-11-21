@@ -546,6 +546,7 @@ impl RestoreHost for App {
             Notice::FirstRun => StorageNotice::FirstRun,
             Notice::Saving => StorageNotice::Saving,
             Notice::NotSaving { full, why } => StorageNotice::NotSaving { full, why },
+            Notice::SeedDroppedDrafts { count, official_dir } => StorageNotice::SeedDroppedDrafts { count, official_dir },
         })
     }
 

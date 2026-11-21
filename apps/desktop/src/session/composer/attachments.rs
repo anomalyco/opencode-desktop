@@ -5,7 +5,7 @@ pub use opencode_feature_composer_input::attachments::*;
 
 use std::path::Path;
 
-use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration};
+use opencode_kernel::{CommandEntry, EscapeLayer, Feature, KernelBuilder, OverlayRegistration};
 use opencode_kit::client::{PathAttachment, Server};
 use rune::{El, Tx};
 use session_view::palette::Pal;
@@ -48,6 +48,10 @@ impl AttachmentsHost for App {
             Source::Live { server, .. } => Some(server.clone()),
             Source::Fixture => None,
         }
+    }
+
+    fn attachment_input(&self) -> session_view::pickers::AttachmentInput {
+        App::attachment_input(self)
     }
 
     fn on_draft_edited(&mut self) {
@@ -260,7 +264,7 @@ impl Feature<App> for ComposerInputFeature {
             OverlayRegistration::<App>::new("overlay.add_menu")
                 .with_render(crate::overlays::layer::SURFACE_POPOVER, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));
-                    crate::add_menu::menu(s, p).into_iter().collect()
+                    crate::add_menu::menu(s, p).into_iter().flatten().collect()
                 })
                 .above("overlay.history_suggestions"),
         );
@@ -270,6 +274,16 @@ impl Feature<App> for ComposerInputFeature {
                     let p = crate::palette::pal(s.dark(cx));
                     viewer(s, p, cx)
                 }),
+        );
+        // Pressing Escape during a file drag clears the dropzone (`attachments.ts:212`).
+        builder.register_escape_layer(
+            EscapeLayer::<App>::new(
+                "escape.dropzone",
+                crate::overlays::escape_band::CHROME,
+                |s| s.composer_ext.attach.drop.shown(),
+                |s, _, tx| crate::dropzone::hover(s, false, tx),
+            )
+            .after("escape.quote"),
         );
         builder
             .register_slot(&crate::prompt_history::PROMPTS)

@@ -562,7 +562,8 @@ fn user_menu_shell(host: &dyn RewindHost, p: &Pal, session: &str, id: &str, pend
     Some(
         session_view::timeline::user_menu_button(p, menu_key(id), opencode_i18n::t!("ui.message.moreActions"), open)
             .expanded(open)
-            .child(icon(&ic::CHEVRON_DOWN, 14.0).color(if open { p.icon } else { p.icon_muted })),
+            // `message-content.tsx:436`: default 16 pt `<Icon name="chevron-down" />` inside 20×20 IconButton.
+            .child(icon(&ic::CHEVRON_DOWN, 16.0).color(if open { p.icon } else { p.icon_muted })),
     )
 }
 

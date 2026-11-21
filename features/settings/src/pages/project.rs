@@ -17,7 +17,7 @@ use opencode_ui::palette::{Elevate as _, Pal, kit};
 use super::{Page, header, page, select};
 use crate::host::SettingsHost;
 use crate::jobs::{SettingsJob, SettingsRequest};
-use crate::{list, neutral_lift, setting};
+use crate::{input_lift, list, setting};
 
 /// A project page's tab (`SettingsProjectTab`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -258,8 +258,8 @@ fn general<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, x: &Project) -
                 .placeholder(folder)
                 .label(t!("project.settings.name.title"))
                 // `.project-settings-name { width: min(280px, 100%); }` inside `width: auto`
-                // `[data-slot="settings-row-control"]` resolves to the `<input>`'s intrinsic width (194 px).
-                .width(if crate::rows_wrap() { None } else { Some(194.0) })
+                // `[data-slot="settings-row-control"]` resolves to the `<input>`'s intrinsic width (195 px at 1x).
+                .width(if crate::rows_wrap() { None } else { Some(195.0) })
                 .spellcheck(s.settings().spellcheck)
                 .text_style(super::NAME_REGULAR)
                 .height(28.0)
@@ -546,7 +546,7 @@ fn startup<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
         .pb(10.0)
         .radius(6.0)
         .fill(p.bg_base)
-        .elevate(neutral_lift(p))
+        .elevate(input_lift(p))
         .child(input)
         .child(resize_grip::<H>());
     let field = if failed { field.box_shadow(Pal::ring_out(p.danger)) } else { field };

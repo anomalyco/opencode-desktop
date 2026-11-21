@@ -39,6 +39,26 @@ impl ExtensionHost {
                     self.cleanup_detached_session(sid);
                 }
             }
+            "Runtime.exceptionThrown" => {
+                if let Some(sid) = session_id
+                    && let Some(ext_id) = self
+                        .sessions
+                        .get(&sid)
+                        .filter(|s| s.kind == SessionKind::ServiceWorker)
+                        .map(|s| s.ext_id.clone())
+                {
+                    self.metrics.sw_uncaught_exceptions += 1;
+                    if self.metrics.sw_exception_samples.len() < 16 {
+                        let details = params.get("exceptionDetails");
+                        let desc = details
+                            .and_then(|d| d.pointer("/exception/description").or_else(|| d.get("text")))
+                            .and_then(Value::as_str)
+                            .unwrap_or("uncaught exception");
+                        let sample: String = format!("{ext_id}: {desc}").chars().take(200).collect();
+                        self.metrics.sw_exception_samples.push(sample);
+                    }
+                }
+            }
             "Fetch.requestPaused" => {
                 if let Some(sid) = session_id
                     && let Some(req_id) = params.get("requestId").and_then(Value::as_str)
@@ -117,12 +137,33 @@ impl ExtensionHost {
                 if let Some(sid) = session_id
                     && let Some(ctx_id) = params.get("executionContextId").and_then(Value::as_i64)
                 {
-                    self.execution_contexts.remove(&(sid, ctx_id));
+                    self.execution_contexts.remove(&(sid.clone(), ctx_id));
+                    if self.sessions.get(&sid).is_some_and(|s| s.kind == SessionKind::ServiceWorker)
+                        && !self.execution_contexts.keys().any(|(s, _)| s == &sid)
+                    {
+                        self.remove_session_subscribers(&sid);
+                    }
                 }
             }
             "Runtime.executionContextsCleared" => {
                 if let Some(sid) = session_id {
                     self.execution_contexts.retain(|(s, _), _| s != &sid);
+                    if self.sessions.get(&sid).is_some_and(|s| s.kind == SessionKind::ServiceWorker) {
+                        self.remove_session_subscribers(&sid);
+                    }
+                }
+            }
+            "Inspector.targetCrashed" => {
+                if let Some(sid) = session_id
+                    && let Some(sess) = self.sessions.get_mut(&sid)
+                {
+                    sess.shimmed = false;
+                    sess.pending_shim_eval_id = None;
+                    sess.fetch_confirmed = false;
+                    self.execution_contexts.retain(|(s, _), _| s != &sid);
+                    self.pending_fetch_resume.retain(|_, (s, _)| s != &sid);
+                    self.pending_loaded_resume.retain(|(s, _)| s != &sid);
+                    self.remove_session_subscribers(&sid);
                 }
             }
             "Inspector.targetReloadedAfterCrash" => {
@@ -132,14 +173,17 @@ impl ExtensionHost {
                         sess.pause_started = None;
                         sess.pending_shim_eval_id = None;
                         sess.was_paused = true;
+                        sess.fetch_confirmed = false;
                         sess.shimmed = false;
                         sess.kind
                     })
                 {
                     self.execution_contexts.retain(|(s, _), _| s != &sid);
-                    self.pending_fetch_resume.retain(|_, s| s != &sid);
+                    self.pending_fetch_resume.retain(|_, (s, _)| s != &sid);
+                    self.pending_loaded_resume.retain(|(s, _)| s != &sid);
+                    self.remove_session_subscribers(&sid);
                     let fetch_id = self.alloc_id();
-                    self.pending_fetch_resume.insert(fetch_id, sid.clone());
+                    self.pending_fetch_resume.insert(fetch_id, (sid.clone(), true));
                     let batch = match kind {
                         SessionKind::ServiceWorker => vec![
                             json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
@@ -289,6 +333,9 @@ impl ExtensionHost {
         let mut effects = Vec::new();
         self.probe_in_flight.clear();
         self.pending_rpcs.clear();
+        for (ext_id, ids) in std::mem::take(&mut self.notifications) {
+            effects.extend(ids.into_iter().map(|notif_id| ExtEffect::NotificationClear { ext_id: ext_id.clone(), notif_id }));
+        }
         if !self.filters_ready_emitted {
             self.filters_ready_emitted = true;
             effects.push(ExtEffect::FiltersReady);
@@ -324,9 +371,24 @@ impl ExtensionHost {
     }
 
     fn cleanup_detached_session(&mut self, sid: &str) {
-        self.sessions.remove(sid);
+        if let Some(removed) = self.sessions.remove(sid)
+            && removed.kind == SessionKind::ServiceWorker
+            && !removed.target_id.is_empty()
+            && let Some(dups) = self.deferred_dup_sw_detaches.remove(&removed.target_id)
+        {
+            // Primary SW detached before `Fetch.enable` confirmed: detach any queued duplicate
+            // sessions WITHOUT sending `Runtime.runIfWaitingForDebugger` (fail closed).
+            for (dup_sid, _) in dups {
+                let _ = self.send_cdp("Target.detachFromTarget", json!({ "sessionId": dup_sid }), None);
+            }
+        }
+        self.deferred_dup_sw_detaches.retain(|_, list| {
+            list.retain(|(dup_sid, _)| dup_sid != sid);
+            !list.is_empty()
+        });
         self.execution_contexts.retain(|(s, _), _| s != sid);
-        self.pending_fetch_resume.retain(|_, s| s != sid);
+        self.pending_fetch_resume.retain(|_, (s, _)| s != sid);
+        self.pending_loaded_resume.retain(|(s, _)| s != sid);
         self.failed_probe_sessions.remove(sid);
         let detached_probe_ext = self
             .probe_in_flight
@@ -337,6 +399,10 @@ impl ExtensionHost {
             self.probe_in_flight.remove(&ext_id);
             self.trigger_tab_id_probe_for(&ext_id);
         }
+        self.remove_session_subscribers(sid);
+    }
+
+    fn remove_session_subscribers(&mut self, sid: &str) {
         self.subscribers.retain(|_, by_ext| {
             by_ext.retain(|_, set| {
                 set.remove(sid);
@@ -348,12 +414,23 @@ impl ExtensionHost {
 
     fn handle_cdp_reply(&mut self, id: i64, msg: &Value) -> Vec<ExtEffect> {
         let mut effects = Vec::new();
-        if let Some(sid) = self.pending_fetch_resume.remove(&id) {
+        if let Some((sid, should_resume)) = self.pending_fetch_resume.remove(&id) {
             // Fail closed if `Fetch.enable` returned an error: NEVER resume an unguarded target
-            // (`review-rd274.md` Round-3 §1). Because `auto_attach_cmd` precedes `fetch_enable_cmd`
-            // in the batch, a non-error reply strictly guarantees both completed before JS runs.
-            if msg.get("error").is_none() && self.sessions.contains_key(&sid) {
-                let _ = self.send_cdp("Runtime.runIfWaitingForDebugger", json!({}), Some(&sid));
+            // (`review-rd274.md` Round-3 §1), and keep `fetch_confirmed = false` so neither this
+            // session nor any queued or future duplicate SW attach can ever unpause the worker.
+            // Also hold resume until `ext.loaded == true` (after post-load
+            // `verify_extension_file_access_disabled` passes; READER-7 F2).
+            if msg.get("error").is_none()
+                && let Some(ext_id) = self.sessions.get_mut(&sid).map(|sess| {
+                    sess.fetch_confirmed = true;
+                    sess.ext_id.clone()
+                })
+            {
+                if self.extensions.get(&ext_id).is_some_and(|e| e.loaded) {
+                    self.resume_confirmed_session(&sid, should_resume);
+                } else if !self.pending_loaded_resume.iter().any(|(s, _)| s == &sid) {
+                    self.pending_loaded_resume.push((sid, should_resume));
+                }
             }
             return effects;
         }
@@ -368,7 +445,8 @@ impl ExtensionHost {
             let loaded_id = msg.pointer("/result/id").and_then(Value::as_str).unwrap_or("");
             // Post-load fail-closed verification: confirm Chromium actually cleared
             // `Extension::ALLOW_FILE_ACCESS` (`creation_flags & 4 == 0` and
-            // `newAllowFileAccess == false`) under `<loaded_id>` (`review-rd274.md` Round-3 §1a).
+            // `newAllowFileAccess == false`) AND granted zero permissions outside
+            // `ALLOWED_CHROMIUM_PERMS` under `<loaded_id>` (`review-rd274.md` Round-3 §1a).
             let file_access_revoked =
                 ok && loaded_id == expected_id && crate::context::verify_extension_file_access_disabled(loaded_id);
             if file_access_revoked {
@@ -376,6 +454,7 @@ impl ExtensionHost {
                     ext.is_unpacked = true;
                     ext.loaded = true;
                 }
+                self.resume_sessions_loaded_for(&expected_id);
                 if let Some(snap) = self.action_snapshot(&expected_id) {
                     effects.push(ExtEffect::ActionUpdated(snap));
                 }
@@ -384,7 +463,13 @@ impl ExtensionHost {
                     effects.extend(self.click_extension(&expected_id));
                 }
             } else {
-                self.extensions.remove(&expected_id);
+                self.drop_loaded_resumes_for(&expected_id);
+                self.sw_wake.remove_extension(&expected_id, true);
+                if let Some(removed) = self.extensions.remove(&expected_id)
+                    && let Some(staged) = removed.staged_dir
+                {
+                    super::integrity::cleanup_staged_dir(&staged);
+                }
                 self.verified_startup.remove(&expected_id);
                 self.actions.remove(&expected_id);
                 self.queued_clicks.retain(|cid| cid != &expected_id);
@@ -403,6 +488,7 @@ impl ExtensionHost {
                 if loaded_id != expected_id {
                     self.uninstall_inert_stub(&expected_id);
                 }
+                effects.extend(self.forget_notifications(&expected_id));
                 effects.push(ExtEffect::IntegrityFailed { ext_id: expected_id.clone() });
             }
             self.pending_filter_ids.remove(&expected_id);
@@ -434,14 +520,16 @@ impl ExtensionHost {
         if let Some(ext_id) = self.pending_uninstall_cmd.remove(&id) {
             let ok = msg.get("error").is_none();
             if ok {
-                self.extensions.remove(&ext_id);
+                self.drop_loaded_resumes_for(&ext_id);
+                self.sw_wake.remove_extension(&ext_id, true);
+                if let Some(removed) = self.extensions.remove(&ext_id)
+                    && let Some(staged) = removed.staged_dir
+                {
+                    super::integrity::cleanup_staged_dir(&staged);
+                }
                 self.actions.remove(&ext_id);
                 self.context_menus.lock().unwrap().remove_extension(&ext_id);
-                if let Some(ids) = self.notifications.remove(&ext_id) {
-                    for notif_id in ids {
-                        effects.push(ExtEffect::NotificationClear { ext_id: ext_id.clone(), notif_id });
-                    }
-                }
+                effects.extend(self.forget_notifications(&ext_id));
                 self.ext_tab_ids.remove(&ext_id);
                 self.ext_last_known_session_id.remove(&ext_id);
                 self.probe_in_flight.remove(&ext_id);
@@ -469,9 +557,16 @@ impl ExtensionHost {
                     ext.is_unpacked = true;
                     ext.loaded = true;
                 }
+                self.resume_sessions_loaded_for(&expected_id);
                 effects.push(ExtEffect::ExtensionReloaded { ext_id: loaded_id, ok: true, error: None });
             } else {
-                self.extensions.remove(&expected_id);
+                self.drop_loaded_resumes_for(&expected_id);
+                self.sw_wake.remove_extension(&expected_id, true);
+                if let Some(removed) = self.extensions.remove(&expected_id)
+                    && let Some(staged) = removed.staged_dir
+                {
+                    super::integrity::cleanup_staged_dir(&staged);
+                }
                 self.verified_startup.remove(&expected_id);
                 let stale_sids: Vec<String> = self
                     .sessions
@@ -485,6 +580,7 @@ impl ExtensionHost {
                 if is_valid_ext_id(&loaded_id) {
                     let _ = self.send_cdp("Extensions.uninstall", json!({ "id": loaded_id }), None);
                 }
+                effects.extend(self.forget_notifications(&expected_id));
                 effects.push(ExtEffect::ExtensionReloaded {
                     ext_id: expected_id,
                     ok: false,
@@ -619,13 +715,31 @@ impl ExtensionHost {
             // Never attach a second concurrent CDP session to the same service-worker target
             // (e.g. from a child page's `Target.setAutoAttach` when the browser target already
             // attached it), which causes competing `Debugger`/`Runtime.evaluate` races.
-            // Detach ONLY (never send `Runtime.runIfWaitingForDebugger` on the duplicate session)
-            // so this session releases only its own auto-attach throttle without prematurely
-            // unpausing the worker before the primary session's `Fetch.enable` confirms.
+            // Until BOTH the primary session's `Fetch.enable` confirms (`fetch_confirmed == true`)
+            // AND post-load `verify_extension_file_access_disabled` passes (`ext.loaded == true`),
+            // hold this duplicate quiet (never resuming it); if either fails or never confirms,
+            // the worker stays paused forever (fail closed).
             if !target_id.is_empty()
-                && self.sessions.values().any(|s| s.kind == SessionKind::ServiceWorker && s.target_id == target_id)
+                && let Some(primary_fetch_confirmed) = self
+                    .sessions
+                    .values()
+                    .find(|s| s.kind == SessionKind::ServiceWorker && s.target_id == target_id)
+                    .map(|s| s.fetch_confirmed)
             {
-                let _ = self.send_cdp("Target.detachFromTarget", json!({ "sessionId": sid }), None);
+                let ext_loaded = self.extensions.get(ext_id).is_some_and(|e| e.loaded);
+                if !primary_fetch_confirmed || !ext_loaded {
+                    let list = self.deferred_dup_sw_detaches.entry(target_id).or_default();
+                    if list.len() < 64 {
+                        list.push((sid.to_owned(), waiting));
+                    }
+                } else {
+                    let mut batch = Vec::new();
+                    if waiting {
+                        batch.push(json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.runIfWaitingForDebugger", "params": {} }));
+                    }
+                    batch.push(json!({ "id": self.alloc_id(), "method": "Target.detachFromTarget", "params": { "sessionId": sid } }));
+                    self.pipe.send_batch(&batch);
+                }
                 return effects;
             }
             let ext_id = ext_id.to_owned();
@@ -643,12 +757,13 @@ impl ExtensionHost {
                     pause_started: None,
                     pending_shim_eval_id: None,
                     was_paused: waiting,
+                    fetch_confirmed: false,
                     shimmed: false,
                 },
             );
             if waiting {
                 let fetch_id = self.alloc_id();
-                self.pending_fetch_resume.insert(fetch_id, sid.to_owned());
+                self.pending_fetch_resume.insert(fetch_id, (sid.to_owned(), true));
                 // Put `Fetch.enable` LAST in the batch so `Debugger.enable` and
                 // `EventBreakpoints.setInstrumentationBreakpoint` are guaranteed processed by
                 // Chromium BEFORE `fetch_id` confirms and sends `Runtime.runIfWaitingForDebugger`.
@@ -663,6 +778,8 @@ impl ExtensionHost {
                 // Resume happens strictly in `handle_cdp_reply` after `fetch_id` confirms.
                 self.pipe.send_batch(&batch);
             } else {
+                let fetch_id = self.alloc_id();
+                self.pending_fetch_resume.insert(fetch_id, (sid.to_owned(), false));
                 let eval_id = self.alloc_id();
                 if let Some(s) = self.sessions.get_mut(sid) {
                     s.pause_started = Some(Instant::now());
@@ -673,7 +790,7 @@ impl ExtensionHost {
                 let batch = vec![
                     json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
                     auto_attach_cmd(self.alloc_id(), sid),
-                    fetch_enable_cmd(self.alloc_id(), sid),
+                    fetch_enable_cmd(fetch_id, sid),
                     json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.addBinding", "params": { "name": "__ocExtCall" } }),
                     json!({ "id": eval_id, "sessionId": sid, "method": "Runtime.evaluate", "params": { "expression": code, "returnByValue": true } }),
                 ];
@@ -705,12 +822,13 @@ impl ExtensionHost {
                     pause_started: None,
                     pending_shim_eval_id: None,
                     was_paused: false,
+                    fetch_confirmed: false,
                     shimmed: false,
                 },
             );
             let fetch_id = self.alloc_id();
             if waiting {
-                self.pending_fetch_resume.insert(fetch_id, sid.to_owned());
+                self.pending_fetch_resume.insert(fetch_id, (sid.to_owned(), true));
             }
             let mut batch = vec![auto_attach_cmd(self.alloc_id(), sid)];
             if ttype == "iframe" {
@@ -745,7 +863,7 @@ impl ExtensionHost {
                 }
             });
             Some((ext_id.to_owned(), kind))
-        } else if ttype == "other" && url.is_empty() {
+        } else if is_page_like && (url.is_empty() || url == "about:blank") {
             match self.expected_targets.pop_front() {
                 Some(ExpectedTarget::Popup { ext_id }) if self.extensions.contains_key(&ext_id) => {
                     Some((ext_id, SessionKind::PopupPage))
@@ -777,12 +895,13 @@ impl ExtensionHost {
                     pause_started: None,
                     pending_shim_eval_id: None,
                     was_paused: false,
+                    fetch_confirmed: false,
                     shimmed: false,
                 },
             );
             let fetch_id = self.alloc_id();
             if waiting {
-                self.pending_fetch_resume.insert(fetch_id, sid.to_owned());
+                self.pending_fetch_resume.insert(fetch_id, (sid.to_owned(), true));
             }
             let mut batch = vec![
                 json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
@@ -809,6 +928,18 @@ impl ExtensionHost {
         }
 
         // Regular web tabs, isolated tabs, iframes, site workers: resume & detach immediately.
+        // Consume one matching queued `WebTab`/`IsolatedTab` when a page-like non-empty web tab
+        // attaches so stale web expectations never desync a later pre-commit extension page.
+        if is_page_like
+            && !url.is_empty()
+            && url != "about:blank"
+            && let Some(pos) = self
+                .expected_targets
+                .iter()
+                .position(|t| matches!(t, ExpectedTarget::WebTab | ExpectedTarget::IsolatedTab))
+        {
+            self.expected_targets.remove(pos);
+        }
         let mut batch = Vec::new();
         if waiting {
             batch.push(json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.runIfWaitingForDebugger", "params": {} }));
@@ -850,17 +981,44 @@ impl ExtensionHost {
                     return effects;
                 }
                 let listen = payload.get("listen").and_then(Value::as_bool).unwrap_or(true);
+                let is_sw = self.sessions.get(sid).is_some_and(|s| s.kind == SessionKind::ServiceWorker);
+                let ext_version = self
+                    .is_loaded_extension(&sess_ext_id)
+                    .then(|| self.extensions.get(&sess_ext_id).map(|e| e.manifest.version.clone()))
+                    .flatten();
                 if listen {
                     self.subscribers
                         .entry(name.to_owned())
                         .or_default()
-                        .entry(sess_ext_id)
+                        .entry(sess_ext_id.clone())
                         .or_default()
                         .insert(sid.to_owned());
+                    if is_sw
+                        && super::sw_wake::is_wakeable_event(name)
+                        && let Some(ref version) = ext_version
+                    {
+                        self.sw_wake.record_sw_listener(&sess_ext_id, version, name, true);
+                        // Atomically drain and deliver any queued wake events for this event
+                        // strictly once to the woken service worker session.
+                        for (ev_name, ev_args) in self.sw_wake.take_matching(&sess_ext_id, name) {
+                            let msg = json!({ "kind": "event", "name": ev_name, "args": ev_args });
+                            self.push_to_session(sid, &msg);
+                        }
+                    }
                 } else if let Some(by_ext) = self.subscribers.get_mut(name)
                     && let Some(set) = by_ext.get_mut(&sess_ext_id)
                 {
                     set.remove(sid);
+                    let any_sw_left = set.iter().any(|other| {
+                        self.sessions.get(other).is_some_and(|s| s.kind == SessionKind::ServiceWorker)
+                    });
+                    if is_sw
+                        && !any_sw_left
+                        && super::sw_wake::is_wakeable_event(name)
+                        && let Some(ref version) = ext_version
+                    {
+                        self.sw_wake.record_sw_listener(&sess_ext_id, version, name, false);
+                    }
                     if set.is_empty() {
                         by_ext.remove(&sess_ext_id);
                     }
@@ -1138,22 +1296,84 @@ impl ExtensionHost {
         }
         effects
     }
+    fn resume_confirmed_session(&mut self, sid: &str, should_resume: bool) {
+        let sw_tid = self
+            .sessions
+            .get(sid)
+            .filter(|s| s.kind == SessionKind::ServiceWorker && !s.target_id.is_empty())
+            .map(|s| s.target_id.clone());
+        if should_resume {
+            let _ = self.send_cdp("Runtime.runIfWaitingForDebugger", json!({}), Some(sid));
+        }
+        // Now that BOTH `Fetch.enable` + `scriptFirstStatement` AND post-load verification
+        // (`ext.loaded == true`) have confirmed, safely release and detach any duplicate SW
+        // sessions held for this target so Chromium's waitForDebugger throttle never deadlocks.
+        if let Some(tid) = sw_tid
+            && let Some(dups) = self.deferred_dup_sw_detaches.remove(&tid)
+        {
+            let mut batch = Vec::new();
+            for (dup_sid, dup_waiting) in dups {
+                if dup_waiting {
+                    batch.push(json!({ "id": self.alloc_id(), "sessionId": dup_sid, "method": "Runtime.runIfWaitingForDebugger", "params": {} }));
+                }
+                batch.push(json!({ "id": self.alloc_id(), "method": "Target.detachFromTarget", "params": { "sessionId": dup_sid } }));
+            }
+            self.pipe.send_batch(&batch);
+        }
+    }
+
+    fn resume_sessions_loaded_for(&mut self, ext_id: &str) {
+        let mut remaining = Vec::new();
+        let mut to_resume = Vec::new();
+        for (sid, should_resume) in std::mem::take(&mut self.pending_loaded_resume) {
+            if self.sessions.get(&sid).is_some_and(|s| s.ext_id == ext_id) {
+                to_resume.push((sid, should_resume));
+            } else if self.sessions.contains_key(&sid) {
+                remaining.push((sid, should_resume));
+            }
+        }
+        self.pending_loaded_resume = remaining;
+        for (sid, should_resume) in to_resume {
+            self.resume_confirmed_session(&sid, should_resume);
+        }
+    }
+
+    fn drop_loaded_resumes_for(&mut self, ext_id: &str) {
+        self.pending_loaded_resume
+            .retain(|(sid, _)| self.sessions.get(sid).is_some_and(|s| s.ext_id != ext_id));
+    }
 }
 
 const IFRAME_LOCKDOWN_JS: &str = r#"(() => {
+  const allowed = new Set(["runtime", "i18n", "storage", "dom"]);
+  const alwaysLock = [
+    "tabs", "windows", "action", "browserAction", "pageAction", "contextMenus", "webNavigation",
+    "downloads", "management", "notifications", "permissions", "history", "bookmarks", "sessions",
+    "privacy", "fontSettings", "identity", "sidePanel", "search", "contentSettings",
+    "desktopCapture", "tabCapture", "pageCapture", "webAuthenticationProxy", "browsingData",
+    "system", "userScripts", "tts", "ttsEngine", "debugger", "proxy", "topSites", "readingList",
+    "tabGroups", "omnibox", "devtools", "extension", "commands", "webRequest",
+    "declarativeNetRequest", "scripting", "offscreen", "cookies", "alarms", "idle", "power",
+    "app", "csi", "loadTimes", "gcm", "instanceID", "declarativeContent"
+  ];
+  const lockProp = (obj, prop) => {
+    try { Object.defineProperty(obj, prop, { value: undefined, configurable: false, enumerable: false, writable: false }); } catch {}
+  };
   for (const rootName of ["chrome", "browser"]) {
     let root;
     try { root = globalThis[rootName]; } catch { continue; }
-    if (!root) continue;
-    for (const api of ["tabs", "windows", "action", "browserAction", "pageAction", "contextMenus", "webNavigation", "downloads", "management"]) {
-      try { Object.defineProperty(root, api, { value: undefined, configurable: false, enumerable: false, writable: false }); } catch {}
+    if (!root || typeof root !== "object") continue;
+    let keys = [];
+    try { keys = Object.getOwnPropertyNames(root); } catch {}
+    for (const k of keys) {
+      if (!allowed.has(k)) lockProp(root, k);
     }
+    for (const api of alwaysLock) lockProp(root, api);
     try {
       const rt = root.runtime;
       if (rt && typeof rt === "object") {
-        for (const m of ["connectNative", "sendNativeMessage"]) {
-          try { Object.defineProperty(rt, m, { value: undefined, configurable: false, enumerable: false, writable: false }); } catch {}
-        }
+        lockProp(rt, "connectNative");
+        lockProp(rt, "sendNativeMessage");
       }
     } catch {}
   }

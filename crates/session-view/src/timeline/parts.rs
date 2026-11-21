@@ -143,9 +143,18 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
     // Mentions read as badges; a badge copies as its text.
     let (shown, badges, links, paths) = crate::user_parts::bubble_badges(s, p, id, body);
     let highlights = if !pending { s.find_text_highlights(p, &format!("u-{id}")) } else { Vec::new() };
-    // File and folder badges, and the paths, calls, flags and file names typed around them, each
-    // keep their own left-to-right order in the line.
-    let units: Vec<_> = rune::text::ltr_units(&shown).into_iter().filter(|u| !badges.iter().any(|(r, _)| r.start < u.end && u.start < r.end)).collect();
+    // File and folder badges, and (when the prompt contains RTL text) the paths, calls, flags
+    // and file names typed around them, each keep their own left-to-right order in the line.
+    // Pure-LTR text needs no LRI/PDI isolates around ASCII tokens (`message-part.css:176,192-198`),
+    // avoiding unnecessary run splits that perturb kerning and subpixel glyph placement.
+    let units: Vec<_> = if has_rtl(&shown) {
+        rune::text::ltr_units(&shown)
+            .into_iter()
+            .filter(|u| !badges.iter().any(|(r, _)| r.start < u.end && u.start < r.end))
+            .collect()
+    } else {
+        Vec::new()
+    };
     let mut words = text(shown.clone()).key(format!("text-{id}")).font(BUBBLE).color(ink).wrap_anywhere().pills(badges).text_highlights(highlights);
     for r in paths.into_iter().chain(units) {
         words = words.isolate(r, rune::Direction::Ltr);
@@ -247,6 +256,27 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
 /// A steer's Pending, under its bubble's trailing edge.
 fn pending_label(p: &Pal) -> El {
     text(opencode_i18n::t!("ui.message.pending")).font(PROMPT_META).color(p.faint)
+}
+
+/// Whether `s` contains any right-to-left script character or bidi override/isolate mark
+/// (UAX #9 R / AL / RLE / RLO / RLI). Pure-LTR messages already resolve at bidi level 0 under
+/// `dir_by_paragraph`, so isolating ASCII `ltr_units` only splits shaping runs unnecessarily.
+fn has_rtl(s: &str) -> bool {
+    !s.is_ascii()
+        && s.chars().any(|c| {
+            matches!(
+                c as u32,
+                0x0590..=0x08FF
+                    | 0x200F
+                    | 0x202B
+                    | 0x202E
+                    | 0x2067
+                    | 0xFB1D..=0xFDFF
+                    | 0xFE70..=0xFEFF
+                    | 0x10800..=0x10FFF
+                    | 0x1E800..=0x1EFFF
+            )
+        })
 }
 
 /// The hover group a reply's footer shares with the reply text above it (separate virtual

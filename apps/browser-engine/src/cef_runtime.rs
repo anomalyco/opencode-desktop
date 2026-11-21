@@ -14,6 +14,8 @@ use crate::profile::Profile;
 
 pub struct CefRuntime {
     profile: Profile,
+    stub_root: Option<std::path::PathBuf>,
+    stub_lock: Option<std::fs::File>,
     #[cfg(target_os = "macos")]
     _loader: cef::library_loader::LibraryLoader,
 }
@@ -27,6 +29,8 @@ impl CefRuntime {
         adapter_luid: Option<(i32, u32)>,
         locale: Option<&str>,
         ext_dirs: &[std::path::PathBuf],
+        stub_root: Option<std::path::PathBuf>,
+        stub_lock: Option<std::fs::File>,
         io_pipes: Option<String>,
         pump: Sender<crate::Event>,
     ) -> Self {
@@ -115,6 +119,8 @@ impl CefRuntime {
 
         Self {
             profile,
+            stub_root,
+            stub_lock,
             #[cfg(target_os = "macos")]
             _loader: loader,
         }
@@ -133,6 +139,12 @@ impl CefRuntime {
 impl Drop for CefRuntime {
     fn drop(&mut self) {
         cef::shutdown();
+        // Release the lock and remove `<stub_root>` (including `_rt/<ext_id>-<seq>` mirrors)
+        // strictly AFTER `cef::shutdown()` so Windows has closed every Chromium handle inside it.
+        drop(self.stub_lock.take());
+        if let Some(root) = self.stub_root.take() {
+            crate::extensions::integrity::cleanup_stub_root(&root);
+        }
         // The pages' downloads and staged agent uploads end with the engine.
         crate::downloads::remove_owned(&self.profile.root);
         crate::downloads::remove_owned_isolated(&self.profile.isolated_downloads_base, std::process::id());
@@ -189,6 +201,7 @@ wrap_app! {
                     "renderer-cmd-prefix",
                     "utility-cmd-prefix",
                     "force-webrtc-ip-handling-policy",
+                    "extensions-on-chrome-urls",
                     // Would turn back on what `DISABLED_NET_FEATURES` and the component-updater
                     // source below turn off (READER-7 #624-S1).
                     "component-updater",
