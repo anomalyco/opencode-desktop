@@ -49,16 +49,18 @@ enum OriginClass {
 }
 
 /// Canonicalizes `raw` using the `url` crate (`Url::origin().ascii_serialization()`), stripping
-/// default ports (`:80`/`:443`), canonicalizing IPv6, and punycode-encoding Unicode IDNs.
-/// Opaque origins (`about:blank`, `chrome-error://chromewebdata/`, `data:`, etc.) hold no profile
-/// grant (`Opaque`), whereas unparseable strings fail closed (`Invalid`).
+/// default ports (`:80`/`:443`), canonicalizing IPv6, punycode-encoding Unicode IDNs, and mapping
+/// `blob:http(s)://...` to its creator's `http(s)` tuple origin. Opaque origins (`about:blank`,
+/// `chrome-error://chromewebdata/`, `data:`, etc.) hold no profile grant (`Opaque`), whereas
+/// unparseable strings fail closed (`Invalid`).
 fn classify_origin(raw: &str) -> OriginClass {
     match url::Url::parse(raw.trim()) {
-        Ok(u) if matches!(u.scheme(), "http" | "https") => match u.origin() {
-            url::Origin::Tuple(..) => OriginClass::Web(u.origin().ascii_serialization()),
-            url::Origin::Opaque(_) => OriginClass::Opaque,
+        Ok(u) => match u.origin() {
+            url::Origin::Tuple(scheme, _, _) if matches!(scheme.as_str(), "http" | "https") => {
+                OriginClass::Web(u.origin().ascii_serialization())
+            }
+            _ => OriginClass::Opaque,
         },
-        Ok(_) => OriginClass::Opaque,
         Err(_) => OriginClass::Invalid,
     }
 }
