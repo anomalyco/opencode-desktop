@@ -154,6 +154,37 @@ pub fn block_device_permission_guards(ctx: &RequestContext) {
     }
 }
 
+/// Content settings for Chrome services official's Electron does not contain (READER-7's audit,
+/// `notes/review-rd274.md`): FedCM (N2), the anti-abuse Privacy Sandbox setting (N6a), payment
+/// handlers (N7), and the minor locks (protocol handlers, window management, idle detection,
+/// local fonts). Default-scope prefs so isolated contexts, where a `None` origin is a no-op, get
+/// them too (`context::lock_chrome_services`).
+const CHROME_SERVICE_SETTINGS: [(sys::cef_content_setting_types_t, &str); 8] = [
+    (sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_FEDERATED_IDENTITY_API, "webid_api"),
+    (
+        sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_FEDERATED_IDENTITY_AUTO_REAUTHN_PERMISSION,
+        "webid_auto_reauthn",
+    ),
+    (sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_ANTI_ABUSE, "anti_abuse"),
+    (sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_PAYMENT_HANDLER, "payment_handler"),
+    (sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_PROTOCOL_HANDLERS, "protocol_handler"),
+    (sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_WINDOW_MANAGEMENT, "window_placement"),
+    (sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_IDLE_DETECTION, "idle_detection"),
+    (sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_LOCAL_FONTS, "local_fonts"),
+];
+
+pub fn chrome_service_setting_prefs() -> impl Iterator<Item = String> {
+    CHROME_SERVICE_SETTINGS.iter().map(|(_, name)| format!("profile.default_content_setting_values.{name}"))
+}
+
+/// Locks `CHROME_SERVICE_SETTINGS` to `BLOCK` on `ctx`'s default scope.
+pub fn block_chrome_service_settings(ctx: &RequestContext) {
+    let block = sys::cef_content_setting_values_t::CEF_CONTENT_SETTING_VALUE_BLOCK;
+    for (ct, _) in CHROME_SERVICE_SETTINGS {
+        ctx.set_content_setting(None, None, ct.into(), block.into());
+    }
+}
+
 /// Locks all 7 hardware-device and File System Access guards to `BLOCK` for an explicit `origin`
 /// on an isolated/incognito `CefRequestContext` (where `set_content_setting(None, None, ...)` is a
 /// CEF no-op).

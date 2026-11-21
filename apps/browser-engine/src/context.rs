@@ -200,6 +200,7 @@ fn apply_context_prefs(
     for pref in crate::permissions::DEVICE_GUARD_PREFS {
         ok &= set_optional_int_pref(ctx, pref, 2);
     }
+    ok &= lock_chrome_services(ctx);
     ok
 }
 
@@ -292,10 +293,61 @@ fn set_optional_bool_pref(ctx: &RequestContext, name: &str, value: bool) -> bool
 
 fn set_optional_int_pref(ctx: &RequestContext, name: &str, value: i32) -> bool {
     let key = CefString::from(name);
-    if ctx.has_preference(Some(&key)) == 0 || ctx.can_set_preference(Some(&key)) == 0 {
+    // Absent from this build: nothing to set. Present but not settable fails (READER-7 N9).
+    if ctx.has_preference(Some(&key)) == 0 {
         return true;
     }
     set_and_verify_int_pref(ctx, name, value)
+}
+
+/// Turns off, on `ctx`, the Chrome services official's Electron does not contain (READER-7's
+/// non-extension audit, `notes/review-rd274.md`), as prefs and content-setting locks; the
+/// switches and feature flags are in `cef_runtime.rs`. Applied to `Default` and every isolated
+/// context. A pref this build registers but will not take fails the whole call, so the caller
+/// refuses the context instead of running with the service on (N9). Returns `false` on failure.
+pub fn lock_chrome_services(ctx: &RequestContext) -> bool {
+    const OFF: [&str; 20] = [
+        // N1 Safe Browsing.
+        "safebrowsing.enabled",
+        "safebrowsing.enhanced",
+        "safebrowsing.scout_reporting_enabled",
+        // N3 sign-in, password manager, local autofill.
+        "signin.allowed",
+        "credentials_enable_service",
+        "credentials_enable_autosignin",
+        "autofill.profile_enabled",
+        "autofill.credit_card_enabled",
+        // N6a Privacy Sandbox.
+        "privacy_sandbox.m1.topics_enabled",
+        "privacy_sandbox.m1.fledge_enabled",
+        "privacy_sandbox.m1.ad_measurement_enabled",
+        "privacy_sandbox.apis_enabled",
+        // N8 printing.
+        "printing.enabled",
+        // N11 Translate and the spelling service (spellcheck stays on, with local dictionaries).
+        "translate.enabled",
+        "spellcheck.use_spelling_service",
+        // N14 the rest of Google's per-page lookups.
+        "alternate_error_pages.enabled",
+        "search.suggest_enabled",
+        "url_keyed_anonymized_data_collection.enabled",
+        "domain_reliability.allowed_by_policy",
+        "dns_prefetching.enabled",
+    ];
+    let mut ok = true;
+    for name in OFF {
+        ok &= set_optional_bool_pref(ctx, name, false);
+    }
+    // 2 == NETWORK_PREDICTION_NEVER.
+    ok &= set_optional_int_pref(ctx, "net.network_prediction_options", 2);
+    crate::permissions::block_chrome_service_settings(ctx);
+    for pref in crate::permissions::chrome_service_setting_prefs() {
+        ok &= set_optional_int_pref(ctx, &pref, 2);
+    }
+    if !ok {
+        eprintln!("engine-prefs: a Chrome service could not be turned off on a request context; refusing it");
+    }
+    ok
 }
 
 /// Outcome produced once a deferred context finishes `on_request_context_initialized`.

@@ -83,6 +83,8 @@ pub struct EngineManager {
     next_eref: u64,
     /// Agent commands waiting, in arrival order, for their tab's `WebAuthn.enable` reply.
     passkey_held: Vec<HostMsg>,
+    /// The Chrome services official lacks are off on `Default` (`context::lock_chrome_services`).
+    default_locked: bool,
     /// The app's scheme, once it said (`HostMsg::SetColorScheme`).
     dark: Option<bool>,
     /// The user's home directory, for filtering overly broad workspace `file_roots`.
@@ -130,6 +132,9 @@ impl EngineManager {
             crate::permissions::scrub_legacy_content_settings(&global);
             crate::context::disable_non_proxied_udp(&global);
         }
+        // The Chrome services official does not contain are off on `Default` too; if one cannot be
+        // turned off, `Default` tabs are refused rather than opened with it on (READER-7 N9).
+        let default_locked = cef::request_context_get_global_context().is_some_and(|g| crate::context::lock_chrome_services(&g));
         Self {
             tabs: HashMap::new(),
             mach_port: Arc::new(AtomicU32::new(0)),
@@ -147,6 +152,7 @@ impl EngineManager {
             next_cdp_id: Arc::new(AtomicI32::new(100)),
             next_eref: 1,
             passkey_held: Vec::new(),
+            default_locked,
             dark: None,
             home: crate::profile::home_dir(),
             downloads: crate::downloads::Downloads::open(&downloads),
@@ -1283,7 +1289,7 @@ impl EngineManager {
 
         // Hard fail-closed invariant: an isolated or preview tab must NEVER open without a
         // dedicated `CefRequestContext` (falling back to `None` would open it inside `Default`).
-        if (effective_context.is_isolated() || is_preview) && req_ctx.is_none() {
+        if ((effective_context.is_isolated() || is_preview) && req_ctx.is_none()) || (req_ctx.is_none() && !self.default_locked) {
             self.release_preview(tab_id, preview_grant.as_ref());
             self.release_tab_context(tab_id);
             let _ = self.out_tx.send(EngineMsg::Refused {
