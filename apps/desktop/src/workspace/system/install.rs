@@ -122,14 +122,6 @@ fn uninstall(a: &Args) -> i32 {
     if !others.is_empty() {
         a.log(&format!("keeps the settings and caches, which {} also uses", others.join(", ")));
     }
-    let exe = root.join(win_install::EXE);
-    if delete_data && let Err(why) = data_free(&exe) {
-        a.log(&format!("{why}; nothing removed"));
-        if !a.quiet {
-            dialog::error(&p, &format!("{why}. Close it and try again, or uninstall without deleting your settings."));
-        }
-        return 1;
-    }
     // `--plan`: what the cleanup would delete, one path a line, and nothing done.
     if a.plan {
         let plan = plan(&root, delete_data, delete_data);
@@ -140,6 +132,14 @@ fn uninstall(a: &Args) -> i32 {
             println!("keep {why}");
         }
         return 0;
+    }
+    let exe = root.join(win_install::EXE);
+    if delete_data && let Err(why) = data_free(&exe) {
+        a.log(&format!("{why}; nothing removed"));
+        if !a.quiet {
+            dialog::error(&p, &format!("{why}. Close it and try again, or uninstall without deleting your settings."));
+        }
+        return 1;
     }
     a.log(&format!("uninstalling {} {} from {}{}", p.name(), p.version(), root.display(), if delete_data { ", with its data" } else { "" }));
     if !win_install::close_running(&root, CLOSE_GRACE) {
