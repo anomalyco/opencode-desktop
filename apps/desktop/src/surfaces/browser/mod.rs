@@ -12,6 +12,8 @@ mod activity;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod context_menu;
 #[cfg(not(target_arch = "wasm32"))]
+mod keys;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod extensions;
 #[cfg(not(target_arch = "wasm32"))]
 mod openers;
@@ -103,11 +105,10 @@ mod native {
     use rune::time::Instant;
 
     use browser_pane::{BrowserHost, EngineStatus, bare_url};
-    use rune::{Key, KeyEvent, Tx, Waker};
+    use rune::{Tx, Waker};
 
     use super::PLUGIN;
     use crate::App;
-    use crate::keymap::Bind;
     use crate::panels::{SessionPane, panel_key, split_panel_key};
 
     /// One DevTools call in flight for a plugin or MCP tool.
@@ -150,37 +151,7 @@ mod native {
         pub openers: super::openers::TabOpeners,
     }
 
-    /// App-level shortcuts that a focused web page must yield to OpenCode (Rune) rather than swallow,
-    /// matching Desktop's `packages/gui-plugins/src/browser/keys.ts` (`pageShortcut`): in-page chords
-    /// such as ⌘K, ⌘B, ⌘F and ⌘G stay with the page.
-    pub fn claims_app_shortcut(ev: &KeyEvent) -> bool {
-        if PAGE_KEYS.iter().any(|c| c.matches(ev)) {
-            return false;
-        }
-        if crate::shortcuts::claims_from_browser(ev) {
-            return true;
-        }
-        if [Bind::Rename, Bind::Background].iter().any(|b| b.matches(ev)) || crate::keymap::TERMINAL_TOGGLE.matches(ev) {
-            return true;
-        }
-        let Key::Command(c) = ev.key else { return false };
-        let ch = c.to_ascii_lowercase();
-        if ev.mods.alt {
-            return !ev.mods.shift && matches!(ch, 'r' | 'b' | 'p');
-        }
-        if ev.mods.shift {
-            if ch == 'm' && matches!(crate::updater::build_channel(), "dev" | "local") { return true; }
-            return matches!(ch, 't' | '[' | ']' | '{' | '}' | 'r' | 'p' | 'l' | 'e' | 'o' | 's' | 'c');
-        }
-        matches!(ch, 'l' | 't' | 'n' | 'w' | ',' | '\\' | '[' | ']')
-    }
-
-    static PAGE_KEYS: std::sync::LazyLock<Vec<rune::Chord>> = std::sync::LazyLock::new(|| {
-        ["mod+a", "mod+c", "mod+v", "mod+x", "mod+z", "mod+r", "mod+shift+z"]
-            .into_iter()
-            .filter_map(|c| rune::Chord::parse(c).ok())
-            .collect()
-    });
+    pub use super::keys::claims_app_shortcut;
 
     /// `url` when the default browser can open it: a credential-free `http:` or `https:` page,
     /// not `about:blank`, `chrome:`, `data:`, or embedded credentials.
