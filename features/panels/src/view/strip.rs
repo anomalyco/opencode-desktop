@@ -26,9 +26,10 @@ const TAB_MIN_W: f32 = 72.0;
 /// A tab's words: Desktop's trigger sets `font-variant-numeric: tabular-nums` (`tabs.css:554`),
 /// whose `tnum` in Inter changes letters' advances too (`New tab` 50.797 against 50.891).
 pub const TAB_UI: TextStyle = UI.features("\"tnum\"");
-/// File tab filename (`packages/gui-plugins/src/file/label.tsx:14`): `font-medium` (500),
-/// `leading-[calc(var(--font-size-base)*1.5)]` (19.5), `tracking-normal` (0), inheriting `tnum`.
-const FILE_TAB_UI: TextStyle = TextStyle::new(13.0, 500.0).lh(19.5).features("\"tnum\"");
+/// File tab filename (`packages/gui-plugins/src/file/label.tsx:14`, `packages/ui/src/styles/theme.css:9,13,19`,
+/// `packages/ui/src/navigation/tabs/tabs.css:556,561`): `13px`, `font-medium` (`--font-weight-medium: 530`),
+/// `leading-[calc(var(--font-size-base)*1.5)]` (`14px * 1.5 = 21px`), `tracking-normal` (`0`), inheriting `tnum`.
+const FILE_TAB_UI: TextStyle = TextStyle::new(13.0, 530.0).lh(21.0).features("\"tnum\"");
 const TAB_SMALL: TextStyle = UI_SMALL.features("\"tnum\"");
 
 /// What a closable tab takes after its label: the wrapper's 8 pt gap, the 20 pt close button and

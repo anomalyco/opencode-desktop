@@ -15,9 +15,10 @@ const INSTANT: Anim = Anim::INSTANT;
 pub const BAR_H: f32 = 48.0;
 pub const TOGGLE_INSET: f32 = 54.0;
 pub const ROW_H: f32 = 28.0;
-/// Each tree level's indent in Desktop's Pierre tree (`pierre-tree.tsx:54-67`: `src -> util -> format.ts`
-/// steps 32 px / 31 px at 1.5x, i.e. ~21.25 pt per depth level).
-pub const INDENT: f32 = 21.25;
+/// Each tree level's indent in Desktop's Pierre tree (`@pierre/trees@1.0.0-beta.6` `dist/style.js` +
+/// `packages/gui-plugins/src/file/pierre-tree.tsx:54-67`):
+/// `--trees-item-row-gap (6px) + (--trees-icon-width (16px) / 2 - 0.5px) + border (1px) + (--trees-level-gap (8px) - 1px) = 21.5px`.
+pub const INDENT: f32 = 21.5;
 
 pub static FILETREE: Icon = Icon {
     name: "panel-filetree",

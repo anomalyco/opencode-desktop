@@ -9,7 +9,7 @@ use opencode_i18n::t;
 use opencode_kit::model::{Project, project_meta};
 use opencode_ui::focus::FocusExt;
 use opencode_ui::popup::{self, Item, Menu, MenuButton as _, PopupHost};
-use rune::{Color, Cursor, Drag, El, Icon, Phase, TextEdit, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Color, Cursor, Drag, El, Icon, Phase, Span, TextEdit, TextStyle, Tx, col, el, icon, rich, row, text};
 use rune_theme_opencode::icons as ic;
 use serde_json::{Value, json};
 use opencode_ui::palette::{Elevate as _, Pal, kit};
@@ -135,7 +135,26 @@ const COPY: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
 const TITLE: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0);
 const FAILED: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0);
 const HINT_CODE: TextStyle = TextStyle::new(12.0, 440.0).lh(20.0).mono();
-const HINT_PILL: TextStyle = TextStyle::new(12.0, 440.0).lh(15.0).mono();
+/// Narrow no-break spaces flanking an inline `<code>` span, matching `rune_kit::markdown`
+/// (`inline_code_pad = 4.0` for `project.css:382` `padding-inline: 4px`).
+const INLINE_CODE_PAD: &str = "\u{202f}\u{202f}";
+
+fn inline_code_pad_size(font: TextStyle, pad: f32) -> f32 {
+    thread_local! {
+        static CACHE: std::cell::Cell<(u64, f32)> = const { std::cell::Cell::new((u64::MAX, 0.0)) };
+    }
+    let epoch = rune::text::font_epoch();
+    let cached = CACHE.get();
+    if cached.0 == epoch {
+        return cached.1;
+    }
+    let probe = INLINE_CODE_PAD.repeat(64);
+    let wide = |size: f32| (rune::text::measure(&probe, &[], TextStyle { size, ..font }, None).0 / 64.0).max(0.1);
+    let first = font.size * pad / wide(font.size);
+    let size = first * pad / wide(first);
+    CACHE.set((epoch, size));
+    size
+}
 
 /// Desktop's avatar colours, in its order (`PROJECT_AVATAR_VARIANTS`).
 const COLORS: [&str; 9] = ["orange", "yellow", "cyan", "green", "red", "pink", "blue", "purple", "gray"];
@@ -550,20 +569,43 @@ fn startup<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
         .child(input)
         .child(resize_grip::<H>());
     let field = if failed { field.box_shadow(Pal::ring_out(p.danger)) } else { field };
+    // `workspaces/project.tsx:189-192,262-265` + `project.css:373-389` + `tokens/theme.css:143`:
+    // `13px / 20px` muted copy containing an inline `12px` mono `<code>` span (`padding-inline: 4px`,
+    // `border-radius: 4px`, `bg-layer-02`, `text-base`). Rendering as real inline `rich` text lets
+    // Rune's font-metric `Span::bg` box (`ascent.round() + descent.round()`) match Chromium across
+    // every scale factor (1x, 1.25x, 1.5x, 2x) with zero hardcoded row or pill heights.
+    let pad_sz = inline_code_pad_size(COPY, 4.0);
     let hint = |sentence: &'static str| {
         let at = sentence.find('$').unwrap_or(sentence.len());
         let end = sentence[at..].find(|c: char| !(c == '$' || c == '_' || c.is_ascii_alphanumeric())).map_or(sentence.len(), |n| at + n);
+        if at >= end {
+            return text(sentence).w_full().font(COPY).color(p.muted).wrap();
+        }
         let (before, var, after) = (&sentence[..at], &sentence[at..end], &sentence[end..]);
-        row()
-            .w_full()
-            // `project.css:374-389`: 13px / 150% line-height with inline 12px mono code pill
-            // rounds to 21 px at 1x and 31 px (20.67 pt) at 1.5x; code pill is 15 px at 1x and 23 px (15.33 pt) at 1.5x.
-            .min_h(20.67)
-            .wrap()
-            .center_y()
-            .children((!before.is_empty()).then(|| text(before).font(COPY).color(p.muted)))
-            .children((!var.is_empty()).then(|| row().h(15.33).px(4.0).center_y().radius(4.0).fill(p.layer2).child(text(var).font(HINT_PILL).color(p.text))))
-            .children((!after.is_empty()).then(|| text(after).font(COPY).color(p.muted)))
+        let mut buf = String::with_capacity(sentence.len() + INLINE_CODE_PAD.len() * 2);
+        buf.push_str(before);
+        let pad_l_start = buf.len();
+        buf.push_str(INLINE_CODE_PAD);
+        let code_start = buf.len();
+        buf.push_str(var);
+        let code_end = buf.len();
+        buf.push_str(INLINE_CODE_PAD);
+        let pad_r_end = buf.len();
+        buf.push_str(after);
+        rich(
+            buf,
+            vec![
+                Span::new(pad_l_start, code_start).size(pad_sz),
+                Span::new(code_end, pad_r_end).size(pad_sz),
+                Span::new(code_start, code_end).mono().size(12.0).color(p.text).bg(p.layer2, 4.0),
+            ],
+        )
+        .w_full()
+        .font(COPY)
+        .color(p.muted)
+        .wrap()
+        .uncopied(pad_l_start..code_start)
+        .uncopied(code_end..pad_r_end)
     };
     col()
         .key("setting-settings-project-startup")
