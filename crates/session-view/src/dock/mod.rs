@@ -16,7 +16,8 @@ pub mod question;
 
 pub use question::Dock;
 
-pub(crate) const BUTTON: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04);
+// `button.css:21` sets `font-variant-numeric: tabular-nums` on `button-v2` labels.
+pub(crate) const BUTTON: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04).features("\"tnum\"");
 
 /// A host that shows the dock: its open requests and where their replies go.
 pub trait DockHost: ComposerHost {

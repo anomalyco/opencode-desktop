@@ -307,22 +307,25 @@ local function sidebar(env: Env, view: View, sid: string, doc: DiffDocument, mar
     end)
     local listVer = if query == "" then treeVer else doc:Version()
     local list = view:Memo("review-tree-slot", `{sid}:{status}:{totals.files}:{query}:{active or ""}:{listVer}:{look}`, function()
-        -- `session-review-v2-sidebar-viewport` (`padding: 4px 8px 12px`) + `px-2 py-2 text-12-regular text-text-weak` (`panel.tsx:448-462`).
+        -- `session-review-v2-sidebar-viewport` (`padding: 4px 8px 12px`) + `px-2 py-2 text-12-regular text-text-weak`
+        -- (`panel.tsx:448-462`; `.text-12-regular` resolves via `utilities.css:21-28` + `theme.css:8,16` to `--font-size-small: 13px`, `--line-height-large: 150%` = `19.5px`).
         local function sidebarMessage(key: string, words: string, isStatus: boolean): ui.Node
             return ui.col({ key = key, role = if isStatus then "status" else nil, w = "full", grow = 1, px = 16, pt = 12, pb = 20 }, {
                 ui.text(words, { size = 13, weight = "regular", lineHeight = 19.5, color = "text-weak", wrap = true }),
             })
         end
-        if status == "loading" then
-            return sidebarMessage("review-tree-loading", env.I18n:T("ui.sessionReview.image.loading"), false)
-        end
-        if status == "offline" then
-            return sidebarMessage("review-tree-offline", env.I18n:T("offline"), false)
-        end
-        if status == "error" then
-            return sidebarMessage("review-tree-error", env.I18n:T("load.failed"), false)
-        end
+        -- Keep the loaded file tree during background refreshes and transient disconnects/errors,
+        -- matching the main pane (`panel.luau:437-444`) and official `review/machine.ts:150-153, 171-172, 220-225, 238-240`.
         if totals.files == 0 then
+            if status == "loading" then
+                return sidebarMessage("review-tree-loading", env.I18n:T("ui.sessionReview.image.loading"), false)
+            end
+            if status == "offline" then
+                return sidebarMessage("review-tree-offline", env.I18n:T("offline"), false)
+            end
+            if status == "error" then
+                return sidebarMessage("review-tree-error", env.I18n:T("load.failed"), false)
+            end
             return sidebarMessage("review-tree-empty", env.I18n:T("sidebar.noChanges"), true)
         end
         return ui.col({ w = "full", grow = 1, minH = 0 }, {

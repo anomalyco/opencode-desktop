@@ -88,7 +88,7 @@ pub struct Pal {
     /// empty side pane draws it.
     pub v1_icon_strong: Color,
     pub v1_icon_weak: Color,
-    /// The terminal's text: Desktop's `text-stronger`; the default theme keeps `text`.
+    /// The terminal's text: Desktop's `text-stronger` (`terminal.tsx:232`).
     pub term_fg: Color,
     /// A diff's added and removed colour: `syntax-diff-add`/`-delete`; the default keeps
     /// `success` and `danger`.
@@ -326,6 +326,13 @@ fn build(theme: usize, dark: bool, raised: bool) -> Pal {
     let diff_add = if themed { c("syntax-diff-add") } else { success };
     let diff_del = if themed { c("syntax-diff-delete") } else { danger };
     let code_bg = c("background-stronger");
+    let hex = |h: &str| rune::color::hex(h).unwrap_or(text);
+    // Resolved `oc-2` `--text-base` override (`oc-2.json:20,273`): `#6f6f6f` light / `#a0a0a0` dark.
+    let v1_text_base = match (themed, dark) {
+        (true, _) => c("text-text-muted"),
+        (false, true) => hex("#a0a0a0"),
+        (false, false) => hex("#6f6f6f"),
+    };
     let syntax = Code {
         comment: c("syntax-comment"),
         string: c("syntax-string"),
@@ -336,13 +343,12 @@ fn build(theme: usize, dark: bool, raised: bool) -> Pal {
         constant: c("syntax-constant"),
         punctuation: c("syntax-punctuation"),
         variable: c("syntax-variable"),
-        parameter: c("text-base"),
+        parameter: v1_text_base,
         // The default theme names no `syntax-info`; Desktop's resolves it to these.
         info: t.try_color("syntax-info").unwrap_or_else(|| rune::color::hex(if dark { "#facffe" } else { "#8c1896" }).unwrap_or(text)),
         operator: c("syntax-operator"),
-        regexp: t.try_color("syntax-regexp").unwrap_or_else(|| c("text-base")),
+        regexp: t.try_color("syntax-regexp").unwrap_or(v1_text_base),
     };
-    let hex = |h: &str| rune::color::hex(h).unwrap_or(text);
     Pal {
         dark,
         theme,
@@ -354,7 +360,12 @@ fn build(theme: usize, dark: bool, raised: bool) -> Pal {
         dim: if themed { c("overlay-simple-overlay-scrim") } else { Color::BLACK.alpha(if dark { 0.5 } else { 0.25 }) },
         switch_thumb: if dark { rune::color::hex("#d9d9d9").unwrap_or(Color::WHITE) } else { Color::WHITE },
         lift: if dark { text } else { Color::WHITE },
-        term_fg: if themed { c("text-stronger") } else { text },
+        // Resolved `oc-2` `--text-stronger` (`terminal.tsx:232`, `themes.json:6,31`): `#171717` light / `#ededed` dark.
+        term_fg: match (themed, dark) {
+            (true, _) => c("text-stronger"),
+            (false, true) => hex("#ededed"),
+            (false, false) => hex("#171717"),
+        },
         diff_add,
         diff_del,
         accent_hover: c("text-text-accent-hover"),
@@ -395,12 +406,8 @@ fn build(theme: usize, dark: bool, raised: bool) -> Pal {
         },
         code: themed.then_some(syntax),
         syntax,
-        // Resolved `oc-2` `--text-base` and `--text-weak` overrides (`oc-2.json:273-274`).
-        v1_text_base: match (themed, dark) {
-            (true, _) => c("text-text-muted"),
-            (false, true) => hex("#a0a0a0"),
-            (false, false) => hex("#6f6f6f"),
-        },
+        // Resolved `oc-2` `--text-base` and `--text-weak` overrides (`oc-2.json:20-21,273-274`).
+        v1_text_base,
         v1_text_weak: match (themed, dark) {
             (true, _) => c("text-text-faint"),
             (false, true) => hex("#707070"),

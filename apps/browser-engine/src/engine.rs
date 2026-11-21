@@ -617,10 +617,8 @@ impl EngineManager {
             HostMsg::HighlightNode { tab_id, backend_node_id } => self.handle_highlight_node(tab_id, backend_node_id),
             HostMsg::CdpCall { tab_id, request_id, method, params, session_id } => {
                 self.set_user_reclaimed(tab_id, false);
-                if let Some(t) = self.tabs.get(&tab_id)
-                    && method.starts_with("Input.")
-                {
-                    t.prompts.agent_input();
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    t.prompts.agent_command(method.starts_with("Input."));
                 }
                 self.handle_cdp_call(tab_id, request_id, method, params, session_id);
             }
@@ -710,9 +708,7 @@ impl EngineManager {
             HostMsg::TypedCdpCall { tab_id, request_id, method, params, session_id, frame_id } => {
                 self.set_user_reclaimed(tab_id, false);
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    if method.starts_with("Input.") {
-                        t.prompts.agent_input();
-                    }
+                    t.prompts.agent_command(method.starts_with("Input."));
                     let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
                     crate::cdp_ledger::handle_typed_cdp_call(
                         tab_id, request_id, not_ready, t, &self.prompt_shared, &self.permissions, &self.next_cdp_id,
@@ -722,6 +718,7 @@ impl EngineManager {
             }
             HostMsg::UploadFiles { tab_id, request_id, backend_node_id, files, session_id, frame_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
+                    t.prompts.agent_command(false);
                     let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
                     crate::agent::handle_upload_files(t, &self.permissions, &self.profile_dir, tab_id, request_id, not_ready, backend_node_id, &files, session_id, frame_id, &self.next_cdp_id, &self.out_tx);
                 }
@@ -1357,7 +1354,7 @@ impl EngineManager {
         let internal_picked = Arc::new(Mutex::new(Vec::new()));
         let pending_clears = Arc::new(Mutex::new(Vec::new()));
         let mut observer = TabCdpObserver::new(
-            tab_id, is_popup, isolated, is_preview, snap.clone(), cdp_id_map.clone(),
+            tab_id, is_popup, isolated, is_preview, preview_grant.clone(), snap.clone(), cdp_id_map.clone(),
             internal_picked.clone(), pending_clears.clone(), cdp_ledger.clone(), passkeys.clone(),
             media_gate.clone(), context_ready, self.prompt_shared.clone(), input_guard.clone(), emulation_scale.clone(),
             self.next_cdp_id.clone(), prompts.clone(), self.permissions.clone(),

@@ -204,19 +204,24 @@ fn stage_files(profile_dir: &Path, host_id: u64, files: &[WireFile]) -> Result<V
             .flat_map(|slot| std::fs::read_dir(slot.path()).into_iter().flatten().flatten())
             .fold((0usize, 0u64), |(n, b), f| (n + 1, b + f.metadata().map_or(0, |m| m.len())))
     });
-    if slots + files.len() > MAX_TAB_UPLOAD_FILES || bytes > MAX_TAB_UPLOAD_BYTES {
-        return Err(format!(
-            "This tab already holds {slots} uploaded files; at most {MAX_TAB_UPLOAD_FILES} (64 MiB) stay staged per tab. Open the page in a new tab to upload more; closing this tab frees its files."
-        ));
-    }
     let mut total_bytes = 0usize;
-    let mut staged = Vec::with_capacity(files.len());
+    let mut decoded = Vec::with_capacity(files.len());
     for file in files {
         let bytes = file.decode_bytes()?;
         total_bytes = total_bytes.saturating_add(bytes.len());
         if total_bytes > MAX_FILE_BYTES {
             return Err("Combined upload files exceed the 5 MiB transfer limit.".into());
         }
+        decoded.push((file, bytes));
+    }
+    // The bytes this upload adds count too, so a tab never holds more than the cap.
+    if slots + files.len() > MAX_TAB_UPLOAD_FILES || bytes + total_bytes as u64 > MAX_TAB_UPLOAD_BYTES {
+        return Err(format!(
+            "This tab already holds {slots} uploaded files; at most {MAX_TAB_UPLOAD_FILES} (64 MiB) stay staged per tab. Open the page in a new tab to upload more; closing this tab frees its files."
+        ));
+    }
+    let mut staged = Vec::with_capacity(files.len());
+    for (file, bytes) in decoded {
         let slot = new_file_id();
         let dir = root.join(host_id.to_string()).join(&slot);
         std::fs::create_dir_all(&dir).map_err(|e| format!("Could not create upload slot dir: {e}"))?;

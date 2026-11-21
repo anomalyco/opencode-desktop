@@ -42,12 +42,15 @@ pub fn shows_whole_prompt() -> bool {
 /// composer, its words where they were typed. Read further up, nothing flies: the timeline cuts
 /// to its end, where the message already stands. A prompt longer than the composer, whose words
 /// start out of sight in it, arrives where it lands instead of flying.
-pub fn land<S: TimelineHost>(s: &S, session: &str, local: &str, from: &str, tx: &mut Tx) {
+pub fn land<S: TimelineHost>(s: &mut S, session: &str, local: &str, from: &str, tx: &mut Tx) {
     if s.ends().at_end(session) {
         if shows_whole_prompt() {
             tx.launch(from, format!("u-{local}/bubble"));
         }
     } else {
+        // Re-attach follow immediately alongside the instant jump so a same-tick settle cannot
+        // snap back to the old scrolled-up anchor (`interaction.ts:183-199`).
+        s.ends_mut().set_at_end(session, true);
         tx.scroll_to_bottom_instant(format!("scroll-{session}"));
     }
 }

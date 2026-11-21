@@ -717,6 +717,20 @@ pub(crate) fn neutral_lift(p: &Pal) -> [Shadow; 4] {
     [Shadow { y, blur, color: p.q.neutral_shadow, ..Shadow::default() }, Pal::ring_out(p.q.neutral_ring), top, Shadow::default()]
 }
 
+/// `--v2-elevation-input` (`packages/ui/src/styles/tokens/theme.css:115-117, 235-238`): identical
+/// to `neutral_lift` in light; in dark, zero drop shadow, a 16% light 0.5px ring, and a 6% light top edge.
+pub(crate) fn input_lift(p: &Pal) -> [Shadow; 4] {
+    if !p.dark {
+        return neutral_lift(p);
+    }
+    [
+        Shadow::default(),
+        Pal::ring_out(Color::WHITE.alpha(0x29 as f32 / 255.0)),
+        Shadow { y: -0.5, color: Color::WHITE.alpha(0x0f as f32 / 255.0), ..Shadow::default() },
+        Shadow::default(),
+    ]
+}
+
 pub(crate) fn ui_direction() -> Direction {
     match opencode_i18n::direction() {
         opencode_i18n::Direction::Ltr => Direction::Ltr,
