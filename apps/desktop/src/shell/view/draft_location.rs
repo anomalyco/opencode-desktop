@@ -41,26 +41,33 @@ pub(in crate::shell::view) fn location(s: &App, p: &Pal, width: f32) -> El {
         .child(text(name.clone()).font(UI).color(p.muted).group_color(p.text).truncate_fade())
         .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted));
     let branch = s.sidebar_inbox.branches.get(dir);
+    let settled = !s.live() || s.sidebar_inbox.branches.settled(dir);
     // `workspace/selector.tsx`: the checkout branch opens the location dialog. Local is a
     // destination in the dialog, not a second button next to the branch.
     let branch = project.filter(|p| project_git(&p.id) || branch.is_some()).map(|project| {
         if s.draft_creates() {
             return crate::new_worktree::trigger(s, p, branch.unwrap_or_else(|| t!("session.location.noBranch")));
         }
-        let label = s.draft_base().or(branch).unwrap_or_else(|| t!("session.location.noBranch"));
+        // Match official `NewSessionLocation` (`new-session/view.tsx:318-357`, `checkout-machine.ts`):
+        // wait for `/api/vcs` to settle before showing "No branch", painting a 48×8 skeleton pill
+        // only if loading exceeds 250 ms.
+        let label = s.draft_base().or(branch).or_else(|| settled.then(|| t!("session.location.noBranch")));
+        let skeleton = label.is_none() && s.sidebar_inbox.branches.skeleton(dir);
+        let a11y = label.unwrap_or_else(|| t!("session.location.worktree"));
         let id = project.id.clone();
         let onboarding = !used();
         let help = if !onboarding { t!("session.location.worktree").to_owned() } else {
             format!("{}\n{}\n{}", t!("workspace.onboarding.title"), t!("workspace.onboarding.description"), t!("session.location.worktree"))
         };
-        trigger("location-branch", label).max_w(220.0).help(help).help_keys(crate::keymap::Bind::LocationSelect.keycaps())
+        trigger("location-branch", a11y).busy(skeleton).max_w(220.0).help(help).help_keys(crate::keymap::Bind::LocationSelect.keycaps())
             .hover(p.hover)
             .press(p.pressed)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 s.open_project_worktrees(&id, tx);
             })
             .child(icon(&ic::BRANCH, 16.0).color(p.icon_muted))
-            .child(text(label.to_owned()).font(UI).color(p.muted).group_color(p.text).truncate_fade())
+            .children(label.map(|l| text(l.to_owned()).dir(rune::Direction::Auto).font(UI).color(p.muted).group_color(p.text).truncate_fade()))
+            .children(skeleton.then(|| el().key("branch-skeleton").size(48.0, 8.0).radius(4.0).fill(p.layer2).a11y_hidden()))
             .children(onboarding.then(|| el().key("workspace-onboarding-dot").size(6.0, 6.0).radius(3.0).fill(p.accent)))
     });
     let pickers = row()

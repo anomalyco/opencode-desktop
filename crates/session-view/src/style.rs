@@ -32,41 +32,50 @@ const THOUGHT: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
 #[allow(clippy::too_many_arguments)]
 pub fn reasoning<S: TimelineHost>(s: &S, p: &Pal, key: &str, body: &str, secs: Option<i64>, live: bool, open: bool, fade: f32) -> El {
     let streaming = live && secs.is_none();
+    let has_details = !body.trim().is_empty();
     let title = if streaming { crate::working::shimmer(s, p, opencode_i18n::t!("ui.sessionTurn.status.thinking"), UI, 0.0) } else { text(opencode_i18n::t!("ui.message.thought")).font(UI).color(p.muted) };
     let subtitle = match (streaming, secs) {
         (false, Some(secs)) => Some(crate::turns::elapsed(secs * 1000)),
         _ => None,
     };
-    let a = el().key("arrow").w(16.0).h(24.0).center().child(arrow(p, open));
+    let label = match (streaming, &subtitle) {
+        (true, _) => opencode_i18n::t!("ui.sessionTurn.status.thinking").to_string(),
+        (false, Some(took)) => format!("{} {took}", opencode_i18n::t!("ui.message.thought")),
+        (false, None) => opencode_i18n::t!("ui.message.thought").to_string(),
+    };
     let trigger = row()
         .key("trigger")
-        .role("button")
         // Its words as official's trigger names itself from them, "Thought 4s": the texts below
         // are then nothing new for a reader, and the tree leaves them out.
-        .label(match (streaming, &subtitle) {
-            (true, _) => opencode_i18n::t!("ui.sessionTurn.status.thinking").to_string(),
-            (false, Some(took)) => format!("{} {took}", opencode_i18n::t!("ui.message.thought")),
-            (false, None) => opencode_i18n::t!("ui.message.thought").to_string(),
-        })
-        .expanded(open)
+        .label(label)
         .busy(streaming)
         .h(28.0)
         .gap(6.0)
         .center_y()
         .radius(4.0)
-        .cursor(rune::Cursor::Pointer)
-        .focus_default(p)
-        .hover_group()
-        // The triangle fades in under the pointer (`collapsible.css:26-29`).
-        .hover_motion(HOVER_FADE, HOVER_FADE)
         // "Thinking" crossfades to "Thought" while the triangle slides over.
         .animate_layout()
-        .on_press_tx(crate::disclosure::set::<S>(key.to_owned(), open, format!("{key}/trigger")))
         .child(title.key(if streaming { "thinking" } else { "thought" }))
-        .children(subtitle.map(|t| text(t).key("subtitle").font(UI.features("'tnum' 1")).color(p.muted).shrink().min_w(0.0).truncate_fade()))
-        .child(if open { a } else { a.group_opacity(0.0, 1.0) });
+        .children(subtitle.map(|t| text(t).key("subtitle").font(UI.features("'tnum' 1")).color(p.muted).shrink().min_w(0.0).truncate_fade()));
+    // Official `ThoughtRow` sets `hideDetails={!props.content.text.trim()}` (`thought.tsx:39`):
+    // an empty thought is neither expandable nor clickable.
+    let trigger = if has_details {
+        let a = el().key("arrow").w(16.0).h(24.0).center().child(arrow(p, open));
+        trigger
+            .role("button")
+            .expanded(open)
+            .cursor(rune::Cursor::Pointer)
+            .focus_default(p)
+            .hover_group_focus()
+            // The triangle fades in under the pointer or keyboard focus (`collapsible.css:26-29`).
+            .hover_motion(HOVER_FADE, HOVER_FADE)
+            .on_press_tx(crate::disclosure::set::<S>(key.to_owned(), open, format!("{key}/trigger")))
+            .child(if open || hover_none() { a } else { a.group_opacity(0.0, 1.0) })
+    } else {
+        trigger.role("group")
+    };
     let mut c = col().w_full().child(trigger);
-    if open && !body.trim().is_empty() {
+    if open && has_details {
         let style = markdown_style(p, p.muted, content_w() - 48.0).body_font(THOUGHT).heading_font(1, THOUGHT).heading_font(2, THOUGHT).heading_font(3, THOUGHT).heading_font(4, THOUGHT);
         let md = markdown_styled::<S, (&[Range<usize>], rune_kit::Highlight)>(p, body, fade, streaming, style, Vec::new(), Vec::new(), None, &[], None, None);
         c = c.child(crate::disclosure::reveal(
