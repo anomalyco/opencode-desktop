@@ -614,9 +614,6 @@ impl BrowserHost {
             frame::draw(node, surface)
                 .surface_anchor(Align::Start, Align::Start)
                 .surface_unscaled(true)
-                .on_focus(move |s: &mut S, focused: bool, _| {
-                    access(s).set_popup_focused(focused);
-                })
                 .on_layout(move |s: &mut S, [_, _, w, h]| {
                     let host = access(s);
                     let width_pt = (w * z).max(POPUP_MIN_W as f32);
@@ -650,15 +647,18 @@ impl BrowserHost {
                     let btn = PointerBtn::from(tx.button());
                     let host = access(s);
                     match d.phase {
-                        Phase::Down => host.send(HostMsg::MouseButton {
-                            tab_id,
-                            x: d.x * z,
-                            y: d.y * z,
-                            button: btn,
-                            up: false,
-                            clicks: d.clicks.clamp(1, 3),
-                            mods,
-                        }),
+                        Phase::Down => {
+                            host.set_popup_focused(true);
+                            host.send(HostMsg::MouseButton {
+                                tab_id,
+                                x: d.x * z,
+                                y: d.y * z,
+                                button: btn,
+                                up: false,
+                                clicks: d.clicks.clamp(1, 3),
+                                mods,
+                            });
+                        }
                         Phase::Move => host.send(HostMsg::MouseMove {
                             tab_id,
                             x: d.x * z,

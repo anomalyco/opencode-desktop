@@ -255,11 +255,20 @@ pub fn poll(app: &mut App) -> bool {
     changed
 }
 
-/// Focuses a newly opened extension popup immediately and restores focus to the page on close.
+/// Focuses a newly opened extension popup immediately, keeps popup focus state synced with Rune's
+/// real focus target, and restores focus to the page on close.
 pub fn poll_popup_focus(app: &mut App, tx: &mut rune::Tx) -> bool {
     if app.workspace_panes.browser.host.take_popup_needs_focus() {
         tx.focus("browser-ext-popup", false);
+        app.workspace_panes.browser.host.set_popup_focused(true);
         return true;
+    }
+    if app.workspace_panes.browser.host.popup_tab_id().is_some() {
+        app.workspace_panes
+            .browser
+            .host
+            .set_popup_focused(tx.focused() == Some("browser-ext-popup"));
+        return false;
     }
     if app.workspace_panes.browser.host.take_popup_refocus_page()
         && tx.focused() == Some("browser-ext-popup")
