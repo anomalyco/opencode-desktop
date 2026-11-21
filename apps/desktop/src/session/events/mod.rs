@@ -565,8 +565,9 @@ impl App {
             "vcs.branch.updated" => {
                 let Some(dir) = data["eventLocation"]["directory"].as_str() else { return false };
                 let branch = data["branch"].as_str().map(str::to_owned);
-                self.sidebar_inbox.branches.updated(dir, branch.clone());
-                crate::view::location_card::branch_updated(self, dir, branch);
+                let server = crate::servers::runtime::active(self).clone();
+                self.sidebar_inbox.branches.updated(&server, dir, branch.clone());
+                crate::view::location_card::branch_updated(self, &server, dir, branch);
                 true
             }
             "permission.asked" | "form.created" => {

@@ -97,6 +97,8 @@ impl HeldPermission {
 
 /// How long the gate's Allow lets the same origin's following CEF media request through.
 const MEDIA_GATE_ALLOW_TTL: std::time::Duration = std::time::Duration::from_secs(10);
+/// Held media-gate requests, and unused Allows, one tab keeps at most.
+const MAX_HELD_MEDIA_GATES: usize = 16;
 
 /// Per-tab held CEF prompt callbacks and agent-driven isolation flag.
 #[derive(Default)]
@@ -149,9 +151,31 @@ fn media_bits(kinds: &[PermissionKind]) -> u32 {
 
 impl TabPrompts {
     /// Holds a gated `getUserMedia` for the bar and asks the app (`EngineMsg::PermissionRequest`).
-    pub fn hold_media_gate(&self, tab_id: u64, prompt: PermissionPrompt, allow_msg: String, deny_msg: String, out_tx: &Output) {
-        self.permissions.lock().unwrap().push(HeldPermission::Gate { prompt: prompt.clone(), allow_msg, deny_msg });
+    /// Returns the deny answer instead once the tab already holds `MAX_HELD_MEDIA_GATES`, so a
+    /// page's loop cannot flood the app with requests.
+    pub fn hold_media_gate(
+        &self,
+        tab_id: u64,
+        prompt: PermissionPrompt,
+        allow_msg: String,
+        deny_msg: String,
+        out_tx: &Output,
+    ) -> Option<String> {
+        {
+            let mut held = self.permissions.lock().unwrap();
+            if held.iter().filter(|p| matches!(p, HeldPermission::Gate { .. })).count() >= MAX_HELD_MEDIA_GATES {
+                return Some(deny_msg);
+            }
+            held.push(HeldPermission::Gate { prompt: prompt.clone(), allow_msg, deny_msg });
+        }
         let _ = out_tx.send(EngineMsg::PermissionRequest { tab_id, request: prompt });
+        None
+    }
+
+    /// Drops every unused Allow of the media gate: a takeover by the agent or a change to the
+    /// site's permissions must not leave one behind for the next 10 s.
+    pub fn clear_media_gate_allows(&self) {
+        self.media_gate_allows.lock().unwrap().clear();
     }
 
     /// Answers queued for the tab's DevTools host (sent by the engine outside any observer callback).
@@ -278,11 +302,13 @@ impl TabPrompts {
         match entry {
             HeldPermission::Gate { prompt, allow_msg, deny_msg } => {
                 if allow {
-                    self.media_gate_allows.lock().unwrap().push((
-                        prompt.origin.clone(),
-                        media_bits(&prompt.kinds),
-                        std::time::Instant::now(),
-                    ));
+                    {
+                        let mut allows = self.media_gate_allows.lock().unwrap();
+                        if allows.len() >= MAX_HELD_MEDIA_GATES {
+                            allows.remove(0);
+                        }
+                        allows.push((prompt.origin.clone(), media_bits(&prompt.kinds), std::time::Instant::now()));
+                    }
                     if let Some(ctx) = req_ctx {
                         for &kind in &prompt.kinds {
                             if effective_persist {

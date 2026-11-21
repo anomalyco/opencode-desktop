@@ -253,6 +253,11 @@ impl<S> Popup<S> {
         self.shown.as_ref().is_some_and(Shown::holds_focus)
     }
 
+    /// The menu showing now is one under an editing field ([`open_with_field`]).
+    pub(super) fn edits(&self) -> bool {
+        self.shown.as_ref().is_some_and(|m| m.search.as_ref().is_some_and(|x| x.field.is_some()))
+    }
+
     /// The element focused as the last [`Menu::remembers_focus`] menu opened: its Edit items
     /// put focus back there before they send their keys.
     pub fn remembered(&self) -> Option<&str> {

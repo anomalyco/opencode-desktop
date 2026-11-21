@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use rune::{Anim, Color, Curve, Easing, El, Spring, SpringPair, TextStyle, Transition, Tx, col, el, icon, text};
 use rune_theme_opencode::icons as ic;
-use session_view::palette::Pal;
+use session_view::palette::{Elevate as _, Pal};
 
 pub use session_view::pickers::AttachmentInput;
 
@@ -196,7 +196,8 @@ pub fn layer(p: &Pal, (w, h): (f32, f32), zone: Dropzone, label: &str, reduced: 
         .size(40.0, 40.0)
         .radius(20.0)
         .fill(card)
-        .shadow(4.0, 12.0, p.shadow)
+        // `shadow-[var(--v2-elevation-floating)]` (`dropzone.tsx:66`).
+        .elevate(p.floating)
         .center()
         .child(icon(&ic::ARROW_UP, 20.0).color(p.icon_muted));
     // Desktop's mask: 0→1 over the outer 25% across and 28% down, the two multiplied.

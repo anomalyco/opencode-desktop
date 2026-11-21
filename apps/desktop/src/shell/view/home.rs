@@ -545,7 +545,7 @@ fn location(s: &App, p: &Pal, ses: &SessionInfo, labels_w: f32, show: bool, inst
         .dir(rune::Direction::Ltr)
         .child(icon(&ic::OUTLINE_WORKTREE, 16.0).color(p.icon_muted))
         .child(text(worktree).font(HOME).color(p.muted).truncate().shrink().min_w(0.0));
-    if let Some(branch) = s.sidebar_inbox.branches.get(&ses.directory) {
+    if let Some(branch) = s.sidebar_inbox.branches.get(crate::servers::runtime::active(s), &ses.directory) {
         l = l.child(icon(&ic::BRANCH, 16.0).color(p.icon_muted)).child(text(branch.to_owned()).font(HOME).color(p.muted).truncate().shrink().min_w(0.0));
     }
     l

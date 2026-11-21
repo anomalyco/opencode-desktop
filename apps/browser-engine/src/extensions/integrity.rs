@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::extensions::manifest::{
-    DISALLOWED_REQUIRED_PERMS, ExtensionManifest, is_valid_ext_id,
+    DISALLOWED_REQUIRED_PERMS, ExtensionManifest, is_valid_ext_id, strip_native_perms_from_manifest,
 };
 
 const MAX_DEPTH: usize = 64;
@@ -55,7 +55,12 @@ pub struct PreparedStartup {
 pub struct VerifiedExtension {
     pub id: String,
     pub sha256: String,
+    /// Original immutable user-approved extension directory (re-hashed on reload).
     pub dir: PathBuf,
+    /// Directory passed to Chromium `Extensions.loadUnpacked` — either `dir` directly, or a
+    /// private per-PID runtime mirror inside `stub_root` whose `manifest.json` has
+    /// [`crate::extensions::manifest::STRIPPED_NATIVE_PERMS`] removed so Chromium C++ never grants them.
+    pub load_dir: PathBuf,
     pub manifest: ExtensionManifest,
 }
 
@@ -313,15 +318,22 @@ fn read_mv3_stub_fields(dir: &Path, expected_id: &str) -> Option<(String, String
 }
 
 /// Cryptographically verifies all startup candidates in parallel (per-file hardware SHA-256),
-/// parsing each manifest directly from the exact hashed `manifest.json` bytes (zero re-read).
-pub fn verify_candidates_parallel(candidates: Vec<ExtensionCandidate>) -> StartupExtensions {
+/// parsing each manifest directly from the exact hashed `manifest.json` bytes (zero re-read) and
+/// staging a sanitized runtime mirror when `STRIPPED_NATIVE_PERMS` are declared.
+pub fn verify_candidates_parallel(
+    candidates: Vec<ExtensionCandidate>,
+    stub_root: Option<&Path>,
+) -> StartupExtensions {
     let mut out = StartupExtensions::default();
     for cand in candidates {
-        if let Some(manifest) = verify_extension_dir_and_manifest(&cand.dir, &cand.id, &cand.sha256) {
+        if let Some((manifest, load_dir)) =
+            verify_extension_dir_and_stage(&cand.dir, &cand.id, &cand.sha256, stub_root)
+        {
             out.verified.push(VerifiedExtension {
                 id: cand.id,
                 sha256: cand.sha256,
                 dir: cand.dir,
+                load_dir,
                 manifest,
             });
         } else {
@@ -331,13 +343,17 @@ pub fn verify_candidates_parallel(candidates: Vec<ExtensionCandidate>) -> Startu
     out
 }
 
-/// Verifies `dir` against `expected_id` and `expected_sha256`, then parses `ExtensionManifest`
-/// directly from the exact hashed `manifest.json` bytes (zero post-verify re-read TOCTOU).
-pub fn verify_extension_dir_and_manifest(
+/// Verifies `dir` against `expected_id` and `expected_sha256`, parses `ExtensionManifest` from
+/// the exact hashed `manifest.json` bytes, and if the manifest declares any of
+/// `STRIPPED_NATIVE_PERMS` (required or optional), stages an inode-isolated, symlink-free runtime
+/// copy under `<stub_root>/_rt/<expected_id>`, verifies the SHA-256 tree digest of the isolated
+/// copy itself (zero post-verify TOCTOU), and replaces only `manifest.json` with the stripped copy.
+pub fn verify_extension_dir_and_stage(
     dir: &Path,
     expected_id: &str,
     expected_sha256: &str,
-) -> Option<ExtensionManifest> {
+    stub_root: Option<&Path>,
+) -> Option<(ExtensionManifest, PathBuf)> {
     if !is_valid_ext_id(expected_id) || !is_hex_sha256(expected_sha256) {
         return None;
     }
@@ -361,7 +377,107 @@ pub fn verify_extension_dir_and_manifest(
     if derive_id_from_manifest_bytes(&manifest_bytes).as_deref() != Some(expected_id) {
         return None;
     }
-    ExtensionManifest::from_verified_bytes(dir, &manifest_bytes)
+    let manifest = ExtensionManifest::from_verified_bytes(dir, &manifest_bytes)?;
+    let (needs_strip, stripped_bytes) = strip_native_perms_from_manifest(&manifest_bytes)?;
+    if !needs_strip {
+        return Some((manifest, dir.to_path_buf()));
+    }
+    let rt_root = stub_root?.join("_rt");
+    let staged = stage_sanitized_mirror(dir, &rt_root, expected_id, expected_sha256, &stripped_bytes)?;
+    Some((manifest, staged))
+}
+
+fn stage_sanitized_mirror(
+    src_root: &Path,
+    rt_root: &Path,
+    ext_id: &str,
+    expected_sha256: &str,
+    stripped_manifest: &[u8],
+) -> Option<PathBuf> {
+    if !is_valid_ext_id(ext_id) {
+        return None;
+    }
+    std::fs::create_dir_all(rt_root).ok()?;
+    let rt_meta = std::fs::symlink_metadata(rt_root).ok()?;
+    if !rt_meta.is_dir() || is_reparse_or_symlink(&rt_meta) {
+        return None;
+    }
+    let dst = rt_root.join(ext_id);
+    if let Ok(m) = std::fs::symlink_metadata(&dst) {
+        if is_reparse_or_symlink(&m) {
+            return None;
+        }
+        std::fs::remove_dir_all(&dst).ok()?;
+    }
+    std::fs::create_dir(&dst).ok()?;
+    let mut entries = 0usize;
+    let mut total_bytes = 0u64;
+    if !mirror_tree(src_root, &dst, 0, &mut entries, &mut total_bytes) {
+        let _ = std::fs::remove_dir_all(&dst);
+        return None;
+    }
+    // Re-hash the private inode-isolated copy BEFORE replacing `manifest.json` so no concurrent
+    // write to `src_root` can slip unverified bytes into the staged tree.
+    let Some((staged_digest, _)) = extension_tree_digest_and_manifest(&dst) else {
+        let _ = std::fs::remove_dir_all(&dst);
+        return None;
+    };
+    if !constant_time_eq(staged_digest.as_bytes(), expected_sha256.to_ascii_lowercase().as_bytes()) {
+        let _ = std::fs::remove_dir_all(&dst);
+        return None;
+    }
+    if std::fs::write(dst.join("manifest.json"), stripped_manifest).is_err() {
+        let _ = std::fs::remove_dir_all(&dst);
+        return None;
+    }
+    Some(dst)
+}
+
+fn mirror_tree(src: &Path, dst: &Path, depth: usize, entries: &mut usize, total_bytes: &mut u64) -> bool {
+    if depth > MAX_DEPTH {
+        return false;
+    }
+    let Ok(rd) = std::fs::read_dir(src) else { return false };
+    for entry in rd {
+        let Ok(entry) = entry else { return false };
+        *entries += 1;
+        if *entries > MAX_ENTRIES {
+            return false;
+        }
+        let Ok(name) = entry.file_name().into_string() else { return false };
+        if depth == 0 && name == "_metadata" {
+            continue;
+        }
+        let from = entry.path();
+        let Ok(meta) = std::fs::symlink_metadata(&from) else { return false };
+        if is_reparse_or_symlink(&meta) {
+            return false;
+        }
+        let to = dst.join(&name);
+        if meta.is_dir() {
+            if std::fs::create_dir(&to).is_err() {
+                return false;
+            }
+            if !mirror_tree(&from, &to, depth + 1, entries, total_bytes) {
+                return false;
+            }
+        } else if meta.is_file() {
+            let sz = meta.len();
+            if sz > MAX_FILE_BYTES {
+                return false;
+            }
+            *total_bytes = total_bytes.saturating_add(sz);
+            if *total_bytes > MAX_TOTAL_BYTES {
+                return false;
+            }
+            if std::fs::copy(&from, &to).is_err() {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+    true
 }
 
 struct FileJob {
