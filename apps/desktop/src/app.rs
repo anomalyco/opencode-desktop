@@ -48,6 +48,9 @@ pub(crate) struct ViewRuns(pub(crate) std::cell::Cell<u64>);
 
 pub(crate) static VIEW_RUNS: opencode_kernel::Slot<ViewRuns> = opencode_kernel::Slot::new();
 
+/// Per-code-block soft-wrap overrides keyed by `"{row_key}:{block_index}"` (the timeline's Wrap button).
+pub(crate) static CODE_WRAP: opencode_kernel::Slot<std::collections::HashMap<String, bool>> = opencode_kernel::Slot::new();
+
 #[derive(Default)]
 pub struct App {
     /// Decoupled shell kernel registries (lifecycle scheduler, tracked feature slots, overlays,
