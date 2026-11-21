@@ -446,6 +446,7 @@ wrap_dev_tools_message_observer! {
         passkeys: Arc<crate::passkeys::TabPasskeyGate>,
         media_gate: Arc<crate::media_gate::TabMediaGate>,
         clipboard_gate: Arc<crate::clipboard_gate::TabClipboardGate>,
+        allowed_ext_ids: Arc<Mutex<Vec<String>>>,
         context_ready: Arc<std::sync::atomic::AtomicBool>,
         prompt_shared: crate::prompts::PromptShared,
         input_guard: Arc<Mutex<crate::input_guard::InputGuard>>,
@@ -960,10 +961,13 @@ impl TabCdpObserver {
     }
 
     /// Authoritative browser-process verdict for `navigator.clipboard.write{Text}` matching
-    /// official `site-permissions.ts:152-157` & `page-prompts.ts:453,468` (READER-7 N5).
+    /// official `site-permissions.ts:152-157`, `page-prompts.ts:453,468`, and
+    /// `policy.ts:95,111,132-135` (READER-7 N5).
     fn answer_clipboard_ask(&self, browser: Option<&Browser>, ask: crate::clipboard_gate::ClipboardAsk) -> String {
+        // Gate on `agent_driven` itself (NOT `agent_owns_dialogs()`): official keeps clipboard
+        // writes refused even after human takeover (`control === "reclaimed"`, `policy.ts:132-135`).
         if self.is_preview
-            || self.prompts.agent_owns_dialogs()
+            || self.prompts.agent_driven.load(std::sync::atomic::Ordering::Acquire)
             || !self.context_ready.load(std::sync::atomic::Ordering::Acquire)
         {
             return ask.deny_msg;
@@ -977,10 +981,13 @@ impl TabCdpObserver {
             .unwrap_or_default();
         let req_raw = ask.origin.as_deref().unwrap_or("");
         if crate::extensions::manifest::is_extension_scheme(req_raw) {
+            let req_id = crate::extensions::manifest::extension_id_from_url(req_raw);
+            let top_id = crate::extensions::manifest::extension_id_from_url(&top_raw);
             let allowed = !self.isolated
-                && crate::extensions::manifest::extension_id_from_url(req_raw).is_some()
-                && crate::extensions::manifest::extension_id_from_url(req_raw)
-                    == crate::extensions::manifest::extension_id_from_url(&top_raw);
+                && self.clipboard_gate.ext_clipboard_write()
+                && req_id.is_some()
+                && req_id == top_id
+                && req_id.is_some_and(|id| self.allowed_ext_ids.lock().unwrap().iter().any(|a| a == id));
             return if allowed { ask.allow_msg } else { ask.deny_msg };
         }
         let top = crate::prompts::origin_of(&top_raw);

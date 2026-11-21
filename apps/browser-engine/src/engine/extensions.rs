@@ -292,12 +292,30 @@ impl EngineManager {
                             }
                         }
                         for t in self.tabs.values() {
-                            t.allowed_ext_ids.lock().unwrap().retain(|id| id != &ext_id);
+                            let mut ids = t.allowed_ext_ids.lock().unwrap();
+                            let had = ids.iter().any(|id| id == &ext_id);
+                            ids.retain(|id| id != &ext_id);
+                            drop(ids);
+                            if had {
+                                for raw in t.clipboard_gate.set_ext_clipboard_write_messages(false) {
+                                    t.host.send_dev_tools_message(Some(raw.as_bytes()));
+                                }
+                            }
                         }
                     }
                     let _ = self.out_tx.send(EngineMsg::ExtensionUninstalled { ext_id, ok, error });
                 }
                 ExtEffect::ExtensionReloaded { ext_id, ok, error } => {
+                    if ok {
+                        let has_cw = self.extensions.as_ref().is_some_and(|e| e.has_clipboard_write(&ext_id));
+                        for t in self.tabs.values() {
+                            if t.allowed_ext_ids.lock().unwrap().iter().any(|id| id == &ext_id) {
+                                for raw in t.clipboard_gate.set_ext_clipboard_write_messages(has_cw) {
+                                    t.host.send_dev_tools_message(Some(raw.as_bytes()));
+                                }
+                            }
+                        }
+                    }
                     let _ = self.out_tx.send(EngineMsg::ExtensionReloaded { ext_id, ok, error });
                 }
                 ExtEffect::NotificationShow { ext_id, ext_name, notif_id, body } => {
@@ -1062,7 +1080,6 @@ impl EngineManager {
         let was = t.prompts.user_reclaimed.swap(reclaimed, Ordering::AcqRel);
         if was != reclaimed && t.prompts.agent_driven.load(Ordering::Acquire) {
             sync_file_choosers(t);
-            sync_clipboard_gate(t);
         }
     }
 
@@ -1191,10 +1208,12 @@ pub(super) fn sync_file_choosers(t: &ManagedTab) {
     }
 }
 
-/// Keeps `TabClipboardGate` aligned with `is_preview || agent_owns_dialogs()` across all live
-/// execution contexts and sessions (official `site-permissions.ts:152-157`, READER-7 N5).
+/// Keeps `TabClipboardGate` aligned with `is_preview || agent_driven` across all live
+/// execution contexts and sessions (official `site-permissions.ts:152-157`, `policy.ts:132-135`,
+/// READER-7 N5). Deliberately ignores `user_reclaimed` so human takeover never re-enables page
+/// clipboard writes on an agent-driven tab.
 pub(super) fn sync_clipboard_gate(t: &ManagedTab) {
-    let blocked = t.preview.is_some() || t.prompts.agent_owns_dialogs();
+    let blocked = t.preview.is_some() || t.prompts.agent_driven.load(Ordering::Acquire);
     for raw in t.clipboard_gate.set_blocked_messages(blocked) {
         t.host.send_dev_tools_message(Some(raw.as_bytes()));
     }

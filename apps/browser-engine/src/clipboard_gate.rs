@@ -1,5 +1,5 @@
-//! Per-tab clipboard write gate matching official `site-permissions.ts:152-157` &
-//! `page-prompts.ts:453,468` (READER-7 N5).
+//! Per-tab clipboard write gate matching official `site-permissions.ts:152-157`,
+//! `page-prompts.ts:453,468`, and `policy.ts:95,111,132-135` (READER-7 N5).
 //!
 //! Chromium's Chrome runtime auto-grants `clipboard-sanitized-write` on user activation without
 //! invoking CEF's `on_show_permission_prompt`, so an agent's synthetic click (`Input.dispatch*`)
@@ -7,13 +7,19 @@
 //! `navigator.clipboard.write()`, or `document.execCommand("copy"|"cut")`.
 //!
 //! Parity contract:
-//! - Agent-driven tabs (`agent_driven && !user_reclaimed`) and preview tabs (`is_preview`):
-//!   every clipboard write is refused (`NotAllowedError` / `execCommand -> false` / `copy`/`cut`
-//!   cancelled / `permissions.query({ name: "clipboard-write" }) -> "denied"`). Preview tabs also
-//!   disable `BrowserSettings.javascript_access_clipboard` & `javascript_dom_paste` in Blink C++.
-//! - Human-driven tabs (`!is_preview && !agent_owns_dialogs()`): same-origin trustworthy contexts
+//! - Agent-driven tabs (`agent_driven == true`, staying refused even after human takeover /
+//!   `user_reclaimed`, matching official `policy.ts:132-135`) and preview tabs (`is_preview`):
+//!   every page clipboard write is refused (`NotAllowedError` / `execCommand -> false` /
+//!   `permissions.query({ name: "clipboard-write" }) -> "denied"`). Tabs born `agent_driven` or
+//!   `is_preview` also disable `BrowserSettings.javascript_access_clipboard` &
+//!   `javascript_dom_paste` in Blink C++. Capture-phase `copy`/`cut` listeners call
+//!   `stopImmediatePropagation()` ONLY (never `preventDefault()`), so the person's own `Ctrl+C` /
+//!   right-click Copy still copies the selected text while page `copy` listeners cannot poison
+//!   `ev.clipboardData`.
+//! - Human-driven tabs (`!is_preview && !agent_driven`): same-origin trustworthy contexts
 //!   (`https:` or loopback) work as in Chrome; cross-origin frames and insecure origins are refused.
-//! - Extension popups (`is_popup`): untouched (manifest-governed `clipboardWrite` stays intact).
+//! - Extension pages and popups: allowed iff the extension declared `"clipboardWrite"` in its
+//!   manifest (and the tab is non-isolated, non-preview, non-agent-driven).
 //! - Clipboard reads remain separately gated by `TabPermissionHandler::on_show_permission_prompt`
 //!   (`CEF_PERMISSION_TYPE_CLIPBOARD` -> `PermissionKind::ClipboardRead`) and inherited-grant checks.
 
@@ -24,14 +30,15 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-/// Internal CDP message ID range owned by `TabClipboardGate` (above `TabMediaGate`'s
-/// `1_550_000_000`, below `frame_authority::INTERNAL_ID_BASE = 1_600_000_000`).
+/// Internal CDP message ID range owned by `TabClipboardGate` (disjoint above
+/// `TabPasskeyGate` `1_500_000_000..1_550_000_000` and `TabMediaGate`
+/// `1_550_000_000..1_575_000_000`, below `frame_authority::INTERNAL_ID_BASE = 1_600_000_000`).
 pub const CLIPBOARD_GATE_ID_BASE: i32 = 1_575_000_000;
 
 /// Builds `BrowserSettings` for a pane tab, permanently disabling Blink C++
-/// `javascript_access_clipboard` & `javascript_dom_paste` on preview tabs (N5).
-pub fn browser_settings(background_color: u32, is_preview: bool) -> cef::BrowserSettings {
-    let clip = if is_preview {
+/// `javascript_access_clipboard` & `javascript_dom_paste` on tabs born preview or agent-driven (N5).
+pub fn browser_settings(background_color: u32, disable_js_clipboard: bool) -> cef::BrowserSettings {
+    let clip = if disable_js_clipboard {
         cef::sys::cef_state_t::STATE_DISABLED
     } else {
         cef::sys::cef_state_t::STATE_DEFAULT
@@ -52,21 +59,27 @@ pub fn browser_settings(background_color: u32, is_preview: bool) -> cef::Browser
 /// - `answer` and `sync_fn` are defined non-writable, non-configurable, non-enumerable, and
 ///   require `tok === secret`, so page JS cannot forge an allow or unblock even after inspecting
 ///   `Object.getOwnPropertyNames(globalThis)`.
-/// - Wraps `Clipboard.prototype.{writeText,write}`, `Document.prototype.execCommand`, `copy`/`cut`
-///   events, and `Permissions.prototype.query("clipboard-write")` unconditionally (never fails open
-///   even if `binding` is absent in a synthetic `about:blank` frame).
+/// - `isSameOriginTop` and `isTrustworthy` are frozen ONCE at IIFE boot before page JS runs,
+///   defending against `Object.defineProperty(window, "isSecureContext" | "origin", ...)` spoofing.
+/// - Binding payloads are built with string concatenation (`'{"id":' + id + '}'`), avoiding
+///   `JSON.stringify` / `Object.prototype.toJSON` tampering.
+/// - Capture-phase `copy`/`cut` listeners call `stopImmediatePropagation()` ONLY (never
+///   `preventDefault()`), preserving human `Ctrl+C` / right-click Copy selection copying while
+///   preventing page listeners from overwriting `ev.clipboardData`.
 pub fn clipboard_gate_script(
     binding: &str,
     answer: &str,
     sync_fn: &str,
     secret: &str,
     initial_blocked: bool,
+    ext_clipboard_write: bool,
 ) -> String {
     let binding_json = serde_json::to_string(binding).unwrap_or_else(|_| "\"_cb\"".to_owned());
     let answer_json = serde_json::to_string(answer).unwrap_or_else(|_| "\"_ca\"".to_owned());
     let sync_json = serde_json::to_string(sync_fn).unwrap_or_else(|_| "\"_cs\"".to_owned());
     let secret_json = serde_json::to_string(secret).unwrap_or_else(|_| "\"_ck\"".to_owned());
     let init_js = if initial_blocked { "true" } else { "false" };
+    let ext_js = if ext_clipboard_write { "true" } else { "false" };
     format!(
         r#"(() => {{
   "use strict"
@@ -76,7 +89,7 @@ pub fn clipboard_gate_script(
     try {{ delete globalThis[{binding_json}] }} catch {{}}
   }}
   if (Object.getOwnPropertyDescriptor(globalThis, {sync_json})) {{
-    try {{ globalThis[{sync_json}]({init_js}, secret) }} catch {{}}
+    try {{ globalThis[{sync_json}]({init_js}, {ext_js}, secret) }} catch {{}}
     return
   }}
   const apply = Reflect.apply
@@ -94,14 +107,40 @@ pub fn clipboard_gate_script(
   const promiseThen = Promise.prototype.then
   const promiseReject = Promise.reject.bind(Promise)
   const DomExc = DOMException
-  const jsonStringify = JSON.stringify
   const addListener = EventTarget.prototype.addEventListener
   const stopImm = Event.prototype.stopImmediatePropagation
-  const preventDef = Event.prototype.preventDefault
   const waiting = new MapCtor()
   let next = 0
   let blocked = {init_js}
+  let extWriteAllowed = {ext_js}
   const denied = () => new DomExc("Write permission denied.", "NotAllowedError")
+
+  // Freeze frame-origin and secure-context checks ONCE at document boot (before page JS can
+  // redefine configurable `window.isSecureContext` or `[Replaceable]` `window.origin`).
+  const isSameOriginTop = (() => {{
+    try {{
+      if (globalThis.top === globalThis) return true
+      return globalThis.top.origin === globalThis.origin && globalThis.origin !== "null"
+    }} catch {{
+      return false
+    }}
+  }})()
+
+  const isExtPage = (() => {{
+    try {{
+      return !!(globalThis.location && globalThis.location.protocol === "chrome-extension:")
+    }} catch {{
+      return false
+    }}
+  }})()
+
+  const isSecureWeb = (() => {{
+    try {{
+      return !isExtPage && globalThis.isSecureContext === true
+    }} catch {{
+      return false
+    }}
+  }})()
 
   define(globalThis, {answer_json}, {{
     value: (id, allowed, tok) => {{
@@ -117,35 +156,17 @@ pub fn clipboard_gate_script(
   }})
 
   define(globalThis, {sync_json}, {{
-    value: (nextBlocked, tok) => {{
+    value: (nextBlocked, nextExtAllowed, tok) => {{
       if (tok !== secret) return
       blocked = nextBlocked === true
+      if (typeof nextExtAllowed === "boolean") extWriteAllowed = nextExtAllowed
     }},
     writable: false,
     configurable: false,
     enumerable: false,
   }})
 
-  const sameOriginTop = () => {{
-    try {{
-      if (globalThis.top === globalThis) return true
-      return globalThis.top.origin === globalThis.origin && globalThis.origin !== "null"
-    }} catch {{
-      return false
-    }}
-  }}
-
-  const trustworthy = () => {{
-    try {{
-      const proto = globalThis.location && globalThis.location.protocol
-      if (proto === "chrome-extension:") return true
-      return globalThis.isSecureContext === true
-    }} catch {{
-      return false
-    }}
-  }}
-
-  const canWriteSync = () => !blocked && sameOriginTop() && trustworthy()
+  const canWriteSync = () => !blocked && isSameOriginTop && (isExtPage ? extWriteAllowed : isSecureWeb)
 
   const clipProto = globalThis.Clipboard && Clipboard.prototype
   if (clipProto) {{
@@ -160,7 +181,7 @@ pub fn clipboard_gate_script(
           const p = new PromiseCtor((resolve) => {{
             const id = ++next
             apply(mapSet, waiting, [id, resolve])
-            ask(jsonStringify({{ id }}))
+            ask('{{"id":' + id + '}}')
           }})
           return apply(promiseThen, p, [
             (allowed) => (allowed ? apply(target, self, args) : promiseReject(denied())),
@@ -191,12 +212,13 @@ pub fn clipboard_gate_script(
     define(docProto, "execCommand", {{ value: wrappedExec, writable: true, configurable: true, enumerable: true }})
   }}
 
+  // Block page `copy`/`cut` listeners from hijacking `ev.clipboardData` while blocked, WITHOUT
+  // calling `preventDefault()` so the person's own Ctrl+C / right-click Copy still copies selection.
   for (const evName of ["copy", "cut"]) {{
     apply(addListener, globalThis, [
       evName,
       (ev) => {{
-        if (blocked) {{
-          try {{ apply(preventDef, ev, []) }} catch {{}}
+        if (!canWriteSync()) {{
           try {{ apply(stopImm, ev, []) }} catch {{}}
         }}
       }},
@@ -263,9 +285,10 @@ struct ContextState {
 }
 
 pub struct TabClipboardGate {
-    is_popup: bool,
+    pass_through_popup: bool,
     is_preview: bool,
     blocked: AtomicBool,
+    ext_clipboard_write: AtomicBool,
     generation: AtomicU64,
     binding: String,
     answer: String,
@@ -276,11 +299,16 @@ pub struct TabClipboardGate {
 }
 
 impl TabClipboardGate {
-    pub fn new(is_popup: bool, is_preview: bool, agent_driven: bool) -> Self {
+    pub fn new(is_popup: bool, is_preview: bool, agent_driven: bool, ext_clipboard_write: bool) -> Self {
+        // Extension popups that explicitly declared `"clipboardWrite"` (e.g. Bitwarden) pass
+        // through without page-side wrapping; popups without `"clipboardWrite"` stay gated.
+        let pass_through_popup = is_popup && ext_clipboard_write && !is_preview && !agent_driven;
+        let initially_blocked = !pass_through_popup && (is_preview || agent_driven || (is_popup && !ext_clipboard_write));
         Self {
-            is_popup,
+            pass_through_popup,
             is_preview,
-            blocked: AtomicBool::new(!is_popup && (is_preview || agent_driven)),
+            blocked: AtomicBool::new(initially_blocked),
+            ext_clipboard_write: AtomicBool::new(ext_clipboard_write),
             generation: AtomicU64::new(0),
             binding: crate::passkeys::random_token(),
             answer: crate::passkeys::random_token(),
@@ -289,6 +317,10 @@ impl TabClipboardGate {
             next_id: AtomicI32::new(0),
             state: Mutex::new(ContextState::default()),
         }
+    }
+
+    pub fn ext_clipboard_write(&self) -> bool {
+        self.ext_clipboard_write.load(Ordering::Acquire)
     }
 
     fn build_cdp(&self, method: &str, params: Value, session_id: Option<&str>) -> (i32, String) {
@@ -301,7 +333,8 @@ impl TabClipboardGate {
     }
 
     fn add_script_msg(&self, session_id: Option<&str>, blocked: bool, epoch: u64, run_immediately: bool) -> String {
-        let source = clipboard_gate_script(&self.binding, &self.answer, &self.sync_fn, &self.secret, blocked);
+        let ext_ok = self.ext_clipboard_write.load(Ordering::Acquire);
+        let source = clipboard_gate_script(&self.binding, &self.answer, &self.sync_fn, &self.secret, blocked, ext_ok);
         let (id, msg) = self.build_cdp(
             "Page.addScriptToEvaluateOnNewDocument",
             json!({ "source": source, "runImmediately": run_immediately }),
@@ -326,10 +359,11 @@ impl TabClipboardGate {
     fn sync_context_msg(&self, blocked: bool, context_id: i64, session_id: Option<&str>) -> String {
         let sync_json = serde_json::to_string(&self.sync_fn).unwrap_or_else(|_| "\"\"".to_owned());
         let secret_json = serde_json::to_string(&self.secret).unwrap_or_else(|_| "\"\"".to_owned());
+        let ext_ok = self.ext_clipboard_write.load(Ordering::Acquire);
         self.build_cdp(
             "Runtime.evaluate",
             json!({
-                "expression": format!("globalThis[{sync_json}]?.({blocked}, {secret_json})"),
+                "expression": format!("globalThis[{sync_json}]?.({blocked}, {ext_ok}, {secret_json})"),
                 "contextId": context_id,
             }),
             session_id,
@@ -352,40 +386,58 @@ impl TabClipboardGate {
     }
 
     /// Installs the hidden binding and page-side clipboard gate on root (`None`) or a paused web
-    /// OOPIF session (`Some(sid)`). No-op for extension popups.
+    /// OOPIF session (`Some(sid)`). No-op for extension popups with declared `"clipboardWrite"`.
     pub fn attach_messages(&self, session_id: Option<&str>) -> Vec<String> {
-        if self.is_popup {
+        if self.pass_through_popup {
             return Vec::new();
         }
         let blocked = self.blocked.load(Ordering::Acquire);
         let epoch = self.generation.load(Ordering::Acquire);
         vec![
-            self.binding_msg(session_id).expect("non-popup binding"),
+            self.binding_msg(session_id).expect("gated binding"),
             self.add_script_msg(session_id, blocked, epoch, true),
         ]
     }
 
     /// `Runtime.addBinding` for the wrapper's channel. Re-sent after any `Runtime.disable`.
     pub fn binding_msg(&self, session_id: Option<&str>) -> Option<String> {
-        if self.is_popup {
+        if self.pass_through_popup {
             return None;
         }
         Some(self.build_cdp("Runtime.addBinding", json!({ "name": self.binding }), session_id).1)
     }
 
-    /// Updates the tab's blocked state (`is_preview || agent_owns_dialogs()`), returning CDP
-    /// messages that immediately update every live execution context AND replace each session's
+    /// Updates the tab's blocked state (`is_preview || agent_driven`), sticky once `true` for the
+    /// life of the tab (matching official `policy.ts:132-135`), returning CDP messages that
+    /// immediately update every live execution context AND replace each session's
     /// `Page.addScriptToEvaluateOnNewDocument` script for future navigations and `about:blank`
     /// child iframes.
     pub fn set_blocked_messages(&self, next_blocked: bool) -> Vec<String> {
-        if self.is_popup {
+        if self.pass_through_popup {
             return Vec::new();
         }
-        let effective = self.is_preview || next_blocked;
-        let prev = self.blocked.swap(effective, Ordering::AcqRel);
+        let prev = self.blocked.load(Ordering::Acquire);
+        let effective = prev || self.is_preview || next_blocked;
         if prev == effective {
             return Vec::new();
         }
+        self.blocked.store(effective, Ordering::Release);
+        self.broadcast_state(effective)
+    }
+
+    /// Updates `ext_clipboard_write` (e.g. on extension reload/uninstall) and re-syncs live contexts.
+    pub fn set_ext_clipboard_write_messages(&self, ext_allowed: bool) -> Vec<String> {
+        if self.pass_through_popup {
+            return Vec::new();
+        }
+        let prev = self.ext_clipboard_write.swap(ext_allowed, Ordering::AcqRel);
+        if prev == ext_allowed {
+            return Vec::new();
+        }
+        self.broadcast_state(self.blocked.load(Ordering::Acquire))
+    }
+
+    fn broadcast_state(&self, effective: bool) -> Vec<String> {
         let epoch = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
         let (contexts, sessions, old_scripts): (Vec<(String, i64)>, Vec<String>, Vec<(String, String)>) = {
             let mut st = self.state.lock().unwrap();
@@ -395,12 +447,10 @@ impl TabClipboardGate {
             (contexts, sessions, old_scripts)
         };
         let mut out = Vec::with_capacity(contexts.len() + sessions.len() + old_scripts.len());
-        // Update every live context synchronously first (FIFO ahead of any subsequent Input.*).
         for (sid, ctx_id) in contexts {
             let sess = (!sid.is_empty()).then_some(sid.as_str());
             out.push(self.sync_context_msg(effective, ctx_id, sess));
         }
-        // Replace each session's new-document script so future navigations and iframes boot with `effective`.
         for (sid, ident) in old_scripts {
             let sess = (!sid.is_empty()).then_some(sid.as_str());
             out.push(self.remove_script_msg(sess, &ident));
@@ -450,7 +500,7 @@ impl TabClipboardGate {
         params: &Value,
         session_id: Option<&str>,
     ) -> (bool, Vec<String>, Option<ClipboardAsk>) {
-        if self.is_popup {
+        if self.pass_through_popup {
             return (false, Vec::new(), None);
         }
         let sid = session_id.unwrap_or("").to_owned();
@@ -473,7 +523,6 @@ impl TabClipboardGate {
                 {
                     let origin = ctx["origin"].as_str().unwrap_or("").to_owned();
                     self.state.lock().unwrap().contexts.insert((sid.clone(), id), origin);
-                    // Close any brief race if a context spun up while a generation swap was in flight.
                     if self.generation.load(Ordering::Acquire) > 0 {
                         let sess = session_id.filter(|s| !s.is_empty());
                         sync.push(self.sync_context_msg(self.blocked.load(Ordering::Acquire), id, sess));

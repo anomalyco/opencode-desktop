@@ -1270,7 +1270,7 @@ impl EngineManager {
         win_info.shared_texture_enabled = i32::from(shared_texture);
         win_info.external_begin_frame_enabled = 0;
 
-        let browser_settings = crate::clipboard_gate::browser_settings(BASE_COLOR, is_preview);
+        let browser_settings = crate::clipboard_gate::browser_settings(BASE_COLOR, is_preview || agent_driven);
 
         // Hard fail-closed invariant: an isolated or preview tab must NEVER open without a
         // dedicated `CefRequestContext` (falling back to `None` would open it inside `Default`).
@@ -1345,13 +1345,14 @@ impl EngineManager {
         let cdp_ledger = Arc::new(Mutex::new(crate::cdp_ledger::EngineCdpLedger::default()));
         let passkeys = Arc::new(crate::passkeys::TabPasskeyGate::new(tab_id, agent_driven));
         let media_gate = Arc::new(crate::media_gate::TabMediaGate::new());
-        let clipboard_gate = Arc::new(crate::clipboard_gate::TabClipboardGate::new(is_popup, is_preview, agent_driven));
+        let ext_cw = is_allowed_ext_url.as_deref().is_some_and(|id| self.extensions.as_ref().is_some_and(|e| e.has_clipboard_write(id)));
+        let clipboard_gate = Arc::new(crate::clipboard_gate::TabClipboardGate::new(is_popup, is_preview, agent_driven, ext_cw));
         let internal_picked = Arc::new(Mutex::new(Vec::new()));
         let pending_clears = Arc::new(Mutex::new(Vec::new()));
         let mut observer = TabCdpObserver::new(
             tab_id, is_popup, isolated, is_preview, preview_grant.clone(), snap.clone(), cdp_id_map.clone(),
             internal_picked.clone(), pending_clears.clone(), cdp_ledger.clone(), passkeys.clone(),
-            media_gate.clone(), clipboard_gate.clone(), context_ready, self.prompt_shared.clone(), input_guard.clone(), emulation_scale.clone(),
+            media_gate.clone(), clipboard_gate.clone(), allowed_ext_ids.clone(), context_ready, self.prompt_shared.clone(), input_guard.clone(), emulation_scale.clone(),
             self.next_cdp_id.clone(), prompts.clone(), self.permissions.clone(),
             self.extensions.is_some(), self.events.clone(), self.out_tx.clone(),
         );

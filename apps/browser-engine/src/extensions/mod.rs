@@ -495,6 +495,10 @@ impl ExtensionHost {
             .collect()
     }
 
+    pub fn has_clipboard_write(&self, ext_id: &str) -> bool {
+        self.extensions.get(ext_id).is_some_and(|e| e.manifest.has_permission("clipboardWrite"))
+    }
+
     pub fn action_snapshot(&self, ext_id: &str) -> Option<ExtensionActionSnapshot> {
         let ext = self.extensions.get(ext_id)?;
         let active_tid = self.active_chromium_tab_id_for(ext_id);
