@@ -220,7 +220,10 @@ pub(super) fn authorized_matches(expected: Option<&TargetMeta>, key: &str, resou
     let mut want_res = want.resources.clone();
     want_res.sort();
     want_res.dedup();
-    want.key == key && want_res == resources
+    let mut have_res = resources.to_vec();
+    have_res.sort();
+    have_res.dedup();
+    want.key == key && want_res == have_res
 }
 
 pub(super) fn wire_file_from_capture(att: &SessionAttachment, host_id: u64, file_id: &str) -> Result<WireFile, String> {

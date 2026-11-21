@@ -116,7 +116,7 @@ pub(in super::super) fn ingest_cdp_event(att: &mut SessionAttachment, ev: &brows
         att.record_recording_url(ev.tab_id, url);
         return;
     }
-    if ev.method == "Target.attachedToTarget"
+    if matches!(ev.method.as_str(), "Target.attachedToTarget" | "Target.targetInfoChanged")
         && let Some(url) = ev.params.get("targetInfo").and_then(|t| t.get("url")).and_then(Value::as_str)
     {
         att.record_recording_url(ev.tab_id, url);

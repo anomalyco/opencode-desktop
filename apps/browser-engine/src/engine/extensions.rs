@@ -394,6 +394,7 @@ impl EngineManager {
             prompts.clone(),
             Arc::new(Mutex::new(crate::input_guard::InputGuard::default())),
             Arc::new(std::sync::atomic::AtomicU32::new(1.0f32.to_bits())),
+            self.next_cdp_id.clone(),
             self.permissions.clone(),
             None,
             diagnostics,

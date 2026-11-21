@@ -1146,6 +1146,7 @@ impl EngineManager {
             prompts.clone(),
             input_guard.clone(),
             emulation_scale.clone(),
+            self.next_cdp_id.clone(),
             self.permissions.clone(),
             scope_id,
             diagnostics,

@@ -914,7 +914,8 @@ impl TabCdpObserver {
         self.prompts.trace_pid.store(0, std::sync::atomic::Ordering::Release);
         self.prompt_shared.release_trace(self.tab_id);
         if end_chromium {
-            let msg = serde_json::json!({ "id": crate::frame_authority::INTERNAL_ID_BASE + 1, "method": "Tracing.end", "params": {} }).to_string();
+            let id = self.next_cdp_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let msg = serde_json::json!({ "id": id, "method": "Tracing.end", "params": {} }).to_string();
             self.send_all(browser, vec![msg]);
         }
     }

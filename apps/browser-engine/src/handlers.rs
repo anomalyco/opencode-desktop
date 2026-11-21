@@ -745,6 +745,7 @@ wrap_request_handler! {
         prompts: Arc<crate::prompts::TabPrompts>,
         input_guard: Arc<Mutex<crate::input_guard::InputGuard>>,
         emulation_scale: Arc<std::sync::atomic::AtomicU32>,
+        next_cdp_id: Arc<std::sync::atomic::AtomicI32>,
         permissions: Arc<crate::permissions::PermissionTracker>,
         context_scope_id: Option<String>,
         diagnostics: Arc<crate::diagnostics::TabDiagnostics>,
@@ -1122,7 +1123,8 @@ wrap_request_handler! {
             if self.prompt_shared.release_trace(self.tab_id)
                 && let Some(host) = browser.and_then(|b| b.host())
             {
-                let msg = serde_json::json!({ "id": crate::frame_authority::INTERNAL_ID_BASE + 1, "method": "Tracing.end", "params": {} }).to_string();
+                let id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
+                let msg = serde_json::json!({ "id": id, "method": "Tracing.end", "params": {} }).to_string();
                 host.send_dev_tools_message(Some(msg.as_bytes()));
             }
             self.emulation_scale.store(1.0f32.to_bits(), Ordering::Release);
