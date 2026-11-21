@@ -348,6 +348,7 @@ impl BrowserHost {
     /// previews always run in a fresh isolated preview context.
     pub fn reopen_tab_as_web(&mut self, tab_id: u64, url: &str, mut context: ContextKind) {
         self.preview_chunk_budget.cancel_tab(tab_id);
+        self.cancel_download_save_requests(tab_id);
         let focused = self.focused_tab == Some(tab_id);
         let connected = self.is_connected();
         let ready = self.engine_caps_known();
@@ -363,6 +364,7 @@ impl BrowserHost {
             t.preview_spec = None;
             t.context = context.clone();
             t.file_roots.clear();
+            t.files.clear();
             t.load_error = None;
             t.engine_confirmed = false;
             t.prompts.reset_for_context_switch();
@@ -421,6 +423,7 @@ impl BrowserHost {
     /// Replaces the CEF browser behind `tab_id` with a fresh isolated preview context.
     pub fn reopen_tab_as_preview(&mut self, tab_id: u64, display_url: &str, spec: PreviewSpec) {
         self.preview_chunk_budget.cancel_tab(tab_id);
+        self.cancel_download_save_requests(tab_id);
         let focused = self.focused_tab == Some(tab_id);
         let connected = self.is_connected();
         let ready = self.engine_caps_known();
@@ -433,6 +436,7 @@ impl BrowserHost {
             t.preview_spec = Some(spec.clone());
             t.context = ctx_kind.clone();
             t.file_roots.clear();
+            t.files.clear();
             t.url = display_url.to_owned();
             t.loading = true;
             t.load_error = None;

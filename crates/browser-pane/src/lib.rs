@@ -17,6 +17,7 @@ pub mod address;
 #[cfg(feature = "engine")]
 mod background;
 mod client;
+pub mod cookies;
 pub mod device;
 #[cfg(feature = "engine")]
 mod download;
@@ -71,13 +72,20 @@ pub use policy::{
 };
 #[cfg(feature = "engine")]
 pub use profile::shared_profile_dir;
+pub use cookies::{
+    BrowserEngineKind, BrowserProfileInfo, BrowserSource, CookieHost, CookieRead, ImportFailure,
+    ImportResult, ProfileEvent, ProfileSite, SiteList, SiteListOrder,
+};
 pub use protocol::CursorKind;
 pub use protocol::{
-    AuthChallenge, ContextKind, ContextMenuCommand, DialogKind, DownloadFile, DownloadState,
-    ExtensionActionSnapshot, PageContextMenu, PageDialog, PermissionKind, PermissionPrompt,
-    PreviewKindTag, PreviewSpec, RemoteProxyConfig,
+    AuthChallenge, ContextKind, ContextMenuCommand, CookieSameSite, DialogKind, DownloadFile,
+    DownloadSaveRequest, DownloadState, ExtensionActionSnapshot, PageContextMenu, PageDialog,
+    PermissionKind, PermissionPrompt, PreviewKindTag, PreviewSpec, RemoteProxyConfig, WireCookie,
 };
 pub use preview::{PreviewFetchRequest, PreviewResponder};
 pub use protocol::PickedElement;
-pub use prompts::{PermissionDecision, PermissionStore, SiteDecision, SitePermissions, SiteSetting, TabDriver};
+pub use prompts::{
+    BlockedGuardReason, PermissionDecision, PermissionStore, SiteDecision, SitePermissions,
+    SiteSetting, TabDriver,
+};
 pub use site_zoom::ZoomStore;

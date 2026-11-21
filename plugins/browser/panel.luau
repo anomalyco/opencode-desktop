@@ -166,6 +166,19 @@ local function display(url: string, availWidth: number): ui.Node
     end
     local scheme, host, rest = address.parts(url)
     if host == "" then
+        if scheme ~= "" then
+            -- Official `bar.css:89-105`: `file:///` in faint color, file path in strong chrome color.
+            local prefix = scheme
+            local tail = rest
+            if string.lower(scheme) == "file://" and string.sub(tail, 1, 1) == "/" then
+                prefix = `{scheme}/`
+                tail = string.sub(tail, 2)
+            end
+            return ui.row({ key = "browser-address-url", dir = "ltr", grow = 1, shrink = true, minW = 0, align = "center" }, {
+                text(prefix, "text-faint"),
+                text(tail, "text-chrome", { truncate = true, shrink = true, minW = 0 }),
+            })
+        end
         return text(url, "text-chrome", { truncate = true, shrink = true, minW = 0 })
     end
     local items: { ui.Node } = {}
@@ -190,41 +203,19 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
     local zoomed = page ~= "" and math.abs(zoom - 1) > 0.001
     local items: { ui.Node } = {}
     if site then
-        local siteIcon: IconName = if previewKind then "folder" else "outline-sliders"
         local siteTip = if previewKind then env.I18n:T(previewLabelKey(previewKind)) else env.I18n:T("site.info")
         -- Site information opens 10 left of the button (`shift={-10}`), from a mark there.
         table.insert(items, ui.box({ key = "browser-site-frame" }, {
-            siteButton(view, siteIcon, siteTip, env.siteOpen(), function()
+            siteButton(view, "outline-sliders", siteTip, env.siteOpen(), function()
                 env.act("site", tab)
             end),
             ui.box({ key = "browser-site-anchor", pin = { left = -10, top = 0, bottom = 0 }, w = 1 }),
         }))
-        if previewKind then
-            table.insert(items, ui.row({
-                key = "browser-preview-badge",
-                h = 18,
-                px = 6,
-                radius = 4,
-                border = "border-base",
-                borderWidth = 0.5,
-                fill = "surface-2",
-                align = "center",
-            }, {
-                ui.text(env.I18n:T(previewLabelKey(previewKind)), {
-                    size = 11,
-                    weight = "medium",
-                    lineHeight = 14,
-                    noWrap = true,
-                    color = "text-muted",
-                }),
-            }))
-        end
     else
         table.insert(items, ui.icon("outline-globe", { size = 16, color = "icon-weak" }))
     end
     local body: { ui.Node } = {}
-    local badgeW = if site and previewKind then 108 else 0
-    local textAvail = math.max(80, fieldWidth - 44 - badgeW - (if zoomed then 48 else 0))
+    local textAvail = math.max(80, fieldWidth - 44 - (if zoomed then 48 else 0))
     if bar.editing then
         table.insert(body, ui.field({
             key = "browser-address-input",
@@ -374,8 +365,8 @@ local function bar(env: Env, view: View, tab: BrowserTab, state: address.View, w
             field(env, view, tab, state, tab:Zoom(), fieldW),
             ui.row({ align = "center", gap = 4 }, rightControls),
         }),
-        -- `border-b-[0.5px]`: one device pixel at half the colour.
-        ui.col({ w = "full", h = 1, fill = "border-weak", opacity = 0.5 }),
+        -- `border-b-[0.5px] border-v2-border-border-muted` (`panel.tsx:938`): Chromium clamps 0.5px to 1 device px at full colour.
+        ui.col({ w = "full", h = 1, fill = "border-weak" }),
     })
 end
 
@@ -422,7 +413,11 @@ function panel.row(view: View, key: string, visit: history.Visit, query: string,
             open()
         end),
     }, {
-        ui.icon("outline-globe", { size = 16, color = "icon-weak" }),
+        if visit.icon ~= nil and visit.icon ~= ""
+            then ui.image({ src = visit.icon, w = 16, h = 16 }, {
+                ui.icon("outline-globe", { size = 16, color = "icon-weak" }),
+            })
+            else ui.icon("outline-globe", { size = 16, color = "icon-weak" }),
         ui.row({ grow = 1, shrink = true, minW = 0, gap = 4, align = "center" }, items),
     })
 end
@@ -579,7 +574,11 @@ local function omniboxRow(
             env.act("go", tab, row.url)
         end),
     }, {
-        ui.icon("outline-globe", { size = 16, color = "icon-weak" }),
+        if page.icon ~= nil and page.icon ~= ""
+            then ui.image({ src = page.icon, w = 16, h = 16 }, {
+                ui.icon("outline-globe", { size = 16, color = "icon-weak" }),
+            })
+            else ui.icon("outline-globe", { size = 16, color = "icon-weak" }),
         ui.row({ grow = 1, shrink = true, minW = 0, gap = 4, align = "center" }, items),
         ui.iconButton({
             key = `browser-suggestion-forget-{n}`,
@@ -722,19 +721,27 @@ function panel.render(env: Env, view: View, props: PanelProps): ui.Node
 
     -- 5. Page area: failed-load plain page, empty new tab home, or live browser surface.
     local url = tab:Url()
-    local blank = (url == "" or url == "about:blank") and not tab:Loading() and not state.navigating
+    local blank = (url == "" or url == "about:blank")
+        and not tab:Loading()
+        and not state.navigating
+        and tab:Refusal() ~= "browser.controlled.inherited_permission"
     if loadErr ~= nil and not tab:Loading() then
         table.insert(items, failed(env, view, tab, loadErr))
     elseif blank and (engine == "ready" or engine == "starting") then
         table.insert(items, home(env, view, tab, props.width))
     else
-        table.insert(items, ui.browserSurface({
+        local surfaceProps: { [string]: any } = {
             key = "browser-page",
             tab = tab,
             grow = 1,
-            areaWidth = props.width,
-            areaHeight = math.max(1, props.height - chromeH),
-        }))
+        }
+        -- Only pass device-preview area dimensions while the device toolbar is open so
+        -- `viewport.rs` wraps Responsive mode in 14 pt resize gutters and drag handles.
+        if toolbar ~= nil then
+            surfaceProps.areaWidth = props.width
+            surfaceProps.areaHeight = math.max(1, props.height - chromeH)
+        end
+        table.insert(items, ui.browserSurface(surfaceProps :: any))
     end
 
     local list = suggestions(env, view, tab, state, props.width)

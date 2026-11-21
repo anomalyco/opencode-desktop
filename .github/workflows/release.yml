@@ -18,13 +18,17 @@ name: OpenCode (Rune) Release
 # This file and .github/release/ are the security boundary for releases; changing .github/ needs
 # Dax (.github/CODEOWNERS and the `release boundary (.github needs Dax)` ruleset). The release
 # service authorizes publish jobs by their OIDC token: anomalyco/rune-desktop, this file,
-# refs/heads/dev, environment release (anomalyco/release registry/opencode.json).
+# refs/heads/dev, environment release (anomalyco/release registry/opencode.json for desktop and
+# registry/opencode-rune.json for browser-engine).
 #
 # Scheduled dev checks follow the official desktop's six-hour cadence. Only plan runs when
-# no app files changed. Each desktop publish replaces the whole channel in one request.
-# - workflow_dispatch from dev builds now, whatever changed: check (build, sign, verify, publish
-#   nothing), dev, or stable with a bump. Stable computes vX.Y.Z from the latest tag, publishes
-#   every platform, then tags v<version> and creates the GitHub release. Tags start nothing.
+# no app or engine files changed and the live browser-engine index already serves this commit's
+# engines. Each desktop or engine publish replaces the whole channel in one request.
+# - workflow_dispatch from dev builds now, whatever changed: check (build, sign, verify desktop
+#   and browser engines; publish nothing), dev, stable with a bump, or engine (browser engines
+#   only; refuses if this commit's version is already complete in the live index). Stable computes
+#   vX.Y.Z from the latest tag, publishes every platform, then tags v<version> and creates the
+#   GitHub release. Tags start nothing.
 #
 # A run always releases the commit it runs on (github.sha): there is no ref input, every job
 # checks out github.sha, and the plan fails unless that is the commit it checked out on dev.
@@ -35,9 +39,9 @@ on:
   workflow_dispatch:
     inputs:
       channel:
-        description: Run from dev. check (build and verify), dev or stable (desktop), or engine-linux (sidecar preview)
+        description: Run from dev. check (build and verify), dev or stable (desktop), or engine (browser engines)
         type: choice
-        options: [check, dev, stable, engine-linux]
+        options: [check, dev, stable, engine]
         default: check
       bump:
         description: Stable only. Raises the latest vX.Y.Z tag by patch, minor or major
@@ -47,7 +51,7 @@ on:
 
 run-name: >-
   ${{ (github.event_name == 'schedule' || inputs.channel == 'dev') && 'dev: full desktop matrix'
-  || inputs.channel == 'engine-linux' && 'linux x64 browser engine preview'
+  || inputs.channel == 'engine' && 'browser engine release'
   || inputs.channel == 'stable' && format('stable: {0} bump (dispatched)', inputs.bump)
   || 'check: full desktop matrix' }}
 
@@ -71,7 +75,7 @@ env:
 
 jobs:
   plan:
-    if: github.ref == 'refs/heads/dev' && inputs.channel != 'engine-linux'
+    if: github.ref == 'refs/heads/dev'
     runs-on: blacksmith-2vcpu-ubuntu-2404
     permissions:
       contents: read
@@ -84,11 +88,19 @@ jobs:
       release-channel: ${{ steps.plan.outputs.release-channel }}
       release-version: ${{ steps.plan.outputs.release-version }}
       build-desktop: ${{ steps.plan.outputs.build-desktop }}
+      engine-version: ${{ steps.plan.outputs.engine-version }}
+      engine-release-version: ${{ steps.plan.outputs.engine-release-version }}
+      build-engine: ${{ steps.plan.outputs.build-engine }}
+      linux-x64-sha256: ${{ steps.plan.outputs.linux-x64-sha256 }}
+      linux-arm64-sha256: ${{ steps.plan.outputs.linux-arm64-sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
-          sparse-checkout: /.github/release/
+          sparse-checkout: |
+            /.github/release/
+            /apps/browser-engine/Cargo.lock
+            /crates/browser-pane/src/installer.rs
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - id: plan
@@ -101,12 +113,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
   # Which signing values the release environment holds, read on Linux, so a Windows or macOS
-  # runner is booked only to sign. Every desktop channel requires both. The Apple
+  # runner is booked only to sign. Every desktop or engine channel requires both. The Apple
   # certificate and notary key aren't here: they're read from AWS in the signing step itself,
   # which fails if either is empty.
   credentials:
     needs: plan
-    if: ${{ needs.plan.outputs.build-desktop == 'true' }}
+    if: ${{ needs.plan.outputs.build-desktop == 'true' || needs.plan.outputs.build-engine == 'true' }}
     runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 5
     environment: release
@@ -134,6 +146,7 @@ jobs:
 
   build-macos:
     needs: [plan, credentials]
+    if: ${{ needs.plan.outputs.build-desktop == 'true' }}
     strategy: &mac-strategy
       matrix:
         include:
@@ -194,7 +207,12 @@ jobs:
         run: echo "digest-${{ matrix.arch }}=${{ steps.upload.outputs.digest }}" >> "$GITHUB_OUTPUT"
 
   build-linux:
-    needs: [plan, credentials]
+    needs: [plan, credentials, build-engine-linux]
+    if: >-
+      ${{ !cancelled()
+      && needs.plan.outputs.build-desktop == 'true'
+      && needs.credentials.result == 'success'
+      && (needs.plan.outputs.build-engine != 'true' || needs.build-engine-linux.result == 'success') }}
     strategy:
       matrix:
         include:
@@ -205,7 +223,11 @@ jobs:
     env:
       OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.release-version }}
       OPENCODE_RUNE_BUILD_CHANNEL: ${{ needs.plan.outputs.release-channel }}
-    outputs: *arch-digests
+    outputs:
+      digest-x64: ${{ steps.digest.outputs.digest-x64 }}
+      digest-arm64: ${{ steps.digest.outputs.digest-arm64 }}
+      linux-x64-engine-sha256: ${{ steps.engine-trust.outputs.linux-x64-engine-sha256 }}
+      linux-arm64-engine-sha256: ${{ steps.engine-trust.outputs.linux-arm64-engine-sha256 }}
     steps:
       - *build-checkout
       - name: Install native build and packaging dependencies
@@ -220,8 +242,18 @@ jobs:
         with:
           path: ~/.cache/seer/ghostty-vt
           key: ghostty-vt-linux-${{ matrix.arch }}-${{ hashFiles('crates/terminal/build.rs', 'crates/terminal/build_support.rs') }}
-      - name: Build and package desktop
+      - id: engine-trust
+        name: Resolve Linux ${{ matrix.arch }} browser engine sha256 pin
+        env:
+          PINNED_SHA256: ${{ needs.plan.outputs.build-engine == 'true' && needs.build-engine-linux.outputs[format('sha256-{0}', matrix.arch)] || needs.plan.outputs[format('linux-{0}-sha256', matrix.arch)] }}
         run: |
+          [[ "$PINNED_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::Invalid Linux ${{ matrix.arch }} browser engine sha256 '$PINNED_SHA256'." >&2; exit 1; }
+          echo "linux-${{ matrix.arch }}-engine-sha256=$PINNED_SHA256" >> "$GITHUB_OUTPUT"
+      - name: Build and package desktop
+        env:
+          LINUX_ENGINE_SHA256: ${{ steps.engine-trust.outputs[format('linux-{0}-engine-sha256', matrix.arch)] }}
+        run: |
+          export OPENCODE_BROWSER_ENGINE_TRUST="sha256:$LINUX_ENGINE_SHA256"
           apps/desktop/scripts/set-crate-version.sh "$PWD" "$OPENCODE_RUNE_VERSION"
           cargo build --locked -p opencode-desktop --profile release-quick
           bash apps/desktop/scripts/package-linux.sh target/release-quick/opencode-desktop "$RUNNER_TEMP/linux"
@@ -235,6 +267,7 @@ jobs:
 
   build-windows:
     needs: [plan, credentials]
+    if: ${{ needs.plan.outputs.build-desktop == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -615,12 +648,545 @@ jobs:
           if ($reported -ne "opencode-rune $env:OPENCODE_RUNE_VERSION ($env:OPENCODE_RUNE_BUILD_CHANNEL)") { throw "opencode-desktop --version reported '$reported'." }
           "Windows: every program, library and setup is signed by $publisher ($reported)." >> $env:GITHUB_STEP_SUMMARY
 
+  # ---- Browser engine: build (no environment, secrets, or id-token) ----------
+  # Builds only when plan finds the live stable.json lacks this commit's <cef>-<rev>
+  # across windows-x64, windows-arm64, macos-arm64, macos-x64, linux-x64, linux-arm64
+  # (or on check/engine dispatch).
+
+  build-engine-windows:
+    needs: [plan, credentials]
+    if: ${{ needs.plan.outputs.build-engine == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    runs-on: blacksmith-8vcpu-windows-2025
+    timeout-minutes: 60
+    outputs: *arch-digests
+    steps:
+      - *build-checkout
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install
+          [ "${{ matrix.arch }}" = x64 ] || rustup target add aarch64-pc-windows-msvc
+      - name: Ensure CMake and Ninja
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if ((-not (Get-Command cmake -ErrorAction SilentlyContinue) -or -not (Get-Command ninja -ErrorAction SilentlyContinue)) -and (Test-Path -LiteralPath $vswhere)) {
+            $vs = (& $vswhere -latest -products * -property installationPath | Select-Object -First 1)
+            if ($vs) {
+              foreach ($sub in 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin', 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja') {
+                $dir = Join-Path $vs $sub
+                if (Test-Path -LiteralPath $dir) {
+                  $env:PATH = "$dir;$env:PATH"
+                  $dir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+                }
+              }
+            }
+          }
+          $missing = @('cmake', 'ninja') | Where-Object { -not (Get-Command $_ -ErrorAction SilentlyContinue) }
+          if ($missing.Count -gt 0) {
+            throw "Missing required build tool(s) on Windows runner image ($($missing -join ', ')): expected on PATH or bundled with Visual Studio."
+          }
+          cmake --version
+          ninja --version
+      - name: Build and stage Windows browser engine
+        shell: pwsh
+        run: |
+          $stageOut = Join-Path $env:RUNNER_TEMP 'stage'
+          $tarOut = Join-Path $env:RUNNER_TEMP 'engine'
+          New-Item -ItemType Directory -Force -Path $stageOut, $tarOut | Out-Null
+          apps/browser-engine/scripts/package-windows.ps1 -Arch ${{ matrix.arch }} -Out $stageOut -StageOnly
+          & "$env:SystemRoot\System32\tar.exe" -cf "$tarOut/engine-windows-${{ matrix.arch }}.tar" -C "$stageOut/stage-${{ matrix.arch }}" "OpenCode Browser Engine"
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to pack Windows browser engine stage.' }
+      - id: upload
+        uses: ./.github/release/upload
+        with:
+          name: build-engine-windows-${{ matrix.arch }}
+          path: ${{ runner.temp }}/engine
+          retention-days: "7"
+      - *report-digest
+
+  build-engine-macos:
+    needs: [plan, credentials]
+    if: ${{ needs.plan.outputs.build-engine == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: arm64, host: blacksmith-6vcpu-macos-26 }
+          - { arch: x64, host: macos-26-intel }
+    runs-on: ${{ matrix.host }}
+    timeout-minutes: 60
+    outputs: *arch-digests
+    steps:
+      - *build-checkout
+      - name: Check release engine entitlements match repository copy
+        run: cmp -s .github/release/opencode-rune-engine.entitlements apps/browser-engine/entitlements.plist
+      - name: Ensure CMake and Ninja
+        run: |
+          if ! command -v cmake > /dev/null || ! command -v ninja > /dev/null; then
+            brew install cmake ninja
+          fi
+      - name: Rust toolchain
+        run: rustup toolchain install
+      - name: Assemble unsigned macOS ${{ matrix.arch }} browser engine
+        run: |
+          mkdir -p "$RUNNER_TEMP/macos"
+          bash apps/browser-engine/scripts/package-release.sh --arch "${{ matrix.arch }}" --assemble-only "$RUNNER_TEMP/macos/OpenCode-Browser-Engine.app.zip"
+      - id: upload
+        uses: ./.github/release/upload
+        with:
+          name: build-engine-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/macos
+          retention-days: "7"
+      - *report-digest
+
+  build-engine-linux:
+    needs: [plan, credentials]
+    if: ${{ needs.plan.outputs.build-engine == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64, host: blacksmith-4vcpu-ubuntu-2404 }
+          - { arch: arm64, host: blacksmith-4vcpu-ubuntu-2404-arm }
+    runs-on: ${{ matrix.host }}
+    timeout-minutes: 60
+    env:
+      ENGINE_VERSION: ${{ needs.plan.outputs.engine-version }}
+    outputs:
+      digest-x64: ${{ steps.digest.outputs.digest-x64 }}
+      digest-arm64: ${{ steps.digest.outputs.digest-arm64 }}
+      sha256-x64: ${{ steps.archive-hash.outputs.sha256-x64 }}
+      sha256-arm64: ${{ steps.archive-hash.outputs.sha256-arm64 }}
+    steps:
+      - *build-checkout
+      - name: Install Linux browser engine build and packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build binutils bzip2 curl jq zstd libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2t64
+      - name: Rust toolchain
+        run: rustup toolchain install
+      - name: Package Linux ${{ matrix.arch }} browser engine
+        run: bash apps/browser-engine/scripts/package-linux.sh --arch "${{ matrix.arch }}" "$RUNNER_TEMP/engine"
+      - id: upload
+        uses: ./.github/release/upload
+        with:
+          name: build-engine-linux-${{ matrix.arch }}
+          path: ${{ runner.temp }}/engine
+          retention-days: "7"
+      - *report-digest
+      # Read the archive hash directly from the upload action's SHA256SUMS so build-linux's pin
+      # and publish-engine's verified artifact are cryptographically tied to the same file.
+      - id: archive-hash
+        name: Report Linux ${{ matrix.arch }} engine archive sha256
+        run: |
+          archive="OpenCode-Browser-Engine-$ENGINE_VERSION-linux-${{ matrix.arch }}.tar.zst"
+          sha=$(awk -v f="$archive" 'substr($0, 67) == f { print $1 }' "$RUNNER_TEMP/engine/SHA256SUMS")
+          [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::Missing $archive in SHA256SUMS." >&2; exit 1; }
+          echo "sha256-${{ matrix.arch }}=$sha" >> "$GITHUB_OUTPUT"
+
+  # ---- Browser engine: sign (release environment; /.github/release/ only) ----
+
+  sign-engine-windows:
+    needs: [plan, build-engine-windows]
+    runs-on: blacksmith-4vcpu-windows-2025
+    timeout-minutes: 45
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ENGINE_VERSION: ${{ needs.plan.outputs.engine-version }}
+      ARCHES: x64 arm64
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ vars.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+      AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ vars.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
+      AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE: ${{ vars.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE }}
+    outputs:
+      digest: ${{ steps.upload.outputs.digest }}
+    steps:
+      - *checkout-release
+      - name: Download unsigned Windows browser engines
+        uses: ./.github/release/download
+        with:
+          pattern: build-engine-windows-*
+          digests: >-
+            build-engine-windows-x64=${{ needs.build-engine-windows.outputs.digest-x64 }}
+            build-engine-windows-arm64=${{ needs.build-engine-windows.outputs.digest-arm64 }}
+      - name: Unpack and verify Windows engine PE allowlist
+        shell: pwsh
+        run: |
+          foreach ($arch in $env:ARCHES -split ' ') {
+            .github/release/opencode-rune-package-engine-windows.ps1 `
+              -Mode Unpack `
+              -Arch $arch `
+              -WorkDir "$env:RUNNER_TEMP/work" `
+              -InputTar "$env:RUNNER_TEMP/in/build-engine-windows-$arch/engine-windows-$arch.tar"
+          }
+      - *azure-login
+      - name: Sign Windows browser engines
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2
+        with:
+          endpoint: ${{ env.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ env.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ env.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE }}
+          files-folder: ${{ runner.temp }}\work
+          files-folder-filter: exe,dll
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          description: OpenCode Browser Engine
+          description-url: https://github.com/anomalyco/rune-desktop
+          exclude-environment-credential: true
+          exclude-workload-identity-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-cli-credential: false
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+          exclude-interactive-browser-credential: true
+          cache-dependencies: false
+      - name: Check Windows engine signatures
+        shell: pwsh
+        run: .github/release/opencode-rune-verify-windows.ps1 -Folders "$env:RUNNER_TEMP/work" -Publisher "Anomaly Innovations, Inc https://anoma.ly/"
+      - name: Archive signed Windows browser engines
+        shell: pwsh
+        run: |
+          foreach ($arch in $env:ARCHES -split ' ') {
+            .github/release/opencode-rune-package-engine-windows.ps1 `
+              -Mode Archive `
+              -Arch $arch `
+              -WorkDir "$env:RUNNER_TEMP/work" `
+              -OutDir "$env:RUNNER_TEMP/out" `
+              -Version $env:ENGINE_VERSION
+          }
+      - id: upload
+        uses: ./.github/release/upload
+        with:
+          name: sign-engine-windows
+          path: ${{ runner.temp }}/out
+
+  sign-engine-macos:
+    needs: [plan, build-engine-macos]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: arm64, host: blacksmith-6vcpu-macos-26 }
+          - { arch: x64, host: macos-26-intel }
+    runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 60
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ENGINE_VERSION: ${{ needs.plan.outputs.engine-version }}
+    outputs: *arch-digests
+    steps:
+      - *checkout-release
+      - name: Download unsigned macOS ${{ matrix.arch }} browser engine
+        uses: ./.github/release/download
+        with:
+          pattern: build-engine-macos-${{ matrix.arch }}
+          digests: build-engine-macos-${{ matrix.arch }}=${{ needs.build-engine-macos.outputs[format('digest-{0}', matrix.arch)] }}
+      - id: aws
+        name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::604439173067:role/github/rune-desktop-release
+          role-session-name: rune-desktop-engine-${{ matrix.arch }}-${{ github.run_id }}
+          role-duration-seconds: 900
+          aws-region: us-east-1
+          output-env-credentials: false
+          output-credentials: true
+      - name: Import the certificate and notary key
+        env:
+          AWS_ACCESS_KEY_ID: ${{ steps.aws.outputs.aws-access-key-id }}
+          AWS_SECRET_ACCESS_KEY: ${{ steps.aws.outputs.aws-secret-access-key }}
+          AWS_SESSION_TOKEN: ${{ steps.aws.outputs.aws-session-token }}
+        run: |
+          bash .github/release/with-secrets.sh \
+            APPLE_SIGNING_CERTIFICATE=shared/APPLE_SIGNING_CERTIFICATE \
+            APPLE_NOTARY_KEY=shared/APPLE_NOTARY_KEY \
+            -- bash .github/release/macos-credentials.sh "$RUNNER_TEMP/credentials"
+      - name: Sign, notarize, and staple macOS ${{ matrix.arch }} browser engine
+        run: bash .github/release/opencode-rune-sign-engine-macos.sh "$RUNNER_TEMP/in/build-engine-macos-${{ matrix.arch }}/OpenCode-Browser-Engine.app.zip" "$RUNNER_TEMP/out" "${{ matrix.arch }}"
+        env:
+          SEER_NOTARY_KEY_ID: ${{ vars.APPLE_NOTARY_KEY_ID }}
+          SEER_NOTARY_ISSUER: ${{ vars.APPLE_NOTARY_ISSUER_ID }}
+      - name: Remove the credentials
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/credentials/signing.keychain-db" 2>/dev/null || true
+          rm -rf "$RUNNER_TEMP/credentials"
+      - id: upload
+        uses: ./.github/release/upload
+        with:
+          name: sign-engine-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/out
+      - *report-digest
+
+  # ---- Browser engine: verify (no environment, secrets, or id-token) ---------
+
+  verify-engine-windows:
+    needs: [plan, sign-engine-windows]
+    if: ${{ !cancelled() && needs.sign-engine-windows.result == 'success' }}
+    runs-on: blacksmith-4vcpu-windows-2025
+    timeout-minutes: 20
+    env:
+      ENGINE_VERSION: ${{ needs.plan.outputs.engine-version }}
+      ARCHES: x64 arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: |
+            /.github/release/
+            /features/updater/src/windows.rs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: ./.github/release/download
+        with:
+          pattern: sign-engine-windows
+          digests: sign-engine-windows=${{ needs.sign-engine-windows.outputs.digest }}
+      - name: Verify signed Windows browser engine archives
+        shell: pwsh
+        run: |
+          $in = "$env:RUNNER_TEMP/in/sign-engine-windows"
+          $publisher = [regex]::Match((Get-Content -Raw features/updater/src/windows.rs), 'pub const EXPECTED_PUBLISHER: &str = "([^"]+)";').Groups[1].Value
+          if (-not $publisher) { throw 'Could not read EXPECTED_PUBLISHER from features/updater/src/windows.rs.' }
+          $unpacked = Join-Path $env:RUNNER_TEMP 'verify-engine'
+          New-Item -ItemType Directory -Force -Path $unpacked | Out-Null
+          foreach ($arch in $env:ARCHES -split ' ') {
+            $name = "OpenCode-Browser-Engine-$env:ENGINE_VERSION-windows-$arch.tar.zst"
+            $archive = Join-Path $in $name
+            if (-not (Test-Path -LiteralPath $archive)) { throw "Signed Windows engine artifact lacks $name." }
+            $dest = Join-Path $unpacked $arch
+            New-Item -ItemType Directory -Force -Path $dest | Out-Null
+            & "$env:SystemRoot\System32\tar.exe" -xf $archive -C $dest
+            if ($LASTEXITCODE -ne 0) { throw "Could not unpack $name." }
+            foreach ($bin in 'opencode-browser-engine.exe', 'opencode-browser-engine-helper.exe', 'libcef.dll', 'chrome_elf.dll', 'dxcompiler.dll') {
+              if (-not (Test-Path -LiteralPath (Join-Path $dest "OpenCode Browser Engine/$bin"))) {
+                throw "$name lacks OpenCode Browser Engine/$bin."
+              }
+            }
+          }
+          .github/release/opencode-rune-verify-windows.ps1 -Folders $unpacked -Publisher $publisher
+          "Windows browser engines ($env:ENGINE_VERSION, x64 + arm64): signed by $publisher." >> $env:GITHUB_STEP_SUMMARY
+
+  verify-engine-macos:
+    needs: [plan, sign-engine-macos]
+    if: ${{ !cancelled() && needs.sign-engine-macos.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: arm64, host: blacksmith-6vcpu-macos-26 }
+          - { arch: x64, host: macos-26-intel }
+    runs-on: ${{ matrix.host }}
+    timeout-minutes: 20
+    env:
+      ENGINE_VERSION: ${{ needs.plan.outputs.engine-version }}
+    steps:
+      - *checkout-release
+      - uses: ./.github/release/download
+        with:
+          pattern: sign-engine-macos-${{ matrix.arch }}
+          digests: sign-engine-macos-${{ matrix.arch }}=${{ needs.sign-engine-macos.outputs[format('digest-{0}', matrix.arch)] }}
+      - name: Verify signed macOS ${{ matrix.arch }} browser engine
+        run: |
+          zip="$RUNNER_TEMP/in/sign-engine-macos-${{ matrix.arch }}/OpenCode-Browser-Engine-$ENGINE_VERSION-macos-${{ matrix.arch }}.zip"
+          [ -f "$zip" ] || { echo "::error::Signed macOS engine artifact lacks $(basename "$zip")." >&2; exit 1; }
+          check=$(mktemp -d)
+          trap 'rm -rf "$check"' EXIT
+          /usr/bin/ditto -x -k "$zip" "$check"
+          app="$check/OpenCode Browser Engine.app"
+          [ -x "$app/Contents/MacOS/opencode-browser-engine" ] || { echo "::error::Missing engine executable in $app." >&2; exit 1; }
+          expected_cpu=$([ "${{ matrix.arch }}" = arm64 ] && echo arm64 || echo x86_64)
+          actual_cpu=$(lipo -archs "$app/Contents/MacOS/opencode-browser-engine")
+          [ "$actual_cpu" = "$expected_cpu" ] || {
+            echo "::error::$app main binary arch is '$actual_cpu', expected '$expected_cpu'." >&2; exit 1;
+          }
+          [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$ENGINE_VERSION" ] || {
+            echo "::error::$app is not version $ENGINE_VERSION." >&2; exit 1;
+          }
+          xcrun stapler validate "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+          codesign --verify --deep --strict -R="anchor apple generic and certificate leaf[subject.OU] = \"$SEER_TEAM_ID\" and notarized" "$app"
+          codesign -dv "$app" 2>&1 | grep -E '^(Identifier|TeamIdentifier|Authority=Developer)' >> "$GITHUB_STEP_SUMMARY"
+
+  # ---- Publish browser engine: release environment; OIDC only ----------------
+  # One atomic publish replacing opencode-rune/browser-engine/stable with all six targets.
+  # Shared job concurrency prevents two channels from overwriting the same version with new hashes.
+
+  publish-engine:
+    needs: [plan, build-engine-linux, sign-engine-macos, verify-engine-macos, sign-engine-windows, verify-engine-windows]
+    if: >-
+      ${{ !cancelled()
+      && needs.plan.outputs.build-engine == 'true'
+      && needs.plan.outputs.channel != 'check'
+      && needs.build-engine-linux.result == 'success'
+      && needs.sign-engine-macos.result == 'success'
+      && needs.verify-engine-macos.result == 'success'
+      && needs.sign-engine-windows.result == 'success'
+      && needs.verify-engine-windows.result == 'success' }}
+    concurrency:
+      group: opencode-rune-browser-engine-publish
+      cancel-in-progress: false
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE: ${{ needs.plan.outputs.service }}
+      ENGINE_VERSION: ${{ needs.plan.outputs.engine-version }}
+      ENGINE_RELEASE_VERSION: ${{ needs.plan.outputs.engine-release-version }}
+      LINUX_X64_SHA256: ${{ needs.build-engine-linux.outputs.sha256-x64 }}
+      LINUX_ARM64_SHA256: ${{ needs.build-engine-linux.outputs.sha256-arm64 }}
+      NOTES_URL: https://github.com/${{ github.repository }}/commit/${{ github.sha }}
+    steps:
+      - *checkout-release
+      - uses: ./.github/release/download
+        with:
+          pattern: sign-engine-windows
+          digests: sign-engine-windows=${{ needs.sign-engine-windows.outputs.digest }}
+          folder: win
+      - uses: ./.github/release/download
+        with:
+          pattern: sign-engine-macos-*
+          digests: >-
+            sign-engine-macos-arm64=${{ needs.sign-engine-macos.outputs.digest-arm64 }}
+            sign-engine-macos-x64=${{ needs.sign-engine-macos.outputs.digest-x64 }}
+          folder: mac
+      - uses: ./.github/release/download
+        with:
+          pattern: build-engine-linux-*
+          digests: >-
+            build-engine-linux-x64=${{ needs.build-engine-linux.outputs.digest-x64 }}
+            build-engine-linux-arm64=${{ needs.build-engine-linux.outputs.digest-arm64 }}
+          folder: linux
+      - name: Publish browser engines atomically
+        run: |
+          win_x64="$RUNNER_TEMP/win/sign-engine-windows/OpenCode-Browser-Engine-$ENGINE_VERSION-windows-x64.tar.zst"
+          win_arm64="$RUNNER_TEMP/win/sign-engine-windows/OpenCode-Browser-Engine-$ENGINE_VERSION-windows-arm64.tar.zst"
+          mac_arm64="$RUNNER_TEMP/mac/sign-engine-macos-arm64/OpenCode-Browser-Engine-$ENGINE_VERSION-macos-arm64.zip"
+          mac_x64="$RUNNER_TEMP/mac/sign-engine-macos-x64/OpenCode-Browser-Engine-$ENGINE_VERSION-macos-x64.zip"
+          linux_x64_name="OpenCode-Browser-Engine-$ENGINE_VERSION-linux-x64.tar.zst"
+          linux_x64="$RUNNER_TEMP/linux/build-engine-linux-x64/$linux_x64_name"
+          linux_arm64_name="OpenCode-Browser-Engine-$ENGINE_VERSION-linux-arm64.tar.zst"
+          linux_arm64="$RUNNER_TEMP/linux/build-engine-linux-arm64/$linux_arm64_name"
+          check_linux_sha() {
+            local arch=$1 name=$2 expected=$3 sums=$4 actual
+            [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || {
+              echo "::error::Invalid LINUX_${arch}_SHA256 '$expected'." >&2
+              exit 1
+            }
+            actual=$(awk -v f="$name" 'substr($0, 67) == f { print $1 }' "$sums")
+            [[ "$actual" =~ ^[0-9a-f]{64}$ ]] || {
+              echo "::error::Missing or invalid SHA256SUMS entry for $name ('$actual')." >&2
+              exit 1
+            }
+            [ "$actual" = "$expected" ] || {
+              echo "::error::Linux $arch engine SHA256SUMS entry '$actual' differs from job output '$expected'." >&2
+              exit 1
+            }
+          }
+          check_linux_sha x64 "$linux_x64_name" "$LINUX_X64_SHA256" "$RUNNER_TEMP/linux/build-engine-linux-x64/SHA256SUMS"
+          check_linux_sha arm64 "$linux_arm64_name" "$LINUX_ARM64_SHA256" "$RUNNER_TEMP/linux/build-engine-linux-arm64/SHA256SUMS"
+          bash .github/release/opencode-rune-check-engine.sh --assert-not-complete --version "$ENGINE_RELEASE_VERSION"
+          jq -n \
+            --arg version "$ENGINE_RELEASE_VERSION" \
+            --arg notes_url "$NOTES_URL" \
+            '{channel: "stable", version: $version, allow_prerelease: true, notes_url: $notes_url, distributions: [{kind: "direct"}]}' \
+            > "$RUNNER_TEMP/engine-release.json"
+          bash .github/release/release-client.sh publish \
+            --app opencode-rune \
+            --artifact browser-engine \
+            --release "$RUNNER_TEMP/engine-release.json" \
+            --target "windows-x64=$win_x64" \
+            --target "windows-arm64=$win_arm64" \
+            --target "macos-arm64=$mac_arm64" \
+            --target "macos-x64=$mac_x64" \
+            --target "linux-x64=$linux_x64" \
+            --target "linux-arm64=$linux_arm64" \
+            --out "$RUNNER_TEMP/engine-manifest.json" \
+            --verify-downloads
+          {
+            echo '### Browser Engine Manifest'; echo '```json'; cat "$RUNNER_TEMP/engine-manifest.json"; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---- Gate: verify live browser-engine index before publishing desktop ------
+  # No environment, secrets, or id-token; checks /.github/release/ gate script against hardcoded
+  # stable.json and asserts source.rs names the same URL.
+
+  verify-engine-published:
+    needs: [plan, build-engine-linux, publish-engine, build-linux]
+    if: >-
+      ${{ !cancelled()
+      && (needs.plan.outputs.channel == 'dev' || needs.plan.outputs.channel == 'stable')
+      && needs.plan.outputs.build-desktop == 'true'
+      && needs.build-linux.result == 'success'
+      && (needs.plan.outputs.build-engine != 'true' || needs.publish-engine.result == 'success') }}
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: |
+            /.github/release/
+            /crates/browser-pane/src/source.rs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Verify live browser engine index and Linux pins
+        env:
+          ENGINE_RELEASE_VERSION: ${{ needs.plan.outputs.engine-release-version }}
+          EXPECTED_LINUX_X64_SHA256: ${{ needs.plan.outputs.build-engine == 'true' && needs.build-engine-linux.outputs.sha256-x64 || needs.plan.outputs.linux-x64-sha256 }}
+          PINNED_LINUX_X64_SHA256: ${{ needs.build-linux.outputs.linux-x64-engine-sha256 }}
+          EXPECTED_LINUX_ARM64_SHA256: ${{ needs.plan.outputs.build-engine == 'true' && needs.build-engine-linux.outputs.sha256-arm64 || needs.plan.outputs.linux-arm64-sha256 }}
+          PINNED_LINUX_ARM64_SHA256: ${{ needs.build-linux.outputs.linux-arm64-engine-sha256 }}
+        run: |
+          check_pin() {
+            local arch=$1 expected=$2 pinned=$3
+            [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || {
+              echo "::error::Invalid EXPECTED_LINUX_${arch}_SHA256 '$expected'." >&2
+              exit 1
+            }
+            [[ "$pinned" =~ ^[0-9a-f]{64}$ ]] || {
+              echo "::error::Invalid PINNED_LINUX_${arch}_SHA256 '$pinned'." >&2
+              exit 1
+            }
+            [ "$pinned" = "$expected" ] || {
+              echo "::error::Linux $arch app pinned '$pinned', expected '$expected'." >&2
+              exit 1
+            }
+          }
+          check_pin x64 "$EXPECTED_LINUX_X64_SHA256" "$PINNED_LINUX_X64_SHA256"
+          check_pin arm64 "$EXPECTED_LINUX_ARM64_SHA256" "$PINNED_LINUX_ARM64_SHA256"
+          bash .github/release/opencode-rune-check-engine.sh \
+            --assert-published \
+            --version "$ENGINE_RELEASE_VERSION" \
+            --linux-x64-sha256 "$PINNED_LINUX_X64_SHA256" \
+            --linux-arm64-sha256 "$PINNED_LINUX_ARM64_SHA256" \
+            --source-rs crates/browser-pane/src/source.rs
+
   # ---- Publish desktop: release environment; OIDC only -----------------------
   # A channel has one current release, and publishing replaces it whole (targets included), so
-  # all six builds go out in one request after the package and signing checks pass.
+  # all six builds go out in one request after the package, signing, and engine checks pass.
 
   publish-desktop:
-    needs: [plan, build-linux, sign-macos, verify-macos, verify-windows, sign-windows-setup]
+    needs: [plan, build-linux, sign-macos, verify-macos, verify-windows, sign-windows-setup, verify-engine-published]
     if: needs.plan.outputs.channel == 'dev' || needs.plan.outputs.channel == 'stable'
     runs-on: blacksmith-2vcpu-ubuntu-2404
     environment: release
@@ -683,48 +1249,6 @@ jobs:
             echo '### Desktop Manifest'; echo '```json'; cat "$RUNNER_TEMP/manifest.json"; echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ---- Browser engine: manually published Linux preview ----
-  build-engine-linux:
-    timeout-minutes: 45
-    if: github.ref == 'refs/heads/dev' && inputs.channel == 'engine-linux'
-    runs-on: blacksmith-2vcpu-ubuntu-2404
-    outputs:
-      digest: ${{ steps.upload.outputs.digest }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Package Linux x64 CEF sidecar
-        run: apps/browser-engine/scripts/package-linux.sh "$RUNNER_TEMP/engine"
-      - id: upload
-        uses: ./.github/release/upload
-        with:
-          name: browser-engine-linux-x64
-          path: ${{ runner.temp }}/engine
-
-  publish-engine-linux:
-    timeout-minutes: 20
-    needs: build-engine-linux
-    runs-on: blacksmith-2vcpu-ubuntu-2404
-    environment: release
-    permissions:
-      contents: write
-    steps:
-      - *checkout-release
-      - uses: ./.github/release/download
-        with:
-          pattern: browser-engine-linux-x64
-          digests: browser-engine-linux-x64=${{ needs.build-engine-linux.outputs.digest }}
-      - name: Publish versioned Linux engine preview
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          cd "$RUNNER_TEMP/in/browser-engine-linux-x64"
-          tag="browser-engine-linux-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false \
-            --title 'linux browser engine' --notes 'linux x64 sidecar and installer index' \
-            index.json SHA256SUMS OpenCode-Browser-Engine-*-linux-x64.tar.zst
-
   # ---- Publish Windows dev: rolling GitHub pre-release of the unsigned setups --
   # Every dev build replaces the setups it built on opencode-rune-windows-dev, under names that stay
   # the same, after the full release reaches the service.
@@ -785,12 +1309,15 @@ jobs:
   github:
     name: Tag and GitHub release
     environment: release
-    needs: [plan, build-linux, publish-desktop, sign-macos, verify-macos, sign-windows-setup, verify-windows]
+    needs: [plan, build-linux, publish-desktop, sign-macos, verify-macos, sign-windows-setup, verify-windows, build-engine-linux, verify-engine-macos, verify-engine-windows]
     if: >-
       ${{ !cancelled() && (
         (needs.plan.outputs.channel == 'stable' && needs.publish-desktop.result == 'success')
         || (needs.plan.outputs.channel == 'check' && needs.verify-windows.result == 'success'
-            && needs.verify-macos.result == 'success' && needs.build-linux.result == 'success')) }}
+            && needs.verify-macos.result == 'success' && needs.build-linux.result == 'success'
+            && needs.build-engine-linux.result == 'success'
+            && needs.verify-engine-macos.result == 'success'
+            && needs.verify-engine-windows.result == 'success')) }}
     runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 20
     permissions:

@@ -12,6 +12,12 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
     t.raw_set(
         "TakeAppLinkReview",
         lua.create_function(|lua, ()| {
+            let cap = scope::TabScope::capture(lua);
+            if !cap.is_builtin_browser || cap.tool_sid.is_some() {
+                return Err(mlua::Error::runtime(
+                    "Browser:TakeAppLinkReview is restricted to the built-in browser.",
+                ));
+            }
             cx::read(Dep::Browser);
             let next = with_app("Browser:TakeAppLinkReview", |app| {
                 Ok(app.workspace_panes.browser.pending_app_links.borrow_mut().pop_front())
@@ -100,6 +106,29 @@ fn read_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
 }
 
 pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
+    // The strip's amber `prompt.tab` dot: the page waits on the user while the pane doesn't show it
+    // (official `asking`, `packages/gui-plugins/src/browser/model.ts:900-904` at `b9a60d9d`).
+    m.raw_set(
+        "Asking",
+        lua.create_function(|lua, this: Table| {
+            read_tab(lua, &this, "BrowserTab:Asking", |app, id| Ok(app.browser_tab_asking(id)))
+        })?,
+    )?;
+    // The strip's blue `tab.activity` dot: an agent opened or drove this tab while hidden
+    // (official `unseen`, `packages/gui-plugins/src/browser/machine.ts:690-715` at `b9a60d9d`).
+    m.raw_set(
+        "Unseen",
+        lua.create_function(|lua, this: Table| {
+            read_tab(lua, &this, "BrowserTab:Unseen", |app, id| Ok(app.browser_tab_unseen(id)))
+        })?,
+    )?;
+    // True while a link-opened tab's first page has not named itself yet (`UP-118`, `pane-machine.ts`).
+    m.raw_set(
+        "Unnamed",
+        lua.create_function(|lua, this: Table| {
+            read_tab(lua, &this, "BrowserTab:Unnamed", |app, id| Ok(app.browser_tab_unnamed(id)))
+        })?,
+    )?;
     m.raw_set(
         "IsPrivate",
         lua.create_function(|lua, this: Table| {

@@ -340,9 +340,29 @@ wrap_display_handler! {
                 return;
             }
             if let Some(url) = url {
-                let mut s = self.snap.lock().unwrap();
                 let raw = url.to_string();
                 let url = self.preview.as_ref().map_or(raw.clone(), |g| g.sanitize_reported_url(&raw));
+                // Guard 2 (commit-side eviction): run BEFORE locking `self.snap` so `stop_load()` /
+                // `load_url("about:blank")` can never re-enter `on_loading_state_change` under lock,
+                // and `snap.url` never reports the refused granted URL.
+                if self.context_scope_id.is_none()
+                    && self.preview.is_none()
+                    && self.prompts.agent_driven.load(Ordering::Acquire)
+                    && self.permissions.has_inherited_default_grant(&url)
+                {
+                    if let Some(b) = browser.as_deref() {
+                        b.stop_load();
+                        if let Some(f) = b.main_frame() {
+                            f.load_url(Some(&CefString::from("about:blank")));
+                        }
+                    }
+                    let _ = self.out_tx.send(EngineMsg::ControlledPermissionRefused {
+                        tab_id: self.tab_id,
+                        url: Some(url),
+                    });
+                    return;
+                }
+                let mut s = self.snap.lock().unwrap();
                 // Chromium's error page commits the failed address; another address is another document.
                 if s.url != url {
                     let old_origin = crate::prompts::origin_of(&s.url);
@@ -508,6 +528,9 @@ wrap_load_handler! {
             let Some(frame) = frame else { return };
             if frame.is_main() == 1 {
                 self.prompts.clear_all_ext_frame_tracking();
+                let mut s = self.snap.lock().unwrap();
+                s.document += 1;
+                let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
             } else {
                 let url = CefString::from(&frame.url()).to_string();
                 if crate::extensions::manifest::is_extension_scheme(&url) {
@@ -720,6 +743,7 @@ wrap_request_handler! {
         snap: Arc<Mutex<TabSnapshot>>,
         prompt_shared: crate::prompts::PromptShared,
         prompts: Arc<crate::prompts::TabPrompts>,
+        permissions: Arc<crate::permissions::PermissionTracker>,
         context_scope_id: Option<String>,
         diagnostics: Arc<crate::diagnostics::TabDiagnostics>,
         out_tx: Output,
@@ -750,6 +774,18 @@ wrap_request_handler! {
             // (and while a remote context is suspended): cancel every non-`about:blank` navigation.
             if !self.context_ready.load(Ordering::Acquire) {
                 return i32::from(!url.trim().eq_ignore_ascii_case("about:blank"));
+            }
+            if is_main
+                && self.context_scope_id.is_none()
+                && self.preview.is_none()
+                && self.prompts.agent_driven.load(Ordering::Acquire)
+                && self.permissions.has_inherited_default_grant(&url)
+            {
+                let _ = self.out_tx.send(EngineMsg::ControlledPermissionRefused {
+                    tab_id: self.tab_id,
+                    url: Some(url),
+                });
+                return 1;
             }
             if self.context_scope_id.is_some()
                 && let Some(ctx) = browser.as_ref().and_then(|b| b.host()).and_then(|h| h.request_context())
@@ -924,6 +960,13 @@ wrap_request_handler! {
                 return 0;
             }
             let roots = self.file_roots.lock().unwrap().clone();
+            if url.len() > crate::prompts::MAX_POPUP_URL_BYTES {
+                let _ = self.out_tx.send(EngineMsg::Refused {
+                    tab_id: self.tab_id,
+                    reason: browser_policy::Refusal::Web.code().to_owned(),
+                });
+                return 1;
+            }
             if let Some(why) = browser_policy::frame_guard(&url, true, &roots) {
                 let _ = self.out_tx.send(EngineMsg::Refused {
                     tab_id: self.tab_id,
@@ -932,12 +975,27 @@ wrap_request_handler! {
                 return 1;
             }
             if opens_new_tab {
-                let background = *target_disposition.as_ref() == D::CEF_WOD_NEW_BACKGROUND_TAB;
-                let _ = self.out_tx.send(EngineMsg::PopupOpen {
-                    tab_id: self.tab_id,
-                    url,
-                    background,
-                });
+                if user_gesture != 0 && self.prompts.popup_credit.swap(false, Ordering::AcqRel) {
+                    let background = *target_disposition.as_ref() == D::CEF_WOD_NEW_BACKGROUND_TAB;
+                    let _ = self.out_tx.send(EngineMsg::PopupOpen {
+                        tab_id: self.tab_id,
+                        url,
+                        background,
+                    });
+                } else {
+                    // Reject synthetic modifier-click bypasses (e.g. `new MouseEvent('click', { ctrlKey: true })`)
+                    // without a real user gesture by converting to the blocked-popup bar (`review-rd-engine.md`).
+                    let _ = self.out_tx.send(EngineMsg::PopupBlocked {
+                        tab_id: self.tab_id,
+                        url,
+                    });
+                }
+                return 1;
+            }
+            if matches!(
+                *target_disposition.as_ref(),
+                D::CEF_WOD_OFF_THE_RECORD | D::CEF_WOD_NEW_PICTURE_IN_PICTURE
+            ) {
                 return 1;
             }
             0

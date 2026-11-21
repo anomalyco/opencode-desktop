@@ -160,7 +160,17 @@ impl ToastHost for App {
             DesktopToastAction::Plugin(b) => {
                 dismiss_id(self, id);
                 if let Some(url) = &b.url {
-                    tx.open_url(url).ok();
+                    let trimmed = url.trim();
+                    let is_http = trimmed.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("http://"))
+                        || trimmed.get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://"));
+                    if browser_policy::is_safe_os_external_url(trimmed) {
+                        if !is_http || self.external_url_allowed_for_session(self.active_session_id(), trimmed) {
+                            crate::open_in::open_external(tx, trimmed);
+                        }
+                    } else if browser_policy::classify_app_link(trimmed, browser_policy::AppSchemeSource::Conversation).is_some() {
+                        tx.copy(trimmed.to_owned());
+                        say(self, opencode_i18n::t!("common.copied").to_owned(), String::new());
+                    }
                 }
                 let Some(run) = &b.run else { return };
                 let Some(index) = self.plugins.running().find(|(_, pl)| pl.half.id == b.plugin).map(|(i, _)| i) else {

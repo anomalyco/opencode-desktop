@@ -342,6 +342,30 @@ impl Server {
         data: &[u8],
         end: bool,
     ) -> Result<(), RpcCallError> {
+        self.browser_rpc_tunnel_write_abortable(
+            location,
+            session_id,
+            connection_id,
+            tunnel_id,
+            data,
+            end,
+            &AbortHandle::new(),
+        )
+    }
+
+    /// Abortable variant of [`Self::browser_rpc_tunnel_write`] so proxy shutdown cancels in-flight
+    /// writes immediately instead of lingering up to 30 s.
+    #[allow(clippy::too_many_arguments)]
+    pub fn browser_rpc_tunnel_write_abortable(
+        &self,
+        location: &LocationRef,
+        session_id: &str,
+        connection_id: &str,
+        tunnel_id: &str,
+        data: &[u8],
+        end: bool,
+        abort: &AbortHandle,
+    ) -> Result<(), RpcCallError> {
         if data.len() > TUNNEL_CHUNK_BYTES {
             return Err(RpcCallError::InvalidInput("Tunnel chunk exceeds 64 KiB.".into()));
         }
@@ -362,8 +386,15 @@ impl Server {
                 "data": encoded,
             })
         };
-        self.browser_rpc_call("tunnel.write", location, &input, Some(SHORT_TIMEOUT))
-            .map(|_| ())
+        let path = rpc_path("tunnel.write", location);
+        let payload = serde_json::to_vec(&json!({ "input": input }))
+            .map_err(|e| RpcCallError::InvalidInput(e.to_string()))?;
+        let (status, body) =
+            self.abortable_post_limited(&path, &payload, abort, Some(SHORT_TIMEOUT), 64 << 10)?;
+        if status >= 300 {
+            return Err(classify_error("tunnel.write", &path, status, &body));
+        }
+        Ok(())
     }
 
     /// Closes a server tunnel (`experimental.browser/tunnel.close`, 5 s timeout).

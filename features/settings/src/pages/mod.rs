@@ -290,7 +290,8 @@ pub fn header_with(p: &Pal, title: &str, description: &str, actions: Option<El>)
                 .min_w(0.0)
                 .gap(4.0)
                 .child(text(title.to_owned()).font(TITLE).color(p.text))
-                .child(text(description.to_owned()).font(DESCRIPTION).color(p.muted).w_full().wrap()),
+                // `SettingsLayout` draws no description line for a page without one (a plugin's).
+                .children((!description.is_empty()).then(|| text(description.to_owned()).font(DESCRIPTION).color(p.muted).w_full().wrap())),
         )
         .children(actions.map(|a| row().key("settings-tab-header-actions").h(20.0).gap(8.0).center_y().self_start().child(a)))
 }

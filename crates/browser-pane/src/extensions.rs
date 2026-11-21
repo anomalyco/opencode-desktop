@@ -739,14 +739,11 @@ impl BrowserHost {
             }
             EngineMsg::ExtensionOpenTab { request_id, ext_id, url, active } => {
                 // Bound pending extension tab-open requests (`review-rd274.md` binding condition).
-                const MAX_PENDING_EXT_OPENS: usize = 16;
-                if self.extensions.open_requests.len() >= MAX_PENDING_EXT_OPENS {
+                if self.extensions.open_requests.len() >= 16 {
                     self.send(HostMsg::CancelExtensionOpenTab { request_id });
                     return false;
                 }
-                self.extensions
-                    .open_requests
-                    .push_back(ExtensionOpenRequest { request_id, ext_id, url, active });
+                self.extensions.open_requests.push_back(ExtensionOpenRequest { request_id, ext_id, url, active });
                 true
             }
             EngineMsg::ExtensionFocusTab { tab_id } => {
@@ -754,8 +751,7 @@ impl BrowserHost {
                 true
             }
             EngineMsg::ExtensionFiltersReady => {
-                let released = self.extensions.filter_gate.release();
-                for (tab_id, url) in released {
+                for (tab_id, url) in self.extensions.filter_gate.release() {
                     self.send(HostMsg::Navigate { tab_id, url });
                 }
                 true
@@ -764,15 +760,11 @@ impl BrowserHost {
                 if ok {
                     self.extensions.actions.retain(|a| a.ext_id != ext_id);
                 }
-                self.extensions
-                    .lifecycle_events
-                    .push_back(ExtensionLifecycleEvent::Uninstalled { ext_id, ok, error });
+                self.extensions.lifecycle_events.push_back(ExtensionLifecycleEvent::Uninstalled { ext_id, ok, error });
                 true
             }
             EngineMsg::ExtensionReloaded { ext_id, ok, error } => {
-                self.extensions
-                    .lifecycle_events
-                    .push_back(ExtensionLifecycleEvent::Reloaded { ext_id, ok, error });
+                self.extensions.lifecycle_events.push_back(ExtensionLifecycleEvent::Reloaded { ext_id, ok, error });
                 true
             }
             EngineMsg::ExtensionIntegrityFailed { ext_id } => {
@@ -780,6 +772,24 @@ impl BrowserHost {
                 true
             }
             _ => false,
+        }
+    }
+
+    pub(crate) fn on_extensions_ready(&mut self, extensions: bool) {
+        if !extensions || !self.extensions.startup_has_filters {
+            for (tab_id, url) in self.extensions.filter_gate.release() {
+                self.send(HostMsg::Navigate { tab_id, url });
+            }
+            return;
+        }
+        self.extensions.filter_gate.start_deadline(rune::time::Instant::now());
+        self.send(HostMsg::ListExtensions { request_id: 0 });
+    }
+
+    pub(crate) fn on_tab_closed_extensions(&mut self, id: u64) {
+        self.extensions.filter_gate.cancel_tab(id);
+        if matches!(self.extensions.popup, PopupState::Open { about_tab: Some(tid), .. } | PopupState::AwaitingUrl { about_tab: Some(tid), .. } if tid == id) {
+            self.close_extension_popup();
         }
     }
 }

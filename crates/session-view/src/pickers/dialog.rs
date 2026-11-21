@@ -19,8 +19,8 @@ use crate::popover::{self as pop, LIST};
 use crate::style::UI;
 
 /// `<Dialog size="large" fit>` (`select-dialog.tsx`): the large size, 32 short of a narrower window
-/// and 96 short of a shorter one (the scrim's padding). The list fills it, so it stands the
-/// size's full height where the fitting dialog's top edge sits.
+/// and 96 short of a shorter one (the scrim's padding). It fits its rows up to the size's
+/// height, its top edge where the full-height dialog's would be (`dialog.css:166-176`).
 const SIZE: crate::dialog::DialogSize = crate::dialog::DialogSize::Large;
 /// `search-list-empty`: "No model results" in the middle of 120 pt.
 const EMPTY_H: f32 = 120.0;
@@ -49,7 +49,8 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
             tx.instant();
             s.close_picker(true);
         })
-        .child(dialog(s, p));
+        // The size's box holds the fitting dialog at its top; the room under it is the scrim's.
+        .child(col().key("picker-model-box").w_full().max_w(SIZE.width(f32::INFINITY)).h(SIZE.height(f32::INFINITY)).shrink().min_h(0.0).child(dialog(s, p)));
     let mut out = vec![hover::watch::<S>(scrim)];
     out.extend(flyout::view(s, p));
     out
@@ -71,8 +72,6 @@ fn dialog<S: PickerHost>(s: &S, p: &Pal) -> El {
         .role("dialog")
         .label_static(opencode_i18n::t!("dialog.model.select.title"))
         .w_full()
-        .max_w(SIZE.width(f32::INFINITY))
-        .h(SIZE.height(f32::INFINITY))
         .shrink()
         .min_h(0.0)
         .radius(LIST.radius())
@@ -88,7 +87,7 @@ fn dialog<S: PickerHost>(s: &S, p: &Pal) -> El {
         .child(list(s, p))
 }
 
-/// The results, filling the dialog under its search.
+/// The results under its search, as tall as their rows up to the dialog's height.
 fn list<S: PickerHost>(s: &S, p: &Pal) -> El {
     let pk = s.pickers();
     let items = s.picker_items();
@@ -110,7 +109,7 @@ fn list<S: PickerHost>(s: &S, p: &Pal) -> El {
             .child(text(opencode_i18n::t!("dialog.model.empty")).font(UI).color(p.muted)), EMPTY_H);
     }
     list.slide(s.knobs(), p, &pk.search.text);
-    hover::scroll::<S>(list.build("picker-scroll", f32::MAX).grow(1.0).shrink().min_h(0.0))
+    hover::scroll::<S>(list.build("picker-scroll", f32::MAX).shrink().min_h(0.0))
 }
 
 /// A model's row (`select-dialog.tsx:911-979`, `select-dialog.css:177-218`): its check slot, its

@@ -42,6 +42,7 @@ return plugin.defineWindow(function(ctx)
     local Servers = ctx:GetService("Servers")
     local Popover = ctx:GetService("Popover")
     local Dialog = ctx:GetService("Dialog")
+    local Menu = ctx:GetService("Menu")
     local Workspace = ctx:GetService("Workspace")
 
     -- The window's address field, find field, and extension store link field.
@@ -418,7 +419,7 @@ return plugin.defineWindow(function(ctx)
         local code = tab:Refusal()
         local rej = tab:Rejected()
         local existing = refusalNotices[tab.Id]
-        if code == nil then
+        if code == nil or code == "browser.controlled.inherited_permission" then
             if existing ~= nil and (navigated or string.sub(existing.token, 1, 4) ~= "app:") then
                 refusalNotices[tab.Id] = nil
             end
@@ -485,7 +486,9 @@ return plugin.defineWindow(function(ctx)
         -- Private/isolated preview tabs and internal server files NEVER write to history.
         if not isPrivate and not previewTab and not tab:Loading() and history.recordable(url) and not isServerFile(url) then
             local title = tab:Title()
+            local liveFav: string? = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
             local visit = `{url}\n{title}`
+            local visitWithIcon = `{visit}\n{liveFav or ""}`
             local keeper = recorder:Get()
             local bAny = Browser :: any
             if recorded[id] ~= visit then
@@ -493,7 +496,7 @@ return plugin.defineWindow(function(ctx)
                 recorded[id] = visit
                 recordedUrl[id] = url
                 if keeper then
-                    keeper.remember(url, title)
+                    keeper.remember(url, title, liveFav)
                 end
                 ensureAdopted()
                 if sameUrl then
@@ -506,6 +509,11 @@ return plugin.defineWindow(function(ctx)
                     if type(bAny.HistoryVisit) == "function" then
                         bAny:HistoryVisit(url, title, wasTyped, id)
                     end
+                end
+            elseif liveFav ~= nil and liveFav ~= "" and recorded[`icon:{id}`] ~= visitWithIcon then
+                recorded[`icon:{id}`] = visitWithIcon
+                if keeper then
+                    keeper.remember(url, title, liveFav)
                 end
             end
         end
@@ -920,13 +928,19 @@ return plugin.defineWindow(function(ctx)
         act = act,
     }
 
-    -- A tab's label: "New tab" for a blank page, else live/saved title (loading hold), else host/URL.
+    -- A tab's label: "New tab" for a blank or unnamed link-opened page, else live/saved title, else host/URL.
     local function label(sid: string, info: BrowserTabInfo): string
         if info.url == "" then
             return I18n:T("tab.new")
         end
         local saved = savedTabs.find(savedTabs.normalize(savedTabsStore:Get()), sid, info.id)
         local live = Browser:Get(info.id)
+        if live ~= nil then
+            local liveAny = live :: any
+            if type(liveAny.Unnamed) == "function" and liveAny:Unnamed() == true then
+                return I18n:T("tab.new")
+            end
+        end
         local held = savedTabs.tabTitle(info.url, info.title, if live then live:Loading() else true, saved)
         if held ~= nil then
             return held
@@ -937,7 +951,8 @@ return plugin.defineWindow(function(ctx)
 
     local function tabText(sid: string, tab: BrowserTab): string
         local url = pageUrl(tab)
-        if url == "" then
+        local tAny = tab :: any
+        if url == "" or (type(tAny.Unnamed) == "function" and tAny:Unnamed() == true) then
             return I18n:T("tab.new")
         end
         local saved = savedTabs.find(savedTabs.normalize(savedTabsStore:Get()), sid, tab.Id)
@@ -959,8 +974,7 @@ return plugin.defineWindow(function(ctx)
             local out: { PanelTab } = {}
             for _, info in Browser:List(sid, open) do
                 if info.open then
-                    local tabIcon: IconName = if isPreviewUrl(info.url) then "folder" else "globe"
-                    table.insert(out, { instance = info.id, title = label(sid, info), icon = tabIcon, fallback = true })
+                    table.insert(out, { instance = info.id, title = label(sid, info), icon = "globe", fallback = true })
                 end
             end
             return out
@@ -973,22 +987,18 @@ return plugin.defineWindow(function(ctx)
             end
             local sid = props.sessionId or ""
             local title = tabText(sid, tab)
-            local preview = isPreviewTab(tab)
+            local labelColor: Color = if props.active then "text-chrome" else "text-muted"
             local iconNode: ui.Node
-            if preview then
-                iconNode = ui.icon("folder", { size = 16, color = "icon-weak" })
+            local tAny = tab :: any
+            local liveFav = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
+            local saved = savedTabs.find(savedTabs.normalize(savedTabsStore:Get()), sid, id)
+            local fav = savedTabs.tabIcon(pageUrl(tab), liveFav, saved)
+            if fav ~= nil then
+                iconNode = ui.image({ src = fav, w = 16, h = 16 }, {
+                    ui.icon("globe", { size = 16, color = labelColor }),
+                })
             else
-                local tAny = tab :: any
-                local liveFav = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
-                local saved = savedTabs.find(savedTabs.normalize(savedTabsStore:Get()), sid, id)
-                local fav = savedTabs.tabIcon(pageUrl(tab), liveFav, saved)
-                if fav ~= nil then
-                    iconNode = ui.image({ src = fav, w = 16, h = 16, radius = 2 }, {
-                        ui.icon("globe", { size = 16, color = "icon-weak" }),
-                    })
-                else
-                    iconNode = ui.icon("globe", { size = 16, color = "icon-weak" })
-                end
+                iconNode = ui.icon("globe", { size = 16, color = labelColor })
             end
             local children: { ui.Node } = {
                 iconNode,
@@ -996,14 +1006,33 @@ return plugin.defineWindow(function(ctx)
                     size = 13,
                     weight = "regular",
                     lineHeight = 16,
-                    color = if props.active then "text-chrome" else "text-muted",
+                    tracking = -0.04,
+                    tabular = true,
+                    noWrap = true,
+                    color = labelColor,
                     truncate = true,
                     shrink = true,
                     minW = 0,
                     maxW = 160,
                 }),
             }
-            if unseenTabs[id] then
+            local tAny = tab :: any
+            local asking = type(tAny.Asking) == "function" and tAny:Asking() == true
+            local unseen = not asking
+                and (unseenTabs[id] == true or (type(tAny.Unseen) == "function" and tAny:Unseen() == true))
+            -- Official `renderer.tsx:536-538`: amber `prompt.tab` ("Waiting for you") takes precedence
+            -- over blue `tab.activity` ("The agent used this tab"), both 6×6 rounded dots.
+            if asking then
+                table.insert(children, ui.box({
+                    key = `browser-tab-dot-{id}`,
+                    role = "img",
+                    label = I18n:T("prompt.tab"),
+                    w = 6,
+                    h = 6,
+                    radius = 3,
+                    fill = "status-warning",
+                }))
+            elseif unseen then
                 table.insert(children, ui.box({
                     key = `browser-tab-dot-{id}`,
                     role = "img",
@@ -1329,7 +1358,7 @@ return plugin.defineWindow(function(ctx)
             available = avail,
             import = avail,
             extensions = extNativeAvailable() or (type(ext) == "table" and type(ext.renderSettings) == "function"),
-            remoteSignIns = type(prof) == "table" and type(prof.remoteSignIns) == "function" and type(prof.setRemoteSignIns) == "function",
+            remoteSignIns = avail and type((Browser :: any).ShareSignIns) == "function",
             cookieFile = type(prof) == "table" and type(prof.pickCookieFile) == "function",
         }
     end
@@ -1338,8 +1367,14 @@ return plugin.defineWindow(function(ctx)
     local importDialogHandle: Contribution? = nil
     local extDialogHandle: Contribution? = nil
     local clearNoticeText: string? = nil
+    -- Browsers are listed only while Settings > Browser draws (never at startup), read again once a
+    -- listing is a few seconds old, so a visit sees browsers installed since the last one.
     local importSources: { settings.ImportBrowser } = {}
-    local importStatus: string? = nil
+    local importSourcesAt: number? = nil
+    -- The profile the import dialog is for, what its last import said, and each row's last outcome.
+    local importTarget: { browser: string, profile: string, label: string }? = nil
+    local importFailure: settings.ImportMessage? = nil
+    local importResults: { [string]: settings.ImportMessage } = {}
     local extDialogState: extensions.DialogState = {
         busy = nil,
         installingId = nil,
@@ -1353,6 +1388,16 @@ return plugin.defineWindow(function(ctx)
         approving = false,
         message = nil,
     }
+
+    local function listImportSources(): { settings.ImportBrowser }
+        local now = System:Now()
+        if importSourcesAt == nil or now - importSourcesAt > 5000 then
+            local bAny = Browser :: any
+            importSources = if type(bAny.HistoryImportSources) == "function" then (bAny:HistoryImportSources() :: any) or {} else {}
+            importSourcesAt = now
+        end
+        return importSources
+    end
 
     local function refreshSettings()
         if settingsHandle then
@@ -1657,21 +1702,28 @@ return plugin.defineWindow(function(ctx)
         id = "import-history",
         title = I18n:T("settings.import.title"),
         render = function(view)
-            return settings.renderImportDialog(I18n, view, importSources, importStatus, function(browserId: string, profileId: string)
+            local target = importTarget
+            if target == nil then
+                return nil
+            end
+            return settings.renderImportDialog(I18n, view, target.label, importFailure, function()
                 local bAny = Browser :: any
-                if type(bAny.HistoryImportProfile) ~= "function" then
-                    importStatus = I18n:T("settings.import.history.failed")
+                local res = if type(bAny.HistoryImportProfile) == "function"
+                    then bAny:HistoryImportProfile(target.browser, target.profile)
+                    else nil
+                local imported = if type(res) == "table" and type(res.imported) == "number" then res.imported else nil
+                if imported ~= nil and imported > 0 then
+                    -- `site-chooser.tsx:164-176`: a clean import closes the dialog; its row says so.
+                    importResults[`{target.browser}\n{target.profile}`] = {
+                        text = I18n:T("signins.imported.history.only.from", { browser = target.label }),
+                        error = false,
+                        live = true,
+                    }
+                    Dialog:Close()
+                elseif imported ~= nil then
+                    importFailure = { text = I18n:T("signins.imported.none.from", { browser = target.label }), error = false, live = true }
                 else
-                    local res = bAny:HistoryImportProfile(browserId, profileId)
-                    if type(res) == "table" and type(res.imported) == "number" then
-                        if res.imported > 0 then
-                            importStatus = I18n:T("settings.import.history.done", { count = res.imported })
-                        else
-                            importStatus = I18n:T("settings.import.history.empty")
-                        end
-                    else
-                        importStatus = I18n:T("settings.import.history.failed")
-                    end
+                    importFailure = { text = I18n:T("signins.failed.read"), error = true, live = true }
                 end
                 if importDialogHandle then
                     importDialogHandle:Refresh()
@@ -1682,8 +1734,8 @@ return plugin.defineWindow(function(ctx)
             end)
         end,
         onDismiss = function()
-            importSources = {}
-            importStatus = nil
+            importTarget = nil
+            importFailure = nil
         end,
     })
 
@@ -1708,30 +1760,36 @@ return plugin.defineWindow(function(ctx)
             removeSitePermission(origin, permission)
             refreshSettings()
         end,
-        historyCount = function(): number
-            ensureAdopted()
-            local bAny = Browser :: any
-            if type(bAny.HistoryCount) == "function" then
-                local n = bAny:HistoryCount()
-                if type(n) == "number" then
-                    return n
-                end
-            end
-            return #visits()
-        end,
         clearNotice = function(): string?
             return clearNoticeText
         end,
         requestClearBrowsingData = function()
             Dialog:Open("clear-data")
         end,
-        openImportHistory = function()
-            -- Discover installed browsers ONLY on explicit user click, never on startup.
-            local bAny = Browser :: any
-            importStatus = nil
-            importSources = if type(bAny.HistoryImportSources) == "function" then (bAny:HistoryImportSources() :: any) or {} else {}
-            Dialog:Open("import-history")
+        importSources = listImportSources,
+        importMessage = function(browserId: string, profileId: string): settings.ImportMessage?
+            return importResults[`{browserId}\n{profileId}`]
         end,
+        openImport = function(browserId: string, profileId: string)
+            for _, browser in importSources do
+                if browser.id == browserId then
+                    for _, prof in browser.profiles do
+                        if prof.id == profileId then
+                            -- `choices.tsx` `choiceLabel`: the profile's name only for a browser with several.
+                            importTarget = {
+                                browser = browserId,
+                                profile = profileId,
+                                label = if #browser.profiles > 1 then `{browser.name} · {prof.name}` else browser.name,
+                            }
+                            importFailure = nil
+                            Dialog:Open("import-history")
+                            return
+                        end
+                    end
+                end
+            end
+        end,
+        Menu = Menu,
         renderImport = function(view)
             local prof = profileContract:Get()
             if type(prof) == "table" and type(prof.renderImport) == "function" then
@@ -1780,15 +1838,19 @@ return plugin.defineWindow(function(ctx)
                 end,
             }, view)
         end,
-        remoteSignInsEnabled = function()
-            local prof = profileContract:Get()
-            return type(prof) == "table" and type(prof.remoteSignIns) == "function" and prof.remoteSignIns() == true
+        remoteSignInsEnabled = function(): boolean?
+            local bAny = Browser :: any
+            if type(bAny.ShareSignIns) ~= "function" or bAny:ShareSignIns() == nil then
+                return nil
+            end
+            return preferences().remoteSignIns
         end,
         setRemoteSignIns = function(enabled: boolean)
-            local prof = profileContract:Get()
-            if type(prof) == "table" and type(prof.setRemoteSignIns) == "function" then
-                prof.setRemoteSignIns(enabled)
-            end
+            -- Kept across restarts as official keeps `remote-sign-ins` (`profile/index.ts:118,657-661`).
+            local bAny = Browser :: any
+            updatePreferences({ remoteSignIns = enabled })
+            bAny:SetShareSignIns(enabled)
+            refreshSettings()
         end,
         pickCookieFile = function()
             local prof = profileContract:Get()
@@ -1797,6 +1859,22 @@ return plugin.defineWindow(function(ctx)
             end
         end,
     }, refreshSettings)
+
+    -- The host re-sends it to every engine that starts with a cookie store (`#286`), so setting it
+    -- once here carries the person's choice across restarts without starting the engine.
+    local function syncRemoteSignIns()
+        local bAny = Browser :: any
+        if type(bAny.SetShareSignIns) == "function" then
+            bAny:SetShareSignIns(preferences().remoteSignIns)
+        end
+    end
+    if preferences().remoteSignIns then
+        syncRemoteSignIns()
+    end
+    prefsStore.Changed:Connect(function()
+        syncRemoteSignIns()
+        refreshSettings()
+    end)
 
     settingsHandle = ctx:AddSettingsPage({
         id = "browser",
