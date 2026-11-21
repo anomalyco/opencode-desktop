@@ -206,11 +206,9 @@ fn step_foot<S: TimelineHost>(s: &S, session: &str, live: bool, steps: &[Step]) 
         Step::Notice(_) => 4.0,
         Step::Text { body } => if body.trim_end().ends_with("```") { 0.0 } else { crate::timeline::rhythm::prose_insets().1 },
         st @ Step::Tool { .. } if grouped_read(st) || named_skill(st) => 6.0,
-        _ if file_like(first) => match steps.last() {
-            // A row of counts ends 6 under its line, as a closed trigger does.
-            Some(Step::Change { file, .. }) if !crate::tools::script::is_card(file) => 6.0,
-            _ => 0.0,
-        },
+        // Card ends carry their own 6 pt vertical inset in `step_item`; count rows end 6 under
+        // their line like a closed trigger.
+        _ if file_like(first) => 6.0,
         st @ Step::Tool { files, .. } => {
             if !files.is_empty() {
                 return 0.0;
@@ -240,7 +238,14 @@ fn step_item<S: TimelineHost>(s: &S, p: &Pal, cx: crate::tools::Ctx, group: &str
             let calls: Vec<crate::tools::Call> = steps.iter().filter_map(call).collect();
             crate::tools::cached(s, p, cx, &calls, || crate::tools::read_group(s, p, cx, &calls)).key(format!("reads-{}", calls[0].id))
         }
-        st if file_like(st) => file_runs(s, p, cx, steps),
+        st if file_like(st) => {
+            // A file card has no 6 pt text overhang of its own, so card ends pad 6 pt to keep
+            // `--timeline-gap-s` (16 pt) clear of neighbouring 28 pt text rows.
+            let is_card = |s: &Step| !matches!(s, Step::Change { file, .. } if !crate::tools::script::is_card(file));
+            let pt = if steps.first().is_some_and(is_card) { 6.0 } else { 0.0 };
+            let pb = if steps.last().is_some_and(is_card) { 6.0 } else { 0.0 };
+            file_runs(s, p, cx, steps).pt(pt).pb(pb)
+        }
         st @ Step::Tool { .. } if named_skill(st) => {
             let calls: Vec<crate::tools::Call> = steps.iter().filter_map(call).collect();
             col().key(format!("skills-{}", calls[0].id)).w_full().child(crate::tools::cached(s, p, cx, &calls, || crate::tools::skill_group(s, p, cx, &calls)))
