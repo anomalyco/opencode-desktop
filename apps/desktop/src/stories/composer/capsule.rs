@@ -3,7 +3,7 @@
 //! after they started, two Code Mode scripts run in the background, and the capsule's list is
 //! open over the composer. O opens and closes it, R replays.
 
-use opencode_kit::model::SessionInfo;
+use opencode_kit::model::{Assistant, Message, Part, SessionInfo, ToolStatus};
 use rune::Play;
 
 use crate::App;
@@ -53,7 +53,8 @@ fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
     run_thirty(s);
     let parent = sid(s);
-    for (k, ago) in [(1, 95_000), (2, 12_000)] {
+    for (k, ago, code) in [(1, 95_000, "await tools.shell({ command: \"bun test\" })"), (2, 12_000, "const pages = await crawl(docs)")] {
+        moved_to_background(s, &format!("cm_story_script_{k}"), code);
         let info = serde_json::json!({
             "id": format!("cm_story_script_{k}"),
             "kind": "codemode",
@@ -64,6 +65,32 @@ fn open(s: &mut App, _: &mut Play<App>) {
         crate::subagents::jobs::event(s, "experimental.job.updated", &serde_json::json!({ "info": info }));
     }
     crate::subagents::shells::set_open(s, true);
+}
+
+/// Ends an `execute` call on the open session with `job`'s id, as a script moved to the background
+/// does: only then does its running job count.
+fn moved_to_background(s: &mut App, job: &str, code: &str) {
+    let id = sid(s);
+    let Some(t) = s.transcripts.get_mut(&id) else { return };
+    let part = format!("prt_{job}");
+    let call = Part::Tool {
+        id: part.clone(),
+        name: "execute".into(),
+        status: ToolStatus::Completed,
+        title: String::new(),
+        input: serde_json::json!({ "code": code }),
+        files: Vec::new(),
+        metadata: serde_json::json!({ "jobID": job }),
+    };
+    for m in &mut t.messages {
+        if let Message::Assistant(a) = m {
+            a.parts.retain(|p| !matches!(p, Part::Tool { id, .. } if *id == part));
+        }
+    }
+    match t.messages.iter_mut().rev().find_map(|m| if let Message::Assistant(a) = m { Some(a) } else { None }) {
+        Some(a) => a.parts.push(call),
+        None => t.messages.push(Message::Assistant(Assistant { id: "msg_story_capsule".into(), completed: None, parts: vec![call], ..Default::default() })),
+    }
 }
 
 /// Thirty agents run below the open session; every third was made hours ago and woke again a

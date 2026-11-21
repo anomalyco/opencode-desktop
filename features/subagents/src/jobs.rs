@@ -100,7 +100,8 @@ pub fn owned_by<'a>(host: &'a dyn SubagentsHost, session: &'a str) -> impl Itera
 
 /// The open session's own Code Mode scripts running in the background, oldest first
 /// (`requests/background.ts`'s `scripts`). Each completed `execute` call carrying `metadata.jobID`
-/// names the job by the first non-blank line of `input.code`.
+/// names the job by the first non-blank line of `input.code`. Every script runs as a job, so one
+/// still blocking the turn has a running job too: only a job such a call moved counts.
 pub fn scripts(host: &dyn SubagentsHost, id: &str) -> Vec<Script> {
     let running: Vec<&JobInfo> = running(host).filter(|j| j.is_codemode() && j.session_id == id).collect();
     if running.is_empty() {
@@ -120,6 +121,7 @@ pub fn scripts(host: &dyn SubagentsHost, id: &str) -> Vec<Script> {
     }
     let mut out: Vec<Script> = running
         .into_iter()
+        .filter(|j| named.contains_key(j.id.as_str()))
         .map(|j| Script {
             id: j.id.clone(),
             label: named.get(j.id.as_str()).cloned().flatten().unwrap_or_else(|| j.id.clone()),
