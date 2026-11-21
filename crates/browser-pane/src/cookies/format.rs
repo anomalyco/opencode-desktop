@@ -57,7 +57,14 @@ pub fn prepare_for_import(cookies: &[WireCookie], now_secs: f64) -> (Vec<WireCoo
     let mut skipped = 0u32;
     for c in cookies {
         let bare = c.host.trim_start_matches('.');
-        if !valid_cookie_host(&c.host) || (c.name.is_empty() && c.value.is_empty()) {
+        // The engine's own field caps (`apps/browser-engine/src/cookies.rs` `MAX_COOKIE_*`): a cookie
+        // past them would only be refused there, after riding a batch over the wire.
+        if !valid_cookie_host(&c.host)
+            || (c.name.is_empty() && c.value.is_empty())
+            || c.name.len() > 4096
+            || c.value.len() > 8192
+            || c.path.len() > 4096
+        {
             skipped = skipped.saturating_add(1);
             continue;
         }
