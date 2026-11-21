@@ -8,6 +8,8 @@
 
 pub mod links;
 #[cfg(not(target_arch = "wasm32"))]
+mod activity;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod context_menu;
 #[cfg(not(target_arch = "wasm32"))]
 mod openers;
@@ -140,6 +142,8 @@ mod native {
         pub history: std::cell::RefCell<Option<browser_pane::history::HistoryStore>>,
         /// Serializes human download OS Save dialogs (`EngineMsg::DownloadSaveRequest`) one at a time.
         pub save_dialog_open: bool,
+        /// Tabs an agent opened or drove while hidden (`machine.ts` `unseen`, blue `tab.activity` dot).
+        pub unseen_tabs: std::collections::HashSet<u64>,
         /// Chrome-style opener chains and initial `"New tab"` title holds (`UP-118`).
         pub openers: super::openers::TabOpeners,
     }
@@ -564,10 +568,14 @@ mod native {
                     .host
                     .open_tab_with_context(url, roots, context, from_address, agent_driven)
             };
+            let is_agent = matches!(driver, Some(browser_pane::TabDriver::Agent));
             if let Some(driver) = driver {
                 self.workspace_panes.browser.host.set_tab_driver(id, driver);
             }
             self.attach_browser_tab_to_session(sid, id, target_pane, steal_focus);
+            if is_agent {
+                self.mark_browser_tab_unseen(id);
+            }
             id
         }
 
@@ -747,25 +755,7 @@ mod native {
                     changed = true;
                 }
             }
-            if self.workspace_panes.browser.host.has_popup_opens() {
-                let popups: Vec<_> = self.workspace_panes.browser.host.drain_popup_opens().collect();
-                for popup in popups {
-                    let Some((driver, opener_ctx)) = self.browser_context_for_opener(popup.opener_tab_id) else {
-                        // Opener closed before drain: refuse rather than downgrading to direct `Private`.
-                        continue;
-                    };
-                    let sid = self.browser_tab_session(popup.opener_tab_id).map(str::to_owned);
-                    let _new_id = self.open_new_browser_tab_beside(
-                        sid.as_deref(),
-                        &popup.url,
-                        popup.opener_tab_id,
-                        !popup.background,
-                        opener_ctx,
-                        driver,
-                    );
-                    changed = true;
-                }
-            }
+            changed |= self.drain_browser_popups();
             // Reload persisted site permissions when Settings > Browser edits `rune.sitePermissions`.
             let perm_ver = crate::plugin_host::services::store::store_version("browser", "rune.sitePermissions");
             if perm_ver != self.workspace_panes.browser.site_permissions_version {
@@ -789,6 +779,7 @@ mod native {
                 self.workspace_panes.browser.host.focus_tab(id);
                 changed = true;
             }
+            changed |= self.prune_browser_unseen();
             changed |= self.sync_browser_openers();
             changed
         }

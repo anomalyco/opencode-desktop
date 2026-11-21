@@ -3455,11 +3455,11 @@
       ],
       "summary": "Navigate back and forward through desktop route history when mouse Back/Forward side buttons are released.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Rune already maps mouse side buttons to PointerButton::Back and PointerButton::Forward (crates/rune/src/window.rs:762-763), and GoBack/GoForward exist in keymap, but apps/desktop does not handle PointerButton::Back/Forward yet.",
+      "status": "have it",
+      "status_evidence": "Ported in apps/desktop/src/shell/view/mod.rs (non-wasm32 desktop shell root opts into PointerButton::Back/Forward and invokes App::navigate(false/true, tx) on release; browser surface excludes Back/Forward so embedded pointer capture never conflicts).",
       "depends_on": "none",
-      "risks": "Ensure embedded browser pane / pointer capture does not conflict with desktop history navigation.",
-      "workstream": "BROWSER-UI"
+      "risks": "none",
+      "workstream": "none"
     },
     {
       "id": "UP-117",

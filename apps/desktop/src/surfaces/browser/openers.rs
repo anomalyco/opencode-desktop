@@ -10,8 +10,8 @@ use std::collections::{HashMap, HashSet};
 
 use browser_pane::BrowserHost;
 
-use crate::panels::{panel_key, tabs::split_panel_key};
-use crate::{App, SessionPane};
+use crate::panels::{SessionPane, panel_key, tabs::split_panel_key};
+use crate::App;
 
 use super::PLUGIN;
 
@@ -259,7 +259,7 @@ impl App {
             } else {
                 st.visibility.step(true);
                 if shared {
-                    side.shared_open = true;
+                    side.shared_open = Some(true);
                 }
             }
             side.focus.focus();
@@ -306,10 +306,36 @@ impl App {
                 self.workspace_panes.browser.openers.on_select(prev, active);
             }
         }
-        self.workspace_panes.browser.openers.sync_unnamed(&self.workspace_panes.browser.host)
+        let browser: &mut super::BrowserPane = &mut self.workspace_panes.browser;
+        browser.openers.sync_unnamed(&browser.host)
     }
 
     pub fn browser_tab_unnamed(&self, id: u64) -> bool {
         self.workspace_panes.browser.openers.is_unnamed(id)
+    }
+
+    pub(super) fn drain_browser_popups(&mut self) -> bool {
+        if !self.workspace_panes.browser.host.has_popup_opens() {
+            return false;
+        }
+        let popups: Vec<_> = self.workspace_panes.browser.host.drain_popup_opens().collect();
+        let mut changed = false;
+        for popup in popups {
+            let Some((driver, opener_ctx)) = self.browser_context_for_opener(popup.opener_tab_id) else {
+                // Opener closed before drain: refuse rather than downgrading to direct `Private`.
+                continue;
+            };
+            let sid = self.browser_tab_session(popup.opener_tab_id).map(str::to_owned);
+            let _ = self.open_new_browser_tab_beside(
+                sid.as_deref(),
+                &popup.url,
+                popup.opener_tab_id,
+                !popup.background,
+                opener_ctx,
+                driver,
+            );
+            changed = true;
+        }
+        changed
     }
 }

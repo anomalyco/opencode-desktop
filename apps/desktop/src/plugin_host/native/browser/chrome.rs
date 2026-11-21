@@ -105,11 +105,15 @@ pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
     m.raw_set(
         "Asking",
         lua.create_function(|lua, this: Table| {
-            read_tab(lua, &this, "BrowserTab:Asking", |app, id| {
-                let key = crate::panels::panel_key(crate::surfaces::browser::PLUGIN, &id.to_string());
-                Ok(app.workspace_panes.browser.host.tab(id).is_some_and(|t| t.prompts.waiting_on_user())
-                    && !app.side_tab_visible(&key))
-            })
+            read_tab(lua, &this, "BrowserTab:Asking", |app, id| Ok(app.browser_tab_asking(id)))
+        })?,
+    )?;
+    // The strip's blue `tab.activity` dot: an agent opened or drove this tab while hidden
+    // (official `unseen`, `packages/gui-plugins/src/browser/machine.ts:690-715` at `b9a60d9d`).
+    m.raw_set(
+        "Unseen",
+        lua.create_function(|lua, this: Table| {
+            read_tab(lua, &this, "BrowserTab:Unseen", |app, id| Ok(app.browser_tab_unseen(id)))
         })?,
     )?;
     // True while a link-opened tab's first page has not named itself yet (`UP-118`, `pane-machine.ts`).
