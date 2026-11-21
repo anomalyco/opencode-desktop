@@ -2,20 +2,49 @@
 //! more), the UI, Code and Terminal fonts as 220 pt fields in their own faces, Zoom and Reduce
 //! motion, and this app's Text rendering.
 
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+
 use opencode_i18n::t;
 use opencode_ui::popup::PopupHost;
-use rune::{El, Family, TextEdit, TextStyle, Tx, row};
+use rune::{El, Family, Link, LinkPaint, Span, TextEdit, TextStyle, Tx, text};
 use opencode_ui::palette::Pal;
 
-use super::{header, page, select, select_some, text_field};
+use super::{BODY, header, page, select, select_some, text_field};
 use crate::host::SettingsHost;
 use crate::types::{CODE_FONTS, ReduceMotion, Scheme, TERMINAL_FONTS, TextRenderer, UI_FONTS, ZOOM_LEVELS};
-use crate::{Settings, about, link, list, setting, setting_with};
+use crate::{Settings, list, setting, setting_with};
 
 /// Desktop's defaults, shown as each field's placeholder (`sansDefault`, `monoDefault`, `terminalDefault`).
 const UI_DEFAULT: &str = "Inter";
 const CODE_DEFAULT: &str = "IBM Plex Mono";
 const TERMINAL_DEFAULT: &str = "JetBrainsMono Nerd Font Mono";
+
+fn terminal_preview_family(st: &Settings) -> Family {
+    let custom = st.terminal_font_name.trim();
+    if !custom.is_empty() {
+        static INTERNED: OnceLock<Mutex<HashMap<String, &'static str>>> = OnceLock::new();
+        let list = format!("{}, {TERMINAL_DEFAULT}", crate::css_family(custom));
+        let map = INTERNED.get_or_init(|| Mutex::new(HashMap::new()));
+        if let Ok(mut guard) = map.lock() {
+            if let Some(&cached) = guard.get(&list) {
+                return Family::Named(cached);
+            }
+            if guard.len() < 32 {
+                let leaked: &'static str = Box::leak(list.clone().into_boxed_str());
+                guard.insert(list, leaked);
+                return Family::Named(leaked);
+            }
+        }
+        return Family::Named(TERMINAL_DEFAULT);
+    }
+    match st.terminal_font {
+        0 => Family::Named("CommitMono, JetBrainsMono Nerd Font Mono"),
+        1 => Family::Named("IBM Plex Mono, JetBrainsMono Nerd Font Mono"),
+        2 => Family::SystemMono,
+        _ => Family::Named(TERMINAL_DEFAULT),
+    }
+}
 
 /// The three font fields as typed.
 #[derive(Default)]
@@ -106,9 +135,18 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
     let st = s.settings();
     let f = &s.settings_pages().fonts;
     let themes = opencode_ui::themes::all();
-    let theme_about = row()
-        .child(about(p, &format!("{} ", t!("settings.general.row.theme.description"))))
-        .child(link::<H>(p, "settings-theme-docs", t!("common.learnMore"), "https://opencode.ai/docs/themes"));
+    let desc = t!("settings.general.row.theme.description");
+    let more = t!("common.learnMore");
+    let theme_text = format!("{desc} {more}");
+    let more_start = desc.len() + 1;
+    let theme_about = text(theme_text)
+        .key("settings-theme-docs")
+        .font(BODY)
+        .color(p.muted)
+        .wrap()
+        .spans(vec![Span::new(more_start, more_start + more.len()).color(p.accent)])
+        .link(Link::new(more_start..more_start + more.len(), "https://opencode.ai/docs/themes").role("link").label(more).hover(LinkPaint::new().color(p.accent_hover)))
+        .on_link(|s: &mut H, url: &str, tx: &mut Tx| crate::open_external(s, url, tx));
     let current_zoom = s.zoom();
     let zoom_pct = st.zoom_percent(current_zoom);
     let mut levels: Vec<(String, String)> = ZOOM_LEVELS
@@ -198,7 +236,7 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                     t!("settings.general.row.terminalFont.title"),
                     TERMINAL_DEFAULT,
                     &f.terminal,
-                    face(Family::Named(TERMINAL_DEFAULT)),
+                    face(terminal_preview_family(st)),
                     |st| &mut st.fonts.terminal,
                     terminal_changed,
                 ),

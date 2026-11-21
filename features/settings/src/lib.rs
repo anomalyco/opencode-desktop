@@ -690,11 +690,10 @@ pub fn about(p: &Pal, words: &str) -> El {
 pub fn link<H: SettingsHost + 'static>(p: &Pal, key: &str, words: &str, url: &'static str) -> El {
     text(words.to_owned())
         .key(key.to_owned())
-        .role("link")
-        .label(words.to_owned())
         .font(BODY)
         .color(p.accent)
-        .on_press_tx(move |s: &mut H, tx: &mut Tx| open_external(s, url, tx))
+        .link(rune::Link::new(0..words.len(), url).role("link").label(words.to_owned()).hover(rune::LinkPaint::new().color(p.accent_hover)))
+        .on_link(|s: &mut H, href: &str, tx: &mut Tx| open_external(s, href, tx))
 }
 
 pub(crate) fn open_external(host: &mut dyn SettingsHost, url: &str, tx: &mut Tx) {
