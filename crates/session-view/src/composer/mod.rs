@@ -509,18 +509,21 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                     .shrink()
                     .grow(if held.is_some() { 1.0 } else { 0.0 })
                     // `composer-scroll`: a plain `overflow-y: auto` box's bar (`editor.tsx:296-300`), in
-                    // the room `editor-pad` keeps for it.
+                    // the room `editor-pad` keeps for it. Drop the 180 pt cap while holding height for
+                    // history previews (`editor.tsx:297`).
                     .child(crate::scroller::scroller("editor-scroll").bar(crate::scroller::Bar::Styled(crate::scroller::native_bar(p))).build::<S>(
                         p,
-                        col()
-                            .w_full()
-                            .shrink()
-                            .max_h(COMPOSER_MAX_H)
-                            // `editor.css:9-20`: a fixed 16 fade over the top padding, and the
-                            // bottom feathering by as much as is left to scroll, up to 16.
-                            .clip_fade_linear(0.0, 16.0, 0.0, 0.0)
-                            .scroll_fade(rune::ScrollFade::feather(16.0).end_only())
-                            .scroll_margin(16.0),
+                        {
+                            let vp = col()
+                                .w_full()
+                                .shrink()
+                                // `editor.css:9-20`: a fixed 16 fade over the top padding, and the
+                                // bottom feathering by as much as is left to scroll, up to 16.
+                                .clip_fade_linear(0.0, 16.0, 0.0, 0.0)
+                                .scroll_fade(rune::ScrollFade::feather(16.0).end_only())
+                                .scroll_margin(16.0);
+                            if held.is_some() { vp.grow(1.0) } else { vp.max_h(COMPOSER_MAX_H) }
+                        },
                                 // The scroll box keeps its 8 pt scroll bar's room at its end
                                 // (`scrollbar-gutter: stable`, `--scrollbar-size`), on the app's side.
                                 col().key("editor-pad").w_full().pr(SCROLLBAR).child(
