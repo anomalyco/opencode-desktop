@@ -1,5 +1,5 @@
-//! Copies of `@opencode/widget`'s prelude and built-in templates (anomalyco/opencode
-//! `packages/widget/src/prelude.js` and `templates/*.js`), and the diagram built-ins' example
+//! Copies of `@opencode/widget`'s prelude and built-in widget templates (anomalyco/opencode
+//! `packages/widget/src/prelude.js` and `widget-templates/*.js`), and the diagram built-ins' example
 //! data (`packages/widget/test/fixtures/diagrams.ts`, as JSON), for stories, fixtures and local
 //! runs without a server. A live client always runs the program the server serves, never these;
 //! refresh them when the canonical ones change.
@@ -13,47 +13,47 @@ pub const DIAGRAMS: [&str; 17] = [
     "pie", "scatter", "histogram", "area", "heatmap", "treemap", "sankey", "graph", "tree", "timeline", "funnel", "radar", "gauge", "boxplot", "flowchart", "sequence", "table",
 ];
 
-/// The built-in templates' names.
+/// The built-in widget templates' names.
 pub const BUILTINS: [&str; 22] = [
     "suggestions", "form", "confirm", "chart", "backdrop", "pie", "scatter", "histogram", "area", "heatmap", "treemap", "sankey", "graph", "tree", "timeline", "funnel", "radar", "gauge", "boxplot", "flowchart", "sequence", "table",
 ];
 
-/// How built-in template `name` runs: every built-in steps (`"step"`); live templates are the
+/// How built-in widget template `name` runs: every built-in steps (`"step"`); live widget templates are the
 /// agent's own.
 pub fn mode(_name: &str) -> &'static str {
     "step"
 }
 
-/// Built-in template `name`'s source.
+/// Built-in widget template `name`'s source.
 pub fn source(name: &str) -> Option<&'static str> {
     Some(match name {
-        "suggestions" => include_str!("../fixtures/suggestions.js"),
-        "form" => include_str!("../fixtures/form.js"),
-        "confirm" => include_str!("../fixtures/confirm.js"),
-        "chart" => include_str!("../fixtures/chart.js"),
-        "backdrop" => include_str!("../fixtures/backdrop.js"),
-        "pie" => include_str!("../fixtures/pie.js"),
-        "scatter" => include_str!("../fixtures/scatter.js"),
-        "histogram" => include_str!("../fixtures/histogram.js"),
-        "area" => include_str!("../fixtures/area.js"),
-        "heatmap" => include_str!("../fixtures/heatmap.js"),
-        "treemap" => include_str!("../fixtures/treemap.js"),
-        "sankey" => include_str!("../fixtures/sankey.js"),
-        "graph" => include_str!("../fixtures/graph.js"),
-        "tree" => include_str!("../fixtures/tree.js"),
-        "timeline" => include_str!("../fixtures/timeline.js"),
-        "funnel" => include_str!("../fixtures/funnel.js"),
-        "radar" => include_str!("../fixtures/radar.js"),
-        "gauge" => include_str!("../fixtures/gauge.js"),
-        "boxplot" => include_str!("../fixtures/boxplot.js"),
-        "flowchart" => include_str!("../fixtures/flowchart.js"),
-        "sequence" => include_str!("../fixtures/sequence.js"),
-        "table" => include_str!("../fixtures/table.js"),
+        "suggestions" => include_str!("../fixtures/widget-templates/suggestions.js"),
+        "form" => include_str!("../fixtures/widget-templates/form.js"),
+        "confirm" => include_str!("../fixtures/widget-templates/confirm.js"),
+        "chart" => include_str!("../fixtures/widget-templates/chart.js"),
+        "backdrop" => include_str!("../fixtures/widget-templates/backdrop.js"),
+        "pie" => include_str!("../fixtures/widget-templates/pie.js"),
+        "scatter" => include_str!("../fixtures/widget-templates/scatter.js"),
+        "histogram" => include_str!("../fixtures/widget-templates/histogram.js"),
+        "area" => include_str!("../fixtures/widget-templates/area.js"),
+        "heatmap" => include_str!("../fixtures/widget-templates/heatmap.js"),
+        "treemap" => include_str!("../fixtures/widget-templates/treemap.js"),
+        "sankey" => include_str!("../fixtures/widget-templates/sankey.js"),
+        "graph" => include_str!("../fixtures/widget-templates/graph.js"),
+        "tree" => include_str!("../fixtures/widget-templates/tree.js"),
+        "timeline" => include_str!("../fixtures/widget-templates/timeline.js"),
+        "funnel" => include_str!("../fixtures/widget-templates/funnel.js"),
+        "radar" => include_str!("../fixtures/widget-templates/radar.js"),
+        "gauge" => include_str!("../fixtures/widget-templates/gauge.js"),
+        "boxplot" => include_str!("../fixtures/widget-templates/boxplot.js"),
+        "flowchart" => include_str!("../fixtures/widget-templates/flowchart.js"),
+        "sequence" => include_str!("../fixtures/widget-templates/sequence.js"),
+        "table" => include_str!("../fixtures/widget-templates/table.js"),
         _ => return None,
     })
 }
 
-/// Built-in template `name`'s program, as the server serves it: `prelude + "\n" + source`.
+/// Built-in widget template `name`'s program, as the server serves it: `prelude + "\n" + source`.
 pub fn program(name: &str) -> Option<String> {
     source(name).map(|s| format!("{PRELUDE}\n{s}"))
 }

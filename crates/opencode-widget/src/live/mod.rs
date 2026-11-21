@@ -40,10 +40,10 @@ pub const MAX_POSTS: u32 = 240;
 /// How long a paused program keeps its thread before it is saved to a snapshot.
 pub const SAVE_AFTER: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// What runs a live program after the template's.
+/// What runs a live program after the widget template's.
 const TAIL: &str = "\nreturn await __widget_live(__input())";
 
-/// A live template's program, compiled once per `name@version`.
+/// A live widget template's program, compiled once per `name@version`.
 pub struct LiveProgram {
     compiled: Compiled,
 }
@@ -108,7 +108,7 @@ pub struct Setup {
     pub grants: Grants,
     /// Sends `fetch`'s requests; none, and `fetch` fails as `Network`.
     pub transport: Option<Arc<dyn Transport>>,
-    /// Dev mode: `fetch` may also reach loopback, private and link-local hosts the template
+    /// Dev mode: `fetch` may also reach loopback, private and link-local hosts the widget template
     /// declares, over `http:` too (`allowLocalNetwork`). Off by default.
     pub allow_local_network: bool,
     /// Wakes the client when the program posted, ended or a frame is due.

@@ -288,7 +288,7 @@ pub fn fold_with<'a>(entries: &[Entry<'a>], live: bool, detail: &Detail) -> Vec<
                         }
                         continue;
                     }
-                    // Working on a widget's template shows as one quiet line of its own, as the TUI's.
+                    // Working on a widget template shows as one quiet line of its own, as the TUI's.
                     if name == "widget_template" && !failed {
                         flush(&mut out, &mut group, &mut at, &mut key);
                         out.push(Block::Calls { key: format!("p-{id}"), kind: Calls::One, steps: vec![step] });

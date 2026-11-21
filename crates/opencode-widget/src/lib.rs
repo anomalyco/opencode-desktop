@@ -7,9 +7,9 @@
 //!   module and uniform layout.
 //! - [`machine`]: loading → ready → stepping → submitted / dismissed / error, as an explicit
 //!   machine whose effects (fetch, run a step, respond) the host runs.
-//! - [`live`] (feature `runner`): live templates, one long-running program per widget on a
+//! - [`live`] (feature `runner`): live widget templates, one long-running program per widget on a
 //!   thread of its own, with timers, display frames, `fetch`, pauses and saves.
-//! - [`runner`] (feature `runner`, on by default): compiles a template program once on the Rust
+//! - [`runner`] (feature `runner`, on by default): compiles a widget template program once on the Rust
 //!   PsychoScript and runs steps under the 250 ms budget; [`step_json`] for JSON-only hosts.
 //!
 //! Pure Rust with no UI or platform dependencies, so a desktop renderer, a mobile native module

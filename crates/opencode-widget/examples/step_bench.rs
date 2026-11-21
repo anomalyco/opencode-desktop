@@ -69,7 +69,7 @@ fn main() {
     let event_after = time(n, || drop(program.step_with(&prepared, &ev()).expect("event")));
     let draw_before = time(n * 5, || drop(program.draw(&data, &state, &frame).expect("draw")));
     let draw_after = time(n * 5, || drop(program.draw_with(&prepared, &state, &frame).expect("draw")));
-    // The same 200 rows to a template that barely reads them: what's left is the input's cost.
+    // The same 200 rows to a widget template that barely reads them: what's left is the input's cost.
     let small = Program::compile_with(&format!("{}\n{SMALL}", fixtures::PRELUDE), 250).expect("compiles");
     let s_state = small.step_with(&prepared, &opencode_widget::Step::Init).expect("init").state;
     let s_event = WidgetEvent::press("none");

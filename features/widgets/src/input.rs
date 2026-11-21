@@ -9,7 +9,7 @@
 //!       another session, the widget closing: releases both at once ──┘
 //! ```
 //!
-//! Focused, the widget's keys go to its template (`key` events), except Cmd chords (Ctrl off
+//! Focused, the widget's keys go to its widget template (`key` events), except Cmd chords (Ctrl off
 //! macOS), which the app keeps; Esc is never delivered. Captured, the cursor hides, presses
 //! arrive as `down`/`up` with their button and moves as relative `dx`, `dy`; the cursor is put
 //! back where capture began as it drifts (`WidgetsHost::warp_pointer`), so it stays over the
@@ -40,7 +40,7 @@ pub enum Capture {
     On { home: Option<[f64; 2]>, at_home: Option<[f32; 2]>, last: Option<[f32; 2]> },
 }
 
-/// Sends `event` to widget `id`'s template: its `update`, or its live program.
+/// Sends `event` to widget `id`'s widget template: its `update`, or its live program.
 pub(crate) fn tell(host: &mut dyn WidgetsHost, id: &str, event: WidgetEvent) {
     let Some(e) = host.widgets().entries.get(id) else { return };
     if e.machine.running() {

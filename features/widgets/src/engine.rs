@@ -14,11 +14,11 @@ pub use opencode_widget::live::{Ended, Grants, Live, Post, Setup};
 #[cfg(not(target_arch = "wasm32"))]
 pub type Data = opencode_widget::runner::Data;
 
-/// A template version's program, compiled for how it runs.
+/// A widget template version's program, compiled for how it runs.
 #[derive(Debug)]
 pub struct Compiled {
     pub kind: Kind,
-    /// Lines of the program before the template's source (the prelude's): a location in the
+    /// Lines of the program before the widget template's source (the prelude's): a location in the
     /// program less these is one in the source, as `report` gives it.
     pub offset: u32,
 }
@@ -37,11 +37,11 @@ pub struct Failure {
     pub location: Option<(u32, u32)>,
     /// It returned something that isn't a view.
     pub view: bool,
-    /// The template's own error (reported); otherwise this client's (logged in dev mode only).
+    /// The widget template's own error (reported); otherwise this client's (logged in dev mode only).
     pub program: bool,
 }
 
-/// Why a template's program isn't here: its own code didn't compile (a program error, reported),
+/// Why a widget template's program isn't here: its own code didn't compile (a program error, reported),
 /// or this client couldn't have it (the `program` fetch failed, no runner here: never reported).
 #[derive(Clone, Debug)]
 pub enum LoadError {
@@ -69,7 +69,7 @@ pub fn compile(program: &str) -> Result<Program, String> {
 }
 
 /// `program` compiled for `mode` (`"step"` or `"live"`), a live one granted `grants`; `offset`
-/// lines of it come before the template's source.
+/// lines of it come before the widget template's source.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn compile_as(program: &str, mode: &str, grants: Grants, offset: u32) -> Result<Compiled, LoadError> {
     let kind = if mode == "live" {

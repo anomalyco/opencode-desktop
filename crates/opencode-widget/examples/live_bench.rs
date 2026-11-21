@@ -1,7 +1,7 @@
-//! Runs a live template against a fake 60 Hz client and times its turns: from a frame delivered
-//! to its next frame request. For templates that run frames on their own (not ones waiting on a
+//! Runs a live widget template against a fake 60 Hz client and times its turns: from a frame delivered
+//! to its next frame request. For widget templates that run frames on their own (not ones waiting on a
 //! title screen). `cargo run --release -p opencode-widget --example live_bench --
-//! <template.js> ['<data json>'] [frames]`.
+//! <widget template.js> ['<data json>'] [frames]`.
 #![allow(clippy::print_stdout, clippy::expect_used, clippy::unwrap_used)]
 
 use std::sync::Arc;
@@ -12,7 +12,7 @@ use opencode_widget::{Frame, fixtures};
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let source = std::fs::read_to_string(args.next().expect("a template source path")).expect("reads the source");
+    let source = std::fs::read_to_string(args.next().expect("a widget template source path")).expect("reads the source");
     let data = args.next().map_or(serde_json::json!({}), |d| serde_json::from_str(&d).expect("data is JSON"));
     let frames: u32 = args.next().map_or(900, |n| n.parse().expect("a frame count"));
     let program = Arc::new(LiveProgram::compile(&format!("{}\n{source}", fixtures::PRELUDE)).expect("compiles"));
@@ -22,7 +22,7 @@ fn main() {
     let (mut delivered, mut draws, mut turns) = (0u32, 0usize, Vec::new());
     let mut turn_start = Instant::now();
     while delivered < frames {
-        // A template waiting for input (a title screen) asks for no frames.
+        // A widget template waiting for input (a title screen) asks for no frames.
         if turn_start.elapsed() > Duration::from_secs(5) {
             println!("asked for no frame for 5 s after {delivered} frames");
             break;

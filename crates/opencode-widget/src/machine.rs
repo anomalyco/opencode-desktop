@@ -1,5 +1,5 @@
 //! One widget message's lifecycle on the client the user works in, as an explicit machine:
-//! the template loads, `init` runs, the view is live, each event steps it, and a submit or
+//! the widget template loads, `init` runs, the view is live, each event steps it, and a submit or
 //! dismiss is sent once to the server, after which the widget is read-only.
 //!
 //! ```text
@@ -10,7 +10,7 @@
 //! Failed ◀───────────────┘                   └──Status(closed)──▶ Closed ◀─ Responding
 //! ```
 //!
-//! A live template (`widgets-live.md`) runs one program instead of steps:
+//! A live widget template (`widgets-live.md`) runs one program instead of steps:
 //!
 //! ```text
 //! Loading ──Loaded(live)──▶ Waiting ──Shown──▶ Running ──Answered──▶ Responding ──▶ Closed
@@ -27,7 +27,7 @@
 //! with an error); the first `init` failing shows an error card (`Failed`). A widget the server
 //! already reports submitted or dismissed runs `init` only to draw its final view read-only
 //! (`Closed`); clients don't keep local state. Effects ([`Effect`]) are returned for the caller to
-//! run: fetching the template, running a step on its program, posting the response. Their
+//! run: fetching the widget template, running a step on its program, posting the response. Their
 //! results come back as events.
 
 use serde_json::Value;
@@ -62,7 +62,7 @@ pub enum Status {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Phase {
-    /// Its template program is being fetched.
+    /// Its widget template program is being fetched.
     Loading { status: Status },
     /// The `init` step runs.
     Starting { status: Status },
@@ -73,7 +73,7 @@ pub enum Phase {
     /// The step answered (submit or dismiss): the response is on its way to the server. The
     /// view stays, read-only.
     Responding { state: Value, view: Node, response: Response, attempt: u32, live: bool },
-    /// A live template's program, loaded, waits for the widget to first show.
+    /// A live widget template's program, loaded, waits for the widget to first show.
     Waiting { status: Status },
     /// A live program runs; `view` is what it last rendered (none yet: a placeholder). `error`: a
     /// message that didn't go, shown inline.
@@ -87,7 +87,7 @@ pub enum Phase {
     /// Submitted or dismissed: the final view (when `init` could draw one), read-only, with the
     /// state it was drawn from (a canvas in it still draws from it).
     Closed { view: Option<Node>, state: Value, how: Closed },
-    /// The template couldn't load, or `init` failed: an error card.
+    /// The widget template couldn't load, or `init` failed: an error card.
     Failed { message: String, status: Status },
 }
 
@@ -96,7 +96,7 @@ pub enum Phase {
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
-    /// The template's program is compiled: ready to step, or to run live.
+    /// The widget template's program is compiled: ready to step, or to run live.
     Loaded(Mode),
     LoadFailed(String),
     /// A step's result, for the step [`Effect::Run`] asked for.
@@ -109,7 +109,7 @@ pub enum Event {
     Sent(Result<(), RespondError>),
     /// The message changed on the server (`session.widget.responded`, a page read).
     Status(Status),
-    /// Try a failed widget again from the template fetch; restart a stopped live program.
+    /// Try a failed widget again from the widget template fetch; restart a stopped live program.
     Retry,
     /// A live widget first showed: its program starts.
     Shown,
@@ -123,7 +123,7 @@ pub enum Event {
     Ended(Option<String>),
 }
 
-/// How a template runs.
+/// How a widget template runs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Mode {
     #[default]
@@ -140,7 +140,7 @@ pub enum RespondError {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Effect {
-    /// Fetch (or find cached) the template's program; answer with `Loaded` or `LoadFailed`.
+    /// Fetch (or find cached) the widget template's program; answer with `Loaded` or `LoadFailed`.
     Fetch,
     /// Run this step on the program; answer with `Ran`.
     Run(Step),
@@ -179,7 +179,7 @@ pub struct Widget {
 
 impl Widget {
     /// A widget for a message carrying `data`, as the server reports it; its first effect fetches
-    /// the template.
+    /// the widget template.
     pub fn open(data: Value, status: Status) -> (Widget, Vec<Effect>) {
         (Widget { data, phase: Phase::Loading { status }, attempts: 0 }, vec![Effect::Fetch])
     }
@@ -268,7 +268,7 @@ pub fn step(w: &mut Widget, event: Event) -> Vec<Effect> {
             Status::Closed(how) => (Phase::Closed { view: None, state: Value::Null, how }, vec![]),
             status => (Phase::Failed { message, status }, vec![]),
         },
-        // Still loading or starting, it waits for the template or init, which then draws the
+        // Still loading or starting, it waits for the widget template or init, which then draws the
         // final view read-only; a failed one just says how it ended.
         (Phase::Loading { .. }, Event::Status(status @ Status::Closed(_))) => (Phase::Loading { status }, vec![]),
         (Phase::Starting { .. }, Event::Status(status @ Status::Closed(_))) => (Phase::Starting { status }, vec![]),

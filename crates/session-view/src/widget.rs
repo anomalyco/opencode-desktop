@@ -1,5 +1,5 @@
 //! Agent widgets in the timeline (`specs/v2/widgets.md`): each is a `widget` tool call, on a row
-//! of its own where the agent called it. The host runs the widget (its template program, its
+//! of its own where the agent called it. The host runs the widget (its widget template program, its
 //! lifecycle machine, its view-local state) and draws it in the call's place through
 //! [`TimelineHost::widget`], with [`frame`] here doing the drawing: `opencode-widget-view` on
 //! this timeline's Kit, its Markdown and its pictures. A host that doesn't run widgets shows the

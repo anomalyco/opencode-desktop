@@ -33,7 +33,7 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, id: Option<&str>, children: &[Node], 
     let Some(hooks) = cx.hooks.cloned().filter(|_| count >= 2) else { return col().w_full().child(stage) };
     let live = cx.live;
     // Every way of paging goes through here: the local page moves, and a carousel with an id
-    // tells the template.
+    // tells the widget template.
     let go = {
         // A read-only carousel still pages, here only.
         let (hooks, key, id) = (hooks.clone(), path.to_owned(), id.map(str::to_owned).filter(|_| live));

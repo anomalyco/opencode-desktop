@@ -29,7 +29,7 @@ pub fn is_mark(mark: u32) -> bool {
 pub enum Status {
     #[default]
     Running,
-    /// It didn't run: its WGSL failed validation (`program`: the template's error), or the device
+    /// It didn't run: its WGSL failed validation (`program`: the widget template's error), or the device
     /// refused WGSL that validated (a client error, never reported).
     Failed { message: String, program: bool },
     /// It ran over 50 ms a frame three frames in a row: stopped on its last frame.
@@ -213,7 +213,7 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, size: S
         }
         let down = with_slot(mark, |s| s.pointer.is_some_and(|(_, d)| d)).unwrap_or(false);
         point(mark, Some(([p.x, p.y], down)));
-        // Hover: the template hears the pointer moving with no button held, once a frame.
+        // Hover: the widget template hears the pointer moving with no button held, once a frame.
         let (Some(id), false, true) = (&sid, down, live) else {
             tx.live_only();
             return;
@@ -246,7 +246,7 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, size: S
             return;
         }
         point(mark, Some(([d.x, d.y], d.phase != Phase::Up)));
-        // A shader with an id sends the pointer to the template as a canvas does: `move` only
+        // A shader with an id sends the pointer to the widget template as a canvas does: `move` only
         // while down, at most once a frame.
         let (Some(id), true) = (&id, live) else { return };
         let kind = match d.phase {

@@ -1,4 +1,4 @@
-//! What a widget's view keeps between steps that the template never sees: text being typed
+//! What a widget's view keeps between steps that the widget template never sees: text being typed
 //! (sent as one `change` when committed), a slider's value while it's dragged (sent on
 //! release), and each carousel's page. One [`Local`] per widget; the host keeps it beside the
 //! widget's lifecycle machine.
@@ -18,13 +18,13 @@ use opencode_widget::draw::Frame;
 use crate::canvas::state::{Canvas, Event as CanvasEvent, Motion};
 use rune::{GesturePhase, TextEdit, WheelEvent};
 
-/// How long typing rests before an input's text goes to the template (the contract's >= 300 ms).
+/// How long typing rests before an input's text goes to the widget template (the contract's >= 300 ms).
 pub const DEBOUNCE_S: f64 = 0.3;
 
 /// Sideways trackpad travel that turns a carousel's page, in points.
 const WHEEL_PAGE: f32 = 48.0;
 
-/// An input's typing: `sent` is the text the template last had, so a commit that changes
+/// An input's typing: `sent` is the text the widget template last had, so a commit that changes
 /// nothing sends nothing.
 #[derive(Clone, Debug)]
 pub struct Draft {
@@ -78,7 +78,7 @@ pub enum Came {
 pub struct Pager {
     pub page: usize,
     pub came: Came,
-    /// The template's `index` this page was last synced with.
+    /// The widget template's `index` this page was last synced with.
     synced: Option<usize>,
     wheel: Wheel,
 }
@@ -271,7 +271,7 @@ impl Local {
     }
 
     /// Commits input `id` now (Return): its `change`, when its text moved from what the
-    /// template last had.
+    /// widget template last had.
     pub fn commit(&mut self, id: &str) -> Option<WidgetEvent> {
         let draft = self.drafts.get_mut(id)?;
         if draft.phase == DraftPhase::Synced {
@@ -286,7 +286,7 @@ impl Local {
         Some(WidgetEvent::change(id, draft.edit.text.clone()))
     }
 
-    /// Commits every input being typed in, before another event steps the template, so that
+    /// Commits every input being typed in, before another event steps the widget template, so that
     /// step sees what was typed.
     pub fn flush(&mut self) -> Vec<WidgetEvent> {
         let ids: Vec<String> = self.drafts.iter().filter(|(_, d)| d.editing()).map(|(id, _)| id.clone()).collect();

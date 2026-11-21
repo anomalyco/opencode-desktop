@@ -2,12 +2,12 @@
 //! the timeline shows. A widget is a `widget` tool call; the widgets plugin keeps its state
 //! (RPC `opencode.widget`: `states` when a session opens, then its `changed` event). Per widget
 //! it keeps the lifecycle machine (`opencode_widget::Widget`) and the view's local state
-//! (`opencode_widget_view::Local`); per template version, its compiled program, fetched once by
+//! (`opencode_widget_view::Local`); per widget template version, its compiled program, fetched once by
 //! `name@version` and kept (a version never changes).
 //!
 //! The host fetches states and programs and posts answers off the UI thread ([`WidgetsHost`]);
 //! steps run here, synchronously, as the contract allows for v1 (well under a millisecond each,
-//! under a 250 ms budget). A live template's program runs on a thread of its own ([`live`]).
+//! under a 250 ms budget). A live widget template's program runs on a thread of its own ([`live`]).
 //! Drawing goes through `session_view::widget::frame` ([`view`]).
 
 #![forbid(unsafe_code)]
@@ -35,8 +35,8 @@ pub use view::{screen_key, screen_view, view};
 /// The shader slots' GPU side, for the host's compositor.
 pub use opencode_widget_view::shader;
 
-/// A template version's program, as far as this window has it.
-pub enum Template {
+/// A widget template version's program, as far as this window has it.
+pub enum WidgetTemplate {
     Fetching,
     Ready(Arc<Compiled>),
     Failed(String),
@@ -48,9 +48,9 @@ pub struct Entry {
     /// Its tool call: the assistant message and the call id.
     pub message: String,
     pub call: String,
-    /// Its template's `name@version`.
-    pub template: String,
-    /// Its title, else its template's name.
+    /// Its widget template's `name@version`.
+    pub widget_template: String,
+    /// Its title, else its widget template's name.
     pub label: String,
     pub machine: Widget,
     /// The machine's `data`, converted once for its program.
@@ -103,7 +103,7 @@ struct Session {
 /// The window's widgets, in `opencode_kernel::StateSlots`.
 #[derive(Default)]
 pub struct Widgets {
-    templates: HashMap<String, Template>,
+    widget_templates: HashMap<String, WidgetTemplate>,
     /// By widget key ([`widget_key`]).
     entries: HashMap<String, Entry>,
     sessions: HashMap<String, Session>,
@@ -181,7 +181,7 @@ pub trait WidgetsHost {
     fn widget_notify(&self) -> Arc<dyn Fn() + Send + Sync>;
 }
 
-/// The one place a template's declared capabilities become what it may use. For now every
+/// The one place a widget template's declared capabilities become what it may use. For now every
 /// declared capability is granted (`widgets-live.md`, Capabilities); a permission prompt would
 /// decide here.
 pub fn grant(capabilities: &Value) -> Grants {
@@ -218,15 +218,15 @@ pub fn advance(host: &mut dyn WidgetsHost, id: &str, event: Event) {
 fn run(host: &mut dyn WidgetsHost, id: &str, effect: Effect) -> Option<Event> {
     let (session, message, call, key) = {
         let e = host.widgets().entries.get(id)?;
-        (e.session.clone(), e.message.clone(), e.call.clone(), e.template.clone())
+        (e.session.clone(), e.message.clone(), e.call.clone(), e.widget_template.clone())
     };
     match effect {
-        Effect::Fetch => match host.widgets().templates.get(&key) {
-            Some(Template::Ready(c)) => Some(Event::Loaded(mode(c))),
-            Some(Template::Failed(m)) => Some(Event::LoadFailed(m.clone())),
-            Some(Template::Fetching) => None,
+        Effect::Fetch => match host.widgets().widget_templates.get(&key) {
+            Some(WidgetTemplate::Ready(c)) => Some(Event::Loaded(mode(c))),
+            Some(WidgetTemplate::Failed(m)) => Some(Event::LoadFailed(m.clone())),
+            Some(WidgetTemplate::Fetching) => None,
             None => {
-                host.widgets_mut().templates.insert(key.clone(), Template::Fetching);
+                host.widgets_mut().widget_templates.insert(key.clone(), WidgetTemplate::Fetching);
                 let (name, version) = key.split_once('@').unwrap_or((&key, ""));
                 let (name, version) = (name.to_owned(), version.to_owned());
                 host.fetch_program(&session, &name, &version);
@@ -235,8 +235,8 @@ fn run(host: &mut dyn WidgetsHost, id: &str, effect: Effect) -> Option<Event> {
         },
         Effect::Run(input) => {
             let w = host.widgets();
-            let result = match (w.templates.get(&key), w.entries.get(id)) {
-                (Some(Template::Ready(c)), Some(e)) => match &c.kind {
+            let result = match (w.widget_templates.get(&key), w.entries.get(id)) {
+                (Some(WidgetTemplate::Ready(c)), Some(e)) => match &c.kind {
                     Kind::Step(p) => engine::step(p, &e.data, &input).map_err(|f| (f, c.offset)),
                     Kind::Live { .. } => return Some(Event::Ran(Err("a live widget has no steps".to_owned()))),
                 },
@@ -290,18 +290,18 @@ pub fn loaded(host: &mut dyn WidgetsHost, name: &str, version: &str, result: Res
         Ok(c) => Event::Loaded(mode(c)),
         Err(e) => Event::LoadFailed(e.message().to_owned()),
     };
-    // Only a program that didn't compile is the template's to fix.
+    // Only a program that didn't compile is the widget template's to fix.
     let program = matches!(result, Err(engine::LoadError::Program(_)));
     let slot = match result {
-        Ok(p) => Template::Ready(p),
-        Err(e) => Template::Failed(e.message().to_owned()),
+        Ok(p) => WidgetTemplate::Ready(p),
+        Err(e) => WidgetTemplate::Failed(e.message().to_owned()),
     };
-    host.widgets_mut().templates.insert(key.clone(), slot);
+    host.widgets_mut().widget_templates.insert(key.clone(), slot);
     let waiting: Vec<String> = host
         .widgets()
         .entries
         .iter()
-        .filter(|(_, e)| e.template == key && matches!(e.machine.phase, Phase::Loading { .. }))
+        .filter(|(_, e)| e.widget_template == key && matches!(e.machine.phase, Phase::Loading { .. }))
         .map(|(id, _)| id.clone())
         .collect();
     for id in waiting {
@@ -339,11 +339,11 @@ pub fn input(host: &mut dyn WidgetsHost, id: &str, event: WidgetEvent) {
     advance(host, id, Event::Input(event));
 }
 
-/// Try again on a failed widget: its template is fetched afresh.
+/// Try again on a failed widget: its widget template is fetched afresh.
 pub fn retry(host: &mut dyn WidgetsHost, id: &str) {
-    let Some(key) = host.widgets().entries.get(id).map(|e| e.template.clone()) else { return };
-    if matches!(host.widgets().templates.get(&key), Some(Template::Failed(_))) {
-        host.widgets_mut().templates.remove(&key);
+    let Some(key) = host.widgets().entries.get(id).map(|e| e.widget_template.clone()) else { return };
+    if matches!(host.widgets().widget_templates.get(&key), Some(WidgetTemplate::Failed(_))) {
+        host.widgets_mut().widget_templates.remove(&key);
     }
     advance(host, id, Event::Retry);
 }
@@ -447,7 +447,7 @@ pub fn sync(host: &mut dyn WidgetsHost) -> bool {
                 let (machine, effects) = Widget::open(c.data().clone(), status(&state.status));
                 let data = engine::Data::new(&machine.data);
                 let label = c.input["title"].as_str().filter(|t| !t.is_empty()).unwrap_or(state.label()).to_owned();
-                let entry = Entry { session: session.clone(), message: c.message.clone(), call: c.call.clone(), template: state.template_key(), label, machine, data, local: Local::default(), seen: state.status.clone(), run: live::Run::default(), reported: Default::default(), capture_wanted: false, asking: false };
+                let entry = Entry { session: session.clone(), message: c.message.clone(), call: c.call.clone(), widget_template: state.widget_template_key(), label, machine, data, local: Local::default(), seen: state.status.clone(), run: live::Run::default(), reported: Default::default(), capture_wanted: false, asking: false };
                 host.widgets_mut().entries.insert(key.clone(), entry);
                 for effect in effects {
                     if let Some(next) = run(host, &key, effect) {
@@ -468,7 +468,7 @@ pub fn draw_canvases(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool 
     let mut any = false;
     let w = host.widgets();
     // A live program draws its canvases itself.
-    let steps = |e: &Entry| matches!(w.templates.get(&e.template), Some(Template::Ready(c)) if matches!(c.kind, Kind::Step(_)));
+    let steps = |e: &Entry| matches!(w.widget_templates.get(&e.widget_template), Some(WidgetTemplate::Ready(c)) if matches!(c.kind, Kind::Step(_)));
     for e in w.entries.values().filter(|e| steps(e)) {
         let Some(view) = e.machine.view() else { continue };
         any |= e.local.canvases_want(view, now);
@@ -484,11 +484,11 @@ pub fn draw_canvases(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool 
     }
     let (scale, dark) = opencode_widget_view::appearance();
     let mut failed = Vec::new();
-    let Widgets { templates, entries, .. } = host.widgets_mut();
+    let Widgets { widget_templates, entries, .. } = host.widgets_mut();
     for (id, e) in entries.iter_mut() {
-        let Entry { machine, local, template, data, .. } = e;
+        let Entry { machine, local, widget_template, data, .. } = e;
         let (Some(view), Some(state)) = (machine.view(), machine.state()) else { continue };
-        let Some(Template::Ready(c)) = templates.get(template.as_str()) else { continue };
+        let Some(WidgetTemplate::Ready(c)) = widget_templates.get(widget_template.as_str()) else { continue };
         let Kind::Step(program) = &c.kind else { continue };
         for (path, frame) in local.canvases_due(view, now, f64::from(scale), dark) {
             let result = engine::draw(program, data, state, &frame).map_err(|f| {
@@ -509,8 +509,8 @@ pub fn draw_canvases(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool 
     true
 }
 
-/// An interpreter message as the template's author reads it: its `(line N, col M)`, counted in
-/// the program, counted in the template's source instead (less the prelude's `offset` lines).
+/// An interpreter message as the widget template's author reads it: its `(line N, col M)`, counted in
+/// the program, counted in the widget template's source instead (less the prelude's `offset` lines).
 pub(crate) fn in_source(message: &str, location: Option<(u32, u32)>, offset: u32) -> String {
     let Some((line, column)) = location.filter(|(l, _)| *l > offset) else { return message.to_owned() };
     match message.strip_suffix(&format!(" (line {line}, col {column})")) {
@@ -562,8 +562,8 @@ pub(crate) fn failure_of(w: &Widgets, session: &str, id: &str) -> Option<opencod
 
 /// Records a program error widget `id` hit here (`report`), once per distinct error: `phase` is
 /// where (`init`, `event`, `view`, `draw`, `main`, `shader`, `load`), `location` the line and
-/// column in the program, less `offset` lines to be in the template's source. The server tells
-/// the agent when the widget's session made the template; otherwise the user may ask.
+/// column in the program, less `offset` lines to be in the widget template's source. The server tells
+/// the agent when the widget's session made the widget template; otherwise the user may ask.
 pub(crate) fn report(host: &mut dyn WidgetsHost, id: &str, phase: &str, message: &str, location: Option<(u32, u32)>, offset: u32) {
     let Some(e) = host.widgets_mut().entries.get_mut(id) else { return };
     if !e.machine.open_here() && !matches!(e.machine.phase, Phase::Starting { .. } | Phase::Failed { .. } | Phase::Stopped { .. } | Phase::Loading { .. }) {

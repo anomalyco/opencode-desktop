@@ -111,7 +111,7 @@ pub struct Recorded<S> {
 }
 
 /// Input the host's keyboard focus and pointer capture take (`widgets-input.md`), before it
-/// reaches the template.
+/// reaches the widget template.
 pub enum Input<'a> {
     /// A key pressed (`up`: released) while the widget or a control in it has focus.
     Key { event: &'a rune::KeyEvent, up: bool },

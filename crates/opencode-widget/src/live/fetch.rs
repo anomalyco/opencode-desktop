@@ -1,12 +1,12 @@
 //! `__host.fetch` (`specs/v2/widgets-live.md`, Capabilities): the rules every request keeps,
 //! here, and the transfer itself, which the host does ([`Transport`]): `https:` only, to a host
-//! the template's granted `https` capability names (checked again on every redirect, at most 5),
+//! the widget template's granted `https` capability names (checked again on every redirect, at most 5),
 //! the methods the contract lists, a request body up to 256 KB and a response up to 2 MB, 15 s
 //! in all, at most 4 in flight and 10 a second per widget. A response crosses as
 //! `{ status, headers, body | body64 }`; a failure as `{ kind, message }`.
 //!
 //! Loopback, private and link-local destinations, and plain `http:`, are refused unless the app
-//! runs in dev mode (`allow_local_network`), and then only to hosts the template declares (a
+//! runs in dev mode (`allow_local_network`), and then only to hosts the widget template declares (a
 //! declared `localhost:4097` names its port). The host checks the address it actually connects
 //! to: it resolves once, checks every answer, and connects to exactly those (no DNS rebinding).
 
@@ -27,7 +27,7 @@ pub const MAX_PER_SECOND: usize = 10;
 
 const METHODS: [&str; 6] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"];
 
-/// Headers a template can't set: the transfer's own, and ambient credentials.
+/// Headers a widget template can't set: the transfer's own, and ambient credentials.
 const FORBIDDEN: [&str; 9] = ["cookie", "cookie2", "host", "content-length", "connection", "transfer-encoding", "keep-alive", "upgrade", "te"];
 
 /// Why a request failed, as the program sees it (`error.kind`).
@@ -123,7 +123,7 @@ impl Grants {
         })
     }
 
-    /// The template's declared `capabilities` (`{ https?: { hosts } }`), all of them.
+    /// The widget template's declared `capabilities` (`{ https?: { hosts } }`), all of them.
     pub fn declared(capabilities: &Value) -> Grants {
         let hosts = capabilities["https"]["hosts"].as_array().map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect::<Vec<_>>());
         Grants { https: hosts.filter(|h| !h.is_empty()) }
@@ -256,7 +256,7 @@ pub fn run(transport: &dyn Transport, mut request: Request, grants: &Grants) -> 
                     request.body = None;
                     request.headers.retain(|(k, _)| !k.starts_with("content-"));
                 }
-                // Credentials the template set stay with the host they were meant for.
+                // Credentials the widget template set stay with the host they were meant for.
                 if next.host_str() != base.host_str() {
                     request.headers.retain(|(k, _)| k != "authorization");
                 }

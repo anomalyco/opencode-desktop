@@ -1,5 +1,5 @@
 //! Desktop host adapter for `opencode-feature-widgets` (`features/widgets`): agent widgets in
-//! the timeline, their states and template programs read through the server connection's job
+//! the timeline, their states and widget template programs read through the server connection's job
 //! thread from the widgets plugin (RPC `opencode.widget` in the session's location), and their
 //! answers posted there.
 

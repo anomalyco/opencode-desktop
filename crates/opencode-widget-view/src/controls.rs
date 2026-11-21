@@ -37,7 +37,7 @@ pub(crate) fn checkbox<S: 'static>(cx: &Cx<S>, id: &str, label: &str, checked: b
     c.build(cx.look.kit)
 }
 
-/// The step a slider moves by: the template's, else a hundredth of its range (whole numbers for a
+/// The step a slider moves by: the widget template's, else a hundredth of its range (whole numbers for a
 /// range of whole numbers up to 100 wide).
 fn slider_step(min: f64, max: f64, step: Option<f64>) -> f64 {
     match step.filter(|s| s.is_finite() && *s > 0.0) {

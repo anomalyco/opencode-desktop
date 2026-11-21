@@ -7,7 +7,7 @@
 use opencode_widget::{Event, Response, WidgetEvent};
 use rune::Tx;
 
-use crate::{Template, WidgetsHost, advance, engine};
+use crate::{WidgetTemplate, WidgetsHost, advance, engine};
 
 /// The window draws at most this often; a live program gets no more frames.
 const FRAME_S: f64 = 1.0 / 60.0;
@@ -46,7 +46,7 @@ pub(crate) fn start(host: &mut dyn WidgetsHost, id: &str) {
     let allow_local_network = host.widget_dev_mode();
     let w = host.widgets_mut();
     let Some(e) = w.entries.get(id) else { return };
-    let Some(Template::Ready(c)) = w.templates.get(&e.template) else { return };
+    let Some(WidgetTemplate::Ready(c)) = w.widget_templates.get(&e.widget_template) else { return };
     let engine::Kind::Live { program, grants } = &c.kind else { return };
     let transport: Option<std::sync::Arc<dyn opencode_widget::live::Transport>> = grants.https.as_ref().map(|_| std::sync::Arc::new(crate::transport::Ureq) as _);
     let live = engine::Live::start(program.clone(), e.machine.data.clone(), engine::Setup { grants: grants.clone(), transport, notify, allow_local_network });
@@ -178,9 +178,9 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
         changed = true;
     }
     if let Some(end) = ended {
-        // Its line in the template's source: the program's, less the prelude's lines.
-        let offset = host.widgets().entries.get(id).and_then(|e| match host.widgets().templates.get(&e.template) {
-            Some(Template::Ready(c)) => Some(c.offset),
+        // Its line in the widget template's source: the program's, less the prelude's lines.
+        let offset = host.widgets().entries.get(id).and_then(|e| match host.widgets().widget_templates.get(&e.widget_template) {
+            Some(WidgetTemplate::Ready(c)) => Some(c.offset),
             _ => None,
         });
         let offset = offset.unwrap_or(0);

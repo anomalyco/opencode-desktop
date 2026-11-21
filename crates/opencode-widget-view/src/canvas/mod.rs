@@ -1,4 +1,4 @@
-//! A `canvas` node: its box (full width unless `width`), what its template drew in it, and
+//! A `canvas` node: its box (full width unless `width`), what its widget template drew in it, and
 //! what it hears: its size and whether it shows (which drive drawing, see [`state`]), and the
 //! pointer, which a canvas with an `id` sends to `update` (`move` at most once a frame).
 
@@ -45,7 +45,7 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, height:
         }
         let down = (lens)(s).canvas(&key).and_then(|c| c.pointer).is_some_and(|p| p.down);
         (lens)(s).canvas_event(&key, Event::Pointer(Some(Pointer { x: f64::from(p.x), y: f64::from(p.y), down })));
-        // Hover: the template hears the pointer moving with no button held, once a frame.
+        // Hover: the widget template hears the pointer moving with no button held, once a frame.
         if let (Some(id), false, true) = (&cid, down, live) {
             let local = (lens)(s);
             let Some((c, size)) = local.canvas(&key).and_then(|c| Some((c.moved, c.size?))) else { return };

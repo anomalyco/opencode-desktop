@@ -1,5 +1,5 @@
 //! Shader widgets on the window's GPU, for the host's compositor: before the frame records,
-//! each shader slot on screen that is due renders its template's WGSL (header + source +
+//! each shader slot on screen that is due renders its widget template's WGSL (header + source +
 //! entry, compiled once per source and shared by every slot with it) into a texture the size
 //! the slot shows at; at the slot's place in Rune's pass that texture is drawn, clipped as Rune
 //! clips. A slot due again at its `fps`, re-renders; with `fps: 0` only when its `values`
@@ -105,14 +105,14 @@ fn now<F: std::future::Future>(f: F) -> Option<F::Output> {
     }
 }
 
-/// Compiles `source`'s module: checked with naga first, so a template's mistake comes back as
+/// Compiles `source`'s module: checked with naga first, so a widget template's mistake comes back as
 /// a message with its line rather than a device error.
 /// The pipeline for `source`, or why not and whether that's the program's error: WGSL naga rejects
 /// is; a device refusing WGSL that validated is this client's.
 fn compile(device: &wgpu::Device, layout: &wgpu::PipelineLayout, source: &str) -> Result<wgpu::RenderPipeline, (String, bool)> {
     let program = |m: String| (m, true);
     let code = shader::module_with_vertex(source).map_err(program)?;
-    // Lines as the template wrote them: the header comes first.
+    // Lines as the widget template wrote them: the header comes first.
     let header = shader::HEADER.lines().count() as u32;
     let at = |line: u32| line.saturating_sub(header);
     let module = naga::front::wgsl::parse_str(&code).map_err(|e| match e.location(&code) {

@@ -1,5 +1,5 @@
 //! The widget's frame: what shows around (or instead of) its view in each lifecycle face —
-//! a placeholder while the template loads, the live view with a failed step's error under it,
+//! a placeholder while the widget template loads, the live view with a failed step's error under it,
 //! "Sending…" while the answer goes, the final view read-only with how it ended, or an error
 //! card with Try again.
 
@@ -117,7 +117,7 @@ fn status(k: &Kit, glyph: &'static rune::Icon, tint: rune::Color, words: &str, d
         .role("status")
 }
 
-/// The widget in its frame. `title` names it (the message's title, or its template's name);
+/// The widget in its frame. `title` names it (the message's title, or its widget template's name);
 /// `buttons` are what Try again (or Restart) and the expand button do.
 pub fn frame<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, face: Face<'_>, title: &str, buttons: Buttons<S>) -> El {
     let Buttons { retry, expand, failure } = buttons;

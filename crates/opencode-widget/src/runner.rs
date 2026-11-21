@@ -1,4 +1,4 @@
-//! Runs a template's program on the Rust PsychoScript: compiled once per program (a template's
+//! Runs a widget template's program on the Rust PsychoScript: compiled once per program (a widget template's
 //! `name@version`) as `<program>\nreturn __widget_step(__input())`, with `__input` the only host
 //! global, and run once per step under a 250 ms budget; a canvas's draw steps run on the same
 //! compiled program under the 8 ms / 2,000-command draw budget.
@@ -17,7 +17,7 @@ use crate::step::{Step, StepInput, StepOutput};
 /// The contract's step budget; a client may use less.
 pub const STEP_TIMEOUT_MS: u64 = 250;
 
-/// What runs a step after the template's program.
+/// What runs a step after the widget template's program.
 const TAIL: &str = "\nreturn __widget_step(__input())";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,7 +74,7 @@ fn input(phase: &str, data: &Data, rest: Vec<(&str, HostValue)>) -> HostValue {
     HostValue::Object(fields)
 }
 
-/// A compiled template program, ready to step. Steps on one program run one at a time.
+/// A compiled widget template program, ready to step. Steps on one program run one at a time.
 pub struct Program {
     runtime: Runtime,
     /// The same program under the draw budget.
@@ -138,8 +138,8 @@ impl Program {
         StepOutput::from_value(self.run(&self.runtime, input)?).map_err(Error::Output)
     }
 
-    /// Draws a canvas's frame: the template's `draw(state, data, frame)`, under the 8 ms budget,
-    /// its commands held to 2,000. A template without `draw` draws nothing.
+    /// Draws a canvas's frame: the widget template's `draw(state, data, frame)`, under the 8 ms budget,
+    /// its commands held to 2,000. A widget template without `draw` draws nothing.
     pub fn draw(&self, data: &Value, state: &Value, frame: &Frame) -> Result<Vec<Command>, Error> {
         let input = serde_json::json!({ "phase": "draw", "data": data, "state": state, "frame": frame });
         self.drawn(HostValue::from_json(&input))
@@ -174,7 +174,7 @@ impl Program {
     }
 }
 
-/// Programs [`step_json`] compiled lately, by a hash of their text: a few templates are live at once.
+/// Programs [`step_json`] compiled lately, by a hash of their text: a few widget templates are live at once.
 const CACHED: usize = 8;
 
 type Cache = Vec<(u64, Arc<str>, Arc<Program>)>;

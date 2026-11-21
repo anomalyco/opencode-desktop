@@ -34,7 +34,7 @@ pub const KEYS: &[Trigger] = &[replay(open)];
 /// The assistant message holding the calls.
 const ID: &str = "msg_zzzzstorydiagrams";
 
-/// A version for a fixture template: any 16 hex digits do, as long as each template has its own.
+/// A version for a fixture widget template: any 16 hex digits do, as long as each widget template has its own.
 fn version(name: &str) -> String {
     let n = name.bytes().fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(u64::from(b)));
     format!("{n:016x}")
@@ -63,16 +63,16 @@ fn post(s: &mut App, tx: &mut Tx) {
         let call = format!("call_diagram_{i:02}");
         let data = fixtures::example(name).unwrap_or_else(|| json!({}));
         let title = data["title"].as_str().unwrap_or(name).to_owned();
-        let input = json!({ "template": name, "data": data, "title": title });
+        let input = json!({ "widgetTemplate": name, "data": data, "title": title });
         emit(s, "session.tool.input.started", json!({ "assistantMessageID": ID, "id": call, "name": "widget" }), tx);
         emit(s, "session.tool.called", json!({ "assistantMessageID": ID, "id": call, "name": "widget", "input": input, "executed": true }), tx);
         let state = json!({
-            "sessionID": sid, "messageID": ID, "callID": call, "template": { "name": name, "version": version(name) },
+            "sessionID": sid, "messageID": ID, "callID": call, "widgetTemplate": { "name": name, "version": version(name) },
             "title": title, "status": "open", "wait": false, "time": { "created": 0 },
         });
         emit(s, opencode_kit::model::WIDGET_CHANGED_EVENT, json!({ "sessionID": sid, "state": state }), tx);
         let text = format!("Widget \"{title}\" is shown to the user.");
-        emit(s, "session.tool.success", json!({ "assistantMessageID": ID, "id": call, "content": [{ "type": "text", "text": text }], "metadata": { "template": { "name": name, "version": version(name) } }, "executed": true }), tx);
+        emit(s, "session.tool.success", json!({ "assistantMessageID": ID, "id": call, "content": [{ "type": "text", "text": text }], "metadata": { "widgetTemplate": { "name": name, "version": version(name) } }, "executed": true }), tx);
     }
     emit(s, "session.step.ended", json!({ "assistantMessageID": ID, "finish": "stop", "cost": 0.0, "tokens": { "input": 8, "output": 40, "reasoning": 0, "cache": { "read": 0, "write": 0 } } }), tx);
 }

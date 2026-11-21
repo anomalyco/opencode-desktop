@@ -1,8 +1,8 @@
 //! Agent widgets in a session (anomalyco/opencode `specs/v2/widgets.md`): a widget is the
-//! `widget` tool call in the history ([`WidgetCall`], input `{ template, data, title?, wait? }`),
+//! `widget` tool call in the history ([`WidgetCall`], input `{ widgetTemplate, data, title?, wait? }`),
 //! identified by its assistant message and call id; the widgets plugin keeps its state
 //! ([`WidgetState`], RPC `opencode.widget`: `states`, and the `changed` event). Every client runs
-//! the template's program itself.
+//! the widget template's program itself.
 
 use serde_json::Value;
 
@@ -28,7 +28,7 @@ pub struct WidgetState {
     /// The assistant message holding the `widget` tool call.
     pub message: String,
     pub call: String,
-    /// The template's name and its content-addressed version.
+    /// The widget template's name and its content-addressed version.
     pub name: String,
     pub version: String,
     pub title: Option<String>,
@@ -45,7 +45,7 @@ pub struct WidgetState {
 pub struct WidgetFailure {
     pub phase: String,
     pub message: String,
-    /// 1-based, in the template's source.
+    /// 1-based, in the widget template's source.
     pub line: Option<u32>,
     pub column: Option<u32>,
     /// The client that reported it: `tui`, `rune`, `ios`, `android`, `web`.
@@ -85,7 +85,7 @@ impl WidgetState {
     pub fn parse(v: &Value) -> Option<WidgetState> {
         let message = v["messageID"].as_str()?.to_owned();
         let call = v["callID"].as_str()?.to_owned();
-        let name = v["template"]["name"].as_str()?.to_owned();
+        let name = v["widgetTemplate"]["name"].as_str()?.to_owned();
         let status = match v["status"].as_str() {
             Some("submitted") => WidgetStatus::Submitted(v["response"].clone()),
             Some("dismissed") => WidgetStatus::Dismissed,
@@ -97,7 +97,7 @@ impl WidgetState {
             message,
             call,
             name,
-            version: s(&v["template"]["version"]),
+            version: s(&v["widgetTemplate"]["version"]),
             title: v["title"].as_str().filter(|t| !t.is_empty()).map(str::to_owned),
             status,
             wait: v["wait"].as_bool().unwrap_or(false),
@@ -111,13 +111,13 @@ impl WidgetState {
         widget_key(&self.message, &self.call)
     }
 
-    /// The name it goes by: its title, else its template's name (the server's `label`).
+    /// The name it goes by: its title, else its widget template's name (the server's `label`).
     pub fn label(&self) -> &str {
         self.title.as_deref().unwrap_or(&self.name)
     }
 
     /// `name@version`: its program's cache key.
-    pub fn template_key(&self) -> String {
+    pub fn widget_template_key(&self) -> String {
         format!("{}@{}", self.name, self.version)
     }
 }
@@ -133,9 +133,9 @@ pub struct WidgetCall {
     pub message: String,
     pub call: String,
     pub status: ToolStatus,
-    /// `{ template, data, title?, wait? }`.
+    /// `{ widgetTemplate, data, title?, wait? }`.
     pub input: Value,
-    /// `{ template: { name, version } }` once completed.
+    /// `{ widgetTemplate: { name, version } }` once completed.
     pub metadata: Value,
 }
 
@@ -144,7 +144,7 @@ impl WidgetCall {
         widget_key(&self.message, &self.call)
     }
 
-    /// The data its template runs on.
+    /// The data its widget template runs on.
     pub fn data(&self) -> &Value {
         &self.input["data"]
     }

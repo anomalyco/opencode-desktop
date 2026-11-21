@@ -221,7 +221,7 @@ pub enum Node {
         multiline: bool,
     },
     Divider,
-    /// Drawn every frame by the template's `draw` (see [`crate::draw`]); full width unless `width`.
+    /// Drawn every frame by the widget template's `draw` (see [`crate::draw`]); full width unless `width`.
     Canvas {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,

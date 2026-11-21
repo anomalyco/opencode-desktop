@@ -13,7 +13,7 @@ rune = { workspace = true, default-features = false }
 rune-kit = { workspace = true, default-features = false }
 serde_json.workspace = true
 # Shader nodes: their pipelines on the window's GPU (Rune's own wgpu), their WGSL checked first
-# with naga (wgpu's own), so a template's mistake comes back as a message.
+# with naga (wgpu's own), so a widget template's mistake comes back as a message.
 wgpu = { version = "30", default-features = false }
 naga = { version = "30", default-features = false, features = ["wgsl-in"] }
 

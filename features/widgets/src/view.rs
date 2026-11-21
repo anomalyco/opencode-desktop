@@ -12,7 +12,7 @@ use session_view::palette::Pal;
 use session_view::widget::Place;
 
 use crate::fullscreen::{Screen, ScreenEvent};
-use crate::{Entry, Grants, Kind, States, Template, WidgetsHost, input, retry};
+use crate::{Entry, Grants, Kind, States, WidgetTemplate, WidgetsHost, input, retry};
 
 /// Widget call `call` of assistant message `message` in session `session` as the timeline draws
 /// it: the widget, a placeholder while its state or program is on the way (or while it is full
@@ -31,7 +31,7 @@ pub fn view<H: WidgetsHost + TimelineHost>(s: &H, p: &Pal, session: &str, messag
     let Some(e) = s.widgets().entries.get(&key) else {
         // Not opened yet (the next frame's sync opens it): a closed one already says how it
         // ended; an open one, or one whose state is on the way, shows its placeholder.
-        let label = call.input["title"].as_str().filter(|t| !t.is_empty()).or_else(|| call.input["template"].as_str()).unwrap_or("widget");
+        let label = call.input["title"].as_str().filter(|t| !t.is_empty()).or_else(|| call.input["widgetTemplate"].as_str()).unwrap_or("widget");
         let how = match s.widgets().states(session) {
             Some(States::Ready(map)) => match map.get(&key) {
                 Some(w) => closed(&w.status),
@@ -103,10 +103,10 @@ fn offers(e: &Entry) -> bool {
     e.machine.view().is_some_and(|v| v.offers_fullscreen(live))
 }
 
-/// The hosts it may reach, when its template is granted the network.
+/// The hosts it may reach, when its widget template is granted the network.
 fn chip<H: WidgetsHost>(s: &H, e: &Entry) -> Option<String> {
-    match s.widgets().templates.get(&e.template) {
-        Some(Template::Ready(c)) => match &c.kind {
+    match s.widgets().widget_templates.get(&e.widget_template) {
+        Some(WidgetTemplate::Ready(c)) => match &c.kind {
             Kind::Live { grants: Grants { https: Some(hosts), .. }, .. } => Some(session_view::widget::network_chip(hosts)),
             _ => None,
         },

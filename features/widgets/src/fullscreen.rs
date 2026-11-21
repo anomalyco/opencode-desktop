@@ -109,7 +109,7 @@ pub fn send(host: &mut dyn WidgetsHost, event: ScreenEvent, now: f64, tx: &mut T
     }
 }
 
-/// Widget `id` entered or left full screen: its frames say so, and its template hears it.
+/// Widget `id` entered or left full screen: its frames say so, and its widget template hears it.
 /// Leaving lets go of the keyboard and the pointer.
 fn tell(host: &mut dyn WidgetsHost, id: &str, on: bool) {
     let Some(e) = host.widgets_mut().entries.get_mut(id) else { return };

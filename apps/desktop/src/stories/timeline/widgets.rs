@@ -1,8 +1,8 @@
 //! The storybook's Widgets story (Timeline › Widgets): the agent calls the `widget` tool, the
 //! widgets plugin's `changed` event brings its state, and it runs in the call's place in the
-//! timeline on the Rust PsychoScript, with the built-in templates (`suggestions`, `form`,
+//! timeline on the Rust PsychoScript, with the built-in widget templates (`suggestions`, `form`,
 //! `confirm`) and their fixture data. Variants: each built-in, one another client already
-//! answered (read-only, its final view and answer), a template whose `init` throws (the error
+//! answered (read-only, its final view and answer), a widget template whose `init` throws (the error
 //! card), the `chart` canvas (bars, and a line you can choose a point on), the `backdrop`
 //! shader (plasma, aurora), a shader whose WGSL doesn't compile, and live programs, each on a
 //! thread of its own. R replays; E answers it from another client, D dismisses it from one. Pictures
@@ -23,7 +23,7 @@ pub const VARIANTS: &[(&str, usize)] = &[
     ("Form", 1),
     ("Confirm", 2),
     ("Answered elsewhere", 3),
-    ("Broken template", 4),
+    ("Broken widget template", 4),
     ("Chart", 5),
     ("Line chart", 6),
     ("Backdrop", 7),
@@ -34,7 +34,7 @@ pub const VARIANTS: &[(&str, usize)] = &[
     ("Live shader", 13),
     ("Keyboard and pointer", 14),
     ("Live shader, rebuilt", 15),
-    ("Superseded, template calls", 16),
+    ("Superseded, widget template calls", 16),
     ("Live program that fails", 17),
     ("Failed on another client", 18),
     ("Failed, the agent told", 19),
@@ -60,7 +60,7 @@ const ID: &str = "msg_zzzzstorywidget";
 const CALL: &str = "call_storywidget";
 const BROKEN: &str = "story-broken";
 const BROKEN_SHADER: &str = "story-broken-shader";
-/// A live template granted the network that, half a second in, runs without awaiting: the 50 ms
+/// A live widget template granted the network that, half a second in, runs without awaiting: the 50 ms
 /// rule stops it, and it shows its last view with why and Restart.
 const RUNAWAY: &str = "story-runaway";
 /// A live program that drives a shader game: it renders the shader again every frame with new
@@ -206,13 +206,13 @@ function draw(state, data, frame) {
 /// Where the story's pictures say they are; [`serve`] answers for them.
 const PICTURES: &str = "https://pictures.story.example/";
 
-/// A version for a fixture template: any 16 hex digits do, as long as each template has its own.
+/// A version for a fixture widget template: any 16 hex digits do, as long as each widget template has its own.
 fn version(name: &str) -> String {
     let n = name.bytes().fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(u64::from(b)));
     format!("{n:016x}")
 }
 
-fn template(v: usize) -> &'static str {
+fn widget_template(v: usize) -> &'static str {
     match v {
         1 => "form",
         2 => "confirm",
@@ -359,11 +359,11 @@ fn open(s: &mut App, tx: &mut Play<App>) {
 /// The agent's step: it calls `widget`, and the plugin publishes the widget it posted.
 fn post(s: &mut App, tx: &mut Tx) {
     let v = *s.fixture_run.variant;
-    let name = template(v);
+    let name = widget_template(v);
     let (title, data) = data(v);
-    let input = json!({ "template": name, "data": data, "title": title });
+    let input = json!({ "widgetTemplate": name, "data": data, "title": title });
     emit(s, "session.step.started", json!({ "assistantMessageID": ID, "agent": "build", "model": { "id": "claude-opus-5-5", "providerID": "anthropic" } }), tx);
-    // The agent worked on its template first: each `widget_template` call is one quiet line.
+    // The agent worked on its widget template first: each `widget_template` call is one quiet line.
     if v == 16 {
         let calls = [
             ("call_tpl_list", json!({ "action": "list" }), json!({ "action": "list", "count": 23 })),
@@ -380,18 +380,18 @@ fn post(s: &mut App, tx: &mut Tx) {
     emit(s, "session.tool.called", json!({ "assistantMessageID": ID, "id": CALL, "name": "widget", "input": input, "executed": true }), tx);
     changed(s, "open", Value::Null, tx);
     let text = format!("Widget \"{title}\" is shown to the user.");
-    emit(s, "session.tool.success", json!({ "assistantMessageID": ID, "id": CALL, "content": [{ "type": "text", "text": text }], "metadata": { "template": { "name": name, "version": version(name) } }, "executed": true }), tx);
+    emit(s, "session.tool.success", json!({ "assistantMessageID": ID, "id": CALL, "content": [{ "type": "text", "text": text }], "metadata": { "widgetTemplate": { "name": name, "version": version(name) } }, "executed": true }), tx);
     emit(s, "session.step.ended", json!({ "assistantMessageID": ID, "finish": "stop", "cost": 0.0, "tokens": { "input": 8, "output": 40, "reasoning": 0, "cache": { "read": 0, "write": 0 } } }), tx);
 }
 
 /// The plugin's `changed` event for the story's widget, now `status`.
 fn changed(s: &mut App, status: &str, response: Value, tx: &mut Tx) {
     let v = *s.fixture_run.variant;
-    let name = template(v);
+    let name = widget_template(v);
     let (title, _) = data(v);
     let sid = crate::stories::sid(s);
     let mut state = json!({
-        "sessionID": sid, "messageID": ID, "callID": CALL, "template": { "name": name, "version": version(name) },
+        "sessionID": sid, "messageID": ID, "callID": CALL, "widgetTemplate": { "name": name, "version": version(name) },
         "title": title, "status": status, "wait": false, "time": { "created": 0 },
     });
     if status == "submitted" {

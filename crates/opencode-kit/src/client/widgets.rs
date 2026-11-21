@@ -19,7 +19,7 @@ const RPC_ID: &str = "opencode.widget";
 pub enum WidgetError {
     /// `closed`: it was already answered, here or on another client.
     Closed,
-    /// `not_found`: no such widget, or no such template version.
+    /// `not_found`: no such widget, or no such widget template version.
     NotFound,
     /// `rate_limited`: over 10 sends a second.
     RateLimited,
@@ -40,16 +40,16 @@ impl fmt::Display for WidgetError {
     }
 }
 
-/// A template version's program, as `program` serves it.
+/// A widget template version's program, as `program` serves it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WidgetProgram {
     /// `prelude + "\n" + source`.
     pub program: String,
-    /// The template's own source, the program's tail.
+    /// The widget template's own source, the program's tail.
     pub source: String,
     /// `"step"` or `"live"`.
     pub mode: String,
-    /// What a live template may use beyond rendering (`{ https?: { hosts } }`).
+    /// What a live widget template may use beyond rendering (`{ https?: { hosts } }`).
     pub capabilities: Value,
 }
 
@@ -78,7 +78,7 @@ impl Server {
         Ok(out.as_array().into_iter().flatten().filter_map(WidgetState::parse).collect())
     }
 
-    /// Template `name` at `version` with its program (`program`): a version never changes, so
+    /// Widget template `name` at `version` with its program (`program`): a version never changes, so
     /// callers cache it by `name@version` for good.
     pub fn widget_program(&self, directory: &str, name: &str, version: &str) -> Result<WidgetProgram, WidgetError> {
         let out = self.widget_rpc(directory, "program", json!({ "name": name, "version": version }))?;
@@ -95,7 +95,7 @@ impl Server {
     /// Tells the agent that running widget `call` of `message` failed on this client (`report`):
     /// `error` is `{ phase, message, line?, column? }`.
     /// With `ask` (the user's "Ask agent to fix it"), the error goes to the agent in the widget's
-    /// session even when that session didn't make the template.
+    /// session even when that session didn't make the widget template.
     pub fn widget_report(&self, directory: &str, session: &str, message: &str, call: &str, error: Value, ask: bool) -> Result<(), WidgetError> {
         let mut input = json!({ "sessionID": session, "messageID": message, "callID": call, "error": error, "client": "rune" });
         if ask {

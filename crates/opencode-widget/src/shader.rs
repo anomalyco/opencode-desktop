@@ -1,5 +1,5 @@
 //! A `shader` node's WGSL as every client runs it (the contract's "Shader"): the standard
-//! `Widget` uniform header, the template's source defining `fn shade(frag: vec2f) -> vec4f`, and
+//! `Widget` uniform header, the widget template's source defining `fn shade(frag: vec2f) -> vec4f`, and
 //! the fragment entry point, plus the uniform block's byte layout. Shared by the Rune renderer and
 //! the mobile bindings (which translate the same module with naga).
 
@@ -12,7 +12,7 @@ pub const SLOW_FRAME_MS: f64 = 50.0;
 /// `fps` when the node sets none.
 pub const DEFAULT_FPS: f64 = 60.0;
 
-/// Prepended to the template's source.
+/// Prepended to the widget template's source.
 pub const HEADER: &str = "struct Widget { resolution: vec2f, time: f32, scale: f32, pointer: vec4f, values: array<vec4f, 4> }\n@group(0) @binding(0) var<uniform> widget: Widget;\n";
 
 /// Appended after it: the fragment entry point.

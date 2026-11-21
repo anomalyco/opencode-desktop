@@ -170,7 +170,7 @@ pub struct StepOutput {
 pub struct SendMessage {
     #[serde(default)]
     pub value: Value,
-    /// Whether it starts the agent's turn (true unless the template said otherwise).
+    /// Whether it starts the agent's turn (true unless the widget template said otherwise).
     #[serde(default = "yes")]
     pub wake: bool,
 }

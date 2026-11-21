@@ -141,7 +141,7 @@ fn text_node(k: &Kit, t: &str, style: TextStyle, t_tone: Tone) -> El {
     e.shrink().min_w(0.0)
 }
 
-/// A picture at its aspect (4:3 until the template or the picture says otherwise), cropped to
+/// A picture at its aspect (4:3 until the widget template or the picture says otherwise), cropped to
 /// fill; while it loads, the same room in a quiet fill; failed, its alt text in that room.
 fn image<S: 'static>(cx: &Cx<S>, src: &str, alt: Option<&str>, aspect: Option<f64>) -> El {
     let k = cx.look.kit;
