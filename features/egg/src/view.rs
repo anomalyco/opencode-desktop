@@ -274,7 +274,7 @@ pub fn over<H: EggHost + 'static>(s: &H, p: &Pal) -> Vec<El> {
 }
 
 /// The score (`font-mono text-[11px] leading-[16px] tabular-nums`).
-const SCORE: rune::TextStyle = rune::TextStyle::new(11.0, 400.0).mono().lh(16.0).features("tnum");
+const SCORE: rune::TextStyle = rune::TextStyle::new(11.0, 400.0).mono().lh(16.0).features("\"tnum\"");
 
 /// The flat wordmark's ink (`wordmark.tsx:240-242`, `wordmark.css:44-46`): Desktop's v1
 /// `--icon-base` for the letters and `--icon-weak-base` for the counters' lower halves (in

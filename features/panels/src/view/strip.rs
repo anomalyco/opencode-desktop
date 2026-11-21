@@ -25,8 +25,8 @@ const TAB_MIN_W: f32 = 72.0;
 
 /// A tab's words: Desktop's trigger sets `font-variant-numeric: tabular-nums` (`tabs.css:554`),
 /// whose `tnum` in Inter changes letters' advances too (`New tab` 50.797 against 50.891).
-pub const TAB_UI: TextStyle = UI.features("tnum");
-const TAB_SMALL: TextStyle = UI_SMALL.features("tnum");
+pub const TAB_UI: TextStyle = UI.features("\"tnum\"");
+const TAB_SMALL: TextStyle = UI_SMALL.features("\"tnum\"");
 
 /// What a closable tab takes after its label: the wrapper's 8 pt gap, the 20 pt close button and
 /// the 4 pt end padding (`tabs-trigger-wrapper`, `tabs.css`).
