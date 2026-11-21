@@ -10,63 +10,69 @@ use cef::rc::Rc as _;
 use cef::{
     App, Browser, CefString, DictionaryValue, Frame, ImplApp, ImplBrowser, ImplFrame,
     ImplListValue, ImplProcessMessage, ImplRenderProcessHandler, ImplV8Context, ImplV8Value,
-    ProcessId, ProcessMessage, RenderProcessHandler, SchemeRegistrar, V8Context,
-    V8Propertyattribute, WrapApp, WrapRenderProcessHandler, sys, wrap_app,
-    wrap_render_process_handler,
+    ProcessId, ProcessMessage, RenderProcessHandler, SchemeRegistrar, V8Context, WrapApp,
+    WrapRenderProcessHandler, sys, wrap_app, wrap_render_process_handler,
 };
 
 use crate::preview::scheme as preview_scheme;
 
-const CHILD_FRAME_LOCKDOWN_APIS: &[&str] = &[
-    "tabs",
-    "windows",
-    "action",
-    "browserAction",
-    "pageAction",
-    "contextMenus",
-    "webNavigation",
-    "downloads",
-    "management",
-];
-
+/// DENY-BY-DEFAULT V8 lockdown for ANY non-main extension subframe (any depth, including
+/// `chrome-extension://`, `about:blank`, `about:srcdoc`, `blob:`, `data:`).
+/// Walks `chrome` / `browser`'s own property keys and locks every key NOT in
+/// `{runtime, i18n, storage, dom}` (plus `alwaysLock` lazy API names and
+/// `runtime.{connectNative,sendNativeMessage}`) to non-configurable `undefined` BEFORE line 1 of
+/// any script runs.
 const CHILD_FRAME_V8_LOCKDOWN_JS: &str = r#"(function(){
-  var apis = ["tabs","windows","action","browserAction","pageAction","contextMenus","webNavigation","downloads","management"];
+  var allowed = { runtime: 1, i18n: 1, storage: 1, dom: 1 };
+  var alwaysLock = [
+    "tabs","windows","action","browserAction","pageAction","contextMenus","webNavigation",
+    "downloads","management","notifications","permissions","history","bookmarks","sessions",
+    "privacy","fontSettings","identity","sidePanel","search","contentSettings",
+    "desktopCapture","tabCapture","pageCapture","webAuthenticationProxy","browsingData",
+    "system","userScripts","tts","ttsEngine","debugger","proxy","topSites","readingList",
+    "tabGroups","omnibox","devtools","extension","commands","webRequest",
+    "declarativeNetRequest","scripting","offscreen","cookies","alarms","idle","power",
+    "app","csi","loadTimes","gcm","instanceID","declarativeContent"
+  ];
+  var lockProp = function(obj, key) {
+    try {
+      Object.defineProperty(obj, key, {
+        value: undefined,
+        configurable: false,
+        enumerable: false,
+        writable: false
+      });
+    } catch (e) {}
+  };
   var roots = ["chrome","browser"];
   for (var r = 0; r < roots.length; r++) {
     var root;
     try { root = globalThis[roots[r]]; } catch (e) { continue; }
     if (!root || typeof root !== "object") continue;
-    for (var i = 0; i < apis.length; i++) {
-      try {
-        Object.defineProperty(root, apis[i], {
-          value: undefined,
-          configurable: false,
-          enumerable: false,
-          writable: false
-        });
-      } catch (e) {}
+    var keys = [];
+    try { keys = Object.getOwnPropertyNames(root); } catch (e) {}
+    for (var k = 0; k < keys.length; k++) {
+      var name = keys[k];
+      if (!Object.prototype.hasOwnProperty.call(allowed, name)) {
+        lockProp(root, name);
+      }
+    }
+    for (var i = 0; i < alwaysLock.length; i++) {
+      lockProp(root, alwaysLock[i]);
     }
     try {
       var rt = root.runtime;
       if (rt && typeof rt === "object") {
-        var nms = ["connectNative","sendNativeMessage"];
-        for (var j = 0; j < nms.length; j++) {
-          try {
-            Object.defineProperty(rt, nms[j], {
-              value: undefined,
-              configurable: false,
-              enumerable: false,
-              writable: false
-            });
-          } catch (e) {}
-        }
+        lockProp(rt, "connectNative");
+        lockProp(rt, "sendNativeMessage");
       }
     } catch (e) {}
   }
 })();"#;
 
 fn is_extension_url(url: &str) -> bool {
-    url.len() >= 19 && url.as_bytes()[..19].eq_ignore_ascii_case(b"chrome-extension://")
+    (url.len() >= 19 && url.as_bytes()[..19].eq_ignore_ascii_case(b"chrome-extension://"))
+        || (url.len() >= 24 && url.as_bytes()[..24].eq_ignore_ascii_case(b"blob:chrome-extension://"))
 }
 
 fn is_extension_tree(browser: Option<&Browser>, frame: &Frame) -> bool {
@@ -83,10 +89,10 @@ fn is_extension_tree(browser: Option<&Browser>, frame: &Frame) -> bool {
         .is_some_and(|mf| is_extension_url(&CefString::from(&mf.url()).to_string()))
 }
 
-/// Neutralizes native `chrome.{tabs,windows,action,browserAction,pageAction,contextMenus,webNavigation,
-/// downloads,management}` (and `browser.*`) in ANY non-main extension subframe directly inside V8's
-/// `on_context_created` BEFORE line 1 of any script can observe `window[0]`, while preserving
-/// `chrome.runtime` (READER-12 #441 / #521).
+/// Neutralizes every non-allow-listed `chrome.*` / `browser.*` API in ANY non-main extension
+/// subframe directly inside V8's `on_context_created` BEFORE line 1 of any script (or synchronous
+/// `document.write` / Custom Element `connectedCallback` / `Range.insertNode` / `setHTMLUnsafe`)
+/// can observe `window[0]`.
 fn lockdown_extension_child_frame(
     browser: Option<&Browser>,
     frame: Option<&Frame>,
@@ -109,39 +115,6 @@ fn lockdown_extension_child_frame(
             .and_then(|r| r.value_bykey(Some(&CefString::from("id"))))
             .is_some_and(|id| id.is_string() != 0);
     if has_ext_root {
-        let locked = V8Propertyattribute::from(
-            sys::cef_v8_propertyattribute_t::V8_PROPERTY_ATTRIBUTE_READONLY
-                | sys::cef_v8_propertyattribute_t::V8_PROPERTY_ATTRIBUTE_DONTENUM
-                | sys::cef_v8_propertyattribute_t::V8_PROPERTY_ATTRIBUTE_DONTDELETE,
-        );
-        if let Some(global) = ctx.global() {
-            for root_name in ["chrome", "browser"] {
-                let Some(root) = global.value_bykey(Some(&CefString::from(root_name))) else {
-                    continue;
-                };
-                if root.is_object() == 0 {
-                    continue;
-                }
-                for api in CHILD_FRAME_LOCKDOWN_APIS {
-                    let key = CefString::from(*api);
-                    let _ = root.delete_value_bykey(Some(&key));
-                    if let Some(mut undef) = cef::v8_value_create_undefined() {
-                        let _ = root.set_value_bykey(Some(&key), Some(&mut undef), locked.clone());
-                    }
-                }
-                if let Some(rt) = root.value_bykey(Some(&CefString::from("runtime")))
-                    && rt.is_object() != 0
-                {
-                    for nm in ["connectNative", "sendNativeMessage"] {
-                        let key = CefString::from(nm);
-                        let _ = rt.delete_value_bykey(Some(&key));
-                        if let Some(mut undef) = cef::v8_value_create_undefined() {
-                            let _ = rt.set_value_bykey(Some(&key), Some(&mut undef), locked.clone());
-                        }
-                    }
-                }
-            }
-        }
         let mut retval = None;
         let mut exception = None;
         let _ = ctx.eval(

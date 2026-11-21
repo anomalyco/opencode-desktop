@@ -12,13 +12,14 @@ use crate::matches::seek_active;
 use crate::transcript_index::{Index, KEY_BUDGET, Kind, Results, Source, retire};
 use crate::{Effect, Event, FindHost, State};
 
-/// What the matches are: none; those of the rows on screen while the worker matches the rest
-/// (`reveal`: the first match in the transcript lights and comes into view when they land); or
-/// every row's, for the transcript of shape `shape`.
+/// What the matches are: none; waiting for the transcript's index to land; those of the rows on
+/// screen while the worker matches the rest (`reveal`: the first match in the transcript lights
+/// and comes into view when they land); or every row's, for the transcript of shape `shape`.
 #[derive(Default)]
 pub(crate) enum Answer {
     #[default]
     None,
+    Waiting { query: String, reveal: bool },
     Partial { query: String, results: Arc<Results>, reveal: bool },
     Complete { query: String, shape: u64, results: Arc<Results> },
 }
@@ -114,6 +115,7 @@ fn sync_session(s: &mut dyn FindHost) -> Option<String> {
     };
     if s.find().open().is_some_and(|o| o.session != id) {
         let f = s.find_mut();
+        f.matcher.cancel();
         for effect in f.state.step(Event::SessionChanged { session: &id }) {
             match effect {
                 Effect::RetireAnswer(answer) => retire(answer),
@@ -129,10 +131,15 @@ fn sync_session(s: &mut dyn FindHost) -> Option<String> {
 /// most [`KEY_BUDGET`] rows itself: past that, it lights the rows on screen and the worker
 /// matches the rest (and makes the index when the transcript changed).
 pub fn sync_index(s: &mut dyn FindHost) {
+    let _ = sync_index_inner(s);
+}
+
+/// [`sync_index`], returning whether the caller should scroll the active match into view now.
+pub(crate) fn sync_index_inner(s: &mut dyn FindHost) -> bool {
     let current = sync_session(s);
     // Settings covers the session, which keeps its Find as it was.
     if s.settings_open() {
-        return;
+        return false;
     }
     let current = current.unwrap_or_default();
     if !s.find().is_open() || current.is_empty() {
@@ -141,7 +148,7 @@ pub fn sync_index(s: &mut dyn FindHost) {
         {
             retire(std::mem::take(&mut open.answer));
         }
-        return;
+        return false;
     }
     let Some(shape) = find_shape(s, &current) else {
         if let Some(open) = s.find_mut().open_mut()
@@ -149,22 +156,30 @@ pub fn sync_index(s: &mut dyn FindHost) {
         {
             retire(std::mem::take(&mut open.answer));
         }
-        return;
+        return false;
     };
     let q = s.find().query().to_owned();
     let indexed = s.find().open().is_some_and(|o| o.index.as_ref().is_some_and(|i| i.source.shape == shape));
+    let mut should_seek = false;
+    let waiting = s.find().open().is_some_and(|o| matches!(o.answer, Answer::Waiting { .. }));
     if q.is_empty() {
-        if let Some(open) = s.find_mut().open_mut()
-            && !matches!(open.answer, Answer::None)
-        {
-            retire(std::mem::take(&mut open.answer));
+        if let Some(open) = s.find_mut().open_mut() {
+            open.reveal_on_land = false;
+            if !matches!(open.answer, Answer::None) {
+                retire(std::mem::take(&mut open.answer));
+            }
         }
-    } else if s.find().answered() != Some(q.as_str()) {
+    } else if s.find().answered() != Some(q.as_str()) || (indexed && waiting) {
         let fold = search_fold(s);
-        let current_index = s.find().open().and_then(|o| o.index.clone());
+        let (current_index, want_reveal) = s
+            .find()
+            .open()
+            .map(|o| (o.index.clone(), o.reveal_on_land))
+            .unwrap_or((None, false));
         let answer = match current_index {
             Some(index) if indexed => match index.candidates_within(&q, KEY_BUDGET) {
-                // Few rows can match: all of them, now.
+                // Few rows can match: all of them, now (including right when `f.indexer` lands
+                // after a tab switch or early keystroke, avoiding a second worker hop).
                 Some(rows) => Answer::Complete { query: q.clone(), shape, results: Arc::new(index.search(&rows, &q, fold)) },
                 // Too many: the first match in the session, which official lights and brings into
                 // view on every new query (`search-machine.ts` `queryChanged`, `seek(.., 0)`), found
@@ -175,34 +190,46 @@ pub fn sync_index(s: &mut dyn FindHost) {
                     rows.extend(first);
                     rows.sort_unstable();
                     rows.dedup();
-                    Answer::Partial { query: q.clone(), results: Arc::new(index.search(&rows, &q, fold)), reveal: first.is_none() }
+                    Answer::Partial {
+                        query: q.clone(),
+                        results: Arc::new(index.search(&rows, &q, fold)),
+                        reveal: want_reveal && first.is_none(),
+                    }
                 }
             },
-            // The index is a change behind (or not made yet): what shows lights when it lands.
-            _ => Answer::Partial { query: q.clone(), results: Arc::default(), reveal: true },
+            // The index is a change behind (or not made yet): wait for `f.indexer`, keeping
+            // `want_reveal` false across session switches (`search-machine.ts:154-160`).
+            _ => Answer::Waiting { query: q.clone(), reveal: want_reveal },
         };
         let complete = {
-            let Some(open) = s.find_mut().open_mut() else { return };
+            let Some(open) = s.find_mut().open_mut() else { return false };
             retire(std::mem::replace(&mut open.answer, answer));
             matches!(open.answer, Answer::Complete { .. })
         };
         let waits = complete && target_waits(s);
         let f = s.find_mut();
-        let Some(open) = f.open_mut() else { return };
+        let Some(open) = f.open_mut() else { return false };
+        let had_target = open.target != Target::First;
         // A new query lights its first match (`queryChanged`), and only a match that is the
         // first in the session is lit before the rest are counted.
         // Find opened on a search result's message lights that message's first match once
         // every match is known.
         let first = match (&open.answer, &open.target) {
-            (Answer::Partial { .. }, Target::Message(_)) | (Answer::Partial { reveal: true, .. }, _) => None,
+            (Answer::Waiting { .. }, _) | (Answer::Partial { .. }, Target::Message(_)) | (Answer::Partial { reveal: true, .. }, _) => None,
             (Answer::Complete { results, .. }, Target::Message(id)) => results.first_in_message(id).or(Some(0)),
             _ => Some(0),
         };
         // The message isn't loaded yet: older pages are read (`poll`) and the target waits.
         if complete && !waits {
             open.target = Target::First;
+            open.reveal_on_land = false;
+            should_seek = (want_reveal || had_target) && first.is_some();
+        } else if matches!(open.answer, Answer::Partial { reveal: false, .. }) && !had_target {
+            open.reveal_on_land = false;
+            should_seek = want_reveal && first.is_some();
         }
         drop(f.state.step(Event::MatchesSynced { kept: first }));
+        should_seek = should_seek && f.count() > 0;
     }
     // The index for this shape, once (keys never restart it).
     if !indexed && s.find().open().is_some_and(|o| o.indexing != (Indexing::Running { shape })) {
@@ -220,7 +247,7 @@ pub fn sync_index(s: &mut dyn FindHost) {
     // shape), once the index for this shape is in.
     let job = Matching::Running { shape, query: q.clone() };
     let should_match = {
-        let Some(open) = s.find().open() else { return };
+        let Some(open) = s.find().open() else { return should_seek };
         let stale = matches!(&open.answer, Answer::Complete { shape: ans_shape, .. } if *ans_shape != shape);
         let wanted = !q.is_empty() && (matches!(open.answer, Answer::Partial { .. }) || stale);
         indexed && wanted && open.matching != job && open.index.is_some()
@@ -239,6 +266,7 @@ pub fn sync_index(s: &mut dyn FindHost) {
             });
         }
     }
+    should_seek
 }
 
 /// The open transcript's shape, once its rows are copied into [`crate::OpenFind::source`]. A change is
@@ -387,8 +415,9 @@ pub(crate) fn land(s: &mut dyn FindHost, tx: &mut Tx) -> bool {
             retire(results);
             return false;
         };
-        let reveal = matches!(open.answer, Answer::Partial { reveal: true, .. });
+        let reveal = matches!(open.answer, Answer::Waiting { reveal: true, .. } | Answer::Partial { reveal: true, .. });
         retire(std::mem::replace(&mut open.answer, Answer::Complete { query, shape, results }));
+        open.reveal_on_land = false;
         (reveal, lit)
     };
     // A target whose message is still to load keeps waiting, lighting the first match meanwhile.

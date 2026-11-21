@@ -254,6 +254,7 @@ pub fn run_browser(
     let prepared = extensions::integrity::prepare_startup_stubs(&ext_specs, &profile.root);
     let mut pre_rejected = prepared.pre_rejected_ids;
     let mut stub_root = prepared.stub_root;
+    let mut stub_lock = prepared.stub_lock;
     let mut stub_dirs = prepared.stub_dirs;
     let mut stub_dirs_by_id = prepared.stub_dirs_by_id;
     let mut candidates = prepared.candidates;
@@ -269,6 +270,7 @@ pub fn run_browser(
             }
             stub_dirs.clear();
             stub_dirs_by_id.clear();
+            drop(stub_lock.take());
             if let Some(root) = stub_root.take() {
                 extensions::integrity::cleanup_stub_root(&root);
             }
@@ -331,6 +333,8 @@ pub fn run_browser(
         adapter_luid,
         locale.as_deref(),
         &stub_dirs,
+        stub_root.clone(),
+        stub_lock,
         io_pipes_switch,
         events.clone(),
         sandbox_info,
@@ -389,7 +393,6 @@ pub fn run_browser(
         gpu.join().ok().flatten(),
         ext_host,
         pre_rejected,
-        stub_root,
     );
     #[cfg(target_os = "linux")]
     let mut manager = EngineManager::new(
@@ -400,7 +403,6 @@ pub fn run_browser(
         linux_gpu::transport(gpu.join().ok().flatten()),
         ext_host,
         pre_rejected,
-        stub_root,
     );
     #[cfg(target_os = "macos")]
     let mut manager = EngineManager::new(
@@ -410,7 +412,6 @@ pub fn run_browser(
         previews,
         ext_host,
         pre_rejected,
-        stub_root,
     );
     step("manager");
     let mut first_message = true;

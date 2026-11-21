@@ -64,5 +64,6 @@
   "zoom.reset": "მასშტაბის გადაყენება",
   "zoom.percent": "{{percent}}%",
   "link.copy": "ბმულის კოპირება",
-  "history.clear": "ისტორიის გასუფთავება"
+  "history.clear": "ისტორიის გასუფთავება",
+  "extensions.compat.feature.management": "სხვა გაფართოებების მართვა"
 }

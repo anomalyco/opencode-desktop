@@ -187,6 +187,9 @@ pub fn run_cleanup_effects(mgr: &ExtensionManager, effects: &[InstallEffect]) {
 
 /// Drains engine extension events (integrity failures, extension-opened tabs, focus requests).
 pub fn poll(app: &mut App) -> bool {
+    // Every tick, not only when another extension event arrived: the engine starts with
+    // notifications off until told, and the Settings and engine-down clears can't wait.
+    poll_extension_notifications(app);
     if !app.workspace_panes.browser.host.has_extension_events() {
         return false;
     }
@@ -252,8 +255,6 @@ pub fn poll(app: &mut App) -> bool {
         .drain_extension_lifecycle_events()
         .count();
 
-    poll_extension_notifications(app);
-
     changed
 }
 
@@ -265,6 +266,18 @@ fn poll_extension_notifications(app: &mut App) {
         .browser
         .host
         .set_extension_notifications_enabled(allowed);
+    // Settings > Notifications off takes this window's extension toasts down; an engine that
+    // idled out or crashed can't hear their clicks, so its toasts go too.
+    let host = &app.workspace_panes.browser.host;
+    let engine = host.engine_extensions() && matches!(host.status(), browser_pane::EngineStatus::Ready);
+    if !allowed || !engine {
+        let cleared = crate::notifications::clear_all_extensions(app);
+        if engine {
+            for (ext_id, notif_id) in cleared {
+                app.workspace_panes.browser.host.send_extension_notification_event(ext_id, notif_id, false, false);
+            }
+        }
+    }
     let ops: Vec<_> = app
         .workspace_panes
         .browser
@@ -273,6 +286,8 @@ fn poll_extension_notifications(app: &mut App) {
         .collect();
     for op in ops {
         match op {
+            // A toast from an engine that is no longer up couldn't hear its click.
+            browser_pane::extensions::ExtensionNotificationOp::Show { .. } if !engine => {}
             browser_pane::extensions::ExtensionNotificationOp::Show {
                 ext_id,
                 ext_name,
@@ -280,7 +295,7 @@ fn poll_extension_notifications(app: &mut App) {
                 body,
             } => {
                 let os_id = format!("ext-{ext_id}-{notif_id}");
-                let title = format!("Extension: {ext_name}");
+                let title = opencode_i18n::t!("rune.browser.extension.notification.title", name = ext_name).to_string();
                 if !crate::notifications::post_extension(app, &os_id, &title, &body, &ext_id, &notif_id) {
                     app.workspace_panes.browser.host.send_extension_notification_event(
                         ext_id, notif_id, false, false,
@@ -291,6 +306,9 @@ fn poll_extension_notifications(app: &mut App) {
                 crate::notifications::clear_extension(app, &format!("ext-{ext_id}-{notif_id}"));
             }
         }
+    }
+    for (ext_id, notif_id) in crate::notifications::take_extension_evicted(app) {
+        app.workspace_panes.browser.host.send_extension_notification_event(ext_id, notif_id, false, false);
     }
 }
 

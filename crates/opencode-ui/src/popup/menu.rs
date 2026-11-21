@@ -49,6 +49,8 @@ pub struct Item {
     pub(super) hint: Option<String>,
     /// A faint word at the row's end (the server switcher's "Unreachable"; drawn menus only).
     pub(super) note: Option<String>,
+    /// Medium-weight (530) label, as the session location card's project title uses.
+    pub(super) medium: bool,
 }
 
 /// A row's icon, the same when it's the same icon.
@@ -107,7 +109,14 @@ impl Item {
             diff: None,
             hint: None,
             note: None,
+            medium: false,
         }
+    }
+
+    /// Medium-weight (530) label (`session-identity-header.tsx:278`, drawn menus only).
+    pub fn medium(mut self) -> Item {
+        self.medium = true;
+        self
     }
 
     pub fn id(&self) -> &str {

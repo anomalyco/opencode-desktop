@@ -14,7 +14,7 @@ use crate::{Find, FindHost};
 impl Find {
     pub(crate) fn results(&self) -> Option<&Results> {
         match &self.open()?.answer {
-            Answer::None => None,
+            Answer::None | Answer::Waiting { .. } => None,
             Answer::Partial { results, .. } | Answer::Complete { results, .. } => Some(results),
         }
     }
@@ -23,7 +23,7 @@ impl Find {
     pub(crate) fn answered(&self) -> Option<&str> {
         match &self.open()?.answer {
             Answer::None => None,
-            Answer::Partial { query, .. } | Answer::Complete { query, .. } => Some(query),
+            Answer::Waiting { query, .. } | Answer::Partial { query, .. } | Answer::Complete { query, .. } => Some(query),
         }
     }
 

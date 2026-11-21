@@ -695,17 +695,16 @@ pub fn lockdown_global_native_messaging() {
     let _ = set_optional_bool_pref(&ctx, "native_messaging.user_level_hosts", false);
 }
 
-/// Post-load fail-closed verification (`review-rd274.md` Round-3 §1a + 1Password/sandbox gate):
+/// Post-load fail-closed verification (`review-rd274.md` Round-3 §1a + deny-by-default lockdown):
 /// reads back Chromium's persisted `extensions.settings.<loaded_id>` after `Extensions.loadUnpacked`
 /// succeeds and requires ALL THREE:
 /// 1. `creation_flags` is present AND bit `1 << 2` (`0x4`, `Extension::ALLOW_FILE_ACCESS`) is `0`,
 /// 2. `newAllowFileAccess` is present AND `false`,
-/// 3. Neither `active_permissions.api` nor `granted_permissions.api` contains any entry in
-///    [`crate::extensions::manifest::STRIPPED_NATIVE_PERMS`] (`nativeMessaging`, `downloads`,
-///    `downloads.open`, `downloads.ui`, `management`).
+/// 3. DENY BY DEFAULT: every entry in BOTH `active_permissions.api` and `granted_permissions.api`
+///    is strictly on [`crate::extensions::manifest::ALLOWED_CHROMIUM_PERMS`].
 ///
 /// Catches any path-normalization drift or manifest-stripping failure immediately so the caller
-/// uninstalls the extension instead of failing open.
+/// uninstalls the extension before a single line of SW JS runs.
 pub fn verify_extension_file_access_disabled(loaded_id: &str) -> bool {
     const EXTENSION_ALLOW_FILE_ACCESS: i32 = 1 << 2;
     let Some(ctx) = cef::request_context_get_global_context() else {
@@ -740,19 +739,25 @@ pub fn verify_extension_file_access_disabled(loaded_id: &str) -> bool {
     if ext_dict.bool(Some(&allow_key)) != 0 {
         return false;
     }
-    // Fail closed if Chromium's own C++ ExtensionPrefs granted any stripped native API permission.
+    // Fail closed (deny-by-default) if Chromium's own C++ ExtensionPrefs granted ANY native API
+    // permission outside our exact `ALLOWED_CHROMIUM_PERMS` allow-list OR any `manifest_permissions`
+    // (READER-7 C-S1: e.g. `chrome_settings_overrides`, `automation`, `sockets`).
     for perm_bucket in ["active_permissions", "granted_permissions"] {
         let Some(bucket) = ext_dict.dictionary(Some(&CefString::from(perm_bucket))) else {
             continue;
         };
-        let Some(api_list) = bucket.list(Some(&CefString::from("api"))) else {
-            continue;
-        };
-        for i in 0..api_list.size() {
-            let api_name = CefString::from(&api_list.string(i)).to_string();
-            if crate::extensions::manifest::STRIPPED_NATIVE_PERMS.contains(&api_name.as_str()) {
-                return false;
+        if let Some(api_list) = bucket.list(Some(&CefString::from("api"))) {
+            for i in 0..api_list.size() {
+                let api_name = CefString::from(&api_list.string(i)).to_string();
+                if !crate::extensions::manifest::is_allowed_chromium_perm(&api_name) {
+                    return false;
+                }
             }
+        }
+        if let Some(mf_list) = bucket.list(Some(&CefString::from("manifest_permissions")))
+            && mf_list.size() > 0
+        {
+            return false;
         }
     }
     true

@@ -100,7 +100,8 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
     } else {
         cx.titlebar_height(titlebar_height(*s.zoom));
     }
-    cx.caption_color(caption_color(p.bg_deep));
+    // A system contrast theme draws them in its text colour, as Desktop's `window-text` (opencode#65324).
+    cx.caption_color(if p.forced { p.text } else { caption_color(p.bg_deep) });
     // Text and fields left uncoloured take the theme's text, and focusable controls without a
     // ring of their own draw the shared one (`opencode_ui::focus`, base.css `:focus-visible`).
     cx.foreground(p.text);

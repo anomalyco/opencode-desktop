@@ -5,11 +5,12 @@
 //!   first update into this one) never takes it, but holds SQLite's lock for its whole life: when
 //!   it does (macOS), what the record showed is held, as for any other process holding the file.
 //! - **Busy** (another copy, or one still closing its storage: a relaunch's old copy, a launch
-//!   while the app quits): where the instance claim admits one launch (not macOS) the holder can
-//!   only be closing, so the first frame waits for it up to WAIT and then reads what it saved.
-//!   Elsewhere the first frame waits for the lease a few seconds (`SHOW`; a relaunch,
-//!   which Rune already held up to 10 s for its old copy, `SHOW_RELAUNCH`), since a copy that's
-//!   quitting writes its last state and a frame from before that is one the file no longer shows.
+//!   while the app quits): the first frame waits for the lease a short while (`SHOW_CLOSING` where
+//!   the instance claim admits one launch, not macOS: the holder can only be closing, and a closing
+//!   copy lets go within a few milliseconds; `SHOW` on macOS; a relaunch, which Rune already held
+//!   up to 10 s for its old copy, `SHOW_RELAUNCH`), since a copy that's quitting writes its last
+//!   state and a frame from before that is one the file no longer shows. Taken in that time, the
+//!   record is read again and shown.
 //!   Then the held path: what was read is shown, held (with "OpenCode is finishing a save"), the
 //!   lease is tried again for as long as the open waits for SQLite's lock, and once it's taken the
 //!   open goes on; what the windows were shown is kept only if the file still shows it
@@ -34,6 +35,10 @@ const WAIT: Duration = Duration::from_secs(30);
 const SHOW: Duration = Duration::from_secs(5);
 /// The same for a relaunch (Restart, an update's), which Rune held up to 10 s for its old copy.
 const SHOW_RELAUNCH: Duration = Duration::from_secs(2);
+/// The same where the instance claim admits one launch (not macOS): the holder is a copy closing,
+/// which lets go of the profile ~1 ms after its last save (`harness/perf/relaunch-wait.ts`). One
+/// that hasn't in this time is hung: the window shows rather than stay hidden for `WAIT`.
+const SHOW_CLOSING: Duration = Duration::from_secs(1);
 
 /// A relaunch (Restart, an update's): Rune names the copy it replaces and waits for it at most 10 s.
 pub(super) fn relaunch() -> bool {
@@ -52,11 +57,12 @@ pub(super) fn hold(config: &StorageConfig, report: &mut BootReport, t0: Instant,
     let until = Instant::now() + WAIT;
     // Where the instance claim admits one launch at a time (not macOS), a copy that still has the
     // lease once this one holds the claim is one closing: it's writing its last state. The first
-    // frame waits for that (as long as the open would wait for SQLite) and then reads it, rather
-    // than show what that write replaces and keep this run in memory once it lands. Official
-    // can't meet this: Electron's single-instance lock lasts the whole process, so a second
-    // launch quits (`lifecycle/configure.ts` `acquireApplicationLock`).
-    let show = if !cfg!(target_os = "macos") { WAIT } else if relaunch() { SHOW_RELAUNCH } else { SHOW };
+    // frame waits for that briefly and then reads it, rather than show what that write replaces
+    // and keep this run in memory once it lands. A copy that takes longer is hung: the window shows
+    // what was read, held ("OpenCode is finishing a save"), instead of nothing for up to `WAIT`.
+    // Official's second launch quits instead (Electron's single-instance lock lasts the whole
+    // process: `lifecycle/configure.ts` `acquireApplicationLock`), so a person sees nothing at all.
+    let show = if relaunch() { SHOW_RELAUNCH } else if cfg!(target_os = "macos") { SHOW } else { SHOW_CLOSING };
     loop {
         match lease::try_take(&config.path) {
             lease::Outcome::Held => break,

@@ -64,5 +64,6 @@
   "zoom.reset": "Nullstilla zoom",
   "zoom.percent": "{{percent}} %",
   "link.copy": "Avrita leinki",
-  "history.clear": "Rudda søgu"
+  "history.clear": "Rudda søgu",
+  "extensions.compat.feature.management": "Umsiting av øðrum víðkanum"
 }

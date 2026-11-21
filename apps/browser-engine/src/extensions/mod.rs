@@ -221,6 +221,10 @@ impl ActionState {
 #[derive(Clone, Debug)]
 pub(super) struct LoadedExt {
     pub dir: PathBuf,
+    /// When the extension was staged into a per-stage `_rt/<ext_id>-<seq>` mirror (because its
+    /// manifest declared permissions stripped from Chromium C++), holds that mirror path so
+    /// uninstall, failed post-load verify, or reload replacement cleans it up promptly (F1).
+    pub staged_dir: Option<PathBuf>,
     pub sha256: String,
     pub manifest: ExtensionManifest,
     pub is_unpacked: bool,
@@ -294,9 +298,14 @@ pub struct ExtensionHost {
     /// completed) before sending `Runtime.runIfWaitingForDebugger` (`review-rd274.md` Round-2 §1c).
     /// Value is `(session_id, send_resume_when_confirmed)`.
     pub(super) pending_fetch_resume: HashMap<i64, (String, bool)>,
+    /// Sessions whose `Fetch.enable` confirmed cleanly while their extension was still awaiting
+    /// post-load `verify_extension_file_access_disabled` (`ext.loaded == false`, READER-7 F2).
+    /// Value is `(session_id, send_resume_when_loaded)`. Resumed strictly after
+    /// `verify_extension_file_access_disabled` passes and `ext.loaded = true`.
+    pub(super) pending_loaded_resume: Vec<(String, bool)>,
     /// Duplicate SW `Target.attachedToTarget` sessions held quiet while the primary SW session is
-    /// still waiting on `Fetch.enable`, keyed by `targetId`. Released only after the primary
-    /// session's `Fetch.enable` confirms (fail-closed if it errors; avoids waitForDebugger deadlock).
+    /// still waiting on `Fetch.enable` or post-load verification (`ext.loaded`), keyed by `targetId`.
+    /// Released only after BOTH confirm (fail-closed if either fails; avoids waitForDebugger deadlock).
     pub(super) deferred_dup_sw_detaches: HashMap<String, Vec<(String, bool)>>,
     pub(super) pipe_closed: bool,
     pub(super) open_tab_rates: HashMap<String, RateWindow>,
@@ -356,6 +365,7 @@ impl ExtensionHost {
             pending_uninstall_cmd: HashMap::new(),
             pending_reload_cmd: HashMap::new(),
             pending_fetch_resume: HashMap::new(),
+            pending_loaded_resume: Vec::new(),
             deferred_dup_sw_detaches: HashMap::new(),
             pipe_closed: false,
             open_tab_rates: HashMap::new(),
@@ -363,7 +373,9 @@ impl ExtensionHost {
             popup_resize_rates: HashMap::new(),
             notification_rates: HashMap::new(),
             notifications: HashMap::new(),
-            notifications_enabled: true,
+            // Off until the app says Settings > Notifications allows them, so `getPermissionLevel`
+            // never answers "granted" in the moment before `SetNotificationsEnabled` arrives.
+            notifications_enabled: false,
             metrics: ShimMetrics::default(),
         }
     }
@@ -413,7 +425,11 @@ impl ExtensionHost {
         for item in ordered {
             let is_filter = item.manifest.is_filter_extension();
             let id = item.id.clone();
+            let staged_dir = (item.load_dir != item.dir).then(|| item.load_dir.clone());
             let Some(path_str) = crate::context::canonical_extension_load_path(&item.load_dir) else {
+                if let Some(ref staged) = staged_dir {
+                    integrity::cleanup_staged_dir(staged);
+                }
                 self.uninstall_inert_stub(&id);
                 effects.push(ExtEffect::IntegrityFailed { ext_id: id });
                 continue;
@@ -421,6 +437,9 @@ impl ExtensionHost {
             // Fail closed if Chromium refuses to revoke `ALLOW_FILE_ACCESS` before load
             // (hashes the exact single `path_str` passed to `loadUnpacked`; `review-rd274.md` Round-3 §1).
             if !crate::context::disallow_extension_file_access(&id, &path_str) {
+                if let Some(ref staged) = staged_dir {
+                    integrity::cleanup_staged_dir(staged);
+                }
                 self.uninstall_inert_stub(&id);
                 effects.push(ExtEffect::IntegrityFailed { ext_id: id });
                 continue;
@@ -429,7 +448,7 @@ impl ExtensionHost {
                 self.pending_filter_ids.insert(id.clone());
             }
             self.verified_startup.insert(id.clone(), item.clone());
-            self.register_extension(id.clone(), item.dir, item.sha256, item.manifest, false, false);
+            self.register_extension(id.clone(), item.dir, staged_dir, item.sha256, item.manifest, false, false);
             let cmd_id = self.send_cdp("Extensions.loadUnpacked", json!({ "path": path_str }), None);
             self.pending_startup_loads.insert(cmd_id, id);
         }
@@ -558,7 +577,11 @@ impl ExtensionHost {
                     error: Some("Extension files changed on disk; restart required.".into()),
                 }];
             };
+            let staged_dir = (load_dir != ext.dir).then(|| load_dir.clone());
             let Some(path_str) = crate::context::canonical_extension_load_path(&load_dir) else {
+                if let Some(ref staged) = staged_dir {
+                    integrity::cleanup_staged_dir(staged);
+                }
                 return vec![ExtEffect::ExtensionUninstalled {
                     ext_id: ext_id.to_owned(),
                     ok: false,
@@ -566,11 +589,24 @@ impl ExtensionHost {
                 }];
             };
             if !crate::context::disallow_extension_file_access(ext_id, &path_str) {
+                if let Some(ref staged) = staged_dir {
+                    integrity::cleanup_staged_dir(staged);
+                }
                 return vec![ExtEffect::ExtensionUninstalled {
                     ext_id: ext_id.to_owned(),
                     ok: false,
                     error: Some("Could not disable file:// access before uninstall upgrade.".into()),
                 }];
+            }
+            if let Some(cur) = self.extensions.get_mut(ext_id) {
+                if let Some(old) = cur.staged_dir.replace(staged_dir.unwrap_or_default())
+                    && !old.as_os_str().is_empty()
+                {
+                    integrity::cleanup_staged_dir(&old);
+                }
+                if cur.staged_dir.as_ref().is_some_and(|p| p.as_os_str().is_empty()) {
+                    cur.staged_dir = None;
+                }
             }
             let id = self.send_cdp("Extensions.loadUnpacked", json!({ "path": path_str }), None);
             self.pending_uninstall_upgrade.insert(id, ext_id.to_owned());
@@ -602,7 +638,11 @@ impl ExtensionHost {
                 error: Some("Extension integrity digest mismatch.".into()),
             }];
         };
+        let staged_dir = (load_dir != item.dir).then(|| load_dir.clone());
         let Some(path_str) = crate::context::canonical_extension_load_path(&load_dir) else {
+            if let Some(ref staged) = staged_dir {
+                integrity::cleanup_staged_dir(staged);
+            }
             return vec![ExtEffect::ExtensionReloaded {
                 ext_id: ext_id.to_owned(),
                 ok: false,
@@ -610,13 +650,16 @@ impl ExtensionHost {
             }];
         };
         if !crate::context::disallow_extension_file_access(&item.id, &path_str) {
+            if let Some(ref staged) = staged_dir {
+                integrity::cleanup_staged_dir(staged);
+            }
             return vec![ExtEffect::ExtensionReloaded {
                 ext_id: ext_id.to_owned(),
                 ok: false,
                 error: Some("Could not disable file:// access for extension.".into()),
             }];
         }
-        self.register_extension(item.id.clone(), item.dir, item.sha256, manifest, true, false);
+        self.register_extension(item.id.clone(), item.dir, staged_dir, item.sha256, manifest, true, false);
         let id = self.send_cdp("Extensions.loadUnpacked", json!({ "path": path_str }), None);
         self.pending_reload_cmd.insert(id, item.id);
         Vec::new()
@@ -944,6 +987,7 @@ impl ExtensionHost {
         &mut self,
         id: String,
         dir: PathBuf,
+        staged_dir: Option<PathBuf>,
         sha256: String,
         manifest: ExtensionManifest,
         is_unpacked: bool,
@@ -955,10 +999,13 @@ impl ExtensionHost {
             &manifest.version,
             manifest.has_permission("contextMenus"),
         );
-        self.extensions.insert(
+        if let Some(prev) = self.extensions.insert(
             id,
-            LoadedExt { dir, sha256, manifest, is_unpacked, loaded, boot_count: 0 },
-        );
+            LoadedExt { dir, staged_dir, sha256, manifest, is_unpacked, loaded, boot_count: 0 },
+        ) && let Some(old_staged) = prev.staged_dir
+        {
+            integrity::cleanup_staged_dir(&old_staged);
+        }
     }
 
     pub fn context_menu_catalog(&self) -> Arc<std::sync::Mutex<context_menus::ExtensionContextMenuCatalog>> {
@@ -1029,6 +1076,16 @@ impl ExtensionHost {
 
     pub fn set_notifications_enabled(&mut self, enabled: bool) {
         self.notifications_enabled = enabled;
+    }
+
+    /// Drops extension `ext_id`'s notifications, for the app to take its toasts down.
+    pub(super) fn forget_notifications(&mut self, ext_id: &str) -> Vec<ExtEffect> {
+        self.notifications
+            .remove(ext_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|notif_id| ExtEffect::NotificationClear { ext_id: ext_id.to_owned(), notif_id })
+            .collect()
     }
 
     /// Delivers a desktop OS notification click or dismissal back to the owning extension
