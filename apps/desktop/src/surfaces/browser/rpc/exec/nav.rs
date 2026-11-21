@@ -6,7 +6,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use browser_pane::PreviewSpec;
-use browser_pane::policy::{extension_origin, extension_page_refusal, local_file_path};
+use browser_pane::policy::local_file_path;
 use browser_pane::policy::preview::relative_to_root;
 use opencode_kit::browser_rpc::{Command, Outcome, failure_code};
 use rune::Tx;
@@ -14,6 +14,7 @@ use rune::time::Instant;
 use serde_json::{Value, json};
 
 use super::super::session::SessionAttachment;
+use super::target_url::parse_agent_url;
 use super::{ExecPhase, StepOutcome, check_page_guards};
 use crate::App;
 
@@ -64,23 +65,48 @@ pub(super) fn try_start(
     }
 }
 
+fn require_remote_proxy_if_remote(att: &SessionAttachment, app: &App) -> Result<(), Outcome> {
+    let same_machine = att.server_key.is_sidecar() && att.server.is_local();
+    if same_machine {
+        return Ok(());
+    }
+    if app
+        .workspace_panes
+        .browser
+        .host
+        .remote_proxy(att.server_key.as_str())
+        .is_none()
+    {
+        return Err(Outcome::fail(
+            failure_code::NAVIGATION_FAILED,
+            "Remote-server browser navigation refused (browser.proxy.required): no live tunnel proxy is registered for this server.",
+        ));
+    }
+    Ok(())
+}
+
 fn start_tabs_open(
     att: &mut SessionAttachment,
     app: &mut App,
     cmd: &Command,
     now: Instant,
 ) -> StepOutcome {
-    let raw_url = cmd.action.get("url").and_then(Value::as_str);
+    if let Err(o) = require_remote_proxy_if_remote(att, app) {
+        return StepOutcome::Done(o);
+    }
+    let raw_url = cmd
+        .action
+        .get("url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|u| !u.is_empty());
     let focus = cmd.action.get("focus").and_then(Value::as_bool).unwrap_or(true);
     let target_url = if let Some(u) = raw_url {
-        let trimmed = u.trim();
-        if extension_origin(trimmed) {
-            return StepOutcome::Done(Outcome::fail(
-                failure_code::NAVIGATION_FAILED,
-                extension_page_refusal(trimmed),
-            ));
-        }
-        match app.normalize_browser_url_for_session(Some(&att.session_id), trimmed, true) {
+        let parsed = match parse_agent_url(u) {
+            Ok(parsed) => parsed,
+            Err(msg) => return StepOutcome::Done(Outcome::fail(failure_code::NAVIGATION_FAILED, msg)),
+        };
+        match app.normalize_browser_url_for_session(Some(&att.session_id), &parsed, true) {
             Ok(normalized) => normalized,
             Err(err) => {
                 return StepOutcome::Done(Outcome::fail(failure_code::NAVIGATION_FAILED, err));
@@ -110,6 +136,7 @@ fn start_tabs_open(
             app.open_new_agent_browser_tab_for_session(Some(&att.session_id), &target_url, None, focus)
         }
     };
+    att.ensure_tab_cdp(app, host_id);
     let _ = att.sync_tabs(app);
     let Some(wire_tab_id) = att.host_to_wire.get(&host_id).cloned() else {
         return StepOutcome::Done(Outcome::fail(
@@ -185,6 +212,9 @@ fn start_navigate(
     cmd: &Command,
     now: Instant,
 ) -> StepOutcome {
+    if let Err(o) = require_remote_proxy_if_remote(att, app) {
+        return StepOutcome::Done(o);
+    }
     let Some(wire_id) = cmd.tab_id() else {
         return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Missing tabID."));
     };
@@ -198,14 +228,11 @@ fn start_navigate(
     if let Err(outcome) = check_page_guards(app, host_id, "navigate") {
         return StepOutcome::Done(outcome);
     }
-    let trimmed = raw_url.trim();
-    if extension_origin(trimmed) {
-        return StepOutcome::Done(Outcome::fail(
-            failure_code::NAVIGATION_FAILED,
-            extension_page_refusal(trimmed),
-        ));
-    }
-    let candidate = match app.normalize_browser_url_for_session(Some(&att.session_id), trimmed, true) {
+    let parsed = match parse_agent_url(raw_url) {
+        Ok(parsed) => parsed,
+        Err(msg) => return StepOutcome::Done(Outcome::fail(failure_code::NAVIGATION_FAILED, msg)),
+    };
+    let candidate = match app.normalize_browser_url_for_session(Some(&att.session_id), &parsed, true) {
         Ok(normalized) => normalized,
         Err(err) => {
             return StepOutcome::Done(Outcome::fail(failure_code::NAVIGATION_FAILED, err));
@@ -377,6 +404,9 @@ fn start_preview(
         same.then(|| (hid, wid.clone()))
     });
     let (host_id, wire_tab_id, close_on_fail) = if let Some((hid, wid)) = existing {
+        if let Err(o) = check_page_guards(app, hid, "navigate") {
+            return StepOutcome::Done(o);
+        }
         app.workspace_panes.browser.host.set_agent_driven(hid, true);
         app.reopen_resolved_preview_tab(hid, Some(&att.session_id), &display_url, spec);
         (hid, wid, false)
@@ -389,6 +419,7 @@ fn start_preview(
             true,
             Some(browser_pane::TabDriver::Agent),
         );
+        att.ensure_tab_cdp(app, hid);
         let _ = att.sync_tabs(app);
         let Some(wid) = att.host_to_wire.get(&hid).cloned() else {
             return StepOutcome::Done(Outcome::fail(

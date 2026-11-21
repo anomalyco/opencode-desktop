@@ -328,6 +328,8 @@ pub enum HostMsg {
         forward: bool,
         match_case: bool,
         find_next: bool,
+        #[serde(default)]
+        user_initiated: bool,
     },
     StopFind {
         tab_id: u64,
@@ -345,6 +347,13 @@ pub enum HostMsg {
     },
     DropContext {
         context: ContextKind,
+    },
+    TypedCdpCall {
+        tab_id: u64,
+        request_id: u64,
+        method: String,
+        params: Value,
+        session_id: Option<String>,
     },
     /// App-proxied response headers for a remote workspace or artifact `EngineMsg::PreviewFetch`.
     PreviewResponseHead {
@@ -400,6 +409,9 @@ pub enum EngineMsg {
         /// The engine confines proxied `RemoteServer` partitions via `fixed_servers` + `<-loopback>` + WebRTC/DoH hardening.
         #[serde(default)]
         remote_proxy: bool,
+        /// The engine supports `TypedCdpCall` and flattened OOPIF `sessionId` CDP events.
+        #[serde(default)]
+        agent_tools: bool,
         /// The engine serves isolated `oc-preview://` tabs.
         #[serde(default)]
         preview: bool,
@@ -578,6 +590,9 @@ pub struct DownloadFile {
     /// interrupt reason (`network_failed`, `file_no_space`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Source URL captured by the engine in `on_before_download` before any post-download redirect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

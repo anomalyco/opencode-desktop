@@ -175,7 +175,15 @@ pub enum HostMsg {
     /// Clears origin-scoped cache storage, service workers, and HTTP cache while keeping cookies.
     ClearSiteCache { tab_id: u64, request_id: u64 },
     /// In-page text search (`FindHandler`).
-    Find { tab_id: u64, query: String, forward: bool, match_case: bool, find_next: bool },
+    Find {
+        tab_id: u64,
+        query: String,
+        forward: bool,
+        match_case: bool,
+        find_next: bool,
+        #[serde(default)]
+        user_initiated: bool,
+    },
     StopFind { tab_id: u64, clear_selection: bool },
     /// Executes or cancels a held page right-click context menu (`EngineMsg::ContextMenu`).
     ContextMenuAction { tab_id: u64, id: u64, action: Option<ContextMenuCommand> },
@@ -220,6 +228,9 @@ pub enum HostMsg {
     AnswerAuth { tab_id: u64, id: u64, username: Option<String>, password: Option<String> },
     /// Marks a tab as agent-driven (cancels native file choosers, skips `beforeunload`, rejects HTTP auth).
     SetAgentDriven { tab_id: u64, agent_driven: bool },
+    /// Typed CDP call issued strictly by Rune's native Rust `experimental.browser` executors
+    /// (`browser_policy::check_typed_cdp`), never exposed to untrusted Luau plugins.
+    TypedCdpCall { tab_id: u64, request_id: u64, method: String, params: Value, session_id: Option<String> },
     /// App-proxied response headers for a remote workspace or artifact `EngineMsg::PreviewFetch`.
     PreviewResponseHead {
         req_id: u64,
@@ -244,7 +255,8 @@ pub enum EngineMsg {
     /// `downloads`: keeps page downloads; `policy`: enforces URL/CDP policy; `prompts`: holds
     /// dialogs/permissions/auth for the app; `popups`: routes pop-ups to managed tabs; `find`:
     /// supports in-page `FindHandler`; `context_menu`: routes right-click menus to the app;
-    /// `partitions` / `remote_proxy`: isolated `CefRequestContext` partitions; `preview`: serves
+    /// `partitions` / `remote_proxy`: isolated `CefRequestContext` partitions; `agent_tools`:
+    /// supports `TypedCdpCall` and flattened OOPIF `sessionId` CDP events; `preview`: serves
     /// isolated `oc-preview://` tabs; `extensions`: hosts verified MV3 extensions over the private
     /// in-process CDP pipe.
     Ready {
@@ -264,6 +276,8 @@ pub enum EngineMsg {
         partitions: bool,
         #[serde(default)]
         remote_proxy: bool,
+        #[serde(default)]
+        agent_tools: bool,
         #[serde(default)]
         preview: bool,
         /// The engine tracks one-time vs persistent permissions and supports
@@ -391,6 +405,9 @@ pub struct DownloadFile {
     /// interrupt reason (`network_failed`, `file_no_space`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Source URL captured by the engine in `on_before_download` before any post-download redirect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -685,9 +685,10 @@ pub fn version(app: &App) -> u64 {
 }
 
 /// Each open page's id and a number that moves with its address, title, loading and refusal, for
-/// `Browser.Changed`.
+/// `Browser.Changed`. `include_find` is `true` only for the bundled built-in `browser` plugin so
+/// third-party plugins never observe user Find-bar state ticks (`review-rd274.md` #311 §5).
 #[cfg(not(target_arch = "wasm32"))]
-pub fn pages(app: &App) -> Vec<(String, u64)> {
+pub fn pages(app: &App, include_find: bool) -> Vec<(String, u64)> {
     app.workspace_panes.browser
         .host
         .tabs()
@@ -695,7 +696,9 @@ pub fn pages(app: &App) -> Vec<(String, u64)> {
         .map(|t| {
             let mut h = std::hash::DefaultHasher::new();
             (&t.url, &t.title, t.loading, t.preview.map(|p| p as u8), &t.refusal, t.rejected, &t.favicon).hash(&mut h);
-            t.find.hash_state(&mut h);
+            if include_find {
+                t.find.hash_state(&mut h);
+            }
             let pending_links = app
                 .workspace_panes
                 .browser
