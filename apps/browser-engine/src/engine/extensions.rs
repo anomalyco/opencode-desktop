@@ -549,6 +549,8 @@ impl EngineManager {
         };
         if let Some(disable) = disable {
             t.host.send_dev_tools_message(Some(disable.as_bytes()));
+            let binding = t.passkeys.binding_msg(None);
+            t.host.send_dev_tools_message(Some(binding.as_bytes()));
         }
         let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
         t.cdp_id_map.lock().unwrap().insert(
