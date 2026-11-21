@@ -210,7 +210,7 @@ impl BrowserHost {
             shared: self.shared.clone(),
             inbox_tx: self.inbox_tx.clone(),
             surfaces: self.surfaces.clone(),
-            waker: self.waker.clone(),
+            waker: self.message_waker.clone().or_else(|| self.waker.clone()),
             sock: sock.clone(),
             opens: self.pending_open_msgs(),
             extension_args,

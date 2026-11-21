@@ -117,6 +117,8 @@ pub struct BrowserHost {
     /// Messages quiet read off the inbox, which poll handles first.
     held: std::cell::RefCell<std::collections::VecDeque<EngineMsg>>,
     pub(crate) waker: Option<Waker>,
+    /// What the engine's messages wake, when the app gave one (set_message_waker).
+    pub(crate) message_waker: Option<Waker>,
     shell_shortcut: Option<fn(&KeyEvent) -> bool>,
     pub(crate) socket_override: Option<PathBuf>,
     #[cfg_attr(not(feature = "engine"), allow(dead_code))]
@@ -199,6 +201,7 @@ impl BrowserHost {
             inbox_rx,
             held: Default::default(),
             waker: None,
+            message_waker: None,
             shell_shortcut: None,
             socket_override: None,
             profile_dir: None,
@@ -350,6 +353,13 @@ impl BrowserHost {
             frame::wake_window(surface, &waker);
         }
         self.waker = Some(waker);
+    }
+
+    /// What an engine started from now on wakes when a message arrives, instead of the window's
+    /// waker: the app reads it and steps what waits on it at once, with no frame unless the pane
+    /// changed. Pages' frames still wake the window (set_waker).
+    pub fn set_message_waker(&mut self, waker: Waker) {
+        self.message_waker = Some(waker);
     }
 
     pub fn status(&self) -> EngineStatus {
