@@ -186,3 +186,10 @@ impl TabScope {
         }
     }
 }
+
+/// Whether a third-party plugin may hear passive signals (`Browser.Changed` / `Browser.Picked`)
+/// about `tab_id`: strictly limited to non-isolated tabs owned by the currently active session.
+pub(super) fn tab_visible_to_third_party(app: &App, tab_id: u64) -> bool {
+    app.active_session_id().is_some_and(|sid| app.browser_tab_session(tab_id) == Some(sid))
+        && app.workspace_panes.browser.host.tab(tab_id).is_some_and(|t| !t.context.is_isolated())
+}

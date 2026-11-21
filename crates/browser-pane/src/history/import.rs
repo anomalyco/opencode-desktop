@@ -14,9 +14,10 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::config::DbConfig;
+use rusqlite::limits::Limit;
 use rusqlite::{Connection, OpenFlags, params};
 
-use super::page::{MAX_PAGES, MAX_URL_LENGTH, PageVisit, web_page};
+use super::page::{MAX_PAGES, MAX_TITLE_LENGTH, MAX_URL_LENGTH, PageVisit, web_page};
 
 const WINDOWS_EPOCH_MS: i64 = 11_644_473_600_000;
 const MAC_EPOCH_SECONDS: i64 = 978_307_200;
@@ -73,10 +74,31 @@ pub fn sweep_stale_import_dirs(scratch_base: &Path) {
     }
 }
 
+fn random_scratch_suffix() -> String {
+    #[cfg(feature = "engine")]
+    {
+        use ring::rand::{SecureRandom, SystemRandom};
+        let mut buf = [0u8; 16];
+        if SystemRandom::new().fill(&mut buf).is_ok() {
+            let mut hex = String::with_capacity(32);
+            for b in buf {
+                use std::fmt::Write as _;
+                let _ = write!(hex, "{b:02x}");
+            }
+            return hex;
+        }
+    }
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{stamp:x}")
+}
+
 /// Reads up to [`MAX_PAGES`] web history rows from `db_path` by copying it into a private scratch
 /// directory under `scratch_base` (or the OS temp dir if `None`) and opening the copy strictly
 /// read-only with defensive SQLite hardening (`SQLITE_DBCONFIG_DEFENSIVE`, `trusted_schema = OFF`,
-/// `type = 'table'` verification, and a 256 MiB file size cap).
+/// `SQLITE_LIMIT_*`, `type = 'table'` verification, and a 256 MiB file size cap).
 pub fn read_profile_history_in(
     engine: ImportEngine,
     db_path: &Path,
@@ -101,11 +123,7 @@ pub fn read_profile_history_in(
     }
     sweep_stale_import_dirs(&base);
 
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let scratch = base.join(format!("{SNAP_PREFIX}{}-{stamp}", std::process::id()));
+    let scratch = base.join(format!("{SNAP_PREFIX}{}-{}", std::process::id(), random_scratch_suffix()));
     fs::create_dir_all(&scratch).map_err(|e| format!("create scratch: {e}"))?;
     #[cfg(unix)]
     {
@@ -116,7 +134,7 @@ pub fn read_profile_history_in(
 
     let snap = scratch.join("snapshot.sqlite");
     fs::copy(&clean_db, &snap).map_err(|e| format!("copy history db: {e}"))?;
-    for suffix in ["-wal", "-shm"] {
+    for suffix in ["-wal", "-shm", "-journal"] {
         let mut side = clean_db.as_os_str().to_os_string();
         side.push(suffix);
         let side_path = PathBuf::from(side);
@@ -134,6 +152,11 @@ pub fn read_profile_history_in(
     let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
     let conn = Connection::open_with_flags(&snap, flags).map_err(|e| format!("open snapshot: {e}"))?;
     let _ = conn.set_db_config(DbConfig::SQLITE_DBCONFIG_DEFENSIVE, true);
+    let _ = conn.set_limit(Limit::SQLITE_LIMIT_LENGTH, 1 << 20);
+    let _ = conn.set_limit(Limit::SQLITE_LIMIT_VDBE_OP, 5_000_000);
+    let _ = conn.set_limit(Limit::SQLITE_LIMIT_EXPR_DEPTH, 64);
+    let _ = conn.set_limit(Limit::SQLITE_LIMIT_ATTACHED, 0);
+    let _ = conn.set_limit(Limit::SQLITE_LIMIT_TRIGGER_DEPTH, 0);
     conn.execute_batch(
         "PRAGMA trusted_schema = OFF; PRAGMA query_only = ON; PRAGMA temp_store = MEMORY;",
     )
@@ -259,7 +282,7 @@ fn collect_rows(conn: &Connection, select: &str, now: i64) -> Result<Vec<PageVis
     let sql = format!(
         "SELECT url, title, visits, typed, visited FROM (
            SELECT url,
-             CASE WHEN typeof(title) = 'text' THEN title ELSE '' END AS title,
+             CASE WHEN typeof(title) = 'text' THEN substr(title, 1, {MAX_TITLE_LENGTH}) ELSE '' END AS title,
              CASE WHEN typeof(visits) = 'integer' THEN min(visits, {MOST_VISITS}) ELSE 0 END AS visits,
              CASE WHEN typeof(typed) = 'integer' THEN max(0, min(typed, {MOST_VISITS})) ELSE 0 END AS typed,
              CASE WHEN typeof(visited) IN ('integer', 'real') THEN CAST(max(0, min(visited, {LATEST_VISIT_MS})) AS INTEGER) ELSE 0 END AS visited

@@ -715,6 +715,7 @@ pub fn pages(app: &App, include_find: bool) -> Vec<(String, u64)> {
         .host
         .tabs()
         .iter()
+        .filter(|t| include_find || scope::tab_visible_to_third_party(app, t.id))
         .map(|t| {
             let mut h = std::hash::DefaultHasher::new();
             (&t.url, &t.title, t.loading, t.preview.map(|p| p as u8), &t.refusal, t.rejected, &t.favicon, app.browser_tab_unnamed(t.id)).hash(&mut h);
@@ -774,9 +775,12 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     }
     let picks: Vec<_> = if app.workspace_panes.browser.host.has_picked() { app.workspace_panes.browser.host.drain_picked_elements().collect() } else { Vec::new() };
     for pick in picks {
+        let third_party_ok = scope::tab_visible_to_third_party(app, pick.tab_id);
         let payload = map([("tabId", Data::String(pick.tab_id.to_string())), ("ref", Data::String(pick.eref)), ("selector", Data::String(pick.selector))]);
         for i in 0..app.plugins.list.len() {
-            changed |= super::super::fire_named(app, i, "Browser.Picked", payload.clone());
+            if third_party_ok || app.plugins.list[i].half.is_builtin("browser") {
+                changed |= super::super::fire_named(app, i, "Browser.Picked", payload.clone());
+            }
         }
     }
     changed

@@ -475,11 +475,19 @@ return plugin.defineWindow(function(ctx)
                 ensureAdopted()
                 if sameUrl then
                     if type(bAny.HistoryRetitle) == "function" then
-                        bAny:HistoryRetitle(url, title)
+                        bAny:HistoryRetitle(url, title, id)
                     end
                 else
-                    local wasTyped = typedNavs[id] ~= nil
+                    local typedTarget = typedNavs[id]
                     typedNavs[id] = nil
+                    -- Only credit double-frecency `typed` when the settled host matches what the
+                    -- user typed (stripping `www.`), so redirects cannot steal typed frecency.
+                    local wasTyped = false
+                    if typedTarget ~= nil then
+                        local wantHost = string.gsub(string.lower(hostDisplay.displayHost(typedTarget)), "^www%.", "")
+                        local gotHost = string.gsub(string.lower(hostDisplay.displayHost(url)), "^www%.", "")
+                        wasTyped = wantHost ~= "" and wantHost == gotHost
+                    end
                     if type(bAny.HistoryVisit) == "function" then
                         bAny:HistoryVisit(url, title, wasTyped, id)
                     end
