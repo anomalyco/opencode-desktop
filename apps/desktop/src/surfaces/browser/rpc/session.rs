@@ -92,6 +92,7 @@ pub(super) struct CapturedFile {
 pub(super) struct TraceRecording {
     pub host_id: u64,
     pub started_at: Instant,
+    pub renderer_pid: Option<u64>,
     pub events: Vec<Value>,
     pub resources: Vec<String>,
     pub complete: bool,

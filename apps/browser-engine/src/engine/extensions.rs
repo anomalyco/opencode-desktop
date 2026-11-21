@@ -425,7 +425,7 @@ impl EngineManager {
             prompts.clone(),
             null_out.clone(),
         );
-        let dialog = TabFileDialogHandler::new(u64::MAX, false, prompts, null_out.clone());
+        let dialog = TabFileDialogHandler::new(u64::MAX, false, prompts.clone(), null_out.clone());
         let find = crate::find::TabFindHandler::new(
             u64::MAX,
             null_out.clone(),
@@ -451,6 +451,7 @@ impl EngineManager {
             dialog,
             find,
             context_menu,
+            prompts,
         );
         let mut win_info = WindowInfo::default().set_as_windowless(Default::default());
         win_info.shared_texture_enabled = 0;
