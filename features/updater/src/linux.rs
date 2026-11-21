@@ -22,7 +22,7 @@ use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
@@ -31,7 +31,7 @@ use super::engine::{self, Engine, Facts};
 use super::feed;
 use super::machine::Target;
 use super::platform::Platform;
-use super::protocol::DEFAULT_SERVICE_URL;
+use super::protocol::{APP_NAME, ARTIFACT_NAME, DEFAULT_SERVICE_URL};
 
 /// What the `.deb` and `.rpm` install as (`apps/desktop/scripts/package-linux.sh`).
 const PACKAGE: &str = "opencode-rune";
@@ -90,6 +90,8 @@ pub struct Linux {
     /// The release target this install follows (`linux-x64-appimage`, `linux-x64-deb`, ...).
     target: String,
     staged: Mutex<Option<Staged>>,
+    /// Set once an in-app stage or install fails so checks offer the direct download link instead.
+    fallback_download: AtomicBool,
     args: Vec<String>,
 }
 
@@ -113,7 +115,15 @@ pub fn platform(exe: &Path, version: &str, build_channel: &str, updates: PathBuf
     sync_installed_receipt(&updates, kind.installed_path());
     let facts = Facts { version: version.to_owned(), channel: feed::feed_channel(build_channel), service, updates };
     let args = std::env::args().skip(1).collect();
-    Some(Linux { engine: Engine::new(facts), version: version.to_owned(), kind, target, staged: Mutex::new(None), args })
+    Some(Linux {
+        engine: Engine::new(facts),
+        version: version.to_owned(),
+        kind,
+        target,
+        staged: Mutex::new(None),
+        fallback_download: AtomicBool::new(false),
+        args,
+    })
 }
 
 fn detect_install(exe: &Path) -> Option<InstallKind> {
@@ -150,7 +160,13 @@ impl Platform for Linux {
         {
             return Ok(Some(Target::Installed(r.version)));
         }
-        Ok(self.engine.check_target(&self.target)?.map(|found| Target::Restart(found.version)))
+        let Some(found) = self.engine.check_target(&self.target)? else {
+            return Ok(None);
+        };
+        if self.fallback_download.load(Ordering::Acquire) {
+            return Ok(Some(Target::External { version: found.version, url: self.latest() }));
+        }
+        Ok(Some(Target::Restart(found.version)))
     }
 
     fn stage(&self, progress: &dyn Fn(u64, u64)) -> Result<(), String> {
@@ -162,8 +178,11 @@ impl Platform for Linux {
         {
             return Ok(());
         }
-        if let InstallKind::AppImage(ref path) = self.kind {
-            check_writable_parent(path)?;
+        if let InstallKind::AppImage(ref path) = self.kind
+            && let Err(e) = check_writable_parent(path)
+        {
+            self.fallback_download.store(true, Ordering::Release);
+            return Err(e);
         }
         let root = &self.engine.facts.updates;
         fs::create_dir_all(root).map_err(|e| format!("could not create update dir: {e}"))?;
@@ -198,6 +217,7 @@ impl Platform for Linux {
             }
             Err(e) => {
                 fs::remove_dir_all(&dir).ok();
+                self.fallback_download.store(true, Ordering::Release);
                 Err(e)
             }
         }
@@ -215,14 +235,43 @@ impl Platform for Linux {
         })();
         if outcome.is_ok() {
             fs::remove_dir_all(&staged.dir).ok();
-        } else if let Ok(mut slot) = self.staged.lock() {
-            *slot = Some(staged);
+        } else {
+            self.fallback_download.store(true, Ordering::Release);
+            if let Ok(mut slot) = self.staged.lock() {
+                *slot = Some(staged);
+            }
         }
         outcome
+    }
+
+    fn external(&self) -> bool {
+        true
+    }
+
+    fn external_install(&self, url: &str) -> Result<(), String> {
+        let trimmed = url.trim();
+        if !browser_policy::is_safe_os_external_url(trimmed) {
+            return Err("Refusing unsafe update URL".into());
+        }
+        let status = Command::new("xdg-open").arg(trimmed).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+        match status {
+            Ok(s) if s.success() => Ok(()),
+            Ok(s) => Err(format!("Could not open the download (xdg-open {s})")),
+            Err(e) => Err(format!("Could not open the download: {e}")),
+        }
+    }
+
+    fn fallback_download_url(&self) -> Option<String> {
+        Some(self.latest())
     }
 }
 
 impl Linux {
+    /// The channel's direct download link for this install's target.
+    fn latest(&self) -> String {
+        let facts = &self.engine.facts;
+        format!("{}/{APP_NAME}/{ARTIFACT_NAME}/{}/{}", facts.service.trim_end_matches('/'), facts.channel, self.target)
+    }
     /// Atomically replaces the AppImage on disk, preserves custom unversioned filenames
     /// (`AppImageUpdater.js:91-97`), records the receipt, and launches the new AppImage waiting on
     /// our PID via `RUNE_RELAUNCH_AFTER`.
@@ -329,11 +378,20 @@ fn verify_staged(staged: &Staged) -> Result<(), String> {
 
 fn place_file(src: &Path, dst: &Path, mode: u32) -> Result<(), String> {
     if fs::rename(src, dst).is_ok() {
-        fs::set_permissions(dst, Permissions::from_mode(mode)).map_err(|e| format!("could not set permissions on {}: {e}", dst.display()))?;
+        if let Err(e) = fs::set_permissions(dst, Permissions::from_mode(mode)) {
+            fs::remove_file(dst).ok();
+            return Err(format!("could not set permissions on {}: {e}", dst.display()));
+        }
         return Ok(());
     }
-    fs::copy(src, dst).map_err(|e| format!("could not copy update beside AppImage: {e}"))?;
-    fs::set_permissions(dst, Permissions::from_mode(mode)).map_err(|e| format!("could not set permissions on {}: {e}", dst.display()))?;
+    if let Err(e) = fs::copy(src, dst) {
+        fs::remove_file(dst).ok();
+        return Err(format!("could not copy update beside AppImage: {e}"));
+    }
+    if let Err(e) = fs::set_permissions(dst, Permissions::from_mode(mode)) {
+        fs::remove_file(dst).ok();
+        return Err(format!("could not set permissions on {}: {e}", dst.display()));
+    }
     if let Ok(f) = fs::File::open(dst) {
         f.sync_all().ok();
     }

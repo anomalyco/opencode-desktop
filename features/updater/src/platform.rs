@@ -51,6 +51,11 @@ pub trait Platform: Send + Sync + 'static {
         Err("External installer is unavailable".into())
     }
 
+    /// Direct download link to offer when an in-app stage or install fails (Linux).
+    fn fallback_download_url(&self) -> Option<String> {
+        None
+    }
+
     /// An install error an out-of-process helper recorded since the last run, taken once.
     fn take_last_error(&self) -> Option<String> {
         None
