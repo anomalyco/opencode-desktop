@@ -76,7 +76,6 @@ impl TabMenuState {
         host: &BrowserHost,
         _file_roots: &[String],
         block_downloads: bool,
-        is_isolated: bool,
         downloads: &crate::downloads::Downloads,
     ) {
         let matched = {

@@ -30,8 +30,9 @@ use std::time::{Duration, Instant};
 use cef::rc::Rc as _;
 use cef::{
     BeforeDownloadCallback, Browser, CefString, DownloadHandler, DownloadInterruptReason,
-    DownloadItem, DownloadItemCallback, ImplBeforeDownloadCallback, ImplDownloadHandler,
-    ImplDownloadItem, ImplDownloadItemCallback, WrapDownloadHandler, wrap_download_handler,
+    DownloadItem, DownloadItemCallback, ImplBeforeDownloadCallback, ImplBrowser,
+    ImplDownloadHandler, ImplDownloadItem, ImplDownloadItemCallback, ImplFrame,
+    WrapDownloadHandler, wrap_download_handler,
 };
 
 use crate::output::Output;
@@ -153,6 +154,7 @@ impl Downloads {
     /// the human OS Save dialog even on an `agent_driven` tab.
     pub fn mark_pending_save_image(&self, tab_id: u64, tab_gen: u64, url: &str) {
         let now = Instant::now();
+        let norm = strip_url_fragment(url);
         let mut map = self.pending_save_images.lock().unwrap();
         let queue = map.entry((tab_id, tab_gen)).or_default();
         while queue.front().is_some_and(|(_, at)| now.duration_since(*at) > SAVE_IMAGE_TTL) {
@@ -161,11 +163,13 @@ impl Downloads {
         if queue.len() >= MAX_PENDING_SAVE_IMAGES {
             queue.pop_front();
         }
-        queue.push_back((url.to_owned(), now));
+        queue.push_back((norm.to_owned(), now));
     }
 
     fn take_pending_save_image(&self, tab_id: u64, tab_gen: u64, orig_url: &str, url: &str) -> bool {
         let now = Instant::now();
+        let orig = strip_url_fragment(orig_url);
+        let cur = strip_url_fragment(url);
         let mut map = self.pending_save_images.lock().unwrap();
         let Some(queue) = map.get_mut(&(tab_id, tab_gen)) else {
             return false;
@@ -175,7 +179,7 @@ impl Downloads {
         }
         let pos = queue
             .iter()
-            .position(|(u, _)| (!orig_url.is_empty() && u == orig_url) || u == url);
+            .position(|(u, _)| (!orig.is_empty() && u == orig) || u == cur);
         let matched = pos.map(|i| queue.remove(i)).is_some();
         if queue.is_empty() {
             map.remove(&(tab_id, tab_gen));
@@ -514,12 +518,15 @@ fn remove_file_folder(path: &str) {
     }
 }
 
+fn strip_url_fragment(url: &str) -> &str {
+    url.split('#').next().unwrap_or(url)
+}
+
 wrap_download_handler! {
     pub struct TabDownloadHandler {
         tab_id: u64,
         tab_gen: u64,
         tab_alive: Arc<AtomicBool>,
-        file_roots: Arc<Mutex<Vec<String>>>,
         block_downloads: bool,
         is_isolated: bool,
         context_ready: Arc<AtomicBool>,
@@ -548,7 +555,7 @@ wrap_download_handler! {
         // cancels in both Alloy and Chrome styles.
         fn on_before_download(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             item: Option<&mut DownloadItem>,
             suggested_name: Option<&CefString>,
             callback: Option<&mut BeforeDownloadCallback>,
@@ -617,9 +624,16 @@ wrap_download_handler! {
                 });
                 return 1;
             }
-
             // Agent-driven tab download: stage in private per-context directory, capped & sanitized.
             let id = format!("file_{}", self.downloads.next_file.fetch_add(1, Ordering::Relaxed));
+            let source_url = if !url.is_empty() {
+                Some(url.clone())
+            } else {
+                browser
+                    .and_then(|b| b.main_frame())
+                    .map(|f| CefString::from(&f.url()).to_string())
+                    .filter(|u| !u.is_empty())
+            };
             let mut file = DownloadFile {
                 id,
                 name: clean_name.clone(),
@@ -628,6 +642,7 @@ wrap_download_handler! {
                 state: DownloadState::Pending,
                 path: String::new(),
                 error: None,
+                source_url,
             };
             let fail = |mut file: DownloadFile, why: &str| -> ::std::os::raw::c_int {
                 file.state = DownloadState::Failed;

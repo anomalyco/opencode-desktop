@@ -126,7 +126,9 @@ pub struct BrowserHost {
     /// different isolation context does not delete its `BrowserTab` entry or `TabSurface`.
     pub(crate) reopening_tabs: HashMap<u64, u32>,
     pub(crate) cdp_responses: HashMap<u64, Result<Value, Value>>,
-    cdp_events: VecDeque<CdpEvent>,
+    pub(crate) cdp_response_order: VecDeque<u64>,
+    pub(crate) cancelled_cdp: VecDeque<u64>,
+    pub(crate) cdp_events: VecDeque<CdpEvent>,
     picked: VecDeque<PickedElement>,
     pub(crate) popup_opens: VecDeque<crate::prompts::PopupRequest>,
     pub(crate) context_menus: VecDeque<(u64, crate::protocol::PageContextMenu)>,
@@ -191,6 +193,8 @@ impl BrowserHost {
             unsupported_local_previews: Vec::new(),
             reopening_tabs: HashMap::new(),
             cdp_responses: HashMap::new(),
+            cdp_response_order: VecDeque::new(),
+            cancelled_cdp: VecDeque::new(),
             cdp_events: VecDeque::new(),
             picked: VecDeque::new(),
             popup_opens: VecDeque::new(),
@@ -465,18 +469,7 @@ impl BrowserHost {
             removed.surface.clear();
             self.surfaces.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
             self.pending_opens.retain(|(tid, _)| *tid != id);
-            let mut cancel_saves = Vec::new();
-            self.download_save_requests.retain(|r| {
-                if r.tab_id == id {
-                    cancel_saves.push(r.id);
-                    false
-                } else {
-                    true
-                }
-            });
-            for req_id in cancel_saves {
-                self.send(HostMsg::AnswerDownloadSave { tab_id: id, id: req_id, path: None });
-            }
+            self.cancel_download_save_requests(id);
             self.send(HostMsg::CloseTab { tab_id: id });
             if self.focused_tab == Some(id) {
                 self.focused_tab = if self.tabs.is_empty() {
@@ -694,15 +687,13 @@ impl BrowserHost {
     }
 
     pub fn take_cdp_response(&mut self, request_id: u64) -> Option<Result<Value, Value>> {
-        self.cdp_responses.remove(&request_id)
-    }
-
-    pub fn has_cdp_events(&self) -> bool {
-        !self.cdp_events.is_empty()
-    }
-
-    pub fn drain_cdp_events(&mut self) -> impl Iterator<Item = CdpEvent> + '_ {
-        self.cdp_events.drain(..)
+        let out = self.cdp_responses.remove(&request_id);
+        if out.is_some()
+            && let Some(pos) = self.cdp_response_order.iter().position(|&id| id == request_id)
+        {
+            self.cdp_response_order.remove(pos);
+        }
+        out
     }
 
     /// Whether the page picked an element since the last drain.
@@ -908,6 +899,7 @@ impl BrowserHost {
                     context_menu,
                     partitions,
                     remote_proxy,
+                    agent_tools,
                     preview,
                     permission_sync,
                     ..
@@ -927,6 +919,7 @@ impl BrowserHost {
                         context_menu,
                         partitions,
                         remote_proxy,
+                        agent_tools,
                         preview,
                         permission_sync,
                     };
@@ -1023,6 +1016,7 @@ impl BrowserHost {
                         continue;
                     }
                     self.pending_opens.retain(|(id, _)| *id != tab_id);
+                    self.download_save_requests.retain(|r| r.tab_id != tab_id);
                     let fatal_close = if let Some(pos) = self.tabs.iter().position(|t| t.id == tab_id) {
                         let removed = self.tabs.remove(pos);
                         removed.surface.clear();
@@ -1050,6 +1044,15 @@ impl BrowserHost {
                     changed = true;
                 }
                 EngineMsg::CdpResponse { request_id, ok, result, .. } => {
+                    if let Some(pos) = self.cancelled_cdp.iter().position(|&id| id == request_id) {
+                        self.cancelled_cdp.remove(pos);
+                        continue;
+                    }
+                    while self.cdp_responses.len() >= 512 {
+                        let Some(oldest) = self.cdp_response_order.pop_front() else { break };
+                        self.cdp_responses.remove(&oldest);
+                    }
+                    self.cdp_response_order.push_back(request_id);
                     self.cdp_responses
                         .insert(request_id, if ok { Ok(result) } else { Err(result) });
                     changed = true;

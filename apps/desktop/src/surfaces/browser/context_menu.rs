@@ -44,7 +44,7 @@ fn open_download_save_dialog(app: &mut App, req: DownloadSaveRequest, tx: &mut T
         app.workspace_panes.browser.host.answer_download_save(req.tab_id, req.id, None);
         return;
     };
-    if tab.refusal.as_deref() == Some("browser.proxy.required") {
+    if tab.preview.is_some() || tab.refusal.as_deref() == Some("browser.proxy.required") {
         app.workspace_panes.browser.host.answer_download_save(req.tab_id, req.id, None);
         return;
     }
@@ -64,7 +64,16 @@ fn open_download_save_dialog(app: &mut App, req: DownloadSaveRequest, tx: &mut T
     tx.save_file(options, move |s: &mut App, answer, _| {
         s.workspace_panes.browser.save_dialog_open = false;
         let chosen = match answer {
-            Ok(Some(path)) if s.workspace_panes.browser.host.tab(tab_id).is_some() => {
+            Ok(Some(path))
+                if s.workspace_panes
+                    .browser
+                    .host
+                    .tab(tab_id)
+                    .is_some_and(|t| {
+                        t.preview.is_none()
+                            && t.refusal.as_deref() != Some("browser.proxy.required")
+                    }) =>
+            {
                 path.to_str().map(str::to_owned)
             }
             _ => None,

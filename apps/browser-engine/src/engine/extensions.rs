@@ -400,7 +400,6 @@ impl EngineManager {
             u64::MAX,
             download_gen,
             download_alive,
-            file_roots.clone(),
             true,
             false,
             context_ready.clone(),
@@ -527,7 +526,13 @@ impl EngineManager {
             return;
         }
         let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
-        t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::Raw(request_id));
+        t.cdp_id_map.lock().unwrap().insert(
+            msg_id,
+            CdpPending::Raw {
+                request_id,
+                max_bytes: crate::cdp_ledger::max_cdp_response_bytes(&method),
+            },
+        );
         let payload = json!({
             "id": msg_id,
             "method": method,
@@ -718,7 +723,7 @@ impl EngineManager {
 
 /// Fail-closed whole-tab extension guard checked at dispatch AND reply time for `HostMsg::CdpCall`,
 /// `HostMsg::Find`, `SetInspect`, and `HighlightNode` (`review-rd274.md` Round-4 & Round-5).
-pub(super) fn tab_is_extension_surface(t: &ManagedTab) -> bool {
+pub(crate) fn tab_is_extension_surface(t: &ManagedTab) -> bool {
     browser_has_extension_surface(Some(&t.browser), t.is_popup, &t.snap, &t.prompts)
 }
 

@@ -61,8 +61,14 @@ pub fn sanitize_download_name(raw: &str) -> String {
     if crate::is_windows_device_name(stem) {
         let mut out = String::with_capacity(tail.len().min(MAX_DOWNLOAD_NAME_CHARS) + 1);
         out.push('_');
-        for c in tail.chars().take(MAX_DOWNLOAD_NAME_CHARS - 1) {
-            out.push(c);
+        if tail.chars().count() >= MAX_DOWNLOAD_NAME_CHARS {
+            // Drop the first character after prefixing `_` (e.g. `CON...exe` -> `_ON...exe`)
+            // so the trailing extension is never truncated.
+            for c in tail.chars().skip(1) {
+                out.push(c);
+            }
+        } else {
+            out.push_str(tail);
         }
         return out.trim_end_matches(['.', ' ']).to_owned();
     }
@@ -126,10 +132,22 @@ pub fn is_dangerous_download_extension(name: &str) -> bool {
             | "msc"
             | "vbs"
             | "vbe"
+            | "vb"
             | "wsf"
             | "wsh"
             | "hta"
             | "jse"
+            | "chm"
+            | "sct"
+            | "wsc"
+            | "application"
+            | "gadget"
+            | "diagcab"
+            | "settingcontent-ms"
+            | "library-ms"
+            | "searchconnector-ms"
+            | "shb"
+            | "shs"
             | "dll"
             | "sys"
             | "drv"
@@ -217,9 +235,17 @@ pub fn neutralize_download_name(raw: &str, mime: &str) -> String {
     let prefix = if prefix.is_empty() || prefix == "." || prefix == ".." { "file" } else { prefix };
     let stem = prefix.split('.').next().unwrap_or_default().trim_end();
     if crate::is_windows_device_name(stem) {
-        let trimmed: String = prefix.chars().take(max_prefix.saturating_sub(1)).collect();
-        let trimmed = trimmed.trim_end_matches(['.', ' ']);
-        return format!("_{trimmed}{NEUTRALIZE_SUFFIX}");
+        let mut out = String::with_capacity(prefix.len() + NEUTRALIZE_SUFFIX.len() + 1);
+        out.push('_');
+        if prefix.chars().count() >= max_prefix {
+            for c in prefix.chars().skip(1) {
+                out.push(c);
+            }
+        } else {
+            out.push_str(prefix);
+        }
+        let trimmed = out.trim_end_matches(['.', ' ']);
+        return format!("{trimmed}{NEUTRALIZE_SUFFIX}");
     }
     format!("{prefix}{NEUTRALIZE_SUFFIX}")
 }
