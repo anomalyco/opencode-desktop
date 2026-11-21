@@ -29,10 +29,10 @@ impl Release {
     /// Returns the staged directory path beside `root`, validating any recorded sibling name.
     pub(super) fn staged_path(&self, root: &Path) -> PathBuf {
         let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let prefix = format!(".{name}.ready-");
+        let base = format!(".{name}.ready-{}", self.sha256);
         if let Some(dir) = self.dir.as_deref()
-            && dir.starts_with(&prefix)
-            && !dir.contains(['/', '\\', '\0'])
+            && (dir == base || dir.starts_with(&format!("{base}-")))
+            && !dir.contains(['/', '\\', '\0', ':'])
             && !dir.contains("..")
         {
             return root.parent().unwrap_or(root).join(dir);
