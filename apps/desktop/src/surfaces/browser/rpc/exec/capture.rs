@@ -759,8 +759,14 @@ fn maybe_downscale(bytes: &[u8], format: &str, max_w: u32) -> Vec<u8> {
     }
 }
 
+/// An element box: drawn (finite, positive; an ancestor's `scale(0)` gives none) and within the
+/// full-page pixel bounds, scaled down to fit.
 fn capture_clip(app: &mut App, st: &mut ScreenshotState, (x, y, w, h): (f64, f64, f64, f64)) -> Option<Outcome> {
-    let mut params = json!({ "format": st.format, "clip": { "x": x, "y": y, "width": w, "height": h, "scale": 1.0 } });
+    if ![x, y, w, h].iter().all(|v| v.is_finite()) || w <= 0.0 || h <= 0.0 {
+        return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Element has zero visible size."));
+    }
+    let scale = (MAX_FULLPAGE_EDGE / w).min(MAX_FULLPAGE_EDGE / h).min((MAX_FULLPAGE_PIXELS / (w * h)).sqrt()).min(1.0);
+    let mut params = json!({ "format": st.format, "clip": { "x": x, "y": y, "width": w, "height": h, "scale": scale } });
     if let Some(q) = st.quality
         && st.format != "png"
     {
