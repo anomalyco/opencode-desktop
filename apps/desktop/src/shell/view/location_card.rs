@@ -42,10 +42,11 @@ pub(super) fn open_card(s: &mut App, tx: &mut Tx) {
     }
     let crate::Route::Session { id, .. } = &*s.route else { return };
     let Some(info) = s.session(id).cloned() else { return };
+    let session_dir = s.queue.starts.directory(&info.id).unwrap_or(&info.directory).to_owned();
     // The changes row keeps the session's changes fresh while the card shows, and Move session
     // to lists the project's worktrees as they are now.
     if s.live() {
-        let dir = info.directory.clone();
+        let dir = session_dir.clone();
         s.location.changes = Changes::Reading(dir.clone());
         s.job(move |srv| {
             let path = format!("/api/vcs/diff?mode=working&location%5Bdirectory%5D={}", crate::switcher::encode(&dir));
@@ -66,8 +67,8 @@ pub(super) fn open_card(s: &mut App, tx: &mut Tx) {
     }
     s.list_worktrees(&info.project);
     show(s, &info, tx);
-    let root = s.project(&info.project).map(|p| p.directory.clone());
-    for dir in std::iter::once(info.directory.clone()).chain(root) {
+    let root = s.project(&info.project).or_else(|| s.project_at(&session_dir)).map(|p| p.directory.clone());
+    for dir in std::iter::once(session_dir).chain(root) {
         if s.location.branches.contains_key(&dir) {
             continue;
         }
@@ -95,9 +96,9 @@ fn reshow(s: &mut App, tx: &mut Tx) {
 }
 
 fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
-    let project = s.project(&info.project).cloned();
-    let name = project.as_ref().map_or_else(|| crate::view::project_or_dir(None, &info.directory), |p| p.name.clone());
-    let dir = info.directory.clone();
+    let dir = s.queue.starts.directory(&info.id).unwrap_or(&info.directory).to_owned();
+    let project = s.project(&info.project).or_else(|| s.project_at(&dir)).cloned();
+    let name = project.as_ref().map_or_else(|| crate::view::project_or_dir(None, &dir), |p| p.name.clone());
     let sid = info.id.clone();
     let git = project.as_ref().is_some_and(|p| opencode_kit::model::project_git(&p.id)) || s.location.branches.get(&dir).is_some_and(Option::is_some);
     let worktree = super::location::worktree_name(project.as_ref(), &dir);
