@@ -3434,8 +3434,8 @@
       ],
       "summary": "Sync both permissions and forms across running descendants and any child session with cached requests on open, inactive tab poll, inbox settle, and reconnect.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Verified on dev: apps/desktop/src/session/meta/status.rs read_open_requests() only fetches running descendants (skipping idle children with stale cached requests), and poll() for inactive tabs/Inbox only fetches the root session id.",
+      "status": "done",
+      "status_evidence": "Ported anomalyco/opencode#65120 (f0df6070f9): session_may_hold_requests & family_may_hold_requests in apps/desktop/src/session/meta/status.rs sync running and cached-request descendants on open, inactive tabs, Inbox, and reconnect (with stale self.requests pruning on Incoming::Pending and tree sync on Incoming::Active/Children in incoming.rs + open.rs).",
       "depends_on": "none",
       "risks": "Must still avoid booting cold idle subagent locations that have no running work or cached requests.",
       "workstream": "BROWSER-UI"

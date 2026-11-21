@@ -197,7 +197,16 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
                 || matches!(&*s.route, crate::Route::Session { id, .. } if s.root_of(id) == root);
             return recent_changed || visible_meta || tab_before != tab_after || (changed && shown_here);
         }
-        Incoming::Children { sessions, .. } => s.children_listed(sessions),
+        Incoming::Children { sessions, .. } => {
+            s.children_listed(sessions);
+            // Newly discovered children in the open session's tree may already be running or hold
+            // cached requests after a reconnect (`session/requests/model.ts`, UP-115).
+            if let Route::Session { id, server } = (*s.route).clone()
+                && server == *crate::servers::runtime::active(s)
+            {
+                s.read_open_requests(&id);
+            }
+        }
         Incoming::Messages { session, messages } => {
             s.tail_page(&session);
             s.judge_sends_by_page(&session, &messages);
@@ -258,15 +267,19 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         }
         Incoming::Pending { session, items } => {
             let inbox = !s.sidebar_inbox.settled() && s.sidebar_inbox.heard_pending(&session);
-            let drop_any = s.pending.iter().any(|p| p.session() == session && !items.iter().any(|i| i.id() == p.id()));
-            if drop_any {
+            let drop_pending = s.pending.iter().any(|p| p.session() == session && !items.iter().any(|i| i.id() == p.id()));
+            if drop_pending {
                 s.pending.retain(|p| p.session() != session || items.iter().any(|i| i.id() == p.id()));
+            }
+            let drop_requests = s.requests.iter().any(|(sid, rid)| sid == &session && !items.iter().any(|i| i.id() == rid));
+            if drop_requests {
+                s.requests.retain(|(sid, rid)| sid != &session || items.iter().any(|i| i.id() == rid));
             }
             let mut added = false;
             for p in items {
                 added |= s.add_pending(p);
             }
-            return inbox || drop_any || added;
+            return inbox || drop_pending || drop_requests || added;
         }
         // Only the stream sends this in the app (`windows::peer::heard`); a test's or the fuzz
         // link's inbox gets the same resync.
@@ -281,6 +294,13 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             reconnect::active(s, &ids);
             // A stop the server hasn't confirmed yet stays stopped, whichever window pressed it.
             *s.running = ids.into_iter().filter(|id| !s.stops.pending(id)).collect();
+            // After reconnect, `Incoming::Active` tells us which child sessions are now running;
+            // sync permissions and forms for the open session's tree (`UP-115`).
+            if let Route::Session { id, server } = (*s.route).clone()
+                && server == *crate::servers::runtime::active(s)
+            {
+                s.read_open_requests(&id);
+            }
         }
         Incoming::Projects(projects) => {
             s.session_search.invalidate();
