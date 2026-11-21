@@ -20,10 +20,10 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 164,
   "status_counts": {
-    "have it": 113,
-    "partly": 4,
+    "have it": 114,
+    "partly": 5,
     "not applicable": 23,
-    "missing": 23,
+    "missing": 21,
     "differs on purpose": 1
   },
   "rows": [
@@ -3714,8 +3714,8 @@
       ],
       "summary": "Draw the focused timeline viewport ring on the visible session frame above header/composer with 10 px rounded corners instead of being clipped by the fade mask.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Timeline scroll viewport currently uses standard inset focus ring without 10 px outer-frame overlay above header/composer fade.",
+      "status": "partly",
+      "status_evidence": "The timeline region rings 2 in, keyboard only, above its sticky header, now with the session frame's 10 pt corners; its bottom edge still sits under the composer dock's backdrop, which needs a Rune ring painted above later siblings (PR #0)",
       "depends_on": "UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"
@@ -3897,8 +3897,8 @@
       ],
       "summary": "Prevent focus-ring clipping on timeline and settings containers and stop showing misleading outer focus rings when nested controls are focused.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Audit timeline and settings containers/navigation controls for focus-ring clipping and misleading outer rings in features/settings and crates/session-view.",
+      "status": "have it",
+      "status_evidence": "Settings pages are not Tab stops of their own (tab_index -1, no ring); About's version ring is the shared ring around its hover fill, and it holds 'Copied' up; an open tool group's label draws its soft edge only while stuck, so it doesn't paint over its first row's ring at rest (PR #0)",
       "depends_on": "UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"
