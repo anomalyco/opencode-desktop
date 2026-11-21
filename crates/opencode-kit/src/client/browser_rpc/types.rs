@@ -69,6 +69,19 @@ fn fill_random(out: &mut [u8]) {
     }
 }
 
+/// Cryptographically random lowercase hex bytes (`bytes * 2` hex chars). Fails closed if the
+/// OS CSPRNG (`getrandom::fill`) fails — never falls back to a non-cryptographic hash.
+pub fn try_random_hex(bytes: usize) -> Result<String, String> {
+    let mut buf = vec![0u8; bytes];
+    getrandom::fill(&mut buf)
+        .map_err(|e| format!("OS cryptographic RNG unavailable for browser tunnel credentials: {e}"))?;
+    let mut out = String::with_capacity(bytes * 2);
+    for b in buf {
+        out.push_str(&format!("{b:02x}"));
+    }
+    Ok(out)
+}
+
 /// Cryptographically random RFC 4122 version-4 UUID (`xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`).
 pub fn uuid_v4() -> String {
     let mut b = [0u8; 16];

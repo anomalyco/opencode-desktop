@@ -1,34 +1,88 @@
-//! Authenticated local loopback HTTP/CONNECT/WebSocket proxy forwarding remote-server browser
-//! traffic through `experimental.browser/tunnel.{open,read,write,close}`
+//! Authenticated local loopback HTTP/1.1 + CONNECT + WebSocket proxy forwarding remote-server
+//! browser traffic strictly through `experimental.browser/tunnel.{open,read,write,close}`
 //! (`packages/plugin-browser/src/proxy.ts`, `packages/gui-plugins/src/browser/network.ts`).
 //!
-//! Security properties:
-//! - Binds strictly to `127.0.0.1:0` (ephemeral loopback port, never `0.0.0.0`).
-//! - Requires per-attachment 384-bit random Basic credentials (`16 B` username + `32 B` password)
-//!   compared in constant time; returns `407 Proxy Authentication Required` otherwise.
-//! - Strips `Proxy-Authorization` and hop-by-hop headers before forwarding to the remote server.
-//! - Rejects embedded URL credentials and non-HTTP(S)/WS(S) schemes.
-//! - Never dials the user's local network directly: every connection routes exclusively through
-//!   the remote server's `tunnel.open` RPC.
+//! Security invariants:
+//! - **Remote-only egress:** Never dials any destination on the user's machine (zero local sockets
+//!   for user loopback `127.0.0.1`/`localhost`/`[::1]`, RFC 1918 private ranges, link-local
+//!   `169.254.0.0/16`/`fe80::/10`, ULA `fc00::/7`, or the app's own OpenCode ports). Every
+//!   accepted HTTP request and `CONNECT` tunnel dials exclusively via the remote server's
+//!   `experimental.browser/tunnel.open` RPC so loopback targets resolve on the remote server.
+//! - **Loopback IP literal bind & fresh 384-bit credentials:** Binds strictly to `127.0.0.1:0`
+//!   (with `SO_EXCLUSIVEADDRUSE` on Windows) and OS-CSPRNG (`getrandom::fill`, fail-closed) 16 B
+//!   username + 32 B password per proxy instance (never reused across recycled ports).
+//! - **Mandatory auth & header stripping:** Constant-time `Proxy-Authorization` check on every
+//!   request and every `CONNECT` (`407 Proxy Authentication Required` otherwise); strips
+//!   `Proxy-Authorization`, `Transfer-Encoding`, and hop-by-hop headers before forwarding.
+//! - **Pool isolation & active watchdog deadlines:** Unauthenticated sockets use a separate 64-slot
+//!   pool (`MAX_UNAUTH_CONNS = 64`) with a short 3 s total-head deadline so unauthenticated floods
+//!   cannot starve the 64 authenticated tunnel slots and recover quickly. Established authenticated
+//!   tunnels and response streams have NO idle kill (matching Official `proxy.ts`), while a
+//!   `Condvar` deadline watchdog actively shuts down (`Shutdown::Both`) and aborts expired pre-auth
+//!   heads (after a 1 s margin for writing `408`) and post-EOF sockets (~2 s after remote EOF for
+//!   stalled POST bodies and half-open CONNECT/WS clients).
 
 use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{Shutdown, TcpListener, TcpStream};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::io::{BufReader, Write};
+use std::net::{Ipv4Addr, Shutdown, SocketAddrV4, TcpListener, TcpStream};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use base64::Engine as _;
+use base64::Engine;
+use rune::time::Instant;
+use socket2::{Domain, Protocol, Socket, Type};
 
+use super::framing::{
+    build_forwarded_head, constant_time_eq, parse_connect_authority, parse_content_length,
+    parse_proxy_url, read_http_head, write_status,
+};
 use super::http::AbortHandle;
-use super::proxy_machine::{ProxyEffect, ProxyEvent, ProxyState, ReadEvent, ReadState};
-use super::types::{LocationRef, TUNNEL_CHUNK_BYTES, TunnelTarget, random_hex};
+use super::proxy_machine::{ProxyEffect, ProxyEvent, ProxyState};
+use super::tunnel_pump::{
+    WsHandshake, await_ws_upgrade, drain_remote_to_client, pump_bidirectional_stream,
+    pump_exact_http_body, write_all_chunks,
+};
+use super::types::{LocationRef, MAX_TUNNELS, TunnelTarget, try_random_hex};
 use crate::client::Server;
 
 pub const PROXY_REALM: &str = "OpenCode Browser Proxy";
-const HEADER_TIMEOUT: Duration = Duration::from_secs(10);
-const POST_EOF_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
-const MAX_HEADER_BYTES: usize = 64 * 1024;
+const HEADER_TIMEOUT: Duration = Duration::from_secs(3);
+const WATCHDOG_HEAD_MARGIN: Duration = Duration::from_secs(1);
+pub(super) const MAX_WS_RESP_HEAD: usize = 64 * 1024;
+pub(super) const POST_EOF_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+const CLIENT_POLL_SLICE: Duration = Duration::from_millis(500);
+const MAX_UNAUTH_CONNS: usize = MAX_TUNNELS;
+const MAX_CONCURRENT_CONNS: usize = MAX_TUNNELS;
+
+/// Binds an exclusive loopback TCP listener on `127.0.0.1:0`. On Windows, sets
+/// `SO_EXCLUSIVEADDRUSE` before `bind` so no same-user process can co-bind/hijack via `SO_REUSEADDR`.
+fn bind_exclusive_loopback() -> std::io::Result<TcpListener> {
+    let sock = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawSocket;
+        use windows_sys::Win32::Networking::WinSock::{SO_EXCLUSIVEADDRUSE, SOL_SOCKET, setsockopt};
+        let one: i32 = 1;
+        #[allow(unsafe_code)]
+        // SAFETY: `sock` is a valid open Winsock socket and `&one` points to 4 readable bytes.
+        let rc = unsafe {
+            setsockopt(
+                sock.as_raw_socket() as _,
+                SOL_SOCKET,
+                SO_EXCLUSIVEADDRUSE,
+                (&one as *const i32).cast::<u8>(),
+                std::mem::size_of::<i32>() as i32,
+            )
+        };
+        if rc != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    sock.bind(&SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0).into())?;
+    sock.listen(128)?;
+    Ok(TcpListener::from(sock))
+}
 
 #[derive(Clone)]
 pub struct ProxyCredentials {
@@ -36,11 +90,38 @@ pub struct ProxyCredentials {
     pub password: String,
 }
 
+struct TrackedClient {
+    stream: TcpStream,
+    deadline: Option<Instant>,
+    expired: bool,
+    aborts: Vec<AbortHandle>,
+}
+
 struct SharedProxy {
     state: ProxyState,
+    suspended: bool,
     next_id: u64,
-    clients: BTreeMap<u64, TcpStream>,
-    aborts: BTreeMap<u64, AbortHandle>,
+    unauth_clients: BTreeMap<u64, TrackedClient>,
+    auth_clients: BTreeMap<u64, TrackedClient>,
+}
+
+impl SharedProxy {
+    fn drain_all(&mut self) -> (Vec<TcpStream>, Vec<AbortHandle>) {
+        let mut streams = Vec::with_capacity(self.unauth_clients.len() + self.auth_clients.len());
+        let mut aborts = Vec::new();
+        for c in std::mem::take(&mut self.unauth_clients)
+            .into_values()
+            .chain(std::mem::take(&mut self.auth_clients).into_values())
+        {
+            streams.push(c.stream);
+            aborts.extend(c.aborts);
+        }
+        (streams, aborts)
+    }
+
+    fn client_mut(&mut self, id: u64) -> Option<&mut TrackedClient> {
+        self.auth_clients.get_mut(&id).or_else(|| self.unauth_clients.get_mut(&id))
+    }
 }
 
 /// Running loopback tunnel proxy for one remote-server browser attachment.
@@ -50,12 +131,15 @@ pub struct TunnelProxy {
     pub url: String,
     pub credentials: ProxyCredentials,
     shared: Arc<Mutex<SharedProxy>>,
+    watchdog_cv: Arc<Condvar>,
     listener_addr: std::net::SocketAddr,
     accept_thread: Option<JoinHandle<()>>,
+    watchdog_thread: Option<JoinHandle<()>>,
 }
 
 impl TunnelProxy {
-    /// Starts an authenticated loopback proxy forwarding all traffic through `server`'s browser
+    /// Starts an authenticated loopback proxy bound strictly to IP literal `127.0.0.1:0` with
+    /// fresh 384-bit OS-CSPRNG credentials, forwarding all traffic through `server`'s browser
     /// tunnel RPCs for `(location, session_id, connection_id)`.
     pub fn start(
         server: Server,
@@ -63,23 +147,25 @@ impl TunnelProxy {
         session_id: String,
         connection_id: String,
     ) -> Result<Self, String> {
-        let listener = TcpListener::bind(("127.0.0.1", 0))
+        let username = try_random_hex(16)?;
+        let password = try_random_hex(32)?;
+        let listener = bind_exclusive_loopback()
             .map_err(|e| format!("Failed to bind browser tunnel proxy: {e}"))?;
         let listener_addr = listener
             .local_addr()
             .map_err(|e| format!("Failed to read browser tunnel proxy address: {e}"))?;
-        let username = random_hex(16);
-        let password = random_hex(32);
         let expected_auth = format!(
             "Basic {}",
             base64::engine::general_purpose::STANDARD.encode(format!("{username}:{password}"))
         );
         let shared = Arc::new(Mutex::new(SharedProxy {
             state: ProxyState::Open,
+            suspended: false,
             next_id: 1,
-            clients: BTreeMap::new(),
-            aborts: BTreeMap::new(),
+            unauth_clients: BTreeMap::new(),
+            auth_clients: BTreeMap::new(),
         }));
+        let watchdog_cv = Arc::new(Condvar::new());
         let ctx = Arc::new(ProxyCtx {
             server,
             location,
@@ -87,7 +173,14 @@ impl TunnelProxy {
             connection_id,
             expected_auth: expected_auth.into_bytes(),
             shared: shared.clone(),
+            watchdog_cv: watchdog_cv.clone(),
         });
+        let wd_shared = shared.clone();
+        let wd_cv = watchdog_cv.clone();
+        let watchdog_thread = std::thread::Builder::new()
+            .name("browser-tunnel-watchdog".into())
+            .spawn(move || watchdog_loop(wd_shared, wd_cv))
+            .map_err(|e| format!("Failed to spawn browser tunnel watchdog: {e}"))?;
         let accept_thread = std::thread::Builder::new()
             .name("browser-tunnel-proxy".into())
             .spawn(move || accept_loop(listener, ctx))
@@ -99,31 +192,59 @@ impl TunnelProxy {
             url: format!("http://127.0.0.1:{port}"),
             credentials: ProxyCredentials { username, password },
             shared,
+            watchdog_cv,
             listener_addr,
             accept_thread: Some(accept_thread),
+            watchdog_thread: Some(watchdog_thread),
         })
     }
 
-    pub fn close(&mut self) {
+    /// Temporarily suspends or resumes forwarding without closing the listener port (used during
+    /// transient remote reconnect so requests fail closed with `503` without tearing down tabs).
+    pub fn set_suspended(&self, suspended: bool) {
         let (clients, aborts) = {
             let mut g = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
-            if g.state.step(ProxyEvent::Close) != Some(ProxyEffect::Shutdown) {
+            if g.suspended == suspended {
                 return;
             }
-            (
-                std::mem::take(&mut g.clients).into_values().collect::<Vec<_>>(),
-                std::mem::take(&mut g.aborts).into_values().collect::<Vec<_>>(),
-            )
+            g.suspended = suspended;
+            if suspended { g.drain_all() } else { (Vec::new(), Vec::new()) }
         };
-        for a in aborts {
-            a.abort();
+        if suspended {
+            self.watchdog_cv.notify_all();
         }
-        for c in clients {
-            c.shutdown(Shutdown::Both).ok();
+        for abort in aborts {
+            abort.abort();
         }
-        // Poke the blocking accept() on loopback so the listener exits immediately.
-        TcpStream::connect_timeout(&self.listener_addr, Duration::from_millis(200)).ok();
+        for stream in clients {
+            stream.shutdown(Shutdown::Both).ok();
+        }
+    }
+
+    /// Closes the proxy immediately: stops accepting, aborts all in-flight `tunnel.{open,read,write}`
+    /// HTTP calls, shuts down every live client socket, and joins accept and watchdog threads.
+    pub fn close(&mut self) {
+        let (clients, aborts, effect) = {
+            let mut g = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
+            let effect = g.state.step(ProxyEvent::Close);
+            let (clients, aborts) = g.drain_all();
+            (clients, aborts, effect)
+        };
+        self.watchdog_cv.notify_all();
+        if effect == Some(ProxyEffect::Shutdown) {
+            for abort in aborts {
+                abort.abort();
+            }
+            for stream in clients {
+                stream.shutdown(Shutdown::Both).ok();
+            }
+            // Wake blocking `TcpListener::incoming()` so the accept thread exits cleanly.
+            let _ = TcpStream::connect_timeout(&self.listener_addr, Duration::from_millis(200));
+        }
         if let Some(handle) = self.accept_thread.take() {
+            handle.join().ok();
+        }
+        if let Some(handle) = self.watchdog_thread.take() {
             handle.join().ok();
         }
     }
@@ -135,34 +256,112 @@ impl Drop for TunnelProxy {
     }
 }
 
-struct ProxyCtx {
-    server: Server,
-    location: LocationRef,
-    session_id: String,
-    connection_id: String,
-    expected_auth: Vec<u8>,
-    shared: Arc<Mutex<SharedProxy>>,
+fn watchdog_loop(shared: Arc<Mutex<SharedProxy>>, cv: Arc<Condvar>) {
+    let mut g = shared.lock().unwrap_or_else(PoisonError::into_inner);
+    loop {
+        if !g.state.admits() {
+            break;
+        }
+        let now = Instant::now();
+        let mut kill_streams = Vec::new();
+        let mut kill_aborts = Vec::new();
+        let mut next_deadline: Option<Instant> = None;
+        let SharedProxy { unauth_clients, auth_clients, .. } = &mut *g;
+        for c in unauth_clients.values_mut().chain(auth_clients.values_mut()) {
+            if c.expired {
+                continue;
+            }
+            let Some(deadline) = c.deadline else {
+                continue;
+            };
+            if deadline <= now {
+                c.expired = true;
+                if let Ok(s) = c.stream.try_clone() {
+                    kill_streams.push(s);
+                }
+                kill_aborts.extend(c.aborts.iter().cloned());
+            } else {
+                next_deadline = Some(next_deadline.map_or(deadline, |cur| cur.min(deadline)));
+            }
+        }
+        if !kill_streams.is_empty() || !kill_aborts.is_empty() {
+            drop(g);
+            for abort in kill_aborts {
+                abort.abort();
+            }
+            for stream in kill_streams {
+                stream.shutdown(Shutdown::Both).ok();
+            }
+            g = shared.lock().unwrap_or_else(PoisonError::into_inner);
+            continue;
+        }
+        g = match next_deadline {
+            Some(at) => {
+                let wait = at.saturating_duration_since(Instant::now()).max(Duration::from_millis(5));
+                cv.wait_timeout(g, wait).unwrap_or_else(PoisonError::into_inner).0
+            }
+            None => cv.wait(g).unwrap_or_else(PoisonError::into_inner),
+        };
+    }
 }
 
-/// Removes a connection's tracked socket clone and abort handles when `handle_client` exits,
-/// guaranteeing zero OS file-descriptor or memory leaks across long sessions.
+pub(super) struct ProxyCtx {
+    pub(super) server: Server,
+    pub(super) location: LocationRef,
+    pub(super) session_id: String,
+    pub(super) connection_id: String,
+    expected_auth: Vec<u8>,
+    shared: Arc<Mutex<SharedProxy>>,
+    watchdog_cv: Arc<Condvar>,
+}
+
 struct ConnGuard {
     ctx: Arc<ProxyCtx>,
     client_id: u64,
-    abort_ids: Vec<u64>,
+    authenticated: bool,
 }
 
 impl ConnGuard {
-    fn track_abort(&mut self, abort: &AbortHandle) -> bool {
+    fn promote_authenticated(&mut self) -> Result<(), AdmitError> {
         let mut g = self.ctx.shared.lock().unwrap_or_else(PoisonError::into_inner);
         if !g.state.admits() {
+            return Err(AdmitError::Closed);
+        }
+        if g.suspended {
+            return Err(AdmitError::Suspended);
+        }
+        let Some(mut entry) = g.unauth_clients.remove(&self.client_id) else {
+            return Err(AdmitError::Closed);
+        };
+        if entry.expired {
+            return Err(AdmitError::Closed);
+        }
+        if g.auth_clients.len() >= MAX_CONCURRENT_CONNS {
+            return Err(AdmitError::AtCapacity);
+        }
+        // Established authenticated tunnels and response streams have NO idle kill (matching
+        // Official `proxy.ts`); watchdog only arms again on remote EOF (`arm_post_eof`).
+        entry.deadline = None;
+        g.auth_clients.insert(self.client_id, entry);
+        self.authenticated = true;
+        Ok(())
+    }
+
+    fn track_abort(&mut self, abort: &AbortHandle) -> bool {
+        let mut g = self.ctx.shared.lock().unwrap_or_else(PoisonError::into_inner);
+        if !g.state.admits() || g.suspended {
             abort.abort();
             return false;
         }
-        let id = g.next_id;
-        g.next_id = g.next_id.saturating_add(1);
-        g.aborts.insert(id, abort.clone());
-        self.abort_ids.push(id);
+        let Some(entry) = g.client_mut(self.client_id) else {
+            abort.abort();
+            return false;
+        };
+        if entry.expired {
+            abort.abort();
+            return false;
+        }
+        entry.aborts.push(abort.clone());
         true
     }
 }
@@ -170,16 +369,24 @@ impl ConnGuard {
 impl Drop for ConnGuard {
     fn drop(&mut self) {
         let mut g = self.ctx.shared.lock().unwrap_or_else(PoisonError::into_inner);
-        g.clients.remove(&self.client_id);
-        for id in &self.abort_ids {
-            g.aborts.remove(id);
+        if self.authenticated {
+            g.auth_clients.remove(&self.client_id);
+        } else {
+            g.unauth_clients.remove(&self.client_id);
         }
     }
 }
 
+enum AdmitError {
+    Closed,
+    AtCapacity,
+    Suspended,
+}
+
 impl ProxyCtx {
     fn admits(&self) -> bool {
-        self.shared.lock().unwrap_or_else(PoisonError::into_inner).state.admits()
+        let g = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
+        g.state.admits() && !g.suspended
     }
 
     fn authorized(&self, header: Option<&str>) -> bool {
@@ -187,17 +394,57 @@ impl ProxyCtx {
         constant_time_eq(value.trim().as_bytes(), &self.expected_auth)
     }
 
-    fn track_client(self: &Arc<Self>, stream: &TcpStream) -> Option<ConnGuard> {
+    fn track_unauth(self: &Arc<Self>, stream: &TcpStream) -> Result<ConnGuard, AdmitError> {
         let mut g = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
         if !g.state.admits() {
-            return None;
+            return Err(AdmitError::Closed);
+        }
+        if g.suspended {
+            return Err(AdmitError::Suspended);
+        }
+        if g.unauth_clients.len() >= MAX_UNAUTH_CONNS {
+            return Err(AdmitError::AtCapacity);
         }
         let id = g.next_id;
         g.next_id = g.next_id.saturating_add(1);
-        if let Ok(cloned) = stream.try_clone() {
-            g.clients.insert(id, cloned);
+        let cloned = stream.try_clone().map_err(|_| AdmitError::Closed)?;
+        g.unauth_clients.insert(
+            id,
+            TrackedClient {
+                stream: cloned,
+                // Give `read_http_head` a 1 s margin after `HEADER_TIMEOUT` to write `408` cleanly
+                // before the watchdog forcibly shuts the socket down.
+                deadline: Some(Instant::now() + HEADER_TIMEOUT + WATCHDOG_HEAD_MARGIN),
+                expired: false,
+                aborts: Vec::new(),
+            },
+        );
+        drop(g);
+        self.watchdog_cv.notify_one();
+        Ok(ConnGuard { ctx: self.clone(), client_id: id, authenticated: false })
+    }
+
+    pub(super) fn arm_post_eof(&self, client_id: u64, timeout: Duration) {
+        let mut g = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(c) = g.auth_clients.get_mut(&client_id)
+            && !c.expired
+        {
+            let next = Instant::now() + timeout;
+            c.deadline = Some(c.deadline.map_or(next, |cur| cur.min(next)));
+            drop(g);
+            self.watchdog_cv.notify_one();
         }
-        Some(ConnGuard { ctx: self.clone(), client_id: id, abort_ids: Vec::new() })
+    }
+
+    pub(super) fn is_expired(&self, client_id: u64) -> bool {
+        let g = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
+        if !g.state.admits() || g.suspended {
+            return true;
+        }
+        match g.auth_clients.get(&client_id) {
+            Some(c) => c.expired || c.deadline.is_some_and(|dl| Instant::now() >= dl),
+            None => true,
+        }
     }
 }
 
@@ -209,26 +456,38 @@ fn close_tunnel(ctx: &ProxyCtx, tunnel_id: &str) {
 
 fn accept_loop(listener: TcpListener, ctx: Arc<ProxyCtx>) {
     for incoming in listener.incoming() {
-        let Ok(stream) = incoming else { break };
-        let Some(guard) = ctx.track_client(&stream) else {
-            stream.shutdown(Shutdown::Both).ok();
-            break;
-        };
-        let ctx = ctx.clone();
-        std::thread::Builder::new()
-            .name("browser-tunnel-conn".into())
-            .spawn(move || handle_client(stream, ctx, guard))
-            .ok();
+        let Ok(mut stream) = incoming else { break };
+        match ctx.track_unauth(&stream) {
+            Ok(guard) => {
+                let ctx = ctx.clone();
+                std::thread::Builder::new()
+                    .name("browser-tunnel-conn".into())
+                    .spawn(move || handle_client(stream, ctx, guard))
+                    .ok();
+            }
+            Err(AdmitError::AtCapacity | AdmitError::Suspended) => {
+                write_status(&mut stream, "503 Service Unavailable").ok();
+                stream.shutdown(Shutdown::Write).ok();
+            }
+            Err(AdmitError::Closed) => {
+                stream.shutdown(Shutdown::Both).ok();
+                break;
+            }
+        }
     }
 }
 
 fn handle_client(stream: TcpStream, ctx: Arc<ProxyCtx>, mut guard: ConnGuard) {
     stream.set_nodelay(true).ok();
+    let head_deadline = Instant::now() + HEADER_TIMEOUT;
     stream.set_read_timeout(Some(HEADER_TIMEOUT)).ok();
     let mut reader = BufReader::new(stream);
-    let Some(req) = read_http_head(&mut reader) else {
-        write_status(reader.get_mut(), "400 Bad Request").ok();
-        return;
+    let req = match read_http_head(&mut reader, head_deadline) {
+        Ok(r) => r,
+        Err(status) => {
+            write_status(reader.get_mut(), status).ok();
+            return;
+        }
     };
     if !ctx.authorized(req.header("proxy-authorization")) {
         reader
@@ -242,14 +501,48 @@ fn handle_client(stream: TcpStream, ctx: Arc<ProxyCtx>, mut guard: ConnGuard) {
             .ok();
         return;
     }
-    reader.get_mut().set_read_timeout(None).ok();
+    match guard.promote_authenticated() {
+        Ok(()) => {}
+        Err(AdmitError::AtCapacity | AdmitError::Suspended) => {
+            write_status(reader.get_mut(), "503 Service Unavailable").ok();
+            return;
+        }
+        Err(AdmitError::Closed) => return,
+    }
+
     let is_connect = req.method.eq_ignore_ascii_case("CONNECT");
     let upgrade_hdr = req.header("upgrade");
     let is_ws = !is_connect && upgrade_hdr.is_some_and(|v| v.eq_ignore_ascii_case("websocket"));
+    if is_ws && (!req.method.eq_ignore_ascii_case("GET") || req.version != "HTTP/1.1") {
+        write_status(reader.get_mut(), "400 Bad Request").ok();
+        return;
+    }
     if !is_connect && upgrade_hdr.is_some() && !is_ws {
         write_status(reader.get_mut(), "400 Bad Request").ok();
         return;
     }
+    if req.has_header("transfer-encoding") {
+        write_status(reader.get_mut(), "501 Not Implemented").ok();
+        return;
+    }
+    if req.has_header("expect") {
+        write_status(reader.get_mut(), "417 Expectation Failed").ok();
+        return;
+    }
+    let content_length = match parse_content_length(&req, is_connect || is_ws) {
+        Ok(n) => n,
+        Err(status) => {
+            write_status(reader.get_mut(), status).ok();
+            return;
+        }
+    };
+    // Refuse pipelined bytes trailing a `CONNECT` or `Upgrade: websocket` request head so a client
+    // cannot smuggle bytes into a tunnel before `200`/`101` confirmation.
+    if (is_connect || is_ws) && !reader.buffer().is_empty() {
+        write_status(reader.get_mut(), "400 Bad Request").ok();
+        return;
+    }
+
     let parsed = if is_connect {
         parse_connect_authority(&req.target)
     } else {
@@ -269,8 +562,12 @@ fn handle_client(stream: TcpStream, ctx: Arc<ProxyCtx>, mut guard: ConnGuard) {
         write_status(reader.get_mut(), "400 Bad Request").ok();
         return;
     };
-    let open_abort = AbortHandle::new();
-    if !guard.track_abort(&open_abort) {
+
+    let client_id = guard.client_id;
+    let plain_http = !is_connect && !is_ws;
+
+    let io_abort = AbortHandle::new();
+    if !guard.track_abort(&io_abort) {
         return;
     }
     let tunnel_id = match ctx.server.browser_rpc_tunnel_open(
@@ -278,7 +575,7 @@ fn handle_client(stream: TcpStream, ctx: Arc<ProxyCtx>, mut guard: ConnGuard) {
         &ctx.session_id,
         &ctx.connection_id,
         &target,
-        &open_abort,
+        &io_abort,
     ) {
         Ok(id) => id,
         Err(_) => {
@@ -300,142 +597,91 @@ fn handle_client(stream: TcpStream, ctx: Arc<ProxyCtx>, mut guard: ConnGuard) {
             return;
         }
     } else {
-        let head = build_forwarded_head(&req, &url, is_ws);
-        if ctx
-            .server
-            .browser_rpc_tunnel_write(
-                &ctx.location,
-                &ctx.session_id,
-                &ctx.connection_id,
-                &tunnel_id,
-                head.as_bytes(),
-                false,
-            )
-            .is_err()
-        {
+        let head = build_forwarded_head(&req, &url, is_ws, content_length);
+        if write_all_chunks(&ctx, &tunnel_id, head.as_bytes(), false, &io_abort).is_err() {
             write_status(reader.get_mut(), "502 Bad Gateway").ok();
             close_tunnel(&ctx, &tunnel_id);
             return;
         }
     }
 
-    // Flush any bytes already buffered in `BufReader` before pumping raw TCP.
     let prebuffered = reader.buffer().to_vec();
     let mut client_read = reader.into_inner();
+    // Bounded read slice so client read loops also poll watchdog expiry promptly on every platform.
+    client_read.set_read_timeout(Some(CLIENT_POLL_SLICE)).ok();
     let Ok(mut client_write) = client_read.try_clone() else {
         close_tunnel(&ctx, &tunnel_id);
         return;
     };
-    if !prebuffered.is_empty() {
-        for chunk in prebuffered.chunks(TUNNEL_CHUNK_BYTES) {
-            if ctx
-                .server
-                .browser_rpc_tunnel_write(
-                    &ctx.location,
-                    &ctx.session_id,
-                    &ctx.connection_id,
-                    &tunnel_id,
-                    chunk,
-                    false,
-                )
-                .is_err()
-            {
-                close_tunnel(&ctx, &tunnel_id);
-                return;
-            }
-        }
-    }
 
     let read_abort = AbortHandle::new();
     if !guard.track_abort(&read_abort) {
         close_tunnel(&ctx, &tunnel_id);
         return;
     }
+    // For WebSocket upgrades (`GET ... HTTP/1.1 Upgrade: websocket`), wait for remote `101` BEFORE
+    // forwarding any client bytes so a rejected upgrade can never smuggle a second HTTP/1.1 request.
+    if is_ws {
+        match await_ws_upgrade(&ctx, &tunnel_id, &read_abort, &mut client_write) {
+            WsHandshake::Upgraded => {}
+            WsHandshake::RejectedNot101 => {
+                let _ = write_all_chunks(&ctx, &tunnel_id, &[], true, &io_abort);
+                drain_remote_to_client(
+                    &ctx,
+                    client_id,
+                    &tunnel_id,
+                    &read_abort,
+                    &mut client_write,
+                );
+                client_read.shutdown(Shutdown::Both).ok();
+                close_tunnel(&ctx, &tunnel_id);
+                return;
+            }
+            WsHandshake::Closed => {
+                client_read.shutdown(Shutdown::Both).ok();
+                close_tunnel(&ctx, &tunnel_id);
+                return;
+            }
+        }
+    }
 
     let ctx_down = ctx.clone();
     let tid_down = tunnel_id.clone();
     let abort_down = read_abort.clone();
-    let plain_http = !is_connect && !is_ws;
     let down_thread = std::thread::Builder::new()
         .name("browser-tunnel-down".into())
         .spawn(move || {
-            let mut state = ReadState::Idle;
-            while state.step(ReadEvent::Pull) {
-                match ctx_down.server.browser_rpc_tunnel_read(
-                    &ctx_down.location,
-                    &ctx_down.session_id,
-                    &ctx_down.connection_id,
-                    &tid_down,
-                    &abort_down,
-                ) {
-                    Ok(chunk) => {
-                        if chunk.eof {
-                            state.step(ReadEvent::Eof);
-                            client_write.shutdown(Shutdown::Write).ok();
-                            // Plain HTTP sends `Connection: close`; bound the client read side
-                            // so a client ignoring FIN cannot pin the handler thread.
-                            if plain_http {
-                                client_write.set_read_timeout(Some(POST_EOF_DRAIN_TIMEOUT)).ok();
-                            }
-                            break;
-                        }
-                        if !chunk.data.is_empty() && client_write.write_all(&chunk.data).is_err() {
-                            state.step(ReadEvent::Destroyed);
-                            client_write.shutdown(Shutdown::Both).ok();
-                            break;
-                        }
-                        state.step(ReadEvent::Chunk);
-                    }
-                    Err(_) => {
-                        state.step(ReadEvent::Destroyed);
-                        client_write.shutdown(Shutdown::Both).ok();
-                        break;
-                    }
-                }
-            }
+            drain_remote_to_client(
+                &ctx_down,
+                client_id,
+                &tid_down,
+                &abort_down,
+                &mut client_write,
+            );
         })
         .ok();
 
-    let mut clean_eof = false;
-    let mut buf = vec![0u8; TUNNEL_CHUNK_BYTES];
-    loop {
-        match client_read.read(&mut buf) {
-            Ok(0) => {
-                ctx.server
-                    .browser_rpc_tunnel_write(
-                        &ctx.location,
-                        &ctx.session_id,
-                        &ctx.connection_id,
-                        &tunnel_id,
-                        &[],
-                        true,
-                    )
-                    .ok();
-                clean_eof = true;
-                break;
-            }
-            Ok(n) => {
-                if ctx
-                    .server
-                    .browser_rpc_tunnel_write(
-                        &ctx.location,
-                        &ctx.session_id,
-                        &ctx.connection_id,
-                        &tunnel_id,
-                        &buf[..n],
-                        false,
-                    )
-                    .is_err()
-                {
-                    break;
-                }
-            }
-            Err(_) => break,
-        }
-    }
+    let clean_eof = if plain_http {
+        pump_exact_http_body(
+            &ctx,
+            client_id,
+            &tunnel_id,
+            &prebuffered,
+            &mut client_read,
+            content_length,
+            &io_abort,
+        )
+    } else {
+        pump_bidirectional_stream(
+            &ctx,
+            client_id,
+            &tunnel_id,
+            &[],
+            &mut client_read,
+            &io_abort,
+        )
+    };
 
-    // Half-open TCP (`allowHalfOpen: true`): when the client cleanly half-closes its write side,
-    // wait for the upstream response pump to deliver the reply and hit EOF before tearing down.
     if clean_eof {
         if let Some(t) = down_thread {
             t.join().ok();
@@ -451,178 +697,4 @@ fn handle_client(stream: TcpStream, ctx: Arc<ProxyCtx>, mut guard: ConnGuard) {
     if let Some(t) = down_thread {
         t.join().ok();
     }
-}
-
-struct ParsedHead {
-    method: String,
-    target: String,
-    headers: Vec<(String, String)>,
-}
-
-impl ParsedHead {
-    fn header(&self, name: &str) -> Option<&str> {
-        self.headers
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case(name))
-            .map(|(_, v)| v.as_str())
-    }
-}
-
-fn read_http_head(reader: &mut BufReader<TcpStream>) -> Option<ParsedHead> {
-    let mut total = 0usize;
-    let mut first = String::new();
-    let n = reader.read_line(&mut first).ok()?;
-    if n == 0 || n > MAX_HEADER_BYTES {
-        return None;
-    }
-    total += n;
-    let mut parts = first.trim_end_matches(['\r', '\n']).split_whitespace();
-    let method = parts.next()?.to_owned();
-    let target = parts.next()?.to_owned();
-    let _version = parts.next()?;
-    let mut headers = Vec::new();
-    loop {
-        let mut line = String::new();
-        let n = reader.read_line(&mut line).ok()?;
-        total += n;
-        if n == 0 || total > MAX_HEADER_BYTES {
-            return None;
-        }
-        let trimmed = line.trim_end_matches(['\r', '\n']);
-        if trimmed.is_empty() {
-            break;
-        }
-        if let Some((k, v)) = trimmed.split_once(':') {
-            headers.push((k.trim().to_owned(), v.trim().to_owned()));
-        }
-    }
-    Some(ParsedHead { method, target, headers })
-}
-
-struct ProxyUrl {
-    scheme: String,
-    host: String,
-    host_header: String,
-    port: u16,
-    path_and_query: String,
-}
-
-fn parse_connect_authority(target: &str) -> Option<ProxyUrl> {
-    if target.is_empty()
-        || target.contains(['/', '?', '#', '@'])
-        || target.chars().any(char::is_whitespace)
-    {
-        return None;
-    }
-    parse_proxy_url(&format!("https://{target}"))
-}
-
-fn parse_proxy_url(raw: &str) -> Option<ProxyUrl> {
-    let (scheme_raw, rest) = raw.split_once("://")?;
-    let scheme = scheme_raw.to_ascii_lowercase();
-    let default_port = match scheme.as_str() {
-        "http" | "ws" => 80u16,
-        "https" | "wss" => 443u16,
-        _ => return None,
-    };
-    let rest_no_frag = rest.split('#').next().unwrap_or(rest);
-    let (authority, path_and_query) = match rest_no_frag.find(['/', '?']) {
-        Some(idx) => {
-            let tail = &rest_no_frag[idx..];
-            let pq = if tail.starts_with('?') {
-                format!("/{tail}")
-            } else {
-                tail.to_owned()
-            };
-            (&rest_no_frag[..idx], pq)
-        }
-        None => (rest_no_frag, "/".to_owned()),
-    };
-    if authority.is_empty() || authority.contains('@') || authority.chars().any(char::is_whitespace) {
-        return None;
-    }
-    let (host, port) = if let Some(after_open) = authority.strip_prefix('[') {
-        let close = after_open.find(']')?;
-        let host = &after_open[..close];
-        let tail = &after_open[close + 1..];
-        let port = if tail.is_empty() {
-            default_port
-        } else {
-            tail.strip_prefix(':')?.parse::<u16>().ok()?
-        };
-        (host.to_owned(), port)
-    } else if let Some((h, p)) = authority.rsplit_once(':') {
-        let port = p.parse::<u16>().ok()?;
-        (h.to_owned(), port)
-    } else {
-        (authority.to_owned(), default_port)
-    };
-    if host.is_empty() || port == 0 {
-        return None;
-    }
-    Some(ProxyUrl {
-        scheme,
-        host,
-        host_header: authority.to_owned(),
-        port,
-        path_and_query,
-    })
-}
-
-fn build_forwarded_head(req: &ParsedHead, url: &ProxyUrl, is_ws: bool) -> String {
-    let mut hop_names: Vec<String> = req
-        .headers
-        .iter()
-        .filter(|(k, _)| k.eq_ignore_ascii_case("connection"))
-        .flat_map(|(_, v)| v.split(',').map(|s| s.trim().to_ascii_lowercase()))
-        .filter(|s| !s.is_empty())
-        .collect();
-    hop_names.extend(
-        [
-            "connection",
-            "keep-alive",
-            "proxy-authenticate",
-            "proxy-authorization",
-            "proxy-connection",
-            "te",
-            "trailer",
-            "upgrade",
-            "host",
-        ]
-        .into_iter()
-        .map(str::to_owned),
-    );
-    let mut out = format!("{} {} HTTP/1.1\r\nHost: {}\r\n", req.method, url.path_and_query, url.host_header);
-    if is_ws {
-        out.push_str("Connection: Upgrade\r\nUpgrade: websocket\r\n");
-    } else {
-        out.push_str("Connection: close\r\n");
-    }
-    for (k, v) in &req.headers {
-        let lower = k.to_ascii_lowercase();
-        if hop_names.iter().any(|h| h == &lower) {
-            continue;
-        }
-        out.push_str(k);
-        out.push_str(": ");
-        out.push_str(v);
-        out.push_str("\r\n");
-    }
-    out.push_str("\r\n");
-    out
-}
-
-fn write_status(stream: &mut TcpStream, status: &str) -> std::io::Result<()> {
-    stream.write_all(format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes())
-}
-
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (&x, &y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
 }
