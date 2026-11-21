@@ -1518,6 +1518,8 @@ return plugin.defineWindow(function(ctx)
     local extDialogHandle: Contribution? = nil
     local clearNoticeText: string? = nil
     local clearing = false
+    local settingsDrawnAt: number? = nil
+    local clearNoticeDrawn = false
     -- Browsers are listed only when asked (never at startup), by the host off the UI thread, again once a
     -- listing is a few seconds old, so a visit sees browsers installed since the last one.
     local importSources: { settings.ImportBrowser } = {}
@@ -1889,13 +1891,10 @@ return plugin.defineWindow(function(ctx)
         clearing = false
         if not profOk then
             clearNoticeText = I18n:T("settings.failed.clear")
-            Toast:Error(clearNoticeText :: string)
         elseif not histOk then
             clearNoticeText = I18n:T("settings.cleared.history")
-            Toast:Info(clearNoticeText :: string)
         else
             clearNoticeText = I18n:T("settings.cleared")
-            Toast:Info(clearNoticeText :: string)
         end
         refreshSettings()
         refresh()
@@ -2327,6 +2326,16 @@ return plugin.defineWindow(function(ctx)
         title = I18n:T("settings.title"),
         entries = settings.entries(I18n, settingsCapabilities()),
         render = function(view, props)
+            -- Official's jobs live with the page (`settings.tsx:54`): a visit after leaving it shows
+            -- the count again, not the last clear's outcome. A page has no "left" signal, so a render
+            -- two seconds or more after the last one counts as a new visit (`os.time`: reading
+            -- `System:Now` would draw the page again on every tick).
+            local now = os.time()
+            if clearNoticeDrawn and settingsDrawnAt ~= nil and now - settingsDrawnAt >= 2 and not clearing then
+                clearNoticeText = nil
+            end
+            settingsDrawnAt = now
+            clearNoticeDrawn = clearNoticeText ~= nil
             return settingsPage.render(view, props)
         end,
     })

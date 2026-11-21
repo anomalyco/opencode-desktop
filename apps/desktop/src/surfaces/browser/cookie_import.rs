@@ -318,12 +318,13 @@ impl App {
     pub(crate) fn pump_cookie_import(&mut self) -> bool {
         let imported = self.pump_import();
         let cleared = self.pump_clear();
+        let running = self.workspace_panes.browser.host.engine_cookies();
         let count = &mut self.workspace_panes.browser.cookies.count;
         if imported || cleared {
             count.stale = true;
         }
         // The engine runs (or a clear ran): what the disk said is old by the time it is idle again.
-        if (cleared || self.workspace_panes.browser.host.engine_cookies())
+        if (cleared || running)
             && let Ok(mut d) = count.disk.lock()
             && !d.reading
         {
@@ -339,7 +340,10 @@ impl App {
         let Some(asked) = pane.cookies.count.asked else { return false };
         let listed = pane.host.take_profile_events_matching(|ev| matches!(ev, ProfileEvent::CookiesListed { request_id, .. } if *request_id == asked));
         if let Some(ProfileEvent::CookiesListed { cookies, .. }) = listed.into_iter().next() {
-            pane.cookies.count = CookieCount { value: Some(cookies.len()), asked: None, read_at: Some(Instant::now()), stale: pane.cookies.count.stale };
+            let count = &mut pane.cookies.count;
+            count.value = Some(cookies.len());
+            count.asked = None;
+            count.read_at = Some(Instant::now());
             return true;
         }
         if !pane.host.has_live_sidecar() {
