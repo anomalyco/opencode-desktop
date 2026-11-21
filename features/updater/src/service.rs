@@ -212,13 +212,12 @@ impl UpdaterService {
         self.revision != before || self.quit
     }
 
-    /// The app quits: a ready update not already installing goes in on the way out, on a thread
-    /// of its own (`super::finish_quit` waits for it before the process exits): checking the staged
-    /// exe's signature and copying it as the helper (about 135 MB) no longer hold the UI thread
-    /// while the windows close.
+    /// The app quits: on platforms that install on quit (macOS, `platform.ts:30`), a ready update
+    /// not already installing goes in on the way out on a thread of its own (`super::finish_quit`
+    /// waits for it before the process exits).
     pub fn quitting(&mut self) {
-        if matches!(self.state, State::Ready { refresh: None, .. })
-            && let Some(platform) = self.platform.get().cloned()
+        if matches!(self.state, State::Ready { .. })
+            && let Some(platform) = self.platform.get().filter(|p| p.installs_on_quit()).cloned()
         {
             super::install_on_quit(platform);
         }
