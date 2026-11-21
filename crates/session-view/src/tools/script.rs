@@ -38,29 +38,28 @@ pub fn has_diff(file: &Value) -> bool {
 /// `--timeline-gap-s` (`timeline-next.css`).
 pub const CARD_GAP: f32 = 16.0;
 
-/// A script's changes, `(script, index, file)` in order. Rows of counts sit flush; two cards in a
-/// row stand [`CARD_GAP`] apart as any two items do (`timeline-next.css`'s
+/// A script's changes, `(script, index, file)` in order. Rows of counts sit flush with each other;
+/// a card stands [`CARD_GAP`] from whatever is beside it, card or row, as any two items do (`timeline-next.css`'s
 /// `[data-script-change="patch"] + [data-script-change="patch"]`).
 pub fn changes<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, list: &[(&str, usize, &Value)]) -> El {
     let mut out = col().key("script-changes").w_full();
-    let mut card_above = false;
+    // Whether the change above drew a card; `None` above the first.
+    let mut above: Option<bool> = None;
     for &(script, index, file) in list {
         let id = change_id(script, index);
+        let card = has_diff(file);
         let item = match diff(file) {
             Some(metadata) => {
                 let call = Call { id: &id, name: "patch", status: &ToolStatus::Completed, input: &Value::Null, metadata: &metadata };
-                let card = super::cached(s, p, cx, &[call], || super::file_group(s, p, cx, &[call]));
-                let card = col().key(format!("change-{id}")).w_full().child(card);
-                let card = if card_above { card.mt(CARD_GAP) } else { card };
-                card_above = true;
-                card
+                let drawn = super::cached(s, p, cx, &[call], || super::file_group(s, p, cx, &[call]));
+                col().key(format!("change-{id}")).w_full().child(drawn)
             }
-            None => {
-                card_above = false;
-                super::files::counts_row(s, p, cx, format!("change-{id}"), file)
-            }
+            None => super::files::counts_row(s, p, cx, format!("change-{id}"), file),
         };
-        out = out.child(item);
+        // Only two rows of counts in a row sit flush.
+        let gap = above.is_some_and(|a| a || card);
+        out = out.child(if gap { item.mt(CARD_GAP) } else { item });
+        above = Some(card);
     }
     out
 }
