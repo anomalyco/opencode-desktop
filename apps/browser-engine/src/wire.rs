@@ -356,7 +356,16 @@ pub enum EngineMsg {
         /// The engine enforces the WebAuthn / passkey gate (`TabPasskeyGate`) and emits `PasskeyRefused`.
         #[serde(default)]
         passkeys: bool,
+        /// The engine runs Copy image / Spellcheck / Languages menu commands, fills
+        /// `PageContextMenu.{spellcheck, languages, dictionaries}` and sends `DownloadOnlyTab`.
+        #[serde(default)]
+        menu_extras: bool,
     },
+    /// Copy image's result: the image under the menu, as PNG (base64), for the app's clipboard.
+    CopiedImage { tab_id: u64, png_b64: String },
+    /// A tab whose first navigation became the person's download, now placed (or cancelled):
+    /// nothing to show, so the app closes it (official `chromium.ts:1072-1079`).
+    DownloadOnlyTab { tab_id: u64 },
     ProfileCookies { request_id: u64, cookies: Vec<WireCookie> },
     ProfileCookiesImported { request_id: u64, imported: u32, failed: u32 },
     ProfileProbeReady { request_id: u64, written: bool, cache_dir: String },
@@ -613,6 +622,14 @@ pub struct PageContextMenu {
     pub misspelled_word: Option<String>,
     #[serde(default)]
     pub suggestions: Vec<String>,
+    /// Editable fields only: whether spellcheck is on, the enabled languages, and the languages
+    /// the Languages submenu offers (empty on macOS).
+    #[serde(default)]
+    pub spellcheck: bool,
+    #[serde(default)]
+    pub languages: Vec<String>,
+    #[serde(default)]
+    pub dictionaries: Vec<String>,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -707,6 +724,9 @@ pub enum ContextMenuCommand {
     SaveImage { url: String },
     ReplaceMisspelling { word: String },
     AddToDictionary { word: String },
+    CopyImage,
+    ToggleSpellcheck,
+    ToggleLanguage { value: String },
 }
 
 fn default_cookie_path() -> String {

@@ -311,6 +311,9 @@ pub enum CdpPending {
     Raw { request_id: u64, max_bytes: usize, typed: Option<(Post, Option<String>)> },
     CookieCount(u64),
     ClearSite { request_id: u64, origin: String },
+    /// Copy image step 1 (`Page.getResourceContent`) and step 2 (PNG re-encode): `menu_extras.rs`.
+    CopyImageContent,
+    CopyImageEncode,
 }
 
 pub struct PendingClear {
@@ -367,11 +370,30 @@ wrap_dev_tools_message_observer! {
             let Some(pending) = self.id_map.lock().unwrap().remove(&message_id) else {
                 return;
             };
+            // The person's Copy image: nothing reaches an agent, so Guard 1b does not apply.
+            if matches!(pending, CdpPending::CopyImageContent | CdpPending::CopyImageEncode) {
+                let val = result.and_then(|b| serde_json::from_slice::<Value>(b).ok()).unwrap_or(Value::Null);
+                if success == 0 {
+                    return;
+                }
+                if matches!(pending, CdpPending::CopyImageContent) {
+                    if let Some((id, msg)) = crate::menu_extras::encode_request(&val) {
+                        self.id_map.lock().unwrap().insert(id, CdpPending::CopyImageEncode);
+                        self.send_all(browser.as_deref(), vec![msg]);
+                    }
+                } else if let Some(png_b64) = crate::menu_extras::png_result(&val) {
+                    let _ = self.out_tx.send(EngineMsg::CopiedImage { tab_id: self.tab_id, png_b64 });
+                }
+                return;
+            }
             // Guard 1b (reply-side choke point): re-check committed origin uniformly before ANY
-            // `CdpPending` variant (`Raw`, `CookieCount`, `ClearSite`) leaves the engine.
+            // agent-facing `CdpPending` variant (`Raw`, `CookieCount`, `ClearSite`) leaves the engine.
             let (CdpPending::Raw { request_id, .. }
             | CdpPending::CookieCount(request_id)
-            | CdpPending::ClearSite { request_id, .. }) = &pending;
+            | CdpPending::ClearSite { request_id, .. }) = &pending
+            else {
+                return;
+            };
             if self.refuse_reply(browser.as_deref(), *request_id) {
                 return;
             }
@@ -389,7 +411,7 @@ wrap_dev_tools_message_observer! {
                 .and_then(|b| serde_json::from_slice::<Value>(b).ok())
                 .unwrap_or(Value::Null);
             match pending {
-                CdpPending::Raw { .. } => unreachable!(),
+                CdpPending::Raw { .. } | CdpPending::CopyImageContent | CdpPending::CopyImageEncode => {}
                 CdpPending::CookieCount(req_id) => {
                     let count = val.get("cookies").and_then(Value::as_array).map_or(0, Vec::len);
                     let _ = self.out_tx.send(EngineMsg::CdpResponse {

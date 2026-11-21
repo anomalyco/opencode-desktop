@@ -37,6 +37,7 @@ mod frame_authority;
 mod find;
 mod media_gate;
 mod menu;
+mod menu_extras;
 mod passkeys;
 mod preview;
 mod profile;

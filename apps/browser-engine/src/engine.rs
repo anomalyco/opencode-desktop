@@ -203,6 +203,7 @@ impl EngineManager {
                     cookies: true,
                     agent_files: true,
                     passkeys: true,
+                    menu_extras: true,
                 });
                 for (&tab_id, t) in &self.tabs {
                     t.menu.cancel_all();
@@ -713,6 +714,15 @@ impl EngineManager {
             HostMsg::AnswerDownloadSave { tab_id, id, path } => {
                 let ready = self.tabs.contains_key(&tab_id) && self.contexts.is_tab_ready(tab_id);
                 self.downloads.answer_save(tab_id, id, path.as_deref(), ready);
+                // A tab whose first navigation became this download has nothing to show now that
+                // the download has its place (or was cancelled): official `chromium.ts:1072-1079`.
+                if let Some(t) = self.tabs.get(&tab_id)
+                    && !t.is_popup
+                    && t.snap.lock().unwrap().document == 0
+                    && t.browser.can_go_back() == 0
+                {
+                    let _ = self.out_tx.send(EngineMsg::DownloadOnlyTab { tab_id });
+                }
             }
             HostMsg::SetAgentDriven { tab_id, agent_driven } => {
                 self.handle_set_agent_driven(tab_id, agent_driven);
@@ -799,7 +809,7 @@ impl EngineManager {
                             crate::wire::ContextKind::Preview { .. }
                                 | crate::wire::ContextKind::Artifact { .. }
                         );
-                    t.menu.execute(
+                    let copy_src = t.menu.execute(
                         tab_id,
                         t.download_gen,
                         id,
@@ -810,6 +820,13 @@ impl EngineManager {
                         block_downloads,
                         &self.downloads,
                     );
+                    let frame = t.cdp_ledger.lock().unwrap().main_frame_id();
+                    if let (Some(src), Some(frame)) = (copy_src, frame) {
+                        let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
+                        t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::CopyImageContent);
+                        let raw = crate::menu_extras::resource_request(msg_id, &frame, &src);
+                        t.host.send_dev_tools_message(Some(raw.as_bytes()));
+                    }
                 }
             }
             HostMsg::SetPartitionProxy { server_id, proxy } => {

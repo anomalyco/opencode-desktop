@@ -228,6 +228,21 @@ impl crate::BrowserHost {
         Some(url)
     }
 
+    /// The engine runs Copy image / Spellcheck / Languages (`Ready.menu_extras`): show those items.
+    pub fn engine_menu_extras(&self) -> bool {
+        self.caps.menu_extras()
+    }
+
+    /// Copy image results (PNG, base64) for the clipboard.
+    pub fn drain_copied_images(&mut self) -> impl Iterator<Item = String> + '_ {
+        self.copied_images.drain(..)
+    }
+
+    /// Tabs whose first navigation became the person's download and has its place: close them.
+    pub fn drain_download_only_tabs(&mut self) -> impl Iterator<Item = u64> + '_ {
+        self.download_only_tabs.drain(..)
+    }
+
     pub fn has_popup_opens(&self) -> bool {
         !self.popup_opens.is_empty()
     }
@@ -459,6 +474,18 @@ impl crate::BrowserHost {
                     ui_changed = true;
                 }
                 ui_changed
+            }
+            EngineMsg::CopiedImage { tab_id, png_b64 } => {
+                if self.tabs.iter().any(|t| t.id == tab_id) && self.copied_images.len() < 4 {
+                    self.copied_images.push_back(png_b64);
+                }
+                true
+            }
+            EngineMsg::DownloadOnlyTab { tab_id } => {
+                if self.tabs.iter().any(|t| t.id == tab_id) && !self.download_only_tabs.contains(&tab_id) {
+                    self.download_only_tabs.push_back(tab_id);
+                }
+                true
             }
             EngineMsg::FileChooserBlocked { tab_id } => {
                 if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {

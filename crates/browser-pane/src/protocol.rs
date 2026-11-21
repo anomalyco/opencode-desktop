@@ -529,6 +529,18 @@ pub enum EngineMsg {
         /// The engine enforces the WebAuthn / passkey gate and emits `PasskeyRefused`.
         #[serde(default)]
         passkeys: bool,
+        /// The engine runs Copy image / Spellcheck / Languages and sends `DownloadOnlyTab`.
+        #[serde(default)]
+        menu_extras: bool,
+    },
+    /// Copy image's result, as PNG (base64), for the clipboard.
+    CopiedImage {
+        tab_id: u64,
+        png_b64: String,
+    },
+    /// A tab whose first navigation became the person's download, now placed or cancelled.
+    DownloadOnlyTab {
+        tab_id: u64,
     },
     ProfileCookies {
         request_id: u64,
@@ -952,6 +964,14 @@ pub struct PageContextMenu {
     pub misspelled_word: Option<String>,
     #[serde(default)]
     pub suggestions: Vec<String>,
+    /// Editable fields only (`Ready.menu_extras`): spellcheck on, the enabled languages, and the
+    /// languages the Languages submenu offers (empty on macOS, as official).
+    #[serde(default)]
+    pub spellcheck: bool,
+    #[serde(default)]
+    pub languages: Vec<String>,
+    #[serde(default)]
+    pub dictionaries: Vec<String>,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1054,6 +1074,11 @@ pub enum ContextMenuCommand {
     SaveImage { url: String },
     ReplaceMisspelling { word: String },
     AddToDictionary { word: String },
+    /// Copies the image under the menu (`PageContextMenu.is_image && has_image_contents`).
+    CopyImage,
+    ToggleSpellcheck,
+    /// Adds or removes one of `PageContextMenu.dictionaries`; the last enabled one stays.
+    ToggleLanguage { value: String },
 }
 
 fn default_cookie_path() -> String {

@@ -49,6 +49,8 @@ pub fn read_cef_string_list(list: &CefStringList) -> Vec<String> {
 struct HeldMenu {
     id: u64,
     src_url: Option<String>,
+    /// The menu was for an editable field: only then do Spellcheck / Languages run.
+    editable: bool,
     callback: RunContextMenuCallback,
 }
 
@@ -65,6 +67,8 @@ impl TabMenuState {
         }
     }
 
+    /// Runs the chosen command of held menu `id`. Returns the image URL to copy for
+    /// `CopyImage` (the engine fetches and re-encodes it: `menu_extras.rs`).
     #[allow(clippy::too_many_arguments)]
     pub fn execute(
         &self,
@@ -77,7 +81,7 @@ impl TabMenuState {
         _file_roots: &[String],
         block_downloads: bool,
         downloads: &crate::downloads::Downloads,
-    ) {
+    ) -> Option<String> {
         let matched = {
             let mut slot = self.held.lock().unwrap();
             if slot.as_ref().is_some_and(|h| h.id == id) {
@@ -86,15 +90,28 @@ impl TabMenuState {
                 None
             }
         };
-        let held_src_url = if let Some(held) = matched {
-            // Always cancel CEF's native menu runner; we execute the chosen action directly.
-            held.callback.cancel();
-            held.src_url
-        } else {
-            return;
-        };
-        let Some(cmd) = action else { return };
+        // Always cancel CEF's native menu runner; we execute the chosen action directly.
+        let held = matched?;
+        held.callback.cancel();
+        let held_src_url = held.src_url;
+        let cmd = action?;
         match cmd {
+            // `src_url` is held only for an image outside preview tabs (`run_context_menu`).
+            ContextMenuCommand::CopyImage => return held_src_url,
+            ContextMenuCommand::ToggleSpellcheck => {
+                if held.editable
+                    && let Some(ctx) = host.request_context()
+                {
+                    crate::menu_extras::toggle_spellcheck(&ctx);
+                }
+            }
+            ContextMenuCommand::ToggleLanguage { value } => {
+                if held.editable
+                    && let Some(ctx) = host.request_context()
+                {
+                    crate::menu_extras::toggle_language(&ctx, &value);
+                }
+            }
             ContextMenuCommand::Back => browser.go_back(),
             ContextMenuCommand::Forward => browser.go_forward(),
             ContextMenuCommand::Reload => browser.reload(),
@@ -140,6 +157,7 @@ impl TabMenuState {
                 host.add_word_to_dictionary(Some(&CefString::from(word.as_str())));
             }
         }
+        None
     }
 }
 
@@ -193,7 +211,7 @@ wrap_context_menu_handler! {
 
         fn run_context_menu(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             _frame: Option<&mut Frame>,
             params: Option<&mut ContextMenuParams>,
             _model: Option<&mut MenuModel>,
@@ -233,6 +251,14 @@ wrap_context_menu_handler! {
             let is_image = *params.media_type().as_ref()
                 == sys::cef_context_menu_media_type_t::CM_MEDIATYPE_IMAGE;
             let id = self.shared.next_id();
+            let is_editable = params.is_editable() != 0;
+            let (spellcheck, languages, dictionaries) = browser
+                .as_ref()
+                .filter(|_| is_editable)
+                .and_then(|b| b.host())
+                .and_then(|h| h.request_context())
+                .map(|ctx| crate::menu_extras::spellcheck_state(&ctx))
+                .unwrap_or_default();
             let menu = PageContextMenu {
                 id,
                 x: params.xcoord(),
@@ -250,7 +276,7 @@ wrap_context_menu_handler! {
                 },
                 is_image,
                 has_image_contents: params.has_image_contents() != 0,
-                is_editable: params.is_editable() != 0,
+                is_editable,
                 selection_text: selection_text.chars().take(512).collect(),
                 can_cut: (edit & sys::cef_context_menu_edit_state_flags_t::CM_EDITFLAG_CAN_CUT.0 as u32) != 0,
                 can_copy: (edit & sys::cef_context_menu_edit_state_flags_t::CM_EDITFLAG_CAN_COPY.0 as u32) != 0,
@@ -259,10 +285,14 @@ wrap_context_menu_handler! {
                 misspelled_word: (!misspelled_raw.is_empty())
                     .then(|| crate::prompts::sanitize_wire_line(&misspelled_raw, 256)),
                 suggestions,
+                spellcheck,
+                languages,
+                dictionaries,
             };
             if let Some(prev) = self.menu_state.held.lock().unwrap().replace(HeldMenu {
                 id,
-                src_url: menu.src_url.clone(),
+                src_url: menu.src_url.clone().filter(|_| menu.has_image_contents),
+                editable: is_editable,
                 callback: callback.clone(),
             }) {
                 prev.callback.cancel();

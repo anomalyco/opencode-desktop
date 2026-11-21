@@ -133,6 +133,9 @@ pub struct BrowserHost {
     pub(crate) cdp_events: VecDeque<CdpEvent>,
     picked: VecDeque<PickedElement>,
     pub(crate) popup_opens: VecDeque<crate::prompts::PopupRequest>,
+    /// Copy image results (PNG base64) and download-only tabs, drained by the app.
+    pub(crate) copied_images: VecDeque<String>,
+    pub(crate) download_only_tabs: VecDeque<u64>,
     pub(crate) app_links: VecDeque<(u64, String)>,
     pub(crate) context_menus: VecDeque<(u64, crate::protocol::PageContextMenu)>,
     pub(crate) download_save_requests: VecDeque<crate::protocol::DownloadSaveRequest>,
@@ -204,6 +207,8 @@ impl BrowserHost {
             cdp_events: VecDeque::new(),
             picked: VecDeque::new(),
             popup_opens: VecDeque::new(),
+            copied_images: VecDeque::new(),
+            download_only_tabs: VecDeque::new(),
             app_links: VecDeque::new(),
             context_menus: VecDeque::new(),
             download_save_requests: VecDeque::new(),
@@ -905,6 +910,7 @@ impl BrowserHost {
                     cookies,
                     agent_files,
                     passkeys,
+                    menu_extras,
                     ..
                 } => {
                     if !matches!(
@@ -916,7 +922,7 @@ impl BrowserHost {
                     self.caps = EngineCaps::Known {
                         downloads, policy, prompts, popups, find, context_menu,
                         partitions, remote_proxy, agent_tools, preview, extensions,
-                        permission_sync, frame_authority, cookies, agent_files, passkeys,
+                        permission_sync, frame_authority, cookies, agent_files, passkeys, menu_extras,
                     };
                     self.sync_site_permissions();
                     if cookies && self.share_sign_ins {
@@ -1119,7 +1125,8 @@ impl BrowserHost {
                 | EngineMsg::AuthRequest { .. } | EngineMsg::AuthReset { .. } | EngineMsg::AuthAgentRequired { .. }
                 | EngineMsg::PopupOpen { .. } | EngineMsg::PopupBlocked { .. }
                 | EngineMsg::AppLinkBlocked { .. } | EngineMsg::PasskeyRefused { .. }
-                | EngineMsg::FileChooserBlocked { .. } => {
+                | EngineMsg::FileChooserBlocked { .. } | EngineMsg::CopiedImage { .. }
+                | EngineMsg::DownloadOnlyTab { .. } => {
                     changed |= self.handle_prompt_msg(msg);
                 }
                 EngineMsg::FindResult { tab_id, count, active_match, final_update } => {

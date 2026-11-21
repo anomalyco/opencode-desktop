@@ -446,6 +446,7 @@ pub(crate) enum EngineCaps {
         cookies: bool,
         agent_files: bool,
         passkeys: bool,
+        menu_extras: bool,
     },
 }
 
@@ -509,6 +510,10 @@ impl EngineCaps {
     #[allow(dead_code)]
     pub(crate) fn passkeys(self) -> bool {
         matches!(self, Self::Known { passkeys: true, .. })
+    }
+
+    pub(crate) fn menu_extras(self) -> bool {
+        matches!(self, Self::Known { menu_extras: true, .. })
     }
 }
 

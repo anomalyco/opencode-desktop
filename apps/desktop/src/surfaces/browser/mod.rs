@@ -739,6 +739,24 @@ mod native {
             }
             changed |= self.drain_browser_popups();
             changed |= self.poll_app_link_reviews();
+            // Page menu Copy image (`ContextMenuCommand::CopyImage`): the engine sends PNG for the clipboard.
+            let images: Vec<String> = self.workspace_panes.browser.host.drain_copied_images().collect();
+            for png_b64 in images {
+                let Ok(png) = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, png_b64) else { continue };
+                if let Some(image) = rune::clipboard::ClipboardImage::from_png(png) {
+                    self.later(Box::new(move |_s: &mut App, tx: &mut Tx| {
+                        tx.copy_rich(rune::clipboard::ClipboardContent::default().with_image(image));
+                    }));
+                }
+            }
+            // A tab opened only to start a download has nothing to show once the download has its place.
+            let download_only: Vec<u64> = self.workspace_panes.browser.host.drain_download_only_tabs().collect();
+            for tab_id in download_only {
+                if let Some(sid) = self.browser_tab_session(tab_id).map(str::to_owned) {
+                    self.later(Box::new(move |s: &mut App, tx: &mut Tx| s.close_browser_tab_for_session(&sid, tab_id, tx)));
+                    changed = true;
+                }
+            }
             // Reload persisted site permissions when Settings > Browser edits `rune.sitePermissions`.
             let perm_ver = crate::plugin_host::services::store::store_version("browser", "rune.sitePermissions");
             if perm_ver != self.workspace_panes.browser.site_permissions_version {
