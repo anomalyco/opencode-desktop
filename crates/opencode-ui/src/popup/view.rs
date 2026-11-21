@@ -143,7 +143,8 @@ fn build<S: PopupHost + 'static>(
                     .active(active == Some(n))
                     .checked(i.checked)
                     .danger(i.danger)
-                    .disabled(!i.enabled);
+                    .disabled(!i.enabled)
+                    .medium(i.medium);
                 let ink = if i.danger { p.danger } else { p.text };
                 // Menu items draw Desktop's `<Icon>` at its default `size="normal"` (16 pt, `icon.tsx:59`).
                 let o = match i.glyph {
