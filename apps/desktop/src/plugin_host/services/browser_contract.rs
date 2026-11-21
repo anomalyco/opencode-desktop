@@ -37,9 +37,9 @@ mod native {
     use url::{Host, Url};
 
     use super::super::super::commands::current_tool_scope;
-    use super::super::super::cx::{self, Dep, with_app};
+    use super::super::super::cx::{self, Dep};
     use super::super::super::vm::Vmx;
-    use super::super::method;
+    use super::super::{method, with_app};
     use crate::App;
     use crate::surfaces::browser::preview::PreviewTarget;
 

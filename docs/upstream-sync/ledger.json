@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 172,
   "status_counts": {
-    "have it": 139,
+    "have it": 140,
     "not applicable": 23,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 7
+    "missing": 6
   },
   "rows": [
     {
@@ -3921,12 +3921,12 @@
       ],
       "summary": "Expose official's narrow third-party plugin browser contract (attached, canOpen, open, openFile, experimental.{open,close}); #296 refuses Browser:OpenAsync for third-party plugins on modern/remote servers until this contract exists.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Known gap from #296 (95cb36a8): third-party plugins get narrower browser access than Official until Rune exposes Official's narrow contract from packages/plugin/src/gui/browser.ts:9-57.",
+      "status": "have it",
+      "status_evidence": "Host-provided narrow 'browser' contract (attached, canOpen, open, openFile, experimental.{open,close}) exposed per-consumer via Contracts:Use('browser') in apps/desktop/src/plugin_host/services/browser_contract.rs, matching official packages/plugin/src/gui/browser.ts:1-60; opaque per-VM handles revoked on reload/unload/close/takeover navigation; raw CDP/ReadFileAsync/SiteCookiesAsync remain blocked for third-party plugins.",
       "depends_on": "UP-095-TOOLS (#296)",
       "risks": "Must keep third-party plugins blocked from raw CDP, ReadFileAsync, SiteCookiesAsync, and oc-preview:// minting.",
       "workstream": "BROWSER-TOOLS",
-      "reviewed": "Tracked follow-up gap from #296 (confirmed 5th read + merge check)"
+      "reviewed": "Shipped as dedicated UP-095-3P-CONTRACT PR"
     },
     {
       "id": "UP-095-PROMPT-GATE",
