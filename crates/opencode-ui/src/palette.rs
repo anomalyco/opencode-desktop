@@ -327,6 +327,11 @@ fn build(theme: usize, dark: bool, raised: bool) -> Pal {
     let diff_del = if themed { c("syntax-diff-delete") } else { danger };
     let code_bg = c("background-stronger");
     let hex = |h: &str| rune::color::hex(h).unwrap_or(text);
+    // `highlight-theme.tsx:13,27,31,56,61` and `resolve.ts:368,405` resolve plain code, diff base
+    // ink, `variable.parameter`, and `syntax-regexp` from each theme's resolved `--text-base`
+    // (`apps/desktop/assets/themes.json`: `#6f6f6f`/`#a0a0a0` in `oc-2`, `#0a0a0a`/`#ffffff` in
+    // `amoled`, etc.) rather than `v1_text_base`'s `text-text-muted` fallback on non-default themes.
+    let code_text_base = t.try_color("text-base").unwrap_or_else(|| if themed { text } else { hex(if dark { "#a0a0a0" } else { "#6f6f6f" }) });
     // Resolved `oc-2` `--text-base` override (`oc-2.json:20,273`): `#6f6f6f` light / `#a0a0a0` dark.
     let v1_text_base = match (themed, dark) {
         (true, _) => c("text-text-muted"),
@@ -343,11 +348,11 @@ fn build(theme: usize, dark: bool, raised: bool) -> Pal {
         constant: c("syntax-constant"),
         punctuation: c("syntax-punctuation"),
         variable: c("syntax-variable"),
-        parameter: v1_text_base,
+        parameter: code_text_base,
         // The default theme names no `syntax-info`; Desktop's resolves it to these.
         info: t.try_color("syntax-info").unwrap_or_else(|| rune::color::hex(if dark { "#facffe" } else { "#8c1896" }).unwrap_or(text)),
         operator: c("syntax-operator"),
-        regexp: t.try_color("syntax-regexp").unwrap_or(v1_text_base),
+        regexp: t.try_color("syntax-regexp").unwrap_or(code_text_base),
     };
     Pal {
         dark,
