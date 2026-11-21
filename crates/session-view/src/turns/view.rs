@@ -56,7 +56,7 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
         .on_press_tx(crate::disclosure::toggle_group::<S>(key.to_owned()));
     // A card of files in the group holds headers that stick under this one (Desktop's
     // `--sticky-accordion-top`, `message-part.css:1330-1332`).
-    let files = steps.iter().any(|st| file_tool(st) || matches!(st, Step::Change { file, .. } if crate::tools::script::has_diff(file)));
+    let files = steps.iter().any(|st| file_tool(st) || matches!(st, Step::Change { file, .. } if crate::tools::script::is_card(file)));
     if open || shutting {
         trigger = trigger.fill(p.bg_base).sticky_top(crate::style::sticky_top());
         trigger = if files {
@@ -208,7 +208,7 @@ fn step_foot<S: TimelineHost>(s: &S, session: &str, live: bool, steps: &[Step]) 
         st @ Step::Tool { .. } if grouped_read(st) || named_skill(st) => 6.0,
         _ if file_like(first) => match steps.last() {
             // A row of counts ends 6 under its line, as a closed trigger does.
-            Some(Step::Change { file, .. }) if !crate::tools::script::has_diff(file) => 6.0,
+            Some(Step::Change { file, .. }) if !crate::tools::script::is_card(file) => 6.0,
             _ => 0.0,
         },
         st @ Step::Tool { files, .. } => {
@@ -306,7 +306,7 @@ pub fn subagent<S: TimelineHost>(s: &S, p: &Pal, session: &str, step: &Step) -> 
 /// What keys a row of files: its first call's id, or its first change's.
 fn file_key(st: &Step) -> String {
     match st {
-        Step::Change { script, index, .. } => crate::tools::script::change_id(script, *index),
+        Step::Change { msg, script, index, .. } => crate::tools::script::change_id(msg, script, *index),
         Step::Tool { id, .. } => (*id).to_owned(),
         _ => String::new(),
     }
@@ -325,8 +325,8 @@ fn file_runs<S: TimelineHost>(s: &S, p: &Pal, cx: crate::tools::Ctx, steps: &[St
         let n = steps[i..].iter().take_while(|st| script_change(st) == changes).count();
         let run = &steps[i..i + n];
         out = out.child(if changes {
-            let list: Vec<(&str, usize, &serde_json::Value)> = run.iter().filter_map(|st| match st {
-                Step::Change { script, index, file } => Some((*script, *index, *file)),
+            let list: Vec<(&str, &str, usize, &serde_json::Value)> = run.iter().filter_map(|st| match st {
+                Step::Change { msg, script, index, file } => Some((*msg, *script, *index, *file)),
                 _ => None,
             }).collect();
             crate::tools::script::changes(s, p, cx, &list).key(format!("run-{}", file_key(&run[0])))

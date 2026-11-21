@@ -13,48 +13,53 @@ use super::{Call, Ctx};
 use crate::TimelineHost;
 use crate::palette::Pal;
 
-/// Change `index` of script `script`'s id: its card's call and disclosure key. A key holds no
-/// `/`, so the path stays out of it.
-pub fn change_id(script: &str, index: usize) -> String {
-    format!("{script}-file-{index}")
+/// The id of the change at offset `index` of script `script` in assistant message `msg`: its
+/// card's call and disclosure key. Providers can reuse a call id across messages, so the message
+/// is part of it. A key holds no `/`, so the path stays out of it.
+pub fn change_id(msg: &str, script: &str, index: usize) -> String {
+    format!("{msg}-{script}-file-{index}")
 }
 
-/// The diff change `file` shows, as `changedFileDiff` reads it: a patch with lines in it.
-fn diff(file: &Value) -> Option<Value> {
-    let patch = file["patch"].as_str()?;
-    let (additions, deletions) = (file["additions"].as_u64().unwrap_or(0), file["deletions"].as_u64().unwrap_or(0));
-    (additions + deletions > 0).then(|| {
-        let status = file["status"].as_str().unwrap_or("modified");
-        json!({ "files": [{ "file": file["file"], "patch": patch, "additions": additions, "deletions": deletions, "status": status }] })
-    })
+/// Whether change `file` draws as a card rather than a row of counts, as `changedFileDiff`
+/// reads it: a patch with lines in it.
+pub fn is_card(file: &Value) -> bool {
+    use crate::activity::rules::count;
+    file["patch"].is_string() && (count(&file["additions"]) > 0 || count(&file["deletions"]) > 0)
 }
 
-/// Whether change `file` draws as a card rather than a row of counts.
-pub fn has_diff(file: &Value) -> bool {
-    diff(file).is_some()
+/// The one-file patch call's metadata change `file` draws through, built only when its card does.
+fn payload(file: &Value) -> Value {
+    use crate::activity::rules::count;
+    let status = file["status"].as_str().unwrap_or("modified");
+    json!({ "files": [{ "file": file["file"], "patch": file["patch"], "additions": count(&file["additions"]), "deletions": count(&file["deletions"]), "status": status }] })
 }
 
 /// Between two cards, and between a script's changes and the files edited beside them:
 /// `--timeline-gap-s` (`timeline-next.css`).
 pub const CARD_GAP: f32 = 16.0;
 
-/// A script's changes, `(script, index, file)` in order. Rows of counts sit flush with each other;
+/// A script's changes, `(msg, script, index, file)` in order. Rows of counts sit flush with each other;
 /// a card stands [`CARD_GAP`] from whatever is beside it, card or row, as any two items do (`timeline-next.css`'s
 /// `[data-script-change="patch"] + [data-script-change="patch"]`).
-pub fn changes<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, list: &[(&str, usize, &Value)]) -> El {
+pub fn changes<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, list: &[(&str, &str, usize, &Value)]) -> El {
     let mut out = col().key("script-changes").w_full();
     // Whether the change above drew a card; `None` above the first.
     let mut above: Option<bool> = None;
-    for &(script, index, file) in list {
-        let id = change_id(script, index);
-        let card = has_diff(file);
-        let item = match diff(file) {
-            Some(metadata) => {
-                let call = Call { id: &id, name: "patch", status: &ToolStatus::Completed, input: &Value::Null, metadata: &metadata };
-                let drawn = super::cached(s, p, cx, &[call], || super::file_group(s, p, cx, &[call]));
-                col().key(format!("change-{id}")).w_full().child(drawn)
-            }
-            None => super::files::counts_row(s, p, cx, format!("change-{id}"), file),
+    for &(msg, script, index, file) in list {
+        let id = change_id(msg, script, index);
+        let card = is_card(file);
+        let item = if card {
+            // Keyed by the change as reported, so the payload and its patch copy are built only
+            // when the card builds.
+            let probe = Call { id: &id, name: "patch", status: &ToolStatus::Completed, input: &Value::Null, metadata: file };
+            let drawn = super::cached(s, p, cx, &[probe], || {
+                let metadata = payload(file);
+                let call = Call { metadata: &metadata, ..probe };
+                super::file_group(s, p, cx, &[call])
+            });
+            col().key(format!("change-{id}")).w_full().child(drawn)
+        } else {
+            super::files::counts_row(s, p, cx, format!("change-{id}"), file)
         };
         // Only two rows of counts in a row sit flush.
         let gap = above.is_some_and(|a| a || card);

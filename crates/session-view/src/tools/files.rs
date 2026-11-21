@@ -70,8 +70,8 @@ struct Entry<'a> {
     call: Call<'a>,
     path: &'a str,
     kind: Kind,
-    additions: usize,
-    deletions: usize,
+    additions: u64,
+    deletions: u64,
     source: Source<'a>,
 }
 
@@ -99,10 +99,10 @@ impl Item<'_> {
         contents.windows(2).all(|w| w[0].1 == w[1].0).then(|| FileDiff::from_texts_with_context(self.path, &contents[0].0, &contents[contents.len() - 1].1, TEXT_CONTEXT))
     }
 
-    fn counts(&self) -> (usize, usize) {
+    fn counts(&self) -> (u64, u64) {
         match self.chained() {
-            Some(fd) => (fd.additions(), fd.deletions()),
-            None => self.entries.iter().fold((0, 0), |(a, d), e| (a + e.additions, d + e.deletions)),
+            Some(fd) => (fd.additions() as u64, fd.deletions() as u64),
+            None => self.entries.iter().fold((0u64, 0u64), |(a, d), e| (a.saturating_add(e.additions), d.saturating_add(e.deletions))),
         }
     }
 
@@ -126,11 +126,11 @@ fn entries<'a>(c: &Call<'a>) -> Vec<Entry<'a>> {
         "edit" | "multiedit" => {
             let (Some(old), Some(new)) = (c.input["oldString"].as_str(), c.input["newString"].as_str()) else { return Vec::new() };
             let fd = FileDiff::from_texts_with_context(path, old, new, TEXT_CONTEXT);
-            let (a, d) = (fd.additions(), fd.deletions());
+            let (a, d) = (fd.additions() as u64, fd.deletions() as u64);
             if a + d == 0 { Vec::new() } else { vec![entry(Source::Texts(old, new), a, d)] }
         }
         "write" => match field(c.input, "content") {
-            Some(content) => vec![entry(Source::Texts("", content), content.split('\n').count() - usize::from(content.ends_with('\n')), 0)],
+            Some(content) => vec![entry(Source::Texts("", content), (content.split('\n').count() - usize::from(content.ends_with('\n'))) as u64, 0)],
             None => Vec::new(),
         },
         _ => Vec::new(),
@@ -140,14 +140,16 @@ fn entries<'a>(c: &Call<'a>) -> Vec<Entry<'a>> {
 /// One of `metadata.files`, when it is a change (`changedFileDiff`).
 fn changed<'a>(c: &Call<'a>, f: &'a Value) -> Option<Entry<'a>> {
     let (path, patch) = (f["file"].as_str()?, f["patch"].as_str()?);
-    let (additions, deletions) = (f["additions"].as_u64()? as usize, f["deletions"].as_u64()? as usize);
+    // A count is a whole number of lines: `1.0` counts (`rules::count`).
+    let present = |k: &str| f.get(k).filter(|v| v.is_number()).map(crate::activity::rules::count);
+    let (additions, deletions) = (present("additions")?, present("deletions")?);
     let kind = match f["status"].as_str()? {
         "added" => Kind::Add,
         "deleted" => Kind::Delete,
         "modified" => Kind::Update,
         _ => return None,
     };
-    (additions + deletions > 0).then_some(Entry { call: *c, path, kind, additions, deletions, source: Source::Patch(patch) })
+    (additions > 0 || deletions > 0).then_some(Entry { call: *c, path, kind, additions, deletions, source: Source::Patch(patch) })
 }
 
 /// A run of file tools: one card of a row per path they changed, each shut until pressed or
@@ -320,7 +322,7 @@ fn change(p: &Pal, item: &Item) -> Option<El> {
         Kind::Delete => word(opencode_i18n::t!("ui.patch.action.deleted"), p.diff.del_icon),
         Kind::Update => {
             let (a, d) = item.counts();
-            (a + d > 0).then(|| {
+            (a > 0 || d > 0).then(|| {
                 row().key("change").gap(8.0).center_y()
                     .child(text(format!("+{a}")).dir(rune::Direction::Ltr).font(COUNTS).color(p.diff.add_text))
                     .child(text(format!("-{d}")).dir(rune::Direction::Ltr).font(COUNTS).color(p.diff.del_text))
@@ -344,14 +346,15 @@ pub fn counts_row<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, key: String, file: &
         words = words.child(text(dir.to_owned()).key("dir").font(PATH).color(p.muted).truncate_head().shrink().min_w(0.0));
     }
     words = words.child(text(name.to_owned()).key("file").font(PATH).color(p.text).truncate_fade().shrink().min_w(0.0));
-    let word = |w: &'static str, c| text(w).key("change").font(UI_MED.lh(19.5)).color(c);
-    let count = |n: u64| n as usize;
-    let (a, d) = (count(file["additions"].as_u64().unwrap_or(0)), count(file["deletions"].as_u64().unwrap_or(0)));
+    // "Created" and "Deleted" read as the counts do (`diff-changes-additions`,
+    // `diff-changes-deletions`): 14 pt mono in the diff's text colours.
+    let word = |w: &'static str, c| text(w).key("change").font(COUNTS).color(c);
+    let (a, d) = (crate::activity::rules::count(&file["additions"]), crate::activity::rules::count(&file["deletions"]));
     let change = match file["status"].as_str() {
-        Some("added") => Some(word(opencode_i18n::t!("ui.patch.action.created"), p.diff.add_icon)),
-        Some("deleted") => Some(word(opencode_i18n::t!("ui.patch.action.deleted"), p.diff.del_icon)),
-        _ if a + d > 0 => Some(
-            row().key("change").gap(8.0).center_y()
+        Some("added") => Some(word(opencode_i18n::t!("ui.patch.action.created"), p.diff.add_text)),
+        Some("deleted") => Some(word(opencode_i18n::t!("ui.patch.action.deleted"), p.diff.del_text)),
+        _ if a > 0 || d > 0 => Some(
+            row().key("change").dir(rune::Direction::Ltr).gap(8.0).center_y()
                 .children((a > 0).then(|| text(format!("+{a}")).dir(rune::Direction::Ltr).font(COUNTS).color(p.diff.add_text)))
                 .children((d > 0).then(|| text(format!("-{d}")).dir(rune::Direction::Ltr).font(COUNTS).color(p.diff.del_text))),
         ),
@@ -365,7 +368,7 @@ pub fn counts_row<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, key: String, file: &
         .center_y()
         .role("group")
         .label(shown.to_owned())
-        .child(icon(rune_theme_opencode::file_icons::file(name), 16.0).key("icon").color(p.text))
+        .child(icon(rune_theme_opencode::file_icons::file(name), 16.0).key("icon").color(p.text).a11y_hidden())
         .child(words)
         .children(change)
 }
