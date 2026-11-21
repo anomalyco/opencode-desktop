@@ -8,7 +8,7 @@ use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::{Pal, kit};
 use opencode_ui::widgets;
 use rune::{Cursor, El, Icon, Span, Tx, icon, row, text};
-use rune_kit::{ButtonSize, ButtonVariant};
+use rune_kit::{ButtonVariant, ControlSize};
 
 use super::{BODY, NAME, NAME_REGULAR};
 use crate::host::SettingsHost;
@@ -140,7 +140,7 @@ pub fn console_replaced<H: SettingsHost + 'static>(p: &Pal, key: String, name: &
 pub fn console_connect_button<H: SettingsHost + 'static>(p: &Pal, key: String, name: &str, href: String) -> El {
     let a11y = t!("settings.extensions.console.connect", name = name);
     widgets::button(t!("common.connect"), ButtonVariant::GhostMuted)
-        .size(ButtonSize::Small)
+        .control_size(ControlSize::Regular)
         .on_press_tx(move |s: &mut H, tx: &mut Tx| crate::open_external(s, &href, tx))
         .build(kit(p))
         .key(key)

@@ -25,6 +25,7 @@ use opencode_ui::popup::{self, Menu, MenuButton as _, PopupHost};
 use rune::{El, Icon, TextEdit, TextStyle, Tx, col, el, icon, row, rule, text};
 use rune_kit::{Select, TextInput};
 use rune_theme_opencode::icons as ic;
+use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::{Pal, kit};
 use opencode_ui::style::{UI, UI_MED};
 

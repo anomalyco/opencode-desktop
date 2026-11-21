@@ -15,7 +15,7 @@ use opencode_ui::palette::{Pal, kit};
 use opencode_ui::popup::PopupHost;
 use opencode_ui::widgets;
 use rune::{Cursor, El, Icon, TextStyle, Tx, col, icon, row, rule, text};
-use rune_kit::{ButtonSize, ButtonVariant};
+use rune_kit::{ButtonVariant, ControlSize};
 use rune_theme_opencode::icons as ic;
 
 use super::console_link::{ConsoleSources, console_connect_button, console_name, console_replaced, console_signed_in, load_failed};
@@ -241,7 +241,7 @@ fn plugins_header_actions<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
         let checking = plugin_update::checking(&st.updates);
         let label = if checking { t!("settings.plugins.checking") } else { t!("settings.plugins.check") };
         widgets::button(label, ButtonVariant::GhostMuted)
-            .size(ButtonSize::Small)
+            .control_size(ControlSize::Regular)
             .disabled(checking)
             .on_press_tx(|s: &mut H, tx: &mut Tx| dispatch_update(s, UpdateEvent::CheckRequested, tx))
             .build(kit(p))
@@ -398,7 +398,7 @@ fn plugins_body<H: SettingsHost + 'static>(s: &H, p: &Pal) -> Vec<El> {
                             let target_owned = target.to_owned();
                             let btn_text = if v.updating { t!("settings.plugins.updating") } else { t!("settings.plugins.update") };
                             widgets::button(btn_text, ButtonVariant::GhostMuted)
-                                .size(ButtonSize::Small)
+                                .control_size(ControlSize::Regular)
                                 .disabled(v.updating)
                                 .on_press_tx(move |s: &mut H, tx: &mut Tx| {
                                     dispatch_update(s, UpdateEvent::UpdateRequested { target: target_owned.clone() }, tx);
