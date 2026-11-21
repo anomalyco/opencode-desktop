@@ -12,7 +12,8 @@ local machine = require("@self/machine")
 local copy = require("@self/copy")
 
 -- `text-13-regular` as the page's alerts draw it.
-local ALERT: UiTextProps = { size = 13, weight = "regular", lineHeight = 20, color = "status-danger", role = "alert" }
+local ALERT: UiTextProps = { size = 13, weight = "regular", lineHeight = 20, color = "status-danger", role = "alert", wrap = true }
+local ALERT_CENTER: UiTextProps = { size = 13, weight = "regular", lineHeight = 20, color = "status-danger", role = "alert", wrap = true, textAlign = "center" }
 
 -- The origin of the HTTPS address among the server's URLs: it listens over plain HTTP, so that
 -- one is its remote access tunnel.
@@ -407,22 +408,22 @@ return plugin.defineWindow(function(ctx)
         elseif d.status == "code" or d.status == "turning-on" or d.status == "tunnel" then
             local inner: { UiNode } = { ui.loader({ size = 20 }) }
             if d.status ~= "code" then
-                table.insert(inner, ui.text(I18n:T("setup.title"), { size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", textAlign = "center" }))
-                table.insert(inner, ui.text(I18n:T("setup.description"), { size = 12, weight = "regular", lineHeight = 16, color = "text-muted", textAlign = "center" }))
+                table.insert(inner, ui.text(I18n:T("setup.title"), { size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", textAlign = "center", wrap = true }))
+                table.insert(inner, ui.text(I18n:T("setup.description"), { size = 12, weight = "regular", lineHeight = 16, color = "text-muted", textAlign = "center", wrap = true }))
             end
             table.insert(body, frame({ role = "status" }, inner))
         elseif d.status == "failed" then
             table.insert(body, frame({ gap = 12 }, {
-                ui.text(I18n:T("setup.error"), ALERT),
+                ui.text(I18n:T("setup.error"), ALERT_CENTER),
                 ui.button({ key = "pairing-retry", text = I18n:T("retry"), variant = "neutral", onPress = v:Handler(function()
                     dispatch({ type = "retry" })
                 end) }),
             }))
         elseif d.status == "code-error" then
             -- A failed code fetch hides the link, so the way to try again stays next to the error.
-            table.insert(body, ui.col({ w = "full", gap = 4, align = "center" }, { ui.text(I18n:T("error"), ALERT), refresh(false) }))
+            table.insert(body, ui.col({ w = "full", gap = 4, align = "center" }, { ui.text(I18n:T("error"), ALERT_CENTER), refresh(false) }))
         else
-            table.insert(body, frame({ gap = 12 }, { ui.text(I18n:T("pair.unavailable"), ALERT) }))
+            table.insert(body, frame({ gap = 12 }, { ui.text(I18n:T("pair.unavailable"), ALERT_CENTER) }))
         end
         if copyView.error then
             table.insert(body, ui.text(I18n:T("copy.error"), ALERT))
