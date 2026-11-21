@@ -31,7 +31,7 @@ pub const TRUST: &str = match option_env!("OPENCODE_BROWSER_ENGINE_TRUST") {
     None => DEV_TRUST,
 };
 
-#[cfg(any(all(windows, not(debug_assertions)), all(target_os = "macos", target_arch = "aarch64"), all(target_os = "linux", target_arch = "x86_64")))]
+#[cfg(any(all(windows, not(debug_assertions)), target_os = "macos", all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64"))))]
 const RELEASE_SOURCE: &str = "https://anoma.ly/release/opencode-rune/browser-engine/stable.json";
 
 /// Windows, a debug build: `bun apps/browser-engine/scripts/serve.ts` serves a local package here.
@@ -50,10 +50,10 @@ const DEV_TRUST: &str = "local";
 const DEV_SOURCE: &str = RELEASE_SOURCE;
 #[cfg(all(windows, not(debug_assertions)))]
 const DEV_TRUST: &str = "publisher:Anomaly Innovations, Inc https://anoma.ly/";
-/// macOS arm64 verifies the engine bundle against the Developer ID team (`SEER_TEAM_ID`).
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+/// macOS (arm64 and x64) verifies the engine bundle against the Developer ID team (`SEER_TEAM_ID`).
+#[cfg(target_os = "macos")]
 const DEV_SOURCE: &str = RELEASE_SOURCE;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg(target_os = "macos")]
 const DEV_TRUST: &str = "publisher:5NZ4Q7NXJ4";
 /// Linux x86_64 archives are unsigned; the release workflow pins `OPENCODE_BROWSER_ENGINE_TRUST`
 /// to `sha256:<hex>` at build time, and a build without it fails closed as `Fault::NotPublished`.
@@ -61,10 +61,16 @@ const DEV_TRUST: &str = "publisher:5NZ4Q7NXJ4";
 const DEV_SOURCE: &str = RELEASE_SOURCE;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const DEV_TRUST: &str = "";
-/// Targets without a published engine (`macos-x64`, `linux-arm64`).
-#[cfg(not(any(windows, all(target_os = "macos", target_arch = "aarch64"), all(target_os = "linux", target_arch = "x86_64"))))]
+/// Linux aarch64 archives are unsigned; the release workflow pins `OPENCODE_BROWSER_ENGINE_TRUST`
+/// to `sha256:<hex>` at build time, and a build without it fails closed as `Fault::NotPublished`.
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+const DEV_SOURCE: &str = RELEASE_SOURCE;
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+const DEV_TRUST: &str = "";
+/// Targets without a published engine.
+#[cfg(not(any(windows, target_os = "macos", all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))))]
 const DEV_SOURCE: &str = "";
-#[cfg(not(any(windows, all(target_os = "macos", target_arch = "aarch64"), all(target_os = "linux", target_arch = "x86_64"))))]
+#[cfg(not(any(windows, target_os = "macos", all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))))]
 const DEV_TRUST: &str = "";
 
 /// This platform's target in the index.
@@ -74,8 +80,12 @@ const TARGET: &str = if cfg!(all(windows, target_arch = "aarch64")) {
     "windows-x64"
 } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
     "macos-arm64"
+} else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+    "macos-x64"
 } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
     "linux-x64"
+} else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+    "linux-arm64"
 } else {
     "unsupported"
 };
@@ -111,7 +121,7 @@ fn inputs() -> (String, String) {
 
 /// Whether this build has both a source and a trust rule to download an engine (else the pane
 /// says the browser isn't available). A platform no engine is built for (`TARGET`
-/// "unsupported", such as an Intel Mac) has none.
+/// "unsupported") has none.
 pub(crate) fn configured() -> bool {
     let (source, trust) = inputs();
     TARGET != "unsupported" && !source.trim().is_empty() && !trust.trim().is_empty()

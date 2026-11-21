@@ -46,13 +46,13 @@ On a fully active day the schedule can build 24 OS/architecture combinations, up
 
 ## Browser engine
 
-The desktop starts without CEF and downloads the embedded browser engine on first use from `https://anoma.ly/release/opencode-rune/browser-engine/stable.json` (app `opencode-rune`, artifact `browser-engine`, channel `stable`). Four targets ship an engine: `windows-x64`, `windows-arm64`, `macos-arm64`, and `linux-x64`; `macos-x64` and `linux-arm64` ship no engine.
+The desktop starts without CEF and downloads the embedded browser engine on first use from `https://anoma.ly/release/opencode-rune/browser-engine/stable.json` (app `opencode-rune`, artifact `browser-engine`, channel `stable`). All six desktop targets ship an engine: `windows-x64`, `windows-arm64`, `macos-arm64`, `macos-x64`, `linux-x64`, and `linux-arm64`.
 
 ### Trust defaults (`crates/browser-pane/src/source.rs`)
 
 - **Windows (`windows-x64`, `windows-arm64`) release builds:** `publisher:Anomaly Innovations, Inc https://anoma.ly/` — verifies the Authenticode signature of every `.exe` and `.dll` in the archive against `features/updater/src/windows.rs` (`EXPECTED_PUBLISHER`). Windows debug builds keep the local stand-in (`http://127.0.0.1:47981/index.json`, `local`).
-- **macOS (`macos-arm64`):** `publisher:5NZ4Q7NXJ4` — verifies `OpenCode Browser Engine.app` with `codesign --verify --deep --strict` against Developer ID team `5NZ4Q7NXJ4`.
-- **Linux (`linux-x64`):** defaults to the index URL with an empty trust rule; the release workflow passes `OPENCODE_BROWSER_ENGINE_TRUST=sha256:<hex>` at build time. A Linux build without it fails closed at startup as `Fault::NotPublished` (no download, no Retry button, and no local `browser_*` MCP tools).
+- **macOS (`macos-arm64`, `macos-x64`):** `publisher:5NZ4Q7NXJ4` — verifies `OpenCode Browser Engine.app` with `codesign --verify --deep --strict` against Developer ID team `5NZ4Q7NXJ4`.
+- **Linux (`linux-x64`, `linux-arm64`):** defaults to the index URL with an empty trust rule; the release workflow passes `OPENCODE_BROWSER_ENGINE_TRUST=sha256:<hex>` at build time for each architecture. A Linux build without it fails closed at startup as `Fault::NotPublished` (no download, no Retry button, and no local `browser_*` MCP tools).
 
 ### Versioning and installed-app updates
 
