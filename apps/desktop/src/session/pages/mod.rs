@@ -17,9 +17,11 @@ const MEMORY_BYTES: usize = 64 << 20;
 pub const WARM: usize = 6;
 const NEAR_TOP: f32 = 200.0;
 
+mod cache_ref;
 mod machines;
 mod shown;
 
+pub(crate) use cache_ref::CacheRef;
 pub use machines::{History, Key, LATEST, OpenEvent, Opening};
 use machines::{HOLD, Histories, HistoryEffect, HistoryEvent, Stall};
 
