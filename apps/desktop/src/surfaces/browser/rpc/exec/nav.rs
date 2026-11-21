@@ -18,7 +18,7 @@ use super::target_url::parse_agent_url;
 use super::{ExecPhase, StepOutcome, check_page_guards};
 use crate::App;
 
-const LOAD_TIMEOUT: Duration = Duration::from_secs(25);
+const LOAD_TIMEOUT: Duration = Duration::from_secs(15);
 const LOAD_SETTLE_GRACE: Duration = Duration::from_millis(1_200);
 
 /// State carried while waiting for a tab navigation/load to settle.
@@ -546,6 +546,10 @@ pub(super) fn step_wait_load(
         browser_pane::EngineStatus::Ready => {}
         browser_pane::EngineStatus::Failed(why) => {
             if st.close_on_fail {
+                eprintln!(
+                    "browser tab closed: its open failed (session={}, tab={}, reason=engine_failed)",
+                    att.session_id, st.host_id
+                );
                 let sid = att.session_id.clone();
                 app.close_browser_tab_for_session(&sid, st.host_id, tx);
             }
@@ -605,6 +609,10 @@ pub(super) fn step_wait_load(
     if tab.rejected > st.prev_rejected {
         let reason = tab.refusal.clone().unwrap_or_else(|| "blocked".into());
         if st.close_on_fail {
+            eprintln!(
+                "browser tab closed: its open failed (session={}, tab={}, reason={reason})",
+                att.session_id, st.host_id
+            );
             let sid = att.session_id.clone();
             app.close_browser_tab_for_session(&sid, st.host_id, tx);
         }
@@ -616,6 +624,21 @@ pub(super) fn step_wait_load(
     if tab.loading {
         st.saw_loading = true;
     }
+    if now >= st.deadline && tab.loading && tab.load_error.is_none() {
+        // `UP-147` (`#65313`, `keepsOpenedTab`): a page still loading when the navigation deadline
+        // passes keeps its tab open so the person or agent can wait, reload, or close it.
+        let _ = att.sync_tabs(app);
+        let msg = if st.close_on_fail {
+            format!(
+                "Navigation timed out after {}s. The tab stays open as {}: use that tabID with browser.wait, browser.reload or browser.tabs.close, and do not open the address again.",
+                LOAD_TIMEOUT.as_secs(),
+                st.wire_tab_id,
+            )
+        } else {
+            format!("Navigation timed out after {}s. The page may still be loading.", LOAD_TIMEOUT.as_secs())
+        };
+        return Some(Outcome::fail(failure_code::NAVIGATION_FAILED, msg));
+    }
     let settled = (!tab.loading && (st.saw_loading || now >= st.started_at + LOAD_SETTLE_GRACE))
         || now >= st.deadline;
     if !settled {
@@ -624,6 +647,10 @@ pub(super) fn step_wait_load(
     if let Some(err) = &tab.load_error {
         let msg = format!("Page failed to load ({err}).");
         if st.close_on_fail {
+            eprintln!(
+                "browser tab closed: its open failed (session={}, tab={}, reason={err})",
+                att.session_id, st.host_id
+            );
             let sid = att.session_id.clone();
             app.close_browser_tab_for_session(&sid, st.host_id, tx);
         }
