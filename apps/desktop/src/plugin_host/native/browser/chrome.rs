@@ -26,6 +26,39 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
                 Ok(())
             })
         })?,
+    )?;
+    // Selects the address-bar inline-completion range (`panel.tsx:255`, backward so caret sits at `focus`).
+    t.raw_set(
+        "SetAddressSelection",
+        lua.create_function(|lua, (_this, anchor, focus): (Table, usize, usize)| {
+            let sc = scope::TabScope::capture(lua);
+            if !sc.is_builtin_browser || sc.tool_sid.is_some() {
+                return Ok(());
+            }
+            crate::plugin_host::editors::set_selection("browser", 0, anchor, focus);
+            crate::plugin_host::cx::ask("browser", crate::plugin_host::cx::Request::Redraw);
+            Ok(())
+        })?,
+    )?;
+    t.raw_set(
+        "AddressSelection",
+        lua.create_function(|lua, _this: Table| {
+            let sc = scope::TabScope::capture(lua);
+            if !sc.is_builtin_browser || sc.tool_sid.is_some() {
+                return Ok(mlua::Value::Nil);
+            }
+            with_app("Browser:AddressSelection", |app| {
+                let (start, end, len, composing, focused) =
+                    crate::plugin_host::editors::selection_in(app, "browser", 0);
+                let out = lua.create_table()?;
+                out.raw_set("start", start)?;
+                out.raw_set("end", end)?;
+                out.raw_set("len", len)?;
+                out.raw_set("composing", composing)?;
+                out.raw_set("focused", focused)?;
+                Ok(mlua::Value::Table(out))
+            })
+        })?,
     )
 }
 

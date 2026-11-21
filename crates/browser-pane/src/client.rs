@@ -905,6 +905,7 @@ impl BrowserHost {
                     cookies,
                     agent_files,
                     passkeys,
+                    menu_extras,
                     ..
                 } => {
                     if !matches!(
@@ -917,6 +918,7 @@ impl BrowserHost {
                         downloads, policy, prompts, popups, find, context_menu,
                         partitions, remote_proxy, agent_tools, preview, extensions,
                         permission_sync, frame_authority, cookies, agent_files, passkeys,
+                        menu_extras,
                     };
                     self.sync_site_permissions();
                     if cookies && self.share_sign_ins {
