@@ -429,6 +429,7 @@ pub(crate) enum EngineCaps {
         agent_tools: bool,
         preview: bool,
         permission_sync: bool,
+        cookies: bool,
     },
 }
 

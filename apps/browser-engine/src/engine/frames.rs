@@ -69,7 +69,7 @@ impl EngineManager {
                     {
                         ext.on_tab_closed(tab_id);
                     }
-                    self.contexts.release_tab(tab_id);
+                    self.release_tab_context(tab_id);
                     let url = tab.snap.lock().unwrap().url.clone();
                     let v = tab.view_state.lock().unwrap().clone();
                     let roots = tab.file_roots.lock().unwrap().clone();
@@ -92,7 +92,7 @@ impl EngineManager {
                         None,
                     );
                     if !self.tabs.contains_key(&tab_id) {
-                        self.contexts.release_tab(tab_id);
+                        self.release_tab_context(tab_id);
                     }
                 }
             }
