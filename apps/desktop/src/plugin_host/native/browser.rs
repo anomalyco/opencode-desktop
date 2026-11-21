@@ -308,6 +308,9 @@ fn devtools(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             // marks the tab controlled so OS file choosers, HTTP auth, and permissions stay guarded.
             let driver = scope.driver(s).unwrap_or(browser_pane::TabDriver::Agent);
             s.workspace_panes.browser.host.set_tab_driver(id, driver);
+            if driver == browser_pane::TabDriver::Agent {
+                s.mark_browser_tab_unseen(id);
+            }
             let is_dialog = cdp == "Page.handleJavaScriptDialog";
             if !is_dialog && s.workspace_panes.browser.host.tab(id).is_some_and(|t| t.prompts.dialog.open().is_some()) {
                 return done.complete(failed(format!("[browser.dialog_open] A JavaScript dialog is open in tab {id}. Answer or dismiss the dialog before continuing.")));
@@ -673,6 +676,9 @@ pub fn version(app: &App) -> u64 {
     }
     app.workspace_panes.browser.host.focused_tab_id().hash(&mut h);
     app.workspace_panes.browser.pending_app_links.borrow().len().hash(&mut h);
+    let mut unseen: Vec<u64> = app.workspace_panes.browser.unseen_tabs.iter().copied().collect();
+    unseen.sort_unstable();
+    unseen.hash(&mut h);
     let mut sessions: Vec<_> = app.workspace_panes.browser.session_tabs.iter().collect();
     sessions.sort();
     sessions.hash(&mut h);

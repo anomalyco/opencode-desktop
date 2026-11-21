@@ -358,6 +358,9 @@ impl App {
         }
         self.bind_preview_tab(id, sid);
         self.attach_browser_tab_to_session(sid, id, target_pane, steal_focus);
+        if driver == Some(browser_pane::TabDriver::Agent) {
+            self.mark_browser_tab_unseen(id);
+        }
         id
     }
 
