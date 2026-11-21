@@ -272,7 +272,8 @@ pub fn option_tx<S: 'static>(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut S,
         .radius(look.row_radius)
         .fill(lit(p, o.active && !o.slides && !o.disabled));
     let r = if o.disabled {
-        r.disabled(true)
+        // `[data-component="menu-v2-item"][data-disabled]` (`menu.css:154-157`): fades the whole row to 0.5.
+        r.disabled(true).opacity(0.5)
     } else {
         r.press(p.pressed)
             // Not `on_hover`: its commit would animate the highlight's fill from row to row.
@@ -285,7 +286,7 @@ pub fn option_tx<S: 'static>(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut S,
             })
             .on_press_tx(pick)
     };
-    let ink = if o.disabled { p.faint } else if o.danger { p.danger } else { p.text };
+    let ink = if o.danger { p.danger } else { p.text };
     let label = match o.mark.filter(|r| r.end <= o.label.len() && o.label.is_char_boundary(r.start) && o.label.is_char_boundary(r.end)) {
         Some(r) => rich(o.label, vec![Span::new(r.start, r.end).color(p.accent)]),
         None => text(o.label),

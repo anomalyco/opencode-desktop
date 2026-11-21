@@ -154,12 +154,11 @@ pub const H: f32 = 24.0;
 pub const LANE: f32 = LANE_PAD + H;
 
 /// Desktop's reply Copy in that lane (`text-part-copy-wrapper`): a 20 pt square holding a 14 pt
-/// glyph in its middle, 8 pt under the reply's last line. The square hangs into the gutter so
-/// at rest the glyph's ink, not its square, lines up with the reply's letters, which start
-/// about half a point inside their box.
+/// glyph in its middle, 8 pt under the reply's last line, pulled 2 pt toward the text edge when
+/// it leads the footer (`message-part.css:607-609`, `margin-inline-start: -2px`).
 pub const COPY: f32 = 20.0;
 pub const COPY_GLYPH: f32 = 14.0;
-pub const COPY_AT: (f32, f32) = (-3.5, 8.0);
+pub const COPY_AT: (f32, f32) = (-2.0, 8.0);
 
 /// A label's width at the row's 13 px Inter.
 pub fn width(label: &str) -> f32 {
