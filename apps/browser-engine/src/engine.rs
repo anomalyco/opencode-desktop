@@ -42,6 +42,7 @@ pub(crate) struct ManagedTab {
     pub(crate) cdp_id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
     pub(crate) cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
     pub(crate) passkeys: Arc<crate::passkeys::TabPasskeyGate>,
+    pub(crate) media_gate: Arc<crate::media_gate::TabMediaGate>,
     pub(crate) input_guard: Arc<Mutex<crate::input_guard::InputGuard>>,
     pub(crate) emulation_scale: Arc<std::sync::atomic::AtomicU32>,
     internal_picked: Arc<Mutex<Vec<i64>>>,
@@ -664,6 +665,9 @@ impl EngineManager {
                         ctx.as_ref(),
                         &self.permissions,
                     );
+                    for raw in t.prompts.take_gate_answers() {
+                        t.host.send_dev_tools_message(Some(raw.as_bytes()));
+                    }
                     if allow && ctx_scope.is_none() {
                         self.flush_bfcache_for_default_tabs();
                     }
@@ -1346,12 +1350,13 @@ impl EngineManager {
         let cdp_id_map = Arc::new(Mutex::new(HashMap::new()));
         let cdp_ledger = Arc::new(Mutex::new(crate::cdp_ledger::EngineCdpLedger::default()));
         let passkeys = Arc::new(crate::passkeys::TabPasskeyGate::new(tab_id, agent_driven));
+        let media_gate = Arc::new(crate::media_gate::TabMediaGate::new());
         let internal_picked = Arc::new(Mutex::new(Vec::new()));
         let pending_clears = Arc::new(Mutex::new(Vec::new()));
         let mut observer = TabCdpObserver::new(
             tab_id, is_popup, isolated, is_preview, snap.clone(), cdp_id_map.clone(),
             internal_picked.clone(), pending_clears.clone(), cdp_ledger.clone(), passkeys.clone(),
-            self.prompt_shared.clone(), input_guard.clone(), emulation_scale.clone(),
+            media_gate.clone(), self.prompt_shared.clone(), input_guard.clone(), emulation_scale.clone(),
             self.next_cdp_id.clone(), prompts.clone(), self.permissions.clone(),
             self.extensions.is_some(), self.events.clone(), self.out_tx.clone(),
         );
@@ -1360,6 +1365,7 @@ impl EngineManager {
         // released first: CEF may deliver the observer callback inside the send.
         let mut arm = cdp_ledger.lock().unwrap().arm();
         arm.extend(passkeys.attach_messages(None));
+        arm.extend(media_gate.attach_messages(None));
         if agent_driven || is_preview {
             arm.push(passkeys.file_chooser_intercept_msg(true, None));
         }
@@ -1392,6 +1398,7 @@ impl EngineManager {
                 cdp_id_map,
                 cdp_ledger,
                 passkeys,
+                media_gate,
                 input_guard,
                 emulation_scale,
                 internal_picked,
