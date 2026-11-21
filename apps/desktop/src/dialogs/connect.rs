@@ -5,7 +5,6 @@ pub use opencode_feature_connect::*;
 use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Slot};
 use opencode_kit::integration::Integration;
 use rune::Tx;
-use rune::machine::Attempt;
 use serde_json::Value;
 use session_view::pickers::Model;
 
