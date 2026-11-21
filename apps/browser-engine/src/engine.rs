@@ -1151,6 +1151,7 @@ impl EngineManager {
             scope_id,
             diagnostics,
             self.out_tx.clone(),
+            self.events.clone(),
         );
         let download_gen = self.downloads.alloc_tab_gen();
         let download_alive = Arc::new(AtomicBool::new(true));
@@ -1219,7 +1220,7 @@ impl EngineManager {
         );
         let mut client = SidecarTabClient::new(
             render, display, load, request, download, life_span, jsdialog, permission, dialog, find,
-            context_menu, crate::tab_client::TabFrameHandler::new(prompts.clone()), prompts.clone(),
+            context_menu, crate::tab_client::TabFrameHandler::new(tab_id, prompts.clone(), self.events.clone()), prompts.clone(),
         );
 
         let mut win_info = WindowInfo::default().set_as_windowless(Default::default());

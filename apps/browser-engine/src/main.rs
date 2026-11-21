@@ -101,6 +101,8 @@ pub enum Event {
         title: Option<String>,
         loading: Option<bool>,
     },
+    /// Frame-level navigation signal for `chrome.webNavigation` (main frame + subframes).
+    WebNav(extensions::web_nav::WebNavSignal),
     /// Linux: a tab's frames can't come the way they do.
     #[cfg(target_os = "linux")]
     FramesFailed(dmabuf_frames::Failure),
@@ -425,6 +427,10 @@ fn main() {
                 }
                 Event::TabMeta { tab_id, url, title, loading } => {
                     manager.on_tab_meta(tab_id, url, title, loading);
+                    true
+                }
+                Event::WebNav(sig) => {
+                    manager.on_web_navigation(sig);
                     true
                 }
             }
