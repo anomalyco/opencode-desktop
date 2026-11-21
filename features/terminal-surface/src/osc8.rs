@@ -40,8 +40,11 @@ pub fn answer(host: &mut dyn TerminalSurfaceHost, open: bool, tx: &mut Tx) {
     let Some(p) = host.terminal_mut().pending_osc8.take() else { return };
     host.on_overlay_closed(OSC8_OVERLAY_ID);
     if open {
-        let is_file = p.url.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("file://"));
-        if is_file {
+        if browser_policy::is_http_with_credentials(&p.url) {
+            return;
+        }
+        let is_file = p.url.trim().get(..5).is_some_and(|s| s.eq_ignore_ascii_case("file:"));
+        if is_file || browser_policy::is_raw_unc_href(&p.url) {
             host.open_link(&p.sid, &p.url, tx);
         } else {
             host.open_web_link(&p.sid, &p.url, p.shift, tx);
@@ -66,14 +69,40 @@ pub fn dialog<H: TerminalSurfaceHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> V
         .build(k)
         .key("terminal-osc8-confirm");
 
-    let target_box = col()
+    let display = browser_policy::format_osc8_target(&pending.url);
+    let mut target_box = col()
         .key("terminal-osc8-target")
         .w_full()
         .padding(8.0)
+        .gap(4.0)
         .radius(4.0)
         .fill(p.layer2)
-        .clip_soft(0.0)
-        .child(text(pending.url.clone()).font(CODE).color(p.text).dir(Direction::Ltr).wrap());
+        .clip_soft(0.0);
+    let has_domain = !display.registrable.is_empty();
+    if has_domain {
+        let mut host_row = row().key("terminal-osc8-host").dir(Direction::Ltr).w_full().min_w(0.0);
+        if !display.host_prefix.is_empty() {
+            host_row = host_row.child(text(display.host_prefix).font(CODE).color(p.muted));
+        }
+        host_row = host_row.child(
+            text(display.registrable)
+                .key("terminal-osc8-domain")
+                .font(TextStyle::new(CODE.size, 600.0).lh(18.0))
+                .color(p.text),
+        );
+        if !display.host_suffix.is_empty() {
+            host_row = host_row.child(text(display.host_suffix).font(CODE).color(p.muted));
+        }
+        target_box = target_box.child(host_row);
+    }
+    target_box = target_box.child(
+        text(display.url_display)
+            .key("terminal-osc8-url")
+            .font(CODE)
+            .color(if has_domain { p.muted } else { p.text })
+            .dir(Direction::Ltr)
+            .wrap(),
+    );
 
     let card = col()
         .key("terminal-osc8-dialog")
