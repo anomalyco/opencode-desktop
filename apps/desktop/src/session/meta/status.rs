@@ -184,6 +184,55 @@ impl App {
         found
     }
 
+    /// Every session id that may currently hold a pending permission or form: running sessions
+    /// plus sessions with cached permissions/forms (so reconnect clears requests answered while
+    /// offline without booting cold idle subagent locations; `UP-115` `#65120`).
+    fn request_candidates(&self) -> impl Iterator<Item = &str> {
+        self.running
+            .iter()
+            .map(String::as_str)
+            .chain(self.requests.iter().map(|(s, _)| s.as_str()))
+            .chain(self.pending.iter().map(Pending::session))
+    }
+
+    /// Unique session ids in `ancestor`'s subtree that may hold a permission or form (plus
+    /// `ancestor` itself when `include_ancestor` is true).
+    pub(crate) fn family_request_ids(&self, ancestor: &str, include_ancestor: bool) -> Vec<String> {
+        let mut ids: Vec<String> = self
+            .request_candidates()
+            .filter(|sid| *sid != ancestor && self.descends(sid, ancestor))
+            .map(str::to_owned)
+            .collect();
+        if include_ancestor || self.request_candidates().any(|sid| sid == ancestor) {
+            ids.push(ancestor.to_owned());
+        }
+        ids.sort();
+        ids.dedup();
+        ids
+    }
+
+    /// Session ids whose pending requests the Inbox reads and waits on before settling: each
+    /// working or request-holding root plus every running or request-holding descendant
+    /// (`inbox-model.ts:278-287`, `UP-115`).
+    pub(crate) fn inbox_request_ids(&self) -> Vec<String> {
+        let mut ids = Vec::new();
+        for root in self.sessions.iter().filter(|i| i.parent.is_none()) {
+            let live = self.has_live_family(&root.id);
+            let mut family: Vec<String> = self
+                .request_candidates()
+                .filter(|sid| self.root_of(sid) == root.id)
+                .map(str::to_owned)
+                .collect();
+            if live || !family.is_empty() {
+                ids.push(root.id.clone());
+                ids.append(&mut family);
+            }
+        }
+        ids.sort();
+        ids.dedup();
+        ids
+    }
+
     /// Reads `id`'s open permissions and forms, once per connection.
     pub(crate) fn read_requests(&mut self, id: &str) {
         if !matches!(&*self.source, Source::Live { requests: Some(_), .. }) || self.request_reads.is_read(id) {
@@ -193,13 +242,10 @@ impl App {
         apply_effects(self, effects, None);
     }
 
-    /// The open session's requests and those of what runs below it.
+    /// The open session's requests and those of every running or request-holding descendant.
     pub(crate) fn read_open_requests(&mut self, id: &str) {
-        let mut ids: Vec<String> = self.running.iter().filter(|r| r.as_str() != id && self.descends(r, id)).cloned().collect();
-        ids.sort();
-        ids.insert(0, id.to_owned());
-        for id in ids {
-            self.read_requests(&id);
+        for sid in self.family_request_ids(id, true) {
+            self.read_requests(&sid);
         }
     }
 
@@ -216,9 +262,22 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if !matches!(*s.source, Source::Live { requests: Some(_), .. }) {
         return false;
     }
+    // Keep the open session's running and request-holding descendants synced once `Active` or
+    // `Sessions` arrives after open/reconnect (`session/requests/model.ts:65-81`, `UP-115`).
+    let active_open = match &*s.route {
+        Route::Session { id, server }
+            if server == crate::servers::runtime::active(s) && !s.queue.starts.has(id) =>
+        {
+            Some(id.clone())
+        }
+        _ => None,
+    };
+    if let Some(open_id) = active_open.as_deref() {
+        s.read_open_requests(open_id);
+    }
     let layout = s.tab_layout();
-    // The tab strip (top or side tabs): a tab other than the shown one, whose family runs.
-    // The shown tab is its session on its server (one server listed twice has the same ids).
+    // The tab strip (top or side tabs): every session in an inactive tab's family that is running
+    // or holds cached requests (`tab-strip.tsx:516-528`, `UP-115`).
     let shown = match &*s.route {
         Route::Session { id, server } if server == crate::servers::runtime::active(s) => Some(s.root_of(id).to_owned()),
         _ => None,
@@ -229,31 +288,27 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.tabs
             .iter()
             .enumerate()
-            .filter(|(_, t)| !t.is_draft() && t.server == *crate::servers::runtime::active(s) && shown.as_deref() != Some(t.id.as_str()) && !s.request_reads.is_read(&t.id))
-            .filter(|(_, t)| s.running.iter().any(|r| s.root_of(r) == t.id))
-            .map(|(i, t)| (i, t.id.clone()))
+            .filter(|(_, t)| !t.is_draft() && t.server == *crate::servers::runtime::active(s) && shown.as_deref() != Some(t.id.as_str()))
+            .flat_map(|(i, t)| {
+                s.family_request_ids(&t.id, false)
+                    .into_iter()
+                    .filter(|sid| !s.request_reads.is_read(sid))
+                    .map(move |sid| (i, sid))
+            })
             .collect()
     };
     if !tabs.is_empty() || s.request_reads.has_scheduled() {
         let effects = s.request_reads.step(ReadEvent::SyncTabs { tabs, now });
         apply_effects(s, effects, Some(tx));
     }
-    // A live run may be waiting on a person. A saved busy timestamp is not a live run:
-    // asking for its permissions/forms can boot a cold location just to draw the Inbox.
-    // (`inbox-model.ts:234-275` syncs their permissions and forms). Home doesn't read them, as
-    // Desktop's doesn't: a working row whose requests nobody read shows its activity ring, and
-    // the unread dot once the Inbox, its tab or the stream brings them. Settings, where the
-    // layout switches to the Inbox, reads them ahead, so the Inbox's first load has settled when
-    // it shows and the active tab flies into its card rather than the Inbox showing its loader.
+    // A live run or cached-request family may be waiting on a person. A saved busy timestamp is
+    // not a live run: asking for its permissions/forms can boot a cold location just to draw the
+    // Inbox (`inbox-model.ts:278-287`, `UP-115`).
     if layout == TabLayout::Inbox || s.settings_open() {
-        let working: Vec<String> = s
-            .sessions
-            .iter()
-            .filter(|i| i.parent.is_none() && !s.request_reads.is_read(&i.id) && s.has_live_family(&i.id))
-            .map(|i| i.id.clone())
-            .collect();
-        for id in working {
-            s.read_requests(&id);
+        for id in s.inbox_request_ids() {
+            if !s.request_reads.is_read(&id) {
+                s.read_requests(&id);
+            }
         }
     }
     false
