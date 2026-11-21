@@ -287,27 +287,43 @@ local function sidebar(env: Env, view: View, sid: string, doc: DiffDocument, mar
             panel.title(env, view, sid, "review-mode-btn"),
         })
     end)
-    local headerEnd: { ui.Node } = { counts(totals.added, totals.removed) }
+    local headerEnd: { ui.Node } = {}
+    if totals.added + totals.removed > 0 then
+        table.insert(headerEnd, counts(totals.added, totals.removed))
+    end
     if totals.files == 0 then
         table.insert(headerEnd, ui.openInButton({ key = "review-open-in", path = "" }))
     end
+    local headerItems: { ui.Node } = { titleNode }
+    if #headerEnd > 0 then
+        table.insert(headerItems, ui.row({ gap = 8, align = "center" }, headerEnd))
+    end
     -- `session-review-v2-sidebar-header`: 48 tall, 46 in past the toggle, 16 from the end.
-    local header = ui.row({ key = "review-sidebar-header", w = "full", h = 48, pl = 46, pr = 16, gap = 8, align = "center" }, {
-        titleNode,
-        ui.spacer(),
-        ui.row({ gap = 8, align = "center" }, headerEnd),
-    })
+    local header = ui.row({ key = "review-sidebar-header", w = "full", h = 48, pl = 46, pr = 16, gap = 8, align = "center", justify = "between" }, headerItems)
     local filter = view:Memo("review-filter-slot", `{env.filter:Version()}:{look}`, function()
         return ui.col({ w = "full" }, {
             ui.field({ key = "review-filter", editor = env.filter, variant = "filter", placeholder = env.I18n:T("ui.sessionReviewV2.filterFiles") }),
         })
     end)
     local listVer = if query == "" then treeVer else doc:Version()
-    local list = view:Memo("review-tree-slot", `{sid}:{status}:{query}:{active or ""}:{listVer}:{look}`, function()
-        if status == "loading" then
-            return ui.col({ key = "review-tree-loading", w = "full", grow = 1, px = 10, pt = 12 }, {
-                ui.text(env.I18n:T("ui.sessionReview.image.loading"), { size = 12, lineHeight = 16, color = "text-muted" }),
+    local list = view:Memo("review-tree-slot", `{sid}:{status}:{totals.files}:{query}:{active or ""}:{listVer}:{look}`, function()
+        -- `session-review-v2-sidebar-viewport` (`padding: 4px 8px 12px`) + `px-2 py-2 text-12-regular text-text-weak` (`panel.tsx:448-462`).
+        local function sidebarMessage(key: string, words: string, isStatus: boolean): ui.Node
+            return ui.col({ key = key, role = if isStatus then "status" else nil, w = "full", grow = 1, px = 16, pt = 12, pb = 20 }, {
+                ui.text(words, { size = 13, weight = "regular", lineHeight = 19.5, color = "text-weak", wrap = true }),
             })
+        end
+        if status == "loading" then
+            return sidebarMessage("review-tree-loading", env.I18n:T("ui.sessionReview.image.loading"), false)
+        end
+        if status == "offline" then
+            return sidebarMessage("review-tree-offline", env.I18n:T("offline"), false)
+        end
+        if status == "error" then
+            return sidebarMessage("review-tree-error", env.I18n:T("load.failed"), false)
+        end
+        if totals.files == 0 then
+            return sidebarMessage("review-tree-empty", env.I18n:T("sidebar.noChanges"), true)
         end
         return ui.col({ w = "full", grow = 1, minH = 0 }, {
             ui.fileTree({

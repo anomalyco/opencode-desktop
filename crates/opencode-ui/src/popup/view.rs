@@ -234,20 +234,22 @@ fn build<S: PopupHost + 'static>(
             Entry::Sub(sub) => {
                 let o = Opt::new(row_key(&sub.id), sub.title.clone())
                     .role("menuitem")
-                    .active(active == Some(n) || open == Some(n))
+                    .active(sub.enabled && (active == Some(n) || open == Some(n)))
+                    .disabled(!sub.enabled)
                     .trailing(icon(&CHEVRON, 16.0).key("chevron").color(p.icon_muted).mirror_in_rtl());
                 let o = match sub.glyph.and_then(Glyph::mono) {
                     Some(g) => o.lead(icon(g, 16.0).color(p.icon_muted)),
                     None => o,
                 };
                 let look = if menu.card { CARD } else { MENU };
-                list.row(takes_focus(popover::option_tx::<S>(
+                let row = popover::option_tx::<S>(
                     p,
                     look,
                     o,
                     move |s, tx| hover_focus(s, level, n, tx),
                     move |s, tx| open_sub_at(s, level, n, false, tx),
-                )));
+                );
+                list.row(if sub.enabled { takes_focus(row) } else { row });
             }
         }
     }

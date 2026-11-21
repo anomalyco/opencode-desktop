@@ -63,6 +63,9 @@ fn wrap<S: PickerHost>(s: &S, p: &Pal, kind: Kind, button: El) -> El {
     // A new label resizes it and moves its neighbours in the choice, with no glide.
     let open_here = s.pickers().open() == Some(kind);
     let mut button = button.label(kind.choose_label()).motion(Spring::NONE);
+    if kind != Kind::Model {
+        button = button.expanded(open_here);
+    }
     if open_here && kind != Kind::Model {
         button = button.fill(p.pressed).hover(Color::TRANSPARENT);
     }
@@ -86,22 +89,30 @@ fn wrap<S: PickerHost>(s: &S, p: &Pal, kind: Kind, button: El) -> El {
 }
 
 /// The agent's picker folded to its mark; it still opens the agent list.
-pub fn agent_icon<S: PickerHost>(_: &S, p: &Pal, name: &str) -> El {
+pub fn agent_icon<S: PickerHost>(s: &S, p: &Pal, name: &str) -> El {
+    let open_here = s.pickers().open() == Some(Kind::Agent);
     let b = el()
         .key(Kind::Agent.key())
         .role("button")
         .label_static(opencode_i18n::t!("ui.promptInput.chooseAgent"))
-        .help(format!("{} ({name})", opencode_i18n::t!("ui.promptInput.chooseAgent")))
+        .expanded(open_here)
         .size(28.0, 28.0)
         .radius(6.0)
         .center()
         .cursor(rune::Cursor::Pointer)
-        .hover(p.hover)
-        .press(p.pressed)
         .motion(Spring::NONE)
         .focus_inset(p)
-        .child(icon(&ic::BRAIN, 16.0).color(p.icon_muted));
-    b.on_press_tx(|s: &mut S, tx: &mut Tx| open::<S>(s, Kind::Agent, tx)).press_on_down()
+        .child(icon(&ic::BRAIN, 16.0).color(if open_here { p.icon } else { p.icon_muted }))
+        .on_press_tx(|s: &mut S, tx: &mut Tx| open::<S>(s, Kind::Agent, tx))
+        .press_on_down();
+    if open_here {
+        b.fill(p.pressed)
+    } else {
+        b.help(format!("{} ({name})", opencode_i18n::t!("ui.promptInput.chooseAgent")))
+            .help_above()
+            .hover(p.hover)
+            .press(p.pressed)
+    }
 }
 
 fn open<S: PickerHost>(s: &mut S, kind: Kind, tx: &mut Tx) {

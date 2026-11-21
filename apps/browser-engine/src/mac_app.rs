@@ -83,8 +83,10 @@ unsafe extern "C" {
 
 /// A Developer ID Application signature from Anomaly's team: Apple's Developer ID intermediate
 /// (`1.2.840.113635.100.6.2.6`) and leaf (`1.2.840.113635.100.6.1.13`) marker extensions, and
-/// team `5NZ4Q7NXJ4` (the shape `apps/desktop/update-requirement.txt` pins for the app).
-const DEVELOPER_ID_REQUIREMENT: &str = "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"5NZ4Q7NXJ4\"";
+/// team `5NZ4Q7NXJ4` (the shape `apps/desktop/update-requirement.txt` pins for the app), on the
+/// engine's own bundle identifier (`scripts/package-release.sh`), so no other Anomaly binary
+/// passes for it.
+const DEVELOPER_ID_REQUIREMENT: &str = "anchor apple generic and identifier \"co.anomaly.opencode.browser-engine\" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"5NZ4Q7NXJ4\"";
 
 /// Whether the running engine is a valid Developer ID build signed by Anomaly's team
 /// (`SecCodeCheckValidity` against [`DEVELOPER_ID_REQUIREMENT`]). Only such a build opens the real

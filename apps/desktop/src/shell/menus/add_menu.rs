@@ -425,6 +425,7 @@ pub fn exit_shell_button(p: &Pal, wide: bool) -> El {
         .gap(6.0)
         .center_y()
         .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         .focus_inset(p)
@@ -480,6 +481,7 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
                 .gap(8.0)
                 .center_y()
                 .radius(4.0)
+                .cursor(rune::Cursor::Pointer)
                 .fill(if active { p.hover } else { Color::TRANSPARENT })
                 .press(p.pressed)
                 .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {

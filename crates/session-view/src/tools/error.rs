@@ -84,6 +84,7 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
         .center()
         .radius(6.0)
         .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)

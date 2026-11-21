@@ -16,9 +16,9 @@ const MAX_OBJECTS: usize = 512;
 /// Engine-sent message ids start here, far above the app's ids (CEF refuses negative ids).
 pub const INTERNAL_ID_BASE: i32 = 1_600_000_000;
 
-const EXTENSION_FRAME: &str = "Agent browser tools cannot use extension frames: the frame shows an extension's document, which runs with that extension's privileges. Omit frameID to use the page around it, or use another frame from browser.frames({tabID}).";
-const UNAVAILABLE_FRAME: &str = "Frame is unavailable. Call browser.frames({tabID}) and use a current frameID from this tab; omit frameID for the main frame.";
-const UNPREPARED: &str = "This page's frames could not be prepared for agent browser tools. Reload the page and retry.";
+pub(crate) const EXTENSION_FRAME: &str = "Agent browser tools cannot use extension frames: the frame shows an extension's document, which runs with that extension's privileges. Omit frameID to use the page around it, or use another frame from browser.frames({tabID}).";
+pub(crate) const UNAVAILABLE_FRAME: &str = "Frame is unavailable. Call browser.frames({tabID}) and use a current frameID from this tab; omit frameID for the main frame.";
+pub(crate) const UNPREPARED: &str = "This page's frames could not be prepared for agent browser tools. Reload the page and retry.";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Access {
@@ -78,6 +78,7 @@ struct Frame {
     url: Option<String>,
     origin: String,
     extension: bool,
+    rev: u64,
 }
 
 struct WebTarget {
@@ -124,6 +125,10 @@ pub struct EngineCdpLedger {
     /// The app has spoken CDP to this tab; events are forwarded only from then on.
     pub app_attached: bool,
     pub revision: u64,
+    /// Bumped only on security-relevant frame-tree transitions (main-frame commit, extension target/
+    /// frame/context change, overflow, or `Unprepared`) so unrelated background ad/analytics
+    /// subframes reloading do not cause false `InputGuard` refusals.
+    pub exclusion_revision: u64,
 }
 
 impl EngineCdpLedger {
@@ -229,6 +234,53 @@ impl EngineCdpLedger {
             }
         }
         out
+    }
+
+    pub fn is_unprepared(&self) -> bool {
+        self.state == ArmState::Unprepared
+    }
+
+    pub fn session_for_frame(&self, frame_id: &str) -> Option<String> {
+        self.frames.get(frame_id).and_then(|f| f.session.clone())
+    }
+
+    /// Scoped revision hash across `frame_id` and its ancestors up to the root; returns `None` if
+    /// any frame in the chain is missing or excluded.
+    pub fn frame_chain_rev(&self, frame_id: &str) -> Option<u64> {
+        if self.access(frame_id) != Access::Frame {
+            return None;
+        }
+        let mut acc = 1u64;
+        let mut cur = Some(frame_id);
+        let mut seen = HashSet::new();
+        for _ in 0..64 {
+            let Some(id) = cur else { break };
+            if !seen.insert(id) {
+                return None;
+            }
+            let f = self.frames.get(id)?;
+            acc = acc.wrapping_mul(31).wrapping_add(f.rev);
+            cur = f.parent.as_deref();
+        }
+        Some(acc)
+    }
+
+    /// Verifies that the main frame in `EngineCdpLedger` is prepared, non-excluded, and its tracked
+    /// `(url, origin)` satisfies `input_document` (catching `about:blank`/`about:srcdoc` inheriting
+    /// a `chrome-extension://` origin; READER-12 #444 Blocker #4).
+    pub fn main_frame_input_ok(&self) -> bool {
+        if self.state == ArmState::Unprepared || self.overflow {
+            return false;
+        }
+        let Some(mf) = self.main_frame.as_deref() else {
+            return !self.has_excluded();
+        };
+        if self.access(mf) != Access::Frame || self.extension_contexts.contains(mf) {
+            return false;
+        }
+        self.frames
+            .get(mf)
+            .is_some_and(|f| input_document(f.url.as_deref().unwrap_or(""), &f.origin))
     }
 
     fn msg(&mut self, method: &str, params: Value, session: Option<&str>, track: Option<Internal>) -> String {
@@ -505,21 +557,38 @@ impl EngineCdpLedger {
     fn upsert(&mut self, id: &str, parent: Option<String>, session: Option<&str>, url: Option<String>, origin: String, force_ext: bool) {
         let extension = force_ext || url.as_deref().is_some_and(extension_origin) || extension_origin(&origin);
         if let Some(f) = self.frames.get_mut(id) {
-            if parent.is_some() {
+            let mut changed = false;
+            if parent.is_some() && f.parent != parent {
                 f.parent = parent;
+                changed = true;
             }
-            if url.is_some() {
+            if url.is_some() && (f.url != url || f.origin != origin) {
                 f.url = url;
                 f.origin = origin;
+                changed = true;
             }
+            let newly_ext = extension && !f.extension;
             f.extension |= extension;
+            if changed || newly_ext {
+                f.rev = f.rev.wrapping_add(1);
+            }
+            if newly_ext {
+                self.exclusion_revision = self.exclusion_revision.wrapping_add(1);
+            }
             return;
         }
         if self.frames.len() >= MAX_FRAMES {
             self.overflow = true;
+            self.exclusion_revision = self.exclusion_revision.wrapping_add(1);
             return;
         }
-        self.frames.insert(id.to_owned(), Frame { parent, session: session.map(str::to_owned), url, origin, extension });
+        if extension {
+            self.exclusion_revision = self.exclusion_revision.wrapping_add(1);
+        }
+        self.frames.insert(
+            id.to_owned(),
+            Frame { parent, session: session.map(str::to_owned), url, origin, extension, rev: 1 },
+        );
     }
 
     /// Moves a web OOPIF whose document became an extension's into `extension_targets` (out of
@@ -527,6 +596,7 @@ impl EngineCdpLedger {
     /// are still auto-attached and excluded, matching `chromium.ts:1146-1157`).
     fn exclude_web_session(&mut self, sid: &str, obs: &mut Observed) {
         if let Some(w) = self.web_sessions.remove(sid) {
+            self.exclusion_revision = self.exclusion_revision.wrapping_add(1);
             self.drop_session_state(sid);
             if let Some(f) = self.frames.get_mut(&w.target) {
                 f.extension = true;
@@ -576,7 +646,9 @@ impl EngineCdpLedger {
                     if self.web_sessions.remove(sid).is_some_and(|w| w.announced) {
                         obs.forward = true;
                     }
-                    self.extension_targets.remove(sid);
+                    if self.extension_targets.remove(sid).is_some() {
+                        self.exclusion_revision = self.exclusion_revision.wrapping_add(1);
+                    }
                     self.frames.retain(|_, f| f.session.as_deref() != Some(sid));
                     self.drop_session_state(sid);
                 }
@@ -613,7 +685,11 @@ impl EngineCdpLedger {
                     && let Some(f) = self.frames.get_mut(id)
                 {
                     f.url = Some(url.to_owned());
-                    f.extension |= extension_origin(url);
+                    f.rev = f.rev.wrapping_add(1);
+                    if extension_origin(url) {
+                        f.extension = true;
+                        self.exclusion_revision = self.exclusion_revision.wrapping_add(1);
+                    }
                 }
             }
             "Page.frameDetached" => {
@@ -722,6 +798,7 @@ impl EngineCdpLedger {
         if extension {
             // Stays attached and paused-free, out of every agent path (`chromium.ts:1146-1157`).
             // Fetch its frame tree too so same-process child frames under it are marked excluded.
+            self.exclusion_revision = self.exclusion_revision.wrapping_add(1);
             self.extension_targets.insert(child.to_owned(), target.clone());
             let tree = Some(Internal::Tree { session: Some(child.to_owned()) });
             obs.send.push(self.msg("Page.getFrameTree", json!({}), Some(child), tree));
@@ -751,6 +828,7 @@ impl EngineCdpLedger {
         if session.is_none() && parent.is_none() {
             // The main frame committed: a fresh document, so drop stale root-owned frames and
             // root-owned extension contexts; re-arm if needed, refetch tree if the first fetch failed.
+            self.exclusion_revision = self.exclusion_revision.wrapping_add(1);
             self.extension_contexts.retain(|fid| self.frames.get(fid).is_some_and(|f| f.session.is_some()));
             self.frames.retain(|_, f| f.session.is_some());
             self.overflow = false;
@@ -794,7 +872,9 @@ impl EngineCdpLedger {
         if extension_origin(ctx.get("origin").and_then(Value::as_str).unwrap_or("")) {
             // A frame that becomes an extension's document is no target (`chromium.ts:1112-1126`).
             self.contexts.retain(|_, f| f != fid);
-            self.extension_contexts.insert(fid.to_owned());
+            if self.extension_contexts.insert(fid.to_owned()) {
+                self.exclusion_revision = self.exclusion_revision.wrapping_add(1);
+            }
             match self.web_sessions.iter().find(|(_, w)| w.target == fid).map(|(s, _)| s.clone()) {
                 Some(sid) => self.exclude_web_session(&sid, obs),
                 None => obs.excluded.push((fid.to_owned(), session.map(str::to_owned))),
@@ -845,6 +925,7 @@ impl EngineCdpLedger {
     /// throttles) and resumes every known child; re-armed on the next main-frame commit.
     fn unprepare(&mut self) -> Vec<String> {
         self.state = ArmState::Unprepared;
+        self.exclusion_revision = self.exclusion_revision.wrapping_add(1);
         self.internal.clear();
         let sessions: Vec<String> = self.web_sessions.keys().chain(self.extension_targets.keys()).cloned().collect();
         let mut out: Vec<String> = sessions
@@ -912,7 +993,7 @@ fn inherits_origin(url: &str) -> bool {
 }
 
 /// Documents that may receive agent input (`policy.ts:216-222`), without `file://` (`#303` bans it).
-fn input_document(url: &str, origin: &str) -> bool {
+pub(crate) fn input_document(url: &str, origin: &str) -> bool {
     if extension_origin(origin) || extension_origin(url) {
         return false;
     }
