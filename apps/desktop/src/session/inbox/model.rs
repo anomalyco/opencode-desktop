@@ -454,6 +454,16 @@ impl Branches {
         for dir in dirs { if !dir.is_empty() { self.by_dir.entry(dir).or_insert(Branch::Observed); } }
     }
 
+    /// Queues a branch lookup once for an explicit draft on screen (`Route::Draft(_)`), without
+    /// retrying `Failed` on every poll.
+    fn enqueue_draft(&mut self, dir: Option<String>) {
+        let Some(dir) = dir.filter(|d| !d.is_empty()) else { return };
+        if matches!(self.by_dir.get(&dir), None | Some(Branch::Observed)) {
+            self.by_dir.insert(dir.clone(), Branch::Queued { failures: 0 });
+            self.queue.push(dir);
+        }
+    }
+
     /// A deliberate operation (choosing a draft folder or entering its picker) needs its branch.
     pub(crate) fn enqueue(&mut self, dirs: impl IntoIterator<Item = String>) {
         for dir in dirs {
@@ -609,15 +619,15 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if s.sidebar_inbox.asked.keys().any(|id| !s.requests.iter().any(|(_, r)| r == id)) {
         s.sidebar_inbox.asked.retain(|id, _| s.requests.iter().any(|(_, r)| r == id));
     }
-    // The new-session page names its folder's branch the same way (`NewSessionBranch`).
-    let draft = matches!(*s.route, crate::Route::Draft(_)).then(|| s.draft_dir().to_owned());
+    // The new-session page names its folder's branch (`NewSessionBranch`); an explicit draft on
+    // screen always loads its branch, while passive Home/Inbox rows stay on `observe`.
+    let draft_dir = matches!(*s.route, crate::Route::Draft(_)).then(|| s.draft_dir().to_owned());
     // So does a Home row under the pointer, as Desktop syncs a row's location on hover.
     let hs = s.kernel.slots.get(&crate::home_search::HOME_SEARCH);
     let hovered = (s.route == crate::Route::Home)
         .then(|| hs.hovered.as_deref().and_then(|id| s.session(id).or_else(|| hs.loaded.iter().find(|x| x.id == id))))
         .flatten()
         .map(|i| i.directory.clone());
-    let draft: Option<String> = draft.or(hovered);
     // Alt held on Home shows every row's location, so their branches load (`alt-hold.ts`).
     let revealed: Vec<String> = if s.route == crate::Route::Home && hs.alt_held {
         s.home_sessions(None).iter().map(|i| i.directory.clone()).collect()
@@ -625,10 +635,11 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         Vec::new()
     };
     if s.tab_layout() != TabLayout::Inbox {
-        if draft.is_none() && revealed.is_empty() {
+        if draft_dir.is_none() && hovered.is_none() && revealed.is_empty() {
             return false;
         }
-        s.sidebar_inbox.branches.observe(draft.into_iter().chain(revealed));
+        s.sidebar_inbox.branches.enqueue_draft(draft_dir);
+        s.sidebar_inbox.branches.observe(hovered.into_iter().chain(revealed));
         let waker = (*s.waker).clone();
         return s.sidebar_inbox.branches.poll(&s.source, waker.as_ref(), now, tx);
     }
@@ -662,7 +673,8 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     tx.wake_after(Duration::from_millis((step - s.now_ms.rem_euclid(step)).max(1) as u64));
-    s.sidebar_inbox.branches.observe(dirs.into_iter().chain(draft).chain(revealed));
+    s.sidebar_inbox.branches.enqueue_draft(draft_dir);
+    s.sidebar_inbox.branches.observe(dirs.into_iter().chain(hovered).chain(revealed));
     let waker = (*s.waker).clone();
     changed |= s.sidebar_inbox.branches.poll(&s.source, waker.as_ref(), now, tx);
     changed
