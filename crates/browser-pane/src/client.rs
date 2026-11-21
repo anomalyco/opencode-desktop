@@ -1256,6 +1256,15 @@ impl BrowserHost {
         if self.tab(tab_id).is_some_and(|t| t.prompts.has_blocking_modal()) {
             return false;
         }
+        if ev.key == Key::Escape
+            && !(ev.mods.ctrl || ev.mods.cmd || ev.mods.alt || ev.mods.shift)
+            && self.tab(tab_id).is_some_and(|t| t.inspecting)
+        {
+            if down {
+                self.toggle_inspect(tab_id);
+            }
+            return true;
+        }
         if self.shell_shortcut.map_or_else(|| is_shell_shortcut(ev), |f| f(ev)) {
             return false;
         }
