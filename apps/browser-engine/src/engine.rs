@@ -1203,7 +1203,13 @@ impl EngineManager {
             prompts.clone(),
             self.out_tx.clone(),
         );
-        let find = crate::find::TabFindHandler::new(tab_id, self.out_tx.clone());
+        let find = crate::find::TabFindHandler::new(
+            tab_id,
+            self.out_tx.clone(),
+            std::sync::atomic::AtomicI32::new(-1),
+            std::sync::atomic::AtomicI32::new(0),
+            std::sync::atomic::AtomicI32::new(0),
+        );
         let context_menu = crate::menu::TabContextMenuHandler::new(
             tab_id,
             self.prompt_shared.clone(),
