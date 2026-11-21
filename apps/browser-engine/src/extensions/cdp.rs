@@ -286,6 +286,9 @@ impl ExtensionHost {
         let mut effects = Vec::new();
         self.probe_in_flight.clear();
         self.pending_rpcs.clear();
+        for (ext_id, ids) in std::mem::take(&mut self.notifications) {
+            effects.extend(ids.into_iter().map(|notif_id| ExtEffect::NotificationClear { ext_id: ext_id.clone(), notif_id }));
+        }
         if !self.filters_ready_emitted {
             self.filters_ready_emitted = true;
             effects.push(ExtEffect::FiltersReady);

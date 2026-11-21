@@ -164,7 +164,8 @@ impl NotificationsHost for App {
     }
 
     fn takes_extension_clicks(&self) -> bool {
-        self.workspace_panes.browser.host.engine_extensions()
+        let host = &self.workspace_panes.browser.host;
+        host.engine_extensions() && matches!(host.status(), browser_pane::EngineStatus::Ready)
     }
 }
 

@@ -216,19 +216,33 @@ impl Notifier {
 
 /// Takes every browser-extension toast out of the system's list (Settings > Notifications turned
 /// off, or the engine that posted them is gone), answering `(extension id, notification id)` of each.
+/// A closed window's extension toasts go too: no engine is left to hear their clicks.
 pub fn clear_all_extensions(host: &mut dyn NotificationsHost) -> Vec<(String, String)> {
+    if COORDINATOR.with_borrow(|c| c.ext_shown.is_empty()) {
+        return Vec::new();
+    }
     let window = host.window_id().to_owned();
+    let gone: Vec<String> = COORDINATOR.with_borrow(|c| {
+        c.ext_shown
+            .iter()
+            .map(|(.., owner)| owner)
+            .filter(|owner| **owner != window && !host.window_exists(owner))
+            .cloned()
+            .collect()
+    });
     let SinkState::Ready(sink) = &mut host.notifier_mut().state else {
         return Vec::new();
     };
     COORDINATOR.with_borrow_mut(|c| {
         let mut cleared = Vec::new();
         c.ext_shown.retain(|(os_id, ext, notif, owner)| {
-            if *owner != window {
+            if *owner != window && !gone.contains(owner) {
                 return true;
             }
             sink.remove(os_id);
-            cleared.push((ext.clone(), notif.clone()));
+            if *owner == window {
+                cleared.push((ext.clone(), notif.clone()));
+            }
             false
         });
         cleared
