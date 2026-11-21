@@ -105,7 +105,7 @@ impl Future for Receive {
         }
         let again = this.polls > 1;
         if st.pause.is_some() {
-            st.held.push(cx.waker().clone());
+            st.hold(cx.waker());
             if again {
                 st.watch.repolled(now, true);
             }
@@ -187,7 +187,7 @@ impl Future for Sleep {
         }
         let again = this.polls > 1;
         if st.pause.is_some() {
-            st.held.push(cx.waker().clone());
+            st.hold(cx.waker());
             if again {
                 st.watch.repolled(now, true);
             }
@@ -262,7 +262,7 @@ impl Future for Fetch {
             };
         }
         if st.pause.is_some() {
-            st.held.push(cx.waker().clone());
+            st.hold(cx.waker());
             if again {
                 st.watch.repolled(now, true);
             }

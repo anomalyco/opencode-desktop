@@ -139,6 +139,13 @@ pub(super) struct St {
 }
 
 impl St {
+    /// A future polled while paused waits here until the resume (once, however often it's polled).
+    pub fn hold(&mut self, waker: &Waker) {
+        if !self.held.iter().any(|w| w.will_wake(waker)) {
+            self.held.push(waker.clone());
+        }
+    }
+
     /// The program's running time at `now`, in ms.
     pub fn running(&self, now: Instant) -> f64 {
         let mut d = now.saturating_duration_since(self.started).saturating_sub(self.paused_total);
@@ -405,6 +412,9 @@ impl Link {
                 if let Some((_, w)) = st.waiters.front() {
                     w.wake_by_ref();
                 }
+                // The pause held it, not its own work: its 50 ms start again now.
+                st.watch.last_stop = now;
+                st.watch.kicked = None;
             }
         }
         drop(st);
@@ -440,7 +450,8 @@ impl Link {
             return next;
         }
         if let Some(since) = st.pause {
-            // Paused, timers don't fire; a run still busy when it paused is still watched.
+            // Paused, timers don't fire; a run still busy when it paused is still watched, and its
+            // kicks reach the futures the pause holds.
             if matches!(st.run, Run::Alive) && st.watch.idle {
                 let at = since + SAVE_AFTER;
                 if now >= at {
@@ -472,7 +483,9 @@ impl Link {
                 return next;
             }
             if st.watch.kicked.is_none() && busy >= KICK_AFTER {
-                let kick = st.waiters.front().map(|(_, w)| w).or_else(|| st.timers.values().next()).or_else(|| st.fetches.values().next()).cloned();
+                // A future first polled while paused waits only in `held`: kicked there too, or a
+                // run at rest behind the pause would look busy and be stopped.
+                let kick = st.waiters.front().map(|(_, w)| w).or_else(|| st.timers.values().next()).or_else(|| st.fetches.values().next()).or_else(|| st.held.first()).cloned();
                 if let Some(w) = kick {
                     st.watch.kicked = Some(st.watch.wakes);
                     w.wake();
