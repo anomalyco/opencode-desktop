@@ -292,11 +292,15 @@ fn file_header_wrap(pal: &Pal, st: &DiffDocState, f: usize, sticky: bool, full_p
     if let (false, Some(w)) = (sticky, view_w(st)) {
         h = h.w(w).sticky_left(0.0);
     }
-    // Stacked under the file before it, a rule as its own bottom one parts them.
-    if f > 0 && !sticky {
-        h = h.child(el().key("top-rule").w_full().h(1.0).fill(pal.border));
+    h = h.child(inner);
+    // Stacked under a rendered file before it (never on the first rendered file, including
+    // single-file preview where `st.only == Some(f)` and `f > 0`), pin a 1 pt top rule so it does
+    // not shift `inner` down 1 pt and clip its bottom border (`session-review-v2.css:374`).
+    let has_prev = !sticky && st.rows.first() != Some(&super::state::DiffRow::File(f as u32));
+    if has_prev {
+        h = h.child(el().key("top-rule").pin(Some(0.0), Some(0.0), Some(0.0), None).h(1.0).fill(pal.border));
     }
-    h.child(inner)
+    h
 }
 
 impl<S: 'static> Inner<S> {
