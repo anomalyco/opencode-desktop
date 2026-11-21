@@ -247,7 +247,10 @@ impl App {
     pub fn close_tab(&mut self, key: &str, tx: &mut Tx) {
         tx.instant();
         let Some(i) = self.tab_at(key) else { return };
-        let shown = self.current_tab() == Some(self.tabs[i].uid());
+        crate::tabs::groups::remember_auto(self);
+        let uid = self.tabs[i].uid();
+        let shown = self.current_tab().as_deref() == Some(uid.as_str());
+        let next_visible = if shown { crate::tabs::groups::next_visible_after_closing(self, &uid) } else { None };
         let tab = self.tabs.remove(i);
         let (id, server) = (tab.id.clone(), tab.server.clone());
         match tab.kind {
@@ -284,7 +287,7 @@ impl App {
             }
         }
         if shown {
-            match self.tabs.get(i).or_else(|| self.tabs.get(i.wrapping_sub(1))).map(Tab::uid) {
+            match next_visible.or_else(|| self.tabs.get(i).or_else(|| self.tabs.get(i.wrapping_sub(1))).map(Tab::uid)) {
                 Some(next) => self.select_tab(&next, tx),
                 None => {
                     self.close_picker(false);
