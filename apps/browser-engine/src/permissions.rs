@@ -146,11 +146,21 @@ pub fn reset_content_setting(ctx: &RequestContext, origin: &str, kind: Permissio
     }
 }
 
-/// Locks all 7 hardware-device and File System Access guards to `BLOCK` on `Default`'s global context.
+/// On `Default`'s global context: locks the 5 hardware-device guards to `BLOCK`, and leaves the 2
+/// File System Access guards at Chrome's `ASK`. With `ASK`, the person's own `showOpenFilePicker`,
+/// `showSaveFilePicker` and `showDirectoryPicker` open the system picker, as in official (Electron's
+/// `CanShowFilePicker` and `CanObtainRead/WritePermission` allow them). An agent's pickers are still
+/// cancelled by the renderer intercept and `on_file_dialog` (`TabPrompts::agent_owns_dialogs`).
+/// `ASK` is set rather than left alone, so profiles that #305 locked to `BLOCK` open again.
+/// Isolated contexts keep all 7 at `BLOCK` (`block_device_permission_guards_for_origin`).
 pub fn block_device_permission_guards(ctx: &RequestContext) {
-    let block = sys::cef_content_setting_values_t::CEF_CONTENT_SETTING_VALUE_BLOCK;
+    use sys::cef_content_setting_types_t as C;
+    use sys::cef_content_setting_values_t as V;
     for ct in DEVICE_GUARD_TYPES {
-        ctx.set_content_setting(None, None, ct.into(), block.into());
+        let file_system = ct == C::CEF_CONTENT_SETTING_TYPE_FILE_SYSTEM_READ_GUARD
+            || ct == C::CEF_CONTENT_SETTING_TYPE_FILE_SYSTEM_WRITE_GUARD;
+        let value = if file_system { V::CEF_CONTENT_SETTING_VALUE_ASK } else { V::CEF_CONTENT_SETTING_VALUE_BLOCK };
+        ctx.set_content_setting(None, None, ct.into(), value.into());
     }
 }
 
