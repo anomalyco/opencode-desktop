@@ -219,9 +219,12 @@ pub fn quitting(s: &mut App) {
             links.push(link(&scheme, &dir, Some(&prompt)));
         }
     }
-    if !links.is_empty() {
-        rune::hand_on(links);
+    if links.is_empty() {
+        return;
     }
+    // With this process's own options, as a relaunch starts it (`Tx::relaunch`), less its links.
+    let own = format!("{scheme}://");
+    rune::hand_on(std::env::args_os().skip(1).map(|a| a.to_string_lossy().into_owned()).filter(|a| !a.to_ascii_lowercase().starts_with(&own)).chain(links).collect());
 }
 
 /// `quitting`: browsers hand the app no links to carry over.
