@@ -30,7 +30,7 @@ struct ConsoleGroup {
 }
 
 fn console_group(s: &dyn SettingsHost) -> Option<ConsoleGroup> {
-    let providers = s.connected_providers();
+    let providers = s.provider_rows(None);
     let root = providers.iter().find(|p| p.id == "opencode" && p.integration.as_deref() == Some("opencode"))?;
     let workspace = root.name.strip_suffix(" / OpenCode")?.trim();
     if workspace.is_empty() {
@@ -159,7 +159,7 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
             {
                 if !emitted_console {
                     emitted_console = true;
-                    let nested: Vec<(&String, &Vec<&Model>)> = groups.iter().filter(|(id, _)| cg.ids.contains(id)).collect();
+                    let nested: Vec<(&String, &Vec<&Model>)> = groups.iter().filter(|(id, _)| cg.ids.contains(id)).map(|(id, ms)| (id, ms)).collect();
                     let open = searching || !s.settings_pages().collapsed.get(s).contains(CONSOLE_GROUP_KEY);
                     body = body.child(console_section(s, p, cg, &nested, open, searching));
                 }
@@ -258,7 +258,7 @@ fn console_section<H: SettingsHost + PopupHost + 'static>(
             .pin(Some(-4.0), Some(0.0), None, Some(0.0))
             .w(20.0)
             .hover_group()
-            .child(el().pin(Some(4.0), Some(0.0), None, Some(0.0)).w(1.0).fill(p.border.alpha(0.5)).group_fill(p.border));
+            .child(el().pin(Some(4.0), Some(0.0), None, Some(0.0)).w(1.0).fill(p.border).group_opacity(0.5, 1.0));
         if !searching {
             rail = rail.on_press_tx(|s: &mut H, tx: &mut Tx| toggle_provider_fold(s, CONSOLE_GROUP_KEY, tx));
         }
