@@ -29,8 +29,11 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
             if instant {
                 tx.instant();
             }
-            if app.active_session_id().is_some() {
+            if let Some(sid) = app.active_session_id().map(str::to_owned) {
                 app.open_side_tab(&tab_key(plugin, &panel, instance.as_deref()), None, false, false, tx);
+                if plugin.as_ref() == "review" && panel == "changes" {
+                    crate::plugin_host::native::diff::open_review(app, &sid);
+                }
             }
         }
         Request::TogglePanel { panel, session, instant } => {
@@ -44,6 +47,9 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
                 app.close_side_tab(&key, tx);
             } else {
                 app.open_side_tab(&key, None, false, false, tx);
+                if plugin.as_ref() == "review" && panel == "changes" {
+                    crate::plugin_host::native::diff::open_review(app, &session);
+                }
             }
         }
         Request::ClosePanel { panel, .. } => app.close_side_tab(&tab_key(plugin, &panel, None), tx),

@@ -30,7 +30,9 @@ pub fn tag(p: &Pal, label: &str, danger: bool) -> El {
         .border(0.5, border)
         .border_layout()
         .fill(fill)
-        .child(text(label.to_owned()).font(TAG).color(ink))
+        // `badge.css:15-17` (`11px / line-height: 1` inside 16 pt box): nudge +1 pt so Inter's
+        // 11 pt cap-height centers on the same pixel baseline as Chromium (`y+3..y+10`).
+        .child(text(label.to_owned()).font(TAG).color(ink).offset(0.0, 1.0))
 }
 
 const TAG: rune::TextStyle = rune::TextStyle::new(11.0, 530.0).lh(11.0).tracking(0.05);

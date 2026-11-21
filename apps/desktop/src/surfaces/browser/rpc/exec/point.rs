@@ -413,7 +413,7 @@ fn check_call_val(resp: Result<Value, Value>) -> Result<Value, Outcome> {
             .and_then(Value::as_str)
             .or_else(|| ex.get("text").and_then(Value::as_str))
             .unwrap_or("Page script error");
-        if desc.starts_with("Error: browser.detached_ref") {
+        if super::is_detached_ref(desc) {
             return Err(Outcome::fail(
                 failure_code::STALE_REF,
                 "Element is no longer attached to the page. Refresh the snapshot first.",
@@ -421,7 +421,7 @@ fn check_call_val(resp: Result<Value, Value>) -> Result<Value, Outcome> {
         }
         return Err(Outcome::fail(
             failure_code::OPERATION_FAILED,
-            super::page_exception(desc, "The page's JavaScript threw while the browser tool located the element."),
+            super::page_exception(desc, "The page's JavaScript threw while the browser tool located the element.", false),
         ));
     }
     Ok(val.get("result").and_then(|r| r.get("value")).cloned().unwrap_or(Value::Null))

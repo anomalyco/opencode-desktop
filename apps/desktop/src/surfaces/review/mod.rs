@@ -133,6 +133,18 @@ impl App {
         ensure_session(self, session_id);
     }
 
+    pub fn prefetch_review_vcs(&mut self, directory: &str) {
+        prefetch_vcs(self, directory);
+    }
+
+    pub fn refresh_review_on_open(&mut self, session_id: &str) {
+        refresh_on_open(self, session_id);
+    }
+
+    pub fn note_review_branch_updated(&mut self, directory: &str, branch: Option<String>) {
+        note_branch_updated(self, directory, branch);
+    }
+
     /// Compares `mode` in the routed session's review.
     pub fn set_review_change_mode(&mut self, mode: ChangeMode) {
         set_mode(self, mode);
