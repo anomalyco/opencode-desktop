@@ -391,6 +391,7 @@ impl App {
                 .map(|(k, _)| k.clone())
                 .filter(|id| !self.stops.pending(id))
                 .collect();
+            self.stops.active_sync.mark_boot_synced();
         }
         crate::windows::peer::touch(self);
         // A fresh profile has used no projects yet: Home lists none, as Desktop's
