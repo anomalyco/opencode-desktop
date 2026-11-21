@@ -654,6 +654,11 @@ pub enum EngineMsg {
     FileChooserBlocked {
         tab_id: u64,
     },
+    /// The person's Copy image: the image under the menu as PNG (base64), for the app's clipboard.
+    CopiedImage {
+        tab_id: u64,
+        png_b64: String,
+    },
     /// A tab whose first navigation became the person's download, now placed (or cancelled).
     DownloadOnlyTab {
         tab_id: u64,

@@ -651,6 +651,14 @@
       { "name": "disabled", "type": "boolean?", "doc": "Cannot change." },
       { "name": "onChange", "type": "UiHandler?", "doc": "Runs with the new state in `event.checked`." }
     ] },
+    { "name": "UiCheckboxProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.checkbox` props: Desktop's compact checkbox (`Checkbox appearance=\"compact\"`) with its label.", "fields": [
+      { "name": "text", "type": "string", "doc": "The label, beside the box." },
+      { "name": "description", "type": "string?", "doc": "A line under the label." },
+      { "name": "checked", "type": "boolean", "doc": "Ticked." },
+      { "name": "surface", "type": "(\"base\" | \"layer-1\")?", "doc": "The background the box sits on: `base` (the default) or `layer-1`, as Desktop's `surface`; an unticked box takes its fill." },
+      { "name": "disabled", "type": "boolean?", "doc": "Cannot change; drawn at half opacity." },
+      { "name": "onChange", "type": "UiHandler?", "doc": "Runs with the new state in `event.checked`." }
+    ] },
     { "name": "UiRadioProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.radio` props: a radio row with its label and description.", "fields": [
       { "name": "text", "type": "string", "doc": "The row's label." },
       { "name": "description", "type": "string?", "doc": "A line under the label." },
@@ -1963,6 +1971,7 @@
     { "name": "button", "category": "control", "sig": "(props: UiButtonProps) -> UiNode", "props": "UiButtonProps", "doc": "The app's own button." },
     { "name": "iconButton", "category": "control", "sig": "(props: UiIconButtonProps) -> UiNode", "props": "UiIconButtonProps", "doc": "The app's own icon button." },
     { "name": "switch", "category": "control", "sig": "(props: UiSwitchProps) -> UiNode", "props": "UiSwitchProps", "doc": "The app's own switch." },
+    { "name": "checkbox", "category": "control", "since": "1.7", "sig": "(props: UiCheckboxProps) -> UiNode", "props": "UiCheckboxProps", "doc": "Desktop's compact checkbox with its label." },
     { "name": "radio", "category": "control", "sig": "(props: UiRadioProps) -> UiNode", "props": "UiRadioProps", "doc": "A radio row." },
     { "name": "field", "category": "control", "sig": "(props: UiFieldProps) -> UiNode", "props": "UiFieldProps", "doc": "The app's own text field." },
     { "name": "segmented", "category": "control", "sig": "(props: UiSegmentedProps) -> UiNode", "props": "UiSegmentedProps", "doc": "The app's segmented control." },
