@@ -270,7 +270,7 @@ impl App {
         self.project_state.home_menu_open = false;
         *self.default_dir = dir.to_owned();
         *self.opening = None;
-        self.open_draft_tab();
+        self.open_new_session_draft(false);
         tx.settle();
     }
 

@@ -202,6 +202,28 @@ impl App {
         id
     }
 
+    /// New session's draft. The inbox lists no drafts, so a new one would hide the last, words and
+    /// all: there it takes back the newest draft with something in it (with `any_folder`, from any
+    /// folder; else only `default_dir`'s), then an empty one in `default_dir`, before adding one.
+    pub(crate) fn open_new_session_draft(&mut self, any_folder: bool) -> String {
+        if self.tab_layout() != crate::layout_state::TabLayout::Inbox {
+            return self.open_draft_tab();
+        }
+        let server = crate::servers::runtime::current();
+        let dir = crate::projects::clean_dir(&self.default_dir);
+        let drafts = || self.tabs.iter().rev().filter(|t| t.is_draft() && t.server == server);
+        let here = |t: &&Tab| crate::projects::clean_dir(&t.directory) == dir;
+        let kept = drafts()
+            .find(|t| (any_folder || here(t)) && self.draft_has_content(&t.id))
+            .or_else(|| drafts().find(here))
+            .map(|t| t.id.clone());
+        let Some(id) = kept else { return self.open_draft_tab() };
+        *self.route = Route::Draft(id.clone());
+        let _ = self.show_draft();
+        self.composer.focused = self.fixture_run.stage.is_none() && !session_view::style::touch_controls();
+        id
+    }
+
     /// Shows tab `key` (`tab_at`): a session tab opens its session, a draft tab its new-session
     /// page.
     pub fn select_tab(&mut self, key: &str, tx: &mut Tx) {

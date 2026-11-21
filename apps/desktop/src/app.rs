@@ -714,7 +714,7 @@ impl App {
             *self.default_dir = dir;
         }
         *self.opening = None;
-        self.open_draft_tab();
+        self.open_new_session_draft(true);
         if self.fixture_run.stage.is_none() && auto_focus_composer(tx) {
             self.composer.focused = true;
         }
