@@ -437,6 +437,7 @@ wrap_dev_tools_message_observer! {
         cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
         passkeys: Arc<crate::passkeys::TabPasskeyGate>,
         media_gate: Arc<crate::media_gate::TabMediaGate>,
+        context_ready: Arc<std::sync::atomic::AtomicBool>,
         prompt_shared: crate::prompts::PromptShared,
         input_guard: Arc<Mutex<crate::input_guard::InputGuard>>,
         emulation_scale: Arc<std::sync::atomic::AtomicU32>,
@@ -515,7 +516,9 @@ wrap_dev_tools_message_observer! {
                 return;
             }
             if let CdpPending::CopyImageContent { .. } | CdpPending::CopyImageWorld { .. } | CdpPending::CopyImageEncode = pending {
-                if success != 0 {
+                // A reply larger than any image the engine sends on is dropped before it is parsed.
+                let fits = result.is_some_and(|b| b.len() <= crate::menu_extras::MAX_COPIED_IMAGE_B64 + 65_536);
+                if success != 0 && fits {
                     let val = result.and_then(|b| serde_json::from_slice::<Value>(b).ok()).unwrap_or(Value::Null);
                     self.copy_image_step(browser.as_deref(), pending, &val);
                 }
@@ -806,7 +809,7 @@ wrap_dev_tools_message_observer! {
             obs.send.extend(pk_send);
             let (mg_consumed, mg_ask) = self.media_gate.observe_event(&method, &params, session_id.as_deref());
             if let Some(ask) = mg_ask {
-                if let Some(deny) = self.hold_media_ask(ask) {
+                if let Some(deny) = self.hold_media_ask(browser.as_deref(), ask) {
                     obs.send.push(deny);
                 }
             }
@@ -895,10 +898,19 @@ impl TabCdpObserver {
     /// Holds a gated `getUserMedia` for the bar, or returns the deny answer to send at once: a
     /// preview tab, prompts off, an unknown or insecure context, or an embedded frame of another
     /// origin (the same rules as `TabPermissionHandler::on_request_media_access_permission`).
-    fn hold_media_ask(&self, ask: crate::media_gate::MediaAsk) -> Option<String> {
-        let top = crate::prompts::origin_of(&self.snap.lock().unwrap().url);
+    fn hold_media_ask(&self, browser: Option<&Browser>, ask: crate::media_gate::MediaAsk) -> Option<String> {
+        // The live main frame, as `on_request_media_access_permission` reads it: the snapshot can
+        // lag a navigation that just committed.
+        let live = browser
+            .and_then(cef::ImplBrowser::main_frame)
+            .map(|f| cef::CefString::from(&cef::ImplFrame::url(&f)).to_string());
+        let top = live
+            .filter(|u| !u.trim().is_empty())
+            .or_else(|| Some(self.snap.lock().unwrap().url.clone()))
+            .and_then(|u| crate::prompts::origin_of(&u));
         let origin = ask.origin.as_deref().and_then(crate::prompts::origin_of);
         let ok = !self.is_preview
+            && self.context_ready.load(std::sync::atomic::Ordering::Acquire)
             && self.prompt_shared.enabled.load(std::sync::atomic::Ordering::Relaxed)
             && origin.is_some()
             && origin == top
@@ -913,8 +925,7 @@ impl TabCdpObserver {
             kinds: ask.kinds,
             is_media: true,
         };
-        self.prompts.hold_media_gate(self.tab_id, prompt, ask.allow_msg, ask.deny_msg, &self.out_tx);
-        None
+        self.prompts.hold_media_gate(self.tab_id, prompt, ask.allow_msg, ask.deny_msg, &self.out_tx)
     }
 
     fn surface(&self, browser: Option<&Browser>) -> crate::engine::Surface {

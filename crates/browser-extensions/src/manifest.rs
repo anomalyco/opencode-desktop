@@ -30,17 +30,14 @@ const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const MAX_LIST_ITEMS: usize = 256;
 const MAX_ITEM_CHARS: usize = 256;
 
-/// Native Chromium permissions refused at load/approval because they can bypass the extension
-/// host boundary (`debugger` attaches CDP to any tab; `nativeMessaging` launches host binaries;
-/// `downloads` writes to the user's Downloads folder; `proxy` MITMs all traffic; `management`
-/// disables or uninstalls other extensions). Checked on required `permissions` only (never
-/// `optional_permissions`, which Chromium does not grant at install and our shim refuses).
+/// Native Chromium permissions still refused at install/load because they bypass the extension
+/// host boundary (`debugger` attaches CDP to any tab; `proxy` MITMs all traffic).
+/// `nativeMessaging`, `downloads`, and `management` are stripped from Chromium's C++
+/// `PermissionsData` at load time (with fail-closed post-load verification) and answered by dead
+/// stubs, so extensions declaring them install as `Partial` matching official Electron.
 pub const DISALLOWED_REQUIRED_PERMS: &[&str] = &[
     "debugger",
-    "nativeMessaging",
-    "downloads",
     "proxy",
-    "management",
 ];
 
 /// Parsed fields of an extension's `manifest.json` (`extensions.ts:15-44`).
@@ -333,6 +330,7 @@ const FEATURE_ORDER: &[ExtensionFeature] = &[
     ExtensionFeature::Signin,
     ExtensionFeature::Network,
     ExtensionFeature::BrowserData,
+    ExtensionFeature::Management,
     ExtensionFeature::Settings,
     ExtensionFeature::AddressBar,
     ExtensionFeature::NewTab,
@@ -418,6 +416,7 @@ fn permission_feature(perm: &str) -> Option<ExtensionFeature> {
         | "downloads"
         | "downloads.open"
         | "downloads.ui" => ExtensionFeature::BrowserData,
+        "management" => ExtensionFeature::Management,
         "privacy" | "fontSettings" | "contentSettings" | "browsingData" => ExtensionFeature::Settings,
         "userScripts" => ExtensionFeature::UserScripts,
         _ => ExtensionFeature::Other,
@@ -515,9 +514,6 @@ pub fn extension_access(manifest: &Manifest) -> Vec<ExtensionAccess> {
         .any(|p| matches!(p.as_str(), "clipboardRead" | "clipboardWrite"))
     {
         out.push(ExtensionAccess::Clipboard);
-    }
-    if manifest.permissions.iter().any(|p| p == "management") {
-        out.push(ExtensionAccess::ManageExtensions);
     }
     if !manifest.externally_connectable.is_empty() {
         out.push(ExtensionAccess::ExternalConnect);

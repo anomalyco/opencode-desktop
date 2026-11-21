@@ -158,13 +158,15 @@ impl ExtensionHost {
                                 json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
                                 json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Page.enable", "params": {} }),
                                 auto_attach_cmd(self.alloc_id(), &sid),
-                                fetch_enable_cmd(fetch_id, &sid),
                             ];
                             if kind != SessionKind::SeedProbe {
-                                let code = shim_source(kind == SessionKind::PopupPage);
+                                let ext_id = self.sessions.get(&sid).map(|s| s.ext_id.clone()).unwrap_or_default();
+                                let perms = self.extensions.get(&ext_id).map(|e| e.manifest.permissions.as_slice()).unwrap_or(&[]);
+                                let code = shim_source(kind == SessionKind::PopupPage, perms);
                                 cmds.push(json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.addBinding", "params": { "name": "__ocExtCall" } }));
                                 cmds.push(json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Page.addScriptToEvaluateOnNewDocument", "params": { "source": code } }));
                             }
+                            cmds.push(fetch_enable_cmd(fetch_id, &sid));
                             cmds
                         }
                     };
@@ -175,9 +177,10 @@ impl ExtensionHost {
             }
             "Debugger.paused" => {
                 if let Some(sid) = session_id
-                    && let Some(sess) = self.sessions.get(&sid)
+                    && let Some((kind, ext_id)) = self.sessions.get(&sid).map(|s| (s.kind, s.ext_id.clone()))
                 {
-                    let code = shim_source(sess.kind == SessionKind::PopupPage);
+                    let perms = self.extensions.get(&ext_id).map(|e| e.manifest.permissions.as_slice()).unwrap_or(&[]);
+                    let code = shim_source(kind == SessionKind::PopupPage, perms);
                     let pause_now = Instant::now();
                     let eval_id = self.send_cdp(
                         "Runtime.evaluate",
@@ -616,22 +619,20 @@ impl ExtensionHost {
             // Never attach a second concurrent CDP session to the same service-worker target
             // (e.g. from a child page's `Target.setAutoAttach` when the browser target already
             // attached it), which causes competing `Debugger`/`Runtime.evaluate` races.
+            // Detach ONLY (never send `Runtime.runIfWaitingForDebugger` on the duplicate session)
+            // so this session releases only its own auto-attach throttle without prematurely
+            // unpausing the worker before the primary session's `Fetch.enable` confirms.
             if !target_id.is_empty()
                 && self.sessions.values().any(|s| s.kind == SessionKind::ServiceWorker && s.target_id == target_id)
             {
-                let mut batch = Vec::new();
-                if waiting {
-                    batch.push(json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.runIfWaitingForDebugger", "params": {} }));
-                }
-                batch.push(json!({ "id": self.alloc_id(), "method": "Target.detachFromTarget", "params": { "sessionId": sid } }));
-                self.pipe.send_batch(&batch);
+                let _ = self.send_cdp("Target.detachFromTarget", json!({ "sessionId": sid }), None);
                 return effects;
             }
             let ext_id = ext_id.to_owned();
             self.sessions.insert(
                 sid.to_owned(),
                 AttachedSession {
-                    ext_id,
+                    ext_id: ext_id.clone(),
                     target_id,
                     kind: SessionKind::ServiceWorker,
                     url: url.to_owned(),
@@ -667,7 +668,8 @@ impl ExtensionHost {
                     s.pause_started = Some(Instant::now());
                     s.pending_shim_eval_id = Some(eval_id);
                 }
-                let code = shim_source(false);
+                let perms = self.extensions.get(&ext_id).map(|e| e.manifest.permissions.as_slice()).unwrap_or(&[]);
+                let code = shim_source(false, perms);
                 let batch = vec![
                     json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
                     auto_attach_cmd(self.alloc_id(), sid),
@@ -710,10 +712,7 @@ impl ExtensionHost {
             if waiting {
                 self.pending_fetch_resume.insert(fetch_id, sid.to_owned());
             }
-            let mut batch = vec![
-                auto_attach_cmd(self.alloc_id(), sid),
-                fetch_enable_cmd(fetch_id, sid),
-            ];
+            let mut batch = vec![auto_attach_cmd(self.alloc_id(), sid)];
             if ttype == "iframe" {
                 // Neutralize native `chrome.tabs`/`windows`/etc. inside extension iframes while
                 // keeping `chrome.runtime` native (never installs `__ocExtCall`, READER-12 C2).
@@ -725,6 +724,7 @@ impl ExtensionHost {
                     "params": { "source": IFRAME_LOCKDOWN_JS }
                 }));
             }
+            batch.push(fetch_enable_cmd(fetch_id, sid));
             self.pipe.send_batch(&batch);
             return effects;
         }
@@ -766,7 +766,7 @@ impl ExtensionHost {
             self.sessions.insert(
                 sid.to_owned(),
                 AttachedSession {
-                    ext_id,
+                    ext_id: ext_id.clone(),
                     target_id,
                     kind,
                     url: url.to_owned(),
@@ -788,10 +788,10 @@ impl ExtensionHost {
                 json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
                 json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Page.enable", "params": {} }),
                 auto_attach_cmd(self.alloc_id(), sid),
-                fetch_enable_cmd(fetch_id, sid),
             ];
             if kind != SessionKind::SeedProbe {
-                let code = shim_source(kind == SessionKind::PopupPage);
+                let perms = self.extensions.get(&ext_id).map(|e| e.manifest.permissions.as_slice()).unwrap_or(&[]);
+                let code = shim_source(kind == SessionKind::PopupPage, perms);
                 batch.push(json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.addBinding", "params": { "name": "__ocExtCall" } }));
                 batch.push(json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Page.addScriptToEvaluateOnNewDocument", "params": { "source": code } }));
                 if let Some(s) = self.sessions.get_mut(sid) {
@@ -802,6 +802,7 @@ impl ExtensionHost {
                     );
                 }
             }
+            batch.push(fetch_enable_cmd(fetch_id, sid));
             // Resume happens strictly in `handle_cdp_reply` after `fetch_id` confirms.
             self.pipe.send_batch(&batch);
             return effects;
@@ -1144,9 +1145,17 @@ const IFRAME_LOCKDOWN_JS: &str = r#"(() => {
     let root;
     try { root = globalThis[rootName]; } catch { continue; }
     if (!root) continue;
-    for (const api of ["tabs", "windows", "action", "browserAction", "pageAction", "contextMenus", "webNavigation"]) {
+    for (const api of ["tabs", "windows", "action", "browserAction", "pageAction", "contextMenus", "webNavigation", "downloads", "management"]) {
       try { Object.defineProperty(root, api, { value: undefined, configurable: false, enumerable: false, writable: false }); } catch {}
     }
+    try {
+      const rt = root.runtime;
+      if (rt && typeof rt === "object") {
+        for (const m of ["connectNative", "sendNativeMessage"]) {
+          try { Object.defineProperty(rt, m, { value: undefined, configurable: false, enumerable: false, writable: false }); } catch {}
+        }
+      }
+    } catch {}
   }
 })();"#;
 

@@ -87,7 +87,7 @@ fn call_args(call: &Value) -> Vec<String> {
 /// Execute's `›` marker and arrow: the code font's own glyph, turned down while open.
 fn chevron(p: &Pal, open: bool) -> El {
     let g = text("›").font(TOOL_CODE).color(p.faint);
-    el().key("arrow").child(if open { g.rotate(std::f32::consts::FRAC_PI_2).rotate_motion(INSTANT) } else { g })
+    el().key("arrow").child(g.rotate(if open { std::f32::consts::FRAC_PI_2 } else { 0.0 }).rotate_motion(INSTANT))
 }
 
 /// One nested call: a marker, its tool (shimmering while it runs) and args; open, its input and
