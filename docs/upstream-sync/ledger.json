@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 172,
   "status_counts": {
-    "have it": 134,
+    "have it": 138,
     "not applicable": 23,
     "differs on purpose": 1,
     "partly": 3,
-    "missing": 11
+    "missing": 7
   },
   "rows": [
     {
@@ -4165,8 +4165,8 @@
       ],
       "summary": "The background pill lists a running Code Mode script only once its execute call has ended with the job id: a script still running in the foreground stays out of it.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "features/subagents/src/jobs.rs scripts() lists every running codemode job of the session, named or not.",
+      "status": "have it",
+      "status_evidence": "features/subagents/src/jobs.rs scripts() lists a running Code Mode job only once a completed execute call names it by metadata.jobID, so a script still in the foreground stays out of the background pill (PR #424)",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"
@@ -4186,8 +4186,8 @@
       ],
       "summary": "The background pill orders subagents, shells and jobs by when each started (then by id), so a row never moves when the session list re-sorts by last update.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "To check: the capsule's subagent and shell lists in features/subagents.",
+      "status": "have it",
+      "status_evidence": "Already so: the pill's subagents (features/subagents/src/lib.rs), shells (shells/mod.rs) and scripts (jobs.rs) are each sorted by start time, then id, so a row never moves when the session list re-sorts",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"
@@ -4209,8 +4209,8 @@
       ],
       "summary": "Closing the side panel from the review toggle in its strip hands focus to the header's copy of the toggle, not to the prompt (the strip toggle counts as the session's, not the panel's).",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "features/panels/src/state/actions.rs toggle_side_region returns focus to the prompt when focus was in the region, the strip toggle included (UP-131 put it there).",
+      "status": "have it",
+      "status_evidence": "features/panels/src/state/actions.rs: closing the side region from the toggle in its strip hands focus to the header's copy of the toggle, not to the prompt (PR #424)",
       "depends_on": "UP-131 (#65213)",
       "risks": "none",
       "workstream": "WS-8"
@@ -4310,8 +4310,8 @@
       ],
       "summary": "On Windows the taskbar button shows session status: an indeterminate bar while a session works, paused or error when one waits on a request or failed.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "No taskbar progress in rune-desktop; needs a Rune window API (ITaskbarList3).",
+      "status": "have it",
+      "status_evidence": "Already so: apps/desktop/src/workspace/windows/taskbar.rs shows each window's tabs on its Windows taskbar button with Rune's Taskbar (ITaskbarList3): amber while a session waits, red after an unseen failed run, the moving bar while one works, plus a badge and a bounded flash",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"
