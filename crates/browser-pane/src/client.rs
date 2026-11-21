@@ -1218,12 +1218,15 @@ impl BrowserHost {
         changed
     }
 
-    pub fn ime(&self, ime: &Ime) -> bool {
+    pub fn ime(&mut self, ime: &Ime) -> bool {
         let Some(tab_id) = self.popup_tab_id().filter(|_| self.popup_focused()).or(self.focused_tab) else {
             return false;
         };
         match ime {
             Ime::Commit(s) => {
+                if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+                    t.prompts.record_document_input();
+                }
                 self.send(HostMsg::Ime { tab_id, commit: Some(s.clone()), preedit: None });
                 true
             }
