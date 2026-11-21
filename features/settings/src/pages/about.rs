@@ -85,7 +85,7 @@ pub fn view<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
         .radius(4.0)
         .center_y()
         .cursor(Cursor::Pointer)
-        .hover_group()
+        .hover_group_focus()
         .hover(p.layer2)
         // The ring follows the hover fill, which reaches past the label (`settings.css`, opencode#65215).
         .focus_default(p)

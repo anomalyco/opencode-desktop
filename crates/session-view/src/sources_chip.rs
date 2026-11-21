@@ -146,7 +146,7 @@ pub fn chip<S: TimelineHost>(s: &S, p: &Pal, chip: &Chip) -> El {
         .focus_default(p)
         .fill(p.hover)
         .hover(p.pressed)
-        .hover_group()
+        .hover_group_focus()
         .child(icons)
         .child(text(label).font(rune::TextStyle::new(12.0, 440.0).lh(16.0).tracking(0.05)).color(p.muted).group_color(p.text).single_line())
         .on_press_tx(move |s: &mut S, tx: &mut Tx| s.open_link(&href, tx))

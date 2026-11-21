@@ -84,10 +84,10 @@ fn answered<S: TimelineHost>(s: &S, p: &Pal, key: &str, input: &Value, metadata:
             .radius(4.0)
             .cursor(rune::Cursor::Pointer)
             .focus_default(p)
-            .hover_group()
+            .hover_group_focus()
             .hover_motion(crate::style::HOVER_FADE, crate::style::HOVER_FADE)
             .on_press_tx(toggle::<S>(closed, format!("{key}/trigger")))
-            .child(if open { a } else { a.group_opacity(0.0, 1.0) });
+            .child(if open || crate::style::hover_none() { a } else { a.group_opacity(0.0, 1.0) });
     }
     let mut c = col().key(key.to_owned()).w_full().child(trigger);
     if let (true, Some(answers)) = (open, answers) {

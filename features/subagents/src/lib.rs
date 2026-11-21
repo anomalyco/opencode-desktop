@@ -18,6 +18,7 @@ use std::collections::HashSet;
 use opencode_kit::model::{self, Message, Part, SessionInfo, Transcript};
 use rune::{El, KeyEvent, Tx, col, row, text};
 use rune_knobs::{Knob, Knobs};
+use session_view::focus::FocusExt;
 use session_view::odometer::odometer;
 use session_view::palette::{Elevate as _, Pal};
 use session_view::style::{INSTANT, UI, UI_MED, activity_ring_sized};
@@ -314,6 +315,9 @@ pub fn chip_with_knobs(knobs: &Knobs, p: &Pal, key: &str, label: String, open: b
         .key(key)
         .role("button")
         .label(label)
+        .expanded(open)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .h(session_view::jump::chip_height())
         .px(10.0)
         .gap(8.0)

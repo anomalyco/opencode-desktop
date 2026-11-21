@@ -132,7 +132,7 @@ fn call_row<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, id: &str, n: usize, call: 
             .radius(4.0)
             .cursor(rune::Cursor::Pointer)
             .focus_default(p)
-            .hover_group()
+            .hover_group_focus()
             .hover_motion(INSTANT, INSTANT)
             .on_press_tx(crate::disclosure::toggle::<S>(k, format!("tool-{id}")));
     }
@@ -178,7 +178,7 @@ fn output_row<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, out: &st
         .radius(4.0)
         .cursor(rune::Cursor::Pointer)
         .focus_default(p)
-        .hover_group()
+        .hover_group_focus()
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(crate::disclosure::toggle::<S>(k, format!("tool-{id}")))
         .child(el().w(14.0).center().child(chevron(p, open)))
@@ -208,5 +208,5 @@ fn view_code_button<S: TimelineHost>(p: &Pal, session: &str, id: &str) -> El {
             tx.instant();
             s.expanded_mut().insert(open.clone());
         })
-        .child(icon(&rune_theme_opencode::icons::CODE_SLASH, 14.0).color(p.text).group_opacity(0.0, 1.0))
+        .child(crate::style::hover_reveal(icon(&rune_theme_opencode::icons::CODE_SLASH, 14.0).color(p.text)))
 }

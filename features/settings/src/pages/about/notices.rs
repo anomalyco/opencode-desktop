@@ -228,9 +228,10 @@ fn render_disclosure<H: SettingsHost + 'static>(p: &Pal, id: usize, title: &str,
         .key(format!("notice-disclosure-{id}"))
         .role("button")
         .label(title.to_owned())
+        .expanded(open)
         .cursor(Cursor::Pointer)
         .focus_default(p)
-        .hover_group()
+        .hover_group_focus()
         .radius(4.0)
         .on_press_tx(move |s: &mut H, tx: &mut Tx| toggle_disclosure(s, id, tx))
         .child(text(label).font(BODY).color(p.faint).group_color(p.text));

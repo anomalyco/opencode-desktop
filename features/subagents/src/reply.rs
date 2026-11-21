@@ -12,6 +12,7 @@ use opencode_kit::client::{Prompt, Write};
 use opencode_kit::model::SessionInfo;
 use rune::{El, Key, KeyEvent, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
+use session_view::focus::FocusExt;
 use session_view::palette::Pal;
 use session_view::style::{INSTANT, activity_ring_sized};
 
@@ -77,6 +78,8 @@ fn build_back_shell(p: &Pal, show_esc: bool) -> El {
         .gap(6.0)
         .center_y()
         .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
@@ -93,7 +96,8 @@ fn build_status_line(host: &dyn SubagentsHost, p: &Pal, id: &str, back: El) -> O
     } else {
         match info.outcome.as_deref() {
             Some("succeeded") => (Some(&ic::CHECK), Some(opencode_i18n::t!("session.child.status.succeeded"))),
-            Some("failed") => (Some(&ic::CIRCLE_XMARK), Some(opencode_i18n::t!("session.child.status.failed"))),
+            // Official `subagent-bar.tsx:53-55` uses `close` for both failed and interrupted runs.
+            Some("failed") => (Some(&ic::OUTLINE_XMARK), Some(opencode_i18n::t!("session.child.status.failed"))),
             Some("interrupted") => (Some(&ic::OUTLINE_XMARK), Some(opencode_i18n::t!("session.child.status.interrupted"))),
             _ => (None, None),
         }
