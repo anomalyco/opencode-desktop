@@ -146,6 +146,7 @@ fn section<S: TimelineHost>(s: &S, p: &Pal, id: &str, part: &str, label: &'stati
         .role("button")
         .label(tip)
         .help(tip)
+        .help_open(done)
         .size(24.0, 24.0)
         .center()
         .radius(6.0)

@@ -83,8 +83,41 @@ local COPY = table.freeze({
 } :: UiBoxProps)
 local COPY_ICON = table.freeze({ size = 14, color = "icon-weak" } :: UiIconProps)
 
+-- `COPY_FEEDBACK_MS`: how long the check and "Copied" stay after a press.
+local COPIED_S = 2
+-- Each mark's press, so a press again restarts its time.
+local presses: { [string]: number } = {}
+
+-- Marks chat `id`'s `field` Copy as having copied `text` for `COPIED_S` (`createCopyFeedback`).
+local function markCopied(env: Env, id: string, field: "question" | "answer", text: string)
+    local m: { question: string?, answer: string? } = env.copied[id] or {}
+    if field == "question" then
+        m.question = text
+    else
+        m.answer = text
+    end
+    env.copied[id] = m
+    local slot = `{id}/{field}`
+    local press = (presses[slot] or 0) + 1
+    presses[slot] = press
+    env.refresh()
+    task.delay(COPIED_S, function()
+        local now = env.copied[id]
+        if presses[slot] ~= press or now == nil then
+            return
+        end
+        if field == "question" then
+            now.question = nil
+        else
+            now.answer = nil
+        end
+        env.refresh()
+    end)
+end
+
 local function copyButton(key: string, copied: boolean, tip: string, onPress: ui.Handler): ui.Node
-    return ui.row(COPY, { key = key, label = tip, help = tip, onPress = onPress }, {
+    -- `forceOpen`: "Copied" stays up while the check shows, though the press hid the tooltip.
+    return ui.row(COPY, { key = key, label = tip, help = tip, helpOpen = copied, onPress = onPress }, {
         ui.icon(if copied then "check" else "outline-copy", COPY_ICON),
     })
 end
@@ -217,10 +250,7 @@ local function prompt(
                     tip,
                     view:Handler(function()
                         env.System:CopyText(question)
-                        local m: { question: string?, answer: string? } = env.copied[id] or {}
-                        m.question = question
-                        env.copied[id] = m
-                        env.refresh()
+                        markCopied(env, id, "question", question)
                     end)
                 ),
             }
@@ -266,10 +296,7 @@ local function answered(
                 I18n:T(if copied then "copied" else "copy"),
                 view:Handler(function()
                     env.System:CopyText(answer)
-                    local m: { question: string?, answer: string? } = env.copied[id] or {}
-                    m.answer = answer
-                    env.copied[id] = m
-                    env.refresh()
+                    markCopied(env, id, "answer", answer)
                 end)
             ),
         }),

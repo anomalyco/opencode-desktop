@@ -88,6 +88,20 @@ pub fn parse_worktrees(v: &Value, root: &str) -> Vec<String> {
     dirs
 }
 
+/// The worktrees of a `GET /api/worktree` reply that OpenCode made (those with a `strategy`), the
+/// project's own checkout left out: what Settings > Worktrees lists (`managedWorkspaceDirectories`,
+/// `app/src/workspaces/paths.ts`).
+pub fn parse_managed_worktrees(v: &Value, root: &str) -> Vec<String> {
+    let items = v.get("data").unwrap_or(v).as_array().cloned().unwrap_or_default();
+    let mut dirs: Vec<String> = Vec::new();
+    for d in items.iter().filter(|i| i["strategy"].is_string()).filter_map(|i| i["directory"].as_str()) {
+        if crate::path::trim(d) != crate::path::trim(root) && !dirs.iter().any(|x| crate::path::trim(x) == crate::path::trim(d)) {
+            dirs.push(d.to_owned());
+        }
+    }
+    dirs
+}
+
 /// Parses one `Location.PublicInfo` reply from `GET /api/location`.
 pub fn parse_location(v: &Value) -> Option<LocationInfo> {
     let v = v.get("data").unwrap_or(v);

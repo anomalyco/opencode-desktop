@@ -174,8 +174,13 @@ impl App {
         opencode_feature_workspace_tools::new_worktree::list_unlisted_worktrees(self);
     }
 
-    pub(crate) fn worktrees_listed(&mut self, project: String, directories: Vec<String>) {
-        opencode_feature_workspace_tools::new_worktree::worktrees_listed(self, project, directories);
+    pub(crate) fn worktrees_listed(&mut self, project: String, directories: Vec<String>, managed: Vec<String>) {
+        opencode_feature_workspace_tools::new_worktree::worktrees_listed(self, project, directories, managed);
+    }
+
+    /// The worktrees OpenCode made for `project` (Settings > Worktrees).
+    pub fn managed_worktrees(&self, project: &str) -> Vec<String> {
+        opencode_feature_workspace_tools::new_worktree::managed_worktrees(self, project)
     }
 
     pub(crate) fn worktree_updated(&self, project: &str) {

@@ -219,6 +219,8 @@ fn copy_button<S: TimelineHost>(p: &Pal, text: &str, key: String, label: &'stati
         .label(label)
         .help(label)
         .help_above()
+        // `forceOpen`: "Copied" stays up for the tick's time, though the press hid the tooltip.
+        .help_open(done)
         .size(24.0, 24.0)
         .center()
         .radius(6.0)
