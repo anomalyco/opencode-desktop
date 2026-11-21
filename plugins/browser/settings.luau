@@ -618,20 +618,46 @@ function settings.renderClearConfirm(i18n: I18nService, view: View, onCancel: ()
     })
 end
 
--- "Import from <browser>" (`site-chooser.tsx:328-347`) for what this build brings over: browsing
--- history, read-only from the other browser. A clean import closes it and its row says so; a
--- failed one stays open and says why.
+-- What the import dialog brings: both boxes ticked until the person unticks one (`site-chooser.tsx:80-81`).
+export type ImportBoxes = { signins: boolean, history: boolean }
+
+-- "Import from <browser>" (`site-chooser.tsx:328-384`): what comes over, as two boxes, "Sign-ins" and
+-- "Browsing history", then Cancel and Import. Import needs at least one box; while it runs the boxes
+-- cannot change and Import shows it is busy. A clean import closes the dialog and its row says so;
+-- a partial or failed one stays open and says why.
 function settings.renderImportDialog(
     i18n: I18nService,
     view: View,
     browserLabel: string,
     message: ImportMessage?,
+    boxes: ImportBoxes,
+    busy: boolean,
+    onBox: (which: string, on: boolean) -> (),
     onImport: () -> (),
     onClose: () -> ()
 ): ui.Node
+    local function box(which: string, label: string, checked: boolean): ui.Node
+        -- `site-chooser.tsx:361-381`: each box in a 28 row, on the dialog's layer-1 surface.
+        return ui.row({ key = `settings-import-{which}-row`, w = "full", h = 28, align = "center" }, {
+            ui.checkbox({
+                key = `settings-import-{which}`,
+                text = label,
+                checked = checked,
+                surface = "layer-1",
+                disabled = busy,
+                onChange = view:Handler(function(e: any)
+                    onBox(which, e.checked == true)
+                end),
+            }),
+        })
+    end
+    local canImport = (boxes.signins or boxes.history) and not busy
     local rows: { ui.Node } = {
         ui.text(i18n:T("signins.import", { browser = browserLabel }), DIALOG_TITLE, { truncate = true }),
-        ui.text(i18n:T("settings.import.history.description"), MUTED),
+        ui.col({ key = "settings-import-boxes", w = "full" }, {
+            box("signins", i18n:T("import.signins"), boxes.signins),
+            box("history", i18n:T("import.history"), boxes.history),
+        }),
     }
     if message ~= nil then
         table.insert(rows, ui.text(message.text, MUTED, {
@@ -656,8 +682,12 @@ function settings.renderImportDialog(
             size = "small",
             variant = "contrast",
             autofocus = true,
+            disabled = not canImport,
+            loading = busy,
             onPress = view:Handler(function()
-                onImport()
+                if canImport then
+                    onImport()
+                end
             end),
         }),
     }))

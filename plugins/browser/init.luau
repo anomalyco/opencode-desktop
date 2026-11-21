@@ -1521,8 +1521,13 @@ return plugin.defineWindow(function(ctx)
     -- listing is a few seconds old, so a visit sees browsers installed since the last one.
     local importSources: { settings.ImportBrowser } = {}
     -- The profile the import dialog is for, what its last import said, and each row's last outcome.
-    local importTarget: { browser: string, profile: string, label: string }? = nil
+    local importTarget: { browser: string, name: string, profile: string, label: string }? = nil
     local importFailure: settings.ImportMessage? = nil
+    -- What the dialog brings, both until unticked; each opening starts from both (`site-chooser.tsx:80-81`).
+    local importBoxes: settings.ImportBoxes = { signins = true, history = true }
+    local importRunning = false
+    -- Set below, once the outcome text it needs is defined.
+    local runDialogImport: () -> () = function() end
     local importResults: { [string]: settings.ImportMessage } = {}
     local importIcons: { [string]: ImageId | false } = {}
     local extDialogState: extensions.DialogState = {
@@ -1900,31 +1905,15 @@ return plugin.defineWindow(function(ctx)
             if target == nil then
                 return nil
             end
-            return settings.renderImportDialog(I18n, view, target.label, importFailure, function()
-                local bAny = Browser :: any
-                local res = if type(bAny.HistoryImportProfileAsync) == "function"
-                    then bAny:HistoryImportProfileAsync(target.browser, target.profile)
-                    elseif type(bAny.HistoryImportProfile) == "function"
-                    then bAny:HistoryImportProfile(target.browser, target.profile)
-                    else nil
-                local imported = if type(res) == "table" and type(res.imported) == "number" then res.imported else nil
-                if imported ~= nil and imported > 0 then
-                    -- `site-chooser.tsx:164-176`: a clean import closes the dialog; its row says so.
-                    importResults[`{target.browser}\n{target.profile}`] = {
-                        text = I18n:T("signins.imported.history.only.from", { browser = target.label }),
-                        error = false,
-                        live = true,
-                    }
-                    Dialog:Close()
-                elseif imported ~= nil then
-                    importFailure = { text = I18n:T("signins.imported.none.from", { browser = target.label }), error = false, live = true }
-                else
-                    importFailure = { text = I18n:T("signins.failed.read"), error = true, live = true }
-                end
+            return settings.renderImportDialog(I18n, view, target.label, importFailure, importBoxes, importRunning, function(which: string, on: boolean)
+                importBoxes = if which == "signins"
+                    then { signins = on, history = importBoxes.history }
+                    else { signins = importBoxes.signins, history = on }
                 if importDialogHandle then
                     importDialogHandle:Refresh()
                 end
-                refreshSettings()
+            end, function()
+                runDialogImport()
             end, function()
                 Dialog:Close()
             end)
@@ -1975,10 +1964,12 @@ return plugin.defineWindow(function(ctx)
                             -- `choices.tsx` `choiceLabel`: the profile's name only for a browser with several.
                             importTarget = {
                                 browser = browserId,
+                                name = browser.name,
                                 profile = profileId,
                                 label = if #browser.profiles > 1 then `{browser.name} · {prof.name}` else browser.name,
                             }
                             importFailure = nil
+                            importBoxes = { signins = true, history = true }
                             Dialog:Open("import-history")
                             return
                         end
@@ -2132,6 +2123,72 @@ return plugin.defineWindow(function(ctx)
             return { text = I18n:T("signins.imported.history.only.from", { browser = browser }), error = false }, true
         end
         return { text = I18n:T("signins.imported.none.from", { browser = browser }), error = true }, false
+    end
+
+    -- The dialog's Import (`site-chooser.tsx:238-254`): the ticked parts, sign-ins then history, as one
+    -- job. A clean import closes the dialog and its row says so; a partial or failed one stays open
+    -- and says why (`:164-198`). Cookies that came in end the pane's offer (`jobs.ts:114-115`).
+    runDialogImport = function()
+        local target = importTarget
+        if target == nil or importRunning or not (importBoxes.signins or importBoxes.history) then
+            return
+        end
+        local boxes = importBoxes
+        importRunning = true
+        importFailure = nil
+        if importDialogHandle then
+            importDialogHandle:Refresh()
+        end
+        local bAny = Browser :: any
+        local res: any = { imported = 0, failed = 0, protected = 0 }
+        if boxes.signins then
+            local ok, out = pcall(function()
+                return bAny:ImportSignInsAsync(target.browser, target.profile)
+            end)
+            res = if ok and type(out) == "table" then out else nil
+        end
+        local pages = 0
+        local historyRead = true
+        if boxes.history then
+            local historyImport = if type(bAny.HistoryImportProfileAsync) == "function" then "HistoryImportProfileAsync"
+                elseif type(bAny.HistoryImportProfile) == "function" then "HistoryImportProfile"
+                else nil
+            local hok, hres = false, nil
+            if historyImport ~= nil then
+                hok, hres = pcall(function()
+                    return bAny[historyImport](bAny, target.browser, target.profile)
+                end)
+            end
+            historyRead = hok and type(hres) == "table" and type(hres.imported) == "number"
+            if historyRead then
+                pages = hres.imported
+            end
+        end
+        importRunning = false
+        local message: signins.Message = if not boxes.signins and not historyRead
+            then { text = I18n:T("signins.failed.read"), error = true }
+            else (describeBrowserImport({ sourceId = target.browser, sourceName = target.name, profileId = target.profile, label = target.label }, res, pages))
+        local cookies = if res and type(res.imported) == "number" then res.imported else 0
+        local loss = res ~= nil and ((tonumber(res.failed) or 0) > 0 or (tonumber(res.protected) or 0) > 0)
+        local clean = res ~= nil and type(res.error) ~= "string" and not loss and historyRead and (cookies > 0 or pages > 0)
+        if cookies > 0 and not preferences().welcomed then
+            updatePreferences({ welcomed = true })
+        end
+        -- The dialog may have closed while it ran; the row still says how it went.
+        local open = importTarget == target
+        if clean or not open then
+            importResults[`{target.browser}\n{target.profile}`] = { text = message.text, error = message.error, live = true }
+        end
+        if clean and open then
+            Dialog:Close()
+        elseif open then
+            importFailure = { text = message.text, error = message.error, live = true }
+            if importDialogHandle then
+                importDialogHandle:Refresh()
+            end
+        end
+        refresh()
+        refreshSettings()
     end
 
     local function closeSignInConfirmation()
