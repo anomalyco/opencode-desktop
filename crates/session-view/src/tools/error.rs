@@ -53,7 +53,7 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
         .role("button")
         .label(opencode_i18n::t!("rune.tool.failed", tool = title))
         .hover_motion(INSTANT, INSTANT)
-        .on_press_tx(crate::disclosure::set::<S>(k, open, id))
+        .on_press_tx(crate::disclosure::set::<S>(k.clone(), open, id.clone()))
         .child(words)
         .child(el().key("arrow").size(14.0, 14.0).ml(6.0).center().child(arrow(p, open).color(p.faint)));
     let mut line = row().key("line").w_full().min_h(line_h).gap(2.0).center_y().child(button);
@@ -101,8 +101,8 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
         content = content.child(crate::scroller::scroller("subtitle-full").build::<S>(p, full, words));
     }
     content = content.child(readable(p, text(cleaned).font(UI.lh(20.0)).color(p.danger).wrap_anywhere()).selection_style(picked).w_full()).child(copy.pin(None, Some(0.0), Some(0.0), None));
-    // The error hangs from the nested line like any other row's content.
-    card.child(crate::disclosure::reveal(s.knobs(), crate::style::nested(p, crate::style::NESTED_GAP, content)))
+    // The error hangs from the nested line like any other row's content; clicking the rail collapses it.
+    card.child(crate::disclosure::reveal(s.knobs(), crate::style::nested_collapsible(p, crate::style::NESTED_GAP, content, crate::disclosure::set::<S>(k, true, id))))
 }
 
 /// The width the shut card of `c` takes whole: the warning mark, the name, the subtitle's first

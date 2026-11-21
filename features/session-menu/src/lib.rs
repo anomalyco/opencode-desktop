@@ -240,11 +240,13 @@ pub fn lines(host: &dyn SessionMenuHost, t: &Target) -> Vec<Line> {
             let close = [
                 item("close", opencode_i18n::t!("common.closeTab"), true),
                 item("close-others", opencode_i18n::t!("common.closeOtherTabs"), tabs.iter().any(|x| x.uid != uid)),
-                // Side tabs run down the sidebar (`TabCloseMenuItems`).
+                // Side tabs run down the sidebar; horizontal tabs invert under RTL (`TabCloseMenuItems`, `tab-nav.tsx:52-58`).
                 item(
                     "close-right",
                     if host.layout_has_sidebar() {
                         opencode_i18n::t!("common.closeTabsBelow")
+                    } else if opencode_i18n::direction() == opencode_i18n::Direction::Rtl {
+                        opencode_i18n::t!("common.closeTabsToLeft")
                     } else {
                         opencode_i18n::t!("common.closeTabsToRight")
                     },

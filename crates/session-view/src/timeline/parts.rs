@@ -415,7 +415,7 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, 
     let copy_key = format!("copy-{}", message.id());
     use crate::working::{COPY, COPY_AT, COPY_GLYPH};
     let mut button = row().key("copy").role("button").label_static(opencode_i18n::t!("ui.message.copyResponse"))
-        .size(COPY, COPY).center().radius(4.0).hover(p.hover).press(p.pressed)
+        .size(COPY, COPY).center().radius(4.0).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
         .opacity(if busy || !has_text { 0.0 } else { 1.0 })
         .opacity_motion(INSTANT)
         .child(crate::copied::glyph(s, &copy_key, COPY_GLYPH, p.icon_muted));
