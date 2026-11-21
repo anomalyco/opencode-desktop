@@ -137,22 +137,24 @@ impl Branches {
             let Some(Branch::Queued { failures }) = self.by_dir.get(&dir).cloned() else { continue };
             self.by_dir.insert(dir.clone(), Branch::Loading { failures });
             let (server, landed, wake) = (server.clone(), Arc::clone(&self.landed), waker.cloned());
+            let dir_spawn = dir.clone();
             let spawned = rune::task::spawn("inbox-branch", move || {
-                let path = format!("/api/vcs?location%5Bdirectory%5D={}", crate::switcher::encode(&dir));
-                // A folder the server hasn't loaded yet (a worktree just picked, say) answers before
-                // its VCS provider has, with neither provider nor branch: that read is retried, as
-                // Desktop reads the folder again once `vcs.branch.updated` says it loaded.
-                let result = server.get(&path).map_err(|_| ()).and_then(|v| {
+                let path = format!("/api/vcs?location%5Bdirectory%5D={}", crate::switcher::encode(&dir_spawn));
+                // Non-git folders answer HTTP 200 with `{ branch: {} }` and no provider: settle
+                // immediately as `Ok(None)` instead of retrying 3× (and 3× again on reconnect).
+                // If a newly created git worktree's VCS provider loads later, `vcs.branch.updated`
+                // SSE populates it via `Branches::updated` (`packages/client/src/solid/data.ts:1475-1478`).
+                let result = server.get(&path).map_err(|_| ()).map(|v| {
                     let data = v.get("data").unwrap_or(&v);
-                    let branch = data["branch"]["current"].as_str().map(str::to_owned);
-                    if branch.is_none() && data["provider"].is_null() { Err(()) } else { Ok(branch) }
+                    data["branch"]["current"].as_str().map(str::to_owned)
                 });
-                landed.lock().unwrap_or_else(|e| e.into_inner()).push((dir, result));
+                landed.lock().unwrap_or_else(|e| e.into_inner()).push((dir_spawn, result));
                 if let Some(w) = wake {
                     w();
                 }
             });
             if spawned.is_err() {
+                self.by_dir.insert(dir, Branch::Failed);
                 break;
             }
         }
