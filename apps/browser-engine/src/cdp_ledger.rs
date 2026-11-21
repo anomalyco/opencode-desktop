@@ -114,6 +114,8 @@ pub(crate) fn handle_typed_cdp_call(
         Ok(Dispatch::ReEnable) => {
             let disable = t.cdp_ledger.lock().unwrap().runtime_disable(session_id.as_deref());
             t.host.send_dev_tools_message(Some(disable.as_bytes()));
+            let binding = t.passkeys.binding_msg(session_id.as_deref());
+            t.host.send_dev_tools_message(Some(binding.as_bytes()));
             Post::None
         }
         Ok(Dispatch::Send(post)) => post,
