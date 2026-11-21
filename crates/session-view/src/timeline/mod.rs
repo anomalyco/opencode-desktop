@@ -565,8 +565,6 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         .focusable(true)
         .role("region")
         .label_static(opencode_i18n::t!("ui.scrollView.ariaLabel"))
-        // Rounded as the session frame that clips its corners (opencode#65192).
-        .radius(10.0)
         .focus_inset(p)
         // `sticky top-0 z-30` (`session-identity-header.tsx:54`). It needs no fill of its own:
         // rows under it clip at its bottom edge, where their fade starts (`below_sticky`), so
