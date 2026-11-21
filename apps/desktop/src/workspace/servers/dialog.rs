@@ -368,9 +368,8 @@ pub fn view(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
     // A normal-size dialog sits on `bg-layer-01` (`overlays/dialog/dialog.css:27`).
     let card = col().radius(12.0).fill(p.layer1).elevate(p.overlay).child(card);
     let card = crate::widgets::sized(card, crate::widgets::DialogSize::Normal, crate::widgets::Fit::Content, crate::widgets::dialog_window(cx, *s.zoom));
-    let card = col().key("dialog-server").role("dialog").label(title).modal(true, |s: &mut App| {
-        let mut tx = Tx::default();
-        close(s, &mut tx);
+    let card = col().key("dialog-server").role("dialog").label(title).modal_tx(true, |s: &mut App, tx: &mut Tx| {
+        close(s, tx);
     }).child(card);
     crate::widgets::modal("dialog-server-modal", p, card, None)
 }

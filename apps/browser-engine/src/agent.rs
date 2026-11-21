@@ -40,12 +40,15 @@ pub fn remove_tab_uploads(profile_dir: &Path, tab_id: u64) {
 #[allow(clippy::too_many_arguments)]
 pub fn handle_upload_files(
     t: &ManagedTab,
+    permissions: &crate::permissions::PermissionTracker,
     profile_dir: &Path,
     tab_id: u64,
     request_id: u64,
     not_ready_reason: Option<&str>,
     backend_node_id: i64,
     files: &[String],
+    session_id: Option<String>,
+    frame_id: Option<String>,
     next_cdp_id: &AtomicI32,
     out_tx: &Output,
 ) {
@@ -58,6 +61,24 @@ pub fn handle_upload_files(
     {
         send_err(out_tx, tab_id, request_id, "Agent browser tools cannot upload files into extension pages or tabs with extension frames.");
         return;
+    }
+    if !t.isolated
+        && t.preview.is_none()
+        && t.prompts.agent_driven.load(Ordering::Acquire)
+        && t.cdp_ledger
+            .lock()
+            .unwrap()
+            .target_frame_url(session_id.as_deref(), frame_id.as_deref(), &Value::Null)
+            .is_some_and(|u| permissions.has_inherited_default_grant(&u))
+    {
+        send_err(out_tx, tab_id, request_id, crate::permissions::INHERITED_PERMISSION_MSG);
+        return;
+    }
+    if session_id.is_some() || frame_id.is_some() {
+        if let Err(err) = t.cdp_ledger.lock().unwrap().check_upload_target(session_id.as_deref(), frame_id.as_deref()) {
+            send_err(out_tx, tab_id, request_id, &err);
+            return;
+        }
     }
     let verified = match verify_upload_paths(profile_dir, tab_id, files) {
         Ok(paths) => paths,
@@ -72,7 +93,7 @@ pub fn handle_upload_files(
         request_id,
         "DOM.setFileInputFiles",
         json!({ "backendNodeId": backend_node_id, "files": verified }),
-        None,
+        session_id,
         next_cdp_id,
         out_tx,
     );
