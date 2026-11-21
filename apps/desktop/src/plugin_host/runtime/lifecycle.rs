@@ -118,9 +118,10 @@ fn start_loaded(app: &mut App, i: usize) {
 
 /// How long a plugin whose start ran out of time shows its error card before it starts again.
 const RESTART_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
-/// Restarts a plugin gets after its start ran out of time, per window: a start a busy machine
-/// stretched out comes back, and one that loops for ever stays on its error card (with Reload).
-const RESTARTS: u32 = 2;
+/// Restarts a plugin gets after its start ran out of time, per window: one, as official waits once
+/// on a renderer that stopped answering before it asks; a start that times out again stays on its
+/// error card with Reload (official's Relaunch).
+const RESTARTS: u32 = 1;
 
 thread_local! {
     /// Plugins whose start ran out of time, with when they start again; and how many restarts each had.
@@ -128,7 +129,7 @@ thread_local! {
 }
 
 /// Plugin `id`'s start ran past the watchdog: it starts again in [`RESTART_AFTER`], up to
-/// [`RESTARTS`] times; meanwhile its surfaces show the error card and the console says so.
+/// [`RESTARTS`] time; meanwhile its surfaces show the error card and the console says so.
 fn restart_later(app: &App, id: &str) {
     let again = RESTART.with_borrow_mut(|(due, count)| {
         let n = count.entry(id.to_owned()).or_insert(0);
