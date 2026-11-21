@@ -2,20 +2,20 @@
   "generated_at": "2026-11-21",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "b3b30005e455b4c3fd9d551fd456ef3c830fc878",
+  "upstream_head": "5ca87b9ddaf3536d4d6aa740218d33efb6577563",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "fbd5f0b5a34feeb922b0fcf435e5ae2fd1248ea5",
-  "post_1114_commit_count": 400,
+  "rune_desktop_head": "87fc4c2565ddf87405b2f48a75aecdf8b18e29e2",
+  "post_1114_commit_count": 404,
   "post_1114_in_ledger": 151,
-  "post_1114_skipped": 249,
+  "post_1114_skipped": 253,
   "post_1114_skipped_breakdown": {
     "test-only": 21,
     "ci-bench-deps": 15,
     "docs-site-data": 37,
     "tui-only": 11,
-    "cli-acp-only": 7,
-    "server-core-ai-codemode-internal": 158
+    "cli-acp-only": 8,
+    "server-core-ai-codemode-internal": 161
   },
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 172,
@@ -4283,11 +4283,11 @@
       ],
       "summary": "Pruning remembered layout for old sessions no longer drops the side panel tabs of a session that is open.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "To check: features/panels per-session tab state pruning.",
+      "status": "have it",
+      "status_evidence": "Already so, by a different rule: rune-desktop never forgets a session's side panel state. features/restore/src/persist.rs window_keys saves every session's side state, the sessions with a tab open here as 'side' (read for the first frame) and all others as 'side.rest' (read after it); nothing prunes SideState.sessions by count. So an open session's side tabs can't be dropped when old sessions' layout is pruned, which is what #65328 fixed in Desktop's max-N prune.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "SCREENS-B"
+      "workstream": "WS-8"
     },
     {
       "id": "UP-150",

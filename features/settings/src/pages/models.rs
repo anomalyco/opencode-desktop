@@ -6,18 +6,44 @@ use std::cell::OnceCell;
 use std::collections::HashSet;
 
 use opencode_i18n::t;
-use opencode_ui::popup::PopupHost;
-use opencode_ui::widgets;
-use rune::{El, Tx, col, el, icon, row, text};
+use opencode_ui::focus::FocusExt;
+use opencode_ui::popup::{self, Item, Menu, MenuButton as _, PopupHost};
+use opencode_ui::widgets::{self, badge};
+use rune::{Align, Color, Cursor, El, Tx, col, el, icon, row, rule, text};
 use rune_kit::Switch;
 use rune_theme_opencode::icons as ic;
 use serde_json::{Value, json};
 use opencode_ui::palette::{Pal, kit};
 use opencode_kit::model::Model;
 
-use super::{NAME, NAME_REGULAR, catalog, header_with, page};
+use super::{NAME, NAME_REGULAR, catalog, filter_field, header_with, page, tab_no_results};
 use crate::host::SettingsHost;
 use crate::stored;
+
+const CONSOLE_GROUP_KEY: &str = "console:opencode";
+
+/// Console workspace providers detected from the connected catalog (`providers/catalog/console.ts`).
+struct ConsoleGroup {
+    workspace: String,
+    prefix: String,
+    ids: HashSet<String>,
+}
+
+fn console_group(s: &dyn SettingsHost) -> Option<ConsoleGroup> {
+    let providers = s.provider_rows(None);
+    let root = providers.iter().find(|p| p.id == "opencode" && p.integration.as_deref() == Some("opencode"))?;
+    let workspace = root.name.strip_suffix(" / OpenCode")?.trim();
+    if workspace.is_empty() {
+        return None;
+    }
+    let prefix = format!("{workspace} / ");
+    let ids: HashSet<String> = providers
+        .iter()
+        .filter(|p| p.integration.as_deref() == Some("opencode") && p.name.starts_with(&prefix))
+        .map(|p| p.id.clone())
+        .collect();
+    (!ids.is_empty()).then(|| ConsoleGroup { workspace: workspace.to_owned(), prefix, ids })
+}
 
 /// The providers folded shut, kept per server under Desktop's global
 /// `settings-v2.models.providers` (`collapsed`, by provider): read the first time Models
@@ -105,70 +131,71 @@ fn toggle_model_visibility(s: &mut dyn SettingsHost, key: &str, visible: bool, t
     s.set_model_visibility(key, visible);
 }
 
+fn set_provider_visibility(s: &mut dyn SettingsHost, provider: &str, visible: bool, tx: &mut Tx) {
+    tx.instant();
+    let keys: Vec<String> = s.models().iter().filter(|m| m.provider == provider).map(|m| m.key.clone()).collect();
+    for key in keys {
+        s.set_model_visibility(&key, visible);
+    }
+}
+
 pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
     let searching = !s.settings_pages().search.text.trim().is_empty();
     let groups = groups(s);
+    let managed = console_group(s);
     let mut body = col().key("settings-models").w_full().gap(12.0);
     if groups.is_empty() {
         let status = if searching {
-            row().key("settings-models-empty").w_full().py(48.0).gap(4.0).center().children(super::no_results_words(p, &s.settings_pages().search.text))
+            tab_no_results(p, "settings-models-empty", &s.settings_pages().search.text)
         } else {
             row().key("settings-models-empty").w_full().py(48.0).center().child(text(t!("dialog.model.empty")).font(NAME_REGULAR).color(p.muted))
         };
         body = body.child(status);
-    }
-    for (provider, models) in &groups {
-        let open = searching || !s.settings_pages().collapsed.get(s).contains(provider);
-        body = body.child(group(s, p, provider, models, open, searching));
+    } else {
+        let mut emitted_console = false;
+        for (provider, models) in &groups {
+            if let Some(cg) = &managed
+                && cg.ids.contains(provider)
+            {
+                if !emitted_console {
+                    emitted_console = true;
+                    let nested: Vec<(&String, &Vec<&Model>)> = groups.iter().filter(|(id, _)| cg.ids.contains(id)).map(|(id, ms)| (id, ms)).collect();
+                    let open = searching || !s.settings_pages().collapsed.get(s).contains(CONSOLE_GROUP_KEY);
+                    body = body.child(console_section(s, p, cg, &nested, open, searching));
+                }
+                continue;
+            }
+            let open = searching || !s.settings_pages().collapsed.get(s).contains(provider);
+            body = body.child(group(s, p, provider, models, open, searching));
+        }
     }
     let head = col()
         .w_full()
         .gap(24.0)
         .child(header_with(p, t!("settings.models.title"), t!("settings.models.description"), super::servers::switcher(s, p)))
-        .child(search(s, p));
+        .child(filter_field::<H>(p, "settings-models-search", t!("dialog.model.search.placeholder"), &s.settings_pages().search, |st| &mut st.search));
     page(p, "settings-models-page", head, body)
 }
 
-/// `settings-filter-search`: 36 pt, `layer-02` at 60%, glass 16 pt in at 14 pt.
-fn search<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
-    let focused = s.settings_pages().search.focused;
-    row()
-        .key("settings-models-search")
-        .w_full()
-        .h(36.0)
-        .mx(1.0)
-        .pr(8.0)
-        .gap(8.0)
-        .center_y()
-        .radius(6.0)
-        .fill(if focused { p.layer2 } else { p.search_bg })
-        .hover(p.layer2)
-        .child(el().pl(16.0).child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted)))
-        .child(
-            opencode_ui::style::field(&s.settings_pages().search, NAME_REGULAR)
-                .key("settings-models-input")
-                .single_line()
-                .grow(1.0)
-                .shrink()
-                .min_w(0.0)
-                .color(p.text)
-                .placeholder(t!("dialog.model.search.placeholder"), p.faint)
-                .caret(p.text, p.selection)
-                .selection_style(p.field_selection)
-                .label_static(t!("dialog.model.search.placeholder"))
-                .on_edit(|s: &mut H| &mut s.settings_pages_mut().search)
-                .on_input_change(|_: &mut H, tx: &mut Tx| tx.instant()),
-        )
-}
-
-/// A provider's section: its header folds it; its models in a catalog list with their switches.
-fn group<H: SettingsHost + 'static>(s: &H, p: &Pal, provider: &str, models: &[&Model], open: bool, searching: bool) -> El {
-    let name = models.first().map_or_else(|| provider.to_owned(), |m| m.group.clone());
-    let fold = provider.to_owned();
-    let mut trigger = row()
-        .key("trigger")
+fn section_header_trigger<H: SettingsHost + 'static>(
+    p: &Pal,
+    key: &str,
+    fold_key: String,
+    icon_el: El,
+    title: String,
+    badge_text: Option<&str>,
+    open: bool,
+    searching: bool,
+) -> El {
+    let mut label = row().gap(8.0).center_y().child(icon_el).child(text(title.clone()).font(NAME).color(p.text));
+    if let Some(ws) = badge_text {
+        label = label.child(badge(p, ws));
+    }
+    let trigger = row()
+        .key(key.to_owned())
         .role("button")
-        .label(name.clone())
+        .label(title)
+        .expanded(open)
         .h(28.0)
         .pt(4.0)
         .pr(8.0)
@@ -177,15 +204,182 @@ fn group<H: SettingsHost + 'static>(s: &H, p: &Pal, provider: &str, models: &[&M
         .gap(4.0)
         .center_y()
         .radius(4.0)
+        .focus_default(p)
         .child(
             el().size(20.0, 20.0)
                 .center()
                 .child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 }).mirror_in_rtl()),
         )
-        .child(row().gap(8.0).center_y().child(widgets::provider_mark(provider, p.icon)).child(text(name).font(NAME).color(p.text)));
-    if !searching {
-        trigger = trigger.hover(p.layer2).on_press_tx(move |s: &mut H, tx: &mut Tx| toggle_provider_fold(s, &fold, tx));
+        .child(label);
+    if searching {
+        trigger.disabled(true)
+    } else {
+        trigger.cursor(Cursor::Pointer).hover(p.layer2).on_press_tx(move |s: &mut H, tx: &mut Tx| toggle_provider_fold(s, &fold_key, tx))
     }
+}
+
+/// OpenCode Console workspace section (`ProviderModelSections` managed branch, `provider-group.tsx:172-218`):
+/// collapsible `OpenCode` + workspace badge over indented provider cards with a clickable collapse rail.
+fn console_section<H: SettingsHost + PopupHost + 'static>(
+    s: &H,
+    p: &Pal,
+    cg: &ConsoleGroup,
+    nested: &[(&String, &Vec<&Model>)],
+    open: bool,
+    searching: bool,
+) -> El {
+    let trigger = section_header_trigger::<H>(
+        p,
+        "trigger",
+        CONSOLE_GROUP_KEY.to_owned(),
+        widgets::provider_mark("opencode", p.icon),
+        t!("provider.connect.opencode.name").to_owned(),
+        Some(&cg.workspace),
+        open,
+        searching,
+    );
+    let mut section = col()
+        .key("settings-models-console")
+        .w_full()
+        .gap(12.0)
+        .pb(if open { 12.0 } else { 0.0 })
+        .child(row().key("settings-models-group-header").w_full().h(28.0).center_y().child(trigger));
+    if open {
+        let mut cards = col().w_full().gap(8.0);
+        let count = nested.len();
+        for (idx, (provider, models)) in nested.iter().enumerate() {
+            let expanded = searching || !s.settings_pages().collapsed.get(s).contains(*provider);
+            let card = console_provider_card(s, p, cg, provider, models, expanded, searching);
+            let card = if expanded && idx + 1 < count { card.mb(4.0) } else { card };
+            cards = cards.child(card);
+        }
+        let mut rail = el()
+            .key("settings-models-console-rail")
+            .pin(Some(-4.0), Some(0.0), None, Some(0.0))
+            .w(20.0)
+            .hover_group()
+            .child(el().pin(Some(4.0), Some(0.0), None, Some(0.0)).w(1.0).fill(p.border).group_opacity(0.5, 1.0));
+        if !searching {
+            rail = rail.on_press_tx(|s: &mut H, tx: &mut Tx| toggle_provider_fold(s, CONSOLE_GROUP_KEY, tx));
+        }
+        section = section.child(col().key("settings-models-console-groups").w_full().ml(14.0).pl(16.0).child(rail).child(cards));
+    }
+    section
+}
+
+/// Nested card for a Console-managed provider (`ProviderModelGroup`, `provider-group.tsx:225-293`),
+/// with its `⋯` menu offering Enable all / Disable all models.
+fn console_provider_card<H: SettingsHost + PopupHost + 'static>(
+    s: &H,
+    p: &Pal,
+    cg: &ConsoleGroup,
+    provider: &str,
+    models: &[&Model],
+    open: bool,
+    searching: bool,
+) -> El {
+    let raw_name = models.first().map_or_else(|| provider.to_owned(), |m| m.group.clone());
+    let name = raw_name.strip_prefix(&cg.prefix).unwrap_or(&raw_name).to_owned();
+    let fold = provider.to_owned();
+    let anchor = format!("settings-models-group-menu-{provider}");
+    let menu_open = s.popup().open_at(&anchor);
+    let trigger = row()
+        .key("trigger")
+        .role("button")
+        .label(name.clone())
+        .expanded(open)
+        .grow(1.0)
+        .shrink()
+        .min_w(0.0)
+        .min_h(48.0)
+        .px(16.0)
+        .py(12.0)
+        .gap(8.0)
+        .center_y()
+        .radius(8.0)
+        .focus_inset(p)
+        .child(widgets::provider_mark(provider, p.icon))
+        .child(text(name).font(NAME).color(p.text).truncate().shrink().min_w(0.0))
+        .child(
+            icon(&ic::CHEVRON_DOWN, 14.0)
+                .color(p.icon_muted)
+                .rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 })
+                .mirror_in_rtl(),
+        );
+    let trigger = if searching {
+        trigger.disabled(true)
+    } else {
+        trigger.cursor(Cursor::Pointer).on_press_tx(move |s: &mut H, tx: &mut Tx| toggle_provider_fold(s, &fold, tx))
+    };
+    let provider_for_menu = provider.to_owned();
+    let anchor_click = anchor.clone();
+    let dots = el()
+        .key(anchor.clone())
+        .role("button")
+        .label_static(t!("common.moreOptions"))
+        .expanded(menu_open)
+        .size(24.0, 24.0)
+        .radius(4.0)
+        .center()
+        .cursor(Cursor::Pointer)
+        .focus_default(p)
+        .fill(if menu_open { p.pressed } else { Color::TRANSPARENT })
+        .hover(if menu_open { p.pressed } else { p.hover })
+        .press(p.pressed)
+        .menu_button(anchor, move |s: &mut H, tx: &mut Tx| {
+            let menu = Menu::new(t!("common.moreOptions"))
+                .align(Align::End)
+                .gap(4.0)
+                .item(Item::new("enable", t!("settings.models.enableAll")))
+                .item(Item::new("disable", t!("settings.models.disableAll")));
+            let pid = provider_for_menu.clone();
+            popup::open(s, menu, anchor_click.clone(), tx, move |s: &mut H, picked, tx| match picked {
+                Some("enable") => set_provider_visibility(s, &pid, true, tx),
+                Some("disable") => set_provider_visibility(s, &pid, false, tx),
+                _ => {}
+            });
+        })
+        .child(icon(&ic::OUTLINE_DOTS, 16.0).color(p.icon_muted));
+    let header = row()
+        .key("header")
+        .w_full()
+        .center_y()
+        .radius(8.0)
+        .fill(if menu_open { p.layer2 } else { Color::TRANSPARENT })
+        .hover(p.layer2)
+        .child(trigger)
+        .child(row().pr(12.0).center_y().child(dots));
+    let mut card = col()
+        .key(format!("settings-models-provider-{provider}"))
+        .w_full()
+        .radius(8.0)
+        .fill(p.layer1)
+        .box_shadow(Pal::ring_in(p.border_muted))
+        .clip_rounded(8.0)
+        .child(header);
+    if open {
+        let n = models.len();
+        let mut inner = col().w_full().px(16.0).child(rule(0.5, p.border));
+        for (at, m) in models.iter().enumerate() {
+            inner = inner.child(model_row(s, p, m));
+            if at + 1 < n {
+                inner = inner.child(rule(0.5, p.border));
+            }
+        }
+        card = card.child(inner);
+    }
+    card
+}
+
+/// A direct provider's section: its header folds it; its models in a catalog list with their switches.
+fn group<H: SettingsHost + 'static>(s: &H, p: &Pal, provider: &str, models: &[&Model], open: bool, searching: bool) -> El {
+    // Only the keyless catalog is free; a Zen key or Console account keeps the provider's own name (`provider-group.tsx:96-99`).
+    let name = if provider == "opencode" && models.iter().all(|m| m.free) {
+        t!("provider.connect.opencode.freeName").to_owned()
+    } else {
+        models.first().map_or_else(|| provider.to_owned(), |m| m.group.clone())
+    };
+    let trigger = section_header_trigger::<H>(p, "trigger", provider.to_owned(), widgets::provider_mark(provider, p.icon), name, None, open, searching);
     let mut section = col()
         .key(format!("settings-models-provider-{provider}"))
         .w_full()
@@ -208,7 +402,7 @@ fn model_row<H: SettingsHost + 'static>(s: &H, p: &Pal, m: &Model) -> El {
         .py(16.0)
         .gap(16.0)
         .center_y()
-        .child(text(m.name.clone()).font(NAME_REGULAR).color(p.text).grow(1.0).shrink().min_w(0.0).truncate())
+        .child(text(m.name.clone()).font(NAME_REGULAR).color(p.text).grow(1.0).shrink().min_w(0.0).truncate().help_when_truncated(m.name.clone()).help_above())
         .child(
             Switch::new(shown)
                 .web()

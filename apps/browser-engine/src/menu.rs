@@ -49,6 +49,7 @@ pub fn read_cef_string_list(list: &CefStringList) -> Vec<String> {
 struct HeldMenu {
     id: u64,
     src_url: Option<String>,
+    target: crate::extensions::context_menus::MenuTarget,
     callback: RunContextMenuCallback,
 }
 
@@ -77,7 +78,7 @@ impl TabMenuState {
         _file_roots: &[String],
         block_downloads: bool,
         downloads: &crate::downloads::Downloads,
-    ) {
+    ) -> Option<(String, String, crate::extensions::context_menus::MenuTarget)> {
         let matched = {
             let mut slot = self.held.lock().unwrap();
             if slot.as_ref().is_some_and(|h| h.id == id) {
@@ -86,14 +87,14 @@ impl TabMenuState {
                 None
             }
         };
-        let held_src_url = if let Some(held) = matched {
+        let (held_src_url, held_target) = if let Some(held) = matched {
             // Always cancel CEF's native menu runner; we execute the chosen action directly.
             held.callback.cancel();
-            held.src_url
+            (held.src_url, held.target)
         } else {
-            return;
+            return None;
         };
-        let Some(cmd) = action else { return };
+        let cmd = action?;
         match cmd {
             ContextMenuCommand::Back => browser.go_back(),
             ContextMenuCommand::Forward => browser.go_forward(),
@@ -139,7 +140,11 @@ impl TabMenuState {
             ContextMenuCommand::AddToDictionary { word } => {
                 host.add_word_to_dictionary(Some(&CefString::from(word.as_str())));
             }
+            ContextMenuCommand::ExtensionItem { ext_id, item_id } => {
+                return Some((ext_id, item_id, held_target));
+            }
         }
+        None
     }
 }
 
@@ -169,8 +174,10 @@ wrap_context_menu_handler! {
     pub struct TabContextMenuHandler {
         tab_id: u64,
         shared: PromptShared,
+        prompts: Arc<crate::prompts::TabPrompts>,
         file_roots: Arc<Mutex<Vec<String>>>,
         preview: Option<Arc<crate::preview::PreviewGrant>>,
+        ext_menus: Option<Arc<Mutex<crate::extensions::context_menus::ExtensionContextMenuCatalog>>>,
         menu_state: Arc<TabMenuState>,
         out_tx: Output,
     }
@@ -230,28 +237,63 @@ wrap_context_menu_handler! {
                 Vec::new()
             };
             let edit = params.edit_state_flags().as_ref().0 as u32;
-            let is_image = *params.media_type().as_ref()
-                == sys::cef_context_menu_media_type_t::CM_MEDIATYPE_IMAGE;
+            let media_enum = *params.media_type().as_ref();
+            let is_image = media_enum == sys::cef_context_menu_media_type_t::CM_MEDIATYPE_IMAGE;
+            let media_type = match media_enum {
+                sys::cef_context_menu_media_type_t::CM_MEDIATYPE_IMAGE => Some("image".to_owned()),
+                sys::cef_context_menu_media_type_t::CM_MEDIATYPE_VIDEO => Some("video".to_owned()),
+                sys::cef_context_menu_media_type_t::CM_MEDIATYPE_AUDIO => Some("audio".to_owned()),
+                _ => None,
+            };
             let id = self.shared.next_id();
+            let clean_page_url = crate::prompts::sanitize_wire_line(&page_url, 4096);
+            let clean_frame_url = crate::prompts::sanitize_wire_line(&frame_url, 4096);
+            let link_url = allowed_menu_url(&raw_link, &roots, self.preview.as_ref())
+                .filter(|u| u.len() <= crate::prompts::MAX_POPUP_URL_BYTES);
+            let src_url = if is_image && self.preview.is_none() {
+                allowed_menu_url(&raw_src, &roots, None)
+                    .filter(|u| u.len() <= crate::prompts::MAX_POPUP_URL_BYTES)
+            } else {
+                None
+            };
+            let ext_src_url = if self.preview.is_none() {
+                allowed_menu_url(&raw_src, &roots, None)
+                    .filter(|u| u.len() <= crate::prompts::MAX_POPUP_URL_BYTES)
+            } else {
+                None
+            };
+            let is_editable = params.is_editable() != 0;
+            let sel_capped: String = selection_text.chars().take(512).collect();
+            let target = crate::extensions::context_menus::MenuTarget {
+                page_url: clean_page_url.clone(),
+                frame_url: clean_frame_url.clone(),
+                link_url: link_url.clone(),
+                src_url: ext_src_url,
+                media_type,
+                is_editable,
+                selection_text: sel_capped.clone(),
+            };
+            let extensions = if self.preview.is_none()
+                && !self.prompts.agent_driven.load(Ordering::Acquire)
+                && let Some(catalog) = &self.ext_menus
+            {
+                catalog.lock().unwrap().build_groups(&target)
+            } else {
+                Vec::new()
+            };
             let menu = PageContextMenu {
                 id,
                 x: params.xcoord(),
                 y: params.ycoord(),
-                page_url: crate::prompts::sanitize_wire_line(&page_url, 4096),
-                frame_url: crate::prompts::sanitize_wire_line(&frame_url, 4096),
-                link_url: allowed_menu_url(&raw_link, &roots, self.preview.as_ref())
-                    .filter(|u| u.len() <= crate::prompts::MAX_POPUP_URL_BYTES),
+                page_url: clean_page_url,
+                frame_url: clean_frame_url,
+                link_url,
                 // Never expose `src_url` / `SaveImage` on preview tabs (`notes/review-rd281.md` #5).
-                src_url: if is_image && self.preview.is_none() {
-                    allowed_menu_url(&raw_src, &roots, None)
-                        .filter(|u| u.len() <= crate::prompts::MAX_POPUP_URL_BYTES)
-                } else {
-                    None
-                },
+                src_url,
                 is_image,
                 has_image_contents: params.has_image_contents() != 0,
-                is_editable: params.is_editable() != 0,
-                selection_text: selection_text.chars().take(512).collect(),
+                is_editable,
+                selection_text: sel_capped,
                 can_cut: (edit & sys::cef_context_menu_edit_state_flags_t::CM_EDITFLAG_CAN_CUT.0 as u32) != 0,
                 can_copy: (edit & sys::cef_context_menu_edit_state_flags_t::CM_EDITFLAG_CAN_COPY.0 as u32) != 0,
                 can_paste: (edit & sys::cef_context_menu_edit_state_flags_t::CM_EDITFLAG_CAN_PASTE.0 as u32) != 0,
@@ -259,10 +301,12 @@ wrap_context_menu_handler! {
                 misspelled_word: (!misspelled_raw.is_empty())
                     .then(|| crate::prompts::sanitize_wire_line(&misspelled_raw, 256)),
                 suggestions,
+                extensions,
             };
             if let Some(prev) = self.menu_state.held.lock().unwrap().replace(HeldMenu {
                 id,
                 src_url: menu.src_url.clone(),
+                target,
                 callback: callback.clone(),
             }) {
                 prev.callback.cancel();

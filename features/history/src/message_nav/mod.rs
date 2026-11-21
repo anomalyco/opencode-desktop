@@ -346,16 +346,20 @@ pub fn poll(host: &mut dyn MessageNavHost, tx: &mut Tx) -> bool {
         return false;
     }
     let offset = host.message_nav().offset.get();
-    // Under the header stuck over the timeline (`virtualizer.tsx:394-396`'s `scrollPaddingStart`,
-    // which Rune's prompt row reaches with the 16 of turn gap it starts with).
-    let top = if host.is_narrow() { 0.0 } else { session_view::style::HEADER_H };
+    // Under the sticky header and its 16 pt fade (`session-identity-header.tsx:56` `pb-4`: 48 + 16,
+    // `cursor.ts:128-131`'s `sticky.offsetHeight`). Placing `u-{id}/bubble` there lands the first
+    // prompt at `scrollTop = 0` and later prompts directly below the fade regardless of turn gap.
+    let inset = if host.is_narrow() { 0.0 } else { session_view::style::HEADER_H + 16.0 };
     let effects = step(&mut host.message_nav_mut().cursor, Event::Frame { offset });
     let mut changed = false;
     for effect in effects {
         let Effect::Place(row) = effect;
-        // The row's own key: its content can carry the same key (a memo), so a path through
-        // the timeline wouldn't name it.
-        tx.scroll_key_to(row, top);
+        if row.starts_with("u-") {
+            tx.scroll_key_to(format!("{row}/bubble"), inset);
+        } else {
+            let top = if host.is_narrow() { 0.0 } else { session_view::style::HEADER_H + session_view::style::timeline_top() };
+            tx.scroll_key_to(row, top);
+        }
         changed = true;
     }
     if placing {

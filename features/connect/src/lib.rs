@@ -20,7 +20,7 @@ pub mod usage_limit;
 pub mod view;
 pub mod welcome;
 
-use rune::machine::{Attempt, Effects};
+use rune::machine::Effects;
 use rune::{Key, KeyEvent, TextEdit, Tx};
 use serde_json::Value;
 use opencode_kit::model::Model;
@@ -28,7 +28,7 @@ use opencode_kit::model::Model;
 pub use catalog::{
     CatalogRead, Catalogs, ProviderInfo, SyncAfter, integration_of, integrations, provider_infos, seed_catalogs, sync_catalogs,
 };
-pub use picker_reads::{PickerList, PickerRead};
+pub use picker_reads::{PickerList, PickerRead, PickerReads};
 pub use run::{ConnectJob, ConnectReply, ConnectRequest, apply_reply, execute_request};
 
 use dialog::{Accounts, Dialog, Event, Provider, Step};
@@ -354,10 +354,10 @@ pub trait ConnectHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback + 
         let _ = tx;
     }
 
-    /// Advances and returns the server-scoped generation token for [`picker_reads`].
-    fn next_picker_reads_generation(&mut self) -> Attempt;
-    /// Current server-scoped generation token for [`picker_reads`].
-    fn current_picker_reads_generation(&self) -> Attempt;
+    /// Server-scoped generation & debounce state for [`picker_reads`].
+    fn picker_reads(&self) -> &PickerReads;
+    /// Mutable server-scoped generation & debounce state for [`picker_reads`].
+    fn picker_reads_mut(&mut self) -> &mut PickerReads;
 
     /// Prepares the shell before opening the Connect dialog (e.g. closes pickers/manage models
     /// and blurs composer).
