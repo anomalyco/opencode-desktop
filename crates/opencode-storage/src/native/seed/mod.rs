@@ -2,13 +2,14 @@
 //! `window-state-<id>.json`), running before the first `BootPacket` on a fresh profile.
 //!
 //! Safety invariants:
-//! 1. **Zero writes to Official Desktop's folder:** `drafts.sqlite` (+ `-wal` / `-shm`) is copied
-//!    via plain shared file reads into a scratch directory inside OUR profile, recovered and
-//!    verified with `PRAGMA integrity_check` there, and deleted on drop.
+//! 1. **Zero writes to Official Desktop's folder:** `drafts.sqlite` (+ `-wal` when present; never
+//!    `-shm`) is copied via plain shared file reads into a scratch directory inside OUR profile,
+//!    checked for mid-checkpoint DB/WAL skew, recovered and verified with `PRAGMA integrity_check`
+//!    there, and deleted on drop.
 //! 2. **Explicit allow-list + credential scrubbing:** only approved settings, zoom, window frames,
-//!    tabs, drafts + attachment blobs, prompt history, and secret-scrubbed server entries are
-//!    imported (never `http.password`, tokens, `ssh.servers`, `bundledCliVersion`, or plugin
-//!    stores such as `plugin.browser/sitePermissions` or `plugin.pairing`).
+//!    tabs, drafts + attachment blobs, prompt history, and strictly allow-listed, userinfo-stripped
+//!    HTTP server entries are imported (never passwords, tokens, `ssh.servers`, `bundledCliVersion`,
+//!    or plugin stores such as `plugin.browser/sitePermissions` or `plugin.pairing`).
 //! 3. **Atomic settle + bounded retries:** migrated data, rebuilt boot record, and the settled
 //!    header flags (`groups | FLAG_SEED_SETTLED`) commit in one SQLite transaction. A crash before
 //!    commit or a transient locked/torn read leaves migration unsettled and retries up to
@@ -28,8 +29,8 @@ use serde_json::{Map, Value, json};
 use crate::WindowFrame;
 
 use self::drafts::{
-    MAX_SEED_TOTAL_BLOBS_BYTES, convert_composer_store, convert_prompt_history, load_session_docs,
-    official_draft_doc_key, read_official_doc,
+    MAX_SEED_TOTAL_BLOBS_BYTES, convert_composer_value, convert_prompt_history, load_session_docs,
+    official_draft_doc_key, parse_official_doc_strict, read_official_doc,
 };
 use self::snapshot::{
     MAX_SETTINGS_JSON_BYTES, MAX_WINDOW_STATE_BYTES, PickResult, open_snapshot, pick_dir,
@@ -49,21 +50,23 @@ pub(crate) const MAX_SEED_ATTEMPTS: u32 = 5;
 pub(crate) const META_NS: &str = "rune.storage";
 pub(crate) const ATTEMPTS_KEY: &str = "official_seed_attempts";
 
-/// Allow-listed keys copied verbatim from Official's `opencode.global.dat` (`server` is scrubbed
-/// separately via [`scrub_server_json`]).
-const GLOBAL_ALLOW: &[&str] = &["language", "layout", "layout.scoped", "tips.queue", "settings.v3"];
-/// Allow-listed keys copied from each `opencode.window.<id>.dat` namespace.
-const WINDOW_ALLOW: &[&str] = &["tabs", "tabs.recent", "tabs.info", "tabs.closed", "tabs.panes", "lastActiveUrl"];
-/// Allow-listed keys copied directly from `opencode.settings` (`windowIds`, `zoomLevel`, and
-/// conditional `defaultServerUrl` are handled explicitly).
-const SETTINGS_ALLOW: &[&str] = &["firstLaunchOnboardingComplete", "backgroundColor"];
+/// Allow-listed keys copied verbatim from Official's `opencode.global.dat` (`server` is normalized
+/// and scrubbed separately via [`scrub_server_json`]).
+const GLOBAL_ALLOW: &[&str] = &["language", "layout", "tips.queue", "settings.v3"];
+/// Allow-listed keys copied from each `opencode.window.<id>.dat` namespace (consumed by Rune).
+const WINDOW_ALLOW: &[&str] = &["tabs", "tabs.recent", "tabs.info", "tabs.closed", "lastActiveUrl"];
 
 /// Outcome of a first-run seed attempt.
 pub(crate) enum SeedOutcome {
     /// No Official Desktop database existed in any candidate folder; flags settled atomically.
     NoSource,
     /// Migrated rows + boot record + settled flags committed in one atomic transaction.
-    Seeded { rows: Vec<(String, String, String)>, report: Vec<String> },
+    Seeded {
+        rows: Vec<(String, String, String)>,
+        dropped_drafts: usize,
+        source_dir: PathBuf,
+        report: Vec<String>,
+    },
     /// Official database existed but could not be read/verified/committed cleanly.
     /// When `exhausted` is false, `FLAG_SEED_SETTLED` remains unset so the next launch retries.
     Failed { exhausted: bool, report: String },
@@ -72,17 +75,23 @@ pub(crate) enum SeedOutcome {
 /// The tabs (`tabs`, `tabs.info`) of the window Desktop wrote last, read via a private scratch
 /// copy so Official Desktop's folder is never written to.
 pub fn recent_tabs_in(dirs: &[PathBuf]) -> Option<(Value, Value)> {
-    let scratch = std::env::temp_dir().join("opencode-rune-seed");
+    let scratch = std::env::temp_dir().join(format!("opencode-rune-seed-{}", std::process::id()));
     let PickResult::Picked(_, snap) = pick_dir(dirs, &scratch) else { return None };
-    recent_tabs_from(snap.conn())
+    let res = recent_tabs_from(snap.conn());
+    drop(snap);
+    let _ = std::fs::remove_dir_all(&scratch);
+    res
 }
 
 /// Legacy single-file helper kept safe via private scratch copy (never writes `-shm` beside `db`).
 pub fn recent_tabs(db: &Path) -> Option<(Value, Value)> {
     let dir = db.parent()?;
-    let scratch = std::env::temp_dir().join("opencode-rune-seed");
+    let scratch = std::env::temp_dir().join(format!("opencode-rune-seed-{}", std::process::id()));
     let snap = open_snapshot(dir, &scratch).ok()?;
-    recent_tabs_from(snap.conn())
+    let res = recent_tabs_from(snap.conn());
+    drop(snap);
+    let _ = std::fs::remove_dir_all(&scratch);
+    res
 }
 
 fn recent_tabs_from(conn: &Connection) -> Option<(Value, Value)> {
@@ -123,13 +132,37 @@ fn derived_last_active_url(win_rows: &[(String, String)], surviving_tabs: &[Tab]
     Some(json!(href).to_string())
 }
 
-/// Scrubs secrets from Official's `opencode.global.dat / server` JSON: keeps `lastProjectID`,
-/// `usedProjectIDs`, `hostnames`, `projects`, `hidden`, and server `list[]` entries (name, URL,
-/// kind, username) while stripping `http.password`, `password`, `token`, `secret`, `authorization`,
-/// and `headers`. Returns `(scrubbed_json, imported_server_urls)`.
+/// Strips embedded `user:pass@` userinfo from an `http://` or `https://` URL.
+/// Rejects non-HTTP(S) schemes, whitespace/control chars, and empty hosts.
+fn strip_url_userinfo(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return None;
+    }
+    let (scheme, rest) = trimmed.split_once("://")?;
+    let scheme_lower = scheme.to_ascii_lowercase();
+    if !matches!(scheme_lower.as_str(), "http" | "https") {
+        return None;
+    }
+    let split_at = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let (authority, suffix) = rest.split_at(split_at);
+    let host_port = authority.rsplit_once('@').map_or(authority, |(_, hp)| hp);
+    if host_port.is_empty() {
+        return None;
+    }
+    Some(format!("{scheme_lower}://{host_port}{suffix}"))
+}
+
+/// Strictly allow-lists and normalizes Official's `opencode.global.dat / server` JSON:
+/// - Keeps `lastProjectID`, `usedProjectIDs`, `hostnames`, `projects`, `hidden`.
+/// - Normalizes legacy bare-string and flat `{ url }` `StoredServer` entries as well as modern
+///   `{ type: "http", http: { url, username }, displayName, label }` entries.
+/// - Copies ONLY explicitly allow-listed fields (`type`, `displayName`, `label`, `http.url` with
+///   userinfo stripped, `http.username`) so no passwords, tokens, passphrases, or unlisted nested
+///   objects can ever pass through.
 fn scrub_server_json(raw: &str) -> Option<(String, HashSet<String>)> {
-    let mut root = serde_json::from_str::<Value>(raw).ok()?;
-    let obj = root.as_object_mut()?;
+    let root = serde_json::from_str::<Value>(raw).ok()?;
+    let obj = root.as_object()?;
     let mut out = Map::new();
     for keep in ["lastProjectID", "usedProjectIDs", "hostnames", "projects", "hidden"] {
         if let Some(v) = obj.get(keep) {
@@ -140,44 +173,55 @@ fn scrub_server_json(raw: &str) -> Option<(String, HashSet<String>)> {
     if let Some(list) = obj.get("list").and_then(Value::as_array) {
         let mut clean_list = Vec::with_capacity(list.len());
         for entry in list {
-            let Some(em) = entry.as_object() else { continue };
-            let mut clean = Map::new();
-            for (k, v) in em {
-                if is_secret_key(k) {
-                    continue;
+            let clean_entry = match entry {
+                // Legacy bare-string StoredServer (`persistence.ts:19-30`)
+                Value::String(raw_url) => {
+                    let Some(url) = strip_url_userinfo(raw_url) else { continue };
+                    imported_urls.insert(url.trim_end_matches('/').to_owned());
+                    json!({ "type": "http", "http": { "url": url } })
                 }
-                if k == "http" && let Some(hm) = v.as_object() {
+                Value::Object(em) => {
+                    let kind = em.get("type").and_then(Value::as_str);
+                    // Only import HTTP servers (or legacy flat objects with no `type` and a `url`).
+                    if let Some(t) = kind && t != "http" {
+                        continue;
+                    }
+                    let (raw_url, username) = if let Some(hm) = em.get("http").and_then(Value::as_object) {
+                        (
+                            hm.get("url").and_then(Value::as_str),
+                            hm.get("username").and_then(Value::as_str).filter(|s| !s.is_empty()),
+                        )
+                    } else {
+                        (
+                            em.get("url").and_then(Value::as_str),
+                            em.get("username").and_then(Value::as_str).filter(|s| !s.is_empty()),
+                        )
+                    };
+                    let Some(url) = raw_url.and_then(strip_url_userinfo) else { continue };
+                    imported_urls.insert(url.trim_end_matches('/').to_owned());
                     let mut clean_http = Map::new();
-                    for (hk, hv) in hm {
-                        if is_secret_key(hk) {
-                            continue;
-                        }
-                        if hk == "url" && let Some(u) = hv.as_str() {
-                            imported_urls.insert(u.trim_end_matches('/').to_owned());
-                        }
-                        clean_http.insert(hk.clone(), hv.clone());
+                    clean_http.insert("url".into(), json!(url));
+                    if let Some(user) = username {
+                        clean_http.insert("username".into(), json!(user));
+                    }
+                    let mut clean = Map::new();
+                    clean.insert("type".into(), json!("http"));
+                    if let Some(dn) = em.get("displayName").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+                        clean.insert("displayName".into(), json!(dn));
+                    }
+                    if let Some(lb) = em.get("label").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+                        clean.insert("label".into(), json!(lb));
                     }
                     clean.insert("http".into(), Value::Object(clean_http));
-                } else {
-                    if k == "url" && let Some(u) = v.as_str() {
-                        imported_urls.insert(u.trim_end_matches('/').to_owned());
-                    }
-                    clean.insert(k.clone(), v.clone());
+                    Value::Object(clean)
                 }
-            }
-            clean_list.push(Value::Object(clean));
+                _ => continue,
+            };
+            clean_list.push(clean_entry);
         }
         out.insert("list".into(), Value::Array(clean_list));
     }
     Some((Value::Object(out).to_string(), imported_urls))
-}
-
-fn is_secret_key(k: &str) -> bool {
-    let lower = k.to_ascii_lowercase();
-    matches!(
-        lower.as_str(),
-        "password" | "token" | "secret" | "authorization" | "auth" | "headers" | "apikey" | "api_key" | "cookie" | "cookies"
-    )
 }
 
 /// Returns how many prior failed seed attempts are recorded in `rune.storage`.
@@ -215,50 +259,63 @@ fn record_attempt(conn: &mut Connection, settle_flags: u32, now_ms: i64, why: St
 }
 
 /// On a retry launch (`prior_attempts > 0`), detects untouched blank default rows written by a
-/// prior locked launch (a single empty Home window / empty `server` row) so the retry can replace
-/// them without ever overwriting real user work (non-empty tabs, settings, servers, or drafts).
-fn clear_blank_retry_defaults(tx: &Transaction<'_>) -> rusqlite::Result<()> {
-    let win_ids: Option<Vec<String>> = tx
-        .query_row("SELECT value FROM state WHERE name = 'opencode.settings' AND key = 'windowIds'", [], |r| r.get::<_, String>(0))
-        .optional()?
-        .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok());
-    if let Some(ids) = win_ids && ids.len() == 1 {
-        let ns = crate::window_namespace(&ids[0]);
-        let tabs_empty = tx
-            .query_row("SELECT value FROM state WHERE name = ?1 AND key = 'tabs'", [&ns], |r| r.get::<_, String>(0))
+/// prior locked launch (a single empty Home window with no closed tabs / no URL, or an empty
+/// default `server` row) only when the incoming bundle actually carries replacements.
+/// Never overwrites any real user work (open tabs, closed tabs, non-home route, settings, servers).
+fn clear_blank_retry_defaults(tx: &Transaction<'_>, bundle: &SeedBundle) -> rusqlite::Result<()> {
+    if bundle.window_count > 0 {
+        let win_ids: Option<Vec<String>> = tx
+            .query_row("SELECT value FROM state WHERE name = 'opencode.settings' AND key = 'windowIds'", [], |r| r.get::<_, String>(0))
             .optional()?
-            .and_then(|s| serde_json::from_str::<Vec<Value>>(&s).ok())
-            .is_none_or(|t| t.is_empty());
-        let no_url = tx
-            .query_row("SELECT value FROM state WHERE name = ?1 AND key = 'lastActiveUrl'", [&ns], |r| r.get::<_, String>(0))
-            .optional()?
-            .is_none_or(|u| u == "\"/\"" || u == "null");
-        if tabs_empty && no_url {
-            tx.execute("DELETE FROM state WHERE name = 'opencode.settings' AND key = 'windowIds'", [])?;
-            tx.execute("DELETE FROM state WHERE name = ?1", [&ns])?;
-            tx.execute("DELETE FROM window_state WHERE id = ?1", [&ids[0]])?;
+            .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok());
+        if let Some(ids) = win_ids && ids.len() == 1 {
+            let ns = crate::window_namespace(&ids[0]);
+            let tabs_empty = tx
+                .query_row("SELECT value FROM state WHERE name = ?1 AND key = 'tabs'", [&ns], |r| r.get::<_, String>(0))
+                .optional()?
+                .and_then(|s| serde_json::from_str::<Vec<Value>>(&s).ok())
+                .is_none_or(|t| t.is_empty());
+            let closed_empty = tx
+                .query_row("SELECT value FROM state WHERE name = ?1 AND key = 'tabs.closed'", [&ns], |r| r.get::<_, String>(0))
+                .optional()?
+                .and_then(|s| serde_json::from_str::<Vec<Value>>(&s).ok())
+                .is_none_or(|t| t.is_empty());
+            let no_url = tx
+                .query_row("SELECT value FROM state WHERE name = ?1 AND key = 'lastActiveUrl'", [&ns], |r| r.get::<_, String>(0))
+                .optional()?
+                .is_none_or(|u| u == "\"/\"" || u == "null");
+            if tabs_empty && closed_empty && no_url {
+                tx.execute("DELETE FROM state WHERE name = 'opencode.settings' AND key = 'windowIds'", [])?;
+                tx.execute("DELETE FROM state WHERE name = ?1", [&ns])?;
+                tx.execute("DELETE FROM window_state WHERE id = ?1", [&ids[0]])?;
+            }
         }
     }
-    let srv_blank = tx
-        .query_row("SELECT value FROM state WHERE name = 'opencode.global.dat' AND key = 'server'", [], |r| r.get::<_, String>(0))
-        .optional()?
-        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-        .is_some_and(|v| {
-            v["list"].as_array().is_none_or(Vec::is_empty)
-                && v["usedProjectIDs"].as_object().is_none_or(|m| m.values().all(|a| a.as_array().is_none_or(Vec::is_empty)))
-        });
-    if srv_blank {
-        tx.execute("DELETE FROM state WHERE name = 'opencode.global.dat' AND key = 'server'", [])?;
+    if bundle.has_server {
+        let srv_blank = tx
+            .query_row("SELECT value FROM state WHERE name = 'opencode.global.dat' AND key = 'server'", [], |r| r.get::<_, String>(0))
+            .optional()?
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+            .is_some_and(|v| {
+                v["list"].as_array().is_none_or(Vec::is_empty)
+                    && v["usedProjectIDs"].as_object().is_none_or(|m| m.values().all(|a| a.as_array().is_none_or(Vec::is_empty)))
+            });
+        if srv_blank {
+            tx.execute("DELETE FROM state WHERE name = 'opencode.global.dat' AND key = 'server'", [])?;
+        }
     }
     Ok(())
 }
 
 struct SeedBundle {
-    rows: Vec<(String, String, String)>,
-    docs: Vec<(String, String)>,
-    blobs: Vec<(String, Vec<u8>)>,
+    global_rows: Vec<(String, String, String)>,
+    window_rows: Vec<(String, String, String)>,
+    global_docs: Vec<(String, String)>,
+    window_docs: Vec<(String, String)>,
+    window_blobs: Vec<(String, Vec<u8>)>,
     frames: Vec<(String, WindowFrame)>,
     window_count: usize,
+    has_server: bool,
     dropped_drafts: usize,
     notes: Vec<String>,
 }
@@ -279,23 +336,25 @@ fn collect_bundle(dir: &Path, snap: &snapshot::Snapshot) -> Result<SeedBundle, S
         }
     };
 
-    let mut rows: Vec<(String, String, String)> = Vec::new();
+    let mut global_rows: Vec<(String, String, String)> = Vec::new();
+    let mut window_rows: Vec<(String, String, String)> = Vec::new();
     let mut state_bytes: usize = 0;
-    let mut push_state = |name: String, key: String, val: String| {
-        if val.len() <= MAX_STATE_VALUE_BYTES && state_bytes.saturating_add(val.len()) <= MAX_TOTAL_STATE_BYTES {
-            state_bytes += val.len();
-            rows.push((name, key, val));
+    let push_capped = |dst: &mut Vec<(String, String, String)>, budget: &mut usize, name: String, key: String, val: String| {
+        if val.len() <= MAX_STATE_VALUE_BYTES && budget.saturating_add(val.len()) <= MAX_TOTAL_STATE_BYTES {
+            *budget += val.len();
+            dst.push((name, key, val));
         }
     };
 
     let mut imported_server_urls = HashSet::new();
+    let mut has_server = false;
     if has_state {
         if let Some(v3) = official
             .query_row("SELECT value FROM state WHERE name = 'default.dat' AND key = 'settings.v3'", [], |r| r.get::<_, String>(0))
             .optional()
             .map_err(|e| format!("read default.dat/settings.v3: {e}"))?
         {
-            push_state("opencode.global.dat".into(), "settings.v3".into(), v3);
+            push_capped(&mut global_rows, &mut state_bytes, "opencode.global.dat".into(), "settings.v3".into(), v3);
         }
 
         let mut stmt = official
@@ -309,10 +368,11 @@ fn collect_bundle(dir: &Path, snap: &snapshot::Snapshot) -> Result<SeedBundle, S
             if k == "server" {
                 if let Some((scrubbed, urls)) = scrub_server_json(&v) {
                     imported_server_urls = urls;
-                    push_state("opencode.global.dat".into(), "server".into(), scrubbed);
+                    has_server = true;
+                    push_capped(&mut global_rows, &mut state_bytes, "opencode.global.dat".into(), "server".into(), scrubbed);
                 }
             } else if GLOBAL_ALLOW.contains(&k.as_str()) {
-                push_state("opencode.global.dat".into(), k, v);
+                push_capped(&mut global_rows, &mut state_bytes, "opencode.global.dat".into(), k, v);
             }
         }
     }
@@ -342,33 +402,23 @@ fn collect_bundle(dir: &Path, snap: &snapshot::Snapshot) -> Result<SeedBundle, S
         }
     }
 
-    if let Some(obj) = settings_val.as_object() {
-        for &k in SETTINGS_ALLOW {
-            if let Some(v) = obj.get(k) {
-                push_state("opencode.settings".into(), k.into(), v.to_string());
-            }
-        }
-        if let Some(def_url) = obj.get("defaultServerUrl").and_then(Value::as_str) {
-            let norm = def_url.trim_end_matches('/');
-            if imported_server_urls.contains(norm) {
-                push_state("opencode.settings".into(), "defaultServerUrl".into(), json!(def_url).to_string());
-            }
+    if let Some(def_url) = settings_val["defaultServerUrl"].as_str().and_then(strip_url_userinfo) {
+        let norm = def_url.trim_end_matches('/');
+        if imported_server_urls.contains(norm) {
+            push_capped(&mut global_rows, &mut state_bytes, "opencode.settings".into(), "defaultServerUrl".into(), json!(def_url).to_string());
         }
     }
     if !window_ids.is_empty() {
-        push_state("opencode.settings".into(), "windowIds".into(), json!(&window_ids).to_string());
+        push_capped(&mut window_rows, &mut state_bytes, "opencode.settings".into(), "windowIds".into(), json!(&window_ids).to_string());
     }
     if let Some(z) = settings_val["zoomLevel"].as_f64().filter(|z| z.is_finite() && (0.25..=4.0).contains(z)) {
-        push_state("opencode.global.dat".into(), "zoom".into(), json!(z).to_string());
+        push_capped(&mut global_rows, &mut state_bytes, "opencode.global.dat".into(), "zoom".into(), json!(z).to_string());
     }
 
-    let session_docs = if has_doc { load_session_docs(official)? } else { std::collections::HashMap::new() };
-    let mut docs: Vec<(String, String)> = Vec::new();
-    let mut blobs: Vec<(String, Vec<u8>)> = Vec::new();
-    let mut blob_budget = MAX_SEED_TOTAL_BLOBS_BYTES;
-    let mut frames: Vec<(String, WindowFrame)> = Vec::new();
-    let mut dropped_drafts = 0usize;
-
+    // Pass 1 over windows: load allow-listed window state rows and collect open session IDs so
+    // `load_session_docs` queries ONLY open sessions (never full historical sessions).
+    let mut per_window: Vec<(String, String, Vec<(String, String)>)> = Vec::with_capacity(window_ids.len());
+    let mut open_sessions: HashSet<String> = HashSet::new();
     for wid in &window_ids {
         let ns = crate::window_namespace(wid);
         let mut win_rows: Vec<(String, String)> = Vec::new();
@@ -382,26 +432,50 @@ fn collect_bundle(dir: &Path, snap: &snapshot::Snapshot) -> Result<SeedBundle, S
             for item in found {
                 let (k, v) = item.map_err(|e| format!("read {ns} row: {e}"))?;
                 if WINDOW_ALLOW.contains(&k.as_str()) {
+                    if k == "tabs"
+                        && let Ok(Value::Array(arr)) = serde_json::from_str::<Value>(&v)
+                    {
+                        for raw_tab in arr {
+                            if let Some(Tab::Session(sess)) = Tab::from_json(&raw_tab) {
+                                open_sessions.insert(sess.session_id);
+                            }
+                        }
+                    }
                     win_rows.push((k, v));
                 }
             }
         }
+        per_window.push((wid.clone(), ns, win_rows));
+    }
 
-        // Convert drafts for every tab in this window; drop any draft tab whose draft failed to
-        // convert or missed a blob so we never open a blank tab in place of a user's draft.
+    let session_docs = if has_doc { load_session_docs(official, &open_sessions)? } else { std::collections::HashMap::new() };
+    let mut window_docs: Vec<(String, String)> = Vec::new();
+    let mut window_blobs: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut blob_budget = MAX_SEED_TOTAL_BLOBS_BYTES;
+    let mut frames: Vec<(String, WindowFrame)> = Vec::new();
+    let mut dropped_drafts = 0usize;
+
+    // Pass 2 over windows: convert drafts per window (tracking dropped drafts strictly per window).
+    for (wid, ns, mut win_rows) in per_window {
         let mut surviving_tabs: Vec<Tab> = Vec::new();
+        let mut win_dropped = 0usize;
         if let Some((_, tabs_raw)) = win_rows.iter_mut().find(|(k, _)| k == "tabs")
             && let Ok(Value::Array(arr)) = serde_json::from_str::<Value>(tabs_raw)
         {
             let mut kept_raw = Vec::with_capacity(arr.len());
             for raw_tab in arr {
-                let Some(tab) = Tab::from_json(&raw_tab) else { continue };
+                let Some(tab) = Tab::from_json(&raw_tab) else {
+                    kept_raw.push(raw_tab);
+                    continue;
+                };
                 match &tab {
                     Tab::Draft(draft) => {
                         let official_key = official_draft_doc_key(&draft.draft_id);
+                        let mut draft_blobs = Vec::new();
+                        let mut draft_budget = blob_budget;
                         let doc_res = if has_doc {
                             read_official_doc(official, &official_key, has_blobs).and_then(|opt| match opt {
-                                Some(raw) => convert_composer_store(&raw, official, has_blobs, &mut blobs, &mut blob_budget),
+                                Some(val) => convert_composer_value(&val, official, has_blobs, &mut draft_blobs, &mut draft_budget),
                                 None => Ok(None),
                             })
                         } else {
@@ -409,7 +483,9 @@ fn collect_bundle(dir: &Path, snap: &snapshot::Snapshot) -> Result<SeedBundle, S
                         };
                         match doc_res {
                             Ok(Some(rune_doc)) => {
-                                docs.push((crate::draft_document(wid, &tab.key().encode()), rune_doc));
+                                blob_budget = draft_budget;
+                                window_blobs.extend(draft_blobs);
+                                window_docs.push((crate::draft_document(&wid, &tab.key().encode()), rune_doc));
                                 surviving_tabs.push(tab);
                                 kept_raw.push(raw_tab);
                             }
@@ -418,24 +494,38 @@ fn collect_bundle(dir: &Path, snap: &snapshot::Snapshot) -> Result<SeedBundle, S
                                 kept_raw.push(raw_tab);
                             }
                             Err(why) => {
-                                dropped_drafts += 1;
+                                win_dropped += 1;
                                 notes.push(format!("dropped draft tab {} (draft could not be migrated: {why})", draft.draft_id));
                             }
                         }
                     }
                     Tab::Session(sess) => {
-                        if let Some(raw_doc) = session_docs.get(&sess.session_id)
-                            && let Ok(Some(rune_doc)) = convert_composer_store(raw_doc, official, has_blobs, &mut blobs, &mut blob_budget)
-                        {
-                            docs.push((crate::draft_document(wid, &tab.key().encode()), rune_doc));
+                        if let Some(raw_doc) = session_docs.get(&sess.session_id) {
+                            let mut draft_blobs = Vec::new();
+                            let mut draft_budget = blob_budget;
+                            match parse_official_doc_strict(raw_doc, official, has_blobs)
+                                .and_then(|val| convert_composer_value(&val, official, has_blobs, &mut draft_blobs, &mut draft_budget))
+                            {
+                                Ok(Some(rune_doc)) => {
+                                    blob_budget = draft_budget;
+                                    window_blobs.extend(draft_blobs);
+                                    window_docs.push((crate::draft_document(&wid, &tab.key().encode()), rune_doc));
+                                }
+                                Ok(None) => {}
+                                Err(why) => {
+                                    win_dropped += 1;
+                                    notes.push(format!("skipped unsent draft for session {} ({why})", sess.session_id));
+                                }
+                            }
                         }
                         surviving_tabs.push(tab);
                         kept_raw.push(raw_tab);
                     }
                 }
             }
-            if dropped_drafts > 0 {
+            if win_dropped > 0 {
                 *tabs_raw = Value::Array(kept_raw).to_string();
+                dropped_drafts += win_dropped;
             }
         }
 
@@ -443,13 +533,13 @@ fn collect_bundle(dir: &Path, snap: &snapshot::Snapshot) -> Result<SeedBundle, S
             win_rows.push(("lastActiveUrl".into(), url_json));
         }
         for (k, v) in win_rows {
-            push_state(ns.clone(), k, v);
+            push_capped(&mut window_rows, &mut state_bytes, ns.clone(), k, v);
         }
 
         match read_capped(&dir.join(format!("window-state-{wid}.json")), MAX_WINDOW_STATE_BYTES) {
             Ok(Some(raw)) => {
                 if let Some(frame) = serde_json::from_str::<Value>(&raw).ok().and_then(|v| WindowFrame::from_json(&v)) {
-                    frames.push((wid.clone(), frame));
+                    frames.push((wid, frame));
                 }
             }
             Ok(None) => {}
@@ -457,11 +547,23 @@ fn collect_bundle(dir: &Path, snap: &snapshot::Snapshot) -> Result<SeedBundle, S
         }
     }
 
+    let mut global_docs: Vec<(String, String)> = Vec::new();
     if has_doc && let Some(hist) = convert_prompt_history(official, has_blobs) {
-        docs.push((crate::PROMPT_HISTORY_DOCUMENT.into(), hist));
+        global_docs.push((crate::PROMPT_HISTORY_DOCUMENT.into(), hist));
     }
 
-    Ok(SeedBundle { rows, docs, blobs, frames, window_count: window_ids.len(), dropped_drafts, notes })
+    Ok(SeedBundle {
+        global_rows,
+        window_rows,
+        global_docs,
+        window_docs,
+        window_blobs,
+        frames,
+        window_count: window_ids.len(),
+        has_server,
+        dropped_drafts,
+        notes,
+    })
 }
 
 /// Runs the first-run seed from Official Desktop inside ONE atomic transaction (migrated rows,
@@ -498,30 +600,53 @@ pub(crate) fn run(
     drop(snap);
 
     let is_retry = prior_attempts(conn) > 0;
-    let commit = (|| -> rusqlite::Result<Vec<(String, String, String)>> {
+    let commit = (|| -> rusqlite::Result<(Vec<(String, String, String)>, bool)> {
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         if is_retry {
-            clear_blank_retry_defaults(&tx)?;
+            clear_blank_retry_defaults(&tx, &bundle)?;
         }
-        for (id, data) in &bundle.blobs {
-            sql::insert_blob(&tx, id, data, now_ms)?;
-        }
-        for (key, value) in &bundle.docs {
+        // If this is a retry and Rune already holds user windows (user opened tabs on Launch 1),
+        // skip Official's window rows, frames, and per-window draft docs/blobs so no orphan
+        // `opencode.window.*` rows bloat the boot record or pin blobs forever.
+        let import_windows = !is_retry
+            || tx
+                .query_row("SELECT 1 FROM state WHERE name = 'opencode.settings' AND key = 'windowIds'", [], |_| Ok(()))
+                .optional()?
+                .is_none();
+
+        let mut inserted = Vec::new();
+        for (key, value) in &bundle.global_docs {
             let (stored, chunks) = sql::encode_text(value);
             for (cid, cdata) in &chunks {
                 sql::insert_blob(&tx, cid, cdata, now_ms)?;
             }
             tx.execute("INSERT INTO document (key, value) VALUES (?1, ?2) ON CONFLICT DO NOTHING", (key, stored))?;
         }
-        let mut inserted = Vec::new();
-        for (name, key, value) in bundle.rows {
+        for (name, key, value) in bundle.global_rows {
             if tx.execute("INSERT INTO state (name, key, value, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING", (&name, &key, &value, now_ms))? > 0 {
                 inserted.push((name, key, value));
             }
         }
-        for (id, frame) in &bundle.frames {
-            if tx.query_row("SELECT 1 FROM window_state WHERE id = ?1", [id], |_| Ok(())).optional()?.is_none() {
-                sql::put_window(&tx, id, Some(frame), now_ms)?;
+        if import_windows {
+            for (id, data) in &bundle.window_blobs {
+                sql::insert_blob(&tx, id, data, now_ms)?;
+            }
+            for (key, value) in &bundle.window_docs {
+                let (stored, chunks) = sql::encode_text(value);
+                for (cid, cdata) in &chunks {
+                    sql::insert_blob(&tx, cid, cdata, now_ms)?;
+                }
+                tx.execute("INSERT INTO document (key, value) VALUES (?1, ?2) ON CONFLICT DO NOTHING", (key, stored))?;
+            }
+            for (name, key, value) in bundle.window_rows {
+                if tx.execute("INSERT INTO state (name, key, value, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING", (&name, &key, &value, now_ms))? > 0 {
+                    inserted.push((name, key, value));
+                }
+            }
+            for (id, frame) in &bundle.frames {
+                if tx.query_row("SELECT 1 FROM window_state WHERE id = ?1", [id], |_| Ok(())).optional()?.is_none() {
+                    sql::put_window(&tx, id, Some(frame), now_ms)?;
+                }
             }
         }
         tx.execute("DELETE FROM state WHERE name = ?1 AND key = ?2", [META_NS, ATTEMPTS_KEY])?;
@@ -537,23 +662,25 @@ pub(crate) fn run(
         }
 
         tx.commit()?;
-        Ok(inserted)
+        Ok((inserted, import_windows))
     })();
 
     match commit {
-        Ok(inserted) => {
+        Ok((inserted, imported_windows)) => {
+            let dropped = if imported_windows { bundle.dropped_drafts } else { 0 };
             let mut report = bundle.notes;
             report.push(format!(
-                "seeded {} state rows, {} docs, {} blobs, {} frames ({} windows, {} dropped drafts) from {}",
+                "seeded {} state rows, {} docs, {} blobs, {} frames ({} windows, imported_windows={}, {} dropped drafts) from {}",
                 inserted.len(),
-                bundle.docs.len(),
-                bundle.blobs.len(),
-                bundle.frames.len(),
+                bundle.global_docs.len() + if imported_windows { bundle.window_docs.len() } else { 0 },
+                if imported_windows { bundle.window_blobs.len() } else { 0 },
+                if imported_windows { bundle.frames.len() } else { 0 },
                 bundle.window_count,
-                bundle.dropped_drafts,
+                imported_windows,
+                dropped,
                 dir.display()
             ));
-            SeedOutcome::Seeded { rows: inserted, report }
+            SeedOutcome::Seeded { rows: inserted, dropped_drafts: dropped, source_dir: dir, report }
         }
         Err(e) => record_attempt(conn, settle_flags, now_ms, format!("commit failed: {e}")),
     }

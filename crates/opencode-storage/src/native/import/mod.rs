@@ -88,6 +88,10 @@ pub struct ImportSummary {
     /// Files moved into the retired folder.
     pub retired: usize,
     pub seeded_rows: usize,
+    /// Drafts skipped during first-run Official Desktop migration because a chunk/attachment blob
+    /// was missing or unreadable (surfaced once to the user; Official's files remain untouched).
+    pub seeded_dropped_drafts: usize,
+    pub seeded_source_dir: Option<PathBuf>,
     pub scan_ns: u64,
     pub write_ns: u64,
     pub verify_ns: u64,
@@ -230,9 +234,11 @@ fn drive(state: &mut ImportState, effects: Effects<ImportEffect>, d: &mut Driver
                         d.summary.reports.push("no Desktop database to seed from".into());
                         Some(ImportEvent::OfficialSeedSettled)
                     }
-                    super::seed::SeedOutcome::Seeded { rows, report } => {
+                    super::seed::SeedOutcome::Seeded { rows, dropped_drafts, source_dir, report } => {
                         d.flags = settle_flags;
                         d.summary.seeded_rows = rows.len();
+                        d.summary.seeded_dropped_drafts = dropped_drafts;
+                        d.summary.seeded_source_dir = Some(source_dir);
                         d.summary.reports.extend(report);
                         d.seeded = rows;
                         Some(ImportEvent::OfficialSeedSettled)

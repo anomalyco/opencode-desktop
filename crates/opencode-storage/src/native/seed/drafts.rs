@@ -2,20 +2,19 @@
 //! prompt history (`opencode.global.dat:prompt-history{,-shell}`) into Rune's `draft_doc` and
 //! `prompt-history.v1` documents.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use base64::Engine as _;
 use opencode_kit::model::PromptComment;
 use rusqlite::{Connection, OptionalExtension};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
-
-use super::super::sql;
 
 pub(super) const MAX_SEED_DOC_BYTES: usize = 4 * 1024 * 1024;
 pub(super) const MAX_SEED_BLOB_BYTES: usize = 16 * 1024 * 1024;
 pub(super) const MAX_SEED_TOTAL_BLOBS_BYTES: usize = 48 * 1024 * 1024;
-const MAX_HISTORY_ENTRIES: usize = 100;
+/// Matches `crates/opencode-ui/src/prompt_history.rs::MAX` (`#594`) and Official `entry.ts:12`.
+const MAX_HISTORY_ENTRIES: usize = 200;
 
 /// FNV-1a 32-bit hash over UTF-16 code units, base-36 formatted — exact match for Official Desktop's
 /// `packages/util/src/encode.ts::checksum`.
@@ -92,62 +91,159 @@ fn decode_data_url(url: &str) -> Option<Vec<u8>> {
     (bytes.len() <= MAX_SEED_BLOB_BYTES).then_some(bytes)
 }
 
-/// Reads an Official document by key, decoding any chunked text from Official's `blob` table.
-/// Fails closed if the document exceeds `MAX_SEED_DOC_BYTES` or a referenced text chunk is missing.
-pub(super) fn read_official_doc(official: &Connection, key: &str, has_blobs: bool) -> Result<Option<String>, String> {
+/// Strictly decodes Official Desktop's `{ "blob": { "kind": "text", "ids": [...] } }` chunk refs
+/// in `value`, failing closed on any missing/non-UTF-8 chunk blob or running size past `budget`.
+/// (Unlike `sql::decode_text` / `chunk::decode`, never replaces missing chunks with `""`.)
+fn decode_text_chunks_strict(
+    value: &Value,
+    official: &Connection,
+    has_blobs: bool,
+    budget: &mut usize,
+) -> Result<Value, String> {
+    if let Some(map) = value.as_object()
+        && map.len() == 1
+        && let Some(blob) = map.get("blob").and_then(Value::as_object)
+        && blob.get("kind").and_then(Value::as_str) == Some("text")
+    {
+        if !has_blobs {
+            return Err("text chunk reference without blob table".into());
+        }
+        let ids = blob
+            .get("ids")
+            .and_then(Value::as_array)
+            .filter(|a| !a.is_empty())
+            .ok_or_else(|| "text chunk reference missing ids array".to_owned())?;
+        let mut joined = String::new();
+        for id_val in ids {
+            let id = id_val.as_str().filter(|s| !s.is_empty()).ok_or_else(|| "invalid text chunk id".to_owned())?;
+            let bytes: Option<Vec<u8>> = official
+                .prepare_cached("SELECT data FROM blob WHERE id = ?1")
+                .and_then(|mut s| s.query_row([id], |r| r.get(0)).optional())
+                .map_err(|e| format!("read text chunk blob {id}: {e}"))?;
+            let bytes = bytes.ok_or_else(|| format!("missing text chunk blob {id}"))?;
+            if bytes.len() > *budget {
+                return Err(format!("decoded document exceeds {MAX_SEED_DOC_BYTES} B cap"));
+            }
+            let piece = String::from_utf8(bytes).map_err(|_| format!("non-utf8 text chunk blob {id}"))?;
+            *budget -= piece.len();
+            joined.push_str(&piece);
+        }
+        return Ok(Value::String(joined));
+    }
+    match value {
+        Value::Array(items) => {
+            let mut out = Vec::with_capacity(items.len());
+            for item in items {
+                out.push(decode_text_chunks_strict(item, official, has_blobs, budget)?);
+            }
+            Ok(Value::Array(out))
+        }
+        Value::Object(map) => {
+            let mut out = Map::with_capacity(map.len());
+            for (k, v) in map {
+                out.insert(k.clone(), decode_text_chunks_strict(v, official, has_blobs, budget)?);
+            }
+            Ok(Value::Object(out))
+        }
+        other => Ok(other.clone()),
+    }
+}
+
+/// Parses an Official document JSON string once and strictly resolves all text chunks within
+/// `MAX_SEED_DOC_BYTES`.
+pub(super) fn parse_official_doc_strict(raw: &str, official: &Connection, has_blobs: bool) -> Result<Value, String> {
+    if raw.len() > MAX_SEED_DOC_BYTES {
+        return Err(format!("document exceeds {MAX_SEED_DOC_BYTES} B cap"));
+    }
+    let parsed: Value = serde_json::from_str(raw).map_err(|e| format!("invalid document JSON: {e}"))?;
+    if !raw.contains("\"kind\":\"text\"") {
+        return Ok(parsed);
+    }
+    let mut budget = MAX_SEED_DOC_BYTES.saturating_sub(raw.len());
+    decode_text_chunks_strict(&parsed, official, has_blobs, &mut budget)
+}
+
+/// Reads an Official document by key, parses JSON once, and strictly resolves all text chunks.
+pub(super) fn read_official_doc(official: &Connection, key: &str, has_blobs: bool) -> Result<Option<Value>, String> {
     let raw: Option<String> = official
         .prepare_cached("SELECT value FROM document WHERE key = ?1")
         .and_then(|mut s| s.query_row([key], |r| r.get(0)).optional())
         .map_err(|e| format!("read document {key}: {e}"))?;
     let Some(stored) = raw else { return Ok(None) };
-    if stored.len() > MAX_SEED_DOC_BYTES {
-        return Err(format!("document {key} exceeds {} B cap", MAX_SEED_DOC_BYTES));
-    }
-    if !stored.contains("\"kind\":\"text\"") {
-        return Ok(Some(stored));
-    }
-    if !has_blobs {
-        return Err(format!("document {key} references text chunks without blob table"));
-    }
-    let decoded = sql::decode_text(official, stored);
-    if decoded.contains("\"kind\":\"text\"") {
-        return Err(format!("document {key} has missing text chunk blob"));
-    }
-    if decoded.len() > MAX_SEED_DOC_BYTES {
-        return Err(format!("decoded document {key} exceeds {} B cap", MAX_SEED_DOC_BYTES));
-    }
-    Ok(Some(decoded))
+    parse_official_doc_strict(&stored, official, has_blobs).map(Some)
 }
 
-/// Loads Official Desktop's `*:session:<sid>:prompt` documents indexed by `session_id`
-/// (preferring a non-empty prompt if multiple workspace aliases exist for the same session).
-pub(super) fn load_session_docs(official: &Connection) -> Result<HashMap<String, String>, String> {
-    let mut out: HashMap<String, String> = HashMap::new();
-    let mut stmt = official
-        .prepare("SELECT key, value FROM document WHERE key LIKE '%:session:%:prompt'")
-        .map_err(|e| format!("query session documents: {e}"))?;
-    let rows = stmt
-        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
-        .map_err(|e| format!("map session documents: {e}"))?;
-    for row in rows {
-        let (key, val) = row.map_err(|e| format!("read session document row: {e}"))?;
-        if val.len() > MAX_SEED_DOC_BYTES {
-            continue;
+/// Escapes SQLite `LIKE` wildcards (`\`, `%`, `_`) for use with `ESCAPE '\'`.
+fn escape_like(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 4);
+    for ch in s.chars() {
+        if matches!(ch, '\\' | '%' | '_') {
+            out.push('\\');
         }
-        let Some(rest) = key.split_once(":session:").map(|(_, r)| r) else { continue };
-        let Some(sid) = rest.strip_suffix(":prompt") else { continue };
+        out.push(ch);
+    }
+    out
+}
+
+/// Loads Official Desktop's `*:session:<sid>:prompt` documents ONLY for `open_sessions` (bounded
+/// frame-0 scan; never loads closed historical sessions into RAM).
+pub(super) fn load_session_docs(official: &Connection, open_sessions: &HashSet<String>) -> Result<HashMap<String, String>, String> {
+    let mut out: HashMap<String, String> = HashMap::new();
+    if open_sessions.is_empty() {
+        return Ok(out);
+    }
+    let mut stmt = official
+        .prepare("SELECT value FROM document WHERE key LIKE ?1 ESCAPE '\\'")
+        .map_err(|e| format!("prepare session documents: {e}"))?;
+    for sid in open_sessions {
         if sid.is_empty() || sid.contains(':') {
             continue;
         }
-        let replace = match out.get(sid) {
-            None => true,
-            Some(prev) => prev.contains("\"content\":\"\"") && !val.contains("\"content\":\"\""),
-        };
-        if replace {
-            out.insert(sid.to_owned(), val);
+        let pattern = format!("%:session:{}:prompt", escape_like(sid));
+        let rows = stmt
+            .query_map([&pattern], |r| r.get::<_, String>(0))
+            .map_err(|e| format!("query session document {sid}: {e}"))?;
+        for row in rows {
+            let val = row.map_err(|e| format!("read session document {sid}: {e}"))?;
+            if val.len() > MAX_SEED_DOC_BYTES {
+                continue;
+            }
+            let replace = match out.get(sid) {
+                None => true,
+                Some(prev) => prev.contains("\"content\":\"\"") && !val.contains("\"content\":\"\""),
+            };
+            if replace {
+                out.insert(sid.clone(), val);
+            }
         }
     }
     Ok(out)
+}
+
+/// Formats Official Desktop's prompt mention part into Rune's mandatory `kind:value` pill id
+/// (`crates/opencode-kit/src/mention.rs:195-204`, `features/mentions/src/index.rs:225-290`,
+/// `features/mentions/src/wire.rs:72-105`).
+fn rune_pill_id(kind: &str, part: &Value) -> Option<String> {
+    match kind {
+        "file" => {
+            let path = part["path"].as_str().filter(|s| !s.is_empty())?;
+            let prefix = if part["mime"].as_str() == Some("application/x-directory") { "reference" } else { "file" };
+            Some(format!("{prefix}:{path}"))
+        }
+        "agent" => {
+            let name = part["name"].as_str().filter(|s| !s.is_empty())?;
+            Some(format!("agent:{name}"))
+        }
+        "skill" => {
+            let id = part["id"].as_str().filter(|s| !s.is_empty()).or_else(|| part["name"].as_str().filter(|s| !s.is_empty()))?;
+            Some(format!("skill:{id}"))
+        }
+        "session" => {
+            let id = part["id"].as_str().filter(|s| !s.is_empty())?;
+            Some(format!("session:{id}"))
+        }
+        _ => None,
+    }
 }
 
 struct PartsOut {
@@ -182,13 +278,7 @@ fn convert_prompt_parts(
                     let start = text.len();
                     text.push_str(c);
                     let end = text.len();
-                    let target = match kind {
-                        "file" => part["path"].as_str(),
-                        "agent" | "skill" => part["name"].as_str(),
-                        "session" => part["id"].as_str(),
-                        _ => None,
-                    };
-                    if let Some(id) = target && start < end {
+                    if let Some(id) = rune_pill_id(kind, part) && start < end {
                         pills.push(json!([start, end, id]));
                     }
                 }
@@ -203,6 +293,14 @@ fn convert_prompt_parts(
                 let name = part["filename"].as_str().unwrap_or("image").to_owned();
                 let mime = part["mime"].as_str().unwrap_or("application/octet-stream").to_owned();
                 let blob_id = part["blob"]["id"].as_str().unwrap_or("");
+                let media_ref = part["media"]
+                    .as_str()
+                    .or_else(|| blob_id.starts_with("media:").then_some(blob_id))
+                    .filter(|s| s.starts_with("media:"));
+                if let Some(media) = media_ref {
+                    files.push(json!({ "name": name, "mime": mime, "media": media }));
+                    continue;
+                }
                 let data_url = part["dataUrl"]
                     .as_str()
                     .or_else(|| part["blob"]["url"].as_str().filter(|u| u.starts_with("data:")))
@@ -219,7 +317,7 @@ fn convert_prompt_parts(
                         .map_err(|e| format!("read blob {blob_id}: {e}"))?;
                     let b = b.ok_or_else(|| format!("missing blob {blob_id} for {name}"))?;
                     if b.len() > MAX_SEED_BLOB_BYTES {
-                        return Err(format!("blob {blob_id} exceeds {} B cap", MAX_SEED_BLOB_BYTES));
+                        return Err(format!("blob {blob_id} exceeds {MAX_SEED_BLOB_BYTES} B cap"));
                     }
                     (blob_id.to_owned(), b)
                 } else {
@@ -240,32 +338,30 @@ fn convert_prompt_parts(
     Ok(PartsOut { text, pills, paths, files })
 }
 
-/// Converts Official Desktop's `ComposerStore` JSON string into Rune's `draft_doc` JSON string.
-/// Returns `Ok(None)` when the draft is genuinely empty, `Err` if malformed or any attachment blob
-/// is missing/oversized (caller drops the draft tab rather than opening a blank tab).
-pub(super) fn convert_composer_store(
-    raw_json: &str,
+fn parse_context_comment(item: &Value) -> Option<PromptComment> {
+    // Official's `FileContextItem` stores `commentOrigin` (`schema.ts:158`), while Rune's
+    // `FileComment::parse` (`quote.rs:240`) reads `origin`.
+    if item["type"].as_str() == Some("file")
+        && item.get("origin").is_none()
+        && let Some(co) = item.get("commentOrigin")
+        && let Some(mut obj) = item.as_object().cloned()
+    {
+        obj.insert("origin".into(), co.clone());
+        return PromptComment::parse(&Value::Object(obj));
+    }
+    PromptComment::parse(item)
+}
+
+/// Converts a strictly decoded Official Desktop `ComposerStore` JSON value into Rune's `draft_doc`
+/// JSON string. Returns `Ok(None)` when the draft is genuinely empty, `Err` if malformed or any
+/// attachment blob is missing/oversized (caller drops the draft tab rather than opening it blank).
+pub(super) fn convert_composer_value(
+    val: &Value,
     official: &Connection,
     has_blobs: bool,
     blobs_out: &mut Vec<(String, Vec<u8>)>,
     blob_budget: &mut usize,
 ) -> Result<Option<String>, String> {
-    let decoded_str = if raw_json.contains("\"kind\":\"text\"") {
-        if !has_blobs {
-            return Err("draft references text chunks without blob table".into());
-        }
-        let d = sql::decode_text(official, raw_json.to_owned());
-        if d.contains("\"kind\":\"text\"") {
-            return Err("draft references missing text chunk blob".into());
-        }
-        d
-    } else {
-        raw_json.to_owned()
-    };
-    if decoded_str.len() > MAX_SEED_DOC_BYTES {
-        return Err("decoded draft exceeds cap".into());
-    }
-    let val: Value = serde_json::from_str(&decoded_str).map_err(|e| format!("invalid draft JSON: {e}"))?;
     let parts = val["prompt"].as_array().ok_or_else(|| "draft missing prompt array".to_owned())?;
     let p = convert_prompt_parts(parts, official, has_blobs, blobs_out, blob_budget)?;
     let shell = val["mode"].as_str() == Some("shell");
@@ -283,7 +379,7 @@ pub(super) fn convert_composer_store(
             ) {
                 context.push(json!({ "path": path, "start": start, "end": end }));
             }
-        } else if let Some(comment) = PromptComment::parse(item) {
+        } else if let Some(comment) = parse_context_comment(item) {
             if let Ok(v) = serde_json::to_value(comment) {
                 quotes.push(v);
             }
@@ -309,7 +405,7 @@ pub(super) fn convert_composer_store(
         };
     }
 
-    let mut obj = serde_json::Map::new();
+    let mut obj = Map::new();
     obj.insert("text".into(), json!(p.text));
     if shell {
         obj.insert("mode".into(), json!("shell"));
@@ -339,8 +435,7 @@ pub(super) fn convert_composer_store(
 /// into Rune's `opencode.global.dat:prompt-history.v1` JSON (`{"normal":[...],"shell":[...]}`).
 pub(super) fn convert_prompt_history(official: &Connection, has_blobs: bool) -> Option<String> {
     let parse_list = |key: &str| -> Vec<Value> {
-        let Ok(Some(raw)) = read_official_doc(official, key, has_blobs) else { return Vec::new() };
-        let Ok(val) = serde_json::from_str::<Value>(&raw) else { return Vec::new() };
+        let Ok(Some(val)) = read_official_doc(official, key, has_blobs) else { return Vec::new() };
         let mut out = Vec::new();
         for entry in val["entries"].as_array().into_iter().flatten().take(MAX_HISTORY_ENTRIES) {
             let parts = entry["prompt"].as_array().or_else(|| entry.as_array());
@@ -353,13 +448,7 @@ pub(super) fn convert_prompt_history(official: &Connection, has_blobs: bool) -> 
                     let start = text.len();
                     text.push_str(c);
                     let end = text.len();
-                    let target = match kind {
-                        "file" => part["path"].as_str(),
-                        "agent" | "skill" => part["name"].as_str(),
-                        "session" => part["id"].as_str(),
-                        _ => None,
-                    };
-                    if let Some(id) = target && start < end {
+                    if let Some(id) = rune_pill_id(kind, part) && start < end {
                         pills.push(json!([start, end, id]));
                     }
                 }
