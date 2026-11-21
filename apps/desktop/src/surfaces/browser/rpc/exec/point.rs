@@ -116,6 +116,11 @@ impl PointResolver {
         })
     }
 
+    /// The element's box in page-viewport CSS pixels, once `step` answered `Ok`.
+    pub fn rect(&self) -> (f64, f64, f64, f64) {
+        self.rect
+    }
+
     pub fn cancel_cleanup(&mut self, app: &mut App) {
         let (req, obj) = match &self.stage {
             Stage::Scroll { cdp_req }

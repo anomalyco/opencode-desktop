@@ -54,6 +54,11 @@ pub trait Sink {
     fn focused(&self) -> bool;
     fn post(&mut self, note: &Note, server: &str);
     fn remove(&mut self, id: &str);
+    /// Posts a raw OS notification (used by browser extensions' `chrome.notifications`, titled with
+    /// the extension's name so it never impersonates the app).
+    fn post_raw(&mut self, _id: &str, _title: &str, _body: &str, _info: &[(&str, &str)]) -> bool {
+        false
+    }
 }
 
 /// Notification sink initialization lifecycle.
@@ -207,7 +212,7 @@ pub fn seen(host: &mut dyn NotificationsHost, session: &str) {
     host.notifier_mut().take_out(&format!("run-{session}"));
 }
 
-/// The app quits: the requests of its own server end with it, so their notifications go.
+/// The app quits: the requests of its own server and extension toasts end with it, so their notifications go.
 pub fn quitting(host: &mut dyn NotificationsHost) {
     let own_base = host.own_server_base();
     let SinkState::Ready(sink) = &mut host.notifier_mut().state else {
@@ -216,13 +221,64 @@ pub fn quitting(host: &mut dyn NotificationsHost) {
     let own = ServerKey::sidecar();
     COORDINATOR.with_borrow_mut(|c| {
         c.shown.retain(|(id, server)| {
-            let ends = id.starts_with("req-") && click_server(own_base.as_deref(), server) == own;
+            let ends = id.starts_with("ext-")
+                || (id.starts_with("req-") && click_server(own_base.as_deref(), server) == own);
             if ends {
                 sink.remove(id);
             }
             !ends
         });
     });
+}
+
+/// Whether Settings > Notifications has at least one notification kind enabled AND the OS sink can post.
+pub fn extension_notifications_allowed(host: &dyn NotificationsHost) -> bool {
+    let prefs = host.notification_prefs();
+    host.notifier().shows() && (prefs.agent || prefs.permissions || prefs.questions || prefs.errors)
+}
+
+/// Posts a browser-extension OS notification through the app's native notification sink
+/// (`extension-api/notifications.ts:24-50`), respecting Settings > Notifications and the shared
+/// active notification cap (`CAP`). Returns `false` when notifications are disabled or unavailable.
+pub fn post_extension(
+    host: &mut dyn NotificationsHost,
+    os_id: &str,
+    title: &str,
+    body: &str,
+    ext_id: &str,
+    notif_id: &str,
+) -> bool {
+    if !extension_notifications_allowed(host) {
+        return false;
+    }
+    let window = host.window_id().to_owned();
+    let SinkState::Ready(sink) = &mut host.notifier_mut().state else {
+        return false;
+    };
+    let info = [
+        ("kind", "extension"),
+        ("ext_id", ext_id),
+        ("ext_notif_id", notif_id),
+        ("window", window.as_str()),
+    ];
+    COORDINATOR.with_borrow_mut(|c| {
+        c.shown.retain(|(id, _)| id != os_id);
+        if c.shown.len() >= CAP
+            && let Some((oldest, _)) = c.shown.pop_front()
+        {
+            sink.remove(&oldest);
+        }
+        let posted = sink.post_raw(os_id, title, body, &info);
+        if posted {
+            c.shown.push_back((os_id.to_owned(), String::new()));
+        }
+        posted
+    })
+}
+
+/// Removes a browser-extension OS notification posted under `os_id`.
+pub fn clear_extension(host: &mut dyn NotificationsHost, os_id: &str) {
+    host.notifier_mut().take_out(os_id);
 }
 
 /// What `ty` posts, if anything: the kind, its title, the session a click opens and the body.
@@ -354,6 +410,19 @@ pub fn poll(host: &mut dyn NotificationsHost, tx: &mut Tx) -> bool {
     }
     let mut opened = false;
     for mut click in actions::take(host) {
+        if click.get("kind") == Some("extension") {
+            let ext_id = click.get("ext_id").unwrap_or("").to_owned();
+            let notif_id = click.get("ext_notif_id").unwrap_or("").to_owned();
+            if !ext_id.is_empty() && !notif_id.is_empty() {
+                if host.is_live() {
+                    rune_notify::bring_to_front();
+                }
+                host.notifier_mut().take_out(&click.id);
+                host.on_extension_notification_clicked(&ext_id, &notif_id);
+                opened = true;
+            }
+            continue;
+        }
         // A button answers where the app is, without bringing it forward.
         match on_action(host, &mut click) {
             actions::Outcome::Answered => {
@@ -415,6 +484,14 @@ impl Sink for System {
 
     fn remove(&mut self, id: &str) {
         rune_notify::remove(&[id]);
+    }
+
+    fn post_raw(&mut self, id: &str, title: &str, body: &str, info: &[(&str, &str)]) -> bool {
+        let mut n = rune_notify::Notification::new(id, title).body(body);
+        for &(k, v) in info {
+            n = n.info(k, v);
+        }
+        rune_notify::post(&n)
     }
 }
 

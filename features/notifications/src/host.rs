@@ -130,4 +130,8 @@ pub trait NotificationsHost: opencode_kernel::AppEnv {
     fn show_plugin_notification(&mut self, title: String, body: String, session_id: Option<&str>) {
         let _ = (title, body, session_id);
     }
+    /// Dispatches a click on an OS notification created by a browser extension (`chrome.notifications`).
+    fn on_extension_notification_clicked(&mut self, ext_id: &str, notif_id: &str) {
+        let _ = (ext_id, notif_id);
+    }
 }

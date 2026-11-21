@@ -88,6 +88,8 @@ pub enum ExtEffect {
     OpenPopup { ext_id: String, url: String },
     ExtensionUninstalled { ext_id: String, ok: bool, error: Option<String> },
     ExtensionReloaded { ext_id: String, ok: bool, error: Option<String> },
+    NotificationShow { ext_id: String, ext_name: String, notif_id: String, body: String },
+    NotificationClear { ext_id: String, notif_id: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -289,6 +291,9 @@ pub struct ExtensionHost {
     pub(super) open_tab_rates: HashMap<String, RateWindow>,
     pub(super) action_rates: HashMap<String, RateWindow>,
     pub(super) popup_resize_rates: HashMap<String, RateWindow>,
+    pub(super) notification_rates: HashMap<String, RateWindow>,
+    pub(super) notifications: HashMap<String, Vec<String>>,
+    pub(super) notifications_enabled: bool,
     pub metrics: ShimMetrics,
 }
 
@@ -342,6 +347,9 @@ impl ExtensionHost {
             open_tab_rates: HashMap::new(),
             action_rates: HashMap::new(),
             popup_resize_rates: HashMap::new(),
+            notification_rates: HashMap::new(),
+            notifications: HashMap::new(),
+            notifications_enabled: true,
             metrics: ShimMetrics::default(),
         }
     }
@@ -986,6 +994,40 @@ impl ExtensionHost {
             .entry(ext_id.to_owned())
             .or_default()
             .allow(Instant::now(), Duration::from_secs(1), 30)
+    }
+
+    pub(super) fn allow_notification(&mut self, ext_id: &str) -> bool {
+        self.notification_rates
+            .entry(ext_id.to_owned())
+            .or_default()
+            .allow(Instant::now(), Duration::from_secs(10), 10)
+    }
+
+    pub fn set_notifications_enabled(&mut self, enabled: bool) {
+        self.notifications_enabled = enabled;
+    }
+
+    /// Delivers a desktop OS notification click or dismissal back to the owning extension
+    /// (`extension-api/notifications.ts:43-48`).
+    pub fn on_notification_event(&mut self, ext_id: &str, notif_id: &str, clicked: bool, by_user: bool) {
+        let Some(ext) = self.extensions.get(ext_id) else { return };
+        if !ext.manifest.has_permission("notifications") {
+            return;
+        }
+        let existed = self
+            .notifications
+            .get_mut(ext_id)
+            .is_some_and(|list| {
+                let before = list.len();
+                list.retain(|id| id != notif_id);
+                list.len() != before
+            });
+        if clicked {
+            self.emit_event("notifications.onClicked", vec![json!(notif_id)], Some(ext_id));
+        }
+        if existed || clicked {
+            self.emit_event("notifications.onClosed", vec![json!(notif_id), json!(by_user)], Some(ext_id));
+        }
     }
 
     pub(super) fn alloc_id(&mut self) -> i64 {
