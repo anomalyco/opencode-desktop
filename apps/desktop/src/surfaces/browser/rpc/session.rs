@@ -252,8 +252,10 @@ impl SessionAttachment {
                     }
                     Err(err)
                         if sid.is_none()
-                            && err.get("message").and_then(serde_json::Value::as_str)
-                                == Some("browser.context.initializing") =>
+                            && matches!(
+                                err.get("message").and_then(serde_json::Value::as_str),
+                                Some("browser.context.initializing" | "browser.proxy.required")
+                            ) =>
                     {
                         self.cdp_bootstrapped.remove(&host_id);
                         retry_needed = true;

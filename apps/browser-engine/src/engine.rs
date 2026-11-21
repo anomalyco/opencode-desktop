@@ -828,8 +828,8 @@ impl EngineManager {
                     });
                 }
             }
-            HostMsg::Find { tab_id, query, forward, match_case, find_next } => {
-                self.handle_find(tab_id, &query, forward, match_case, find_next);
+            HostMsg::Find { tab_id, query, forward, match_case, find_next, user_initiated } => {
+                self.handle_find(tab_id, &query, forward, match_case, find_next, user_initiated);
             }
             HostMsg::StopFind { tab_id, clear_selection } => {
                 if let Some(t) = self.tabs.get(&tab_id) {

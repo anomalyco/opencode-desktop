@@ -8,6 +8,7 @@ mod exec;
 mod frames;
 mod session;
 mod suppression;
+mod tunnel;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -90,6 +91,7 @@ pub struct BrowserRpcState {
     server_verdicts: BTreeMap<ServerKey, (Server, u64, ServerRpcVerdict)>,
     probe_gen: u64,
     mcp_suppressed: BTreeMap<ServerKey, (Server, bool)>,
+    tunnels: tunnel::RemoteTunnelManager,
     worker_tx: Sender<WorkerMsg>,
     worker_rx: Receiver<WorkerMsg>,
     waker: Option<Waker>,
@@ -107,6 +109,7 @@ impl Default for BrowserRpcState {
             server_verdicts: BTreeMap::new(),
             probe_gen: 0,
             mcp_suppressed: BTreeMap::new(),
+            tunnels: tunnel::RemoteTunnelManager::default(),
             worker_tx,
             worker_rx,
             waker: None,
@@ -174,7 +177,8 @@ fn is_base_connected(base: &str) -> bool {
         .contains(base)
 }
 
-/// Called when `/api/event` drops (`Incoming::StreamDown`) so stale connected bases are cleared.
+/// Called when `/api/event` drops (`Incoming::StreamDown`) so stale connected bases and remote
+/// tunnels are cleared immediately.
 pub fn on_sse_disconnected(app: &mut App, server_key: &ServerKey) {
     if let Some(srv) = live_server_clone(app) {
         clear_base_connected(&srv.base);
@@ -184,6 +188,7 @@ pub fn on_sse_disconnected(app: &mut App, server_key: &ServerKey) {
         .get_mut(&BROWSER_RPC)
         .sse_connected
         .insert(server_key.clone(), false);
+    tunnel::suspend_server_tunnels(app, server_key);
 }
 
 /// Called when `/api/event` opens or reconnects (`Incoming::Opened` / `Incoming::Reconnected`).
@@ -563,6 +568,8 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
         }
     }
 
+    let engine_known = app.workspace_panes.browser.host.engine_caps_known();
+    let engine_remote_proxy = app.workspace_panes.browser.host.engine_remote_proxy();
     let mut changed = false;
     let mut pending_effects = Vec::new();
     {
@@ -614,9 +621,9 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
                     pending_effects.push((key.clone(), effs));
                 }
             }
-            if !same_machine {
-                // Fail-closed security rule: never attach to remote servers without engine-enforced
-                // `Ready.remote_proxy` isolation (wired with WS-1 Phase 3a in PR 4).
+            if !same_machine && engine_known && !engine_remote_proxy {
+                // Fail-closed security rule: never attach to remote servers when the running
+                // engine lacks `Ready.remote_proxy` confinement.
                 let effs = att.attach.step(AttachEvent::RequireRemoteProxy, now);
                 if !effs.is_empty() {
                     pending_effects.push((key, effs));
@@ -632,6 +639,7 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
     apply_batch_effects(app, pending_effects, None);
     maybe_start_capability_probe(app);
     sync_mcp_suppression(app);
+    tunnel::sync_remote_tunnels(app);
     changed
 }
 
@@ -747,6 +755,7 @@ fn apply_batch_effects(
     }
     app.kernel.slots.get_mut(&BROWSER_RPC).sessions = sessions;
     sync_mcp_suppression(app);
+    tunnel::sync_remote_tunnels(app);
 }
 
 pub(super) fn live_server_clone(app: &App) -> Option<Server> {

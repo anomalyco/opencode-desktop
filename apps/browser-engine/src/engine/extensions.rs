@@ -622,11 +622,12 @@ impl EngineManager {
         forward: bool,
         match_case: bool,
         find_next: bool,
+        user_initiated: bool,
     ) {
         let Some(t) = self.tabs.get(&tab_id) else {
             return;
         };
-        if !self.contexts.is_tab_ready(tab_id) || tab_is_extension_surface(t) {
+        if !self.contexts.is_tab_ready(tab_id) || (!user_initiated && tab_is_extension_surface(t)) {
             t.host.stop_finding(1);
             return;
         }
