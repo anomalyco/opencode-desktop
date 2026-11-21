@@ -20,6 +20,7 @@ mod app_links;
 mod download;
 mod local_fs;
 mod local_path;
+mod osc8_display;
 pub mod preview;
 mod workspace_root;
 pub use app_links::{
@@ -39,6 +40,7 @@ pub use local_path::{
     is_allowed_local_reparse_tag, is_clsid_folder_name, is_macos_bundle_path, is_raw_unc_href,
     is_unc_or_device_path, is_unc_or_device_path_for, is_unix_autofs_path, safe_local_reveal_path,
 };
+pub use osc8_display::{Osc8Display, format_osc8_target, osc8_needs_confirm};
 pub use workspace_root::{
     is_safe_local_workspace_root, is_safe_workspace_root, resolve_local_home,
     resolve_safe_local_workspace_root,
