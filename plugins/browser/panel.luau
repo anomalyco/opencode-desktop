@@ -713,7 +713,9 @@ function panel.render(env: Env, view: View, props: PanelProps): ui.Node
 
     -- Stacked bars in exact upstream order (`panel.tsx:1326-1417`):
     -- 0. The sign-in offer over a page (`panel.tsx:1357-1360`), never over the new tab page.
-    if env.signIns and not blank and not suspended and engine ~= "unsupported" then
+    -- `empty()` is a tab with no address, loading or not: the new tab page shows the card instead.
+    local hasAddress = url ~= "" and url ~= "about:blank"
+    if env.signIns and hasAddress and not suspended and engine ~= "unsupported" then
         local offer = env.signIns(view, tab, "bar")
         if offer then
             table.insert(items, offer)
