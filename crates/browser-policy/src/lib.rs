@@ -232,6 +232,24 @@ pub fn frame_guard(url: &str, is_main_frame: bool, roots: &[String]) -> Option<R
     if is_main_frame {
         return refusal_raw(trimmed, roots);
     }
+    // On sub-frames, reject credentialed `http(s):` URLs and internal browser/source schemes
+    // (`chrome:`, `devtools:`, `chrome-untrusted:`, `view-source:`) while preserving `about:`,
+    // `data:`, `blob:`, credential-free `http(s):`, and extension frames (gated separately).
+    if let Some((scheme, rest)) = split_scheme_slash_slash(trimmed) {
+        if scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https") {
+            let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+            if authority.contains('@') {
+                return Some(Refusal::Credentials);
+            }
+        } else if scheme.eq_ignore_ascii_case("chrome")
+            || scheme.eq_ignore_ascii_case("devtools")
+            || scheme.eq_ignore_ascii_case("chrome-untrusted")
+        {
+            return Some(Refusal::Web);
+        }
+    } else if trimmed.len() >= 12 && trimmed.as_bytes()[..12].eq_ignore_ascii_case(b"view-source:") {
+        return Some(Refusal::Web);
+    }
     None
 }
 

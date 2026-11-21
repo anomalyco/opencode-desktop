@@ -441,7 +441,15 @@ fn id_of(this: &Table) -> mlua::Result<u64> {
 fn later(lua: &Lua, this: &Table, what: &str, f: impl FnOnce(&mut App, u64, &mut Tx) + Send + 'static) -> mlua::Result<()> {
     let id = id_of(this)?;
     let scope = scope::TabScope::capture(lua);
-    let mark_driven = what != "BrowserTab:Close";
+    let mark_driven = !matches!(
+        what,
+        "BrowserTab:Close"
+            | "BrowserTab:Show"
+            | "BrowserTab:SetZoom"
+            | "BrowserTab:Find"
+            | "BrowserTab:StopFinding"
+            | "BrowserTab:SetViewport"
+    );
     with_app(what, |app| {
         scope.check_tab(app, id, true).map_err(mlua::Error::runtime)?;
         app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
