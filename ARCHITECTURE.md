@@ -55,6 +55,7 @@ Shell kernel, UI foundation, headless runtime, platform utilities, and embeddabl
 | Path | Crate | Scope |
 | --- | --- | --- |
 | `crates/authenticode` | `authenticode` | Windows Authenticode verification (`WinVerifyTrust`) and signer lookup for the updater and browser engine |
+| `crates/browser-extensions` | `browser-extensions` | Pure-Rust (`#![forbid(unsafe_code)]`) MV3 extension manager: CRX3 signature verification, bounded safe ZIP unpacker, SHA-256 tree digest, manifest & compatibility classification, permissions review, and explicit install state machine |
 | `crates/browser-pane` | `browser-pane` | Pure-Rust Rune client for the on-demand `OpenCode Browser Engine` CEF sidecar (behind the `engine` feature) |
 | `crates/browser-policy` | `browser-policy` | Shared browser URL policy, workspace `file://` confinement, address resolution, and CDP allow-list used by both `browser-pane` and `opencode-browser-engine` (`#![forbid(unsafe_code)]`) |
 | `crates/hex-client` | `hex-client` | Local HTTP/capture client for driving Hex voice dictation |

@@ -31,6 +31,42 @@ pub(super) enum ProfileStage {
     HeapTake { cdp_req: u64 },
 }
 
+impl ProfileStage {
+    pub fn cdp_req(&self) -> u64 {
+        match self {
+            Self::TraceStart { cdp_req }
+            | Self::TraceStop { cdp_req, .. }
+            | Self::CpuEnable { cdp_req }
+            | Self::CpuStart { cdp_req }
+            | Self::CpuStop { cdp_req }
+            | Self::HeapEnable { cdp_req }
+            | Self::HeapTake { cdp_req } => *cdp_req,
+        }
+    }
+}
+
+/// Routes trace data and heap snapshot chunks from the tab's CDP events into the recording buffers.
+pub(in super::super) fn ingest_cdp_event(att: &mut SessionAttachment, ev: &browser_pane::CdpEvent) {
+    if ev.method == "Tracing.dataCollected"
+        && let Some(rec) = att.trace_recording.as_mut()
+        && rec.host_id == ev.tab_id
+        && let Some(arr) = ev.params.get("value").and_then(Value::as_array)
+    {
+        rec.events.extend(arr.iter().cloned());
+    } else if ev.method == "Tracing.tracingComplete"
+        && let Some(rec) = att.trace_recording.as_mut()
+        && rec.host_id == ev.tab_id
+    {
+        rec.data_loss = ev.params.get("dataLossOccurred").and_then(Value::as_bool).unwrap_or(false);
+        rec.complete = true;
+    } else if ev.method == "HeapProfiler.addHeapSnapshotChunk"
+        && let Some(buf) = att.heap_chunks.get_mut(&ev.tab_id)
+        && let Some(chunk) = ev.params.get("chunk").and_then(Value::as_str)
+    {
+        buf.push_str(chunk);
+    }
+}
+
 pub(super) fn try_start(
     att: &mut SessionAttachment,
     app: &mut App,
@@ -57,11 +93,13 @@ pub(super) fn try_start(
     }
 }
 
-fn require_agent_tools(app: &App, name: &str) -> Result<(), Outcome> {
-    if !app.workspace_panes.browser.host.engine_agent_tools() {
+/// Recording needs the engine that refuses profiling while extensions are active (`agent_files`
+/// ships with that check), so an older engine never profiles beside an extension.
+fn require_profiling_engine(app: &App, name: &str) -> Result<(), Outcome> {
+    if !app.workspace_panes.browser.host.engine_agent_files() {
         return Err(Outcome::fail(
             failure_code::UNSUPPORTED,
-            format!("browser.{name} requires an updated browser engine (agent_tools capability)."),
+            format!("browser.{name} requires an updated browser engine."),
         ));
     }
     Ok(())
@@ -78,7 +116,7 @@ fn start_trace(att: &mut SessionAttachment, app: &mut App, cmd: &Command, now: I
     if let Err(o) = check_page_guards(app, host_id, "trace.start") {
         return StepOutcome::Done(o);
     }
-    if let Err(o) = require_agent_tools(app, "trace.start") {
+    if let Err(o) = require_profiling_engine(app, "trace.start") {
         return StepOutcome::Done(o);
     }
     if att.trace_recording.is_some() {
@@ -146,7 +184,7 @@ fn start_cpu(att: &mut SessionAttachment, app: &mut App, cmd: &Command, now: Ins
     if let Err(o) = check_page_guards(app, host_id, "cpu.start") {
         return StepOutcome::Done(o);
     }
-    if let Err(o) = require_agent_tools(app, "cpu.start") {
+    if let Err(o) = require_profiling_engine(app, "cpu.start") {
         return StepOutcome::Done(o);
     }
     if att.cpu_started.contains_key(&host_id) {
@@ -203,7 +241,7 @@ fn start_heap_snapshot(att: &mut SessionAttachment, app: &mut App, cmd: &Command
     if let Err(o) = check_page_guards(app, host_id, "heap.snapshot") {
         return StepOutcome::Done(o);
     }
-    if let Err(o) = require_agent_tools(app, "heap.snapshot") {
+    if let Err(o) = require_profiling_engine(app, "heap.snapshot") {
         return StepOutcome::Done(o);
     }
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);

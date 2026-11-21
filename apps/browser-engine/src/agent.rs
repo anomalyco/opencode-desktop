@@ -1,8 +1,7 @@
-//! Agent-specific engine handlers for `experimental.browser` v4 (`TypedCdpCall`, confined
-//! `UploadFiles`, confined `DropFiles`).
+//! Agent file handlers for `experimental.browser` v4: confined `UploadFiles` and `DropFiles`.
 //!
 //! Security boundary:
-//! - `TypedCdpCall` enforces `browser_policy::check_typed_cdp` and refuses extension documents.
+//! - Both refuse extension surfaces (`engine::tab_is_extension_surface`), as `TypedCdpCall` does.
 //! - `UploadFiles` and `DropFiles` verify every path is a regular file strictly inside the
 //!   marker-guarded `<profile>/opencode-page-uploads/<tab_id>/` staging directory (`<= 8` files,
 //!   `<= 5 MiB` total, canonical symlink-free check) before invoking Chromium's `DOM.setFileInputFiles`
@@ -38,46 +37,24 @@ pub fn remove_tab_uploads(profile_dir: &Path, tab_id: u64) {
     }
 }
 
-pub fn handle_typed_cdp(
-    t: &ManagedTab,
-    tab_id: u64,
-    request_id: u64,
-    method: String,
-    params: Value,
-    session_id: Option<String>,
-    next_cdp_id: &AtomicI32,
-    out_tx: &Output,
-) {
-    let url = t.snap.lock().unwrap().url.clone();
-    if browser_policy::extension_origin(&url) {
-        send_err(
-            out_tx,
-            tab_id,
-            request_id,
-            "Agent browser tools cannot run DevTools methods on extension pages.",
-        );
-        return;
-    }
-    if let Err(err) = browser_policy::check_typed_cdp(&method, &params, true) {
-        send_err(out_tx, tab_id, request_id, &err);
-        return;
-    }
-    dispatch_cdp(t, tab_id, request_id, &method, params, session_id, next_cdp_id, out_tx);
-}
-
+#[allow(clippy::too_many_arguments)]
 pub fn handle_upload_files(
     t: &ManagedTab,
     profile_dir: &Path,
     tab_id: u64,
     request_id: u64,
+    not_ready_reason: Option<&str>,
     backend_node_id: i64,
     files: &[String],
     next_cdp_id: &AtomicI32,
     out_tx: &Output,
 ) {
-    let url = t.snap.lock().unwrap().url.clone();
-    if browser_policy::extension_origin(&url) {
-        send_err(out_tx, tab_id, request_id, "Agent browser tools cannot upload files into extension pages.");
+    if let Some(reason) = not_ready_reason {
+        send_err(out_tx, tab_id, request_id, reason);
+        return;
+    }
+    if crate::engine::tab_is_extension_surface(t) {
+        send_err(out_tx, tab_id, request_id, "Agent browser tools cannot upload files into extension pages or tabs with extension frames.");
         return;
     }
     let verified = match verify_upload_paths(profile_dir, tab_id, files) {
@@ -99,20 +76,25 @@ pub fn handle_upload_files(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn handle_drop_files(
     t: &ManagedTab,
     profile_dir: &Path,
     tab_id: u64,
     request_id: u64,
+    not_ready_reason: Option<&str>,
     x: f64,
     y: f64,
     files: &[String],
     next_cdp_id: &AtomicI32,
     out_tx: &Output,
 ) {
-    let url = t.snap.lock().unwrap().url.clone();
-    if browser_policy::extension_origin(&url) {
-        send_err(out_tx, tab_id, request_id, "Agent browser tools cannot drop files onto extension pages.");
+    if let Some(reason) = not_ready_reason {
+        send_err(out_tx, tab_id, request_id, reason);
+        return;
+    }
+    if crate::engine::tab_is_extension_surface(t) {
+        send_err(out_tx, tab_id, request_id, "Agent browser tools cannot drop files onto extension pages or tabs with extension frames.");
         return;
     }
     let verified = match verify_upload_paths(profile_dir, tab_id, files) {
@@ -191,7 +173,7 @@ fn dispatch_cdp(
     out_tx: &Output,
 ) {
     let msg_id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
-    t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::Raw(request_id));
+    t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::Raw { request_id, max_bytes: 64 * 1024 });
     let mut payload = json!({
         "id": msg_id,
         "method": method,

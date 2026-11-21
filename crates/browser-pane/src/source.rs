@@ -14,10 +14,6 @@ use serde_json::Value;
 
 use crate::installer::{Distrust, Fault, Version};
 
-// TODO(IMPORTANT before release): the engine's delivery and trust root are decided when the app
-// moves into the opencode repo: set OPENCODE_BROWSER_ENGINE_SOURCE (the index's URL) and
-// OPENCODE_BROWSER_ENGINE_TRUST (`publisher:<signer>` or `sha256:<hex>,...`) for the release build.
-// Until then a development build reads the defaults below.
 /// The index's URL: `https://`, `http://` (loopback only, unless the trust rule is a publisher or
 /// hashes), or `file:`. Set when the app is built (`OPENCODE_BROWSER_ENGINE_SOURCE`).
 pub const SOURCE: &str = match option_env!("OPENCODE_BROWSER_ENGINE_SOURCE") {
@@ -35,28 +31,40 @@ pub const TRUST: &str = match option_env!("OPENCODE_BROWSER_ENGINE_TRUST") {
     None => DEV_TRUST,
 };
 
+#[cfg(any(all(windows, not(debug_assertions)), all(target_os = "macos", target_arch = "aarch64"), all(target_os = "linux", target_arch = "x86_64")))]
+const RELEASE_SOURCE: &str = "https://anoma.ly/release/opencode-rune/browser-engine/stable.json";
+
 /// Windows, a debug build: `bun apps/browser-engine/scripts/serve.ts` serves a local package here.
 /// Not 47963, which published builds up to `b22a2521` read: a development engine served for a test
 /// must never be one an installed app on the same computer could take.
 /// A release build never reads it: on a user's computer nothing serves it (every download failed
 /// as "check your connection"), and the `local` rule would install whatever another program on
-/// that computer served there. Without a source a release build says none is published.
+/// that computer served there.
 #[cfg(all(windows, debug_assertions))]
 const DEV_SOURCE: &str = "http://127.0.0.1:47981/index.json";
 #[cfg(all(windows, debug_assertions))]
 const DEV_TRUST: &str = "local";
+/// Windows release builds verify every `.exe` and `.dll` in the engine archive against the app's
+/// Authenticode signer (`features/updater/src/windows.rs` `EXPECTED_PUBLISHER`).
 #[cfg(all(windows, not(debug_assertions)))]
-const DEV_SOURCE: &str = "";
+const DEV_SOURCE: &str = RELEASE_SOURCE;
 #[cfg(all(windows, not(debug_assertions)))]
+const DEV_TRUST: &str = "publisher:Anomaly Innovations, Inc https://anoma.ly/";
+/// macOS arm64 verifies the engine bundle against the Developer ID team (`SEER_TEAM_ID`).
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+const DEV_SOURCE: &str = RELEASE_SOURCE;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+const DEV_TRUST: &str = "publisher:5NZ4Q7NXJ4";
+/// Linux x86_64 archives are unsigned; the release workflow pins `OPENCODE_BROWSER_ENGINE_TRUST`
+/// to `sha256:<hex>` at build time, and a build without it fails closed as `Fault::NotPublished`.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+const DEV_SOURCE: &str = RELEASE_SOURCE;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const DEV_TRUST: &str = "";
-/// macOS: the one engine published so far, pinned by its hash.
-#[cfg(target_os = "macos")]
-const DEV_SOURCE: &str = "https://anoma.ly/release/opencode-rune/browser-engine/stable.json";
-#[cfg(target_os = "macos")]
-const DEV_TRUST: &str = "sha256:92291cae38cec0cf280e64ac3eb43cb77e0b44cdd3f304279a050fa8c69cfa18";
-#[cfg(not(any(windows, target_os = "macos")))]
+/// Targets without a published engine (`macos-x64`, `linux-arm64`).
+#[cfg(not(any(windows, all(target_os = "macos", target_arch = "aarch64"), all(target_os = "linux", target_arch = "x86_64"))))]
 const DEV_SOURCE: &str = "";
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(any(windows, all(target_os = "macos", target_arch = "aarch64"), all(target_os = "linux", target_arch = "x86_64"))))]
 const DEV_TRUST: &str = "";
 
 /// This platform's target in the index.
@@ -101,14 +109,17 @@ fn inputs() -> (String, String) {
     )
 }
 
-/// Whether this build has a source at all (else the pane says the browser isn't available).
+/// Whether this build has both a source and a trust rule to download an engine (else the pane
+/// says the browser isn't available). A platform no engine is built for (`TARGET`
+/// "unsupported", such as an Intel Mac) has none.
 pub(crate) fn configured() -> bool {
-    !inputs().0.trim().is_empty()
+    let (source, trust) = inputs();
+    TARGET != "unsupported" && !source.trim().is_empty() && !trust.trim().is_empty()
 }
 
 /// Whether this build has a valid trust rule for an installed engine.
 pub(crate) fn has_trust() -> bool {
-    parse_trust(&inputs().1).is_some()
+    TARGET != "unsupported" && parse_trust(&inputs().1).is_some()
 }
 
 /// Reads the index and picks this platform's release: one the build accepts (its engine
@@ -116,7 +127,7 @@ pub(crate) fn has_trust() -> bool {
 pub(crate) fn latest() -> Result<Release, Fault> {
     let (source, trust) = inputs();
     let source = source.trim();
-    if source.is_empty() {
+    if source.is_empty() || trust.trim().is_empty() {
         return Err(Fault::NotPublished);
     }
     let trust = parse_trust(&trust).ok_or(Fault::Untrusted(Distrust::Rule))?;

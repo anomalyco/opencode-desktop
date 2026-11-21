@@ -52,6 +52,8 @@ pub(crate) struct Link {
     /// held them for 20-650 ms); stored into `Connected::early` on attach so that turn doesn't
     /// send them again and corrects what changed meanwhile.
     pub opens: Vec<(u64, HostMsg)>,
+    pub profile_permissions: Vec<crate::prompts::SiteDecision>,
+    pub preview_chunk_budget: Arc<crate::preview::PreviewChunkBudget>,
 }
 
 impl Link {
@@ -140,6 +142,7 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
     if !link.current() {
         return;
     }
+    crate::prompts::scrub_chromium_preferences_for_older_engine(profile, &link.profile_permissions);
     let mut child = match engine_command(&engine.bin, sock, profile).spawn() {
         Ok(child) => child,
         Err(e) => {
@@ -590,10 +593,14 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
     tx.send(HostMsg::Hello { mach_service, pid: std::process::id(), prompts: true }).ok();
     let mut early = EarlyOpensMap::new();
     for (id, open) in &link.opens {
+        let is_agent = matches!(open, HostMsg::OpenTab { agent_driven: true, .. });
         if let HostMsg::OpenTab { url, width_pt, height_pt, scale, .. } = open {
             early.insert(*id, (url.clone(), (*width_pt, *height_pt, *scale)));
         }
         tx.send(open.clone()).ok();
+        if is_agent {
+            tx.send(HostMsg::SetAgentDriven { tab_id: *id, agent_driven: true }).ok();
+        }
     }
     // Linux: frame reads and failures go to this connection only, never to a later engine's.
     #[cfg(target_os = "linux")]
@@ -614,6 +621,7 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
     std::thread::Builder::new().name("rune-browser-answers".into()).spawn(move || watched.watch(&watcher)).ok();
 
     let asked = answers.clone();
+    let chunk_budget = link.preview_chunk_budget.clone();
     std::thread::Builder::new()
         .name("rune-browser-tx".into())
         .spawn(move || {
@@ -634,6 +642,8 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                     break;
                 }
             }
+            // Release any waiting preview workers when the engine disconnects or shuts down.
+            chunk_budget.reset();
             // The app let the engine go (or it went): nothing more is waited for.
             asked.end();
         })
@@ -703,6 +713,22 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                     WirePaint { tab_id, frame_id, width, height, bgra_b64: &bgra_b64 }.push(&link.surfaces);
                     continue;
                 }
+                // Track whether this engine speaks `EngineMsg::PreviewCredit` before any `PreviewFetch`.
+                if let EngineMsg::Ready { preview_credit, .. } = &msg {
+                    link.preview_chunk_budget.set_credit_enabled(*preview_credit);
+                }
+                // Handle per-proxy preview credit/cancel directly on the rx thread so streaming
+                // workers wake immediately without waiting for a UI frame.
+                if let EngineMsg::PreviewCredit { req_id, bytes, cancel } = msg {
+                    link.preview_chunk_budget.on_credit(req_id, bytes as usize, cancel);
+                    continue;
+                }
+                if let EngineMsg::PreviewFetch { req_id, tab_id, .. } = &msg {
+                    link.preview_chunk_budget.on_fetch(*req_id, *tab_id);
+                }
+                if let EngineMsg::TabClosed { tab_id } = &msg {
+                    link.preview_chunk_budget.cancel_tab(*tab_id);
+                }
                 // On reconnect the engine repaints immediately after TabList. Give those paints
                 // their destination before the UI thread has a chance to adopt the restored tabs.
                 if let EngineMsg::TabList { tabs } = &msg {
@@ -714,6 +740,7 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                 link.inbox_tx.send(msg).ok();
                 link.wake();
             }
+            link.preview_chunk_budget.reset();
             answers.end();
             lost(&link, None);
         })

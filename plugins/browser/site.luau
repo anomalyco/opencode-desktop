@@ -128,11 +128,18 @@ local function connection(url: string): string?
         return "file"
     elseif s == "workspace://" or s == "oc-preview://" then
         return "workspace"
+    elseif s == "artifact://" then
+        return "artifact"
     elseif s == "http://" then
         local name = string.match(host, "^%[[^%]]*%]") or string.match(host, "^[^:]*") or host
         return if address.loopback(name) then "local" else "insecure"
     end
     return nil
+end
+
+function site.isWeb(url: string): boolean
+    local kind = connection(url)
+    return kind ~= nil and kind ~= "file" and kind ~= "workspace" and kind ~= "artifact"
 end
 
 local CONNECTIONS: { [string]: { icon: string, title: string, description: string } } = {
@@ -141,6 +148,7 @@ local CONNECTIONS: { [string]: { icon: string, title: string, description: strin
     ["local"] = { icon = "monitor", title = "site.local", description = "site.local.description" },
     file = { icon = "folder", title = "site.file", description = "site.file.description" },
     workspace = { icon = "folder", title = "preview.workspace", description = "site.file.description" },
+    artifact = { icon = "folder", title = "preview.artifact", description = "preview.artifact.description" },
 }
 
 local BODY = table.freeze({ size = 13, weight = "regular", lineHeight = 20, tracking = -0.04, color = "text-chrome" })
@@ -182,13 +190,15 @@ function site.render(env: Env, view: View, url: string): ui.Node
         shownHost = if rawHost ~= "" then rawHost else url
     end
     local kind = connection(url)
-    local isWeb = kind ~= nil and kind ~= "file" and kind ~= "workspace"
+    local isWeb = site.isWeb(url)
+    local headerIcon: IconName = if isWeb then "outline-globe" else "folder"
 
-    -- View 1: status-first connection overview + "Site settings >" drill-in.
-    if not state.detailed then
+    -- View 1: status-first connection overview + "Site settings >" drill-in (web pages only;
+    -- isolated workspace/artifact previews have no cookies, site data, or site permissions).
+    if not state.detailed or not isWeb then
         local items: { ui.Node } = {
             ui.row({ key = "browser-site-host", w = "full", px = 12, py = 4, gap = 8, align = "start" }, {
-                ui.row({ h = 20, align = "center" }, { ui.icon("outline-globe", { size = 16, color = "icon-weak" }) }),
+                ui.row({ h = 20, align = "center" }, { ui.icon(headerIcon, { size = 16, color = "icon-weak" }) }),
                 ui.text(shownHost, { dir = "ltr", size = 13, weight = "medium", lineHeight = 20, tracking = -0.04, color = "text-chrome", truncate = true, noWrap = true, grow = 1, shrink = true, minW = 0 }),
             }),
             separator(),
@@ -197,27 +207,29 @@ function site.render(env: Env, view: View, url: string): ui.Node
         if c then
             table.insert(items, row(c.icon, env.I18n:T(c.title), env.I18n:T(c.description), nil))
         end
-        table.insert(items, ui.row({
-            key = "browser-site-settings",
-            role = "button",
-            label = env.I18n:T("site.settings"),
-            w = "full",
-            px = 12,
-            py = 6,
-            gap = 8,
-            radius = 6,
-            align = "center",
-            hover = "surface-hover",
-            press = "surface-press",
-            hoverTransition = "instant",
-            onPress = view:Handler(function()
-                env.dispatch({ type = "details", shown = true })
-            end),
-        }, {
-            ui.icon("outline-sliders", { size = 16, color = "icon-weak" }),
-            ui.text(env.I18n:T("site.settings"), BODY :: any, { grow = 1, shrink = true, minW = 0 }),
-            ui.icon("chevron-right", { size = 14, color = "icon-weak" }),
-        }))
+        if isWeb then
+            table.insert(items, ui.row({
+                key = "browser-site-settings",
+                role = "button",
+                label = env.I18n:T("site.settings"),
+                w = "full",
+                px = 12,
+                py = 6,
+                gap = 8,
+                radius = 6,
+                align = "center",
+                hover = "surface-hover",
+                press = "surface-press",
+                hoverTransition = "instant",
+                onPress = view:Handler(function()
+                    env.dispatch({ type = "details", shown = true })
+                end),
+            }, {
+                ui.icon("outline-sliders", { size = 16, color = "icon-weak" }),
+                ui.text(env.I18n:T("site.settings"), BODY :: any, { grow = 1, shrink = true, minW = 0 }),
+                ui.icon("chevron-right", { size = 14, color = "icon-weak" }),
+            }))
+        end
         return ui.col({
             key = "browser-site-card",
             w = 312,

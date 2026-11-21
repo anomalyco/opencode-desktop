@@ -26,6 +26,7 @@ mod dmabuf;
 mod fd_lines;
 pub mod find;
 mod frame;
+pub mod history;
 pub mod installer;
 mod keys;
 #[cfg(all(feature = "engine", target_os = "macos"))]
@@ -34,6 +35,7 @@ mod machine;
 pub use browser_policy as policy;
 #[cfg(feature = "engine")]
 mod prefetch;
+pub mod preview;
 #[cfg(feature = "engine")]
 pub mod profile;
 pub mod prompts;
@@ -66,8 +68,13 @@ pub use profile::shared_profile_dir;
 pub use protocol::CursorKind;
 pub use protocol::{
     AuthChallenge, ContextKind, ContextMenuCommand, DialogKind, DownloadFile, DownloadState,
-    PageContextMenu, PageDialog, PermissionKind, PermissionPrompt, RemoteProxyConfig,
+    PageContextMenu, PageDialog, PermissionKind, PermissionPrompt, PreviewKindTag, PreviewSpec,
+    RemoteProxyConfig,
 };
+pub use preview::{PreviewFetchRequest, PreviewResponder};
 pub use protocol::PickedElement;
-pub use prompts::{PermissionDecision, PermissionStore, SiteDecision, SitePermissions, SiteSetting};
+pub use prompts::{
+    BlockedGuardReason, PermissionDecision, PermissionStore, SiteDecision, SitePermissions,
+    SiteSetting, TabDriver,
+};
 pub use site_zoom::ZoomStore;

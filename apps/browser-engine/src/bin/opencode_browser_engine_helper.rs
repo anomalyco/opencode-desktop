@@ -1,7 +1,23 @@
 //! CEF's helper process executable (on macOS `Helper`, `Helper (GPU)`, `Helper (Renderer)`, etc.;
 //! elsewhere the one program for every subprocess).
 #![cfg_attr(windows, windows_subsystem = "windows")]
+
+#[path = "../preview/scheme.rs"]
+mod preview_scheme;
+
 use cef::args::Args;
+use cef::rc::Rc as _;
+use cef::{App, ImplApp, SchemeRegistrar, WrapApp, wrap_app};
+
+wrap_app! {
+    struct HelperCefApp;
+
+    impl App {
+        fn on_register_custom_schemes(&self, registrar: Option<&mut SchemeRegistrar>) {
+            preview_scheme::register(registrar);
+        }
+    }
+}
 
 fn main() {
     // Chromium applies its crash fallback switches after CEF's before-launch callback.
@@ -21,6 +37,7 @@ fn main() {
     };
 
     let _ = cef::api_hash(cef::sys::CEF_API_VERSION_LAST, 0);
-    let code = cef::execute_process(Some(args.as_main_args()), None::<&mut cef::App>, std::ptr::null_mut());
+    let mut app = HelperCefApp::new();
+    let code = cef::execute_process(Some(args.as_main_args()), Some(&mut app), std::ptr::null_mut());
     std::process::exit(code);
 }

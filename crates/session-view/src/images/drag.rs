@@ -73,23 +73,29 @@ pub fn is_own(path: &Path) -> bool {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
+        let raw = path.to_string_lossy();
+        if browser_policy::is_unc_or_device_path(&raw) {
+            return false;
+        }
         let root = root();
-        path.starts_with(&root) || std::fs::canonicalize(path).ok().zip(std::fs::canonicalize(&root).ok()).is_some_and(|(p, r)| p.starts_with(r))
+        path.starts_with(&root)
+            || browser_policy::verify_within_root(&raw, &root.to_string_lossy(), true).is_some()
     }
 }
 
 /// Writes `bytes` once into a folder named by their hash under `root`, so equal names from
-/// different images never collide and a second drag reuses the file.
+/// different images never collide and a second drag reuses the file. Only writes recognized
+/// safe raster image formats (never untrusted attacker extensions or active SVG/HTML/scripts).
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn write(root: &Path, bytes: &[u8], hint: &str) -> Option<PathBuf> {
     use sha2::{Digest, Sha256};
-    if bytes.is_empty() {
+    if bytes.is_empty() || sniff_image_ext(bytes).is_none() {
         return None;
     }
     let digest = Sha256::digest(bytes);
     let dir = root.join(digest[..8].iter().map(|b| format!("{b:02x}")).collect::<String>());
     let path = dir.join(file_name(hint, bytes));
-    if std::fs::metadata(&path).is_ok_and(|m| m.len() == bytes.len() as u64) {
+    if std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_file() && m.len() == bytes.len() as u64) {
         return Some(path);
     }
     std::fs::create_dir_all(&dir).ok()?;
@@ -97,30 +103,56 @@ pub(crate) fn write(root: &Path, bytes: &[u8], hint: &str) -> Option<PathBuf> {
     Some(path)
 }
 
-/// A file name for an image: the hint's last path segment (a URL's without its query), with
-/// an extension that matches the bytes, or `image` when the hint has no usable name.
-pub(crate) fn file_name(hint: &str, bytes: &[u8]) -> String {
-    let last = hint.split(['?', '#']).next().unwrap_or("").rsplit(['/', '\\']).next().unwrap_or("");
-    let clean: String = last.chars().map(|c| if c.is_control() || c == ':' { '-' } else { c }).collect();
-    let clean = clean.trim().trim_start_matches('.');
-    let (stem, ext) = match clean.rsplit_once('.') {
-        Some((s, e)) if !s.is_empty() && !e.is_empty() && e.len() <= 5 => (s, Some(e.to_ascii_lowercase())),
-        _ => (clean, None),
-    };
-    let stem = if stem.is_empty() { "image" } else { stem };
-    let sniffed = match image::guess_format(bytes) {
+/// Sniffs `bytes` against an explicit allow-list of safe raster image formats. Never trusts a
+/// URL or attachment extension.
+pub(crate) fn sniff_image_ext(bytes: &[u8]) -> Option<&'static str> {
+    match image::guess_format(bytes) {
         Ok(image::ImageFormat::Png) => Some("png"),
         Ok(image::ImageFormat::Jpeg) => Some("jpg"),
         Ok(image::ImageFormat::Gif) => Some("gif"),
         Ok(image::ImageFormat::WebP) => Some("webp"),
-        _ => None,
+        Ok(image::ImageFormat::Bmp) => Some("bmp"),
+        Ok(image::ImageFormat::Ico) => Some("ico"),
+        _ => {
+            if bytes.len() >= 12
+                && &bytes[4..8] == b"ftyp"
+                && matches!(&bytes[8..12], b"avif" | b"avis")
+            {
+                Some("avif")
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// A safe file name for an image: sanitized stem from `hint` paired strictly with an allow-listed
+/// extension sniffed from `bytes` (defaulting to `png` when unrecognized — NEVER keeping the
+/// URL's or attachment's extension such as `.bat`, `.hta`, `.cmd`, `.svg`, or `.html`).
+pub(crate) fn file_name(hint: &str, bytes: &[u8]) -> String {
+    let last = hint.split(['?', '#']).next().unwrap_or("").rsplit(['/', '\\']).next().unwrap_or("");
+    let raw_stem = match last.rsplit_once('.') {
+        Some((s, _)) if !s.is_empty() => s,
+        _ => last,
     };
-    let ext = match (ext, sniffed) {
-        (Some(e), Some("jpg")) if e == "jpeg" || e == "jpg" => e,
-        (_, Some(s)) => s.to_owned(),
-        (Some(e), None) => e,
-        (None, None) => "png".to_owned(),
+    let clean: String = raw_stem
+        .chars()
+        .filter(|&c| {
+            let n = c as u32;
+            !c.is_control()
+                && !matches!(n, 0x7f..=0x9f | 0x061c | 0x200e | 0x200f | 0x202a..=0x202e | 0x2066..=0x2069 | 0xfeff)
+                && !matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*')
+        })
+        .take(64)
+        .collect();
+    let trimmed = clean.trim().trim_matches(['.', ' ']);
+    let device_stem = trimmed.split('.').next().unwrap_or(trimmed);
+    let stem = if trimmed.is_empty() || browser_policy::is_windows_device_name(device_stem) {
+        "image"
+    } else {
+        trimmed
     };
+    let ext = sniff_image_ext(bytes).unwrap_or("png");
     format!("{stem}.{ext}")
 }
 

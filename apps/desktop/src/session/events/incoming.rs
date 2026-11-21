@@ -86,7 +86,14 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         }
         Incoming::Status(e) => status_toast::from_server(s, e),
         Incoming::Failed(e) => failed(s, e, tx),
-        Incoming::StreamDown(e) => reconnect::stream_down(s, e, tx),
+        Incoming::StreamDown(e) => {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let active_server = crate::servers::runtime::active(s).clone();
+                crate::surfaces::browser::rpc::on_sse_disconnected(s, &active_server);
+            }
+            reconnect::stream_down(s, e, tx);
+        }
         Incoming::Unanswered(e) => reconnect::unanswered(s, e, tx),
         _ => {}
     }
@@ -131,6 +138,9 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             crate::rewind::read_sessions(s);
         }
         Incoming::Info(mut info) => {
+            if rune::Tracked::untracked(&s.recent_page).would_record_info(&info) {
+                s.recent_page.record_info(&info);
+            }
             let recent_changed = rune::Tracked::untracked(&s.recent_page).would_observe(&info);
             if recent_changed {
                 s.recent_page.observe(&info);
@@ -282,6 +292,11 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.apply_project_opened(location, projects, session, tx);
         }
         Incoming::Settled { ticket, result } => settled(s, ticket, result, tx),
+        #[cfg(not(target_arch = "wasm32"))]
+        Incoming::PromptGate { session, directory, release } => {
+            crate::surfaces::browser::rpc::hold_start_gate(s, &session, &directory, release);
+            return false;
+        }
         Incoming::Created(info) if s.queue.starts.has(&info.id) => {
             s.started(info, tx);
         }

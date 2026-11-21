@@ -24,7 +24,7 @@ pub(crate) mod runtime;
 pub mod services;
 pub(crate) mod ui;
 
-pub use opencode_plugin_runtime::{catalogs, flyout, icons, images, machines, process, reveal, tasks};
+pub use opencode_plugin_runtime::{catalogs, flyout, icons, images, machines, process, tasks};
 
 pub use bridge::{commands, console, cx, project_request, requests, server_sources, servers, stores};
 pub(crate) use bridge::contrib;
@@ -52,7 +52,6 @@ pub use contrib::{
 pub use flyout::{Flyout, FlyoutEvent, Overlay};
 pub use machines::{Hot, HotEffect, Life, LifeEffect, LifeEvent, Trust, TrustEffect, TrustEvent};
 pub use plugin::Half;
-pub use reveal::reveal;
 pub use runtime::boot::{boot_builtin, doze_owed, first_frame, setup};
 pub use runtime::lifecycle::{drive, fire_named, poll, reload, step_trust, toggle};
 pub use servers::{
@@ -272,6 +271,12 @@ impl PluginHost {
 
     pub fn find(&self, id: &str) -> Option<usize> {
         self.list.iter().position(|p| p.manifest.id == id)
+    }
+
+    /// Whether `id` is a live, genuinely bundled built-in plugin (`Tier::Bundled`, never a user,
+    /// override, or dev plugin shadowing a built-in ID).
+    pub fn is_builtin_plugin(&self, id: &str) -> bool {
+        self.list.iter().any(|p| p.half.is_builtin(id) && p.running())
     }
 
     /// The running plugins.

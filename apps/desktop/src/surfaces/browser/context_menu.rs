@@ -33,17 +33,41 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     changed
 }
 
+fn live_driver(
+    captured: Option<browser_pane::TabDriver>,
+    live_tab: &browser_pane::BrowserTab,
+) -> Option<browser_pane::TabDriver> {
+    if live_tab.prompts.agent_driven {
+        let live = live_tab.prompts.driver.clone().unwrap_or(browser_pane::TabDriver::Agent);
+        if live == browser_pane::TabDriver::Agent || captured.is_none() {
+            return Some(live);
+        }
+    }
+    captured
+}
+
 fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx) {
     let Some(tab) = app.workspace_panes.browser.host.tab(tab_id) else {
         app.workspace_panes.browser.host.run_context_menu_action(tab_id, info.id, None);
         return;
     };
+    if tab.refusal.as_deref() == Some("browser.proxy.required") {
+        // Suspended remote tab: cancel immediately rather than showing non-functional commands.
+        app.workspace_panes.browser.host.run_context_menu_action(tab_id, info.id, None);
+        return;
+    }
     let can_back = tab.can_go_back;
     let can_forward = tab.can_go_forward;
     let (ox, oy) = tab.surface_origin;
     let z = tab.view_zoom.max(0.01);
     let anchor = (ox + (info.x as f32) / z, oy + (info.y as f32) / z);
     let can_open_page = app.browser_tab_external_url(tab_id).is_some();
+    let captured_opener = app.browser_context_for_opener(tab_id);
+    let captured_sid = app.browser_tab_session(tab_id).map(str::to_owned);
+    let captured_external_link_ok = info
+        .link_url
+        .as_deref()
+        .is_some_and(|u| app.external_url_allowed_for_tab(tab_id, u));
 
     let mut groups: Vec<Vec<Item>> = Vec::new();
 
@@ -65,7 +89,7 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
     // 3. Link actions (`page-menu.ts:88-96`)
     if let Some(link) = &info.link_url {
         let mut items = vec![Item::new("open-link", t!("rune.browser.menu.openLink"))];
-        if browser_pane::destination_origin(link).is_some() {
+        if app.external_url_allowed_for_tab(tab_id, link) {
             items.push(Item::new("external-link", t!("rune.browser.menu.external")));
         }
         items.push(Item::new("copy-link", t!("rune.browser.menu.copyLink")));
@@ -132,13 +156,29 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
             Some("hard-reload") => engine_cmd = Some(ContextMenuCommand::HardReload),
             Some("open-page") => s.open_browser_tab_externally(tab_id, tx),
             Some("open-link") => {
-                if let Some(url) = link_url {
-                    let sid = s.browser_tab_session(tab_id).map(str::to_owned);
-                    s.open_new_browser_tab_for_session(sid.as_deref(), &url, None, true);
+                if let Some(url) = link_url
+                    && let Some(live_tab) = s.workspace_panes.browser.host.tab(tab_id)
+                    && let Some((captured_driver, mut ctx)) = captured_opener.clone()
+                {
+                    let driver = live_driver(captured_driver, live_tab);
+                    let proxy_ok = match &mut ctx {
+                        browser_pane::ContextKind::RemoteServer { server_id, proxy } => {
+                            *proxy = s.workspace_panes.browser.host.remote_proxy(server_id.trim()).cloned();
+                            proxy.is_some()
+                        }
+                        _ => true,
+                    };
+                    if proxy_ok {
+                        let sid = s.browser_tab_session(tab_id).map(str::to_owned).or_else(|| captured_sid.clone());
+                        s.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx, driver);
+                    }
                 }
             }
             Some("external-link") => {
-                if let Some(url) = link_url && browser_pane::destination_origin(&url).is_some() {
+                if let Some(url) = link_url
+                    && captured_external_link_ok
+                    && s.external_url_allowed_for_tab(tab_id, &url)
+                {
                     crate::open_in::open_external(tx, &url);
                 }
             }
@@ -148,9 +188,22 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
                 }
             }
             Some("open-image") => {
-                if let Some(url) = src_url {
-                    let sid = s.browser_tab_session(tab_id).map(str::to_owned);
-                    s.open_new_browser_tab_for_session(sid.as_deref(), &url, None, true);
+                if let Some(url) = src_url
+                    && let Some(live_tab) = s.workspace_panes.browser.host.tab(tab_id)
+                    && let Some((captured_driver, mut ctx)) = captured_opener.clone()
+                {
+                    let driver = live_driver(captured_driver, live_tab);
+                    let proxy_ok = match &mut ctx {
+                        browser_pane::ContextKind::RemoteServer { server_id, proxy } => {
+                            *proxy = s.workspace_panes.browser.host.remote_proxy(server_id.trim()).cloned();
+                            proxy.is_some()
+                        }
+                        _ => true,
+                    };
+                    if proxy_ok {
+                        let sid = s.browser_tab_session(tab_id).map(str::to_owned).or_else(|| captured_sid.clone());
+                        s.open_new_browser_tab_with_context(sid.as_deref(), &url, None, true, false, ctx, driver);
+                    }
                 }
             }
             Some("save-image") => {

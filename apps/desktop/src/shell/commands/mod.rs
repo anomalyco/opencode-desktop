@@ -41,6 +41,9 @@ pub struct Command {
     pub section: Option<Section>,
     /// Kept out of the palette; its keys and Settings › Shortcuts still have it.
     pub hidden: bool,
+    /// The command whose keybind it shares (a plugin's `follows`): Settings > Shortcuts lists that
+    /// one, not this one, unless the user bound this one itself.
+    pub follows: Option<&'static str>,
     /// A plugin's `featured` command: among the palette's opening rows.
     pub featured: bool,
     pub run: Run,
@@ -108,6 +111,7 @@ impl App {
                         chord: if keys.is_some() { None } else { chord },
                         section: c.section.and_then(parse_section),
                         hidden: c.hidden,
+                        follows: None,
                         featured: false,
                         run: Run::Fn(c.run),
                     },
@@ -138,6 +142,8 @@ impl App {
         self.search.focused = false;
         self.kernel.slots.get_mut(&crate::find::FIND).input.focused = false;
         self.composer.focused = true;
+        // ^L from the keys shows the prompt's ring; from the palette's pointer it doesn't.
+        tx.focus("prompt", tx.by_keys());
         true
     }
 

@@ -129,10 +129,11 @@ pub(crate) fn apps_for_plugin(s: &App) -> Vec<(&'static str, &'static str)> {
     }
 }
 
-/// Opens absolute `abs_path` in its system default app (no-op on `wasm32`).
-pub(crate) fn open_default(s: &mut App, abs_path: String) {
+/// Reveals an absolute local fixed-drive `abs_path` in the system file manager (selecting the
+/// item; never executes or opens with the default app; no-op on `wasm32`).
+pub(crate) fn reveal_abs(s: &mut App, abs_path: String) {
     #[cfg(not(target_arch = "wasm32"))]
-    s.kernel.slots.get_mut(&OPEN_IN).open_default(abs_path);
+    s.kernel.slots.get_mut(&OPEN_IN).reveal_local(abs_path);
     #[cfg(target_arch = "wasm32")]
     let _ = (s, abs_path);
 }
@@ -143,6 +144,18 @@ impl App {
         #[cfg(not(target_arch = "wasm32"))]
         {
             can_open(self)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            false
+        }
+    }
+
+    /// Revealing a local file in the OS file manager works on every native desktop OS (Windows, macOS, Linux).
+    pub fn can_reveal_outside(&self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            can_reveal(self)
         }
         #[cfg(target_arch = "wasm32")]
         {

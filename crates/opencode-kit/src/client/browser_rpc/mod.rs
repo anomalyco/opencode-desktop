@@ -2,11 +2,15 @@
 //! `experimental.browser` v4 RPC protocol (`packages/plugin-browser/src/{rpc,machine,connection,
 //! tunnel,proxy}.ts`, `packages/gui-plugins/src/browser/{pane,pane-machine,machine,network}.ts`).
 
+#[cfg(not(target_arch = "wasm32"))]
+mod framing;
 pub mod http;
 pub mod machine;
 pub mod proxy_machine;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod tunnel_proxy;
+#[cfg(not(target_arch = "wasm32"))]
+mod tunnel_pump;
 pub mod types;
 
 pub use http::{AbortHandle, classify_attach_error, classify_error, rpc_path};

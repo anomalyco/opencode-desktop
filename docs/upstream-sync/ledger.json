@@ -1,29 +1,29 @@
 {
-  "generated_at": "2026-11-20",
+  "generated_at": "2026-11-21",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "bfee96a859aa0d225b845d67625d34ea6ae773d2",
+  "upstream_head": "b9a60d9d078d87bfb90f039e431090508f88ac02",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "ce53bfa4f48656463dcad933a6cf69219bf56f54",
-  "post_1114_commit_count": 339,
-  "post_1114_in_ledger": 117,
-  "post_1114_skipped": 222,
+  "rune_desktop_head": "6e98fc2b726ec52bb0f79f78c8d02d506a8ef66d",
+  "post_1114_commit_count": 377,
+  "post_1114_in_ledger": 143,
+  "post_1114_skipped": 234,
   "post_1114_skipped_breakdown": {
-    "test-only": 16,
+    "test-only": 17,
     "ci-bench-deps": 15,
-    "docs-site-data": 36,
-    "tui-only": 10,
-    "cli-acp-only": 3,
-    "server-core-ai-codemode-internal": 142
+    "docs-site-data": 37,
+    "tui-only": 11,
+    "cli-acp-only": 4,
+    "server-core-ai-codemode-internal": 150
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 136,
+  "total_ledger_rows": 164,
   "status_counts": {
-    "have it": 97,
-    "partly": 9,
-    "not applicable": 14,
-    "missing": 15,
+    "have it": 109,
+    "partly": 5,
+    "not applicable": 23,
+    "missing": 26,
     "differs on purpose": 1
   },
   "rows": [
@@ -209,12 +209,13 @@
       ],
       "summary": "Retry attaching the desktop browser pane automatically once server-side plugins finish booting instead of leaving browser tools unattached.",
       "size": "S",
-      "status": "partly",
-      "status_evidence": "AttachMachine rpc.unavailable -> plugin.updated / server.connected retry state machine landed in BROWSER-TOOLS #275 (c397d0b9, crates/opencode-kit/src/client/browser_rpc/machine.rs); desktop SSE event & runtime wiring lands in BROWSER-TOOLS PR 2.",
+      "status": "have it",
+      "status_evidence": "Code merged on dev in rune-desktop #275 (c397d0b9, AttachMachine rpc.unavailable -> plugin.updated / server.connected) and #287 (a974a664, BrowserRpcFeature wired to SSE events/incoming.rs + Connecting+plugin.updated race fix).",
       "depends_on": "UP-095 (#63002)",
       "risks": "none",
-      "workstream": "BROWSER-TOOLS",
-      "rune_pr": "#275"
+      "workstream": "none",
+      "rune_pr": "#275, #287",
+      "reviewed": "NOT SAFE TO SHIP (#275/#287 retrospective security findings open)"
     },
     {
       "id": "PRE-09",
@@ -1363,7 +1364,8 @@
       "depends_on": "Updated published browser engine binary for HostMsg::Emulate",
       "risks": "Security: cross-session SetViewport mutation in local/dev builds (follow-up checklist, fixed in WS-1).",
       "workstream": "none",
-      "rune_pr": "#162, #239, #245, #270"
+      "rune_pr": "#162, #239, #245, #270",
+      "reviewed": "NOT SOUND TO SHIP (#245 retrospective security findings open)"
     },
     {
       "id": "UP-040",
@@ -1933,13 +1935,12 @@
       "summary": "Add experimental browser-style colored, collapsible, draggable tab groups to vertical side tabs behind a Settings > Experimental toggle.",
       "size": "XL",
       "status": "have it",
-      "status_evidence": "Ported in rune-desktop #259 (3869c29e): experimental side tab groups (features/tab-groups) with 4-intent drag machine (incl. 220 ms dwell combine), filter/grouping menu, colored collapsible headers, RTL rail, tear-out handoff, #262 focus_inset rings, and verified 2-window migration/downgrade. [OPEN REGRESSION (WS-2): features/settings/src/lib.rs:224-226 defaults tab_groups() ON in packaged local builds (+176,165 restPx across 4 side-tab screens); fix PR #278 open to default false matching Official packaged builds.]",
+      "status_evidence": "Ported in rune-desktop #259 (3869c29e): experimental side tab groups (features/tab-groups) with 4-intent drag machine (incl. 220 ms dwell combine), filter/grouping menu, colored collapsible headers, RTL rail, tear-out handoff, #262 focus_inset rings, and 2-window migration/downgrade. Packaged-build default-ON regression fixed in #278 (e686db8a) and verified closed pixel-for-pixel.",
       "depends_on": "UP-072 (#64668) / UP-074 (#64727) (shares side-tab strip and settings layout)",
       "risks": "Persists group metadata and tab-to-group assignments in `opencode-storage` / `opencode-servers` window tabs schema; must stay lossless across upgrades and tear-out across multi-window.",
       "workstream": "none",
-      "open_pr_note": "unmerged PR #232 (partial; cross-group tab drag skipped); PR #278 (ws2/tab-groups-default-off, open regression fix)",
-      "rune_pr": "#259",
-      "open_regression": "WS-2: Settings::tab_groups() defaults ON in packaged local builds (+176,165 restPx across 4 side-tab screens; fix PR #278 open)"
+      "open_pr_note": "unmerged PR #232 (partial; cross-group tab drag skipped)",
+      "rune_pr": "#259, #278"
     },
     {
       "id": "UP-063",
@@ -1993,12 +1994,12 @@
       "summary": "Route desktop command shortcuts (including composer Stop on Escape/Ctrl+G and Attach file on Mod+U) through `@opentui/keymap`.",
       "size": "M",
       "status": "have it",
-      "status_evidence": "Ported in rune-desktop #264 (77cc154c): prompt.stop (Esc + Ctrl+G, reading legacy session.stop without rewriting for downgrade compatibility) and file.attach registered in the unified keymap and palette. Standing-guard Settings > Shortcuts hidden-command regression (browser.close listed when hidden: true, +9,845 restPx) fixed on dev in WS-8 #279 (b2bcf1c7, pending standing-guard re-verify).",
+      "status_evidence": "Ported in rune-desktop #264 (77cc154c, prompt.stop + file.attach) with Settings > Shortcuts listing aligned to Official in #279 (b2bcf1c7) and #290 (eb700d9d: CommandSpec.follows since 1.7, browser.close follows tab.close, hidden commands kept and followers excluded).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "none",
       "open_pr_note": "unmerged PR #230",
-      "rune_pr": "#264, #279"
+      "rune_pr": "#264, #279, #290"
     },
     {
       "id": "UP-065",
@@ -2124,13 +2125,13 @@
       ],
       "summary": "Redesign the Goal composer pill with custom active/paused/reached SVG icons, new labels ('Following goal', 'Goal paused', 'Goal reached'), objective-first popover with reason divider and red Clear / Dismiss actions, and tighter 8 px / 6 px icon-pill spacing.",
       "size": "M",
-      "status": "partly",
-      "status_evidence": "Goal pill redesign, icons/{active,paused,complete}.svg, labels, reason-aware popover, host popover heading removal, and shared 8px/6px leading-icon pill geometry landed in #256 (757edbae), with SVG caps synced in #273 (e456830d); live SMIL ripple animation on monochrome active.svg awaits Rune PR #1291 (deliberate difference: multi-colour plugin icons stay static with dev warning).",
+      "status": "have it",
+      "status_evidence": "Complete on dev: Goal pill redesign, icons/{active,paused,complete}.svg, labels, reason-aware popover (#256 757edbae), SVG sanitizer caps (#273 e456830d), and live monochrome SMIL ripple animation on active.svg via Rune #1291 (pinned in #300 3bc6ecf2; deliberate difference: colour animated icons draw static).",
       "depends_on": "UP-068 (#64577) for plugin-declared SVG icons + Rune reduced-motion animation handling",
       "risks": "none",
-      "workstream": "WS-6",
+      "workstream": "none",
       "open_pr_note": "unmerged PR #230 (static SVG icon)",
-      "rune_pr": "#256, #273"
+      "rune_pr": "#256, #273, #300 (Rune #1291)"
     },
     {
       "id": "UP-070",
@@ -2282,10 +2283,10 @@
       "summary": "Drop translations left unused after retiring the Projects sidebar mode.",
       "size": "S",
       "status": "missing",
-      "status_evidence": "Will be cleaned up automatically during WS-7's official locale sync after WS-2 removes `Organize::Projects`.",
+      "status_evidence": "Assigned to BROWSER-UI agent (check behaviour vs pure strings; unified 63-locale sync remains held awaiting orchestrator go-ahead).",
       "depends_on": "UP-074 (#64727)",
       "risks": "none",
-      "workstream": "WS-7",
+      "workstream": "BROWSER-UI",
       "open_pr_note": "unmerged PR #235"
     },
     {
@@ -2631,13 +2632,13 @@
       ],
       "summary": "Unify the keyboard focus ring token/rendering across all interactive controls, add missing `:focus-visible` states app-wide, and install Focus Rescue so removing a focused item moves focus to a neighbor.",
       "size": "XL",
-      "status": "partly",
-      "status_evidence": "Unified 2 pt focus ring & dark blue-400 border-focus (#262 e6fe564c), Rune kit rings (#265/Rune #1296), settings mode cards / project swatches / project rows / sidebar pins (#269 2d05cd80), and disabled-control focus rescue (#282/Rune #1298) are live on dev; whole-row within-rings and field select rings remain in WS-8 (unblocked by Rune #1297 in #282). Note: Rune #1298 follow-up needed in RuntimeCore::fallback_in_new (focus.rs:570) so disabled controls inside rune::region_with (e.g. composer submit) also hand focus on instead of dropping to window.",
+      "status": "have it",
+      "status_evidence": "Focus rings (#262, #269, Rune #1296), rescue (Rune #1298, #1302, #1304) and field rings: composer frame and Home search ring only when the keys put focus there (PR #326)",
       "depends_on": "Rune focus-rescue / scope-based fallback focus API",
       "risks": "Must preserve Rune's existing accessibility tree, screen-reader announcements, and zero-allocation idle path.",
       "workstream": "WS-8",
       "open_pr_note": "unmerged PR #228 (partial; rune-kit offsets pending)",
-      "rune_pr": "#262, #265 (Rune #1296), #269, #282 (Rune #1298)"
+      "rune_pr": "#262, #265 (Rune #1296), #269, #282 (Rune #1298), #293 (Rune #1302), #300 (Rune #1304)"
     },
     {
       "id": "UP-089",
@@ -2735,8 +2736,8 @@
       ],
       "summary": "Show the composer's keyboard focus ring only when focus arrives via keyboard navigation or shortcuts, not on pointer clicks or mode toggles.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Rune #1297 (El::focus_visible_within_ring + Entry tracking) is now live on dev via #282 (ce53bfa4); WS-8 to wire composer frame & Home search keyboard-only rings and handOffFocus paths.",
+      "status": "have it",
+      "status_evidence": "Composer frame rings 2 in via Rune focus_visible_within_ring only on keyboard entry; ^L rings only from the keys (PR #326)",
       "depends_on": "UP-088 (#64909); Rune focus-visible / programmatic focus origin tracking",
       "risks": "none",
       "workstream": "WS-8"
@@ -2831,12 +2832,13 @@
       "summary": "Overhaul the desktop browser pane with one encrypted persistent profile, cookie import from 15 browsers + site chooser, remote partition/sharing, Settings > Browser, `oc-preview://` local/remote workspace & artifact previews, chat/terminal link routing + app-link review, full browser chrome (right-click, find, hard reload, pop-up blocking, notices, plain errors), in-app JS dialogs/permissions/HTTP auth, and hardened/upgraded agent browser tools (`tabs.open({ path })` replacing `browser.preview`, deep snapshots with field-value redaction, hidden screenshots, BuiltinPromptGate, deny rules, agent-driven tab isolation). (Chrome extensions tracked separately in UP-095-EXT under WS-9.)",
       "size": "XL",
       "status": "partly",
-      "status_evidence": "WS-1 engine core: Phase 1 complete (#239 shared browser-policy, #245 session tab isolation/hardening, #268 CEF popups/permissions/JS dialogs/HTTP auth/client-cert/agent file-chooser + native Rune overlays, #272 CEF Find/context-menu/hard-reload/cache-clear/favicons/crash-log) and Phase 3a landed (#277 be1dd10d: shared isolated CefRequestContext pool, remote proxy/WebRTC/DoH/QUIC confinement, Ready { partitions, remote_proxy }); Phase 3b/3c (real OS cookie encryption/importer, passkey gate) in flight. UI, previews, RPC tools, and extensions are tracked separately as UP-095-UI, UP-095-PREVIEWS, UP-095-TOOLS, and UP-095-EXT.",
+      "status_evidence": "WS-1 engine core: Phase 1 (#239, #245, #268, #272), Phase 3a (#277, #288, #291, #299), Fix PR 1 (#292 6d7a6ede remote proxy + isolation), and Fix PR 4 (#306 b5167f7e atomic OpenTab/TabSnapshot agent_driven across cold start/crash+Retry/promote/reconnect/3P plugins + TabDriver) merged on dev; Fix PR 3 (#305 site permissions, confirmed 3rd read merging new dev), controlled-tab Permissions-Policy + clipboard-write follow-up, Fix PRs 5-7, and Phase 3b (#286 OS cookie encryption) remain open.",
       "depends_on": "CEF engine updates + new signed browser engine publishes for macOS/Windows/Linux; Luau contract bump for Browser service; server `plugin-browser` alignment (or rune_mcp parity); Rune framework checks for extension popup anchoring",
       "risks": "HIGH SECURITY & ARCHITECTURE: (1) CEF OSR Alloy vs Chrome-runtime extension support spike required; (2) must NOT regress Rune's stricter URL/CDP/download security (`0b540fd8`, `a5a71a0d`, `344a2087`, `bb41d149`) and must address `no_sandbox: 1` (`engine.rs:100`); (3) cookie encryption is one-way; (4) `browser.preview` removal is breaking for scripts/prompts; (5) publishing signed macOS/Windows/Linux engines requires release signing keys and release workflow.",
       "workstream": "WS-1",
-      "open_pr_note": "unmerged PR #234 (partial: JS dialogs, snapshot, evaluate, wait)",
-      "rune_pr": "#239, #245, #268, #272, #277"
+      "open_pr_note": "PR #305 (ws1-fix3-permissions, merge-check fix + merging 6e98fc2b); controlled-tab stopgap / Permissions-Policy + clipboard-write follow-up; PR #286 (ws1-phase3b, held)",
+      "rune_pr": "#239, #245, #268, #272, #277, #288, #291, #299, #292, #306",
+      "reviewed": "#292 confirmed (4th read); #306 confirmed (2nd read at e79c1306); #305 confirmed 3rd read at d590a0b1 (merge check at 5551ea60 needs ~4-line reopen_tab_as_* visit_permissions clear + dev merge); NOT SOUND TO SHIP (#245/#268/#272/#277/#288 retrospective findings still open in #305 + controlled-tab stopgap/Permissions-Policy/clipboard-write + Fix PRs 5-7); #286 held"
     },
     {
       "id": "UP-096",
@@ -2963,11 +2965,13 @@
       ],
       "summary": "Persist saved browser tabs so reopening the app shows saved tabs immediately and holds them cleanly while the browser engine loads them.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Reassigned to BROWSER-UI: purely UI/plugin tab persistence + loading hold in plugins/browser (browser-pane already holds pending_opens while CEF boots).",
+      "status": "have it",
+      "status_evidence": "Code merged on dev in rune-desktop #289 (e64ac672): plugins/browser/saved_tabs.luau persists per-session tab URL, title, and bounded favicon (<= 6000 B, max 50 sessions) and holds saved titles/icons in the tab strip while restoring/loading.",
       "depends_on": "UP-095 (#63002)",
       "risks": "Persisted browser tab restore state must use opencode-storage and survive downgrade cleanly.",
-      "workstream": "BROWSER-UI"
+      "workstream": "none",
+      "rune_pr": "#289",
+      "reviewed": "NOT SAFE TO SHIP (#289 retrospective security findings open)"
     },
     {
       "id": "UP-101",
@@ -3048,8 +3052,8 @@
       ],
       "summary": "Suppress the composer keyboard focus ring when focus returns to the already-active composer upon switching back to the app window.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Rune #1297 (WindowReturned focus event suppressing focus-visible ring on window return) is now live on dev via #282 (ce53bfa4); WS-8 to wire composer & Home search fields.",
+      "status": "have it",
+      "status_evidence": "The composer ring follows Rune's focus-visible origin, which a return to the window doesn't set (Rune #1297) (PR #326)",
       "depends_on": "UP-092 (#64976)",
       "risks": "none",
       "workstream": "WS-8"
@@ -3095,12 +3099,14 @@
       ],
       "summary": "Support Chrome extensions in the embedded browser pane: CRX3 store download + RSA/ECDSA signature and listing-ID check, import from other browsers, unpacked developer folder, permission review modal with one-use token, startup file-digest integrity check, toolbar Extensions button + anchored popups, core extension APIs, private-tab redaction, and ad-blocker startup wait.",
       "size": "XL",
-      "status": "missing",
-      "status_evidence": "Split from UP-095 (#63002) into WS-9. CEF 156 OSR private-pipe MV3 extension host, isolation, and CRX3 verification proved; PR #274 (apps/browser-engine/src/extensions/*) and PR #280 (crates/browser-extensions, 0 new third-party deps) open awaiting independent security review; Settings/toolbar UI follows.",
+      "status": "partly",
+      "status_evidence": "Split from UP-095 (#63002) into WS-9. #![forbid(unsafe_code)] crates/browser-extensions (#280 b019dad0) and engine MV3 extension host over private anonymous CDP pipe (#274 5da64743, inert without --extension flags) are merged on dev; #312 (Find caller scoping) awaits final dev merge; masking stream (#314) is paused pending owner decision on agent-tab contexts (dedicated extension-free context vs DOM/AX masking); #283 remains held behind 4-part shipping gate + signed engine publish.",
       "depends_on": "UP-095 (#63002 browser engine & settings hooks)",
       "risks": "CEF 156 OSR extension runtime constraints (popup APIs, service-worker shim, private-tab redaction, per-server isolation, and engine publishing).",
       "workstream": "WS-9",
-      "open_pr_note": "PR #274 (ws9/pr1-engine-extensions) & PR #280 (ws9/pr2-browser-extensions-crate), open awaiting security review"
+      "open_pr_note": "PR #312 (ws9/pr1b1-find-caller-scoping, merging dev after #305/#316), PR #314 (masking stream paused pending owner decision on agent-tab contexts), PR #283 (held behind 4-part shipping gate)",
+      "reviewed": "#280 confirmed (3rd read); #274 confirmed (6th read + two merge checks; macOS FD 3/4 + loadUnpacked live proof passed on macOS; Linux never run); #312 confirmed pre-merge; #314 (2nd read NOT CONFIRMED) paused pending owner decision on agent-tab contexts; #283 held",
+      "rune_pr": "#280, #274"
     },
     {
       "id": "UP-106",
@@ -3122,11 +3128,13 @@
       ],
       "summary": "Import browsing history from installed browsers alongside sign-ins and provide ranked address-bar autocomplete suggestions from browsing history.",
       "size": "L",
-      "status": "missing",
-      "status_evidence": "Verified on dev: Rune browser pane does not yet import browser history or autocomplete address-bar entries from browsing history.",
+      "status": "have it",
+      "status_evidence": "Code merged on dev in rune-desktop #289 (e64ac672): SQLite history.sqlite store (PRAGMA secure_delete = ON, 50k cap, frecency ranking, private/isolated/preview exclusion), read-only user-explicit Chrome/Firefox/Safari history import, and Chrome-style omnibox address-machine with inline completion and Shift+Delete forget.",
       "depends_on": "UP-095 (#63002 browser profile & importer)",
       "risks": "Red flag: gui-plugins/browser; history import touches local browser profile databases and must store history via opencode-storage with site/clear-data controls.",
-      "workstream": "BROWSER-UI"
+      "workstream": "none",
+      "rune_pr": "#289",
+      "reviewed": "NOT SAFE TO SHIP (#289 retrospective security findings open: 3P plugin history access, omnibox pushState hijack, isolated/remote history leak)"
     },
     {
       "id": "UP-107",
@@ -3173,7 +3181,8 @@
       "depends_on": "UP-095 (#63002)",
       "risks": "none",
       "workstream": "none",
-      "rune_pr": "#270, #276"
+      "rune_pr": "#270, #276",
+      "reviewed": "copy-only (#270, #276)"
     },
     {
       "id": "UP-109",
@@ -3192,12 +3201,13 @@
       ],
       "summary": "Fetch/normalize site favicons and display each page's icon in its browser panel tab.",
       "size": "M",
-      "status": "partly",
-      "status_evidence": "Engine-side favicon fetching (DisplayHandler::on_favicon_urlchange -> download_image PNG data URL <= 64 KiB, generation-guarded) and BrowserTab::favicon landed in WS-1 #272 (2b3d6e13); rendering per-tab site icons in the panel tab strip remains in BROWSER-UI.",
+      "status": "have it",
+      "status_evidence": "Code merged on dev: engine-side favicon fetching & PNG data URLs landed in WS-1 #272 (2b3d6e13), and BrowserTab:Favicon + live tab icon rendering (data:image/* with globe fallback) landed in BROWSER-UI #285 (5a1a37ba).",
       "depends_on": "UP-095 (#63002)",
       "risks": "Red flag: gui-plugins/browser; favicon image decode must enforce size/format bounds.",
-      "workstream": "BROWSER-UI",
-      "rune_pr": "#272"
+      "workstream": "none",
+      "rune_pr": "#272, #285",
+      "reviewed": "NOT SAFE TO SHIP (#272/#285 retrospective security findings open)"
     },
     {
       "id": "UP-110",
@@ -3223,7 +3233,8 @@
       "depends_on": "UP-095 (#63002)",
       "risks": "Red flag: gui-plugins/browser; diagnostics must not leak page URLs or secrets to global logs.",
       "workstream": "none",
-      "rune_pr": "#272"
+      "rune_pr": "#272",
+      "reviewed": "NOT SOUND TO SHIP (#272 retrospective security findings open)"
     },
     {
       "id": "UP-111",
@@ -3247,7 +3258,8 @@
       "depends_on": "UP-095 (#63002)",
       "risks": "none",
       "workstream": "none",
-      "rune_pr": "#270, #276"
+      "rune_pr": "#270, #276",
+      "reviewed": "copy-only (#270, #276)"
     },
     {
       "id": "UP-112",
@@ -3272,7 +3284,8 @@
       "depends_on": "UP-095 (#63002)",
       "risks": "Red flag: gui-plugins/browser; new-tab opens must pass browser-policy checks and inherit agent-tab isolation.",
       "workstream": "none",
-      "rune_pr": "#268"
+      "rune_pr": "#268",
+      "reviewed": "NOT SOUND TO SHIP (#268 retrospective security findings open)"
     },
     {
       "id": "UP-113",
@@ -3313,12 +3326,14 @@
       ],
       "summary": "App-side browser chrome polish, refusal notices, plain errors, Find UI, Settings > Browser page, and chat/terminal link routing into the browser pane.",
       "size": "L",
-      "status": "partly",
-      "rune_pr": "#270, #276",
-      "status_evidence": "Chrome polish, refusal notices + 500 ms guard, plain errors, Find UI, device toolbar (#270 17194075), and Settings > Browser with capability gating, live two-way sitePermissions sync, and search Advanced reveal (#276 c6bd83d0) landed on dev; chat/terminal/OSC-8 link routing remains in BROWSER-UI PR 3.",
+      "status": "have it",
+      "rune_pr": "#270, #276, #285, #297, #294, #307, #316 (Rune #1307)",
+      "status_evidence": "Code merged on dev: chrome polish & device toolbar (#270 17194075), Settings > Browser (#276 c6bd83d0), policy-first link routing & Phase 1c chrome wiring (#285 5a1a37ba), inline chat video + reply link actions (#297 918d24f9), Security A1 file-link/click-to-run fix (#294 ae3e9105; known limitation: symlink/junction workspace roots refused until #308), click-to-load for all inline reply videos with web video as plain browser-pane links (#307 a1e7d0dc), and Rune #1307 strict local video opening pinned in #316 (6e98fc2b). PR #308 (alias-root) and PR #315 (A2a links/schemes) remain open.",
       "depends_on": "UP-095 (#63002)",
       "risks": "Link routing must always delegate scheme/URL decisions to crates/browser-policy.",
-      "workstream": "BROWSER-UI"
+      "workstream": "none",
+      "reviewed": "#294 confirmed (final + compile-fix + merge check; Windows live; macOS/Linux compiled only; symlink/junction roots refused); #307 confirmed (2nd read at fc3df8c5 + merge check ea183993; Windows live); #316 / Rune #1307 confirmed (1st read + macOS headless proof + full test suite; Windows Files-panel & reply click-to-load proved live); #285/#289 NOT SAFE TO SHIP (#315 A2a in rework after 2nd read; #308 in rework after 2nd read; A2b/A2c/B queued)",
+      "open_pr_note": "PR #308 (browser-ui/sec-alias-root, in rework — 2nd read), PR #315 (browser-ui/sec-a2a-links-schemes, in rework — 2nd read)"
     },
     {
       "id": "UP-095-PREVIEWS",
@@ -3338,12 +3353,13 @@
       ],
       "summary": "Serve local, remote, and artifact previews through isolated per-preview CefRequestContexts and oc-preview:// with open-handle path verification, strict CSP/Connection-Allowlist, and raw file:// ban.",
       "size": "XL",
-      "status": "missing",
-      "status_evidence": "Split from UP-095 (#63002) into PREVIEWS (threat model & 3-PR plan documented; PR #281 oc-preview:// engine scheme + isolated CefRequestContext open for review).",
+      "status": "have it",
+      "status_evidence": "Complete on dev: #281 (5d50c6f7) landed isolated oc-preview:// CefSchemeHandlerFactory, ContextPool::is_tab_ready fail-closed gate, parent-handle NtCreateFile / openat(O_NOFOLLOW), and PreviewIoPool; #303 (6fb05ce1) landed full app routing for local/remote/artifact previews, unconditional engine-wide and app-wide raw file:// ban, older-engine show-source/unsupported fallback, Ready.preview_credit byte flow control, fair PreviewFetchPool, and 3P/agent preview guards.",
       "depends_on": "UP-095 (#63002)",
       "risks": "Security-critical: symlink/TOCTOU, loopback/LAN/WebRTC exfiltration, credential isolation, raw file:// ban; requires newly published engine binary.",
-      "workstream": "PREVIEWS",
-      "open_pr_note": "PR #281 (previews/pr1-engine-scheme, open)"
+      "workstream": "none",
+      "reviewed": "#281 confirmed (3rd read + merge check; macOS handle_path live proof passed on macOS); #303 confirmed (4th read at 1e4599e9 + merge check at 1385cef3, tree 8c3ff7f1); Linux runtime never run",
+      "rune_pr": "#281, #303"
     },
     {
       "id": "UP-095-TOOLS",
@@ -3364,11 +3380,13 @@
       "summary": "Replace local rune_mcp browser tools on modern servers with pure-Rust experimental.browser v4 RPC client, 45 typed executors, <=1 s durable PromptGate, and authenticated remote tunnel proxy.",
       "size": "XL",
       "status": "partly",
-      "rune_pr": "#275",
-      "status_evidence": "Pure-Rust experimental.browser v4 RPC client, AttachMachine, authenticated half-open TunnelProxy, and browser-policy::agent landed in #275 (c397d0b9); navigation/read/act/profile executors, BuiltinPromptGate, and rune_mcp cutover follow in BROWSER-TOOLS PR 2-4.",
+      "rune_pr": "#275, #287, #301, #296",
+      "status_evidence": "experimental.browser v4 client (#275 c397d0b9), session-isolated nav/read runtime (#287 a974a664), official routed-session attach + shared recency rule fixing #287 time_updated/Home-order regression (#301 6522f112), and legacy rune_mcp browser suppression + Half::is_builtin + hardened check_cdp (#296 95cb36a8) are merged on dev; #298 (RPC auth/bounds/OOPIFs/wait spin), #302 (split into remote TunnelProxy hardening/wiring vs separate new-session-start-only prompt gate tracked in UP-095-PROMPT-GATE), narrow 3P browser contract (UP-095-3P-CONTRACT), and acting/uploads/profiling PR 3+ remain.",
       "depends_on": "UP-095 (#63002), PRE-08 (#63500)",
       "risks": "Remote server attachment must fail closed until engine Ready.remote_proxy lands (WS-1 Phase 3a); older servers must keep full rune_mcp fallback.",
-      "workstream": "BROWSER-TOOLS"
+      "workstream": "BROWSER-TOOLS",
+      "reviewed": "#301 confirmed (4th read at 87d48dec); #296 confirmed (5th read at 4ee64ceb + merge check at cd7a85ee); NOT SAFE TO SHIP (#275/#287 retrospective findings still open in #298 and #302 tunnel); #298 updated at 1d3e757c (awaiting 3rd read) and #302 split to tunnel-only at ed01f16f (awaiting 3rd read; prompt gate moved to UP-095-PROMPT-GATE)",
+      "open_pr_note": "PR #298 (1d3e757c, awaiting 3rd read), PR #302 (ed01f16f tunnel-only split, awaiting 3rd read; new-session-start-only prompt gate in UP-095-PROMPT-GATE)"
     },
     {
       "id": "UP-114",
@@ -3420,7 +3438,7 @@
       "status_evidence": "Verified on dev: apps/desktop/src/session/meta/status.rs read_open_requests() only fetches running descendants (skipping idle children with stale cached requests), and poll() for inactive tabs/Inbox only fetches the root session id.",
       "depends_on": "none",
       "risks": "Must still avoid booting cold idle subagent locations that have no running work or cached requests.",
-      "workstream": "WS-4"
+      "workstream": "BROWSER-UI"
     },
     {
       "id": "UP-116",
@@ -3441,7 +3459,7 @@
       "status_evidence": "Rune already maps mouse side buttons to PointerButton::Back and PointerButton::Forward (crates/rune/src/window.rs:762-763), and GoBack/GoForward exist in keymap, but apps/desktop does not handle PointerButton::Back/Forward yet.",
       "depends_on": "none",
       "risks": "Ensure embedded browser pane / pointer capture does not conflict with desktop history navigation.",
-      "workstream": "WS-2"
+      "workstream": "BROWSER-UI"
     },
     {
       "id": "UP-117",
@@ -3460,11 +3478,712 @@
       ],
       "summary": "Require an explicit confirmation step before clearing browsing data in Settings > Browser.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Settings > Browser Clear browsing data (#276 c6bd83d0) currently clears immediately on button press without a confirmation prompt.",
+      "status": "have it",
+      "status_evidence": "Code merged on dev in rune-desktop #289 (e64ac672): Clear browsing data in Settings > Browser opens a DialogSize::Normal confirmation modal (Cancel autofocused, danger 'Clear data') before wiping history while preserving site permissions and preferences.",
       "depends_on": "UP-095-UI (#63002)",
       "risks": "none",
+      "workstream": "none",
+      "rune_pr": "#289",
+      "reviewed": "NOT SAFE TO SHIP (#289 retrospective security findings open)"
+    },
+    {
+      "id": "UP-118",
+      "window": "post-1120",
+      "pr": 65126,
+      "sha": "80d7c17d8e",
+      "title": "feat(browser): open a link's new tab beside the tab it came from",
+      "merged": "2026-11-20",
+      "packages": [
+        "app",
+        "gui-plugins",
+        "plugin"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/tab-openers.ts",
+        "packages/gui-plugins/src/browser/pane-machine.ts",
+        "packages/gui-plugins/src/browser/pane.ts",
+        "packages/app/src/shell/state/session-tabs.ts",
+        "packages/plugin/src/gui/builtin.ts"
+      ],
+      "summary": "Insert a new browser tab opened from a page link or context menu beside its opener tab (Chrome opener-chain order) and keep its new-tab label until the first page names itself.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Browser tabs opened from links/popups currently append at the end of the side-panel tab strip without opener-chain placement (`placed.after`) or `unnamed` initial title hold.",
+      "depends_on": "UP-095 (#63002), UP-112 (#65091)",
+      "risks": "Red flag: gui-plugins/browser, plugin/gui contract (adds optional `after` placement on tab open).",
+      "workstream": "BROWSER-UI",
+      "reviewed": "pre-merge review required when opened"
+    },
+    {
+      "id": "UP-119",
+      "window": "post-1120",
+      "pr": 65164,
+      "sha": "85951cb086",
+      "title": "fix(session-ui): show subagent status as a colored bar and word in the New timeline",
+      "merged": "2026-11-20",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/timeline-next/event-row.tsx",
+        "packages/session-ui/src/timeline-next/timeline-next.css"
+      ],
+      "summary": "Replace the New timeline subagent status chip+glyph with a 3x10 px rounded colored bar and status word, and drop row hover fill/title underline on subagent rows.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Verified on dev: crates/session-view/src/activity/event_row.rs:195-201 still renders mark(p, Mark::of(e), status) icon mark + hoverable fill instead of the 3x10 colored bar + status word.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-3"
+    },
+    {
+      "id": "UP-120",
+      "window": "post-1120",
+      "pr": 65174,
+      "sha": "22ecda23a9",
+      "title": "fix(browser): show browser profiles inline and tidy settings copy",
+      "merged": "2026-11-20",
+      "packages": [
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/settings.tsx",
+        "packages/gui-plugins/src/browser/i18n/en.ts"
+      ],
+      "summary": "Render detected browser profiles inline in Settings > Browser and tighten Settings > Browser copy.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "plugins/browser/settings.luau currently lists browser import via a modal/picker rather than inline profile rows with the updated #65174 copy.",
+      "depends_on": "UP-095-UI (#63002), UP-106 (#65073)",
+      "risks": "Red flag: gui-plugins/browser.",
+      "workstream": "BROWSER-UI",
+      "reviewed": "pre-merge review required when opened"
+    },
+    {
+      "id": "UP-121",
+      "window": "post-1120",
+      "pr": 65177,
+      "sha": "e440d29274",
+      "title": "fix(app): stop buttons from flashing dark on keyboard focus",
+      "merged": "2026-11-20",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/home/projects/view.tsx",
+        "packages/app/src/new-session/project/selector.tsx",
+        "packages/app/src/new-session/view.tsx",
+        "packages/app/src/session/session-identity-header.tsx"
+      ],
+      "summary": "Narrow Tailwind transition-colors to transition-[background-color,color] so CSS does not interpolate outline-color from dark currentColor on :focus-visible.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "CSS-only Tailwind transition-colors bug (interpolating outline-color from currentColor to border-focus); Rune draws focus rings natively without CSS outline-color transitions.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "none"
+    },
+    {
+      "id": "UP-122",
+      "window": "post-1120",
+      "pr": 65176,
+      "sha": "b958fc84d7",
+      "title": "fix(app): keep the pinned group name field inside its menu without a focus ring",
+      "merged": "2026-11-20",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/titlebar/pinned-area.css"
+      ],
+      "summary": "Size pinned group rename input to 100% width and suppress its focus ring outside forced-colors mode.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "apps/desktop/src/shell/view/sidebar/pinned_area.rs:296 renders pin-group-name via session_view::style::field; verify width containment and no unwanted focus ring in non-contrast mode (keep ring in contrast mode).",
+      "depends_on": "UP-072 (#64668), UP-088 (#64909)",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-123",
+      "window": "post-1120",
+      "pr": 65076,
+      "sha": "8e1c6a43a2",
+      "title": "feat(core): session_search and session_read tools behind sqlite_fts",
+      "merged": "2026-11-20",
+      "packages": [
+        "core",
+        "schema"
+      ],
+      "main_files": [
+        "packages/schema/src/config/flag.ts",
+        "packages/core/src/session/search.ts",
+        "packages/core/src/tool/plugin/session-search.ts"
+      ],
+      "summary": "Add server-side session_search and session_read tools behind the sqlite_fts flag.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "Server-core tools and server config flag only; no desktop UI changes.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "none"
+    },
+    {
+      "id": "UP-124",
+      "window": "post-1120",
+      "pr": 65186,
+      "sha": "b7f0b90dc0",
+      "title": "feat(automation): run a fixed shell command as an automation action",
+      "merged": "2026-11-20",
+      "packages": [
+        "core",
+        "protocol",
+        "schema"
+      ],
+      "main_files": [
+        "packages/schema/src/automation.ts",
+        "packages/protocol/src/groups/automation.ts",
+        "packages/core/src/automation/shell.ts"
+      ],
+      "summary": "Add { type: 'shell', command } as an automation action variant in server protocol/schema.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "Verified on dev (5d50c6f7): Rune does not deserialize Automation.Action enums (desktop only folds automation session titles in Home/Inbox).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "none"
+    },
+    {
+      "id": "UP-125",
+      "window": "post-1120",
+      "pr": 65189,
+      "sha": "bf006b5e4f",
+      "title": "fix(app): keep the model picker responsive with large catalogs",
+      "merged": "2026-11-20",
+      "packages": [
+        "app",
+        "ui"
+      ],
+      "main_files": [
+        "packages/app/src/providers/models/select-dialog.tsx",
+        "packages/ui/src/forms/search-list/search-list.tsx",
+        "packages/app/src/usage/format.ts"
+      ],
+      "summary": "Optimize SolidJS DOM rendering and formatting in the model picker for large provider catalogs.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "SolidJS DOM reactivity/layout optimization; Rune draws model picker rows natively without DOM node churn.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "none"
+    },
+    {
+      "id": "UP-126",
+      "window": "post-1120",
+      "pr": 65190,
+      "sha": "6b661050cb",
+      "title": "fix(app): show the new session's target worktree in the header while it starts",
+      "merged": "2026-11-20",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/new-session/machine.ts",
+        "packages/app/src/session/session-identity-header.tsx"
+      ],
+      "summary": "Display the pending session's target worktree/project directory in the session identity header while worktree creation and session start are in flight.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Carry target directory through new-session startup states and read it in the session header while pending.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-2"
+    },
+    {
+      "id": "UP-127",
+      "window": "post-1120",
+      "pr": 65192,
+      "sha": "7afef17923",
+      "title": "fix(app): draw the whole timeline focus ring with rounded corners",
+      "merged": "2026-11-20",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/index.css"
+      ],
+      "summary": "Draw the focused timeline viewport ring on the visible session frame above header/composer with 10 px rounded corners instead of being clipped by the fade mask.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Timeline scroll viewport currently uses standard inset focus ring without 10 px outer-frame overlay above header/composer fade.",
+      "depends_on": "UP-088 (#64909)",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-128",
+      "window": "post-1120",
+      "pr": 65209,
+      "sha": "ef68b7ef67",
+      "title": "feat(app): open a Home session in the background from its menu",
+      "merged": "2026-11-20",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/home/sessions/view.tsx"
+      ],
+      "summary": "Add background-open action to the Home session row context menu (refined by UP-129 #65212).",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Home search supports modifier background open (home/search.rs:208), but the Home session row context menu does not yet expose Open / Open in background.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-2"
+    },
+    {
+      "id": "UP-129",
+      "window": "post-1120",
+      "pr": 65212,
+      "sha": "1607d4e624",
+      "title": "feat(app): split Open and Open in background in the Home session menu",
+      "merged": "2026-11-20",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/home/sessions/view.tsx",
+        "packages/app/src/runtime/i18n/en.ts"
+      ],
+      "summary": "Show separate 'Open' and 'Open in background' items above a separator in the Home session row menu (i18n key home.sessions.openInBackground).",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Paired with UP-128 (#65209): add 'Open' and 'Open in background' items to Home session row menu.",
+      "depends_on": "UP-128 (#65209)",
+      "risks": "none",
+      "workstream": "WS-2"
+    },
+    {
+      "id": "UP-130",
+      "window": "post-1120",
+      "pr": 65211,
+      "sha": "c1a6e6f0ea",
+      "title": "fix(ui): keep the composer ring hidden when a click on Steer or Remove moves focus to it",
+      "merged": "2026-11-20",
+      "packages": [
+        "ui"
+      ],
+      "main_files": [
+        "packages/ui/src/context/focus-rescue.tsx"
+      ],
+      "summary": "Use focusField(..., ring) during focus rescue so mouse clicks on queued prompt Steer/Remove hand focus to the composer without showing the keyboard-only focus ring.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "A click on Steer/Remove hands focus to the composer by Rune's rescue with the click's origin, so no ring (PR #326)",
+      "depends_on": "UP-092 (#64976)",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-131",
+      "window": "post-1120",
+      "pr": 65213,
+      "sha": "7f90d8d201",
+      "title": "fix(app): keep the side panel's add button and review toggle in tab order",
+      "merged": "2026-11-20",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/plugin/side-region.tsx",
+        "packages/app/src/session/screen.tsx",
+        "packages/app/src/runtime/plugin/panel-trigger.tsx",
+        "packages/app/src/runtime/plugin/closed-tabs.ts"
+      ],
+      "summary": "Keep the side panel '+' add trigger reachable in Tab order and place the settled open panel's review toggle in the panel strip's Tab order (and reveal hover-hidden triggers on focus-visible).",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Audit side-panel add button and review toggle Tab order and focus-visible reveal in features/panels and apps/desktop.",
+      "depends_on": "UP-088 (#64909)",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-132",
+      "window": "post-1120",
+      "pr": 65204,
+      "sha": "4cca18d804",
+      "title": "feat(core): load a per-project overlay config directory behind project_overlay",
+      "merged": "2026-11-20",
+      "packages": [
+        "core",
+        "protocol",
+        "schema"
+      ],
+      "main_files": [
+        "packages/schema/src/config/flag.ts",
+        "packages/core/src/config.ts",
+        "packages/protocol/openapi.json"
+      ],
+      "summary": "Server-side project_overlay config flag and overlay config directory loading.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "Server-core configuration loading and server flag only; no desktop UI changes.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "none"
+    },
+    {
+      "id": "UP-133",
+      "window": "post-1120",
+      "pr": 65012,
+      "sha": "07c2502525",
+      "title": "refactor(session-ui): derive timeline summaries from facts",
+      "merged": "2026-11-20",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/timeline/facts.ts",
+        "packages/session-ui/src/timeline-next/tools/activity-label.ts"
+      ],
+      "summary": "Internal TypeScript refactor deriving timeline group/activity summaries from shared facts helper (behavior-preserving).",
+      "size": "M",
+      "status": "not applicable",
+      "status_evidence": "Internal TypeScript refactor in packages/session-ui with no user-visible change.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "none"
+    },
+    {
+      "id": "UP-134",
+      "window": "post-1120",
+      "pr": 65025,
+      "sha": "fe8def6854",
+      "title": "refactor(session-ui): place timeline entries from facts",
+      "merged": "2026-11-20",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/timeline/place.ts",
+        "packages/session-ui/src/timeline-next/projection.ts"
+      ],
+      "summary": "Internal TypeScript refactor deriving timeline entry placement from shared facts helper (behavior-preserving).",
+      "size": "L",
+      "status": "not applicable",
+      "status_evidence": "Internal TypeScript refactor in packages/session-ui with no user-visible change.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "none"
+    },
+    {
+      "id": "UP-135",
+      "window": "post-1120",
+      "pr": 65215,
+      "sha": "f502a6e6cc",
+      "title": "fix(app): fix clipped and misleading focus rings in the timeline and settings",
+      "merged": "2026-11-20",
+      "packages": [
+        "app",
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/app/src/settings/shell.tsx",
+        "packages/app/src/settings/navigation.tsx",
+        "packages/app/src/settings/settings.css",
+        "packages/app/src/runtime/plugin/settings-page-view.tsx",
+        "packages/session-ui/src/timeline-next/timeline-next.css"
+      ],
+      "summary": "Prevent focus-ring clipping on timeline and settings containers and stop showing misleading outer focus rings when nested controls are focused.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Audit timeline and settings containers/navigation controls for focus-ring clipping and misleading outer rings in features/settings and crates/session-view.",
+      "depends_on": "UP-088 (#64909)",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-095-3P-CONTRACT",
+      "window": "post-1114",
+      "pr": 63002,
+      "sha": "3aa3e133b6",
+      "title": "feat(plugins): expose official's narrow browser contract to third-party plugins [known gap from #296]",
+      "merged": "2026-11-19",
+      "packages": [
+        "plugin",
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/plugin/src/gui/browser.ts"
+      ],
+      "summary": "Expose official's narrow third-party plugin browser contract (attached, canOpen, open, openFile, experimental.{open,close}); #296 refuses Browser:OpenAsync for third-party plugins on modern/remote servers until this contract exists.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Known gap from #296 (95cb36a8): third-party plugins get narrower browser access than Official until Rune exposes Official's narrow contract from packages/plugin/src/gui/browser.ts:9-57.",
+      "depends_on": "UP-095-TOOLS (#296)",
+      "risks": "Must keep third-party plugins blocked from raw CDP, ReadFileAsync, SiteCookiesAsync, and oc-preview:// minting.",
+      "workstream": "BROWSER-TOOLS",
+      "reviewed": "Tracked follow-up gap from #296 (confirmed 5th read + merge check)"
+    },
+    {
+      "id": "UP-095-PROMPT-GATE",
+      "window": "post-1114",
+      "pr": 63002,
+      "sha": "3aa3e133b6",
+      "title": "feat(browser): prompt gate: new-session start only [split from #302]",
+      "merged": "2026-11-19",
+      "packages": [
+        "app",
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/plugin/prompt-gate.ts",
+        "packages/app/src/composer/submit.ts"
+      ],
+      "summary": "Hold only new-session start (create -> attach -> prompt, <= 1 s fail-open) because #301 attaches routed sessions in 0 ms; explicit loss vs Official: reconnect-gap (~100-300 ms local / 1 RTT remote / backoff) or unrouted background outbox submit runs that turn without experimental.browser (never legacy rune_mcp via #296). Split from #302; not yet built.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Split out of #302 (tunnel-only at ed01f16f); new-session-start-only prompt gate is approved as a separate PR after #298/#302 and is not yet built.",
+      "depends_on": "UP-095-TOOLS (#301, #296, #298, #302)",
+      "risks": "Must not introduce server-switch livelocks, multi-window outbox races, or show_start Blocked::Missing races.",
+      "workstream": "BROWSER-TOOLS",
+      "reviewed": "Not yet built (split from #302 tunnel/gate)"
+    },
+    {
+      "id": "UP-136",
+      "window": "post-1120",
+      "pr": 65002,
+      "sha": "8a1501ca5e",
+      "title": "feat(codemode): show file diffs from a script below the execute block",
+      "merged": "2026-11-20",
+      "packages": [
+        "core",
+        "session-ui",
+        "tui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/timeline-next/row.tsx",
+        "packages/session-ui/src/timeline/session-timeline-row.tsx",
+        "packages/session-ui/src/tools/tool-renderer.tsx",
+        "packages/session-ui/src/timeline/facts.ts"
+      ],
+      "summary": "Render file diff cards produced by a completed Code Mode script directly below its execute block in the timeline.",
+      "size": "L",
+      "status": "missing",
+      "status_evidence": "Rune renders finished Code Mode scripts (#252), but does not yet render per-file diff cards emitted by a script below its execute block.",
+      "depends_on": "UP-049 (#64334)",
+      "risks": "none",
+      "workstream": "WS-3"
+    },
+    {
+      "id": "UP-137",
+      "window": "post-1120",
+      "pr": 65264,
+      "sha": "3bc82a19b3",
+      "title": "feat(app): send browser, file and review comments to the session with Mod+Enter",
+      "merged": "2026-11-20",
+      "packages": [
+        "app",
+        "gui-plugins",
+        "plugin",
+        "session-ui",
+        "ui"
+      ],
+      "main_files": [
+        "packages/app/src/composer/submit.ts",
+        "packages/gui-plugins/src/browser/panel.tsx",
+        "packages/gui-plugins/src/file/view.tsx",
+        "packages/gui-plugins/src/review/panel.tsx",
+        "packages/plugin/src/gui/host-apis.ts"
+      ],
+      "summary": "Allow sending inline browser, file, and review comments straight to the active session with Mod+Enter.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Audit line/browser/review comment editors and composer submission in features/annotations, features/files, features/review, and plugins/browser for Mod+Enter direct send.",
+      "depends_on": "UP-095-UI",
+      "risks": "Touches browser, file, and review comment flows + plugin host APIs.",
       "workstream": "BROWSER-UI"
+    },
+    {
+      "id": "UP-138",
+      "window": "post-1120",
+      "pr": 65259,
+      "sha": "6f9d6cf575",
+      "title": "feat(server): endpoint for a machine's link",
+      "merged": "2026-11-20",
+      "packages": [
+        "protocol",
+        "server"
+      ],
+      "main_files": [
+        "packages/protocol/src/groups/machine.ts",
+        "packages/server/src/handlers/machine.ts",
+        "packages/protocol/openapi.json"
+      ],
+      "summary": "Add server endpoint and OpenAPI schema for machine link inspection.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "Server-side machine link endpoint and protocol schema only; no desktop UI changes.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "none"
+    },
+    {
+      "id": "UP-139",
+      "window": "post-1120",
+      "pr": 65247,
+      "sha": "e86058a790",
+      "title": "feat(codemode): show a script's diffs while it runs",
+      "merged": "2026-11-20",
+      "packages": [
+        "core",
+        "session-ui",
+        "tui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/timeline-next/tools/context-group.tsx",
+        "packages/session-ui/src/tools/tool-renderer.tsx",
+        "packages/session-ui/src/timeline/facts.ts"
+      ],
+      "summary": "Stream and display file diff cards emitted by an in-flight Code Mode script while it is still running.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Follow-on to UP-136 (#65002): display live script diff cards before script completion.",
+      "depends_on": "UP-136 (#65002)",
+      "risks": "none",
+      "workstream": "WS-3"
+    },
+    {
+      "id": "UP-140",
+      "window": "post-1120",
+      "pr": 65236,
+      "sha": "1f926188ac",
+      "title": "feat(automation): give scheduled code the session's Code Mode tools",
+      "merged": "2026-11-20",
+      "packages": [
+        "codemode",
+        "core",
+        "protocol",
+        "schema"
+      ],
+      "main_files": [
+        "packages/core/src/automation/code.ts",
+        "packages/schema/src/automation.ts",
+        "packages/protocol/openapi.json"
+      ],
+      "summary": "Expose session Code Mode tools inside scheduled automation code runs on the server.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "Server-side automation/codemode execution and schema only; no desktop UI changes.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "none"
+    },
+    {
+      "id": "UP-141",
+      "window": "post-1120",
+      "pr": 65270,
+      "sha": "f691e443db",
+      "title": "fix(session-ui): space a script's diff cards in the old timeline",
+      "merged": "2026-11-20",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/components/message-part.css"
+      ],
+      "summary": "Apply spacing between script diff cards rendered below an execute block.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Apply matching spacing when implementing UP-136 (#65002) script diff cards.",
+      "depends_on": "UP-136 (#65002)",
+      "risks": "none",
+      "workstream": "WS-3"
+    },
+    {
+      "id": "UP-142",
+      "window": "post-1120",
+      "pr": 65274,
+      "sha": "494e8b6154",
+      "title": "fix(ui): keep focus on a focused tabindex=-1 panel when the page changes around it",
+      "merged": "2026-11-20",
+      "packages": [
+        "ui"
+      ],
+      "main_files": [
+        "packages/ui/src/context/focus-rescue.tsx"
+      ],
+      "summary": "Preserve focus on a focused programmatic/non-tabbable panel container when surrounding page nodes change instead of rescuing focus away.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Audit Rune focus rescue / panel focus preservation when surrounding content updates in WS-8.",
+      "depends_on": "UP-088 (#64909)",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-143",
+      "window": "post-1120",
+      "pr": 65165,
+      "sha": "b9a60d9d07",
+      "title": "fix(app): keep tab groups stable when closing a tab",
+      "merged": "2026-11-20",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/titlebar/tab-groups.ts",
+        "packages/app/src/shell/titlebar/tab-groups-ui.tsx",
+        "packages/app/src/shell/titlebar/titlebar.tsx"
+      ],
+      "summary": "Keep side tab group membership and ordering stable when closing a tab inside a group.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Audit features/tab-groups close-tab behavior against upstream #65165 tab-group stability fixes.",
+      "depends_on": "UP-048 (#64407)",
+      "risks": "none",
+      "workstream": "WS-2"
     }
-  ]
+  ],
+  "browser_security_review": {
+    "confirmed_merged_prs": [
+      "#280 (3rd read)",
+      "#281 (3rd read + merge check; macOS handle_path live proof on macOS)",
+      "#292 (4th read)",
+      "#294 (final + compile-fix + merge check; Windows live; macOS/Linux compiled only; symlink/junction roots refused)",
+      "#274 (6th read + two merge checks; macOS FD 3/4 live proof on macOS; Linux never run)",
+      "#307 (2nd read at fc3df8c5 + merge check ea183993; Windows live; macOS/Linux compiled only)",
+      "#306 (2nd read at e79c1306)",
+      "#301 (4th read at 87d48dec)",
+      "#296 (5th read at 4ee64ceb + merge check at cd7a85ee)",
+      "#303 (4th read at 1e4599e9 + merge check at 1385cef3)",
+      "#316 (Rune #1307 1st read + macOS headless proof + full test suite; Windows Files-panel & reply click-to-load live)"
+    ],
+    "retrospective_merged_prs": [
+      "#245",
+      "#268",
+      "#272",
+      "#277",
+      "#288",
+      "#275",
+      "#287",
+      "#285",
+      "#289"
+    ],
+    "unreviewed_merged_prs": [
+      "#297 (not reviewed before merge; security findings closed on dev by #294 + #307 + #316)"
+    ],
+    "held_pre_merge_prs": [
+      "#305 (confirmed 3rd read; merge-check fix + merging 6e98fc2b)",
+      "#312 (confirmed, merging dev after #305)",
+      "#308 (in rework — 2nd read)",
+      "#315 (in rework — 2nd read)",
+      "#298 (updated 1d3e757c, awaiting 3rd read)",
+      "#302 (split to tunnel-only ed01f16f, awaiting 3rd read; gate in UP-095-PROMPT-GATE)",
+      "#314 (paused pending owner decision on agent-tab contexts)",
+      "#286 (held after WS-1 Fix PRs 1-7)",
+      "#283 (held behind 4-part shipping gate)"
+    ]
+  }
 }

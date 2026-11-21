@@ -3,7 +3,6 @@
 
 use opencode_code_view::prepared::Prior;
 use opencode_kit::client::Server;
-use opencode_search::query::{encode_fs_path, percent_encode};
 use rune::Tx;
 use serde_json::Value;
 
@@ -209,14 +208,10 @@ pub fn ensure_file_loaded(host: &mut dyn FilesHost, session_id: &str, path: &str
         .and_then(|w| w.videos.get(path))
         .is_some_and(video::FileVideo::failed);
     if video::is_video(path) && !failed {
-        let source = if server.is_local() {
-            std::path::Path::new(&directory).join(path).to_string_lossy().into_owned()
-        } else {
-            server.stream_url(&format!(
-                "/api/fs/read/{}?location%5Bdirectory%5D={}",
-                encode_fs_path(path),
-                percent_encode(&directory)
-            ))
+        let Some(source) = video::source(Some(&server), &directory, path) else {
+            // Rejected by local workspace confinement (e.g. symlink/junction/missing): never fall
+            // back to `/api/fs/read/...` on a local server.
+            return;
         };
         let pane = host.files_mut();
         let wrap = pane.wrap;
@@ -279,17 +274,9 @@ pub fn start_read(host: &mut dyn FilesHost, sid: &str, path: &str, attempt: u64)
         .start(&server, &directory, sid, path, attempt, find, prior);
 }
 
-/// Opens a workspace HTML file (`path` inside `sid`'s folder) in the embedded browser pane.
+/// Opens workspace-relative `path` (local or remote) as an isolated `oc-preview://` tab.
 pub fn open_html_in_browser(host: &mut dyn FilesHost, sid: &str, path: &str) {
-    let dir = crate::links::link_directory(host, sid);
-    if dir.is_empty() {
-        return;
-    }
-    let url = format!(
-        "file://{}",
-        opencode_kit::path::encode_path(&opencode_kit::path::absolute(&dir, path))
-    );
-    host.open_page_tab(sid, &url);
+    host.open_workspace_preview(sid, path);
 }
 
 /// Opens `path` from the Files sidebar tree/filter: routes workspace HTML files to the browser
@@ -335,12 +322,48 @@ pub fn open_workspace_file_for_session(
     steal_focus: bool,
     tx: &mut Tx,
 ) {
+    if lines.is_none() && host.opens_as_page(path) {
+        host.open_workspace_preview(sid, path);
+        return;
+    }
+    open_workspace_file_in_viewer(host, sid, path, preview, lines, steal_focus, false, tx);
+}
+
+/// Opens `path` directly in the Files code viewer in forced source mode (never bouncing back to
+/// the browser preview pane). Used by the browser preview menu's `"Show the file's code"` action.
+pub fn open_workspace_file_source(
+    host: &mut dyn FilesHost,
+    sid: &str,
+    path: &str,
+    preview: bool,
+    lines: Option<(u32, u32)>,
+    steal_focus: bool,
+    tx: &mut Tx,
+) {
+    open_workspace_file_in_viewer(host, sid, path, preview, lines, steal_focus, true, tx);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn open_workspace_file_in_viewer(
+    host: &mut dyn FilesHost,
+    sid: &str,
+    path: &str,
+    preview: bool,
+    lines: Option<(u32, u32)>,
+    steal_focus: bool,
+    force_source: bool,
+    tx: &mut Tx,
+) {
     ensure_file_loaded(host, sid, path);
     watch::watch(host, sid, path);
     let tab_key = file_tab_key(path);
     // Remove transient `file:open` tab once a concrete file is picked (`file/renderer.tsx:128`).
     host.open_side_tab(sid, &tab_key, preview, steal_focus, true, tx);
     let ws = host.files_mut().sessions.entry(sid.to_owned()).or_default();
+    if force_source {
+        ws.close_preview(path);
+        ws.md.entry(path.to_owned()).or_default().mode.step(crate::markdown::PreviewModeEvent::ShowSource);
+    }
     ws.narrow = ws.narrow.step(narrow::NarrowFilesEvent::Opened);
     ws.push_recent(path);
     // Ensure parent folders in the tree are expanded so the active file highlights in context.

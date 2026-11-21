@@ -29,6 +29,35 @@ impl BrowserHost {
         }
     }
 
+    /// Once at start-up, after the first frame: a build with a source and no engine installed
+    /// reads the source's index on a thread (a few KB, no download), so that a source with no
+    /// engine for this platform is `NotPublished` before the first link is clicked. Only that
+    /// answer changes anything; a network fault leaves the state unknown, and a newly published
+    /// engine is found at the next start.
+    pub fn probe_availability(&self) {
+        if self.status() != EngineStatus::Unchecked || !crate::source::configured() {
+            return;
+        }
+        rune::marks::mark("browser.engine.probe");
+        let (shared, waker) = (self.shared.clone(), self.waker.clone());
+        let spawned = std::thread::Builder::new().name("opencode-browser-probe".into()).spawn(move || {
+            if installer::installed().is_some() {
+                return rune::marks::mark("browser.engine.probe.installed");
+            }
+            rune::marks::mark("browser.engine.probe.index");
+            if crate::source::latest().err() != Some(Fault::NotPublished) {
+                return;
+            }
+            rune::marks::mark("browser.engine.probe.not_published");
+            let effect = shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::ProbeNotPublished);
+            if let (EngineEffect::Wake, Some(wake)) = (effect, waker) {
+                wake();
+            }
+        });
+        rune::marks::mark("browser.engine.probe.spawned");
+        drop(spawned);
+    }
+
     /// Starts (or retries) the engine: connects to this app's running one, starts the installed
     /// one, or downloads it first (a download already running goes on at full speed instead).
     /// Queued tabs open once it's ready (`poll`).
@@ -162,6 +191,8 @@ impl BrowserHost {
             waker: self.waker.clone(),
             sock: sock.clone(),
             opens: self.pending_open_msgs(),
+            profile_permissions: self.site_permissions.list().to_vec(),
+            preview_chunk_budget: self.preview_chunk_budget.clone(),
         };
         let prefetch = self.prefetch.clone();
         let spawned = std::thread::Builder::new().name("opencode-browser-connect".into()).spawn(move || {

@@ -34,6 +34,14 @@ pub(super) enum UploadStage {
     WaitDrop { cdp_req: u64 },
 }
 
+impl UploadStage {
+    pub fn cdp_req(&self) -> u64 {
+        match self {
+            Self::WaitUpload { cdp_req } | Self::DropScroll { cdp_req, .. } | Self::DropCenter { cdp_req, .. } | Self::WaitDrop { cdp_req } => *cdp_req,
+        }
+    }
+}
+
 pub(super) fn try_start(
     att: &mut SessionAttachment,
     app: &mut App,
@@ -66,22 +74,28 @@ fn start_upload_or_drop(
     let Some(raw_ref) = cmd.action.get("ref").and_then(Value::as_str) else {
         return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Missing ref."));
     };
-    let Some(bid) = att.refs.get(&host_id).and_then(|r| r.resolve(raw_ref)) else {
+    let Some((bid, ref_session)) = att.refs.get(&host_id).and_then(|r| r.resolve(raw_ref)) else {
         return StepOutcome::Done(Outcome::fail(
             failure_code::STALE_REF,
             format!("Element ref {raw_ref} is stale or absent. Refresh the snapshot first."),
         ));
     };
+    if ref_session.is_some() {
+        return StepOutcome::Done(Outcome::fail(
+            failure_code::OPERATION_FAILED,
+            "Uploading or dropping files into a cross-origin frame is not supported yet.",
+        ));
+    }
     if cmd.files.is_empty() {
         return StepOutcome::Done(Outcome::fail(
             failure_code::OPERATION_FAILED,
             "Upload command has no server-transferred file bytes. Supply server-local paths to browser.files.upload/drop.",
         ));
     }
-    if !app.workspace_panes.browser.host.engine_agent_tools() {
+    if !app.workspace_panes.browser.host.engine_agent_files() {
         return StepOutcome::Done(Outcome::fail(
             failure_code::UNSUPPORTED,
-            "File uploads and drops require an updated browser engine (agent_tools capability).",
+            "File uploads and drops require an updated browser engine.",
         ));
     }
     let Some(profile_dir) = app.workspace_panes.browser.host.uploads_profile_dir() else {
@@ -105,7 +119,7 @@ fn start_upload_or_drop(
             Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
         }
     } else {
-        match app.workspace_panes.browser.host.send_cdp(
+        match app.workspace_panes.browser.host.send_typed_cdp(
             host_id,
             "DOM.scrollIntoViewIfNeeded",
             json!({ "backendNodeId": bid }),
@@ -148,7 +162,7 @@ pub(super) fn step_upload(
             if let Err(e) = resp {
                 return Some(Outcome::fail(failure_code::STALE_REF, cdp_err_msg(&e)));
             }
-            match app.workspace_panes.browser.host.send_cdp(
+            match app.workspace_panes.browser.host.send_typed_cdp(
                 st.host_id,
                 "DOM.getContentQuads",
                 json!({ "backendNodeId": bid }),

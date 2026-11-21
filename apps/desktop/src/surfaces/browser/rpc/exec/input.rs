@@ -64,21 +64,24 @@ const CHECK_POST_JS: &str = r#"function() {
   return Boolean(this.checked);
 }"#;
 
+/// An element: its `backendNodeId` and the OOPIF CDP session that owns it (`None`: the page).
+type Target = (i64, Option<String>);
+
 pub(super) enum InputStep {
-    ScrollIntoView(i64),
-    GetCenter(i64),
+    ScrollIntoView(Target),
+    GetCenter(Target),
     StoreFromCenter,
     HitTestSaved,
     DispatchMouse { kind: &'static str, button: String, click_count: u32, modifiers: u32 },
     DispatchDragPath,
-    ResolveNode(i64),
-    CheckEditable { bid: i64, text: String },
+    ResolveNode(Target),
+    CheckEditable { bid: Target, text: String },
     SetStructured { text: String },
-    FocusNode(i64),
+    FocusNode(Target),
     InsertText(String),
     DispatchKey(CdpKeySpec),
     CallSelect(Vec<String>),
-    CallCheckPre { bid: i64, checked: bool },
+    CallCheckPre { bid: Target, checked: bool },
     CallCheckPost { checked: bool },
     ReleaseObject,
     GetViewportCenter,
@@ -92,6 +95,16 @@ pub(super) struct InputState {
     saved_pos: Option<(f64, f64)>,
     saved_from: Option<(f64, f64)>,
     saved_obj: Option<String>,
+    obj_session: Option<String>,
+}
+
+impl InputState {
+    pub fn cancel_cleanup(&mut self, app: &mut App) {
+        if let Some((_, req_id)) = self.current.take() {
+            app.workspace_panes.browser.host.cancel_cdp(req_id);
+        }
+        release_saved_obj(app, self);
+    }
 }
 
 pub(super) fn try_start(
@@ -121,10 +134,13 @@ fn resolve_tab(att: &SessionAttachment, app: &App, cmd: &Command, action: &str) 
         .resolve_tab(app, wire_id)
         .map_err(|msg| Outcome::fail(failure_code::OPERATION_FAILED, msg))?;
     check_page_guards(app, host_id, action)?;
+    if !app.workspace_panes.browser.host.engine_agent_tools() {
+        return Err(Outcome::fail(failure_code::UNSUPPORTED, "Acting on pages requires an updated browser engine."));
+    }
     Ok(host_id)
 }
 
-fn resolve_ref(att: &SessionAttachment, host_id: u64, cmd: &Command, field: &str) -> Result<i64, Outcome> {
+fn resolve_ref(att: &SessionAttachment, host_id: u64, cmd: &Command, field: &str) -> Result<Target, Outcome> {
     let raw_ref = cmd
         .action
         .get(field)
@@ -162,8 +178,7 @@ fn start_click(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> Ste
     let modifiers = parse_modifiers(cmd.action.get("modifiers"));
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     let mut steps = VecDeque::new();
-    let hit = app.workspace_panes.browser.host.engine_agent_tools();
-    push_click_steps(&mut steps, bid, button, count, modifiers, hit);
+    push_click_steps(&mut steps, bid, button, count, modifiers);
     launch_steps(app, host_id, steps)
 }
 
@@ -178,11 +193,9 @@ fn start_hover(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> Ste
     };
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     let mut steps = VecDeque::new();
-    steps.push_back(InputStep::ScrollIntoView(bid));
+    steps.push_back(InputStep::ScrollIntoView(bid.clone()));
     steps.push_back(InputStep::GetCenter(bid));
-    if app.workspace_panes.browser.host.engine_agent_tools() {
-        steps.push_back(InputStep::HitTestSaved);
-    }
+    steps.push_back(InputStep::HitTestSaved);
     steps.push_back(InputStep::DispatchMouse { kind: "mouseMoved", button: "none".into(), click_count: 0, modifiers: 0 });
     launch_steps(app, host_id, steps)
 }
@@ -201,19 +214,14 @@ fn start_drag(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> Step
         Err(o) => return StepOutcome::Done(o),
     };
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
-    let hit = app.workspace_panes.browser.host.engine_agent_tools();
     let mut steps = VecDeque::new();
-    steps.push_back(InputStep::ScrollIntoView(from_bid));
+    steps.push_back(InputStep::ScrollIntoView(from_bid.clone()));
     steps.push_back(InputStep::GetCenter(from_bid));
-    if hit {
-        steps.push_back(InputStep::HitTestSaved);
-    }
+    steps.push_back(InputStep::HitTestSaved);
     steps.push_back(InputStep::StoreFromCenter);
-    steps.push_back(InputStep::ScrollIntoView(to_bid));
+    steps.push_back(InputStep::ScrollIntoView(to_bid.clone()));
     steps.push_back(InputStep::GetCenter(to_bid));
-    if hit {
-        steps.push_back(InputStep::HitTestSaved);
-    }
+    steps.push_back(InputStep::HitTestSaved);
     steps.push_back(InputStep::DispatchDragPath);
     launch_steps(app, host_id, steps)
 }
@@ -336,12 +344,10 @@ fn start_scroll(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> St
     launch_steps(app, host_id, VecDeque::from([InputStep::GetViewportCenter, InputStep::DispatchWheel { dx, dy }]))
 }
 
-fn push_click_steps(steps: &mut VecDeque<InputStep>, bid: i64, button: String, count: u32, modifiers: u32, hit_test: bool) {
-    steps.push_back(InputStep::ScrollIntoView(bid));
+fn push_click_steps(steps: &mut VecDeque<InputStep>, bid: Target, button: String, count: u32, modifiers: u32) {
+    steps.push_back(InputStep::ScrollIntoView(bid.clone()));
     steps.push_back(InputStep::GetCenter(bid));
-    if hit_test {
-        steps.push_back(InputStep::HitTestSaved);
-    }
+    steps.push_back(InputStep::HitTestSaved);
     steps.push_back(InputStep::DispatchMouse { kind: "mouseMoved", button: "none".into(), click_count: 0, modifiers });
     for click_count in 1..=count {
         steps.push_back(InputStep::DispatchMouse { kind: "mousePressed", button: button.clone(), click_count, modifiers });
@@ -349,24 +355,24 @@ fn push_click_steps(steps: &mut VecDeque<InputStep>, bid: i64, button: String, c
     }
 }
 
-fn push_fill_steps(steps: &mut VecDeque<InputStep>, bid: i64, text: String) {
-    steps.push_back(InputStep::ResolveNode(bid));
+fn push_fill_steps(steps: &mut VecDeque<InputStep>, bid: Target, text: String) {
+    steps.push_back(InputStep::ResolveNode(bid.clone()));
     steps.push_back(InputStep::CheckEditable { bid, text });
 }
 
-fn push_select_steps(steps: &mut VecDeque<InputStep>, bid: i64, values: Vec<String>) {
+fn push_select_steps(steps: &mut VecDeque<InputStep>, bid: Target, values: Vec<String>) {
     steps.push_back(InputStep::ResolveNode(bid));
     steps.push_back(InputStep::CallSelect(values));
     steps.push_back(InputStep::ReleaseObject);
 }
 
-fn push_check_steps(steps: &mut VecDeque<InputStep>, bid: i64, checked: bool) {
-    steps.push_back(InputStep::ResolveNode(bid));
+fn push_check_steps(steps: &mut VecDeque<InputStep>, bid: Target, checked: bool) {
+    steps.push_back(InputStep::ResolveNode(bid.clone()));
     steps.push_back(InputStep::CallCheckPre { bid, checked });
 }
 
 fn launch_steps(app: &mut App, host_id: u64, steps: VecDeque<InputStep>) -> StepOutcome {
-    let mut state = InputState { host_id, steps, current: None, saved_pos: None, saved_from: None, saved_obj: None };
+    let mut state = InputState { host_id, steps, current: None, saved_pos: None, saved_from: None, saved_obj: None, obj_session: None };
     if let Some(err) = dispatch_next_step(app, &mut state) {
         return StepOutcome::Done(err);
     }
@@ -379,7 +385,7 @@ pub(super) fn step_input(att: &SessionAttachment, app: &mut App, st: &mut InputS
             st.current = Some((step, req_id));
             return None;
         };
-        if let Err(outcome) = handle_step_response(app, st, step, resp) {
+        if let Err(outcome) = handle_step_response(st, step, resp) {
             release_saved_obj(app, st);
             return Some(outcome);
         }
@@ -415,7 +421,7 @@ fn call_fn(app: &mut App, st: &InputState, decl: &str, arg: Option<Value>) -> Re
     if let Some(a) = arg {
         params["arguments"] = json!([{ "value": a }]);
     }
-    app.workspace_panes.browser.host.send_cdp(st.host_id, "Runtime.callFunctionOn", params, None).map(Some)
+    app.workspace_panes.browser.host.send_typed_cdp(st.host_id, "Runtime.callFunctionOn", params, st.obj_session.clone()).map(Some)
 }
 
 fn dispatch_next_step(app: &mut App, st: &mut InputState) -> Option<Outcome> {
@@ -423,8 +429,15 @@ fn dispatch_next_step(app: &mut App, st: &mut InputState) -> Option<Outcome> {
     let hid = st.host_id;
     let host = &mut app.workspace_panes.browser.host;
     let res: Result<Option<u64>, String> = match &step {
-        InputStep::ScrollIntoView(bid) => host.send_cdp(hid, "DOM.scrollIntoViewIfNeeded", json!({ "backendNodeId": bid }), None).map(Some),
-        InputStep::GetCenter(bid) => host.send_cdp(hid, "DOM.getContentQuads", json!({ "backendNodeId": bid }), None).map(Some),
+        // Page coordinates come from the page's own session; a cross-origin frame's quads are its own.
+        InputStep::ScrollIntoView((_, Some(_))) | InputStep::GetCenter((_, Some(_))) => {
+            return Some(Outcome::fail(
+                failure_code::OPERATION_FAILED,
+                "Pointer input inside a cross-origin frame is not supported yet. Use fill, select or evaluate with its frameID.",
+            ));
+        }
+        InputStep::ScrollIntoView((bid, None)) => host.send_typed_cdp(hid, "DOM.scrollIntoViewIfNeeded", json!({ "backendNodeId": bid }), None).map(Some),
+        InputStep::GetCenter((bid, None)) => host.send_typed_cdp(hid, "DOM.getContentQuads", json!({ "backendNodeId": bid }), None).map(Some),
         InputStep::StoreFromCenter => {
             st.saved_from = st.saved_pos;
             return None;
@@ -449,26 +462,29 @@ fn dispatch_next_step(app: &mut App, st: &mut InputState) -> Option<Outcome> {
                 params["button"] = json!(button);
                 params["clickCount"] = json!(click_count);
             }
-            host.send_cdp(hid, "Input.dispatchMouseEvent", params, None).map(Some)
+            host.send_typed_cdp(hid, "Input.dispatchMouseEvent", params, None).map(Some)
         }
         InputStep::DispatchDragPath => {
             let (Some((fx, fy)), Some((tx, ty))) = (st.saved_from, st.saved_pos) else {
                 return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Missing drag endpoints."));
             };
-            let _ = host.send_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseMoved", "x": fx.round(), "y": fy.round() }), None);
-            let _ = host.send_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mousePressed", "x": fx.round(), "y": fy.round(), "button": "left", "clickCount": 1 }), None);
+            let _ = host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseMoved", "x": fx.round(), "y": fy.round() }), None);
+            let _ = host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mousePressed", "x": fx.round(), "y": fy.round(), "button": "left", "clickCount": 1 }), None);
             for i in 1..=4 {
                 let t = f64::from(i) / 4.0;
                 let (mx, my) = (fx + (tx - fx) * t, fy + (ty - fy) * t);
-                let _ = host.send_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseMoved", "x": mx.round(), "y": my.round(), "button": "left", "buttons": 1 }), None);
+                let _ = host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseMoved", "x": mx.round(), "y": my.round(), "button": "left", "buttons": 1 }), None);
             }
-            host.send_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseReleased", "x": tx.round(), "y": ty.round(), "button": "left", "clickCount": 1 }), None).map(Some)
+            host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseReleased", "x": tx.round(), "y": ty.round(), "button": "left", "clickCount": 1 }), None).map(Some)
         }
-        InputStep::ResolveNode(bid) => host.send_cdp(hid, "DOM.resolveNode", json!({ "backendNodeId": bid }), None).map(Some),
+        InputStep::ResolveNode((bid, sid)) => {
+            st.obj_session = sid.clone();
+            host.send_typed_cdp(hid, "DOM.resolveNode", json!({ "backendNodeId": bid }), sid.clone()).map(Some)
+        }
         InputStep::CheckEditable { .. } => call_fn(app, st, CHECK_EDITABLE_JS, None),
         InputStep::SetStructured { text } => call_fn(app, st, SET_STRUCTURED_JS, Some(json!(text))),
-        InputStep::FocusNode(bid) => host.send_cdp(hid, "DOM.focus", json!({ "backendNodeId": bid }), None).map(Some),
-        InputStep::InsertText(text) => host.send_cdp(hid, "Input.insertText", json!({ "text": text }), None).map(Some),
+        InputStep::FocusNode((bid, sid)) => host.send_typed_cdp(hid, "DOM.focus", json!({ "backendNodeId": bid }), sid.clone()).map(Some),
+        InputStep::InsertText(text) => host.send_typed_cdp(hid, "Input.insertText", json!({ "text": text }), None).map(Some),
         InputStep::DispatchKey(spec) => {
             let mut down = json!({ "type": "keyDown", "key": spec.key, "windowsVirtualKeyCode": spec.windows_virtual_key_code, "modifiers": spec.modifiers });
             let mut up = json!({ "type": "keyUp", "key": spec.key, "windowsVirtualKeyCode": spec.windows_virtual_key_code, "modifiers": spec.modifiers });
@@ -479,8 +495,8 @@ fn dispatch_next_step(app: &mut App, st: &mut InputState) -> Option<Outcome> {
             if let Some(txt) = &spec.text {
                 down["text"] = json!(txt);
             }
-            let _ = host.send_cdp(hid, "Input.dispatchKeyEvent", down, None);
-            host.send_cdp(hid, "Input.dispatchKeyEvent", up, None).map(Some)
+            let _ = host.send_typed_cdp(hid, "Input.dispatchKeyEvent", down, None);
+            host.send_typed_cdp(hid, "Input.dispatchKeyEvent", up, None).map(Some)
         }
         InputStep::CallSelect(values) => call_fn(app, st, SELECT_OPTIONS_JS, Some(json!(values))),
         InputStep::CallCheckPre { checked, .. } => call_fn(app, st, CHECK_PRE_JS, Some(json!(checked))),
@@ -489,10 +505,10 @@ fn dispatch_next_step(app: &mut App, st: &mut InputState) -> Option<Outcome> {
             release_saved_obj(app, st);
             return None;
         }
-        InputStep::GetViewportCenter => host.send_cdp(hid, "Page.getLayoutMetrics", json!({}), None).map(Some),
+        InputStep::GetViewportCenter => host.send_typed_cdp(hid, "Page.getLayoutMetrics", json!({}), None).map(Some),
         InputStep::DispatchWheel { dx, dy } => {
             let (x, y) = st.saved_pos.unwrap_or((400.0, 300.0));
-            host.send_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseWheel", "x": x.round(), "y": y.round(), "deltaX": dx, "deltaY": dy }), None).map(Some)
+            host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseWheel", "x": x.round(), "y": y.round(), "deltaX": dx, "deltaY": dy }), None).map(Some)
         }
     };
     match res {
@@ -505,7 +521,7 @@ fn dispatch_next_step(app: &mut App, st: &mut InputState) -> Option<Outcome> {
     }
 }
 
-fn handle_step_response(app: &App, st: &mut InputState, step: InputStep, resp: Result<Value, Value>) -> Result<(), Outcome> {
+fn handle_step_response(st: &mut InputState, step: InputStep, resp: Result<Value, Value>) -> Result<(), Outcome> {
     let val = match resp {
         Ok(v) => v,
         Err(e) => {
@@ -581,10 +597,9 @@ fn handle_step_response(app: &App, st: &mut InputState, step: InputStep, resp: R
         }
         InputStep::CallCheckPre { bid, checked } => {
             let current = val.get("result").and_then(|r| r.get("value")).and_then(Value::as_bool).unwrap_or(false);
-            let hit = app.workspace_panes.browser.host.engine_agent_tools();
             if current != checked {
                 let mut click_seq = VecDeque::new();
-                push_click_steps(&mut click_seq, bid, "left".into(), 1, 0, hit);
+                push_click_steps(&mut click_seq, bid, "left".into(), 1, 0);
                 st.steps.push_front(InputStep::ReleaseObject);
                 st.steps.push_front(InputStep::CallCheckPost { checked });
                 while let Some(s) = click_seq.pop_back() {
@@ -616,7 +631,7 @@ fn handle_step_response(app: &App, st: &mut InputState, step: InputStep, resp: R
 
 fn release_saved_obj(app: &mut App, st: &mut InputState) {
     if let Some(oid) = st.saved_obj.take() {
-        let _ = app.workspace_panes.browser.host.send_cdp(st.host_id, "Runtime.releaseObject", json!({ "objectId": oid }), None);
+        let _ = app.workspace_panes.browser.host.send_typed_cdp(st.host_id, "Runtime.releaseObject", json!({ "objectId": oid }), st.obj_session.clone());
     }
 }
 

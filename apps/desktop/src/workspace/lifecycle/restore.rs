@@ -575,6 +575,8 @@ impl RestoreHost for App {
     }
 
     fn before_close(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        crate::surfaces::browser::rpc::release_start_waiters(self);
         self.tear_back();
         self.close_rune_mcp();
     }

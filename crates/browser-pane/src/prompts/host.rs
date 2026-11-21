@@ -3,14 +3,49 @@
 use rune::time::Instant;
 
 use super::{
-    AuthGate, PermissionDecision, PermissionStore, PopupGate, PopupRequest, SitePermissions,
-    SiteSetting,
+    AuthGate, BlockedGuardReason, PermissionDecision, PermissionScope, PermissionStore, PopupGate,
+    PopupRequest, SitePermissions, SiteSetting, TabDriver,
 };
-use crate::protocol::{EngineMsg, HostMsg};
+use crate::protocol::{EngineMsg, HostMsg, SitePermissionEntry};
 
 impl crate::BrowserHost {
     pub fn remember_site_permissions(&mut self, store: PermissionStore) {
-        self.site_permissions = SitePermissions::remember(store);
+        let changed = self.site_permissions.reload_profile(store);
+        // Clear any revoked/changed visit cache on Default tabs so revocations take effect immediately.
+        if !changed.is_empty() {
+            for t in &mut self.tabs {
+                if t.context.is_default() {
+                    for pair in &changed {
+                        t.prompts.visit_permissions.remove(pair);
+                    }
+                }
+            }
+        }
+        self.sync_site_permissions();
+    }
+
+    pub fn engine_permission_sync(&self) -> bool {
+        self.caps.permission_sync()
+    }
+
+    /// Syncs Chromium's `Default` `HostContentSettingsMap` to match Rune's persisted
+    /// `rune.sitePermissions` (`Default` `"Always allow"` / `"Never allow"` decisions).
+    pub(crate) fn sync_site_permissions(&mut self) {
+        if !self.is_connected() || !self.caps.permission_sync() {
+            return;
+        }
+        let _ = self.site_permissions.drain_pending_resets();
+        let entries: Vec<SitePermissionEntry> = self
+            .site_permissions
+            .list()
+            .iter()
+            .map(|d| SitePermissionEntry {
+                origin: d.origin.clone(),
+                kind: d.permission,
+                allow: d.setting == SiteSetting::Allow,
+            })
+            .collect();
+        self.send(HostMsg::SyncSitePermissions { entries });
     }
 
     pub fn site_permissions(&self) -> &SitePermissions {
@@ -30,12 +65,36 @@ impl crate::BrowserHost {
     }
 
     pub fn set_agent_driven(&mut self, tab_id: u64, agent_driven: bool) {
-        let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else { return };
-        if t.prompts.agent_driven == agent_driven {
+        if agent_driven {
+            self.set_tab_driver(tab_id, TabDriver::Agent);
             return;
         }
-        t.prompts.agent_driven = agent_driven;
-        self.send(HostMsg::SetAgentDriven { tab_id, agent_driven });
+        let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else { return };
+        if !t.prompts.agent_driven {
+            return;
+        }
+        t.prompts.agent_driven = false;
+        t.prompts.driver = None;
+        self.send(HostMsg::SetAgentDriven { tab_id, agent_driven: false });
+    }
+
+    /// Marks `tab_id` controlled by `driver` (`Agent` or third-party `Plugin(name)`), notifying
+    /// the engine if `agent_driven` was not yet enabled. `Agent` takes precedence over `Plugin`.
+    pub fn set_tab_driver(&mut self, tab_id: u64, driver: TabDriver) {
+        let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else { return };
+        if t.prompts.driver != Some(TabDriver::Agent) {
+            t.prompts.driver = Some(driver);
+        }
+        if !t.prompts.agent_driven {
+            t.prompts.agent_driven = true;
+            self.send(HostMsg::SetAgentDriven { tab_id, agent_driven: true });
+        }
+    }
+
+    pub fn dismiss_blocked_guard_notice(&mut self, tab_id: u64) {
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+            t.prompts.blocked_guard_notice = None;
+        }
     }
 
     pub fn answer_dialog(
@@ -71,20 +130,27 @@ impl crate::BrowserHost {
         let now = Instant::now();
         let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else { return false };
         let Some((item, ids)) = t.prompts.permission.take_active(id, now) else { return false };
+        let scope = PermissionScope::from_context(&t.context);
         let origin = item.request.origin;
         let kinds = item.request.kinds;
         let allow = matches!(decision, PermissionDecision::AllowOnce | PermissionDecision::AllowAlways);
-        // Agent-driven tabs never persist permissions and an allow applies only once (`page-prompts.ts:503`).
+        let can_keep = !item.agent_driven
+            && !matches!(scope, PermissionScope::VisitOnly)
+            && t.preview.is_none()
+            && crate::policy::destination_origin(&origin).is_some();
+        let permanent_block = matches!(decision, PermissionDecision::BlockAlways) && can_keep;
+        // Agent-driven and isolated/preview tabs never persist permissions into global `sitePermissions`,
+        // and an allow on an agent-driven tab applies only once (`page-prompts.ts:503`).
         if !(item.agent_driven && allow) {
             match decision {
-                PermissionDecision::AllowAlways if !item.agent_driven => {
+                PermissionDecision::AllowAlways if can_keep => {
                     for kind in kinds {
-                        self.site_permissions.set(origin.clone(), kind, SiteSetting::Allow);
+                        self.site_permissions.set_scoped(&scope, origin.clone(), kind, SiteSetting::Allow);
                     }
                 }
-                PermissionDecision::BlockAlways if !item.agent_driven => {
+                PermissionDecision::BlockAlways if can_keep => {
                     for kind in kinds {
-                        self.site_permissions.set(origin.clone(), kind, SiteSetting::Block);
+                        self.site_permissions.set_scoped(&scope, origin.clone(), kind, SiteSetting::Block);
                     }
                 }
                 PermissionDecision::AllowOnce | PermissionDecision::AllowAlways => {
@@ -99,8 +165,13 @@ impl crate::BrowserHost {
                 }
             }
         }
+        // Use `CEF_PERMISSION_RESULT_DISMISS` for non-permanent denies (`BlockOnce`, agent tabs,
+        // visit-only contexts) so Chromium does not permanently block the origin.
+        let dismiss = !allow && !permanent_block;
+        let persist = can_keep
+            && matches!(decision, PermissionDecision::AllowAlways | PermissionDecision::BlockAlways);
         for req_id in ids {
-            self.send(HostMsg::AnswerPermission { tab_id, id: req_id, allow });
+            self.send(HostMsg::AnswerPermission { tab_id, id: req_id, allow, dismiss, persist });
         }
         true
     }
@@ -174,7 +245,7 @@ impl crate::BrowserHost {
             changed |= t.prompts.popup.tick(now);
         }
         for (tab_id, id) in expired {
-            self.send(HostMsg::AnswerPermission { tab_id, id, allow: false });
+            self.send(HostMsg::AnswerPermission { tab_id, id, allow: false, dismiss: true, persist: false });
         }
         let next = self.tabs.iter().filter_map(|t| t.prompts.wake_at()).min();
         (changed, next)
@@ -208,19 +279,25 @@ impl crate::BrowserHost {
             EngineMsg::PermissionRequest { tab_id, request } => {
                 let id = request.id;
                 let auto = if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
-                    let agent = t.prompts.agent_driven;
-                    t.prompts.permission.evaluate(
-                        request,
-                        agent,
-                        &self.site_permissions,
-                        &t.prompts.visit_permissions,
-                        now,
-                    )
+                    if t.preview.is_some() {
+                        Some((false, true, false))
+                    } else {
+                        let agent = t.prompts.agent_driven;
+                        let scope = PermissionScope::from_context(&t.context);
+                        t.prompts.permission.evaluate(
+                            request,
+                            agent,
+                            &scope,
+                            &self.site_permissions,
+                            &t.prompts.visit_permissions,
+                            now,
+                        )
+                    }
                 } else {
-                    Some(false)
+                    Some((false, true, false))
                 };
-                if let Some(allow) = auto {
-                    self.send(HostMsg::AnswerPermission { tab_id, id, allow });
+                if let Some((allow, dismiss, persist)) = auto {
+                    self.send(HostMsg::AnswerPermission { tab_id, id, allow, dismiss, persist });
                     false
                 } else {
                     true
@@ -232,17 +309,24 @@ impl crate::BrowserHost {
                 .find(|t| t.id == tab_id)
                 .is_some_and(|t| t.prompts.permission.dismiss_by_id(id, now)),
             EngineMsg::AuthRequest { tab_id, challenge } => {
-                let cancel_id = if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
-                    t.prompts.auth_challenge(challenge, now)
+                let (cancel_id, ui_changed) = if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+                    if t.prompts.agent_driven {
+                        // Defense in depth against older engines where `OpenTab` doesn't carry
+                        // `agent_driven` yet and a fast 401 on `TID_IO` races `SetAgentDriven`.
+                        t.prompts.agent_auth_required = Some(challenge.origin);
+                        t.prompts.blocked_guard_notice = Some(BlockedGuardReason::Action);
+                        (Some(challenge.id), true)
+                    } else {
+                        let cancel = t.prompts.auth_challenge(challenge, now);
+                        (cancel, cancel.is_none())
+                    }
                 } else {
-                    Some(challenge.id)
+                    (Some(challenge.id), false)
                 };
                 if let Some(id) = cancel_id {
                     self.send(HostMsg::AnswerAuth { tab_id, id, username: None, password: None });
-                    false
-                } else {
-                    true
                 }
+                ui_changed
             }
             EngineMsg::AuthReset { tab_id } => {
                 if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
@@ -256,6 +340,7 @@ impl crate::BrowserHost {
             EngineMsg::AuthAgentRequired { tab_id, origin } => {
                 if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
                     t.prompts.agent_auth_required = Some(origin);
+                    t.prompts.blocked_guard_notice = Some(BlockedGuardReason::Action);
                     true
                 } else {
                     false
@@ -276,6 +361,7 @@ impl crate::BrowserHost {
             EngineMsg::FileChooserBlocked { tab_id } => {
                 if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
                     t.prompts.file_chooser_blocked = t.prompts.file_chooser_blocked.saturating_add(1);
+                    t.prompts.blocked_guard_notice = Some(BlockedGuardReason::Action);
                     true
                 } else {
                     false

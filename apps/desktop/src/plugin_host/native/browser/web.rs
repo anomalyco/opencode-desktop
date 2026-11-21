@@ -65,6 +65,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
                 ("message", Data::Nil),
                 ("downloads", Data::Bool(false)),
                 ("policy", Data::Bool(false)),
+                ("preview", Data::Bool(false)),
                 ("find", Data::Bool(false)),
                 ("clearCache", Data::Bool(false)),
                 ("hardReload", Data::Bool(false)),
@@ -77,6 +78,20 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     })?;
     method(lua, t, "Prepare", |_, _seconds: Option<f64>| Ok(()))?;
     method(lua, t, "TakeAppLinkReview", |_, ()| Ok(Value::Nil))?;
+    method(lua, t, "HistoryPrepare", |_, ()| Ok(()))?;
+    method(lua, t, "HistorySearch", |lua, (_q, _l): (String, Option<usize>)| lua.create_table())?;
+    method(lua, t, "HistoryVisit", |_, _: mlua::MultiValue| Ok(()))?;
+    method(lua, t, "HistoryRetitle", |_, _: mlua::MultiValue| Ok(()))?;
+    method(lua, t, "HistoryAdopt", |_, _: Value| Ok(()))?;
+    method(lua, t, "HistoryForget", |_, _url: String| Ok(false))?;
+    method(lua, t, "HistoryClear", |_, ()| Ok(false))?;
+    method(lua, t, "HistoryCount", |_, ()| Ok(0i64))?;
+    method(lua, t, "HistoryImportSources", |lua, ()| lua.create_table())?;
+    method(lua, t, "HistoryImportProfile", |lua, (_b, _p): (String, String)| {
+        let tbl = lua.create_table()?;
+        tbl.raw_set("error", "Browser history import is available in the desktop app.")?;
+        Ok(tbl)
+    })?;
     let raw: Function = vmx.asyncs.raw_get("Browser.OpenAsync")?;
     let open: Function = lua
         .load("local raw = ... return function(self, spec) local id = raw(spec) return if id then self:Get(id) else nil end")
@@ -129,7 +144,7 @@ pub fn version(app: &App) -> u64 {
     h.finish()
 }
 
-pub fn pages(_: &App) -> Vec<(String, u64)> {
+pub fn pages(_: &App, _include_find: bool) -> Vec<(String, u64)> {
     Vec::new()
 }
 

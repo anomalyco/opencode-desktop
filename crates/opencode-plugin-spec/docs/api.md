@@ -2991,6 +2991,7 @@ A command in the palette, with an optional keybind and slash command. Published 
 | `order` | `number?` | Palette order, ascending. Commands without an order are listed after ordered commands. Since 1.5. |
 | `section` | `CommandSection?` | The Settings › Shortcuts section. Defaults to `general`. |
 | `bind` | `string?` | The default keybind, such as `"mod+shift+t"`. |
+| `follows` | `string?` | The id of the command whose keybind this one shares, such as `"tab.close"`: Settings > Shortcuts lists that one and leaves this one out, unless the user has bound this one itself (Desktop's `follows`). Since 1.7. |
 | `slash` | `CommandSlash?` | Also offers it as a slash command. |
 | `hidden` | `(boolean \| (() -> boolean))?` | Keeps it out of the palette. The keybind still works. A function makes it reactive: the host calls it as it lists commands, and again only once something it read changes. Keep it cheap, and don't yield. |
 | `suggested` | `boolean?` | Also lists it under Suggested. |

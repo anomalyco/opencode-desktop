@@ -13,10 +13,25 @@
 //! - Sub-resources (`img`, `script`, `link`, `fetch`, `XHR`, redirects, downloads) may never read
 //!   a `file:` URL outside `file_roots`.
 
-#![forbid(unsafe_code)]
+#![cfg_attr(target_arch = "wasm32", forbid(unsafe_code))]
+#![cfg_attr(not(target_arch = "wasm32"), deny(unsafe_code))]
 
 mod app_links;
+mod local_fs;
+mod local_path;
+pub mod preview;
+mod workspace_root;
 pub use app_links::{AppSchemeAction, AppSchemeSource, classify_app_link};
+pub use local_fs::{
+    LocalPathError, VerifiedLocalPath, is_local_fixed_drive, is_macos_bundle,
+    reveal_in_file_manager, verify_local_path, verify_within_root,
+};
+pub use local_path::{
+    is_allowed_local_reparse_tag, is_clsid_folder_name, is_macos_bundle_path, is_raw_unc_href,
+    is_unc_or_device_path, is_unc_or_device_path_for, is_unix_autofs_path, safe_local_reveal_path,
+};
+pub use workspace_root::{is_safe_local_workspace_root, is_safe_workspace_root};
+use workspace_root::path_within_root;
 
 /// Why a navigation was refused (`policy.ts:68-83`, `chromium.ts:442`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,7 +109,7 @@ pub fn is_windows_device_name(stem: &str) -> bool {
     if matches!(prefix.as_str(), "com" | "lpt")
         && let Some(digit) = chars.next()
         && chars.next().is_none()
-        && matches!(digit, '1'..='9' | '\u{00B9}' | '\u{00B2}' | '\u{00B3}')
+        && matches!(digit, '0'..='9' | '\u{00B9}' | '\u{00B2}' | '\u{00B3}')
     {
         return true;
     }
@@ -121,7 +136,7 @@ pub fn local_file_path(input: &str) -> Option<String> {
         return None;
     }
     let decoded = percent_decode(raw_path)?;
-    if decoded.chars().any(|c| (c as u32) <= 0x1f) {
+    if decoded.chars().any(char::is_control) {
         return None;
     }
     let normalized = decoded.replace('\\', "/");
@@ -142,8 +157,10 @@ pub fn file_url_within(input: &str, roots: &[String]) -> bool {
     roots.iter().any(|root| path_within_root(&target, root))
 }
 
-pub fn allowed_destination(input: &str, roots: &[String]) -> bool {
-    destination_origin(input).is_some() || file_url_within(input, roots)
+pub fn allowed_destination(input: &str, _roots: &[String]) -> bool {
+    // Raw `file://` URLs are banned unconditionally; local workspace files open exclusively via
+    // isolated `oc-preview://` grants (`#63002`, `notes/review-rd281.md` §9).
+    destination_origin(input).is_some()
 }
 
 /// Adds the missing scheme for programmatic / agent URLs (`policy.ts:86-95`), plus Rune's `:port` shorthand.
@@ -169,7 +186,7 @@ fn refusal_raw(trimmed: &str, roots: &[String]) -> Option<Refusal> {
     if is_http_with_credentials(trimmed) {
         return Some(Refusal::Credentials);
     }
-    Some(if roots.is_empty() { Refusal::Web } else { Refusal::Workspace })
+    Some(if is_file_scheme(trimmed) || !roots.is_empty() { Refusal::Workspace } else { Refusal::Web })
 }
 
 /// Why the pane refuses `input`, or `None` when allowed (`policy.ts:74-83`).
@@ -186,130 +203,33 @@ pub fn normalize_url(input: &str, roots: &[String]) -> Result<String, String> {
     }
 }
 
-/// Frame navigation & redirect guard (`chromium.ts:432-446`).
+/// Frame navigation & redirect guard (`chromium.ts:432-446`): bans raw `file:` and `oc-preview:`
+/// (and nested `view-source:`/`filesystem:`/`blob:` wrappers) unconditionally on all non-preview tabs.
 pub fn frame_guard(url: &str, is_main_frame: bool, roots: &[String]) -> Option<Refusal> {
     let trimmed = url.trim();
     if trimmed.eq_ignore_ascii_case("about:blank") {
         return None;
     }
+    if preview::has_banned_scheme(trimmed) {
+        return Some(if is_file_scheme(trimmed) || !roots.is_empty() { Refusal::Workspace } else { Refusal::Web });
+    }
     if is_main_frame {
         return refusal_raw(trimmed, roots);
     }
-    if !is_file_scheme(trimmed) || file_url_within(trimmed, roots) {
-        return None;
-    }
-    Some(if roots.is_empty() { Refusal::Web } else { Refusal::Workspace })
+    None
 }
 
-/// Sub-resource & download guard (`pane.ts:103-107`): no `file:` read outside `roots`.
-pub fn subresource_allowed(url: &str, roots: &[String]) -> bool {
-    !is_file_scheme(url) || file_url_within(url, roots)
+/// Sub-resource & download guard: bans raw `file:` and `oc-preview:` (including nested prefixes)
+/// unconditionally on non-preview tabs.
+pub fn subresource_allowed(url: &str, _roots: &[String]) -> bool {
+    !preview::has_banned_scheme(url)
 }
 
 mod agent;
+mod cdp;
 
 pub use agent::{check_typed_cdp, extension_origin, extension_page_refusal, matches_url};
-
-/// Validates a DevTools Protocol call against the 22-method allow-list: 17 protocol calls used by
-/// OpenCode Desktop's fixed actions (`packages/gui-plugins/src/browser/chromium.ts:592,796-880,
-/// 912,938,974,1003,1026,1205,1267-1389,1469-1484,1698-1722`) plus 5 read-only `DOM` inspection
-/// methods (`DOM.getDocument`, `DOM.getBoxModel`, `DOM.getContentQuads`, `DOM.querySelector`,
-/// `DOM.querySelectorAll`) used by Rune's tools. Enforced in both the app and the sidecar.
-pub fn check_cdp(method: &str, params: &serde_json::Value, engine_has_policy: bool) -> Result<(), String> {
-    if !engine_has_policy {
-        return match method {
-            "Accessibility.getFullAXTree" | "Page.captureScreenshot" => Ok(()),
-            "Runtime.evaluate" => check_runtime_params(method, params),
-            _ => Err(format!("DevTools method '{method}' requires an updated browser engine that enforces URL policy.")),
-        };
-    }
-    match method {
-        "Accessibility.getFullAXTree"
-        | "DOM.enable"
-        | "DOM.getDocument"
-        | "DOM.describeNode"
-        | "DOM.resolveNode"
-        | "DOM.getBoxModel"
-        | "DOM.getContentQuads"
-        | "DOM.scrollIntoViewIfNeeded"
-        | "DOM.focus"
-        | "DOM.getFrameOwner"
-        | "DOM.querySelector"
-        | "DOM.querySelectorAll"
-        | "Input.dispatchMouseEvent"
-        | "Input.insertText"
-        | "Page.getFrameTree"
-        | "Page.getLayoutMetrics"
-        | "Page.captureScreenshot"
-        | "Page.handleJavaScriptDialog"
-        | "Runtime.releaseObject" => Ok(()),
-        "Runtime.evaluate" | "Runtime.callFunctionOn" => check_runtime_params(method, params),
-        "Input.dispatchKeyEvent" => check_key_params(params),
-        _ => Err(format!("DevTools method '{method}' is not permitted in the built-in browser.")),
-    }
-}
-
-fn check_runtime_params(method: &str, params: &serde_json::Value) -> Result<(), String> {
-    if let Some(v) = params.get("includeCommandLineAPI")
-        && !v.is_null()
-        && v != &serde_json::Value::Bool(false)
-    {
-        return Err(format!("DevTools method '{method}' cannot enable includeCommandLineAPI."));
-    }
-    Ok(())
-}
-
-fn check_bounded_key_int(params: &serde_json::Value, field: &str, max: i64) -> Result<u64, String> {
-    let Some(val) = params.get(field) else { return Ok(0) };
-    if val.is_null() {
-        return Ok(0);
-    }
-    let Some(n) = val.as_i64() else {
-        return Err(format!(
-            "DevTools method 'Input.dispatchKeyEvent' requires '{field}' to be an integer in 0..={max}."
-        ));
-    };
-    if !(0..=max).contains(&n) {
-        return Err(format!(
-            "DevTools method 'Input.dispatchKeyEvent' requires '{field}' to be in 0..={max}."
-        ));
-    }
-    Ok(n as u64)
-}
-
-fn check_key_params(params: &serde_json::Value) -> Result<(), String> {
-    if params.get("commands").is_some_and(|v| !v.is_null()) {
-        return Err("DevTools method 'Input.dispatchKeyEvent' does not permit editing commands.".into());
-    }
-    let modifiers = check_bounded_key_int(params, "modifiers", 15)?;
-    let wvk = check_bounded_key_int(params, "windowsVirtualKeyCode", 255)?;
-    let nvk = check_bounded_key_int(params, "nativeVirtualKeyCode", 255)?;
-    let shortcuts = (modifiers & 6) != 0;
-    let ctrl = (modifiers & 2) != 0;
-    let shift = (modifiers & 8) != 0;
-    let key = params.get("key").and_then(serde_json::Value::as_str).unwrap_or("");
-    let code = params.get("code").and_then(serde_json::Value::as_str).unwrap_or("");
-    let is_cvx = matches!(key, "c" | "C" | "v" | "V" | "x" | "X")
-        || code.eq_ignore_ascii_case("KeyC")
-        || code.eq_ignore_ascii_case("KeyV")
-        || code.eq_ignore_ascii_case("KeyX")
-        || matches!(wvk, 67 | 86 | 88)
-        || matches!(nvk, 67 | 86 | 88);
-    let is_insert = key.eq_ignore_ascii_case("Insert")
-        || code.eq_ignore_ascii_case("Insert")
-        || wvk == 45
-        || nvk == 45;
-    let is_del_or_f10 = key.eq_ignore_ascii_case("Delete")
-        || code.eq_ignore_ascii_case("Delete")
-        || key.eq_ignore_ascii_case("F10")
-        || code.eq_ignore_ascii_case("F10")
-        || matches!(wvk, 46 | 121)
-        || matches!(nvk, 46 | 121);
-    if (shortcuts && is_cvx) || (is_insert && (shift || ctrl)) || (shift && is_del_or_f10) {
-        return Err("DevTools method 'Input.dispatchKeyEvent' cannot send clipboard or context-menu shortcuts.".into());
-    }
-    Ok(())
-}
+pub use cdp::check_cdp;
 
 /// Whether the user's address field treats `input` as a web search rather than an address (`address.ts:23-38`).
 pub fn searches(input: &str) -> bool {
@@ -324,6 +244,12 @@ pub fn searches(input: &str) -> bool {
         if scheme.eq_ignore_ascii_case("file") {
             let path_part = rest.split(['?', '#']).next().unwrap_or(rest);
             return path_part.is_empty() || path_part.chars().take_while(|&c| c != '/').any(char::is_whitespace);
+        }
+        if scheme.eq_ignore_ascii_case("workspace")
+            || scheme.eq_ignore_ascii_case("artifact")
+            || scheme.eq_ignore_ascii_case("oc-preview")
+        {
+            return rest.is_empty() || rest.chars().any(char::is_whitespace);
         }
         let authority = rest.split(['/', '\\', '?', '#']).next().unwrap_or("");
         if authority.is_empty() || authority.chars().any(|c| c.is_whitespace() || c.is_control()) {
@@ -367,23 +293,10 @@ pub fn resolve_address(input: &str) -> String {
     with_scheme(value)
 }
 
-pub fn loopback_host(hostname: &str) -> bool {
-    let h = hostname.trim_end_matches('.');
-    if h.eq_ignore_ascii_case("localhost") || h == "::1" || h == "[::1]" {
-        return true;
-    }
-    if h.len() > 10 && h.as_bytes()[h.len() - 10..].eq_ignore_ascii_case(b".localhost") {
-        return true;
-    }
-    let mut parts = h.split('.');
-    if let (Some(a), Some(b), Some(c), Some(d), None) = (parts.next(), parts.next(), parts.next(), parts.next(), parts.next())
-        && a == "127"
-        && [b, c, d].into_iter().all(|p| p.parse::<u8>().is_ok())
-    {
-        return true;
-    }
-    false
-}
+mod network;
+pub use network::{
+    is_local_or_loopback_host, is_strict_loopback_ip, loopback_host, validate_proxy_endpoint,
+};
 
 fn is_loopback_authority(value: &str) -> bool {
     let authority = value.split(['/', '\\', '?', '#']).next().unwrap_or("");
@@ -433,7 +346,7 @@ fn has_opaque_scheme(input: &str) -> bool {
     let Some((scheme, _)) = input.split_once(':') else { return false };
     matches!(
         scheme.to_ascii_lowercase().as_str(),
-        "about" | "data" | "javascript" | "vbscript" | "blob" | "file" | "mailto" | "tel" | "view-source" | "chrome" | "chrome-extension" | "devtools" | "ws" | "wss"
+        "about" | "data" | "javascript" | "vbscript" | "blob" | "file" | "mailto" | "tel" | "view-source" | "chrome" | "chrome-extension" | "devtools" | "ws" | "wss" | "oc-preview" | "workspace" | "artifact"
     )
 }
 
@@ -557,150 +470,6 @@ fn resolve_unix_file_path(path: &str) -> Option<String> {
         stack.push(seg);
     }
     Some(format!("/{}", stack.join("/")))
-}
-
-fn normalize_root_lex(root: &str) -> Option<String> {
-    let trimmed = root.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let stripped = trimmed
-        .strip_prefix(r"\\?\")
-        .or_else(|| trimmed.strip_prefix("//?/"))
-        .unwrap_or(trimmed)
-        .replace('\\', "/");
-    let stripped = if stripped.len() >= 3 && stripped.as_bytes()[0] == b'/' && stripped.as_bytes()[1].is_ascii_alphabetic() && stripped.as_bytes()[2] == b':' {
-        &stripped[1..]
-    } else {
-        stripped.as_str()
-    };
-    let clean = if stripped == "/" { "/" } else { stripped.trim_end_matches('/') };
-    if clean.is_empty() {
-        return None;
-    }
-    Some(if cfg!(windows) { clean.to_ascii_lowercase() } else { clean.to_owned() })
-}
-
-fn lex_within(target: &str, root_lex: &str) -> bool {
-    let cmp_target = if cfg!(windows) { target.to_ascii_lowercase() } else { target.to_owned() };
-    if root_lex == "/" {
-        return cmp_target.starts_with('/');
-    }
-    cmp_target == root_lex
-        || (cmp_target.len() > root_lex.len()
-            && cmp_target.starts_with(root_lex)
-            && cmp_target.as_bytes()[root_lex.len()] == b'/')
-}
-
-/// Whether `root` is a narrow enough workspace directory to confine `file://` URLs
-/// (`review-browser-policy.md` §5, matching `#63002` `disk/preview-scope.ts:25-31`).
-///
-/// Refuses filesystem roots (`/`), Windows drive roots (`C:\`), UNC share roots (`\\server\share`),
-/// and (when `home` is provided) the user's home directory and its top-level system directories
-/// (`Desktop`, `Documents`, `Downloads`, `AppData`, `AppData/Local`, `AppData/Roaming`, `Library`).
-pub fn is_safe_workspace_root(root: &str, home: Option<&str>) -> bool {
-    let Some(lex) = normalize_root_lex(root) else { return false };
-    if is_broad_root_lex(&lex) {
-        return false;
-    }
-    let home_lex = home.and_then(normalize_root_lex);
-    if home_lex.as_deref().is_some_and(|h| is_home_broad_lex(&lex, h)) {
-        return false;
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        if let Ok(canon) = std::fs::canonicalize(root)
-            && let Some(canon_lex) = normalize_root_lex(&canon.to_string_lossy())
-        {
-            if is_broad_root_lex(&canon_lex) {
-                return false;
-            }
-            if home_lex.as_deref().is_some_and(|h| is_home_broad_lex(&canon_lex, h)) {
-                return false;
-            }
-            if let Some(h_raw) = home
-                && let Ok(canon_home) = std::fs::canonicalize(h_raw)
-                && let Some(ch_lex) = normalize_root_lex(&canon_home.to_string_lossy())
-                && is_home_broad_lex(&canon_lex, &ch_lex)
-            {
-                return false;
-            }
-        }
-    }
-    true
-}
-
-fn is_broad_root_lex(lex: &str) -> bool {
-    if lex == "/" {
-        return true;
-    }
-    if lex.len() == 2 && lex.as_bytes()[0].is_ascii_alphabetic() && lex.as_bytes()[1] == b':' {
-        return true;
-    }
-    if let Some(rest) = lex.strip_prefix("//") {
-        // UNC server (`//server`) or share root (`//server/share`).
-        return rest.split('/').filter(|s| !s.is_empty()).count() <= 2;
-    }
-    false
-}
-
-fn is_home_broad_lex(lex: &str, home_lex: &str) -> bool {
-    const SYSTEM_SUFFIXES: &[&str] = &[
-        "",
-        "/Desktop",
-        "/Documents",
-        "/Downloads",
-        "/AppData",
-        "/AppData/Local",
-        "/AppData/Roaming",
-        "/Library",
-    ];
-    SYSTEM_SUFFIXES.iter().any(|suffix| {
-        let candidate = if suffix.is_empty() {
-            home_lex.to_owned()
-        } else {
-            format!("{home_lex}{suffix}")
-        };
-        if cfg!(windows) {
-            lex.eq_ignore_ascii_case(&candidate)
-        } else {
-            lex == candidate
-        }
-    })
-}
-
-fn path_within_root(target_lex: &str, root: &str) -> bool {
-    if !is_safe_workspace_root(root, None) {
-        return false;
-    }
-    let Some(root_lex) = normalize_root_lex(root) else { return false };
-    #[cfg(target_arch = "wasm32")]
-    {
-        lex_within(target_lex, &root_lex)
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let Ok(canon_root) = std::fs::canonicalize(root) else { return false };
-        let canon_root_str = canon_root.to_string_lossy();
-        let lex_ok = lex_within(target_lex, &root_lex)
-            || normalize_root_lex(&canon_root_str).is_some_and(|cr| lex_within(target_lex, &cr));
-        if !lex_ok {
-            return false;
-        }
-        let os_target = if cfg!(windows) { target_lex.replace('/', "\\") } else { target_lex.to_owned() };
-        let mut cur: &std::path::Path = std::path::Path::new(&os_target);
-        loop {
-            if std::fs::symlink_metadata(cur).is_ok() {
-                let Ok(canon_cur) = std::fs::canonicalize(cur) else { return false };
-                return canon_cur.starts_with(&canon_root);
-            }
-            let Some(parent) = cur.parent() else { return false };
-            if parent == cur || parent.as_os_str().is_empty() {
-                return false;
-            }
-            cur = parent;
-        }
-    }
 }
 
 fn encode_query_component(s: &str) -> String {
