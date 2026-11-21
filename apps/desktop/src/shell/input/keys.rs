@@ -40,15 +40,20 @@ pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return crate::escape::key(s, ev, tx);
     }
     match &ev.key {
-        // Page Up and Page Down page the timeline wherever the pointer and focus are, as a chat
-        // pages its messages from the composer; Rune's own fallback pages the first scroll view.
-        Key::PageUp | Key::PageDown if !(ev.mods.cmd || ev.mods.alt || ev.mods.ctrl) => match &*s.route {
-            Route::Session { id, .. } => {
-                tx.scroll_page(format!("scroll-{id}"), if ev.key == Key::PageDown { 1 } else { -1 });
-                true
+        // Unmodified Page Up and Page Down page the timeline wherever the pointer and focus are,
+        // as a chat pages its messages from the composer; modified page keys and active IME
+        // composition keep their native meaning (`session/composer/region.tsx:174-184`).
+        Key::PageUp | Key::PageDown
+            if !(ev.mods.shift || ev.mods.cmd || ev.mods.alt || ev.mods.ctrl) && !s.composer.is_composing() =>
+        {
+            match &*s.route {
+                Route::Session { id, .. } => {
+                    tx.scroll_page(format!("scroll-{id}"), if ev.key == Key::PageDown { 1 } else { -1 });
+                    true
+                }
+                _ => false,
             }
-            _ => false,
-        },
+        }
         _ => crate::type_to_compose::key(s, ev, tx),
     }
 }
