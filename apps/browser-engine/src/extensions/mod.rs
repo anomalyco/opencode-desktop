@@ -940,7 +940,7 @@ impl ExtensionHost {
         let Some(tab) = self.tabs.iter().find(|t| t.engine_tab_id == engine_tab_id && !t.agent_driven).cloned() else {
             return;
         };
-        if is_private_url(&tab.url) {
+        if is_private_url(&tab.url) || is_extension_scheme(&tab.url) || target.has_private_url() {
             return;
         }
         let Some(info) = self
