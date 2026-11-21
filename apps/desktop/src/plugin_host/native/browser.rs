@@ -307,8 +307,9 @@ fn devtools(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
             // Every `BrowserTab:DevtoolsAsync` caller (agent MCP tools and third-party Luau plugins)
             // marks the tab controlled so OS file choosers, HTTP auth, and permissions stay guarded.
             let driver = scope.driver(s).unwrap_or(browser_pane::TabDriver::Agent);
+            let is_agent = matches!(driver, browser_pane::TabDriver::Agent);
             s.workspace_panes.browser.host.set_tab_driver(id, driver);
-            if driver == browser_pane::TabDriver::Agent {
+            if is_agent {
                 s.mark_browser_tab_unseen(id);
             }
             let is_dialog = cdp == "Page.handleJavaScriptDialog";

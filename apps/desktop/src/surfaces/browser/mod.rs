@@ -564,11 +564,12 @@ mod native {
                     .host
                     .open_tab_with_context(url, roots, context, from_address, agent_driven)
             };
+            let is_agent = matches!(driver, Some(browser_pane::TabDriver::Agent));
             if let Some(driver) = driver {
                 self.workspace_panes.browser.host.set_tab_driver(id, driver);
             }
             self.attach_browser_tab_to_session(sid, id, target_pane, steal_focus);
-            if driver == Some(browser_pane::TabDriver::Agent) {
+            if is_agent {
                 self.mark_browser_tab_unseen(id);
             }
             id
