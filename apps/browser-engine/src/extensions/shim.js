@@ -38,7 +38,6 @@
   if (globalThis.location) {
     const href = String(globalThis.location.href || "");
     const origin = String(globalThis.location.origin || "");
-    const extId = globalThis.chrome?.runtime?.id;
     // Neutralize chrome.tabs/windows/etc. in ANY child subframe (about:blank, about:srcdoc,
     // same-origin iframe, <object>, <embed>) instead of leaving native APIs reachable (READER-12 C2).
     if (isSubframe || href === "about:blank" || href === "about:srcdoc" || origin === "null") {
@@ -46,11 +45,20 @@
       sweepFrames(globalThis);
       return "NEUTRALIZED";
     }
-    if (!extId || origin !== "chrome-extension://" + extId) {
+    if (!origin.startsWith("chrome-extension://")) {
       return "DENIED";
     }
   }
+  // Must check `getManifest` BEFORE matching `chrome.runtime.id`: service workers' initial
+  // `Runtime.executionContextCreated` fires before Chromium attaches `chrome.runtime`, so
+  // returning `"WAIT"` keeps `cdp.rs` attached until `scriptFirstStatement` rather than detaching.
   if (!globalThis.chrome?.runtime?.getManifest) return "WAIT";
+  if (globalThis.location) {
+    const extId = globalThis.chrome?.runtime?.id;
+    if (!extId || String(globalThis.location.origin || "") !== "chrome-extension://" + extId) {
+      return "DENIED";
+    }
+  }
   if (globalThis.__ocExtInstalled) return "ALREADY";
   globalThis.__ocExtInstalled = true;
 
@@ -98,7 +106,12 @@
         });
       } catch {}
     };
-    for (const ctor of [globalThis.HTMLIFrameElement, globalThis.HTMLFrameElement, globalThis.HTMLObjectElement]) {
+    for (const ctor of [
+      globalThis.HTMLIFrameElement,
+      globalThis.HTMLFrameElement,
+      globalThis.HTMLObjectElement,
+      globalThis.HTMLEmbedElement,
+    ]) {
       patchAccessor(ctor?.prototype, "contentWindow", (cw) => {
         try {
           if (cw && cw !== globalThis && !cw.__ocExtInstalled) neutralizeChrome(cw);
@@ -110,13 +123,38 @@
           if (cw && cw !== globalThis && !cw.__ocExtInstalled) neutralizeChrome(cw);
         } catch {}
       });
+      patchMethod(ctor?.prototype, "getSVGDocument", (doc) => {
+        try {
+          const cw = doc?.defaultView;
+          if (cw && cw !== globalThis && !cw.__ocExtInstalled) neutralizeChrome(cw);
+        } catch {}
+      });
     }
     const sweepAll = () => sweepFrames(globalThis);
     for (const m of ["appendChild", "insertBefore", "replaceChild"]) {
       patchMethod(globalThis.Node?.prototype, m, sweepAll);
     }
-    for (const m of ["append", "prepend", "after", "before", "replaceWith", "insertAdjacentElement", "insertAdjacentHTML"]) {
+    for (const m of ["insertNode", "surroundContents"]) {
+      patchMethod(globalThis.Range?.prototype, m, sweepAll);
+    }
+    for (const m of [
+      "append",
+      "prepend",
+      "after",
+      "before",
+      "replaceWith",
+      "replaceChildren",
+      "insertAdjacentElement",
+      "insertAdjacentHTML",
+      "setHTMLUnsafe",
+    ]) {
       patchMethod(globalThis.Element?.prototype, m, sweepAll);
+    }
+    for (const m of ["append", "prepend", "replaceChildren", "setHTMLUnsafe"]) {
+      patchMethod(globalThis.ShadowRoot?.prototype, m, sweepAll);
+    }
+    for (const m of ["append", "prepend", "replaceChildren"]) {
+      patchMethod(globalThis.Document?.prototype, m, sweepAll);
     }
     patchAccessor(globalThis.Element?.prototype, "innerHTML", sweepAll);
     patchAccessor(globalThis.Element?.prototype, "outerHTML", sweepAll);
@@ -247,6 +285,24 @@
     return typeof val === "function" ? undefined : val;
   }
 
+  function makeLocalEvent() {
+    const set = new Set();
+    return {
+      addListener(fn) {
+        if (typeof fn === "function") set.add(fn);
+      },
+      removeListener(fn) {
+        set.delete(fn);
+      },
+      hasListener(fn) {
+        return set.has(fn);
+      },
+      hasListeners() {
+        return set.size > 0;
+      },
+    };
+  }
+
   function makeEvent(name) {
     return {
       addListener(fn) {
@@ -281,7 +337,9 @@
       }
       const syncId = isSyncCreate ? args[0]?.id : undefined;
 
-      const promise = invoke(name, clean(args));
+      const promise = invoke(name, clean(args)).then((value) =>
+        name === "tabs.getCurrent" && value === null ? undefined : value,
+      );
       if (!cb) return isSyncCreate ? syncId : promise;
 
       promise.then(
@@ -476,11 +534,67 @@
       permissions: ["sidePanel"],
       methods: ["setOptions", "getOptions", "setPanelBehavior", "getPanelBehavior", "open", "close"],
       events: ["onOpened", "onClosed"],
+      stubEvents: true,
     },
     {
       path: "fontSettings",
       permissions: ["fontSettings"],
       methods: ["getFontList", "getFont", "setFont", "clearFont"],
+    },
+    {
+      path: "history",
+      permissions: ["history"],
+      methods: ["search", "getVisits", "addUrl", "deleteUrl", "deleteRange", "deleteAll"],
+      events: ["onVisited", "onVisitRemoved"],
+      stubEvents: true,
+    },
+    {
+      path: "bookmarks",
+      permissions: ["bookmarks"],
+      methods: [
+        "get", "getChildren", "getRecent", "getTree", "getSubTree", "search",
+        "create", "move", "update", "remove", "removeTree",
+      ],
+      events: [
+        "onCreated", "onRemoved", "onChanged", "onMoved",
+        "onChildrenReordered", "onImportBegan", "onImportEnded",
+      ],
+      stubEvents: true,
+    },
+    {
+      path: "sessions",
+      permissions: ["sessions"],
+      methods: ["getRecentlyClosed", "getDevices", "restore"],
+      events: ["onChanged"],
+      constants: { MAX_SESSION_RESULTS: 25 },
+      stubEvents: true,
+    },
+    {
+      path: "search",
+      permissions: ["search"],
+      methods: ["query"],
+    },
+    {
+      path: "downloads",
+      permissions: ["downloads"],
+      methods: [
+        "download", "search", "pause", "resume", "cancel", "getFileIcon",
+        "open", "show", "showDefaultFolder", "erase", "removeFile",
+        "acceptDanger", "setUiOptions",
+      ],
+      events: ["onCreated", "onErased", "onChanged", "onDeterminingFilename"],
+      stubEvents: true,
+    },
+    {
+      path: "identity",
+      permissions: ["identity"],
+      methods: [
+        "getAuthToken", "getProfileUserInfo", "getAccounts",
+        "removeCachedAuthToken", "clearAllCachedAuthTokens",
+        "launchWebAuthFlow", "getRedirectURL",
+      ],
+      events: ["onSignInChanged"],
+      stubEvents: true,
     },
     {
       path: "commands",
@@ -507,7 +621,7 @@
     }
     const eventObjs = {};
     for (const ev of ns.events || []) {
-      eventObjs[ev] = makeEvent(`${ns.path}.${ev}`);
+      eventObjs[ev] = ns.stubEvents ? makeLocalEvent() : makeEvent(`${ns.path}.${ev}`);
     }
 
     const targets = new Set();
@@ -548,22 +662,27 @@
     }
   }
 
-  // Also stub privacy.* settings if "privacy" is declared (Bitwarden / password managers).
+  // Stub all 16 `privacy.*` settings when `"privacy"` is declared (`stubs.ts:6-23`).
   if (declared.has("privacy")) {
-    const PRIV = {
-      "privacy.network.networkPredictionEnabled": true,
-      "privacy.network.webRTCIPHandlingPolicy": "default",
-      "privacy.services.autofillAddressEnabled": true,
-      "privacy.services.autofillCreditCardEnabled": true,
-      "privacy.services.autofillEnabled": true,
-      "privacy.services.passwordSavingEnabled": true,
-      "privacy.services.safeBrowsingEnabled": true,
-      "privacy.websites.hyperlinkAuditingEnabled": true,
-      "privacy.websites.referrersEnabled": true,
-      "privacy.websites.thirdPartyCookiesAllowed": true,
-      "privacy.websites.doNotTrackEnabled": false,
-    };
-    for (const [fullPath, defaultVal] of Object.entries(PRIV)) {
+    const PRIV = [
+      "privacy.network.networkPredictionEnabled",
+      "privacy.network.webRTCIPHandlingPolicy",
+      "privacy.services.alternateErrorPagesEnabled",
+      "privacy.services.autofillAddressEnabled",
+      "privacy.services.autofillCreditCardEnabled",
+      "privacy.services.autofillEnabled",
+      "privacy.services.passwordSavingEnabled",
+      "privacy.services.safeBrowsingEnabled",
+      "privacy.services.searchSuggestEnabled",
+      "privacy.services.spellingServiceEnabled",
+      "privacy.services.translationServiceEnabled",
+      "privacy.websites.hyperlinkAuditingEnabled",
+      "privacy.websites.referrersEnabled",
+      "privacy.websites.thirdPartyCookiesAllowed",
+      "privacy.websites.doNotTrackEnabled",
+      "privacy.websites.protectedContentEnabled",
+    ];
+    for (const fullPath of PRIV) {
       const segs = fullPath.split(".");
       for (const root of roots) {
         let cur = root;
@@ -574,7 +693,7 @@
         def(cur, "get", makeMethod(`${fullPath}.get`, false));
         def(cur, "set", makeMethod(`${fullPath}.set`, false));
         def(cur, "clear", makeMethod(`${fullPath}.clear`, false));
-        def(cur, "onChange", makeEvent(`${fullPath}.onChange`));
+        def(cur, "onChange", makeLocalEvent());
       }
     }
   }
@@ -607,9 +726,20 @@
     window.addEventListener("load", reportSize);
   }
 
-  // Expose native getCurrent once for seed probe pages if needed.
+  // Expose native getCurrent once for seed probe pages, and bind non-popup extension pages to
+  // their own Chromium tab ID so `chrome.tabs.getCurrent()` matches official `tabs.ts:345-349`.
   if (nativeTabsGetCurrent) {
     globalThis.__ocNativeGetCurrent = nativeTabsGetCurrent;
+    if (typeof globalThis.window !== "undefined" && !isPopup) {
+      Promise.resolve()
+        .then(() => nativeTabsGetCurrent())
+        .then((t) => {
+          if (t && typeof t.id === "number" && t.id > 0) {
+            sendRaw({ op: "self_tab", id: t.id });
+          }
+        })
+        .catch(() => {});
+    }
   }
 
   sendRaw({ op: "shim_ready" });

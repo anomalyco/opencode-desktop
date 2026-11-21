@@ -767,7 +767,7 @@ pub fn mention_rows<H: 'static>(
         // `line-comment-v2-mention-list`: a plain `overflow: auto` box's bar (`line-comment.css:294-296`).
         session_view::scroller::scroller("line-comment-mentions").build::<H>(
             p,
-            col().w_full().mt(8.0).padding(4.0).max_h(180.0).radius(6.0).fill(p.layer2).box_shadow(Pal::ring_in(p.border_muted)),
+            col().w_full().mt(8.0).padding(4.0).max_h(180.0).radius(6.0).fill(p.layer2).border(0.5, p.border_muted).border_layout(),
             col().w_full().gap(4.0).children(rows),
         ),
     )

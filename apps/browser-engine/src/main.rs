@@ -101,6 +101,8 @@ pub enum Event {
         title: Option<String>,
         loading: Option<bool>,
     },
+    /// Frame-level navigation signal for `chrome.webNavigation` (main frame + subframes).
+    WebNav(extensions::web_nav::WebNavSignal),
     /// Linux: a tab's frames can't come the way they do.
     #[cfg(target_os = "linux")]
     FramesFailed(dmabuf_frames::Failure),
@@ -297,9 +299,10 @@ fn main() {
         io_pipes_switch,
         events.clone(),
     );
+    let menu_storage_dir = _cef.download_roots().profile.join("opencode-ext-menus");
     let ext_host = ext_pipe_bundle.map(|(pipe, rx_in, wake)| {
         pipe.mark_adopted_by_cef();
-        extensions::ExtensionHost::new(pipe, rx_in, wake, stub_dirs_by_id)
+        extensions::ExtensionHost::new(pipe, rx_in, wake, stub_dirs_by_id, Some(menu_storage_dir))
     });
     step("cef_initialized");
 
@@ -424,6 +427,10 @@ fn main() {
                 }
                 Event::TabMeta { tab_id, url, title, loading } => {
                     manager.on_tab_meta(tab_id, url, title, loading);
+                    true
+                }
+                Event::WebNav(sig) => {
+                    manager.on_web_navigation(sig);
                     true
                 }
             }

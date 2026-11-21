@@ -395,14 +395,15 @@ fn build(theme: usize, dark: bool, raised: bool) -> Pal {
         },
         code: themed.then_some(syntax),
         syntax,
+        // Resolved `oc-2` `--text-base` and `--text-weak` overrides (`oc-2.json:273-274`).
         v1_text_base: match (themed, dark) {
             (true, _) => c("text-text-muted"),
-            (false, true) => Color::WHITE.alpha(0.618),
+            (false, true) => hex("#a0a0a0"),
             (false, false) => hex("#6f6f6f"),
         },
         v1_text_weak: match (themed, dark) {
             (true, _) => c("text-text-faint"),
-            (false, true) => Color::WHITE.alpha(0.422),
+            (false, true) => hex("#707070"),
             (false, false) => hex("#8f8f8f"),
         },
         // Resolved `oc-2` `--icon-warning-base` (`amber[isDark ? 8 : 6]`, `theme/resolve.ts:17,327`).

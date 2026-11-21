@@ -193,7 +193,7 @@ fn result_row(s: &App, p: &Pal, ses: &SessionInfo, selected: bool, show_project:
         .center_y()
         .cursor(rune::Cursor::Pointer)
         .hover_group()
-        .hover(p.hover)
+        .hover(if selected { rune::Color::TRANSPARENT } else { p.hover })
         .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {
             if inside {
                 s.kernel.slots.get_mut(&crate::home_search::HOME_SEARCH).activate(hover_id.clone());

@@ -162,7 +162,8 @@ pub fn view_for<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, only: Opt
         .w_full()
         .gap(4.0)
         .child(text(t!("settings.workspaces.empty")).font(NAME).color(p.text).wrap())
-        .child(text(t!("settings.workspaces.empty.description")).font(BODY).color(p.muted).wrap());
+        // `.settings-workspaces-empty` uses compact 16 pt line-height (`settings.css:2356-2365`).
+        .child(text(t!("settings.workspaces.empty.description")).font(BODY.lh(16.0)).color(p.muted).wrap());
     let empty_motion = col()
         .key("settings-workspaces-empty-motion")
         .w_full()

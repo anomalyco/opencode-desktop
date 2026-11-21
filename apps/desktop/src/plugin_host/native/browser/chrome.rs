@@ -51,12 +51,14 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
             with_app("Browser:AddressSelection", |app| {
                 let (start, end, len, composing, focused) =
                     crate::plugin_host::editors::selection_in(app, "browser", 0);
+                let pasted = crate::plugin_host::editors::take_pasted("browser", 0);
                 let out = lua.create_table()?;
                 out.raw_set("start", start)?;
                 out.raw_set("end", end)?;
                 out.raw_set("len", len)?;
                 out.raw_set("composing", composing)?;
                 out.raw_set("focused", focused)?;
+                out.raw_set("pasted", pasted)?;
                 Ok(mlua::Value::Table(out))
             })
         })?,

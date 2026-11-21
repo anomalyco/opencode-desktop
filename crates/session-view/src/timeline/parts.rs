@@ -2,6 +2,7 @@ use opencode_kit::model::{self, InboxItem, Message, Part, Transcript};
 use rune::{Color, El, TextStyle, Tx, col, el, row, text};
 
 use crate::TimelineHost;
+use crate::focus::FocusExt as _;
 use crate::fold::Fold;
 use crate::palette::Pal;
 use crate::style::{BUBBLE, INSTANT, interrupted_label};
@@ -59,7 +60,7 @@ pub fn default_user_menu<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) 
 /// pressed fill while its menu is `open`, which no hover or press adds to, as
 /// `:not([data-expanded])` keeps Desktop's hover off it. The host adds the glyph and the press.
 pub fn user_menu_button(p: &Pal, key: String, label: &str, open: bool) -> El {
-    let b = row().key(key).role("button").label(label.to_owned()).size(20.0, 20.0).center().radius(4.0).cursor(rune::Cursor::Pointer);
+    let b = row().key(key).role("button").label(label.to_owned()).size(20.0, 20.0).center().radius(4.0).cursor(rune::Cursor::Pointer).focus_inset(p);
     if open { b.fill(p.pressed) } else { b.hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT) }
 }
 
@@ -124,7 +125,7 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
         .py(8.0)
         .corners([10.0, top, end, 10.0])
         .fill(fill)
-        .hover_group()
+        .hover_group_focus()
         // The bubble stays in the timeline's direction, so its tightened corners always face the
         // timeline's outer wall; its lines read their own way inside it (`dir_by_paragraph`).
         .hover_motion(INSTANT, INSTANT);
@@ -189,7 +190,7 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
         let under = el().key("menu-under").size(20.0, 20.0).fill(fill).child(button);
         let corner = if rtl { row().pin(Some(MENU_INSET), Some(MENU_INSET), None, None).child(under).child(fade) } else { row().pin(None, Some(MENU_INSET), Some(MENU_INSET), None).child(fade).child(under) };
         let corner = corner.key("menu").unmirrored().dir(rune::Direction::Ltr).h(20.0).corners([4.0; 4]);
-        face = face.child(if open { corner.opacity(1.0).opacity_motion(INSTANT) } else { corner.group_opacity(0.0, 1.0) });
+        face = face.child(if open || crate::style::hover_none() { corner.opacity(1.0).opacity_motion(INSTANT) } else { corner.group_opacity(0.0, 1.0) });
     }
     // A right-click anywhere on the bubble opens the chevron's menu, at the pointer.
     let mut face = crate::images::menu::on_message::<S>(face, session, id);
@@ -311,7 +312,7 @@ pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usi
     let done = crate::copied::is_copied(s, &copy_key);
     let label = if done { opencode_i18n::t!("ui.message.copied") } else { opencode_i18n::t!("ui.message.copyResponse") };
     let button = row().key("copy").role("button").label_static(label).help(label).help_above().help_open(done)
-        .size(COPY, COPY).center().radius(4.0).cursor(rune::Cursor::Pointer).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
+        .size(COPY, COPY).center().radius(4.0).cursor(rune::Cursor::Pointer).focus_inset(p).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             tx.copy(body.clone());
             crate::copied::mark_copied(s, key.clone(), tx);
@@ -415,14 +416,15 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, 
     let copy_key = format!("copy-{}", message.id());
     use crate::working::{COPY, COPY_AT, COPY_GLYPH};
     let mut button = row().key("copy").role("button").label_static(opencode_i18n::t!("ui.message.copyResponse"))
-        .size(COPY, COPY).center().radius(4.0).cursor(rune::Cursor::Pointer).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
+        .size(COPY, COPY).center().radius(4.0)
         .opacity(if busy || !has_text { 0.0 } else { 1.0 })
         .opacity_motion(INSTANT)
         .child(crate::copied::glyph(s, &copy_key, COPY_GLYPH, p.icon_muted));
     if !busy && has_text {
         let done = crate::copied::is_copied(s, &copy_key);
         let label = if done { opencode_i18n::t!("ui.message.copied") } else { opencode_i18n::t!("ui.message.copyResponse") };
-        button = button.label_static(label).help(label).help_above().help_open(done);
+        button = button.label_static(label).help(label).help_above().help_open(done)
+            .cursor(rune::Cursor::Pointer).focus_inset(p).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT);
         let session = session.to_owned();
         let id = message.id().to_owned();
         button = button.on_press_tx(move |s: &mut S, tx: &mut Tx| {
@@ -448,6 +450,8 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, 
                 crate::copied::mark_copied(s, copy_key.clone(), tx);
             }
         });
+    } else {
+        button = button.inert().a11y_hidden();
     }
     // One reserved tail: completion crossfades in place rather than first removing Working's
     // height and then adding actions. The scroll endpoint cannot reverse during this handoff.
@@ -486,7 +490,9 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, 
     } else {
         copy_y + COPY
     };
-    let working = busy && !crate::working::thinking(s, session);
+    // A thought stands in for plain "Working", but a wait ("Waiting for approval" / "Waiting for answer")
+    // still shows so the user sees what to act on (`message-timeline.tsx:491-496`).
+    let working = busy && (s.session_waiting(session).is_some() || s.working_label_for(session).is_some() || !crate::working::thinking(s, session));
     let lane = el().w_full().h(footer + crate::working::LANE).token_motion(crate::knobs::actions_tail(s.knobs()))
         .hover_group_shared(REPLY_HOVER)
         .hover_group_focus()
