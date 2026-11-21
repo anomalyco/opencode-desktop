@@ -94,6 +94,12 @@ pub(crate) enum EngineEvent {
     LinkStatus { generation: u64, status: EngineStatus },
     #[cfg(feature = "engine")]
     InstallStatus(EngineStatus),
+    /// The start-up index read found no engine published for this platform.
+    #[cfg(feature = "engine")]
+    ProbeNotPublished,
+    /// A later index read found an engine for this platform.
+    #[cfg(feature = "engine")]
+    ProbePublished,
     #[cfg(feature = "engine")]
     Hung { generation: u64 },
     #[cfg(feature = "engine")]
@@ -344,6 +350,25 @@ impl SharedEngine {
                 self.phase = EnginePhase::Disconnected(status);
                 EngineEffect::Wake
             }
+            // Only before anything else looked for the engine: a page that started a connect or
+            // download meanwhile keeps its own outcome.
+            #[cfg(feature = "engine")]
+            EngineEvent::ProbeNotPublished => {
+                if !matches!(self.phase, EnginePhase::Disconnected(EngineStatus::Unchecked)) {
+                    return EngineEffect::None;
+                }
+                self.phase = EnginePhase::Disconnected(EngineStatus::Failed(crate::installer::Fault::NotPublished.into()));
+                EngineEffect::Wake
+            }
+            // Back to unknown, so the next page downloads the engine the index now lists.
+            #[cfg(feature = "engine")]
+            EngineEvent::ProbePublished => {
+                if !matches!(&self.phase, EnginePhase::Disconnected(s) if s.is_not_published()) {
+                    return EngineEffect::None;
+                }
+                self.phase = EnginePhase::Disconnected(EngineStatus::Unchecked);
+                EngineEffect::Wake
+            }
             #[cfg(feature = "engine")]
             EngineEvent::Hung { generation } => {
                 if self.generation != generation {
@@ -413,7 +438,11 @@ pub(crate) enum EngineCaps {
         context_menu: bool,
         partitions: bool,
         remote_proxy: bool,
+        agent_tools: bool,
         preview: bool,
+        permission_sync: bool,
+        frame_authority: bool,
+        cookies: bool,
     },
 }
 
@@ -450,8 +479,20 @@ impl EngineCaps {
         matches!(self, Self::Known { remote_proxy: true, .. })
     }
 
+    pub(crate) fn agent_tools(self) -> bool {
+        matches!(self, Self::Known { agent_tools: true, .. })
+    }
+
     pub(crate) fn preview(self) -> bool {
         matches!(self, Self::Known { preview: true, .. })
+    }
+
+    pub(crate) fn permission_sync(self) -> bool {
+        matches!(self, Self::Known { permission_sync: true, .. })
+    }
+
+    pub(crate) fn frame_authority(self) -> bool {
+        matches!(self, Self::Known { frame_authority: true, .. })
     }
 }
 

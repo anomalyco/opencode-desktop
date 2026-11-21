@@ -24,7 +24,7 @@ default = ["knobs", "office", "stories"]
 office = ["dep:office-preview", "dep:opencode-feature-office"]
 # Standalone storybook modules under `stories/{composer,shell,timeline}/`.
 stories = []
-# The embedded browser's engine. Enabled on macOS, Windows and Linux x86_64 below.
+# The embedded browser's engine. Enabled on macOS, Windows and Linux below.
 browser = ["browser-pane/engine"]
 # Harness builds: the browser engine install's injected faults (OPENCODE_BROWSER_FAULT_DISK_FULL).
 browser-faults = ["browser-pane/faults"]
@@ -38,6 +38,7 @@ knobs = ["rune-knobs/panel"]
 
 [dependencies]
 base64.workspace = true
+url.workspace = true
 browser-policy = { path = "../../crates/browser-policy" }
 office-preview = { path = "../../crates/office-preview", optional = true }
 opencode-code-view = { path = "../../crates/opencode-code-view" }
@@ -88,7 +89,7 @@ rune-luau = { workspace = true, features = ["serde"] }
 mlua.workspace = true
 rune-register.workspace = true
 rune = { workspace = true, features = ["avif"] }
-rune-kit = { workspace = true, features = ["markdown", "mermaid"] }
+rune-kit = { workspace = true, features = ["markdown", "mermaid", "math"] }
 rune-theme-opencode.workspace = true
 serde_json.workspace = true
 serde = { version = "1", features = ["derive"] }
@@ -136,10 +137,8 @@ rune = { workspace = true, features = ["ogg-audio"] }
 libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2"
-
-[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
 browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }
+libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }

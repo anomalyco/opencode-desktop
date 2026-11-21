@@ -18,6 +18,9 @@ use crate::transport::{Link, UnixStream, spawn_and_attach, wire_stream};
 #[cfg(target_os = "macos")]
 static NEXT_RECEIVER_TAG: AtomicU64 = AtomicU64::new(1);
 
+/// How long a running app waits between two reads of an index that publishes nothing for it.
+const PROBE_RECHECK: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
 impl BrowserHost {
     /// Nothing is looked for until a page needs the engine (`EngineStatus::Unchecked`), unless
     /// this build has no engine source, trust rule or binary override at all (`Fault::NotPublished`).
@@ -27,6 +30,52 @@ impl BrowserHost {
         } else {
             EngineStatus::Failed(Fault::NotPublished.into())
         }
+    }
+
+    /// Once at start-up, after the first frame: a build with a source and no engine installed
+    /// reads the source's index on a thread (a few KB, no download), so that a source with no
+    /// engine for this platform is `NotPublished` before the first link is clicked. Only that
+    /// answer changes anything; a network fault leaves the state unknown, and a newly published
+    /// engine is found at the next start.
+    pub fn probe_availability(&self) {
+        if self.status() != EngineStatus::Unchecked || !crate::source::configured() {
+            return;
+        }
+        rune::marks::mark("browser.engine.probe");
+        let (shared, waker) = (self.shared.clone(), self.waker.clone());
+        let spawned = std::thread::Builder::new().name("opencode-browser-probe".into()).spawn(move || {
+            if installer::installed().is_some() {
+                return rune::marks::mark("browser.engine.probe.installed");
+            }
+            rune::marks::mark("browser.engine.probe.index");
+            // While nothing is published the index is read again every hour, so a running app
+            // finds an engine published meanwhile (a stale copy, or a revision this build
+            // rejects, reads as `NotPublished` too). Any other answer ends the watch.
+            loop {
+                let event = match crate::source::latest() {
+                    Err(Fault::NotPublished) => EngineEvent::ProbeNotPublished,
+                    Ok(_) => EngineEvent::ProbePublished,
+                    Err(_) => return,
+                };
+                let not_published = matches!(event, EngineEvent::ProbeNotPublished);
+                if not_published {
+                    rune::marks::mark("browser.engine.probe.not_published");
+                }
+                let mut engine = shared.lock().unwrap_or_else(PoisonError::into_inner);
+                let effect = engine.step(event);
+                let watching = not_published && engine.status().is_not_published();
+                drop(engine);
+                if let (EngineEffect::Wake, Some(wake)) = (effect, waker.as_ref()) {
+                    wake();
+                }
+                if !watching {
+                    return;
+                }
+                std::thread::sleep(PROBE_RECHECK);
+            }
+        });
+        rune::marks::mark("browser.engine.probe.spawned");
+        drop(spawned);
     }
 
     /// Starts (or retries) the engine: connects to this app's running one, starts the installed
@@ -162,6 +211,8 @@ impl BrowserHost {
             waker: self.waker.clone(),
             sock: sock.clone(),
             opens: self.pending_open_msgs(),
+            profile_permissions: self.site_permissions.list().to_vec(),
+            preview_chunk_budget: self.preview_chunk_budget.clone(),
         };
         let prefetch = self.prefetch.clone();
         let spawned = std::thread::Builder::new().name("opencode-browser-connect".into()).spawn(move || {

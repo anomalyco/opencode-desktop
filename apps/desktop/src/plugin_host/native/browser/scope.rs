@@ -61,6 +61,18 @@ impl TabScope {
         }
     }
 
+    pub(super) fn marks_tab_driven(what: &str) -> bool {
+        !matches!(
+            what,
+            "BrowserTab:Close"
+                | "BrowserTab:Show"
+                | "BrowserTab:SetZoom"
+                | "BrowserTab:Find"
+                | "BrowserTab:StopFinding"
+                | "BrowserTab:SetViewport"
+        )
+    }
+
     /// Central enforcement for Luau access to `Browser:*` / `BrowserTab:*`:
     /// - Built-in `browser` plugin UI callbacks outside MCP tool calls (`tool_sid.is_none() &&
     ///   in_flight.is_empty()`) are permitted so the browser pane chrome stays functional.
@@ -114,6 +126,14 @@ impl TabScope {
     /// downloads/navigation/close; `false` for passive metadata reads).
     pub(super) fn check_tab(&self, app: &App, id: u64, mutate: bool) -> Result<(), String> {
         self.check_local_mcp_allowed(app)?;
+        // Third-party plugins may NEVER script, navigate, or attach DevTools to preview/artifact tabs
+        // (`notes/review-rd281.md` PR 2 Blocker #1).
+        if mutate
+            && !self.is_builtin_browser
+            && app.workspace_panes.browser.host.tab(id).is_some_and(|t| t.preview.is_some())
+        {
+            return Err("Third-party plugins cannot control or attach DevTools to preview tabs.".into());
+        }
         let Some(owner) = app.browser_tab_session(id) else {
             if self.tool_sid.is_none() && self.is_builtin_browser && self.in_flight.is_empty() {
                 return Ok(());

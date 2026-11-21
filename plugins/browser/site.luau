@@ -128,11 +128,18 @@ local function connection(url: string): string?
         return "file"
     elseif s == "workspace://" or s == "oc-preview://" then
         return "workspace"
+    elseif s == "artifact://" then
+        return "artifact"
     elseif s == "http://" then
         local name = string.match(host, "^%[[^%]]*%]") or string.match(host, "^[^:]*") or host
         return if address.loopback(name) then "local" else "insecure"
     end
     return nil
+end
+
+function site.isWeb(url: string): boolean
+    local kind = connection(url)
+    return kind ~= nil and kind ~= "file" and kind ~= "workspace" and kind ~= "artifact"
 end
 
 local CONNECTIONS: { [string]: { icon: string, title: string, description: string } } = {
@@ -141,9 +148,10 @@ local CONNECTIONS: { [string]: { icon: string, title: string, description: strin
     ["local"] = { icon = "monitor", title = "site.local", description = "site.local.description" },
     file = { icon = "folder", title = "site.file", description = "site.file.description" },
     workspace = { icon = "folder", title = "preview.workspace", description = "site.file.description" },
+    artifact = { icon = "folder", title = "preview.artifact", description = "preview.artifact.description" },
 }
 
-local BODY = table.freeze({ size = 13, weight = "regular", lineHeight = 20, tracking = -0.04, color = "text-chrome" })
+local BODY = table.freeze({ size = 13, weight = "regular", lineHeight = 20, tracking = -0.04, color = "text-chrome", wrap = true })
 local DETAIL = table.freeze({ size = 11, weight = "regular", lineHeight = 16, tracking = 0.05, color = "text-muted", wrap = true })
 
 local function row(icon: string, title: string, detail: string?, action: ui.Node?): ui.Node
@@ -152,8 +160,8 @@ local function row(icon: string, title: string, detail: string?, action: ui.Node
         table.insert(lines, ui.text(detail, DETAIL :: any))
     end
     local items: { ui.Node } = {
-        ui.row({ h = 20, align = "center" }, { ui.icon(icon :: any, { size = 16, color = "icon-weak" }) }),
-        ui.col({ grow = 1, shrink = true, minW = 0, gap = 2 }, lines),
+        ui.row({ w = 16, h = 20, center = true }, { ui.icon(icon :: any, { size = 16, color = "icon-weak" }) }),
+        ui.col({ grow = 1, shrink = true, minW = 0 }, lines),
     }
     if action then
         table.insert(items, ui.col({ h = "full", justify = "center" }, { action }))
@@ -162,7 +170,7 @@ local function row(icon: string, title: string, detail: string?, action: ui.Node
 end
 
 local function separator(): ui.Node
-    return ui.col({ w = "full", h = 1, my = 2, fill = "border-base", opacity = 0.5 })
+    return ui.col({ w = "full", h = 0.5, my = 2, fill = "border-base" })
 end
 
 export type Env = {
@@ -182,14 +190,16 @@ function site.render(env: Env, view: View, url: string): ui.Node
         shownHost = if rawHost ~= "" then rawHost else url
     end
     local kind = connection(url)
-    local isWeb = kind ~= nil and kind ~= "file" and kind ~= "workspace"
+    local isWeb = site.isWeb(url)
+    local headerIcon: IconName = if isWeb then "outline-globe" else "folder"
 
-    -- View 1: status-first connection overview + "Site settings >" drill-in.
-    if not state.detailed then
+    -- View 1: status-first connection overview + "Site settings >" drill-in (web pages only;
+    -- isolated workspace/artifact previews have no cookies, site data, or site permissions).
+    if not state.detailed or not isWeb then
         local items: { ui.Node } = {
             ui.row({ key = "browser-site-host", w = "full", px = 12, py = 4, gap = 8, align = "start" }, {
-                ui.row({ h = 20, align = "center" }, { ui.icon("outline-globe", { size = 16, color = "icon-weak" }) }),
-                ui.text(shownHost, { dir = "ltr", size = 13, weight = "medium", lineHeight = 20, tracking = -0.04, color = "text-chrome", truncate = true, noWrap = true, grow = 1, shrink = true, minW = 0 }),
+                ui.row({ w = 16, h = 20, center = true }, { ui.icon(headerIcon, { size = 16, color = "icon-weak" }) }),
+                ui.text(shownHost, { dir = "ltr", size = 13, weight = "regular", lineHeight = 20, tracking = -0.04, color = "text-chrome", truncate = true, noWrap = true, grow = 1, shrink = true, minW = 0 }),
             }),
             separator(),
         }
@@ -197,54 +207,58 @@ function site.render(env: Env, view: View, url: string): ui.Node
         if c then
             table.insert(items, row(c.icon, env.I18n:T(c.title), env.I18n:T(c.description), nil))
         end
-        table.insert(items, ui.row({
-            key = "browser-site-settings",
-            role = "button",
-            label = env.I18n:T("site.settings"),
-            w = "full",
-            px = 12,
-            py = 6,
-            gap = 8,
-            radius = 6,
-            align = "center",
-            hover = "surface-hover",
-            press = "surface-press",
-            hoverTransition = "instant",
-            onPress = view:Handler(function()
-                env.dispatch({ type = "details", shown = true })
-            end),
-        }, {
-            ui.icon("outline-sliders", { size = 16, color = "icon-weak" }),
-            ui.text(env.I18n:T("site.settings"), BODY :: any, { grow = 1, shrink = true, minW = 0 }),
-            ui.icon("chevron-right", { size = 14, color = "icon-weak" }),
-        }))
+        if isWeb then
+            table.insert(items, ui.row({ w = "full", px = 4 }, {
+                ui.row({
+                    key = "browser-site-settings",
+                    role = "button",
+                    label = env.I18n:T("site.settings"),
+                    w = "full",
+                    px = 8,
+                    py = 4,
+                    gap = 8,
+                    radius = 4,
+                    align = "center",
+                    hover = "surface-hover",
+                    press = "surface-press",
+                    hoverTransition = "instant",
+                    onPress = view:Handler(function()
+                        env.dispatch({ type = "details", shown = true })
+                    end),
+                }, {
+                    ui.row({ w = 16, h = 20, center = true }, { ui.icon("outline-sliders", { size = 16, color = "icon-weak" }) }),
+                    ui.text(env.I18n:T("site.settings"), BODY :: any, { grow = 1, shrink = true, minW = 0 }),
+                    ui.icon("chevron-right", { size = 14, color = "icon-weak" }),
+                }),
+            }))
+        end
         return ui.col({
             key = "browser-site-card",
-            w = 312,
-            py = 8,
-            gap = 4,
+            w = 261,
+            py = 4,
+            gap = 2,
             radius = 8,
             fill = "surface-1",
-            border = "border-base",
-            borderWidth = 0.5,
             shadow = "floating",
         }, items)
     end
 
     -- View 2: "Site settings" — Cookies, Saved files (when engine supports cache clear), Permissions, Agent, Network.
     local items: { ui.Node } = {
-        ui.row({ key = "browser-site-details-header", w = "full", px = 8, py = 4, gap = 8, align = "center" }, {
-            ui.iconButton({
-                key = "browser-site-back",
-                icon = "outline-arrow-left",
-                variant = "ghost-muted",
-                size = "small",
-                label = env.I18n:T("site.back"),
-                onPress = view:Handler(function()
-                    env.dispatch({ type = "details", shown = false })
-                end),
+        ui.row({ key = "browser-site-details-header", w = "full", px = 12, py = 4, gap = 8, align = "center" }, {
+            ui.row({ w = 16, h = 20, center = true }, {
+                ui.iconButton({
+                    key = "browser-site-back",
+                    icon = "outline-arrow-left",
+                    variant = "ghost-muted",
+                    size = "small",
+                    label = env.I18n:T("site.back"),
+                    onPress = view:Handler(function()
+                        env.dispatch({ type = "details", shown = false })
+                    end),
+                }),
             }),
-            ui.text(env.I18n:T("site.settings"), BODY :: any, { weight = "medium" }),
+            ui.text(env.I18n:T("site.settings"), BODY :: any, { noWrap = true }),
             ui.text(shownHost, { dir = "ltr", size = 11, weight = "regular", lineHeight = 16, color = "text-muted", truncate = true, noWrap = true, grow = 1, shrink = true, minW = 0, textAlign = "end" }),
         }),
         separator(),
@@ -295,13 +309,11 @@ function site.render(env: Env, view: View, url: string): ui.Node
     end
     return ui.col({
         key = "browser-site-card",
-        w = 312,
-        py = 8,
-        gap = 4,
+        w = 261,
+        py = 4,
+        gap = 2,
         radius = 8,
         fill = "surface-1",
-        border = "border-base",
-        borderWidth = 0.5,
         shadow = "floating",
     }, items)
 end

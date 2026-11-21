@@ -59,6 +59,8 @@ impl FindState {
                 if !final_update {
                     return false;
                 }
+                // Match official `find-bar.tsx`: when matches exist, highlight ordinal 1 instead of 0.
+                let active = if total > 0 && active == 0 { 1 } else { active };
                 Self::Found { query: query.clone(), active, total }
             }
             (_, FindEvent::DocumentChanged) => Self::Editing { query: self.query().to_owned() },
@@ -103,6 +105,91 @@ impl crate::BrowserHost {
 
     pub fn engine_remote_proxy(&self) -> bool {
         self.caps.remote_proxy()
+    }
+
+    pub fn engine_agent_tools(&self) -> bool {
+        self.caps.agent_tools()
+    }
+
+    pub fn engine_frame_authority(&self) -> bool {
+        self.caps.frame_authority()
+    }
+
+    /// Whether `tab_id` has been sent to a connected engine (`OpenTab` already flushed).
+    pub fn tab_open_in_engine(&self, tab_id: u64) -> bool {
+        self.is_connected()
+            && self.tabs.iter().any(|t| t.id == tab_id)
+            && !self.pending_opens.iter().any(|(id, _)| *id == tab_id)
+    }
+
+    /// Discards any buffered or future CDP response for `request_id` so cancelled commands never
+    /// leak orphaned entries in `cdp_responses`.
+    pub fn cancel_cdp(&mut self, request_id: u64) {
+        self.cdp_responses.remove(&request_id);
+        if let Some(pos) = self.cdp_response_order.iter().position(|&id| id == request_id) {
+            self.cdp_response_order.remove(pos);
+        }
+        if self.cancelled_cdp.len() >= 1_024 {
+            self.cancelled_cdp.pop_front();
+        }
+        self.cancelled_cdp.push_back(request_id);
+    }
+
+    pub fn has_cdp_events(&self) -> bool {
+        !self.cdp_events.is_empty()
+    }
+
+    pub fn drain_cdp_events(&mut self) -> impl Iterator<Item = crate::client::CdpEvent> + '_ {
+        self.cdp_events.drain(..)
+    }
+
+    /// Sends a typed CDP call allowed by [`crate::policy::check_typed_cdp`] exclusively for native
+    /// Rust `experimental.browser` executors (never exposed to untrusted Luau plugins). Falls back
+    /// to `HostMsg::CdpCall` for methods already permitted by `check_cdp`.
+    pub fn send_typed_cdp(
+        &mut self,
+        tab_id: u64,
+        method: impl Into<String>,
+        params: serde_json::Value,
+        session_id: Option<String>,
+    ) -> Result<u64, String> {
+        self.send_typed_cdp_in_frame(tab_id, method, params, session_id, None)
+    }
+
+    /// As [`Self::send_typed_cdp`], naming the frame an element ref came from (`frame_id`), which
+    /// the engine checks before the call and again on its reply.
+    pub fn send_typed_cdp_in_frame(
+        &mut self,
+        tab_id: u64,
+        method: impl Into<String>,
+        params: serde_json::Value,
+        session_id: Option<String>,
+        frame_id: Option<String>,
+    ) -> Result<u64, String> {
+        let method = method.into();
+        crate::policy::check_typed_cdp(&method, &params, self.engine_policy())?;
+        let request_id = self.next_req_id;
+        self.next_req_id += 1;
+        if self.engine_agent_tools() {
+            self.send(crate::protocol::HostMsg::TypedCdpCall {
+                tab_id,
+                request_id,
+                method,
+                params,
+                session_id,
+                frame_id,
+            });
+            return Ok(request_id);
+        }
+        crate::policy::check_cdp(&method, &params, self.engine_policy())?;
+        self.send(crate::protocol::HostMsg::CdpCall {
+            tab_id,
+            request_id,
+            method,
+            params,
+            session_id,
+        });
+        Ok(request_id)
     }
 
     /// Returns the currently registered loopback tunnel proxy for `server_id`, if any.
@@ -220,8 +307,9 @@ impl crate::BrowserHost {
         height_pt: f32,
         scale: f32,
         focused: bool,
-        file_roots: Vec<String>,
+        _file_roots: Vec<String>,
         context: crate::protocol::ContextKind,
+        preview: Option<crate::protocol::PreviewSpec>,
         agent_driven: bool,
     ) {
         self.send(crate::protocol::HostMsg::OpenTab {
@@ -231,9 +319,9 @@ impl crate::BrowserHost {
             height_pt,
             scale,
             focused,
-            file_roots,
+            file_roots: Vec::new(),
             context,
-            preview: None,
+            preview,
             agent_driven,
         });
         if agent_driven {
@@ -242,7 +330,7 @@ impl crate::BrowserHost {
     }
 
     /// What `flush_pending_opens` would send for the tabs that wait now, for a connect to send
-    /// itself. `file:` and isolated/remote tabs wait for `Ready` so an older engine never opens one.
+    /// itself. `file:` and isolated/remote/preview tabs wait for `Ready` so an older engine never opens one.
     #[cfg_attr(not(feature = "engine"), allow(dead_code))]
     pub(crate) fn pending_open_msgs(&self) -> Vec<(u64, crate::protocol::HostMsg)> {
         let focused = self.focused_tab;
@@ -250,16 +338,16 @@ impl crate::BrowserHost {
             .iter()
             .filter(|(tab_id, url)| {
                 !crate::policy::is_file_scheme(url)
-                    && self.tabs.iter().any(|t| t.id == *tab_id && t.context.is_default())
+                    && self.tabs.iter().any(|t| t.id == *tab_id && t.context.is_default() && t.preview_spec.is_none())
             })
             .cloned()
             .map(|(tab_id, url)| {
-                let (((width_pt, height_pt), scale), file_roots, agent_driven) = self
+                let (((width_pt, height_pt), scale), agent_driven) = self
                     .tabs
                     .iter()
                     .find(|t| t.id == tab_id)
-                    .map_or((((800.0, 600.0), 2.0), Vec::new(), false), |t| {
-                        ((t.viewport_pt, t.scale), t.file_roots.clone(), t.prompts.agent_driven)
+                    .map_or((((800.0, 600.0), 2.0), false), |t| {
+                        ((t.viewport_pt, t.scale), t.prompts.agent_driven)
                     });
                 (
                     tab_id,
@@ -270,7 +358,7 @@ impl crate::BrowserHost {
                         height_pt,
                         scale,
                         focused: focused == Some(tab_id),
-                        file_roots,
+                        file_roots: Vec::new(),
                         context: crate::protocol::ContextKind::Default,
                         preview: None,
                         agent_driven,
@@ -283,7 +371,8 @@ impl crate::BrowserHost {
     /// Closes connections and releases a non-default preview or remote server context in the engine.
     pub fn drop_context(&mut self, context: crate::protocol::ContextKind) {
         if let crate::protocol::ContextKind::RemoteServer { server_id, .. } = &context {
-            self.remote_proxies.remove(server_id.trim());
+            let sid = server_id.trim();
+            self.remote_proxies.remove(sid);
         }
         if !context.is_default() {
             self.send(crate::protocol::HostMsg::DropContext { context });
@@ -346,7 +435,17 @@ impl crate::BrowserHost {
     }
 
     /// Starts or advances an in-page text search (`FindHandler`).
-    pub fn find(&mut self, tab_id: u64, query: &str, forward: bool, match_case: bool, find_next: bool) {
+    /// `user_initiated` MUST be `true` ONLY when triggered directly by the user via the bundled
+    /// built-in browser find bar (`Half::is_builtin("browser") && tool_sid.is_none()`).
+    pub fn find(
+        &mut self,
+        tab_id: u64,
+        query: &str,
+        forward: bool,
+        match_case: bool,
+        find_next: bool,
+        user_initiated: bool,
+    ) {
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
             t.find.step(FindEvent::Open);
             if t.find.query() != query {
@@ -362,6 +461,7 @@ impl crate::BrowserHost {
             forward,
             match_case,
             find_next,
+            user_initiated,
         });
     }
 
@@ -409,4 +509,121 @@ impl crate::BrowserHost {
     pub fn drain_diagnostics(&mut self) -> impl Iterator<Item = PageDiagnostic> + '_ {
         self.diagnostics.drain(..)
     }
+
+    pub fn has_download_save_requests(&self) -> bool {
+        !self.download_save_requests.is_empty()
+    }
+
+    pub fn pop_download_save_request(&mut self) -> Option<crate::protocol::DownloadSaveRequest> {
+        self.download_save_requests.pop_front()
+    }
+
+    pub fn answer_download_save(&mut self, tab_id: u64, id: u64, path: Option<String>) {
+        self.send(crate::protocol::HostMsg::AnswerDownloadSave { tab_id, id, path });
+    }
+
+    /// Cancels and removes all queued human Save dialogs belonging to `tab_id`.
+    pub(crate) fn cancel_download_save_requests(&mut self, tab_id: u64) {
+        let mut cancel_ids = Vec::new();
+        self.download_save_requests.retain(|r| {
+            if r.tab_id == tab_id {
+                cancel_ids.push(r.id);
+                false
+            } else {
+                true
+            }
+        });
+        for req_id in cancel_ids {
+            self.send(crate::protocol::HostMsg::AnswerDownloadSave {
+                tab_id,
+                id: req_id,
+                path: None,
+            });
+        }
+    }
+
+    /// Confines agent-readable downloads to the exact per-context staging root owned by this app:
+    /// - `Default` tabs: `<profile>/opencode-page-downloads/<tab_id>/<file_id>/<file>` (or throwaway
+    ///   `<profile>-throwaway/pid-*/opencode-page-downloads/<tab_id>/<file_id>/<file>`).
+    /// - Isolated (`RemoteServer` / `Private`) tabs:
+    ///   `<profile>-isolated-downloads/pid-<digits>/<tab_id>/<file_id>/<file>` (strictly off `<profile>`).
+    /// Rejects non-`agent_driven` tabs, `Preview`/`Artifact` tabs, symlinks/reparse points, and
+    /// any path outside the tab's own context staging directory.
+    pub fn download_path(
+        &self,
+        tab_id: u64,
+        file: &crate::protocol::DownloadFile,
+    ) -> Option<std::path::PathBuf> {
+        #[cfg(feature = "engine")]
+        {
+            const DOWNLOADS_DIR: &str = "opencode-page-downloads";
+            let tab = self.tabs.iter().find(|t| t.id == tab_id)?;
+            if !tab.prompts.agent_driven
+                || tab.preview.is_some()
+                || matches!(
+                    tab.context,
+                    crate::protocol::ContextKind::Preview { .. }
+                        | crate::protocol::ContextKind::Artifact { .. }
+                )
+            {
+                return None;
+            }
+            let lmeta = std::fs::symlink_metadata(&file.path).ok()?;
+            if !lmeta.is_file() || is_reparse_or_symlink(&lmeta) {
+                return None;
+            }
+            let profile = std::fs::canonicalize(crate::profile::for_spawn(self.profile_dir.as_deref())?).ok()?;
+            let path = std::fs::canonicalize(&file.path).ok()?;
+            let folder = path.parent()?;
+            let tab_dir = folder.parent()?;
+            let dir = tab_dir.parent()?;
+            let root = dir.parent()?;
+            if folder.file_name()? != file.id.as_str()
+                || tab_dir.file_name()? != tab_id.to_string().as_str()
+                || !path.is_file()
+            {
+                return None;
+            }
+            let profile_name = profile.file_name()?.to_string_lossy();
+            let ours = if tab.context.is_isolated() {
+                let iso_name = format!("{profile_name}-isolated-downloads");
+                let is_pid = dir
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .and_then(|n| n.strip_prefix("pid-"))
+                    .is_some_and(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
+                is_pid
+                    && root.file_name().map(|n| n.to_string_lossy()) == Some(iso_name.into())
+                    && root.parent() == profile.parent()
+            } else {
+                let throwaway = format!("{profile_name}-throwaway");
+                dir.file_name()? == DOWNLOADS_DIR
+                    && (root == profile
+                        || (root.parent().and_then(|p| p.file_name()).map(|n| n.to_string_lossy())
+                            == Some(throwaway.into())
+                            && root.parent()?.parent() == profile.parent()))
+            };
+            ours.then_some(path)
+        }
+        #[cfg(not(feature = "engine"))]
+        {
+            let _ = (tab_id, file);
+            None
+        }
+    }
+}
+
+#[cfg(feature = "engine")]
+fn is_reparse_or_symlink(meta: &std::fs::Metadata) -> bool {
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt as _;
+        if (meta.file_attributes() & 0x0400) != 0 {
+            return true;
+        }
+    }
+    false
 }

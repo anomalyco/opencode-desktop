@@ -65,7 +65,9 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
                 ("message", Data::Nil),
                 ("downloads", Data::Bool(false)),
                 ("policy", Data::Bool(false)),
+                ("preview", Data::Bool(false)),
                 ("find", Data::Bool(false)),
+                ("cookies", Data::Bool(false)),
                 ("clearCache", Data::Bool(false)),
                 ("hardReload", Data::Bool(false)),
             ]),
@@ -143,7 +145,7 @@ pub fn version(app: &App) -> u64 {
     h.finish()
 }
 
-pub fn pages(_: &App) -> Vec<(String, u64)> {
+pub fn pages(_: &App, _include_find: bool) -> Vec<(String, u64)> {
     Vec::new()
 }
 

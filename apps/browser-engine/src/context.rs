@@ -155,6 +155,15 @@ pub fn proxy_matches_challenge(
 /// Applies full privacy/network lockdown (and mandatory `fixed_servers` + `<-loopback>` proxy for
 /// `RemoteServer` contexts) AND reads every required preference back via `ctx.preference(...)` to
 /// verify the written values actually took effect. Never falls back to `mode: "direct"`.
+/// Disables non-proxied UDP WebRTC ICE host gathering on `ctx` (used on the global `Default`
+/// context alongside `--disable-features=MediaRouter,DialMediaRouteProvider,CastMediaRouteProvider,WebRtcHideLocalIpsWithMdns`
+/// so `NetworkService` opens zero non-loopback UDP listeners and exposes zero local LAN IPs).
+pub fn disable_non_proxied_udp(ctx: &RequestContext) {
+    let _ = set_and_verify_string_pref(ctx, "webrtc.ip_handling_policy", "disable_non_proxied_udp");
+    let _ = set_optional_bool_pref(ctx, "webrtc.multiple_routes_enabled", false);
+    let _ = set_optional_bool_pref(ctx, "webrtc.nonproxied_udp_enabled", false);
+}
+
 fn apply_context_prefs(
     ctx: &RequestContext,
     proxy: Option<&RemoteProxyConfig>,
@@ -187,6 +196,10 @@ fn apply_context_prefs(
     ok &= set_optional_bool_pref(ctx, "webrtc.nonproxied_udp_enabled", false);
     ok &= set_optional_string_pref(ctx, "dns_over_https.mode", "off");
     ok &= set_optional_bool_pref(ctx, "dns_prefetching.enabled", false);
+    // Lock all 7 hardware-device and File System Access guards to `BLOCK` (2) on isolated contexts.
+    for pref in crate::permissions::DEVICE_GUARD_PREFS {
+        ok &= set_optional_int_pref(ctx, pref, 2);
+    }
     ok
 }
 
@@ -275,6 +288,14 @@ fn set_optional_bool_pref(ctx: &RequestContext, name: &str, value: bool) -> bool
         return true;
     }
     set_and_verify_bool_pref(ctx, name, value)
+}
+
+fn set_optional_int_pref(ctx: &RequestContext, name: &str, value: i32) -> bool {
+    let key = CefString::from(name);
+    if ctx.has_preference(Some(&key)) == 0 || ctx.can_set_preference(Some(&key)) == 0 {
+        return true;
+    }
+    set_and_verify_int_pref(ctx, name, value)
 }
 
 /// Outcome produced once a deferred context finishes `on_request_context_initialized`.
@@ -411,9 +432,11 @@ wrap_request_context_handler! {
                 .is_some_and(|ctx| apply_context_prefs(ctx, proxy.as_ref(), self.require_proxy));
             if applied
                 && let Some(ctx) = request_context.as_deref()
-                && let Some(hook) = self.on_initialized.lock().unwrap().take()
             {
-                hook(ctx);
+                crate::preview::handler::ban_file_scheme(ctx);
+                if let Some(hook) = self.on_initialized.lock().unwrap().take() {
+                    hook(ctx);
+                }
             }
             let is_suspended = self.suspended.load(Ordering::Acquire);
             self.prefs_ok.store(applied, Ordering::Release);
@@ -1050,13 +1073,12 @@ impl ContextPool {
     /// Releases `tab_id` from its pooled context and prunes any queued `ready_loads` for `tab_id`.
     /// When the context's last tab closes, removes the entry immediately, clears scheme factories,
     /// closes connections, wipes in-memory cookies, and drops the `CefRequestContext` handle.
-    pub fn release_tab(&mut self, tab_id: u64) {
+    /// Returns the torn-down `ContextKey` if the last tab closed (for the remote cookie mirror).
+    pub fn release_tab(&mut self, tab_id: u64) -> Option<ContextKey> {
         self.default_tabs.remove(&tab_id);
         self.clear_pending_load(tab_id);
         self.tab_gens.remove(&tab_id);
-        let Some(key) = self.tab_keys.remove(&tab_id) else {
-            return;
-        };
+        let key = self.tab_keys.remove(&tab_id)?;
         let empty = if let Some(entry) = self.entries.get_mut(&key) {
             entry.tabs.remove(&tab_id);
             entry.deferred_loads.lock().unwrap().retain(|(id, _, _)| *id != tab_id);
@@ -1066,7 +1088,9 @@ impl ContextPool {
         };
         if empty && let Some(entry) = self.entries.remove(&key) {
             entry.teardown();
+            return Some(key);
         }
+        None
     }
 
     /// Tears down every pooled isolated context on engine shutdown.
@@ -1199,7 +1223,6 @@ impl ContextPool {
     }
 
     /// Returns the live `RequestContext` for a remote server identity (for Phase 3b cookie mirror).
-    #[allow(dead_code)]
     pub fn remote_context(&self, server_id: &str) -> Option<RequestContext> {
         self.entries
             .get(&ContextKey::RemoteServer(server_id.trim().to_owned()))
@@ -1207,7 +1230,6 @@ impl ContextPool {
     }
 
     /// Returns all active remote server partitions and their `RequestContext`s.
-    #[allow(dead_code)]
     pub fn remote_partitions(&self) -> Vec<(String, RequestContext)> {
         self.entries
             .iter()

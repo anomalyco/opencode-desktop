@@ -191,11 +191,15 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
     widthEd.FocusChanged:Connect(function(focused: boolean)
         if not focused then
             onBlur()
+        else
+            refresh()
         end
     end)
     heightEd.FocusChanged:Connect(function(focused: boolean)
         if not focused then
             onBlur()
+        else
+            refresh()
         end
     end)
 
@@ -244,23 +248,23 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
         refresh()
     end
 
-    local function checkRow(view: View, key: string, title: string, checked: boolean, press: () -> ()): ui.Node
+    local function checkRow(view: View, key: string, title: string, checked: boolean, press: () -> (), rowH: number?, rowRadius: number?): ui.Node
         local children: { ui.Node } = {
             ui.text(title, ROW_TEXT, { color = "text-chrome", grow = 1, shrink = true, minW = 0, truncate = true }),
         }
         if checked then
-            table.insert(children, ui.icon("check", { size = 14, color = "icon-weak" }))
+            table.insert(children, ui.icon("check", { size = 14, color = "icon-base" }))
         end
         return ui.row({
             key = key,
             role = "radio",
             label = title,
             w = "full",
-            h = 28,
+            h = rowH or 28,
             pl = 10,
             pr = 8,
             gap = 8,
-            radius = 4,
+            radius = rowRadius or 4,
             align = "center",
             hover = "surface-hover",
             press = "surface-press",
@@ -271,7 +275,7 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
         }, children)
     end
 
-    -- Preset dropdown popover (`viewport-preset-menu.tsx`).
+    -- Preset dropdown popover (`viewport-preset-menu.tsx`, `bar.css:337-363`).
     ctx:AddPopover({
         id = "viewport-preset",
         title = t("preset"),
@@ -282,36 +286,38 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
             local items: { ui.Node } = {
                 checkRow(view, "vp-auto", t("responsive"), selected == nil, function()
                     selectPreset(tabId, nil)
-                end),
+                end, 30, 5),
             }
             if selected == "custom" then
                 table.insert(items, checkRow(view, "vp-custom", t("custom"), true, function()
                     popover:Close()
-                end))
+                end, 30, 5))
             end
             for _, p in QUICK_PRESETS do
                 table.insert(items, checkRow(view, `vp-{p.id}`, t(`device.{p.id}`), selected == p.id, function()
                     selectPreset(tabId, p.id)
-                end))
+                end, 30, 5))
             end
-            table.insert(items, ui.col({ w = "full", h = 1, my = 4, fill = "border-weak", opacity = 0.5 }))
+            table.insert(items, ui.col({ w = "full", h = 1, my = 4, fill = "border-muted" }))
             table.insert(items, ui.flyoutRow({
                 key = "vp-more-devices",
                 text = t("moreDevices"),
                 popover = "viewport-more-devices",
                 side = "right",
+                h = 30,
+                pl = 10,
+                pr = 8,
+                radius = 5,
                 props = data,
             }))
             return ui.col({
                 key = "browser-viewport-preset-menu",
                 role = "list",
                 label = t("preset"),
-                minW = 196,
+                w = 224,
                 pad = 4,
-                radius = 8,
-                fill = "surface-1",
-                border = "border-base",
-                borderWidth = 0.5,
+                radius = 10,
+                fill = "bg-base",
                 shadow = "floating",
             }, items)
         end,
@@ -328,26 +334,24 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
             for _, p in MORE_DEVICES do
                 table.insert(items, checkRow(view, `vp-{p.id}`, t(`device.{p.id}`), selected == p.id, function()
                     selectPreset(tabId, p.id)
-                end))
+                end, 30, 5))
             end
             return ui.col({
                 key = "browser-viewport-more-menu",
                 role = "list",
                 label = t("moreDevices"),
-                minW = 200,
+                minW = 224,
                 maxH = 360,
                 scrollY = true,
                 pad = 4,
-                radius = 8,
-                fill = "surface-1",
-                border = "border-base",
-                borderWidth = 0.5,
+                radius = 10,
+                fill = "bg-base",
                 shadow = "floating",
             }, items)
         end,
     })
 
-    -- Scale dropdown popover (`viewport-controls.tsx:112-146`).
+    -- Scale dropdown popover (`viewport-controls.tsx:112-146`, `bar.css:327-335`).
     ctx:AddPopover({
         id = "viewport-scale",
         title = t("scale"),
@@ -361,7 +365,7 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
                 checkRow(view, "vp-scale-fit", t("fit"), currentScale == nil, function()
                     selectScale(tabId, nil, autoW, autoH)
                 end),
-                ui.col({ w = "full", h = 1, my = 4, fill = "border-weak", opacity = 0.5 }),
+                ui.col({ w = "full", h = 1, my = 4, fill = "border-muted" }),
             }
             for _, factor in SCALES do
                 local pct = i18n:T("zoom.percent", { percent = math.floor(factor * 100 + 0.5) })
@@ -376,10 +380,8 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
                 label = t("scale"),
                 w = 162,
                 pad = 4,
-                radius = 8,
+                radius = 9,
                 fill = "surface-1",
-                border = "border-base",
-                borderWidth = 0.5,
                 shadow = "floating",
             }, items)
         end,
@@ -401,8 +403,9 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
         end
         local zoomed = math.abs(tab:Zoom() - 1) > 0.001
         local d = tab:Viewport()
-        local areaW = math.max(1, math.floor(props.width))
-        local areaH = math.max(1, math.floor(props.height - 80))
+        -- Reserve the 14 pt right and bottom resize-handle gutters (`bar.css:195-204`).
+        local areaW = math.max(1, math.floor(props.width - 14))
+        local areaH = math.max(1, math.floor(props.height - 80 - 14))
         local wNum = if d then d.width else areaW
         local hNum = if d then d.height else areaH
         local wStr = if draftTab == tab.Id and draftW ~= nil then draftW else tostring(wNum)
@@ -420,13 +423,14 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
 
         local selected: string? = if d then (d.preset or "custom") else nil
         local presetLabel = if selected == "custom" then t("custom") elseif selected then t(`device.{selected}`) else t("responsive")
-        local eff = effectiveScale(d, props.width, props.height - 80)
+        local eff = effectiveScale(d, props.width - 14, props.height - 80 - 14)
         local scalePct = math.floor(eff * 100 + 0.5)
         local scaleLabel = if d and d.scale ~= nil
             then i18n:T("zoom.percent", { percent = math.floor(d.scale * 100 + 0.5) })
             elseif eff < 0.01 then t("fitBelowOne")
             else t("fitPercent", { percent = scalePct })
 
+        local presetOpen = popover:IsOpen("viewport-preset")
         local presetBtn = ui.row({
             key = "browser-device-preset",
             role = "button",
@@ -438,7 +442,8 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
             gap = 4,
             radius = 4,
             align = "center",
-            hover = if not zoomed then "surface-hover" else nil,
+            fill = if presetOpen then "surface-press" else nil,
+            hover = if not zoomed and not presetOpen then "surface-hover" else nil,
             press = if not zoomed then "surface-press" else nil,
             hoverTransition = "instant",
             opacity = if zoomed then 0.5 else nil,
@@ -457,6 +462,7 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
             ui.icon("viewport-chevron", { size = 16, color = "icon-weak" }),
         })
 
+        local scaleOpen = popover:IsOpen("viewport-scale")
         local scaleBtn = ui.row({
             key = "browser-device-scale",
             role = "button",
@@ -468,7 +474,8 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
             gap = 4,
             radius = 4,
             align = "center",
-            hover = if not zoomed then "surface-hover" else nil,
+            fill = if scaleOpen then "surface-press" else nil,
+            hover = if not zoomed and not scaleOpen then "surface-hover" else nil,
             press = if not zoomed then "surface-press" else nil,
             hoverTransition = "instant",
             opacity = if zoomed then 0.5 else nil,
@@ -483,7 +490,7 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
                 })
             end) else nil,
         }, {
-            ui.text(scaleLabel, { size = 13, weight = "regular", lineHeight = 16, tabular = true, noWrap = true, color = "text-muted" }),
+            ui.text(scaleLabel, { size = 13, weight = "regular", lineHeight = 16, tabular = true, noWrap = true, color = "text-faint" }),
             ui.icon("viewport-chevron", { size = 16, color = "icon-weak" }),
         })
 
@@ -509,31 +516,58 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
             end) else nil,
         })
 
+        local function dimBox(key: string, ed: Editor, val: string, isInvalid: boolean, ariaLabel: string): ui.Node
+            local editing = ed:Focused() and not zoomed
+            local body: ui.Node = if editing
+                then ui.field({
+                    key = `{key}-input`,
+                    editor = ed,
+                    variant = "bare",
+                    dir = "ltr",
+                    disabled = zoomed,
+                    label = ariaLabel,
+                    grow = 1,
+                })
+                else ui.text(val, {
+                    size = 13,
+                    weight = "regular",
+                    lineHeight = 16,
+                    tabular = true,
+                    noWrap = true,
+                    color = if isInvalid and not zoomed then "status-danger" else "text-chrome",
+                })
+            return ui.row({
+                key = key,
+                role = "textbox",
+                label = ariaLabel,
+                dir = "ltr",
+                w = 50,
+                h = 24,
+                px = if editing then 6 else 4,
+                radius = 4,
+                center = not editing,
+                align = "center",
+                fill = "surface-1",
+                border = if isInvalid and not zoomed
+                    then "status-danger"
+                    elseif editing then "border-focus"
+                    else "border-base",
+                borderWidth = if editing then 1 else 0.5,
+                opacity = if zoomed then 0.5 else nil,
+                onPress = if not zoomed and not editing then view:Handler(function()
+                    ed:Focus()
+                    refresh()
+                end) else nil,
+            }, { body })
+        end
+
         local dimGroup = ui.row({ role = "group", label = t("dimensions"), gap = 6, align = "center" }, {
-            ui.field({
-                key = "browser-viewport-width",
-                editor = widthEd,
-                size = "small",
-                dir = "ltr",
-                w = 50,
-                disabled = zoomed,
-                invalid = invalidW,
-                label = t("width"),
-            }),
+            dimBox("browser-viewport-width", widthEd, wStr, invalidW, t("width")),
             ui.text("×", { size = 13, color = "text-faint", noWrap = true }),
-            ui.field({
-                key = "browser-viewport-height",
-                editor = heightEd,
-                size = "small",
-                dir = "ltr",
-                w = 50,
-                disabled = zoomed,
-                invalid = invalidH,
-                label = t("height"),
-            }),
+            dimBox("browser-viewport-height", heightEd, hStr, invalidH, t("height")),
         })
 
-        local controlsRow = ui.row({ w = "full", minH = 36, px = 8, py = 5, gap = 12, align = "center", justify = "center", wrap = true }, {
+        local controlsRow = ui.row({ w = "full", minH = 35, px = 6, py = 5, gap = 12, align = "center", justify = "center", wrap = true }, {
             presetBtn,
             dimGroup,
             ui.row({ gap = 6, align = "center" }, { scaleBtn, rotateBtn }),
@@ -554,14 +588,14 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
                 }),
             }))
         elseif invalid then
-            table.insert(rows, ui.row({ key = "browser-viewport-invalid", role = "status", w = "full", px = 12, pb = 6, align = "center", justify = "center" }, {
+            table.insert(rows, ui.row({ key = "browser-viewport-invalid", role = "status", w = "full", px = 12, pb = 6, gap = 8, align = "center", justify = "center" }, {
                 ui.text(t("invalid"), { size = 12, lineHeight = 16, color = "status-danger" }),
             }))
         end
 
         return ui.col({ key = "browser-device-toolbar", role = "region", label = t("label"), w = "full", fill = "bg-base" }, {
             ui.col({ w = "full" }, rows),
-            ui.col({ w = "full", h = 1, fill = "border-weak", opacity = 0.5 }),
+            ui.col({ w = "full", h = 1, fill = "border-weak" }),
         })
     end
 

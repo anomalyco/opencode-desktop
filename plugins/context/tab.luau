@@ -103,7 +103,8 @@ local RAW_ROW = table.freeze({
     role = "button",
     w = "full",
     h = 32,
-    px = 12,
+    -- `accordion-trigger` (`accordion.css:35-46`): 1 pt border + 12 pt inline padding = 13 pt inset.
+    px = 13,
     gap = 8,
     align = "center",
     border = "border-base",
@@ -160,7 +161,7 @@ local RAW_TIME = table.freeze({
     noWrap = true,
     ml = 8,
 } :: UiTextProps)
-local RAW_CHEVRON = table.freeze({ size = 14, color = "text-weak", ml = 4 } :: UiIconProps)
+local RAW_CHEVRON = table.freeze({ size = 16, color = "text-weak", ml = 4 } :: UiIconProps)
 local RAW_JSON = table.freeze({
     size = 12,
     weight = "regular" :: FontWeight,

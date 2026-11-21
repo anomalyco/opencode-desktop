@@ -57,8 +57,18 @@ pub fn pin_root(workspace: &str, home: Option<&str>) -> Option<RootPin> {
     if !browser_policy::is_safe_workspace_root(workspace, home) {
         return None;
     }
-    let pin = os::pin_dir(Path::new(workspace))?;
+    // Resolve local symlinks/junctions via reparse metadata / `openat(O_NOFOLLOW)` BEFORE calling
+    // `os::pin_dir` so an alias targeting UNC (`\\server\share`) or Unix autofs (`/net/...`) is
+    // refused with zero network touch.
+    let verified = browser_policy::resolve_local_root(workspace).ok()?;
+    let pin = os::pin_dir(Path::new(&verified.path))?;
     if !browser_policy::is_safe_workspace_root(&pin.canonical_path, home) {
+        return None;
+    }
+    if let Some(h) = home
+        && let Some(canon_home) = browser_policy::resolve_local_home(h)
+        && !browser_policy::is_safe_workspace_root(&pin.canonical_path, Some(&canon_home))
+    {
         return None;
     }
     Some(pin)
@@ -428,6 +438,10 @@ mod os {
             return Err(OpenErr::Denied);
         }
         let is_cloud = verify_reparse_tag(handle, info.dwFileAttributes)?;
+        let pre_size = ((info.nFileSizeHigh as u64) << 32) | (info.nFileSizeLow as u64);
+        if pre_size > super::MAX_PREVIEW_FILE_BYTES {
+            return Err(OpenErr::Denied);
+        }
         if is_cloud {
             // Re-open Cloud Filter placeholder relative to the same verified `cur_dir` WITHOUT
             // `FILE_OPEN_REPARSE_POINT` so `cldflt.sys` hydrates its bytes, then re-verify handle.

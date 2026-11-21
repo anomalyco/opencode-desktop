@@ -105,6 +105,8 @@ function failure.refusalKey(code: string): string
         return "refused.workspace"
     elseif code == "browser.preview.restricted" then
         return "preview.restricted"
+    elseif code == "browser.preview.unsupported" then
+        return "preview.unsupported"
     elseif code == "browser.proxy.required" then
         return "refused.proxyRequired"
     elseif code == "browser.proxy.invalid" then
@@ -203,7 +205,7 @@ function failure.renderBar(view: View, i18n: I18nService, key: string, words: st
     }))
     return ui.col({ key = key, w = "full" }, {
         ui.row({ dir = "auto", w = "full", px = 12, py = 8, gap = 12, align = "center", fill = "surface-1" }, rowItems),
-        ui.col({ w = "full", h = 1, fill = "border-weak", opacity = 0.5 }),
+        ui.col({ w = "full", h = 1, fill = "border-weak" }),
     })
 end
 

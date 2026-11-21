@@ -1,0 +1,631 @@
+//! Typed and raw agent CDP dispatch, reply checks and event forwarding for one tab. Every frame,
+//! session, context and object rule is decided by `EngineCdpLedger` (`frame_authority.rs`); the
+//! app never decides one.
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use cef::rc::Rc as _;
+use cef::{
+    Browser, DevToolsMessageObserver, ImplBrowserHost, ImplDevToolsMessageObserver,
+    WrapDevToolsMessageObserver, wrap_dev_tools_message_observer,
+};
+use crate::output::Output;
+use crate::wire::{EngineMsg, TabSnapshot};
+
+use serde_json::Value;
+
+pub use crate::frame_authority::EngineCdpLedger;
+use crate::frame_authority::{Dispatch, Post};
+
+const EXTENSION_SURFACE: &str = "Agent browser tools cannot read or act on extension pages or tabs with extension frames.";
+
+/// Hard engine-side byte cap on `Runtime.evaluate` / `Runtime.callFunctionOn` CDP responses
+/// (enforced BEFORE JSON parsing and IPC forwarding so giant eval results cannot OOM engine or UI).
+pub(crate) const MAX_CDP_EVAL_RESPONSE_BYTES: usize = 1024 * 1024;
+/// Hard engine-side byte cap on all other CDP responses (`Page.captureScreenshot`, AX tree, etc.).
+pub(crate) const MAX_CDP_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+
+pub(crate) fn max_cdp_response_bytes(method: &str) -> usize {
+    if matches!(method, "Runtime.evaluate" | "Runtime.callFunctionOn") {
+        MAX_CDP_EVAL_RESPONSE_BYTES
+    } else {
+        MAX_CDP_RESPONSE_BYTES
+    }
+}
+
+/// Sends what a tab's observer queued (resumes, nested auto-attach, frame-tree fetches) after
+/// each `cef::do_message_loop_work`, looping until empty (capped at 16 passes) in case a send
+/// synchronously delivers another callback into `outbox`.
+pub(crate) fn flush_outbox(ledger: &Mutex<EngineCdpLedger>, host: &cef::BrowserHost) {
+    for _ in 0..16 {
+        let out = std::mem::take(&mut ledger.lock().unwrap().outbox);
+        if out.is_empty() {
+            break;
+        }
+        for m in out {
+            host.send_dev_tools_message(Some(m.as_bytes()));
+        }
+    }
+}
+
+/// Validates and dispatches one `HostMsg::TypedCdpCall`: whole extension tabs are refused, input
+/// is refused while any extension frame exists (until the input guard lands), profiling is
+/// refused while extensions are active (a recorded difference), and the ledger decides the rest.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn handle_typed_cdp_call(
+    tab_id: u64,
+    request_id: u64,
+    not_ready_reason: Option<&str>,
+    t: &crate::engine::ManagedTab,
+    next_cdp_id: &std::sync::atomic::AtomicI32,
+    out_tx: &crate::output::Output,
+    extensions_active: bool,
+    method: String,
+    mut params: Value,
+    session_id: Option<String>,
+    frame_id: Option<String>,
+) {
+    use cef::ImplBrowserHost;
+    use serde_json::json;
+    use std::sync::atomic::Ordering;
+
+    let surface = crate::engine::classify_surface(Some(&t.browser), t.is_popup, &t.snap, &t.prompts, &t.cdp_ledger);
+    let profiling = ["HeapProfiler.", "Profiler.", "Tracing."].iter().any(|p| method.starts_with(p));
+    let checked = if let Some(reason) = not_ready_reason {
+        Err(reason.to_owned())
+    } else if surface == crate::engine::Surface::WholeTab {
+        Err(EXTENSION_SURFACE.into())
+    } else if method.starts_with("Input.") && surface != crate::engine::Surface::Clean {
+        Err("Agent browser tools cannot send input to a tab with extension frames.".into())
+    } else if profiling && extensions_active {
+        Err("Agent browser tools cannot profile pages while browser extensions are active.".into())
+    } else if let Err(e) = browser_policy::check_typed_cdp(&method, &params, true) {
+        Err(e)
+    } else {
+        t.cdp_ledger.lock().unwrap().verify_typed_call(&method, &mut params, session_id.as_deref(), frame_id.as_deref())
+    };
+    let reply = |ok: bool, result: Value| {
+        let _ = out_tx.send(EngineMsg::CdpResponse { tab_id, request_id, ok, result });
+    };
+    let post = match checked {
+        Err(err) => return reply(false, json!({ "message": err })),
+        Ok(Dispatch::ReplayWebTargets { replay }) => {
+            for (params, session_id) in replay {
+                let _ = out_tx.send(EngineMsg::CdpEvent { tab_id, method: "Target.attachedToTarget".into(), params, session_id });
+            }
+            return reply(true, json!({}));
+        }
+        Ok(Dispatch::ReEnable) => {
+            let disable = t.cdp_ledger.lock().unwrap().runtime_disable(session_id.as_deref());
+            t.host.send_dev_tools_message(Some(disable.as_bytes()));
+            Post::None
+        }
+        Ok(Dispatch::Send(post)) => post,
+    };
+    let msg_id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
+    t.cdp_id_map.lock().unwrap().insert(
+        msg_id,
+        CdpPending::Raw {
+            request_id,
+            max_bytes: max_cdp_response_bytes(&method),
+            typed: Some((post, session_id.clone())),
+        },
+    );
+    let mut payload = json!({ "id": msg_id, "method": method, "params": params });
+    if let Some(sid) = session_id {
+        payload["sessionId"] = Value::String(sid);
+    }
+    let raw = payload.to_string();
+    if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
+        t.cdp_id_map.lock().unwrap().remove(&msg_id);
+        reply(false, json!({ "message": "send_dev_tools_message rejected" }));
+    }
+}
+
+pub(crate) fn handle_site_cookies(
+    tab_id: u64,
+    request_id: u64,
+    not_ready_reason: Option<&str>,
+    t: &crate::engine::ManagedTab,
+    next_cdp_id: &std::sync::atomic::AtomicI32,
+    out_tx: &crate::output::Output,
+) {
+    use cef::ImplBrowserHost;
+    use serde_json::json;
+    use std::sync::atomic::Ordering;
+
+    if let Some(reason) = not_ready_reason {
+        let _ = out_tx.send(crate::wire::EngineMsg::CdpResponse {
+            tab_id,
+            request_id,
+            ok: false,
+            result: json!({ "message": reason }),
+        });
+        return;
+    }
+    let url = t.snap.lock().unwrap().url.clone();
+    if browser_policy::destination_origin(&url).is_none() {
+        let _ = out_tx.send(crate::wire::EngineMsg::CdpResponse {
+            tab_id,
+            request_id,
+            ok: true,
+            result: json!({ "cookies": 0 }),
+        });
+        return;
+    }
+    let msg_id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
+    t.cdp_id_map.lock().unwrap().insert(msg_id, crate::handlers::CdpPending::CookieCount(request_id));
+    let raw = json!({
+        "id": msg_id,
+        "method": "Network.getCookies",
+        "params": { "urls": [url] },
+    })
+    .to_string();
+    if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
+        t.cdp_id_map.lock().unwrap().remove(&msg_id);
+        let _ = out_tx.send(crate::wire::EngineMsg::CdpResponse {
+            tab_id,
+            request_id,
+            ok: false,
+            result: json!({ "message": "send_dev_tools_message rejected" }),
+        });
+    }
+}
+
+/// Top-level JSON envelope fields of a raw CDP message extracted without building a `Value` AST.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TopLevelCdp {
+    pub id: Option<i32>,
+    pub has_method: bool,
+    pub has_session_id: bool,
+}
+
+/// Streaming depth-tracking scanner that inspects ONLY root-level (`depth == 1`) JSON keys so
+/// nested `"id"`/`"sessionId"` inside `params` or `result` can never spoof reply/event routing.
+pub(crate) fn scan_top_level_cdp(raw: &[u8]) -> TopLevelCdp {
+    let mut out = TopLevelCdp::default();
+    let n = raw.len();
+    let mut i = 0usize;
+    while i < n && raw[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    if i >= n || raw[i] != b'{' {
+        return out;
+    }
+    let mut depth = 0usize;
+    let mut in_str = false;
+    let mut escape = false;
+    let mut expect_key = false;
+    while i < n {
+        let b = raw[i];
+        if in_str {
+            if escape {
+                escape = false;
+            } else if b == b'\\' {
+                escape = true;
+            } else if b == b'"' {
+                in_str = false;
+            }
+            i += 1;
+            continue;
+        }
+        match b {
+            b'{' => {
+                depth += 1;
+                if depth == 1 {
+                    expect_key = true;
+                }
+                i += 1;
+            }
+            b'[' => {
+                depth += 1;
+                i += 1;
+            }
+            b'}' | b']' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    break;
+                }
+                i += 1;
+            }
+            b',' => {
+                if depth == 1 {
+                    expect_key = true;
+                }
+                i += 1;
+            }
+            b'"' if depth == 1 && expect_key => {
+                expect_key = false;
+                let key_start = i + 1;
+                i += 1;
+                let mut esc = false;
+                while i < n {
+                    if esc {
+                        esc = false;
+                    } else if raw[i] == b'\\' {
+                        esc = true;
+                    } else if raw[i] == b'"' {
+                        break;
+                    }
+                    i += 1;
+                }
+                let key = &raw[key_start..i.min(n)];
+                if i < n {
+                    i += 1;
+                }
+                while i < n && raw[i].is_ascii_whitespace() {
+                    i += 1;
+                }
+                if i < n && raw[i] == b':' {
+                    i += 1;
+                    while i < n && raw[i].is_ascii_whitespace() {
+                        i += 1;
+                    }
+                    if key == b"method" {
+                        out.has_method = true;
+                        break;
+                    } else if key == b"sessionId" {
+                        out.has_session_id = true;
+                    } else if key == b"id" {
+                        let num_start = i;
+                        if i < n && raw[i] == b'-' {
+                            i += 1;
+                        }
+                        while i < n && raw[i].is_ascii_digit() {
+                            i += 1;
+                        }
+                        if let Ok(s) = std::str::from_utf8(&raw[num_start..i]) {
+                            out.id = s.parse::<i32>().ok();
+                        }
+                    }
+                }
+            }
+            b'"' => {
+                in_str = true;
+                i += 1;
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
+
+pub enum CdpPending {
+    /// An app call. `typed` carries what a typed reply still needs and the call's session; a raw
+    /// call (`None`) is refused at reply time on any extension frame.
+    Raw { request_id: u64, max_bytes: usize, typed: Option<(Post, Option<String>)> },
+    CookieCount(u64),
+    ClearSite { request_id: u64, origin: String },
+}
+
+pub struct PendingClear {
+    pub tab_id: u64,
+    pub request_id: u64,
+    pub origin: String,
+    pub cookies: Vec<(String, String, String)>,
+}
+
+wrap_dev_tools_message_observer! {
+    pub struct TabCdpObserver {
+        tab_id: u64,
+        is_popup: bool,
+        isolated: bool,
+        is_preview: bool,
+        snap: Arc<Mutex<TabSnapshot>>,
+        id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
+        internal_picked: Arc<Mutex<Vec<i64>>>,
+        pending_clears: Arc<Mutex<Vec<PendingClear>>>,
+        cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
+        prompts: Arc<crate::prompts::TabPrompts>,
+        permissions: Arc<crate::permissions::PermissionTracker>,
+        extensions_active: bool,
+        events: std::sync::mpsc::Sender<crate::Event>,
+        out_tx: Output,
+    }
+
+    impl DevToolsMessageObserver {
+        fn on_dev_tools_method_result(
+            &self,
+            browser: Option<&mut Browser>,
+            message_id: i32,
+            success: i32,
+            result: Option<&[u8]>,
+        ) {
+            if message_id >= crate::frame_authority::INTERNAL_ID_BASE {
+                let body = result.and_then(|b| serde_json::from_slice::<Value>(b).ok());
+                let send = self.cdp_ledger.lock().unwrap().on_internal_reply(message_id, success != 0, body.as_ref());
+                self.send_all(browser.as_deref(), send.unwrap_or_default());
+                return;
+            }
+            let Some(pending) = self.id_map.lock().unwrap().remove(&message_id) else {
+                return;
+            };
+            // Guard 1b (reply-side choke point): re-check committed origin uniformly before ANY
+            // `CdpPending` variant (`Raw`, `CookieCount`, `ClearSite`) leaves the engine.
+            let (CdpPending::Raw { request_id, .. }
+            | CdpPending::CookieCount(request_id)
+            | CdpPending::ClearSite { request_id, .. }) = &pending;
+            if self.refuse_reply(browser.as_deref(), *request_id) {
+                return;
+            }
+            if let CdpPending::Raw { request_id, max_bytes, typed } = pending {
+                // Enforce hard byte cap BEFORE parsing JSON or forwarding across IPC.
+                if result.is_some_and(|b| b.len() > max_bytes) {
+                    return self.too_big(request_id, max_bytes);
+                }
+                let val = result
+                    .and_then(|b| serde_json::from_slice::<Value>(b).ok())
+                    .unwrap_or(Value::Null);
+                return self.finish_reply(browser.as_deref(), request_id, typed, success != 0, val);
+            }
+            let val = result
+                .and_then(|b| serde_json::from_slice::<Value>(b).ok())
+                .unwrap_or(Value::Null);
+            match pending {
+                CdpPending::Raw { .. } => unreachable!(),
+                CdpPending::CookieCount(req_id) => {
+                    let count = val.get("cookies").and_then(Value::as_array).map_or(0, Vec::len);
+                    let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                        tab_id: self.tab_id,
+                        request_id: req_id,
+                        ok: success != 0,
+                        result: serde_json::json!({ "cookies": count }),
+                    });
+                }
+                CdpPending::ClearSite { request_id, origin } => {
+                    if success == 0 {
+                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                            tab_id: self.tab_id,
+                            request_id,
+                            ok: false,
+                            result: val,
+                        });
+                        return;
+                    }
+                    let cookies = val
+                        .get("cookies")
+                        .and_then(Value::as_array)
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|c| {
+                                    Some((
+                                        c.get("name")?.as_str()?.to_owned(),
+                                        c.get("domain")?.as_str()?.to_owned(),
+                                        c.get("path")?.as_str().unwrap_or("/").to_owned(),
+                                    ))
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    self.pending_clears.lock().unwrap().push(PendingClear {
+                        tab_id: self.tab_id,
+                        request_id,
+                        origin,
+                        cookies,
+                    });
+                }
+            }
+        }
+
+        fn on_dev_tools_message(
+            &self,
+            browser: Option<&mut Browser>,
+            message: Option<&[u8]>,
+        ) -> ::std::os::raw::c_int {
+            let Some(raw) = message else { return 0 };
+            // Pre-parse size gate using strict depth-1 top-level JSON scanning (zero AST allocation):
+            // - Events (`method` at depth 1) over `MAX_CDP_RESPONSE_BYTES` (16 MiB) are dropped
+            //   UNPARSED before `serde_json::from_slice` so `console.log("A".repeat(100e6))` never
+            //   allocates a giant JSON AST (all bookkeeping events stay well below 16 MiB; a
+            //   `Target.attachedToTarget` carries a URL Chromium caps at 2 MiB, so its resume below
+            //   is never skipped).
+            // - Top-level replies (`id`, no `method`, no `sessionId`) return `0` immediately so
+            //   CEF delivers them ONCE to `on_dev_tools_method_result` (pre-parse cap check).
+            // - Flattened OOPIF replies (`id` + `sessionId`) over `max_bytes` reject BEFORE parse.
+            if raw.len() > crate::cdp_ledger::MAX_CDP_EVAL_RESPONSE_BYTES {
+                let top = crate::cdp_ledger::scan_top_level_cdp(raw);
+                if top.has_method {
+                    if raw.len() > crate::cdp_ledger::MAX_CDP_RESPONSE_BYTES {
+                        return 1;
+                    }
+                } else if let Some(msg_id) = top.id {
+                    if !top.has_session_id {
+                        return 0;
+                    }
+                    let over = {
+                        let mut map = self.id_map.lock().unwrap();
+                        match map.get(&msg_id) {
+                            Some(CdpPending::Raw { max_bytes, .. }) if raw.len() > *max_bytes => {
+                                map.remove(&msg_id)
+                            }
+                            _ => None,
+                        }
+                    };
+                    if let Some(CdpPending::Raw { request_id, max_bytes, .. }) = over {
+                        self.too_big(request_id, max_bytes);
+                        return 1;
+                    }
+                    if raw.len() > crate::cdp_ledger::MAX_CDP_RESPONSE_BYTES {
+                        return 1;
+                    }
+                } else if raw.len() > crate::cdp_ledger::MAX_CDP_RESPONSE_BYTES {
+                    return 1;
+                }
+            }
+            let Ok(mut val) = serde_json::from_slice::<Value>(raw) else { return 0 };
+            // Flattened OOPIF responses carry both `"id"` and `"sessionId"`; CEF's
+            // `on_dev_tools_method_result` omits them, so handle them directly here.
+            if let Some(msg_id) = val.get("id").and_then(Value::as_i64) {
+                if val.get("sessionId").is_none() {
+                    return 0;
+                }
+                let (ok, payload) = match val.get_mut("error") {
+                    Some(err) => (false, err.take()),
+                    None => (true, val.get_mut("result").map(Value::take).unwrap_or(Value::Null)),
+                };
+                let msg_id = msg_id as i32;
+                if msg_id >= crate::frame_authority::INTERNAL_ID_BASE {
+                    let send = self.cdp_ledger.lock().unwrap().on_internal_reply(msg_id, ok, Some(&payload));
+                    self.send_all(browser.as_deref(), send.unwrap_or_default());
+                    return 1;
+                }
+                let pending = self.id_map.lock().unwrap().remove(&msg_id);
+                let Some(CdpPending::Raw { request_id, max_bytes, typed }) = pending else {
+                    return 0;
+                };
+                if self.refuse_reply(browser.as_deref(), request_id) {
+                    return 1;
+                }
+                if raw.len() > max_bytes {
+                    self.too_big(request_id, max_bytes);
+                    return 1;
+                }
+                self.finish_reply(browser.as_deref(), request_id, typed, ok, payload);
+                return 1;
+            }
+            let Some(method) = val.get("method").and_then(Value::as_str).map(str::to_owned) else {
+                return 0;
+            };
+            let session_id = val.get("sessionId").and_then(Value::as_str).map(str::to_owned);
+            let params = val
+                .as_object_mut()
+                .and_then(|o| o.remove("params"))
+                .unwrap_or(Value::Null);
+            if method == "Overlay.inspectNodeRequested"
+                && let Some(backend_id) = params["backendNodeId"].as_i64()
+            {
+                self.internal_picked.lock().unwrap().push(backend_id);
+            }
+            // The ledger sees every event first; a paused child's resume goes out from here,
+            // before any filter below.
+            let (obs, app_attached) = {
+                let mut ledger = self.cdp_ledger.lock().unwrap();
+                let obs = ledger.observe_event(&method, &params, session_id.as_deref());
+                (obs, ledger.app_attached)
+            };
+            self.send_all(browser.as_deref(), obs.send);
+            if !app_attached {
+                return 1;
+            }
+            for (frame_id, sid) in obs.excluded {
+                let _ = self.out_tx.send(EngineMsg::CdpEvent {
+                    tab_id: self.tab_id,
+                    method: "Rune.frameExcluded".into(),
+                    params: serde_json::json!({ "frameId": frame_id, "sessionId": sid }),
+                    session_id: None,
+                });
+            }
+            let whole_tab = self.surface(browser.as_deref()) == crate::engine::Surface::WholeTab;
+            let blocked = self.blocked_url(browser.as_deref()).is_some();
+            if !whole_tab && !blocked {
+                for (attach, parent_sid) in obs.announce {
+                    let _ = self.out_tx.send(EngineMsg::CdpEvent {
+                        tab_id: self.tab_id,
+                        method: "Target.attachedToTarget".into(),
+                        params: attach,
+                        session_id: parent_sid,
+                    });
+                }
+            }
+            // `#274` Round-5 §4: with extensions active, `Page.*` events stay in the engine (frames
+            // reach the app through pruned `Page.getFrameTree` replies), and pop-up/navigation
+            // requests are never forwarded.
+            if !obs.forward
+                || (self.extensions_active && method.starts_with("Page."))
+                || matches!(method.as_str(), "Page.frameRequestedNavigation" | "Page.windowOpen")
+                || whole_tab
+                || blocked
+            {
+                return 1;
+            }
+            let _ = self.out_tx.send(EngineMsg::CdpEvent {
+                tab_id: self.tab_id,
+                method,
+                params,
+                session_id,
+            });
+            1
+        }
+    }
+}
+
+impl TabCdpObserver {
+    fn surface(&self, browser: Option<&Browser>) -> crate::engine::Surface {
+        crate::engine::classify_surface(browser, self.is_popup, &self.snap, &self.prompts, &self.cdp_ledger)
+    }
+
+    /// Guard 1b: the tab's committed origin holds an inherited `Default` grant (controlled tabs only).
+    fn blocked_url(&self, browser: Option<&Browser>) -> Option<Option<String>> {
+        self.permissions
+            .tab_blocked_url(browser, self.isolated, self.is_preview, &self.snap, &self.prompts)
+    }
+
+    /// Replaces a reply with the generic refusal when Guard 1b holds; `true` when refused.
+    fn refuse_reply(&self, browser: Option<&Browser>, request_id: u64) -> bool {
+        let Some(url) = self.blocked_url(browser) else {
+            return false;
+        };
+        let _ = self.out_tx.send(EngineMsg::ControlledPermissionRefused { tab_id: self.tab_id, url });
+        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+            tab_id: self.tab_id,
+            request_id,
+            ok: false,
+            result: serde_json::json!({ "message": crate::permissions::INHERITED_PERMISSION_MSG }),
+        });
+        true
+    }
+
+    /// CEF's DevTools observer list forbids re-entrancy, so nothing is sent from a callback: the
+    /// messages wait in the ledger's outbox for [`flush_outbox`] after this loop turn, and an
+    /// immediate `Event::Pump(0)` wakes the loop outside busy windows (e.g. macOS idle).
+    fn send_all(&self, _browser: Option<&Browser>, messages: Vec<String>) {
+        if !messages.is_empty() {
+            self.cdp_ledger.lock().unwrap().outbox.extend(messages);
+            let _ = self.events.send(crate::Event::Pump(0));
+        }
+    }
+
+    fn too_big(&self, request_id: u64, max_bytes: usize) {
+        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+            tab_id: self.tab_id,
+            request_id,
+            ok: false,
+            result: serde_json::json!({
+                "message": format!("CDP response exceeded maximum allowed size ({max_bytes} bytes).")
+            }),
+        });
+    }
+
+    /// Re-checks the tab at reply time so an extension frame appearing mid-flight never leaks into
+    /// a response (`review-rd274.md` Round-5 §2): a raw call is refused on any extension frame, a
+    /// typed call on a whole extension tab or when the ledger's after-check fails.
+    fn finish_reply(&self, browser: Option<&Browser>, request_id: u64, typed: Option<(Post, Option<String>)>, ok: bool, mut val: Value) {
+        let surface = self.surface(browser);
+        let refused = match &typed {
+            None => surface != crate::engine::Surface::Clean,
+            Some(_) => surface == crate::engine::Surface::WholeTab,
+        };
+        let (checked, wake) = if refused {
+            (Err(EXTENSION_SURFACE.to_owned()), false)
+        } else if let (Some((post, sid)), true) = (&typed, ok) {
+            let mut ledger = self.cdp_ledger.lock().unwrap();
+            let before = ledger.outbox.len();
+            let res = ledger.finish_typed(post, sid.as_deref(), &mut val);
+            (res, ledger.outbox.len() > before)
+        } else {
+            (Ok(()), false)
+        };
+        if wake {
+            let _ = self.events.send(crate::Event::Pump(0));
+        }
+        let (ok, result) = match checked {
+            Ok(()) => (ok, val),
+            Err(message) => (false, serde_json::json!({ "message": message })),
+        };
+        let _ = self.out_tx.send(EngineMsg::CdpResponse { tab_id: self.tab_id, request_id, ok, result });
+    }
+}

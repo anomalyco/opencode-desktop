@@ -61,10 +61,10 @@ function panel.tabs(env: Env, sid: string, open: { string }): { PanelTab }
     return out
 end
 
--- Opens `path` in a kept tab, in place of the launcher.
+-- Opens `path` in a kept tab (or browser preview for HTML files), in place of the launcher.
 function panel.open(env: Env, sid: string, path: string)
     env.Layout:ClosePanel("main", { sessionId = sid, instance = panel.OPEN })
-    env.Layout:OpenPanel("main", { sessionId = sid, instance = `//{path}` })
+    env.Workspace:OpenFile(sid, path, { preview = false })
 end
 
 -- The first file the filter finds for `text` in `directory`.

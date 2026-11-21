@@ -152,6 +152,14 @@ pub fn files_main<H: FilesHost + PopupHost + 'static>(
                 .filter(|_| s.files().stage_size.get()[0] > META_MIN_W)
                 .map(|img| picture_meta(p, img.meta())),
         )
+        .children(s.opens_as_page(path).then(|| {
+            let (sid, at) = (session_id.to_owned(), path.to_owned());
+            let label = opencode_i18n::t!("plugin.file.view.openInBrowser");
+            tool::<H>(p, "files-open-browser-btn", &ic::GLOBE, false, label, label, move |s: &mut H, tx: &mut Tx| {
+                tx.instant();
+                s.open_workspace_preview(&sid, &at);
+            })
+        }))
         .children(previewable.then(|| {
             let (glyph, label) = if rendered {
                 (&ic::CODE_LINES, opencode_i18n::t!("plugin.file.view.viewSource"))
@@ -352,8 +360,11 @@ pub fn code_area<H: FilesHost + PopupHost + 'static>(
     if let Some(notes) = notes {
         viewer = viewer.notes(notes);
     }
+    // An artifact view draws its code on `bg-layer-01`, under the rows and past the last
+    // (`--opencode-diffs-bg`, `gui-plugins/src/file/artifact-view.css:3-7`).
+    let code_pal = if artifact { Pal { code_bg: p.layer1, bg_base: p.layer1, ..*p } } else { *p };
 
-    out.child(over(viewer.build(s, p), bar))
+    out.child(over(viewer.build(s, &code_pal), bar))
 }
 
 fn doc_ref<'a>(host: &'a dyn FilesHost, sid: &str, path: &str) -> &'a CodeDocState {

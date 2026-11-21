@@ -22,8 +22,12 @@ use crate::{FullTextRow, SwitcherHost, SwitcherMode, ui_direction};
 /// The search block (`search-list-search` in the compact palette, `dialog.css:156-166`): 6 above
 /// the 28-tall field, 17 below it, with the hairline 8 from the block's foot.
 const HEAD_H: f32 = 6.0 + 28.0 + 9.0;
-/// A compact row (`search-list-row[data-size=compact]`) and a section header, both 28 tall.
+/// A compact row (`search-list-row[data-size=compact]`, `dialog.css:202`).
 const ROW_H: f32 = 32.0;
+/// Compact section header (`dialog.css:190-198`: `padding-block: 10px 2px`, `line-height: 18px`).
+const SECTION_HEADER_H: f32 = 30.0;
+/// Non-last section bottom padding (`dialog.css:185-187`: `padding-bottom: 4px`).
+const SECTION_PB: f32 = 4.0;
 /// A row whose description goes under its title in a window 640 pt or narrower (`min-height: 40px`).
 const STACKED_H: f32 = 40.0;
 
@@ -137,7 +141,7 @@ pub fn dialog<H: SwitcherHost + 'static>(s: &H, p: &Pal, w: f32, max_h: f32) -> 
         let bare = i == 0 && last && matches!(mode, SwitcherMode::Commands | SwitcherMode::Sessions | SwitcherMode::Archived);
         let mut section = section_shell(p, group, bare, last);
         let size = end - i;
-        let mut top = content_h + if bare { 4.0 } else { ROW_H + GAP };
+        let mut top = content_h + if bare { 4.0 } else { SECTION_HEADER_H + GAP };
         // Rows left out since the last built one: their count and heights.
         let mut skipped = (0usize, 0.0_f32);
         for (n, e) in rows[i..end].iter().enumerate() {
@@ -157,7 +161,7 @@ pub fn dialog<H: SwitcherHost + 'static>(s: &H, p: &Pal, w: f32, max_h: f32) -> 
         if skipped.0 > 0 {
             section = section.child(gap_for(group, size, skipped));
         }
-        content_h = top - if last { GAP } else { 0.0 };
+        content_h = top - GAP + if last { 0.0 } else { SECTION_PB };
         results = results.child(section);
         i = end;
     }
@@ -224,20 +228,21 @@ fn section_shell(p: &Pal, group: &'static str, bare: bool, last: bool) -> El {
         .w_full()
         .pt(if bare { 4.0 } else { 0.0 })
         .gap(GAP)
-        .pb(if last { 0.0 } else { GAP })
+        .pb(if last { 0.0 } else { SECTION_PB })
         .role("group")
         .label(group)
         .children((!bare).then(|| {
             row()
                 .key("header")
                 .w_full()
-                .h(ROW_H)
-                .px(6.0)
-                .center_y()
+                .h(SECTION_HEADER_H)
+                .pt(10.0)
+                .pb(2.0)
+                .px(8.0)
                 .fill(p.bg_base)
                 .sticky_top(0.0)
                 .a11y_hidden()
-                .child(text(group).font(TextStyle::new(12.0, 440.0).lh(18.0)).color(p.faint))
+                .child(text(group).font(TextStyle::new(12.0, 440.0).lh(18.0).tracking(0.05)).color(p.faint))
         }))
 }
 
@@ -402,9 +407,9 @@ fn entry_row_shell(s: &dyn SwitcherHost, p: &Pal, e: &Entry, active: bool, q: &s
     let main = match &e.action {
         Action::File(path) => file_main(p, path, q),
         _ => {
-            // The row's text: the row less its 6 pt sides, the lead and the trailing parts.
+            // The row's text: the row less its 8/6 pt sides, the lead and the trailing parts.
             let trailing_w = trailing.as_ref().map_or(0.0, |(_, tw)| tw + 8.0) + unhide.as_ref().map_or(0.0, |(_, uw)| uw + 8.0);
-            let text_w = w - 12.0 - 12.0 - trailing_w - if lead.is_some() { 24.0 } else { 0.0 };
+            let text_w = w - 12.0 - 14.0 - trailing_w - if lead.is_some() { 24.0 } else { 0.0 };
             let archived = sw.mode == SwitcherMode::Archived;
             let words = row_text(p, e, q, text_w, archived, stacked(s, e));
             let words = match found_snippet {
@@ -422,7 +427,8 @@ fn entry_row_shell(s: &dyn SwitcherHost, p: &Pal, e: &Entry, active: bool, q: &s
         .focus_selected(active)
         .w_full()
         .h(height(s, e, q, fulltext))
-        .px(6.0)
+        .pl(8.0)
+        .pr(6.0)
         .gap(8.0)
         .center_y()
         .radius(6.0)

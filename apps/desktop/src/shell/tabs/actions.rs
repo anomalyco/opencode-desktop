@@ -167,9 +167,12 @@ impl App {
 
     /// Picks the folder for the open draft (Desktop's `updateDraft`), and for drafts to come.
     pub fn set_draft_dir(&mut self, dir: String) {
+        if self.can_reveal_outside() && !dir.is_empty() {
+            let _ = self.pinned_local_root(&dir);
+        }
         crate::view::draft_location::picked(self, &dir);
         self.forget_new_worktree();
-        self.note_destination(&dir, "local");
+        self.note_destination(&dir, "default");
         let open = match &*self.route {
             Route::Draft(id) => self.tabs.iter_mut().find(|t| t.id == *id && t.directory != dir),
             _ => None,
@@ -247,7 +250,10 @@ impl App {
     pub fn close_tab(&mut self, key: &str, tx: &mut Tx) {
         tx.instant();
         let Some(i) = self.tab_at(key) else { return };
-        let shown = self.current_tab() == Some(self.tabs[i].uid());
+        crate::tabs::groups::remember_auto(self);
+        let uid = self.tabs[i].uid();
+        let shown = self.current_tab().as_deref() == Some(uid.as_str());
+        let next_visible = if shown { crate::tabs::groups::next_visible_after_closing(self, &uid) } else { None };
         let tab = self.tabs.remove(i);
         let (id, server) = (tab.id.clone(), tab.server.clone());
         match tab.kind {
@@ -284,7 +290,7 @@ impl App {
             }
         }
         if shown {
-            match self.tabs.get(i).or_else(|| self.tabs.get(i.wrapping_sub(1))).map(Tab::uid) {
+            match next_visible.or_else(|| self.tabs.get(i).or_else(|| self.tabs.get(i.wrapping_sub(1))).map(Tab::uid)) {
                 Some(next) => self.select_tab(&next, tx),
                 None => {
                     self.close_picker(false);

@@ -52,10 +52,11 @@ end
 local DEFAULT_TAB = "Browser tab ID (defaults to this session's active browser tab)."
 
 function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutService)
-    -- Builds with no engine at all (Linux arm64, web, or a release build with no engine source or
-    -- trust rule such as Linux x64 and Windows today) offer none of the browser tools.
+    -- A build whose engine failed before the window opened offers none of the browser tools; one
+    -- with no engine for this platform ("unsupported": no source, or an index that lists none)
+    -- offers them once one is published (`followEngine` below).
     local initial = Browser:Engine().state
-    if initial == "unsupported" or initial == "failed" then
+    if initial == "failed" then
         return
     end
 
@@ -157,6 +158,15 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         if code == "browser.address.workspace" then
             return "Only HTTP, HTTPS, about:blank, and file URLs inside the workspace are supported."
         end
+        if code == "browser.preview.restricted" then
+            return "This preview tried to load files it is not allowed to read."
+        end
+        if code == "browser.preview.unsupported" then
+            return "This preview requires an updated browser engine."
+        end
+        if code == "browser.controlled.inherited_permission" then
+            return "Controlled browser actions are blocked on this site because it holds a profile permission."
+        end
         return "Only HTTP, HTTPS, and about:blank URLs are supported."
     end
 
@@ -170,8 +180,14 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         return out
     end
 
+    -- Every tool's spec, and the tools on offer: none while the engine's index publishes nothing
+    -- for this platform, all of them again once a later read finds one.
+    local specs: { McpToolSpec } = {}
+    local added: { Contribution } = {}
+    local offered = initial ~= "unsupported"
+
     local function tool(name: string, description: string, properties: { [string]: any }, required: { string }?, call: (args: { [string]: any }, sid: string) -> any)
-        ctx:AddMcpTool({
+        local spec: McpToolSpec = {
             name = name,
             description = description,
             inputSchema = { type = "object", properties = properties, required = required, additionalProperties = false },
@@ -180,7 +196,11 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
                 busy[context.sessionId] = true
                 return call(args, context.sessionId)
             end,
-        })
+        }
+        table.insert(specs, spec)
+        if offered then
+            table.insert(added, ctx:AddMcpTool(spec))
+        end
     end
 
     tool("browser_tabs", "List browser tabs in this session's OpenCode (Rune) side panel and which tab is focused.", {}, nil, function(_, sid)
@@ -434,6 +454,33 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
         end
         return { tabID = id(tab), result = compact(result) }
     end)
+
+    -- The engine's index is read after the first frame and hourly while it lists nothing for this
+    -- platform (`BrowserHost::probe_availability`); the built-in plugin hears `Browser.Changed`
+    -- with "" when the engine's state moves. While it's unknown ("starting") the tools stay.
+    local function followEngine()
+        local want = Browser:Engine().state ~= "unsupported"
+        if want == offered then
+            return
+        end
+        offered = want
+        if want then
+            for _, spec in specs do
+                table.insert(added, ctx:AddMcpTool(spec))
+            end
+            return
+        end
+        for _, contribution in added do
+            contribution:Withdraw()
+        end
+        table.clear(added)
+    end
+    Browser.Changed:Connect(function(pageId: string)
+        if pageId == "" then
+            followEngine()
+        end
+    end)
+    followEngine()
 end
 
 return mcp

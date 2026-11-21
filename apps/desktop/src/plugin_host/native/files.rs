@@ -55,16 +55,90 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
         object(lua, "CodeDocument", &fields, document(lua)?)
     })?;
     method(lua, t, "OpenFile", |lua, (sid, path, options): (String, String, Value)| {
+        let caller = lua
+            .app_data_ref::<std::rc::Rc<super::super::vm::Vmx>>()
+            .map(|v| v.half.id.to_string());
+        #[cfg(not(target_arch = "wasm32"))]
+        let (tool_sid, in_flight) = super::super::commands::current_tool_scope(lua);
+        #[cfg(target_arch = "wasm32")]
+        let (tool_sid, in_flight): (Option<Option<String>>, Vec<String>) = (None, Vec::new());
         let o: opencode_plugin_spec::OpenFileOptions = if options.is_nil() { Default::default() } else { mlua::FromLua::from_lua(options, lua).and_then(|d: rune_luau::Data| d.decode().map_err(mlua::Error::runtime))? };
         let lines = o.start_line.map(|a| {
             let a = a.max(1) as u32;
             (a, o.end_line.map_or(a, |b| (b.max(1) as u32).max(a)))
         });
         let preview = o.preview == Some(true);
-        let path = crate::review::data::normalize_path(&path);
         with_app("Workspace:OpenFile", |app| {
+            let dir = app.session(&sid).map(|i| i.directory.clone()).unwrap_or_default();
+            let Some(path) = crate::tool_open::relative(&path, &dir) else {
+                return Err(mlua::Error::runtime(format!("Workspace:OpenFile: path '{path}' is outside the session folder")));
+            };
+            #[cfg(not(target_arch = "wasm32"))]
+            if app.can_reveal_outside() && app.live() && !dir.is_empty() {
+                let abs = opencode_kit::path::absolute(&dir, &path);
+                if browser_policy::verify_within_root(&abs, &dir, false).is_none() {
+                    return Err(mlua::Error::runtime(format!("Workspace:OpenFile: path '{path}' is outside the session folder")));
+                }
+            }
+            let is_builtin = caller.as_deref().is_some_and(|id| app.plugins.is_builtin_plugin(id));
+            let in_tool = tool_sid.is_some() || (!is_builtin && !in_flight.is_empty());
+            if let Some(ref caller_sid) = tool_sid
+                && caller_sid.as_deref() != Some(sid.as_str())
+            {
+                return Err(mlua::Error::runtime(
+                    "Workspace:OpenFile cannot target another session inside a tool call.",
+                ));
+            }
+            // Any tool-scoped call (built-in `file` `open_file` included) is an agent request:
+            // hidden/secret HTML entries are refused synchronously and allowed HTML previews are
+            // marked `agent_driven` (`notes/review-rd281.md` PR 2 2nd read #2).
+            #[cfg(not(target_arch = "wasm32"))]
+            if is_builtin && in_tool && lines.is_none() && app.opens_as_page(&path) {
+                match app.resolve_workspace_file_target(&sid, &path, true) {
+                    crate::browser::preview::PreviewTarget::Preview { display_url, spec } => {
+                        app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+                            tx.instant();
+                            s.open_resolved_preview_tab(
+                                Some(&sid),
+                                &display_url,
+                                spec,
+                                None,
+                                true,
+                                Some(browser_pane::TabDriver::Agent),
+                            );
+                        }));
+                        return Ok(());
+                    }
+                    crate::browser::preview::PreviewTarget::Refused(_)
+                    | crate::browser::preview::PreviewTarget::NotPreview => {
+                        return Err(mlua::Error::runtime(
+                            "Hidden or secret files cannot be opened as a browser preview by an agent.",
+                        ));
+                    }
+                }
+            }
             app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
+                let builtin_now = caller.as_deref().is_some_and(|id| s.plugins.is_builtin_plugin(id));
+                if !builtin_now {
+                    // Third-party plugins always open workspace files in the Files source viewer
+                    // on the allowed session only — never minting an `oc-preview://` grant
+                    // (`notes/review-rd281.md` PR 2 Blocker #1).
+                    let allowed_sid = tool_sid
+                        .as_ref()
+                        .map(|c| c.as_deref() == Some(sid.as_str()))
+                        .unwrap_or_else(|| s.active_session_id() == Some(sid.as_str()));
+                    if allowed_sid {
+                        s.open_workspace_file_source(&sid, &path, preview, lines, false, tx);
+                    }
+                    return;
+                }
+                if in_tool {
+                    // Tool-scoped non-preview open (e.g. non-HTML, line-ranged, or older engine):
+                    // open strictly in Files source viewer so it can never mint a non-agent preview.
+                    s.open_workspace_file_source(&sid, &path, preview, lines, false, tx);
+                    return;
+                }
                 s.open_workspace_file_for_session(&sid, &path, preview, lines, false, tx);
                 // When opened explicitly via Workspace:OpenFile (for example browser's "View source"),
                 // show raw HTML source rather than Rune's simplified static HTML reader.
@@ -75,6 +149,44 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
                 {
                     ws.md.entry(path.clone()).or_default().mode.step(crate::files::markdown::PreviewModeEvent::ShowSource);
                 }
+            }));
+            Ok(())
+        })
+    })?;
+    method(lua, t, "OpenFileSource", |lua, (sid, path): (String, String)| {
+        let caller = lua
+            .app_data_ref::<std::rc::Rc<super::super::vm::Vmx>>()
+            .map(|v| v.half.id.to_string());
+        #[cfg(not(target_arch = "wasm32"))]
+        let (tool_sid, _) = super::super::commands::current_tool_scope(lua);
+        #[cfg(target_arch = "wasm32")]
+        let tool_sid: Option<Option<String>> = None;
+        with_app("Workspace:OpenFileSource", |app| {
+            let dir = app.session(&sid).map(|i| i.directory.clone()).unwrap_or_default();
+            let Some(path) = crate::tool_open::relative(&path, &dir) else {
+                return Err(mlua::Error::runtime(format!("Workspace:OpenFileSource: path '{path}' is outside the session folder")));
+            };
+            #[cfg(not(target_arch = "wasm32"))]
+            if app.can_reveal_outside() && app.live() && !dir.is_empty() {
+                let abs = opencode_kit::path::absolute(&dir, &path);
+                if browser_policy::verify_within_root(&abs, &dir, false).is_none() {
+                    return Err(mlua::Error::runtime(format!("Workspace:OpenFileSource: path '{path}' is outside the session folder")));
+                }
+            }
+            if let Some(ref caller_sid) = tool_sid
+                && caller_sid.as_deref() != Some(sid.as_str())
+            {
+                return Err(mlua::Error::runtime(
+                    "Workspace:OpenFileSource cannot target another session inside a tool call.",
+                ));
+            }
+            app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+                let is_builtin = caller.as_deref().is_some_and(|id| s.plugins.is_builtin_plugin(id));
+                if !is_builtin && tool_sid.is_none() && s.active_session_id() != Some(sid.as_str()) {
+                    return;
+                }
+                tx.instant();
+                s.open_workspace_file_source(&sid, &path, false, None, true, tx);
             }));
             Ok(())
         })

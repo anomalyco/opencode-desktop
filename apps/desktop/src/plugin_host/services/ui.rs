@@ -76,13 +76,28 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
             let q = p.clone();
             method(lua, t, "Open", move |lua, link: Value| {
                 let link: spec::Link = decode(lua, link, "Link")?;
-                cx::ask(&q, Request::OpenLink { href: link.href });
+                #[cfg(not(target_arch = "wasm32"))]
+                let (tool_sid, in_flight) = super::super::commands::current_tool_scope(lua);
+                #[cfg(target_arch = "wasm32")]
+                let (tool_sid, in_flight): (Option<Option<String>>, Vec<String>) = (None, Vec::new());
+                let in_tool = tool_sid.is_some() || !in_flight.is_empty();
+                cx::ask(&q, Request::OpenLink { href: link.href, tool_sid, in_tool });
                 Ok(true)
             })?;
             method(lua, t, "Exists", |lua, link: Value| {
                 let link: spec::Link = decode(lua, link, "Link")?;
-                let path = link.href.strip_prefix("file://").unwrap_or(&link.href);
-                Ok(std::path::Path::new(path).exists())
+                if browser_policy::is_raw_unc_href(&link.href) {
+                    return Ok(false);
+                }
+                let path = if browser_policy::is_file_scheme(&link.href) {
+                    let Some(p) = browser_policy::local_file_path(&link.href) else {
+                        return Ok(false);
+                    };
+                    p
+                } else {
+                    link.href
+                };
+                Ok(browser_policy::verify_local_path(&path).is_ok())
             })
         }
         "Commands" => {

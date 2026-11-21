@@ -42,10 +42,14 @@ pub(super) fn titlebar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     if !cfg!(any(target_os = "macos", target_arch = "wasm32")) {
         bar = bar.leading(crate::app_menu::button(s, p).motion(GLIDE));
     }
-    // A narrow window's row holds one trigger for the tabs' drawer, `px-2` (`titlebar.tsx:581`),
-    // and the titlebar items' row 6 after it, empty or not.
+    // A narrow window's row holds one trigger for the tabs' drawer, `px-2` (`titlebar.tsx:755`),
+    // and the titlebar items' row 6 after it (`gap-1.5`).
     if chrome.narrow {
-        let built = bar.trailing_padding(8.0 + 6.0).tabs(crate::narrow::tabs::trigger(s, p));
+        let items = crate::plugin_host::titlebar_items(s, p);
+        let mut built = bar.trailing_padding(if items.is_some() { 8.0 } else { 8.0 + 6.0 }).tabs(crate::narrow::tabs::trigger(s, p));
+        if let Some(items) = items {
+            built = built.trailing(items);
+        }
         // Along the foot, its controls sit in the row's top 36, 8 clear of the window's edge.
         if chrome.bottom {
             let row = built.key("titlebar-foot").height(chrome.row_h - 8.0).top_padding(0.0).build(crate::palette::kit(p));
@@ -74,10 +78,13 @@ pub(super) fn titlebar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     let viewport = cx.layout_with(STRIP, move |r| (r[2] < fits).then_some(r[2])).flatten();
     let strip = super::tab_strip::tab_strip_filtered(s, p, STRIP, TabOrientation::Horizontal, viewport, Some(new_button(p)), &visible_indices);
     let bar = bar.leading(nav);
-    let bar = match pinned_bar {
+    let mut bar = match pinned_bar {
         Some(pins) => bar.leading(pins),
         None => bar,
     };
+    if let Some(items) = crate::plugin_host::titlebar_items(s, p) {
+        bar = bar.trailing(items);
+    }
     Some(bar.tabs(strip).build(crate::palette::kit(p)))
 }
 

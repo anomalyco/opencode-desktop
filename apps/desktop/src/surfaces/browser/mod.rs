@@ -8,7 +8,15 @@
 
 pub mod links;
 #[cfg(not(target_arch = "wasm32"))]
+mod activity;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod context_menu;
+#[cfg(not(target_arch = "wasm32"))]
+mod openers;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod preview;
+#[cfg(not(target_arch = "wasm32"))]
+mod preview_pool;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod prompts;
 #[cfg(not(target_arch = "wasm32"))]
@@ -62,6 +70,14 @@ mod web {
             false
         }
 
+        pub fn open_workspace_preview_tab(&mut self, _: &str, _: &str, _: Option<SessionPane>, _: bool) -> u64 {
+            0
+        }
+
+        pub fn try_open_artifact_link(&mut self, _: &str, _: &str) -> bool {
+            false
+        }
+
         pub fn open_new_browser_tab_for_session(&mut self, _: Option<&str>, _: &str, _: Option<SessionPane>, _: bool) -> u64 {
             0
         }
@@ -109,11 +125,27 @@ mod native {
         pub devtools: HashMap<u64, PendingDevtools>,
         /// Last observed Luau store version for `plugin.browser/rune.sitePermissions`.
         pub site_permissions_version: u64,
-        /// Conversation app-scheme links waiting to display inside the browser pane's guarded
-        /// `RefusalBar` (`(tab_id, href)`).
-        pub pending_app_links: std::cell::RefCell<std::collections::VecDeque<(u64, String)>>,
+        /// Async preview proxy errors `(tab_id, binding_generation, code)` (e.g. artifact 404).
+        pub preview_errors: Option<(
+            std::sync::mpsc::Sender<(u64, u64, String)>,
+            std::sync::mpsc::Receiver<(u64, u64, String)>,
+        )>,
+        /// Per-tab server & grant-liveness bindings for `PreviewFetch` (strictly bound by `tab_id`
+        /// to the owning session's live server — never consulting the window's active server).
+        pub(crate) preview_bindings: HashMap<u64, super::preview::PreviewTabBinding>,
+        /// Monotonic generation assigned to each `PreviewTabBinding` to guard `preview_errors`.
+        pub(crate) next_preview_gen: u64,
+        /// Active host-owned app-scheme link reviews keyed by `tab_id` (rendered natively above
+        /// the browser panel with a 128-bit CSPRNG token and 500 ms visible+stationary guard).
+        pub active_app_reviews: std::cell::RefCell<HashMap<u64, super::links::AppLinkReview>>,
         /// Persistent SQLite browsing history store (`history.sqlite`, lazily opened).
         pub history: std::cell::RefCell<Option<browser_pane::history::HistoryStore>>,
+        /// Serializes human download OS Save dialogs (`EngineMsg::DownloadSaveRequest`) one at a time.
+        pub save_dialog_open: bool,
+        /// Tabs an agent opened or drove while hidden (`machine.ts` `unseen`, blue `tab.activity` dot).
+        pub unseen_tabs: std::collections::HashSet<u64>,
+        /// Chrome-style opener chains and initial `"New tab"` title holds (`UP-118`).
+        pub openers: super::openers::TabOpeners,
     }
 
     /// App-level shortcuts that a focused web page must yield to OpenCode (Rune) rather than swallow,
@@ -256,10 +288,12 @@ mod native {
                 .unwrap_or(true)
         }
 
-        /// No engine drives live tabs in this build: they show the unsupported card and have no address
-        /// bar to focus. Mock tabs (headless, tests, stories) still work.
+        /// No engine can drive live tabs in this build (`Unsupported` or `Fault::NotPublished`).
         pub(crate) fn browser_unsupported(&self) -> bool {
-            !self.use_mock_browser() && self.workspace_panes.browser.host.status() == EngineStatus::Unsupported
+            !self.use_mock_browser() && matches!(
+                self.workspace_panes.browser.host.status(),
+                EngineStatus::Unsupported | EngineStatus::Failed(browser_pane::Failure { fault: browser_pane::Fault::NotPublished, .. })
+            )
         }
 
         pub(crate) fn use_mock_browser(&self) -> bool {
@@ -268,16 +302,21 @@ mod native {
                 && std::env::var_os("OPENCODE_BROWSER_LIVE_TEST").as_deref() != Some(std::ffi::OsStr::new("1"))
         }
 
-        /// A link to `path`, inside the session's folder, opens as a page in the browser pane rather
-        /// than as a file tab, as Desktop's file plugin decides (`renderer.tsx` `fileOrPage`): an
-        /// HTML file, the browser on and able to run, the app's own server (which shares this disk:
-        /// the pane loads `file://` inside the workspace only) and a wide window.
-        pub fn opens_as_page(&self, path: &str) -> bool {
-            let html = std::path::Path::new(path).extension().is_some_and(|e| e.eq_ignore_ascii_case("html") || e.eq_ignore_ascii_case("htm"));
-            html && !self.browser_unsupported()
+        pub fn browser_plugin_ready(&self) -> bool {
+            !self.browser_unsupported()
                 && !self.narrow()
-                && crate::servers::runtime::active(self).is_sidecar()
                 && self.plugins.list.iter().any(|p| p.manifest.id == PLUGIN && p.running())
+        }
+
+        /// Whether `path`, inside the session's folder, opens as a preview page in the browser pane
+        /// rather than as a file tab (`renderer.tsx` `fileOrPage`): an HTML file, the browser
+        /// running in a wide window, AND an engine supporting isolated `oc-preview://` (`Ready.preview`).
+        /// Older engines lacking `Ready.preview` ALWAYS return `false` so local HTML opens in the
+        /// Files source viewer instead of ever falling back to native `file://`.
+        pub fn opens_as_page(&self, path: &str) -> bool {
+            browser_pane::policy::preview::is_html_path(path)
+                && self.browser_plugin_ready()
+                && self.browser_preview_supported()
         }
 
         /// Zero-allocation lookup of the active browser tab ID in the routed session.
@@ -336,24 +375,17 @@ mod native {
             self.composer.focused = false;
         }
 
-        /// Workspace directories whose `file://` documents may open in session `sid` (`pane.ts:162`):
-        /// the session's folder when the active server shares this disk (`is_sidecar`) and the
-        /// directory is narrower than a filesystem root, drive root, or home folder
-        /// (`review-browser-policy.md` §5), else empty. Tabs with no owning session get no roots.
+        /// Safe local workspace root for classifying local `file:///` paths into isolated
+        /// `PreviewSpec::Local` grants (`#63002`); never forwarded as engine `file_roots`.
         pub fn browser_file_roots(&self, sid: Option<&str>) -> Vec<String> {
-            if !self.browser_server_for_session(sid).is_sidecar() {
+            if !self.session_server_is_local(sid) {
                 return Vec::new();
             }
             let Some(id) = sid else {
                 return Vec::new();
             };
             let dir = self.link_directory(id);
-            let home = (!self.home.is_empty()).then_some(self.home.as_str());
-            if browser_pane::policy::is_safe_local_workspace_root(&dir, home) {
-                vec![dir]
-            } else {
-                Vec::new()
-            }
+            self.pinned_sidecar_root(&dir).into_iter().collect()
         }
 
         /// Default browser isolation context for tabs opened in session `sid`: derived from `sid`'s
@@ -378,6 +410,11 @@ mod native {
                     proxy: self.workspace_panes.browser.host.remote_proxy(id).cloned(),
                 }
             }
+        }
+
+        /// Default browser isolation context for tabs opened on the active server.
+        pub fn default_browser_context(&self) -> browser_pane::ContextKind {
+            self.browser_context_for_session(None)
         }
 
         /// Context and optional `TabDriver` inherited by a pop-up or "Open link/image in new tab"
@@ -408,7 +445,13 @@ mod native {
                 browser_pane::ContextKind::Preview { .. }
                 | browser_pane::ContextKind::Artifact { .. }
                 | browser_pane::ContextKind::Private => browser_pane::ContextKind::Private,
-                browser_pane::ContextKind::Default => browser_pane::ContextKind::Default,
+                browser_pane::ContextKind::Default => {
+                    if t.preview.is_some() {
+                        browser_pane::ContextKind::Private
+                    } else {
+                        browser_pane::ContextKind::Default
+                    }
+                }
             };
             let driver = if t.prompts.agent_driven {
                 Some(t.prompts.driver.clone().unwrap_or(browser_pane::TabDriver::Agent))
@@ -483,13 +526,33 @@ mod native {
             driver: Option<browser_pane::TabDriver>,
         ) -> u64 {
             let agent_driven = driver.is_some();
-            let roots = if context.is_isolated() {
-                Vec::new()
+            let candidate = if from_address {
+                browser_pane::resolve_address(url)
             } else {
-                self.browser_file_roots(sid)
+                browser_pane::with_scheme(url)
             };
+            match self.resolve_preview_target(sid, &candidate, agent_driven) {
+                super::preview::PreviewTarget::Preview { display_url, spec } => {
+                    return self.open_resolved_preview_tab(
+                        sid,
+                        &display_url,
+                        spec,
+                        target_pane,
+                        steal_focus,
+                        driver,
+                    );
+                }
+                super::preview::PreviewTarget::Refused(code) => {
+                    let id = self.open_refused_browser_tab(sid, code, target_pane, steal_focus);
+                    if let Some(driver) = driver {
+                        self.workspace_panes.browser.host.set_tab_driver(id, driver);
+                    }
+                    return id;
+                }
+                super::preview::PreviewTarget::NotPreview => {}
+            }
+            let roots: Vec<String> = Vec::new();
             let id = if self.use_mock_browser() {
-                let candidate = if from_address { browser_pane::resolve_address(url) } else { browser_pane::with_scheme(url) };
                 let refused = browser_pane::refusal(&candidate, &roots);
                 let resolved = if refused.is_some() { "about:blank".into() } else { candidate };
                 let title = if resolved == "about:blank" { String::new() } else { bare_url(&resolved) };
@@ -505,36 +568,69 @@ mod native {
                     .host
                     .open_tab_with_context(url, roots, context, from_address, agent_driven)
             };
+            let is_agent = matches!(driver, Some(browser_pane::TabDriver::Agent));
             if let Some(driver) = driver {
                 self.workspace_panes.browser.host.set_tab_driver(id, driver);
             }
-            if let Some(sid) = sid {
-                self.workspace_panes.browser.session_tabs.entry(sid.to_owned()).or_default().push(id);
-                let key = panel_key(PLUGIN, &id.to_string());
-                if steal_focus {
-                    self.open_side_tab_for_session(sid, &key, target_pane, false, false);
-                } else {
-                    self.keeping_keyboard(|s| s.open_side_tab_for_session(sid, &key, target_pane, false, false));
-                }
+            self.attach_browser_tab_to_session(sid, id, target_pane, steal_focus);
+            if is_agent {
+                self.mark_browser_tab_unseen(id);
             }
             id
         }
 
-        /// Loads `url` (or a `:port`) in page `id`. A mock page shows it loaded at once.
+        /// Loads `url` (or a `:port`) in page `id`. Switches context cleanly between isolated
+        /// `oc-preview://` tabs and normal web tabs; bans raw `file://` unconditionally.
         pub fn navigate_browser_tab(&mut self, id: u64, url: &str) {
+            self.navigate_browser_tab_with_agent(id, url, false);
+        }
+
+        pub fn navigate_browser_tab_with_agent(&mut self, id: u64, url: &str, agent: bool) {
+            if !agent {
+                self.note_browser_addressed(id);
+            }
             let sid = self.browser_tab_session(id).map(str::to_owned);
-            let roots = self.browser_file_roots(sid.as_deref());
             let resolved = browser_pane::resolve_address(url);
+            match self.resolve_preview_target(sid.as_deref(), &resolved, agent) {
+                super::preview::PreviewTarget::Preview { display_url, spec } => {
+                    self.reopen_resolved_preview_tab(id, sid.as_deref(), &display_url, spec);
+                    return;
+                }
+                super::preview::PreviewTarget::Refused(code) => {
+                    self.workspace_panes.browser.host.set_mock_refusal(id, code);
+                    return;
+                }
+                super::preview::PreviewTarget::NotPreview => {}
+            }
+            let was_preview = self
+                .workspace_panes
+                .browser
+                .host
+                .tab(id)
+                .is_some_and(|t| t.preview.is_some());
             if self.use_mock_browser() {
-                if let Some(why) = browser_pane::refusal(&resolved, &roots) {
+                if let Some(why) = browser_pane::refusal(&resolved, &[]) {
                     self.workspace_panes.browser.host.set_mock_refusal(id, why.code());
                     return;
+                }
+                if was_preview {
+                    self.revoke_preview_binding(id);
+                    self.workspace_panes.browser.host.set_mock_preview_clear(id);
                 }
                 let title = if resolved == "about:blank" { String::new() } else { bare_url(&resolved) };
                 self.workspace_panes.browser.host.set_mock_page(id, &resolved, &title);
                 return;
             }
-            self.workspace_panes.browser.host.set_tab_policy(id, roots);
+            if was_preview {
+                if let Some(why) = browser_pane::refusal(&resolved, &[]) {
+                    self.workspace_panes.browser.host.set_mock_refusal(id, why.code());
+                    return;
+                }
+                self.revoke_preview_binding(id);
+                let ctx = self.browser_context_for_session(sid.as_deref());
+                self.workspace_panes.browser.host.reopen_tab_as_web(id, &resolved, ctx);
+                return;
+            }
             self.workspace_panes.browser.host.navigate_with_policy(id, &resolved, false);
         }
 
@@ -589,8 +685,11 @@ mod native {
             }
         }
 
-        /// Page `id`'s tab left its strip: the page closes.
+        /// Page `id`'s tab left its strip: the page closes and any preview server binding revokes.
         pub fn forget_browser_tab(&mut self, id: u64) {
+            self.workspace_panes.browser.active_app_reviews.borrow_mut().remove(&id);
+            self.workspace_panes.browser.openers.on_close(id);
+            self.revoke_preview_binding(id);
             for ids in self.workspace_panes.browser.session_tabs.values_mut() {
                 ids.retain(|&x| x != id);
             }
@@ -608,11 +707,34 @@ mod native {
         pub fn poll_browser(&mut self) -> bool {
             // Every poll comes here: the pane is written only when the engine has something.
             let mut changed = !self.workspace_panes.browser.host.quiet() && self.workspace_panes.browser.host.poll();
+            changed |= self.pump_preview_fetches();
+            let fallback_sources = self.workspace_panes.browser.host.drain_unsupported_local_previews();
+            for (tab_id, doc) in fallback_sources {
+                // Non-agent local HTML clicks on an older engine (`!Ready.preview`) open in the
+                // Files code viewer ("show source", never `file://`). Agent tabs stay refused.
+                let is_agent = self
+                    .workspace_panes
+                    .browser
+                    .host
+                    .tab(tab_id)
+                    .is_some_and(|t| t.prompts.agent_driven);
+                if !is_agent
+                    && let Some(sid) = self.browser_tab_session(tab_id).map(str::to_owned)
+                {
+                    self.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+                        s.close_browser_tab_for_session(&sid, tab_id, tx);
+                        s.open_workspace_file_source(&sid, &doc, false, None, true, tx);
+                    }));
+                    changed = true;
+                }
+            }
             // Prune `session_tabs` and side-panel strip entries for any tab closed by the engine,
             // surfacing a plain-language toast only for fatal proxy/context teardown (never `DropContext`).
             let engine_closed: Vec<(u64, bool)> =
                 self.workspace_panes.browser.host.drain_closed_tabs().collect();
             for (closed_id, fatal_close) in engine_closed {
+                self.workspace_panes.browser.active_app_reviews.borrow_mut().remove(&closed_id);
+                self.revoke_preview_binding(closed_id);
                 let owner_sid = self.browser_tab_session(closed_id).map(str::to_owned);
                 for ids in self.workspace_panes.browser.session_tabs.values_mut() {
                     ids.retain(|&x| x != closed_id);
@@ -635,26 +757,8 @@ mod native {
                     changed = true;
                 }
             }
-            if self.workspace_panes.browser.host.has_popup_opens() {
-                let popups: Vec<_> = self.workspace_panes.browser.host.drain_popup_opens().collect();
-                for popup in popups {
-                    let Some((driver, opener_ctx)) = self.browser_context_for_opener(popup.opener_tab_id) else {
-                        // Opener closed before drain: refuse rather than downgrading to direct `Private`.
-                        continue;
-                    };
-                    let sid = self.browser_tab_session(popup.opener_tab_id).map(str::to_owned);
-                    let _new_id = self.open_new_browser_tab_with_context(
-                        sid.as_deref(),
-                        &popup.url,
-                        None,
-                        !popup.background,
-                        false,
-                        opener_ctx,
-                        driver,
-                    );
-                    changed = true;
-                }
-            }
+            changed |= self.drain_browser_popups();
+            changed |= self.poll_app_link_reviews();
             // Reload persisted site permissions when Settings > Browser edits `rune.sitePermissions`.
             let perm_ver = crate::plugin_host::services::store::store_version("browser", "rune.sitePermissions");
             if perm_ver != self.workspace_panes.browser.site_permissions_version {
@@ -678,6 +782,8 @@ mod native {
                 self.workspace_panes.browser.host.focus_tab(id);
                 changed = true;
             }
+            changed |= self.prune_browser_unseen();
+            changed |= self.sync_browser_openers();
             changed
         }
     }

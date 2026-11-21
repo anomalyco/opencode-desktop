@@ -20,15 +20,19 @@ mod dmabuf_frames;
 mod engine;
 mod extensions;
 mod output;
+mod permissions;
 mod handlers;
 mod keys;
 #[cfg(target_os = "linux")]
 mod linux_gpu;
 #[cfg(target_os = "macos")]
 mod mac_app;
+mod cdp_ledger;
 mod cef_runtime;
+mod cookies;
 mod diagnostics;
 mod favicon;
+mod frame_authority;
 mod find;
 mod menu;
 mod preview;
@@ -178,7 +182,10 @@ fn main() {
     }
     step("listening");
 
+    // Lossless unbounded control event channel (`TabMeta`, `Pump`, `FramesFailed`, `Host` control
+    // messages are never dropped and never wait behind preview stream bytes).
     let (events, rx) = mpsc::channel::<Event>();
+    let previews = preview::PreviewRegistry::new();
     let profile = profile::Profile::open();
     // Chromium's temporary files (and its helpers', which inherit this) go in the profile, not
     // the user's temp folder: everything the engine writes is under the root the app gave it.
@@ -239,9 +246,8 @@ fn main() {
                 let _ = verify_tx.send(Event::ExtensionsVerified(res));
             });
     }
-
     let client_writer: Arc<Mutex<Option<(u64, Arc<UnixStream>)>>> = Arc::default();
-    accept_connections(listener, events.clone());
+    accept_connections(listener, events.clone(), Arc::clone(&previews));
 
     // The app's GPU (`HIGH,LOW` LUID halves): Chromium renders on it, so its frames open there.
     let adapter_luid = arg("--adapter-luid")
@@ -313,8 +319,9 @@ fn main() {
     #[cfg(windows)]
     let mut manager = EngineManager::new(
         out_tx,
-        _cef.profile_root(),
+        _cef.download_roots(),
         events.clone(),
+        previews,
         gpu.join().ok().flatten(),
         ext_host,
         pre_rejected,
@@ -323,8 +330,9 @@ fn main() {
     #[cfg(target_os = "linux")]
     let mut manager = EngineManager::new(
         out_tx,
-        _cef.profile_root(),
+        _cef.download_roots(),
         events.clone(),
+        previews,
         linux_gpu::transport(gpu.join().ok().flatten()),
         ext_host,
         pre_rejected,
@@ -333,8 +341,9 @@ fn main() {
     #[cfg(target_os = "macos")]
     let mut manager = EngineManager::new(
         out_tx,
-        _cef.profile_root(),
+        _cef.download_roots(),
         events.clone(),
+        previews,
         ext_host,
         pre_rejected,
         stub_root,
@@ -344,6 +353,7 @@ fn main() {
     let start = Instant::now();
     let (mut client, mut tabs) = (Presence::AbsentSince(start), Presence::AbsentSince(start));
     let mut pump_at = Some(start);
+    let mut last_pump = start;
     // Until when the app's last request keeps CEF's work calls close together.
     let mut busy_until = start + BUSY_FOR;
 
@@ -423,8 +433,10 @@ fn main() {
             pump_at = Some(Instant::now());
         }
         let now = Instant::now();
-        if pump_at.is_some_and(|at| at <= now) {
+        let cap = if now < busy_until { BUSY_PUMP_DELAY } else { MAX_PUMP_DELAY };
+        if pump_at.is_some_and(|at| at <= now) || now.saturating_duration_since(last_pump) >= cap {
             pump_at = None;
+            last_pump = now;
             cef::do_message_loop_work();
             manager.poll_picks();
         }
@@ -439,7 +451,6 @@ fn main() {
         if quit_at.is_some_and(|at| at <= now) {
             break;
         }
-        let cap = if now < busy_until { BUSY_PUMP_DELAY } else { MAX_PUMP_DELAY };
         let wake = [Some(pump_at.unwrap_or(now + cap)), quit_at, manager.waits_for_texture().then(|| now + FRAME_RETRY)]
             .into_iter()
             .flatten()
@@ -465,7 +476,11 @@ fn main() {
 
 /// Accepts the app's connections on a thread of its own (the last one is the app) and starts
 /// reading each at once, so its first messages wait in the queue while CEF starts.
-fn accept_connections(listener: UnixListener, events: Sender<Event>) {
+fn accept_connections(
+    listener: UnixListener,
+    events: Sender<Event>,
+    previews: Arc<preview::PreviewRegistry>,
+) {
     std::thread::Builder::new()
         .name("engine-sock-accept".into())
         .spawn(move || {
@@ -475,24 +490,79 @@ fn accept_connections(listener: UnixListener, events: Sender<Event>) {
                 if events.send(Event::Connected { id, writer }).is_err() {
                     break;
                 }
-                read_messages(id, stream, events.clone());
+                read_messages(id, stream, events.clone(), Arc::clone(&previews));
             }
         })
         .expect("spawn engine-sock-accept");
 }
 
 /// Reads connection `id`'s messages on a thread of its own until it closes.
-fn read_messages(id: u64, stream: UnixStream, events: Sender<Event>) {
+/// Routes preview data frames (`PreviewResponse{Head,Chunk,End}`) directly into `previews` so
+/// streaming preview bytes NEVER enter the lossless control `events` channel.
+fn read_messages(
+    id: u64,
+    stream: UnixStream,
+    events: Sender<Event>,
+    previews: Arc<preview::PreviewRegistry>,
+) {
     let _ = std::thread::Builder::new().name("engine-sock-rx".into()).spawn(move || {
-        for line in BufReader::new(stream).lines() {
-            let Ok(line) = line else { break };
+        // Hard cap on one NDJSON command line from the host (32 MiB accommodates large cookie
+        // import batches and base64 preview chunks while stopping unbounded allocation).
+        const MAX_WIRE_LINE_BYTES: usize = 32 * 1024 * 1024;
+        let mut reader = BufReader::new(stream);
+        let mut buf: Vec<u8> = Vec::new();
+        'outer: loop {
+            buf.clear();
+            let mut oversized = false;
+            loop {
+                let Ok(avail) = reader.fill_buf() else { break 'outer };
+                if avail.is_empty() {
+                    if buf.is_empty() {
+                        break 'outer;
+                    }
+                    break;
+                }
+                if let Some(pos) = avail.iter().position(|&b| b == b'\n') {
+                    if !oversized && buf.len() + pos <= MAX_WIRE_LINE_BYTES {
+                        buf.extend_from_slice(&avail[..pos]);
+                    } else {
+                        oversized = true;
+                    }
+                    reader.consume(pos + 1);
+                    break;
+                }
+                let n = avail.len();
+                if !oversized && buf.len() + n <= MAX_WIRE_LINE_BYTES {
+                    buf.extend_from_slice(avail);
+                } else {
+                    oversized = true;
+                    buf.clear();
+                }
+                reader.consume(n);
+            }
+            if oversized || buf.is_empty() {
+                continue;
+            }
+            let Ok(line) = std::str::from_utf8(&buf) else { continue };
             if line.trim().is_empty() {
                 continue;
             }
-            if let Ok(msg) = serde_json::from_str::<HostMsg>(&line)
-                && events.send(Event::Host(Box::new(msg))).is_err()
-            {
-                return;
+            let Ok(msg) = serde_json::from_str::<HostMsg>(line) else { continue };
+            match msg {
+                HostMsg::PreviewResponseHead { req_id, ok, status, mime, content_length, content_range } => {
+                    previews.deliver_head(req_id, ok, status, &mime, content_length, content_range);
+                }
+                HostMsg::PreviewResponseChunk { req_id, data_b64 } => {
+                    previews.deliver_chunk(req_id, &data_b64);
+                }
+                HostMsg::PreviewResponseEnd { req_id, ok } => {
+                    previews.deliver_end(req_id, ok);
+                }
+                other => {
+                    if events.send(Event::Host(Box::new(other))).is_err() {
+                        return;
+                    }
+                }
             }
         }
         let _ = events.send(Event::Disconnected { id });

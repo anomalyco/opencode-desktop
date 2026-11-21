@@ -192,6 +192,10 @@ pub trait SettingsHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback +
     fn can_write(&self) -> bool {
         false
     }
+    /// The folder the window's server was started in (`GET /api/location`), once it's known.
+    fn server_directory(&self) -> Option<&str> {
+        None
+    }
     fn set_zoom_level(&mut self, level: f32) {
         let _ = level;
     }

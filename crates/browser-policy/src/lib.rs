@@ -17,20 +17,32 @@
 #![cfg_attr(not(target_arch = "wasm32"), deny(unsafe_code))]
 
 mod app_links;
+mod download;
 mod local_fs;
 mod local_path;
 pub mod preview;
 mod workspace_root;
-pub use app_links::{AppSchemeAction, AppSchemeSource, classify_app_link};
+pub use app_links::{
+    AppSchemeAction, AppSchemeSource, classify_app_link, is_confirmed_app_scheme_url,
+    is_page_only_app_scheme, is_safe_os_external_url, is_strict_rfc3986_uri,
+};
+pub use download::{
+    MAX_DOWNLOAD_NAME_CHARS, download_url_allowed, is_bidi_control, is_dangerous_download,
+    is_dangerous_download_extension, is_dangerous_download_mime, sanitize_download_mime,
+    sanitize_download_name,
+};
 pub use local_fs::{
-    LocalPathError, VerifiedLocalPath, is_local_fixed_drive, is_macos_bundle,
+    LocalPathError, VerifiedLocalPath, is_local_fixed_drive, is_macos_bundle, resolve_local_root,
     reveal_in_file_manager, verify_local_path, verify_within_root,
 };
 pub use local_path::{
     is_allowed_local_reparse_tag, is_clsid_folder_name, is_macos_bundle_path, is_raw_unc_href,
     is_unc_or_device_path, is_unc_or_device_path_for, is_unix_autofs_path, safe_local_reveal_path,
 };
-pub use workspace_root::{is_safe_local_workspace_root, is_safe_workspace_root};
+pub use workspace_root::{
+    is_safe_local_workspace_root, is_safe_workspace_root, resolve_local_home,
+    resolve_safe_local_workspace_root,
+};
 use workspace_root::path_within_root;
 
 /// Why a navigation was refused (`policy.ts:68-83`, `chromium.ts:442`).
@@ -75,8 +87,12 @@ impl Refusal {
 pub fn destination_origin(input: &str) -> Option<String> {
     let trimmed = input.trim();
     let (scheme, rest) = split_http_scheme(trimmed)?;
-    let authority = rest.split(['/', '\\', '?', '#']).next().unwrap_or("");
-    if authority.is_empty() || authority.contains('@') || authority.chars().any(|c| c.is_whitespace() || c.is_control()) {
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if authority.is_empty()
+        || authority.contains('\\')
+        || authority.contains('@')
+        || authority.chars().any(|c| c.is_whitespace() || c.is_control())
+    {
         return None;
     }
     let host_port = parse_host_port(authority)?;
@@ -87,7 +103,7 @@ pub fn destination_origin(input: &str) -> Option<String> {
 pub fn is_http_with_credentials(input: &str) -> bool {
     let trimmed = input.trim();
     let Some((_, rest)) = split_http_scheme(trimmed) else { return false };
-    let authority = rest.split(['/', '\\', '?', '#']).next().unwrap_or("");
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
     if authority.is_empty() || authority.chars().any(|c| c.is_whitespace() || c.is_control()) {
         return false;
     }
@@ -157,8 +173,10 @@ pub fn file_url_within(input: &str, roots: &[String]) -> bool {
     roots.iter().any(|root| path_within_root(&target, root))
 }
 
-pub fn allowed_destination(input: &str, roots: &[String]) -> bool {
-    destination_origin(input).is_some() || file_url_within(input, roots)
+pub fn allowed_destination(input: &str, _roots: &[String]) -> bool {
+    // Raw `file://` URLs are banned unconditionally; local workspace files open exclusively via
+    // isolated `oc-preview://` grants (`#63002`, `notes/review-rd281.md` §9).
+    destination_origin(input).is_some()
 }
 
 /// Adds the missing scheme for programmatic / agent URLs (`policy.ts:86-95`), plus Rune's `:port` shorthand.
@@ -184,7 +202,7 @@ fn refusal_raw(trimmed: &str, roots: &[String]) -> Option<Refusal> {
     if is_http_with_credentials(trimmed) {
         return Some(Refusal::Credentials);
     }
-    Some(if roots.is_empty() { Refusal::Web } else { Refusal::Workspace })
+    Some(if is_file_scheme(trimmed) || !roots.is_empty() { Refusal::Workspace } else { Refusal::Web })
 }
 
 /// Why the pane refuses `input`, or `None` when allowed (`policy.ts:74-83`).
@@ -201,27 +219,44 @@ pub fn normalize_url(input: &str, roots: &[String]) -> Result<String, String> {
     }
 }
 
-/// Frame navigation & redirect guard (`chromium.ts:432-446`).
+/// Frame navigation & redirect guard (`chromium.ts:432-446`): bans raw `file:` and `oc-preview:`
+/// (and nested `view-source:`/`filesystem:`/`blob:` wrappers) unconditionally on all non-preview tabs.
 pub fn frame_guard(url: &str, is_main_frame: bool, roots: &[String]) -> Option<Refusal> {
     let trimmed = url.trim();
     if trimmed.eq_ignore_ascii_case("about:blank") {
         return None;
     }
-    if preview::is_preview_scheme(trimmed) {
-        return Some(if roots.is_empty() { Refusal::Web } else { Refusal::Workspace });
+    if preview::has_banned_scheme(trimmed) {
+        return Some(if is_file_scheme(trimmed) || !roots.is_empty() { Refusal::Workspace } else { Refusal::Web });
     }
     if is_main_frame {
         return refusal_raw(trimmed, roots);
     }
-    if !is_file_scheme(trimmed) || file_url_within(trimmed, roots) {
-        return None;
+    // On sub-frames, reject credentialed `http(s):` URLs and internal browser/source schemes
+    // (`chrome:`, `devtools:`, `chrome-untrusted:`, `view-source:`) while preserving `about:`,
+    // `data:`, `blob:`, credential-free `http(s):`, and extension frames (gated separately).
+    if let Some((scheme, rest)) = split_scheme_slash_slash(trimmed) {
+        if scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https") {
+            let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+            if authority.contains('@') {
+                return Some(Refusal::Credentials);
+            }
+        } else if scheme.eq_ignore_ascii_case("chrome")
+            || scheme.eq_ignore_ascii_case("devtools")
+            || scheme.eq_ignore_ascii_case("chrome-untrusted")
+        {
+            return Some(Refusal::Web);
+        }
+    } else if trimmed.len() >= 12 && trimmed.as_bytes()[..12].eq_ignore_ascii_case(b"view-source:") {
+        return Some(Refusal::Web);
     }
-    Some(if roots.is_empty() { Refusal::Web } else { Refusal::Workspace })
+    None
 }
 
-/// Sub-resource & download guard (`pane.ts:103-107`): no `file:` read outside `roots`, and never `oc-preview:` from non-preview tabs.
-pub fn subresource_allowed(url: &str, roots: &[String]) -> bool {
-    !preview::is_preview_scheme(url) && (!is_file_scheme(url) || file_url_within(url, roots))
+/// Sub-resource & download guard: bans raw `file:` and `oc-preview:` (including nested prefixes)
+/// unconditionally on non-preview tabs.
+pub fn subresource_allowed(url: &str, _roots: &[String]) -> bool {
+    !preview::has_banned_scheme(url)
 }
 
 mod agent;
@@ -243,6 +278,12 @@ pub fn searches(input: &str) -> bool {
         if scheme.eq_ignore_ascii_case("file") {
             let path_part = rest.split(['?', '#']).next().unwrap_or(rest);
             return path_part.is_empty() || path_part.chars().take_while(|&c| c != '/').any(char::is_whitespace);
+        }
+        if scheme.eq_ignore_ascii_case("workspace")
+            || scheme.eq_ignore_ascii_case("artifact")
+            || scheme.eq_ignore_ascii_case("oc-preview")
+        {
+            return rest.is_empty() || rest.chars().any(char::is_whitespace);
         }
         let authority = rest.split(['/', '\\', '?', '#']).next().unwrap_or("");
         if authority.is_empty() || authority.chars().any(|c| c.is_whitespace() || c.is_control()) {

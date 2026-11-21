@@ -52,6 +52,8 @@ pub(crate) struct Link {
     /// held them for 20-650 ms); stored into `Connected::early` on attach so that turn doesn't
     /// send them again and corrects what changed meanwhile.
     pub opens: Vec<(u64, HostMsg)>,
+    pub profile_permissions: Vec<crate::prompts::SiteDecision>,
+    pub preview_chunk_budget: Arc<crate::preview::PreviewChunkBudget>,
 }
 
 impl Link {
@@ -140,6 +142,7 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
     if !link.current() {
         return;
     }
+    crate::prompts::scrub_chromium_preferences_for_older_engine(profile, &link.profile_permissions);
     let mut child = match engine_command(&engine.bin, sock, profile).spawn() {
         Ok(child) => child,
         Err(e) => {
@@ -587,7 +590,13 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
         return if lost(link, None) { WireResult::Failed } else { WireResult::Stale };
     };
     let (tx, rx) = mpsc::channel::<HostMsg>();
-    tx.send(HostMsg::Hello { mach_service, pid: std::process::id(), prompts: true }).ok();
+    tx.send(HostMsg::Hello {
+        mach_service,
+        pid: std::process::id(),
+        prompts: true,
+        download_save: true,
+    })
+    .ok();
     let mut early = EarlyOpensMap::new();
     for (id, open) in &link.opens {
         let is_agent = matches!(open, HostMsg::OpenTab { agent_driven: true, .. });
@@ -618,6 +627,7 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
     std::thread::Builder::new().name("rune-browser-answers".into()).spawn(move || watched.watch(&watcher)).ok();
 
     let asked = answers.clone();
+    let chunk_budget = link.preview_chunk_budget.clone();
     std::thread::Builder::new()
         .name("rune-browser-tx".into())
         .spawn(move || {
@@ -638,6 +648,8 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                     break;
                 }
             }
+            // Release any waiting preview workers when the engine disconnects or shuts down.
+            chunk_budget.reset();
             // The app let the engine go (or it went): nothing more is waited for.
             asked.end();
         })
@@ -654,6 +666,8 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
             #[cfg(target_os = "linux")]
             let (mut pools, mut frames) = (crate::dmabuf::Pools::new(frames_tx), crate::dmabuf::Frames::None);
             let mut line = String::new();
+            #[cfg(not(target_os = "linux"))]
+            let mut raw_buf: Vec<u8> = Vec::new();
             loop {
                 line.clear();
                 #[cfg(target_os = "linux")]
@@ -661,7 +675,18 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                 #[cfg(target_os = "linux")]
                 if !link.current() { break; }
                 #[cfg(not(target_os = "linux"))]
-                if !matches!(reader.read_line(&mut line), Ok(1..)) || !link.current() { break; }
+                {
+                    match read_bounded_wire_line(&mut reader, &mut raw_buf, &mut line) {
+                        BoundedLine::Line => {
+                            if !link.current() { break; }
+                        }
+                        BoundedLine::Oversized => {
+                            if !link.current() { break; }
+                            continue;
+                        }
+                        BoundedLine::Eof => break,
+                    }
+                }
                 // The sidecar writes the type tag first. Borrow the large base64 field directly
                 // from the reusable line buffer. Other layouts still go through the wire enum.
                 if line.starts_with("{\"type\":\"cpu_frame\",")
@@ -707,6 +732,22 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                     WirePaint { tab_id, frame_id, width, height, bgra_b64: &bgra_b64 }.push(&link.surfaces);
                     continue;
                 }
+                // Track whether this engine speaks `EngineMsg::PreviewCredit` before any `PreviewFetch`.
+                if let EngineMsg::Ready { preview_credit, .. } = &msg {
+                    link.preview_chunk_budget.set_credit_enabled(*preview_credit);
+                }
+                // Handle per-proxy preview credit/cancel directly on the rx thread so streaming
+                // workers wake immediately without waiting for a UI frame.
+                if let EngineMsg::PreviewCredit { req_id, bytes, cancel } = msg {
+                    link.preview_chunk_budget.on_credit(req_id, bytes as usize, cancel);
+                    continue;
+                }
+                if let EngineMsg::PreviewFetch { req_id, tab_id, .. } = &msg {
+                    link.preview_chunk_budget.on_fetch(*req_id, *tab_id);
+                }
+                if let EngineMsg::TabClosed { tab_id } = &msg {
+                    link.preview_chunk_budget.cancel_tab(*tab_id);
+                }
                 // On reconnect the engine repaints immediately after TabList. Give those paints
                 // their destination before the UI thread has a chance to adopt the restored tabs.
                 if let EngineMsg::TabList { tabs } = &msg {
@@ -718,6 +759,7 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                 link.inbox_tx.send(msg).ok();
                 link.wake();
             }
+            link.preview_chunk_budget.reset();
             answers.end();
             lost(&link, None);
         })
@@ -793,6 +835,56 @@ fn push_shared(surfaces: &Surfaces, tab_id: u64, frame_id: u64, width: u32, heig
         let frame = rune::native_surface::windows::SharedTexture::named(texture, width, height)
             .release_fence(release_fence, frame_id);
         surface.push_shared(frame, frame_id).ok();
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+enum BoundedLine {
+    Line,
+    Oversized,
+    Eof,
+}
+
+#[cfg(not(target_os = "linux"))]
+fn read_bounded_wire_line<R: BufRead>(reader: &mut R, raw: &mut Vec<u8>, out: &mut String) -> BoundedLine {
+    const MAX_WIRE_LINE_BYTES: usize = 32 * 1024 * 1024;
+    raw.clear();
+    let mut oversized = false;
+    loop {
+        let Ok(avail) = reader.fill_buf() else { return BoundedLine::Eof };
+        if avail.is_empty() {
+            if raw.is_empty() && !oversized {
+                return BoundedLine::Eof;
+            }
+            break;
+        }
+        if let Some(pos) = avail.iter().position(|&b| b == b'\n') {
+            if !oversized && raw.len() + pos <= MAX_WIRE_LINE_BYTES {
+                raw.extend_from_slice(&avail[..pos]);
+            } else {
+                oversized = true;
+            }
+            reader.consume(pos + 1);
+            break;
+        }
+        let n = avail.len();
+        if !oversized && raw.len() + n <= MAX_WIRE_LINE_BYTES {
+            raw.extend_from_slice(avail);
+        } else {
+            oversized = true;
+            raw.clear();
+        }
+        reader.consume(n);
+    }
+    if oversized {
+        return BoundedLine::Oversized;
+    }
+    match std::str::from_utf8(raw) {
+        Ok(s) => {
+            out.push_str(s);
+            BoundedLine::Line
+        }
+        Err(_) => BoundedLine::Oversized,
     }
 }
 

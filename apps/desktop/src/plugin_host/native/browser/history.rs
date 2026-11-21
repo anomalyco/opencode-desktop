@@ -3,11 +3,21 @@
 
 use std::path::Path;
 
-use browser_pane::history::{HistoryStore, discover_sources, read_profile_history};
+use browser_pane::cookies::BrowserEngineKind;
+use browser_pane::cookies::sources::{list_sources, source_history_database};
+use browser_pane::history::{HistoryStore, ImportEngine, read_profile_history};
 use mlua::{IntoLua, Lua, Table, Value};
 use rune_luau::Data;
 
-use super::{App, map, method, with_app};
+use super::{App, map, method, scope, with_app};
+
+fn require_builtin_browser(lua: &Lua, what: &str) -> mlua::Result<()> {
+    let cap = scope::TabScope::capture(lua);
+    if cap.is_builtin_browser && cap.tool_sid.is_none() {
+        return Ok(());
+    }
+    Err(mlua::Error::runtime(format!("{what} is restricted to the built-in browser.")))
+}
 
 fn with_store<R>(app: &App, f: impl FnOnce(&mut HistoryStore) -> R) -> Option<R> {
     let mut cell = app.workspace_panes.browser.history.borrow_mut();
@@ -26,13 +36,15 @@ fn with_store<R>(app: &App, f: impl FnOnce(&mut HistoryStore) -> R) -> Option<R>
 }
 
 pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
-    method(lua, t, "HistoryPrepare", |_, ()| {
+    method(lua, t, "HistoryPrepare", |lua, ()| {
+        require_builtin_browser(lua, "Browser:HistoryPrepare")?;
         with_app("Browser:HistoryPrepare", |app| {
             with_store(app, |store| store.prepare());
             Ok(())
         })
     })?;
     method(lua, t, "HistorySearch", |lua, (query, limit): (String, Option<usize>)| {
+        require_builtin_browser(lua, "Browser:HistorySearch")?;
         let cap = limit.unwrap_or(8).min(32);
         let found = with_app("Browser:HistorySearch", |app| {
             Ok(with_store(app, |store| store.search(&query, cap)).unwrap_or_default())
@@ -49,12 +61,16 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
             .collect();
         Data::List(list).into_lua(lua)
     })?;
-    method(lua, t, "HistoryVisit", |_, (url, title, typed, tab_id): (String, String, Option<bool>, Option<String>)| {
+    method(lua, t, "HistoryVisit", |lua, (url, title, typed, tab_id): (String, String, Option<bool>, Option<String>)| {
+        require_builtin_browser(lua, "Browser:HistoryVisit")?;
         with_app("Browser:HistoryVisit", |app| {
-            // Never record history from isolated tabs (private, preview, artifact, or remote-server).
+            // Never record history from isolated/preview tabs or non-HTTP(S) URLs.
+            if browser_pane::policy::destination_origin(&url).is_none() {
+                return Ok(());
+            }
             if let Some(id) = tab_id.as_deref().and_then(|s| s.parse::<u64>().ok())
                 && let Some(tab) = app.workspace_panes.browser.host.tab(id)
-                && tab.context.is_isolated()
+                && (tab.context.is_isolated() || tab.preview.is_some())
             {
                 return Ok(());
             }
@@ -62,19 +78,24 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
             Ok(())
         })
     })?;
-    method(lua, t, "HistoryRetitle", |_, (url, title): (String, String)| {
+    method(lua, t, "HistoryRetitle", |lua, (url, title): (String, String)| {
+        require_builtin_browser(lua, "Browser:HistoryRetitle")?;
         with_app("Browser:HistoryRetitle", |app| {
+            if browser_pane::policy::destination_origin(&url).is_none() {
+                return Ok(());
+            }
             with_store(app, |store| store.retitle(&url, &title));
             Ok(())
         })
     })?;
-    method(lua, t, "HistoryAdopt", |_, visits: Value| {
+    method(lua, t, "HistoryAdopt", |lua, visits: Value| {
+        require_builtin_browser(lua, "Browser:HistoryAdopt")?;
         let mut pairs: Vec<(String, String)> = Vec::new();
         if let Value::Table(tbl) = visits {
             for item in tbl.sequence_values::<Table>().flatten() {
                 let url: String = item.raw_get("url").unwrap_or_default();
                 let title: String = item.raw_get("title").unwrap_or_default();
-                if !url.is_empty() {
+                if browser_pane::policy::destination_origin(&url).is_some() {
                     pairs.push((url, title));
                 }
             }
@@ -84,24 +105,29 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
             Ok(())
         })
     })?;
-    method(lua, t, "HistoryForget", |_, url: String| {
+    method(lua, t, "HistoryForget", |lua, url: String| {
+        require_builtin_browser(lua, "Browser:HistoryForget")?;
         with_app("Browser:HistoryForget", |app| {
             Ok(with_store(app, |store| store.remove(&url)).unwrap_or(false))
         })
     })?;
-    method(lua, t, "HistoryClear", |_, ()| {
+    method(lua, t, "HistoryClear", |lua, ()| {
+        require_builtin_browser(lua, "Browser:HistoryClear")?;
         with_app("Browser:HistoryClear", |app| {
             Ok(with_store(app, |store| store.clear().is_ok()).unwrap_or(false))
         })
     })?;
-    method(lua, t, "HistoryCount", |_, ()| {
+    method(lua, t, "HistoryCount", |lua, ()| {
+        require_builtin_browser(lua, "Browser:HistoryCount")?;
         with_app("Browser:HistoryCount", |app| {
             Ok(with_store(app, |store| store.count() as i64).unwrap_or(0))
         })
     })?;
+    // Official's list of browsers and their profiles (`profile/sources.ts:60-143,349-423`): a
+    // profile counts when it has a cookie database, named from `Local State` or `profiles.ini`.
     method(lua, t, "HistoryImportSources", |lua, ()| {
-        let sources = discover_sources();
-        let list: Vec<Data> = sources
+        require_builtin_browser(lua, "Browser:HistoryImportSources")?;
+        let list: Vec<Data> = list_sources()
             .into_iter()
             .map(|b| {
                 let profiles: Vec<Data> = b
@@ -112,7 +138,7 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
                 map([
                     ("id", Data::String(b.id)),
                     ("name", Data::String(b.name)),
-                    ("engine", Data::String(b.engine.as_str().into())),
+                    ("engine", Data::String(engine_name(b.engine).into())),
                     ("profiles", Data::List(profiles)),
                 ])
             })
@@ -120,18 +146,15 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
         Data::List(list).into_lua(lua)
     })?;
     method(lua, t, "HistoryImportProfile", |lua, (browser_id, profile_id): (String, String)| {
-        // Resolve browser/profile exclusively through `discover_sources()` so plugins cannot
-        // supply arbitrary filesystem paths.
-        let sources = discover_sources();
-        let target = sources
-            .into_iter()
-            .find(|b| b.id == browser_id)
-            .and_then(|b| {
-                let engine = b.engine;
-                b.profiles.into_iter().find(|p| p.id == profile_id).map(|p| (engine, p.db_path))
-            });
-        let Some((engine, db_path)) = target else {
+        require_builtin_browser(lua, "Browser:HistoryImportProfile")?;
+        // Resolved only through `list_sources()` ids, so a plugin never names a filesystem path.
+        let Some((engine, db_path)) = source_history_database(&browser_id, &profile_id) else {
             return map([("error", Data::String("Browser profile not found".into()))]).into_lua(lua);
+        };
+        let engine = match engine {
+            BrowserEngineKind::Chromium => ImportEngine::Chromium,
+            BrowserEngineKind::Firefox => ImportEngine::Firefox,
+            BrowserEngineKind::Safari => ImportEngine::Safari,
         };
         let pages = match read_profile_history(engine, Path::new(&db_path)) {
             Ok(p) => p,
@@ -146,4 +169,12 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
         }
     })?;
     Ok(())
+}
+
+fn engine_name(engine: BrowserEngineKind) -> &'static str {
+    match engine {
+        BrowserEngineKind::Chromium => "chromium",
+        BrowserEngineKind::Firefox => "firefox",
+        BrowserEngineKind::Safari => "safari",
+    }
 }
