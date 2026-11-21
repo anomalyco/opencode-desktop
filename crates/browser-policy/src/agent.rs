@@ -116,7 +116,6 @@ pub fn check_typed_cdp(method: &str, params: &serde_json::Value, engine_has_poli
         | "Log.enable"
         | "Network.enable"
         | "Network.getResponseBody"
-        | "Network.getRequestPostData"
         | "DOM.getNodeForLocation"
         | "Target.setAutoAttach"
         | "Target.detachFromTarget"
