@@ -4311,7 +4311,7 @@
       "summary": "On Windows the taskbar button shows session status: an indeterminate bar while a session works, paused or error when one waits on a request or failed.",
       "size": "M",
       "status": "have it",
-      "status_evidence": "apps/desktop/src/workspace/windows/taskbar.rs shows each window's tabs on its Windows taskbar button with Rune's Taskbar (ITaskbarList3), with Desktop's states and order: waiting -> paused, an unviewed failure -> error, working -> indeterminate, waiting first. Muted sessions never wait or end unread and a working one hasn't ended (PR #0), as useWindowTabActivity. Extra: a badge and a bounded flash. Scope: the window's tabs on the server it's checked out on.",
+      "status_evidence": "apps/desktop/src/workspace/windows/taskbar.rs shows each window's tabs on its Windows taskbar button with Rune's Taskbar (ITaskbarList3), with Desktop's states and order: waiting -> paused, an unviewed failure -> error, working -> indeterminate, waiting first. Muted sessions never wait or end unread and a working one hasn't ended (PR #430), as useWindowTabActivity. Extra: a badge and a bounded flash. Scope: the window's tabs on the server it's checked out on.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"
