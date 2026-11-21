@@ -48,12 +48,18 @@ pub fn manifest_url(service_base: &str, channel: &str) -> String {
 }
 
 /// Resolves a manifest target URL (typically `/release/<app>/files/<sha256>/<name>`) against the
-/// origin of `manifest_url`.
+/// origin of `manifest_url`, refusing non-HTTPS URLs (except loopback `http://` in debug builds).
 pub fn resolve_target_url(manifest_url: &str, target_url: &str) -> Result<String, String> {
+    if !super::feed::allowed_update_url(manifest_url) {
+        return Err(format!("refusing insecure manifest URL: {manifest_url}"));
+    }
     if target_url.starts_with("https://") || target_url.starts_with("http://") {
+        if !super::feed::allowed_update_url(target_url) {
+            return Err(format!("refusing insecure target URL: {target_url}"));
+        }
         return Ok(target_url.to_owned());
     }
-    if !target_url.starts_with('/') {
+    if !target_url.starts_with('/') || target_url.starts_with("//") {
         return Err(format!("unexpected relative target URL: {target_url}"));
     }
     let (scheme, rest) = manifest_url
@@ -64,7 +70,11 @@ pub fn resolve_target_url(manifest_url: &str, target_url: &str) -> Result<String
         .next()
         .filter(|h| !h.is_empty())
         .ok_or_else(|| format!("missing host in manifest URL: {manifest_url}"))?;
-    Ok(format!("{scheme}://{host}{target_url}"))
+    let resolved = format!("{scheme}://{host}{target_url}");
+    if !super::feed::allowed_update_url(&resolved) {
+        return Err(format!("refusing insecure target URL: {resolved}"));
+    }
+    Ok(resolved)
 }
 
 pub fn parse_manifest(text: &str, manifest_url: &str, target_name: &str) -> Result<Manifest, String> {
