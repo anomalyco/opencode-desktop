@@ -117,6 +117,10 @@ pub struct ShimMetrics {
     pub page_shim_eval_us: Vec<u64>,
     pub rpc_calls: u64,
     pub sw_restarts: u64,
+    #[serde(default)]
+    pub sw_uncaught_exceptions: u64,
+    #[serde(default)]
+    pub sw_exception_samples: Vec<String>,
 }
 
 #[derive(Clone, Debug)]

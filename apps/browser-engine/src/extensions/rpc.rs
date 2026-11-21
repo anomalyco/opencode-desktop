@@ -230,6 +230,7 @@ pub(super) fn is_api_allowed(manifest: &ExtensionManifest, name: &str) -> bool {
         | "permissions.request"
         | "permissions.remove"
         | "commands.getAll"
+        | "webRequest.handlerBehaviorChanged"
         | "extension.isAllowedFileSchemeAccess"
         | "extension.isAllowedIncognitoAccess"
         | "extension.setUpdateUrlData"
@@ -737,7 +738,7 @@ impl ExtensionHost {
                 Ok(Value::Array(list))
             }
             "extension.isAllowedFileSchemeAccess" | "extension.isAllowedIncognitoAccess" => Ok(Value::Bool(false)),
-            "extension.setUpdateUrlData" => Ok(Value::Null),
+            "webRequest.handlerBehaviorChanged" | "extension.setUpdateUrlData" => Ok(Value::Null),
             other if parse_privacy_call(other).is_some() => {
                 let (path, op) = parse_privacy_call(other).unwrap();
                 if op == "get" {

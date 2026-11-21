@@ -685,15 +685,17 @@
       events: ["onCommand", "onChanged"],
     },
     {
-      // MV3 `webRequest` is stripped in C++ (matching Electron 44 where MV3 SW listeners hear no
-      // requests and cannot observe `Default` agent-tab URLs/tabIds); expose inert no-op events
-      // when declared so extensions like Bitwarden never throw at startup.
+      // MV3 `webRequest` / `webRequestAuthProvider` are stripped in C++ (matching Electron 44 where
+      // MV3 SW listeners hear no requests and cannot observe `Default` agent-tab URLs/tabIds or
+      // intercept HTTP auth); expose inert no-op events + `handlerBehaviorChanged` when declared
+      // so extensions like Bitwarden and 1Password never throw at startup.
       path: "webRequest",
-      permissions: ["webRequest", "webRequestBlocking"],
-      methods: [],
+      permissions: ["webRequest", "webRequestBlocking", "webRequestAuthProvider"],
+      methods: ["handlerBehaviorChanged"],
       events: [
         "onBeforeRequest", "onBeforeSendHeaders", "onSendHeaders", "onHeadersReceived",
         "onResponseStarted", "onBeforeRedirect", "onCompleted", "onErrorOccurred",
+        "onAuthRequired",
       ],
       stubEvents: true,
     },
@@ -842,12 +844,17 @@
       }
     } catch {}
     try {
-      const wr = root.webRequest;
-      if (wr && typeof wr === "object") lockUndefined(wr, "onAuthRequired");
-    } catch {}
-    try {
       const dnr = root.declarativeNetRequest;
-      if (dnr && typeof dnr === "object") lockUndefined(dnr, "onRuleMatchedDebug");
+      if (dnr && typeof dnr === "object") {
+        // `declarativeNetRequestFeedback` is stripped in C++ so `onRuleMatchedDebug` never leaks
+        // `agent_driven` URLs/tabIds; when declared, expose an inert no-op event (never firing)
+        // so listeners registered at SW startup never throw `TypeError`.
+        if (declared.has("declarativeNetRequestFeedback")) {
+          def(dnr, "onRuleMatchedDebug", makeLocalEvent());
+        } else {
+          lockUndefined(dnr, "onRuleMatchedDebug");
+        }
+      }
     } catch {}
   }
 
