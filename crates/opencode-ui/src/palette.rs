@@ -88,7 +88,7 @@ pub struct Pal {
     /// empty side pane draws it.
     pub v1_icon_strong: Color,
     pub v1_icon_weak: Color,
-    /// The terminal's text: Desktop's `text-stronger`; the default theme keeps `text`.
+    /// The terminal's text: Desktop's `text-stronger` (`terminal.tsx:232`).
     pub term_fg: Color,
     /// A diff's added and removed colour: `syntax-diff-add`/`-delete`; the default keeps
     /// `success` and `danger`.
@@ -360,7 +360,12 @@ fn build(theme: usize, dark: bool, raised: bool) -> Pal {
         dim: if themed { c("overlay-simple-overlay-scrim") } else { Color::BLACK.alpha(if dark { 0.5 } else { 0.25 }) },
         switch_thumb: if dark { rune::color::hex("#d9d9d9").unwrap_or(Color::WHITE) } else { Color::WHITE },
         lift: if dark { text } else { Color::WHITE },
-        term_fg: if themed { c("text-stronger") } else { text },
+        // Resolved `oc-2` `--text-stronger` (`terminal.tsx:232`, `themes.json:6,31`): `#171717` light / `#ededed` dark.
+        term_fg: match (themed, dark) {
+            (true, _) => c("text-stronger"),
+            (false, true) => hex("#ededed"),
+            (false, false) => hex("#171717"),
+        },
         diff_add,
         diff_del,
         accent_hover: c("text-text-accent-hover"),
