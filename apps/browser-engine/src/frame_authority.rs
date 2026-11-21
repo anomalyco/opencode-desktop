@@ -90,6 +90,9 @@ pub struct Observed {
     pub announce: Vec<(Value, Option<String>)>,
     /// URL-free `(frameId, sessionId)` pairs that just left the agent's reach.
     pub excluded: Vec<(String, Option<String>)>,
+    /// Newly attached non-extension OOPIF session awaiting `Runtime.runIfWaitingForDebugger`
+    /// (last message in `send`), so per-tab gates can attach before the iframe executes script.
+    pub new_web_session: Option<String>,
 }
 
 #[derive(Default)]
@@ -627,6 +630,7 @@ impl EngineCdpLedger {
             obs.send.push(self.msg("Runtime.enable", json!({}), Some(child), None));
             let tree = Some(Internal::Tree { session: Some(child.to_owned()) });
             obs.send.push(self.msg("Page.getFrameTree", json!({}), Some(child), tree));
+            obs.new_web_session = Some(child.to_owned());
             obs.forward = announced;
         }
         let resume = Some(Internal::Resume { session: child.to_owned(), worker: false });

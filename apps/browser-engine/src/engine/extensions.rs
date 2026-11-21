@@ -827,6 +827,10 @@ impl EngineManager {
             t.prompts.user_reclaimed.store(false, Ordering::Release);
             t.snap.lock().unwrap().agent_driven = agent_driven;
             if agent_driven {
+                // Agent-driven tabs permanently refuse WebAuthn/passkeys (`chromium.ts:834-845`).
+                for raw in t.passkeys.enforce_messages() {
+                    t.host.send_dev_tools_message(Some(raw.as_bytes()));
+                }
                 // Agent-driven tabs may never navigate to `chrome-extension://` pages.
                 t.allowed_ext_ids.lock().unwrap().clear();
                 if !was && !t.isolated && t.preview.is_none() {

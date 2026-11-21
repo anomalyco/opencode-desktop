@@ -526,6 +526,9 @@ pub enum EngineMsg {
         /// The engine exposes `CefCookieManager` list/import/delete/probe/clear & two-way remote cookie mirroring.
         #[serde(default)]
         cookies: bool,
+        /// The engine enforces the WebAuthn / passkey gate and emits `PasskeyRefused`.
+        #[serde(default)]
+        passkeys: bool,
     },
     ProfileCookies {
         request_id: u64,
@@ -618,6 +621,16 @@ pub enum EngineMsg {
     AppLinkBlocked {
         tab_id: u64,
         url: String,
+    },
+    /// A site asked for a passkey or security key (`navigator.credentials.{get,create}` with
+    /// `publicKey`) and the tab's passkey gate refused it (`webauthn-gate.ts`).
+    PasskeyRefused {
+        tab_id: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin: Option<String>,
+        #[serde(default)]
+        main_frame: bool,
+        kind: String,
     },
     FileChooserBlocked {
         tab_id: u64,

@@ -48,6 +48,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>LSUIElement</key><string>1</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSCameraUsageDescription</key><string>OpenCode lets websites you allow in the browser pane use your camera.</string>
+  <key>NSMicrophoneUsageDescription</key><string>OpenCode uses your microphone for voice calls and lets websites you allow in the browser pane use it.</string>
   <key>LSEnvironment</key><dict>
     <key>MallocNanoZone</key><string>0</string>
   </dict>
