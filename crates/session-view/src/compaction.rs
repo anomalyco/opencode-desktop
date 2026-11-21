@@ -16,6 +16,7 @@ use rune::{AnimExt, Color, Curve, Cursor, Cycle, Easing, Effect, El, LoopSpec, S
 use rune_knobs::{Group, Knob};
 
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::{BUBBLE, UI, markdown_tinted, readable};
 
@@ -228,7 +229,7 @@ fn quiet_view<S: TimelineHost>(s: &S, p: &Pal, c: &Compaction, run: Run) -> El {
         .transition(Transition::none());
     if expandable {
         let id = c.id.clone();
-        divider = divider.role("button").hover_group().cursor(Cursor::Pointer).on_press_tx(move |s: &mut S, tx: &mut Tx| press(s, tx, &id));
+        divider = divider.role("button").expanded(open).radius(4.0).focus_default(p).hover_group_focus().cursor(Cursor::Pointer).on_press_tx(move |s: &mut S, tx: &mut Tx| press(s, tx, &id));
     }
     let mut bar = col().key("bar").w_full().child(divider);
     if open || shutting {

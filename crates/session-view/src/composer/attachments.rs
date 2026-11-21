@@ -7,6 +7,7 @@ use rune::{ClipboardContent, El, Live, ScrollPos, SurfaceFit, Tx, col, el, icon,
 use rune_theme_opencode::icons as ic;
 
 use super::ComposerHost;
+use crate::focus::FocusExt;
 use crate::images::{Fetched, identity, opens};
 use crate::palette::Pal;
 use crate::user_parts::{CARD_SUBTITLE, CARD_TITLE};
@@ -149,7 +150,7 @@ pub fn chips<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
         };
         let gone = id.clone();
         let remove = remove_button(p, &f.name, w, move |s: &mut S| s.composer_remove_attachment(&gone));
-        r = r.child(el().key(format!("chip-{id}")).self_start().hover_group().hover_motion(crate::style::INSTANT, crate::style::INSTANT).child(body).child(remove));
+        r = r.child(el().key(format!("chip-{id}")).self_start().hover_group_focus().hover_motion(crate::style::INSTANT, crate::style::INSTANT).child(body).child(remove));
     }
     for f in paths {
         let gone = f.path.clone();
@@ -157,7 +158,7 @@ pub fn chips<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
         r = r.child(
             el()
                 .key(format!("path-{}", f.path))
-                .hover_group()
+                .hover_group_focus()
                 .hover_motion(crate::style::INSTANT, crate::style::INSTANT)
                 // Official wraps composer file cards in `<Tooltip value={file.path} placement="top">` (`editor.tsx:848`).
                 .child(card(p, &f.name, type_label(&f.name)).help(f.path.clone()).help_above())
@@ -168,7 +169,7 @@ pub fn chips<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
     for (id, name, percent) in uploading {
         let gone = id.clone();
         let cancel = remove_button(p, &name, 160.0, move |s: &mut S| s.composer_cancel_upload(&gone)).label_static(opencode_i18n::t!("ui.promptInput.cancelUpload"));
-        r = r.child(el().key(format!("uploading-{id}")).hover_group().hover_motion(crate::style::INSTANT, crate::style::INSTANT).child(upload_card(p, &name, percent)).child(cancel));
+        r = r.child(el().key(format!("uploading-{id}")).hover_group_focus().hover_motion(crate::style::INSTANT, crate::style::INSTANT).child(upload_card(p, &name, percent)).child(cancel));
     }
     // One row that scrolls sideways with no bar (`editor.tsx:758-910`), and a 24 pt bg-base
     // fade on each side that shows while chips hide under it (`attachments.css`).
@@ -225,6 +226,7 @@ pub fn remove_button<S: 'static>(
         .radius(8.0)
         .center()
         .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .fill(p.icon_muted)
         .outline(1.0, 0.0, p.icon_contrast)
         .group_opacity(if crate::style::hover_none() { 1.0 } else { 0.0 }, 1.0)
