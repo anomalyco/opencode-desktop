@@ -176,18 +176,19 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
         changed = true;
     }
     if let Some(end) = ended {
+        // Its line in the template's source: the program's, less the prelude's lines.
+        let offset = host.widgets().entries.get(id).and_then(|e| match host.widgets().templates.get(&e.template) {
+            Some(Template::Ready(c)) => Some(c.offset),
+            _ => None,
+        });
+        let offset = offset.unwrap_or(0);
         let error = match end {
-            Ended::Failed(m) => Some(m),
+            Ended::Failed(m) => {
+                crate::report(host, id, "main", &m, failed_at, offset);
+                Some(crate::in_source(&m, failed_at, offset))
+            }
             Ended::Returned | Ended::Stopped => None,
         };
-        if let Some(m) = &error {
-            // Its line in the template's source: the program's, less the prelude's lines.
-            let offset = host.widgets().entries.get(id).and_then(|e| match host.widgets().templates.get(&e.template) {
-                Some(Template::Ready(c)) => Some(c.offset),
-                _ => None,
-            });
-            crate::report(host, id, "main", m, failed_at, offset.unwrap_or(0));
-        }
         stop(host, id);
         advance(host, id, Event::Ended(error));
         return true;

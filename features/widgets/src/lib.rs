@@ -234,7 +234,7 @@ fn run(host: &mut dyn WidgetsHost, id: &str, effect: Effect) -> Option<Event> {
             let result = result.map_err(|(f, offset)| {
                 let phase = if f.view { "view" } else if matches!(input, opencode_widget::StepInput::Init { .. }) { "init" } else { "event" };
                 report(host, id, phase, &f.message, f.location, offset);
-                f.message
+                in_source(&f.message, f.location, offset)
             });
             Some(Event::Ran(result))
         }
@@ -470,7 +470,7 @@ pub fn draw_canvases(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool 
         let Kind::Step(program) = &c.kind else { continue };
         for (path, frame) in local.canvases_due(view, now, f64::from(scale), dark) {
             let result = engine::draw(program, &machine.data, state, &frame).map_err(|f| {
-                let message = f.message.clone();
+                let message = in_source(&f.message, f.location, c.offset);
                 failed.push((id.clone(), f, c.offset));
                 message
             });
@@ -481,6 +481,16 @@ pub fn draw_canvases(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool 
         report(host, &id, "draw", &f.message, f.location, offset);
     }
     true
+}
+
+/// An interpreter message as the template's author reads it: its `(line N, col M)`, counted in
+/// the program, counted in the template's source instead (less the prelude's `offset` lines).
+pub(crate) fn in_source(message: &str, location: Option<(u32, u32)>, offset: u32) -> String {
+    let Some((line, column)) = location.filter(|(l, _)| *l > offset) else { return message.to_owned() };
+    match message.strip_suffix(&format!(" (line {line}, col {column})")) {
+        Some(head) => format!("{head} (line {}, col {column})", line - offset),
+        None => message.to_owned(),
+    }
 }
 
 /// Tells the agent widget `id` failed here (`report`), once per distinct error: `phase` is where

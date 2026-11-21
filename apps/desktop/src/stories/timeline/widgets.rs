@@ -36,6 +36,7 @@ pub const VARIANTS: &[(&str, usize)] = &[
     ("Keyboard and pointer", 14),
     ("Live shader, rebuilt", 15),
     ("Superseded, template calls", 16),
+    ("Live program that fails", 17),
 ];
 pub const KEYS: &[Trigger] = &[
     replay(open),
@@ -145,6 +146,23 @@ function show(s) {
 }
 "##;
 
+/// A live program written for the old API: it renders a shader, then calls `widget.next`, which
+/// the prelude no longer has, and fails; it stays failed, with Restart, until pressed.
+const FAILING: &str = "story-failing";
+const FAILING_SOURCE: &str = r##"async function main(data) {
+  widget.render(
+    ui.column({ gap: 1 }, [
+      ui.text("Neon gate", { style: "title" }),
+      ui.shader("fn shade(frag: vec2f) -> vec4f { let uv = frag / widget.resolution; return vec4f(uv.x * 0.3, 0.1, 0.4 + 0.3 * uv.y, 1.0); }", { height: 160, alt: "A gate" }),
+      ui.text("Steer with the pointer.", { style: "caption", tone: "muted" }),
+    ]),
+  )
+  while (true) {
+    const next = await widget.next({ frame: true })
+  }
+}
+"##;
+
 /// A canvas that fills the screen in full screen, and a layout that changes when it goes there.
 const FULLSCREEN: &str = "story-fullscreen";
 const FULLSCREEN_SOURCE: &str = r##"function init(data) {
@@ -208,6 +226,7 @@ fn template(v: usize) -> &'static str {
         14 => INPUT,
         15 => SHADER_GAME,
         16 => "confirm",
+        17 => FAILING,
         _ => "suggestions",
     }
 }
@@ -273,6 +292,7 @@ fn data(v: usize) -> (&'static str, Value) {
         // The same game with a caption that changes every frame: every frame builds the widget
         // again, the cost the values-only path saves.
         15 => ("Shader paddle", json!({ "clock": true })),
+        17 => ("Neon gate", json!({})),
         16 => ("Delete the branch", json!({ "title": "Delete feature/reconnect-backoff?", "message": "The branch is merged into `main`." })),
         _ => ("Pick a hero image", json!({
             "title": "Which hero image should the landing page use?",
@@ -322,6 +342,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     preload(s, RUNAWAY, &version(RUNAWAY), &runaway, "live", &json!({ "https": { "hosts": ["api.coingecko.com"] } }));
     preload(s, SHADER_GAME, &version(SHADER_GAME), &format!("{}\n{SHADER_GAME_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);
     preload(s, INPUT, &version(INPUT), &format!("{}\n{INPUT_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);
+    preload(s, FAILING, &version(FAILING), &format!("{}\n{FAILING_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);
     preload(s, FULLSCREEN, &version(FULLSCREEN), &format!("{}\n{FULLSCREEN_SOURCE}", fixtures::PRELUDE), "step", &Value::Null);
     tx.after(0.3, |s, tx| post(s, tx));
     if *s.fixture_run.variant == 3 {

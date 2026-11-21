@@ -15,8 +15,13 @@
 //! ```text
 //! Loading ──Loaded(live)──▶ Waiting ──Shown──▶ Running ──Answered──▶ Responding ──▶ Closed
 //!                                               │  ▲ Rendered, Input (delivered), Sending
-//!                                     Ended ────┘  └──── Retry (Restart) ──── Stopped
+//!                                     Ended ────┘  └──Rendered── Restarting ◀──Retry (Restart)── Stopped
+//!                                                                    └───────────Ended─────────────▶ ┘
 //! ```
+//!
+//! Only Restart leaves `Stopped`. While the restarted program hasn't drawn yet (`Restarting`),
+//! the widget keeps its last view, error and Restart as they were, so a program that fails
+//! again doesn't make the widget, and the timeline under it, jump.
 //!
 //! A step that fails leaves the previous state and view and shows the error inline (`Ready`
 //! with an error); the first `init` failing shows an error card (`Failed`). A widget the server
@@ -76,6 +81,9 @@ pub enum Phase {
     /// The live program ended (it returned, threw, or broke a budget): its last view, inert, with
     /// why, and Restart.
     Stopped { view: Option<Node>, error: Option<String> },
+    /// Restart started the program again; until it first renders (or ends) the widget shows what
+    /// `Stopped` showed.
+    Restarting { view: Option<Node>, error: Option<String> },
     /// Submitted or dismissed: the final view (when `init` could draw one), read-only, with the
     /// state it was drawn from (a canvas in it still draws from it).
     Closed { view: Option<Node>, state: Value, how: Closed },
@@ -185,6 +193,9 @@ impl Widget {
             Phase::Responding { view, .. } => Face::Live { view, live: false, sending: true, error: None, restart: false },
             Phase::Stopped { view: Some(view), error } => Face::Live { view, live: false, sending: false, error: error.as_deref(), restart: true },
             Phase::Stopped { view: None, error } => Face::Failed(error.as_deref().unwrap_or("The widget stopped.")),
+            // As it was stopped: the same rows, so a run that fails again moves nothing.
+            Phase::Restarting { view: Some(view), error } => Face::Live { view, live: true, sending: false, error: error.as_deref(), restart: true },
+            Phase::Restarting { view: None, error } => Face::Failed(error.as_deref().unwrap_or("The widget stopped.")),
             Phase::Closed { view, how, .. } => Face::Closed { view: view.as_ref(), how },
         }
     }
@@ -193,7 +204,7 @@ impl Widget {
     pub fn state(&self) -> Option<&Value> {
         match &self.phase {
             Phase::Ready { state, .. } | Phase::Stepping { state, .. } | Phase::Responding { state, .. } | Phase::Closed { state, .. } => Some(state),
-            Phase::Loading { .. } | Phase::Starting { .. } | Phase::Failed { .. } | Phase::Waiting { .. } | Phase::Running { .. } | Phase::Stopped { .. } => None,
+            Phase::Loading { .. } | Phase::Starting { .. } | Phase::Failed { .. } | Phase::Waiting { .. } | Phase::Running { .. } | Phase::Stopped { .. } | Phase::Restarting { .. } => None,
         }
     }
 
@@ -201,19 +212,19 @@ impl Widget {
     pub fn view(&self) -> Option<&Node> {
         match &self.phase {
             Phase::Ready { view, .. } | Phase::Stepping { view, .. } | Phase::Responding { view, .. } => Some(view),
-            Phase::Closed { view, .. } | Phase::Running { view, .. } | Phase::Stopped { view, .. } => view.as_ref(),
+            Phase::Closed { view, .. } | Phase::Running { view, .. } | Phase::Stopped { view, .. } | Phase::Restarting { view, .. } => view.as_ref(),
             Phase::Loading { .. } | Phase::Starting { .. } | Phase::Failed { .. } | Phase::Waiting { .. } => None,
         }
     }
 
     /// Whether the user can still answer it here.
     pub fn open_here(&self) -> bool {
-        matches!(self.phase, Phase::Ready { .. } | Phase::Stepping { .. } | Phase::Running { .. })
+        matches!(self.phase, Phase::Ready { .. } | Phase::Stepping { .. } | Phase::Running { .. } | Phase::Restarting { .. })
     }
 
     /// Whether a live program runs it.
     pub fn running(&self) -> bool {
-        matches!(self.phase, Phase::Running { .. })
+        matches!(self.phase, Phase::Running { .. } | Phase::Restarting { .. })
     }
 
     /// Whether it is a live widget waiting to first show.
@@ -238,16 +249,20 @@ pub fn step(w: &mut Widget, event: Event) -> Vec<Effect> {
         (Phase::Running { error, .. }, Event::Rendered(view)) => (Phase::Running { view: Some(view), error }, vec![]),
         (Phase::Running { view, error }, Event::Input(event)) => (Phase::Running { view, error }, vec![Effect::Deliver(event)]),
         (Phase::Running { view, .. }, Event::Sending(message)) => (Phase::Running { view, error: None }, vec![Effect::Send(message)]),
-        (Phase::Running { view, .. }, Event::Answered(response)) => {
+        (Phase::Running { view, .. } | Phase::Restarting { view, .. }, Event::Answered(response)) => {
             let view = view.unwrap_or_else(|| Node::Column { children: vec![], gap: None, align: Default::default(), fullscreen: None, capture: None });
             let effect = Effect::Respond { response: response.clone(), attempt };
             (Phase::Responding { state: Value::Null, view, response, attempt, live: true }, vec![Effect::Stop, effect])
         }
-        (Phase::Running { view, .. }, Event::Ended(error)) => (Phase::Stopped { view, error }, vec![]),
-        (Phase::Running { view, .. }, Event::Sent(Err(e))) => (Phase::Running { view, error: Some(sent_error(e)) }, vec![]),
-        (Phase::Stopped { view, .. }, Event::Retry) => (Phase::Running { view, error: None }, vec![Effect::Start]),
+        (Phase::Running { view, .. } | Phase::Restarting { view, .. }, Event::Ended(error)) => (Phase::Stopped { view, error }, vec![]),
+        (Phase::Running { view, .. } | Phase::Restarting { view, .. }, Event::Sent(Err(e))) => (Phase::Running { view, error: Some(sent_error(e)) }, vec![]),
+        (Phase::Stopped { view, error }, Event::Retry) => (Phase::Restarting { view, error }, vec![Effect::Start]),
+        // The restarted program drew: it runs, its old error gone.
+        (Phase::Restarting { .. }, Event::Rendered(view)) => (Phase::Running { view: Some(view), error: None }, vec![]),
+        (Phase::Restarting { view, error }, Event::Input(event)) => (Phase::Restarting { view, error }, vec![Effect::Deliver(event)]),
+        (Phase::Restarting { view, .. }, Event::Sending(message)) => (Phase::Running { view, error: None }, vec![Effect::Send(message)]),
         (Phase::Waiting { .. }, Event::Status(Status::Closed(how))) => (Phase::Closed { view: None, state: Value::Null, how }, vec![]),
-        (Phase::Running { view, .. }, Event::Status(Status::Closed(how))) => (Phase::Closed { view, state: Value::Null, how }, vec![Effect::Stop]),
+        (Phase::Running { view, .. } | Phase::Restarting { view, .. }, Event::Status(Status::Closed(how))) => (Phase::Closed { view, state: Value::Null, how }, vec![Effect::Stop]),
         (Phase::Stopped { view, .. }, Event::Status(Status::Closed(how))) => (Phase::Closed { view, state: Value::Null, how }, vec![]),
         (Phase::Loading { status }, Event::LoadFailed(message)) => match status {
             // A closed widget still says how it ended without its view.
