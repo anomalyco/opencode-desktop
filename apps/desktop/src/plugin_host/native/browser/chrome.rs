@@ -36,7 +36,8 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
                 return Ok(());
             }
             crate::plugin_host::editors::set_selection("browser", 0, anchor, focus);
-            crate::plugin_host::cx::ask("browser", crate::plugin_host::cx::Request::Redraw);
+            let plugin: std::rc::Rc<str> = std::rc::Rc::from("browser");
+            crate::plugin_host::cx::ask(&plugin, crate::plugin_host::cx::Request::Redraw);
             Ok(())
         })?,
     )?;
