@@ -26,6 +26,7 @@ extern crate ureq_web as ureq;
 
 #[cfg(windows)]
 pub mod apply;
+pub mod dialog;
 pub mod engine;
 mod feed;
 #[cfg(target_os = "linux")]
