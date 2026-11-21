@@ -8,7 +8,7 @@ use rune_luau::{Data, HostNode, NodeArgs};
 
 use crate::App;
 use crate::palette::{Pal, kit, pal};
-use crate::plugin_host::{FlyoutEvent, bump, cx, flyout, key_pressed, native, requests, services, submitted};
+use crate::plugin_host::{FlyoutEvent, bump, cx, flyout, input_changed, key_pressed, native, requests, services, submitted};
 
 pub fn all() -> Vec<HostNode> {
     let mut all = ui_nodes::base_nodes(
@@ -144,7 +144,7 @@ fn bare_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize)
             .collect(),
         _ => Vec::new(),
     };
-    let (on_edit, on_submit, on_key) = (plugin.clone(), plugin.clone(), plugin);
+    let (on_edit, on_change, on_submit, on_key) = (plugin.clone(), plugin.clone(), plugin.clone(), plugin);
     let font = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
     let mut input = session_view::style::field(edit, font)
         .spellcheck(false)
@@ -158,6 +158,7 @@ fn bare_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize)
             super::editors::note_side_field(app, &on_edit);
             super::editors::get_mut(app, &on_edit, index)
         })
+        .on_input_change(move |app: &mut App, tx: &mut Tx| input_changed(app, &on_change, index, tx))
         .on_submit(move |app: &mut App, tx: &mut Tx| submitted(app, &on_submit, index, tx));
     // A plugin's field reads the way its text does unless it says otherwise (`dir="auto"`); a
     // secret reads left to right.

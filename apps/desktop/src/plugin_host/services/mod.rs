@@ -45,7 +45,7 @@ pub use session::session_version;
 pub(crate) use session::CachedUsage;
 pub use store::store_version;
 pub use ui::panel_state as ui_panel_state;
-pub use watch::fire_watched;
+pub use watch::{fire_watched, sync_editor_watches};
 pub(crate) use watch::SessionInputs;
 
 /// Services later packages bring, and which.
