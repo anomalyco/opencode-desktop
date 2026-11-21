@@ -99,6 +99,12 @@ impl CefRuntime {
                 .map(|l| if l.starts_with("en") { format!("{l},en") } else { format!("{l},en-US,en") })
                 .map(|list| CefString::from(list.as_str()))
                 .unwrap_or_default(),
+            // Dedicated macOS Keychain item name (CEF PR #4247) so OSCrypt creates and owns its
+            // own item under our Developer ID identity instead of colliding with `"Chromium Safe Storage"`.
+            #[cfg(target_os = "macos")]
+            keychain_service_name: CefString::from("OpenCode Browser Safe Storage"),
+            #[cfg(target_os = "macos")]
+            keychain_account_name: CefString::from("OpenCode Browser"),
             ..Default::default()
         };
         let ok = cef::initialize(Some(&main_args), Some(&settings), Some(&mut app), std::ptr::null_mut());
@@ -212,13 +218,19 @@ wrap_app! {
             cmd.append_switch(Some(&"disable-popup-blocking".into()));
             cmd.append_switch(Some(&"mute-audio".into()));
             // Windows keeps real DPAPI cookie encryption (silent, logon-bound).
-            // macOS restores `--use-mock-keychain` until the `-67030` process-requirement /
-            // dedicated Keychain service name fix lands in a follow-up PR, so the first load never
-            // raises a `SecurityAgent` prompt or stalls.
-            // Linux sets `--password-store=basic` so a locked or absent Secret Service / KWallet
-            // keyring can never prompt or stall the first load.
+            // macOS uses real Keychain encryption under `"OpenCode Browser Safe Storage"` (CEF PR #4247)
+            // on real certificate-signed builds (`has_team_code_signature()`), while keeping
+            // `--use-mock-keychain` for unsigned/ad-hoc local dev builds and explicit
+            // `OPENCODE_BROWSER_MOCK_KEYCHAIN=1` runs so changing ad-hoc signatures never prompt.
+            // Linux stays on `--password-store=basic` because Secret Service / KWallet can prompt
+            // or stall when a keyring is locked or absent on desktop/headless Linux.
             #[cfg(target_os = "macos")]
-            cmd.append_switch(Some(&"use-mock-keychain".into()));
+            if std::env::var_os("OPENCODE_BROWSER_MOCK_KEYCHAIN").as_deref()
+                == Some(std::ffi::OsStr::new("1"))
+                || !crate::mac_app::has_team_code_signature()
+            {
+                cmd.append_switch(Some(&"use-mock-keychain".into()));
+            }
             #[cfg(target_os = "linux")]
             cmd.append_switch_with_value(Some(&"password-store".into()), Some(&"basic".into()));
             cmd.append_switch(Some(&"no-startup-window".into()));

@@ -196,6 +196,7 @@ assemble_app() {
   </dict>
 </dict></plist>
 PLIST
+  /usr/bin/plutil -convert xml1 "$app/Contents/Info.plist"
 
   local fw="$app/Contents/Frameworks/Chromium Embedded Framework.framework"
   ditto "$cef_dir/Chromium Embedded Framework.framework" "$fw"
@@ -228,6 +229,7 @@ PLIST
   </dict>
 </dict></plist>
 PLIST
+    /usr/bin/plutil -convert xml1 "$happ/Contents/Info.plist"
   done
 }
 
