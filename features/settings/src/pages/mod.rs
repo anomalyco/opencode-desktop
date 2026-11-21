@@ -167,6 +167,10 @@ pub struct State {
     pub search: TextEdit,
     /// Providers folded shut on Models.
     pub collapsed: models::Folds,
+    /// Pending provider expand/scroll/focus started from Providers' Console list.
+    pub models_reveal: models::Reveal,
+    /// Whether the OpenCode Console workspace provider list is expanded on Providers.
+    pub console_expanded: bool,
     pub tab: ExtensionsTab,
     /// Server-wide Extensions page state (plugins, skills, Console sources, plugin update machine).
     pub extensions: extensions::State,
@@ -256,6 +260,9 @@ pub fn show_page(host: &mut dyn SettingsHost, page: Page) {
             project::load(host, &dir, *tab);
         }
         _ => {}
+    }
+    if host.settings_pages().page == Page::Models && page != Page::Models {
+        models::cancel_reveal(host);
     }
     if host.settings_pages().page == Page::About {
         host.settings_pages_mut().wordmark.activate(false);
