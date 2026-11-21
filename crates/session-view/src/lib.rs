@@ -376,11 +376,6 @@ pub trait TimelineHost: Sized + 'static {
     fn loading_error(&self, _session: &str) -> Option<&str> {
         None
     }
-    /// Whether something reads session `_session`'s messages now: its loading row's ring turns
-    /// only then (official's session page shows no spinner while its messages load at all).
-    fn loading_in_flight(&self, _session: &str) -> bool {
-        true
-    }
     /// The loading row's Retry, after `loading_error`: read the messages again.
     fn retry_loading(&mut self, _session: &str, _tx: &mut Tx) {}
     fn partial_output(&self, _session:&str) -> Option<&str>{None}

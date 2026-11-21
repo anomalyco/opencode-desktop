@@ -2,10 +2,11 @@
 //! store (`browser_pane::cookies::host`). Only the bundled browser plugin's own settings page may
 //! call them: never a third-party plugin, and never from an MCP tool's coroutine.
 
-use mlua::{Lua, Table};
+use mlua::{Function, Lua, MultiValue, Table};
 use rune::Tx;
+use rune_luau::{Completer, Host};
 
-use super::{App, Dep, cx, method, scope::TabScope, with_app};
+use super::{App, Dep, Vmx, cx, method, scope::TabScope, with_app};
 
 fn require_settings_caller(lua: &Lua, what: &str) -> mlua::Result<()> {
     let scope = TabScope::capture(lua);
@@ -15,7 +16,7 @@ fn require_settings_caller(lua: &Lua, what: &str) -> mlua::Result<()> {
     Err(mlua::Error::runtime(format!("{what}: browser.cookies.denied")))
 }
 
-pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
+pub(super) fn service_methods(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     // `settings.tsx:208-209`: the switch shows the profile's state, and is disabled while it is
     // unknown (an engine without the `#286` cookie store). While the engine is idle, the persisted
     // preference stays live and `BrowserHost` sends `SetShareSignIns` on `Ready { cookies: true }`.
@@ -36,5 +37,25 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
             Ok(())
         })
     })?;
+    // `Browser:ImportCookieFileAsync(title)`: the app shows the picker itself (`cookie_import`).
+    let raw: Function = vmx.asyncs.raw_get("Browser.ImportCookieFileAsync")?;
+    let call: Function = lua
+        .load("local raw = ... return function(self, title) return raw(title) end")
+        .set_name("=Browser:ImportCookieFileAsync")
+        .call(raw)?;
+    t.raw_set("ImportCookieFileAsync", call)?;
     Ok(())
+}
+
+pub(super) fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
+    t.raw_set("Browser.ImportCookieFileAsync", host.async_function("Browser:ImportCookieFileAsync", import_cookie_file)?)
+}
+
+fn import_cookie_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
+    let (title,): (String,) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
+    require_settings_caller(lua, "Browser:ImportCookieFileAsync")?;
+    with_app("Browser:ImportCookieFileAsync", |app| {
+        app.later(Box::new(move |s: &mut App, tx: &mut Tx| s.start_cookie_file_import(title, done, tx)));
+        Ok(())
+    })
 }

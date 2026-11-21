@@ -302,7 +302,13 @@ pub fn poll(tx: &mut Tx) {
     }
     if !QUIT_SENT.swap(true, Ordering::Relaxed) {
         mark("quit.requested");
-        tx.quit();
+        // `--launch-trace-relaunch`: the quit is a Restart (an update's relaunch), once: the copy it
+        // starts (`RUNE_RELAUNCH_AFTER`) quits as a traced run does, appending its own line.
+        if crate::flag("--launch-trace-relaunch") && std::env::var_os("RUNE_RELAUNCH_AFTER").is_none() {
+            tx.relaunch();
+        } else {
+            tx.quit();
+        }
     }
 }
 

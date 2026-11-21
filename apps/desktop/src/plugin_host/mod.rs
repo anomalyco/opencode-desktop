@@ -417,6 +417,21 @@ pub fn submitted(app: &mut App, plugin: &str, index: usize, tx: &mut Tx) {
     requests::carry_out(app, tx);
 }
 
+/// Text changed in a plugin's bare field: fires `editor.{index}.Changed` synchronously so
+/// address-bar inline completion and suggestion rows update in the same frame as the keystroke,
+/// then syncs the editor & address-selection watch stamps against the post-handler state.
+pub fn input_changed(app: &mut App, plugin: &str, index: usize, tx: &mut Tx) {
+    let text = editors::text_in(app, plugin, index);
+    if let Some(p) = app.plugins.list.iter().find(|p| p.manifest.id == plugin) {
+        let name = format!("editor.{index}.Changed");
+        services::fire(app, p, &name, |lua| {
+            mlua::IntoLuaMulti::into_lua_multi(text.clone(), lua)
+        });
+        services::sync_editor_watches(app, p, index);
+    }
+    requests::carry_out(app, tx);
+}
+
 /// `--plugin-index`: each plugin, where it runs from, its state, and what it contributed.
 pub fn print_index(app: &App) {
     for p in &app.plugins.list {

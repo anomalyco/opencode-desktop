@@ -216,7 +216,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     })?;
     chrome::service_methods(lua, t)?;
     history::service_methods(lua, vmx, t)?;
-    cookies::service_methods(lua, t)?;
+    cookies::service_methods(lua, vmx, t)?;
     extensions::service_methods(lua, vmx, t)?;
     let raw: Function = vmx.asyncs.raw_get("Browser.OpenAsync")?;
     let open: Function = lua.load("local raw = ... return function(self, spec) local id = raw(spec) return if id then self:Get(id) else nil end").set_name("=Browser:OpenAsync").call(raw)?;
@@ -232,6 +232,7 @@ pub fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
     t.raw_set("BrowserTab.SiteCookiesAsync", host.async_function("BrowserTab:SiteCookiesAsync", devtools::site_cookies)?)?;
     t.raw_set("BrowserTab.ClearSiteAsync", host.async_function("BrowserTab:ClearSiteAsync", devtools::clear_site)?)?;
     extensions::asyncs(host, t)?;
+    cookies::asyncs(host, t)?;
     history::asyncs(host, t)?;
     chrome::asyncs(host, t)
 }

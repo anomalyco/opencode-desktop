@@ -102,7 +102,7 @@ fn to_cef_cookie(cookie: &WireCookie, now_secs: f64) -> Option<(String, Cookie)>
     {
         return None;
     }
-    if bare.chars().any(|c| matches!(c, '\0' | '\r' | '\n' | '/' | '\\') || c.is_whitespace())
+    if !valid_cookie_host(&cookie.host)
         || cookie.name.chars().any(|c| matches!(c, '\0' | '\r' | '\n'))
         || cookie.path.chars().any(|c| matches!(c, '\0' | '\r' | '\n'))
     {
@@ -153,7 +153,37 @@ fn to_cef_cookie(cookie: &WireCookie, now_secs: f64) -> Option<(String, Cookie)>
         same_site,
         priority: CookiePriority::MEDIUM,
     };
-    Some((cookie_url(cookie), cef_cookie))
+    let url = cookie_url(cookie);
+    // The URL Chromium binds the cookie to must name exactly this host: no user info, no port.
+    let parsed = url::Url::parse(&url).ok()?;
+    let same_host = match parsed.host()? {
+        url::Host::Domain(d) => d.eq_ignore_ascii_case(bare),
+        url::Host::Ipv4(ip) => bare.parse::<std::net::Ipv4Addr>().is_ok_and(|b| b == ip),
+        url::Host::Ipv6(ip) => bare.trim_start_matches('[').trim_end_matches(']').parse::<std::net::Ipv6Addr>().is_ok_and(|b| b == ip),
+    };
+    if !parsed.username().is_empty() || parsed.password().is_some() || parsed.port().is_some() || !same_host {
+        return None;
+    }
+    Some((url, cef_cookie))
+}
+
+/// A cookie host a browser would store (`browser_pane::cookies::format::valid_cookie_host`, kept in
+/// step): a plain hostname or an IP literal, at most one leading dot; never `user@host`, `?`, `#`,
+/// `%`, a port, a stray `:`, controls or spaces.
+fn valid_cookie_host(host: &str) -> bool {
+    let bare = host.strip_prefix('.').unwrap_or(host);
+    if bare.is_empty() || bare.len() > 253 {
+        return false;
+    }
+    if let Some(inner) = bare.strip_prefix('[').and_then(|r| r.strip_suffix(']')) {
+        return inner.parse::<std::net::Ipv6Addr>().is_ok();
+    }
+    if bare.contains(':') {
+        return bare.parse::<std::net::Ipv6Addr>().is_ok();
+    }
+    bare.split('.').all(|label| {
+        !label.is_empty() && label.len() <= 63 && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    })
 }
 
 fn from_cef_cookie(c: &Cookie) -> WireCookie {

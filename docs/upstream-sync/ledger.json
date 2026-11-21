@@ -23,8 +23,8 @@
     "have it": 148,
     "not applicable": 23,
     "differs on purpose": 1,
-    "partly": 2,
-    "missing": 4
+    "partly": 3,
+    "missing": 3
   },
   "rows": [
     {
@@ -3380,12 +3380,12 @@
       "summary": "Replace local rune_mcp browser tools on modern servers with pure-Rust experimental.browser v4 RPC client, 45 typed executors, <=1 s durable PromptGate, and authenticated remote tunnel proxy.",
       "size": "XL",
       "status": "have it",
-      "rune_pr": "#275, #287, #301, #296, #298, #302, #325, #331, #333, #386",
-      "status_evidence": "All 43 non-Lighthouse experimental.browser v4 typed operations complete on dev: nav/read/snapshot/screenshot (#275, #287, #298, #331), routed attach & suppression (#301, #296), remote TunnelProxy (#302), prompt gate (#325), prompt.tab data (#333), acting/dialog/confined uploads/diagnostics/profiling (#386), plus OOPIF pointer coords, HTML5 drag interception, OOPIF upload/drop, request post-data fallback, and trace/cpu auto-stop timers; profiling-with-extensions refusal and lighthouse unsupported recorded in ours.md. Narrow 3P contract tracked separately in UP-095-3P-CONTRACT.",
+      "rune_pr": "#275, #287, #301, #296, #298, #302, #325, #331, #333, #386, #434, #446, #484, #495, #496, #500, #503, #507, #543",
+      "status_evidence": "Seen working: 43 of 43 non-Lighthouse experimental.browser v4 operations plus two-tab trace.isolation, outside in, on a dev build with #444's input guard against a local site with a cross-origin OOPIF, HTML5 drag, upload, drop, download and dialog (proof/browser-tools/all-43/table-after-444.md, summary.json in the operation-detox workspace); input into a cross-origin frame element is refused with official's message, upload into it works, as official. Ops: nav/read/snapshot/screenshot (#275, #287, #298, #331), routed attach and suppression (#301, #296), TunnelProxy (#302), prompt gate (#325), prompt.tab (#333), acting/dialog/uploads/diagnostics/profiling (#386), OOPIF coords, HTML5 drag, OOPIF upload/drop, auto-stop timers (#446), frame-scoped refs (#484), request bodies only as Chromium captured them, as official (#495), no pop-up or native menu off agent input (#496), page-thrown errors attributed and capped (#500). lighthouse unsupported and profiling-with-extensions refusal recorded in ours.md.",
       "depends_on": "UP-095 (#63002), PRE-08 (#63500)",
       "risks": "Remote server attachment must fail closed until engine Ready.remote_proxy lands (WS-1 Phase 3a); older servers must keep full rune_mcp fallback.",
       "workstream": "BROWSER-TOOLS",
-      "reviewed": "Complete through PR 4; 3P contract next in UP-095-3P-CONTRACT"
+      "reviewed": "READER-10's seven criticals on #386/#434/#446/#484 closed (#495, #496, #500, #484; BROWSER-UI #504/#515; WS-9 #444)"
     },
     {
       "id": "UP-114",
@@ -3922,11 +3922,12 @@
       "summary": "Expose official's narrow third-party plugin browser contract (attached, canOpen, open, openFile, experimental.{open,close}); #296 refuses Browser:OpenAsync for third-party plugins on modern/remote servers until this contract exists.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "Host-provided narrow 'browser' contract (attached, canOpen, open, openFile, experimental.{open,close}) exposed per-consumer via Contracts:Use('browser') in apps/desktop/src/plugin_host/services/browser_contract.rs, matching official packages/plugin/src/gui/browser.ts:1-60; window halves only, while the built-in browser runs in a wide window, routed session on the window's server only; opaque per-VM handles bound to their window, revoked on reload/unload/window close/tab close and at the person's first input or navigation or an agent's touch; opens bounded at 4/s per VM and 16 live tabs per plugin; raw CDP/ReadFileAsync/SiteCookiesAsync remain blocked for third-party plugins.",
+      "status_evidence": "Seen working: hostile-plugin proof 12 of 12 on a dev build (proof/browser-tools/pr5-contract/summary.json in the operation-detox workspace): the person's input or navigation ends a plugin's close right (a page with unsaved work and beforeunload stays open), an untouched tab closes, another session or server is refused, 100 opens in one call admit 4, the cap stops at 16 live tabs (#525), and a second window opening and closing leaves the first window's handle working. Contract (attached, canOpen, open, openFile, experimental.{open,close}) via Contracts:Use('browser') in apps/desktop/src/plugin_host/services/browser_contract.rs, matching official packages/plugin/src/gui/browser.ts; window halves only, built-in browser on and wide, routed session on the window's server; raw CDP/ReadFileAsync/SiteCookiesAsync stay blocked for third-party plugins.",
       "depends_on": "UP-095-TOOLS (#296)",
       "risks": "Must keep third-party plugins blocked from raw CDP, ReadFileAsync, SiteCookiesAsync, and oc-preview:// minting.",
       "workstream": "BROWSER-TOOLS",
-      "reviewed": "Shipped as dedicated UP-095-3P-CONTRACT PR"
+      "reviewed": "READER-10 confirmed #452 at fac4bb8c; READER-12 merge-with-follow-ups on #525",
+      "rune_pr": "#452, #525, #499"
     },
     {
       "id": "UP-095-PROMPT-GATE",
@@ -4426,8 +4427,8 @@
       ],
       "summary": "opencode://open-project?directory=<folder> opens the folder as a project in a new session; opencode://new-session?directory=<folder>&prompt=<text> does the same with the prompt typed in, not sent; links given at a cold start open too.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "apps/desktop/src/workspace/system/deep_links.rs takes open?project=<folder> and the jump list's new-session (no directory or prompt), not official's open-project?directory= / new-session?directory=&prompt= forms.",
+      "status": "partly",
+      "status_evidence": "Code merged (PR #580): apps/desktop/src/workspace/system/deep_links.rs takes open-project?directory= and new-session?directory=&prompt= (prompt typed into the opened session's composer, not sent), in arrival order, cold-start links waiting for their server. Not driven yet: headless runs don't take launch links.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"

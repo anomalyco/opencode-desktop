@@ -16,6 +16,7 @@ use rune::{Cursor, El, Icon, Key, KeyEvent, Tx, el, icon};
 use rune_kit::{DiagramFrame, MarkdownStyle};
 
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::keymap::Bind;
 use crate::palette::Pal;
 use crate::style::INSTANT;
@@ -184,7 +185,7 @@ pub fn frame<S: TimelineHost>(p: &Pal, card: El, d: &DiagramFrame<'_>, style: &R
         return wrap;
     }
     let (source, style) = (Rc::<str>::from(d.source), style.clone());
-    wrap.hover_group()
+    wrap.hover_group_focus()
         .on_layout_tx(move |s: &mut S, rect, tx| {
             s.diagrams_mut().seen.insert(id, Seen { rect, source: source.clone(), style: style.clone() });
             tx.live_only();
@@ -204,21 +205,24 @@ pub fn frame<S: TimelineHost>(p: &Pal, card: El, d: &DiagramFrame<'_>, style: &R
 }
 
 fn button<S: TimelineHost>(p: &Pal, id: u64) -> El {
-    el().key("diagram-open")
-        .size(25.0, 25.0)
-        .radius(5.0)
-        .center()
-        .cursor(Cursor::Pointer)
-        .fill(p.bg_base)
-        .border(0.5, p.border_muted)
-        .hover(p.hover)
-        .hover_motion(INSTANT, INSTANT)
-        .group_opacity(0.0, 1.0)
-        .role("button")
-        .label_static(opencode_i18n::t!("rune.diagram.openFullSize"))
-        .help(opencode_i18n::t!("rune.diagram.openFullSize"))
-        .on_press_tx(move |s: &mut S, tx| {
-            open(s, id, tx);
-        })
-        .child(icon(&EXPAND_ICON, 13.0).color(p.icon_muted))
+    crate::style::hover_reveal(
+        el().key("diagram-open")
+            .size(25.0, 25.0)
+            .radius(5.0)
+            .center()
+            .cursor(Cursor::Pointer)
+            .focus_default(p)
+            .fill(p.bg_base)
+            .border(0.5, p.border_muted)
+            .hover(p.hover)
+            .press(p.pressed)
+            .hover_motion(INSTANT, INSTANT)
+            .role("button")
+            .label_static(opencode_i18n::t!("rune.diagram.openFullSize"))
+            .help(opencode_i18n::t!("rune.diagram.openFullSize"))
+            .on_press_tx(move |s: &mut S, tx| {
+                open(s, id, tx);
+            })
+            .child(icon(&EXPAND_ICON, 13.0).color(p.icon_muted)),
+    )
 }
