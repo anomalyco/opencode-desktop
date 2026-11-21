@@ -1022,6 +1022,18 @@ impl BrowserHost {
                         changed = true;
                     }
                 }
+                EngineMsg::ControlledPermissionRefused { tab_id, url } => {
+                    if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+                        t.loading = false;
+                        t.refusal = Some("browser.controlled.inherited_permission".to_owned());
+                        t.rejected += 1;
+                        if t.prompts.agent_driven {
+                            t.prompts.blocked_guard_notice =
+                                Some(crate::prompts::BlockedGuardReason::InheritedPermission { url });
+                        }
+                        changed = true;
+                    }
+                }
                 EngineMsg::TabList { tabs } => {
                     for snap in tabs {
                         self.upsert_tab(snap);
@@ -1297,14 +1309,26 @@ impl BrowserHost {
         self.next_tab_id = self.next_tab_id.max(snap.tab_id + 1);
         let want_zoom = self.site_zoom.get(&snap.url);
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == snap.tab_id) {
+            let blank_after_inherited = snap.url.eq_ignore_ascii_case("about:blank")
+                && matches!(
+                    t.prompts.blocked_guard_notice,
+                    Some(crate::prompts::BlockedGuardReason::InheritedPermission { .. })
+                );
             let url_changed = t.url != snap.url;
             let new_site = site_of(&snap.url).is_some() && site_of(&t.url) != site_of(&snap.url);
-            let clear_refusal = (url_changed || snap.load_error.is_some()) && t.refusal.is_some();
+            let clear_refusal =
+                !blank_after_inherited && (url_changed || snap.load_error.is_some()) && t.refusal.is_some();
+            let preserved_notice = blank_after_inherited
+                .then(|| t.prompts.blocked_guard_notice.clone())
+                .flatten();
             let (cancel_perms, cancel_auth) = if url_changed {
                 t.prompts.on_document_committed(&t.url, &snap.url)
             } else {
                 (Vec::new(), Vec::new())
             };
+            if let Some(notice) = preserved_notice {
+                t.prompts.blocked_guard_notice = Some(notice);
+            }
             let changed = url_changed
                 || t.title != snap.title
                 || t.loading != snap.loading
