@@ -370,6 +370,7 @@ pub static UI_LAYOUT_PROPS: PropsSpec = PropsSpec::new("UiLayoutProps", None, &[
     PropSpec::new("label", PropType::String, false),
     PropSpec::new("help", PropType::String, false),
     PropSpec::new("helpSide", PropType::Enum("Side"), false),
+    PropSpec::new("helpOpen", PropType::Bool, false),
     PropSpec::new("dir", PropType::Any, false),
 ]);
 
