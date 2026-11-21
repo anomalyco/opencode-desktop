@@ -142,6 +142,17 @@ pub enum Zone {
     Other,
 }
 
+/// Whether keyboard focus sits inside the question dock (or nowhere specific, as right after the
+/// dock opens). Unlike official (where `onKeyDown` is scoped to the dock DOM node), Rune's
+/// `question_key` runs window-wide (`keys.rs:27`), so focus on widgets outside the dock (tabs,
+/// sidebar, timeline) must not have `Left`/`Right`/`1..9`/`Escape`/`Cmd+Enter` hijacked.
+pub(super) fn focus_in_dock(focused: Option<&str>) -> bool {
+    match focused {
+        None => true,
+        Some(k) => k.starts_with("q-") || k.starts_with("question"),
+    }
+}
+
 /// Whether keyboard focus `focused` sits on a question option or nowhere specific (as opposed to a
 /// header/footer button like Dismiss, Back, Next/Submit, Minimize, or progress segments).
 pub(super) fn focus_in_options(focused: Option<&str>) -> bool {
@@ -191,7 +202,7 @@ pub fn intent(ev: &KeyEvent, zone: Zone, count: usize) -> Intent {
         Key::Right => return Intent::Question(ahead),
         _ => {}
     }
-    // Footer and progress buttons keep their own Enter/Space/arrows (`question-keys.ts:69`).
+    // Footer and progress buttons keep their own Enter/Space/arrows (`question-keys.ts:66`).
     if zone == Zone::Other {
         return Intent::None;
     }
@@ -463,9 +474,13 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
     let Some(f) = asking(s) else { return false };
     let (tab, focus) = place(s, &f);
+    let editing_here = editing(s, &f, tab);
+    if !editing_here && !focus_in_dock(tx.focused()) {
+        return false;
+    }
     let field = &f.fields[tab];
     let n = rows(field).len();
-    let zone = if editing(s, &f, tab) {
+    let zone = if editing_here {
         Zone::Input
     } else if !focus_in_options(tx.focused()) {
         Zone::Other

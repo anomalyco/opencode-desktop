@@ -407,6 +407,9 @@ fn advance(ev: &KeyEvent) -> bool {
 /// A key while the Classic dock shows (its `nav`); false when it isn't the dock's.
 pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let Some(f) = asking(s) else { return false };
+    if !super::focus_in_dock(tx.focused()) {
+        return false;
+    }
     let (tab, focus) = place(s, &f);
     let field = &f.fields[tab];
     let n = rows(field).len();
