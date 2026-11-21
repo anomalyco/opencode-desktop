@@ -1307,7 +1307,7 @@ impl EngineManager {
         let internal_picked = Arc::new(Mutex::new(Vec::new()));
         let pending_clears = Arc::new(Mutex::new(Vec::new()));
         let mut observer = TabCdpObserver::new(
-            tab_id, is_popup, isolated, is_preview, snap.clone(), cdp_id_map.clone(),
+            tab_id, is_popup, isolated, is_preview, preview_grant.clone(), snap.clone(), cdp_id_map.clone(),
             internal_picked.clone(), pending_clears.clone(), cdp_ledger.clone(), passkeys.clone(),
             self.prompt_shared.clone(), input_guard.clone(), emulation_scale.clone(),
             self.next_cdp_id.clone(), prompts.clone(), self.permissions.clone(),

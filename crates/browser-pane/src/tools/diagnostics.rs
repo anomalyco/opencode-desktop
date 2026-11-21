@@ -288,8 +288,7 @@ impl TabDiagnostics {
             "Network.requestWillBeSentExtraInfo" => {
                 if let Some(hop) = self.find_native_mut(params, session_id) {
                     let (extra, trunc) = redact_headers(params.get("headers"));
-                    hop.request_headers.extend(extra);
-                    hop.headers_truncated |= trunc;
+                    hop.headers_truncated |= merge_headers(&mut hop.request_headers, extra) || trunc;
                 }
             }
             "Network.responseReceived" => {
@@ -297,8 +296,7 @@ impl TabDiagnostics {
                     && let Some(resp) = params.get("response")
                 {
                     let (headers, trunc) = redact_headers(resp.get("headers"));
-                    hop.response_headers.extend(headers);
-                    hop.headers_truncated |= trunc;
+                    hop.headers_truncated |= merge_headers(&mut hop.response_headers, headers) || trunc;
                     if hop.status_code.is_none() {
                         hop.status_code = resp.get("status").and_then(Value::as_u64);
                     }
@@ -308,8 +306,7 @@ impl TabDiagnostics {
             "Network.responseReceivedExtraInfo" => {
                 if let Some(hop) = self.find_native_mut(params, session_id) {
                     let (extra, trunc) = redact_headers(params.get("headers"));
-                    hop.response_headers.extend(extra);
-                    hop.headers_truncated |= trunc;
+                    hop.headers_truncated |= merge_headers(&mut hop.response_headers, extra) || trunc;
                     if let Some(code) = params.get("statusCode").and_then(Value::as_u64) {
                         hop.status_code = Some(code);
                     }
@@ -506,6 +503,32 @@ pub fn redact_headers(raw: Option<&Value>) -> (BTreeMap<String, String>, bool) {
         out.insert(name, val_bound);
     }
     (out, truncated)
+}
+
+/// Merges `extra` (already redacted) under the headers a hop holds, which win, and bounds the
+/// result as one set: official re-trims the merged headers (`diagnostics-machine.ts:148,165,182`
+/// `trimHeaders({ ...extra, ...latest })`). True when anything was cut.
+fn merge_headers(dst: &mut BTreeMap<String, String>, extra: BTreeMap<String, String>) -> bool {
+    for (k, v) in extra {
+        dst.entry(k).or_insert(v);
+    }
+    let mut truncated = dst.len() > MAX_HEADER_COUNT;
+    let (mut kept, mut total) = (0usize, 0usize);
+    dst.retain(|name, value| {
+        let remaining = MAX_HEADERS_TOTAL.saturating_sub(total + name.len());
+        if kept >= MAX_HEADER_COUNT || remaining == 0 {
+            truncated = true;
+            return false;
+        }
+        if value.chars().count() > remaining {
+            *value = truncate_chars(value, remaining);
+            truncated = true;
+        }
+        kept += 1;
+        total += name.len() + value.len();
+        true
+    });
+    truncated
 }
 
 fn stack_is_extension(stack: Option<&Value>) -> bool {

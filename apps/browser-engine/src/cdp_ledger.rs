@@ -424,6 +424,7 @@ wrap_dev_tools_message_observer! {
         is_popup: bool,
         isolated: bool,
         is_preview: bool,
+        preview: Option<Arc<crate::preview::PreviewGrant>>,
         snap: Arc<Mutex<TabSnapshot>>,
         id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
         internal_picked: Arc<Mutex<Vec<i64>>>,
@@ -855,6 +856,9 @@ wrap_dev_tools_message_observer! {
                     obj.insert("rendererPid".into(), serde_json::json!(start_pid));
                 }
             }
+            if let Some(grant) = &self.preview {
+                scrub_preview_urls(grant, &mut params);
+            }
             let _ = self.out_tx.send(EngineMsg::CdpEvent {
                 tab_id: self.tab_id,
                 method,
@@ -987,4 +991,31 @@ impl TabCdpObserver {
         };
         let _ = self.out_tx.send(EngineMsg::CdpResponse { tab_id: self.tab_id, request_id, ok, result });
     }
+}
+
+/// A preview's internal `oc-preview://` addresses reach the agent as the page's display URL, as
+/// official maps console text, sources and request URLs (`diagnostics.ts:43,47,157`).
+fn scrub_preview_urls(grant: &crate::preview::PreviewGrant, value: &mut Value) {
+    match value {
+        Value::String(s) if s.to_ascii_lowercase().contains("oc-preview:") => *s = replace_preview_urls(grant, s),
+        Value::Array(items) => items.iter_mut().for_each(|v| scrub_preview_urls(grant, v)),
+        Value::Object(map) => map.values_mut().for_each(|v| scrub_preview_urls(grant, v)),
+        _ => {}
+    }
+}
+
+fn replace_preview_urls(grant: &crate::preview::PreviewGrant, s: &str) -> String {
+    // ASCII lowercasing keeps every byte offset.
+    let lower = s.to_ascii_lowercase();
+    let mut out = String::with_capacity(s.len());
+    let mut at = 0;
+    while let Some(off) = lower[at..].find("oc-preview:") {
+        let start = at + off;
+        out.push_str(&s[at..start]);
+        let end = s[start..].find(|c: char| c.is_whitespace() || "\"'<>()[]".contains(c)).map_or(s.len(), |e| start + e);
+        out.push_str(&grant.sanitize_reported_url(&s[start..end]));
+        at = end;
+    }
+    out.push_str(&s[at..]);
+    out
 }
