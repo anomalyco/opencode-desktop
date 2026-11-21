@@ -6,30 +6,47 @@
 // Keeps all working native Chromium APIs (declarativeNetRequest, storage, scripting, alarms,
 // offscreen, runtime, tabs.sendMessage, tabs.connect, webRequest, cookies) native!
 (() => {
+  const LOCKDOWN_APIS = ["tabs", "windows", "action", "browserAction", "pageAction", "contextMenus", "webNavigation"];
   const neutralizeChrome = (win) => {
     if (!win) return;
     for (const rootName of ["chrome", "browser"]) {
       let root;
       try { root = win[rootName]; } catch { continue; }
       if (!root) continue;
-      for (const api of ["tabs", "windows", "action", "browserAction", "pageAction", "contextMenus", "webNavigation"]) {
+      for (const api of LOCKDOWN_APIS) {
         try {
           Object.defineProperty(root, api, { value: undefined, configurable: false, enumerable: false, writable: false });
         } catch {}
       }
     }
   };
+  const sweepFrames = (win) => {
+    if (!win) return;
+    let len = 0;
+    try { len = win.length | 0; } catch { return; }
+    for (let i = 0; i < len; i++) {
+      let cw;
+      try { cw = win[i]; } catch { continue; }
+      if (cw && cw !== globalThis && !cw.__ocExtInstalled) {
+        neutralizeChrome(cw);
+        sweepFrames(cw);
+      }
+    }
+  };
+
+  const isSubframe = Boolean(globalThis.window && globalThis.top && globalThis.window !== globalThis.top);
   if (globalThis.location) {
     const href = String(globalThis.location.href || "");
     const origin = String(globalThis.location.origin || "");
     const extId = globalThis.chrome?.runtime?.id;
-    // Neutralize chrome.tabs/windows/etc. in child about:blank / srcdoc / non-matching-origin frames
-    // instead of returning early and leaving unshimmed native APIs reachable (READER-12 C2).
+    // Neutralize chrome.tabs/windows/etc. in ANY child subframe (about:blank, about:srcdoc,
+    // same-origin iframe, <object>, <embed>) instead of leaving native APIs reachable (READER-12 C2).
+    if (isSubframe || href === "about:blank" || href === "about:srcdoc" || origin === "null") {
+      neutralizeChrome(globalThis);
+      sweepFrames(globalThis);
+      return "NEUTRALIZED";
+    }
     if (!extId || origin !== "chrome-extension://" + extId) {
-      if (href === "about:blank" || href === "about:srcdoc" || origin === "null") {
-        neutralizeChrome(globalThis);
-        return "NEUTRALIZED";
-      }
       return "DENIED";
     }
   }
@@ -37,59 +54,87 @@
   if (globalThis.__ocExtInstalled) return "ALREADY";
   globalThis.__ocExtInstalled = true;
 
-  // Harden synchronous child iframes (`const f = document.createElement('iframe'); body.appendChild(f);
-  // f.contentWindow.chrome.tabs...`) by neutralizing unshimmed `chrome.*` on child windows on access.
-  if (typeof globalThis.HTMLIFrameElement !== "undefined") {
-    for (const ctor of [globalThis.HTMLIFrameElement, globalThis.HTMLFrameElement]) {
-      if (!ctor?.prototype) continue;
-      const desc = Object.getOwnPropertyDescriptor(ctor.prototype, "contentWindow");
-      if (desc && typeof desc.get === "function") {
-        const origGet = desc.get;
-        try {
-          Object.defineProperty(ctor.prototype, "contentWindow", {
-            configurable: false,
-            enumerable: desc.enumerable,
-            get() {
-              const cw = origGet.call(this);
-              try {
-                if (cw && !cw.__ocExtInstalled) neutralizeChrome(cw);
-              } catch {}
-              return cw;
-            },
-          });
-        } catch {}
-      }
-    }
-    const neutralizeTree = (node) => {
-      if (!node || typeof node !== "object") return;
+  // Harden synchronous child frame creation (`about:blank`, `srcdoc`, `<object>`, `<embed>`,
+  // `innerHTML`, `insertAdjacentHTML`, `document.write`/`open`, `window[0]`, `window.open`).
+  if (typeof globalThis.window !== "undefined") {
+    const patchAccessor = (proto, prop, after) => {
+      if (!proto) return;
+      const desc = Object.getOwnPropertyDescriptor(proto, prop);
+      if (!desc) return;
       try {
-        if (node.tagName === "IFRAME" || node.tagName === "FRAME") {
-          const cw = node.contentWindow;
-          if (cw && !cw.__ocExtInstalled) neutralizeChrome(cw);
-        } else if (typeof node.querySelectorAll === "function") {
-          for (const f of node.querySelectorAll("iframe,frame")) {
-            const cw = f.contentWindow;
-            if (cw && !cw.__ocExtInstalled) neutralizeChrome(cw);
-          }
-        }
+        Object.defineProperty(proto, prop, {
+          configurable: false,
+          enumerable: desc.enumerable,
+          get: desc.get
+            ? function () {
+                const v = desc.get.call(this);
+                after(v, this);
+                return v;
+              }
+            : undefined,
+          set: desc.set
+            ? function (val) {
+                const r = desc.set.call(this, val);
+                after(val, this);
+                return r;
+              }
+            : undefined,
+        });
       } catch {}
     };
-    for (const method of ["appendChild", "insertBefore", "replaceChild"]) {
-      const orig = Node.prototype[method];
-      if (typeof orig === "function") {
+    const patchMethod = (proto, method, after) => {
+      if (!proto) return;
+      const orig = proto[method];
+      if (typeof orig !== "function") return;
+      try {
+        Object.defineProperty(proto, method, {
+          configurable: false,
+          writable: false,
+          value: function (...a) {
+            const res = orig.apply(this, a);
+            after(res, this, a);
+            return res;
+          },
+        });
+      } catch {}
+    };
+    for (const ctor of [globalThis.HTMLIFrameElement, globalThis.HTMLFrameElement, globalThis.HTMLObjectElement]) {
+      patchAccessor(ctor?.prototype, "contentWindow", (cw) => {
         try {
-          Object.defineProperty(Node.prototype, method, {
-            configurable: false,
-            writable: false,
-            value: function (...a) {
-              const res = orig.apply(this, a);
-              neutralizeTree(a[0]);
-              return res;
-            },
-          });
+          if (cw && cw !== globalThis && !cw.__ocExtInstalled) neutralizeChrome(cw);
         } catch {}
-      }
+      });
+      patchAccessor(ctor?.prototype, "contentDocument", (doc) => {
+        try {
+          const cw = doc?.defaultView;
+          if (cw && cw !== globalThis && !cw.__ocExtInstalled) neutralizeChrome(cw);
+        } catch {}
+      });
     }
+    const sweepAll = () => sweepFrames(globalThis);
+    for (const m of ["appendChild", "insertBefore", "replaceChild"]) {
+      patchMethod(globalThis.Node?.prototype, m, sweepAll);
+    }
+    for (const m of ["append", "prepend", "after", "before", "replaceWith", "insertAdjacentElement", "insertAdjacentHTML"]) {
+      patchMethod(globalThis.Element?.prototype, m, sweepAll);
+    }
+    patchAccessor(globalThis.Element?.prototype, "innerHTML", sweepAll);
+    patchAccessor(globalThis.Element?.prototype, "outerHTML", sweepAll);
+    patchAccessor(globalThis.ShadowRoot?.prototype, "innerHTML", sweepAll);
+    for (const m of ["write", "writeln", "open"]) {
+      patchMethod(globalThis.Document?.prototype, m, (_res, doc) => {
+        try {
+          const cw = doc?.defaultView;
+          if (cw && cw !== globalThis && !cw.__ocExtInstalled) neutralizeChrome(cw);
+        } catch {}
+        sweepFrames(globalThis);
+      });
+    }
+    patchMethod(globalThis.Window?.prototype || globalThis, "open", (w) => {
+      try {
+        if (w && w !== globalThis && !w.__ocExtInstalled) neutralizeChrome(w);
+      } catch {}
+    });
   }
 
   const isPopup = __IS_POPUP__;
@@ -482,9 +527,24 @@
       targets.add(cur);
     }
 
+    const nativeAllow = ns.path === "tabs" ? new Set(["sendMessage", "connect"]) : null;
     for (const target of targets) {
       for (const [k, v] of Object.entries(members)) def(target, k, v);
       for (const [k, v] of Object.entries(eventObjs)) def(target, k, v);
+      // Sweep any remaining native methods on `chrome.tabs` / `chrome.windows` so newly added
+      // Chromium methods cannot bypass our RPC/agent_driven guards (READER-12 C2).
+      if (ns.path === "tabs" || ns.path === "windows") {
+        for (const prop of Object.getOwnPropertyNames(target)) {
+          if (Object.prototype.hasOwnProperty.call(members, prop)) continue;
+          if (Object.prototype.hasOwnProperty.call(eventObjs, prop)) continue;
+          if (nativeAllow?.has(prop)) continue;
+          let curVal;
+          try { curVal = target[prop]; } catch { continue; }
+          if (typeof curVal === "function") {
+            def(target, prop, makeMethod(`${ns.path}.${prop}`, false));
+          }
+        }
+      }
     }
   }
 
