@@ -136,6 +136,11 @@ pub trait QuoteHost: opencode_kernel::AppEnv {
     fn remove_line_comment_card(&mut self, key: u64) {
         self.quotes_mut().remove(key);
     }
+
+    /// Handles clicking a plugin note card (e.g. a browser element/page comment) to reveal its source.
+    fn open_note_card(&mut self, origin: &str, href: &str, tx: &mut Tx) {
+        let _ = (origin, href, tx);
+    }
 }
 
 /// The quotes waiting in the composer, the comment editor, and the toolbar's machine.

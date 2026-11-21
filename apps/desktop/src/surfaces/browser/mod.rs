@@ -10,6 +10,10 @@ pub mod links;
 #[cfg(not(target_arch = "wasm32"))]
 mod activity;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod comment;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod app_icons;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod context_menu;
 #[cfg(not(target_arch = "wasm32"))]
 mod keys;
@@ -126,6 +130,8 @@ mod native {
         pub session_tabs: HashMap<String, Vec<u64>>,
         /// DevTools calls a plugin waits on, by the engine's request id.
         pub devtools: HashMap<u64, PendingDevtools>,
+        /// Each other browser's icon for Settings > Browser, read off the UI thread (`app_icons`).
+        pub app_icons: super::app_icons::AppIcons,
         /// Last observed Luau store version for `plugin.browser/rune.sitePermissions`.
         pub site_permissions_version: u64,
         /// Async preview proxy errors `(tab_id, binding_generation, code)` (e.g. artifact 404).
@@ -149,6 +155,10 @@ mod native {
         pub unseen_tabs: std::collections::HashSet<u64>,
         /// Chrome-style opener chains and initial `"New tab"` title holds (`UP-118`).
         pub openers: super::openers::TabOpeners,
+        /// Floating element-comment spotlight/editor and whole-page note editor (`panel.tsx:1525-1665`).
+        pub overlay: super::comment::BrowserOverlay,
+        /// True while Site information popover is on View 2 ("Site settings") so Escape steps back.
+        pub site_detailed: bool,
     }
 
     pub use super::keys::claims_app_shortcut;
@@ -224,6 +234,7 @@ mod native {
         }
 
         pub fn setup_browser(&mut self, waker: Waker) {
+            self.workspace_panes.browser.overlay.set_waker(waker.clone());
             self.workspace_panes.browser.host.set_waker(waker);
             self.workspace_panes.browser.host.set_shell_shortcut(claims_app_shortcut);
             // The levels live in the app's state (`plugin.browser`, Desktop's browser plugin namespace),
@@ -339,6 +350,7 @@ mod native {
         /// A press on page `id`: the keyboard is in its pane now, as a click inside Desktop's side
         /// region makes it, so ⌘W, ⌘L and ⌘T act on the browser rather than the session's tab.
         pub fn focus_browser_page(&mut self, id: u64) {
+            self.workspace_panes.browser.host.close_extension_popup();
             let Some(sid) = self.browser_tab_session(id).map(str::to_owned) else { return };
             let key = panel_key(PLUGIN, &id.to_string());
             let side = self.kernel.slots.get_mut(&crate::panels::SIDE);

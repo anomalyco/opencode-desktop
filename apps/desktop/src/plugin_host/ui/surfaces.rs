@@ -271,9 +271,6 @@ fn titlebar_pills(app: &App, p: &Pal, vertical: bool) -> Vec<El> {
             if !open {
                 group = group.w(side);
             }
-            if !vertical {
-                group = group.mr(12.0);
-            }
             Some(group)
         })
         .collect()

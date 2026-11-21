@@ -321,6 +321,57 @@ impl App {
         let popups: Vec<_> = self.workspace_panes.browser.host.drain_popup_opens().collect();
         let mut changed = false;
         for popup in popups {
+            if self.workspace_panes.browser.host.popup_tab_id() == Some(popup.opener_tab_id) {
+                let (ext_id, about_tab) = self
+                    .workspace_panes
+                    .browser
+                    .host
+                    .extension_popup()
+                    .map(|p| (p.ext_id.to_owned(), p.about_tab))
+                    .unwrap_or_default();
+                self.workspace_panes.browser.host.close_extension_popup();
+                let own_prefix = format!("chrome-extension://{ext_id}/");
+                let allowed_ext = !ext_id.is_empty() && popup.url.starts_with(&own_prefix);
+                if allowed_ext {
+                    let new_id = self.workspace_panes.browser.host.open_extension_page_tab(&popup.url);
+                    let sid = about_tab
+                        .and_then(|t| self.browser_tab_session(t).map(str::to_owned))
+                        .or_else(|| self.active_session_id().map(str::to_owned));
+                    if let Some(sid) = sid {
+                        if let Some(opener) = about_tab {
+                            self.attach_browser_tab_beside(&sid, new_id, opener, !popup.background);
+                        } else {
+                            self.attach_browser_tab_to_session(Some(&sid), new_id, None, !popup.background);
+                        }
+                    }
+                    changed = true;
+                } else if browser_policy::destination_origin(&popup.url).is_some() {
+                    let sid = about_tab
+                        .and_then(|t| self.browser_tab_session(t).map(str::to_owned))
+                        .or_else(|| self.active_session_id().map(str::to_owned));
+                    if let Some(opener) = about_tab {
+                        let _ = self.open_new_browser_tab_beside(
+                            sid.as_deref(),
+                            &popup.url,
+                            opener,
+                            !popup.background,
+                            browser_pane::ContextKind::Default,
+                            None,
+                        );
+                    } else if let Some(sid) = sid {
+                        let new_id = self.workspace_panes.browser.host.open_tab_with_context(
+                            &popup.url,
+                            Vec::new(),
+                            browser_pane::ContextKind::Default,
+                            false,
+                            false,
+                        );
+                        self.attach_browser_tab_to_session(Some(&sid), new_id, None, !popup.background);
+                    }
+                    changed = true;
+                }
+                continue;
+            }
             let Some((driver, opener_ctx)) = self.browser_context_for_opener(popup.opener_tab_id) else {
                 // Opener closed before drain: refuse rather than downgrading to direct `Private`.
                 continue;

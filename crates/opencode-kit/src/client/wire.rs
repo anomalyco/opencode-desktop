@@ -52,6 +52,8 @@ pub enum Incoming {
     Opened,
     /// The sessions running right now (the reply to `Request::Active`).
     Active(Vec<String>),
+    /// `Request::Active` failed; the app keeps its unsettled-turn fallback and retries with backoff.
+    ActiveFailed(WireError),
     /// The server's project list (`/api/project`).
     Projects(Vec<model::Project>),
     /// The folder the server was started in, its default location (the reply to
@@ -90,6 +92,8 @@ pub enum TicketKind {
     Fork,
     /// A queued or pending prompt's steer, move, removal or undo (`Deliver`, `Cancel`).
     Inbox,
+    /// `Write::View`, reporting a session viewed.
+    View,
 }
 
 pub enum Request {

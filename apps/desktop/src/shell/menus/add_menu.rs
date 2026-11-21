@@ -370,7 +370,7 @@ pub fn trigger(s: &App, p: &Pal) -> El {
         .key("add")
         .role("button")
         .label_static(t!("ui.promptInput.add"))
-        .help(t!("ui.promptInput.add")).help_keys(crate::keymap::Bind::Attach.keycaps())
+        .help(t!("ui.promptInput.add")).help_keys(crate::keymap::Bind::Attach.keycaps()).help_above()
         .size(28.0, 28.0)
         .mr(2.0)
         .radius(6.0)

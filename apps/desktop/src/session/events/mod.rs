@@ -205,6 +205,10 @@ impl App {
                 let done = self.apply_event_shared(&ty, &data);
                 Heard::Event(StreamEvent { ty, data, done, notice: Cell::default(), sound: Cell::default() })
             }
+            Incoming::Opened => {
+                crate::reconnect::request_active(self, false);
+                Heard::Message(Box::new(Incoming::Opened))
+            }
             Incoming::Reconnected => {
                 self.resync_shared();
                 Heard::Message(Box::new(Incoming::Reconnected))
@@ -358,6 +362,7 @@ impl App {
         let id = |v: &Value| v.as_str().unwrap_or("").to_owned();
         match ty {
             "session.execution.started" => {
+                self.stops.active_sync.note_execution(sid, true);
                 if let Some(missing) = self.missing_ancestor(sid) {
                     self.fetch_info(&missing);
                 }
@@ -369,6 +374,7 @@ impl App {
                 self.running.insert(sid.to_owned())
             }
             "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => {
+                self.stops.active_sync.note_execution(sid, false);
                 let was = self.running.remove(sid);
                 crate::stop::confirmed(self, sid);
                 if ty == "session.execution.interrupted" && data["reason"] == "shutdown" {
@@ -445,7 +451,7 @@ impl App {
         if matches!(*self.source, Source::Fixture) { self.fixture_run.served.record(ty, data); }
         crate::plugin_host::server_event(self, ty, data);
         let mut changed = self.note_agent(ty, data, &sid);
-        changed |= done.status | self.status_landed(ty, data, &sid);
+        changed |= done.status | self.status_landed(ty, data);
         changed |= self.note_review_event(ty, data);
         if ty == "filesystem.changed" {
             crate::files::watch::changed(self, data);
@@ -533,22 +539,11 @@ impl App {
         changed
     }
 
-    /// After `apply_status`, in this window: its stops, its sidebar's request times, its
-    /// question dock and replies on their way, and the open session's read mark.
-    fn status_landed(&mut self, ty: &str, data: &Value, sid: &str) -> bool {
+    /// After `apply_status`, in this window: its sidebar's request times, its question dock and
+    /// replies on their way. A focused window reports the open session's new idle mark viewed
+    /// (`session_viewed::poll`).
+    fn status_landed(&mut self, ty: &str, data: &Value) -> bool {
         match ty {
-            "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => {
-                // Desktop reports the open session's idle mark as viewed, so it never lights
-                // up: every window that shows it marks it, whichever window took the event.
-                let open = matches!(&*self.route, Route::Session { id: r, .. } if self.root_of(r) == self.root_of(sid));
-                let marked = open && self.sessions.iter_mut().find(|s| s.id == sid).is_some_and(|s| {
-                    let was = s.viewed;
-                    s.viewed = s.viewed.max(s.idle);
-                    s.viewed != was
-                });
-                if marked { crate::windows::peer::touch(self); }
-                marked
-            }
             "vcs.branch.updated" => {
                 let Some(dir) = data["eventLocation"]["directory"].as_str() else { return false };
                 self.sidebar_inbox.branches.updated(dir, data["branch"].as_str().map(str::to_owned));

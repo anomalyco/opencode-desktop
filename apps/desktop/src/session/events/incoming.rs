@@ -25,7 +25,7 @@ pub(crate) fn poll(s: &mut App, tx: &mut Tx) -> bool {
         let is_status = matches!(
             &*h,
             crate::events::Heard::Message(m)
-                if matches!(**m, Incoming::Status(_) | Incoming::Failed(_) | Incoming::StreamDown(_) | Incoming::Unanswered(_))
+                if matches!(**m, Incoming::Status(_) | Incoming::Failed(_) | Incoming::ActiveFailed(_) | Incoming::StreamDown(_) | Incoming::Unanswered(_))
         );
         if !is_status {
             changed |= reconnect::heard(s);
@@ -62,6 +62,7 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             // Terminals that failed under the old connection attach again (`server.connected`).
             s.kernel.slots.get_mut(&crate::terminal::TERMINAL).connections += 1;
             s.pump_outbox();
+            crate::session_viewed::connected(s);
             s.stream_back();
             s.check_sends();
             s.resync_view();
@@ -87,6 +88,7 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         }
         Incoming::Status(e) => status_toast::from_server(s, e),
         Incoming::Failed(e) => failed(s, e, tx),
+        Incoming::ActiveFailed(e) => reconnect::active_failed(s, &e, tx),
         Incoming::StreamDown(e) => {
             #[cfg(not(target_arch = "wasm32"))]
             {
@@ -123,12 +125,13 @@ fn settled(s: &mut App, ticket: Ticket, result: Result<Option<SessionInfo>, open
         TicketKind::Revert => s.revert_settled(session, attempt, result.map(|_| ())),
         TicketKind::Fork => fork::settled(s, attempt, result, tx),
         TicketKind::Inbox => s.queue_settled(session, attempt, result.map(|_| ()).map_err(Some)),
+        TicketKind::View => crate::session_viewed::settled(s, session, attempt, result),
     }
 }
 
 /// One reply to this window's own reads and writes.
 fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
-    if !matches!(m, Incoming::Status(_) | Incoming::Failed(_) | Incoming::StreamDown(_) | Incoming::Unanswered(_) | Incoming::SendFailed { .. }) {
+    if !matches!(m, Incoming::Status(_) | Incoming::Failed(_) | Incoming::ActiveFailed(_) | Incoming::StreamDown(_) | Incoming::Unanswered(_) | Incoming::SendFailed { .. }) {
         reconnect::heard(s);
     }
     match m {
@@ -243,6 +246,10 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         }
         Incoming::Status(e) => status_toast::from_server(s, e),
         Incoming::Failed(e) => failed(s, e, tx),
+        Incoming::ActiveFailed(e) => {
+            reconnect::active_failed(s, &e, tx);
+            return false;
+        }
         Incoming::StreamDown(e) => reconnect::stream_down(s, e, tx),
         Incoming::Unanswered(e) => reconnect::unanswered(s, e, tx),
         Incoming::SessionWrite { data, error } => {
@@ -258,10 +265,15 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         }
         Incoming::Pending { session, items } => {
             let inbox = !s.sidebar_inbox.settled() && s.sidebar_inbox.heard_pending(&session);
-            let drop_any = s.pending.iter().any(|p| p.session() == session && !items.iter().any(|i| i.id() == p.id()));
-            if drop_any {
+            let drop_pending = s.pending.iter().any(|p| p.session() == session && !items.iter().any(|i| i.id() == p.id()));
+            if drop_pending {
                 s.pending.retain(|p| p.session() != session || items.iter().any(|i| i.id() == p.id()));
             }
+            let drop_requests = s.requests.iter().any(|(sid, id)| *sid == session && !items.iter().any(|i| i.id() == id));
+            if drop_requests {
+                s.requests.retain(|(sid, id)| *sid != session || items.iter().any(|i| i.id() == id));
+            }
+            let drop_any = drop_pending || drop_requests;
             let mut added = false;
             for p in items {
                 added |= s.add_pending(p);
@@ -274,13 +286,28 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.resync_shared();
             return message(s, Incoming::Reconnected, tx);
         }
-        Incoming::Opened => return message(s, Incoming::Opened, tx),
+        Incoming::Opened => {
+            reconnect::request_active(s, false);
+            return message(s, Incoming::Opened, tx);
+        }
         Incoming::Active(ids) => {
             tx.instant();
-            s.stops.reconcile(&ids);
-            reconnect::active(s, &ids);
+            // Overlay execution SSE events received while `Request::Active` was in flight so live
+            // transitions supersede the snapshot (`packages/client/src/solid/data.ts:783-807`).
+            let deltas = s.stops.active_sync.landed();
+            let mut merged: std::collections::HashSet<String> = ids.into_iter().collect();
+            for (sid, started) in deltas {
+                if started {
+                    merged.insert(sid);
+                } else {
+                    merged.remove(&sid);
+                }
+            }
+            let reconciled: Vec<String> = merged.iter().cloned().collect();
+            s.stops.reconcile(&reconciled);
+            reconnect::active(s, &reconciled);
             // A stop the server hasn't confirmed yet stays stopped, whichever window pressed it.
-            *s.running = ids.into_iter().filter(|id| !s.stops.pending(id)).collect();
+            *s.running = merged.into_iter().filter(|id| !s.stops.pending(id)).collect();
         }
         Incoming::Projects(projects) => {
             s.session_search.invalidate();

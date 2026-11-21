@@ -47,15 +47,17 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, session: &str, events: &[Event], op
     }
     // `self_start`: its hover fill hugs its words rather than the timeline's width.
     let mut trigger = row().key("trigger").h(28.0).gap(4.0).center_y().self_start().shrink().min_w(0.0).child(words);
+    let press = std::rc::Rc::new(press);
     if items.is_empty() {
         trigger = trigger.role("group").label(label.join(" · "));
     } else {
         let a = el().key("arrow").w(16.0).h(24.0).ml(2.0).center().child(arrow(p, open));
+        let on_trigger = std::rc::Rc::clone(&press);
         trigger = hoverable(p, trigger)
             .role("button")
             .label(label.join(" · "))
             .expanded(open)
-            .on_press_tx(press)
+            .on_press_tx(move |s: &mut S, tx: &mut Tx| on_trigger(s, tx))
             .child(if open || crate::style::hover_none() { a } else { a.group_opacity(0.0, 1.0) });
     }
     // The trigger is the row's own `trigger`, which a fold holds in place (`disclosure::toggle_group`).
@@ -68,7 +70,7 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, session: &str, events: &[Event], op
     for (k, e) in items.into_iter().enumerate() {
         list = list.child(item(s, p, session, k, e));
     }
-    c.child(crate::disclosure::reveal(s.knobs(), crate::style::nested(p, ROW_GAP, list)))
+    c.child(crate::disclosure::reveal(s.knobs(), crate::style::nested_collapsible(p, ROW_GAP, list, move |s: &mut S, tx: &mut Tx| press(s, tx))))
 }
 
 /// One shell an events row lists (`TimelineEventItem`): "Shell", its command on one line as a

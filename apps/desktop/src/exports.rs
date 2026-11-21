@@ -37,7 +37,7 @@ pub(crate) use crate::session::{
     menu::view as session_menu_view,
     meta::{
         catalog as session_catalog, context_window, cost as session_cost, open as session_open,
-        state as session_state, status as session_status, title_change, turn_diffs,
+        state as session_state, status as session_status, title_change, turn_diffs, viewed as session_viewed,
     },
     pages as session_pages,
     timeline::{

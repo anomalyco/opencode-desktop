@@ -138,6 +138,9 @@ pub struct Pickers {
     /// Manage models, while it's open.
     pub manage: Option<manage::Manage>,
     manage_scratch: TextEdit,
+    /// Whether the pointer is currently over the composer box (used to reveal the default effort
+    /// chip without lighting on prompt keyboard focus, `editor.css:87`).
+    pub composer_hovered: bool,
 }
 
 /// `items` with each group's rows together, groups in the order they first appear: the server
