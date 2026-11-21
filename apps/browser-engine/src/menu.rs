@@ -48,6 +48,7 @@ pub fn read_cef_string_list(list: &CefStringList) -> Vec<String> {
 
 struct HeldMenu {
     id: u64,
+    src_url: Option<String>,
     callback: RunContextMenuCallback,
 }
 
@@ -64,14 +65,18 @@ impl TabMenuState {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn execute(
         &self,
+        tab_id: u64,
+        tab_gen: u64,
         id: u64,
         action: Option<ContextMenuCommand>,
         browser: &Browser,
         host: &BrowserHost,
         _file_roots: &[String],
-        is_preview: bool,
+        block_downloads: bool,
+        downloads: &crate::downloads::Downloads,
     ) {
         let matched = {
             let mut slot = self.held.lock().unwrap();
@@ -81,12 +86,13 @@ impl TabMenuState {
                 None
             }
         };
-        if let Some(held) = matched {
+        let held_src_url = if let Some(held) = matched {
             // Always cancel CEF's native menu runner; we execute the chosen action directly.
             held.callback.cancel();
+            held.src_url
         } else {
             return;
-        }
+        };
         let Some(cmd) = action else { return };
         match cmd {
             ContextMenuCommand::Back => browser.go_back(),
@@ -119,7 +125,11 @@ impl TabMenuState {
                 }
             }
             ContextMenuCommand::SaveImage { url } => {
-                if !is_preview && browser_policy::destination_origin(&url).is_some() {
+                if !block_downloads
+                    && held_src_url.as_deref() == Some(url.as_str())
+                    && browser_policy::download_url_allowed(&url)
+                {
+                    downloads.mark_pending_save_image(tab_id, tab_gen, &url);
                     host.start_download(Some(&CefString::from(url.as_str())));
                 }
             }
@@ -245,6 +255,7 @@ wrap_context_menu_handler! {
             };
             if let Some(prev) = self.menu_state.held.lock().unwrap().replace(HeldMenu {
                 id,
+                src_url: menu.src_url.clone(),
                 callback: callback.clone(),
             }) {
                 prev.callback.cancel();
