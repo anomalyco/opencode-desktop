@@ -155,6 +155,7 @@ pub(super) struct ExecutionContextMeta {
 #[derive(Debug)]
 pub(super) struct AttachedSession {
     pub ext_id: String,
+    pub target_id: String,
     pub kind: SessionKind,
     pub url: String,
     pub chromium_tab_id: Option<i32>,
