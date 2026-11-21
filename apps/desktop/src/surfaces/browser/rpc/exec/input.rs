@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use super::super::session::SessionAttachment;
 use super::point::PointResolver;
-use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards};
+use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards, page_exception};
 use crate::App;
 
 const DRAG_INTERCEPT_WAIT: Duration = Duration::from_secs(2);
@@ -684,8 +684,10 @@ fn handle_step_response(app: &App, st: &mut InputState, step: InputStep, resp: R
         if desc.starts_with("Error: browser.detached_ref") {
             return Err(Outcome::fail(failure_code::STALE_REF, "Element is no longer attached to the page. Refresh the snapshot first."));
         }
-        let cleaned = desc.strip_prefix("Error: ").unwrap_or(desc);
-        return Err(Outcome::fail(failure_code::OPERATION_FAILED, cleaned.lines().next().unwrap_or(cleaned)));
+        return Err(Outcome::fail(
+            failure_code::OPERATION_FAILED,
+            page_exception(desc, "The page's JavaScript threw while the browser tool acted on the element."),
+        ));
     }
     match step {
         InputStep::CheckDraggable => {
