@@ -104,6 +104,10 @@ impl Engine {
         let found = match decision {
             Decision::Install { version, target } => Some(Found { version, target }),
             Decision::NoTarget => return Err(fail(&format!("manifest for {} has no target {target_name}", manifest.release.version))),
+            Decision::DowngradeRefused { version } => {
+                eprintln!("updater: refusing downgrade {version} < {}", self.facts.version);
+                None
+            }
             Decision::UpToDate | Decision::RolloutDeferred { .. } => None,
         };
         if let Ok(mut slot) = self.found.lock() {

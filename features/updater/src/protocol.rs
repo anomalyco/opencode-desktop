@@ -1,6 +1,8 @@
 //! Anomaly Release protocol v1 (`https://anoma.ly/release`) manifest parser and update decision
-//! rules. Versions are display text and never ordered:
-//! an install updates whenever the channel's current release differs from the running build.
+//! rules. Refuses version downgrades (`Decision::DowngradeRefused`) when both running and manifest
+//! versions parse as SemVer (including `-dev-<N>` / `-beta.<N>` prerelease ordinals).
+
+use std::cmp::Ordering;
 
 use serde_json::Value;
 
@@ -39,6 +41,7 @@ pub struct Manifest {
 pub enum Decision {
     UpToDate,
     NoTarget,
+    DowngradeRefused { version: String },
     RolloutDeferred { version: String },
     Install { version: String, target: Target },
 }
@@ -150,6 +153,9 @@ pub fn decide(
     let Some(target) = &manifest.release.target else {
         return Ok(Decision::NoTarget);
     };
+    if version_is_older(&manifest.release.version, running_version) {
+        return Ok(Decision::DowngradeRefused { version: manifest.release.version.clone() });
+    }
     let already_running = match installed_sha256 {
         Some(sha) if !sha.is_empty() => sha.eq_ignore_ascii_case(&target.sha256),
         _ => manifest.release.version == running_version,
@@ -163,4 +169,57 @@ pub fn decide(
         return Ok(Decision::RolloutDeferred { version: manifest.release.version.clone() });
     }
     Ok(Decision::Install { version: manifest.release.version.clone(), target: target.clone() })
+}
+
+fn parse_version(raw: &str) -> Option<([u64; 3], Option<&str>)> {
+    let trimmed = raw.trim().strip_prefix(['v', 'V']).unwrap_or_else(|| raw.trim());
+    let without_build = trimmed.split_once('+').map_or(trimmed, |(left, _)| left);
+    let (core, pre) = match without_build.split_once('-') {
+        Some((c, p)) if !p.is_empty() => (c, Some(p)),
+        Some((c, _)) => (c, None),
+        None => (without_build, None),
+    };
+    let mut parts = core.split('.');
+    let major = parts.next()?.parse::<u64>().ok()?;
+    let minor = parts.next()?.parse::<u64>().ok()?;
+    let patch = parts.next()?.parse::<u64>().ok()?;
+    parts.next().is_none().then_some(([major, minor, patch], pre))
+}
+
+fn compare_prerelease(a: &str, b: &str) -> Ordering {
+    let mut ai = a.split(['.', '-']);
+    let mut bi = b.split(['.', '-']);
+    loop {
+        match (ai.next(), bi.next()) {
+            (Some(sa), Some(sb)) => {
+                let ord = match (sa.parse::<u64>(), sb.parse::<u64>()) {
+                    (Ok(na), Ok(nb)) => na.cmp(&nb),
+                    _ => sa.cmp(sb),
+                };
+                if ord != Ordering::Equal {
+                    return ord;
+                }
+            }
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+        }
+    }
+}
+
+/// True when both `candidate` and `running` parse as SemVer (including `-dev-<N>` / `-beta.<N>`
+/// prerelease tags) and `candidate` is strictly older than `running`.
+pub fn version_is_older(candidate: &str, running: &str) -> bool {
+    let (Some((c_core, c_pre)), Some((r_core, r_pre))) = (parse_version(candidate), parse_version(running)) else {
+        return false;
+    };
+    match c_core.cmp(&r_core) {
+        Ordering::Less => true,
+        Ordering::Greater => false,
+        Ordering::Equal => match (c_pre, r_pre) {
+            (Some(_), None) => true,
+            (None, Some(_)) | (None, None) => false,
+            (Some(a), Some(b)) => compare_prerelease(a, b).is_lt(),
+        },
+    }
 }
