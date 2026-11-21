@@ -63,7 +63,7 @@ pub(super) fn view<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
 }
 
 fn build_form_layout(p: &Pal, f: &form::Form, controls: El) -> El {
-    let mut e = col().key(format!("connect-form-{}", f.key())).px(12.0).gap(16.0);
+    let mut e = col().key(format!("connect-form-{}", f.key())).px(8.0).gap(16.0);
     // `dialog.tsx:619` (`#63829`): text steps render their own field label & description directly.
     if !matches!(f.step.kind, form::Kind::Text { .. }) {
         let mut head = col().w_full().gap(4.0).child(text(f.title()).font(BODY_MED).color(p.text).wrap());
@@ -86,7 +86,7 @@ fn form_error_el(p: &Pal, f: &form::Form) -> Option<El> {
 }
 
 fn cont<H: ConnectHost + 'static>(p: &Pal, enabled: bool) -> El {
-    ui::button(opencode_i18n::t!("common.continue"), ButtonVariant::Contrast)
+    ui::button(opencode_i18n::t!("common.continue"), ButtonVariant::Submit)
         .disabled(!enabled)
         .on_press_tx(|s: &mut H, tx: &mut Tx| submit_continue(s, tx))
         .build(kit(p))
@@ -113,7 +113,7 @@ fn external<H: ConnectHost + 'static>(p: &Pal, f: &form::Form, url: &str, browse
                     .busy(opening),
             )
             .child(
-                ui::button(opencode_i18n::t!("provider.connect.form.finished"), ButtonVariant::Contrast)
+                ui::button(opencode_i18n::t!("provider.connect.form.finished"), ButtonVariant::Submit)
                     .disabled(!f.can_finish())
                     .on_press_tx(|s: &mut H, tx: &mut Tx| form_input(s, form::Input::Submitted, tx))
                     .build(kit(p))

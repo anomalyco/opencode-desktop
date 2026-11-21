@@ -32,6 +32,7 @@ impl App {
     pub(crate) fn forget(&mut self, id: &str) {
         self.pending.retain(|p| p.id() != id);
         self.requests.retain(|(_, r)| r != id);
+        self.request_reads.forget_sse(id);
         self.kernel.slots.get_mut(&crate::question::QUESTION).forget(id);
         self.kernel.slots.get_mut(&crate::permission::PERMISSION_SENT).0.remove(id);
         crate::notifications::answered(self, id);

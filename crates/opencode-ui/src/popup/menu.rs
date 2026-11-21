@@ -30,6 +30,8 @@ pub struct Item {
     pub(super) title: String,
     pub(super) enabled: bool,
     pub(super) checked: bool,
+    /// One of a radio group's rows (`Menu.RadioItem`): a `menuitemradio` checked when it's the value.
+    pub(super) radio: bool,
     pub(super) danger: bool,
     /// The folder whose project avatar leads the row (drawn menus only).
     pub(super) project: Option<String>,
@@ -62,6 +64,8 @@ pub(super) enum Glyph {
     Slot(&'static Icon),
     /// A server's health mark (`ServerHealthIndicator`) in a 16 pt slot.
     Status(Indicator),
+    /// A tab group's 10 pt square, its fill and edge in light and in dark (`GroupSquare`).
+    Swatch([rune::Color; 2], [rune::Color; 2]),
 }
 
 impl Glyph {
@@ -69,7 +73,7 @@ impl Glyph {
     pub(super) fn mono(self) -> Option<&'static Icon> {
         match self {
             Glyph::Ink(g) | Glyph::Weak(g) | Glyph::Slot(g) => Some(g),
-            Glyph::App(_) | Glyph::Status(_) => None,
+            Glyph::App(_) | Glyph::Status(_) | Glyph::Swatch(..) => None,
         }
     }
 }
@@ -80,6 +84,7 @@ impl PartialEq for Glyph {
             (Glyph::Ink(a), Glyph::Ink(b)) | (Glyph::Weak(a), Glyph::Weak(b)) | (Glyph::Slot(a), Glyph::Slot(b)) => std::ptr::eq(*a, *b),
             (Glyph::App(a), Glyph::App(b)) => a == b,
             (Glyph::Status(a), Glyph::Status(b)) => a == b,
+            (Glyph::Swatch(a, x), Glyph::Swatch(b, y)) => a == b && x == y,
             _ => false,
         }
     }
@@ -92,6 +97,7 @@ impl Item {
             title: title.into(),
             enabled: true,
             checked: false,
+            radio: false,
             danger: false,
             project: None,
             shortcut: None,
@@ -115,6 +121,12 @@ impl Item {
     /// A 16 pt icon in a 16 pt slot, in the muted icon ink (`settings-server-switcher-icon`).
     pub fn slot_icon(mut self, glyph: &'static Icon) -> Item {
         self.glyph = Some(Glyph::Slot(glyph));
+        self
+    }
+
+    /// A tab group's square before the title (`GroupSquare`): `[fill, edge]` in light and in dark.
+    pub fn swatch(mut self, light: [rune::Color; 2], dark: [rune::Color; 2]) -> Item {
+        self.glyph = Some(Glyph::Swatch(light, dark));
         self
     }
 
@@ -142,6 +154,13 @@ impl Item {
     }
 
     /// A check at the row's end, as a picker marks its current value.
+    /// A radio group's row (`Menu.RadioItem`), checked when `on`: read as a `menuitemradio`.
+    pub fn radio(mut self, on: bool) -> Item {
+        self.radio = true;
+        self.checked = on;
+        self
+    }
+
     pub fn checked(mut self, on: bool) -> Item {
         self.checked = on;
         self
@@ -223,6 +242,7 @@ pub(super) struct Sub {
     pub(super) menu: Menu,
     /// The glyph before the title (drawn menus only).
     pub(super) glyph: Option<Glyph>,
+    pub(super) enabled: bool,
 }
 
 /// How a drawn menu looks.
@@ -344,13 +364,19 @@ impl Menu {
 
     /// A row titled `title` that opens `menu` beside it; its items answer the same `pick`.
     pub fn submenu(mut self, id: impl Into<String>, title: impl Into<String>, menu: Menu) -> Menu {
-        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: None })));
+        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: None, enabled: true })));
+        self
+    }
+
+    /// [`Menu::submenu`] that may be disabled (stays visible at disabled opacity and never opens).
+    pub fn submenu_enabled(mut self, id: impl Into<String>, title: impl Into<String>, enabled: bool, menu: Menu) -> Menu {
+        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: None, enabled })));
         self
     }
 
     /// [`Menu::submenu`] led by `glyph`, as the location card's branch and folder rows are.
     pub fn submenu_icon(mut self, id: impl Into<String>, title: impl Into<String>, glyph: &'static Icon, menu: Menu) -> Menu {
-        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: Some(Glyph::Ink(glyph)) })));
+        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: Some(Glyph::Ink(glyph)), enabled: true })));
         self
     }
 
@@ -422,7 +448,8 @@ impl Menu {
             Entry::Item(i) => m.item(PopupItem::new(i.id.clone(), i.title.clone()).enabled(i.enabled).checked(i.checked)),
             Entry::Separator => m.separator(),
             Entry::Group(title) => m.item(PopupItem::new(format!("group-{title}"), title.clone()).enabled(false)),
-            Entry::Sub(sub) => m.submenu(sub.title.clone(), sub.menu.native()),
+            Entry::Sub(sub) if sub.enabled => m.submenu(sub.title.clone(), sub.menu.native()),
+            Entry::Sub(sub) => m.item(PopupItem::new(sub.id.clone(), sub.title.clone()).enabled(false)),
         });
         match &self.selected {
             Some(id) => menu.selected(id.clone()),
@@ -439,7 +466,7 @@ impl Menu {
 
     pub(super) fn sub_at(&self, n: usize) -> Option<&Menu> {
         match self.entries.get(n)? {
-            Entry::Sub(sub) => Some(&sub.menu),
+            Entry::Sub(sub) if sub.enabled => Some(&sub.menu),
             _ => None,
         }
     }

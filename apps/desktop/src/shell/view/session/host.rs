@@ -1,7 +1,7 @@
 //! The Desktop window as a host for the shared session timeline.
 
 use opencode_kit::client::Request;
-use opencode_kit::model::{Inbox, Message, Transcript};
+use opencode_kit::model::{Inbox, Transcript};
 use rune::Tx;
 
 use crate::pickers::PickerHost as _;
@@ -111,25 +111,15 @@ impl session_view::TimelineHost for App {
         self.mention_title(session)
     }
     fn is_session_live(&self, session: &str) -> bool {
-        self.running.contains(session)
-            || (rune::Tracked::untracked(&self.transcripts).get(session).is_some_and(|t| self.timeline_busy(t)) && !self.stops.has(session))
+        self.subtree_busy(session)
     }
     fn timeline_busy(&self, t: &Transcript) -> bool {
-        if self.live() {
-            if self.running.contains(&t.session)
-                || self.queue.starts.has(&t.session)
-                || self.pending.iter().any(|p| p.session() == t.session)
-            {
-                return true;
-            }
-            // Keep optimistic Working for a freshly sent prompt before `execution.started` lands,
-            // but never treat an idle server session's uncompleted assistant turn as busy forever
-            // (matches official `message-timeline.tsx:549` checking live `session.status`).
-            let last = t.messages.iter().rev().find(|m| !matches!(m, Message::Notice(_)) && !matches!(self.unsent.state(m.id()), Some(send_failed::State::Waiting | send_failed::State::Unconfirmed | send_failed::State::Failed)));
-            return matches!(last, Some(Message::User { .. }));
-        }
-        let last = t.messages.iter().rev().find(|m| !matches!(m, Message::Notice(_)) && !matches!(self.unsent.state(m.id()), Some(send_failed::State::Waiting | send_failed::State::Unconfirmed | send_failed::State::Failed)));
-        matches!(last, Some(Message::User { .. })) || matches!(last, Some(Message::Assistant(a)) if a.completed.is_none() && a.error.is_none())
+        // Unified busy definition (`App::subtree_busy` / `App::session_busy`): covers server
+        // running set (with `/api/session/active` retry and SSE overlay), queued/steered/compaction
+        // inbox work (`project-avatar-state.ts:98-114`), running or approval-waiting sub-agents,
+        // and unsettled-turn fallback before `/api/session/active` syncs, while keeping settled
+        // idle sessions idle (`message-timeline.tsx:468-483,549`, `turn-phase-machine.ts:57`).
+        self.subtree_busy(&t.session)
     }
     fn working_label_for(&self, session: &str) -> Option<&'static str> {
         self.queue.starts.status(session)
@@ -138,10 +128,14 @@ impl session_view::TimelineHost for App {
         self.stops.has(session)
     }
     fn session_waiting(&self, session: &str) -> Option<session_view::working::Waiting> {
-        self.pending.iter().find(|p| p.session() == session).map(|p| match p {
-            opencode_kit::model::Pending::Permission { .. } => session_view::working::Waiting::Approval,
-            opencode_kit::model::Pending::Form { .. } => session_view::working::Waiting::Answer,
-        })
+        let family = self.pending_for(session);
+        if family.iter().any(|p| matches!(p, opencode_kit::model::Pending::Permission { .. })) {
+            return Some(session_view::working::Waiting::Approval);
+        }
+        if family.iter().any(|p| matches!(p, opencode_kit::model::Pending::Form { .. })) {
+            return Some(session_view::working::Waiting::Answer);
+        }
+        None
     }
     fn session_revert(&self, session: &str) -> Option<&str> {
         self.session(session).and_then(|i| i.revert.as_deref())
@@ -192,6 +186,9 @@ impl session_view::TimelineHost for App {
     }
     fn ends_mut(&mut self) -> &mut jump::Ends {
         &mut self.timeline_fx.ends
+    }
+    fn math_client(&self) -> Option<&rune_kit::math::Client> {
+        Some(self.kernel.slots.get(&crate::app::MATH))
     }
     fn fold_user_messages(&self) -> bool {
         self.settings.fold_user

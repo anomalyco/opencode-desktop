@@ -17,8 +17,9 @@ use crate::prompts::{
     PromptShared, TabDialogHandler, TabFileDialogHandler, TabLifeSpanHandler,
     TabPermissionHandler, TabPrompts,
 };
+use crate::passkeys::AgentGate;
 use crate::tab_client::SidecarTabClient;
-use crate::wire::{ContextKind, CursorKind, EngineMsg, TabSnapshot};
+use crate::wire::{ContextKind, CursorKind, EngineMsg, HostMsg, TabSnapshot};
 
 const MAX_PENDING_EXT_OPENS: usize = 16;
 const MAX_UNMANAGED_EXT_TABS: usize = 16;
@@ -391,6 +392,8 @@ impl EngineManager {
             snap.clone(),
             prompt_shared.clone(),
             prompts.clone(),
+            Arc::new(Mutex::new(crate::input_guard::InputGuard::default())),
+            Arc::new(std::sync::atomic::AtomicU32::new(1.0f32.to_bits())),
             self.permissions.clone(),
             None,
             diagnostics,
@@ -425,7 +428,7 @@ impl EngineManager {
             prompts.clone(),
             null_out.clone(),
         );
-        let dialog = TabFileDialogHandler::new(u64::MAX, false, prompts, null_out.clone());
+        let dialog = TabFileDialogHandler::new(u64::MAX, false, prompts.clone(), null_out.clone());
         let find = crate::find::TabFindHandler::new(
             u64::MAX,
             null_out.clone(),
@@ -434,7 +437,9 @@ impl EngineManager {
         let context_menu = crate::menu::TabContextMenuHandler::new(
             u64::MAX,
             prompt_shared,
+            prompts.clone(),
             file_roots,
+            None,
             None,
             menu_state,
             null_out,
@@ -451,6 +456,7 @@ impl EngineManager {
             dialog,
             find,
             context_menu,
+            prompts,
         );
         let mut win_info = WindowInfo::default().set_as_windowless(Default::default());
         win_info.shared_texture_enabled = 0;
@@ -525,7 +531,12 @@ impl EngineManager {
         // Official has no raw DOM or accessibility access at all; with extensions active, a raw
         // caller could reach content scripts' closed shadow roots, so only typed calls may.
         let raw_dom = self.extensions.is_some() && (method.starts_with("DOM.") || method.starts_with("Accessibility."));
-        let checked = if raw_dom {
+        let reach = crate::cdp_ledger::grant_gated(t)
+            .then(|| t.cdp_ledger.lock().unwrap().reach(&method, None, None, &params));
+        let granted = reach.as_ref().is_some_and(|r| crate::cdp_ledger::granted_origin(t, &self.permissions, r).is_some());
+        let checked = if granted {
+            Err(crate::permissions::INHERITED_PERMISSION_MSG.to_owned())
+        } else if raw_dom {
             Err("DOM and accessibility DevTools calls are not permitted while browser extensions are active.".to_owned())
         } else {
             browser_policy::check_cdp(&method, &params, true)
@@ -539,6 +550,63 @@ impl EngineManager {
             });
             return;
         }
+        if method == "Page.handleJavaScriptDialog"
+            && (t.prompts.has_leave_dialog() || t.prompts.is_covered())
+        {
+            let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                tab_id,
+                request_id,
+                ok: false,
+                result: json!({ "message": "The user is answering a prompt over this page. Wait for them, or use another tab." }),
+            });
+            return;
+        }
+        // Route raw `Input.*` calls through the same serialized `InputGuard` as `TypedCdpCall` so
+        // no raw caller can bypass hit-test, frame-owner, focused-frame, or prompt-cover checks.
+        if method.starts_with("Input.") {
+            if session_id.is_some() {
+                let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                    tab_id,
+                    request_id,
+                    ok: false,
+                    result: json!({ "message": "Input DevTools calls must target the page root session." }),
+                });
+                return;
+            }
+            t.cdp_ledger.lock().unwrap().app_attached = true;
+            if let Err(msg) = t
+                .input_guard
+                .lock()
+                .unwrap()
+                .enqueue(crate::input_guard::InputCall::single(request_id, method, params))
+            {
+                let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                    tab_id,
+                    request_id,
+                    ok: false,
+                    result: json!({ "message": msg }),
+                });
+                return;
+            }
+            crate::input_guard::pump(
+                tab_id,
+                &t.input_guard,
+                &t.browser,
+                &t.host,
+                t.is_popup,
+                t.isolated,
+                t.preview.is_some(),
+                &t.snap,
+                &t.prompts,
+                &self.permissions,
+                &t.cdp_ledger,
+                &t.emulation_scale,
+                &t.cdp_id_map,
+                &self.next_cdp_id,
+                &self.out_tx,
+            );
+            return;
+        }
         // The engine enabled `Runtime` when it armed the tab: disable it first so Chromium
         // reports the existing contexts to this caller too.
         let disable = {
@@ -548,6 +616,8 @@ impl EngineManager {
         };
         if let Some(disable) = disable {
             t.host.send_dev_tools_message(Some(disable.as_bytes()));
+            let binding = t.passkeys.binding_msg(None);
+            t.host.send_dev_tools_message(Some(binding.as_bytes()));
         }
         let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
         t.cdp_id_map.lock().unwrap().insert(
@@ -556,6 +626,7 @@ impl EngineManager {
                 request_id,
                 max_bytes: crate::cdp_ledger::max_cdp_response_bytes(&method),
                 typed: None,
+                reach,
             },
         );
         let payload = json!({
@@ -840,14 +911,7 @@ impl EngineManager {
             let was = t.prompts.agent_driven.swap(agent_driven, Ordering::AcqRel);
             t.prompts.user_reclaimed.store(false, Ordering::Release);
             t.snap.lock().unwrap().agent_driven = agent_driven;
-            let intercept_choosers = agent_driven || t.preview.is_some();
-            let root_fc = t.passkeys.file_chooser_intercept_msg(intercept_choosers, None);
-            t.host.send_dev_tools_message(Some(root_fc.as_bytes()));
-            let child_sids = t.cdp_ledger.lock().unwrap().web_session_ids();
-            for sid in child_sids {
-                let raw = t.passkeys.file_chooser_intercept_msg(intercept_choosers, Some(&sid));
-                t.host.send_dev_tools_message(Some(raw.as_bytes()));
-            }
+            sync_file_choosers(t);
             if agent_driven {
                 // Agent-driven tabs permanently refuse WebAuthn/passkeys (`chromium.ts:834-845`).
                 for raw in t.passkeys.enforce_messages() {
@@ -862,6 +926,112 @@ impl EngineManager {
             if let Some(ext) = &mut self.extensions {
                 ext.set_tab_agent_driven(tab_id, agent_driven);
             }
+        }
+    }
+
+    /// An agent command first makes its tab refuse passkeys in the browser process, and runs only
+    /// once Chromium answered `WebAuthn.enable` (official `afterRefusal`, `webauthn-gate.ts:121-127`,
+    /// `chromium.ts:1552-1554`): held until then, refused if it failed. `None` when held or refused.
+    pub(super) fn wait_for_passkey_refusal(&mut self, msg: HostMsg) -> Option<HostMsg> {
+        let (tab_id, agent_only) = match &msg {
+            HostMsg::CdpCall { tab_id, .. } => (*tab_id, true),
+            HostMsg::TypedCdpCall { tab_id, .. } | HostMsg::UploadFiles { tab_id, .. } | HostMsg::DropFiles { tab_id, .. } => {
+                (*tab_id, false)
+            }
+            _ => return Some(msg),
+        };
+        let Some(t) = self.tabs.get(&tab_id) else {
+            return Some(msg);
+        };
+        if agent_only && !t.prompts.agent_driven.load(Ordering::Acquire) {
+            return Some(msg);
+        }
+        for raw in t.passkeys.enforce_messages() {
+            t.host.send_dev_tools_message(Some(raw.as_bytes()));
+        }
+        // A command after held ones waits behind them, so the tab's commands keep their order.
+        if self.passkey_held.iter().any(|held| held_tab(held) == Some(tab_id)) {
+            self.passkey_held.push(msg);
+            return None;
+        }
+        match t.passkeys.agent_gate() {
+            AgentGate::Go => Some(msg),
+            AgentGate::Wait => {
+                self.passkey_held.push(msg);
+                None
+            }
+            AgentGate::Refuse => {
+                self.refuse_passkeys_unrestricted(&msg);
+                None
+            }
+        }
+    }
+
+    /// After CEF's work: stops each Windows tab whose `WebAuthn.enable` failed (official
+    /// `end({ cause: "passkeys-unrestricted" })`, `chromium.ts:839`), then runs or refuses the
+    /// agent commands whose tab has its answer.
+    pub fn release_passkey_held(&mut self) {
+        for t in self.tabs.values() {
+            if t.passkeys.take_end() {
+                t.browser.stop_load();
+                if let Some(f) = t.browser.main_frame() {
+                    f.load_url(Some(&CefString::from("about:blank")));
+                }
+            }
+        }
+        if self.passkey_held.is_empty() {
+            return;
+        }
+        let mut waiting: Vec<u64> = Vec::new();
+        for msg in std::mem::take(&mut self.passkey_held) {
+            let tab_id = held_tab(&msg).unwrap_or_default();
+            let gate = self.tabs.get(&tab_id).map(|t| t.passkeys.agent_gate());
+            if waiting.contains(&tab_id) || gate == Some(AgentGate::Wait) {
+                waiting.push(tab_id);
+                self.passkey_held.push(msg);
+                continue;
+            }
+            if gate == Some(AgentGate::Refuse) {
+                self.refuse_passkeys_unrestricted(&msg);
+                continue;
+            }
+            if !self.refuse_if_controlled_tab_blocked(&msg) {
+                self.handle_msg(msg);
+            }
+        }
+    }
+
+    /// The refusal for an agent file upload or drop on a controlled tab where any frame's origin
+    /// holds an inherited grant: the input or drop target can be in any frame (READER-9 #411 C3).
+    pub(super) fn whole_tab_granted(&self, t: &ManagedTab) -> Option<&'static str> {
+        let reach = crate::frame_authority::Reach::WholeTab;
+        (crate::cdp_ledger::grant_gated(t) && crate::cdp_ledger::granted_origin(t, &self.permissions, &reach).is_some())
+            .then_some(crate::permissions::INHERITED_PERMISSION_MSG)
+    }
+
+    fn refuse_passkeys_unrestricted(&self, msg: &HostMsg) {
+        let (HostMsg::CdpCall { tab_id, request_id, .. }
+        | HostMsg::TypedCdpCall { tab_id, request_id, .. }
+        | HostMsg::UploadFiles { tab_id, request_id, .. }
+        | HostMsg::DropFiles { tab_id, request_id, .. }) = msg
+        else {
+            return;
+        };
+        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+            tab_id: *tab_id,
+            request_id: *request_id,
+            ok: false,
+            result: json!({ "message": crate::passkeys::PASSKEYS_UNRESTRICTED }),
+        });
+    }
+
+    /// The person's own click or key took the tab back (`user_reclaimed` false -> true), or the
+    /// agent acted again (true -> false): the renderer's file-chooser intercept follows.
+    pub(super) fn set_user_reclaimed(&self, tab_id: u64, reclaimed: bool) {
+        let Some(t) = self.tabs.get(&tab_id) else { return };
+        let was = t.prompts.user_reclaimed.swap(reclaimed, Ordering::AcqRel);
+        if was != reclaimed && t.prompts.agent_driven.load(Ordering::Acquire) {
+            sync_file_choosers(t);
         }
     }
 
@@ -974,4 +1144,27 @@ pub(crate) fn classify_surface(
         live_frames.insert(id, furl);
     }
     if prompts.has_pending_ext_subframes(&live_frames) { Surface::Subframes } else { Surface::Clean }
+}
+
+/// Sends `Page.setInterceptFileChooserDialog` (official `file-choosers.ts:19-27`) to the tab's root
+/// and every attached web OOPIF session: on while the agent owns the tab's dialogs or the tab is a
+/// preview, off once the person has taken it back.
+pub(super) fn sync_file_choosers(t: &ManagedTab) {
+    let enabled = t.preview.is_some() || t.prompts.agent_owns_dialogs();
+    let root = t.passkeys.file_chooser_intercept_msg(enabled, None);
+    t.host.send_dev_tools_message(Some(root.as_bytes()));
+    let child_sids = t.cdp_ledger.lock().unwrap().web_session_ids();
+    for sid in child_sids {
+        let raw = t.passkeys.file_chooser_intercept_msg(enabled, Some(&sid));
+        t.host.send_dev_tools_message(Some(raw.as_bytes()));
+    }
+}
+fn held_tab(msg: &HostMsg) -> Option<u64> {
+    match msg {
+        HostMsg::CdpCall { tab_id, .. }
+        | HostMsg::TypedCdpCall { tab_id, .. }
+        | HostMsg::UploadFiles { tab_id, .. }
+        | HostMsg::DropFiles { tab_id, .. } => Some(*tab_id),
+        _ => None,
+    }
 }

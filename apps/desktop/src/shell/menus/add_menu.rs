@@ -370,14 +370,15 @@ pub fn trigger(s: &App, p: &Pal) -> El {
         .key("add")
         .role("button")
         .label_static(t!("ui.promptInput.add"))
-        .help(t!("ui.promptInput.add")).help_keys(crate::keymap::Bind::Attach.keycaps()).help_above()
+        .expanded(open)
         .size(28.0, 28.0)
         .mr(2.0)
         .radius(6.0)
         .center()
+        .cursor(rune::Cursor::Pointer)
+        .focus_inset(p)
+        .hover_motion(session_view::style::INSTANT, session_view::style::INSTANT)
         .child(icon(&ic::PLUS, 16.0).color(if open { p.icon } else { p.icon_muted }))
-        .hover(p.hover)
-        .press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             if s.kernel.slots.get(&ADD_MENU).open() { s.close_add_menu(Close::Outside, tx) } else { s.open_add_menu(tx) }
             crate::popover::motion::toggled(&s.diag.knobs, tx, s.kernel.slots.get(&ADD_MENU).open());
@@ -387,6 +388,14 @@ pub fn trigger(s: &App, p: &Pal) -> El {
     }
     if open {
         b = b.fill(p.pressed);
+    } else {
+        // Tooltip hides while menu is open (`editor.tsx:1011`).
+        b = b
+            .help(t!("ui.promptInput.add"))
+            .help_keys(crate::keymap::Bind::Attach.keycaps())
+            .help_above()
+            .hover(p.hover)
+            .press(p.pressed);
     }
     shell_hidden(s, b)
 }
@@ -416,6 +425,7 @@ pub fn exit_shell_button(p: &Pal, wide: bool) -> El {
         .gap(6.0)
         .center_y()
         .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         .focus_inset(p)
@@ -471,6 +481,7 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
                 .gap(8.0)
                 .center_y()
                 .radius(4.0)
+                .cursor(rune::Cursor::Pointer)
                 .fill(if active { p.hover } else { Color::TRANSPARENT })
                 .press(p.pressed)
                 .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {

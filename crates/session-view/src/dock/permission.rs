@@ -140,7 +140,8 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
     let live = !s.dock_busy(&id);
     let answer = |key: &str, label: &str, variant: Variant, decision: &'static str| {
         let id = id.clone();
-        button(p, key, label, variant, None, live).h(28.0).px(12.0).on_press_tx(move |s: &mut S, tx: &mut Tx| decide(s, &id, decision, tx))
+        let b = button(p, key, label, variant, None, live).h(28.0).px(12.0);
+        if live { b.on_press_tx(move |s: &mut S, tx: &mut Tx| decide(s, &id, decision, tx)) } else { b }
     };
     let footer = row()
         .key("permission-footer")

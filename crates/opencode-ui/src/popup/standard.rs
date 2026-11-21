@@ -39,10 +39,12 @@ pub(super) fn root<S: PopupHost + 'static>(p: &Pal, menu: &Menu, active: Option<
             Entry::Item(i) => item(p, &row_key(&i.id), &i.title, i.shortcut.as_deref(), i.enabled, lit)
                 .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| enter(s, inside, 0, tx, |s, tx| hover(s, n, tx)))
                 .on_press_tx(move |s: &mut S, tx: &mut Tx| choose(s, n, tx)),
-            Entry::Sub(sub) => item(p, &row_key(&sub.id), &sub.title, None, true, lit)
+            Entry::Sub(sub) if sub.enabled => item(p, &row_key(&sub.id), &sub.title, None, true, lit)
                 .child(icon(&CHEVRON, 16.0).key("chevron").color(p.standard.icon).mirror_in_rtl())
                 .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| enter(s, inside, 0, tx, |s, tx| hover(s, n, tx)))
                 .on_press_tx(move |s: &mut S, tx: &mut Tx| open_sub(s, n, false, tx)),
+            Entry::Sub(sub) => item(p, &row_key(&sub.id), &sub.title, None, false, false)
+                .child(icon(&CHEVRON, 16.0).key("chevron").color(p.standard.icon).mirror_in_rtl()),
             Entry::Separator => rule(p, n, hair),
             Entry::Group(title) => heading(p, n, title),
         }

@@ -121,6 +121,10 @@ impl SessionMenuHost for App {
         App::write(self, write)
     }
 
+    fn mark_viewed(&mut self, root: &str) {
+        crate::session_viewed::mark(self, root);
+    }
+
     fn server_label(&self, server: &ServerKey) -> String {
         crate::servers::runtime::label(server)
     }

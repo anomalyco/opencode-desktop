@@ -20,7 +20,7 @@ use base64::Engine as _;
 
 use crate::crx::{
     constant_time_eq, download_crx, extension_id, generate_local_spki_key, is_valid_ext_id,
-    parse_crx, random_token, store_target,
+    parse_crx_for_store, random_token, store_target,
 };
 use crate::integrity::{
     copy_dir_safe, create_dir_user_only, derive_id_from_manifest_bytes,
@@ -238,7 +238,8 @@ impl ExtensionManager {
         store: StoreKind,
         stored: &[StoredExtension],
     ) -> Result<StagedInstall, (InstallFailure, Option<String>)> {
-        let verified = parse_crx(crx_bytes, expected_id).ok_or((InstallFailure::Download, None))?;
+        let verified =
+            parse_crx_for_store(crx_bytes, expected_id, Some(store)).ok_or((InstallFailure::Download, None))?;
         let target_dir = self.root.join(expected_id);
         let record = StoredExtension {
             id: expected_id.to_owned(),

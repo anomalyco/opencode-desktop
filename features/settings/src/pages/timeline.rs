@@ -4,8 +4,9 @@
 //! Collapse; Timeline width; Background activity; and Changed files.
 
 use opencode_i18n::t;
+use opencode_ui::focus::FocusExt;
 use opencode_ui::popup::PopupHost;
-use rune::{Color, Drag, El, Key, KeyEvent, Phase, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Color, Cursor, Drag, El, Key, KeyEvent, Phase, Span, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use opencode_runtime::detail::{Activity, Category, Detail, PRESETS, Placement, preset_description};
 use opencode_ui::palette::{Elevate as _, Pal};
@@ -201,11 +202,14 @@ fn detail<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
         .gap(8.0)
         .child(text(t!("settings.timeline.detail")).font(LINE_MED).color(p.text))
         .child(text(t!("settings.timeline.description")).font(BODY).color(p.muted).wrap().my(-3.5));
-    let summary = row()
+    let prefix = t!("settings.timeline.summary", preset = name);
+    let summary = text(format!("{prefix} {}", preset_description(id)))
         .key("timeline-detail-summary")
-        .w_full()
-        .child(text(format!("{} ", t!("settings.timeline.summary", preset = name))).font(BODY).color(p.text))
-        .child(text(preset_description(id)).font(BODY).color(p.muted).wrap().shrink().min_w(0.0));
+        .font(BODY)
+        .color(p.muted)
+        .spans(vec![Span::new(0, prefix.len()).color(p.text)])
+        .wrap()
+        .w_full();
     col()
         .key("timeline-detail-control")
         .w_full()
@@ -256,6 +260,9 @@ fn scale<H: SettingsHost + 'static>(p: &Pal, at: Option<usize>) -> El {
         .range_value(at.unwrap_or(2) as f64, 0.0, (STOPS - 1) as f64)
         .range_step(1.0)
         .focusable(true)
+        .focus_default(p)
+        .cursor(Cursor::Pointer)
+        .radius(4.0)
         .w_full()
         .h(28.0)
         .on_drag(|s: &mut H, g: &mut Drag, tx: &mut Tx| drag_scale(s, g, tx))
@@ -275,6 +282,9 @@ fn advanced<H: SettingsHost + 'static>(s: &H, p: &Pal, d: &Detail, custom: bool)
         .role("button")
         .label_static(t!("settings.timeline.advanced"))
         .expanded(open)
+        .focus_default(p)
+        .cursor(Cursor::Pointer)
+        .radius(4.0)
         .h(24.0)
         .gap(6.0)
         .center_y()
@@ -318,9 +328,12 @@ fn category<H: SettingsHost + 'static>(p: &Pal, d: &Detail, c: Category, last: b
         .label(t!("settings.timeline.visibility.label", activity = c.label()))
         .checked(!hidden)
         .help(if hidden { t!("settings.timeline.visibility.show") } else { t!("settings.timeline.visibility.hide") })
+        .help_above()
         .size(20.0, 20.0)
         .center()
         .radius(4.0)
+        .focus_default(p)
+        .cursor(Cursor::Pointer)
         .fill(p.q.neutral)
         .elevate(neutral_lift(p))
         .hover(p.hover)

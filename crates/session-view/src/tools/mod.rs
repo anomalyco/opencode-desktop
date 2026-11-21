@@ -33,6 +33,7 @@ use rune::{El, col, el, row, text};
 use serde_json::Value;
 
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::{HOVER_FADE, TOOL_CODE, UI, arrow, readable};
 
@@ -366,6 +367,9 @@ pub fn trigger<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, d: Display, t
             .role("button")
             .label(t.title.into_owned())
             .expanded(d.open())
+            .radius(4.0)
+            .cursor(rune::Cursor::Pointer)
+            .focus_default(p)
             .hover_group()
             // The arrow fades in under the pointer (`collapsible.css:26-29`).
             .hover_motion(HOVER_FADE, HOVER_FADE)
@@ -446,12 +450,13 @@ pub fn session_relative<'a, S: TimelineHost>(s: &S, session: &str, path: &'a str
     relative(path, s.session_directory(session))
 }
 
-/// The directory a search ran in, relative to the session's, as its subtitle shows it; none
-/// for the session's own directory. Desktop shows the searched directory's parent
-/// (`displayDirectory(getDirectory(path))`), which names the wrong folder; this names the one
-/// searched, as an intentional Rune design.
+/// The directory a search ran in, relative to the session's, as its subtitle shows it; `"/"` for
+/// the session's own root directory (`context-group.tsx:419` `displayDirectory(input.path ?? "/")`).
+/// Desktop shows a subdirectory's parent (`getDirectory("src") == "/"`), which names the wrong
+/// folder; this keeps the searched subdirectory (`ours.md` §5.8).
 pub fn directory<S: TimelineHost>(s: &S, session: &str, path: &str) -> Option<String> {
-    Some(session_relative(s, session, path).to_owned()).filter(|r| !r.is_empty())
+    let rel = session_relative(s, session, path);
+    Some(if rel.is_empty() { "/".to_owned() } else { rel.to_owned() })
 }
 
 /// "1 file", "3 files" (`ui.common.file`).

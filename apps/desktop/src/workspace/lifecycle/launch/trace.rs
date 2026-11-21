@@ -43,7 +43,7 @@ struct Boot {
     #[cfg(not(target_arch = "wasm32"))]
     faults: u32,
     /// The time-stamp counter at `at`, to learn its rate for [`process_cpu_ns`].
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(target_os = "windows")]
     tsc: u64,
 }
 
@@ -112,7 +112,7 @@ pub fn begin() {
     BOOT.get_or_init(|| {
         let at = Instant::now();
         let (created, now) = process_clock();
-        Boot { at, since_created: now.saturating_sub(created).saturating_mul(100), created, faults: page_faults(), tsc: tsc() }
+        Boot { at, since_created: now.saturating_sub(created).saturating_mul(100), created, faults: page_faults(), #[cfg(target_os = "windows")] tsc: tsc() }
     });
     mark("main.entered");
     #[cfg(target_os = "windows")]
@@ -485,7 +485,7 @@ fn tsc() -> u64 {
     unsafe { core::arch::x86_64::_rdtsc() }
 }
 
-#[cfg(all(not(all(target_os = "windows", target_arch = "x86_64")), not(target_arch = "wasm32")))]
+#[cfg(all(target_os = "windows", not(target_arch = "x86_64")))]
 fn tsc() -> u64 {
     0
 }

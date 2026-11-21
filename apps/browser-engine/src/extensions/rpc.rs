@@ -150,13 +150,12 @@ impl ExtensionHost {
         let result: Result<Value, String> = match name {
             "tabs.query" => {
                 let query = args.first().and_then(Value::as_object);
-                Ok(Value::Array(self.answer_tabs_query(&ext.manifest, query)))
+                Ok(Value::Array(self.answer_tabs_query(ext_id, &ext.manifest, query)))
             }
             "tabs.get" => {
                 let wanted = args.first().and_then(Value::as_i64).map(|n| n as i32);
-                match wanted.and_then(|id| self.tabs.iter().find(|t| t.chromium_tab_id == Some(id)))
-                {
-                    Some(t) => Ok(self.tab_json(t, &ext.manifest, false)),
+                match wanted.and_then(|id| self.find_visible_tab_by_ext_cid(ext_id, id)) {
+                    Some(t) => Ok(self.tab_json(ext_id, t, &ext.manifest, false)),
                     None => Err(format!("No tab with id: {}.", wanted.unwrap_or(-1))),
                 }
             }
@@ -190,10 +189,7 @@ impl ExtensionHost {
                     _ => Vec::new(),
                 };
                 for cid in ids {
-                    if let Some(t) = self.tabs.iter().find(|t| t.chromium_tab_id == Some(cid)) {
-                        if t.agent_driven {
-                            continue;
-                        }
+                    if let Some(t) = self.find_visible_tab_by_ext_cid(ext_id, cid) {
                         effects.push(ExtEffect::CloseTab { engine_tab_id: t.engine_tab_id });
                     }
                 }
@@ -207,7 +203,7 @@ impl ExtensionHost {
                 };
                 let ignore_cache = opts.and_then(|o| o.get("bypassCache")).and_then(Value::as_bool).unwrap_or(false);
                 let tab = match tid_opt {
-                    Some(cid) => self.tabs.iter().find(|t| t.chromium_tab_id == Some(cid)),
+                    Some(cid) => self.find_tab_pos_by_ext_cid(ext_id, cid).and_then(|i| self.tabs.get(i)),
                     None => self.tabs.iter().find(|t| t.active),
                 };
                 if let Some(t) = tab {
@@ -228,28 +224,28 @@ impl ExtensionHost {
                     .and_then(|t| t.as_u64().or_else(|| t.as_array()?.first()?.as_u64()))
                     .map(|n| n as usize);
                 if let Some(idx) = idx_opt
-                    && let Some(t) = self.tabs.get(idx)
+                    && let Some(t) = self.visible_tabs().nth(idx)
                 {
                     effects.push(ExtEffect::FocusTab { engine_tab_id: t.engine_tab_id });
                 }
-                Ok(self.window_json(&ext.manifest, true))
+                Ok(self.window_json(ext_id, &ext.manifest, true))
             }
             "windows.get" => {
                 let id = args.first().and_then(Value::as_i64).unwrap_or(-1) as i32;
                 let populate = args.get(1).and_then(|v| v.get("populate")).and_then(Value::as_bool).unwrap_or(false);
                 if id == WINDOW_ID || id == WINDOW_ID_CURRENT {
-                    Ok(self.window_json(&ext.manifest, populate))
+                    Ok(self.window_json(ext_id, &ext.manifest, populate))
                 } else {
                     Err(format!("No window with id: {id}."))
                 }
             }
             "windows.getCurrent" | "windows.getLastFocused" => {
                 let populate = args.first().and_then(|v| v.get("populate")).and_then(Value::as_bool).unwrap_or(false);
-                Ok(self.window_json(&ext.manifest, populate))
+                Ok(self.window_json(ext_id, &ext.manifest, populate))
             }
             "windows.getAll" => {
                 let populate = args.first().and_then(|v| v.get("populate")).and_then(Value::as_bool).unwrap_or(false);
-                Ok(Value::Array(vec![self.window_json(&ext.manifest, populate)]))
+                Ok(Value::Array(vec![self.window_json(ext_id, &ext.manifest, populate)]))
             }
             "windows.create" => {
                 if !self.allow_open_tab(ext_id) {
@@ -268,7 +264,7 @@ impl ExtensionHost {
                                 active: true,
                                 reply_to: None,
                             });
-                            Ok(self.window_json(&ext.manifest, true))
+                            Ok(self.window_json(ext_id, &ext.manifest, true))
                         }
                         Err(e) => Err(e),
                     }
@@ -280,7 +276,7 @@ impl ExtensionHost {
                 {
                     Err("Extensions cannot change the size of app windows.".into())
                 } else {
-                    Ok(self.window_json(&ext.manifest, false))
+                    Ok(self.window_json(ext_id, &ext.manifest, false))
                 }
             }
             "windows.remove" => Err("Extensions cannot close app windows.".into()),
@@ -309,7 +305,7 @@ impl ExtensionHost {
                 let tid = args.first().and_then(|v| v.get("tabId")).and_then(Value::as_i64).map(|n| n as i32);
                 let fid = args.first().and_then(|v| v.get("frameId")).and_then(Value::as_i64).unwrap_or(0);
                 if fid == 0
-                    && let Some(t) = tid.and_then(|id| self.tabs.iter().find(|t| t.chromium_tab_id == Some(id)))
+                    && let Some(t) = tid.and_then(|id| self.find_visible_tab_by_ext_cid(ext_id, id))
                     && !is_private_url(&t.url)
                     && (!is_extension_scheme(&t.url) || extension_id_from_url(&t.url) == Some(ext_id))
                 {
@@ -320,7 +316,7 @@ impl ExtensionHost {
             }
             "webNavigation.getAllFrames" => {
                 let tid = args.first().and_then(|v| v.get("tabId")).and_then(Value::as_i64).map(|n| n as i32);
-                if let Some(t) = tid.and_then(|id| self.tabs.iter().find(|t| t.chromium_tab_id == Some(id)))
+                if let Some(t) = tid.and_then(|id| self.find_visible_tab_by_ext_cid(ext_id, id))
                     && !is_private_url(&t.url)
                     && (!is_extension_scheme(&t.url) || extension_id_from_url(&t.url) == Some(ext_id))
                 {
@@ -331,27 +327,35 @@ impl ExtensionHost {
             }
 
             "contextMenus.create" => {
-                if let Some(item) = args.first() {
-                    let item_bytes = item.to_string().len();
-                    let list = self.context_menus.entry(ext_id.to_owned()).or_default();
-                    let cur_bytes: usize = list.iter().map(|v| v.to_string().len()).sum();
-                    if list.len() < 256 && cur_bytes.saturating_add(item_bytes) <= 256 * 1024 {
-                        list.push(item.clone());
-                    }
+                if let Some(props) = args.first() {
+                    self.context_menus
+                        .lock()
+                        .unwrap()
+                        .create(ext_id, &ext.manifest.name, props)
+                        .map(|()| Value::Null)
+                } else {
+                    Err("Missing context menu properties.".into())
                 }
-                Ok(Value::Null)
             }
-            "contextMenus.update" => Ok(Value::Null),
+            "contextMenus.update" => {
+                if let (Some(id_val), Some(props)) = (args.first(), args.get(1)) {
+                    self.context_menus
+                        .lock()
+                        .unwrap()
+                        .update(ext_id, id_val, props)
+                        .map(|()| Value::Null)
+                } else {
+                    Err("Missing context menu item id or properties.".into())
+                }
+            }
             "contextMenus.remove" => {
-                if let Some(id_val) = args.first()
-                    && let Some(list) = self.context_menus.get_mut(ext_id)
-                {
-                    list.retain(|item| item.get("id") != Some(id_val));
+                if let Some(id_val) = args.first() {
+                    self.context_menus.lock().unwrap().remove(ext_id, id_val);
                 }
                 Ok(Value::Null)
             }
             "contextMenus.removeAll" => {
-                self.context_menus.remove(ext_id);
+                self.context_menus.lock().unwrap().clear_extension(ext_id);
                 Ok(Value::Null)
             }
 
@@ -401,7 +405,10 @@ impl ExtensionHost {
             "permissions.remove" => Ok(Value::Bool(false)),
 
             "cookies.getAllCookieStores" => {
-                let tab_ids: Vec<i32> = self.tabs.iter().filter_map(|t| t.chromium_tab_id).collect();
+                let tab_ids: Vec<i32> = self
+                    .visible_tabs()
+                    .filter_map(|t| self.ext_chromium_tab_id(ext_id, t.engine_tab_id))
+                    .collect();
                 Ok(json!([{ "id": "0", "tabIds": tab_ids }]))
             }
             "cookies.getPartitionKey" => Ok(json!({ "partitionKey": {} })),
@@ -456,7 +463,7 @@ impl ExtensionHost {
             (None, args.first().and_then(Value::as_object))
         };
         let target_idx = match tid_opt {
-            Some(cid) => self.tabs.iter().position(|t| t.chromium_tab_id == Some(cid)),
+            Some(cid) => self.find_tab_pos_by_ext_cid(ext_id, cid),
             None => self.tabs.iter().position(|t| t.active),
         };
         let Some(idx) = target_idx else {
@@ -493,7 +500,7 @@ impl ExtensionHost {
                 self.tabs[idx].muted = muted;
             }
         }
-        Ok(self.tab_json(&self.tabs[idx], manifest, false))
+        Ok(self.tab_json(ext_id, &self.tabs[idx], manifest, false))
     }
 
     fn rpc_action(
@@ -673,6 +680,7 @@ impl ExtensionHost {
 
     pub(super) fn answer_tabs_query(
         &self,
+        ext_id: &str,
         manifest: &ExtensionManifest,
         query: Option<&serde_json::Map<String, Value>>,
     ) -> Vec<Value> {
@@ -691,7 +699,7 @@ impl ExtensionHost {
         };
 
         let mut out = Vec::new();
-        for (idx, tab) in self.tabs.iter().enumerate() {
+        for (idx, tab) in self.visible_tabs().enumerate() {
             let revealed = manifest.reveals_tab(&tab.url);
             if !revealed && (!url_patterns.is_empty() || title_q.is_some()) {
                 continue;
@@ -723,14 +731,25 @@ impl ExtensionHost {
             if status_q.is_some_and(|s| s != status) {
                 continue;
             }
-            out.push(self.tab_json(tab, manifest, false));
+            out.push(self.tab_json(ext_id, tab, manifest, false));
         }
         out
     }
 
-    pub(super) fn tab_json(&self, tab: &ExtTab, manifest: &ExtensionManifest, force_reveal: bool) -> Value {
-        let idx = self.tabs.iter().position(|t| t.engine_tab_id == tab.engine_tab_id).unwrap_or(0);
-        let id = tab.chromium_tab_id.unwrap_or(tab.engine_tab_id as i32);
+    pub(super) fn tab_json(
+        &self,
+        ext_id: &str,
+        tab: &ExtTab,
+        manifest: &ExtensionManifest,
+        force_reveal: bool,
+    ) -> Value {
+        let idx = self
+            .visible_tabs()
+            .position(|t| t.engine_tab_id == tab.engine_tab_id)
+            .unwrap_or(0);
+        let id = self
+            .ext_chromium_tab_id(ext_id, tab.engine_tab_id)
+            .unwrap_or(tab.engine_tab_id as i32);
         let status = if tab.loading { "loading" } else { "complete" };
         let mut obj = json!({
             "id": id,
@@ -759,7 +778,7 @@ impl ExtensionHost {
         obj
     }
 
-    pub(super) fn window_json(&self, manifest: &ExtensionManifest, populate: bool) -> Value {
+    pub(super) fn window_json(&self, ext_id: &str, manifest: &ExtensionManifest, populate: bool) -> Value {
         let mut obj = json!({
             "id": WINDOW_ID,
             "focused": true,
@@ -773,7 +792,10 @@ impl ExtensionHost {
             "alwaysOnTop": false,
         });
         if populate && let Some(m) = obj.as_object_mut() {
-            let tabs: Vec<Value> = self.tabs.iter().map(|t| self.tab_json(t, manifest, false)).collect();
+            let tabs: Vec<Value> = self
+                .visible_tabs()
+                .map(|t| self.tab_json(ext_id, t, manifest, false))
+                .collect();
             m.insert("tabs".into(), Value::Array(tabs));
         }
         obj

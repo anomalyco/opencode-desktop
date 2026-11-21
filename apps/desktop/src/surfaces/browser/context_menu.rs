@@ -5,7 +5,10 @@
 use std::fs::OpenOptions;
 use std::io::Write as _;
 
-use browser_pane::{ContextMenuCommand, DownloadSaveRequest, PageContextMenu, PageDiagnostic};
+use browser_pane::{
+    ContextMenuCommand, DownloadSaveRequest, ExtensionMenuItem, ExtensionMenuItemKind,
+    PageContextMenu, PageDiagnostic,
+};
 use opencode_i18n::t;
 use rune::{FileDialogOptions, Tx};
 
@@ -102,10 +105,15 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
     }
     let can_back = tab.can_go_back;
     let can_forward = tab.can_go_forward;
+    let is_preview = tab.preview.is_some();
+    let menu_extras = app.workspace_panes.browser.host.engine_menu_extras();
     let (ox, oy) = tab.surface_origin;
     let z = tab.view_zoom.max(0.01);
     let anchor = (ox + (info.x as f32) / z, oy + (info.y as f32) / z);
     let can_open_page = app.browser_tab_external_url(tab_id).is_some();
+    let allow_ext_menu = tab.preview.is_none()
+        && !tab.prompts.agent_driven
+        && matches!(tab.context, browser_pane::ContextKind::Default);
     let captured_opener = app.browser_context_for_opener(tab_id);
     let captured_sid = app.browser_tab_session(tab_id).map(str::to_owned);
     let captured_external_link_ok = info
@@ -142,15 +150,20 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
 
     // 4. Image actions (`page-menu.ts:98-105`)
     if info.is_image && info.src_url.is_some() {
-        groups.push(vec![
+        let mut items = vec![
             Item::new("open-image", t!("rune.browser.menu.openImage")),
             Item::new("save-image", t!("rune.browser.menu.saveImage")).enabled(info.has_image_contents),
-            Item::new("copy-image-address", t!("rune.browser.menu.copyImageAddress")),
-        ]);
+        ];
+        if menu_extras && !is_preview {
+            items.push(Item::new("copy-image", t!("rune.browser.menu.copyImage")).enabled(info.has_image_contents));
+        }
+        items.push(Item::new("copy-image-address", t!("rune.browser.menu.copyImageAddress")));
+        groups.push(items);
     }
 
     // 5. Spelling suggestions (`page-menu.ts:119-128`)
-    if info.is_editable && let Some(word) = &info.misspelled_word && !word.is_empty() {
+    let show_spelling = !menu_extras || info.spellcheck;
+    if info.is_editable && show_spelling && let Some(word) = &info.misspelled_word && !word.is_empty() {
         let mut items: Vec<Item> = info
             .suggestions
             .iter()
@@ -184,11 +197,40 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
         }
     }
 
+    // 7. Spellcheck toggle & languages (`page-menu.ts:130-150`, gated on `Ready.menu_extras`)
+    if menu_extras && info.is_editable {
+        menu = menu
+            .separator()
+            .item(Item::new("spellcheck", t!("rune.browser.menu.spellcheck")).checked(info.spellcheck));
+        if !info.dictionaries.is_empty() {
+            let mut langs = Menu::new(t!("rune.browser.menu.languages"));
+            for tag in &info.dictionaries {
+                let checked = info.languages.iter().any(|l| l == tag);
+                let enabled = !(info.languages.len() == 1 && info.languages[0] == *tag);
+                langs = langs.item(Item::new(format!("lang:{tag}"), tag.clone()).checked(checked).enabled(enabled));
+            }
+            menu = menu.submenu_enabled("languages", t!("rune.browser.menu.languages"), info.spellcheck, langs);
+        }
+    }
+
+    // 8. Extension context-menu items (`page-menu.ts:155`, `context-menus.ts:235-268`)
+    let mut ext_actions: Vec<(String, String)> = Vec::new();
+    if allow_ext_menu && !info.extensions.is_empty() {
+        menu = menu.separator();
+        for group in &info.extensions {
+            let sub = build_extension_submenu(&group.title, &group.ext_id, &group.items, &mut ext_actions, 0);
+            if !sub.is_empty() {
+                menu = menu.submenu(format!("ext-group:{}", group.ext_id), group.title.clone(), sub);
+            }
+        }
+    }
+
     let menu_id = info.id;
     let link_url = info.link_url;
     let src_url = info.src_url;
     let misspelled = info.misspelled_word;
     let suggestions = info.suggestions;
+    let dictionaries = info.dictionaries;
 
     tx.instant();
     crate::popup::open(app, menu, anchor, tx, move |s: &mut App, picked: Option<&str>, tx: &mut Tx| {
@@ -255,6 +297,11 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
                     engine_cmd = Some(ContextMenuCommand::SaveImage { url });
                 }
             }
+            Some("copy-image") => {
+                if menu_extras && !is_preview {
+                    engine_cmd = Some(ContextMenuCommand::CopyImage);
+                }
+            }
             Some("copy-image-address") => {
                 if let Some(url) = src_url {
                     tx.copy(url);
@@ -265,6 +312,11 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
             Some("paste") => engine_cmd = Some(ContextMenuCommand::Paste),
             Some("paste-plain") => engine_cmd = Some(ContextMenuCommand::PastePlain),
             Some("select-all") => engine_cmd = Some(ContextMenuCommand::SelectAll),
+            Some("spellcheck") => {
+                if menu_extras {
+                    engine_cmd = Some(ContextMenuCommand::ToggleSpellcheck);
+                }
+            }
             Some("add-word") => {
                 if let Some(word) = misspelled {
                     engine_cmd = Some(ContextMenuCommand::AddToDictionary { word });
@@ -276,6 +328,16 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
                     && let Some(word) = suggestions.get(idx).cloned()
                 {
                     engine_cmd = Some(ContextMenuCommand::ReplaceMisspelling { word });
+                } else if menu_extras
+                    && let Some(tag) = other.strip_prefix("lang:")
+                    && dictionaries.iter().any(|d| d == tag)
+                {
+                    engine_cmd = Some(ContextMenuCommand::ToggleLanguage { value: tag.to_owned() });
+                } else if let Some(rest) = other.strip_prefix("ext:")
+                    && let Ok(idx) = rest.parse::<usize>()
+                    && let Some((ext_id, item_id)) = ext_actions.get(idx).cloned()
+                {
+                    engine_cmd = Some(ContextMenuCommand::ExtensionItem { ext_id, item_id });
                 }
             }
             None => {}
@@ -285,6 +347,42 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
             .host
             .run_context_menu_action(tab_id, menu_id, engine_cmd);
     });
+}
+
+fn build_extension_submenu(
+    label: &str,
+    ext_id: &str,
+    items: &[ExtensionMenuItem],
+    actions: &mut Vec<(String, String)>,
+    depth: usize,
+) -> Menu {
+    let mut menu = Menu::new(label);
+    if depth >= 6 {
+        return menu;
+    }
+    for item in items {
+        if item.kind == ExtensionMenuItemKind::Separator {
+            menu = menu.separator();
+            continue;
+        }
+        if !item.children.is_empty() {
+            let child = build_extension_submenu(&item.title, ext_id, &item.children, actions, depth + 1);
+            if !child.is_empty() {
+                menu = menu.submenu(format!("ext-sub:{}:{}", ext_id, actions.len()), item.title.clone(), child);
+            }
+            continue;
+        }
+        let idx = actions.len();
+        actions.push((ext_id.to_owned(), item.id.clone()));
+        let mut entry = Item::new(format!("ext:{idx}"), item.title.clone()).enabled(item.enabled);
+        match item.kind {
+            ExtensionMenuItemKind::Checkbox => entry = entry.checked(item.checked),
+            ExtensionMenuItemKind::Radio => entry = entry.radio(item.checked),
+            ExtensionMenuItemKind::Normal | ExtensionMenuItemKind::Separator => {}
+        }
+        menu = menu.item(entry);
+    }
+    menu
 }
 
 fn log_diagnostics(app: &App, records: Vec<PageDiagnostic>) {

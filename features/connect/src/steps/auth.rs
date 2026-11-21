@@ -179,7 +179,7 @@ fn entry_form<H: ConnectHost + 'static>(s: &H, p: &Pal, label: String, placehold
         .on_submit(|s: &mut H, tx: &mut Tx| submit_entry(s, tx));
     let field = if let Some(message) = &error { field.description(message) } else { field };
     let field = field.build(kit(p)).key("connect-entry");
-    let mut cont = ui::button(opencode_i18n::t!("common.continue"), ButtonVariant::Contrast)
+    let mut cont = ui::button(opencode_i18n::t!("common.continue"), ButtonVariant::Submit)
         .disabled(submitting)
         .on_press_tx(|s: &mut H, tx: &mut Tx| submit_entry(s, tx))
         .build(kit(p))
@@ -214,7 +214,7 @@ pub(super) fn key<H: ConnectHost + 'static>(s: &H, p: &Pal, console: bool) -> El
     };
     col()
         .key("connect-key")
-        .px(12.0)
+        .px(8.0)
         .gap(20.0)
         .pb(if console { 4.0 } else { 0.0 })
         .child(step_text(p, about))
@@ -235,7 +235,7 @@ pub(super) fn code<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
     let method = conn::method(c).map(|m| m.title()).unwrap_or_default();
     col()
         .key("connect-code")
-        .px(12.0)
+        .px(8.0)
         .gap(20.0)
         .child(step_text(p, opencode_i18n::t!("provider.connect.oauth.code.description", provider = name)))
         .child(entry_form(
@@ -255,7 +255,7 @@ pub(super) fn browser<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
     let name = crate::provider_name(s, &provider_id(s));
     let mut e = col()
         .key("connect-browser")
-        .px(12.0)
+        .px(8.0)
         .gap(20.0)
         .child(step_text(p, opencode_i18n::t!("provider.connect.oauth.auto.description", provider = name)));
     if let Some(code) = confirmation_code(c) {
@@ -326,7 +326,7 @@ pub(super) fn browser<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
             if shown && !open.entry.text.trim().is_empty() && *paste != conn::Paste::Accepted {
                 return e.child(
                     actions.child(
-                        ui::button(opencode_i18n::t!("common.continue"), ButtonVariant::Contrast)
+                        ui::button(opencode_i18n::t!("common.continue"), ButtonVariant::Submit)
                             .disabled(locked)
                             .on_press_tx(|s: &mut H, tx: &mut Tx| submit_redirect(s, tx))
                             .build(kit(p))
@@ -345,7 +345,7 @@ pub(super) fn command<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
         Conn::Waiting(_, conn::Signin::Command { output, .. }) => output.trim().to_owned(),
         _ => String::new(),
     };
-    let mut e = col().key("connect-command").px(12.0).gap(16.0);
+    let mut e = col().key("connect-command").px(8.0).gap(16.0);
     if !output.is_empty() {
         // `max-h-60 overflow-auto`: a plain box's bar (`providers/connect/dialog.tsx:751`).
         let viewport = col().w_full().max_h(240.0).px(12.0).py(8.0).radius(6.0).fill(p.layer3);

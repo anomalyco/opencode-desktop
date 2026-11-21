@@ -12,6 +12,7 @@ use serde_json::Value;
 
 use super::{Call, Ctx, Display, Press, TEXT_CONTEXT, Trigger, field, path, still, sub_key, trigger};
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::{HOVER_FADE, UI, UI_MED, readable};
 
@@ -235,10 +236,6 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
         .grow(1.0)
         .shrink()
         .min_w(0.0)
-        .role("button")
-        .label(shown.to_owned())
-        .on_press_tx(toggle())
-        .expanded(open)
         .child(icon(rune_theme_opencode::file_icons::file(name), 16.0).key("icon").color(p.text))
         .child(words)
         .children(change);
@@ -251,11 +248,16 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
     // background-color 0.15s ease`).
     let trigger = row()
         .key(row_key.clone())
+        .role("button")
+        .label(shown.to_owned())
+        .expanded(open)
         .w_full()
         .h(32.0)
         .px(12.0)
         .gap(20.0)
         .center_y()
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .fill(p.bg_base)
         // Half the usual hover overlay, so the header only hints that it toggles (`timeline-next.css:116-117`).
         .hover(p.hover.alpha(p.hover.a * 0.5))

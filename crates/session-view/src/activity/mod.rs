@@ -28,6 +28,7 @@ pub fn tag(p: &Pal, label: &str, danger: bool) -> El {
         .center()
         .radius(2.0)
         .border(0.5, border)
+        .border_layout()
         .fill(fill)
         .child(text(label.to_owned()).font(TAG).color(ink))
 }

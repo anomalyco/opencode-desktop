@@ -272,6 +272,18 @@ pub fn toggle_group<S: TimelineHost>(key: String) -> impl Fn(&mut S, &mut Tx) + 
     }
 }
 
+/// Collapses tool group `key` only if it is currently open; clicking a nested rail while the row
+/// is already folding shut is a no-op instead of re-opening it (`nested-rail.ts`).
+pub fn collapse_group<S: TimelineHost>(key: String) -> impl Fn(&mut S, &mut Tx) + 'static {
+    move |s: &mut S, tx: &mut Tx| {
+        if !s.expanded().contains(&key) {
+            return;
+        }
+        let opening = flip_fold(s, &key);
+        anchor(s, tx, opening, &key, &format!("{key}/trigger"));
+    }
+}
+
 /// Drops the steps of groups that have finished shutting, and wakes for the next.
 pub fn poll<S: TimelineHost>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
     // Every poll comes here: the disclosures are written only when one finished shutting.

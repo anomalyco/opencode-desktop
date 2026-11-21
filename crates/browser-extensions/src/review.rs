@@ -123,8 +123,10 @@ pub fn is_downgrade(previous_version: &str, new_version: &str) -> bool {
     matches!(compare_versions(new_version, previous_version), Some(Ordering::Less) | None)
 }
 
-/// Extracts a concise, ASCII-sanitized (`<= 64` chars) registrable site name from a Chrome host
-/// match pattern (`review.ts:17-29`). Preserves `*.` wildcards on public and private suffixes.
+/// Extracts a concise, sanitized (`<= 64` chars) site label from a Chrome host match pattern
+/// (`review.ts:17-29`). Preserves `*.` wildcards on public and private suffixes, preserves IPv6
+/// literals (`[::1]`) and loopback/IPv4 addresses, and sanitizes non-ASCII hosts instead of
+/// silently hiding them from the install review dialog.
 fn summarize_pattern_site(pattern: &str) -> Option<String> {
     let (_, rest) = pattern.split_once("://")?;
     let authority = rest.split('/').next()?;
@@ -132,23 +134,61 @@ fn summarize_pattern_site(pattern: &str) -> Option<String> {
         Some(h) => (true, h),
         None => (false, authority),
     };
+    if let Some(after_open) = raw_host.strip_prefix('[') {
+        let (inner, trailing) = after_open.split_once(']')?;
+        if !trailing.is_empty() {
+            let port = trailing.strip_prefix(':')?;
+            if port != "*" && (port.is_empty() || !port.bytes().all(|b| b.is_ascii_digit())) {
+                return None;
+            }
+        }
+        let ip = inner.parse::<std::net::Ipv6Addr>().ok()?;
+        let label = format!("[{ip}]");
+        return Some(cap_site_label(&label));
+    }
     let host_only = match raw_host.split_once(':') {
         Some((h, port)) if port == "*" || (!port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())) => h,
         Some(_) => return None,
         None => raw_host,
     };
-    let host = host_only.trim().trim_end_matches('.').to_ascii_lowercase();
-    if !is_safe_ascii_host(&host) {
+    let trimmed = host_only.trim().trim_end_matches('.');
+    if trimmed.is_empty() || trimmed == "*" || trimmed.contains('*') {
         return None;
     }
-    let domain = registrable_domain(&host);
-    let label = if let Some(d) = domain {
-        d
-    } else if wildcard {
-        format!("*.{host}")
-    } else {
-        host
-    };
+    let ascii = trimmed.to_ascii_lowercase();
+    if is_safe_ascii_host(&ascii) {
+        let domain = registrable_domain(&ascii);
+        let label = if let Some(d) = domain {
+            d
+        } else if wildcard {
+            format!("*.{ascii}")
+        } else {
+            ascii
+        };
+        return Some(cap_site_label(&label));
+    }
+    // Non-ASCII / IDN or non-standard host pattern: strip control, bidi, and whitespace chars so
+    // it is still disclosed to the user rather than silently dropped.
+    let sanitized: String = trimmed
+        .chars()
+        .filter(|&c| {
+            !c.is_control()
+                && !c.is_whitespace()
+                && !matches!(
+                    c,
+                    '\u{202A}'..='\u{202E}'
+                        | '\u{2066}'..='\u{2069}'
+                        | '\u{200E}'
+                        | '\u{200F}'
+                        | '\u{061C}'
+                )
+        })
+        .collect::<String>()
+        .to_lowercase();
+    if sanitized.is_empty() || sanitized == "*" || sanitized.contains('*') {
+        return None;
+    }
+    let label = if wildcard { format!("*.{sanitized}") } else { sanitized };
     Some(cap_site_label(&label))
 }
 
@@ -168,12 +208,14 @@ fn is_safe_ascii_host(host: &str) -> bool {
 }
 
 fn cap_site_label(site: &str) -> String {
-    if site.len() <= MAX_SITE_CHARS {
+    let chars: Vec<char> = site.chars().collect();
+    if chars.len() <= MAX_SITE_CHARS {
         return site.to_owned();
     }
-    // Preserve the right-most registrable end, matching `host-display.ts`.
+    // Preserve the right-most registrable end on char boundaries, matching `host-display.ts`.
     let tail_len = MAX_SITE_CHARS.saturating_sub(1);
-    format!("…{}", &site[site.len() - tail_len..])
+    let tail: String = chars[chars.len() - tail_len..].iter().collect();
+    format!("…{tail}")
 }
 
 /// Common two- and three-label public and private hosting suffixes so `*.co.uk`, `*.github.io`,
