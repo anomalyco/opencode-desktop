@@ -215,6 +215,13 @@ impl LineComments {
         self.sessions.get(sid)
     }
 
+    /// Whether any inline line-comment editor in session `sid` currently holds text focus.
+    pub fn any_draft_focused(&self, sid: &str) -> bool {
+        self.sessions.get(sid).is_some_and(|s| {
+            s.modes.values().flat_map(|m| m.values()).any(|mode| mode.draft().is_some_and(|d| d.text.focused))
+        })
+    }
+
     /// What session `sid`'s comments and every view's boxes show, for a view whose rows are
     /// built ahead of their layout (the narrow Changes list).
     pub fn version(&self, sid: &str) -> u64 {
