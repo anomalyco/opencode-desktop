@@ -261,6 +261,9 @@ impl EngineManager {
     }
 
     pub fn handle(&mut self, msg: HostMsg) -> bool {
+        if self.refuse_if_controlled_tab_blocked(&msg) {
+            return true;
+        }
         match msg {
             HostMsg::Hello { mach_service, prompts, extensions, .. } => {
                 self.prompt_shared.enabled.store(prompts, Ordering::Relaxed);
@@ -444,9 +447,9 @@ impl EngineManager {
                         && self.tabs.get(&tab_id).is_some_and(|t| t.preview.is_none())
                         && self.permissions.has_inherited_default_grant(&url)
                     {
-                        let _ = self.out_tx.send(EngineMsg::Refused {
+                        let _ = self.out_tx.send(EngineMsg::ControlledPermissionRefused {
                             tab_id,
-                            reason: crate::permissions::INHERITED_PERMISSION_REASON.to_owned(),
+                            url: Some(url),
                         });
                     } else {
                         match self.contexts.gate_navigation(tab_id, &url) {
@@ -483,7 +486,9 @@ impl EngineManager {
             HostMsg::Back { tab_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if self.contexts.is_tab_ready(tab_id) {
-                        t.browser.go_back();
+                        if !self.refuse_history_nav_if_inherited(tab_id, t, -1) {
+                            t.browser.go_back();
+                        }
                     } else if self.contexts.is_tab_suspended(tab_id) {
                         let _ = self.out_tx.send(EngineMsg::Refused {
                             tab_id,
@@ -495,7 +500,9 @@ impl EngineManager {
             HostMsg::Forward { tab_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if self.contexts.is_tab_ready(tab_id) {
-                        t.browser.go_forward();
+                        if !self.refuse_history_nav_if_inherited(tab_id, t, 1) {
+                            t.browser.go_forward();
+                        }
                     } else if self.contexts.is_tab_suspended(tab_id) {
                         let _ = self.out_tx.send(EngineMsg::Refused {
                             tab_id,
@@ -676,9 +683,6 @@ impl EngineManager {
                         });
                         return true;
                     }
-                    if self.refuse_if_inherited(tab_id, t, Some(request_id)) {
-                        return true;
-                    }
                     let url = t.snap.lock().unwrap().url.clone();
                     if browser_policy::destination_origin(&url).is_none() {
                         let _ = self.out_tx.send(EngineMsg::CdpResponse {
@@ -718,9 +722,6 @@ impl EngineManager {
                             ok: false,
                             result: json!({ "message": reason }),
                         });
-                        return true;
-                    }
-                    if self.refuse_if_inherited(tab_id, t, Some(request_id)) {
                         return true;
                     }
                     let url = t.snap.lock().unwrap().url.clone();
@@ -789,6 +790,9 @@ impl EngineManager {
                         ctx.as_ref(),
                         &self.permissions,
                     );
+                    if allow && ctx_scope.is_none() {
+                        self.flush_bfcache_for_default_tabs();
+                    }
                 }
             }
             HostMsg::ResetPermission { origin, kind } => {
@@ -796,6 +800,9 @@ impl EngineManager {
             }
             HostMsg::SyncSitePermissions { entries } => {
                 self.permissions.sync_profile_permissions(&entries);
+                if entries.iter().any(|e| e.allow) {
+                    self.flush_bfcache_for_default_tabs();
+                }
             }
             HostMsg::AnswerAuth { tab_id, id, username, password } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
@@ -982,6 +989,7 @@ impl EngineManager {
         };
         let mut preview_grant: Option<Arc<PreviewGrant>> = None;
         let mut refused_reason: Option<String> = None;
+        let mut refused_inherited_url: Option<String> = None;
         let mut req_ctx: Option<RequestContext>;
         let context_ready;
         let deferred_initial;
@@ -1068,7 +1076,7 @@ impl EngineManager {
                 && !isolated
                 && self.permissions.has_inherited_default_grant(url)
             {
-                refused_reason = Some(crate::permissions::INHERITED_PERMISSION_REASON.to_owned());
+                refused_inherited_url = Some(url.to_owned());
                 "about:blank"
             } else {
                 url
@@ -1406,6 +1414,12 @@ impl EngineManager {
         }
         if let Some(reason) = refused_reason {
             let _ = self.out_tx.send(EngineMsg::Refused { tab_id, reason });
+        }
+        if let Some(refused_url) = refused_inherited_url {
+            let _ = self.out_tx.send(EngineMsg::ControlledPermissionRefused {
+                tab_id,
+                url: Some(refused_url),
+            });
         }
     }
 

@@ -378,10 +378,17 @@ wrap_display_handler! {
                     && self.prompts.agent_driven.load(Ordering::Acquire)
                     && self.permissions.has_inherited_default_grant(&url)
                 {
-                    let _ = self.out_tx.send(EngineMsg::Refused {
+                    if let Some(b) = browser.as_deref() {
+                        b.stop_load();
+                        if let Some(f) = b.main_frame() {
+                            f.load_url(Some(&CefString::from("about:blank")));
+                        }
+                    }
+                    let _ = self.out_tx.send(EngineMsg::ControlledPermissionRefused {
                         tab_id: self.tab_id,
-                        reason: crate::permissions::INHERITED_PERMISSION_REASON.to_owned(),
+                        url: Some(url),
                     });
+                    return;
                 }
                 self.prompts.set_pending_top_url(None);
                 s.url = url.clone();
@@ -771,9 +778,9 @@ wrap_request_handler! {
                 && self.prompts.agent_driven.load(Ordering::Acquire)
                 && self.permissions.has_inherited_default_grant(&url)
             {
-                let _ = self.out_tx.send(EngineMsg::Refused {
+                let _ = self.out_tx.send(EngineMsg::ControlledPermissionRefused {
                     tab_id: self.tab_id,
-                    reason: crate::permissions::INHERITED_PERMISSION_REASON.to_owned(),
+                    url: Some(url),
                 });
                 return 1;
             }
@@ -1118,6 +1125,34 @@ wrap_dev_tools_message_observer! {
             let val = result
                 .and_then(|b| serde_json::from_slice::<Value>(b).ok())
                 .unwrap_or(Value::Null);
+            // Guard 1b (reply-side choke point): re-check committed origin uniformly before ANY
+            // `CdpPending` variant (`Raw`, `CookieCount`, `ClearSite`) leaves the engine.
+            let pending_req_id = match &pending {
+                CdpPending::Raw(id)
+                | CdpPending::CookieCount(id)
+                | CdpPending::ClearSite { request_id: id, .. } => *id,
+            };
+            if let Some(blocked_url) = self.permissions.tab_blocked_url(
+                browser.as_deref(),
+                self.isolated,
+                self.is_preview,
+                &self.snap,
+                &self.prompts,
+            ) {
+                let _ = self.out_tx.send(EngineMsg::ControlledPermissionRefused {
+                    tab_id: self.tab_id,
+                    url: blocked_url,
+                });
+                let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                    tab_id: self.tab_id,
+                    request_id: pending_req_id,
+                    ok: false,
+                    result: serde_json::json!({
+                        "message": crate::permissions::INHERITED_PERMISSION_MSG
+                    }),
+                });
+                return;
+            }
             match pending {
                 CdpPending::Raw(req_id) => {
                     // Re-check extension surface at reply time so an extension frame appearing
@@ -1135,27 +1170,6 @@ wrap_dev_tools_message_observer! {
                             ok: false,
                             result: serde_json::json!({
                                 "message": "Agent browser tools cannot read or act on extension pages or tabs with extension frames."
-                            }),
-                        });
-                        return;
-                    }
-                    if self.permissions.tab_blocked(
-                        browser.as_deref(),
-                        self.isolated,
-                        self.is_preview,
-                        &self.snap,
-                        &self.prompts,
-                    ) {
-                        let _ = self.out_tx.send(EngineMsg::Refused {
-                            tab_id: self.tab_id,
-                            reason: crate::permissions::INHERITED_PERMISSION_REASON.to_owned(),
-                        });
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id: self.tab_id,
-                            request_id: req_id,
-                            ok: false,
-                            result: serde_json::json!({
-                                "message": crate::permissions::INHERITED_PERMISSION_MSG
                             }),
                         });
                         return;

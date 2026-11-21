@@ -9,7 +9,6 @@
 //! settles exactly once.
 
 mod host;
-pub(crate) use host::{INHERITED_PERMISSION_MSG, INHERITED_PERMISSION_REASON};
 mod store;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -604,13 +603,13 @@ impl TabDriver {
 }
 
 /// Why the controlled-tab notice bar (`#306` / stopgap) is currently shown on a tab.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum BlockedGuardReason {
     /// Sign-in prompt or file picker was suppressed while a driver controls the tab.
     Action,
     /// Controlled actions were refused because the top-level origin holds clipboard, location, or
-    /// notification access in the default profile.
-    InheritedPermission,
+    /// notification access in the default profile; carries the refused URL for "Open in new tab".
+    InheritedPermission { url: Option<String> },
 }
 
 /// All prompt, permission, auth, and pop-up states owned by one `BrowserTab`.

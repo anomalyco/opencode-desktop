@@ -173,23 +173,6 @@ impl SitePermissions {
         &self.decisions
     }
 
-    pub fn is_loaded(&self) -> bool {
-        self.store.is_some()
-    }
-
-    /// True if `Default` profile holds `"Always allow"` for any permission a controlled tab would
-    /// inherit (`clipboard-read`, `geolocation`, `notifications`) on `origin`.
-    pub fn has_inherited_allow(&self, origin: &str) -> bool {
-        self.decisions.iter().any(|d| {
-            d.setting == SiteSetting::Allow
-                && matches!(
-                    d.permission,
-                    PermissionKind::ClipboardRead | PermissionKind::Location | PermissionKind::Notifications
-                )
-                && crate::policy::destination_origin(&d.origin).as_deref() == Some(origin)
-        })
-    }
-
     pub fn get(&self, origin: &str, permission: PermissionKind) -> Option<SiteSetting> {
         self.decisions
             .iter()
