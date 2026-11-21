@@ -111,9 +111,10 @@ pub(super) struct InputState {
     obj_frame: Option<String>,
     html5_drag: bool,
     intercepting_drags: bool,
-    drag_pressed: bool,
     drag_data: Option<Value>,
     drag_deadline: Option<Instant>,
+    /// A button this command pressed and has not released: where, and which.
+    pressed: Option<(f64, f64, String)>,
 }
 
 impl InputState {
@@ -144,16 +145,14 @@ impl InputState {
                 None,
             );
         }
-        if self.drag_pressed {
-            self.drag_pressed = false;
-            if let Some((x, y)) = self.saved_pos.or(self.saved_from) {
-                let _ = app.workspace_panes.browser.host.send_typed_cdp(
-                    self.host_id,
-                    "Input.dispatchMouseEvent",
-                    json!({ "type": "mouseReleased", "x": x.round(), "y": y.round(), "button": "left", "clickCount": 1 }),
-                    None,
-                );
-            }
+        // A cancelled or failed press never leaves the button down (official `chromium.ts:1852-1856`).
+        if let Some((x, y, button)) = self.pressed.take() {
+            let _ = app.workspace_panes.browser.host.send_typed_cdp(
+                self.host_id,
+                "Input.dispatchMouseEvent",
+                json!({ "type": "mouseReleased", "x": x.round(), "y": y.round(), "button": button, "clickCount": 1 }),
+                None,
+            );
         }
         release_saved_obj(app, self);
     }
@@ -437,9 +436,9 @@ fn launch_steps(att: &SessionAttachment, app: &mut App, host_id: u64, steps: Vec
         obj_frame: None,
         html5_drag: false,
         intercepting_drags: false,
-        drag_pressed: false,
         drag_data: None,
         drag_deadline: None,
+        pressed: None,
     };
     if let Some(err) = dispatch_next_step(att, app, &mut state, Instant::now()) {
         state.cancel_cleanup(app);
@@ -544,13 +543,22 @@ fn dispatch_next_step(att: &SessionAttachment, app: &mut App, st: &mut InputStat
                 params["button"] = json!(button);
                 params["clickCount"] = json!(click_count);
             }
-            app.workspace_panes.browser.host.send_typed_cdp(hid, "Input.dispatchMouseEvent", params, None).map(Some)
+            let sent = app.workspace_panes.browser.host.send_typed_cdp(hid, "Input.dispatchMouseEvent", params, None);
+            match *kind {
+                "mousePressed" if sent.is_ok() => st.pressed = Some((x, y, button.clone())),
+                "mouseReleased" => st.pressed = None,
+                _ => {}
+            }
+            sent.map(Some)
         }
         InputStep::SendInput { method, params } => {
             if *method == "Input.dispatchMouseEvent" {
+                let at = |k: &str| params.get(k).and_then(Value::as_f64).unwrap_or(0.0);
                 match params.get("type").and_then(Value::as_str) {
-                    Some("mousePressed") => st.drag_pressed = true,
-                    Some("mouseReleased") => st.drag_pressed = false,
+                    Some("mousePressed") => st.pressed = Some((at("x"), at("y"), params.get("button").and_then(Value::as_str).unwrap_or("left").to_owned())),
+                    Some("mouseReleased") => st.pressed = None,
+                    // The button stays down across a drag's moves: release it where the pointer is.
+                    Some("mouseMoved") => st.pressed.iter_mut().for_each(|p| (p.0, p.1) = (at("x"), at("y"))),
                     _ => {}
                 }
             }
