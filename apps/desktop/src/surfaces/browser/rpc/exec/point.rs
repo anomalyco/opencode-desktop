@@ -335,7 +335,7 @@ fn check_call_val(resp: Result<Value, Value>) -> Result<Value, Outcome> {
         }
         return Err(Outcome::fail(
             failure_code::OPERATION_FAILED,
-            desc.strip_prefix("Error: ").unwrap_or(desc).lines().next().unwrap_or(desc),
+            super::page_exception(desc, "The page's JavaScript threw while the browser tool located the element."),
         ));
     }
     Ok(val.get("result").and_then(|r| r.get("value")).cloned().unwrap_or(Value::Null))

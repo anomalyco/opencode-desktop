@@ -649,11 +649,12 @@ fn eval_result_to_outcome(
                 "Element is no longer attached to the page. Refresh the snapshot first.",
             );
         }
-        let clipped: String = desc.chars().take(800).collect();
-        return Outcome::fail(
-            failure_code::OPERATION_FAILED,
-            format!("Page JavaScript threw an exception: {clipped}"),
+        // Official `chromium.ts` evaluate's wording; the details are the page's, attributed and capped.
+        let what = format!(
+            "Page JavaScript threw an exception. Check the script and {}; inspect the page before repeating code with side effects.",
+            if is_ref { "ref" } else { "frameID" }
         );
+        return Outcome::fail(failure_code::OPERATION_FAILED, super::page_exception(desc, &what));
     }
     let Some(tab) = att.wire_tab(app, host_id) else {
         return Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable.");
