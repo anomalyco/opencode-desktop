@@ -320,7 +320,6 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     if side_tabs && chrome().sidebar_header() {
         root = root.child(sidebar_toggle(s, p, *s.sidebar_open, w));
     }
-    root = root.children(crate::plugin_host::titlebar_items(s, p));
     // Plugins' `window.bottom` slot (the debug bar) runs across the window's foot, under the
     // panels, taking its own room (`shell.tsx`'s last `PluginSlot`).
     let sid = match &*s.route {
