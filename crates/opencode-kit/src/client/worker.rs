@@ -487,6 +487,10 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                             Ok(list) => send(Incoming::Projects(list)),
                             Err(e) => send(Incoming::Failed(e)),
                         },
+                        Request::DefaultDirectory => match server.get("/api/location").ok().as_ref().and_then(model::parse_location) {
+                            Some(location) => send(Incoming::DefaultDirectory(location.directory)),
+                            None => true,
+                        },
                         Request::Info(id) => match server.get(&format!("/api/session/{id}")) {
                             Ok(v) => send(Incoming::Info(model::parse_session(v.get("data").unwrap_or(&v)))),
                             Err(e) => send(Incoming::Failed(e)),

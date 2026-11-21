@@ -49,7 +49,16 @@ fn start_dialog(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> St
         return StepOutcome::Done(Outcome::ok(json!({ "tab": tab, "dialog": dialog }), Vec::new()));
     }
 
-    let accept = action == "accept";
+    let accept = match action {
+        "accept" => true,
+        "dismiss" => false,
+        _ => {
+            return StepOutcome::Done(Outcome::fail(
+                failure_code::OPERATION_FAILED,
+                "browser.dialog action must be 'get', 'accept', or 'dismiss'.",
+            ));
+        }
+    };
     if engine_prompts {
         // Atomic first-answer-wins on UI thread via WS-1 `#268` DialogGate::answer.
         let open_id = app

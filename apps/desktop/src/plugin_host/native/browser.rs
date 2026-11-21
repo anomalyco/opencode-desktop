@@ -710,6 +710,13 @@ pub fn pages(app: &App, include_find: bool) -> Vec<(String, u64)> {
             pending_links.hash(&mut h);
             (t.id.to_string(), h.finish())
         })
+        // The built-in plugin also hears "" when the engine's state (`Browser:Engine().state`)
+        // moves, so its MCP tools follow the start-up index read without polling.
+        .chain(include_find.then(|| {
+            let mut h = std::hash::DefaultHasher::new();
+            engine(app).0.hash(&mut h);
+            (String::new(), h.finish())
+        }))
         .collect()
 }
 

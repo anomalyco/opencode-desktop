@@ -38,6 +38,41 @@ pub fn remove_tab_uploads(profile_dir: &Path, tab_id: u64) {
 }
 
 #[allow(clippy::too_many_arguments)]
+pub fn handle_typed_cdp(
+    t: &ManagedTab,
+    tab_id: u64,
+    request_id: u64,
+    not_ready_reason: Option<&str>,
+    extensions_active: bool,
+    method: String,
+    params: Value,
+    session_id: Option<String>,
+    next_cdp_id: &AtomicI32,
+    out_tx: &Output,
+) {
+    // Profiling is refused while extensions are active: stricter than official (`ours.md`).
+    let profiling = method.starts_with("Profiler.")
+        || method.starts_with("Tracing.")
+        || method.starts_with("HeapProfiler.");
+    let refusal = if profiling && extensions_active {
+        Some("Profiling is refused while browser extensions are active.")
+    } else {
+        not_ready_reason
+    };
+    crate::cdp_ledger::handle_typed_cdp_call(
+        tab_id,
+        request_id,
+        refusal,
+        t,
+        next_cdp_id,
+        out_tx,
+        method,
+        params,
+        session_id,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn handle_upload_files(
     t: &ManagedTab,
     profile_dir: &Path,

@@ -45,25 +45,39 @@ impl ProfileStage {
     }
 }
 
-/// Routes trace data and heap snapshot chunks from the tab's CDP events into the recording buffers.
+const MAX_TRACE_EVENTS: usize = 250_000;
+const MAX_HEAP_RAW_BYTES: usize = 64 * 1024 * 1024;
+
+/// Routes trace data and heap snapshot chunks from the tab's CDP events into bounded buffers.
 pub(in super::super) fn ingest_cdp_event(att: &mut SessionAttachment, ev: &browser_pane::CdpEvent) {
     if ev.method == "Tracing.dataCollected"
         && let Some(rec) = att.trace_recording.as_mut()
         && rec.host_id == ev.tab_id
         && let Some(arr) = ev.params.get("value").and_then(Value::as_array)
     {
-        rec.events.extend(arr.iter().cloned());
+        let room = MAX_TRACE_EVENTS.saturating_sub(rec.events.len());
+        if arr.len() > room {
+            rec.events.extend(arr.iter().take(room).cloned());
+            rec.data_loss = true;
+        } else {
+            rec.events.extend(arr.iter().cloned());
+        }
     } else if ev.method == "Tracing.tracingComplete"
         && let Some(rec) = att.trace_recording.as_mut()
         && rec.host_id == ev.tab_id
     {
-        rec.data_loss = ev.params.get("dataLossOccurred").and_then(Value::as_bool).unwrap_or(false);
+        rec.data_loss |= ev.params.get("dataLossOccurred").and_then(Value::as_bool).unwrap_or(false);
         rec.complete = true;
     } else if ev.method == "HeapProfiler.addHeapSnapshotChunk"
-        && let Some(buf) = att.heap_chunks.get_mut(&ev.tab_id)
+        && let Some((buf, overflowed)) = att.heap_chunks.get_mut(&ev.tab_id)
         && let Some(chunk) = ev.params.get("chunk").and_then(Value::as_str)
     {
-        buf.push_str(chunk);
+        if buf.len().saturating_add(chunk.len()) > MAX_HEAP_RAW_BYTES {
+            *overflowed = true;
+            buf.clear();
+        } else if !*overflowed {
+            buf.push_str(chunk);
+        }
     }
 }
 
@@ -125,12 +139,30 @@ fn start_trace(att: &mut SessionAttachment, app: &mut App, cmd: &Command, now: I
             "A performance trace is already recording. Stop it with browser.trace.stop first.",
         ));
     }
+    let resources = match att.source_urls(app, host_id) {
+        Ok(urls) => urls,
+        Err(e) => return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
+    };
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
-    let categories = "devtools.timeline,blink.user_timing,v8.execute,disabled-by-default-devtools.timeline";
     match app.workspace_panes.browser.host.send_typed_cdp(
         host_id,
         "Tracing.start",
-        json!({ "categories": categories, "transferMode": "ReportEvents" }),
+        json!({
+            "transferMode": "ReportEvents",
+            "traceConfig": {
+                "recordMode": "recordUntilFull",
+                "traceBufferSizeInKb": 8192,
+                "includedCategories": [
+                    "devtools.timeline",
+                    "disabled-by-default-devtools.timeline",
+                    "disabled-by-default-devtools.timeline.stack",
+                    "v8.execute",
+                    "blink.user_timing",
+                    "disabled-by-default-v8.cpu_profiler"
+                ],
+                "excludedCategories": ["*"]
+            }
+        }),
         None,
     ) {
         Ok(cdp_req) => {
@@ -138,6 +170,7 @@ fn start_trace(att: &mut SessionAttachment, app: &mut App, cmd: &Command, now: I
                 host_id,
                 started_at: now,
                 events: Vec::new(),
+                resources,
                 complete: false,
                 data_loss: false,
             });
@@ -193,8 +226,12 @@ fn start_cpu(att: &mut SessionAttachment, app: &mut App, cmd: &Command, now: Ins
             "CPU profiling is already active on this tab. Call browser.cpu.stop first.",
         ));
     }
+    let resources = match att.source_urls(app, host_id) {
+        Ok(urls) => urls,
+        Err(e) => return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
+    };
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
-    att.cpu_started.insert(host_id, now);
+    att.cpu_started.insert(host_id, (now, resources));
     match app.workspace_panes.browser.host.send_typed_cdp(host_id, "Profiler.enable", json!({}), None) {
         Ok(cdp_req) => StepOutcome::Pending(ExecPhase::Profile(ProfileState {
             host_id,
@@ -244,8 +281,14 @@ fn start_heap_snapshot(att: &mut SessionAttachment, app: &mut App, cmd: &Command
     if let Err(o) = require_profiling_engine(app, "heap.snapshot") {
         return StepOutcome::Done(o);
     }
+    if att.heap_chunks.contains_key(&host_id) {
+        return StepOutcome::Done(Outcome::fail(
+            failure_code::OPERATION_FAILED,
+            "A heap snapshot is already being captured in this tab.",
+        ));
+    }
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
-    att.heap_chunks.insert(host_id, String::new());
+    att.heap_chunks.insert(host_id, (String::new(), false));
     match app.workspace_panes.browser.host.send_typed_cdp(host_id, "HeapProfiler.enable", json!({}), None) {
         Ok(cdp_req) => StepOutcome::Pending(ExecPhase::Profile(ProfileState {
             host_id,
@@ -303,8 +346,13 @@ pub(super) fn step_profile(
                 Ok(w) => w,
                 Err(e) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, e)),
             };
-            let url = app.workspace_panes.browser.host.tab(st.host_id).map(|t| t.url.clone()).unwrap_or_default();
-            att.record_capture(st.host_id, CapturedFile { id: file_id, name: "trace.json.gz".into(), mime: "application/gzip".into(), bytes: gz, resources: vec![url] });
+            let mut resources = rec.resources;
+            if let Ok(end_urls) = att.source_urls(app, st.host_id) {
+                resources.extend(end_urls);
+            }
+            resources.sort();
+            resources.dedup();
+            att.record_capture(st.host_id, CapturedFile { id: file_id, name: "trace.json.gz".into(), mime: "application/gzip".into(), bytes: gz, resources });
             let tab = att.wire_tab(app, st.host_id)?;
             Some(Outcome::ok(json!({ "tab": tab, "durationMs": duration_ms, "incomplete": rec.data_loss }), vec![wf]))
         }
@@ -353,9 +401,22 @@ pub(super) fn step_profile(
                 Ok(w) => w,
                 Err(e) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, e)),
             };
-            let url = app.workspace_panes.browser.host.tab(st.host_id).map(|t| t.url.clone()).unwrap_or_default();
-            att.record_capture(st.host_id, CapturedFile { id: file_id, name: "profile.cpuprofile".into(), mime: "application/json".into(), bytes, resources: vec![url] });
-            let duration_ms = started.map_or(0.0, |t0| now.saturating_duration_since(t0).as_secs_f64() * 1000.0);
+            let mut resources = started.as_ref().map(|(_, r)| r.clone()).unwrap_or_default();
+            if let Ok(end_urls) = att.source_urls(app, st.host_id) {
+                resources.extend(end_urls);
+            }
+            resources.sort();
+            resources.dedup();
+            att.record_capture(st.host_id, CapturedFile { id: file_id, name: "profile.cpuprofile".into(), mime: "application/json".into(), bytes, resources });
+            let profile_ms = profile
+                .get("startTime")
+                .and_then(Value::as_f64)
+                .zip(profile.get("endTime").and_then(Value::as_f64))
+                .map(|(s, e)| ((e - s) / 1000.0).max(0.0))
+                .filter(|d| d.is_finite());
+            let duration_ms = profile_ms.unwrap_or_else(|| {
+                started.map_or(0.0, |(t0, _)| now.saturating_duration_since(t0).as_secs_f64() * 1000.0)
+            });
             let tab = att.wire_tab(app, st.host_id)?;
             Some(Outcome::ok(json!({ "tab": tab, "durationMs": duration_ms }), vec![wf]))
         }
@@ -383,10 +444,16 @@ pub(super) fn step_profile(
         }
         ProfileStage::HeapTake { cdp_req } => {
             let resp = app.workspace_panes.browser.host.take_cdp_response(*cdp_req)?;
-            let raw = att.heap_chunks.remove(&st.host_id).unwrap_or_default();
+            let (raw, overflowed) = att.heap_chunks.remove(&st.host_id).unwrap_or_default();
             let _ = app.workspace_panes.browser.host.send_typed_cdp(st.host_id, "HeapProfiler.disable", json!({}), None);
             if let Err(e) = resp {
                 return Some(Outcome::fail(failure_code::OPERATION_FAILED, cdp_err_msg(&e)));
+            }
+            if overflowed {
+                return Some(Outcome::fail(
+                    failure_code::OPERATION_FAILED,
+                    "Heap snapshot exceeded the 64 MiB uncompressed size limit.",
+                ));
             }
             let gz = match gzip_bytes(raw.as_bytes()) {
                 Ok(b) => b,
@@ -397,8 +464,11 @@ pub(super) fn step_profile(
                 Ok(w) => w,
                 Err(e) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, e)),
             };
-            let url = app.workspace_panes.browser.host.tab(st.host_id).map(|t| t.url.clone()).unwrap_or_default();
-            att.record_capture(st.host_id, CapturedFile { id: file_id, name: "heap.heapsnapshot.gz".into(), mime: "application/gzip".into(), bytes: gz, resources: vec![url] });
+            let resources = match att.source_urls(app, st.host_id) {
+                Ok(urls) => urls,
+                Err(e) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, e)),
+            };
+            att.record_capture(st.host_id, CapturedFile { id: file_id, name: "heap.heapsnapshot.gz".into(), mime: "application/gzip".into(), bytes: gz, resources });
             let tab = att.wire_tab(app, st.host_id)?;
             Some(Outcome::ok(json!({ "tab": tab }), vec![wf]))
         }

@@ -216,8 +216,10 @@ fn stage_files(profile_dir: &Path, host_id: u64, files: &[WireFile]) -> Result<V
         return Err(format!("Expected 1..={MAX_UPLOAD_FILES} upload files."));
     }
     let root = profile_dir.join(UPLOADS_DIR);
-    if root.exists() && !root.join(UPLOADS_MARKER).is_file() {
-        return Err("Refusing to write into an unmarked opencode-page-uploads directory.".into());
+    if let Ok(meta) = std::fs::symlink_metadata(&root)
+        && (meta.file_type().is_symlink() || !root.join(UPLOADS_MARKER).is_file())
+    {
+        return Err("Refusing to write into an unmarked or symlinked opencode-page-uploads directory.".into());
     }
     std::fs::create_dir_all(&root).map_err(|e| format!("Could not create upload staging dir: {e}"))?;
     std::fs::write(root.join(UPLOADS_MARKER), b"")

@@ -46,6 +46,8 @@ pub(crate) struct ManagedTab {
     pub(crate) prompts: Arc<crate::prompts::TabPrompts>,
     menu: Arc<crate::menu::TabMenuState>,
     context: crate::wire::ContextKind,
+    /// Last seen `loading`, so a finished load marks its side of the cookie mirror dirty.
+    last_loading: bool,
     generation: u64,
     deferred_initial: Arc<AtomicBool>,
     _cdp_reg: Option<Registration>,
@@ -89,6 +91,10 @@ pub struct EngineManager {
     previews: Arc<PreviewRegistry>,
     /// Shared pool of isolated `CefRequestContext`s for previews and remote servers.
     contexts: crate::context::ContextPool,
+    /// `CefCookieManager` list/import/delete/probe/clear and the two-way remote cookie mirror.
+    cookies: crate::cookies::CookieController,
+    /// The `Default` profile's cache path, where the startup probe cookie is verified on disk.
+    profile_cache: String,
     /// Windows: the D3D11 device frames are copied on; None renders on the CPU instead.
     #[cfg(windows)]
     gpu: Option<Arc<crate::d3d_frames::Gpu>>,
@@ -134,11 +140,13 @@ impl EngineManager {
             dark: None,
             home: crate::profile::home_dir(),
             downloads: crate::downloads::Downloads::open(&downloads),
+            profile_cache: downloads.join("Default").to_string_lossy().into_owned(),
             profile_dir: downloads,
             prompt_shared: crate::prompts::PromptShared::default(),
             permissions: Arc::new(crate::permissions::PermissionTracker::default()),
             previews,
-            contexts: crate::context::ContextPool::new(events),
+            contexts: crate::context::ContextPool::new(events.clone()),
+            cookies: crate::cookies::CookieController::new(events),
             #[cfg(windows)]
             gpu,
             #[cfg(target_os = "linux")]
@@ -187,6 +195,7 @@ impl EngineManager {
                 clears.push(clear);
             }
         }
+        self.poll_cookie_mirror();
         for clear in clears {
             if let Some(tab) = self.tabs.get(&clear.tab_id) {
                 if !self.contexts.is_tab_ready(clear.tab_id) {
@@ -295,6 +304,7 @@ impl EngineManager {
                     permission_sync: true,
                     preview_credit: true,
                     extensions: true,
+                    cookies: true,
                     agent_files: true,
                 });
                 for (&tab_id, t) in &self.tabs {
@@ -787,40 +797,22 @@ impl EngineManager {
             }
             HostMsg::TypedCdpCall { tab_id, request_id, method, params, session_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    // Profiling is refused while any extension is installed: stricter than official (`ours.md`).
-                    let profiling = matches!(method.as_str(), "Profiler.start" | "Tracing.start" | "HeapProfiler.takeHeapSnapshot");
-                    let not_ready = if profiling && self.extensions.as_ref().is_some_and(|e| !e.list_actions().is_empty()) {
-                        Some("Profiling is refused while browser extensions are active.")
-                    } else {
-                        (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id))
-                    };
-                    crate::cdp_ledger::handle_typed_cdp_call(
-                        tab_id,
-                        request_id,
-                        not_ready,
-                        t,
-                        &self.next_cdp_id,
-                        &self.out_tx,
-                        method,
-                        params,
-                        session_id,
+                    let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
+                    crate::agent::handle_typed_cdp(
+                        t, tab_id, request_id, not_ready, self.extensions.is_some(), method, params, session_id, &self.next_cdp_id, &self.out_tx,
                     );
                 }
             }
             HostMsg::UploadFiles { tab_id, request_id, backend_node_id, files } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
-                    crate::agent::handle_upload_files(
-                        t, &self.profile_dir, tab_id, request_id, not_ready, backend_node_id, &files, &self.next_cdp_id, &self.out_tx,
-                    );
+                    crate::agent::handle_upload_files(t, &self.profile_dir, tab_id, request_id, not_ready, backend_node_id, &files, &self.next_cdp_id, &self.out_tx);
                 }
             }
             HostMsg::DropFiles { tab_id, request_id, x, y, files } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
-                    crate::agent::handle_drop_files(
-                        t, &self.profile_dir, tab_id, request_id, not_ready, x, y, &files, &self.next_cdp_id, &self.out_tx,
-                    );
+                    crate::agent::handle_drop_files(t, &self.profile_dir, tab_id, request_id, not_ready, x, y, &files, &self.next_cdp_id, &self.out_tx);
                 }
             }
             HostMsg::ClearSiteCache { tab_id, request_id } => {
@@ -924,8 +916,18 @@ impl EngineManager {
                 for tid in live_tabs {
                     self.close_managed_tab(tid);
                 }
+                if let crate::wire::ContextKind::RemoteServer { server_id, .. } = &context {
+                    self.cookies.on_partition_dropped(server_id);
+                }
                 self.contexts.drop_context(&context);
             }
+            msg @ (HostMsg::ProfileCookiesList { .. }
+            | HostMsg::ProfileCookiesSet { .. }
+            | HostMsg::ProfileCookieDelete { .. }
+            | HostMsg::ProfileProbeCookies { .. }
+            | HostMsg::ClearProfileData { .. }
+            | HostMsg::SetShareSignIns { .. }
+            | HostMsg::SyncRemoteCookies { .. }) => self.handle_profile_cookies(msg),
             HostMsg::PreviewResponseHead { req_id, ok, status, mime, content_length, content_range } => {
                 self.previews.deliver_head(req_id, ok, status, &mime, content_length, content_range);
             }
@@ -985,7 +987,7 @@ impl EngineManager {
             prev.prompts.dismiss_all();
             prev.host.close_browser(1);
             self.downloads.close_tab(tab_id);
-            self.contexts.release_tab(tab_id);
+            self.release_tab_context(tab_id);
             if !prev.isolated && !prev.is_popup
                 && let Some(ext) = &mut self.extensions
             {
@@ -1299,7 +1301,7 @@ impl EngineManager {
         // dedicated `CefRequestContext` (falling back to `None` would open it inside `Default`).
         if (effective_context.is_isolated() || is_preview) && req_ctx.is_none() {
             self.release_preview(tab_id, preview_grant.as_ref());
-            self.contexts.release_tab(tab_id);
+            self.release_tab_context(tab_id);
             let _ = self.out_tx.send(EngineMsg::Refused {
                 tab_id,
                 reason: "browser.context.unavailable".to_owned(),
@@ -1319,7 +1321,7 @@ impl EngineManager {
             req_ctx.as_mut(),
         ) else {
             self.release_preview(tab_id, preview_grant.as_ref());
-            self.contexts.release_tab(tab_id);
+            self.release_tab_context(tab_id);
             if let Some(ext) = &mut self.extensions {
                 ext.cancel_expected_target();
             }
@@ -1337,7 +1339,7 @@ impl EngineManager {
         };
         let Some(host) = browser.host() else {
             self.release_preview(tab_id, preview_grant.as_ref());
-            self.contexts.release_tab(tab_id);
+            self.release_tab_context(tab_id);
             if let Some(ext) = &mut self.extensions {
                 ext.cancel_expected_target();
             }
@@ -1394,6 +1396,7 @@ impl EngineManager {
             self.send_color_scheme(&host, dark);
         }
 
+        self.seed_remote_partition(&effective_context);
         self.tabs.insert(
             tab_id,
             ManagedTab {
@@ -1416,6 +1419,7 @@ impl EngineManager {
                 prompts,
                 menu: menu_state,
                 context: effective_context,
+                last_loading: false,
                 generation: tab_generation,
                 deferred_initial,
                 _cdp_reg: cdp_reg,
@@ -1449,7 +1453,7 @@ impl EngineManager {
             tab.host.close_browser(1);
             self.downloads.close_tab(tab_id);
             crate::agent::remove_tab_uploads(&self.profile_dir, tab_id);
-            self.contexts.release_tab(tab_id);
+            self.release_tab_context(tab_id);
             if !tab.isolated && !tab.is_popup
                 && let Some(ext) = &mut self.extensions
             {
@@ -1457,7 +1461,7 @@ impl EngineManager {
             }
             let _ = self.out_tx.send(EngineMsg::TabClosed { tab_id });
         } else {
-            self.contexts.release_tab(tab_id);
+            self.release_tab_context(tab_id);
         }
     }
 
@@ -1491,3 +1495,4 @@ pub(crate) use extensions::{browser_has_extension_surface, tab_is_extension_surf
 mod emulation;
 mod extensions;
 mod frames;
+mod profile_cookies;

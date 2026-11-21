@@ -81,6 +81,7 @@ pub(super) struct TraceRecording {
     pub host_id: u64,
     pub started_at: Instant,
     pub events: Vec<Value>,
+    pub resources: Vec<String>,
     pub complete: bool,
     pub data_loss: bool,
 }
@@ -107,8 +108,8 @@ pub(super) struct SessionAttachment {
     pub captures: HashMap<u64, Vec<CapturedFile>>,
     pub download_wire_ids: HashMap<(u64, String), String>,
     pub trace_recording: Option<TraceRecording>,
-    pub cpu_started: HashMap<u64, Instant>,
-    pub heap_chunks: HashMap<u64, String>,
+    pub cpu_started: HashMap<u64, (Instant, Vec<String>)>,
+    pub heap_chunks: HashMap<u64, (String, bool)>,
     pub download_origins: HashMap<(u64, String), Vec<String>>,
     pub pending_close_tabs: Vec<u64>,
     pub agent_tab_id: Option<String>,
@@ -237,6 +238,17 @@ impl SessionAttachment {
         let host = &mut app.workspace_panes.browser.host;
         let _ = host.send_typed_cdp(host_id, "Page.enable", serde_json::json!({}), None);
         let _ = host.send_typed_cdp(host_id, "Runtime.enable", serde_json::json!({}), None);
+        let _ = host.send_typed_cdp(host_id, "Log.enable", serde_json::json!({}), None);
+        let _ = host.send_typed_cdp(
+            host_id,
+            "Network.enable",
+            serde_json::json!({
+                "maxTotalBufferSize": 5_242_880,
+                "maxResourceBufferSize": 1_048_576,
+                "maxPostDataSize": 20_000,
+            }),
+            None,
+        );
         let _ = host.send_typed_cdp(
             host_id,
             "Target.setAutoAttach",
