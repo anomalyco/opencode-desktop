@@ -434,6 +434,11 @@ impl ExtensionHost {
                 self.extensions.remove(&ext_id);
                 self.actions.remove(&ext_id);
                 self.context_menus.lock().unwrap().remove_extension(&ext_id);
+                if let Some(ids) = self.notifications.remove(&ext_id) {
+                    for notif_id in ids {
+                        effects.push(ExtEffect::NotificationClear { ext_id: ext_id.clone(), notif_id });
+                    }
+                }
                 self.ext_tab_ids.remove(&ext_id);
                 self.ext_last_known_session_id.remove(&ext_id);
                 self.probe_in_flight.remove(&ext_id);
