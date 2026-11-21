@@ -264,7 +264,20 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .role("window")
         .fill(p.bg_deep)
         .w_full()
-        .h_full()
+        .h_full();
+    // Desktop keeps its route history in memory (`titlebar.tsx:206-213`, UP-116 #65129), so mouse
+    // Back/Forward side buttons step it on release; wasm32 lets the host browser traverse its own.
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        root = root
+            .pointer_buttons([rune::PointerButton::Back, rune::PointerButton::Forward])
+            .on_background_press_tx(|s: &mut App, tx: &mut Tx| match tx.button() {
+                rune::PointerButton::Back => { s.navigate(false, tx); }
+                rune::PointerButton::Forward => { s.navigate(true, tx); }
+                _ => {}
+            });
+    }
+    root = root
         // The hover peek's zones only listen for the pointer, which reaches them under anything:
         // under the sidebar and the page, a right-click lands on the row under the pointer
         // rather than on them, and its menu opens.
