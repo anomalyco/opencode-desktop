@@ -2147,30 +2147,28 @@ return plugin.defineWindow(function(ctx)
             end)
             res = if ok and type(out) == "table" then out else nil
         end
+        -- `main.ts:285-296`: history comes only after sign-ins that did not fail, and never fails the
+        -- import: history that cannot be read is no pages.
         local pages = 0
-        local historyRead = true
-        if boxes.history then
+        local signedIn = res ~= nil and type(res.error) ~= "string"
+        if boxes.history and signedIn then
             local historyImport = if type(bAny.HistoryImportProfileAsync) == "function" then "HistoryImportProfileAsync"
                 elseif type(bAny.HistoryImportProfile) == "function" then "HistoryImportProfile"
                 else nil
-            local hok, hres = false, nil
             if historyImport ~= nil then
-                hok, hres = pcall(function()
+                local hok, hres = pcall(function()
                     return bAny[historyImport](bAny, target.browser, target.profile)
                 end)
-            end
-            historyRead = hok and type(hres) == "table" and type(hres.imported) == "number"
-            if historyRead then
-                pages = hres.imported
+                if hok and type(hres) == "table" and type(hres.imported) == "number" then
+                    pages = hres.imported
+                end
             end
         end
         importRunning = false
-        local message: signins.Message = if not boxes.signins and not historyRead
-            then { text = I18n:T("signins.failed.read"), error = true }
-            else (describeBrowserImport({ sourceId = target.browser, sourceName = target.name, profileId = target.profile, label = target.label }, res, pages))
+        local message = describeBrowserImport({ sourceId = target.browser, sourceName = target.name, profileId = target.profile, label = target.label }, res, pages)
         local cookies = if res and type(res.imported) == "number" then res.imported else 0
         local loss = res ~= nil and ((tonumber(res.failed) or 0) > 0 or (tonumber(res.protected) or 0) > 0)
-        local clean = res ~= nil and type(res.error) ~= "string" and not loss and historyRead and (cookies > 0 or pages > 0)
+        local clean = signedIn and not loss and (cookies > 0 or pages > 0)
         if cookies > 0 and not preferences().welcomed then
             updatePreferences({ welcomed = true })
         end
@@ -2211,11 +2209,12 @@ return plugin.defineWindow(function(ctx)
             return bAny:ImportSignInsAsync(choice.sourceId, choice.profileId)
         end)
         local pages = 0
-        -- The history read runs off the UI thread (`HistoryImportProfileAsync`) where the host has it.
+        -- The history read runs off the UI thread (`HistoryImportProfileAsync`) where the host has it,
+        -- and only after sign-ins that did not fail (`main.ts:285-296`).
         local historyImport = if type(bAny.HistoryImportProfileAsync) == "function" then "HistoryImportProfileAsync"
             elseif type(bAny.HistoryImportProfile) == "function" then "HistoryImportProfile"
             else nil
-        if historyImport ~= nil then
+        if historyImport ~= nil and ok and type(res) == "table" and type(res.error) ~= "string" then
             local hok, hres = pcall(function()
                 return bAny[historyImport](bAny, choice.sourceId, choice.profileId)
             end)
