@@ -534,7 +534,7 @@ pub fn settings_key(host: &mut dyn SettingsHost, ev: &KeyEvent, tx: &mut Tx) -> 
     if !host.settings_open() {
         return false;
     }
-    if pages::shortcuts::key(host, ev, tx) || search::key(host, ev, tx) {
+    if pages::shortcuts::key(host, ev, tx) || pages::filter_page_key(host, ev, tx) || search::key(host, ev, tx) {
         return true;
     }
     if ev.key == Key::Escape {
