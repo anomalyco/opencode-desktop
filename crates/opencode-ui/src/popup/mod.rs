@@ -30,7 +30,7 @@ mod view;
 pub use keys::key;
 pub use menu::{Indicator, Item, Menu};
 pub use rune::{Align, PopupAnchor, PopupItem, PopupMenu, Side};
-pub use state::{dismiss, open, open_drawn, open_searchable, open_with_field, poll};
+pub use state::{dismiss, open, open_drawn, open_searchable, open_with_field, poll, set_highlight};
 pub use trigger::{MenuButton, menu_button};
 pub use view::{surface, view};
 
@@ -150,6 +150,8 @@ pub(super) struct Shown<S> {
     pub(super) opened: focus::Opened,
     /// Live search builder when opened with [`open_searchable`].
     pub(super) search: Option<Search<S>>,
+    /// Optional callback run when a root-level item becomes highlighted by pointer or keys.
+    pub(super) highlight: Option<Rc<dyn Fn(&mut S, &str)>>,
     pub(super) pick: Pick<S>,
 }
 

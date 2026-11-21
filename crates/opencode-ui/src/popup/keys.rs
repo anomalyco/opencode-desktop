@@ -3,7 +3,7 @@
 use rune::{Key, KeyEvent, Tx};
 
 use super::menu::{Menu, row_key};
-use super::state::{choose_at, close, focus_lit, open_sub_at, refresh};
+use super::state::{choose_at, close, focus_lit, notify_highlight, open_sub_at, refresh};
 use super::{PopupHost, focus};
 
 /// The drawn menu's keys: Up/Down/Home/End light a row, a letter lights the next one it starts,
@@ -82,6 +82,9 @@ pub fn key<S: PopupHost + 'static>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> boo
         }
     }
     if let Some(id) = id {
+        if level == 0 && lit != Some(next) {
+            notify_highlight(s, &id);
+        }
         tx.scroll_into_view(row_key(&id));
     }
     tx.instant();
