@@ -478,6 +478,8 @@ pub fn close_settings(host: &mut dyn SettingsHost) {
     host.set_settings_open(false);
     search::clear(host);
     host.settings_pages_mut().shortcuts.capture = None;
+    host.settings_pages_mut().models_reveal = pages::models::Reveal::Idle;
+    host.settings_pages_mut().console_expanded = false;
     host.settings_pages_mut().blur_fields();
     if was_open {
         host.on_overlay_closed(OVERLAY_ID);
@@ -574,6 +576,7 @@ pub fn toggle_settings(host: &mut dyn SettingsHost, tx: &mut Tx) {
 pub fn poll(host: &mut dyn SettingsHost, now: f64, tx: &mut Tx) -> bool {
     let mut changed = false;
     changed |= search::poll(host, tx);
+    changed |= pages::models::poll(host, tx);
     pages::servers::unavailable::poll(host, tx);
     changed |= pages::worktrees::poll(host, tx);
     changed |= pages::project::poll(host, tx);

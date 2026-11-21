@@ -17,19 +17,32 @@ use opencode_ui::palette::{Pal, kit};
 use opencode_kit::model::Model;
 
 use super::{NAME, NAME_REGULAR, catalog, filter_field, header_with, page, tab_no_results};
-use crate::host::SettingsHost;
+use crate::host::{ProviderRow, SettingsHost};
 use crate::stored;
 
 const CONSOLE_GROUP_KEY: &str = "console:opencode";
+/// How long a Providers -> Models reveal waits for its provider to appear (`MODELS_REVEAL_TIMEOUT_MS`).
+const REVEAL_TIMEOUT_MS: i64 = 5_000;
 
-/// Console workspace providers detected from the connected catalog (`providers/catalog/console.ts`).
-struct ConsoleGroup {
-    workspace: String,
-    prefix: String,
-    ids: HashSet<String>,
+/// Pending provider reveal started from Settings › Providers (`settings/models/machine.ts`).
+#[derive(Default)]
+pub enum Reveal {
+    #[default]
+    Idle,
+    Waiting { provider: String, deadline_ms: i64, expanded: bool },
+    Scroll { provider: String },
 }
 
-fn console_group(s: &dyn SettingsHost) -> Option<ConsoleGroup> {
+/// Console workspace providers detected from the connected catalog (`providers/catalog/console.ts`).
+pub(super) struct ConsoleGroup {
+    pub workspace: String,
+    pub prefix: String,
+    pub root_id: String,
+    pub ids: HashSet<String>,
+    pub providers: Vec<ProviderRow>,
+}
+
+pub(super) fn console_group(s: &dyn SettingsHost) -> Option<ConsoleGroup> {
     let providers = s.provider_rows(None);
     let root = providers.iter().find(|p| p.id == "opencode" && p.integration.as_deref() == Some("opencode"))?;
     let workspace = root.name.strip_suffix(" / OpenCode")?.trim();
@@ -37,12 +50,76 @@ fn console_group(s: &dyn SettingsHost) -> Option<ConsoleGroup> {
         return None;
     }
     let prefix = format!("{workspace} / ");
-    let ids: HashSet<String> = providers
+    let grouped: Vec<ProviderRow> = providers
         .iter()
         .filter(|p| p.integration.as_deref() == Some("opencode") && p.name.starts_with(&prefix))
-        .map(|p| p.id.clone())
+        .cloned()
         .collect();
-    (!ids.is_empty()).then(|| ConsoleGroup { workspace: workspace.to_owned(), prefix, ids })
+    if grouped.is_empty() {
+        return None;
+    }
+    let ids = grouped.iter().map(|p| p.id.clone()).collect();
+    Some(ConsoleGroup {
+        workspace: workspace.to_owned(),
+        prefix,
+        root_id: root.id.clone(),
+        ids,
+        providers: grouped,
+    })
+}
+
+/// Switches to Settings › Models, clears its filter, expands the path to `provider`, and scrolls
+/// and focuses its section header (`models.tsx:124-198, 269-285`).
+pub(super) fn open_for_provider(s: &mut dyn SettingsHost, provider: &str, tx: &mut Tx) {
+    s.settings_pages_mut().search = rune::TextEdit::new("");
+    super::open_page(s, super::Page::Models, tx);
+    let deadline_ms = s.now_ms() + REVEAL_TIMEOUT_MS;
+    s.settings_pages_mut().models_reveal = Reveal::Waiting { provider: provider.to_owned(), deadline_ms, expanded: false };
+    poll(s, tx);
+}
+
+pub(crate) fn cancel_reveal(s: &mut dyn SettingsHost) {
+    s.settings_pages_mut().models_reveal = Reveal::Idle;
+}
+
+pub fn poll(s: &mut dyn SettingsHost, tx: &mut Tx) -> bool {
+    if !s.settings_open() || s.settings_pages().page != super::Page::Models {
+        if !matches!(s.settings_pages().models_reveal, Reveal::Idle) {
+            s.settings_pages_mut().models_reveal = Reveal::Idle;
+        }
+        return false;
+    }
+    let state = std::mem::take(&mut s.settings_pages_mut().models_reveal);
+    match state {
+        Reveal::Idle => false,
+        Reveal::Waiting { provider, deadline_ms, expanded } => {
+            // Typing a search filter cancels the reveal so it never fights the user (`machine.ts:98`).
+            if !s.settings_pages().search.text.trim().is_empty() || s.now_ms() >= deadline_ms {
+                return false;
+            }
+            if !s.models().iter().any(|m| m.provider == provider) {
+                s.settings_pages_mut().models_reveal = Reveal::Waiting { provider, deadline_ms, expanded };
+                return false;
+            }
+            if !expanded {
+                let in_console = console_group(s).is_some_and(|cg| cg.ids.contains(&provider));
+                if in_console {
+                    Folds::expand(s, &[CONSOLE_GROUP_KEY, provider.as_str()]);
+                } else {
+                    Folds::expand(s, &[provider.as_str()]);
+                }
+            }
+            s.settings_pages_mut().models_reveal = Reveal::Scroll { provider };
+            tx.instant();
+            true
+        }
+        Reveal::Scroll { provider } => {
+            tx.instant();
+            tx.scroll_into_view(format!("settings-models-provider-{provider}"));
+            tx.focus(format!("settings-models-trigger-{provider}"), true);
+            true
+        }
+    }
 }
 
 /// The providers folded shut, kept per server under Desktop's global
@@ -74,6 +151,22 @@ impl Folds {
         if !shut.remove(provider) {
             shut.insert(provider.to_owned());
         }
+        Self::save(s, shut);
+    }
+
+    /// Expands only the specified keys so the saved layout of other providers is kept (`models.tsx:135`).
+    fn expand(s: &mut dyn SettingsHost, providers: &[&str]) {
+        let mut shut = s.settings_pages().collapsed.get(s).clone();
+        let mut changed = false;
+        for p in providers {
+            changed |= shut.remove(*p);
+        }
+        if changed {
+            Self::save(s, shut);
+        }
+    }
+
+    fn save(s: &mut dyn SettingsHost, shut: HashSet<String>) {
         if let Some(server) = server(s) {
             let collapsed: serde_json::Map<String, Value> = shut.iter().map(|p| (p.clone(), Value::Bool(true))).collect();
             opencode_platform::storage::update_json(stored::GLOBAL, KEY, |all| {
@@ -284,7 +377,7 @@ fn console_provider_card<H: SettingsHost + PopupHost + 'static>(
     let anchor = format!("settings-models-group-menu-{provider}");
     let menu_open = s.popup().open_at(&anchor);
     let trigger = row()
-        .key("trigger")
+        .key(format!("settings-models-trigger-{provider}"))
         .role("button")
         .label(name.clone())
         .expanded(open)
@@ -379,7 +472,7 @@ fn group<H: SettingsHost + 'static>(s: &H, p: &Pal, provider: &str, models: &[&M
     } else {
         models.first().map_or_else(|| provider.to_owned(), |m| m.group.clone())
     };
-    let trigger = section_header_trigger::<H>(p, "trigger", provider.to_owned(), widgets::provider_mark(provider, p.icon), name, None, open, searching);
+    let trigger = section_header_trigger::<H>(p, &format!("settings-models-trigger-{provider}"), provider.to_owned(), widgets::provider_mark(provider, p.icon), name, None, open, searching);
     let mut section = col()
         .key(format!("settings-models-provider-{provider}"))
         .w_full()
