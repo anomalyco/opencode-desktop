@@ -1867,6 +1867,9 @@ return plugin.defineWindow(function(ctx)
                     image = Images:FromRgba(data, width, height)
                 elseif ok and kind == "png" then
                     image = Images:FromEncoded(data)
+                elseif not ok or kind == nil then
+                    -- Still being read off the UI thread: the page draws again when it is.
+                    return nil
                 end
             end
             importIcons[browserId] = if image ~= nil then image else false
