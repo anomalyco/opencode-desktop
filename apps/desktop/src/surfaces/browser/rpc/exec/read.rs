@@ -171,6 +171,10 @@ pub(super) fn compute_target(
         let tab_refs = att.refs.get(&host_id);
         let mut resources = vec![tab.url.clone()];
         for r in &refs {
+            // An unknown ref is stale here, as official `target(ref)` throws (`chromium.ts:2112`).
+            if tab_refs.and_then(|t| t.resolve(r)).is_none() {
+                return Err(Outcome::fail(failure_code::STALE_REF, format!("Element ref {r} is stale or absent. Refresh the snapshot first.")));
+            }
             let Some(fid) = tab_refs.and_then(|t| t.frame_of(r)) else { continue };
             let url = att.frames.get(&host_id).filter(|f| !f.frame_cap_exceeded).and_then(|f| f.frame_urls.get(&fid).cloned());
             let Some(url) = url else {

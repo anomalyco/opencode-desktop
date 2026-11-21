@@ -596,6 +596,8 @@ pub(super) fn action_refs(cmd: &Command) -> Option<Vec<String>> {
     match cmd.action_type()? {
         "drag" => Some(["from", "to"].iter().filter_map(|k| a.get(*k).and_then(s)).collect()),
         "fill_form" => Some(a.get("fields")?.as_array()?.iter().filter_map(|f| f.get("ref").and_then(s)).collect()),
+        // `wait` names no element ref (official `actionRefs`): a stray `ref` never skips `frameID`.
+        "wait" => None,
         _ => a.get("ref").and_then(s).map(|r| vec![r]),
     }
 }
