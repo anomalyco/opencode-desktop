@@ -282,11 +282,18 @@ fn help_feedback_link<H: SettingsHost + 'static>(p: &Pal) -> El {
         .hover_group()
         .on_press_tx(|s: &mut H, tx: &mut Tx| crate::open_external(s, URL, tx))
         .child(
-            text(words)
-                .font(super::NAME_REGULAR)
-                .color(p.muted)
-                .group_color(p.text)
-                .spans(vec![rune::Span::new(0, words.len()).underline(p.muted)]),
+            col()
+                .key("help-label")
+                .child(text(words).font(super::NAME_REGULAR).color(p.muted).group_color(p.text))
+                // Official `general.tsx:339` uses `no-underline hover:text-v2-text-text-base hover:underline`.
+                .child(
+                    rune::el()
+                        .key("help-underline")
+                        .pin(Some(0.0), None, Some(0.0), Some(1.0))
+                        .h(1.0)
+                        .fill(p.text)
+                        .group_opacity(0.0, 1.0),
+                ),
         )
         .child(rune::icon(&super::console_link::ARROW_UP_RIGHT, 14.0).color(p.muted).group_color(p.text))
 }
