@@ -207,7 +207,9 @@ wrap_context_menu_handler! {
             callback: Option<&mut RunContextMenuCallback>,
         ) -> ::std::os::raw::c_int {
             let Some(callback) = callback else { return 1 };
-            if !self.shared.enabled.load(Ordering::Relaxed) {
+            // The agent's right-click (or a page's menu off the agent's input) never opens the app's
+            // menu over the person's window: only after their own press or key (`chromium.ts:2500-2501`).
+            if !self.shared.enabled.load(Ordering::Relaxed) || self.prompts.menu_suppressed.load(Ordering::Acquire) {
                 callback.cancel();
                 return 1;
             }
