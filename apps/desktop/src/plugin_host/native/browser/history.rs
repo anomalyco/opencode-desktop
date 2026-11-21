@@ -4,9 +4,10 @@
 use std::path::Path;
 
 use browser_pane::cookies::BrowserEngineKind;
+use browser_pane::cookies::icons::{AppIcon, application, application_icon};
 use browser_pane::cookies::sources::{list_sources, source_history_database};
 use browser_pane::history::{HistoryStore, ImportEngine, read_profile_history};
-use mlua::{IntoLua, Lua, Table, Value};
+use mlua::{IntoLua, Lua, MultiValue, Table, Value};
 use rune_luau::Data;
 
 use super::{App, map, method, scope, with_app};
@@ -144,6 +145,24 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
             })
             .collect();
         Data::List(list).into_lua(lua)
+    })?;
+    // The browser's own icon (`settings.tsx:108-111` `Identity image`): `("rgba", pixels, w, h)`,
+    // `("png", bytes)`, or nothing, when the browser has no application this knows or the OS no icon.
+    method(lua, t, "HistoryImportIcon", |lua, source_id: String| {
+        require_builtin_browser(lua, "Browser:HistoryImportIcon")?;
+        let Some(icon) = application(&source_id).and_then(|path| application_icon(&path)) else {
+            return Ok(MultiValue::new());
+        };
+        let values = match icon {
+            AppIcon::Rgba { width, height, pixels } => vec![
+                Value::String(lua.create_string("rgba")?),
+                Value::Buffer(lua.create_buffer(pixels)?),
+                Value::Number(f64::from(width)),
+                Value::Number(f64::from(height)),
+            ],
+            AppIcon::Png(bytes) => vec![Value::String(lua.create_string("png")?), Value::Buffer(lua.create_buffer(bytes)?)],
+        };
+        Ok(MultiValue::from_vec(values))
     })?;
     method(lua, t, "HistoryImportProfile", |lua, (browser_id, profile_id): (String, String)| {
         require_builtin_browser(lua, "Browser:HistoryImportProfile")?;

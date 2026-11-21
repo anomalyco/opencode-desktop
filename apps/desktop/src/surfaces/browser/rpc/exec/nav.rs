@@ -578,6 +578,12 @@ pub(super) fn step_wait_load(
             return None;
         }
     }
+    if let Some(site) = app.workspace_panes.browser.host.take_agent_passkey_refused(st.host_id) {
+        return Some(Outcome::fail(
+            failure_code::SIGN_IN_REQUIRED,
+            browser_pane::prompts::agent_passkey_refusal_message((!site.is_empty()).then_some(site.as_str())),
+        ));
+    }
     let Some(tab) = app.workspace_panes.browser.host.tab(st.host_id) else {
         return Some(Outcome::fail(
             failure_code::NAVIGATION_FAILED,

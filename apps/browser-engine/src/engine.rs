@@ -41,6 +41,7 @@ pub(crate) struct ManagedTab {
     pub(crate) snap: Arc<Mutex<TabSnapshot>>,
     pub(crate) cdp_id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
     pub(crate) cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
+    pub(crate) passkeys: Arc<crate::passkeys::TabPasskeyGate>,
     internal_picked: Arc<Mutex<Vec<i64>>>,
     pending_clears: Arc<Mutex<Vec<PendingClear>>>,
     pub(crate) prompts: Arc<crate::prompts::TabPrompts>,
@@ -83,6 +84,8 @@ pub struct EngineManager {
     home: Option<String>,
     /// The pages' downloads, in the profile's `opencode-page-downloads` folder.
     downloads: Arc<crate::downloads::Downloads>,
+    /// Engine profile directory holding `opencode-page-downloads` and `opencode-page-uploads`.
+    profile_dir: std::path::PathBuf,
     /// Shared prompt-handling toggle (`Hello.prompts`) and monotonic ID counter.
     prompt_shared: crate::prompts::PromptShared,
     /// Tracks persistent `"Always"` and per-tab `"Allow this time"` site permissions.
@@ -141,6 +144,7 @@ impl EngineManager {
             dark: None,
             home: crate::profile::home_dir(),
             downloads: crate::downloads::Downloads::open(&downloads),
+            profile_dir: downloads.profile.clone(),
             prompt_shared: crate::prompts::PromptShared::default(),
             permissions: Arc::new(crate::permissions::PermissionTracker::default()),
             previews,
@@ -197,6 +201,8 @@ impl EngineManager {
                     frame_authority: true,
                     extensions: true,
                     cookies: true,
+                    agent_files: true,
+                    passkeys: true,
                 });
                 for (&tab_id, t) in &self.tabs {
                     t.menu.cancel_all();
@@ -285,6 +291,7 @@ impl EngineManager {
                 let is_normal = self.tabs.get(&tab_id).is_some_and(|t| !t.isolated && !t.is_popup);
                 for (&id, t) in &mut self.tabs {
                     let active = id == tab_id;
+                    let agent = t.prompts.agent_driven.load(Ordering::Relaxed);
                     #[cfg(target_os = "linux")]
                     {
                         t.shown = active;
@@ -294,7 +301,8 @@ impl EngineManager {
                         }
                     }
                     if !t.is_popup {
-                        t.host.was_hidden(i32::from(!active));
+                        // Agent-driven background tabs stay unthrottled so waits, screenshots and traces never stall.
+                        t.host.was_hidden(i32::from(!active && !agent));
                     }
                     t.host.set_focus(i32::from(active));
                     if active {
@@ -588,6 +596,11 @@ impl EngineManager {
                         t.prompts.popup_credit.store(true, Ordering::Release);
                     }
                     t.prompts.user_reclaimed.store(false, Ordering::Release);
+                    if t.prompts.agent_driven.load(Ordering::Acquire) {
+                        for raw in t.passkeys.enforce_messages() {
+                            t.host.send_dev_tools_message(Some(raw.as_bytes()));
+                        }
+                    }
                 }
                 self.handle_cdp_call(tab_id, request_id, method, params, session_id);
             }
@@ -707,20 +720,26 @@ impl EngineManager {
                         t.prompts.popup_credit.store(true, Ordering::Release);
                     }
                     t.prompts.user_reclaimed.store(false, Ordering::Release);
+                    for raw in t.passkeys.enforce_messages() {
+                        t.host.send_dev_tools_message(Some(raw.as_bytes()));
+                    }
                     let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
                     crate::cdp_ledger::handle_typed_cdp_call(
-                        tab_id,
-                        request_id,
-                        not_ready,
-                        t,
-                        &self.next_cdp_id,
-                        &self.out_tx,
-                        self.extensions.is_some(),
-                        method,
-                        params,
-                        session_id,
-                        frame_id,
+                        tab_id, request_id, not_ready, t, &self.next_cdp_id, &self.out_tx,
+                        self.extensions.is_some(), method, params, session_id, frame_id,
                     );
+                }
+            }
+            HostMsg::UploadFiles { tab_id, request_id, backend_node_id, files } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
+                    crate::agent::handle_upload_files(t, &self.profile_dir, tab_id, request_id, not_ready, backend_node_id, &files, &self.next_cdp_id, &self.out_tx);
+                }
+            }
+            HostMsg::DropFiles { tab_id, request_id, x, y, files } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
+                    crate::agent::handle_drop_files(t, &self.profile_dir, tab_id, request_id, not_ready, x, y, &files, &self.next_cdp_id, &self.out_tx);
                 }
             }
             HostMsg::ClearSiteCache { tab_id, request_id } => {
@@ -1299,7 +1318,9 @@ impl EngineManager {
         } else if focused {
             for existing in self.tabs.values() {
                 if !existing.is_popup {
-                    existing.host.was_hidden(1);
+                    if !existing.prompts.agent_driven.load(Ordering::Relaxed) {
+                        existing.host.was_hidden(1);
+                    }
                     existing.host.set_focus(0);
                 }
             }
@@ -1310,6 +1331,7 @@ impl EngineManager {
 
         let cdp_id_map = Arc::new(Mutex::new(HashMap::new()));
         let cdp_ledger = Arc::new(Mutex::new(crate::cdp_ledger::EngineCdpLedger::default()));
+        let passkeys = Arc::new(crate::passkeys::TabPasskeyGate::new(tab_id, agent_driven));
         let internal_picked = Arc::new(Mutex::new(Vec::new()));
         let pending_clears = Arc::new(Mutex::new(Vec::new()));
         let mut observer = TabCdpObserver::new(
@@ -1322,6 +1344,7 @@ impl EngineManager {
             internal_picked.clone(),
             pending_clears.clone(),
             cdp_ledger.clone(),
+            passkeys.clone(),
             prompts.clone(),
             self.permissions.clone(),
             self.extensions.is_some(),
@@ -1331,7 +1354,11 @@ impl EngineManager {
         let cdp_reg = host.add_dev_tools_message_observer(Some(&mut observer));
         // Every tab is armed, as official arms every page (`chromium.ts:1391-1398`). The lock is
         // released first: CEF may deliver the observer callback inside the send.
-        let arm = cdp_ledger.lock().unwrap().arm();
+        let mut arm = cdp_ledger.lock().unwrap().arm();
+        arm.extend(passkeys.attach_messages(None));
+        if !passkeys.native() || agent_driven {
+            arm.extend(passkeys.enforce_messages());
+        }
         for raw in arm {
             host.send_dev_tools_message(Some(raw.as_bytes()));
         }
@@ -1357,6 +1384,7 @@ impl EngineManager {
                 snap,
                 cdp_id_map,
                 cdp_ledger,
+                passkeys,
                 internal_picked,
                 pending_clears,
                 prompts,
@@ -1398,6 +1426,7 @@ impl EngineManager {
             tab.download_alive.store(false, Ordering::Release);
             tab.host.close_browser(1);
             self.downloads.close_tab(tab_id, tab.download_gen);
+            crate::agent::remove_tab_uploads(&self.profile_dir, tab_id);
             self.release_tab_context(tab_id);
             if !tab.isolated && !tab.is_popup
                 && let Some(ext) = &mut self.extensions

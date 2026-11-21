@@ -27,6 +27,7 @@ mod keys;
 mod linux_gpu;
 #[cfg(target_os = "macos")]
 mod mac_app;
+mod agent;
 mod cdp_ledger;
 mod cef_runtime;
 mod cookies;
@@ -35,6 +36,7 @@ mod favicon;
 mod frame_authority;
 mod find;
 mod menu;
+mod passkeys;
 mod preview;
 mod profile;
 mod prompts;

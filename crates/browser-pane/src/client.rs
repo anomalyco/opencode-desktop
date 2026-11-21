@@ -903,6 +903,8 @@ impl BrowserHost {
                     permission_sync,
                     frame_authority,
                     cookies,
+                    agent_files,
+                    passkeys,
                     ..
                 } => {
                     if !matches!(
@@ -912,20 +914,9 @@ impl BrowserHost {
                         continue;
                     }
                     self.caps = EngineCaps::Known {
-                        downloads,
-                        policy,
-                        prompts,
-                        popups,
-                        find,
-                        context_menu,
-                        partitions,
-                        remote_proxy,
-                        agent_tools,
-                        preview,
-                        extensions,
-                        permission_sync,
-                        frame_authority,
-                        cookies,
+                        downloads, policy, prompts, popups, find, context_menu,
+                        partitions, remote_proxy, agent_tools, preview, extensions,
+                        permission_sync, frame_authority, cookies, agent_files, passkeys,
                     };
                     self.sync_site_permissions();
                     if cookies && self.share_sign_ins {
@@ -1127,7 +1118,8 @@ impl BrowserHost {
                 | EngineMsg::PermissionRequest { .. } | EngineMsg::PermissionDismissed { .. }
                 | EngineMsg::AuthRequest { .. } | EngineMsg::AuthReset { .. } | EngineMsg::AuthAgentRequired { .. }
                 | EngineMsg::PopupOpen { .. } | EngineMsg::PopupBlocked { .. }
-                | EngineMsg::AppLinkBlocked { .. } | EngineMsg::FileChooserBlocked { .. } => {
+                | EngineMsg::AppLinkBlocked { .. } | EngineMsg::PasskeyRefused { .. }
+                | EngineMsg::FileChooserBlocked { .. } => {
                     changed |= self.handle_prompt_msg(msg);
                 }
                 EngineMsg::FindResult { tab_id, count, active_match, final_update } => {

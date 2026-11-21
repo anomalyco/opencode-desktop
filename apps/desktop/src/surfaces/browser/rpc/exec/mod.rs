@@ -3,7 +3,11 @@
 //! dialogs, HTTP auth, extension-origin isolation, and clean cancellation teardown).
 
 pub(super) mod capture;
+pub(super) mod dialog;
+pub(super) mod files;
+pub(super) mod input;
 pub(super) mod nav;
+pub(super) mod profile;
 pub(super) mod read;
 pub(super) mod snapshot;
 mod target_url;
@@ -16,8 +20,12 @@ use rune::time::Instant;
 use rune::{Tx, Waker};
 use serde_json::Value;
 
-use self::capture::ScreenshotState;
+use self::capture::{NetworkGetState, ScreenshotState};
+use self::dialog::DialogState;
+use self::files::UploadState;
+use self::input::InputState;
 use self::nav::WaitLoadState;
+use self::profile::ProfileState;
 use self::read::{EvalState, InspectState, VerifyFramesState, WaitState};
 use self::snapshot::{FramesState, SnapshotState};
 use super::session::SessionAttachment;
@@ -36,6 +44,11 @@ enum ExecPhase {
     Eval(EvalState),
     Wait(WaitState),
     Screenshot(ScreenshotState),
+    NetworkGet(NetworkGetState),
+    Input(InputState),
+    Dialog(DialogState),
+    Upload(UploadState),
+    Profile(ProfileState),
 }
 
 impl ExecPhase {
@@ -49,6 +62,11 @@ impl ExecPhase {
             Self::Eval(s) => s.host_id,
             Self::Wait(s) => s.host_id,
             Self::Screenshot(s) => s.host_id,
+            Self::NetworkGet(s) => s.host_id,
+            Self::Input(s) => s.host_id,
+            Self::Dialog(s) => s.host_id,
+            Self::Upload(s) => s.host_id,
+            Self::Profile(s) => s.host_id,
         }
     }
 
@@ -105,6 +123,11 @@ impl ExecPhase {
             Self::Eval(st) => st.cancel_cleanup(app),
             Self::Wait(st) => st.cancel_cleanup(app),
             Self::Screenshot(st) => st.cancel_cleanup(app),
+            Self::NetworkGet(st) => app.workspace_panes.browser.host.cancel_cdp(st.cdp_req),
+            Self::Input(st) => st.cancel_cleanup(app),
+            Self::Dialog(st) => app.workspace_panes.browser.host.cancel_cdp(st.cdp_req),
+            Self::Upload(st) => app.workspace_panes.browser.host.cancel_cdp(st.stage.cdp_req()),
+            Self::Profile(st) => app.workspace_panes.browser.host.cancel_cdp(st.stage.cdp_req()),
         }
     }
 }
@@ -305,6 +328,10 @@ fn dispatch_verified_command(
         .or_else(|| snapshot::try_start(att, app, cmd))
         .or_else(|| read::try_start(att, app, cmd, now))
         .or_else(|| capture::try_start(att, app, cmd, waker))
+        .or_else(|| input::try_start(att, app, cmd))
+        .or_else(|| dialog::try_start(att, app, cmd))
+        .or_else(|| files::try_start(att, app, cmd))
+        .or_else(|| profile::try_start(att, app, cmd, now))
         .unwrap_or_else(|| {
             let name = cmd.action_type().unwrap_or("unknown");
             StepOutcome::Done(Outcome::fail(
@@ -337,7 +364,12 @@ pub(super) fn poll_commands(
         }
         let host_id = cmd.phase.target_host_tab();
         let mid_guard_fail = if !cmd.is_dialog {
-            if let Some(tab) = app.workspace_panes.browser.host.tab(host_id) {
+            if let Some(site) = app.workspace_panes.browser.host.take_agent_passkey_refused(host_id) {
+                Some(Outcome::fail(
+                    failure_code::SIGN_IN_REQUIRED,
+                    browser_pane::prompts::agent_passkey_refusal_message((!site.is_empty()).then_some(site.as_str())),
+                ))
+            } else if let Some(tab) = app.workspace_panes.browser.host.tab(host_id) {
                 if tab.prompts.dialog.open().is_some() {
                     Some(Outcome::fail(
                         failure_code::OPERATION_FAILED,
@@ -414,6 +446,11 @@ pub(super) fn poll_commands(
                 ExecPhase::Eval(st) => read::step_eval(att, app, st),
                 ExecPhase::Wait(st) => read::step_wait(att, app, st, now),
                 ExecPhase::Screenshot(st) => capture::step_screenshot(att, app, st, waker.clone()),
+                ExecPhase::NetworkGet(st) => capture::step_network_get(att, app, st),
+                ExecPhase::Input(st) => input::step_input(att, app, st),
+                ExecPhase::Dialog(st) => dialog::step_dialog(att, app, st),
+                ExecPhase::Upload(st) => files::step_upload(att, app, st),
+                ExecPhase::Profile(st) => profile::step_profile(att, app, st, now),
             }
         };
 

@@ -20,9 +20,9 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 164,
   "status_counts": {
-    "have it": 129,
+    "have it": 132,
     "not applicable": 23,
-    "missing": 8,
+    "missing": 5,
     "differs on purpose": 1,
     "partly": 3
   },
@@ -3380,13 +3380,13 @@
       "summary": "Replace local rune_mcp browser tools on modern servers with pure-Rust experimental.browser v4 RPC client, 45 typed executors, <=1 s durable PromptGate, and authenticated remote tunnel proxy.",
       "size": "XL",
       "status": "partly",
-      "rune_pr": "#275, #287, #301, #296",
-      "status_evidence": "experimental.browser v4 client (#275 c397d0b9), session-isolated nav/read runtime (#287 a974a664), official routed-session attach + shared recency rule fixing #287 time_updated/Home-order regression (#301 6522f112), and legacy rune_mcp browser suppression + Half::is_builtin + hardened check_cdp (#296 95cb36a8) are merged on dev; #298 (RPC auth/bounds/OOPIFs/wait spin), #302 (split into remote TunnelProxy hardening/wiring vs separate new-session-start-only prompt gate tracked in UP-095-PROMPT-GATE), narrow 3P browser contract (UP-095-3P-CONTRACT), and acting/uploads/profiling PR 3+ remain.",
+      "rune_pr": "#275, #287, #301, #296, #298, #302, #331, #333",
+      "status_evidence": "experimental.browser v4 client (#275 c397d0b9), session-isolated nav/read runtime (#287 a974a664), official routed-session attach (#301 6522f112), legacy rune_mcp browser suppression + Half::is_builtin + hardened check_cdp (#296 95cb36a8), RPC auth/bounds/OOPIFs/wait spin (#298 d6cf8659), remote TunnelProxy hardening/wiring (#302 8b42a094), tabs.open focus:false (#331 5aa677f7), and BrowserTab:Asking() (#333 11dca016) are merged on dev; acting/dialog/files/profiling PR 3 in flight; narrow 3P browser contract tracked in UP-095-3P-CONTRACT.",
       "depends_on": "UP-095 (#63002), PRE-08 (#63500)",
       "risks": "Remote server attachment must fail closed until engine Ready.remote_proxy lands (WS-1 Phase 3a); older servers must keep full rune_mcp fallback.",
       "workstream": "BROWSER-TOOLS",
-      "reviewed": "#301 confirmed (4th read at 87d48dec); #296 confirmed (5th read at 4ee64ceb + merge check at cd7a85ee); NOT SAFE TO SHIP (#275/#287 retrospective findings still open in #298 and #302 tunnel); #298 updated at 1d3e757c (awaiting 3rd read) and #302 split to tunnel-only at ed01f16f (awaiting 3rd read; prompt gate moved to UP-095-PROMPT-GATE)",
-      "open_pr_note": "PR #298 (1d3e757c, awaiting 3rd read), PR #302 (ed01f16f tunnel-only split, awaiting 3rd read; new-session-start-only prompt gate in UP-095-PROMPT-GATE)"
+      "reviewed": "#301, #296, #298, #302, #325, #331, #333 merged on dev; acting/dialog/files/profiling PR 3 in flight",
+      "open_pr_note": "Acting, dialog, confined upload/drop, network response bodies, and profiling executors (PR 3)"
     },
     {
       "id": "UP-114",
@@ -3715,8 +3715,8 @@
       ],
       "summary": "Draw the focused timeline viewport ring on the visible session frame above header/composer with 10 px rounded corners instead of being clipped by the fade mask.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Timeline scroll viewport currently uses standard inset focus ring without 10 px outer-frame overlay above header/composer fade.",
+      "status": "have it",
+      "status_evidence": "The timeline's ring is drawn by an overlay painted after the header and the composer dock (Rune El::focus_ring_for, #1313), over the timeline's visible area, 2 in, keyboard only, with the session frame's 10 pt corners (PR #387)",
       "depends_on": "UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"
@@ -3900,8 +3900,8 @@
       ],
       "summary": "Prevent focus-ring clipping on timeline and settings containers and stop showing misleading outer focus rings when nested controls are focused.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Audit timeline and settings containers/navigation controls for focus-ring clipping and misleading outer rings in features/settings and crates/session-view.",
+      "status": "have it",
+      "status_evidence": "Settings pages are not Tab stops of their own (tab_index -1, no ring); About's version ring is the shared ring around its hover fill, and it holds 'Copied' up; an open tool group's label draws its soft edge only while stuck, so it doesn't paint over its first row's ring at rest (PR #387)",
       "depends_on": "UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"
@@ -3944,14 +3944,15 @@
         "packages/app/src/runtime/plugin/prompt-gate.ts",
         "packages/app/src/composer/submit.ts"
       ],
-      "summary": "Hold only new-session start (create -> attach -> prompt, <= 1 s fail-open) because #301 attaches routed sessions in 0 ms; explicit loss vs Official: reconnect-gap (~100-300 ms local / 1 RTT remote / backoff) or unrouted background outbox submit runs that turn without experimental.browser (never legacy rune_mcp via #296). Split from #302; not yet built.",
+      "summary": "Hold only new-session start (create -> attach -> prompt, <= 1 s fail-open) because #301 attaches routed sessions in 0 ms; explicit loss vs Official: reconnect-gap (~100-300 ms local / 1 RTT remote / backoff) or unrouted background outbox submit runs that turn without experimental.browser (never legacy rune_mcp via #296).",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Split out of #302 (tunnel-only at ed01f16f); new-session-start-only prompt gate is approved as a separate PR after #298/#302 and is not yet built.",
+      "status": "have it",
+      "rune_pr": "#325",
+      "status_evidence": "Merged in #325 (d31feca9): owning server write worker waits <= 1 s between POST /api/session and POST /prompt while StartWaiter attaches; Drop releases fail-open on every exit path; Backoff counts as settled (machine.ts:507-509); 14/14 live proof.",
       "depends_on": "UP-095-TOOLS (#301, #296, #298, #302)",
       "risks": "Must not introduce server-switch livelocks, multi-window outbox races, or show_start Blocked::Missing races.",
       "workstream": "BROWSER-TOOLS",
-      "reviewed": "Not yet built (split from #302 tunnel/gate)"
+      "reviewed": "Merged on green CI (#325 d31feca9)"
     },
     {
       "id": "UP-136",

@@ -43,6 +43,7 @@ return plugin.defineWindow(function(ctx)
     local Popover = ctx:GetService("Popover")
     local Dialog = ctx:GetService("Dialog")
     local Menu = ctx:GetService("Menu")
+    local Images = ctx:GetService("Images")
     local Workspace = ctx:GetService("Workspace")
 
     -- The window's address field, find field, and extension store link field.
@@ -1348,6 +1349,7 @@ return plugin.defineWindow(function(ctx)
     local importTarget: { browser: string, profile: string, label: string }? = nil
     local importFailure: settings.ImportMessage? = nil
     local importResults: { [string]: settings.ImportMessage } = {}
+    local importIcons: { [string]: ImageId | false } = {}
     local extDialogState: extensions.DialogState = {
         busy = nil,
         installingId = nil,
@@ -1740,6 +1742,27 @@ return plugin.defineWindow(function(ctx)
             Dialog:Open("clear-data")
         end,
         importSources = listImportSources,
+        importIcon = function(browserId: string): ImageId?
+            -- Each browser's icon is read once a window, and one without an icon is not asked again.
+            local known = importIcons[browserId]
+            if known ~= nil then
+                return if known == false then nil else known :: ImageId
+            end
+            local bAny = Browser :: any
+            local image: ImageId? = nil
+            if type(bAny.HistoryImportIcon) == "function" then
+                local ok, kind, data, width, height = pcall(function()
+                    return bAny:HistoryImportIcon(browserId)
+                end)
+                if ok and kind == "rgba" then
+                    image = Images:FromRgba(data, width, height)
+                elseif ok and kind == "png" then
+                    image = Images:FromEncoded(data)
+                end
+            end
+            importIcons[browserId] = if image ~= nil then image else false
+            return image
+        end,
         importMessage = function(browserId: string, profileId: string): settings.ImportMessage?
             return importResults[`{browserId}\n{profileId}`]
         end,

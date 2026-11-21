@@ -15,6 +15,8 @@ use opencode_kit::browser_rpc::{
 };
 use opencode_kit::client::Server;
 use opencode_kit::servers::ServerKey;
+use rune::time::Instant;
+use serde_json::Value;
 
 use super::exec::ActiveCommand;
 use super::frames::TabFrameState;
@@ -86,6 +88,16 @@ pub(super) struct CapturedFile {
     pub resources: Vec<String>,
 }
 
+/// In-flight Chromium performance trace buffer for one tab.
+pub(super) struct TraceRecording {
+    pub host_id: u64,
+    pub started_at: Instant,
+    pub events: Vec<Value>,
+    pub resources: Vec<String>,
+    pub complete: bool,
+    pub data_loss: bool,
+}
+
 /// Complete per-session state for one `experimental.browser` v4 attachment.
 pub(super) struct SessionAttachment {
     pub server_key: ServerKey,
@@ -107,6 +119,9 @@ pub(super) struct SessionAttachment {
     pub diagnostics: HashMap<u64, TabDiagnostics>,
     pub captures: HashMap<u64, Vec<CapturedFile>>,
     pub download_wire_ids: HashMap<(u64, String), String>,
+    pub trace_recording: Option<TraceRecording>,
+    pub cpu_started: HashMap<u64, (Instant, Vec<String>)>,
+    pub heap_chunks: HashMap<u64, (String, bool)>,
     pub download_origins: HashMap<(u64, String), Vec<String>>,
     pub pending_close_tabs: Vec<u64>,
     pub agent_tab_id: Option<String>,
@@ -142,6 +157,9 @@ impl SessionAttachment {
             diagnostics: HashMap::new(),
             captures: HashMap::new(),
             download_wire_ids: HashMap::new(),
+            trace_recording: None,
+            cpu_started: HashMap::new(),
+            heap_chunks: HashMap::new(),
             download_origins: HashMap::new(),
             pending_close_tabs: Vec::new(),
             agent_tab_id: None,
@@ -232,6 +250,17 @@ impl SessionAttachment {
         let host = &mut app.workspace_panes.browser.host;
         let _ = host.send_typed_cdp(host_id, "Page.enable", serde_json::json!({}), None);
         let _ = host.send_typed_cdp(host_id, "Runtime.enable", serde_json::json!({}), None);
+        let _ = host.send_typed_cdp(host_id, "Log.enable", serde_json::json!({}), None);
+        let _ = host.send_typed_cdp(
+            host_id,
+            "Network.enable",
+            serde_json::json!({
+                "maxTotalBufferSize": 5_242_880,
+                "maxResourceBufferSize": 1_048_576,
+                "maxPostDataSize": 20_000,
+            }),
+            None,
+        );
         if !host.engine_frame_authority() {
             let _ = host.send_typed_cdp(
                 host_id,
@@ -383,6 +412,12 @@ impl SessionAttachment {
             self.diagnostics.remove(&host_id);
             self.captures.remove(&host_id);
             self.download_wire_ids.retain(|(hid, _), _| *hid != host_id);
+            self.cpu_started.remove(&host_id);
+            self.heap_chunks.remove(&host_id);
+            if self.trace_recording.as_ref().is_some_and(|r| r.host_id == host_id) {
+                self.trace_recording = None;
+            }
+            super::exec::files::cleanup_tab_uploads(app, host_id);
             self.download_origins.retain(|(hid, _), _| *hid != host_id);
         }
 

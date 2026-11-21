@@ -629,7 +629,7 @@ impl TabDriver {
     }
 }
 
-/// Why the controlled-tab notice bar (`#306` / stopgap) is currently shown on a tab.
+/// Why a controlled-tab or passkey notice bar is currently shown on a tab.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum BlockedGuardReason {
     /// Sign-in prompt or file picker was suppressed while a driver controls the tab.
@@ -637,6 +637,18 @@ pub enum BlockedGuardReason {
     /// Controlled actions were refused because the top-level origin holds clipboard, location, or
     /// notification access in the default profile; carries the refused URL for "Open in new tab".
     InheritedPermission { url: Option<String> },
+    /// A site asked for a passkey or security key and the tab refused it (`webauthn-gate.ts`).
+    /// `native == true` on Windows controlled tabs (offers "Open in new tab"); `native == false`
+    /// on macOS/Linux (offers "Import sign-in" -> Settings > Browser).
+    Passkey { native: bool, url: Option<String> },
+}
+
+/// Official agent interruption message when a site requests a passkey (`webauthn-gate.ts:111-113`).
+pub fn agent_passkey_refusal_message(site: Option<&str>) -> String {
+    let who = site.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("The page");
+    format!(
+        "{who} asked for a passkey or security key (WebAuthn). The desktop browser refused it at once with NotAllowedError: agent tools cannot complete a passkey or security-key sign-in. The site may now offer another sign-in method; otherwise ask the user to sign in with their own browser and import the sign-in (Settings > Browser > Import from another browser). Then continue with browser.snapshot({{tabID}})."
+    )
 }
 
 /// All prompt, permission, auth, and pop-up states owned by one `BrowserTab`.
@@ -657,6 +669,11 @@ pub struct TabPromptState {
     pub auth_dismissed: HashSet<String>,
     /// Last origin where an agent tab hit an HTTP auth challenge (`sign_in_required`).
     pub agent_auth_required: Option<String>,
+    /// One-shot pending agent interruption for a refused WebAuthn/passkey request on this page.
+    pub agent_passkey_refused: Option<String>,
+    /// Once-per-document flags matching official `chromium.ts:807,892-893`.
+    pub passkey_noticed: bool,
+    pub passkey_interrupted: bool,
     /// Count of blocked native file choosers on agent-driven tabs.
     pub file_chooser_blocked: u64,
     /// Active dismissible controlled-tab notice reason on this document.
@@ -713,6 +730,9 @@ impl TabPromptState {
             if self.document > 0 {
                 self.dialog.on_document_committed();
                 self.document_input = false;
+                self.agent_passkey_refused = None;
+                self.passkey_noticed = false;
+                self.passkey_interrupted = false;
             }
             self.document = snap_doc;
         }
@@ -748,6 +768,9 @@ impl TabPromptState {
         self.popup = PopupGate::Idle;
         self.document = 0;
         self.document_input = false;
+        self.agent_passkey_refused = None;
+        self.passkey_noticed = false;
+        self.passkey_interrupted = false;
     }
 
     /// Context switched (`reopen_tab_as_preview` / `reopen_tab_as_web`): clears visit-scoped
@@ -757,6 +780,9 @@ impl TabPromptState {
         self.auth_attempts.clear();
         self.auth_dismissed.clear();
         self.agent_auth_required = None;
+        self.agent_passkey_refused = None;
+        self.passkey_noticed = false;
+        self.passkey_interrupted = false;
         self.clear_blocked_guard_notice();
         self.reset_for_engine();
     }
@@ -785,6 +811,9 @@ impl TabPromptState {
         }
         self.popup.dismiss();
         self.agent_auth_required = None;
+        self.agent_passkey_refused = None;
+        self.passkey_noticed = false;
+        self.passkey_interrupted = false;
         self.clear_blocked_guard_notice();
         self.document_input = false;
         let same_origin = crate::policy::destination_origin(old_url)

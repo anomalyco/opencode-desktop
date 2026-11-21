@@ -31,20 +31,31 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
     let mut out = Vec::new();
     let k = kit(p);
 
-    if tab.prompts.agent_driven
-        && let Some(reason) = tab.prompts.blocked_guard_notice.as_ref()
+    if let Some(reason) = tab.prompts.blocked_guard_notice.as_ref()
+        && (tab.prompts.agent_driven || matches!(reason, browser_pane::BlockedGuardReason::Passkey { .. }))
     {
         let plugin_name = match tab.prompts.driver.as_ref() {
             Some(browser_pane::TabDriver::Plugin(name)) => Some(name.as_str()),
             _ => None,
         };
-        let (notice, reopen_url) = match reason {
+        let (notice, reopen_url, import_signin) = match reason {
             browser_pane::BlockedGuardReason::InheritedPermission { url } => (
                 match plugin_name {
                     Some(name) => t!("rune.browser.prompt.controlled.inheritedPermission.plugin", name = name),
                     None => t!("rune.browser.prompt.controlled.inheritedPermission.agent").to_owned(),
                 },
                 url.clone().unwrap_or_else(|| tab.url.clone()),
+                false,
+            ),
+            browser_pane::BlockedGuardReason::Passkey { native: true, url } => (
+                t!("rune.browser.prompt.passkey.off").to_owned(),
+                url.clone().unwrap_or_else(|| tab.url.clone()),
+                false,
+            ),
+            browser_pane::BlockedGuardReason::Passkey { native: false, .. } => (
+                t!("rune.browser.prompt.passkey").to_owned(),
+                String::new(),
+                true,
             ),
             browser_pane::BlockedGuardReason::Action => (
                 match plugin_name {
@@ -52,9 +63,11 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
                     None => t!("rune.browser.prompt.controlled.agent").to_owned(),
                 },
                 tab.url.clone(),
+                false,
             ),
         };
-        let can_reopen = !reopen_url.is_empty()
+        let can_reopen = !import_signin
+            && !reopen_url.is_empty()
             && !reopen_url.eq_ignore_ascii_case("about:blank")
             && tab.preview.is_none()
             && !matches!(
@@ -63,6 +76,21 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
             )
             && tab.refusal.as_deref() != Some("browser.proxy.required");
         let mut actions = row().gap(4.0).center_y();
+        if import_signin {
+            #[allow(deprecated)]
+            let import_btn = crate::widgets::button(t!("rune.browser.prompt.passkey.import"), ButtonVariant::Neutral)
+                .size(rune_kit::ButtonSize::Small)
+                .on_press(move |app: &mut App| {
+                    if !app.workspace_panes.browser.host.tab(tab_id).is_some_and(|t| t.prompts.blocked_guard_armed()) {
+                        return;
+                    }
+                    app.workspace_panes.browser.host.dismiss_blocked_guard_notice(tab_id);
+                    app.open_settings_at(crate::settings::pages::Page::Plugin("browser.browser".to_owned()));
+                })
+                .build(k)
+                .key("browser-passkey-import");
+            actions = actions.child(import_btn);
+        }
         if can_reopen {
             #[allow(deprecated)]
             let reopen_btn = crate::widgets::button(

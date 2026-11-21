@@ -361,9 +361,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     // 2. Reconcile open sessions against the active live server.
     changed |= reconcile_sessions(app, now);
 
-    // 3. Route any CDP events from BrowserHost into TabDiagnostics and TabFrameState (OOPIFs +
-    //    main-world execution contexts), auto-enabling non-extension OOPIFs, immediately detaching
-    //    extension OOPIFs, and bumping generation on top-level reloads/navigations.
+    // 3. Route CDP events into diagnostics, frames, and active trace/heap buffers.
     if app.workspace_panes.browser.host.has_cdp_events() {
         let events: Vec<_> = app.workspace_panes.browser.host.drain_cdp_events().collect();
         let mut oopif_enables: Vec<(u64, String)> = Vec::new();
@@ -389,6 +387,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
                     if main_nav && att.host_to_wire.contains_key(&ev.tab_id) {
                         att.bump_generation(ev.tab_id);
                     }
+                    exec::profile::ingest_cdp_event(att, &ev);
                 }
             }
         }
