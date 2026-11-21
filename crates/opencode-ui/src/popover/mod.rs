@@ -25,7 +25,7 @@ use rune_knobs::Knobs;
 use rune_theme_opencode::icons as ic;
 
 use crate::palette::{Elevate as _, Pal};
-use crate::style::UI;
+use crate::style::{UI, UI_MED};
 
 pub use nav::{Highlight, HighlightEvent, Lit, Nav, cycle, nav, nav_step};
 pub use slide::jump as jump_highlight;
@@ -229,13 +229,16 @@ pub struct Opt {
     pub disabled: bool,
     /// The stretch of the label a search matched, in the accent (`search-list.css:170-173`).
     pub mark: Option<Range<usize>>,
+    /// Medium weight (530, `UI_MED`), as the session location card's project title uses (`session-identity-header.tsx:278`).
+    pub medium: bool,
 }
 
 impl Opt {
     pub fn new(key: impl Into<String>, label: impl Into<String>) -> Opt {
-        Opt { key: key.into(), label: label.into(), role: "menuitemradio", active: false, checked: false, lead: None, after: vec![], trailing: vec![], slides: false, danger: false, disabled: false, mark: None }
+        Opt { key: key.into(), label: label.into(), role: "menuitemradio", active: false, checked: false, lead: None, after: vec![], trailing: vec![], slides: false, danger: false, disabled: false, mark: None, medium: false }
     }
     pub fn mark(mut self, r: Option<Range<usize>>) -> Opt { self.mark = r; self }
+    pub fn medium(mut self, on: bool) -> Opt { self.medium = on; self }
     pub fn danger(mut self, on: bool) -> Opt { self.danger = on; self }
     pub fn disabled(mut self, on: bool) -> Opt { self.disabled = on; self }
     pub fn role(mut self, r: &'static str) -> Opt { self.role = r; self }
@@ -293,7 +296,7 @@ pub fn option_tx<S: 'static>(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut S,
         None => text(o.label),
     };
     let words = row().key("words").grow(1.0).shrink().min_w(0.0).gap(look.gap).center_y()
-        .child(label.key("label").font(UI).color(ink).shrink().truncate_fade())
+        .child(label.key("label").font(if o.medium { UI_MED } else { UI }).color(ink).shrink().truncate_fade())
         .children(o.after);
     r.children(o.lead)
         .child(words)
