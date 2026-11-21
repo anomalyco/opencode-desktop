@@ -28,6 +28,10 @@ pub(super) struct WaitLoadState {
     pub preview_path: Option<String>,
     pub close_on_fail: bool,
     pub saw_loading: bool,
+    /// Back/forward: the page as it was before (URL, document, history ends). A history entry
+    /// restored from the back/forward cache commits without ever reporting loading, so its
+    /// commit (any of these changing) settles the wait instead of LOAD_SETTLE_GRACE.
+    pub history_from: Option<(String, u64, bool, bool)>,
     pub prev_rejected: u64,
     pub started_at: Instant,
     pub deadline: Instant,
@@ -162,6 +166,7 @@ fn start_tabs_open(
         preview_path: None,
         close_on_fail: true,
         saw_loading: app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.loading),
+        history_from: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -297,6 +302,7 @@ fn start_navigate(
         preview_path: None,
         close_on_fail: false,
         saw_loading: app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.loading),
+        history_from: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -324,6 +330,12 @@ fn start_history(
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     app.mark_browser_tab_unseen(host_id);
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
+    let history_from = app
+        .workspace_panes
+        .browser
+        .host
+        .tab(host_id)
+        .map(|t| (t.url.clone(), t.prompts.document, t.can_go_back, t.can_go_forward));
     if is_back {
         app.workspace_panes.browser.host.back(host_id);
     } else {
@@ -342,6 +354,7 @@ fn start_history(
         preview_path: None,
         close_on_fail: false,
         saw_loading: false,
+        history_from,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -386,6 +399,7 @@ fn start_reload(
         preview_path: None,
         close_on_fail: false,
         saw_loading: false,
+        history_from: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -480,6 +494,7 @@ fn start_preview(
         preview_path: Some(path.to_owned()),
         close_on_fail,
         saw_loading: false,
+        history_from: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -529,6 +544,7 @@ fn start_navigate_path(
         preview_path: Some(path.to_owned()),
         close_on_fail: false,
         saw_loading: false,
+        history_from: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -621,7 +637,11 @@ pub(super) fn step_wait_load(
             format!("Navigation was refused by browser URL policy ({reason})."),
         ));
     }
-    if tab.loading {
+    if tab.loading
+        || st.history_from.as_ref().is_some_and(|(url, document, back, forward)| {
+            (url, *document, *back, *forward) != (&tab.url, tab.prompts.document, tab.can_go_back, tab.can_go_forward)
+        })
+    {
         st.saw_loading = true;
     }
     if now >= st.deadline && tab.loading && tab.load_error.is_none() {
