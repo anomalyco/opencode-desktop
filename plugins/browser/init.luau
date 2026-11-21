@@ -548,10 +548,7 @@ return plugin.defineWindow(function(ctx)
         refresh()
     end)
 
-    -- A picked element goes into the composer as a pill naming its `@eN` ref and selector.
-    Browser.Picked:Connect(function(pick: BrowserPick)
-        Composer:InsertPill(`browser:{pick.ref}`, `{pick.ref} ({pick.selector})`)
-    end)
+    -- Picked elements open the native spotlight + comment editor (`surfaces/browser/comment.rs`).
 
     -- A loopback address opens on the machine that runs the server; the system browser here
     -- reaches it only when the server runs here too (authoritative Rust policy via CanOpenExternally).
@@ -708,11 +705,16 @@ return plugin.defineWindow(function(ctx)
             tab:SetZoom(arg :: any)
         elseif what == "page" then
             Popover:Close()
-            local url = pageUrl(tab)
-            local shownHost = hostDisplay.displayHost(url)
-            local title = tab:Title()
-            local labelText = if title ~= "" then title elseif shownHost ~= "" then shownHost else url
-            Composer:InsertPill(`browser:{url}`, `{labelText} ({url})`)
+            local tAny = tab :: any
+            if type(tAny.OpenNote) == "function" then
+                tAny:OpenNote()
+            else
+                local url = pageUrl(tab)
+                local shownHost = hostDisplay.displayHost(url)
+                local title = tab:Title()
+                local labelText = if title ~= "" then title elseif shownHost ~= "" then shownHost else url
+                Composer:InsertPill(`browser:{url}`, `{labelText} ({url})`)
+            end
         elseif what == "link.copy" then
             Popover:Close()
             local url = pageUrl(tab)

@@ -110,6 +110,26 @@ pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
             read_tab(lua, &this, "BrowserTab:Unnamed", |app, id| Ok(app.browser_tab_unnamed(id)))
         })?,
     )?;
+    // Opens the floating "Add page to session" note editor (`panel.tsx:1615-1665`).
+    m.raw_set(
+        "OpenNote",
+        lua.create_function(|lua, this: Table| {
+            let sc = scope::TabScope::capture(lua);
+            if !sc.is_builtin_browser || sc.tool_sid.is_some() {
+                return Ok(());
+            }
+            later(lua, &this, "BrowserTab:OpenNote", move |s, id, _| {
+                s.open_browser_page_note(id);
+            })
+        })?,
+    )?;
+    // True while element picker or element-comment spotlight is active (`panel.tsx:1244`).
+    m.raw_set(
+        "OverlayAccent",
+        lua.create_function(|lua, this: Table| {
+            read_tab(lua, &this, "BrowserTab:OverlayAccent", |app, id| Ok(app.browser_overlay_accent(id)))
+        })?,
+    )?;
     m.raw_set(
         "IsPrivate",
         lua.create_function(|lua, this: Table| {
