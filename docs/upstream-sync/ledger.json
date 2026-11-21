@@ -3922,7 +3922,7 @@
       "summary": "Expose official's narrow third-party plugin browser contract (attached, canOpen, open, openFile, experimental.{open,close}); #296 refuses Browser:OpenAsync for third-party plugins on modern/remote servers until this contract exists.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "Host-provided narrow 'browser' contract (attached, canOpen, open, openFile, experimental.{open,close}) exposed per-consumer via Contracts:Use('browser') in apps/desktop/src/plugin_host/services/browser_contract.rs, matching official packages/plugin/src/gui/browser.ts:1-60; opaque per-VM handles revoked on reload/unload/close/takeover navigation; raw CDP/ReadFileAsync/SiteCookiesAsync remain blocked for third-party plugins.",
+      "status_evidence": "Host-provided narrow 'browser' contract (attached, canOpen, open, openFile, experimental.{open,close}) exposed per-consumer via Contracts:Use('browser') in apps/desktop/src/plugin_host/services/browser_contract.rs, matching official packages/plugin/src/gui/browser.ts:1-60; window halves only, while the built-in browser runs in a wide window, routed session on the window's server only; opaque per-VM handles bound to their window, revoked on reload/unload/window close/tab close and at the person's first input or navigation or an agent's touch; opens bounded at 4/s per VM and 16 live tabs per plugin; raw CDP/ReadFileAsync/SiteCookiesAsync remain blocked for third-party plugins.",
       "depends_on": "UP-095-TOOLS (#296)",
       "risks": "Must keep third-party plugins blocked from raw CDP, ReadFileAsync, SiteCookiesAsync, and oc-preview:// minting.",
       "workstream": "BROWSER-TOOLS",
