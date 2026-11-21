@@ -14,6 +14,7 @@ use rune::Waker;
 use serde_json::{Value, json};
 
 use super::super::session::{CapturedFile, SessionAttachment};
+use super::point::PointResolver;
 use super::read::{queue_live_frame_refresh, step_live_frame_refresh};
 use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards, send_rpc_cdp, send_rpc_cdp_in_frame, verify_authorized_state};
 use crate::App;
@@ -78,10 +79,12 @@ impl ScreenshotState {
     pub fn cancel_cleanup(&mut self, app: &mut App) {
         match &mut self.stage {
             ScreenshotStage::GetBox { cdp_req }
+            | ScreenshotStage::PlaceRef { cdp_req, .. }
             | ScreenshotStage::GetMetrics { cdp_req }
             | ScreenshotStage::Capture { cdp_req } => {
                 app.workspace_panes.browser.host.cancel_cdp(*cdp_req);
             }
+            ScreenshotStage::Locate { resolver } => resolver.cancel_cleanup(app),
             ScreenshotStage::VerifyPost { pending, .. } => {
                 for (req_id, _) in pending.drain(..) {
                     app.workspace_panes.browser.host.cancel_cdp(req_id);
@@ -94,6 +97,10 @@ impl ScreenshotState {
 
 pub(super) enum ScreenshotStage {
     GetBox { cdp_req: u64 },
+    /// An element in a child frame: its box through every frame owner (official `rect`).
+    Locate { resolver: Box<PointResolver> },
+    /// That box, waiting for the page's scroll offset.
+    PlaceRef { cdp_req: u64, rect: (f64, f64, f64, f64) },
     GetMetrics { cdp_req: u64 },
     Capture { cdp_req: u64 },
     Process { rx: Receiver<Result<Vec<u8>, String>>, resources: Vec<String> },
@@ -162,6 +169,21 @@ fn start_screenshot(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -
             ));
         };
         let ref_frame = att.refs.get(&host_id).and_then(|t| t.frame_of(r));
+        if ref_session.is_some() || ref_frame.is_some() {
+            return match PointResolver::start(att, app, host_id, (bid, ref_session, ref_frame)) {
+                Ok(resolver) => StepOutcome::Pending(ExecPhase::Screenshot(ScreenshotState {
+                    host_id,
+                    format,
+                    quality,
+                    max_width,
+                    expected_gen,
+                    expected_target,
+                    cmd: cmd.clone(),
+                    stage: ScreenshotStage::Locate { resolver: Box::new(resolver) },
+                })),
+                Err(o) => StepOutcome::Done(o),
+            };
+        }
         match send_rpc_cdp_in_frame(
             app,
             host_id,
@@ -493,7 +515,28 @@ pub(super) fn step_screenshot(
     st: &mut ScreenshotState,
     waker: Option<Waker>,
 ) -> Option<Outcome> {
+    if let ScreenshotStage::Locate { resolver } = &mut st.stage {
+        let rect = match resolver.step(app)? {
+            Ok(_) => resolver.rect(),
+            Err(o) => return Some(o),
+        };
+        return match send_rpc_cdp(app, st.host_id, "Page.getLayoutMetrics", json!({}), None) {
+            Ok(cdp_req) => {
+                st.stage = ScreenshotStage::PlaceRef { cdp_req, rect };
+                None
+            }
+            Err(e) => Some(Outcome::fail(failure_code::OPERATION_FAILED, e)),
+        };
+    }
     match &st.stage {
+        ScreenshotStage::Locate { .. } => None,
+        ScreenshotStage::PlaceRef { cdp_req, rect } => {
+            let (rect, resp) = (*rect, app.workspace_panes.browser.host.take_cdp_response(*cdp_req)?);
+            let val = resp.unwrap_or_default();
+            // Page coordinates, as official adds `cssLayoutViewport.pageX/pageY` (`chromium.ts` `emulatedScreenshot`).
+            let page = |k: &str| val.get("cssLayoutViewport").and_then(|v| v.get(k)).and_then(Value::as_f64).unwrap_or(0.0);
+            capture_clip(app, st, (rect.0 + page("pageX"), rect.1 + page("pageY"), rect.2, rect.3))
+        }
         ScreenshotStage::GetBox { cdp_req } => {
             let resp = app.workspace_panes.browser.host.take_cdp_response(*cdp_req)?;
             let val = match resp {
@@ -505,28 +548,13 @@ pub(super) fn step_screenshot(
                     ));
                 }
             };
-            let Some((x, y, w, h)) = box_model_rect(&val) else {
+            let Some(rect) = box_model_rect(&val) else {
                 return Some(Outcome::fail(
                     failure_code::OPERATION_FAILED,
                     "Element has zero visible size.",
                 ));
             };
-            let mut params = json!({
-                "format": st.format,
-                "clip": { "x": x, "y": y, "width": w, "height": h, "scale": 1.0 }
-            });
-            if let Some(q) = st.quality
-                && st.format != "png"
-            {
-                params["quality"] = json!(q);
-            }
-            match send_rpc_cdp(app, st.host_id, "Page.captureScreenshot", params, None) {
-                Ok(req) => {
-                    st.stage = ScreenshotStage::Capture { cdp_req: req };
-                    None
-                }
-                Err(e) => Some(Outcome::fail(failure_code::OPERATION_FAILED, e)),
-            }
+            capture_clip(app, st, rect)
         }
         ScreenshotStage::GetMetrics { cdp_req } => {
             let resp = app.workspace_panes.browser.host.take_cdp_response(*cdp_req)?;
@@ -728,6 +756,22 @@ fn maybe_downscale(bytes: &[u8], format: &str, max_w: u32) -> Vec<u8> {
         out.into_inner()
     } else {
         bytes.to_vec()
+    }
+}
+
+fn capture_clip(app: &mut App, st: &mut ScreenshotState, (x, y, w, h): (f64, f64, f64, f64)) -> Option<Outcome> {
+    let mut params = json!({ "format": st.format, "clip": { "x": x, "y": y, "width": w, "height": h, "scale": 1.0 } });
+    if let Some(q) = st.quality
+        && st.format != "png"
+    {
+        params["quality"] = json!(q);
+    }
+    match send_rpc_cdp(app, st.host_id, "Page.captureScreenshot", params, None) {
+        Ok(req) => {
+            st.stage = ScreenshotStage::Capture { cdp_req: req };
+            None
+        }
+        Err(e) => Some(Outcome::fail(failure_code::OPERATION_FAILED, e)),
     }
 }
 
