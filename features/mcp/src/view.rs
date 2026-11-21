@@ -227,15 +227,17 @@ fn build_list_frame(p: &Pal, search_input: El, scroll: El) -> El {
         .center_y()
         .child(el().pl(6.0).child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted)))
         .child(search_input);
-    // `.command-palette-compact`: 6 pt around, 17 below, the hairline 8 pt over the bottom.
+    // `.command-palette-compact` (`commands/dialog.css:145-158`): 6 above, 6 to the 1 pt
+    // `scaleY(0.5)` hairline, 2 below.
     let search = col()
         .key("mcp-search-row")
         .w_full()
         .pt(6.0)
         .px(6.0)
-        .pb(8.0)
+        .pb(2.0)
+        .gap(6.0)
         .child(search_field)
-        .child(el().h(0.5).mt(8.5).mx(-6.0).fill(p.border));
+        .child(rune::hairline(p.border).key("mcp-divider").mx(-6.0));
     col().key("mcp-list").w_full().min_h(0.0).shrink().child(search).child(scroll)
 }
 

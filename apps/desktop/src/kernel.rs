@@ -260,6 +260,7 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
 
     b.register_slot(&crate::tab_hints::TAB_HINTS);
     b.register_slot(&crate::tabs::pins::PINS);
+    b.register_slot(&crate::session_viewed::VIEWING);
     b.register_slot(&crate::tabs::navigation_switch::NAV_SWITCH);
     b.register_slot(&crate::view::sidebar::recent_view::RECENT_VIEW);
     b.register_slot(&crate::view::home::tip::PROVIDER_TIP);
@@ -413,6 +414,15 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
         crate::tick::poll_submit(s, tx)
     })
     .after("history.jump");
+    // Known: reads the idle marks `tick.stream` brings and the `route` `tick.submit` may change.
+    b.schedule(stage::INGEST_STREAM, "session_viewed.poll", |s, _, tx| {
+        crate::session_viewed::poll(s, tx)
+    })
+    .after_all(&["tick.stream", "tick.submit"])
+    .per_server(|s, _, tx| {
+        crate::session_viewed::poll_retries(s, tx);
+        false
+    });
 
     // ── Phase 2: Derive ──────────────────────────────────────────────────────────────────────────
     b.schedule(stage::DERIVE_TIMELINE, "working.sync", |s, _, _| {

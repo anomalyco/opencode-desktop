@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 172,
   "status_counts": {
-    "have it": 134,
+    "have it": 139,
     "not applicable": 23,
     "differs on purpose": 1,
-    "partly": 3,
-    "missing": 11
+    "partly": 2,
+    "missing": 7
   },
   "rows": [
     {
@@ -3379,14 +3379,13 @@
       ],
       "summary": "Replace local rune_mcp browser tools on modern servers with pure-Rust experimental.browser v4 RPC client, 45 typed executors, <=1 s durable PromptGate, and authenticated remote tunnel proxy.",
       "size": "XL",
-      "status": "partly",
-      "rune_pr": "#275, #287, #301, #296, #298, #302, #331, #333",
-      "status_evidence": "experimental.browser v4 client (#275 c397d0b9), session-isolated nav/read runtime (#287 a974a664), official routed-session attach (#301 6522f112), legacy rune_mcp browser suppression + Half::is_builtin + hardened check_cdp (#296 95cb36a8), RPC auth/bounds/OOPIFs/wait spin (#298 d6cf8659), remote TunnelProxy hardening/wiring (#302 8b42a094), tabs.open focus:false (#331 5aa677f7), and BrowserTab:Asking() (#333 11dca016) are merged on dev; acting/dialog/files/profiling PR 3 in flight; narrow 3P browser contract tracked in UP-095-3P-CONTRACT.",
+      "status": "have it",
+      "rune_pr": "#275, #287, #301, #296, #298, #302, #325, #331, #333, #386",
+      "status_evidence": "All 43 non-Lighthouse experimental.browser v4 typed operations complete on dev: nav/read/snapshot/screenshot (#275, #287, #298, #331), routed attach & suppression (#301, #296), remote TunnelProxy (#302), prompt gate (#325), prompt.tab data (#333), acting/dialog/confined uploads/diagnostics/profiling (#386), plus OOPIF pointer coords, HTML5 drag interception, OOPIF upload/drop, request post-data fallback, and trace/cpu auto-stop timers; profiling-with-extensions refusal and lighthouse unsupported recorded in ours.md. Narrow 3P contract tracked separately in UP-095-3P-CONTRACT.",
       "depends_on": "UP-095 (#63002), PRE-08 (#63500)",
       "risks": "Remote server attachment must fail closed until engine Ready.remote_proxy lands (WS-1 Phase 3a); older servers must keep full rune_mcp fallback.",
       "workstream": "BROWSER-TOOLS",
-      "reviewed": "#301, #296, #298, #302, #325, #331, #333 merged on dev; acting/dialog/files/profiling PR 3 in flight",
-      "open_pr_note": "Acting, dialog, confined upload/drop, network response bodies, and profiling executors (PR 3)"
+      "reviewed": "Complete through PR 4; 3P contract next in UP-095-3P-CONTRACT"
     },
     {
       "id": "UP-114",
@@ -4165,8 +4164,8 @@
       ],
       "summary": "The background pill lists a running Code Mode script only once its execute call has ended with the job id: a script still running in the foreground stays out of it.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "features/subagents/src/jobs.rs scripts() lists every running codemode job of the session, named or not.",
+      "status": "have it",
+      "status_evidence": "features/subagents/src/jobs.rs scripts() lists a running Code Mode job only once a completed execute call names it by metadata.jobID, so a script still in the foreground stays out of the background pill (PR #424)",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"
@@ -4186,8 +4185,8 @@
       ],
       "summary": "The background pill orders subagents, shells and jobs by when each started (then by id), so a row never moves when the session list re-sorts by last update.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "To check: the capsule's subagent and shell lists in features/subagents.",
+      "status": "have it",
+      "status_evidence": "Already so: the pill's subagents (features/subagents/src/lib.rs), shells (shells/mod.rs) and scripts (jobs.rs) are each sorted by start time, then id, so a row never moves when the session list re-sorts",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"
@@ -4209,8 +4208,8 @@
       ],
       "summary": "Closing the side panel from the review toggle in its strip hands focus to the header's copy of the toggle, not to the prompt (the strip toggle counts as the session's, not the panel's).",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "features/panels/src/state/actions.rs toggle_side_region returns focus to the prompt when focus was in the region, the strip toggle included (UP-131 put it there).",
+      "status": "have it",
+      "status_evidence": "features/panels/src/state/actions.rs: closing the side region from the toggle in its strip hands focus to the header's copy of the toggle, not to the prompt (PR #424)",
       "depends_on": "UP-131 (#65213)",
       "risks": "none",
       "workstream": "WS-8"
@@ -4310,8 +4309,8 @@
       ],
       "summary": "On Windows the taskbar button shows session status: an indeterminate bar while a session works, paused or error when one waits on a request or failed.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "No taskbar progress in rune-desktop; needs a Rune window API (ITaskbarList3).",
+      "status": "have it",
+      "status_evidence": "apps/desktop/src/workspace/windows/taskbar.rs shows each window's tabs on its Windows taskbar button with Rune's Taskbar (ITaskbarList3), with Desktop's states and order: waiting -> paused, an unviewed failure -> error, working -> indeterminate, waiting first. Muted sessions never wait or end unread and a working one hasn't ended (PR #430), as useWindowTabActivity. Extra: a badge and a bounded flash. Scope: the window's tabs on the server it's checked out on.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"

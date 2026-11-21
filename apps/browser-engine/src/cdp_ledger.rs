@@ -91,6 +91,10 @@ pub(crate) fn handle_typed_cdp_call(
         Err("Agent browser tools cannot send input to a tab with extension frames.".into())
     } else if profiling && extensions_active {
         Err("Agent browser tools cannot profile pages while browser extensions are active.".into())
+    } else if profiling && session_id.is_some() {
+        Err("Agent profiling commands only target the tab's own main renderer process.".into())
+    } else if method == "Tracing.start" && t.prompts.renderer_pid.load(Ordering::Acquire) == 0 {
+        Err("Tab renderer process ID is not ready yet; wait for the page to load and retry browser.trace.start.".into())
     } else if let Err(e) = browser_policy::check_typed_cdp(&method, &params, true) {
         Err(e)
     } else {
@@ -110,6 +114,8 @@ pub(crate) fn handle_typed_cdp_call(
         Ok(Dispatch::ReEnable) => {
             let disable = t.cdp_ledger.lock().unwrap().runtime_disable(session_id.as_deref());
             t.host.send_dev_tools_message(Some(disable.as_bytes()));
+            let binding = t.passkeys.binding_msg(session_id.as_deref());
+            t.host.send_dev_tools_message(Some(binding.as_bytes()));
             Post::None
         }
         Ok(Dispatch::Send(post)) => post,
@@ -127,8 +133,16 @@ pub(crate) fn handle_typed_cdp_call(
     if let Some(sid) = session_id {
         payload["sessionId"] = Value::String(sid);
     }
+    let started_trace = method == "Tracing.start";
+    if started_trace {
+        let pid = t.prompts.renderer_pid.load(Ordering::Acquire);
+        t.prompts.trace_pid.store(pid, Ordering::Release);
+    }
     let raw = payload.to_string();
     if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
+        if started_trace {
+            t.prompts.trace_pid.store(0, Ordering::Release);
+        }
         t.cdp_id_map.lock().unwrap().remove(&msg_id);
         reply(false, json!({ "message": "send_dev_tools_message rejected" }));
     }
@@ -360,6 +374,9 @@ wrap_dev_tools_message_observer! {
                         reason: "browser.passkeys.unrestricted".to_owned(),
                     });
                 }
+                // Agent commands held for this reply run (or are refused) on the loop's next turn
+                // (`EngineManager::release_passkey_held`).
+                let _ = self.events.send(crate::Event::Pump(0));
                 return;
             }
             let Some(pending) = self.id_map.lock().unwrap().remove(&message_id) else {
@@ -515,7 +532,7 @@ wrap_dev_tools_message_observer! {
                 return 0;
             };
             let session_id = val.get("sessionId").and_then(Value::as_str).map(str::to_owned);
-            let params = val
+            let mut params = val
                 .as_object_mut()
                 .and_then(|o| o.remove("params"))
                 .unwrap_or(Value::Null);
@@ -537,19 +554,15 @@ wrap_dev_tools_message_observer! {
                 // last message in `obs.send`), matching `chromium.ts:619`.
                 let resume = obs.send.pop();
                 obs.send.extend(self.passkeys.attach_messages(Some(child_sid)));
-                if self.is_preview
-                    || self.prompts.agent_driven.load(std::sync::atomic::Ordering::Acquire)
-                {
+                if self.is_preview || self.prompts.agent_owns_dialogs() {
                     obs.send.push(self.passkeys.file_chooser_intercept_msg(true, Some(child_sid)));
                 }
                 if let Some(r) = resume {
                     obs.send.push(r);
                 }
             }
-            if method == "Page.fileChooserOpened"
-                && (self.is_preview
-                    || self.prompts.agent_driven.load(std::sync::atomic::Ordering::Acquire))
-            {
+            // Only a picker the intercept cancelled is reported (official `file-choosers.ts:9-11`).
+            if method == "Page.fileChooserOpened" && (self.is_preview || self.prompts.agent_owns_dialogs()) {
                 let _ = self.out_tx.send(EngineMsg::FileChooserBlocked { tab_id: self.tab_id });
             }
             let (pk_send, pk_consumed) = self.passkeys.observe_event(
@@ -594,6 +607,40 @@ wrap_dev_tools_message_observer! {
                 || blocked
             {
                 return 1;
+            }
+            // Browser-wide CDP trace isolation (official `packages/gui-plugins/src/browser/profiling.ts:221-240`):
+            // filter `Tracing.dataCollected` strictly to this tab's renderer OS PID before events
+            // ever cross IPC (zero browser/GPU/other-tab/remote/preview events).
+            if method == "Tracing.dataCollected" {
+                let target_pid = self.prompts.trace_pid.load(std::sync::atomic::Ordering::Acquire);
+                if target_pid == 0 {
+                    return 1;
+                }
+                let want = u64::from(target_pid);
+                let kept = if let Some(arr) = params.get_mut("value").and_then(Value::as_array_mut) {
+                    arr.retain(|ev| ev.get("pid").and_then(Value::as_u64) == Some(want));
+                    !arr.is_empty()
+                } else {
+                    false
+                };
+                if !kept {
+                    return 1;
+                }
+                if let Some(obj) = params.as_object_mut() {
+                    obj.insert("rendererPid".into(), serde_json::json!(target_pid));
+                }
+            } else if method == "Tracing.tracingComplete" {
+                let start_pid = self.prompts.trace_pid.swap(0, std::sync::atomic::Ordering::AcqRel);
+                if start_pid == 0 {
+                    return 1;
+                }
+                let cur_pid = self.prompts.renderer_pid.load(std::sync::atomic::Ordering::Acquire);
+                if let Some(obj) = params.as_object_mut() {
+                    if cur_pid != start_pid {
+                        obj.insert("dataLossOccurred".into(), serde_json::json!(true));
+                    }
+                    obj.insert("rendererPid".into(), serde_json::json!(start_pid));
+                }
             }
             let _ = self.out_tx.send(EngineMsg::CdpEvent {
                 tab_id: self.tab_id,

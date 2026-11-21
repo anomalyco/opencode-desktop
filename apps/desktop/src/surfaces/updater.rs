@@ -8,8 +8,13 @@
 #[cfg(not(target_arch = "wasm32"))]
 pub use opencode_feature_updater::{
     BuildInfo, StateView, Updater, UpdaterConfig, UpdaterHost, finish_quit, installs_on_quit, poll,
-    poll_owed,
+    poll_owed, shared_enabled,
 };
+
+#[cfg(target_arch = "wasm32")]
+pub fn shared_enabled() -> bool {
+    false
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 use opencode_kernel::{Feature, KernelBuilder};
@@ -78,12 +83,33 @@ pub fn install_async(s: &App, done: Completer) {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn sanitize_version(raw: &str) -> String {
+    raw.trim().chars().filter(|c| !c.is_control()).take(64).collect()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct DialogGuard;
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for DialogGuard {
+    fn drop(&mut self) {
+        CHECK_DIALOG_ACTIVE.store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
 /// Checks for updates from the app menu on non-beta channels and reports the outcome in a native
 /// OS dialog, matching official (`packages/gui-plugins/src/updater/main.ts:69-128`).
 pub fn check_with_dialog(s: &mut App) {
     #[cfg(not(target_arch = "wasm32"))]
     {
+        use std::sync::atomic::Ordering;
         use opencode_feature_updater::dialog;
+
+        if CHECK_DIALOG_ACTIVE.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() {
+            return;
+        }
+        let guard = DialogGuard;
         let lang = opencode_i18n::locale().id();
         let msg = |key: &str, fallback: &str| {
             crate::plugin_host::sources::builtin_message("updater", lang, key).unwrap_or(fallback).to_owned()
@@ -94,28 +120,48 @@ pub fn check_with_dialog(s: &mut App) {
         let ok_msg = msg("dialog.upToDate.message", "You're up to date.");
         let ready_title = msg("dialog.ready.title", "Update Ready");
         let ready_tpl = msg("dialog.ready.message", "Update {{version}} downloaded. Restart now?");
+        let avail_title = msg("dialog.available.title", "Update Available");
+        let avail_tpl = msg("dialog.available.message", "OpenCode {{version}} is available to download.");
+        let download_label = msg("action.download", "Download OpenCode");
         let restart_label = msg("dialog.restart", "Restart");
         let later_label = msg("dialog.later", "Later");
         let waker = (*s.waker).clone();
         opencode_feature_updater::check_with(s, move |view| {
+            let guard = guard;
             let Some(view) = view else { return };
             match view.phase {
                 "error" => {
                     std::thread::Builder::new().name("opencode-update-dialog".into()).spawn(move || {
+                        let _guard = guard;
                         dialog::alert(dialog::Kind::Error, &err_title, &err_msg);
                     }).ok();
                 }
                 "up-to-date" => {
                     std::thread::Builder::new().name("opencode-update-dialog".into()).spawn(move || {
+                        let _guard = guard;
                         dialog::alert(dialog::Kind::Info, &ok_title, &ok_msg);
                     }).ok();
                 }
-                "ready" => {
-                    let version = view.version.unwrap_or_default();
+                "ready" | "installed" => {
+                    let version = sanitize_version(view.version.as_deref().unwrap_or_default());
                     let body = ready_tpl.replace("{{version}}", &version);
                     std::thread::Builder::new().name("opencode-update-dialog".into()).spawn(move || {
+                        let _guard = guard;
                         if dialog::confirm(&ready_title, &body, &restart_label, &later_label) {
-                            PENDING_DIALOG_INSTALL.store(true, std::sync::atomic::Ordering::Release);
+                            PENDING_DIALOG_INSTALL.store(true, Ordering::Release);
+                            if let Some(w) = waker {
+                                w();
+                            }
+                        }
+                    }).ok();
+                }
+                "download-required" => {
+                    let version = sanitize_version(view.version.as_deref().unwrap_or_default());
+                    let body = avail_tpl.replace("{{version}}", &version);
+                    std::thread::Builder::new().name("opencode-update-dialog".into()).spawn(move || {
+                        let _guard = guard;
+                        if dialog::confirm(&avail_title, &body, &download_label, &later_label) {
+                            PENDING_DIALOG_INSTALL.store(true, Ordering::Release);
                             if let Some(w) = waker {
                                 w();
                             }
@@ -129,6 +175,9 @@ pub fn check_with_dialog(s: &mut App) {
     #[cfg(target_arch = "wasm32")]
     let _ = s;
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+static CHECK_DIALOG_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(not(target_arch = "wasm32"))]
 static PENDING_DIALOG_INSTALL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -257,9 +306,20 @@ impl Feature<App> for UpdaterFeature {
         builder.register_slot(&UPDATER);
         builder.schedule(crate::tick::stage::INGEST_LOCAL, "updater.poll", |s, _, tx| {
             if PENDING_DIALOG_INSTALL.swap(false, std::sync::atomic::Ordering::AcqRel) {
-                opencode_feature_updater::install_with(s, |err| {
+                let lang = opencode_i18n::locale().id();
+                let err_title = crate::plugin_host::sources::builtin_message("updater", lang, "dialog.checkFailed.title")
+                    .unwrap_or("Update Error")
+                    .to_owned();
+                opencode_feature_updater::install_with(s, move |err| {
                     if let Some(err) = err {
                         eprintln!("updater: menu dialog install failed: {err}");
+                        if CHECK_DIALOG_ACTIVE.compare_exchange(false, true, std::sync::atomic::Ordering::AcqRel, std::sync::atomic::Ordering::Acquire).is_ok() {
+                            let guard = DialogGuard;
+                            std::thread::Builder::new().name("opencode-update-dialog".into()).spawn(move || {
+                                let _guard = guard;
+                                opencode_feature_updater::dialog::alert(opencode_feature_updater::dialog::Kind::Error, &err_title, &err);
+                            }).ok();
+                        }
                     }
                 });
             }

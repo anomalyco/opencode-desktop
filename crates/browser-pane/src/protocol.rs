@@ -439,6 +439,10 @@ pub enum HostMsg {
         request_id: u64,
         backend_node_id: i64,
         files: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        frame_id: Option<String>,
     },
     DropFiles {
         tab_id: u64,

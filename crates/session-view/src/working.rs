@@ -169,7 +169,8 @@ fn label<S: TimelineHost>(s: &S, p: &Pal, session: &str, on: bool) -> El {
     let words = status(s, session);
     if !on {
         // Under reduced motion official inherits `[data-slot="timeline-status-label"]`'s muted ink
-        // (`timeline-next.css:562`, `text-shimmer.css:133-140`), not shimmer's faint base color.
+        // (`timeline-next.css:566`, `packages/ui/src/typography/text-shimmer/text-shimmer.css:135-147`),
+        // not shimmer's faint base color.
         return rune::row().child(text(words).key("label").font(UI).color(p.muted));
     }
     let (weak, strong) = colors(p);

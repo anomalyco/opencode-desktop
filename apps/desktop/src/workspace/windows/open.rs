@@ -229,6 +229,7 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
         // Back on screen (the Dock icon, the Window menu): no longer the hidden last window.
         .on_focus(|s, focused, _| {
             s.window.hidden &= !focused;
+            s.window.focused = focused;
             if focused {
                 super::focused(&s.window.id);
                 s.taskbar_focused();

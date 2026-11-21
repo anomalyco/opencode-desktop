@@ -1,7 +1,7 @@
 //! The storybook's Subagents capsule story (Composer › Subagents capsule, 30 running): thirty
 //! background agents run below the open session, some for minutes and some woken again hours
-//! after they started, two Code Mode scripts run in the background, and the capsule's list is
-//! open over the composer. O opens and closes it, R replays.
+//! after they started, a Code Mode script runs in the background (another still in the
+//! foreground, which the capsule leaves out), and the capsule's list is open over the composer. O opens and closes it, R replays.
 
 use opencode_kit::model::SessionInfo;
 use rune::Play;
@@ -48,7 +48,7 @@ fn child(k: usize) -> String {
     format!("ses_story_capsule_{k:02}")
 }
 
-/// Thirty agents and two background scripts run, and the list is open.
+/// Thirty agents and two scripts run, one in the background, and the list is open.
 fn open(s: &mut App, _: &mut Play<App>) {
     s.finish_stream();
     run_thirty(s);
@@ -63,7 +63,32 @@ fn open(s: &mut App, _: &mut Play<App>) {
         });
         crate::subagents::jobs::event(s, "experimental.job.updated", &serde_json::json!({ "info": info }));
     }
+    // A script counts once its `execute` call has ended with the job's id (opencode#65303): the
+    // first moved to the background; the second still runs in the foreground, so it isn't listed.
+    name_script(s, &parent, "cm_story_script_1", "await reindex(workspace)");
     crate::subagents::shells::set_open(s, true);
+}
+
+/// Ends an `execute` call on `session` that moved job `job` to the background, running `code`.
+fn name_script(s: &mut App, session: &str, job: &str, code: &str) {
+    use opencode_kit::model::{Assistant, Message, Part, ToolStatus};
+    let Some(t) = s.transcripts.get_mut(session) else { return };
+    let call = Part::Tool {
+        id: format!("call_{job}"),
+        name: "execute".into(),
+        status: ToolStatus::Completed,
+        title: String::new(),
+        input: serde_json::json!({ "code": code }),
+        files: Vec::new(),
+        metadata: serde_json::json!({ "jobID": job }),
+    };
+    match t.messages.iter_mut().rev().find_map(|m| if let Message::Assistant(a) = m { Some(a) } else { None }) {
+        Some(a) => {
+            a.parts.retain(|p| !matches!(p, Part::Tool { id, .. } if *id == format!("call_{job}")));
+            a.parts.push(call);
+        }
+        None => t.messages.push(Message::Assistant(Assistant { id: "msg_story_script".into(), parts: vec![call], ..Default::default() })),
+    }
 }
 
 /// Thirty agents run below the open session; every third was made hours ago and woke again a
