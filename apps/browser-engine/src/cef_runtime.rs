@@ -217,7 +217,6 @@ wrap_app! {
             // always returns `1` to cancel native windows and holds `user_gesture == 0` in the
             // host's "Pop-up blocked" bar) instead of silently swallowing them before CEF sees them.
             cmd.append_switch(Some(&"disable-popup-blocking".into()));
-            cmd.append_switch(Some(&"mute-audio".into()));
             // Windows keeps real DPAPI cookie encryption (silent, logon-bound).
             // macOS uses real Keychain encryption under `"OpenCode Browser Safe Storage"` (CEF PR #4247)
             // on valid Developer ID builds from Anomaly's team whose keychain is unlocked
@@ -249,12 +248,19 @@ wrap_app! {
             // Also enforce `disable_non_proxied_udp` globally so `NetworkService` never opens
             // non-loopback UDP listeners (avoiding Windows Defender Firewall and macOS incoming
             // connection prompts) and never exposes local LAN IPs to pages.
-            const DISABLED_NET_FEATURES: [&str; 5] = [
+            // `AutofillServerCommunication`, `NetworkTimeServiceQuerying`, `AimEnabled`: the Chrome
+            // runtime still sent each visited page's form signatures to
+            // `content-autofill.googleapis.com`, polled `clients2.google.com/time`, and fetched
+            // `www.google.com/async/folae` (NetLog, 21 Nov); Electron (official) makes none of these.
+            const DISABLED_NET_FEATURES: [&str; 8] = [
                 "MediaRouter",
                 "DialMediaRouteProvider",
                 "CastMediaRouteProvider",
                 "WebRtcHideLocalIpsWithMdns",
                 "ConnectionAllowlists",
+                "AutofillServerCommunication",
+                "NetworkTimeServiceQuerying",
+                "AimEnabled",
             ];
             let existing = CefString::from(&cmd.switch_value(Some(&"disable-features".into()))).to_string();
             cmd.remove_switch(Some(&"disable-features".into()));

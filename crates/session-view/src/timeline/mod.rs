@@ -9,7 +9,7 @@ use crate::compaction::Run;
 use crate::focus::FocusExt;
 use crate::fold::Fold;
 use crate::palette::Pal;
-use crate::style::{UI, activity_ring};
+use crate::style::UI;
 use crate::turns::{self, Block, Entry, Step};
 
 pub mod attachments;
@@ -572,25 +572,36 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
                     .on_press_tx(move |s:&mut S,tx|{if let Some(part)=s.partial_output(&session){tx.copy(part.to_owned());}})
                     .child(text(copy_label).font(UI).color(p.text))));
         }
-        stack = stack.child(
-            row()
-                .key("loading")
-                .w_full()
-                .max_w(crate::style::content_w())
-                .h(40.0)
-                .gap(8.0)
-                .center()
-                .children(s.loading_error(id).is_none().then(|| activity_ring(p)))
-                .child(text(s.loading_error(id).unwrap_or(opencode_i18n::t!("session.messages.loading"))).font(UI).color(p.faint)),
-        );
+        // Official's session page shows only its header while the messages load: no spinner, no
+        // words, at any delay (`session/screen.tsx:451-454`). A read that failed says why, with Retry.
+        if let Some(why) = s.loading_error(id) {
+            let session = id.to_owned();
+            stack = stack.child(
+                row()
+                    .key("loading")
+                    .w_full()
+                    .max_w(crate::style::content_w())
+                    .h(40.0)
+                    .gap(8.0)
+                    .center()
+                    .child(text(why).font(UI).color(p.faint))
+                    .child(
+                        row().key("loading-retry").role("button").focusable(true).label_static(opencode_i18n::t!("common.retry")).px(8.0).min_h(28.0).center().radius(6.0).hover(p.hover).fill(p.layer2)
+                            .on_press_tx(move |s: &mut S, tx: &mut rune::Tx| s.retry_loading(&session, tx))
+                            .child(text(opencode_i18n::t!("common.retry")).font(UI).color(p.text)),
+                    ),
+            );
+        }
     }
     // Its edges fade only while rows are under them, and never over a stuck group header. Under
     // a session header the top one is Desktop's `session-header-fade`: a 16 pt linear ramp of
     // the page's colour under the header's bottom edge, whole as soon as rows go under it; the
     // bottom one is Desktop's 20 px smoothstep viewport mask (`packages/app/src/index.css:96-106`).
+    // Without a session header (narrow windows, `virtualizer.tsx:1182-1208`), official has only
+    // the bottom 20 px fade (`end_only`) and never fades rows under the narrow location bar.
     let fade = match header {
         Some(_) => rune::ScrollFade::strength(16.0).linear().full_at(0.01).below_sticky().with_end(rune::ScrollFade::strength(20.0)),
-        None => rune::ScrollFade::strength(20.0),
+        None => rune::ScrollFade::strength(20.0).end_only(),
     };
     let mut scroll = marks.view(col())
         .key(format!("scroll-{id}"))

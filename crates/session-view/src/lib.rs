@@ -376,6 +376,8 @@ pub trait TimelineHost: Sized + 'static {
     fn loading_error(&self, _session: &str) -> Option<&str> {
         None
     }
+    /// The loading row's Retry, after `loading_error`: read the messages again.
+    fn retry_loading(&mut self, _session: &str, _tx: &mut Tx) {}
     fn partial_output(&self, _session:&str) -> Option<&str>{None}
     fn loading_older(&self, _session: &str) -> bool {
         false

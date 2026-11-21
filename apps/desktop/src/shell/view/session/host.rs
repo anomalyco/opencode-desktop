@@ -291,6 +291,9 @@ impl session_view::TimelineHost for App {
     fn loading_error(&self, session: &str) -> Option<&str> {
         self.opening.as_ref().filter(|o| o.id == session).and_then(|o| o.error())
     }
+    fn retry_loading(&mut self, session: &str, tx: &mut Tx) {
+        self.retry_open(session, tx);
+    }
     fn partial_output(&self, session: &str) -> Option<&str> {
         self.opening.as_ref().filter(|o| o.id == session).and_then(|o| o.partial())
     }

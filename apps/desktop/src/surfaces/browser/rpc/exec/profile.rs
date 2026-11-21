@@ -2,18 +2,18 @@
 //! `cpu.start`/`stop`/`analyze`, `heap.snapshot`/`summary`/`query`/`object`/`compare`, and
 //! truthful `lighthouse` `unsupported` refusal).
 
-use std::io::Write;
+use std::time::Duration;
 
-use flate2::Compression;
-use flate2::write::GzEncoder;
-use opencode_kit::browser_rpc::{Command, MAX_FILE_BYTES, Outcome, WireFile, failure_code, new_file_id};
+use opencode_kit::browser_rpc::{Command, Outcome, TargetMeta, WireFile, failure_code, new_file_id};
 use rune::time::Instant;
 use serde_json::{Value, json};
 
-use super::super::session::{CapturedFile, SessionAttachment};
+use super::super::session::{CapturedFile, CpuRecording, SessionAttachment, TraceRecording};
+pub(super) use super::profile_analyze::stop_target;
 use super::profile_analyze::{
-    exec_cpu_analyze, exec_heap_compare, exec_heap_object, exec_heap_query, exec_heap_summary,
-    exec_trace_analyze,
+    RESOURCES_OVERFLOW_MSG, authorized_matches, exec_cpu_analyze, exec_heap_compare,
+    exec_heap_object, exec_heap_query, exec_heap_summary, exec_trace_analyze, finalize_cpu,
+    finalize_trace, gzip_bytes, wire_file_from_capture,
 };
 use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards};
 use crate::App;
@@ -25,12 +25,55 @@ pub(super) struct ProfileState {
 
 pub(super) enum ProfileStage {
     TraceStart { cdp_req: u64 },
-    TraceStop { cdp_req: u64, ended: bool },
+    TraceStop { cdp_req: u64, ended: bool, authorized: Option<TargetMeta> },
     CpuEnable { cdp_req: u64 },
     CpuStart { cdp_req: u64 },
-    CpuStop { cdp_req: u64 },
+    CpuStop { cdp_req: u64, authorized: Option<TargetMeta> },
     HeapEnable { cdp_req: u64 },
     HeapTake { cdp_req: u64 },
+}
+
+impl ProfileState {
+    pub fn cancel_cleanup(&mut self, att: &mut SessionAttachment, app: &mut App) {
+        app.workspace_panes.browser.host.cancel_cdp(self.stage.cdp_req());
+        match self.stage {
+            ProfileStage::TraceStart { .. } | ProfileStage::TraceStop { .. } => {
+                if att.trace_recording.as_ref().is_some_and(|r| r.host_id == self.host_id) {
+                    att.trace_recording = None;
+                }
+                abort_trace(app, self.host_id);
+            }
+            ProfileStage::CpuEnable { .. } | ProfileStage::CpuStart { .. } | ProfileStage::CpuStop { .. } => {
+                att.cpu_started.remove(&self.host_id);
+                if app.workspace_panes.browser.host.tab_open_in_engine(self.host_id) {
+                    let _ = app.workspace_panes.browser.host.send_typed_cdp(self.host_id, "Profiler.stop", json!({}), None);
+                    let _ = app.workspace_panes.browser.host.send_typed_cdp(self.host_id, "Profiler.disable", json!({}), None);
+                }
+            }
+            ProfileStage::HeapEnable { .. } | ProfileStage::HeapTake { .. } => {
+                att.heap_chunks.remove(&self.host_id);
+                if app.workspace_panes.browser.host.tab_open_in_engine(self.host_id) {
+                    let _ = app.workspace_panes.browser.host.send_typed_cdp(self.host_id, "HeapProfiler.disable", json!({}), None);
+                }
+            }
+        }
+    }
+}
+
+pub(in super::super) fn clear_trace_owner(app: &mut App, host_id: u64) {
+    let st = app.kernel.slots.get_mut(&super::super::BROWSER_RPC);
+    if st.active_trace_host == Some(host_id) {
+        st.active_trace_host = None;
+    }
+}
+
+/// Sends `Tracing.end` (when the tab is still open in the engine) and releases the app-wide trace
+/// owner lock so tab close, session disposal, or command cancel never wedges Chromium's tracing.
+pub(in super::super) fn abort_trace(app: &mut App, host_id: u64) {
+    clear_trace_owner(app, host_id);
+    if app.workspace_panes.browser.host.tab_open_in_engine(host_id) {
+        let _ = app.workspace_panes.browser.host.send_typed_cdp(host_id, "Tracing.end", json!({}), None);
+    }
 }
 
 impl ProfileStage {
@@ -40,7 +83,7 @@ impl ProfileStage {
             | Self::TraceStop { cdp_req, .. }
             | Self::CpuEnable { cdp_req }
             | Self::CpuStart { cdp_req }
-            | Self::CpuStop { cdp_req }
+            | Self::CpuStop { cdp_req, .. }
             | Self::HeapEnable { cdp_req }
             | Self::HeapTake { cdp_req } => *cdp_req,
         }
@@ -49,13 +92,36 @@ impl ProfileStage {
 
 const MAX_TRACE_EVENTS: usize = 250_000;
 const MAX_HEAP_RAW_BYTES: usize = 64 * 1024 * 1024;
-const TRACE_DEFAULT_DURATION_MS: u64 = 30_000;
+const TRACE_DEFAULT_DURATION_MS: u64 = 10_000;
+const TRACE_STOP_TIMEOUT_MS: u64 = 10_000;
 const CPU_MAX_DURATION_MS: u64 = 30_000;
+const CPU_STOP_TIMEOUT_MS: u64 = 10_000;
 
-/// Routes trace data and heap snapshot chunks from the tab's CDP events into bounded buffers.
-/// Defense in depth: requires engine-stamped `rendererPid` and filters trace events strictly to
-/// that single renderer OS PID (`packages/gui-plugins/src/browser/profiling.ts:221-223`).
+const TRACE_FLUSH_TIMEOUT_MSG: &str = "Chromium did not finish flushing the trace within 10 seconds. No complete export is confirmed. Check browser.files.list({tabID}); do not start another recording until the current trace has finished.";
+const CPU_STOP_TIMEOUT_MSG: &str = "Chromium did not stop the CPU profile within 10 seconds. No profile export is confirmed. Check browser.files.list({tabID}) before starting another profile.";
+const NAVIGATED_DURING_STOP_MSG: &str = "The page or its frames navigated while stopping the recording. Retry so permissions can re-check all visited URLs.";
+
+/// Routes navigation URLs, trace data, and heap snapshot chunks from tab CDP events into active
+/// recording buffers (`profiling.ts:221-223, 295`).
 pub(in super::super) fn ingest_cdp_event(att: &mut SessionAttachment, ev: &browser_pane::CdpEvent) {
+    if ev.method == "Page.frameNavigated"
+        && let Some(url) = ev.params.get("frame").and_then(|f| f.get("url")).and_then(Value::as_str)
+    {
+        att.record_recording_url(ev.tab_id, url);
+        return;
+    }
+    if ev.method == "Page.navigatedWithinDocument"
+        && let Some(url) = ev.params.get("url").and_then(Value::as_str)
+    {
+        att.record_recording_url(ev.tab_id, url);
+        return;
+    }
+    if matches!(ev.method.as_str(), "Target.attachedToTarget" | "Target.targetInfoChanged")
+        && let Some(url) = ev.params.get("targetInfo").and_then(|t| t.get("url")).and_then(Value::as_str)
+    {
+        att.record_recording_url(ev.tab_id, url);
+        return;
+    }
     if ev.method == "Tracing.dataCollected"
         && let Some(rec) = att.trace_recording.as_mut()
         && rec.host_id == ev.tab_id
@@ -66,10 +132,7 @@ pub(in super::super) fn ingest_cdp_event(att: &mut SessionAttachment, ev: &brows
         if locked != pid {
             return;
         }
-        let matching = arr
-            .iter()
-            .filter(|e| e.get("pid").and_then(Value::as_u64) == Some(locked));
-        for e in matching {
+        for e in arr.iter().filter(|e| e.get("pid").and_then(Value::as_u64) == Some(locked)) {
             if rec.events.len() >= MAX_TRACE_EVENTS {
                 rec.data_loss = true;
                 break;
@@ -99,8 +162,7 @@ pub(in super::super) fn ingest_cdp_event(att: &mut SessionAttachment, ev: &brows
 }
 
 /// Drives `trace.start` (`durationMs`) and `cpu.start` (`CPU_MAX_DURATION_MS = 30 s`) auto-stop
-/// timers (`packages/gui-plugins/src/browser/profiling-machine.ts:8-11, 200-270`). Returns the
-/// earliest deadline so idle tabs incur zero timer wakeups.
+/// timers and bounded stop/flush timeouts (`profiling-machine.ts:8-14, 200-270`).
 pub(in super::super) fn poll_auto_stops(
     att: &mut SessionAttachment,
     app: &mut App,
@@ -122,19 +184,39 @@ pub(in super::super) fn poll_auto_stops(
                     Ok(_) => rec.auto_stop_ended = true,
                     Err(e) => {
                         rec.auto_stop_req = None;
+                        rec.auto_stop_deadline = None;
                         rec.auto_stopped = Some(Err(cdp_err_msg(&e)));
+                        clear_trace_owner(app, rec.host_id);
                     }
                 }
             }
             if rec.auto_stop_ended && rec.complete {
                 finish_trace = true;
+            } else if let Some(deadline) = rec.auto_stop_deadline {
+                if now >= deadline {
+                    app.workspace_panes.browser.host.cancel_cdp(req);
+                    rec.auto_stop_req = None;
+                    rec.auto_stop_deadline = None;
+                    rec.auto_stopped = Some(Err(TRACE_FLUSH_TIMEOUT_MSG.to_owned()));
+                    clear_trace_owner(app, rec.host_id);
+                } else {
+                    note(deadline);
+                }
             }
         } else if let Some(stop_at) = rec.stop_at {
             if now >= stop_at {
                 rec.stop_at = None;
                 match app.workspace_panes.browser.host.send_typed_cdp(rec.host_id, "Tracing.end", json!({}), None) {
-                    Ok(req) => rec.auto_stop_req = Some(req),
-                    Err(e) => rec.auto_stopped = Some(Err(e)),
+                    Ok(req) => {
+                        let deadline = now + Duration::from_millis(TRACE_STOP_TIMEOUT_MS);
+                        rec.auto_stop_req = Some(req);
+                        rec.auto_stop_deadline = Some(deadline);
+                        note(deadline);
+                    }
+                    Err(e) => {
+                        rec.auto_stopped = Some(Err(e));
+                        clear_trace_owner(app, rec.host_id);
+                    }
                 }
             } else {
                 note(stop_at);
@@ -142,8 +224,11 @@ pub(in super::super) fn poll_auto_stops(
         }
     }
     if finish_trace && let Some(mut rec) = att.trace_recording.take() {
-        let saved = finalize_trace(att, app, rec.host_id, rec.started_at, rec.renderer_pid, std::mem::take(&mut rec.events), std::mem::take(&mut rec.resources), rec.data_loss, now);
+        let events = std::mem::take(&mut rec.events);
+        let saved = finalize_trace(att, app, &mut rec, events, now);
+        clear_trace_owner(app, rec.host_id);
         rec.auto_stop_req = None;
+        rec.auto_stop_deadline = None;
         rec.auto_stopped = Some(saved);
         att.trace_recording = Some(rec);
     }
@@ -152,14 +237,24 @@ pub(in super::super) fn poll_auto_stops(
     let cpu_tabs: Vec<u64> = att.cpu_started.keys().copied().collect();
     for hid in cpu_tabs {
         let mut trigger_stop = false;
-        let mut completed: Option<(Instant, Vec<String>, Result<Value, Value>)> = None;
+        let mut completed: Option<Result<Value, Value>> = None;
         if let Some(rec) = att.cpu_started.get_mut(&hid)
             && rec.auto_stopped.is_none()
         {
             if let Some(req) = rec.auto_stop_req {
                 if let Some(resp) = app.workspace_panes.browser.host.take_cdp_response(req) {
                     rec.auto_stop_req = None;
-                    completed = Some((rec.started_at, rec.resources.clone(), resp));
+                    rec.auto_stop_deadline = None;
+                    completed = Some(resp);
+                } else if let Some(deadline) = rec.auto_stop_deadline {
+                    if now >= deadline {
+                        app.workspace_panes.browser.host.cancel_cdp(req);
+                        rec.auto_stop_req = None;
+                        rec.auto_stop_deadline = None;
+                        rec.auto_stopped = Some(Err(CPU_STOP_TIMEOUT_MSG.to_owned()));
+                    } else {
+                        note(deadline);
+                    }
                 }
             } else if let Some(stop_at) = rec.stop_at {
                 if now >= stop_at {
@@ -174,17 +269,23 @@ pub(in super::super) fn poll_auto_stops(
             let res = app.workspace_panes.browser.host.send_typed_cdp(hid, "Profiler.stop", json!({}), None);
             if let Some(rec) = att.cpu_started.get_mut(&hid) {
                 match res {
-                    Ok(req) => rec.auto_stop_req = Some(req),
+                    Ok(req) => {
+                        let deadline = now + Duration::from_millis(CPU_STOP_TIMEOUT_MS);
+                        rec.auto_stop_req = Some(req);
+                        rec.auto_stop_deadline = Some(deadline);
+                        note(deadline);
+                    }
                     Err(e) => rec.auto_stopped = Some(Err(e)),
                 }
             }
         }
-        if let Some((started_at, resources, resp)) = completed {
+        if let Some(resp) = completed
+            && let Some(mut rec) = att.cpu_started.remove(&hid)
+        {
             let _ = app.workspace_panes.browser.host.send_typed_cdp(hid, "Profiler.disable", json!({}), None);
-            let saved = finalize_cpu(att, app, hid, Some(started_at), resources, resp, now);
-            if let Some(rec) = att.cpu_started.get_mut(&hid) {
-                rec.auto_stopped = Some(saved);
-            }
+            let saved = finalize_cpu(att, app, hid, &mut rec, resp, now);
+            rec.auto_stopped = Some(saved);
+            att.cpu_started.insert(hid, rec);
         }
     }
     wake
@@ -217,10 +318,11 @@ pub(super) fn try_start(
 }
 
 /// Recording requires BOTH `frame_authority` (engine extensions-active profiling refusal) AND
-/// `agent_files` (current revision with renderer-PID trace isolation).
+/// `trace_isolation` (dedicated capability bit for committed-main-frame renderer PID filtering
+/// and the engine-wide single-trace lock; prevents unfiltered traces on `156.0.26-4`).
 fn require_profiling_engine(app: &App, name: &str) -> Result<(), Outcome> {
     let host = &app.workspace_panes.browser.host;
-    if !host.engine_frame_authority() || !host.engine_agent_files() {
+    if !host.engine_frame_authority() || !host.engine_trace_isolation() {
         return Err(Outcome::fail(
             failure_code::UNSUPPORTED,
             format!("browser.{name} requires an updated browser engine."),
@@ -243,7 +345,15 @@ fn start_trace(att: &mut SessionAttachment, app: &mut App, cmd: &Command, now: I
     if let Err(o) = require_profiling_engine(app, "trace.start") {
         return StepOutcome::Done(o);
     }
-    if att.trace_recording.is_some() {
+    if let Some(owner) = app.kernel.slots.get(&super::super::BROWSER_RPC).active_trace_host {
+        let msg = if owner == host_id {
+            "A performance trace is already active in this tab. Use browser.trace.stop({tabID}) to finish it before starting another."
+        } else {
+            "Another tab owns the active performance trace. Wait for its owner to finish; do not stop or replace another tab's recording."
+        };
+        return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, msg));
+    }
+    if att.trace_recording.as_ref().is_some_and(|r| r.auto_stopped.is_none()) {
         return StepOutcome::Done(Outcome::fail(
             failure_code::OPERATION_FAILED,
             "A performance trace is already recording. Stop it with browser.trace.stop first.",
@@ -282,18 +392,22 @@ fn start_trace(att: &mut SessionAttachment, app: &mut App, cmd: &Command, now: I
         None,
     ) {
         Ok(cdp_req) => {
-            att.trace_recording = Some(super::super::session::TraceRecording {
+            app.kernel.slots.get_mut(&super::super::BROWSER_RPC).active_trace_host = Some(host_id);
+            att.trace_recording = Some(TraceRecording {
                 host_id,
+                key: format!("trace:{host_id}:{}", new_file_id()),
                 started_at: now,
                 duration_ms,
                 stop_at: None,
                 renderer_pid: None,
                 events: Vec::new(),
                 resources,
+                resources_overflow: false,
                 complete: false,
                 data_loss: false,
                 auto_stop_req: None,
                 auto_stop_ended: false,
+                auto_stop_deadline: None,
                 auto_stopped: None,
             });
             StepOutcome::Pending(ExecPhase::Profile(ProfileState {
@@ -313,6 +427,9 @@ fn stop_trace(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> Step
         Ok(id) => id,
         Err(msg) => return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, msg)),
     };
+    if let Err(o) = check_page_guards(app, host_id, "trace.stop") {
+        return StepOutcome::Done(o);
+    }
     if att.trace_recording.as_ref().is_none_or(|r| r.host_id != host_id) {
         return StepOutcome::Done(Outcome::fail(
             failure_code::OPERATION_FAILED,
@@ -320,30 +437,42 @@ fn stop_trace(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> Step
         ));
     }
     if att.trace_recording.as_ref().is_some_and(|r| r.auto_stopped.is_some()) {
-        let Some(rec) = att.trace_recording.take() else {
+        let Some(rec) = att.trace_recording.as_ref() else {
             return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Trace unavailable."));
         };
+        if rec.resources_overflow {
+            att.trace_recording = None;
+            return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, RESOURCES_OVERFLOW_MSG));
+        }
+        if !authorized_matches(cmd.target.as_ref(), &rec.key, &rec.resources) {
+            return StepOutcome::Done(Outcome::fail(failure_code::DOCUMENT_CHANGED, NAVIGATED_DURING_STOP_MSG));
+        }
+        let rec = att.trace_recording.take().unwrap();
         return match rec.auto_stopped.unwrap() {
-            Ok((wf, duration_ms, incomplete)) => match att.wire_tab(app, host_id) {
-                Some(tab) => StepOutcome::Done(Outcome::ok(json!({ "tab": tab, "durationMs": duration_ms, "incomplete": incomplete }), vec![wf])),
-                None => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable.")),
+            Ok((file_id, duration_ms, incomplete)) => match wire_file_from_capture(att, host_id, &file_id) {
+                Ok(wf) => match att.wire_tab(app, host_id) {
+                    Some(tab) => StepOutcome::Done(Outcome::ok(json!({ "tab": tab, "durationMs": duration_ms, "incomplete": incomplete }), vec![wf])),
+                    None => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable.")),
+                },
+                Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
             },
             Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
         };
     }
     if let Some(rec) = att.trace_recording.as_mut() {
         rec.stop_at = None;
+        rec.auto_stop_deadline = None;
         if let Some(cdp_req) = rec.auto_stop_req.take() {
             return StepOutcome::Pending(ExecPhase::Profile(ProfileState {
                 host_id,
-                stage: ProfileStage::TraceStop { cdp_req, ended: rec.auto_stop_ended },
+                stage: ProfileStage::TraceStop { cdp_req, ended: rec.auto_stop_ended, authorized: cmd.target.clone() },
             }));
         }
     }
     match app.workspace_panes.browser.host.send_typed_cdp(host_id, "Tracing.end", json!({}), None) {
         Ok(cdp_req) => StepOutcome::Pending(ExecPhase::Profile(ProfileState {
             host_id,
-            stage: ProfileStage::TraceStop { cdp_req, ended: false },
+            stage: ProfileStage::TraceStop { cdp_req, ended: false, authorized: cmd.target.clone() },
         })),
         Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
     }
@@ -363,7 +492,7 @@ fn start_cpu(att: &mut SessionAttachment, app: &mut App, cmd: &Command, now: Ins
     if let Err(o) = require_profiling_engine(app, "cpu.start") {
         return StepOutcome::Done(o);
     }
-    if att.cpu_started.contains_key(&host_id) {
+    if att.cpu_started.get(&host_id).is_some_and(|r| r.auto_stopped.is_none()) {
         return StepOutcome::Done(Outcome::fail(
             failure_code::OPERATION_FAILED,
             "CPU profiling is already active on this tab. Call browser.cpu.stop first.",
@@ -374,11 +503,14 @@ fn start_cpu(att: &mut SessionAttachment, app: &mut App, cmd: &Command, now: Ins
         Err(e) => return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
     };
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
-    att.cpu_started.insert(host_id, super::super::session::CpuRecording {
+    att.cpu_started.insert(host_id, CpuRecording {
+        key: format!("cpu:{host_id}:{}", new_file_id()),
         started_at: now,
         stop_at: None,
         resources,
+        resources_overflow: false,
         auto_stop_req: None,
+        auto_stop_deadline: None,
         auto_stopped: None,
     });
     match app.workspace_panes.browser.host.send_typed_cdp(host_id, "Profiler.enable", json!({}), None) {
@@ -401,6 +533,9 @@ fn stop_cpu(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> StepOu
         Ok(id) => id,
         Err(msg) => return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, msg)),
     };
+    if let Err(o) = check_page_guards(app, host_id, "cpu.stop") {
+        return StepOutcome::Done(o);
+    }
     if !att.cpu_started.contains_key(&host_id) {
         return StepOutcome::Done(Outcome::fail(
             failure_code::OPERATION_FAILED,
@@ -408,30 +543,42 @@ fn stop_cpu(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> StepOu
         ));
     }
     if att.cpu_started.get(&host_id).is_some_and(|r| r.auto_stopped.is_some()) {
-        let Some(rec) = att.cpu_started.remove(&host_id) else {
+        let Some(rec) = att.cpu_started.get(&host_id) else {
             return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "CPU profile unavailable."));
         };
+        if rec.resources_overflow {
+            att.cpu_started.remove(&host_id);
+            return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, RESOURCES_OVERFLOW_MSG));
+        }
+        if !authorized_matches(cmd.target.as_ref(), &rec.key, &rec.resources) {
+            return StepOutcome::Done(Outcome::fail(failure_code::DOCUMENT_CHANGED, NAVIGATED_DURING_STOP_MSG));
+        }
+        let rec = att.cpu_started.remove(&host_id).unwrap();
         return match rec.auto_stopped.unwrap() {
-            Ok((wf, duration_ms)) => match att.wire_tab(app, host_id) {
-                Some(tab) => StepOutcome::Done(Outcome::ok(json!({ "tab": tab, "durationMs": duration_ms }), vec![wf])),
-                None => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable.")),
+            Ok((file_id, duration_ms)) => match wire_file_from_capture(att, host_id, &file_id) {
+                Ok(wf) => match att.wire_tab(app, host_id) {
+                    Some(tab) => StepOutcome::Done(Outcome::ok(json!({ "tab": tab, "durationMs": duration_ms }), vec![wf])),
+                    None => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable.")),
+                },
+                Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
             },
             Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
         };
     }
     if let Some(rec) = att.cpu_started.get_mut(&host_id) {
         rec.stop_at = None;
+        rec.auto_stop_deadline = None;
         if let Some(cdp_req) = rec.auto_stop_req.take() {
             return StepOutcome::Pending(ExecPhase::Profile(ProfileState {
                 host_id,
-                stage: ProfileStage::CpuStop { cdp_req },
+                stage: ProfileStage::CpuStop { cdp_req, authorized: cmd.target.clone() },
             }));
         }
     }
     match app.workspace_panes.browser.host.send_typed_cdp(host_id, "Profiler.stop", json!({}), None) {
         Ok(cdp_req) => StepOutcome::Pending(ExecPhase::Profile(ProfileState {
             host_id,
-            stage: ProfileStage::CpuStop { cdp_req },
+            stage: ProfileStage::CpuStop { cdp_req, authorized: cmd.target.clone() },
         })),
         Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
     }
@@ -486,33 +633,49 @@ pub(super) fn step_profile(
                         && rec.host_id == st.host_id
                     {
                         rec.started_at = now;
-                        rec.stop_at = Some(now + std::time::Duration::from_millis(rec.duration_ms));
+                        rec.stop_at = Some(now + Duration::from_millis(rec.duration_ms));
                     }
                     let tab = att.wire_tab(app, st.host_id)?;
                     Some(Outcome::ok(json!({ "tab": tab, "recording": true }), Vec::new()))
                 }
                 Err(e) => {
                     att.trace_recording = None;
+                    clear_trace_owner(app, st.host_id);
                     Some(Outcome::fail(failure_code::OPERATION_FAILED, cdp_err_msg(&e)))
                 }
             }
         }
-        ProfileStage::TraceStop { cdp_req, ended } => {
+        ProfileStage::TraceStop { cdp_req, ended, authorized } => {
             if !*ended {
                 let resp = app.workspace_panes.browser.host.take_cdp_response(*cdp_req)?;
                 if let Err(e) = resp {
                     att.trace_recording = None;
+                    clear_trace_owner(app, st.host_id);
                     return Some(Outcome::fail(failure_code::OPERATION_FAILED, cdp_err_msg(&e)));
                 }
                 *ended = true;
             }
-            let ready = att.trace_recording.as_ref().is_some_and(|r| r.complete);
-            if !ready {
+            if !att.trace_recording.as_ref().is_some_and(|r| r.complete) {
                 return None;
             }
-            let rec = att.trace_recording.take()?;
-            match finalize_trace(att, app, st.host_id, rec.started_at, rec.renderer_pid, rec.events, rec.resources, rec.data_loss, now) {
-                Ok((wf, duration_ms, incomplete)) => {
+            let mut rec = att.trace_recording.take()?;
+            clear_trace_owner(app, st.host_id);
+            let events = std::mem::take(&mut rec.events);
+            let saved = finalize_trace(att, app, &mut rec, events, now);
+            if rec.resources_overflow {
+                return Some(Outcome::fail(failure_code::OPERATION_FAILED, RESOURCES_OVERFLOW_MSG));
+            }
+            match saved {
+                Ok((file_id, duration_ms, incomplete)) => {
+                    if !authorized_matches(authorized.as_ref(), &rec.key, &rec.resources) {
+                        rec.auto_stopped = Some(Ok((file_id, duration_ms, incomplete)));
+                        att.trace_recording = Some(rec);
+                        return Some(Outcome::fail(failure_code::DOCUMENT_CHANGED, NAVIGATED_DURING_STOP_MSG));
+                    }
+                    let wf = match wire_file_from_capture(att, st.host_id, &file_id) {
+                        Ok(w) => w,
+                        Err(e) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, e)),
+                    };
                     let tab = att.wire_tab(app, st.host_id)?;
                     Some(Outcome::ok(json!({ "tab": tab, "durationMs": duration_ms, "incomplete": incomplete }), vec![wf]))
                 }
@@ -542,7 +705,7 @@ pub(super) fn step_profile(
                 Ok(_) => {
                     if let Some(rec) = att.cpu_started.get_mut(&st.host_id) {
                         rec.started_at = now;
-                        rec.stop_at = Some(now + std::time::Duration::from_millis(CPU_MAX_DURATION_MS));
+                        rec.stop_at = Some(now + Duration::from_millis(CPU_MAX_DURATION_MS));
                     }
                     let tab = att.wire_tab(app, st.host_id)?;
                     Some(Outcome::ok(json!({ "tab": tab, "recording": true }), Vec::new()))
@@ -553,13 +716,25 @@ pub(super) fn step_profile(
                 }
             }
         }
-        ProfileStage::CpuStop { cdp_req } => {
+        ProfileStage::CpuStop { cdp_req, authorized } => {
             let resp = app.workspace_panes.browser.host.take_cdp_response(*cdp_req)?;
-            let started = att.cpu_started.remove(&st.host_id);
+            let mut rec = att.cpu_started.remove(&st.host_id)?;
             let _ = app.workspace_panes.browser.host.send_typed_cdp(st.host_id, "Profiler.disable", json!({}), None);
-            let (t0, resources) = started.map_or((None, Vec::new()), |r| (Some(r.started_at), r.resources));
-            match finalize_cpu(att, app, st.host_id, t0, resources, resp, now) {
-                Ok((wf, duration_ms)) => {
+            let saved = finalize_cpu(att, app, st.host_id, &mut rec, resp, now);
+            if rec.resources_overflow {
+                return Some(Outcome::fail(failure_code::OPERATION_FAILED, RESOURCES_OVERFLOW_MSG));
+            }
+            match saved {
+                Ok((file_id, duration_ms)) => {
+                    if !authorized_matches(authorized.as_ref(), &rec.key, &rec.resources) {
+                        rec.auto_stopped = Some(Ok((file_id, duration_ms)));
+                        att.cpu_started.insert(st.host_id, rec);
+                        return Some(Outcome::fail(failure_code::DOCUMENT_CHANGED, NAVIGATED_DURING_STOP_MSG));
+                    }
+                    let wf = match wire_file_from_capture(att, st.host_id, &file_id) {
+                        Ok(w) => w,
+                        Err(e) => return Some(Outcome::fail(failure_code::OPERATION_FAILED, e)),
+                    };
                     let tab = att.wire_tab(app, st.host_id)?;
                     Some(Outcome::ok(json!({ "tab": tab, "durationMs": duration_ms }), vec![wf]))
                 }
@@ -619,78 +794,4 @@ pub(super) fn step_profile(
             Some(Outcome::ok(json!({ "tab": tab }), vec![wf]))
         }
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn finalize_trace(
-    att: &mut SessionAttachment,
-    app: &App,
-    host_id: u64,
-    started_at: Instant,
-    renderer_pid: Option<u64>,
-    events: Vec<Value>,
-    mut resources: Vec<String>,
-    data_loss: bool,
-    now: Instant,
-) -> Result<(WireFile, f64, bool), String> {
-    let pid = renderer_pid
-        .ok_or_else(|| "Browser engine did not report a renderer process ID for trace isolation.".to_owned())?;
-    let duration_ms = now.saturating_duration_since(started_at).as_secs_f64() * 1000.0;
-    let payload = serde_json::to_vec(&json!({
-        "traceEvents": events,
-        "metadata": { "source": "opencode", "scope": "renderer-process", "processId": pid },
-    }))
-    .unwrap_or_default();
-    let gz = gzip_bytes(&payload)?;
-    let file_id = new_file_id();
-    let wf = WireFile::from_bytes(file_id.clone(), "trace.json.gz".into(), "application/gzip".into(), &gz)?;
-    if let Ok(end_urls) = att.source_urls(app, host_id) {
-        resources.extend(end_urls);
-    }
-    resources.sort();
-    resources.dedup();
-    att.record_capture(host_id, CapturedFile { id: file_id, name: "trace.json.gz".into(), mime: "application/gzip".into(), bytes: gz, resources });
-    Ok((wf, duration_ms, data_loss))
-}
-
-fn finalize_cpu(
-    att: &mut SessionAttachment,
-    app: &App,
-    host_id: u64,
-    started_at: Option<Instant>,
-    mut resources: Vec<String>,
-    resp: Result<Value, Value>,
-    now: Instant,
-) -> Result<(WireFile, f64), String> {
-    let val = resp.map_err(|e| cdp_err_msg(&e))?;
-    let profile = val.get("profile").cloned().unwrap_or(val);
-    let bytes = serde_json::to_vec(&profile).unwrap_or_default();
-    let file_id = new_file_id();
-    let wf = WireFile::from_bytes(file_id.clone(), "profile.cpuprofile".into(), "application/json".into(), &bytes)?;
-    if let Ok(end_urls) = att.source_urls(app, host_id) {
-        resources.extend(end_urls);
-    }
-    resources.sort();
-    resources.dedup();
-    att.record_capture(host_id, CapturedFile { id: file_id, name: "profile.cpuprofile".into(), mime: "application/json".into(), bytes, resources });
-    let profile_ms = profile
-        .get("startTime")
-        .and_then(Value::as_f64)
-        .zip(profile.get("endTime").and_then(Value::as_f64))
-        .map(|(s, e)| ((e - s) / 1000.0).max(0.0))
-        .filter(|d| d.is_finite());
-    let duration_ms = profile_ms.unwrap_or_else(|| {
-        started_at.map_or(0.0, |t0| now.saturating_duration_since(t0).as_secs_f64() * 1000.0)
-    });
-    Ok((wf, duration_ms))
-}
-
-fn gzip_bytes(raw: &[u8]) -> Result<Vec<u8>, String> {
-    let mut enc = GzEncoder::new(Vec::new(), Compression::default());
-    enc.write_all(raw).map_err(|e| format!("Gzip compression failed: {e}"))?;
-    let out = enc.finish().map_err(|e| format!("Gzip finish failed: {e}"))?;
-    if out.len() > MAX_FILE_BYTES {
-        return Err("Compressed capture exceeds the 5 MiB transfer limit.".into());
-    }
-    Ok(out)
 }

@@ -105,6 +105,8 @@ pub struct BrowserRpcState {
     waker: Option<Waker>,
     next_diag_scope: u64,
     ref_counter: u64,
+    /// App-wide single active trace owner (`Some(host_id)` while tracing; official `shared.trace`).
+    pub(super) active_trace_host: Option<u64>,
 }
 
 impl Default for BrowserRpcState {
@@ -125,6 +127,7 @@ impl Default for BrowserRpcState {
             waker: None,
             next_diag_scope: 1,
             ref_counter: 0,
+            active_trace_host: None,
         }
     }
 }
@@ -300,13 +303,13 @@ pub fn on_session_lifecycle(app: &mut App, server_key: &ServerKey, ty: &str, ses
         apply_batch_effects(app, vec![(key.clone(), effs)], None);
     }
     if ty == "session.deleted" {
-        let st = app.kernel.slots.get_mut(&BROWSER_RPC);
-        st.routed_sessions.remove(&key);
-        if let Some(mut att) = st.sessions.remove(&key) {
-            att.stop_outbound();
-            if let Some((_, abort)) = att.attach_abort.take() {
-                abort.abort();
-            }
+        let removed = {
+            let st = app.kernel.slots.get_mut(&BROWSER_RPC);
+            st.routed_sessions.remove(&key);
+            st.sessions.remove(&key)
+        };
+        if let Some(mut att) = removed {
+            att.dispose_cleanup(app);
         }
     }
 }
@@ -412,6 +415,10 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
                     let _ = host.send_typed_cdp(tab_id, "Target.setAutoAttach", auto_attach.clone(), Some(child_sid.clone()));
                 }
                 let _ = host.send_typed_cdp(tab_id, "Runtime.enable", serde_json::json!({}), Some(child_sid.clone()));
+                // An OOPIF's console and requests, as official enables them per session (`diagnostics.ts:231-238`).
+                let _ = host.send_typed_cdp(tab_id, "Log.enable", serde_json::json!({}), Some(child_sid.clone()));
+                let net = serde_json::json!({ "maxTotalBufferSize": 5_242_880, "maxResourceBufferSize": 1_048_576, "maxPostDataSize": 20_000 });
+                let _ = host.send_typed_cdp(tab_id, "Network.enable", net, Some(child_sid.clone()));
                 if let Ok(req_id) = host.send_typed_cdp(tab_id, "Page.getFrameTree", serde_json::json!({}), Some(child_sid.clone())) {
                     oopif_frame_reqs.push((tab_id, req_id, child_sid));
                 }
@@ -585,6 +592,7 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
     let engine_remote_proxy = app.workspace_panes.browser.host.engine_remote_proxy();
     let mut changed = false;
     let mut pending_effects = Vec::new();
+    let mut disposed = Vec::new();
     {
         let st = app.kernel.slots.get_mut(&BROWSER_RPC);
         if let Some(key) = routed_now {
@@ -600,15 +608,12 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
             || is_base_connected(&server.base);
         let existing_keys: BTreeSet<(ServerKey, String)> = st.sessions.keys().cloned().collect();
         for key in existing_keys {
-            if !wanted.contains_key(&key) {
-                if let Some(mut old) = st.sessions.remove(&key) {
-                    let _ = old.attach.step(AttachEvent::Dispose, now);
-                    old.stop_outbound();
-                    if let Some((_, abort)) = old.attach_abort.take() {
-                        abort.abort();
-                    }
-                    changed = true;
-                }
+            if !wanted.contains_key(&key)
+                && let Some(mut old) = st.sessions.remove(&key)
+            {
+                let _ = old.attach.step(AttachEvent::Dispose, now);
+                disposed.push(old);
+                changed = true;
             }
         }
         for (key, dir) in wanted {
@@ -648,6 +653,9 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
                 }
             }
         }
+    }
+    for mut old in disposed {
+        old.dispose_cleanup(app);
     }
     apply_batch_effects(app, pending_effects, None);
     maybe_start_capability_probe(app);
@@ -750,11 +758,11 @@ fn apply_batch_effects(
                     for id in &request_ids {
                         att.mark_cancelled(id);
                     }
-                    let sid = att.session_id.clone();
-                    let mut kept = Vec::with_capacity(att.active_commands.len());
-                    for mut cmd in att.active_commands.drain(..) {
+                    let cmds = std::mem::take(&mut att.active_commands);
+                    let mut kept = Vec::with_capacity(cmds.len());
+                    for mut cmd in cmds {
                         if request_ids.iter().any(|id| id == &cmd.request_id) {
-                            cmd.cancel_cleanup(app, &sid, tx_opt.as_deref_mut(), &mut att.pending_close_tabs);
+                            cmd.cancel_cleanup(att, app, tx_opt.as_deref_mut());
                         } else {
                             kept.push(cmd);
                         }

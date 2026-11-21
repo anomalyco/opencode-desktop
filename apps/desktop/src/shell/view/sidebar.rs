@@ -71,8 +71,8 @@ pub(super) fn action_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str, 
         .cursor(Cursor::Pointer)
         .focus_inset(p)
         .hover_group_focus()
-        .hover(if pressed { p.pressed } else { p.hover })
-        .press(p.pressed)
+        .hover(if pressed { Color::TRANSPARENT } else { p.hover })
+        .press(if pressed { Color::TRANSPARENT } else { p.pressed })
         .hover_motion(INSTANT, INSTANT)
         .child(icon(glyph, 16.0).color(ink).group_color(p.text))
         .child(text(label).font(UI).color(ink).group_color(p.text).truncate_fade());

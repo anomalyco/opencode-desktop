@@ -14,7 +14,7 @@ use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::{Pal, kit};
 use opencode_ui::popup::PopupHost;
 use opencode_ui::widgets;
-use rune::{Cursor, El, Icon, TextStyle, Tx, col, icon, row, rule, text};
+use rune::{Cursor, El, TextStyle, Tx, col, icon, row, rule, text};
 use rune_kit::{ButtonVariant, ControlSize};
 use rune_theme_opencode::icons as ic;
 
@@ -23,13 +23,6 @@ use super::plugin_update::{self, Effect as UpdateEffect, Event as UpdateEvent, S
 use super::{BODY, ExtensionsTab, LINE, NAME, Page, catalog_with, header_with, page};
 use crate::host::SettingsHost;
 use crate::jobs::{SettingsJob, SettingsRequest};
-
-/// The scroll Desktop draws for a skill (`packages/ui/src/icons/catalog.ts:369`, `post-skill`).
-static SKILL: Icon = Icon {
-    name: "post-skill",
-    view: 16.0,
-    body: r#"<path d="M3 2.5C3.5 2.5 4.5 2.8 4.5 4L4.5 5.5V12C4.5 12.5 4.8 13.5 6 13.5M6 13.5C7.2 13.5 7.5 12.5 7.5 12V10.5H14.5V12C14.5 12.5 14.2 13.5 13 13.5H6ZM4.5 5.5H1.5V4C1.5 3.5 1.8 2.5 3 2.5M12.5 8.5V4.5C12.5 3.39543 11.6046 2.5 10.5 2.5H3" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor"/><path d="M6.5 5.5H10.5M6.5 7.5H9" stroke-linecap="square" stroke-linejoin="round" stroke="currentColor"/>"#,
-};
 
 /// A tab's label: 13 on 16 at 440.
 const TAB: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
@@ -452,7 +445,7 @@ fn skills_body<H: SettingsHost + 'static>(s: &H, p: &Pal) -> Vec<El> {
             extension_row(
                 p,
                 format!("settings-skills-{}", sk.name),
-                icon(&SKILL, 16.0).color(p.icon_muted),
+                icon(&ic::POST_SKILL, 16.0).color(p.icon_muted),
                 name_el,
                 None,
                 None,

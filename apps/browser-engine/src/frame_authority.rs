@@ -56,6 +56,9 @@ pub enum Dispatch {
 #[derive(Clone, Debug)]
 pub enum Reach {
     Frames(Vec<String>),
+    /// These frames and every frame of `session` when checked, so a same-process frame attached
+    /// while the call is in flight is still checked at reply time.
+    Session { session: Option<String>, frames: Vec<String> },
     WholeTab,
 }
 
@@ -114,6 +117,8 @@ pub struct EngineCdpLedger {
     extension_targets: HashMap<String, String>,
     extension_contexts: HashSet<String>,
     contexts: HashMap<(i64, Option<String>), String>,
+    /// Each frame's main-world context origin as V8 reported it, by frame id (`on_context`).
+    context_origins: HashMap<String, String>,
     objects: HashMap<String, (Option<String>, String)>,
     object_order: VecDeque<String>,
     internal: HashMap<i32, Internal>,
@@ -164,8 +169,14 @@ impl EngineCdpLedger {
     /// each `arguments[*].objectId`, and the session's own root. Input lands wherever the pointer
     /// or focus is, and a context or object the engine cannot place could be in any frame, so
     /// those reach the whole tab.
+    ///
+    /// Same-site frames share one renderer process and so one session, and node ids
+    /// (`backendNodeId`, `nodeId`) are that process's, not a frame's: a call carrying one, or
+    /// reading the renderer as a whole (`DOM.getDocument`, the heap and CPU profilers, tracing),
+    /// reaches every frame of its session (READER-12 #451 critical 1).
     pub fn reach(&self, method: &str, session: Option<&str>, frame_id: Option<&str>, params: &Value) -> Reach {
-        if method.starts_with("Input.") || params.get("uniqueContextId").is_some() {
+        // A screenshot captures every frame's pixels, out-of-process ones included.
+        if method.starts_with("Input.") || method == "Page.captureScreenshot" || params.get("uniqueContextId").is_some() {
             return Reach::WholeTab;
         }
         let sess = session.map(str::to_owned);
@@ -181,59 +192,90 @@ impl EngineCdpLedger {
         let object_ids = params.get("objectId").into_iter().chain(args.filter_map(|a| a.get("objectId")));
         for oid in object_ids {
             let Some(oid) = oid.as_str() else { return Reach::WholeTab };
-            // An object the engine did not resolve still names its context: V8's remote object
-            // ids are `<isolate>.<context>.<id>`.
-            let fid = self.objects.get(oid).map(|(_, f)| f.clone()).or_else(|| {
-                let cid = oid.split('.').nth(1)?.parse::<i64>().ok()?;
-                self.contexts.get(&(cid, sess.clone())).cloned()
-            });
-            let Some(fid) = fid else { return Reach::WholeTab };
+            // The object's own context decides, whatever frame the engine tagged it with.
+            let Some(fid) = self.object_context_frame(oid, session) else { return Reach::WholeTab };
             frames.push(fid);
+            frames.extend(self.objects.get(oid).map(|(_, f)| f.clone()));
         }
+        // A network request id names any request of the session's process, like a node id.
+        let renderer_wide = [
+            "DOM.getDocument",
+            "DOM.getFlattenedDocument",
+            "HeapProfiler.",
+            "Profiler.",
+            "Tracing.",
+            "Network.getResponseBody",
+            "Network.getRequestPostData",
+        ]
+        .iter()
+        .any(|m| method.starts_with(m));
+        let node_ids = ["backendNodeId", "nodeId", "nodeIds", "backendNodeIds"].iter().any(|k| params.get(k).is_some());
         frames.extend(self.session_root(session));
+        if renderer_wide || node_ids {
+            return Reach::Session { session: sess, frames };
+        }
         Reach::Frames(frames)
     }
 
+    /// The frame of the context a V8 remote object id names (`<isolate>.<context>.<id>`).
+    fn object_context_frame(&self, object_id: &str, session: Option<&str>) -> Option<String> {
+        let cid = object_id.split('.').nth(1)?.parse::<i64>().ok()?;
+        self.contexts.get(&(cid, session.map(str::to_owned))).cloned()
+    }
+
     /// The first origin in `reach` that `granted` says holds an inherited grant (`Some(None)` when
-    /// the engine cannot tell: the frame table overflowed). A frame the engine does not know
-    /// widens the check to the whole tab.
+    /// the engine cannot tell: the frame table overflowed, or a frame's origin cannot be worked
+    /// out). An empty reach, or a frame the engine does not know, widens the check to the whole tab.
     pub fn granted_origin(&self, reach: &Reach, granted: &dyn Fn(&str) -> bool) -> Option<Option<String>> {
         if self.overflow {
             return Some(None);
         }
-        let in_frame = |id: &String| self.frame_origins(id).into_iter().find(|o| granted(o));
-        let found = match reach {
-            Reach::Frames(ids) if ids.iter().all(|id| self.frames.contains_key(id)) => ids.iter().find_map(in_frame),
-            _ => self.frames.keys().find_map(in_frame),
+        let known = |ids: &Vec<String>| !ids.is_empty() && ids.iter().all(|id| self.frames.contains_key(id));
+        let ids: Vec<&String> = match reach {
+            Reach::Frames(ids) if known(ids) => ids.iter().collect(),
+            Reach::Session { session, frames } if known(frames) => frames
+                .iter()
+                .chain(self.frames.iter().filter(|(_, f)| f.session == *session).map(|(id, _)| id))
+                .collect(),
+            _ => self.frames.keys().collect(),
         };
-        found.map(Some)
+        ids.into_iter().find_map(|id| match self.frame_origins(id) {
+            None => Some(None),
+            Some(origins) => origins.into_iter().find(|o| granted(o)).map(Some),
+        })
     }
 
-    /// The origins a frame's document can run as: the origin Chromium reports for it, its own URL,
-    /// and for a document that inherits its creator's origin (`about:blank`, `about:srcdoc`, or not
-    /// yet committed) every ancestor's too, so a blank or `srcdoc` child of a granted frame is
-    /// decided as the granted frame.
-    fn frame_origins(&self, frame_id: &str) -> Vec<String> {
+    /// The origins a frame's document can run as: the origin Chromium reports for it and for its
+    /// main-world context, its own URL, and for a document that inherits its creator's origin
+    /// (`about:blank`, `about:srcdoc`, or not yet committed) every ancestor's too, so a blank or
+    /// `srcdoc` child of a granted frame is decided as the granted frame. `None` (unknown: refuse)
+    /// when the walk meets a parent the engine does not know, runs in a cycle, or ends on a
+    /// sub-frame with no origin at all (READER-12 #451 critical 2). A top-level document with none
+    /// is opaque and holds no grant.
+    fn frame_origins(&self, frame_id: &str) -> Option<Vec<String>> {
+        let usable = |o: &str| !o.is_empty() && o != "null" && !o.starts_with("://");
         let mut out = Vec::new();
         let mut id = frame_id;
         for _ in 0..=self.frames.len() {
-            let Some(f) = self.frames.get(id) else { break };
-            if !f.origin.is_empty() && f.origin != "null" && !f.origin.starts_with("://") {
-                out.push(f.origin.clone());
-            }
+            let f = self.frames.get(id)?;
+            out.extend([f.origin.as_str()].into_iter().chain(self.context_origins.get(id).map(String::as_str)).filter(|o| usable(o)).map(str::to_owned));
             match f.url.as_deref() {
                 Some(u) if !inherits_origin(u) => {
                     out.push(u.to_owned());
-                    break;
+                    return Some(out);
                 }
                 _ => {}
             }
             match &f.parent {
                 Some(p) => id = p,
-                None => break,
+                // Only the tab's own main frame may end the walk with no origin (an opaque
+                // top-level document); any other parentless frame is one the engine has not
+                // placed yet, such as an out-of-process frame attached before its tree arrived.
+                None if out.is_empty() && (f.session.is_some() || Some(id) != self.main_frame.as_deref()) => return None,
+                None => return Some(out),
             }
         }
-        out
+        None
     }
 
     pub fn is_unprepared(&self) -> bool {
@@ -497,7 +539,10 @@ impl EngineCdpLedger {
                     {
                         self.objects.remove(&old);
                     }
-                    self.objects.insert(oid.to_owned(), (session.map(str::to_owned), fid.clone()));
+                    // Tagged with the frame of the context the object really lives in: a node id is
+                    // the renderer's, so the resolved node can be in another same-process frame.
+                    let tag = self.object_context_frame(oid, session).unwrap_or_else(|| fid.clone());
+                    self.objects.insert(oid.to_owned(), (session.map(str::to_owned), tag));
                     self.object_order.push_back(oid.to_owned());
                 }
                 Ok(())
@@ -702,6 +747,7 @@ impl EngineCdpLedger {
                             self.frames.remove(id);
                         }
                         self.contexts.retain(|_, f| f != id);
+                        self.context_origins.remove(id);
                     }
                 }
             }
@@ -842,6 +888,11 @@ impl EngineCdpLedger {
         }
         let url = frame.get("url").and_then(Value::as_str).filter(|u| !u.is_empty()).map(str::to_owned);
         let origin = frame.get("securityOrigin").and_then(Value::as_str).unwrap_or("").to_owned();
+        // A document with its own origin replaces the last one's context origin; a blank or
+        // `srcdoc` document keeps it until its own context reports (`on_context`).
+        if url.as_deref().is_some_and(|u| !inherits_origin(u)) {
+            self.context_origins.remove(id);
+        }
         let was_excluded = self.excluded(id);
         self.upsert(id, parent, session, url.clone(), origin, from_extension);
         if self.excluded(id) && !was_excluded {
@@ -883,6 +934,15 @@ impl EngineCdpLedger {
         }
         self.extension_contexts.remove(fid);
         self.contexts.insert((cid, session.map(str::to_owned)), fid.to_owned());
+        // The document's own origin, which a blank frame's `Page` events may not carry yet.
+        if self.context_origins.len() >= 2 * MAX_FRAMES {
+            let frames = &self.frames;
+            self.context_origins.retain(|id, _| frames.contains_key(id));
+        }
+        match ctx.get("origin").and_then(Value::as_str).filter(|o| !o.is_empty() && *o != "null" && !o.starts_with("://")) {
+            Some(origin) => self.context_origins.insert(fid.to_owned(), origin.to_owned()),
+            None => self.context_origins.remove(fid),
+        };
         obs.forward = session.is_none_or(|s| self.web_sessions.get(s).is_some_and(|w| w.announced)) && !self.excluded(fid);
     }
 

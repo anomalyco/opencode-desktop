@@ -370,7 +370,7 @@ pub fn trigger<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, d: Display, t
             .radius(4.0)
             .cursor(rune::Cursor::Pointer)
             .focus_default(p)
-            .hover_group()
+            .hover_group_focus()
             // The arrow fades in under the pointer (`collapsible.css:26-29`).
             .hover_motion(HOVER_FADE, HOVER_FADE)
             .on_press_tx(crate::disclosure::set::<S>(k, d.open(), id));
@@ -397,7 +397,7 @@ fn title<S: TimelineHost>(s: &S, p: &Pal, t: &str, font: rune::TextStyle, d: Dis
 
 /// A tool with nothing to open: its trigger line, the hover group its buttons follow.
 pub fn still(line: El) -> El {
-    col().w_full().hover_group().child(line)
+    col().w_full().hover_group_focus().child(line)
 }
 
 /// What an open call shows, under its trigger: `rail` insets it 12, as Desktop insets a tool's
@@ -410,7 +410,7 @@ pub fn body(content: El, rail: bool, gap: f32) -> El {
 /// A trigger line, and `content` under it while open, folding open and shut; the whole tool is
 /// the hover group its buttons follow.
 pub fn disclosure<S: TimelineHost>(s: &S, line: El, d: Display, content: impl FnOnce() -> El) -> El {
-    let c = col().w_full().hover_group().child(line);
+    let c = col().w_full().hover_group_focus().child(line);
     if d.open() { c.child(crate::disclosure::reveal(s.knobs(), content())) } else { c }
 }
 

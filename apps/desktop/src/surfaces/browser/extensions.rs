@@ -252,7 +252,46 @@ pub fn poll(app: &mut App) -> bool {
         .drain_extension_lifecycle_events()
         .count();
 
+    poll_extension_notifications(app);
+
     changed
+}
+
+/// Syncs app notification settings to the browser engine and delivers extension OS notifications
+/// (`chrome.notifications`, `extension-api/notifications.ts:18-92`) via `opencode-feature-notifications`.
+fn poll_extension_notifications(app: &mut App) {
+    let allowed = crate::notifications::extension_notifications_allowed(app);
+    app.workspace_panes
+        .browser
+        .host
+        .set_extension_notifications_enabled(allowed);
+    let ops: Vec<_> = app
+        .workspace_panes
+        .browser
+        .host
+        .drain_extension_notification_ops()
+        .collect();
+    for op in ops {
+        match op {
+            browser_pane::extensions::ExtensionNotificationOp::Show {
+                ext_id,
+                ext_name,
+                notif_id,
+                body,
+            } => {
+                let os_id = format!("ext-{ext_id}-{notif_id}");
+                let title = format!("Extension: {ext_name}");
+                if !crate::notifications::post_extension(app, &os_id, &title, &body, &ext_id, &notif_id) {
+                    app.workspace_panes.browser.host.send_extension_notification_event(
+                        ext_id, notif_id, false, false,
+                    );
+                }
+            }
+            browser_pane::extensions::ExtensionNotificationOp::Clear { ext_id, notif_id } => {
+                crate::notifications::clear_extension(app, &format!("ext-{ext_id}-{notif_id}"));
+            }
+        }
+    }
 }
 
 /// Focuses a newly opened extension popup immediately, keeps popup focus state synced with Rune's
