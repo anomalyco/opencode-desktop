@@ -689,12 +689,12 @@ fn handle_step_response(app: &App, st: &mut InputState, step: InputStep, resp: R
             .and_then(Value::as_str)
             .or_else(|| ex.get("text").and_then(Value::as_str))
             .unwrap_or("Page script error");
-        if desc.starts_with("Error: browser.detached_ref") {
+        if super::is_detached_ref(desc) {
             return Err(Outcome::fail(failure_code::STALE_REF, "Element is no longer attached to the page. Refresh the snapshot first."));
         }
         return Err(Outcome::fail(
             failure_code::OPERATION_FAILED,
-            page_exception(desc, "The page's JavaScript threw while the browser tool acted on the element."),
+            page_exception(desc, "The page's JavaScript threw while the browser tool acted on the element.", true),
         ));
     }
     match step {

@@ -645,7 +645,7 @@ fn eval_result_to_outcome(
             .and_then(Value::as_str)
             .or_else(|| ex.get("text").and_then(Value::as_str))
             .unwrap_or("JavaScript exception");
-        if is_ref && desc.starts_with("Error: browser.detached_ref") {
+        if is_ref && super::is_detached_ref(desc) {
             return Outcome::fail(
                 failure_code::STALE_REF,
                 "Element is no longer attached to the page. Refresh the snapshot first.",
@@ -656,7 +656,7 @@ fn eval_result_to_outcome(
             "Page JavaScript threw an exception. Check the script and {}; inspect the page before repeating code with side effects.",
             if is_ref { "ref" } else { "frameID" }
         );
-        return Outcome::fail(failure_code::OPERATION_FAILED, super::page_exception(desc, &what));
+        return Outcome::fail(failure_code::OPERATION_FAILED, super::page_exception(desc, &what, false));
     }
     let Some(tab) = att.wire_tab(app, host_id) else {
         return Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable.");
