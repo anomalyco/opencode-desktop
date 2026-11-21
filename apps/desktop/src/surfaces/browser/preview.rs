@@ -353,11 +353,15 @@ impl App {
                 .host
                 .open_preview_tab(display_url, spec, agent_driven)
         };
+        let is_agent = matches!(driver, Some(browser_pane::TabDriver::Agent));
         if let Some(d) = driver {
             self.workspace_panes.browser.host.set_tab_driver(id, d);
         }
         self.bind_preview_tab(id, sid);
         self.attach_browser_tab_to_session(sid, id, target_pane, steal_focus);
+        if is_agent {
+            self.mark_browser_tab_unseen(id);
+        }
         id
     }
 

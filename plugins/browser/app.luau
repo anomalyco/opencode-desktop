@@ -21,9 +21,9 @@ return plugin.defineApp(function(ctx)
     Contracts:Provide("browser.history", {
         -- A page a window showed, once loaded: first in the list, replacing an earlier visit of
         -- its address.
-        remember = function(url: string, title: string)
+        remember = function(url: string, title: string, icon: string?)
             if history.recordable(url) then
-                stored:Set({ visits = history.remember(visits(), { url = url, title = title }) })
+                stored:Set({ visits = history.remember(visits(), { url = url, title = title, icon = icon }) })
             end
         end,
         forget = function(url: string)

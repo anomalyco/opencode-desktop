@@ -63,7 +63,9 @@ impl EngineManager {
                     self.release_preview(tab_id, tab.preview.as_ref());
                     let was_agent = tab.prompts.agent_driven.load(Ordering::Acquire);
                     self.permissions.on_tab_closed(tab_id);
+                    tab.download_alive.store(false, Ordering::Release);
                     tab.host.close_browser(1);
+                    self.downloads.close_tab(tab_id, tab.download_gen);
                     if !tab.isolated && !tab.is_popup
                         && let Some(ext) = &mut self.extensions
                     {

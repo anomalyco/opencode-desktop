@@ -18,6 +18,8 @@ export type Preferences = {
     agentPages: boolean,
     advanced: boolean,
     welcomed: boolean,
+    -- `profile/index.ts:118` `remote-sign-ins`: off until the person turns it on.
+    remoteSignIns: boolean,
 }
 
 export type SiteDecision = {
@@ -72,7 +74,8 @@ export type Env = {
     -- Optional contract-backed sections provided by WS-9 (extensions) or WS-1 (cookies/remote).
     renderImport: ((view: View) -> ui.Node?)?,
     renderExtensions: ((view: View) -> ui.Node?)?,
-    remoteSignInsEnabled: (() -> boolean)?,
+    -- nil while the engine's cookie store is unknown (`settings.tsx:208-209`).
+    remoteSignInsEnabled: (() -> boolean?)?,
     setRemoteSignIns: ((enabled: boolean) -> ())?,
     pickCookieFile: (() -> ())?,
 }
@@ -90,6 +93,7 @@ local DEFAULT_PREFS: Preferences = table.freeze({
     agentPages = true,
     advanced = false,
     welcomed = false,
+    remoteSignIns = false,
 })
 
 function settings.normalizePreferences(raw: any): Preferences
@@ -101,6 +105,7 @@ function settings.normalizePreferences(raw: any): Preferences
         agentPages = raw.agentPages ~= false,
         advanced = raw.advanced == true,
         welcomed = raw.welcomed == true,
+        remoteSignIns = raw.remoteSignIns == true,
     }
 end
 
@@ -370,6 +375,8 @@ function settings.create(env: Env, refresh: () -> ())
             -- 4a. Behavior rows (Remote sign-in sharing if capable + Agent pages toggle)
             local advRows: { ui.Node } = {}
             if caps.remoteSignIns and env.remoteSignInsEnabled and env.setRemoteSignIns then
+                -- `settings.tsx:200-212`: first row of the Advanced card.
+                local shared = env.remoteSignInsEnabled()
                 table.insert(advRows, ui.settingsRow(
                     {
                         id = "settings-browser-remote",
@@ -379,7 +386,8 @@ function settings.create(env: Env, refresh: () -> ())
                     ui.switch({
                         key = "settings-browser-remote-switch",
                         label = i18n:T("settings.remote.title"),
-                        checked = env.remoteSignInsEnabled(),
+                        checked = shared == true,
+                        disabled = shared == nil,
                         onChange = view:Handler(function(event)
                             if env.setRemoteSignIns then
                                 env.setRemoteSignIns((event :: any).checked == true)

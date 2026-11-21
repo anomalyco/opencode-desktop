@@ -445,6 +445,8 @@ export type UiLayoutProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
 }
@@ -521,6 +523,8 @@ export type UiBoxProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- Space between children.
@@ -641,6 +645,8 @@ export type UiFrameProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- Space between children.
@@ -765,6 +771,8 @@ export type UiTextProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- Font size in points. Defaults to 13.
@@ -859,6 +867,8 @@ export type UiSpacerProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
 }
@@ -923,6 +933,8 @@ export type UiDividerProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- A vertical rule. Defaults to horizontal.
@@ -991,6 +1003,8 @@ export type UiIconProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- Width and height in points. Defaults to 16.
@@ -1065,6 +1079,8 @@ export type UiImageProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- The image, from the `Images` service or an `Async` render.
@@ -1143,6 +1159,8 @@ export type UiVideoProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- An `https:` or `http:` URL of the video.
@@ -1213,6 +1231,8 @@ export type UiMetricProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- The number the text stands for. Hosts that animate compare it with the last value.
@@ -1295,6 +1315,8 @@ export type UiButtonProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- The visible label. Also the accessible name unless `label` is set.
@@ -1377,6 +1399,8 @@ export type UiIconButtonProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- The icon.
@@ -1459,6 +1483,8 @@ export type UiSwitchProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- On.
@@ -1529,6 +1555,8 @@ export type UiRadioProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- The row's label.
@@ -1607,6 +1635,8 @@ export type UiFieldProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- The field's content, from `ctx:CreateEditor`.
@@ -1705,6 +1735,8 @@ export type UiSegmentedProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- Its items, in order.
@@ -1775,6 +1807,8 @@ export type UiLoaderProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- Width and height in points. Defaults to 16.
@@ -1841,6 +1875,8 @@ export type UiServerIndicatorProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- Its latest health check: a green dot once it answered, red when it didn't, a faint one when unknown.
@@ -1911,6 +1947,8 @@ export type UiPillProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- The capsule's label.
@@ -1985,6 +2023,8 @@ export type UiKeybindProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- A published command id. The chip shows the user's current binding.
@@ -2053,6 +2093,8 @@ export type UiSettingsRowProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- The row's search id: settings search scrolls to it.
@@ -2123,6 +2165,8 @@ export type UiSettingsListProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- A section title above the card.
@@ -2191,6 +2235,8 @@ export type UiFlyoutRowProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- The row's label.
@@ -2269,6 +2315,8 @@ export type UiDialogHeaderProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- The dialog's title: 15 pt, wrapping anywhere unless `wrapTitle` is false.
@@ -2343,6 +2391,8 @@ export type UiMarkdownProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- The Markdown.
@@ -2419,6 +2469,8 @@ export type UiVirtualListProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- How many rows.
@@ -2501,6 +2553,8 @@ export type UiTerminalSurfaceProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- The terminal session, from the `Terminal` service.
@@ -2581,6 +2635,8 @@ export type UiTerminalTabLabelProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- The terminal the tab shows.
@@ -2651,6 +2707,8 @@ export type UiBrowserSurfaceProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- Available width of the device preview area.
@@ -2737,6 +2795,8 @@ export type UiCodeViewProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- The file, from `Workspace:OpenDocument`.
@@ -2809,6 +2869,8 @@ export type UiDiffViewProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- The changes, from `Diff:Open`.
@@ -2885,6 +2947,8 @@ export type UiFileTreeProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- The tree, from `Workspace:OpenTree`.
@@ -2969,6 +3033,8 @@ export type UiPanelSidebarProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- Prefixes its parts' keys: `<id>-sidebar`, `<id>-sidebar-resize`, `<id>-tree-toggle`.
@@ -3051,6 +3117,8 @@ export type UiOpenInButtonProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- A workspace path, or empty for the workspace folder.
@@ -3117,6 +3185,8 @@ export type UiOfficePagesProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- A Word document or a deck, from `Office:OpenAsync`.
@@ -3185,6 +3255,8 @@ export type UiOfficeSheetProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- A workbook, from `Office:OpenAsync`; it shows the sheet `Office:SetSheet` chose.
@@ -3253,6 +3325,8 @@ export type UiGenUiProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- The ```` ```ui ```` outline source.
@@ -3321,6 +3395,8 @@ export type UiProgressCircleProps = {
     help: string?,
     --- Where the tooltip shows. Defaults to below.
     helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
     --- How full, 0 to 100. The arc runs clockwise from twelve o'clock.

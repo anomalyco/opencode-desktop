@@ -405,7 +405,7 @@ fn list_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc::Rc<Vec<Strin
             parts.labels
         }
     };
-    crate::session_menu::on(r.child(labels).children(parts.ring), target)
+    crate::session_menu::on_home(r.child(labels).children(parts.ring), target)
 }
 
 /// A middle click, or ⌘-click (Ctrl+click off macOS) without Shift or Alt, opens a session as a

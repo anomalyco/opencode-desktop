@@ -73,8 +73,8 @@ pub use cookies::{
 pub use protocol::CursorKind;
 pub use protocol::{
     AuthChallenge, ContextKind, ContextMenuCommand, CookieSameSite, DialogKind, DownloadFile,
-    DownloadState, PageContextMenu, PageDialog, PermissionKind, PermissionPrompt, PreviewKindTag,
-    PreviewSpec, RemoteProxyConfig, WireCookie,
+    DownloadSaveRequest, DownloadState, PageContextMenu, PageDialog, PermissionKind,
+    PermissionPrompt, PreviewKindTag, PreviewSpec, RemoteProxyConfig, WireCookie,
 };
 pub use preview::{PreviewFetchRequest, PreviewResponder};
 pub use protocol::PickedElement;

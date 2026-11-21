@@ -20,6 +20,11 @@ pub fn on(e: El, t: Target) -> El {
     opencode_feature_session_menu::on::<App>(e, t)
 }
 
+/// [`on`] for a Home row: Open and Open in background lead its menu.
+pub fn on_home(e: El, t: Target) -> El {
+    opencode_feature_session_menu::on_home::<App>(e, t)
+}
+
 /// [`on`] for a project sidebar's session row where Rename opens the Rename dialog.
 pub fn on_dialog(e: El, t: Target) -> El {
     opencode_feature_session_menu::on_dialog::<App>(e, t)
@@ -174,7 +179,14 @@ impl SessionMenuHost for App {
     }
 
     fn open_session(&mut self, server: &ServerKey, id: &str, tx: &mut Tx) {
-        crate::servers::runtime::with_server(self, server, |s| s.open(id, tx));
+        crate::servers::runtime::with_server(self, server, |s| {
+            s.clear_home_search(false, tx);
+            s.open(id, tx);
+        });
+    }
+
+    fn open_session_in_background(&mut self, server: &ServerKey, id: &str) {
+        crate::servers::runtime::with_server(self, server, |s| s.open_in_background(id));
     }
 
     fn pin_menu_extra(&self, server: &ServerKey, id: &str) -> Vec<crate::session_menu::Line> {
