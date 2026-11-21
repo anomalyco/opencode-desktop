@@ -8,12 +8,12 @@
 //!     [--caches] [--delete-data] [--log <file>]
 //! ```
 //!
-//! Without `--quiet` it asks first, with "Also delete my settings, tabs and drafts" unticked:
+//! Without `--quiet` it asks first, with "Also delete my settings, tabs, drafts and caches" unticked:
 //! like OpenCode Desktop's uninstaller it keeps them unless asked. It closes the copies running
 //! from the install, removes the shortcuts, the uninstall entry, the URL schemes and the
 //! notification identity, then copies itself to the temp folder and starts the copy, which
 //! waits for this process to exit and deletes the install folder, the updater's folders beside
-//! it, the app's caches and logs (and with `--delete-data` its settings and browser profile),
+//! it, and with `--delete-data` the app's caches, logs, settings and browser profile,
 //! then itself. Only the folder the uninstall entry names is ever deleted, never the browser
 //! engine every app with a browser pane shares, and while another build of the app is installed
 //! (another channel, a pull request's) its settings and caches, which every build shares, stay.
@@ -118,7 +118,10 @@ fn uninstall(a: &Args) -> i32 {
         a.log(&line);
     }
     a.log(&format!("unregistered in {} µs", started.elapsed().as_micros()));
-    match start_cleanup(&root, others.is_empty(), delete_data, a.log.as_deref()) {
+    // The caches and logs are every copy's, an unpacked one's too, which no uninstall entry
+    // names: they go only with the user's data, as OpenCode Desktop's uninstaller keeps its app
+    // data unless asked (`deleteAppDataOnUninstall: false`).
+    match start_cleanup(&root, others.is_empty() && delete_data, delete_data, a.log.as_deref()) {
         Ok(pid) => a.log(&format!("cleanup (pid {pid}) removes the files once this process exits")),
         Err(e) => {
             a.log(&format!("couldn't start the cleanup: {e}"));
@@ -265,11 +268,11 @@ mod dialog {
         let title = wide(&format!("Uninstall {}", p.name()));
         let instruction = wide(&format!("Uninstall {}?", p.name()));
         let content = wide(if own_data {
-            "This removes the app, its Start menu and desktop shortcuts, and its caches. Your OpenCode sessions stay on the server."
+            "This removes the app and its Start menu and desktop shortcuts. Your OpenCode sessions stay on the server."
         } else {
             "This removes the app and its Start menu and desktop shortcuts. Its settings stay for the other OpenCode (Rune) installed, and your OpenCode sessions stay on the server."
         });
-        let verification = wide("Also delete my settings, tabs and drafts");
+        let verification = wide("Also delete my settings, tabs, drafts and caches");
         let label = wide("Uninstall");
         let buttons = [TASKDIALOG_BUTTON { nButtonID: UNINSTALL, pszButtonText: label.as_ptr() }];
         // SAFETY: the module handle of this executable, whose icon resource 1 the dialog shows.
