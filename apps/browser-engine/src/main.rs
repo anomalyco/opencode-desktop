@@ -35,6 +35,7 @@ mod diagnostics;
 mod favicon;
 mod frame_authority;
 mod find;
+mod input_guard;
 mod menu;
 mod passkeys;
 mod preview;
