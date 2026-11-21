@@ -8,6 +8,7 @@ use super::{Calls, Label, Loc, Step, call, file_like, file_tool, grouped_read, l
 use crate::TimelineHost;
 use crate::activity::{event_row, events, label as activity};
 use crate::detail::Category;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::{HOVER_FADE, ROW_GAP, UI, arrow, reasoning};
 
@@ -56,6 +57,9 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
         .h(28.0)
         .gap(4.0)
         .center_y()
+        .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .hover_group()
         // The arrow fades in under the pointer (`collapsible.css:26-29`).
         .hover_motion(HOVER_FADE, HOVER_FADE)

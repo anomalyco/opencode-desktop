@@ -52,7 +52,7 @@ pub use contrib::{
 pub use flyout::{Flyout, FlyoutEvent, Overlay};
 pub use machines::{Hot, HotEffect, Life, LifeEffect, LifeEvent, Trust, TrustEffect, TrustEvent};
 pub use plugin::Half;
-pub use runtime::boot::{boot_builtin, doze_owed, first_frame, setup};
+pub use runtime::boot::{boot_builtin, doze_owed, ensure_plugin_running, first_frame, setup};
 pub use runtime::lifecycle::{drive, fire_named, poll, reload, step_trust, toggle};
 pub use servers::{
     ServerRec, all as contributed_servers, authenticating as server_authenticating, changed as servers_changed,
@@ -282,6 +282,20 @@ impl PluginHost {
     /// override, or dev plugin shadowing a built-in ID).
     pub fn is_builtin_plugin(&self, id: &str) -> bool {
         self.list.iter().any(|p| p.half.is_builtin(id) && p.running())
+    }
+
+    /// Whether plugin `id` is running, dormant (ready to wake on first use), or a bundled
+    /// built-in queued for deferred boot and not disabled by the user.
+    pub fn plugin_available(&self, id: &str) -> bool {
+        if let Some(p) = self.list.iter().find(|p| p.manifest.id == id) {
+            return p.life.listed();
+        }
+        !self.disabled.contains(id)
+            && self
+                .boot
+                .later()
+                .iter()
+                .any(|f| f.manifest.id == id && f.tier == Tier::Bundled && f.error.is_none())
     }
 
     /// The running plugins.

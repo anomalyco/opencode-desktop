@@ -10,6 +10,7 @@ use rune::{El, Tx, col, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::{BUBBLE, BUBBLE_MAX, CONTENT_W, UI_MED};
 
@@ -109,10 +110,15 @@ fn toggle<S: TimelineHost>(p: &Pal, id: &str, open: bool, past: bool) -> El {
         .key("fold-toggle")
         .role("button")
         .label(label)
+        .expanded(open)
+        .self_start()
         .h(24.0)
         .mt(2.0)
         .gap(2.0)
         .center_y()
+        .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .hover_group()
         .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT)
         // The label and the chevron flip in the press's frame.

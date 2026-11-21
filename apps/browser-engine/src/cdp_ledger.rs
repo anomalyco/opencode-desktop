@@ -16,7 +16,7 @@ use crate::wire::{EngineMsg, TabSnapshot};
 use serde_json::Value;
 
 pub use crate::frame_authority::EngineCdpLedger;
-use crate::frame_authority::{Dispatch, Post};
+use crate::frame_authority::{Dispatch, Post, Reach};
 
 const EXTENSION_SURFACE: &str = "Agent browser tools cannot read or act on extension pages or tabs with extension frames.";
 
@@ -49,6 +49,21 @@ pub(crate) fn flush_outbox(ledger: &Mutex<EngineCdpLedger>, host: &cef::BrowserH
     }
 }
 
+/// Whether a tab's agent calls are checked against inherited `Default` grants: a controlled,
+/// non-isolated, non-preview tab (Guard 1's scope).
+pub(crate) fn grant_gated(t: &crate::engine::ManagedTab) -> bool {
+    !t.isolated && t.preview.is_none() && t.prompts.agent_driven.load(std::sync::atomic::Ordering::Acquire)
+}
+
+/// The granted origin `reach` touches in tab `t`, if any (`Some(None)`: cannot tell, refused).
+pub(crate) fn granted_origin(
+    t: &crate::engine::ManagedTab,
+    permissions: &crate::permissions::PermissionTracker,
+    reach: &Reach,
+) -> Option<Option<String>> {
+    t.cdp_ledger.lock().unwrap().granted_origin(reach, &|o| permissions.has_inherited_default_grant(o))
+}
+
 /// Validates and dispatches one `HostMsg::TypedCdpCall`: whole extension tabs are refused, input
 /// is refused while any extension frame exists (until the input guard lands), profiling is
 /// refused while extensions are active (a recorded difference), and the ledger decides the rest.
@@ -73,14 +88,10 @@ pub(crate) fn handle_typed_cdp_call(
 
     let surface = crate::engine::classify_surface(Some(&t.browser), t.is_popup, &t.snap, &t.prompts, &t.cdp_ledger);
     let profiling = ["HeapProfiler.", "Profiler.", "Tracing."].iter().any(|p| method.starts_with(p));
-    let oopif_inherited_blocked = !t.isolated
-        && t.preview.is_none()
-        && t.prompts.agent_driven.load(Ordering::Acquire)
-        && t.cdp_ledger
-            .lock()
-            .unwrap()
-            .target_frame_url(session_id.as_deref(), frame_id.as_deref(), &params)
-            .is_some_and(|u| permissions.has_inherited_default_grant(&u));
+    let reach = grant_gated(t).then(|| {
+        t.cdp_ledger.lock().unwrap().reach(&method, session_id.as_deref(), frame_id.as_deref(), &params)
+    });
+    let oopif_inherited_blocked = reach.as_ref().is_some_and(|r| granted_origin(t, permissions, r).is_some());
     let checked = if let Some(reason) = not_ready_reason {
         Err(reason.to_owned())
     } else if oopif_inherited_blocked {
@@ -127,6 +138,7 @@ pub(crate) fn handle_typed_cdp_call(
             request_id,
             max_bytes: max_cdp_response_bytes(&method),
             typed: Some((post, session_id.clone())),
+            reach,
         },
     );
     let mut payload = json!({ "id": msg_id, "method": method, "params": params });
@@ -322,7 +334,9 @@ pub(crate) fn scan_top_level_cdp(raw: &[u8]) -> TopLevelCdp {
 pub enum CdpPending {
     /// An app call. `typed` carries what a typed reply still needs and the call's session; a raw
     /// call (`None`) is refused at reply time on any extension frame.
-    Raw { request_id: u64, max_bytes: usize, typed: Option<(Post, Option<String>)> },
+    /// `reach` is what an agent call on a controlled `Default` tab can act in, checked again
+    /// against inherited grants when the reply comes back (`None`: not checked).
+    Raw { request_id: u64, max_bytes: usize, typed: Option<(Post, Option<String>)>, reach: Option<Reach> },
     CookieCount(u64),
     ClearSite { request_id: u64, origin: String },
 }
@@ -387,10 +401,14 @@ wrap_dev_tools_message_observer! {
             let (CdpPending::Raw { request_id, .. }
             | CdpPending::CookieCount(request_id)
             | CdpPending::ClearSite { request_id, .. }) = &pending;
-            if self.refuse_reply(browser.as_deref(), *request_id) {
+            let reach = match &pending {
+                CdpPending::Raw { reach, .. } => reach.as_ref(),
+                _ => None,
+            };
+            if self.refuse_reply(browser.as_deref(), *request_id, reach) {
                 return;
             }
-            if let CdpPending::Raw { request_id, max_bytes, typed } = pending {
+            if let CdpPending::Raw { request_id, max_bytes, typed, reach } = pending {
                 // Enforce hard byte cap BEFORE parsing JSON or forwarding across IPC.
                 if result.is_some_and(|b| b.len() > max_bytes) {
                     return self.too_big(request_id, max_bytes);
@@ -398,7 +416,7 @@ wrap_dev_tools_message_observer! {
                 let val = result
                     .and_then(|b| serde_json::from_slice::<Value>(b).ok())
                     .unwrap_or(Value::Null);
-                return self.finish_reply(browser.as_deref(), request_id, typed, success != 0, val);
+                return self.finish_reply(browser.as_deref(), request_id, typed, reach.is_some(), success != 0, val);
             }
             let val = result
                 .and_then(|b| serde_json::from_slice::<Value>(b).ok())
@@ -515,17 +533,17 @@ wrap_dev_tools_message_observer! {
                     return 1;
                 }
                 let pending = self.id_map.lock().unwrap().remove(&msg_id);
-                let Some(CdpPending::Raw { request_id, max_bytes, typed }) = pending else {
+                let Some(CdpPending::Raw { request_id, max_bytes, typed, reach }) = pending else {
                     return 0;
                 };
-                if self.refuse_reply(browser.as_deref(), request_id) {
+                if self.refuse_reply(browser.as_deref(), request_id, reach.as_ref()) {
                     return 1;
                 }
                 if raw.len() > max_bytes {
                     self.too_big(request_id, max_bytes);
                     return 1;
                 }
-                self.finish_reply(browser.as_deref(), request_id, typed, ok, payload);
+                self.finish_reply(browser.as_deref(), request_id, typed, reach.is_some(), ok, payload);
                 return 1;
             }
             let Some(method) = val.get("method").and_then(Value::as_str).map(str::to_owned) else {
@@ -664,10 +682,25 @@ impl TabCdpObserver {
             .tab_blocked_url(browser, self.isolated, self.is_preview, &self.snap, &self.prompts)
     }
 
-    /// Replaces a reply with the generic refusal when Guard 1b holds; `true` when refused.
-    fn refuse_reply(&self, browser: Option<&Browser>, request_id: u64) -> bool {
-        let Some(url) = self.blocked_url(browser) else {
-            return false;
+    /// The granted origin an agent call's `reach` touches now, on a tab Guard 1 covers.
+    fn reach_granted(&self, reach: &Reach) -> Option<Option<String>> {
+        if self.isolated || self.is_preview || !self.prompts.agent_driven.load(std::sync::atomic::Ordering::Acquire) {
+            return None;
+        }
+        let ledger = self.cdp_ledger.lock().unwrap();
+        ledger.granted_origin(reach, &|o| self.permissions.has_inherited_default_grant(o))
+    }
+
+    /// Replaces a reply with the generic refusal when Guard 1b holds, or when a frame the call
+    /// reached holds an inherited grant by the time it answers (a grant or navigation mid-flight);
+    /// `true` when refused.
+    fn refuse_reply(&self, browser: Option<&Browser>, request_id: u64, reach: Option<&Reach>) -> bool {
+        let url = match self.blocked_url(browser) {
+            Some(url) => url,
+            None => match reach.and_then(|r| self.reach_granted(r)) {
+                Some(origin) => origin,
+                None => return false,
+            },
         };
         let _ = self.out_tx.send(EngineMsg::ControlledPermissionRefused { tab_id: self.tab_id, url });
         let _ = self.out_tx.send(EngineMsg::CdpResponse {
@@ -703,7 +736,23 @@ impl TabCdpObserver {
     /// Re-checks the tab at reply time so an extension frame appearing mid-flight never leaks into
     /// a response (`review-rd274.md` Round-5 §2): a raw call is refused on any extension frame, a
     /// typed call on a whole extension tab or when the ledger's after-check fails.
-    fn finish_reply(&self, browser: Option<&Browser>, request_id: u64, typed: Option<(Post, Option<String>)>, ok: bool, mut val: Value) {
+    fn finish_reply(
+        &self,
+        browser: Option<&Browser>,
+        request_id: u64,
+        typed: Option<(Post, Option<String>)>,
+        grants_checked: bool,
+        ok: bool,
+        mut val: Value,
+    ) {
+        // A hit test answers with the frame under the point, which the call itself never named.
+        if grants_checked
+            && let Some((Post::Hit, _)) = &typed
+            && let Some(fid) = val.get("frameId").and_then(Value::as_str)
+            && self.refuse_reply(browser, request_id, Some(&Reach::Frames(vec![fid.to_owned()])))
+        {
+            return;
+        }
         let surface = self.surface(browser);
         let refused = match &typed {
             None => surface != crate::engine::Surface::Clean,

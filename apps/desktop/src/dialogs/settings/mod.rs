@@ -535,6 +535,22 @@ impl SettingsHost for App {
         crate::servers::dialog::sync(self, tx);
     }
 
+    fn server_is_hidden(&self, key: &ServerKey) -> bool {
+        crate::projects::home::hidden().contains(key) && !crate::servers::registry::visible(self).iter().any(|e| e.key() == *key)
+    }
+
+    fn server_can_hide(&self, key: &ServerKey) -> bool {
+        let visible = crate::servers::registry::visible(self);
+        visible.len() > 1 && crate::servers::registry::list(self).iter().any(|e| e.key() == *key && e.conn.builtin())
+    }
+
+    fn set_server_hidden(&mut self, key: &ServerKey, hidden: bool) {
+        if hidden && crate::servers::registry::visible(self).iter().all(|e| e.key() == *key) {
+            return;
+        }
+        crate::projects::home::set_hidden(key, hidden);
+    }
+
     fn server_add_menu_items(&self) -> Vec<(String, String)> {
         crate::plugin_host::server_menu_items(self, "server.add")
             .into_iter()

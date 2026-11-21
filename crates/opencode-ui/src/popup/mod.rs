@@ -30,7 +30,7 @@ mod view;
 pub use keys::key;
 pub use menu::{Indicator, Item, Menu};
 pub use rune::{Align, PopupAnchor, PopupItem, PopupMenu, Side};
-pub use state::{dismiss, open, open_drawn, open_searchable, open_with_field, poll};
+pub use state::{dismiss, open, open_drawn, open_searchable, open_with_field, poll, set_highlight};
 pub use trigger::{MenuButton, menu_button};
 pub use view::{surface, view};
 
@@ -125,15 +125,17 @@ impl<S> Clone for Search<S> {
     }
 }
 
-/// What an editing field draws before its text, and what each edit does.
+/// What an editing field draws before its text, what each edit does, and what choosing a radio
+/// row does (the menu stays open, as Kobalte's `Menu.RadioItem` leaves it).
 pub(super) struct Field<S> {
     pub(super) lead: Rc<dyn Fn(&S, &Pal) -> El>,
     pub(super) changed: Rc<dyn Fn(&mut S, &str, &mut Tx)>,
+    pub(super) radio: Rc<dyn Fn(&mut S, &str, &mut Tx)>,
 }
 
 impl<S> Clone for Field<S> {
     fn clone(&self) -> Self {
-        Self { lead: Rc::clone(&self.lead), changed: Rc::clone(&self.changed) }
+        Self { lead: Rc::clone(&self.lead), changed: Rc::clone(&self.changed), radio: Rc::clone(&self.radio) }
     }
 }
 
@@ -150,13 +152,16 @@ pub(super) struct Shown<S> {
     pub(super) opened: focus::Opened,
     /// Live search builder when opened with [`open_searchable`].
     pub(super) search: Option<Search<S>>,
+    /// Optional callback run when a root-level item becomes highlighted by pointer or keys.
+    pub(super) highlight: Option<Rc<dyn Fn(&mut S, &str)>>,
     pub(super) pick: Pick<S>,
 }
 
 impl<S> Shown<S> {
     /// Whether the open menu takes focus, as Kobalte's do: not one whose search field keeps it.
+    /// A menu under an editing field takes it as any menu does; the field takes it when pressed.
     pub(super) fn holds_focus(&self) -> bool {
-        self.search.is_none()
+        self.search.as_ref().is_none_or(|x| x.field.is_some())
     }
 
     /// The menu at `level`: the root (0), or the submenu open that deep.

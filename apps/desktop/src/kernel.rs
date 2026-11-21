@@ -241,6 +241,7 @@ pub fn build() -> Kernel<App> {
     b.register_slot(&crate::app::VIEW_RUNS)
         .register_slot(&crate::app::OUTPUT_ERRORS)
         .register_slot(&crate::app::CODE_WRAP)
+        .register_slot(&crate::app::MATH)
         .register_slot(&crate::session_catalog::CATALOG)
         .register_slot(&crate::events::TAIL_CHANGE)
         .register_slot(&crate::events::STREAM_GAPS)
@@ -451,6 +452,8 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     b.schedule(stage::DERIVE_TIMELINE, "timeline.images", |s, now, tx| {
         session_view::images::poll(s, now, tx)
     });
+    // An equation finished rendering: this window's rows that drew it build again.
+    b.schedule(stage::DERIVE_TIMELINE, "timeline.math", |s, _, _| session_view::poll_math(s));
     b.schedule(stage::DERIVE_TIMELINE, "model_picker.hover", |s, now, tx| {
         crate::model_picker::hover::poll(s, now, tx)
     });

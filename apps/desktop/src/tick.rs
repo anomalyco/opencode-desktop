@@ -167,7 +167,7 @@ pub(crate) fn setup(s: &mut App, waker: Waker) {
     windows::peer::set_waker(s, waker.clone());
     s.appearance_state.icons.set_waker(waker.clone());
     s.turn_diffs.set_waker(waker.clone());
-    rune_kit::math::set_waker(waker.clone());
+    s.kernel.slots.get(&crate::app::MATH).set_waker(waker.clone());
     s.appearance_state.icons.set_sync(headless());
     s.setup_browser(waker.clone());
     rune::marks::mark("browser.setup");
