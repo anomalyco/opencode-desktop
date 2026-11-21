@@ -362,6 +362,11 @@ impl BrowserHost {
         self.message_waker = Some(waker);
     }
 
+    /// The engine messages' waker (set_message_waker), else the window's.
+    pub fn message_waker(&self) -> Option<Waker> {
+        self.message_waker.clone().or_else(|| self.waker.clone())
+    }
+
     pub fn status(&self) -> EngineStatus {
         self.shared.lock().unwrap_or_else(PoisonError::into_inner).status()
     }
