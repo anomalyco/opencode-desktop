@@ -187,10 +187,16 @@ impl App {
     /// Adds a "New session" draft tab in the last folder picked and shows it (`newDraft`).
     pub(crate) fn open_draft_tab(&mut self) -> String {
         let id = tabs::draft_id();
-        self.tabs.push(Tab::draft(id.clone(), (*self.default_dir).clone()));
+        let dir = (*self.default_dir).clone();
+        self.tabs.push(Tab::draft(id.clone(), dir.clone()));
         *self.route = Route::Draft(id.clone());
         let _ = self.show_draft();
         self.apply_default_destination();
+        // Official's `LocationProvider` (`workspaces/location.tsx:63-64`) resolves the draft's
+        // directory on mount, bumping the project's `time.active` above untouched projects.
+        if let Some(pid) = self.project_at(&dir).map(|p| p.id.clone()) {
+            self.touch_project(&pid);
+        }
         self.composer.focused = self.fixture_run.stage.is_none() && !session_view::style::touch_controls();
         self.save_tabs();
         id
