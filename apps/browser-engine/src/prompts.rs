@@ -70,6 +70,9 @@ pub struct TabPrompts {
     /// One pop-up per input event, as Chromium's blocker allows per user activation (it is off:
     /// `--disable-popup-blocking`). Set by the person's click/key and the agent's `Input.*` command.
     pub popup_credit: AtomicBool,
+    /// The person's own click or key on a controlled tab hands its downloads back to them until
+    /// the agent acts again (official `policy.ts:121-125, 175-177` `control: "reclaimed"`).
+    pub user_reclaimed: AtomicBool,
     pub proxy: Mutex<Option<RemoteProxyConfig>>,
     dialogs: Mutex<Vec<(PageDialog, JsdialogCallback)>>,
     permissions: Mutex<Vec<HeldPermission>>,

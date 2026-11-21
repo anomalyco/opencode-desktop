@@ -116,13 +116,40 @@ pub fn verify_local_path(raw: &str) -> Result<VerifiedLocalPath, LocalPathError>
     }
 }
 
+/// Resolves a known-local workspace root directory ONCE up front (at start-up / session pin),
+/// permitting a symlink or junction alias pointing to another verified local fixed-drive /
+/// `MNT_LOCAL` directory while strictly refusing UNC, device namespaces, mapped drives,
+/// `subst`-to-UNC, autofs, or any symlink/junction whose target escapes to a network share
+/// (without ever following it onto SMB or autofs).
+///
+/// Callers MUST store and pass the returned physical path (never the raw alias) into all later
+/// `verify_local_path` / `verify_within_root` calls so re-pointing the alias after start-up
+/// cannot move the workspace.
+pub fn resolve_local_root(raw: &str) -> Result<VerifiedLocalPath, LocalPathError> {
+    let Some(clean) = safe_local_reveal_path(raw) else {
+        return Err(LocalPathError::UnsafePath);
+    };
+    #[cfg(windows)]
+    {
+        windows::resolve_root(&clean, 0)
+    }
+    #[cfg(unix)]
+    {
+        unix::resolve_root_open(&clean, 0).map(|(verified, _)| verified)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = clean;
+        Err(LocalPathError::UnsafePath)
+    }
+}
+
 /// Verifies that `target_lex` stays strictly inside local directory `root` with zero symlinks,
 /// junctions, or disallowed reparse points along every existing component (including `root`).
 ///
-/// When `require_existing_leaf` is `true` (e.g. local video playback), the leaf must exist as a
-/// regular non-reparse file. When `false` (e.g. `file_url_within` checking a candidate path), a
-/// missing leaf is accepted once `root` and every existing ancestor component inside `root` have
-/// been verified non-reparse and local.
+/// Callers supporting aliased workspace roots MUST resolve `root` once via
+/// [`crate::resolve_safe_local_workspace_root`] and pass that pinned physical root here; this
+/// function never resolves aliases on its own.
 pub fn verify_within_root(target_lex: &str, root: &str, require_existing_leaf: bool) -> Option<String> {
     if safe_local_reveal_path(root).is_none() {
         return None;

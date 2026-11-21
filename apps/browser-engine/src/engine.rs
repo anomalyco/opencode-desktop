@@ -19,7 +19,7 @@ use crate::keys::send_key;
 use crate::preview::{PreviewGrant, PreviewRegistry};
 use crate::tab_client::SidecarTabClient;
 use crate::wire::{
-    CursorKind, EngineMsg, HostMsg, PickedElement, PointerBtn, PreviewSpec, TabSnapshot,
+    CursorKind, EngineMsg, HostMsg, PointerBtn, PreviewSpec, TabSnapshot,
 };
 
 /// Opaque page background (ARGB) for pages that specify none. macOS uses Rune's dark base.
@@ -45,6 +45,8 @@ pub(crate) struct ManagedTab {
     pending_clears: Arc<Mutex<Vec<PendingClear>>>,
     pub(crate) prompts: Arc<crate::prompts::TabPrompts>,
     menu: Arc<crate::menu::TabMenuState>,
+    download_gen: u64,
+    download_alive: Arc<AtomicBool>,
     context: crate::wire::ContextKind,
     /// Last seen `loading`, so a finished load marks its side of the cookie mirror dirty.
     last_loading: bool,
@@ -106,7 +108,7 @@ impl EngineManager {
     /// Windows: `gpu` is the D3D11 device frames are copied on (None renders on the CPU).
     pub fn new(
         out_tx: crate::output::Output,
-        downloads: std::path::PathBuf,
+        downloads: crate::downloads::DownloadRoots,
         events: std::sync::mpsc::Sender<crate::Event>,
         previews: Arc<PreviewRegistry>,
         #[cfg(windows)] gpu: Option<Arc<crate::d3d_frames::Gpu>>,
@@ -143,7 +145,7 @@ impl EngineManager {
             previews,
             contexts: crate::context::ContextPool::new(events.clone()),
             cookies: crate::cookies::CookieController::new(events),
-            profile_cache: downloads.join("Default").to_string_lossy().into_owned(),
+            profile_cache: downloads.profile.join("Default").to_string_lossy().into_owned(),
             #[cfg(windows)]
             gpu,
             #[cfg(target_os = "linux")]
@@ -157,117 +159,7 @@ impl EngineManager {
 
     pub fn on_host_disconnected(&mut self) {
         self.previews.cancel_all_proxies();
-    }
-
-    pub fn poll_picks(&mut self) {
-        for outcome in self.contexts.drain_ready_loads() {
-            match outcome {
-                crate::context::DeferredOutcome::Load { tab_id, generation, url } => {
-                    if let Some(tab) = self.tabs.get(&tab_id)
-                        && tab.generation == generation
-                        && self.contexts.is_tab_ready(tab_id)
-                    {
-                        tab.deferred_initial.store(false, Ordering::Release);
-                        if !url.trim().eq_ignore_ascii_case("about:blank")
-                            && let Some(frame) = tab.browser.main_frame()
-                        {
-                            frame.load_url(Some(&CefString::from(url.as_str())));
-                        }
-                    }
-                }
-                crate::context::DeferredOutcome::Refuse { tab_id, generation, reason } => {
-                    if self.tabs.get(&tab_id).is_some_and(|t| t.generation == generation) {
-                        self.close_and_refuse_tab(tab_id, reason);
-                    }
-                }
-            }
-        }
-        let mut ready = Vec::new();
-        let mut clears = Vec::new();
-        for (&tab_id, tab) in &self.tabs {
-            for backend_id in tab.internal_picked.lock().unwrap().drain(..) {
-                ready.push((tab_id, backend_id));
-            }
-            for clear in tab.pending_clears.lock().unwrap().drain(..) {
-                clears.push(clear);
-            }
-        }
-        self.poll_cookie_mirror();
-        for clear in clears {
-            if let Some(tab) = self.tabs.get(&clear.tab_id) {
-                if !self.contexts.is_tab_ready(clear.tab_id) {
-                    let reason = self.contexts.not_ready_reason(clear.tab_id);
-                    let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                        tab_id: clear.tab_id,
-                        request_id: clear.request_id,
-                        ok: false,
-                        result: json!({ "message": reason }),
-                    });
-                    continue;
-                }
-                for (name, domain, path) in clear.cookies {
-                    self.send_internal_cdp(
-                        &tab.host,
-                        "Network.deleteCookies",
-                        json!({ "name": name, "domain": domain, "path": path }),
-                    );
-                }
-                self.send_internal_cdp(
-                    &tab.host,
-                    "Storage.clearDataForOrigin",
-                    json!({
-                        "origin": clear.origin,
-                        "storageTypes": "local_storage,indexeddb,service_workers,cache_storage,file_systems,shader_cache",
-                    }),
-                );
-                tab.browser.reload();
-                let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                    tab_id: clear.tab_id,
-                    request_id: clear.request_id,
-                    ok: true,
-                    result: json!({}),
-                });
-            }
-        }
-        for (tab_id, backend_id) in ready {
-            let eref = format!("@e{}", self.next_eref);
-            self.next_eref += 1;
-            if let Some(tab) = self.tabs.get(&tab_id) {
-                // Turn off inspect mode and highlight the chosen node cleanly.
-                self.send_internal_cdp(
-                    &tab.host,
-                    "Overlay.setInspectMode",
-                    json!({ "mode": "none", "highlightConfig": {} }),
-                );
-                self.send_internal_cdp(
-                    &tab.host,
-                    "Overlay.highlightNode",
-                    json!({
-                        "backendNodeId": backend_id,
-                        "highlightConfig": {
-                            "showInfo": true,
-                            "contentColor": { "r": 56, "g": 189, "b": 248, "a": 0.28 },
-                            "borderColor": { "r": 56, "g": 189, "b": 248, "a": 0.90 }
-                        }
-                    }),
-                );
-            }
-            let _ = self.out_tx.send(EngineMsg::InspectState {
-                tab_id,
-                active: false,
-                picked: Some(PickedElement {
-                    tab_id,
-                    eref: eref.clone(),
-                    backend_node_id: backend_id,
-                    selector: format!("node#{backend_id}"),
-                    label: format!("{eref} (node #{backend_id})"),
-                    role: None,
-                    name: None,
-                    text: None,
-                    rect: [0.0; 4],
-                }),
-            });
-        }
+        self.downloads.cancel_all_pending_saves();
     }
 
     pub fn handle(&mut self, msg: HostMsg) -> bool {
@@ -275,9 +167,10 @@ impl EngineManager {
             return true;
         }
         match msg {
-            HostMsg::Hello { mach_service, prompts, extensions, .. } => {
+            HostMsg::Hello { mach_service, prompts, extensions, download_save, .. } => {
                 self.prompt_shared.enabled.store(prompts, Ordering::Relaxed);
                 self.app_handles_ext_tabs = extensions;
+                self.downloads.set_download_save_enabled(download_save);
                 #[cfg(not(target_os = "macos"))]
                 let _ = mach_service;
                 #[cfg(target_os = "macos")]
@@ -622,6 +515,7 @@ impl EngineManager {
                         t.held_buttons |= flag;
                         t.host.set_focus(1);
                         t.prompts.popup_credit.store(true, Ordering::Release);
+                        t.prompts.user_reclaimed.store(true, Ordering::Release);
                     }
                     let ev = MouseEvent {
                         x: x.round() as i32,
@@ -646,6 +540,7 @@ impl EngineManager {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if down {
                         t.prompts.popup_credit.store(true, Ordering::Release);
+                        t.prompts.user_reclaimed.store(true, Ordering::Release);
                     }
                     send_key(&t.host, down, text.as_deref(), named.as_deref(), cef_mods(mods));
                 }
@@ -686,10 +581,11 @@ impl EngineManager {
             HostMsg::SetInspect { tab_id, enabled } => self.handle_set_inspect(tab_id, enabled),
             HostMsg::HighlightNode { tab_id, backend_node_id } => self.handle_highlight_node(tab_id, backend_node_id),
             HostMsg::CdpCall { tab_id, request_id, method, params, session_id } => {
-                if method.starts_with("Input.")
-                    && let Some(t) = self.tabs.get(&tab_id)
-                {
-                    t.prompts.popup_credit.store(true, Ordering::Release);
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    if method.starts_with("Input.") {
+                        t.prompts.popup_credit.store(true, Ordering::Release);
+                    }
+                    t.prompts.user_reclaimed.store(false, Ordering::Release);
                 }
                 self.handle_cdp_call(tab_id, request_id, method, params, session_id);
             }
@@ -796,6 +692,10 @@ impl EngineManager {
                     t.prompts.answer_auth(id, username.as_deref(), password.as_deref());
                 }
             }
+            HostMsg::AnswerDownloadSave { tab_id, id, path } => {
+                let ready = self.tabs.contains_key(&tab_id) && self.contexts.is_tab_ready(tab_id);
+                self.downloads.answer_save(tab_id, id, path.as_deref(), ready);
+            }
             HostMsg::SetAgentDriven { tab_id, agent_driven } => {
                 self.handle_set_agent_driven(tab_id, agent_driven);
             }
@@ -804,6 +704,7 @@ impl EngineManager {
                     if method.starts_with("Input.") {
                         t.prompts.popup_credit.store(true, Ordering::Release);
                     }
+                    t.prompts.user_reclaimed.store(false, Ordering::Release);
                     let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
                     crate::cdp_ledger::handle_typed_cdp_call(
                         tab_id,
@@ -866,7 +767,23 @@ impl EngineManager {
                         return true;
                     }
                     let roots = t.file_roots.lock().unwrap().clone();
-                    t.menu.execute(id, action, &t.browser, &t.host, &roots, t.preview.is_some());
+                    let block_downloads = t.preview.is_some()
+                        || matches!(
+                            t.context,
+                            crate::wire::ContextKind::Preview { .. }
+                                | crate::wire::ContextKind::Artifact { .. }
+                        );
+                    t.menu.execute(
+                        tab_id,
+                        t.download_gen,
+                        id,
+                        action,
+                        &t.browser,
+                        &t.host,
+                        &roots,
+                        block_downloads,
+                        &self.downloads,
+                    );
                 }
             }
             HostMsg::SetPartitionProxy { server_id, proxy } => {
@@ -889,6 +806,7 @@ impl EngineManager {
                         // Transient proxy loss: keep live tabs & unsaved state intact while blocking
                         // every request/CDP/menu/navigation fail-closed until a new proxy arrives.
                         for tid in tabs {
+                            self.downloads.cancel_pending_saves_for_tab(tid);
                             if let Some(t) = self.tabs.get_mut(&tid) {
                                 if let crate::wire::ContextKind::RemoteServer { proxy: cur, .. } = &mut t.context {
                                     *cur = None;
@@ -947,8 +865,10 @@ impl EngineManager {
                     self.release_preview(tab_id, t.preview.as_ref());
                     t.menu.cancel_all();
                     t.prompts.dismiss_all();
+                    t.download_alive.store(false, Ordering::Release);
                     t.host.close_browser(1);
                 }
+                self.downloads.close_all();
                 self.previews.cancel_all_proxies();
                 self.contexts.release_all();
                 return false;
@@ -988,8 +908,9 @@ impl EngineManager {
             self.release_preview(tab_id, prev.preview.as_ref());
             prev.menu.cancel_all();
             prev.prompts.dismiss_all();
+            prev.download_alive.store(false, Ordering::Release);
             prev.host.close_browser(1);
-            self.downloads.close_tab(tab_id);
+            self.downloads.close_tab(tab_id, prev.download_gen);
             self.release_tab_context(tab_id);
             if !prev.isolated && !prev.is_popup
                 && let Some(ext) = &mut self.extensions
@@ -1232,12 +1153,22 @@ impl EngineManager {
             diagnostics,
             self.out_tx.clone(),
         );
+        let download_gen = self.downloads.alloc_tab_gen();
+        let download_alive = Arc::new(AtomicBool::new(true));
+        let block_downloads = is_popup
+            || is_preview
+            || matches!(
+                effective_context,
+                crate::wire::ContextKind::Preview { .. } | crate::wire::ContextKind::Artifact { .. }
+            );
         let download = crate::downloads::TabDownloadHandler::new(
             tab_id,
-            file_roots.clone(),
-            is_popup,
-            is_preview,
+            download_gen,
+            download_alive.clone(),
+            block_downloads,
+            effective_context.is_isolated(),
             context_ready.clone(),
+            prompts.clone(),
             self.downloads.clone(),
             self.out_tx.clone(),
         );
@@ -1421,6 +1352,8 @@ impl EngineManager {
                 pending_clears,
                 prompts,
                 menu: menu_state,
+                download_gen,
+                download_alive,
                 context: effective_context,
                 last_loading: false,
                 generation: tab_generation,
@@ -1453,8 +1386,9 @@ impl EngineManager {
             self.release_preview(tab_id, tab.preview.as_ref());
             tab.menu.cancel_all();
             tab.prompts.dismiss_all();
+            tab.download_alive.store(false, Ordering::Release);
             tab.host.close_browser(1);
-            self.downloads.close_tab(tab_id);
+            self.downloads.close_tab(tab_id, tab.download_gen);
             self.release_tab_context(tab_id);
             if !tab.isolated && !tab.is_popup
                 && let Some(ext) = &mut self.extensions
@@ -1490,6 +1424,7 @@ impl EngineManager {
 impl Drop for EngineManager {
     fn drop(&mut self) {
         self.permissions.shutdown();
+        self.downloads.close_all();
     }
 }
 
@@ -1497,4 +1432,5 @@ pub(crate) use extensions::{browser_has_extension_surface, tab_is_extension_surf
 mod emulation;
 mod extensions;
 mod frames;
+mod picks;
 mod profile_cookies;

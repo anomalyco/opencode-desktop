@@ -421,15 +421,17 @@ impl SettingsHost for App {
     }
 
     fn reveal_path(&self, dir: &str) -> Result<(), String> {
-        crate::view::location_card::reveal(dir)
+        crate::view::location_card::reveal_target(self, dir).and_then(|t| crate::view::location_card::reveal(&t))
     }
 
     fn list_worktrees(&mut self, project_id: &str) {
         App::list_worktrees(self, project_id);
     }
 
-    fn project_worktrees(&self, project_id: &str, directory: &str) -> Vec<String> {
-        App::project_worktrees(self, project_id, directory)
+    /// Settings > Worktrees lists the worktrees OpenCode made, not every checkout Git knows
+    /// (`managedWorkspaceDirectories`, `app/src/workspaces/paths.ts:26-31`).
+    fn project_worktrees(&self, project_id: &str, _directory: &str) -> Vec<String> {
+        App::managed_worktrees(self, project_id)
     }
 
     fn sessions(&self) -> &[SessionInfo] {

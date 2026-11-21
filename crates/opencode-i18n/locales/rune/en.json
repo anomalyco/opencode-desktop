@@ -193,6 +193,7 @@
   "rune.files.link.notFound": "File not found",
   "rune.files.link.nowhere": "This link doesn't point anywhere",
   "rune.files.link.outside": "Can't open files outside this session's folder",
+  "rune.files.root.refused": "This folder is reached through a link that couldn't be checked at start-up, so its file links and Reveal are turned off. Restart OpenCode to try again.",
   "rune.files.noMatches": "No matching files",
   "rune.files.tree": "Workspace files",
   "rune.files.workspace": "Workspace",

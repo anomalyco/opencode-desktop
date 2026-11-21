@@ -72,6 +72,8 @@ pub struct NewWorktree {
     drafts: HashMap<String, Option<String>>,
     /// Each project's worktree inventory (`/api/worktree`), its own checkout left out.
     listed: HashMap<String, Vec<String>>,
+    /// Those of them OpenCode made, with a `strategy` (`managedWorkspaceDirectories`).
+    managed: HashMap<String, Vec<String>>,
     /// The existing worktree a draft of each project last ran in, where Cycle session location
     /// goes after New worktree (`state.existing` in `workspace/controller.ts`).
     existing: HashMap<String, String>,
@@ -295,6 +297,11 @@ pub fn project_worktrees(host: &dyn NewWorktreeHost, project: &str, root: &str) 
     out
 }
 
+/// The worktrees OpenCode made for `project`, as last listed.
+pub fn managed_worktrees(host: &dyn NewWorktreeHost, project: &str) -> Vec<String> {
+    host.new_worktree().managed.get(project).cloned().unwrap_or_default()
+}
+
 /// Membership doesn't need the picker's owned, deduplicated list.
 pub fn has_worktree_at(host: &dyn NewWorktreeHost, project: &Project, dir: &str) -> bool {
     let root = path::trim(&project.directory);
@@ -317,7 +324,8 @@ pub fn list_unlisted_worktrees(host: &dyn NewWorktreeHost) {
     }
 }
 
-pub fn worktrees_listed(host: &mut dyn NewWorktreeHost, project: String, directories: Vec<String>) {
+pub fn worktrees_listed(host: &mut dyn NewWorktreeHost, project: String, directories: Vec<String>, managed: Vec<String>) {
+    host.new_worktree_mut().managed.insert(project.clone(), managed);
     host.new_worktree_mut().listed.insert(project, directories);
     host.invalidate_session_search();
 }

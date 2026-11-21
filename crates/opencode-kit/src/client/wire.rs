@@ -13,7 +13,8 @@ pub enum Incoming {
     Info(SessionInfo),
     LookupMissing(String),
     Inbox { session: String, items: Vec<Value> },
-    Worktrees { project: String, directories: Vec<String> },
+    /// Every worktree, and those of them OpenCode made (`managed`).
+    Worktrees { project: String, directories: Vec<String>, managed: Vec<String> },
     Branches { directory: String, search: String, result: Result<Vec<String>, WireError> },
     InterruptAcknowledged { session: String, interrupted: bool },
     WorktreeCreated { project: String },

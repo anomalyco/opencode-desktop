@@ -20,10 +20,10 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 164,
   "status_counts": {
-    "have it": 109,
-    "partly": 5,
+    "have it": 111,
+    "partly": 4,
     "not applicable": 23,
-    "missing": 26,
+    "missing": 25,
     "differs on purpose": 1
   },
   "rows": [
@@ -455,8 +455,8 @@
       ],
       "summary": "Dismiss open tooltips immediately when their trigger is pressed, and unify copy-feedback state in the BTW panel.",
       "size": "S",
-      "status": "partly",
-      "status_evidence": "Rune #1300 (pinned in #282 ce53bfa4) lands 600 ms OpenCode tooltip delay, immediate tooltip on keyboard focus, press dismissal, and El::help_open; wiring help_open on Copy buttons (crate::copied) and plugins/btw 2 s copy feedback remains in WS-8.",
+      "status": "have it",
+      "status_evidence": "Rune tooltips (#1300: press hides, 600 ms, keyboard focus) and help_open: every Copy button (reply footers, tool details, console, tool error, code blocks) holds 'Copied' up for the tick's time; /btw Copy feedback lasts 2 s and holds 'Copied' up (Luau helpOpen, Rune #1309) (PR #334)",
       "depends_on": "Rune tooltip controller (dismiss on pointer down on trigger)",
       "risks": "none",
       "workstream": "WS-8",
@@ -2791,8 +2791,8 @@
       ],
       "summary": "Restore the composer's saved caret position on first keyboard focus after a permission/question dock replaces the editor, and include plaintext-only editors in focus rescue.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Fold into WS-8 alongside #64909 and #64976.",
+      "status": "have it",
+      "status_evidence": "The composer's caret lives in its TextEdit, not the field, so a dock that replaces the editor and keyboard focus coming back keep it (driven: Tab out and back, typing lands at the caret); Rune's rescue counts text fields (PR #334)",
       "depends_on": "UP-088 (#64909), UP-092 (#64976)",
       "risks": "none",
       "workstream": "WS-8"

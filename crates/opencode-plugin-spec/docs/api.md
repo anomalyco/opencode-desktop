@@ -1505,6 +1505,7 @@ Size, spacing, position and accessibility: every `ui.*` node takes these. A prop
 | `label` | `string?` | The accessible name. |
 | `help` | `string?` | A tooltip. |
 | `helpSide` | `Side?` | Where the tooltip shows. Defaults to below. |
+| `helpOpen` | `boolean?` | Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press. Since 1.7. |
 | `dir` | `("ltr" \| "rtl" \| "auto")?` | Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's. |
 
 ### UiPin
