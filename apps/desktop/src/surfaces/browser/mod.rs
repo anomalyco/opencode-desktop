@@ -12,6 +12,8 @@ mod activity;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod comment;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod app_icons;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod context_menu;
 #[cfg(not(target_arch = "wasm32"))]
 mod keys;
@@ -128,6 +130,8 @@ mod native {
         pub session_tabs: HashMap<String, Vec<u64>>,
         /// DevTools calls a plugin waits on, by the engine's request id.
         pub devtools: HashMap<u64, PendingDevtools>,
+        /// Each other browser's icon for Settings > Browser, read off the UI thread (`app_icons`).
+        pub app_icons: super::app_icons::AppIcons,
         /// Last observed Luau store version for `plugin.browser/rune.sitePermissions`.
         pub site_permissions_version: u64,
         /// Async preview proxy errors `(tab_id, binding_generation, code)` (e.g. artifact 404).
