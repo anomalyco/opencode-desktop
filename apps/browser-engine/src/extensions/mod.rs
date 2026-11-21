@@ -165,6 +165,10 @@ pub(super) struct AttachedSession {
     pub pause_started: Option<Instant>,
     pub pending_shim_eval_id: Option<i64>,
     pub was_paused: bool,
+    /// Becomes `true` strictly when Chromium replies with no error to this session's `Fetch.enable`
+    /// barrier command. Stays `false` forever if `Fetch.enable` errors or never replies, so
+    /// duplicate SW attaches can never bypass a fail-closed hold.
+    pub fetch_confirmed: bool,
     pub shimmed: bool,
 }
 
@@ -288,7 +292,12 @@ pub struct ExtensionHost {
     pub(super) pending_reload_cmd: HashMap<i64, String>,
     /// Tracks `Fetch.enable` command IDs waiting for Chromium's reply (`UpdateSubresourceLoaderFactories`
     /// completed) before sending `Runtime.runIfWaitingForDebugger` (`review-rd274.md` Round-2 §1c).
-    pub(super) pending_fetch_resume: HashMap<i64, String>,
+    /// Value is `(session_id, send_resume_when_confirmed)`.
+    pub(super) pending_fetch_resume: HashMap<i64, (String, bool)>,
+    /// Duplicate SW `Target.attachedToTarget` sessions held quiet while the primary SW session is
+    /// still waiting on `Fetch.enable`, keyed by `targetId`. Released only after the primary
+    /// session's `Fetch.enable` confirms (fail-closed if it errors; avoids waitForDebugger deadlock).
+    pub(super) deferred_dup_sw_detaches: HashMap<String, Vec<(String, bool)>>,
     pub(super) pipe_closed: bool,
     pub(super) open_tab_rates: HashMap<String, RateWindow>,
     pub(super) action_rates: HashMap<String, RateWindow>,
@@ -347,13 +356,16 @@ impl ExtensionHost {
             pending_uninstall_cmd: HashMap::new(),
             pending_reload_cmd: HashMap::new(),
             pending_fetch_resume: HashMap::new(),
+            deferred_dup_sw_detaches: HashMap::new(),
             pipe_closed: false,
             open_tab_rates: HashMap::new(),
             action_rates: HashMap::new(),
             popup_resize_rates: HashMap::new(),
             notification_rates: HashMap::new(),
             notifications: HashMap::new(),
-            notifications_enabled: true,
+            // Off until the app says Settings > Notifications allows them, so `getPermissionLevel`
+            // never answers "granted" in the moment before `SetNotificationsEnabled` arrives.
+            notifications_enabled: false,
             metrics: ShimMetrics::default(),
         }
     }
@@ -1019,6 +1031,16 @@ impl ExtensionHost {
 
     pub fn set_notifications_enabled(&mut self, enabled: bool) {
         self.notifications_enabled = enabled;
+    }
+
+    /// Drops extension `ext_id`'s notifications, for the app to take its toasts down.
+    pub(super) fn forget_notifications(&mut self, ext_id: &str) -> Vec<ExtEffect> {
+        self.notifications
+            .remove(ext_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|notif_id| ExtEffect::NotificationClear { ext_id: ext_id.to_owned(), notif_id })
+            .collect()
     }
 
     /// Delivers a desktop OS notification click or dismissal back to the owning extension

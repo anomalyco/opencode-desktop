@@ -134,7 +134,14 @@ pub struct TabDiagnostics {
     requests: VecDeque<NetworkHop>,
     by_native: HashMap<String, String>,
     dropped_requests: u64,
+    /// `ExtraInfo` events that came before their `requestWillBeSent`, by `session:requestId`,
+    /// replayed when it comes (official `MAX_STASHED_CHAINS` keys, `MAX_WIRE_QUEUE` each).
+    stashed: HashMap<String, Vec<(String, Value)>>,
+    stash_order: VecDeque<String>,
 }
+
+const MAX_STASHED_CHAINS: usize = 128;
+const MAX_WIRE_QUEUE: usize = 16;
 
 impl TabDiagnostics {
     pub fn new(scope: u64) -> Self {
@@ -145,6 +152,8 @@ impl TabDiagnostics {
         self.messages.clear();
         self.requests.clear();
         self.by_native.clear();
+        self.stashed.clear();
+        self.stash_order.clear();
         self.dropped_messages = 0;
         self.dropped_requests = 0;
     }
@@ -247,6 +256,19 @@ impl TabDiagnostics {
                     || extension_origin(doc_url)
                     || init_url.is_some_and(extension_origin)
                     || stack_is_extension(params.get("initiator").and_then(|i| i.get("stack")));
+                // A redirect reuses the request ID: its earlier hop ends there with the redirect's
+                // response (official `transitionChain` `redirected`, reported as completed).
+                if let Some(redirect) = params.get("redirectResponse")
+                    && let Some(prev) = self.find_native_mut(params, session_id)
+                    && let HopPhase::Pending { started } = prev.phase
+                {
+                    let ts = params.get("timestamp").and_then(Value::as_f64).unwrap_or(started);
+                    let (headers, trunc) = redact_headers(redirect.get("headers"));
+                    prev.headers_truncated |= merge_headers(&mut prev.response_headers, headers) || trunc;
+                    prev.status_code = prev.status_code.or_else(|| redirect.get("status").and_then(Value::as_u64));
+                    prev.mime_type = redirect.get("mimeType").and_then(Value::as_str).unwrap_or("").to_owned();
+                    prev.phase = HopPhase::Completed { duration_ms: ((ts - started) * 1000.0).max(0.0) };
+                }
                 let (headers, trunc) = redact_headers(req.get("headers"));
                 let post_raw = req.get("postData").and_then(Value::as_str);
                 let post_trunc = post_raw.is_some_and(|s| s.len() > 20_000);
@@ -284,12 +306,20 @@ impl TabDiagnostics {
                         self.dropped_requests += 1;
                     }
                 }
+                let key = format!("{}:{req_id}", session_id.unwrap_or(""));
+                if let Some(early) = self.stashed.remove(&key) {
+                    self.stash_order.retain(|k| *k != key);
+                    for (method, params) in early {
+                        self.ingest_cdp_event(&method, &params, session_id);
+                    }
+                }
             }
             "Network.requestWillBeSentExtraInfo" => {
                 if let Some(hop) = self.find_native_mut(params, session_id) {
                     let (extra, trunc) = redact_headers(params.get("headers"));
-                    hop.request_headers.extend(extra);
-                    hop.headers_truncated |= trunc;
+                    hop.headers_truncated |= merge_headers(&mut hop.request_headers, extra) || trunc;
+                } else {
+                    self.stash(method, params, session_id);
                 }
             }
             "Network.responseReceived" => {
@@ -297,8 +327,7 @@ impl TabDiagnostics {
                     && let Some(resp) = params.get("response")
                 {
                     let (headers, trunc) = redact_headers(resp.get("headers"));
-                    hop.response_headers.extend(headers);
-                    hop.headers_truncated |= trunc;
+                    hop.headers_truncated |= merge_headers(&mut hop.response_headers, headers) || trunc;
                     if hop.status_code.is_none() {
                         hop.status_code = resp.get("status").and_then(Value::as_u64);
                     }
@@ -308,11 +337,12 @@ impl TabDiagnostics {
             "Network.responseReceivedExtraInfo" => {
                 if let Some(hop) = self.find_native_mut(params, session_id) {
                     let (extra, trunc) = redact_headers(params.get("headers"));
-                    hop.response_headers.extend(extra);
-                    hop.headers_truncated |= trunc;
+                    hop.headers_truncated |= merge_headers(&mut hop.response_headers, extra) || trunc;
                     if let Some(code) = params.get("statusCode").and_then(Value::as_u64) {
                         hop.status_code = Some(code);
                     }
+                } else {
+                    self.stash(method, params, session_id);
                 }
             }
             "Network.loadingFinished" => {
@@ -340,6 +370,24 @@ impl TabDiagnostics {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Holds an `ExtraInfo` that came before its request, bounded per request and in all.
+    fn stash(&mut self, method: &str, params: &Value, session_id: Option<&str>) {
+        let Some(req_id) = params.get("requestId").and_then(Value::as_str) else { return };
+        let key = format!("{}:{req_id}", session_id.unwrap_or(""));
+        let queue = self.stashed.entry(key.clone()).or_default();
+        if queue.is_empty() {
+            self.stash_order.push_back(key);
+        }
+        if queue.len() < MAX_WIRE_QUEUE {
+            queue.push((method.to_owned(), params.clone()));
+        }
+        while self.stash_order.len() > MAX_STASHED_CHAINS {
+            if let Some(oldest) = self.stash_order.pop_front() {
+                self.stashed.remove(&oldest);
+            }
         }
     }
 
@@ -506,6 +554,32 @@ pub fn redact_headers(raw: Option<&Value>) -> (BTreeMap<String, String>, bool) {
         out.insert(name, val_bound);
     }
     (out, truncated)
+}
+
+/// Merges `extra` (already redacted) under the headers a hop holds, which win, and bounds the
+/// result as one set: official re-trims the merged headers (`diagnostics-machine.ts:148,165,182`
+/// `trimHeaders({ ...extra, ...latest })`). True when anything was cut.
+fn merge_headers(dst: &mut BTreeMap<String, String>, extra: BTreeMap<String, String>) -> bool {
+    for (k, v) in extra {
+        dst.entry(k).or_insert(v);
+    }
+    let mut truncated = dst.len() > MAX_HEADER_COUNT;
+    let (mut kept, mut total) = (0usize, 0usize);
+    dst.retain(|name, value| {
+        let remaining = MAX_HEADERS_TOTAL.saturating_sub(total + name.len());
+        if kept >= MAX_HEADER_COUNT || remaining == 0 {
+            truncated = true;
+            return false;
+        }
+        if value.chars().count() > remaining {
+            *value = truncate_chars(value, remaining);
+            truncated = true;
+        }
+        kept += 1;
+        total += name.len() + value.len();
+        true
+    });
+    truncated
 }
 
 fn stack_is_extension(stack: Option<&Value>) -> bool {

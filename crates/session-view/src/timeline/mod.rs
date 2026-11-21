@@ -137,11 +137,16 @@ impl RowSpec {
     fn text_row<S: TimelineHost>(&self, s: &S, p: &Pal, t: &Transcript, mi: usize, part: usize, body: &str, fade: f32, live: bool, pt: f32, footer: bool, keep_copy: bool) -> El {
         let message = t.messages[mi].id();
         let prompt = prompt_dir(t, mi);
-        let md = |text: &str, fade: f32| markdown_view_find(s, p, &self.key, text, fade, live, Some(message), prompt);
+        let has_turn_footer = !live && turn_footer_text(t, mi, part);
+        let trim_bottom = if has_turn_footer || (!live && footer) { 0.0 } else { rhythm::prose_bottom_trim(body) };
+        let md = |text: &str, fade: f32| {
+            let el = markdown_view_find(s, p, &self.key, text, fade, live, Some(message), prompt);
+            if trim_bottom > 0.0 { el.mb(-trim_bottom) } else { el }
+        };
         // A burst paces in a slice at a time (`line_reveal::Paced`).
         let body = s.line_hold().paced(message, part).filter(|&n| body.is_char_boundary(n)).map_or(body, |n| &body[..n]);
         let words = crate::line_reveal::words(col().w_full().pt(pt), md, body, fade, s.line_hold().shown(message, part));
-        if !live && turn_footer_text(t, mi, part) {
+        if has_turn_footer {
             let words = words.child(turn_footer(s, p, t, mi, part, keep_copy));
             return self.wrap_paced(s, None, words, body.contains("```")).hover_group_focus().hover_motion(crate::style::INSTANT, crate::style::INSTANT);
         }
@@ -346,8 +351,15 @@ impl RowSpec {
                     Some(Block::Text { key, body, live, msg, part }) => {
                         // `t-{message}-{n}`
                         let message = key.strip_prefix("t-").and_then(|k| k.rsplit_once('-')).map(|(id, _)| id);
-                        let text = col().w_full().pt(*pt).child(markdown_view_find(s, p, &self.key, body, fade, *live, message, prompt_dir(t, start + msg)));
-                        if !*live && turn_footer_text(t, start + msg, *part) {
+                        let has_turn_footer = !*live && turn_footer_text(t, start + msg, *part);
+                        let trim_bottom = if has_turn_footer || (!*live && footer_text(t, start + msg, *part)) {
+                            0.0
+                        } else {
+                            rhythm::prose_bottom_trim(body)
+                        };
+                        let md_el = markdown_view_find(s, p, &self.key, body, fade, *live, message, prompt_dir(t, start + msg));
+                        let text = col().w_full().pt(*pt).child(if trim_bottom > 0.0 { md_el.mb(-trim_bottom) } else { md_el });
+                        if has_turn_footer {
                             return self.wrap(s, text.child(turn_footer(s, p, t, start + msg, *part, latest_copy == Some(start + msg)))).hover_group_focus().hover_motion(crate::style::INSTANT, crate::style::INSTANT);
                         }
                         text

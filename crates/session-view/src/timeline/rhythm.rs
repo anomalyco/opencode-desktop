@@ -94,15 +94,33 @@ fn atx_heading(line: &str) -> Option<rune::TextStyle> {
     Some(crate::style::MD_H[(n - 1).min(3)])
 }
 
-/// Words; `footer`, they end a turn a later prompt follows, under its footer. A fenced block at an
-/// edge is a card's edge there; an ATX heading trims at its own `MD_H` line-height (`markdown.css`).
-fn prose(body: &str, footer: bool) -> Edges {
-    let footer = if footer { crate::working::COPY_AT.1 + crate::working::COPY } else { 0.0 };
+/// Bottom half-leading of `body`'s last line in points when it ends in text (rather than a
+/// fenced block, table, rule, or image), matching `text-box: trim-both text` (`timeline-next.css:425-428`).
+pub(super) fn prose_bottom_trim(body: &str) -> f32 {
+    let last = body.trim().lines().next_back().unwrap_or("").trim();
+    if last.is_empty()
+        || last.ends_with("```")
+        || last.ends_with("~~~")
+        || (last.starts_with('|') && last.ends_with('|'))
+        || matches!(last, "---" | "***" | "___")
+        || (last.starts_with("![") && last.ends_with(')'))
+    {
+        return 0.0;
+    }
+    line_insets(atx_heading(last).unwrap_or(crate::style::MD)).1
+}
+
+/// Words; `turn_footer`, they end an earlier turn under its footer (`turn_footer_text`);
+/// `keep_bottom`, the row keeps its bottom half-leading (`timeline-next.css:435-438`,
+/// `text-box: trim-start text`). Rows without a footer trim their own bottom half-leading via
+/// `.mb(-prose_bottom_trim(body))` (`timeline-next.css:425-428`, `text-box: trim-both text`) so
+/// `whole_rows()` rounds the trimmed height just as Blink + TanStack Virtual (`virtualizer.tsx:369`) do.
+fn prose(body: &str, turn_footer: bool, keep_bottom: bool) -> Edges {
+    let footer = if turn_footer { crate::working::COPY_AT.1 + crate::working::COPY } else { 0.0 };
     let trimmed = body.trim();
     let first = trimmed.lines().next().unwrap_or("");
-    let last = trimmed.lines().next_back().unwrap_or("");
     let top = if first.starts_with("```") { 0.0 } else { line_insets(atx_heading(first).unwrap_or(crate::style::MD)).0 };
-    let bottom = if last.ends_with("```") { 0.0 } else { line_insets(atx_heading(last).unwrap_or(crate::style::MD)).1 };
+    let bottom = if keep_bottom { prose_bottom_trim(body) } else { 0.0 };
     Edges { top, bottom, footer, ..edges(Who::Agent, Item::Prose, 0.0) }
 }
 
@@ -121,10 +139,14 @@ fn edges_of<'a>(t: &'a Transcript, detail: &crate::detail::Detail, row: &RowCont
         RowContent::Error { .. } | RowContent::Retry { .. } => edges(Who::Agent, Item::Line, 0.0),
         RowContent::TurnText { message, part, live, .. } => match &t.messages[*message] {
             Message::Assistant(a) => match a.parts.get(*part) {
-                Some(Part::Text { text }) => prose(text, !live && super::turn_footer_text(t, *message, *part)),
-                _ => prose("", false),
+                Some(Part::Text { text }) => {
+                    let turn_footer = !live && super::turn_footer_text(t, *message, *part);
+                    let keep_bottom = turn_footer || (!live && super::footer_text(t, *message, *part));
+                    prose(text, turn_footer, keep_bottom)
+                }
+                _ => prose("", false, false),
             },
-            _ => prose("", false),
+            _ => prose("", false, false),
         },
         RowContent::Turn { start, end, block, live, .. } => {
             let turn = (*start, *end, *live);
@@ -132,7 +154,11 @@ fn edges_of<'a>(t: &'a Transcript, detail: &crate::detail::Detail, row: &RowCont
                 *folded = Some((turn, turns::fold_with(&super::entries(&t.messages[*start..*end], detail), *live, detail)));
             }
             match folded.as_ref().and_then(|(_, blocks)| blocks.get(*block)) {
-                Some(Block::Text { body, msg, part, live, .. }) => prose(body, !live && super::turn_footer_text(t, start + msg, *part)),
+                Some(Block::Text { body, msg, part, live, .. }) => {
+                    let turn_footer = !live && super::turn_footer_text(t, start + msg, *part);
+                    let keep_bottom = turn_footer || (!live && super::footer_text(t, start + msg, *part));
+                    prose(body, turn_footer, keep_bottom)
+                }
                 // Work reporting back starts a block of its own, which the reply continues.
                 Some(Block::Events { steps, .. }) => Edges { reports: steps.iter().all(|s| matches!(s, turns::Step::Notice(_))), ..edges(Who::Agent, Item::Line, LINE_INSET) },
                 // A subagent's rows, its reports too, continue the reply (`spacing.ts`'s `reportsBack`

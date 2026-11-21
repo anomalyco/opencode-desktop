@@ -27,6 +27,7 @@
   "rune.browser.comment.steer": "Steer comment",
   "rune.browser.comment.submit": "Add comment",
   "rune.browser.page.placeholder": "Add a note about this page",
+  "rune.browser.extension.notification.title": "Extension: {{name}}",
   "rune.browser.engine.download": "Download browser",
   "rune.browser.engine.downloading": "Downloading browser…",
   "rune.browser.engine.fault.blocked": "{{host}} refused the download (HTTP {{status}}). Your network or administrator may not allow it.",

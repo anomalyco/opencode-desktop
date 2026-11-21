@@ -16,8 +16,8 @@ use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::{HOVER_FADE, UI, UI_MED, readable};
 
-/// A file row's `+N -M` (`DiffChanges`, standard): 14 px mono, regular.
-const COUNTS: rune::TextStyle = rune::TextStyle::new(14.0, 440.0).mono().lh(21.0);
+/// A file row's `+N -M` (`DiffChanges`, standard, `diff-changes.css:30-37`): 14 px mono, regular (400), 150% line-height.
+const COUNTS: rune::TextStyle = rune::TextStyle::new(14.0, 400.0).mono().lh(21.0);
 /// A row's path: 13 px regular at 150% (`accordion-trigger`).
 const PATH: rune::TextStyle = UI.lh(19.5);
 /// `--radius-lg`: the card's outer corners.

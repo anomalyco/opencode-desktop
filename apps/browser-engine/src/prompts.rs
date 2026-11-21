@@ -205,6 +205,16 @@ impl TabPrompts {
         self.menu_suppressed.store(true, Ordering::Release);
     }
 
+    /// Any agent command on the page: a person's earlier click no longer opens a pop-up off what the
+    /// agent's script or upload makes the page do; `input` also suppresses the native menu.
+    pub fn agent_command(&self, input: bool) {
+        if input {
+            self.agent_input();
+        } else {
+            self.popup_credit.store(false, Ordering::Release);
+        }
+    }
+
     /// Whether the agent owns the tab's native dialogs now: driven by the agent and not taken back
     /// by the person's own input since its last command (official `policy.ts:175-177`
     /// `activityOwner`; `control: "reclaimed"` is `user_reclaimed`). File pickers follow this, not
