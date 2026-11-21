@@ -99,7 +99,8 @@ fn candidates(_id: &str) -> Vec<PathBuf> {
 }
 
 /// A path on a local drive (`C:\..`, `\\?\C:\..`), never `\\host\share` or a device: elsewhere true.
-fn local_disk(path: &Path) -> bool {
+/// Public so a proof can call the very check the icon reads use.
+pub fn local_disk(path: &Path) -> bool {
     #[cfg(windows)]
     {
         use std::path::{Component, Prefix};
