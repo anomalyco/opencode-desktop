@@ -83,6 +83,7 @@ pub struct EngineManager {
     next_eref: u64,
     /// Agent commands waiting, in arrival order, for their tab's `WebAuthn.enable` reply.
     passkey_held: Vec<HostMsg>,
+    default_locked: bool, // `context::lock_chrome_services` held on `Default`
     pub(super) ext_clipboard_write_ids: Arc<Mutex<std::collections::HashSet<String>>>,
     /// The app's scheme, once it said (`HostMsg::SetColorScheme`).
     dark: Option<bool>,
@@ -130,6 +131,8 @@ impl EngineManager {
             crate::permissions::scrub_legacy_content_settings(&global);
             crate::context::disable_non_proxied_udp(&global);
         }
+        // Chrome services official lacks, off on `Default` too; else `Default` tabs are refused (N9).
+        let default_locked = cef::request_context_get_global_context().is_some_and(|g| crate::context::lock_chrome_services(&g));
         let ext_clipboard_write_ids = Arc::new(Mutex::new(extensions.as_ref().map(|e| e.clipboard_write_ext_ids()).unwrap_or_default()));
         Self {
             tabs: HashMap::new(),
@@ -147,6 +150,7 @@ impl EngineManager {
             next_cdp_id: Arc::new(AtomicI32::new(100)),
             next_eref: 1,
             passkey_held: Vec::new(),
+            default_locked,
             ext_clipboard_write_ids,
             dark: None,
             home: crate::profile::home_dir(),
@@ -1279,7 +1283,7 @@ impl EngineManager {
 
         // Hard fail-closed invariant: an isolated or preview tab must NEVER open without a
         // dedicated `CefRequestContext` (falling back to `None` would open it inside `Default`).
-        if (effective_context.is_isolated() || is_preview) && req_ctx.is_none() {
+        if ((effective_context.is_isolated() || is_preview) && req_ctx.is_none()) || (req_ctx.is_none() && !self.default_locked) {
             self.release_preview(tab_id, preview_grant.as_ref());
             self.release_tab_context(tab_id);
             let _ = self.out_tx.send(EngineMsg::Refused {
