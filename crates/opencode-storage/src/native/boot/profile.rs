@@ -63,6 +63,7 @@ pub(super) fn hold(config: &StorageConfig, report: &mut BootReport, t0: Instant,
     // Official's second launch quits instead (Electron's single-instance lock lasts the whole
     // process: `lifecycle/configure.ts` `acquireApplicationLock`), so a person sees nothing at all.
     let show = if relaunch() { SHOW_RELAUNCH } else if cfg!(target_os = "macos") { SHOW } else { SHOW_CLOSING };
+    let claimed_at = claim_start();
     loop {
         match lease::try_take(&config.path) {
             lease::Outcome::Held => break,
@@ -84,8 +85,10 @@ pub(super) fn hold(config: &StorageConfig, report: &mut BootReport, t0: Instant,
                     hold_what_was_read(owe, packet, held);
                     Instant::now()
                 });
-                // The first frame waits `show` for the lease, then gets what was read, held.
-                if packet.is_none() && since.elapsed() >= show {
+                // The first frame waits `show` for the lease, then gets what was read, held,
+                // counted from the instance claim's start: a launch that already waited there
+                // for a hung copy (Rune passes one over after 1 s) shows at once.
+                if packet.is_none() && claimed_at.unwrap_or(since).elapsed() >= show {
                     let p = held.take().unwrap_or_else(BootPacket::held_empty);
                     show_held(report, t0, owe, packet, send, p);
                 }
@@ -111,6 +114,11 @@ pub(super) fn hold(config: &StorageConfig, report: &mut BootReport, t0: Instant,
         hold_what_was_read(owe, packet, held);
     }
     Hold::Go
+}
+
+/// When the instance claim started (`instance.claim`, marked as the storage starts).
+fn claim_start() -> Option<Instant> {
+    rune::marks::marks().into_iter().find(|(name, _)| *name == "instance.claim").map(|(_, at)| at)
 }
 
 /// What another process may still change is held: a packet not yet sent becomes the held
