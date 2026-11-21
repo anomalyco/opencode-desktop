@@ -1325,6 +1325,7 @@ impl EngineManager {
             prompts.clone(),
             self.permissions.clone(),
             self.extensions.is_some(),
+            self.events.clone(),
             self.out_tx.clone(),
         );
         let cdp_reg = host.add_dev_tools_message_observer(Some(&mut observer));

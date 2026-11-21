@@ -20,10 +20,10 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 164,
   "status_counts": {
-    "have it": 121,
+    "have it": 125,
     "partly": 3,
     "not applicable": 23,
-    "missing": 16,
+    "missing": 12,
     "differs on purpose": 1
   },
   "rows": [
@@ -3973,12 +3973,11 @@
       ],
       "summary": "Render file diff cards produced by a completed Code Mode script directly below its execute block in the timeline.",
       "size": "L",
-      "status": "missing",
-      "status_evidence": "Rune renders finished Code Mode scripts (#252), but does not yet render per-file diff cards emitted by a script below its execute block.",
+      "status": "have it",
+      "status_evidence": "Script file changes render below the execute call as Change steps (rules::script_changes, tools/script.rs, files::group one-file patch cards) (PR #317, 18b0cacd).",
       "depends_on": "UP-049 (#64334)",
       "risks": "none",
-      "workstream": "WS-3",
-      "open_pr_note": "unmerged PR #317"
+      "workstream": "WS-3"
     },
     {
       "id": "UP-137",
@@ -4052,12 +4051,11 @@
       ],
       "summary": "Stream and display file diff cards emitted by an in-flight Code Mode script while it is still running.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Follow-on to UP-136 (#65002): display live script diff cards before script completion.",
+      "status": "have it",
+      "status_evidence": "A running execute call shows its metadata.files changes as they arrive (shows_changes accepts any non-Pending status; projection stamps include each script change count) (PR #317, 18b0cacd).",
       "depends_on": "UP-136 (#65002)",
       "risks": "none",
-      "workstream": "WS-3",
-      "open_pr_note": "unmerged PR #317"
+      "workstream": "WS-3"
     },
     {
       "id": "UP-140",
@@ -4100,12 +4098,11 @@
       ],
       "summary": "Apply spacing between script diff cards rendered below an execute block.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Apply matching spacing when implementing UP-136 (#65002) script diff cards.",
+      "status": "have it",
+      "status_evidence": "Consecutive script diff cards sit 16 pt apart (tools/script.rs CARD_GAP, --timeline-gap-s) (PR #317, 18b0cacd).",
       "depends_on": "UP-136 (#65002)",
       "risks": "none",
-      "workstream": "WS-3",
-      "open_pr_note": "unmerged PR #317"
+      "workstream": "WS-3"
     },
     {
       "id": "UP-142",

@@ -101,6 +101,8 @@ fn field(a: &mut NodeArgs) -> Result<El, String> {
         }
         if a.string("size") == Some("large") {
             input = input.large();
+        } else if a.string("size") == Some("small") {
+            input = input.height(24.0);
         }
         if a.flag("secure") {
             input = input.secure();

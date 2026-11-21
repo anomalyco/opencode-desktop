@@ -15,6 +15,6 @@ pub mod page;
 pub mod search;
 pub mod store;
 
-pub use import::{ImportBrowser, ImportEngine, ImportProfile, discover_sources, read_profile_history};
+pub use import::{ImportEngine, read_profile_history};
 pub use page::{FoundPage, MAX_PAGES, MAX_TITLE_LENGTH, MAX_URL_LENGTH, PageVisit, bare, page_key, page_title, web_page};
 pub use store::HistoryStore;

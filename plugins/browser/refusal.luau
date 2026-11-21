@@ -332,7 +332,7 @@ function refusal.renderBar(
     end
     return ui.col({ key = "browser-refusal", w = "full" }, {
         ui.col({ dir = "auto", w = "full", px = 12, py = 8, gap = 4, fill = "surface-1" }, rows),
-        ui.col({ w = "full", h = 1, fill = "border-weak", opacity = 0.5 }),
+        ui.col({ w = "full", h = 1, fill = "border-weak" }),
     })
 end
 

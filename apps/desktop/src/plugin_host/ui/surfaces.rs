@@ -198,13 +198,22 @@ fn titlebar_pills(app: &App, p: &Pal, vertical: bool) -> Vec<El> {
     let tint = if p.dark { p.v2.icon_accent } else { p.bg_accent };
     let rest_fill = mix_srgb(tint, p.bg_deep, if p.dark { 0.20 } else { 0.10 });
     let hover_fill = mix_srgb(tint, p.bg_deep, if p.dark { 0.25 } else { 0.14 });
+    let rtl = opencode_i18n::direction() == opencode_i18n::Direction::Rtl;
+    let closed_x = if vertical {
+        if rtl { 8.0 } else { -8.0 }
+    } else if rtl {
+        -8.0
+    } else {
+        8.0
+    };
     found
         .into_iter()
         .filter_map(|(i, (key, show, run))| {
             let script = app.plugins.list[i].script()?;
             let view: opencode_plugin_spec::TitlebarItemView = cx::enter(app, || script.eval_fn::<Data>(show.as_ref()?, ()).ok())?.decode().ok()?;
             let busy = view.busy == Some(true);
-            let open = app.plugins.titlebar_hover == Some(key);
+            let hovered = app.plugins.titlebar_hover == Some(key);
+            let open = hovered || app.plugins.titlebar_focus.as_deref() == Some(key);
             let side = if vertical { 28.0 } else { 20.0 };
             let glyph = if busy {
                 rune_kit::Loader::new().size(12.0).color(p.v2.icon_accent).build(crate::palette::kit(p))
@@ -219,11 +228,11 @@ fn titlebar_pills(app: &App, p: &Pal, vertical: bool) -> Vec<El> {
                 .color(label_color)
                 .opacity(if open { 1.0 } else { 0.0 })
                 .opacity_motion(ease)
-                .offset(if open { 0.0 } else if vertical { -8.0 } else { 8.0 }, 0.0)
+                .offset(if open { 0.0 } else { closed_x }, 0.0)
                 .offset_motion(ease);
             let label = if vertical { label.ml(1.0).mr(16.0) } else { label.ml(8.0).mr(1.0) };
             let inner = if vertical { row().child(glyph).child(label) } else { row().justify_end().child(label).child(glyph) };
-            let mut pill = inner
+            let mut button = inner
                 .key(format!("plugin-titlebar-{key}"))
                 .role("button")
                 .label(view.title.clone().unwrap_or_else(|| view.label.clone()))
@@ -232,7 +241,23 @@ fn titlebar_pills(app: &App, p: &Pal, vertical: bool) -> Vec<El> {
                 .center_y()
                 .radius(side / 2.0)
                 .focus_inset(p)
-                .fill(if open { hover_fill } else { rest_fill })
+                .fill(if hovered { hover_fill } else { rest_fill })
+                .clip_rounded(side / 2.0)
+                .no_window_drag();
+            if !open {
+                button = button.w(side);
+            }
+            if busy {
+                button = button.layer_opacity(0.6).disabled(true);
+            } else if let Some(run) = run {
+                button = button.cursor(rune::Cursor::Pointer).on_press_tx(move |s: &mut App, tx: &mut Tx| commands::spawn(s, i, &run, (), tx));
+            }
+            let mut group = el()
+                .key(format!("plugin-titlebar-wrap-{key}"))
+                .h(side)
+                .min_w(side)
+                .radius(side / 2.0)
+                .fill(p.bg_deep)
                 .clip_rounded(side / 2.0)
                 .no_window_drag()
                 .on_hover_change(move |s: &mut App, inside: bool, tx: &mut Tx| {
@@ -241,43 +266,31 @@ fn titlebar_pills(app: &App, p: &Pal, vertical: bool) -> Vec<El> {
                         s.plugins.titlebar_hover = now;
                         tx.instant();
                     }
-                });
+                })
+                .child(button);
             if !open {
-                pill = pill.w(side);
+                group = group.w(side);
             }
             if !vertical {
-                pill = pill.mr(12.0);
+                group = group.mr(12.0);
             }
-            if busy {
-                return Some(pill.layer_opacity(0.6).disabled(true));
-            }
-            let Some(run) = run else { return Some(pill) };
-            Some(pill.cursor(rune::Cursor::Pointer).on_press_tx(move |s: &mut App, tx: &mut Tx| commands::spawn(s, i, &run, (), tx)))
+            Some(group)
         })
         .collect()
 }
-/// Titlebar items at the trailing end of the horizontal titlebar row, before Windows' caption
-/// buttons. In side tabs and the inbox, they belong in the sidebar's footer ([`sidebar_items`]).
+/// Titlebar items at the trailing end of the horizontal titlebar row (`WindowTitlebar::trailing`),
+/// including narrow windows regardless of tab layout (`shell.tsx:61`, `titlebar.tsx:1049-1053`).
+/// In wide side tabs and the inbox, they belong in the sidebar's footer ([`sidebar_items`]).
 pub fn titlebar_items(app: &App, p: &Pal) -> Option<El> {
     let chrome = crate::view::chrome();
-    if chrome.row_h <= 0.0 || app.tab_layout() != crate::layout_state::TabLayout::Horizontal {
+    if chrome.row_h <= 0.0 || chrome.layout != crate::layout_state::TabLayout::Horizontal {
         return None;
     }
     let items = titlebar_pills(app, p, false);
     if items.is_empty() {
         return None;
     }
-    Some(
-        row()
-            .key("plugin-titlebar-items")
-            .pin(None, (!chrome.bottom).then_some(0.0), Some(chrome.caption_w + 8.0), chrome.bottom.then_some(0.0))
-            .h(chrome.row_h)
-            .pt(if chrome.bottom { 0.0 } else { chrome.row_pad })
-            .gap(6.0)
-            .center_y()
-            .no_window_drag()
-            .children(items),
-    )
+    Some(row().key("plugin-titlebar-items").gap(6.0).center_y().no_window_drag().children(items))
 }
 
 /// The sidebar's footer of titlebar items, in side tabs and the inbox (`vertical-tabs-footer`):
