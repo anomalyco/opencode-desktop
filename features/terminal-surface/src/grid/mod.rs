@@ -34,11 +34,11 @@ pub const PAD_X: f32 = 14.0;
 pub const PAD_Y: f32 = 12.0;
 pub(super) const SCROLLBAR_W: f32 = 8.0;
 
-/// Desktop's `terminal` icon (`additional-icons.ts`): a prompt in a box.
+/// Desktop's `terminal` icon (`packages/ui/src/icons/catalog.ts:76-78`): 16x16 prompt in a box.
 pub static TERMINAL_ICON: rune::Icon = rune::Icon {
     name: "terminal-tab",
-    view: 20.0,
-    body: r#"<path d="M6.5 8L8.64286 10L6.5 12M10.9286 12H13.5M2 18H18V2H2V18Z" stroke="currentColor" stroke-linecap="square" fill="none"/>"#,
+    view: 16.0,
+    body: r#"<path d="M4.5 11.5L7.5 8.5L4.5 5.5M11.5 11.5H8.5" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor" fill="none"/><path d="M1.5 14.25V1.75C1.5 1.61193 1.61193 1.5 1.75 1.5H14.25C14.3881 1.5 14.5 1.61193 14.5 1.75V14.25C14.5 14.3881 14.3881 14.5 14.25 14.5H1.75C1.61193 14.5 1.5 14.3881 1.5 14.25Z" stroke-linecap="round" stroke="currentColor" fill="none"/>"#,
 };
 
 type MetricCache = HashMap<(u8, u32, u64), (f32, f32, f32)>;

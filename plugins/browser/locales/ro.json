@@ -65,5 +65,6 @@
   "zoom.reset": "Resetează zoomul",
   "zoom.percent": "{{percent}}%",
   "link.copy": "Copiază linkul",
-  "history.clear": "Șterge istoricul"
+  "history.clear": "Șterge istoricul",
+  "extensions.compat.feature.management": "Gestionarea altor extensii"
 }

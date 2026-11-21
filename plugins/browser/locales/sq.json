@@ -64,5 +64,6 @@
   "zoom.reset": "Rivendos zmadhimin",
   "zoom.percent": "{{percent}}%",
   "link.copy": "Kopjo lidhjen",
-  "history.clear": "Pastro historikun"
+  "history.clear": "Pastro historikun",
+  "extensions.compat.feature.management": "Menaxhimi i shtesave të tjera"
 }

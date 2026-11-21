@@ -90,6 +90,11 @@ impl Look {
     }
 }
 
+/// How tall `fd` lays out with no line wrapped: a row per line, and one between hunks.
+pub(super) fn height(fd: &FileDiff) -> f32 {
+    (fd.hunks.iter().map(|h| h.lines.len()).sum::<usize>() + fd.hunks.len().saturating_sub(1)) as f32 * ROW
+}
+
 /// `fd`'s hunks, each line on its own row.
 pub fn view<S: 'static>(p: &Pal, fd: FileDiff) -> El {
     let look = Look::new(p, &fd);

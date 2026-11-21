@@ -460,14 +460,43 @@ local function renderInstallReview(env: DialogEnv, view: View, rev: InstallRevie
         }))
     end
 
-    if #permissions > 0 then
-        local permLines: { ui.Node } = {}
-        local shown = math.min(#permissions, 10)
-        for i = 1, shown do
-            table.insert(permLines, ui.text(`•  {permissions[i]}`, BODY, { key = `rev-perm-{i}`, dir = "ltr" }))
+    -- Only display permissions that OpenCode actually grants; stripped/unsupported permissions
+    -- are disclosed under "Not supported:" below so they are never shown as granted (READER-7 F4).
+    local GRANTED_PERMS: { [string]: boolean } = {
+        activeTab = true,
+        alarms = true,
+        background = true,
+        clipboardRead = true,
+        clipboardWrite = true,
+        contextMenus = true,
+        cookies = true,
+        declarativeNetRequest = true,
+        declarativeNetRequestWithHostAccess = true,
+        idle = true,
+        notifications = true,
+        offscreen = true,
+        power = true,
+        scripting = true,
+        storage = true,
+        ["system.display"] = true,
+        tabs = true,
+        unlimitedStorage = true,
+        webNavigation = true,
+    }
+    local grantedPermissions: { string } = {}
+    for _, p in permissions do
+        if GRANTED_PERMS[p] then
+            table.insert(grantedPermissions, p)
         end
-        if #permissions > shown then
-            local rem = #permissions - shown
+    end
+    if #grantedPermissions > 0 then
+        local permLines: { ui.Node } = {}
+        local shown = math.min(#grantedPermissions, 10)
+        for i = 1, shown do
+            table.insert(permLines, ui.text(`•  {grantedPermissions[i]}`, BODY, { key = `rev-perm-{i}`, dir = "ltr" }))
+        end
+        if #grantedPermissions > shown then
+            local rem = #grantedPermissions - shown
             table.insert(permLines, ui.text(i18n:T(if rem == 1 then "review.more.one" else "review.more.other", { count = rem }), MUTED_META, { key = "rev-perm-more" }))
         end
         table.insert(body, ui.col({ key = "rev-perms-group", w = "full", gap = 4 }, {

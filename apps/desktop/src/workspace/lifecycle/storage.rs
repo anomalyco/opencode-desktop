@@ -54,7 +54,7 @@ enum Effect {
 
 /// How the database opened, for what the windows are told.
 enum Opened {
-    Saving { drafts_replayed: bool },
+    Saving { drafts_replayed: bool, dropped_drafts: Option<(usize, String)> },
     /// It couldn't (why): this run keeps its changes in memory.
     Memory(String),
     /// Another copy of the app has the profile: this run keeps its changes in memory.
@@ -69,18 +69,19 @@ impl Opened {
             (Some(why), _) if why == opencode_storage::IN_USE => Opened::InUse,
             (Some(why), _) => Opened::Memory(why),
             (None, Some(kept)) => Opened::Fresh(kept),
-            (None, None) => Opened::Saving {
-                drafts_replayed: !report.created && report.journal_replayed,
-            },
+            (None, None) => {
+                #[cfg(not(target_arch = "wasm32"))]
+                let dropped_drafts = (report.import.seeded_dropped_drafts > 0).then(|| (report.import.seeded_dropped_drafts, report.import.seeded_source_dir.as_ref().map_or_else(String::new, |p| p.display().to_string())));
+                #[cfg(target_arch = "wasm32")]
+                let dropped_drafts = None;
+                Opened::Saving { drafts_replayed: !report.created && report.journal_replayed, dropped_drafts }
+            }
         }
     }
 }
 
 /// Whether the first frame was presented when the storage was adopted.
-enum Frame {
-    Presented,
-    Pending,
-}
+enum Frame { Presented, Pending }
 
 enum Event {
     /// A read or write before the first frame wants the packet.
@@ -121,6 +122,8 @@ pub enum Notice {
     /// Writes to the database fail (`opencode_storage::write_trouble`): what changes stays in memory
     /// and is written once a write succeeds. `full` when the disk is full, else the failure's words.
     NotSaving { full: bool, why: String },
+    /// Some Official Desktop drafts could not be migrated (missing chunk/attachment blob).
+    SeedDroppedDrafts { count: usize, official_dir: String },
 }
 
 /// Hand-over of a boot-time storage notice (and whether drafts replayed) to the first window.
@@ -156,8 +159,9 @@ impl BootNotice {
                     Opened::Memory(why) => Self::Owed(Notice::Memory(why)),
                     Opened::InUse => Self::Owed(Notice::InUse),
                     Opened::Fresh(kept) => Self::Owed(Notice::Damaged(kept.display().to_string())),
-                    Opened::Saving { drafts_replayed: true } => Self::DraftsReplayed,
-                    Opened::Saving { drafts_replayed: false } => Self::Settled,
+                    Opened::Saving { dropped_drafts: Some((count, official_dir)), .. } => Self::Owed(Notice::SeedDroppedDrafts { count, official_dir }),
+                    Opened::Saving { drafts_replayed: true, dropped_drafts: None } => Self::DraftsReplayed,
+                    Opened::Saving { drafts_replayed: false, dropped_drafts: None } => Self::Settled,
                 };
                 None
             }
@@ -319,7 +323,7 @@ fn send(event: Event) {
         let (next, mut effect) = step(phase, event);
         // Before the lock goes: a window that sees the storage ready sees why it's in memory too.
         if let Some(Effect::Adopt(_, _, opened, _)) = &mut effect {
-            let was_opened = std::mem::replace(opened, Opened::Saving { drafts_replayed: false });
+            let was_opened = std::mem::replace(opened, Opened::Saving { drafts_replayed: false, dropped_drafts: None });
             let held_by_another_copy = matches!(was_opened, Opened::Memory(_)) && opencode_storage::held_by_another_copy();
             told().boot.step(BootNoticeEvent::Adopted { opened: was_opened, held_by_another_copy });
         }
@@ -775,10 +779,7 @@ pub fn flush(reason: FlushReason, wait: bool) {
             guard = READY.wait_timeout(guard, Duration::from_secs(5)).map(|(g, _)| g).unwrap_or_else(|e| e.into_inner().0);
         }
     }
-    let storage = match &*lock() {
-        Some(Phase::Ready(s) | Phase::Early { storage: s, .. }) => s.clone(),
-        _ => return,
-    };
+    let storage = match &*lock() { Some(Phase::Ready(s) | Phase::Early { storage: s, .. }) => s.clone(), _ => return };
     let deadline = if wait { Duration::from_secs(2) } else { Duration::ZERO };
     storage.flush(reason, deadline);
 }
@@ -790,9 +791,6 @@ pub fn flush(reason: FlushReason, wait: bool) {
 pub fn close() {
     crate::launch::last_exit::mark_clean();
     flush(FlushReason::Quit, true);
-    let storage = match &*lock() {
-        Some(Phase::Ready(s) | Phase::Early { storage: s, .. }) => s.clone(),
-        _ => return,
-    };
+    let storage = match &*lock() { Some(Phase::Ready(s) | Phase::Early { storage: s, .. }) => s.clone(), _ => return };
     storage.close();
 }

@@ -442,8 +442,9 @@ pub fn exit_shell_button(p: &Pal, wide: bool) -> El {
         .children(wide.then(|| crate::keymap::chips(p, vec![t!("common.key.esc").to_owned()])))
 }
 
-/// The menu over the + button, and the scrim that closes it.
-pub fn menu(s: &App, p: &Pal) -> Option<El> {
+/// The menu over the + button, and the scrim that closes it as siblings so the anchored menu
+/// keeps its overlay paint rank above composer suggestion popovers (`update_layer_paint_order`).
+pub fn menu(s: &App, p: &Pal) -> Option<[El; 2]> {
     if !s.kernel.slots.get(&ADD_MENU).open() {
         return None;
     }
@@ -501,11 +502,12 @@ pub fn menu(s: &App, p: &Pal) -> Option<El> {
         .absolute(0.0, 0.0)
         .w_full()
         .h_full()
-        .on_background_press_tx(|s: &mut App, tx: &mut Tx| {
+        .focusable(false)
+        .on_press_tx(|s: &mut App, tx: &mut Tx| {
             tx.instant();
             s.close_add_menu(Close::Outside, tx);
         });
     let scrim = if crate::popup::PRESS_ON_DOWN { scrim.press_on_down() } else { scrim };
-    Some(scrim.child(menu))
+    Some([scrim, menu])
 }
 

@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 /// revision (`156.0.26.1`). Bump it when the app needs an engine built from newer engine code (a
 /// protocol change); a release of a newer CEF with the same revision is an update for every app
 /// that accepts it.
-pub const ENGINE_REVISION: u32 = 7;
+pub const ENGINE_REVISION: u32 = 8;
 #[cfg(not(any(windows, target_os = "linux")))]
 pub const ENGINE_BUNDLE_NAME: &str = "OpenCode Browser Engine.app";
 #[cfg(not(any(windows, target_os = "linux")))]
@@ -377,7 +377,11 @@ pub fn installed() -> Option<Installed> {
         .into_iter()
         .filter(|v| {
             let dir = root.join(v.to_string());
-            v.accepted() && !is_reparse_or_symlink(&dir) && crate::source::accepts_install(&dir) && bin_in(&dir).is_file()
+            v.accepted()
+                && !is_reparse_or_symlink(&dir)
+                && !is_reparse_or_symlink(&dir.join(ENGINE_BUNDLE_NAME))
+                && crate::source::accepts_install(&dir)
+                && bin_in(&dir).is_file()
         })
         .max()
         .map(|version| Installed { version: Some(version), bin: bin_in(&root.join(version.to_string())) })
@@ -414,6 +418,9 @@ pub(crate) fn remove_old(root: &Path, keep: Version) {
             continue;
         }
         let dir = root.join(v.to_string());
+        if is_reparse_or_symlink(&dir) {
+            continue;
+        }
         #[cfg(target_os = "linux")]
         let _executables = {
             if Some(v) == other || *v == keep { continue; }
@@ -426,7 +433,8 @@ pub(crate) fn remove_old(root: &Path, keep: Version) {
             let Ok(helper) = open(bin.with_file_name("opencode-browser-engine-helper")) else { continue };
             (main, helper)
         };
-        let trash = root.join(format!(".{v}.old-{}", std::process::id()));
+        let seq = DISCARD_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let trash = root.join(format!(".{v}.old-{}-{seq}", std::process::id()));
         if std::fs::rename(&dir, &trash).is_ok() {
             std::fs::remove_dir_all(&trash).ok();
         }

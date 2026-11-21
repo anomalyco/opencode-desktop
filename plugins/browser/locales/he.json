@@ -65,5 +65,6 @@
   "zoom.reset": "אפס זום",
   "zoom.percent": "{{percent}}%",
   "link.copy": "העתק קישור",
-  "history.clear": "נקה היסטוריה"
+  "history.clear": "נקה היסטוריה",
+  "extensions.compat.feature.management": "ניהול הרחבות אחרות"
 }

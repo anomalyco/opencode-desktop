@@ -72,7 +72,6 @@ pub struct EngineManager {
     events: std::sync::mpsc::Sender<crate::Event>,
     extensions: Option<crate::extensions::ExtensionHost>,
     rejected_exts: Vec<String>,
-    stub_root: Option<std::path::PathBuf>,
     app_handles_ext_tabs: bool,
     next_ext_open_req: u64,
     pending_ext_opens: HashMap<u64, (String, i64, String)>,
@@ -123,7 +122,6 @@ impl EngineManager {
         #[cfg(target_os = "linux")] transport: crate::dmabuf_frames::Transport,
         extensions: Option<crate::extensions::ExtensionHost>,
         rejected_exts: Vec<String>,
-        stub_root: Option<std::path::PathBuf>,
     ) -> Self {
         if let Some(global) = cef::request_context_get_global_context() {
             crate::permissions::block_device_permission_guards(&global);
@@ -137,7 +135,6 @@ impl EngineManager {
             events: events.clone(),
             extensions,
             rejected_exts,
-            stub_root,
             app_handles_ext_tabs: false,
             next_ext_open_req: 1,
             pending_ext_opens: HashMap::new(),
