@@ -260,9 +260,9 @@ fn group_header(
     let menu_open = s.popup.open_at(&trigger_key);
     let open_key = trigger_key.clone();
     let sliders = super::super::home::projects::icon_button(p, &trigger_key, t!("sidebar.recent.view.options"), &ic::OUTLINE_SLIDERS, menu_open)
-        .help(t!("sidebar.recent.view.options"))
         .focus_inset(p)
         .menu_button(trigger_key.clone(), move |s: &mut App, tx: &mut Tx| recent_view::open_menu(s, open_key.clone(), tx));
+    let sliders = if menu_open { sliders } else { sliders.help(t!("sidebar.recent.view.options")) };
     let sliders = el().pin(None, Some(2.0), Some(4.0), None).child(if menu_open { sliders } else { session_view::style::hover_reveal(sliders) });
 
     let heading = if collapsible {
@@ -281,6 +281,7 @@ fn group_header(
             .gap(4.0)
             .center_y()
             .radius(6.0)
+            .cursor(rune::Cursor::Pointer)
             .focus_inset(p)
             .hover(p.hover)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
