@@ -2,7 +2,8 @@
 //! diff/file fetches, debounced event invalidation, mode/style/expand switches, and job execution.
 
 use opencode_code_view::data::review::{
-    FetchedDiffs, ReviewFetchSpec, collapsed_folders, fetch_live_diffs, fetch_live_file_text, load_fixture_diffs,
+    FetchedDiffs, FetchedVcs, ReviewFetchSpec, collapsed_folders, fetch_live_diff_only, fetch_live_file_text,
+    fetch_live_vcs, load_fixture_diffs,
 };
 use opencode_code_view::{ExpandMode, FoldEvent};
 use opencode_kit::client::Server;
@@ -15,7 +16,10 @@ use serde_json::Value;
 use crate::focus::{Anchor, focus_change};
 use crate::folders::{self, expand_folder};
 use crate::mobile::NarrowReview;
-use crate::{ChangeMode, Load, Refresh, RefreshEffect, RefreshEvent, ReviewHost, ReviewJob, ReviewReply};
+use crate::{
+    CachedReview, CachedVcs, ChangeMode, Load, Refresh, RefreshEffect, RefreshEvent, ReviewCacheKey,
+    ReviewHost, ReviewJob, ReviewReply, dir_key,
+};
 
 /// Executes a [`ReviewJob`] off the UI thread against the live [`Server`].
 pub fn execute_job(server: &Server, job: ReviewJob) -> ReviewReply {
@@ -39,6 +43,10 @@ pub fn apply_reply(host: &mut dyn ReviewHost, reply: ReviewReply, tx: &mut Tx) {
 /// Lands the reads in flight; reads again after file events while the changes show.
 pub fn poll(host: &mut dyn ReviewHost, tx: &mut Tx) -> bool {
     let mut changed = false;
+    if let Some((server_base, dkey, vcs)) = host.review().vcs_fetch.take() {
+        tx.instant();
+        changed |= apply_fetched_vcs(host, server_base, dkey, vcs);
+    }
     if let Some(fetched) = host.review().diff_fetch.take() {
         tx.instant();
         let sid = fetched.session_id.clone();
@@ -128,26 +136,125 @@ pub fn note_event(host: &mut dyn ReviewHost, ty: &str, data: &Value) -> bool {
     host.review_mut().refresh.step(RefreshEvent::Immediate) == RefreshEffect::WakeNow
 }
 
+/// Prefetches `/api/vcs` for `directory` without blocking diff loads, matching Desktop's
+/// `location.vcs.sync({ directory })` (`packages/app/src/session/timeline/message-timeline.tsx:194`,
+/// `packages/client/src/solid/data.ts:1596`).
+pub fn prefetch_vcs(host: &mut dyn ReviewHost, directory: &str) {
+    if directory.is_empty() {
+        return;
+    }
+    let Some(srv) = host.live_server().cloned() else { return };
+    let key = (srv.base.clone(), dir_key(directory));
+    {
+        let review = host.review();
+        if review.vcs_cache.contains_key(&key) || review.vcs_asked.as_ref() == Some(&key) {
+            return;
+        }
+    }
+    let dir = directory.to_owned();
+    host.review_mut().vcs_asked = Some(key.clone());
+    host.review_mut().vcs_fetch.request((key, dir), move |((base, dkey), dir)| {
+        let fetched = fetch_live_vcs(&srv, &dir);
+        (base, dkey, fetched)
+    });
+}
+
+/// Invalidates cached VCS metadata for `directory` when `vcs.branch.updated` arrives and refreshes
+/// any shown review in that directory.
+pub fn note_branch_updated(host: &mut dyn ReviewHost, directory: &str, branch: Option<String>) {
+    let Some(srv) = host.live_server() else { return };
+    let base = srv.base.clone();
+    let dkey = dir_key(directory);
+    let sids: Vec<String> = {
+        let review = host.review_mut();
+        review.vcs_cache.remove(&(base.clone(), dkey.clone()));
+        if review.vcs_asked.as_ref().is_some_and(|k| k.0 == base && k.1 == dkey) {
+            review.vcs_asked = None;
+        }
+        review.revision += 1;
+        review.sessions.keys().cloned().collect()
+    };
+    let mut notify: Vec<String> = Vec::new();
+    for sid in sids {
+        if host.session_directory(&sid).is_some_and(|d| dir_key(d) == dkey)
+            && let Some(sr) = host.review_mut().sessions.get_mut(&sid)
+            && sr.branch_current != branch
+        {
+            sr.branch_current = branch.clone();
+            sr.stamp += 1;
+            notify.push(sid);
+        }
+    }
+    for sid in notify {
+        host.on_review_changed(&sid);
+    }
+    if host.review_shown() {
+        prefetch_vcs(host, directory);
+        host.review_mut().refresh.step(RefreshEvent::Immediate);
+    }
+}
+
+/// Refreshes `sid` when the Review panel opens or reopens: already-loaded diffs stay painted
+/// immediately while a background refresh runs (`packages/gui-plugins/src/review/model.ts:427-443`,
+/// `machine.ts:116-117, 228`).
+pub fn refresh_on_open(host: &mut dyn ReviewHost, sid: &str) {
+    let needs_bump = {
+        let review = host.review();
+        review
+            .sessions
+            .get(sid)
+            .is_some_and(|sr| sr.load.loaded_revision() == Some((sr.mode, review.revision)))
+    };
+    if needs_bump {
+        host.review_mut().revision += 1;
+    }
+    ensure_session(host, sid);
+}
+
 /// Ensures session `session_id`'s diffs are loaded for its current mode and revision.
 pub fn ensure_session(host: &mut dyn ReviewHost, session_id: &str) {
     let directory = host.session_directory(session_id).unwrap_or_default().to_owned();
     let wrap = host.wrap_lines();
     let live_server = host.live_server().cloned();
-    let (diff_mode, expand_mode, rev, mode, already_loaded) = {
+    let (diff_mode, expand_mode, rev, mode, already_loaded, hydrated) = {
         let review = host.review_mut();
         review.refresh.step(RefreshEvent::Clear);
         let diff_mode = review.diff_mode;
         let expand_mode = review.expand_mode;
         let rev = review.revision;
+        let server_base = live_server.as_ref().map_or("", |s| s.base.as_str());
+        let dkey = dir_key(&directory);
+        let vcs_cached = (!server_base.is_empty() && !dkey.is_empty())
+            .then(|| review.vcs_cache.get(&(server_base.to_owned(), dkey.clone())).cloned())
+            .flatten();
+        let mode = review.sessions.entry(session_id.to_owned()).or_default().mode;
+        let cached_entry = (!server_base.is_empty())
+            .then(|| review.cache.get(&ReviewCacheKey::for_target(server_base, &directory, session_id, mode)).cloned())
+            .flatten();
         let sr = review.sessions.entry(session_id.to_owned()).or_default();
-        let mode = sr.mode;
         let already_loaded = sr.load.loaded_revision() == Some((mode, rev));
+        let mut hydrated = false;
         if already_loaded {
             sr.diffs.set_mode(diff_mode);
             sr.diffs.set_expand_mode(expand_mode);
+        } else if !sr.load.ready() {
+            if let Some(cached) = cached_entry.as_ref() {
+                sr.hydrate_from_cache(cached, vcs_cached.as_ref(), diff_mode, expand_mode, wrap);
+                hydrated = true;
+            } else if let Some(vcs) = vcs_cached.as_ref()
+                && (sr.branch_current != vcs.branch_current || sr.branch_default != vcs.branch_default)
+            {
+                sr.branch_current = vcs.branch_current.clone();
+                sr.branch_default = vcs.branch_default.clone();
+                sr.stamp += 1;
+                hydrated = true;
+            }
         }
-        (diff_mode, expand_mode, rev, mode, already_loaded)
+        (diff_mode, expand_mode, rev, mode, already_loaded, hydrated)
     };
+    if hydrated {
+        host.on_review_changed(session_id);
+    }
     if already_loaded {
         return;
     }
@@ -170,6 +277,9 @@ pub fn ensure_session(host: &mut dyn ReviewHost, session_id: &str) {
         host.on_review_changed(session_id);
         return;
     };
+
+    // Fetch `/api/vcs` concurrently on its own channel so `/api/vcs/diff` never waits on it.
+    prefetch_vcs(host, &directory);
 
     let ask = (session_id.to_owned(), mode, rev);
     if host.review().asked.as_ref() == Some(&ask) {
@@ -206,7 +316,7 @@ pub fn ensure_session(host: &mut dyn ReviewHost, session_id: &str) {
     host.trace_review_asked(session_id, rev);
     host.review_mut()
         .diff_fetch
-        .request(spec, move |spec| fetch_live_diffs(&srv, spec));
+        .request(spec, move |spec| fetch_live_diff_only(&srv, spec));
 }
 
 /// Forces a fresh read for session `session_id` (e.g. pressing Retry).
@@ -215,9 +325,91 @@ pub fn refresh(host: &mut dyn ReviewHost, session_id: &str) {
     ensure_session(host, session_id);
 }
 
+/// Applies a completed `/api/vcs` read progressively: updates branch options immediately even
+/// while diffs are still loading, and reconciles `NoVcs` on empty diff lists.
+fn apply_fetched_vcs(host: &mut dyn ReviewHost, server_base: String, dkey: String, fetched: Option<FetchedVcs>) -> bool {
+    {
+        let review = host.review_mut();
+        if review.vcs_asked.as_ref().is_some_and(|k| k.0 == server_base && k.1 == dkey) {
+            review.vcs_asked = None;
+        }
+    }
+    let Some(vcs) = fetched else { return false };
+    let cached = CachedVcs {
+        branch_current: vcs.branch_current,
+        branch_default: vcs.branch_default,
+        lacks_provider: vcs.lacks_provider,
+    };
+    {
+        let review = host.review_mut();
+        review.vcs_cache.insert((server_base.clone(), dkey.clone()), cached.clone());
+        for (k, entry) in &mut review.cache {
+            if let ReviewCacheKey::Vcs { server_base: b, directory: d, .. } = k
+                && b == &server_base
+                && d == &dkey
+            {
+                entry.branch_current = cached.branch_current.clone();
+                entry.branch_default = cached.branch_default.clone();
+                entry.no_git = cached.lacks_provider && entry.count == 0;
+            }
+        }
+    }
+    if host.live_server().is_none_or(|s| s.base != server_base) {
+        return false;
+    }
+    let matching: Vec<String> = host
+        .review()
+        .sessions
+        .keys()
+        .filter(|sid| host.session_directory(sid).is_some_and(|d| dir_key(d) == dkey))
+        .cloned()
+        .collect();
+    let mut notify: Vec<String> = Vec::new();
+    for sid in matching {
+        let mut dirty = false;
+        if let Some(sr) = host.review_mut().sessions.get_mut(&sid) {
+            if sr.branch_current != cached.branch_current || sr.branch_default != cached.branch_default {
+                sr.branch_current = cached.branch_current.clone();
+                sr.branch_default = cached.branch_default.clone();
+                dirty = true;
+            }
+            let want_no_git = cached.lacks_provider && sr.root_count == 0;
+            if let Load::Ready { mode, revision } = sr.load
+                && want_no_git
+            {
+                sr.load = Load::NoVcs { mode, revision };
+                dirty = true;
+            } else if let Load::NoVcs { mode, revision } = sr.load
+                && !want_no_git
+            {
+                sr.load = Load::Ready { mode, revision };
+                dirty = true;
+            }
+            if dirty {
+                sr.stamp += 1;
+            }
+        }
+        if dirty {
+            notify.push(sid);
+        }
+    }
+    let any = !notify.is_empty();
+    for sid in notify {
+        host.on_review_changed(&sid);
+    }
+    any
+}
+
 /// Lands a read; returns the change a step asked to show once it did.
 fn apply_fetched_diffs(host: &mut dyn ReviewHost, fetched: FetchedDiffs) -> Option<(String, Option<Anchor>)> {
     let swap = Instant::now();
+    let stale_server = !fetched.server_base.is_empty() && host.live_server().is_none_or(|s| s.base != fetched.server_base);
+    if stale_server {
+        if let Ok(prepared) = fetched.changes {
+            opencode_code_view::prepared::drop_off_ui(prepared);
+        }
+        return None;
+    }
     let diff_mode = host.review().diff_mode;
     let expand_mode = host.review().expand_mode;
     let wrap = host.wrap_lines();
@@ -244,13 +436,20 @@ fn apply_fetched_diffs(host: &mut dyn ReviewHost, fetched: FetchedDiffs) -> Opti
         }
     };
     let (reopen, file_count, focus) = {
-        let sr = host.review_mut().sessions.entry(fetched.session_id.clone()).or_default();
+        let review = host.review_mut();
+        let vcs = (!fetched.server_base.is_empty() && !fetched.directory.is_empty())
+            .then(|| review.vcs_cache.get(&(fetched.server_base.clone(), dir_key(&fetched.directory))).cloned())
+            .flatten();
+        let branch_current = fetched.branch_current.or_else(|| vcs.as_ref().and_then(|v| v.branch_current.clone()));
+        let branch_default = fetched.branch_default.or_else(|| vcs.as_ref().and_then(|v| v.branch_default.clone()));
+        let no_git = fetched.no_git || (vcs.as_ref().is_some_and(|v| v.lacks_provider) && prepared.count == 0);
+        let sr = review.sessions.entry(fetched.session_id.clone()).or_default();
         if sr.mode != fetched.mode {
             opencode_code_view::prepared::drop_off_ui(prepared);
             return None;
         }
-        sr.branch_current = fetched.branch_current;
-        sr.branch_default = fetched.branch_default;
+        sr.branch_current = branch_current.clone();
+        sr.branch_default = branch_default.clone();
         let reopen: Vec<_> = prepared.folders.iter().filter(|p| sr.tree.is_expanded(p)).cloned().collect();
         sr.generation += 1;
         let mut next_diffs = prepared.diffs.into_state();
@@ -259,6 +458,7 @@ fn apply_fetched_diffs(host: &mut dyn ReviewHost, fetched: FetchedDiffs) -> Opti
         next_diffs.set_mode(diff_mode);
         next_diffs.set_expand_mode(expand_mode);
         next_diffs.keep_keys_rev(&sr.diffs);
+        let folders_list = prepared.folders.clone();
         let old_folders = std::mem::replace(
             &mut sr.folders,
             prepared.folders.into_iter().map(|p| (p, folders::Listing::default())).collect(),
@@ -274,12 +474,28 @@ fn apply_fetched_diffs(host: &mut dyn ReviewHost, fetched: FetchedDiffs) -> Opti
         sr.active_path = prepared.active_path;
         sr.stamp += 1;
         let file_count = sr.diffs.files().len();
+        let cache_entry = (!fetched.server_base.is_empty()).then(|| CachedReview {
+            files: sr.diffs.files().to_vec(),
+            meta: sr.meta.clone(),
+            listed: sr.listed.clone(),
+            folders: folders_list,
+            count: prepared.count,
+            no_git,
+            branch_current,
+            branch_default,
+            seq: 0,
+        });
         if !old_diffs.files().is_empty() || !old_meta.is_empty() {
             let old_diffs = old_diffs.into_prepared();
             let old_narrow = old_narrow.into_prepared();
             opencode_code_view::prepared::drop_off_ui((old_diffs, old_meta, old_listed, old_tree, old_folders, old_narrow));
         }
-        let focus = sr.load.landed(fetched.mode, fetched.revision, fetched.no_git);
+        let load_focus = sr.load.landed(fetched.mode, fetched.revision, no_git);
+        let focus = sr.pending_focus.take().or(load_focus);
+        if let Some(entry) = cache_entry {
+            let key = ReviewCacheKey::for_target(&fetched.server_base, &fetched.directory, &fetched.session_id, fetched.mode);
+            review.store_cache(key, entry);
+        }
         (reopen, file_count, focus)
     };
     for folder in reopen {
@@ -298,13 +514,28 @@ pub fn set_mode(host: &mut dyn ReviewHost, mode: ChangeMode) {
 
 /// Switches session `sid`'s change source (`git`, `branch`, or `turn`) and ensures its diffs load.
 pub fn set_session_mode(host: &mut dyn ReviewHost, sid: &str, mode: ChangeMode) {
+    let directory = host.session_directory(sid).unwrap_or_default().to_owned();
+    let server_base = host.live_server().map(|s| s.base.clone()).unwrap_or_default();
+    let wrap = host.wrap_lines();
     let changed = {
         let review = host.review_mut();
+        let diff_mode = review.diff_mode;
+        let expand_mode = review.expand_mode;
+        let dkey = dir_key(&directory);
+        let vcs_cached = (!server_base.is_empty() && !dkey.is_empty())
+            .then(|| review.vcs_cache.get(&(server_base.clone(), dkey)).cloned())
+            .flatten();
+        let cached_entry = (!server_base.is_empty())
+            .then(|| review.cache.get(&ReviewCacheKey::for_target(&server_base, &directory, sid, mode)).cloned())
+            .flatten();
         let sr = review.sessions.entry(sid.to_owned()).or_default();
         if sr.mode != mode {
             sr.mode = mode;
-            sr.load.restart();
-            sr.stamp += 1;
+            if let Some(cached) = cached_entry.as_ref() {
+                sr.hydrate_from_cache(cached, vcs_cached.as_ref(), diff_mode, expand_mode, wrap);
+            } else {
+                sr.clear_for_mode_switch();
+            }
             review.asked = None;
             true
         } else {
@@ -414,23 +645,33 @@ pub fn open_for_session(
     if let Some(v) = view {
         set_diff_mode(host, v);
     }
-    if let Some(m) = mode {
-        let review = host.review_mut();
-        let sr = review.sessions.entry(sid.to_owned()).or_default();
-        if sr.mode != m {
-            sr.mode = m;
-            sr.load.restart();
-            sr.stamp += 1;
-            review.asked = None;
-        }
-    }
     host.show_review_tab(sid, false, tx);
-    ensure_session(host, sid);
+    if let Some(m) = mode {
+        set_session_mode(host, sid, m);
+    } else {
+        refresh_on_open(host, sid);
+    }
     if let Some(p) = path {
         let anchor = line.map(|n| Anchor { side: Side::New, text: String::new(), near: Some(n.max(1)) });
-        if let Some(Load::Loading { focus }) = host.review_mut().sessions.get_mut(sid).map(|sr| &mut sr.load) {
-            *focus = Some((p.to_owned(), anchor));
-        } else {
+        let defer = {
+            let rev = host.review().revision;
+            if let Some(sr) = host.review_mut().sessions.get_mut(sid) {
+                match &mut sr.load {
+                    Load::Loading { focus } => {
+                        *focus = Some((p.to_owned(), anchor.clone()));
+                        true
+                    }
+                    Load::Ready { revision, .. } if *revision != rev && !sr.listed.iter().any(|l| l == p) => {
+                        sr.pending_focus = Some((p.to_owned(), anchor.clone()));
+                        true
+                    }
+                    _ => false,
+                }
+            } else {
+                false
+            }
+        };
+        if !defer {
             focus_change(host, sid, p, anchor.as_ref(), tx);
         }
     }

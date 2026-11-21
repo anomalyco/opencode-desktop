@@ -223,14 +223,17 @@ fn section<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, part: Part,
             }
         })
         .child(crate::copied::glyph(s, &copy_key, 14.0, p.icon_muted));
+    let rule_h = if part.rule { crate::scroller::border_width(RING) } else { 0.0 };
     let backdrop = el().key("backdrop").absolute(-24.0, -4.0).size(52.0, 36.0).clip_fade_linear(24.0, 8.0, 0.0, 8.0).child(el().w_full().h_full().fill(fill));
-    let holder = crate::style::hover_reveal(el().key("copy-holder").size(24.0, 24.0).pin(None, Some(4.0), Some(4.0), None)).child(backdrop).child(button);
-    let inset = col().key("text").w_full().padding(PAD).child(readable(p, words).w_full());
+    let holder = crate::style::hover_reveal(el().key("copy-holder").size(24.0, 24.0).pin(None, Some(4.0 + rule_h), Some(4.0), None)).child(backdrop).child(button);
+    // `border-block-start: 0.5px` (`message-part.css:901`) takes one snapped device pixel above
+    // `bash-pre`'s 12 pt padding (`message-part.css:837`).
+    let inset = col().key("text").w_full().pt(PAD + rule_h).px(PAD).pb(PAD).child(readable(p, words).w_full());
     let mut sec = col().key(part.name).w_full().fill(fill).child(inset).child(holder);
-    // `border-block-start: 0.5px solid border-base` (`message-part.css:908`): one whole device
+    // `border-block-start: 0.5px solid border-base` (`message-part.css:901`): one whole device
     // pixel, drawn after the copy button's backdrop, which stops below it.
     if part.rule {
-        sec = sec.child(el().key("rule").absolute(0.0, 0.0).w_full().h(crate::scroller::border_width(RING)).fill(p.border));
+        sec = sec.child(el().key("rule").absolute(0.0, 0.0).w_full().h(rule_h).fill(p.border));
     }
     sec
 }

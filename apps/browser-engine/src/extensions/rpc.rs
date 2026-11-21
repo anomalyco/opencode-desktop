@@ -23,7 +23,15 @@ fn format_notification_body(opts: Option<&serde_json::Map<String, Value>>) -> St
     let clean_field = |k: &str| {
         obj.get(k)
             .and_then(Value::as_str)
-            .map(|s| s.chars().filter(|c| !c.is_control() || *c == ' ').take(256).collect::<String>())
+            // Control characters and the bidi controls that could reorder the text to pass for
+            // the app's or another extension's words (`U+061C`, `U+200E`/`F`, `U+202A`-`U+202E`, `U+2066`-`U+2069`).
+            .map(|s| {
+                s.chars()
+                    .filter(|c| !c.is_control() || *c == ' ')
+                    .filter(|c| !matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'))
+                    .take(256)
+                    .collect::<String>()
+            })
             .map(|s| s.trim().to_owned())
             .filter(|s| !s.is_empty())
     };

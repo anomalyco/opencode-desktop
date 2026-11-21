@@ -381,7 +381,14 @@ impl App {
     }
 
     pub fn toggle_side_region(&mut self, tx: &mut Tx) {
+        let was_open = self.side_open();
         toggle_side_region(self, tx);
+        if !was_open
+            && self.is_review_active()
+            && let Some(sid) = self.active_session_id().map(str::to_owned)
+        {
+            crate::plugin_host::native::diff::open_review(self, &sid);
+        }
     }
 
     pub fn toggle_bottom_region(&mut self) {
@@ -436,6 +443,11 @@ impl App {
 
     pub fn select_side_tab(&mut self, key: &str, tx: &mut Tx) {
         select_side_tab(self, key, tx);
+        if key == crate::review::REVIEW_KEY
+            && let Some(sid) = self.active_session_id().map(str::to_owned)
+        {
+            crate::plugin_host::native::diff::open_review(self, &sid);
+        }
     }
 
     pub fn move_side_tab(&mut self, key: &str, pane: SessionPane, before: Option<&str>, tx: &mut Tx) {
@@ -451,7 +463,14 @@ impl App {
     }
 
     pub fn reopen_closed_side_tab(&mut self, key: Option<&str>, tx: &mut Tx) -> bool {
-        reopen_closed_side_tab(self, key, tx)
+        let reopened = reopen_closed_side_tab(self, key, tx);
+        if reopened
+            && self.is_review_active()
+            && let Some(sid) = self.active_session_id().map(str::to_owned)
+        {
+            crate::plugin_host::native::diff::open_review(self, &sid);
+        }
+        reopened
     }
 
     pub fn select_adjacent_side_tab(&mut self, offset: i32, tx: &mut Tx) -> bool {

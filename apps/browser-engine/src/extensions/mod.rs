@@ -373,7 +373,9 @@ impl ExtensionHost {
             popup_resize_rates: HashMap::new(),
             notification_rates: HashMap::new(),
             notifications: HashMap::new(),
-            notifications_enabled: true,
+            // Off until the app says Settings > Notifications allows them, so `getPermissionLevel`
+            // never answers "granted" in the moment before `SetNotificationsEnabled` arrives.
+            notifications_enabled: false,
             metrics: ShimMetrics::default(),
         }
     }
@@ -1074,6 +1076,16 @@ impl ExtensionHost {
 
     pub fn set_notifications_enabled(&mut self, enabled: bool) {
         self.notifications_enabled = enabled;
+    }
+
+    /// Drops extension `ext_id`'s notifications, for the app to take its toasts down.
+    pub(super) fn forget_notifications(&mut self, ext_id: &str) -> Vec<ExtEffect> {
+        self.notifications
+            .remove(ext_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|notif_id| ExtEffect::NotificationClear { ext_id: ext_id.to_owned(), notif_id })
+            .collect()
     }
 
     /// Delivers a desktop OS notification click or dismissal back to the owning extension

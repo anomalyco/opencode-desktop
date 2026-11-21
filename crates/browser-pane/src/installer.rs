@@ -369,14 +369,18 @@ pub fn installed() -> Option<Installed> {
         return Some(Installed { version: None, bin });
     }
     let root = try_engines_root()?;
-    // Only a version installed under a rule this build accepts: a release build never starts an
-    // engine an older build took from the loopback stand-in, or one it can't tell the origin of.
+    // Only a complete version installed under a rule this build accepts: a release build never
+    // starts an engine an older build took from the loopback stand-in, one it can't tell the
+    // origin of, or a half-installed folder missing its executable (which must not hide an older
+    // intact version).
     installed_versions(&root)
         .into_iter()
-        .filter(|v| v.accepted() && crate::source::accepts_install(&root.join(v.to_string())))
+        .filter(|v| {
+            let dir = root.join(v.to_string());
+            v.accepted() && !is_reparse_or_symlink(&dir) && crate::source::accepts_install(&dir) && bin_in(&dir).is_file()
+        })
         .max()
         .map(|version| Installed { version: Some(version), bin: bin_in(&root.join(version.to_string())) })
-        .filter(|i| i.bin.is_file())
 }
 
 /// The versions with a folder in `root`, accepted by this build or not.
@@ -438,20 +442,31 @@ pub(crate) fn sweep_unpacking(root: &Path) {
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
-        // `.<version>.staging-<pid>-<n>` and `.<version>.old-<pid>`: the process that made it is gone.
+        // `.<version>.staging-<pid>-<n>` and `.<version>.old-<pid>[-<n>]`: the process that made it is gone.
         let pid = name.strip_prefix('.').and_then(|name| {
             let (version, pid) = if let Some((version, rest)) = name.split_once(".staging-") {
                 let (pid, seq) = rest.split_once('-')?;
                 seq.parse::<u64>().ok()?;
                 (version, pid)
             } else {
-                name.split_once(".old-")?
+                let (version, rest) = name.split_once(".old-")?;
+                let pid = match rest.split_once('-') {
+                    Some((pid, seq)) => {
+                        seq.parse::<u64>().ok()?;
+                        pid
+                    }
+                    None => rest,
+                };
+                (version, pid)
             };
             Version::parse(version)?;
             pid.parse::<u32>().ok()
         });
         if pid.is_some_and(|pid| pid != std::process::id() && !crate::background::pid_alive(pid)) {
-            std::fs::remove_dir_all(entry.path()).ok();
+            let path = entry.path();
+            if !is_reparse_or_symlink(&path) {
+                std::fs::remove_dir_all(path).ok();
+            }
         }
     }
 }
@@ -621,12 +636,45 @@ pub(crate) fn err_write(err: &std::io::Error) -> Fault {
     if full || err.kind() == std::io::ErrorKind::StorageFull { Fault::DiskFull } else { Fault::Write(err.to_string()) }
 }
 
-/// Removes an installed version whose files are damaged, so the next start downloads it again.
-/// A folder an engine still runs from stays (Windows refuses the move while its files are open).
+/// True when `path` itself is a symlink or (on Windows) any reparse point such as a junction.
+#[cfg(feature = "engine")]
+pub(crate) fn is_reparse_or_symlink(path: &Path) -> bool {
+    let Ok(meta) = std::fs::symlink_metadata(path) else { return false };
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt as _;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+        meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+#[cfg(feature = "engine")]
+static DISCARD_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// Removes an installed version whose files are damaged or incomplete, so the next start downloads
+/// it again. Never follows symlinks or Windows junctions. A folder an engine still runs from stays
+/// (Windows refuses the move while its files are open).
 #[cfg(feature = "engine")]
 pub(crate) fn discard(root: &Path, version: Version) {
-    let trash = root.join(format!(".{version}.old-{}", std::process::id()));
-    if std::fs::rename(root.join(version.to_string()), &trash).is_ok() {
+    let dir = root.join(version.to_string());
+    let Ok(meta) = std::fs::symlink_metadata(&dir) else { return };
+    if is_reparse_or_symlink(&dir) {
+        return;
+    }
+    if !meta.is_dir() {
+        std::fs::remove_file(&dir).ok();
+        return;
+    }
+    let seq = DISCARD_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let trash = root.join(format!(".{version}.old-{}-{seq}", std::process::id()));
+    if std::fs::rename(&dir, &trash).is_ok() {
         std::fs::remove_dir_all(&trash).ok();
     }
 }

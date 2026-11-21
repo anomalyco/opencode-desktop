@@ -5,11 +5,11 @@
 
 use std::collections::HashSet;
 
-use rune::{Align, Color, El, Key, Shadow, Side, TextEdit, TextStyle, Transition, Tx, col, el, icon, row, spacer, text};
+use rune::{Align, Color, El, Key, Side, TextEdit, TextStyle, Transition, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
 use super::{Model, ModelAction, PickerHost, host, mark, search};
-use crate::palette::Pal;
+use crate::palette::{Elevate as _, Pal};
 use crate::popover::{self as pop, MENU, Opt};
 use crate::style::{UI, UI_MED};
 
@@ -123,7 +123,8 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
         body = body.child(section);
     }
 
-    let dialog = overlay_shadow(p).into_iter().fold(col(), El::box_shadow)
+    let dialog = col()
+        .elevate(p.overlay)
         .key("manage-models")
         .role("dialog")
         .label_static(opencode_i18n::t!("dialog.model.manage"))
@@ -197,13 +198,14 @@ fn header<S: PickerHost>(p: &Pal, provider: &str, models: &[&Model], open: bool,
         .role("button")
         .label_static(opencode_i18n::t!("common.moreOptions"))
         .expanded(menu_open)
-        .size(24.0, 24.0)
-        .radius(6.0)
+        // `<IconButton size="small">` (`provider-group.tsx:269`, `icon-button.css:29-33`): 20 × 20, radius 4.
+        .size(20.0, 20.0)
+        .radius(4.0)
         .center()
         .fill(if menu_open { p.pressed } else { Color::TRANSPARENT })
         .hover(if menu_open { Color::TRANSPARENT } else { p.hover })
         .press(p.pressed)
-        .pin(None, Some(10.0), Some(16.0), None)
+        .pin(None, Some(12.0), Some(16.0), None)
         .press_on_down()
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             tx.instant();
@@ -276,18 +278,20 @@ fn rows<S: PickerHost>(s: &S, p: &Pal, models: &[&Model]) -> El {
         .child(list)
 }
 
-/// Desktop's switch (`switch.css`): 24 × 16 with 4 pt corners, a 12 pt thumb with 2 pt corners
-/// that sits at the end when on, the accent under it then. It flips in the press's frame.
+/// Desktop's switch (`switch.css:20-152`): 24 × 16 with 4 pt corners, a 12 pt thumb with 2 pt
+/// corners, track sheen, elevation, and depth-shaded thumb.
 fn switch<S: PickerHost>(p: &Pal, key: &str, on: bool, flip: impl Fn(&mut S) + 'static) -> El {
-    let thumb = el().key("thumb").size(12.0, 12.0).radius(2.0).fill(p.switch_thumb);
-    row().key(key.to_owned()).role("switch").label(if on { opencode_i18n::t!("project.settings.autoAccept.on") } else { opencode_i18n::t!("project.settings.autoAccept.off") })
-        .w(24.0).h(16.0).px(2.0).center_y().radius(4.0)
-        .fill(if on { p.bg_accent } else { p.q.layer4 })
-        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+    let label = if on { opencode_i18n::t!("project.settings.autoAccept.on") } else { opencode_i18n::t!("project.settings.autoAccept.off") };
+    rune_kit::Switch::new(on)
+        .web()
+        .label(label)
+        .hide_label()
+        .on_toggle_tx(move |s: &mut S, tx: &mut Tx| {
             tx.instant();
             flip(s);
         })
-        .child(if on { row().w_full().child(spacer()).child(thumb) } else { row().w_full().child(thumb) })
+        .build(crate::palette::kit(p))
+        .key(key.to_owned())
 }
 
 /// The header's `button-v2` neutral at size small with its plus (`manage.tsx:107-109`): it
@@ -305,15 +309,4 @@ fn connect<S: PickerHost>(p: &Pal) -> El {
         .build(crate::palette::kit(p))
         .key("manage-models-connect")
         .mr(-2.0)
-}
-
-/// `--v2-elevation-overlay` (`theme.css:112-114`, `:230-234`): two drops and a 0.5 pt ring.
-fn overlay_shadow(p: &Pal) -> [Shadow; 3] {
-    let drop = |y, blur, spread, color| Shadow { y, blur, spread, color, ..Shadow::default() };
-    let (dark, light) = (Color::BLACK, Color::WHITE);
-    if p.dark {
-        [drop(16.0, 32.0, 0.0, dark.alpha(0.3)), drop(8.0, 16.0, 0.0, dark.alpha(0.3)), drop(0.0, 0.0, 0.5, light.alpha(0.16))]
-    } else {
-        [drop(16.0, 32.0, 0.0, dark.alpha(0.04)), drop(8.0, 16.0, 0.0, dark.alpha(0.08)), drop(0.0, 0.0, 0.5, dark.alpha(0.12))]
-    }
 }
