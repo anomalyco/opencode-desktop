@@ -564,7 +564,14 @@ local function omniboxRow(
     end
     local page = row.page
     local textW = math.max(0, width - 16 - 16 - 8 - 28)
+    -- Render IDN hosts as punycode (`xn--...`) in omnibox suggestions to prevent homograph spoofing.
     local shownUrl = (string.gsub(history.bare(page.url), "^([^/?#]+)/$", "%1"))
+    local web = hostDisplay.webParts(page.url)
+    if web ~= nil then
+        local hostBare = string.gsub(web.host, "^www%.", "")
+        local restClean = if web.rest == "/" then "" else web.rest
+        shownUrl = `{hostBare}{restClean}`
+    end
     local items: { ui.Node } = {}
     if page.title ~= "" then
         table.insert(items, marked(page.title, query, "text-chrome", { maxW = textW * 0.55, truncate = true, shrink = true, minW = 0 }))

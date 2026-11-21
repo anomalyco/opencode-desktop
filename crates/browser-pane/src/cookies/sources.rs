@@ -223,6 +223,22 @@ fn definitions() -> Vec<Definition> {
     ]
 }
 
+fn sanitize_profile_name(raw: &str, fallback: &str) -> String {
+    let cleaned: String = raw
+        .trim()
+        .chars()
+        .filter(|&c| {
+            !c.is_control()
+                && !matches!(
+                    c,
+                    '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
+                )
+        })
+        .take(120)
+        .collect();
+    if cleaned.is_empty() { fallback.to_owned() } else { cleaned }
+}
+
 /// Lists installed external browsers with at least one profile holding cookies, ordered by most
 /// recently modified cookie database first (`sources.ts::listSources`).
 pub fn list_sources() -> Vec<BrowserSource> {
@@ -242,9 +258,9 @@ pub fn list_sources() -> Vec<BrowserSource> {
                 engine: def.engine,
                 profiles: profiles
                     .into_iter()
-                    .map(|p| BrowserProfileInfo {
-                        id: p.id,
-                        name: p.name,
+                    .map(|p| {
+                        let name = sanitize_profile_name(&p.name, &p.id);
+                        BrowserProfileInfo { id: p.id, name }
                     })
                     .collect(),
             },
