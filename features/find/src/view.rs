@@ -85,7 +85,16 @@ fn build_bar(s: &dyn FindHost, p: &Pal, input: El, steps: [El; 2], close_btn: El
     });
     // `text-input-v2`: its input elevation at rest, the focus outline (and no shadow) while focused.
     let bar = row().key("find-bar");
-    let bar = if find.input.focused { bar.border(1.0, p.v2.border_focus) } else { bar.box_shadow(Pal::ring_out(p.border)) };
+    let bar = match opencode_ui::palette::kit(p).forced {
+        // A contrast theme draws the edge in its text colour and focus as the field's own ring
+        // (`search-bar.css`, opencode#65100).
+        Some(highlight) => {
+            let bar = bar.border(1.0, p.text);
+            if find.input.focused { bar.outline(2.0, 2.0, highlight) } else { bar }
+        }
+        None if find.input.focused => bar.border(1.0, p.v2.border_focus),
+        None => bar.box_shadow(Pal::ring_out(p.border)),
+    };
     bar.transition(Transition::none())
         .h(28.0)
         .w(240.0)

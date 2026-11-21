@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 164,
   "status_counts": {
-    "have it": 125,
-    "partly": 3,
+    "have it": 127,
     "not applicable": 23,
-    "missing": 12,
-    "differs on purpose": 1
+    "missing": 10,
+    "differs on purpose": 1,
+    "partly": 3
   },
   "rows": [
     {
@@ -3410,8 +3410,8 @@
       ],
       "summary": "Keep text field, search bar, palette search, and line-comment focus rings and borders visible under forced-colors / Windows High Contrast mode.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Rune maps Windows Contrast themes via opencode-ui::themes::contrast; text fields, search inputs, and line comment boxes need forced-colors border/invalid/focus-ring verification and parity.",
+      "status": "have it",
+      "status_evidence": "Rune Kit::forced (#1310), set by the app in the system contrast theme: kit text fields draw a text-colour edge (2 pt dashed when invalid) and focus as a 2 pt highlight ring 2 out; the find bar does the same; the line-comment field's focus is a border-focus border with a 1 px outline, not a shadow (PR #347)",
       "depends_on": "UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"
@@ -3598,8 +3598,8 @@
       ],
       "summary": "Size pinned group rename input to 100% width and suppress its focus ring outside forced-colors mode.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "apps/desktop/src/shell/view/sidebar/pinned_area.rs:296 renders pin-group-name via session_view::style::field; verify width containment and no unwanted focus ring in non-contrast mode (keep ring in contrast mode).",
+      "status": "have it",
+      "status_evidence": "The group name field (inline rename, from the group menu's Rename) fills its row and draws no focus ring; rune-desktop's group menu renames inline rather than in a field inside the menu (official's GroupEditor), a UP-072 difference (PR #347)",
       "depends_on": "UP-072 (#64668), UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"
