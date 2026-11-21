@@ -133,9 +133,12 @@ pub fn encode_request(id: i32, world: &Value, b64: &str) -> Option<String> {
   let image;
   try {{ image = await createImageBitmap(new Blob([bytes])); }} catch {{
     // `createImageBitmap` takes no SVG from a Blob; an image element does.
-    image = new Image(); image.src = URL.createObjectURL(new Blob([bytes], {{ type: "image/svg+xml" }})); await image.decode(); URL.revokeObjectURL(image.src);
+    image = new Image(); const src = URL.createObjectURL(new Blob([bytes], {{ type: "image/svg+xml" }}));
+    try {{ image.src = src; await image.decode(); }} finally {{ URL.revokeObjectURL(src); }}
   }}
   const width = image.naturalWidth || image.width, height = image.naturalHeight || image.height;
+  // A tiny file can claim a huge size (an SVG's own width and height): refuse it before the canvas.
+  if (!(width > 0 && height > 0 && width <= 8192 && height <= 8192 && width * height <= 16777216)) return null;
   const canvas = new OffscreenCanvas(width, height);
   canvas.getContext("2d").drawImage(image, 0, 0, width, height);
   const png = new Uint8Array(await (await canvas.convertToBlob({{ type: "image/png" }})).arrayBuffer());
