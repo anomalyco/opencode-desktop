@@ -277,6 +277,9 @@ wrap_app! {
                 "disable-sync",
                 "disable-field-trial-config",
                 "disable-variations-seed-fetch",
+                // N4: belt-and-suspenders alongside `plugins.always_open_pdf_externally = true`
+                // (`context.rs`; Chromium 156 removed `--disable-pdf-extension`, keeping the pref primary).
+                "disable-pdf-extension",
             ] {
                 cmd.append_switch(Some(&sw.into()));
             }
