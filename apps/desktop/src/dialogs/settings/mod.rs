@@ -738,6 +738,18 @@ impl Feature<App> for SettingsFeature {
             |s, _| s.set_text_renderer(s.settings.text_renderer.cycle()),
         ));
         builder.register_overlay(
+            OverlayRegistration::<App>::new(ABOUT_NOTICES_OVERLAY_ID)
+                .with_render(crate::overlays::layer::ACTION_DIALOG, |s, cx| {
+                    let p = crate::palette::pal(s.dark(cx));
+                    pages::about::notices_dialog(s, p, cx)
+                })
+                .above(crate::terminal::PASTE_OVERLAY_ID)
+                .with_dismiss(|s, tx| {
+                    tx.instant();
+                    pages::about::close_notices(s);
+                }),
+        );
+        builder.register_overlay(
             OverlayRegistration::<App>::new(WORKTREE_DELETE_OVERLAY_ID)
                 .with_render(crate::overlays::layer::ACTION_DIALOG, |s, cx| {
                     let p = crate::palette::pal(s.dark(cx));

@@ -46,6 +46,8 @@ pub const OVERLAY_ID: &str = "dialog.settings";
 pub const PROVIDER_REMOVAL_OVERLAY_ID: &str = "dialog.settings.provider_removal";
 /// Overlay stack identifier for Settings › Worktrees' delete confirmation.
 pub const WORKTREE_DELETE_OVERLAY_ID: &str = "dialog.settings.worktree_delete";
+/// Overlay stack identifier for Settings › About's third-party notices dialog.
+pub const ABOUT_NOTICES_OVERLAY_ID: &str = "dialog.settings.about_notices";
 
 /// Whether the Settings screen is open in this window (separate from persisted [`Settings`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
