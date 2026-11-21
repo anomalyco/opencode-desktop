@@ -746,7 +746,9 @@ impl EngineManager {
             }
             HostMsg::DropFiles { tab_id, request_id, x, y, files } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
+                    let not_ready = (!self.contexts.is_tab_ready(tab_id))
+                        .then(|| self.contexts.not_ready_reason(tab_id))
+                        .or_else(|| self.whole_tab_granted(t));
                     crate::agent::handle_drop_files(t, &self.profile_dir, tab_id, request_id, not_ready, x, y, &files, &self.next_cdp_id, &self.out_tx);
                 }
             }

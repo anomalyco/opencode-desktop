@@ -168,6 +168,7 @@ fn model_row<S: PickerHost>(s: &S, p: &Pal, item: &Item, lit: bool, selected: bo
         .gap(LIST.gap)
         .center_y()
         .radius(LIST.row_radius)
+        .cursor(rune::Cursor::Pointer)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| s.choose_picker_tx(&pick, tx))
         .child(row().key("check").size(pop::SLOT, pop::SLOT).center().children(selected.then(|| icon(&ic::CHECK, SMALL).color(p.icon))))
         .child(words)
