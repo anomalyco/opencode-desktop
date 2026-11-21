@@ -55,6 +55,10 @@ pub trait ProjectSwitcherHost: opencode_kernel::AppEnv + opencode_kernel::AppOve
     fn draft_project(&self) -> Option<&Project> {
         None
     }
+    /// The folder the open draft runs in, which the worktree step checks (`currentDestination`).
+    fn draft_dir(&self) -> Option<&str> {
+        None
+    }
     fn open_branch_picker(&mut self, _tx: &mut Tx) {}
     fn close_branch_picker(&mut self, _tx: &mut Tx) {}
     fn choose_new_worktree(&mut self, project_id: &str, directory: String);
