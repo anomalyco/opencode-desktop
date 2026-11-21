@@ -34,7 +34,7 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, height:
     let Some(hooks) = cx.hooks.cloned() else { return b };
     let lens = hooks.local.clone();
     let key = path.to_owned();
-    b = b.on_layout(move |s: &mut S, [_, _, w, h]| (lens)(s).canvas_event(&key, Event::Resized([w, h])));
+    b = b.on_layout(move |s: &mut S, rect| (lens)(s).canvas_laid(&key, rect));
     let (lens, key) = (hooks.local.clone(), path.to_owned());
     b = b.on_visible(move |s: &mut S, on, _tx: &mut Tx| (lens)(s).canvas_event(&key, Event::Seen(if on { Sight::Shown } else { Sight::Hidden })));
     // Hover tells `draw` where the pointer is; it isn't an event.
@@ -53,7 +53,8 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, height:
                 return;
             }
             local.canvas_moved(&key, tx.clock());
-            h.send(s, WidgetEvent::hover(id.clone(), f64::from(p.x), f64::from(p.y), f64::from(size[0]), f64::from(size[1])), tx);
+            let close = local.canvas_close(&key);
+            h.send(s, WidgetEvent::hover(id.clone(), f64::from(p.x), f64::from(p.y), f64::from(size[0]), f64::from(size[1]), close), tx);
         }
     });
     let (lens, key) = (hooks.local.clone(), path.to_owned());
@@ -94,7 +95,8 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, height:
             local.canvas_moved(&key, tx.clock());
         }
         if let (Some(id), true) = (&id, live) {
-            hooks.send(s, WidgetEvent::pointer(id.clone(), kind, x, y, w, h), tx);
+            let close = (hooks.local)(s).canvas_close(&key);
+            hooks.send(s, WidgetEvent::pointer(id.clone(), kind, x, y, w, h, close), tx);
         }
     })
 }

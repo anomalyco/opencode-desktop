@@ -100,6 +100,14 @@ fn uncapture(host: &mut dyn WidgetsHost, id: &str) {
 pub fn take(host: &mut dyn WidgetsHost, id: &str, input: Input<'_>, tx: &mut Tx) -> bool {
     match input {
         Input::Key { event, up } => {
+            // Back full screen always closes it, letting go of both (`widgets-fullscreen.md`).
+            if host.widgets().screen.is(id) && crate::fullscreen::back_key(event) {
+                if !up {
+                    crate::back(host, tx);
+                    tx.blur();
+                }
+                return true;
+            }
             // Esc is never delivered: it always lets go of both at once.
             if event.key == rune::Key::Escape {
                 if !up {

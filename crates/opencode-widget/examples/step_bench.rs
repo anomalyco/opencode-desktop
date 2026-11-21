@@ -59,7 +59,7 @@ fn main() {
     let canvas = first(&view, "canvas").expect("a canvas");
     let state = out.state.clone();
     let event = WidgetEvent::press(press);
-    let frame = Frame { id: Some(canvas), t: 0.0, dt: 0.0, width: 80.0, height: 20.0, scale: 2.0, pointer: None, dark: true, fullscreen: false };
+    let frame = Frame { id: Some(canvas), t: 0.0, dt: 0.0, width: 80.0, height: 20.0, scale: 2.0, pointer: None, dark: true, fullscreen: false, close: None };
 
     let n = 40;
     let init_before = time(n, || drop(program.step(&StepInput::Init { data: data.clone() }).expect("init")));

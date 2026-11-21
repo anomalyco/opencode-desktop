@@ -41,6 +41,8 @@ pub const VARIANTS: &[(&str, usize)] = &[
     ("Drag", 20),
     ("Drag, full screen", 21),
     ("Keyboard and pointer, full screen", 22),
+    ("Treemap, full screen", 23),
+    ("Heatmap, full screen", 24),
 ];
 pub const KEYS: &[Trigger] = &[
     replay(open),
@@ -203,23 +205,25 @@ function show(s) {
 }
 "##;
 
-/// A canvas that fills the screen in full screen, and a layout that changes when it goes there.
+/// A canvas that fills the screen in full screen, and a layout that changes when it goes there;
+/// it outlines the close button's area its frame reports, and its title says the one its
+/// `onFullscreen` heard.
 const FULLSCREEN: &str = "story-fullscreen";
 const FULLSCREEN_SOURCE: &str = r##"function init(data) {
-  return { full: false }
+  return { full: false, close: null }
 }
 
 function view(state, data) {
   return ui.column({ gap: 2 }, [
-    ui.text(state.full ? "Starfield, full screen" : "Starfield", { style: "title" }),
+    ui.text(state.full ? "Starfield, full screen · close " + JSON.stringify(state.close) : "Starfield", { style: "title" }),
     ui.canvas({ key: "sky", height: 180, fps: 30, alt: "A starfield" }),
     ui.canvas({ key: "bar", height: 28, fill: false, alt: "A status bar that keeps its height" }),
     !state.full && ui.text("Hover the widget and press the expand button.", { style: "caption", tone: "muted" }),
   ])
 }
 
-function onFullscreen(state, on) {
-  return { ...state, full: on }
+function onFullscreen(state, on, close) {
+  return { ...state, full: on, close }
 }
 
 function draw(state, data, frame) {
@@ -237,6 +241,7 @@ function draw(state, data, frame) {
     g.alpha(0.4 + 0.6 * twinkle).circle(x * frame.width, y * frame.height, 0.6 + (i % 3) * 0.6, "#ffffff")
   }
   g.alpha(1)
+  if (frame.close) g.rrect(frame.close.x, frame.close.y, frame.close.width, frame.close.height, 4, { stroke: "#ff4d6d", width: 2 })
   const words = (frame.fullscreen ? "Full screen" : "Inline") + " · " + Math.round(frame.width) + " × " + Math.round(frame.height)
   g.text(frame.width / 2, frame.height / 2, words, { size: frame.fullscreen ? 28 : 16, weight: 600, align: "center", color: "#ffffff" })
   return g
@@ -267,6 +272,8 @@ fn widget_template(v: usize) -> &'static str {
         16 | 18 | 19 => "confirm",
         17 => FAILING,
         20 | 21 => DRAG,
+        23 => "treemap",
+        24 => "heatmap",
         _ => "suggestions",
     }
 }
@@ -333,6 +340,8 @@ fn data(v: usize) -> (&'static str, Value) {
         15 => ("Shader paddle", json!({ "clock": true })),
         17 => ("Neon gate", json!({})),
         20 | 21 => ("Drag", json!({})),
+        23 => ("Treemap", fixtures::example("treemap").unwrap_or_default()),
+        24 => ("Heatmap", fixtures::example("heatmap").unwrap_or_default()),
         16 => ("Delete the branch", json!({ "title": "Delete feature/reconnect-backoff?", "message": "The branch is merged into `main`." })),
         _ => ("Pick a hero image", json!({
             "title": "Which hero image should the landing page use?",
@@ -393,7 +402,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     if *s.fixture_run.variant == 16 {
         tx.after(0.9, |s, tx| changed(s, "superseded", Value::Null, tx));
     }
-    if matches!(*s.fixture_run.variant, 12 | 21 | 22) {
+    if matches!(*s.fixture_run.variant, 12 | 21 | 22 | 23 | 24) {
         tx.after(1.8, |s, tx| fullscreen(s, tx));
     }
 }

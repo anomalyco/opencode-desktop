@@ -132,23 +132,14 @@ pub fn screen_view<H: WidgetsHost + TimelineHost>(s: &H, p: &Pal) -> Vec<El> {
         let now = tx.clock();
         crate::fullscreen::send(s, ScreenEvent::Exit, now, tx);
     });
-    let place = Place::Screen { size: s.widgets().screen_size, close };
+    let [_, _, w, h] = s.widgets().screen_rect;
+    let place = Place::Screen { size: [w, h], close };
     let screen = session_view::widget::frame(s, p, &e.session, id, &e.label, e.machine.face(), &e.local, Some(&hooks::<H>(id)), place, chip(s, e).as_deref());
     // Its size follows the window's: a resize lays the widget out anew, its canvases with it.
-    vec![screen.on_layout(|s: &mut H, [_, _, w, h]| {
-        let size = &mut s.widgets_mut().screen_size;
-        if *size != [w, h] {
-            *size = [w, h];
-        }
-    })]
+    vec![screen.on_layout(|s: &mut H, rect| crate::fullscreen::laid(s, rect))]
 }
 
-/// Esc leaves full screen.
+/// Esc and Alt+← (back) leave full screen.
 pub fn screen_key<H: WidgetsHost>(s: &mut H, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if ev.key != rune::Key::Escape || matches!(s.widgets().screen, Screen::Inline) {
-        return false;
-    }
-    let now = tx.clock();
-    crate::fullscreen::send(s, ScreenEvent::Exit, now, tx);
-    true
+    crate::fullscreen::back_key(ev) && crate::back(s, tx)
 }

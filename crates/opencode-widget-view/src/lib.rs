@@ -26,7 +26,7 @@ use opencode_widget::{Node, WidgetEvent};
 use rune::{El, Image, Tx};
 use rune_kit::Kit;
 
-pub use face::{EXPAND, Words, frame, placeholder, screen, summary};
+pub use face::{CLOSE, CLOSE_INSET, EXPAND, Words, close_area, frame, placeholder, screen, summary};
 
 /// The button a press used, as DOM `button` numbers it.
 pub(crate) fn button(tx: &Tx) -> u8 {

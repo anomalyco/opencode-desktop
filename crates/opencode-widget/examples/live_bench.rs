@@ -18,7 +18,7 @@ fn main() {
     let program = Arc::new(LiveProgram::compile(&format!("{}\n{source}", fixtures::PRELUDE)).expect("compiles"));
     let setup = Setup { grants: Grants::default(), transport: None, allow_local_network: false, notify: Arc::new(|| {}) };
     let live = Live::start(program, data, setup);
-    let frame = Frame { id: None, t: 0.0, dt: 1.0 / 60.0, width: 1200.0, height: 800.0, scale: 2.0, pointer: None, dark: true, fullscreen: false };
+    let frame = Frame { id: None, t: 0.0, dt: 1.0 / 60.0, width: 1200.0, height: 800.0, scale: 2.0, pointer: None, dark: true, fullscreen: false, close: None };
     let (mut delivered, mut draws, mut turns) = (0u32, 0usize, Vec::new());
     let mut turn_start = Instant::now();
     while delivered < frames {

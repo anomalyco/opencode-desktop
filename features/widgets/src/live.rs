@@ -211,13 +211,13 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
         return changed;
     }
     // Before its first render it has no canvas yet: its first frame says so (no size).
-    let (canvas, size, pointer) = match e.machine.view().and_then(|v| e.local.live_canvas(v)) {
+    let (canvas, size, pointer, close) = match e.machine.view().and_then(|v| e.local.live_canvas(v)) {
         Some(c) => match c.size {
-            Some(size) => (c.id, size, c.pointer),
+            Some(size) => (c.id, size, c.pointer, c.close),
             // Its canvas isn't laid out yet: the frame waits for its size.
             None => return changed,
         },
-        None => (None, [0.0, 0.0], None),
+        None => (None, [0.0, 0.0], None, None),
     };
     let (scale, dark) = opencode_widget_view::appearance();
     let frame = opencode_widget::Frame {
@@ -230,6 +230,7 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
         pointer,
         dark,
         fullscreen: e.local.fullscreen(),
+        close,
     };
     live.frame(&frame);
     e.run.frame_wanted = false;

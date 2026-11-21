@@ -233,8 +233,16 @@ fn recorded<S: 'static>(look: &Look, f: Recorded<S>) -> El {
     col().key("failure").w_full().gap(8.0).role("status").children(words).child(action)
 }
 
-/// Room around a full-screen widget, each side.
-const PAD: f32 = 24.0;
+/// The full-screen close button: `CLOSE` points square, `CLOSE_INSET` from the window's top and
+/// right edge, all of it visible (`widgets-fullscreen.md`, Chrome).
+pub const CLOSE: f32 = 32.0;
+pub const CLOSE_INSET: f32 = 8.0;
+
+/// The close button's area `[x, y, w, h]` over a full-screen widget laid out at `screen`
+/// (`[x, y, w, h]`), in the same coordinates.
+pub fn close_area([x, y, w, _]: [f32; 4]) -> [f32; 4] {
+    [x + w - CLOSE_INSET - CLOSE, y + CLOSE_INSET, CLOSE, CLOSE]
+}
 
 /// A widget that takes the keyboard (`widgets-input.md`): a click inside or Tab focuses it, keys
 /// go to the host while it (or a control in it) has focus, a ring and "Esc to release" show
@@ -287,7 +295,8 @@ pub fn placeholder(look: &Look, title: &str) -> El {
 }
 
 /// A widget full screen: its view fills the window, `height` points tall (scrolling when
-/// taller), with a close button top right.
+/// taller), the close button floating over its top-right corner ([`close_area`]). Esc, back and
+/// the mouse's back button close it as the button does (the host takes the keys).
 #[allow(clippy::too_many_arguments)]
 pub fn screen<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, face: Face<'_>, title: &str, height: f32, close: Action<S>) -> El {
     local.built();
@@ -306,11 +315,12 @@ pub fn screen<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, 
         _ => vec![row().key("loading").gap(8.0).items_center().child(Loader::new().size(14.0).build(k))],
     };
     let words = look.words.exit_fullscreen.clone();
-    // No title bar: only a small close button floating in the top corner.
+    // No title bar: only the close button floating over the top-right corner.
+    let back = close.clone();
     let close = el()
         .key("close")
-        .size(26.0, 26.0)
-        .radius(13.0)
+        .size(CLOSE, CLOSE)
+        .radius(CLOSE / 2.0)
         .center()
         .cursor(rune::Cursor::Pointer)
         .fill(c.bg_base.alpha(0.7))
@@ -320,13 +330,19 @@ pub fn screen<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, 
         .label(words.clone())
         .help(words)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| close(s, tx))
-        .child(icon(k.glyph.close, 12.0).color(c.icon_base));
+        .child(icon(k.glyph.close, 14.0).color(c.icon_base));
     let root = el().key("widget-screen");
     let root = match hooks {
         Some(h) if live => keyboard(look, local, h, root),
         _ => root,
     };
     root.pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
+        .pointer_buttons([rune::PointerButton::Back])
+        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+            if tx.button() == rune::PointerButton::Back {
+                back(s, tx);
+            }
+        })
         .fill(c.bg_base)
         .role("dialog")
         .label(title.to_owned())
@@ -337,7 +353,7 @@ pub fn screen<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, 
                 .h_full()
                 .min_h(0.0)
                 .scroll(rune::ScrollSpec { stick_bottom: false })
-                .child(col().key("body").w_full().min_h(height.max(0.0)).padding(PAD).gap(12.0).children(content)),
+                .child(col().key("body").w_full().min_h(height.max(0.0)).gap(12.0).children(content)),
         )
-        .child(close.pin(None, Some(8.0), Some(8.0), None))
+        .child(close.pin(None, Some(CLOSE_INSET), Some(CLOSE_INSET), None))
 }

@@ -22,6 +22,24 @@ pub struct Pointer {
     pub down: bool,
 }
 
+/// A rectangle in a node's logical pixels.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Rect {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+impl Rect {
+    /// This rect (in the coordinates `origin` is in) over a node at `origin`, `size` big: in the
+    /// node's own coordinates, or `None` when it doesn't overlap the node.
+    pub fn over(self, origin: [f64; 2], size: [f64; 2]) -> Option<Rect> {
+        let r = Rect { x: self.x - origin[0], y: self.y - origin[1], ..self };
+        (r.x < size[0] && r.y < size[1] && r.x + r.width > 0.0 && r.y + r.height > 0.0).then_some(r)
+    }
+}
+
 /// What a draw step knows of the frame it draws.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Frame {
@@ -40,6 +58,10 @@ pub struct Frame {
     /// The widget is full screen.
     #[serde(default)]
     pub fullscreen: bool,
+    /// Full screen, the close button's area over this canvas, in its coordinates
+    /// (`widgets-fullscreen.md`); `None` when it doesn't overlap the canvas.
+    #[serde(default)]
+    pub close: Option<Rect>,
 }
 
 /// A theme color a command names instead of a value; the client resolves it.

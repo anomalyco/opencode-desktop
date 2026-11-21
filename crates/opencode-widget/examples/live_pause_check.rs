@@ -41,7 +41,7 @@ fn start(source: &str) -> Live {
 }
 
 fn frame() -> Frame {
-    Frame { id: None, t: 0.0, dt: 1.0 / 60.0, width: 400.0, height: 300.0, scale: 2.0, pointer: None, dark: true, fullscreen: false }
+    Frame { id: None, t: 0.0, dt: 1.0 / 60.0, width: 400.0, height: 300.0, scale: 2.0, pointer: None, dark: true, fullscreen: false, close: None }
 }
 
 /// Takes posts until `want` counts `n` of them, or `within` passes. How many it saw.

@@ -1,8 +1,10 @@
 //! A widget full screen (`specs/v2/widgets-fullscreen.md`), as an explicit machine: one widget
 //! at a time fills the window, and the window goes OS full screen with it (macOS native full
 //! screen; borderless elsewhere). It is the same widget: its state, its live program and its
-//! timers carry on, and the timeline shows a placeholder in its place. Esc, the close button,
-//! or leaving OS full screen brings it back; so does it closing (answered here or elsewhere).
+//! timers carry on, and the timeline shows a placeholder in its place. Back (Esc, ⌘[ / Alt+←,
+//! the mouse's back button), the close button, or leaving OS full screen brings it back, whatever
+//! has focus and even while the widget holds the keyboard or the pointer (it lets go of both);
+//! so does it closing (answered here or elsewhere).
 //!
 //! ```text
 //!          Enter ──▶ Full { os: Asked } ──window full──▶ Full { os: On }
@@ -11,10 +13,12 @@
 //!          Enter (no window to ask, or it refused) ──▶ Full { os: Off }
 //! ```
 //!
-//! The widget hears `{ id: "", type: "fullscreen", value }` on entering and leaving (its
-//! `update`, or a live program's `widget.event()`), and its frames say `fullscreen`.
+//! The widget hears `{ id: "", type: "fullscreen", value, close }` on entering and leaving (its
+//! `onFullscreen`, or a live program's `widget.on("fullscreen")`), and again with the new `close`
+//! when the window's size changes; `close` is the close button's area in the root's coordinates
+//! (the root fills the window). Its frames and pointer values say `fullscreen` and `close`.
 
-use opencode_widget::WidgetEvent;
+use opencode_widget::{Rect, WidgetEvent};
 use rune::Tx;
 
 use crate::WidgetsHost;
@@ -50,7 +54,7 @@ impl Screen {
 
 pub enum ScreenEvent {
     Enter(String),
-    /// Esc or the close button.
+    /// Back or the close button.
     Exit,
     /// The window's OS full screen as read now (`None`: no window to read).
     Window(Option<bool>),
@@ -109,15 +113,41 @@ pub fn send(host: &mut dyn WidgetsHost, event: ScreenEvent, now: f64, tx: &mut T
     }
 }
 
-/// Widget `id` entered or left full screen: its frames say so, and its widget template hears it.
-/// Leaving lets go of the keyboard and the pointer.
+/// Widget `id` entered or left full screen: its frames say so, and its widget template hears it,
+/// with where the close button is. Leaving lets go of the keyboard and the pointer.
 fn tell(host: &mut dyn WidgetsHost, id: &str, on: bool) {
+    let rect = host.widgets().screen_rect;
+    // Not laid out full screen yet: the first layout tells it where the button is.
+    let laid = rect[2] > 0.0 && rect[3] > 0.0;
+    let area = (on && laid).then(|| opencode_widget_view::close_area(rect));
     let Some(e) = host.widgets_mut().entries.get_mut(id) else { return };
     e.local.set_fullscreen(on);
+    e.local.set_close(area);
     if !on {
         crate::input::release(host);
     }
-    crate::input::tell(host, id, WidgetEvent::fullscreen(on));
+    // In the root's coordinates: the root fills the screen.
+    let close = area.map(|[x, y, w, h]| Rect { x: f64::from(x - rect[0]), y: f64::from(y - rect[1]), width: f64::from(w), height: f64::from(h) });
+    crate::input::tell(host, id, WidgetEvent::fullscreen(on, close));
+}
+
+/// Full screen was laid out at `rect` (window points): a new size tells the widget the close
+/// button's new area.
+pub(crate) fn laid(host: &mut dyn WidgetsHost, rect: [f32; 4]) {
+    if host.widgets().screen_rect == rect {
+        return;
+    }
+    host.widgets_mut().screen_rect = rect;
+    if let Screen::Full { id, .. } = host.widgets().screen.clone() {
+        tell(host, &id, true);
+    }
+}
+
+/// Whether `ev` is back while a widget is full screen: Esc, or Alt+← (⌘[ comes as the app's
+/// Back, see [`crate::back`]).
+pub(crate) fn back_key(ev: &rune::KeyEvent) -> bool {
+    let m = ev.mods;
+    ev.key == rune::Key::Escape || (ev.key == rune::Key::Left && m.alt && !m.cmd && !m.shift && !m.ctrl)
 }
 
 /// Follows the window's OS full screen, and lets go of a widget that closed while full screen.

@@ -115,8 +115,8 @@ pub struct Widgets {
     pub screen: fullscreen::Screen,
     /// The widget with the keyboard (and the pointer), if any.
     pub focus: input::Focus,
-    /// The window's size in points, as full screen last laid out.
-    screen_size: [f32; 2],
+    /// Where full screen was last laid out, `[x, y, w, h]` in window points.
+    screen_rect: [f32; 4],
 }
 
 impl Widgets {
@@ -337,6 +337,18 @@ pub fn sent(host: &mut dyn WidgetsHost, id: &str, result: Result<(), RespondErro
 /// What the user did in widget `id`'s view.
 pub fn input(host: &mut dyn WidgetsHost, id: &str, event: WidgetEvent) {
     advance(host, id, Event::Input(event));
+}
+
+/// Back (Esc, ⌘[ / Alt+←, the mouse's back button) while a widget is full screen: it closes
+/// full screen, whatever has focus, letting go of the keyboard and the pointer. False when no
+/// widget is full screen, so back goes on as usual.
+pub fn back(host: &mut dyn WidgetsHost, tx: &mut Tx) -> bool {
+    if matches!(host.widgets().screen, fullscreen::Screen::Inline) {
+        return false;
+    }
+    let now = tx.clock();
+    fullscreen::send(host, fullscreen::ScreenEvent::Exit, now, tx);
+    true
 }
 
 /// Try again on a failed widget: its widget template is fetched afresh.

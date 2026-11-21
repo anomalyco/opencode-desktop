@@ -150,6 +150,10 @@ impl App {
 
     /// Opens the entry before (or after) this one. False when there's nowhere to go.
     pub fn navigate(&mut self, forward: bool, tx: &mut Tx) -> bool {
+        // Back with a widget full screen only closes full screen (`widgets-fullscreen.md`).
+        if !forward && crate::session::widgets::back(self, tx) {
+            return true;
+        }
         self.sync_history();
         let dest = (self.settings_open() && self.project_navigation()).then(|| Place { route: self.restore_project_tab().map_or(Route::Home, |tab| tab.route()), settings: None });
         let Some(to) = self.nav.step(if forward { Event::Forward } else { Event::Back(dest) }) else { return false };

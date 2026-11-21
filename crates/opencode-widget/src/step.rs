@@ -5,7 +5,7 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Value, json};
 
-use crate::draw::Frame;
+use crate::draw::{Frame, Rect};
 use crate::node::Node;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -15,7 +15,7 @@ pub enum EventKind {
     Change,
     /// A canvas's or shader's pointer: `value: { kind: "down" | "move" | "up", x, y, width, height }`.
     Pointer,
-    /// The widget entered or left full screen: `{ id: "", value: true | false }`.
+    /// The widget entered or left full screen: `{ id: "", value: true | false, close: Rect | null }`.
     Fullscreen,
     /// A key while the widget has keyboard focus (`widgets-input.md`): `{ id: "", value: { kind,
     /// key, code, repeat, shift, alt, ctrl, meta } }`. Esc is never delivered.
@@ -44,7 +44,7 @@ impl PointerKind {
     }
 }
 
-/// `{ id, type, value? }`.
+/// `{ id, type, value?, close? }`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WidgetEvent {
     pub id: String,
@@ -52,63 +52,78 @@ pub struct WidgetEvent {
     pub kind: EventKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<Value>,
+    /// A `fullscreen` event's close button area, in the root's coordinates (`null` leaving).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub close: Option<Box<Value>>,
 }
 
 impl WidgetEvent {
     /// A `button` or `card` press.
     pub fn press(id: impl Into<String>) -> WidgetEvent {
-        WidgetEvent { id: id.into(), kind: EventKind::Press, value: None }
+        WidgetEvent { id: id.into(), kind: EventKind::Press, value: None, close: None }
     }
 
     /// A control's new value: a checkbox's bool, a slider's number, a select's string (or list),
     /// an input's text, a carousel's page.
     pub fn change(id: impl Into<String>, value: impl Into<Value>) -> WidgetEvent {
-        WidgetEvent { id: id.into(), kind: EventKind::Change, value: Some(value.into()) }
+        WidgetEvent { id: id.into(), kind: EventKind::Change, value: Some(value.into()), close: None }
     }
 
     /// The widget entered (`true`) or left full screen.
-    pub fn fullscreen(on: bool) -> WidgetEvent {
-        WidgetEvent { id: String::new(), kind: EventKind::Fullscreen, value: Some(Value::Bool(on)) }
+    /// Entering, `close` is the close button's area in the root's coordinates.
+    pub fn fullscreen(on: bool, close: Option<Rect>) -> WidgetEvent {
+        let close = serde_json::to_value(close.filter(|_| on)).ok().map(Box::new);
+        WidgetEvent { id: String::new(), kind: EventKind::Fullscreen, value: Some(Value::Bool(on)), close }
     }
 
     /// Keyboard focus gained (`true`) or lost.
     pub fn focus(on: bool) -> WidgetEvent {
-        WidgetEvent { id: String::new(), kind: EventKind::Focus, value: Some(Value::Bool(on)) }
+        WidgetEvent { id: String::new(), kind: EventKind::Focus, value: Some(Value::Bool(on)), close: None }
     }
 
     /// Pointer capture granted (`true`) or released.
     pub fn capture(on: bool) -> WidgetEvent {
-        WidgetEvent { id: String::new(), kind: EventKind::Capture, value: Some(Value::Bool(on)) }
+        WidgetEvent { id: String::new(), kind: EventKind::Capture, value: Some(Value::Bool(on)), close: None }
     }
 
     /// A key pressed (`down`) or released while the widget has keyboard focus.
     pub fn key(key: &Key) -> WidgetEvent {
-        WidgetEvent { id: String::new(), kind: EventKind::Key, value: serde_json::to_value(key).ok() }
+        WidgetEvent { id: String::new(), kind: EventKind::Key, value: serde_json::to_value(key).ok(), close: None }
     }
 
     /// The pointer moved by (`dx`, `dy`) logical pixels while the widget holds it captured.
     pub fn captured_move(id: impl Into<String>, dx: f64, dy: f64) -> WidgetEvent {
-        WidgetEvent { id: id.into(), kind: EventKind::Pointer, value: Some(json!({ "kind": "move", "dx": dx, "dy": dy })) }
+        WidgetEvent { id: id.into(), kind: EventKind::Pointer, value: Some(json!({ "kind": "move", "dx": dx, "dy": dy })), close: None }
     }
 
     /// A button went down or up while the widget holds the pointer captured (0 primary, 1
     /// middle, 2 secondary, as DOM `button`).
     pub fn captured_button(id: impl Into<String>, down: bool, button: u8) -> WidgetEvent {
-        WidgetEvent { id: id.into(), kind: EventKind::Pointer, value: Some(json!({ "kind": if down { "down" } else { "up" }, "button": button })) }
+        WidgetEvent { id: id.into(), kind: EventKind::Pointer, value: Some(json!({ "kind": if down { "down" } else { "up" }, "button": button })), close: None }
     }
 
     /// The pointer moving over a canvas or shader with no button held (desktop's hover), at
     /// (`x`, `y`) in its `width` × `height`.
-    pub fn hover(id: impl Into<String>, x: f64, y: f64, width: f64, height: f64) -> WidgetEvent {
-        let value = json!({ "kind": "move", "x": x, "y": y, "down": false, "width": width, "height": height });
-        WidgetEvent { id: id.into(), kind: EventKind::Pointer, value: Some(value) }
+    pub fn hover(id: impl Into<String>, x: f64, y: f64, width: f64, height: f64, close: Option<Rect>) -> WidgetEvent {
+        let mut value = json!({ "kind": "move", "x": x, "y": y, "down": false, "width": width, "height": height });
+        with_close(&mut value, close);
+        WidgetEvent { id: id.into(), kind: EventKind::Pointer, value: Some(value), close: None }
     }
 
     /// A canvas's (or shader's) pointer at (`x`, `y`), logical pixels from its top-left, with its
-    /// logical size so `update` can hit-test a layout that follows the width.
-    pub fn pointer(id: impl Into<String>, kind: PointerKind, x: f64, y: f64, width: f64, height: f64) -> WidgetEvent {
-        let value = json!({ "kind": kind.name(), "x": x, "y": y, "width": width, "height": height });
-        WidgetEvent { id: id.into(), kind: EventKind::Pointer, value: Some(value) }
+    /// logical size so `update` can hit-test a layout that follows the width, and full screen the
+    /// close button's area over it (as its frame has it).
+    pub fn pointer(id: impl Into<String>, kind: PointerKind, x: f64, y: f64, width: f64, height: f64, close: Option<Rect>) -> WidgetEvent {
+        let mut value = json!({ "kind": kind.name(), "x": x, "y": y, "width": width, "height": height });
+        with_close(&mut value, close);
+        WidgetEvent { id: id.into(), kind: EventKind::Pointer, value: Some(value), close: None }
+    }
+}
+
+/// An absolute pointer value carries `close` only when there is one.
+fn with_close(value: &mut Value, close: Option<Rect>) {
+    if let (Some(c), Some(m)) = (close, value.as_object_mut()) {
+        m.insert("close".into(), json!(c));
     }
 }
 

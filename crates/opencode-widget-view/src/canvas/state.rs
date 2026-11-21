@@ -44,6 +44,8 @@ pub struct Canvas {
     pub sight: Sight,
     /// Its logical size, once laid out.
     pub size: Option<[f32; 2]>,
+    /// Where it was laid out, in window points.
+    pub origin: Option<[f32; 2]>,
     /// The clock when it first drew: `frame.t` counts from it.
     pub appeared: Option<f64>,
     /// The clock of its last draw (`frame.dt`, and when the next frame is due).
@@ -56,7 +58,7 @@ pub struct Canvas {
 
 impl Default for Canvas {
     fn default() -> Self {
-        Canvas { phase: Phase::Due { kept: Rc::default(), overruns: 0 }, sight: Sight::Hidden, size: None, appeared: None, last: 0.0, pointer: None, moved: f64::NEG_INFINITY }
+        Canvas { phase: Phase::Due { kept: Rc::default(), overruns: 0 }, sight: Sight::Hidden, size: None, origin: None, appeared: None, last: 0.0, pointer: None, moved: f64::NEG_INFINITY }
     }
 }
 
@@ -163,6 +165,7 @@ impl Canvas {
             pointer: self.pointer,
             dark,
             fullscreen: false,
+            close: None,
         })
     }
 

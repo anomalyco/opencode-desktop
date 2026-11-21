@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 
 use opencode_widget::{Command, Node, WidgetEvent};
-use opencode_widget::draw::Frame;
+use opencode_widget::draw::{Frame, Rect};
 
 use crate::canvas::state::{Canvas, Event as CanvasEvent, Motion};
 use rune::{GesturePhase, TextEdit, WheelEvent};
@@ -91,6 +91,8 @@ pub struct LiveCanvas {
     pub size: Option<[f32; 2]>,
     /// Where the pointer is over it.
     pub pointer: Option<opencode_widget::draw::Pointer>,
+    /// Full screen, the close button's area over it (`frame.close`).
+    pub close: Option<Rect>,
 }
 
 /// One widget's view-local state.
@@ -111,8 +113,12 @@ pub struct Local {
     moved: HashMap<String, f64>,
     /// Each shader's logical size, by path, once laid out.
     sizes: HashMap<String, [f32; 2]>,
+    /// Where each shader was laid out, in window points, by path.
+    origins: HashMap<String, [f32; 2]>,
     /// The widget is full screen (`frame.fullscreen`).
     fullscreen: bool,
+    /// Full screen, the close button's area `[x, y, w, h]` in window points.
+    close: Option<[f32; 4]>,
     /// It has keyboard focus (a ring and "Esc to release"), and holds the pointer captured.
     focused: bool,
     captured: bool,
@@ -146,7 +152,54 @@ impl Local {
     pub fn live_canvas(&self, view: &Node) -> Option<LiveCanvas> {
         let (path, id, _) = canvases(view).into_iter().next()?;
         let c = self.canvases.get(&path);
-        Some(LiveCanvas { id, size: c.and_then(|c| c.size), pointer: c.and_then(|c| c.pointer) })
+        Some(LiveCanvas { id, size: c.and_then(|c| c.size), pointer: c.and_then(|c| c.pointer), close: self.canvas_close(&path) })
+    }
+
+    /// Full screen, the close button's area over canvas `path`, in its coordinates.
+    pub fn canvas_close(&self, path: &str) -> Option<Rect> {
+        let c = self.canvases.get(path)?;
+        self.close_over(c.origin?, c.size?)
+    }
+
+    /// Full screen, the close button's area over the shader at `path`, in its coordinates.
+    pub fn shader_close(&self, path: &str) -> Option<Rect> {
+        self.close_over(*self.origins.get(path)?, *self.sizes.get(path)?)
+    }
+
+    fn close_over(&self, origin: [f32; 2], size: [f32; 2]) -> Option<Rect> {
+        let [x, y, width, height] = self.close?.map(f64::from);
+        Rect { x, y, width, height }.over(origin.map(f64::from), size.map(f64::from))
+    }
+
+    /// Full screen, the close button's area in window points; `None` inline. Its canvases draw
+    /// again, as `frame.close` changed.
+    pub fn set_close(&mut self, close: Option<[f32; 4]>) {
+        if self.close != close {
+            self.close = close;
+            for c in self.canvases.values_mut() {
+                c.step(CanvasEvent::Changed);
+            }
+            self.version += 1;
+        }
+    }
+
+    /// Canvas `path` was laid out at `rect` (window points). Full screen, moving it (a scroll)
+    /// draws it again, as the close button's area over it moved.
+    pub fn canvas_laid(&mut self, path: &str, [x, y, w, h]: [f32; 4]) {
+        let close = self.close.is_some();
+        let c = self.canvases.entry(path.to_owned()).or_default();
+        let moved = c.origin != Some([x, y]);
+        c.origin = Some([x, y]);
+        c.step(CanvasEvent::Resized([w, h]));
+        if close && moved {
+            c.step(CanvasEvent::Changed);
+        }
+        self.version += 1;
+    }
+
+    /// The shader at `path` was laid out at `[x, y]` (window points).
+    pub fn set_origin(&mut self, path: &str, at: [f32; 2]) {
+        self.origins.insert(path.to_owned(), at);
     }
 
     /// When the shader at `path` last sent a pointer `move`.
@@ -361,6 +414,7 @@ impl Local {
             .filter_map(|(path, id, motion)| {
                 let mut frame = self.canvases.entry(path.clone()).or_default().due(now, motion, id.as_deref(), scale, dark)?;
                 frame.fullscreen = self.fullscreen;
+                frame.close = self.canvas_close(&path);
                 Some((path, frame))
             })
             .collect()
