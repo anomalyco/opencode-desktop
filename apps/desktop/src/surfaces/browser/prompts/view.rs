@@ -122,7 +122,7 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
                         .child(text(notice).font(UI_SMALL).color(p.text).grow(1.0).shrink().min_w(0.0).wrap())
                         .child(actions),
                 )
-                .child(el().w_full().h(0.5).fill(p.border_muted)),
+                .child(el().w_full().h(1.0).fill(p.border_muted)),
         );
     }
 
@@ -181,7 +181,7 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
                         .child(row().w_full().gap(12.0).center_y().child(lines).child(open_btn).child(close_btn))
                         .children(target),
                 )
-                .child(el().w_full().h(0.5).fill(p.border_muted)),
+                .child(el().w_full().h(1.0).fill(p.border_muted)),
         );
     }
 
@@ -310,7 +310,7 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
                         .child(msg_col)
                         .child(actions),
                 )
-                .child(el().w_full().h(0.5).fill(p.border_muted)),
+                .child(el().w_full().h(1.0).fill(p.border_muted)),
         );
     }
 

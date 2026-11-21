@@ -191,11 +191,15 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
     widthEd.FocusChanged:Connect(function(focused: boolean)
         if not focused then
             onBlur()
+        else
+            refresh()
         end
     end)
     heightEd.FocusChanged:Connect(function(focused: boolean)
         if not focused then
             onBlur()
+        else
+            refresh()
         end
     end)
 
@@ -249,7 +253,7 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
             ui.text(title, ROW_TEXT, { color = "text-chrome", grow = 1, shrink = true, minW = 0, truncate = true }),
         }
         if checked then
-            table.insert(children, ui.icon("check", { size = 14, color = "icon-weak" }))
+            table.insert(children, ui.icon("check", { size = 14, color = "icon-base" }))
         end
         return ui.row({
             key = key,
@@ -486,7 +490,7 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
                 })
             end) else nil,
         }, {
-            ui.text(scaleLabel, { size = 13, weight = "regular", lineHeight = 16, tabular = true, noWrap = true, color = "text-muted" }),
+            ui.text(scaleLabel, { size = 13, weight = "regular", lineHeight = 16, tabular = true, noWrap = true, color = "text-faint" }),
             ui.icon("viewport-chevron", { size = 16, color = "icon-weak" }),
         })
 
@@ -512,31 +516,58 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
             end) else nil,
         })
 
+        local function dimBox(key: string, ed: Editor, val: string, isInvalid: boolean, ariaLabel: string): ui.Node
+            local editing = ed:Focused() and not zoomed
+            local body: ui.Node = if editing
+                then ui.field({
+                    key = `{key}-input`,
+                    editor = ed,
+                    variant = "bare",
+                    dir = "ltr",
+                    disabled = zoomed,
+                    label = ariaLabel,
+                    grow = 1,
+                })
+                else ui.text(val, {
+                    size = 13,
+                    weight = "regular",
+                    lineHeight = 16,
+                    tabular = true,
+                    noWrap = true,
+                    color = if isInvalid and not zoomed then "status-danger" else "text-chrome",
+                })
+            return ui.row({
+                key = key,
+                role = "textbox",
+                label = ariaLabel,
+                dir = "ltr",
+                w = 50,
+                h = 24,
+                px = if editing then 6 else 4,
+                radius = 4,
+                center = not editing,
+                align = "center",
+                fill = "surface-1",
+                border = if isInvalid and not zoomed
+                    then "status-danger"
+                    elseif editing then "border-focus"
+                    else "border-base",
+                borderWidth = if editing then 1 else 0.5,
+                opacity = if zoomed then 0.5 else nil,
+                onPress = if not zoomed and not editing then view:Handler(function()
+                    ed:Focus()
+                    refresh()
+                end) else nil,
+            }, { body })
+        end
+
         local dimGroup = ui.row({ role = "group", label = t("dimensions"), gap = 6, align = "center" }, {
-            ui.field({
-                key = "browser-viewport-width",
-                editor = widthEd,
-                size = "small",
-                dir = "ltr",
-                w = 50,
-                disabled = zoomed,
-                invalid = invalidW,
-                label = t("width"),
-            }),
+            dimBox("browser-viewport-width", widthEd, wStr, invalidW, t("width")),
             ui.text("×", { size = 13, color = "text-faint", noWrap = true }),
-            ui.field({
-                key = "browser-viewport-height",
-                editor = heightEd,
-                size = "small",
-                dir = "ltr",
-                w = 50,
-                disabled = zoomed,
-                invalid = invalidH,
-                label = t("height"),
-            }),
+            dimBox("browser-viewport-height", heightEd, hStr, invalidH, t("height")),
         })
 
-        local controlsRow = ui.row({ w = "full", minH = 36, px = 8, py = 5, gap = 12, align = "center", justify = "center", wrap = true }, {
+        local controlsRow = ui.row({ w = "full", minH = 35, px = 6, py = 5, gap = 12, align = "center", justify = "center", wrap = true }, {
             presetBtn,
             dimGroup,
             ui.row({ gap = 6, align = "center" }, { scaleBtn, rotateBtn }),
@@ -557,14 +588,14 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
                 }),
             }))
         elseif invalid then
-            table.insert(rows, ui.row({ key = "browser-viewport-invalid", role = "status", w = "full", px = 12, pb = 6, align = "center", justify = "center" }, {
+            table.insert(rows, ui.row({ key = "browser-viewport-invalid", role = "status", w = "full", px = 12, pb = 6, gap = 8, align = "center", justify = "center" }, {
                 ui.text(t("invalid"), { size = 12, lineHeight = 16, color = "status-danger" }),
             }))
         end
 
         return ui.col({ key = "browser-device-toolbar", role = "region", label = t("label"), w = "full", fill = "bg-base" }, {
             ui.col({ w = "full" }, rows),
-            ui.col({ w = "full", h = 1, fill = "border-weak", opacity = 0.5 }),
+            ui.col({ w = "full", h = 1, fill = "border-weak" }),
         })
     end
 
