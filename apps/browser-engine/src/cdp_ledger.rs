@@ -473,6 +473,9 @@ wrap_dev_tools_message_observer! {
                 self.send_all(browser.as_deref(), send.unwrap_or_default());
                 return;
             }
+            if message_id >= crate::extensions::sw_wake::SW_WAKE_ID_BASE {
+                return;
+            }
             if message_id >= crate::passkeys::PASSKEY_ID_BASE {
                 if message_id >= crate::clipboard_gate::CLIPBOARD_GATE_ID_BASE {
                     let body = result.and_then(|b| serde_json::from_slice::<Value>(b).ok());
@@ -870,6 +873,7 @@ wrap_dev_tools_message_observer! {
             // reach the app through pruned `Page.getFrameTree` replies), and pop-up/navigation
             // requests are never forwarded.
             if !obs.forward
+                || method.starts_with("ServiceWorker.")
                 || (self.extensions_active && method.starts_with("Page."))
                 || matches!(method.as_str(), "Page.frameRequestedNavigation" | "Page.windowOpen")
                 || whole_tab
