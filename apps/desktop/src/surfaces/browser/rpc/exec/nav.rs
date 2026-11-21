@@ -336,6 +336,14 @@ fn start_history(
         .host
         .tab(host_id)
         .map(|t| (t.url.clone(), t.prompts.document, t.can_go_back, t.can_go_forward));
+    // No entry that way: nothing to go to, the tab as it is (official `chromium.ts:1728-1733`).
+    if history_from.as_ref().is_some_and(|(_, _, back, forward)| if is_back { !back } else { !forward }) {
+        let _ = att.sync_tabs(app);
+        let Some(tab) = att.wire_tab(app, host_id) else {
+            return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
+        };
+        return StepOutcome::Done(Outcome::ok(serde_json::to_value(tab).unwrap_or(Value::Null), Vec::new()));
+    }
     if is_back {
         app.workspace_panes.browser.host.back(host_id);
     } else {

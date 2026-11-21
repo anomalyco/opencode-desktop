@@ -10,7 +10,7 @@ use cef::rc::Rc as _;
 use cef::{
     AcceleratedPaintInfo, AuthCallback, Browser, Callback, CefString, CefStringList, CursorInfo,
     CursorType, DisplayHandler, Errorcode, Frame, ImplAuthCallback, ImplBrowser, ImplBrowserHost,
-    ImplDisplayHandler, ImplFrame, ImplLoadHandler, ImplRenderHandler, ImplRequest,
+    ImplDisplayHandler, ImplFrame, ImplLoadHandler, ImplNavigationEntry, ImplRenderHandler, ImplRequest,
     ImplRequestHandler, ImplResourceRequestHandler, ImplSelectClientCertificateCallback,
     LoadHandler, PaintElementType, Rect, RenderHandler, Request, RequestHandler,
     ResourceRequestHandler, Response, ReturnValue, ScreenInfo, SelectClientCertificateCallback,
@@ -420,6 +420,21 @@ wrap_display_handler! {
                 }
                 self.prompts.set_pending_top_url(None);
                 s.url = url.clone();
+                // A page the back/forward cache restores commits here and may report no loading
+                // change around it: its history ends and title come with its address, which the
+                // app's back/forward wait settles on.
+                if let Some(b) = browser.as_deref() {
+                    s.can_go_back = b.can_go_back() != 0;
+                    s.can_go_forward = b.can_go_forward() != 0;
+                    if let Some(title) = b
+                        .host()
+                        .and_then(|h| h.visible_navigation_entry())
+                        .map(|e| CefString::from(&e.title()).to_string())
+                        .filter(|t| !t.is_empty() && !browser_policy::preview::is_preview_scheme(t))
+                    {
+                        s.title = title;
+                    }
+                }
                 let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
                 let _ = self.events.send(crate::Event::TabMeta {
                     tab_id: self.tab_id,
