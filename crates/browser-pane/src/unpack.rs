@@ -228,3 +228,152 @@ impl UnpackError {
         }
     }
 }
+
+/// Grants `ALL RESTRICTED APPLICATION PACKAGES` (`S-1-15-2-2`) and `ALL APPLICATION PACKAGES`
+/// (`S-1-15-2-1`) inherited read/execute (`(OI)(CI)(RX)`) on the unpacked Windows browser engine
+/// directory (`official/packages/desktop/resources/windows/installer.nsh:29-31`). Required because
+/// `%LOCALAPPDATA%` grants access only to SYSTEM, Administrators, and the current user, which
+/// blocks Chromium's LPAC / AppContainer sandboxed subprocesses from loading `libcef.dll` and
+/// `opencode-browser-engine.dll`.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+pub(crate) fn grant_sandbox_rx(dir: &Path) {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::fs::MetadataExt;
+    use windows::Win32::Foundation::{HLOCAL, LocalFree};
+    use windows::Win32::Security::Authorization::{
+        ConvertStringSidToSidW, EXPLICIT_ACCESS_W, GetExplicitEntriesFromAclW,
+        GetNamedSecurityInfoW, GRANT_ACCESS, SE_FILE_OBJECT, SetEntriesInAclW,
+        SetNamedSecurityInfoW, TRUSTEE_IS_SID, TRUSTEE_W,
+    };
+    use windows::Win32::Security::{
+        ACL, CONTAINER_INHERIT_ACE, DACL_SECURITY_INFORMATION, EqualSid, OBJECT_INHERIT_ACE,
+        PSECURITY_DESCRIPTOR, PSID,
+    };
+    use windows::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ,
+    };
+    use windows::core::{PCWSTR, PWSTR};
+
+    // Never follow a symlink or junction when adjusting directory ACLs.
+    let Ok(meta) = std::fs::symlink_metadata(dir) else { return };
+    if !meta.is_dir() || (meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0) != 0 {
+        return;
+    }
+
+    let wide: Vec<u16> = OsStr::new(dir).encode_wide().chain(std::iter::once(0)).collect();
+    let mut old_dacl: *mut ACL = std::ptr::null_mut();
+    let mut sd = PSECURITY_DESCRIPTOR::default();
+    // SAFETY: valid NUL-terminated UTF-16 path; `sd` is freed via `LocalFree` below.
+    let err = unsafe {
+        GetNamedSecurityInfoW(
+            PCWSTR(wide.as_ptr()),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            Some(&mut old_dacl),
+            None,
+            &mut sd,
+        )
+    };
+    if err.0 != 0 {
+        return;
+    }
+
+    let mut sids: Vec<PSID> = Vec::with_capacity(2);
+    for sid_str in ["S-1-15-2-2", "S-1-15-2-1"] {
+        let sid_wide: Vec<u16> = sid_str.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut psid = PSID::default();
+        // SAFETY: converts well-known SID string; freed via `LocalFree` below.
+        if unsafe { ConvertStringSidToSidW(PCWSTR(sid_wide.as_ptr()), &mut psid) }.is_ok()
+            && !psid.0.is_null()
+        {
+            sids.push(psid);
+        }
+    }
+
+    let access = (FILE_GENERIC_READ | FILE_GENERIC_EXECUTE).0;
+    let inheritance = OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE;
+
+    // Fast path: skip rewriting NTFS ACLs on every launch when both ACEs are already present.
+    let mut missing: Vec<PSID> = sids.clone();
+    if !old_dacl.is_null() && !missing.is_empty() {
+        let mut count = 0u32;
+        let mut existing: *mut EXPLICIT_ACCESS_W = std::ptr::null_mut();
+        // SAFETY: `old_dacl` is owned by `sd`; `existing` is freed via `LocalFree` below.
+        if unsafe { GetExplicitEntriesFromAclW(old_dacl, &mut count, &mut existing) }.0 == 0
+            && !existing.is_null()
+        {
+            // SAFETY: `GetExplicitEntriesFromAclW` guarantees `count` initialized entries.
+            let slice = unsafe { std::slice::from_raw_parts(existing, count as usize) };
+            missing.retain(|&want| {
+                !slice.iter().any(|e| {
+                    e.grfAccessMode == GRANT_ACCESS
+                        && (e.grfAccessPermissions & access) == access
+                        && (e.grfInheritance & inheritance) == inheritance
+                        && e.Trustee.TrusteeForm == TRUSTEE_IS_SID
+                        && !e.Trustee.ptstrName.0.is_null()
+                        && unsafe { EqualSid(PSID(e.Trustee.ptstrName.0.cast()), want) }.is_ok()
+                })
+            });
+            // SAFETY: `existing` was allocated by `GetExplicitEntriesFromAclW`.
+            unsafe {
+                let _ = LocalFree(Some(HLOCAL(existing.cast())));
+            }
+        }
+    }
+
+    if !missing.is_empty() {
+        let entries: Vec<EXPLICIT_ACCESS_W> = missing
+            .iter()
+            .map(|&psid| EXPLICIT_ACCESS_W {
+                grfAccessPermissions: access,
+                grfAccessMode: GRANT_ACCESS,
+                grfInheritance: inheritance,
+                Trustee: TRUSTEE_W {
+                    pMultipleTrustee: std::ptr::null_mut(),
+                    MultipleTrusteeOperation: Default::default(),
+                    TrusteeForm: TRUSTEE_IS_SID,
+                    TrusteeType: Default::default(),
+                    ptstrName: PWSTR(psid.0.cast()),
+                },
+            })
+            .collect();
+        let mut new_dacl: *mut ACL = std::ptr::null_mut();
+        // SAFETY: `entries` and `old_dacl` are valid for this call; `new_dacl` freed via `LocalFree`.
+        let acl_err = unsafe { SetEntriesInAclW(Some(&entries), Some(old_dacl), &mut new_dacl) };
+        if acl_err.0 == 0 && !new_dacl.is_null() {
+            // SAFETY: updates the directory DACL so inherited ACEs propagate to child files.
+            let _ = unsafe {
+                SetNamedSecurityInfoW(
+                    PCWSTR(wide.as_ptr()),
+                    SE_FILE_OBJECT,
+                    DACL_SECURITY_INFORMATION,
+                    None,
+                    None,
+                    Some(new_dacl),
+                    None,
+                )
+            };
+            // SAFETY: `new_dacl` was allocated by `SetEntriesInAclW`.
+            unsafe {
+                let _ = LocalFree(Some(HLOCAL(new_dacl.cast())));
+            }
+        }
+    }
+
+    for psid in sids {
+        // SAFETY: each `psid` was allocated by `ConvertStringSidToSidW`.
+        unsafe {
+            let _ = LocalFree(Some(HLOCAL(psid.0)));
+        }
+    }
+    if !sd.0.is_null() {
+        // SAFETY: `sd` was allocated by `GetNamedSecurityInfoW`.
+        unsafe {
+            let _ = LocalFree(Some(HLOCAL(sd.0)));
+        }
+    }
+}

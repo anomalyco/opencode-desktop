@@ -345,6 +345,8 @@ impl Job {
             unzip(partial, staging)?;
         }
         verifier.finish(&staging.join(ENGINE_BUNDLE_NAME)).map_err(Cut::Rejected)?;
+        #[cfg(windows)]
+        unpack::grant_sandbox_rx(&staging.join(ENGINE_BUNDLE_NAME));
         rune::marks::mark("browser.engine.verified");
         if !installer::bin_in(staging).is_file() {
             return Err(Cut::Rejected(Fault::Corrupt));
