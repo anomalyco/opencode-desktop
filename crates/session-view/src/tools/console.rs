@@ -7,6 +7,7 @@ use super::plain::one_line;
 use super::log::{self, Excerpt};
 use super::{Call, Ctx, Display, Phase, Press, Trigger, body, disclosure, field, output, trigger};
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::{INSTANT, TOOL_CODE, readable};
 
@@ -35,7 +36,7 @@ pub fn shell<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
         let label = opencode_i18n::t!("rune.scale.tooLarge", size = measure);
         let save = if partial {format!("{} · {}",opencode_i18n::t!("ui.message.copy"),opencode_i18n::t!("plugin.file.view.preview"))} else {opencode_i18n::t!("rune.scale.save").into()};
         let (session,id)=(cx.session.to_owned(),c.id.to_owned());
-        let action=row().key(if partial {"copy-preview"} else {"save-raw"}).role("button").label(save.clone()).focusable(true).px(8.0).min_h(28.0).center().radius(6.0).fill(p.layer2).hover(p.hover)
+        let action=row().key(if partial {"copy-preview"} else {"save-raw"}).role("button").label(save.clone()).focusable(true).cursor(rune::Cursor::Pointer).focus_default(p).px(8.0).min_h(28.0).center().radius(6.0).fill(p.layer2).hover(p.hover)
             .on_press_tx(move |s:&mut S,tx| if partial {if let Some(value)=super::raw_output(s,&session,&id){tx.copy(value);}} else {s.save_tool_output(&session,&id,tx)})
             .child(text(save).font(crate::style::UI_MED).color(p.text));
         let summary = row().key("size").w_full().gap(8.0).center_y().child(text(label).font(crate::style::UI).color(p.muted).wrap()).child(action);
@@ -113,7 +114,7 @@ pub fn console<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, command
         .border(RING, p.border)
         .border_layout()
         .fill(p.bg_base)
-        .hover_group()
+        .hover_group_focus()
         // Its Copy fades in and out over 0.15 s ease (`message-part.css:796-800`'s `bash-copy`).
         .hover_motion(crate::style::HOVER_FADE, crate::style::HOVER_FADE);
     let inner = (RADIUS - ring).max(0.0);
@@ -168,7 +169,7 @@ pub fn output_view<S: TimelineHost>(p: &Pal, session: &str, id: &str, raw: &str,
             let notice = opencode_i18n::t!("rune.scale.tooLarge", size = format!("{} B", opencode_i18n::integer(bytes as i64)));
             col().w_full().padding(12.0).radius(6.0).fill(p.bg_base).border(0.5,p.ring).gap(4.0)
                 .child(row().w_full().gap(8.0).center_y().child(text(notice).font(crate::style::UI).color(p.muted).wrap())
-                    .child(row().key("save-raw").role("button").focusable(true).label_static(save).px(8.0).min_h(28.0).center().radius(6.0).fill(p.layer2).hover(p.hover)
+                    .child(row().key("save-raw").role("button").focusable(true).cursor(rune::Cursor::Pointer).focus_default(p).label_static(save).px(8.0).min_h(28.0).center().radius(6.0).fill(p.layer2).hover(p.hover)
                         .on_press_tx(move |s: &mut S, tx| s.save_tool_output(&session, &id, tx)).child(text(save).font(crate::style::UI_MED).color(p.text))))
                 .child(log::visible::<S>(p, &format!("{first}\n…\n{last}"),font,ink,shell,lh))
         }
@@ -206,6 +207,8 @@ fn section<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, part: Part,
         .size(24.0, 24.0)
         .center()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)

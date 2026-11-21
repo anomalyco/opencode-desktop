@@ -225,7 +225,7 @@ fn vertical_session(s: &App, p: &Pal, r: &PinRef, nav_order: &[String], show_hin
         .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .fill(if d.active { p.pressed } else if marked { p.hover } else { Color::TRANSPARENT })
-        .hover(if d.active { p.pressed } else { p.hover })
+        .hover(if d.active || marked { Color::TRANSPARENT } else { p.hover })
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| pins::open_pin(s, &pin_click, tx))
         .on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| open_pin_menu(s, &pin_ctx, press, tx))
@@ -272,7 +272,7 @@ fn horizontal_session(s: &App, p: &Pal, r: &PinRef, nav_order: &[String], show_h
         .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .fill(if d.active { p.pressed } else if marked { p.hover } else { Color::TRANSPARENT })
-        .hover(if d.active { p.pressed } else { p.hover })
+        .hover(if d.active || marked { Color::TRANSPARENT } else { p.hover })
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| pins::open_pin(s, &pin_click, tx))
         .on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| open_pin_menu(s, &pin_ctx, press, tx))
@@ -374,7 +374,7 @@ fn horizontal_group(s: &App, p: &Pal, g: &PinGroup, nav_order: &[String], show_h
         .radius(6.0)
         .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
-        .hover(if menu_open { p.pressed } else { p.hover })
+        .hover(if menu_open { Color::TRANSPARENT } else { p.hover })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             pins::update(s, |d| d.toggle_group(&toggle_id));

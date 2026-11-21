@@ -72,8 +72,9 @@ fn stacked(s: &dyn SwitcherHost, e: &Entry) -> bool {
 const GAP: f32 = 2.0;
 /// `search-list-empty`'s height.
 const EMPTY_H: f32 = 120.0;
-/// `command-palette-meta`: tabular figures.
-const META: TextStyle = UI.features("\"tnum\"");
+/// `command-palette-meta` (`packages/app/src/shell/commands/dialog.css:62-76`): 11/16 at 440,
+/// +0.05 tracking, tabular figures.
+const META: TextStyle = TextStyle::new(11.0, 440.0).lh(16.0).tracking(0.05).features("\"tnum\"");
 
 /// The first match of the query in `s`, in the accent colour (`SearchHighlight`).
 pub fn highlighted(s: &str, q: &str, style: TextStyle, color: Color, accent: Color) -> El {

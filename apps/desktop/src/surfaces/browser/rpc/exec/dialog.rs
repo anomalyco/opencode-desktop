@@ -37,6 +37,9 @@ fn start_dialog(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> St
     if let Err(o) = check_page_guards(app, host_id, "dialog") {
         return StepOutcome::Done(o);
     }
+    // The agent acting on a tab takes it over, a dialog included (official `pane.ts` `acquire`):
+    // passkeys, file choosers and permissions are restricted from here on.
+    app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     let action = cmd.action.get("action").and_then(Value::as_str).unwrap_or("get");
     let prompt_text = cmd.action.get("promptText").and_then(Value::as_str).unwrap_or("");
     let engine_prompts = app.workspace_panes.browser.host.engine_prompts();

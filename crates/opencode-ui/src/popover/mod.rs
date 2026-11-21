@@ -164,13 +164,13 @@ pub fn search_field(p: &Pal, key: &str, edit: &TextEdit, placeholder: &str) -> E
 }
 
 /// The model dialog's search row and the hairline under it (`select-dialog.css:49-96`): 6 pt
-/// in, a 28 pt field whose glass sits 6 pt into a 22 pt slot and whose query starts 6 pt after
+/// in, a 28 pt field whose glass sits 8 pt into a 24 pt slot and whose query starts 6 pt after
 /// it, where the model names do; `trailing` ([`search_button`]s) 8 pt after the query and 4 pt
 /// apart, the last 2 pt from the field's end (`text-input.css` `text-input-v2-trailing`). The
 /// hairline runs across the whole surface, 6 pt under the field.
 pub fn search_row(p: &Pal, key: &str, field: El, trailing: Vec<El>) -> El {
     let value = row().key("search-value").grow(1.0).shrink().min_w(0.0).h_full().gap(6.0).center_y()
-        .child(row().key("search-glass").w(22.0).pl(6.0).h_full().center_y().child(icon(&ic::MAGNIFYING_GLASS, SLOT).color(p.icon_muted)))
+        .child(row().key("search-glass").w(24.0).pl(8.0).h_full().center_y().child(icon(&ic::MAGNIFYING_GLASS, SLOT).color(p.icon_muted)))
         .child(field);
     let field = row().key("search").h(SEARCH_H).w_full().pr(2.0).gap(8.0).center_y()
         .child(value)
@@ -182,13 +182,13 @@ pub fn search_row(p: &Pal, key: &str, field: El, trailing: Vec<El>) -> El {
         .child(rune::hairline(p.border).key("search-rule").w_full())
 }
 
-/// A 24 pt `ghost-muted` icon button at the search row's end (`icon-button.css`): a muted 14 pt
-/// icon on the hover and pressed overlays, its name in a tooltip.
+/// A 24 pt `ghost-muted` icon button at the search row's end (`select-dialog.tsx:1102-1116`,
+/// `icon.tsx:59`): a muted 16 pt icon on the hover and pressed overlays, its name in a tooltip.
 pub fn search_button<S: 'static>(p: &Pal, key: &str, glyph: &'static rune::Icon, label: &str, press: impl Fn(&mut S, &mut Tx) + 'static) -> El {
     row().key(key.to_owned()).role("button").label(label.to_owned()).help(label.to_owned())
         .size(24.0, 24.0).center().radius(6.0).cursor(rune::Cursor::Pointer).hover(p.hover).press(p.pressed)
         .on_press_tx(press)
-        .child(icon(glyph, 14.0).color(p.icon_muted))
+        .child(icon(glyph, SLOT).color(p.icon_muted))
 }
 
 /// A full-width hairline.

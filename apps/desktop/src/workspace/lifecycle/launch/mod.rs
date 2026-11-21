@@ -198,6 +198,10 @@ pub struct Launch {
     /// per-server `Phase`: set in `Waiting`, preserved across `Probing` and `Offline`, and still
     /// live in `Connected` until the async first message page lands.
     pub cold_transcript: Option<String>,
+    /// The session this window last began reading because its page showed it with nothing reading
+    /// its messages (`App::read_shown_session`): asked once per session, so a failure isn't retried
+    /// in a loop (the loading row's Retry asks again).
+    pub shown_read: Option<String>,
     /// How long a launch keeps probing the local default address before Home shows the setup
     /// card ([`GRACE`] unless a test sets it): a server that is just starting comes up in this time.
     pub grace: Option<Duration>,

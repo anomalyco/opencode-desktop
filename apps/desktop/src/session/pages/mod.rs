@@ -18,6 +18,7 @@ pub const WARM: usize = 6;
 const NEAR_TOP: f32 = 200.0;
 
 mod machines;
+mod shown;
 
 pub use machines::{History, Key, LATEST, OpenEvent, Opening};
 use machines::{HOLD, Histories, HistoryEffect, HistoryEvent, Stall};
@@ -684,7 +685,7 @@ impl crate::App {
 
     pub fn poll_pages(&mut self, tx: &mut rune::Tx) -> bool {
         let results: Vec<_> = self.pages.pool.as_ref().map(|p| p.results.try_iter().collect()).unwrap_or_default();
-        let mut changed = false;
+        let mut changed = self.read_shown_session(tx);
         for result in results {
             if let Ok(page) = &result {
                 // A prefetched page for a highlighted result warms the page cache, not the

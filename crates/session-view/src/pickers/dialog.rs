@@ -26,8 +26,6 @@ const SIZE: crate::dialog::DialogSize = crate::dialog::DialogSize::Large;
 const EMPTY_H: f32 = 120.0;
 /// `model-dialog-variant`: the lit row's effort is at most 120 wide.
 const VARIANT_W: f32 = 120.0;
-/// Desktop's `Icon size="small"`: 14 pt (`icon.tsx`).
-const SMALL: f32 = 14.0;
 
 /// The scrim, the dialog and the lit model's flyout, while the model picker is open.
 pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
@@ -76,7 +74,7 @@ fn dialog<S: PickerHost>(s: &S, p: &Pal) -> El {
         .min_h(0.0)
         .radius(LIST.radius())
         .fill(p.bg_base)
-        .elevate(p.floating)
+        .elevate(p.overlay)
         .clip_soft(0.0)
         .transition(Transition::none())
         .motion(Spring::NONE)
@@ -135,7 +133,7 @@ fn model_row<S: PickerHost>(s: &S, p: &Pal, item: &Item, lit: bool, selected: bo
     let variant = effort_label.as_ref().map(|label| {
         row().key("variant").shrink().min_w(0.0).max_w(VARIANT_W).center_y()
             .child(text(label.clone()).font(UI).color(p.muted).shrink().truncate())
-            .child(icon(&ic::CHEVRON_RIGHT, SMALL).mirror_in_rtl().color(p.icon_muted).offset(0.0, 0.5))
+            .child(icon(&ic::CHEVRON_RIGHT, pop::SLOT).mirror_in_rtl().color(p.icon_muted).offset(0.0, 0.5))
     });
     // `Role::ListBoxOption` is a leaf in Rune's accessibility tree, so include budget, provider
     // note, tags, and current effort in the row's accessible description.
@@ -170,7 +168,7 @@ fn model_row<S: PickerHost>(s: &S, p: &Pal, item: &Item, lit: bool, selected: bo
         .radius(LIST.row_radius)
         .cursor(rune::Cursor::Pointer)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| s.choose_picker_tx(&pick, tx))
-        .child(row().key("check").size(pop::SLOT, pop::SLOT).center().children(selected.then(|| icon(&ic::CHECK, SMALL).color(p.icon))))
+        .child(row().key("check").size(pop::SLOT, pop::SLOT).center().children(selected.then(|| icon(&ic::CHECK, pop::SLOT).color(p.icon))))
         .child(words)
         .children((!lit).then_some(budget.as_ref()).flatten().map(|(label, reached)|
             text(label.clone()).font(UI).color(if *reached { p.v2.danger.fg } else { p.faint })))

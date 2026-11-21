@@ -264,7 +264,7 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
         .border(1.0, p.border)
         .border_layout()
         .corners([top, top, bottom, bottom])
-        .hover_group()
+        .hover_group_focus()
         .hover_motion(HOVER_FADE, HOVER_FADE)
         .on_press_tx(toggle())
         .child(info)

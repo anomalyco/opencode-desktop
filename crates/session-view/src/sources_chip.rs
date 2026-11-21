@@ -8,6 +8,7 @@ use rune::{El, Shadow, Tx, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
 use crate::TimelineHost;
+use crate::focus::FocusExt as _;
 use crate::palette::Pal;
 
 /// The link the chip opens: the turn's user message id after it (the Sources plugin's `LINK`).
@@ -141,9 +142,11 @@ pub fn chip<S: TimelineHost>(s: &S, p: &Pal, chip: &Chip) -> El {
         .gap(6.0)
         .center_y()
         .radius(10.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .fill(p.hover)
         .hover(p.pressed)
-        .hover_group()
+        .hover_group_focus()
         .child(icons)
         .child(text(label).font(rune::TextStyle::new(12.0, 440.0).lh(16.0).tracking(0.05)).color(p.muted).group_color(p.text).single_line())
         .on_press_tx(move |s: &mut S, tx: &mut Tx| s.open_link(&href, tx))

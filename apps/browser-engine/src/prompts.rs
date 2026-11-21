@@ -36,17 +36,35 @@ use crate::wire::{
     RemoteProxyConfig, TabSnapshot,
 };
 
-/// Shared across all tabs in the engine: whether the connected app handles prompts (`Hello.prompts`)
-/// and a monotonic prompt ID generator.
+/// Shared across all tabs in the engine: whether the connected app handles prompts (`Hello.prompts`),
+/// a monotonic prompt ID generator, and the engine-wide single active trace owner (`0` = idle;
+/// Chromium's `TracingController` is browser-wide, matching official `shared.trace`).
 #[derive(Clone, Default)]
 pub struct PromptShared {
     pub enabled: Arc<AtomicBool>,
     next_id: Arc<AtomicU64>,
+    active_trace_tab: Arc<AtomicU64>,
 }
 
 impl PromptShared {
     pub fn next_id(&self) -> u64 {
         self.next_id.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    pub fn try_claim_trace(&self, tab_id: u64) -> Result<(), u64> {
+        self.active_trace_tab
+            .compare_exchange(0, tab_id, Ordering::AcqRel, Ordering::Acquire)
+            .map(|_| ())
+    }
+
+    pub fn is_trace_owner(&self, tab_id: u64) -> bool {
+        self.active_trace_tab.load(Ordering::Acquire) == tab_id
+    }
+
+    pub fn release_trace(&self, tab_id: u64) -> bool {
+        self.active_trace_tab
+            .compare_exchange(tab_id, 0, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
     }
 }
 
@@ -77,11 +95,15 @@ pub struct TabPrompts {
     /// The person's own click or key on a controlled tab hands its downloads back to them until
     /// the agent acts again (official `policy.ts:121-125, 175-177` `control: "reclaimed"`).
     pub user_reclaimed: AtomicBool,
-    /// Authoritative OS PID of this tab's current main-frame renderer process (`0` until reported
-    /// by `opencode-browser-engine-helper`). Used to isolate browser-wide CDP traces to this tab.
+    /// Authoritative OS PID of this tab's current committed main-frame renderer process (`0` until
+    /// reported for the committed main frame by `opencode-browser-engine-helper`).
     pub renderer_pid: AtomicU32,
     /// Renderer OS PID locked when `Tracing.start` succeeded on this tab (`0` when not tracing).
     pub trace_pid: AtomicU32,
+    /// Current committed primary main frame identifier (`TabFrameHandler::on_main_frame_changed`).
+    main_frame_id: Mutex<Option<String>>,
+    /// Per-frame renderer OS PID map (keeps BFCache frames warm and isolates speculative navs).
+    frame_pids: Mutex<HashMap<String, u32>>,
     pub proxy: Mutex<Option<RemoteProxyConfig>>,
     dialogs: Mutex<Vec<(PageDialog, JsdialogCallback)>>,
     permissions: Mutex<Vec<HeldPermission>>,
@@ -309,8 +331,83 @@ impl TabPrompts {
         }
     }
 
+    pub fn record_frame_pid(&self, frame_id: String, pid: u32, browser_main_id: Option<&str>) {
+        if frame_id.is_empty() || pid == 0 {
+            return;
+        }
+        let mut main = self.main_frame_id.lock().unwrap();
+        let mut pids = self.frame_pids.lock().unwrap();
+        if pids.len() >= 64 && !pids.contains_key(&frame_id) {
+            if let Some(evict) = pids.keys().find(|k| main.as_deref() != Some(k.as_str())).cloned() {
+                pids.remove(&evict);
+            }
+        }
+        pids.insert(frame_id.clone(), pid);
+        if main.is_none() && browser_main_id == Some(frame_id.as_str()) {
+            *main = Some(frame_id.clone());
+        }
+        if main.as_deref() == Some(frame_id.as_str()) {
+            self.renderer_pid.store(pid, Ordering::Release);
+        }
+    }
+
+    /// Updates the committed main frame on `on_main_frame_changed`; returns `true` when the new
+    /// frame's PID is not cached yet and needs a `opencode.renderer_pid_ping`.
+    pub fn on_main_frame_changed(&self, new_frame_id: Option<String>) -> bool {
+        let mut main = self.main_frame_id.lock().unwrap();
+        let pids = self.frame_pids.lock().unwrap();
+        *main = new_frame_id;
+        match main.as_deref().and_then(|fid| pids.get(fid).copied()) {
+            Some(pid) if pid > 0 => {
+                self.renderer_pid.store(pid, Ordering::Release);
+                false
+            }
+            _ => {
+                self.renderer_pid.store(0, Ordering::Release);
+                main.is_some()
+            }
+        }
+    }
+
+    pub fn needs_frame_pid(&self, frame_id: &str) -> bool {
+        !frame_id.is_empty() && !self.frame_pids.lock().unwrap().contains_key(frame_id)
+    }
+
+    pub fn on_frame_destroyed(&self, frame_id: &str) {
+        if frame_id.is_empty() {
+            return;
+        }
+        let mut main = self.main_frame_id.lock().unwrap();
+        self.frame_pids.lock().unwrap().remove(frame_id);
+        if main.as_deref() == Some(frame_id) {
+            *main = None;
+            self.renderer_pid.store(0, Ordering::Release);
+        }
+    }
+
+    /// Returns the OS PID of `browser`'s current committed primary main frame (never a stale
+    /// previous-origin or aborted-speculative PID), syncing `renderer_pid` from `frame_pids`.
+    pub fn committed_main_renderer_pid(&self, browser: Option<&Browser>) -> u32 {
+        let Some(fid) = browser
+            .and_then(|b| b.main_frame())
+            .map(|f| CefString::from(&f.identifier()).to_string())
+            .filter(|id| !id.is_empty())
+        else {
+            return 0;
+        };
+        let mut main = self.main_frame_id.lock().unwrap();
+        let pids = self.frame_pids.lock().unwrap();
+        *main = Some(fid.clone());
+        let pid = pids.get(&fid).copied().unwrap_or(0);
+        self.renderer_pid.store(pid, Ordering::Release);
+        pid
+    }
+
     pub fn reset_on_crash(&self, tab_id: u64, out_tx: &Output) {
         self.renderer_pid.store(0, Ordering::Release);
+        self.trace_pid.store(0, Ordering::Release);
+        *self.main_frame_id.lock().unwrap() = None;
+        self.frame_pids.lock().unwrap().clear();
         self.set_pending_top_url(None);
         self.clear_all_ext_frame_tracking();
         let dialogs = std::mem::take(&mut *self.dialogs.lock().unwrap());

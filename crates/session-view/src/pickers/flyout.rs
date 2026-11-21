@@ -80,7 +80,7 @@ pub fn view<S: PickerHost>(s: &S, p: &Pal) -> Option<El> {
         let label = if effort.is_empty() { opencode_i18n::t!("common.default").to_owned() } else { capitalize(&effort) };
         let id = format!("effort-{}", if effort.is_empty() { "default" } else { effort.as_str() });
         let is_checked = effort == now;
-        let check = icon(&ic::CHECK, 14.0).color(p.icon);
+        let check = icon(&ic::CHECK, pop::SLOT).color(p.icon);
         let indicator = row().key("indicator").size(pop::SLOT, pop::SLOT).center().children(is_checked.then_some(check));
         let key = flyout.to_owned();
         list = list.child(item::<S>(p, lit, &id, "menuitemradio", Some(is_checked), &label, indicator, move |s: &mut S, tx: &mut Tx| s.choose_effort(&key, &effort, tx)));
@@ -157,7 +157,8 @@ fn details(p: &Pal, provider: &str, context: u64, inputs: &[String], tools: bool
         "audio" => opencode_i18n::t!("model.details.input.audio"),
         _ => opencode_i18n::t!("model.details.input.video"),
     }).chain(tools.then(|| opencode_i18n::t!("model.details.tools"))).collect();
-    col().key("effort-details").w_full().px(12.0).py(8.0)
+    // `select-dialog.css:229-231` (`padding: 2px` on `[data-scrollable]`) + `details.tsx:151` (`px-3 py-2`).
+    col().key("effort-details").w_full().px(12.0 + MENU.inset).py(8.0)
         .child(text(summary).key("summary").font(STATS).color(p.muted).wrap())
         .children((!abilities.is_empty()).then(|| text(abilities.join(", ")).key("abilities").font(STATS).color(p.muted).wrap()))
 }

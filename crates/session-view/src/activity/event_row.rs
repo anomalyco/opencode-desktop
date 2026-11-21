@@ -142,7 +142,7 @@ pub fn mark(p: &Pal, m: Mark, word: &str) -> El {
 /// An interactive event row's hover: a quiet fill that comes and goes at once, 6 past its words
 /// each side with a 4 radius, and the shared ring 2 outside it while the keyboard has it. No underline.
 fn hoverable(p: &Pal, row: El) -> El {
-    row.ml(-6.0).px(6.0).radius(4.0).cursor(rune::Cursor::Pointer).hover(p.hover).hover_group()
+    row.ml(-6.0).px(6.0).radius(4.0).cursor(rune::Cursor::Pointer).hover(p.hover).hover_group_focus()
         .hover_motion(INSTANT, INSTANT)
         .focus_default(p)
 }
@@ -216,10 +216,10 @@ pub fn subagent<S: TimelineHost>(s: &S, p: &Pal, session: &str, e: &Event) -> El
     let badge = row().key("status").gap(6.0).center_y()
         .child(el().key("bar").size(3.0, 10.0).radius(1.5).fill(ink))
         .child(text(status).key("word").font(UI_MED).color(ink));
-    let line = row().key("subagent").h(28.0).gap(6.0).center_y().shrink().min_w(0.0).label(said)
+    let line = row().key("subagent").h(28.0).gap(8.0).center_y().shrink().min_w(0.0).label(said)
         .child(badge)
         .child(text(name.clone()).key("subagent-agent").font(UI).color(p.muted))
-        .children((!title.is_empty()).then(|| text(title.clone()).key("title").font(UI).color(p.text).truncate_fade().shrink().min_w(0.0)));
+        .children((!title.is_empty()).then(|| text(title.clone()).key("title").dir(rune::Direction::Auto).font(UI).color(p.text).truncate_fade().shrink().min_w(0.0)));
     let Some(child) = child else { return row().w_full().child(line.role("group")) };
     let (parent, agent) = (session.to_owned(), e.agent.clone().unwrap_or_default());
     let line = line.role("link").radius(4.0).cursor(rune::Cursor::Pointer).focus_default(p)

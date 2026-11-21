@@ -64,6 +64,7 @@ impl ExtensionHost {
                         Some(sess) if sess.kind != SessionKind::ServiceWorker => {
                             if extension_id_from_url(url) == Some(sess.ext_id.as_str()) {
                                 sess.main_frame_id = frame_id;
+                                sess.url = url.to_owned();
                                 false
                             } else {
                                 // Main frame left `chrome-extension://<ext_id>/` (or an initially
@@ -433,6 +434,11 @@ impl ExtensionHost {
                 self.extensions.remove(&ext_id);
                 self.actions.remove(&ext_id);
                 self.context_menus.lock().unwrap().remove_extension(&ext_id);
+                if let Some(ids) = self.notifications.remove(&ext_id) {
+                    for notif_id in ids {
+                        effects.push(ExtEffect::NotificationClear { ext_id: ext_id.clone(), notif_id });
+                    }
+                }
                 self.ext_tab_ids.remove(&ext_id);
                 self.ext_last_known_session_id.remove(&ext_id);
                 self.probe_in_flight.remove(&ext_id);
@@ -612,6 +618,8 @@ impl ExtensionHost {
                 AttachedSession {
                     ext_id,
                     kind: SessionKind::ServiceWorker,
+                    url: url.to_owned(),
+                    chromium_tab_id: None,
                     main_frame_id: None,
                     last_popup_size: None,
                     attach_started: Instant::now(),
@@ -667,6 +675,8 @@ impl ExtensionHost {
                 AttachedSession {
                     ext_id: ext_id.to_owned(),
                     kind: SessionKind::FileGuardOnly,
+                    url: url.to_owned(),
+                    chromium_tab_id: None,
                     main_frame_id: None,
                     last_popup_size: None,
                     attach_started: Instant::now(),
@@ -699,8 +709,9 @@ impl ExtensionHost {
             return effects;
         }
 
-        // Never attach shims to iframes, dedicated/shared workers, or non-page targets.
-        let is_page_like = matches!(ttype, "page" | "other");
+        // Never attach shims to iframes, dedicated/shared workers, or non-page targets;
+        // include MV2 `background_page` so it is never detached unshimmed (READER-12 #441).
+        let is_page_like = matches!(ttype, "page" | "other" | "background_page");
         let ext_target = if is_page_like
             && let Some(ext_id) = super::manifest::extension_id_from_target_url(url)
             && self.extensions.contains_key(ext_id)
@@ -737,6 +748,8 @@ impl ExtensionHost {
                 AttachedSession {
                     ext_id,
                     kind,
+                    url: url.to_owned(),
+                    chromium_tab_id: None,
                     main_frame_id: None,
                     last_popup_size: None,
                     attach_started: Instant::now(),
@@ -858,6 +871,19 @@ impl ExtensionHost {
                     }
                 }
             }
+            "self_tab" => {
+                // Binding an extension page's own Chromium tab ID (`tabs.ts:345-349`); strictly
+                // restricted to `ExtensionPage` sessions and re-validated against `visible_tabs` +
+                // `extension_id_from_url == ext_id` in `rpc.rs` so no page can forge another tab.
+                if let Some(cid_i64) = payload.get("id").and_then(Value::as_i64)
+                    && cid_i64 > 0
+                    && cid_i64 < (i32::MAX - 1024) as i64
+                    && let Some(sess) = self.sessions.get_mut(sid)
+                    && sess.kind == SessionKind::ExtensionPage
+                {
+                    sess.chromium_tab_id = Some(cid_i64 as i32);
+                }
+            }
             "tab_seen" => {
                 // Scoped strictly to `sess_ext_id` and bounded around `seed_session_id` so one
                 // extension can never poison another extension's tab IDs (`review-rd294.md` #6).
@@ -893,7 +919,13 @@ impl ExtensionHost {
                 let args = payload.get("args").and_then(Value::as_array).cloned().unwrap_or_default();
                 let needs_tab_ids = matches!(
                     name.as_str(),
-                    "tabs.query" | "tabs.get" | "windows.get" | "windows.getCurrent" | "windows.getLastFocused" | "windows.getAll"
+                    "tabs.query"
+                        | "tabs.get"
+                        | "tabs.getCurrent"
+                        | "windows.get"
+                        | "windows.getCurrent"
+                        | "windows.getLastFocused"
+                        | "windows.getAll"
                 );
                 if needs_tab_ids
                     && self.has_unbound_visible_tab_for(&sess_ext_id)

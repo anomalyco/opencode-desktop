@@ -221,7 +221,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     let raw: Function = vmx.asyncs.raw_get("Browser.OpenAsync")?;
     let open: Function = lua.load("local raw = ... return function(self, spec) local id = raw(spec) return if id then self:Get(id) else nil end").set_name("=Browser:OpenAsync").call(raw)?;
     t.raw_set("OpenAsync", open)?;
-    lazy_signals(lua, vmx, t, "Browser", &["Changed", "Picked", "SiteBack", "AddressSelection"])
+    lazy_signals(lua, vmx, t, "Browser", &["Changed", "Picked", "SiteBack", "AddressSelectionChanged"])
 }
 
 /// The host's async functions: `Browser:OpenAsync` and `BrowserTab`'s async methods.

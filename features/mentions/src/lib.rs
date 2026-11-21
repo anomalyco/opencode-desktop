@@ -592,16 +592,15 @@ pub fn mention_wire(host: &dyn MentionsHost) -> Wire {
 // ---------------------------------------------------------------------------------------------
 // View
 
-/// A row's mark (`editor.tsx:1671-1686`): the small (14 pt) speech bubble, brain and skill
-/// icons, which take the row button's own ink (`buttontext`: black, or white in dark), the
-/// brain in `icon-info-active`; a file's 16 pt colour badge, a reference's its folder's.
+/// A row's mark (`editor.tsx:1740-1755`): 16 pt `comment` (session) and `post-skill` (skill),
+/// 14 pt `brain` (`size="small"`, `icon-info-active`), 16 pt colour file/folder badges.
 fn row_icon(p: &Pal, item: &Item) -> El {
     let ink = if p.dark { rune::Color::WHITE } else { rune::Color::BLACK };
     let info = rune::color::hex(if p.dark { "#fabbff" } else { "#912a9a" }).unwrap_or(p.info);
     match item.kind {
-        Kind::Session => icon(&SPEECH_BUBBLE, 14.0).color(ink),
+        Kind::Session => icon(&SPEECH_BUBBLE, 16.0).color(ink),
         Kind::Agent => icon(&ic::BRAIN, 14.0).color(info),
-        Kind::Skill => icon(&ic::POST_SKILL, 14.0).color(ink),
+        Kind::Skill => icon(&ic::POST_SKILL, 16.0).color(ink),
         Kind::File => icon(rune_theme_opencode::file_icons::file(&item.label), 16.0).color(p.text),
         Kind::Reference => icon(rune_theme_opencode::file_icons::folder(item.key.strip_prefix("reference:").unwrap_or(&item.label), false), 16.0).color(p.text),
     }

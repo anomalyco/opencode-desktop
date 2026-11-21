@@ -315,15 +315,19 @@ return plugin.defineWindow(function(ctx)
         local bAny = Browser :: any
         local sel = if type(bAny.AddressSelection) == "function" then bAny:AddressSelection() else nil
         local atEnd = sel == nil or (not sel.composing and sel.start == sel.len and sel["end"] == sel.len)
+        local pasted = sel ~= nil and sel.pasted == true
         local prevTyped = if e.typed then e.text else ""
         local deletedCompletion = lastEditorField ~= e.text and value == e.text
-        local deleting = deletedCompletion or #value < #prevTyped or not atEnd
+        local prevLen = utf8.len(prevTyped) or #prevTyped
+        local curLen = utf8.len(value) or #value
+        local singleAppend = curLen == prevLen + 1 and string.sub(value, 1, #prevTyped) == prevTyped
+        local deleting = deletedCompletion or pasted or not singleAppend or not atEnd
         lastEditorField = value
         dispatch({ type = "input", value = value, deleting = deleting, visits = visits() })
     end)
     local bSelSig = Browser :: any
-    if bSelSig.AddressSelection ~= nil then
-        bSelSig.AddressSelection:Connect(function(sel: any)
+    if bSelSig.AddressSelectionChanged ~= nil then
+        bSelSig.AddressSelectionChanged:Connect(function(sel: any)
             if syncingEditor or type(sel) ~= "table" or sel.focused ~= true then
                 return
             end
@@ -339,13 +343,13 @@ return plugin.defineWindow(function(ctx)
             if value ~= bar.field or sel.len ~= #value then
                 return
             end
-            if sel.start == #bar.field - #bar.completion and sel["end"] == sel.len then
+            if not sel.composing and sel.start == #bar.field - #bar.completion and sel["end"] == sel.len then
                 return
             end
             dispatch({
                 type = "input",
                 value = value,
-                deleting = not (sel.start == sel.len and sel["end"] == sel.len),
+                deleting = sel.composing or not (sel.start == sel.len and sel["end"] == sel.len),
                 visits = visits(),
             })
         end)

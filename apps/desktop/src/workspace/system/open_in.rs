@@ -361,13 +361,13 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
             .size(20.0, 28.0)
             .center()
             .cursor(Cursor::Pointer)
-            .fill(if open { p.hover } else { rune::Color::TRANSPARENT })
-            .hover(p.hover)
-            .press(p.pressed)
+            .fill(if open { p.pressed } else { rune::Color::TRANSPARENT })
+            .hover(if open { rune::Color::TRANSPARENT } else { p.hover })
+            .press(if open { rune::Color::TRANSPARENT } else { p.pressed })
             .hover_motion(Anim::INSTANT, Anim::INSTANT)
             .role("button")
             .label_static(opencode_i18n::t!("plugin.file.open.menu"))
-            .help(opencode_i18n::t!("plugin.file.open.menu"))
+            .expanded(open)
             .layer_opacity(if busy { 0.5 } else { 1.0 })
             .menu_button(menu_anchor, move |s: &mut App, tx: &mut Tx| {
                 if s.kernel.slots.get(&OPEN_IN).busy() {
@@ -383,6 +383,7 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
                 });
             })
             .child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon));
+        let chev = if open { chev } else { chev.help(opencode_i18n::t!("plugin.file.open.menu")) };
         Some(
             row()
                 .key(key)
