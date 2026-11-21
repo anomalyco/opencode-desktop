@@ -666,6 +666,14 @@ impl EngineManager {
             | M::PreviewResponseHead { .. }
             | M::PreviewResponseChunk { .. }
             | M::PreviewResponseEnd { .. }
+            // Profile cookie store messages from Settings > Browser (`#286`): not tab-addressed.
+            | M::ProfileCookiesList { .. }
+            | M::ProfileCookiesSet { .. }
+            | M::ProfileCookieDelete { .. }
+            | M::ProfileProbeCookies { .. }
+            | M::ClearProfileData { .. }
+            | M::SetShareSignIns { .. }
+            | M::SyncRemoteCookies { .. }
             | M::Shutdown => return false,
             // Exempt tab-addressed lifecycle, cleanup, layout/zoom, human input, prompt answers,
             // and `OpenTab`/`Navigate` (guarded by destination pre-check + Guard 2 commit check so
