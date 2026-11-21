@@ -504,6 +504,11 @@ impl EngineManager {
                 }
             }
             HostMsg::MouseButton { tab_id, x, y, button, up, clicks, mods } => {
+                // The person's press takes the tab back before the click reaches the page, so a
+                // file picker this click opens is theirs (official `policy.ts:121-125`).
+                if !up {
+                    self.set_user_reclaimed(tab_id, true);
+                }
                 if let Some(t) = self.tabs.get_mut(&tab_id) {
                     let (btn, flag): (MouseButtonType, u32) = match button {
                         PointerBtn::Secondary => (
@@ -525,7 +530,6 @@ impl EngineManager {
                         t.held_buttons |= flag;
                         t.host.set_focus(1);
                         t.prompts.popup_credit.store(true, Ordering::Release);
-                        t.prompts.user_reclaimed.store(true, Ordering::Release);
                     }
                     let ev = MouseEvent {
                         x: x.round() as i32,
@@ -547,10 +551,12 @@ impl EngineManager {
                 }
             }
             HostMsg::Key { tab_id, down, text, named, mods } => {
+                if down {
+                    self.set_user_reclaimed(tab_id, true);
+                }
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if down {
                         t.prompts.popup_credit.store(true, Ordering::Release);
-                        t.prompts.user_reclaimed.store(true, Ordering::Release);
                     }
                     send_key(&t.host, down, text.as_deref(), named.as_deref(), cef_mods(mods));
                 }
@@ -591,11 +597,11 @@ impl EngineManager {
             HostMsg::SetInspect { tab_id, enabled } => self.handle_set_inspect(tab_id, enabled),
             HostMsg::HighlightNode { tab_id, backend_node_id } => self.handle_highlight_node(tab_id, backend_node_id),
             HostMsg::CdpCall { tab_id, request_id, method, params, session_id } => {
+                self.set_user_reclaimed(tab_id, false);
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if method.starts_with("Input.") {
                         t.prompts.popup_credit.store(true, Ordering::Release);
                     }
-                    t.prompts.user_reclaimed.store(false, Ordering::Release);
                     if t.prompts.agent_driven.load(Ordering::Acquire) {
                         for raw in t.passkeys.enforce_messages() {
                             t.host.send_dev_tools_message(Some(raw.as_bytes()));
@@ -715,11 +721,11 @@ impl EngineManager {
                 self.handle_set_agent_driven(tab_id, agent_driven);
             }
             HostMsg::TypedCdpCall { tab_id, request_id, method, params, session_id, frame_id } => {
+                self.set_user_reclaimed(tab_id, false);
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if method.starts_with("Input.") {
                         t.prompts.popup_credit.store(true, Ordering::Release);
                     }
-                    t.prompts.user_reclaimed.store(false, Ordering::Release);
                     for raw in t.passkeys.enforce_messages() {
                         t.host.send_dev_tools_message(Some(raw.as_bytes()));
                     }
