@@ -112,6 +112,13 @@ pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
             })
         })?,
     )?;
+    // True while a link-opened tab's first page has not named itself yet (`UP-118`, `pane-machine.ts`).
+    m.raw_set(
+        "Unnamed",
+        lua.create_function(|lua, this: Table| {
+            read_tab(lua, &this, "BrowserTab:Unnamed", |app, id| Ok(app.browser_tab_unnamed(id)))
+        })?,
+    )?;
     m.raw_set(
         "IsPrivate",
         lua.create_function(|lua, this: Table| {

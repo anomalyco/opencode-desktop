@@ -672,6 +672,7 @@ pub fn version(app: &App) -> u64 {
         t.files.iter().for_each(|f| (&f.id, f.bytes, f.state as u8, &f.error).hash(&mut h));
     }
     app.workspace_panes.browser.host.focused_tab_id().hash(&mut h);
+    app.workspace_panes.browser.openers.unnamed_ids_sorted().hash(&mut h);
     app.workspace_panes.browser.pending_app_links.borrow().len().hash(&mut h);
     let mut sessions: Vec<_> = app.workspace_panes.browser.session_tabs.iter().collect();
     sessions.sort();
@@ -695,7 +696,7 @@ pub fn pages(app: &App, include_find: bool) -> Vec<(String, u64)> {
         .iter()
         .map(|t| {
             let mut h = std::hash::DefaultHasher::new();
-            (&t.url, &t.title, t.loading, t.preview.map(|p| p as u8), &t.refusal, t.rejected, &t.favicon).hash(&mut h);
+            (&t.url, &t.title, t.loading, t.preview.map(|p| p as u8), &t.refusal, t.rejected, &t.favicon, app.browser_tab_unnamed(t.id)).hash(&mut h);
             if include_find {
                 t.find.hash_state(&mut h);
             }

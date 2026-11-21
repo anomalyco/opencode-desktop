@@ -10,6 +10,8 @@ pub mod links;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod context_menu;
 #[cfg(not(target_arch = "wasm32"))]
+mod openers;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod preview;
 #[cfg(not(target_arch = "wasm32"))]
 mod preview_pool;
@@ -138,6 +140,8 @@ mod native {
         pub history: std::cell::RefCell<Option<browser_pane::history::HistoryStore>>,
         /// Serializes human download OS Save dialogs (`EngineMsg::DownloadSaveRequest`) one at a time.
         pub save_dialog_open: bool,
+        /// Chrome-style opener chains and initial `"New tab"` title holds (`UP-118`).
+        pub openers: super::openers::TabOpeners,
     }
 
     /// App-level shortcuts that a focused web page must yield to OpenCode (Rune) rather than swallow,
@@ -574,6 +578,9 @@ mod native {
         }
 
         pub fn navigate_browser_tab_with_agent(&mut self, id: u64, url: &str, agent: bool) {
+            if !agent {
+                self.note_browser_addressed(id);
+            }
             let sid = self.browser_tab_session(id).map(str::to_owned);
             let resolved = browser_pane::resolve_address(url);
             match self.resolve_preview_target(sid.as_deref(), &resolved, agent) {
@@ -672,6 +679,7 @@ mod native {
 
         /// Page `id`'s tab left its strip: the page closes and any preview server binding revokes.
         pub fn forget_browser_tab(&mut self, id: u64) {
+            self.workspace_panes.browser.openers.on_close(id);
             self.revoke_preview_binding(id);
             for ids in self.workspace_panes.browser.session_tabs.values_mut() {
                 ids.retain(|&x| x != id);
@@ -747,12 +755,11 @@ mod native {
                         continue;
                     };
                     let sid = self.browser_tab_session(popup.opener_tab_id).map(str::to_owned);
-                    let _new_id = self.open_new_browser_tab_with_context(
+                    let _new_id = self.open_new_browser_tab_beside(
                         sid.as_deref(),
                         &popup.url,
-                        None,
+                        popup.opener_tab_id,
                         !popup.background,
-                        false,
                         opener_ctx,
                         driver,
                     );
@@ -782,6 +789,7 @@ mod native {
                 self.workspace_panes.browser.host.focus_tab(id);
                 changed = true;
             }
+            changed |= self.sync_browser_openers();
             changed
         }
     }
