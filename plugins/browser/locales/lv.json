@@ -65,5 +65,6 @@
   "zoom.reset": "Atiestatīt tālummaiņu",
   "zoom.percent": "{{percent}}%",
   "link.copy": "Kopēt saiti",
-  "history.clear": "Notīrīt vēsturi"
+  "history.clear": "Notīrīt vēsturi",
+  "extensions.compat.feature.management": "Citu paplašinājumu pārvaldība"
 }

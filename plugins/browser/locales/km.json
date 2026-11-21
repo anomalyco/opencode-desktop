@@ -64,5 +64,6 @@
   "zoom.reset": "កំណត់ការពង្រីកឡើងវិញ",
   "zoom.percent": "{{percent}}%",
   "link.copy": "ចម្លងតំណ",
-  "history.clear": "សម្អាតប្រវត្តិ"
+  "history.clear": "សម្អាតប្រវត្តិ",
+  "extensions.compat.feature.management": "ការគ្រប់គ្រងផ្នែកបន្ថែមផ្សេងទៀត"
 }

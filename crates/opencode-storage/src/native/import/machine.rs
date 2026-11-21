@@ -71,6 +71,7 @@ pub enum ImportEvent {
     FirstFramePresented,
     FilesRetired { failed: usize },
     OfficialSeedSettled,
+    OfficialSeedFailed { error: String },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -100,11 +101,13 @@ fn transition(state: ImportState, event: ImportEvent) -> (ImportState, Effects<I
     use ImportState as S;
     match (state, event) {
         (S::MigratingSchema, Ev::OpenOrMigrateFailed { error }) => (S::DegradedInMemory { error: error.clone() }, Effects::two(E::FallBackToMemory, E::Report(error))),
-        (S::MigratingSchema, Ev::SchemaReady { pending: false, .. }) => (S::Ready, Effects::none()),
-        (S::MigratingSchema, Ev::SchemaReady { pending: true, seed_settled }) => (S::ScanningSources { seed_settled }, Effects::one(E::Scan)),
+        (S::MigratingSchema, Ev::SchemaReady { pending: false, seed_settled: true }) => (S::Ready, Effects::none()),
+        (S::MigratingSchema, Ev::SchemaReady { seed_settled, .. }) => (S::ScanningSources { seed_settled }, Effects::one(E::Scan)),
         (S::ScanningSources { .. }, Ev::FoundRuneFiles { files }) => (S::ImportingLegacyFiles { files }, Effects::one(E::Import)),
-        // Nothing of Rune's to import: a fresh profile may still take Desktop's state.
-        (S::ScanningSources { seed_settled: false }, Ev::NoRuneFiles { fresh: true }) => (S::SeedDeferred, Effects::one(E::MarkGroupsSettled)),
+        // Nothing of Rune's to import: seed a fresh profile from Desktop before the first boot
+        // packet is built. `Seed` commits migrated rows, rebuilt boot record, and both settled
+        // flags (`groups | FLAG_SEED_SETTLED`) in ONE SQLite transaction.
+        (S::ScanningSources { seed_settled: false }, Ev::NoRuneFiles { fresh: true }) => (S::SeedingFromOfficial, Effects::one(E::Seed)),
         (S::ScanningSources { .. }, Ev::NoRuneFiles { .. }) => (S::Ready, Effects::two(E::MarkGroupsSettled, E::MarkSeedSettled)),
         (S::ImportingLegacyFiles { files }, Ev::CommittedAndCheckpointed) => (S::VerifyingImport { files }, Effects::one(E::Verify)),
         (S::ImportingLegacyFiles { .. }, Ev::ImportFailed { error }) => (S::Ready, Effects::one(E::Report(format!("legacy import failed, files kept: {error}")))),
@@ -125,7 +128,8 @@ fn transition(state: ImportState, event: ImportEvent) -> (ImportState, Effects<I
             (S::Ready, Effects::one(E::Report(format!("legacy import stays unsettled: {kept} unverified, {failed} not retired"))))
         }
         (S::SeedDeferred, Ev::FirstFramePresented) => (S::SeedingFromOfficial, Effects::one(E::Seed)),
-        (S::SeedingFromOfficial, Ev::OfficialSeedSettled) => (S::Ready, Effects::one(E::MarkSeedSettled)),
+        (S::SeedingFromOfficial, Ev::OfficialSeedSettled) => (S::Ready, Effects::none()),
+        (S::SeedingFromOfficial, Ev::OfficialSeedFailed { error }) => (S::Ready, Effects::one(E::Report(error))),
         (state, _) => (state, Effects::none()),
     }
 }

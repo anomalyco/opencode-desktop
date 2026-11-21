@@ -64,5 +64,6 @@
   "zoom.reset": "重設縮放",
   "zoom.percent": "{{percent}}%",
   "link.copy": "複製連結",
-  "history.clear": "清除記錄"
+  "history.clear": "清除記錄",
+  "extensions.compat.feature.management": "管理其他擴充功能"
 }

@@ -162,8 +162,9 @@ pub(super) fn stage_b(
     let deferred = match &config.import {
         Some(import) => {
             let path = config.path.clone();
+            let scratch_parent = config.path.parent().map_or_else(|| import.dir.clone(), Path::to_path_buf);
             let reopen = move || connect(&path).and_then(|(c, _)| configure(&c, true).map(|()| c));
-            let (summary, deferred, settled) = import::run(&mut conn, &reopen, import, &config.official, flags, (config.clock)());
+            let (summary, deferred, settled) = import::run(&mut conn, &reopen, import, &config.official, scratch_parent, flags, (config.clock)());
             report.import = summary;
             if settled != flags {
                 schema::set_flags(&conn, settled)?;
@@ -223,7 +224,7 @@ pub(super) fn stage_b(
     let mut cache = read(&conn, report)?;
     // What was offered is what's stored: putting the same bytes back writes nothing.
     cache.cache_sums.extend(sums);
-    cache.complete = report.created && report.import.rows == 0;
+    cache.complete = report.created && report.import.rows == 0 && report.import.seeded_rows == 0;
     if cache.complete {
         cache.outbox = OutboxCache::Loaded(BTreeMap::new());
     }

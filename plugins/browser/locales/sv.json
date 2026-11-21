@@ -64,5 +64,6 @@
   "zoom.reset": "Återställ zoom",
   "zoom.percent": "{{percent}} %",
   "link.copy": "Kopiera länk",
-  "history.clear": "Rensa historik"
+  "history.clear": "Rensa historik",
+  "extensions.compat.feature.management": "Hantera andra tillägg"
 }

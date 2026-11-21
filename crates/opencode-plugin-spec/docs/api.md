@@ -552,6 +552,7 @@ The plugin's own messages in the interface language, and numbers, dates and list
 | `ui.button(props: UiButtonProps) -> UiNode` | control | [`UiButtonProps`](#uibuttonprops) | The app's own button. |
 | `ui.iconButton(props: UiIconButtonProps) -> UiNode` | control | [`UiIconButtonProps`](#uiiconbuttonprops) | The app's own icon button. |
 | `ui.switch(props: UiSwitchProps) -> UiNode` | control | [`UiSwitchProps`](#uiswitchprops) | The app's own switch. |
+| `ui.checkbox(props: UiCheckboxProps) -> UiNode` | control | [`UiCheckboxProps`](#uicheckboxprops) | Desktop's compact checkbox with its label. Since 1.7. |
 | `ui.radio(props: UiRadioProps) -> UiNode` | control | [`UiRadioProps`](#uiradioprops) | A radio row. |
 | `ui.field(props: UiFieldProps) -> UiNode` | control | [`UiFieldProps`](#uifieldprops) | The app's own text field. |
 | `ui.segmented(props: UiSegmentedProps) -> UiNode` | control | [`UiSegmentedProps`](#uisegmentedprops) | The app's segmented control. |
@@ -1714,6 +1715,21 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 |---|---|---|
 | `checked` | `boolean` | On. |
 | `disabled` | `boolean?` | Cannot change. |
+| `onChange` | `UiHandler?` | Runs with the new state in `event.checked`. |
+
+### UiCheckboxProps
+
+`ui.checkbox` props: Desktop's compact checkbox (`Checkbox appearance="compact"`) with its label.
+
+Also takes every field of [`UiLayoutProps`](#uilayoutprops).
+
+| Field | Type | Description |
+|---|---|---|
+| `text` | `string` | The label, beside the box. |
+| `description` | `string?` | A line under the label. |
+| `checked` | `boolean` | Ticked. |
+| `surface` | `("base" \| "layer-1")?` | The background the box sits on: `base` (the default) or `layer-1`, as Desktop's `surface`; an unticked box takes its fill. |
+| `disabled` | `boolean?` | Cannot change; drawn at half opacity. |
 | `onChange` | `UiHandler?` | Runs with the new state in `event.checked`. |
 
 ### UiRadioProps

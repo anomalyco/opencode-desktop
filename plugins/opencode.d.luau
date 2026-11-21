@@ -1495,6 +1495,84 @@ export type UiSwitchProps = {
     onChange: UiHandler?,
 }
 
+--- `ui.checkbox` props: Desktop's compact checkbox (`Checkbox appearance="compact"`) with its label.
+export type UiCheckboxProps = {
+    --- Identity among siblings across renders, and the anchor key for popovers and menus.
+    key: string?,
+    --- Width.
+    w: UiSize?,
+    --- Height.
+    h: UiSize?,
+    --- Minimum width.
+    minW: number?,
+    --- Minimum height.
+    minH: number?,
+    --- Maximum width.
+    maxW: number?,
+    --- Maximum height.
+    maxH: number?,
+    --- Share of a stack's free space.
+    grow: number?,
+    --- May shrink below its content size.
+    shrink: boolean?,
+    --- Padding on every side.
+    pad: number?,
+    --- Left and right padding.
+    px: number?,
+    --- Top and bottom padding.
+    py: number?,
+    --- Top padding.
+    pt: number?,
+    --- Right padding.
+    pr: number?,
+    --- Bottom padding.
+    pb: number?,
+    --- Left padding.
+    pl: number?,
+    --- Margin on every side.
+    m: number?,
+    --- Left and right margin.
+    mx: number?,
+    --- Top and bottom margin.
+    my: number?,
+    --- Top margin.
+    mt: number?,
+    --- Right margin.
+    mr: number?,
+    --- Bottom margin.
+    mb: number?,
+    --- Left margin.
+    ml: number?,
+    --- Takes the node out of flow, at these offsets from its parent's edges.
+    pin: UiPin?,
+    --- 0 to 1.
+    opacity: number?,
+    --- The accessibility role.
+    role: Role?,
+    --- The accessible name.
+    label: string?,
+    --- A tooltip.
+    help: string?,
+    --- Where the tooltip shows. Defaults to below.
+    helpSide: Side?,
+    --- Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press.
+    helpOpen: boolean?,
+    --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
+    dir: ("ltr" | "rtl" | "auto")?,
+    --- The label, beside the box.
+    text: string,
+    --- A line under the label.
+    description: string?,
+    --- Ticked.
+    checked: boolean,
+    --- The background the box sits on: `base` (the default) or `layer-1`, as Desktop's `surface`; an unticked box takes its fill.
+    surface: ("base" | "layer-1")?,
+    --- Cannot change; drawn at half opacity.
+    disabled: boolean?,
+    --- Runs with the new state in `event.checked`.
+    onChange: UiHandler?,
+}
+
 --- `ui.radio` props: a radio row with its label and description.
 export type UiRadioProps = {
     --- Identity among siblings across renders, and the anchor key for popovers and menus.
@@ -5783,6 +5861,8 @@ export type UiLibrary = {
     iconButton: (props: UiIconButtonProps) -> UiNode,
     --- The app's own switch.
     switch: (props: UiSwitchProps) -> UiNode,
+    --- Desktop's compact checkbox with its label.
+    checkbox: (props: UiCheckboxProps) -> UiNode,
     --- A radio row.
     radio: (props: UiRadioProps) -> UiNode,
     --- The app's own text field.

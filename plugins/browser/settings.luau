@@ -618,50 +618,85 @@ function settings.renderClearConfirm(i18n: I18nService, view: View, onCancel: ()
     })
 end
 
--- "Import from <browser>" (`site-chooser.tsx:328-347`) for what this build brings over: browsing
--- history, read-only from the other browser. A clean import closes it and its row says so; a
--- failed one stays open and says why.
+-- What the import dialog brings: both boxes ticked until the person unticks one (`site-chooser.tsx:80-81`).
+export type ImportBoxes = { signins: boolean, history: boolean }
+
+-- "Import from <browser>" (`site-chooser.tsx:328-384`): what comes over, as two boxes, "Sign-ins" and
+-- "Browsing history", then Cancel and Import. Import needs at least one box; while it runs the boxes
+-- cannot change and Import shows it is busy. A clean import closes the dialog and its row says so;
+-- a partial or failed one stays open and says why.
 function settings.renderImportDialog(
     i18n: I18nService,
     view: View,
     browserLabel: string,
     message: ImportMessage?,
+    boxes: ImportBoxes,
+    busy: boolean,
+    onBox: (which: string, on: boolean) -> (),
     onImport: () -> (),
     onClose: () -> ()
 ): ui.Node
-    local rows: { ui.Node } = {
-        ui.text(i18n:T("signins.import", { browser = browserLabel }), DIALOG_TITLE, { truncate = true }),
-        ui.text(i18n:T("settings.import.history.description"), MUTED),
+    local function box(which: string, label: string, checked: boolean): ui.Node
+        -- `site-chooser.tsx:361-381`: each box in a 28 row, on the dialog's layer-1 surface.
+        return ui.row({ key = `settings-import-{which}-row`, w = "full", h = 28, align = "center" }, {
+            ui.checkbox({
+                key = `settings-import-{which}`,
+                text = label,
+                checked = checked,
+                surface = "layer-1",
+                disabled = busy,
+                onChange = view:Handler(function(e: any)
+                    onBox(which, e.checked == true)
+                end),
+            }),
+        })
+    end
+    local canImport = (boxes.signins or boxes.history) and not busy
+    -- The body: the boxes, then how the last import went (`site-chooser.tsx:566-576`, 13 on a 20 line).
+    local body: { ui.Node } = {
+        box("signins", i18n:T("import.signins"), boxes.signins),
+        box("history", i18n:T("import.history"), boxes.history),
     }
     if message ~= nil then
-        table.insert(rows, ui.text(message.text, MUTED, {
+        table.insert(body, ui.text(message.text, MUTED, {
             key = "settings-import-status",
             role = if message.error then "alert" else "status",
             color = if message.error then "status-danger" else "text-muted",
+            py = 4,
         }))
     end
-    table.insert(rows, ui.row({ w = "full", justify = "end", gap = 8, pt = 4 }, {
-        ui.button({
-            key = "settings-import-cancel",
-            text = i18n:T("common.cancel"),
-            size = "small",
-            variant = "neutral",
-            onPress = view:Handler(function()
-                onClose()
-            end),
+    -- `ui.Dialog`'s frame: the header with its close button, the body 16 in, the footer's buttons.
+    return ui.col({ key = "settings-browser-import-dialog", w = "full" }, {
+        ui.dialogHeader({
+            key = "settings-import-header",
+            title = i18n:T("signins.import", { browser = browserLabel }),
+            wrapTitle = false,
         }),
-        ui.button({
-            key = "settings-import-start",
-            text = i18n:T("signins.action"),
-            size = "small",
-            variant = "contrast",
-            autofocus = true,
-            onPress = view:Handler(function()
-                onImport()
-            end),
+        ui.col({ key = "settings-import-body", w = "full", px = 16, pt = 4 }, body),
+        ui.row({ key = "settings-import-footer", w = "full", px = 16, py = 12, gap = 8, justify = "end" }, {
+            ui.button({
+                key = "settings-import-cancel",
+                text = i18n:T("common.cancel"),
+                variant = "neutral",
+                onPress = view:Handler(function()
+                    onClose()
+                end),
+            }),
+            ui.button({
+                key = "settings-import-start",
+                text = i18n:T("signins.action"),
+                variant = "contrast",
+                autofocus = true,
+                disabled = not canImport,
+                loading = busy,
+                onPress = view:Handler(function()
+                    if canImport then
+                        onImport()
+                    end
+                end),
+            }),
         }),
-    }))
-    return ui.col({ key = "settings-browser-import-dialog", w = "full", pad = 20, gap = 12 }, rows)
+    })
 end
 
 return settings

@@ -25,21 +25,22 @@
 //!   unlinked first before closing the guard handle and removing the remaining files.
 #![allow(unsafe_code)]
 
+use std::ffi::OsString;
 use std::io::Read as _;
 use std::os::windows::{
-    ffi::OsStrExt,
+    ffi::{OsStrExt, OsStringExt},
     fs::{MetadataExt, OpenOptionsExt},
     io::{AsRawHandle, FromRawHandle, OwnedHandle},
 };
-use std::{fs, io, path::Path, ptr};
+use std::{fs, io, mem, path::Path, ptr};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use windows_sys::Win32::{
     Foundation::{
         CloseHandle, ERROR_CALL_NOT_IMPLEMENTED, ERROR_INVALID_FUNCTION, ERROR_INVALID_PARAMETER,
-        ERROR_NOT_SUPPORTED, ERROR_NOT_SUPPORTED_ON_DAX, ERROR_RM_DISCONNECTED,
-        ERROR_RM_NOT_ACTIVE, ERROR_TRANSACTED_MAPPING_UNSUPPORTED_REMOTE,
+        ERROR_NO_MORE_FILES, ERROR_NOT_SUPPORTED, ERROR_NOT_SUPPORTED_ON_DAX,
+        ERROR_RM_DISCONNECTED, ERROR_RM_NOT_ACTIVE, ERROR_TRANSACTED_MAPPING_UNSUPPORTED_REMOTE,
         ERROR_TRANSACTIONAL_OPEN_NOT_ALLOWED, ERROR_TRANSACTIONMANAGER_NOT_FOUND,
         ERROR_TRANSACTIONMANAGER_NOT_ONLINE, ERROR_TRANSACTIONS_UNSUPPORTED_REMOTE, GENERIC_WRITE,
         INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
@@ -141,20 +142,22 @@ impl Transaction {
         check(unsafe { MoveFileTransactedW(wide(from).as_ptr(), wide(to).as_ptr(), None, ptr::null(), 0, self.0.as_raw_handle()) })
     }
 
-    fn open_exclusive(&self, exe: &Path) -> io::Result<OwnedHandle> {
+    fn open_node(&self, path: &Path, access: u32, share: u32) -> io::Result<OwnedHandle> {
         #[cfg(debug_assertions)]
         if let Some(err) = debug_txf_fault(false) {
             return Err(err);
         }
-        // SAFETY: NUL-terminated path and live transaction; exclusive write refuses any mapped exe.
+        // SAFETY: NUL-terminated path and live transaction; `FILE_FLAG_OPEN_REPARSE_POINT`
+        // prevents traversing junctions/symlinks and `FILE_FLAG_BACKUP_SEMANTICS` allows opening
+        // directory handles directly so checks and deletion stay handle-bound.
         let h = unsafe {
             CreateFileTransactedW(
-                wide(exe).as_ptr(),
-                GENERIC_WRITE,
-                FILE_SHARE_DELETE,
+                wide(path).as_ptr(),
+                access,
+                share,
                 ptr::null(),
                 OPEN_EXISTING,
-                FILE_FLAG_OPEN_REPARSE_POINT,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
                 ptr::null_mut(),
                 self.0.as_raw_handle(),
                 ptr::null(),
@@ -164,29 +167,13 @@ impl Transaction {
         if h == INVALID_HANDLE_VALUE || h.is_null() {
             return Err(io::Error::last_os_error());
         }
-        // SAFETY: `CreateFileTransactedW` succeeded and returned a valid, owned file handle.
+        // SAFETY: `CreateFileTransactedW` succeeded and returned a valid, owned handle.
         Ok(unsafe { OwnedHandle::from_raw_handle(h) })
     }
 
     fn commit(self) -> io::Result<()> {
         // SAFETY: `self.0` is a live transaction handle owned by `self`, committed once before drop.
         check(unsafe { CommitTransaction(self.0.as_raw_handle()) })
-    }
-
-    fn unlink(&self, path: &Path) -> io::Result<()> {
-        let meta = fs::symlink_metadata(path)?;
-        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-            return Err(io::Error::other("not following an update reparse point"));
-        }
-        if !meta.is_dir() {
-            // SAFETY: `wide(path)` is NUL-terminated for this call and `self.0` is a live transaction handle.
-            return check(unsafe { DeleteFileTransactedW(wide(path).as_ptr(), self.0.as_raw_handle()) });
-        }
-        for entry in fs::read_dir(path)? {
-            self.unlink(&entry?.path())?;
-        }
-        // SAFETY: `wide(path)` is NUL-terminated for this call and `self.0` is a live transaction handle.
-        check(unsafe { RemoveDirectoryTransactedW(wide(path).as_ptr(), self.0.as_raw_handle()) })
     }
 }
 
@@ -301,62 +288,161 @@ pub(crate) fn retire(old: &Path) -> io::Result<Mode> {
         Err(e) if tx_not_supported(&e) => return retire_plain(old).map(|()| Mode::Plain),
         Err(e) => return Err(e),
     };
-    let exe = old.join(super::EXE);
-    let image = match tx.open_exclusive(&exe) {
-        Ok(h) => h,
-        Err(e) => {
-            drop(tx);
-            if tx_not_supported(&e) {
-                return retire_plain(old).map(|()| Mode::Plain);
-            }
-            return Err(e);
+    if let Err(e) = unlink_node(Some(&tx), old, true) {
+        drop(tx);
+        if tx_not_supported(&e) {
+            return retire_plain(old).map(|()| Mode::Plain);
         }
-    };
-    // SAFETY: `wide(&exe)` is NUL-terminated for this call and `tx.0` is a live transaction handle.
-    check(unsafe { DeleteFileTransactedW(wide(&exe).as_ptr(), tx.0.as_raw_handle()) })?;
-    drop(image);
-    for e in fs::read_dir(old)? {
-        let path = e?.path();
-        if path != exe {
-            tx.unlink(&path)?;
-        }
+        return Err(e);
     }
-    // SAFETY: `wide(old)` is NUL-terminated for this call and `tx.0` is a live transaction handle.
-    check(unsafe { RemoveDirectoryTransactedW(wide(old).as_ptr(), tx.0.as_raw_handle()) })?;
     tx.commit().map(|()| Mode::Transacted)
 }
 
 fn retire_plain(old: &Path) -> io::Result<()> {
-    if fs::symlink_metadata(old)?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-        return Err(io::Error::other("not following an update reparse point"));
-    }
-    let exe = old.join(super::EXE);
-    match fs::OpenOptions::new().write(true).share_mode(FILE_SHARE_DELETE).custom_flags(FILE_FLAG_OPEN_REPARSE_POINT).open(&exe) {
-        Ok(image) => {
-            // Unlink the executable while holding the exclusive-write guard, then close the
-            // handle so the executable is gone before any sibling asset is removed.
-            // SAFETY: `wide(&exe)` is a valid NUL-terminated UTF-16 path for the duration of the call.
-            check(unsafe { DeleteFileW(wide(&exe).as_ptr()) })?;
-            drop(image);
-        }
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e),
-    }
-    unlink_plain(old)
+    unlink_node(None, old, true)
 }
 
-fn unlink_plain(path: &Path) -> io::Result<()> {
-    let meta = fs::symlink_metadata(path)?;
-    if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+fn open_plain(path: &Path, access: u32, share: u32) -> io::Result<OwnedHandle> {
+    // SAFETY: NUL-terminated path; `FILE_FLAG_OPEN_REPARSE_POINT` refuses following links/junctions
+    // and `FILE_FLAG_BACKUP_SEMANTICS` allows opening directories directly by handle.
+    let h = unsafe {
+        CreateFileW(
+            wide(path).as_ptr(),
+            access,
+            share,
+            ptr::null(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            ptr::null_mut(),
+        )
+    };
+    if h == INVALID_HANDLE_VALUE || h.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `CreateFileW` succeeded and returned a valid, owned handle.
+    Ok(unsafe { OwnedHandle::from_raw_handle(h) })
+}
+
+fn open_node(tx: Option<&Transaction>, path: &Path, access: u32, share: u32) -> io::Result<OwnedHandle> {
+    match tx {
+        Some(tx) => tx.open_node(path, access, share),
+        None => open_plain(path, access, share),
+    }
+}
+
+fn handle_attrs(h: &OwnedHandle) -> io::Result<u32> {
+    let mut info = mem::MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::zeroed();
+    // SAFETY: valid handle and writable `BY_HANDLE_FILE_INFORMATION` buffer.
+    check(unsafe { GetFileInformationByHandle(h.as_raw_handle(), info.as_mut_ptr()) })?;
+    // SAFETY: `GetFileInformationByHandle` succeeded and initialized `info`.
+    Ok(unsafe { info.assume_init().dwFileAttributes })
+}
+
+fn mark_delete(h: &OwnedHandle) -> io::Result<()> {
+    let info = FILE_DISPOSITION_INFO { DeleteFile: true };
+    // SAFETY: valid open handle with `DELETE` access and correctly sized `FILE_DISPOSITION_INFO`.
+    check(unsafe {
+        SetFileInformationByHandle(
+            h.as_raw_handle(),
+            FileDispositionInfo,
+            (&info as *const FILE_DISPOSITION_INFO).cast(),
+            mem::size_of::<FILE_DISPOSITION_INFO>() as u32,
+        )
+    })
+}
+
+/// Enumerates direct child names from an already-open directory handle (`FileIdBothDirectoryInfo`),
+/// avoiding path-based `read_dir` re-resolution while the directory handle stays pinned.
+fn read_dir_handle(h: &OwnedHandle) -> io::Result<Vec<OsString>> {
+    let mut names = Vec::new();
+    // 8-byte aligned 16 KiB buffer satisfying `FILE_ID_BOTH_DIR_INFO` alignment.
+    let mut buf = vec![0u64; 2048];
+    let byte_len = buf.len() * mem::size_of::<u64>();
+    loop {
+        // SAFETY: valid directory handle and properly aligned writable buffer of `byte_len` bytes.
+        let ok = unsafe {
+            GetFileInformationByHandleEx(h.as_raw_handle(), FileIdBothDirectoryInfo, buf.as_mut_ptr().cast(), byte_len as u32)
+        };
+        if ok == 0 {
+            let err = io::Error::last_os_error();
+            if err.raw_os_error() == Some(ERROR_NO_MORE_FILES as i32) {
+                break;
+            }
+            return Err(err);
+        }
+        let bytes: &[u8] = unsafe { std::slice::from_raw_parts(buf.as_ptr().cast::<u8>(), byte_len) };
+        let mut off = 0usize;
+        loop {
+            if off + mem::size_of::<FILE_ID_BOTH_DIR_INFO>() > bytes.len() {
+                break;
+            }
+            // SAFETY: `off` is 8-byte aligned (guaranteed by `NextEntryOffset`) and within `bytes`.
+            let entry = unsafe { &*(bytes.as_ptr().add(off).cast::<FILE_ID_BOTH_DIR_INFO>()) };
+            let name_bytes = entry.FileNameLength as usize;
+            let name_off = off + mem::offset_of!(FILE_ID_BOTH_DIR_INFO, FileName);
+            if name_bytes > 0 && name_off + name_bytes <= bytes.len() && name_bytes.is_multiple_of(2) {
+                let units = name_bytes / 2;
+                let mut wide_name = Vec::with_capacity(units);
+                for i in 0..units {
+                    wide_name.push(u16::from_le_bytes([bytes[name_off + i * 2], bytes[name_off + i * 2 + 1]]));
+                }
+                let name = OsString::from_wide(&wide_name);
+                if name != "." && name != ".." {
+                    names.push(name);
+                }
+            }
+            if entry.NextEntryOffset == 0 {
+                break;
+            }
+            let next = off.saturating_add(entry.NextEntryOffset as usize);
+            if next <= off || next >= bytes.len() || !next.is_multiple_of(mem::align_of::<FILE_ID_BOTH_DIR_INFO>()) {
+                break;
+            }
+            off = next;
+        }
+    }
+    Ok(names)
+}
+
+/// Handle-bound, reparse-point-safe recursive delete.
+///
+/// Opens every node with `FILE_FLAG_OPEN_REPARSE_POINT` and without `FILE_SHARE_DELETE` (pinning
+/// the opened directory and its ancestors against rename/swap while children are walked), verifies
+/// `FILE_ATTRIBUTE_REPARSE_POINT == 0` on the open handle itself, and marks each file/directory
+/// deleted via `SetFileInformationByHandle(FileDispositionInfo)` on that same handle.
+/// At `is_root`, `opencode-desktop.exe` is first opened with exclusive `GENERIC_WRITE | DELETE`
+/// (share `0`) and deleted before any sibling asset so a mapped executable fails fast intact.
+fn unlink_node(tx: Option<&Transaction>, path: &Path, is_root: bool) -> io::Result<()> {
+    let h = open_node(tx, path, DELETE | FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE)?;
+    let attrs = handle_attrs(&h)?;
+    if attrs & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
         return Err(io::Error::other("not following an update reparse point"));
     }
-    if !meta.is_dir() {
-        return fs::remove_file(path);
+    if attrs & FILE_ATTRIBUTE_DIRECTORY == 0 {
+        mark_delete(&h)?;
+        return Ok(());
     }
-    for entry in fs::read_dir(path)? {
-        unlink_plain(&entry?.path())?;
+    if is_root {
+        let exe = path.join(super::EXE);
+        match open_node(tx, &exe, GENERIC_WRITE | DELETE | FILE_READ_ATTRIBUTES, 0) {
+            Ok(exe_h) => {
+                if handle_attrs(&exe_h)? & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+                    return Err(io::Error::other("not following an update reparse point"));
+                }
+                mark_delete(&exe_h)?;
+                drop(exe_h);
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
     }
-    fs::remove_dir(path)
+    for name in read_dir_handle(&h)? {
+        if is_root && name.to_string_lossy().eq_ignore_ascii_case(super::EXE) {
+            continue;
+        }
+        unlink_node(tx, &path.join(name), false)?;
+    }
+    mark_delete(&h)
 }
 
 /// Identifies a verified bundle across a same-volume rename on NTFS, ReFS (128-bit `FileIdInfo`),

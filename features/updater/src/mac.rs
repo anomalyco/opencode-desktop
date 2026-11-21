@@ -70,6 +70,7 @@ pub fn platform(exe: &Path, build_channel: &str, updates: PathBuf) -> Option<Mac
     let local_loopback_test = feed::debug_skip_gatekeeper() && feed::loopback(&service) && bundle.team.is_none();
     let (check_team, check_gatekeeper) = if local_loopback_test { (None, false) } else { (bundle.team.clone().or_else(|| Some(EXPECTED_SIGNING_TEAM.to_owned())), true) };
     sweep_old_stages(&updates);
+    sweep_swap_leftovers(&app);
     sync_installed_receipt(&updates, &exe, &app.join(&exe_rel));
     let facts = Facts { version: bundle.version.clone(), channel: feed::feed_channel(build_channel), service, updates };
     Some(Mac::new(facts, bundle, exe_rel, check_team, check_gatekeeper))
@@ -277,14 +278,19 @@ pub fn verify_bundle(app: &Path, expected_id: &str, expected_team: Option<&str>,
 }
 
 /// Atomically swaps `staged` into `dest`, restoring `dest` if the final move fails.
+/// Uses per-process unique sibling names so a leftover file, dangling symlink, or locked directory
+/// at legacy `.{name}.update` / `.{name}.previous` never permanently blocks updates (`ENOTDIR`),
+/// and never follows or removes symlinks.
 fn swap(staged: &Path, dest: &Path) -> Result<(), String> {
     let parent = dest.parent().ok_or_else(|| "app has no parent directory".to_owned())?;
     let name = dest.file_name().ok_or_else(|| "app has no file name".to_owned())?.to_string_lossy();
-    let incoming = parent.join(format!(".{name}.update"));
-    let outgoing = parent.join(format!(".{name}.previous"));
-    for leftover in [&incoming, &outgoing] {
-        if leftover.exists() {
-            std::fs::remove_dir_all(leftover).ok();
+    let seq = STAGE_SEQ.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id();
+    let incoming = parent.join(format!(".{name}.update-{pid}-{seq}"));
+    let outgoing = parent.join(format!(".{name}.previous-{pid}-{seq}"));
+    for path in [&incoming, &outgoing] {
+        if std::fs::symlink_metadata(path).is_ok() {
+            return Err(format!("unexpected path already exists at {}", path.display()));
         }
     }
     move_bundle(staged, &incoming).map_err(|e| format!("could not stage update in {}: {e}", parent.display()))?;
@@ -315,10 +321,64 @@ fn move_bundle(from: &Path, to: &Path) -> io::Result<()> {
     }
 }
 
+fn pid_alive(pid: u32) -> bool {
+    if pid == std::process::id() {
+        return true;
+    }
+    match Command::new("/bin/kill").args(["-0", &pid.to_string()]).output() {
+        Ok(out) if out.status.success() => true,
+        Ok(out) => String::from_utf8_lossy(&out.stderr).contains("Operation not permitted"),
+        Err(_) => true,
+    }
+}
+
+fn is_real_dir(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|m| !m.file_type().is_symlink() && m.is_dir())
+}
+
 fn sweep_old_stages(root: &Path) {
+    if !is_real_dir(root) {
+        return;
+    }
     let Ok(entries) = std::fs::read_dir(root) else { return };
     for entry in entries.flatten() {
-        if entry.file_name().to_string_lossy().starts_with("stage-") {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let Some(rest) = name.strip_prefix("stage-") else { continue };
+        let live = rest
+            .split_once('-')
+            .and_then(|(pid, _)| pid.parse::<u32>().ok())
+            .is_some_and(pid_alive);
+        if !live && is_real_dir(&entry.path()) {
+            std::fs::remove_dir_all(entry.path()).ok();
+        }
+    }
+}
+
+/// Removes dead-PID swap leftovers beside `app` (and non-symlink legacy `.update`/`.previous` dirs),
+/// never following symlinks and never touching leftovers of a still-running process.
+fn sweep_swap_leftovers(app: &Path) {
+    let Some(parent) = app.parent() else { return };
+    if !is_real_dir(parent) {
+        return;
+    }
+    let Some(name) = app.file_name().and_then(|n| n.to_str()) else { return };
+    let Ok(entries) = std::fs::read_dir(parent) else { return };
+    let legacy_u = format!(".{name}.update");
+    let legacy_p = format!(".{name}.previous");
+    let prefix_u = format!(".{name}.update-");
+    let prefix_p = format!(".{name}.previous-");
+    for entry in entries.flatten() {
+        let n = entry.file_name();
+        let Some(n) = n.to_str() else { continue };
+        let dead = if n == legacy_u || n == legacy_p {
+            true
+        } else if let Some(rest) = n.strip_prefix(&prefix_u).or_else(|| n.strip_prefix(&prefix_p)) {
+            rest.split_once('-').and_then(|(pid, _)| pid.parse::<u32>().ok()).is_some_and(|pid| !pid_alive(pid))
+        } else {
+            false
+        };
+        if dead && is_real_dir(&entry.path()) {
             std::fs::remove_dir_all(entry.path()).ok();
         }
     }

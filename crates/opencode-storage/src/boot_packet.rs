@@ -228,11 +228,15 @@ impl BootPacket {
         BootPacket { source: BootSource::Denied, ..BootPacket::default() }
     }
 
-    /// The record's entries without its header (generation, sum): two records with the same
-    /// body show the same first frame.
-    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
-    pub(crate) fn body(&self) -> &[u8] {
-        self.bytes.get(HEAD..).unwrap_or_default()
+    /// The entries a first frame is built from: two records with the same ones show the same
+    /// first frame. The journal's bookkeeping (where it is, which run kept it) is left out: a
+    /// record rebuilt by a run without the journal (a held run, `owe.want_journal`) has none.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn shown_entries(&self) -> impl Iterator<Item = (u8, &[u8], &[u8], &[u8])> + '_ {
+        self.entries
+            .iter()
+            .filter(|e| e.kind != Kind::Journal as u8 && e.kind != Kind::JournalOwner as u8)
+            .map(|e| (e.kind, &self.bytes[e.a.clone()], &self.bytes[e.b.clone()], &self.bytes[e.value.clone()]))
     }
 }
 

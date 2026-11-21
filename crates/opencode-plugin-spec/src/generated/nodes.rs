@@ -38,6 +38,8 @@ string_enum! {
         IconButton = "iconButton",
         /// The app's own switch.
         Switch = "switch",
+        /// Desktop's compact checkbox with its label.
+        Checkbox = "checkbox",
         /// A radio row.
         Radio = "radio",
         /// The app's own text field.
@@ -108,7 +110,7 @@ impl NodeKind {
         match self {
             Self::Box | Self::Row | Self::Col | Self::Frame | Self::Spacer | Self::Divider => NodeCategory::Layout,
             Self::Text | Self::Icon | Self::Image | Self::Video | Self::Metric | Self::Shimmer | Self::Keybind | Self::ProgressCircle => NodeCategory::Content,
-            Self::Button | Self::IconButton | Self::Switch | Self::Radio | Self::Field | Self::Segmented | Self::Loader | Self::ServerIndicator | Self::Pill | Self::SettingsRow | Self::SettingsList | Self::FlyoutRow | Self::DialogHeader => NodeCategory::Control,
+            Self::Button | Self::IconButton | Self::Switch | Self::Checkbox | Self::Radio | Self::Field | Self::Segmented | Self::Loader | Self::ServerIndicator | Self::Pill | Self::SettingsRow | Self::SettingsList | Self::FlyoutRow | Self::DialogHeader => NodeCategory::Control,
             Self::Markdown | Self::VirtualList | Self::TerminalSurface | Self::TerminalTabLabel | Self::BrowserSurface | Self::CodeView | Self::DiffView | Self::FileTree | Self::PanelSidebar | Self::OpenInButton | Self::OfficePages | Self::OfficeSheet | Self::GenUi => NodeCategory::Native,
         }
     }
@@ -134,6 +136,7 @@ impl NodeKind {
             Self::Button => &UI_BUTTON_PROPS,
             Self::IconButton => &UI_ICON_BUTTON_PROPS,
             Self::Switch => &UI_SWITCH_PROPS,
+            Self::Checkbox => &UI_CHECKBOX_PROPS,
             Self::Radio => &UI_RADIO_PROPS,
             Self::Field => &UI_FIELD_PROPS,
             Self::Segmented => &UI_SEGMENTED_PROPS,
@@ -213,6 +216,16 @@ pub static UI_BUTTON_PROPS: PropsSpec = PropsSpec::new("UiButtonProps", Some(&UI
     PropSpec::new("pressed", PropType::Bool, false),
     PropSpec::new("onPress", PropType::Handler, false),
     PropSpec::new("menuTrigger", PropType::Bool, false),
+]);
+
+/// `UiCheckboxProps`.
+pub static UI_CHECKBOX_PROPS: PropsSpec = PropsSpec::new("UiCheckboxProps", Some(&UI_LAYOUT_PROPS), &[
+    PropSpec::new("text", PropType::String, true),
+    PropSpec::new("description", PropType::String, false),
+    PropSpec::new("checked", PropType::Bool, true),
+    PropSpec::new("surface", PropType::Any, false),
+    PropSpec::new("disabled", PropType::Bool, false),
+    PropSpec::new("onChange", PropType::Handler, false),
 ]);
 
 /// `UiCodeViewProps`.

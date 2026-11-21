@@ -64,5 +64,6 @@
   "zoom.reset": "Endurstilla aðdrátt",
   "zoom.percent": "{{percent}}%",
   "link.copy": "Afrita tengil",
-  "history.clear": "Hreinsa feril"
+  "history.clear": "Hreinsa feril",
+  "extensions.compat.feature.management": "Stjórnun annarra viðbóta"
 }
