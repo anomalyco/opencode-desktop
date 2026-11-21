@@ -296,7 +296,12 @@ impl ExtensionHost {
         inbound_rx: Receiver<PipeInbound>,
         wake_pending: Arc<AtomicBool>,
         stub_dirs_by_id: HashMap<String, PathBuf>,
+        menu_storage_dir: Option<PathBuf>,
     ) -> Self {
+        let catalog = match menu_storage_dir {
+            Some(dir) => context_menus::ExtensionContextMenuCatalog::with_storage_dir(dir),
+            None => context_menus::ExtensionContextMenuCatalog::default(),
+        };
         Self {
             pipe,
             inbound_rx,
@@ -310,7 +315,7 @@ impl ExtensionHost {
             subscribers: HashMap::new(),
             tabs: Vec::new(),
             actions: HashMap::new(),
-            context_menus: Arc::new(std::sync::Mutex::new(context_menus::ExtensionContextMenuCatalog::default())),
+            context_menus: Arc::new(std::sync::Mutex::new(catalog)),
             expected_targets: VecDeque::new(),
             seed_session_id: None,
             seed_probe_started: false,
@@ -914,7 +919,12 @@ impl ExtensionHost {
         is_unpacked: bool,
         loaded: bool,
     ) {
-        self.context_menus.lock().unwrap().set_extension_name(&id, &manifest.name);
+        self.context_menus.lock().unwrap().configure_extension(
+            &id,
+            &manifest.name,
+            &manifest.version,
+            manifest.has_permission("contextMenus"),
+        );
         self.extensions.insert(
             id,
             LoadedExt { dir, sha256, manifest, is_unpacked, loaded, boot_count: 0 },
