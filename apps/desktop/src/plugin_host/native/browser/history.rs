@@ -157,7 +157,7 @@ pub(super) fn service_methods(lua: &Lua, vmx: &Vmx, t: &Table) -> mlua::Result<(
         require_builtin_browser(lua, "Browser:HistoryImportSources")?;
         // Listed off the UI thread; the page draws again when a listing lands.
         cx::read(Dep::Browser);
-        let sources = with_app("Browser:HistoryImportSources", |app| Ok(app.workspace_panes.browser.import_sources.get((*app.waker).clone())))?;
+        let sources = with_app("Browser:HistoryImportSources", |app| Ok(app.workspace_panes.browser.app_icons.sources.get((*app.waker).clone())))?;
         let list: Vec<Data> = sources
             .into_iter()
             .map(|b| {
