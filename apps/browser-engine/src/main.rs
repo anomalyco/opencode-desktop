@@ -30,6 +30,7 @@ mod mac_app;
 mod agent;
 mod cdp_ledger;
 mod cef_runtime;
+mod clear_storage;
 mod clipboard_gate;
 mod cookies;
 mod diagnostics;

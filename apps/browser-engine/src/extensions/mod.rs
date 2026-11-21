@@ -495,6 +495,11 @@ impl ExtensionHost {
         }
     }
 
+    /// How many extensions are installed (Clear browsing data keeps their service workers).
+    pub fn installed_count(&self) -> usize {
+        self.extensions.len()
+    }
+
     pub fn filters_ready(&self) -> bool {
         self.filters_ready_emitted
     }
