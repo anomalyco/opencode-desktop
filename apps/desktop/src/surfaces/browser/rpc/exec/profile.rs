@@ -53,23 +53,36 @@ const TRACE_DEFAULT_DURATION_MS: u64 = 30_000;
 const CPU_MAX_DURATION_MS: u64 = 30_000;
 
 /// Routes trace data and heap snapshot chunks from the tab's CDP events into bounded buffers.
+/// Defense in depth: requires engine-stamped `rendererPid` and filters trace events strictly to
+/// that single renderer OS PID (`packages/gui-plugins/src/browser/profiling.ts:221-223`).
 pub(in super::super) fn ingest_cdp_event(att: &mut SessionAttachment, ev: &browser_pane::CdpEvent) {
     if ev.method == "Tracing.dataCollected"
         && let Some(rec) = att.trace_recording.as_mut()
         && rec.host_id == ev.tab_id
+        && let Some(pid) = ev.params.get("rendererPid").and_then(Value::as_u64).filter(|&p| p > 0)
         && let Some(arr) = ev.params.get("value").and_then(Value::as_array)
     {
-        let room = MAX_TRACE_EVENTS.saturating_sub(rec.events.len());
-        if arr.len() > room {
-            rec.events.extend(arr.iter().take(room).cloned());
-            rec.data_loss = true;
-        } else {
-            rec.events.extend(arr.iter().cloned());
+        let locked = *rec.renderer_pid.get_or_insert(pid);
+        if locked != pid {
+            return;
+        }
+        let matching = arr
+            .iter()
+            .filter(|e| e.get("pid").and_then(Value::as_u64) == Some(locked));
+        for e in matching {
+            if rec.events.len() >= MAX_TRACE_EVENTS {
+                rec.data_loss = true;
+                break;
+            }
+            rec.events.push(e.clone());
         }
     } else if ev.method == "Tracing.tracingComplete"
         && let Some(rec) = att.trace_recording.as_mut()
         && rec.host_id == ev.tab_id
     {
+        if let Some(pid) = ev.params.get("rendererPid").and_then(Value::as_u64).filter(|&p| p > 0) {
+            rec.renderer_pid.get_or_insert(pid);
+        }
         rec.data_loss |= ev.params.get("dataLossOccurred").and_then(Value::as_bool).unwrap_or(false);
         rec.complete = true;
     } else if ev.method == "HeapProfiler.addHeapSnapshotChunk"
@@ -129,7 +142,7 @@ pub(in super::super) fn poll_auto_stops(
         }
     }
     if finish_trace && let Some(mut rec) = att.trace_recording.take() {
-        let saved = finalize_trace(att, app, rec.host_id, rec.started_at, std::mem::take(&mut rec.events), std::mem::take(&mut rec.resources), rec.data_loss, now);
+        let saved = finalize_trace(att, app, rec.host_id, rec.started_at, rec.renderer_pid, std::mem::take(&mut rec.events), std::mem::take(&mut rec.resources), rec.data_loss, now);
         rec.auto_stop_req = None;
         rec.auto_stopped = Some(saved);
         att.trace_recording = Some(rec);
@@ -203,11 +216,11 @@ pub(super) fn try_start(
     }
 }
 
-/// Recording needs the engine that refuses profiling while extensions are active (`agent_files`
-/// ships with that check), so an older engine never profiles beside an extension.
+/// Recording requires BOTH `frame_authority` (engine extensions-active profiling refusal) AND
+/// `agent_files` (current revision with renderer-PID trace isolation).
 fn require_profiling_engine(app: &App, name: &str) -> Result<(), Outcome> {
     let host = &app.workspace_panes.browser.host;
-    if !host.engine_frame_authority() && !host.engine_agent_files() {
+    if !host.engine_frame_authority() || !host.engine_agent_files() {
         return Err(Outcome::fail(
             failure_code::UNSUPPORTED,
             format!("browser.{name} requires an updated browser engine."),
@@ -274,6 +287,7 @@ fn start_trace(att: &mut SessionAttachment, app: &mut App, cmd: &Command, now: I
                 started_at: now,
                 duration_ms,
                 stop_at: None,
+                renderer_pid: None,
                 events: Vec::new(),
                 resources,
                 complete: false,
@@ -497,7 +511,7 @@ pub(super) fn step_profile(
                 return None;
             }
             let rec = att.trace_recording.take()?;
-            match finalize_trace(att, app, st.host_id, rec.started_at, rec.events, rec.resources, rec.data_loss, now) {
+            match finalize_trace(att, app, st.host_id, rec.started_at, rec.renderer_pid, rec.events, rec.resources, rec.data_loss, now) {
                 Ok((wf, duration_ms, incomplete)) => {
                     let tab = att.wire_tab(app, st.host_id)?;
                     Some(Outcome::ok(json!({ "tab": tab, "durationMs": duration_ms, "incomplete": incomplete }), vec![wf]))
@@ -613,13 +627,20 @@ fn finalize_trace(
     app: &App,
     host_id: u64,
     started_at: Instant,
+    renderer_pid: Option<u64>,
     events: Vec<Value>,
     mut resources: Vec<String>,
     data_loss: bool,
     now: Instant,
 ) -> Result<(WireFile, f64, bool), String> {
+    let pid = renderer_pid
+        .ok_or_else(|| "Browser engine did not report a renderer process ID for trace isolation.".to_owned())?;
     let duration_ms = now.saturating_duration_since(started_at).as_secs_f64() * 1000.0;
-    let payload = serde_json::to_vec(&json!({ "traceEvents": events })).unwrap_or_default();
+    let payload = serde_json::to_vec(&json!({
+        "traceEvents": events,
+        "metadata": { "source": "opencode", "scope": "renderer-process", "processId": pid },
+    }))
+    .unwrap_or_default();
     let gz = gzip_bytes(&payload)?;
     let file_id = new_file_id();
     let wf = WireFile::from_bytes(file_id.clone(), "trace.json.gz".into(), "application/gzip".into(), &gz)?;

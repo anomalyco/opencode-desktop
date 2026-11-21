@@ -94,6 +94,7 @@ pub(super) struct TraceRecording {
     pub started_at: Instant,
     pub duration_ms: u64,
     pub stop_at: Option<Instant>,
+    pub renderer_pid: Option<u64>,
     pub events: Vec<Value>,
     pub resources: Vec<String>,
     pub complete: bool,
