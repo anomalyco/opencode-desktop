@@ -456,7 +456,7 @@ pub fn filter_field<H: SettingsHost + 'static>(
         .radius(6.0)
         .fill(if edit.focused || typed { p.layer2 } else { p.search_bg })
         .hover(p.layer2)
-        .child(el().pl(16.0).child(icon(&ic::MAGNIFYING_GLASS, 14.0).color(p.icon_muted)))
+        .child(el().pl(16.0).child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted)))
         .child(
             opencode_ui::style::field(edit, NAME_REGULAR)
                 .key(format!("{key}-input"))
@@ -549,7 +549,8 @@ fn ghost_face(p: &Pal, key: &str, label: &str, glyph: Option<&'static Icon>, mut
         .role("button")
         .label(label.to_owned())
         .h(28.0)
-        .px(if glyph.is_some() { 8.0 } else { 11.0 })
+        // `button-v2[data-size="normal"]` uses `--button-v2-inset: 11px` with or without a leading icon (`button.css:41-75`).
+        .px(11.0)
         .gap(6.0)
         .center_y()
         .radius(6.0)

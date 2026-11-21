@@ -22,11 +22,11 @@ use super::{BODY, ExtensionsTab, LINE, NAME, Page, catalog_with, ghost_button, h
 use crate::host::SettingsHost;
 use crate::jobs::{SettingsJob, SettingsRequest};
 
-/// The open book Desktop draws for a skill (`additional-icons.ts` `post-skill`, on a 16 grid).
+/// The scroll Desktop draws for a skill (`packages/ui/src/icons/catalog.ts:369`, `post-skill`).
 static SKILL: Icon = Icon {
-    name: "post-skill-book",
+    name: "post-skill",
     view: 16.0,
-    body: r#"<path d="M8 4.5c-1.5-1-3.5-1.5-5.5-1.5v9c2 0 4 .5 5.5 1.5 1.5-1 3.5-1.5 5.5-1.5V3c-2 0-4 .5-5.5 1.5zM8 4.5v9" stroke="currentColor" stroke-linecap="square" stroke-linejoin="round"/>"#,
+    body: r#"<path d="M3 2.5C3.5 2.5 4.5 2.8 4.5 4L4.5 5.5V12C4.5 12.5 4.8 13.5 6 13.5M6 13.5C7.2 13.5 7.5 12.5 7.5 12V10.5H14.5V12C14.5 12.5 14.2 13.5 13 13.5H6ZM4.5 5.5H1.5V4C1.5 3.5 1.8 2.5 3 2.5M12.5 8.5V4.5C12.5 3.39543 11.6046 2.5 10.5 2.5H3" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor"/><path d="M6.5 5.5H10.5M6.5 7.5H9" stroke-linecap="square" stroke-linejoin="round" stroke="currentColor"/>"#,
 };
 
 /// A tab's label: 13 on 16 at 440.

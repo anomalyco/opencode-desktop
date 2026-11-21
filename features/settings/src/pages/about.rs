@@ -305,8 +305,10 @@ pub fn poll(s: &mut dyn SettingsHost, now: f64, tx: &mut Tx) -> bool {
 }
 
 /// The wordmark spelling `letters`, `k` points a unit of its 234 by 42 grid, each letter 30 on.
+/// Matches `.settings-about-wordmark { width: 178px; height: 32px; }` (avoiding `42 * 178/234 = 31.95`
+/// flooring by 1 px at 1.5x scale).
 fn wordmark(letters: &[u8; 8], k: f32, stem: rune::Color, weak: rune::Color) -> El {
-    let mut logo = el().size(234.0 * k, 42.0 * k).dir(rune::Direction::Ltr).pixel_snap(false);
+    let mut logo = el().size((234.0 * k).round(), (42.0 * k).round()).dir(rune::Direction::Ltr).pixel_snap(false);
     for (i, &letter) in letters.iter().enumerate() {
         for &(x, y, w, h, shadow) in LETTERS[usize::from(letter) % LETTERS.len()] {
             logo = logo.child(

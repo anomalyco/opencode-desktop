@@ -10,7 +10,7 @@ use rune::{Color, El, Tx, col, row, text};
 use opencode_ui::palette::Pal;
 use opencode_ui::style::UI;
 
-use super::{choice, header, page_with, select};
+use super::{choice, header_with, page_with, select};
 use crate::host::SettingsHost;
 use crate::types::{DockPlacement, TerminalMarkShell};
 use crate::{Choice as _, FollowUp, StartIn, TitlebarPosition, Worktree, change_settings, list, set_show_agent, set_terminal_placement, setting, setting_at, switch};
@@ -259,7 +259,36 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
         .child(general)
         .child(super::timeline::section(s, p))
         .children(s.plugin_sections_for_page(p, "general"));
-    page_with(p, "settings-general-page", header(p, t!("settings.tab.preferences"), t!("settings.preferences.description")), body, true)
+    page_with(
+        p,
+        "settings-general-page",
+        header_with(p, t!("settings.tab.preferences"), t!("settings.preferences.description"), Some(help_feedback_link::<H>(p))),
+        body,
+        true,
+    )
+}
+
+/// Official Preferences header link (`packages/app/src/settings/general/general.tsx:335-343`).
+fn help_feedback_link<H: SettingsHost + 'static>(p: &Pal) -> El {
+    const URL: &str = "https://opencode.ai/desktop-feedback";
+    let words = t!("settings.helpFeedback");
+    row()
+        .key("settings-help-feedback")
+        .role("link")
+        .label_static(words)
+        .gap(6.0)
+        .center_y()
+        .cursor(rune::Cursor::Pointer)
+        .hover_group()
+        .on_press_tx(|s: &mut H, tx: &mut Tx| crate::open_external(s, URL, tx))
+        .child(
+            text(words)
+                .font(super::NAME_REGULAR)
+                .color(p.muted)
+                .group_color(p.text)
+                .spans(vec![rune::Span::new(0, words.len()).underline(p.muted)]),
+        )
+        .child(rune::icon(&super::console_link::ARROW_UP_RIGHT, 14.0).color(p.muted).group_color(p.text))
 }
 
 /// Side or Bottom: where the terminal opens.
