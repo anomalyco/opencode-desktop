@@ -1,4 +1,4 @@
-Tested on a fresh clone of `anomalyco/rune-desktop` at `origin/dev` `1dc6a78678309a8d45d4b87ae0a095852a43fe7d`. Merge **after #322** is on `dev`.
+Tested on a fresh clone of `anomalyco/rune-desktop` at `origin/dev` `f1f8a2194130d87e7a4b2d75de89b488d58ebafe`. #322 is on `dev` at `f1f8a2194130d87e7a4b2d75de89b488d58ebafe`.
 ```sh
 git fetch origin && git checkout -b ci/browser-engine-release origin/dev
 git am 0001-ci-release-build-sign-publish-and-gate-browser-engin.patch 0002-ci-release-retire-manual-engine-linux-preview-jobs.patch
