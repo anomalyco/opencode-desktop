@@ -360,8 +360,11 @@ pub fn code_area<H: FilesHost + PopupHost + 'static>(
     if let Some(notes) = notes {
         viewer = viewer.notes(notes);
     }
+    // An artifact view draws its code on `bg-layer-01`, under the rows and past the last
+    // (`--opencode-diffs-bg`, `gui-plugins/src/file/artifact-view.css:3-7`).
+    let code_pal = if artifact { Pal { code_bg: p.layer1, bg_base: p.layer1, ..*p } } else { *p };
 
-    out.child(over(viewer.build(s, p), bar))
+    out.child(over(viewer.build(s, &code_pal), bar))
 }
 
 fn doc_ref<'a>(host: &'a dyn FilesHost, sid: &str, path: &str) -> &'a CodeDocState {
