@@ -99,6 +99,7 @@ fn start_loaded(app: &mut App, i: usize) {
     services::store::withdraw_owner(&id, plugin::Kind::Window, vm);
     services::browser_contract::revoke_half(&half.token, vm);
     app.plugins.clear_model_badges(&id, vm);
+    let timed_out = script.error().is_some_and(|e| e.kind == rune_luau::ErrorKind::Timeout);
     let event = match (script.error(), adopted) {
         (None, true) => LifeEvent::Started(script),
         (error, _) => {
@@ -107,9 +108,65 @@ fn start_loaded(app: &mut App, i: usize) {
         }
     };
     drive(app, i, event);
+    if timed_out {
+        restart_later(app, &id);
+    }
     if app.plugins.list[i].running() {
         dormant::note_started(app, i);
     }
+}
+
+/// How long a plugin whose start ran out of time shows its error card before it starts again.
+const RESTART_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
+/// Restarts a plugin gets after its start ran out of time, per window: a start a busy machine
+/// stretched out comes back, and one that loops for ever stays on its error card (with Reload).
+const RESTARTS: u32 = 2;
+
+thread_local! {
+    /// Plugins whose start ran out of time, with when they start again; and how many restarts each had.
+    static RESTART: std::cell::RefCell<(Vec<(String, rune::time::Instant)>, std::collections::HashMap<String, u32>)> = Default::default();
+}
+
+/// Plugin `id`'s start ran past the watchdog: it starts again in [`RESTART_AFTER`], up to
+/// [`RESTARTS`] times; meanwhile its surfaces show the error card and the console says so.
+fn restart_later(app: &App, id: &str) {
+    let again = RESTART.with_borrow_mut(|(due, count)| {
+        let n = count.entry(id.to_owned()).or_insert(0);
+        if *n >= RESTARTS {
+            return false;
+        }
+        *n += 1;
+        due.push((id.to_owned(), rune::time::now() + RESTART_AFTER));
+        true
+    });
+    if again {
+        console::push(id, rune_luau::LogLevel::Warn, "its start ran out of time; starting it again");
+        // A frame soon, whose poll sets the wake for the restart.
+        if let Some(w) = app.plugins.waker.clone() {
+            w();
+        }
+    }
+}
+
+/// Starts again the plugins whose restart came due ([`restart_later`]); asks for a frame at the next.
+fn poll_restarts(app: &mut App, tx: &mut Tx) -> bool {
+    let now = rune::time::now();
+    let (due, next) = RESTART.with_borrow_mut(|(list, _)| {
+        let due: Vec<String> = list.iter().filter(|(_, at)| *at <= now).map(|(id, _)| id.clone()).collect();
+        list.retain(|(_, at)| *at > now);
+        (due, list.iter().map(|(_, at)| *at).min())
+    });
+    if let Some(at) = next {
+        tx.wake_after(at.saturating_duration_since(now));
+    }
+    let mut changed = false;
+    for id in due {
+        if let Some(i) = app.plugins.find(&id).filter(|&i| matches!(app.plugins.list[i].life, Life::Errored { .. })) {
+            drive(app, i, LifeEvent::Load);
+            changed = true;
+        }
+    }
+    changed
 }
 
 /// [`LifeEffect::Stop`]: fires `Disposing` in `script`, then withdraws what plugin `i`
@@ -238,6 +295,7 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
         changed = true;
     }
     changed |= dormant::poll(app, tx);
+    changed |= poll_restarts(app, tx);
     if app.plugins.boot.later().is_empty() {
         dormant::save(app);
     }
