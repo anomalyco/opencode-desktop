@@ -189,6 +189,13 @@ wrap_app! {
                     "renderer-cmd-prefix",
                     "utility-cmd-prefix",
                     "force-webrtc-ip-handling-policy",
+                    // Would turn back on what `DISABLED_NET_FEATURES` and the component-updater
+                    // source below turn off (READER-7 #624-S1).
+                    "component-updater",
+                    "enable-features",
+                    "force-fieldtrials",
+                    "force-fieldtrial-params",
+                    "variations-server-url",
                 ] {
                     cmd.remove_switch(Some(&sw.into()));
                 }
@@ -275,10 +282,13 @@ wrap_app! {
             // `www.google.com/async/folae` (NetLog, 21 Nov); Electron (official) makes none of these.
             // The rest: services the full Chrome runtime brings that official's Electron does not
             // contain at all (READER-7's non-extension audit, `notes/review-rd274.md`), so ours is
-            // off as theirs is: Safe Browsing lookups (N1), FedCM (N2), password manager and
-            // account storage (N3), the Privacy Sandbox APIs (N6a), payments (N7), Translate and
-            // on-device language/model services (N11).
-            const DISABLED_NET_FEATURES: [&str; 33] = [
+            // off as theirs is: Safe Browsing lookups (N1), FedCM's delegation and multi-IdP
+            // extras (N2), password manager and account storage (N3), the Privacy Sandbox APIs and
+            // fenced frames (N6a), payments (N7), Translate and on-device language/model services
+            // (N11). FedCM itself stays: with its content setting blocked
+            // (`permissions::CHROME_SERVICE_SETTINGS`) a page gets `NetworkError` before any
+            // identity-provider fetch, as on official, where Electron has no FedCM delegate.
+            const DISABLED_NET_FEATURES: [&str; 30] = [
                 "MediaRouter",
                 "DialMediaRouteProvider",
                 "CastMediaRouteProvider",
@@ -288,20 +298,13 @@ wrap_app! {
                 "NetworkTimeServiceQuerying",
                 "AimEnabled",
                 "SafeBrowsingHashPrefixRealTimeLookups",
-                "SafeBrowsingAsyncRealTimeCheck",
                 "ExtensionTelemetry",
-                "FedCm",
-                "FedCmAutoReauthn",
-                "FedCmIdpSigninStatusEnabled",
-                "FedCmButtonMode",
                 "PasswordLeakDetection",
                 "AutofillEnableAccountWalletStorage",
                 "BrowsingTopics",
                 "Fledge",
-                "InterestGroupStorage",
                 "AdInterestGroupAPI",
                 "ConversionMeasurement",
-                "AttributionReportingCrossAppWeb",
                 "SharedStorageAPI",
                 "PrivateStateTokens",
                 "WebPayments",
@@ -310,8 +313,12 @@ wrap_app! {
                 "LanguageDetectionAPI",
                 "OptimizationHints",
                 "OptimizationHintsFetching",
-                "OptimizationGuideModelDownloading",
                 "OnDeviceModelService",
+                "OptimizationGuideModelExecution",
+                "Translate",
+                "FencedFrames",
+                "FedCmDelegation",
+                "FedCmMultipleIdentityProviders",
             ];
             let existing = CefString::from(&cmd.switch_value(Some(&"disable-features".into()))).to_string();
             cmd.remove_switch(Some(&"disable-features".into()));
