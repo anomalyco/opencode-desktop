@@ -456,7 +456,7 @@
       "summary": "Dismiss open tooltips immediately when their trigger is pressed, and unify copy-feedback state in the BTW panel.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "Rune tooltips (#1300: press hides, 600 ms, keyboard focus) and help_open: every Copy button (reply footers, tool details, console, tool error, code blocks) holds 'Copied' up for the tick's time; /btw Copy feedback lasts 2 s and holds 'Copied' up (Luau helpOpen, Rune #1309) (PR #0)",
+      "status_evidence": "Rune tooltips (#1300: press hides, 600 ms, keyboard focus) and help_open: every Copy button (reply footers, tool details, console, tool error, code blocks) holds 'Copied' up for the tick's time; /btw Copy feedback lasts 2 s and holds 'Copied' up (Luau helpOpen, Rune #1309) (PR #334)",
       "depends_on": "Rune tooltip controller (dismiss on pointer down on trigger)",
       "risks": "none",
       "workstream": "WS-8",
@@ -2792,7 +2792,7 @@
       "summary": "Restore the composer's saved caret position on first keyboard focus after a permission/question dock replaces the editor, and include plaintext-only editors in focus rescue.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "The composer's caret lives in its TextEdit, not the field, so a dock that replaces the editor and keyboard focus coming back keep it (driven: Tab out and back, typing lands at the caret); Rune's rescue counts text fields (PR #0)",
+      "status_evidence": "The composer's caret lives in its TextEdit, not the field, so a dock that replaces the editor and keyboard focus coming back keep it (driven: Tab out and back, typing lands at the caret); Rune's rescue counts text fields (PR #334)",
       "depends_on": "UP-088 (#64909), UP-092 (#64976)",
       "risks": "none",
       "workstream": "WS-8"
