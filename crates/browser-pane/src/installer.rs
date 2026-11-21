@@ -45,6 +45,17 @@ pub(crate) const TRUST_MARKER: &str = "trust";
 #[cfg(feature = "engine")]
 pub(crate) const NO_DIRS: &str = "the OS has no folder for the browser's data";
 
+/// A development override from the environment (`OPENCODE_BROWSER_ENGINE_BIN`, `_APP`,
+/// `OPENCODE_BROWSER_SOCKET`, `OPENCODE_BROWSER_IMPORT_ROOT`): read only in a debug build or a
+/// headless driver run (`--snap`, `--script`, `--tree`, …), never in a normal release launch, so
+/// a variable can't make a shipped app run an engine past its trust rule.
+pub(crate) fn dev_override(name: &str) -> Option<std::ffi::OsString> {
+    (cfg!(debug_assertions) || rune::is_headless())
+        .then(|| std::env::var_os(name))
+        .flatten()
+        .filter(|v| !v.is_empty())
+}
+
 /// What went wrong getting the engine or keeping it running: each one names its cause and what
 /// the user can do, and the app words it from its catalog (`Display` is the English the logs and
 /// the agent tools read).
@@ -346,10 +357,10 @@ pub struct Installed {
 /// the newest installed version this build accepts. Reads one folder; call it off the UI thread.
 #[cfg(feature = "engine")]
 pub fn installed() -> Option<Installed> {
-    if let Some(bin) = std::env::var_os("OPENCODE_BROWSER_ENGINE_BIN").map(PathBuf::from).filter(|p| p.is_file()) {
+    if let Some(bin) = dev_override("OPENCODE_BROWSER_ENGINE_BIN").map(PathBuf::from).filter(|p| p.is_file()) {
         return Some(Installed { version: None, bin });
     }
-    if let Some(bin) = std::env::var_os("OPENCODE_BROWSER_ENGINE_APP").map(|app| PathBuf::from(app).join(ENGINE_BIN_REL)).filter(|p| p.is_file()) {
+    if let Some(bin) = dev_override("OPENCODE_BROWSER_ENGINE_APP").map(|app| PathBuf::from(app).join(ENGINE_BIN_REL)).filter(|p| p.is_file()) {
         return Some(Installed { version: None, bin });
     }
     let root = try_engines_root()?;
@@ -448,7 +459,7 @@ pub fn socket_path() -> PathBuf {
 
 #[cfg(feature = "engine")]
 pub fn try_socket_path() -> Result<PathBuf, &'static str> {
-    if let Some(custom) = std::env::var_os("OPENCODE_BROWSER_SOCKET") {
+    if let Some(custom) = dev_override("OPENCODE_BROWSER_SOCKET") {
         return custom_socket(Path::new(&custom));
     }
     let dirs = engine_dirs().ok_or(NO_DIRS)?;

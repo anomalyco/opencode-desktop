@@ -308,7 +308,7 @@ impl BrowserHost {
     pub fn engine_configured() -> bool {
         #[cfg(feature = "engine")]
         {
-            let set = |k| std::env::var_os(k).is_some_and(|v| !v.is_empty());
+            let set = |k| crate::installer::dev_override(k).is_some();
             crate::source::configured()
                 || crate::source::has_trust()
                 || set("OPENCODE_BROWSER_ENGINE_BIN")
