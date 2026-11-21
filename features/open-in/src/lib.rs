@@ -10,6 +10,7 @@
 
 #![cfg_attr(not(target_os = "windows"), forbid(unsafe_code))]
 
+pub mod drag;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
@@ -259,6 +260,7 @@ pub struct OpenIn {
     installed: Installed,
     chosen: Option<String>,
     launch: LaunchState,
+    dragged: drag::DragTracker,
 }
 
 /// What the first check in this process found, for every window after it.
@@ -346,7 +348,12 @@ impl OpenIn {
             installed: Installed::Unknown { wanted: Cell::new(false) },
             chosen: None,
             launch: LaunchState::Idle,
+            dragged: drag::DragTracker::default(),
         }
+    }
+
+    pub fn take_dragged_rel(&self, path: &Path) -> Option<String> {
+        self.dragged.take(path)
     }
 
 /// Convenience constructor for a fixture launcher with fixed installed app IDs.
@@ -788,5 +795,6 @@ pub fn pick(host: &mut dyn OpenInHost, rel: &str, id: &str, reveal: bool, tx: &m
 pub fn drag_item(host: &dyn OpenInHost, rel: &str) -> Option<DragItem> {
     let raw = can_open(host).then(|| resolve_path(host, rel)).flatten()?;
     let verified = browser_policy::verify_local_path(&raw).ok()?;
+    host.open_in().dragged.record(verified.path.clone(), rel);
     Some(DragItem::new().file(verified.path).within_app())
 }

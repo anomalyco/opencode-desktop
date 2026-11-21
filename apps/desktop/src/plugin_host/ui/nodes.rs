@@ -187,12 +187,37 @@ fn bare_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize)
     input
 }
 
+fn step_filter_highlight(list: &[String], current: Option<&str>, down: bool) -> Option<String> {
+    if list.is_empty() {
+        return None;
+    }
+    let cur = current.and_then(|p| list.iter().position(|x| x == p)).unwrap_or(0);
+    let next = if down { (cur + 1).min(list.len() - 1) } else { cur.saturating_sub(1) };
+    Some(list[next].clone())
+}
+
+fn clear_filter_highlight(app: &mut App, field_key: &str) {
+    let Some(sid) = app.active_session_id().map(str::to_owned) else { return };
+    if field_key == "files-filter" {
+        if let Some(ws) = app.kernel.slots.get_mut(&crate::files::FILES).sessions.get_mut(&sid) {
+            ws.highlighted_filter_path = None;
+        }
+    } else if field_key == "review-filter"
+        && let Some(sr) = app.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(&sid)
+    {
+        sr.highlighted_filter_path = None;
+        sr.stamp += 1;
+    }
+}
+
 /// The `filter` variant: a panel sidebar's filter (`review::chrome::filter_field`). Escape clears
-/// it and keeps the keyboard; Enter submits.
+/// it and keeps the keyboard; Up/Down move the filtered list highlight (`file/list.tsx:25-50`,
+/// `review/panel.tsx:424-430`); Enter opens/selects the highlighted match.
 fn filter_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize) -> El {
     let pal = p(a);
     let placeholder = a.string("placeholder").unwrap_or(opencode_i18n::t!("ui.sessionReviewV2.filterFiles")).to_owned();
     let key = a.string("key").unwrap_or("filter").to_owned();
+    let (key_sub, key_clear, key_k) = (key.clone(), key.clone(), key.clone());
     let (on_edit, on_submit, on_key, on_clear) = (plugin.clone(), plugin.clone(), plugin.clone(), plugin);
     crate::review::chrome::filter_field(
         &pal,
@@ -201,13 +226,67 @@ fn filter_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usiz
         &format!("{key}-inner"),
         &placeholder,
         move |app: &mut App| super::editors::get_mut(app, &on_edit, index),
-        move |app: &mut App, tx: &mut Tx| submitted(app, &on_submit, index, tx),
+        move |app: &mut App, tx: &mut Tx| {
+            let query = super::editors::get_mut(app, &on_submit, index).text.trim().to_owned();
+            if !query.is_empty()
+                && let Some(sid) = app.active_session_id().map(str::to_owned)
+            {
+                if key_sub == "files-filter" {
+                    let list = app.filtered_files(&sid, &query);
+                    let pick = app
+                        .kernel
+                        .slots
+                        .get(&crate::files::FILES)
+                        .sessions
+                        .get(&sid)
+                        .and_then(|w| w.highlighted_filter_path.clone())
+                        .filter(|p| list.contains(p))
+                        .or_else(|| list.first().cloned());
+                    if let Some(path) = pick {
+                        tx.instant();
+                        crate::files::ops::open_workspace_file_or_page(app, &path, false, tx);
+                        bump();
+                        return;
+                    }
+                } else if key_sub == "review-filter" {
+                    let all: Vec<String> = app
+                        .kernel
+                        .slots
+                        .get(&crate::review::REVIEW)
+                        .sessions
+                        .get(&sid)
+                        .map(|r| r.meta.iter().map(|m| m.path.clone()).collect())
+                        .unwrap_or_default();
+                    let list = crate::review::data::filter_review_files(&all, &query);
+                    let pick = app
+                        .kernel
+                        .slots
+                        .get(&crate::review::REVIEW)
+                        .sessions
+                        .get(&sid)
+                        .and_then(|sr| sr.highlighted_filter_path.clone())
+                        .filter(|p| list.contains(p))
+                        .or_else(|| list.first().cloned());
+                    if let Some(path) = pick {
+                        tx.instant();
+                        if let Some(sr) = app.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(&sid) {
+                            sr.show(&path);
+                            sr.tree.reveal(&path, tx);
+                        }
+                        bump();
+                        return;
+                    }
+                }
+            }
+            submitted(app, &on_submit, index, tx);
+        },
         move |app: &mut App, tx: &mut Tx| {
             tx.instant();
             let edit = super::editors::get_mut(app, &on_clear, index);
             let focused = edit.focused;
             edit.replace_text("");
             edit.focused = focused;
+            clear_filter_highlight(app, &key_clear);
             bump();
         },
         // Desktop's filter (`session-review-v2.tsx`, a `type="search"` input) marks no spelling.
@@ -224,6 +303,66 @@ fn filter_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usiz
             if [Bind::TabPrev, Bind::TabNext, Bind::PaneTabPrev, Bind::PaneTabNext].iter().any(|b| b.matches_tx(ev, tx)) {
                 return app.panels_key(ev, tx);
             }
+            if matches!(ev.key, rune::Key::Down | rune::Key::Up) && ev.mods == rune::Mods::default() {
+                if super::editors::is_composing(app, &on_key, index) {
+                    return false;
+                }
+                let query = super::editors::get_mut(app, &on_key, index).text.trim().to_owned();
+                if query.is_empty() {
+                    return false;
+                }
+                let Some(sid) = app.active_session_id().map(str::to_owned) else {
+                    return false;
+                };
+                let down = ev.key == rune::Key::Down;
+                if key_k == "files-filter" {
+                    let list = app.filtered_files(&sid, &query);
+                    let cur = app
+                        .kernel
+                        .slots
+                        .get(&crate::files::FILES)
+                        .sessions
+                        .get(&sid)
+                        .and_then(|w| w.highlighted_filter_path.clone());
+                    if let Some(next) = step_filter_highlight(&list, cur.as_deref(), down) {
+                        tx.instant();
+                        if let Some(ws) = app.kernel.slots.get_mut(&crate::files::FILES).sessions.get_mut(&sid) {
+                            ws.highlighted_filter_path = Some(next.clone());
+                        }
+                        tx.scroll_into_view(format!("ff:{next}"));
+                        bump();
+                        return true;
+                    }
+                } else if key_k == "review-filter" {
+                    let all: Vec<String> = app
+                        .kernel
+                        .slots
+                        .get(&crate::review::REVIEW)
+                        .sessions
+                        .get(&sid)
+                        .map(|r| r.meta.iter().map(|m| m.path.clone()).collect())
+                        .unwrap_or_default();
+                    let list = crate::review::data::filter_review_files(&all, &query);
+                    let cur = app
+                        .kernel
+                        .slots
+                        .get(&crate::review::REVIEW)
+                        .sessions
+                        .get(&sid)
+                        .and_then(|sr| sr.highlighted_filter_path.clone());
+                    if let Some(next) = step_filter_highlight(&list, cur.as_deref(), down) {
+                        tx.instant();
+                        if let Some(sr) = app.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(&sid) {
+                            sr.highlighted_filter_path = Some(next.clone());
+                            sr.stamp += 1;
+                        }
+                        tx.scroll_into_view(format!("rf:{next}"));
+                        bump();
+                        return true;
+                    }
+                }
+                return false;
+            }
             if ev.key != rune::Key::Escape {
                 return false;
             }
@@ -233,6 +372,7 @@ fn filter_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usiz
             if !edit.text.is_empty() {
                 edit.replace_text("");
             }
+            clear_filter_highlight(app, &key_k);
             bump();
             true
         },
