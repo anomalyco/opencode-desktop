@@ -1683,7 +1683,9 @@ return plugin.defineWindow(function(ctx)
             end
             return settings.renderImportDialog(I18n, view, target.label, importFailure, function()
                 local bAny = Browser :: any
-                local res = if type(bAny.HistoryImportProfile) == "function"
+                local res = if type(bAny.HistoryImportProfileAsync) == "function"
+                    then bAny:HistoryImportProfileAsync(target.browser, target.profile)
+                    elseif type(bAny.HistoryImportProfile) == "function"
                     then bAny:HistoryImportProfile(target.browser, target.profile)
                     else nil
                 local imported = if type(res) == "table" and type(res.imported) == "number" then res.imported else nil
