@@ -72,6 +72,7 @@ mod native {
     thread_local! {
         static OWNED_TABS: RefCell<HashMap<String, OwnedPluginTab>> = RefCell::default();
         static OPENS: RefCell<HashMap<u64, VecDeque<Instant>>> = RefCell::default();
+        static PENDING_OPENS: RefCell<HashMap<browser_pane::TabDriver, usize>> = RefCell::default();
     }
 
     pub(super) fn available_now() -> bool {
@@ -150,9 +151,11 @@ mod native {
     }
 
     /// Refuses an open past `OPEN_BURST` a second for this VM or `MAX_LIVE_TABS` live tabs for this plugin.
+    /// Opens admitted but not yet run count toward the cap: they run a turn later (`app.later`).
     fn admit_open(app: &App, vm_id: u64, driver: &browser_pane::TabDriver) -> mlua::Result<()> {
         let live = app.workspace_panes.browser.host.tabs().iter().filter(|t| t.prompts.driver.as_ref() == Some(driver)).count();
-        if live >= MAX_LIVE_TABS {
+        let pending = PENDING_OPENS.with_borrow(|p| p.get(driver).copied().unwrap_or(0));
+        if live + pending >= MAX_LIVE_TABS {
             return Err(mlua::Error::runtime("browser.pane.tooManyTabs"));
         }
         let now = Instant::now();
@@ -167,7 +170,21 @@ mod native {
             }
             times.push_back(now);
             Ok(())
-        })
+        })?;
+        PENDING_OPENS.with_borrow_mut(|p| *p.entry(driver.clone()).or_default() += 1);
+        Ok(())
+    }
+
+    /// An admitted open ran or was dropped.
+    fn settle_open(driver: &browser_pane::TabDriver) {
+        PENDING_OPENS.with_borrow_mut(|p| {
+            if let Some(n) = p.get_mut(driver) {
+                *n = n.saturating_sub(1);
+                if *n == 0 {
+                    p.remove(driver);
+                }
+            }
+        });
     }
 
     /// The plugin still holds tab `host_id`: same session, still its driver, no takeover since.
@@ -333,6 +350,7 @@ mod native {
                     admit_open(app, vm_id, &driver)?;
                     let (sid, pid) = (arg.id, pid.clone());
                     app.later(Box::new(move |s, tx| {
+                        settle_open(&driver);
                         // The plugin reloaded or stopped, or the person routed elsewhere, before this ran.
                         let running = s.plugins.list.iter().any(|p| *p.half.id == *pid && p.script().is_some_and(|sc| sc.vm_id() == Some(vm_id)));
                         if !running || s.active_session_id() != Some(sid.as_str()) {
@@ -388,6 +406,7 @@ mod native {
                 let handle_for_cb = handle.clone();
                 let sid = arg.id;
                 app.later(Box::new(move |s, tx| {
+                    settle_open(&driver);
                     let live = OWNED_TABS.with_borrow(|tabs| tabs.get(&handle_for_cb).is_some_and(|t| t.half.strong_count() > 0));
                     if !live || s.active_session_id() != Some(sid.as_str()) {
                         OWNED_TABS.with_borrow_mut(|tabs| tabs.remove(&handle_for_cb));
