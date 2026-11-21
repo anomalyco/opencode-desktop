@@ -96,6 +96,9 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
     let md_src = rewritten.as_deref().unwrap_or(src);
     let has_session_refs = !chips.is_empty() || md_src.contains("session-raw:");
     let tips = chips.to_vec();
+    let code_click = code_links.clone();
+    let code_help = code_links.clone();
+    let code_menu = code_links.clone();
     let mut md = Markdown::new(md_src)
         .style(style)
         .highlights(highlights)
@@ -105,18 +108,29 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
         .scroll_wide(true)
         .diagram_frame(move |card, d| crate::diagram::frame::<S>(&pal, card, d, &full))
         .code_frame(move |card, c| code_card::<S>(&pal, card, c, &copied))
-        .on_link_tx(|s: &mut S, url: &str, tx: &mut Tx| match session_of_link(url) {
+        .on_link_tx(move |s: &mut S, url: &str, tx: &mut Tx| match session_of_link(url) {
             // A session's chip is the app's own address: a middle click opens nothing (Desktop's
             // window-open handler refuses its own pages).
             Some(_) if tx.button() == rune::PointerButton::Middle => {}
             Some(id) => s.open_session(id, tx),
             None if session_of_raw_link(url).is_some() => {}
+            // Block attacker-authored `[click](opencode-code-path:...)` links in Markdown: only
+            // app-verified inline code spans present in `code_links` may use `CODE_LINK`.
+            None if url
+                .strip_prefix(CODE_LINK)
+                .is_some_and(|code| !code_click.as_ref().is_some_and(|f| f.contains(code))) => {}
             None => s.open_link(url, tx),
         })
-        // A path in code or raw unknown session ID has no tooltip, as Desktop's `<code>` has none.
-        .link_help(move |url| match url.starts_with(CODE_LINK) || session_of_raw_link(url).is_some() {
-            true => None,
-            false => tips.iter().find(|(l, _)| l == url).map(|(_, t)| t.clone()).or_else(|| S::reply_link_help(url)),
+        // A path in code (verified by `code_links`) or raw unknown session ID has no tooltip;
+        // attacker-authored `opencode-code-path:` Markdown links NEVER suppress their hover URL.
+        .link_help(move |url| {
+            let genuine_code = url
+                .strip_prefix(CODE_LINK)
+                .is_some_and(|code| code_help.as_ref().is_some_and(|f| f.contains(code)));
+            match genuine_code || session_of_raw_link(url).is_some() {
+                true => None,
+                false => tips.iter().find(|(l, _)| l == url).map(|(_, t)| t.clone()).or_else(|| S::reply_link_help(url)),
+            }
         });
     if has_session_refs {
         md = md.link_style(move |url| crate::session_chips::look(&pal, url));
@@ -125,6 +139,18 @@ pub fn markdown_styled<S: TimelineHost, H: rune_kit::markdown::HighlightItem>(
     md = md.on_link_secondary(move |s: &mut S, url: &str, press, tx: &mut Tx| {
         if let Some(id) = session_of_link(url).or_else(|| session_of_raw_link(url)) {
             s.session_chip_menu(id, press, tx);
+        } else if url
+            .strip_prefix(CODE_LINK)
+            .is_some_and(|code| !code_menu.as_ref().is_some_and(|f| f.contains(code)))
+        {
+            if let Some(mid) = &message {
+                let at = crate::images::menu::MenuAt {
+                    session: s.active_session_id().map(str::to_owned),
+                    message: Some(mid.to_string()),
+                    image: None,
+                };
+                s.context_menu(at, press, tx);
+            }
         } else if !s.reply_link_menu(url, press, tx) && let Some(mid) = &message {
             let at = crate::images::menu::MenuAt {
                 session: s.active_session_id().map(str::to_owned), message: Some(mid.to_string()), image: None,

@@ -3632,6 +3632,7 @@ dependencies = [
 name = "opencode-feature-office"
 version = "0.0.1"
 dependencies = [
+ "browser-policy",
  "bytemuck",
  "office-preview",
  "opencode-kernel",
@@ -3837,6 +3838,7 @@ name = "opencode-feature-updater"
 version = "0.0.1"
 dependencies = [
  "authenticode",
+ "browser-policy",
  "opencode-i18n",
  "opencode-kernel",
  "opencode-platform",
