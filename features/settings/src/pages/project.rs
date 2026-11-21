@@ -556,11 +556,13 @@ fn startup<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
         let (before, var, after) = (&sentence[..at], &sentence[at..end], &sentence[end..]);
         row()
             .w_full()
-            .min_h(21.0)
+            // `project.css:374-389`: 13px / 150% line-height with inline 12px mono code pill
+            // rounds to 21 px at 1x and 31 px (20.67 pt) at 1.5x; code pill is 15 px at 1x and 23 px (15.33 pt) at 1.5x.
+            .min_h(20.67)
             .wrap()
             .center_y()
             .children((!before.is_empty()).then(|| text(before).font(COPY).color(p.muted)))
-            .children((!var.is_empty()).then(|| row().h(15.0).px(4.0).center_y().radius(4.0).fill(p.layer2).child(text(var).font(HINT_PILL).color(p.text))))
+            .children((!var.is_empty()).then(|| row().h(15.33).px(4.0).center_y().radius(4.0).fill(p.layer2).child(text(var).font(HINT_PILL).color(p.text))))
             .children((!after.is_empty()).then(|| text(after).font(COPY).color(p.muted)))
     };
     col()
