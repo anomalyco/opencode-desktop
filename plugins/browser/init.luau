@@ -937,7 +937,7 @@ return plugin.defineWindow(function(ctx)
                     local bAny = Browser :: any
                     if type(bAny.ExtClick) == "function" then
                         local optUrl = if item.options and item.options ~= "" and (item.popup == nil or item.popup == "")
-                            then `chrome-extension://{item.id}/{item.options}`
+                            then (if string.sub(item.options, 1, 19) == "chrome-extension://" then item.options else `chrome-extension://{item.id}/{item.options}`)
                             else nil
                         bAny:ExtClick(item.id, tabId, optUrl)
                     end
@@ -1867,6 +1867,9 @@ return plugin.defineWindow(function(ctx)
                     image = Images:FromRgba(data, width, height)
                 elseif ok and kind == "png" then
                     image = Images:FromEncoded(data)
+                elseif not ok or kind == nil then
+                    -- Still being read off the UI thread: the page draws again when it is.
+                    return nil
                 end
             end
             importIcons[browserId] = if image ~= nil then image else false

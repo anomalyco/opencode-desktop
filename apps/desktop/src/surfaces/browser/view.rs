@@ -157,6 +157,7 @@ pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
                 .w_full()
                 .on_layout(|app: &mut App, [_, _, w, h]| {
                     app.workspace_panes.browser.overlay.set_pane_size(w, h);
+                    app.workspace_panes.browser.host.set_pane_size(w, h);
                 })
                 .child(s.workspace_panes.browser.host.surface_el("browser-surface", tab.id, scale / *s.zoom, *s.zoom, |app: &mut App| &mut app.workspace_panes.browser.host, App::focus_browser_page))
                 .children(ext_popup)
