@@ -61,8 +61,13 @@ impl Engine {
         format!("opencode-rune/{} ({}; channel={})", self.facts.version, feed::target_name(), self.facts.channel)
     }
 
-    fn agent(timeout: Duration) -> ureq::Agent {
-        ureq::Agent::config_builder().timeout_global(Some(timeout)).http_status_as_error(false).build().into()
+    fn agent(timeout: Duration, https_only: bool) -> ureq::Agent {
+        ureq::Agent::config_builder()
+            .timeout_global(Some(timeout))
+            .http_status_as_error(false)
+            .https_only(https_only)
+            .build()
+            .into()
     }
 
     /// The release to install, or `None` when a valid manifest for this platform names no newer
@@ -79,7 +84,10 @@ impl Engine {
             eprintln!("updater: check failed ({url}): {why}");
             opencode_i18n::t!("rune.updater.checkFailed").into()
         };
-        let mut resp = Self::agent(manifest_timeout())
+        if !feed::allowed_update_url(&url) {
+            return Err(fail("refusing insecure manifest URL"));
+        }
+        let mut resp = Self::agent(manifest_timeout(), feed::requires_https(&url))
             .get(&url)
             .header("User-Agent", &self.user_agent())
             .header("Accept", "application/json")
@@ -120,7 +128,14 @@ impl Engine {
     }
 
     fn fetch(&self, target: &Target, archive: &Path, progress: &dyn Fn(u64, u64)) -> Result<(), String> {
-        let mut resp = Self::agent(DOWNLOAD_TIMEOUT).get(&target.url).header("User-Agent", &self.user_agent()).call().map_err(|e| format!("download failed: {e}"))?;
+        if !feed::allowed_update_url(&target.url) {
+            return Err("refusing insecure download URL".into());
+        }
+        let mut resp = Self::agent(DOWNLOAD_TIMEOUT, feed::requires_https(&target.url))
+            .get(&target.url)
+            .header("User-Agent", &self.user_agent())
+            .call()
+            .map_err(|e| format!("download failed: {e}"))?;
         let code = resp.status().as_u16();
         if !(200..300).contains(&code) {
             return Err(format!("download returned HTTP {code}"));
