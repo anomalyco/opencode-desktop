@@ -975,7 +975,7 @@ wrap_request_handler! {
                 return 1;
             }
             if opens_new_tab {
-                if user_gesture != 0 {
+                if user_gesture != 0 && self.prompts.popup_credit.swap(false, Ordering::AcqRel) {
                     let background = *target_disposition.as_ref() == D::CEF_WOD_NEW_BACKGROUND_TAB;
                     let _ = self.out_tx.send(EngineMsg::PopupOpen {
                         tab_id: self.tab_id,
