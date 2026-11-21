@@ -20,7 +20,9 @@ pub(crate) fn ping_renderer_pid(frame: &Frame) {
 
 wrap_frame_handler! {
     pub struct TabFrameHandler {
+        tab_id: u64,
         prompts: Arc<crate::prompts::TabPrompts>,
+        events: std::sync::mpsc::Sender<crate::Event>,
     }
 
     impl FrameHandler {
@@ -61,6 +63,16 @@ wrap_frame_handler! {
             let Some(frame) = frame else { return };
             let fid = CefString::from(&frame.identifier()).to_string();
             self.prompts.on_frame_destroyed(&fid);
+            if frame.is_main() == 0 {
+                let _ = self.events.send(crate::Event::WebNav(crate::extensions::web_nav::WebNavSignal {
+                    tab_id: self.tab_id,
+                    cef_frame_id: fid,
+                    parent_cef_id: None,
+                    is_main: false,
+                    url: String::new(),
+                    kind: crate::extensions::web_nav::WebNavKind::FrameDestroyed,
+                }));
+            }
         }
     }
 }

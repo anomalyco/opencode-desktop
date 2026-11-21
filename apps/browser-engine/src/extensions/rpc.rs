@@ -66,6 +66,9 @@ pub(super) fn is_supported_event(name: &str) -> bool {
             | "webNavigation.onCommitted"
             | "webNavigation.onDOMContentLoaded"
             | "webNavigation.onCompleted"
+            | "webNavigation.onErrorOccurred"
+            | "webNavigation.onReferenceFragmentUpdated"
+            | "webNavigation.onHistoryStateUpdated"
             | "contextMenus.onClicked"
             | "notifications.onClicked"
             | "notifications.onClosed"
@@ -398,26 +401,17 @@ impl ExtensionHost {
 
             "webNavigation.getFrame" => {
                 let tid = args.first().and_then(|v| v.get("tabId")).and_then(Value::as_i64).map(|n| n as i32);
-                let fid = args.first().and_then(|v| v.get("frameId")).and_then(Value::as_i64).unwrap_or(0);
-                if fid == 0
-                    && let Some(t) = tid.and_then(|id| self.find_visible_tab_by_ext_cid(ext_id, id))
-                    && !is_private_url(&t.url)
-                    && (!is_extension_scheme(&t.url) || extension_id_from_url(&t.url) == Some(ext_id))
-                {
-                    Ok(json!({ "url": t.url, "errorOccurred": false, "processId": 0, "frameId": 0, "parentFrameId": -1 }))
-                } else {
-                    Ok(Value::Null)
+                let fid = args.first().and_then(|v| v.get("frameId")).and_then(Value::as_i64).unwrap_or(0) as i32;
+                match tid.and_then(|id| self.find_visible_tab_by_ext_cid(ext_id, id)) {
+                    Some(t) => Ok(self.web_nav.get_frame(t.engine_tab_id, &t.url, fid).unwrap_or(Value::Null)),
+                    None => Err(format!("No tab with id: {}.", tid.unwrap_or(-1))),
                 }
             }
             "webNavigation.getAllFrames" => {
                 let tid = args.first().and_then(|v| v.get("tabId")).and_then(Value::as_i64).map(|n| n as i32);
-                if let Some(t) = tid.and_then(|id| self.find_visible_tab_by_ext_cid(ext_id, id))
-                    && !is_private_url(&t.url)
-                    && (!is_extension_scheme(&t.url) || extension_id_from_url(&t.url) == Some(ext_id))
-                {
-                    Ok(json!([{ "url": t.url, "errorOccurred": false, "processId": 0, "frameId": 0, "parentFrameId": -1 }]))
-                } else {
-                    Ok(json!([]))
+                match tid.and_then(|id| self.find_visible_tab_by_ext_cid(ext_id, id)) {
+                    Some(t) => Ok(Value::Array(self.web_nav.all_frames(t.engine_tab_id, &t.url))),
+                    None => Err(format!("No tab with id: {}.", tid.unwrap_or(-1))),
                 }
             }
 
