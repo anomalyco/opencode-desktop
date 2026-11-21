@@ -429,7 +429,7 @@ impl App {
                 continue;
             };
             let sid = self.browser_tab_session(popup.opener_tab_id).map(str::to_owned);
-            let _ = self.open_new_browser_tab_beside(
+            let opened = self.open_new_browser_tab_beside(
                 sid.as_deref(),
                 &popup.url,
                 popup.opener_tab_id,
@@ -437,7 +437,24 @@ impl App {
                 opener_ctx,
                 driver,
             );
+            self.workspace_panes.browser.page_opened_tabs.insert(opened);
             changed = true;
+        }
+        changed
+    }
+
+    /// A tab a page opened whose first navigation only became the person's download closes once
+    /// the download has its place (official `chromium.ts:1076-1083`, `closesUnshown`).
+    pub(super) fn close_download_only_tabs(&mut self) -> bool {
+        let mut changed = false;
+        let download_only: Vec<u64> = self.workspace_panes.browser.host.drain_download_only_tabs().collect();
+        for tab_id in download_only {
+            if self.workspace_panes.browser.page_opened_tabs.remove(&tab_id)
+                && let Some(sid) = self.browser_tab_session(tab_id).map(str::to_owned)
+            {
+                self.later(Box::new(move |s: &mut App, tx: &mut rune::Tx| s.close_browser_tab_for_session(&sid, tab_id, tx)));
+                changed = true;
+            }
         }
         changed
     }

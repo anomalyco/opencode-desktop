@@ -659,6 +659,10 @@ pub enum EngineMsg {
         tab_id: u64,
         png_b64: String,
     },
+    /// A tab whose first navigation became the person's download, now placed (or cancelled).
+    DownloadOnlyTab {
+        tab_id: u64,
+    },
     FindResult {
         tab_id: u64,
         count: u32,

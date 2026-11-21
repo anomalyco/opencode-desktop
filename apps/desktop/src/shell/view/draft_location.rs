@@ -30,7 +30,9 @@ pub(in crate::shell::view) fn location(s: &App, p: &Pal, width: f32) -> El {
     // Desktop's `TRIGGER`: 28 tall, 6 in and 8 from the end, 4 pt corners, muted words that
     // turn base under the pointer with the hover overlay. It opens the location dialog on its
     // projects (`view.tsx:127`).
-    let button = trigger("project", t!("session.new.project.trigger.tooltip"))
+    let button = trigger(p, "project", t!("session.new.project.trigger.tooltip"))
+        .help(t!("session.new.project.trigger.tooltip"))
+        .help_keys(crate::keymap::Bind::SelectProject.keycaps())
         .hover(p.hover)
         .press(p.pressed)
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
@@ -59,7 +61,7 @@ pub(in crate::shell::view) fn location(s: &App, p: &Pal, width: f32) -> El {
         let help = if !onboarding { t!("session.location.worktree").to_owned() } else {
             format!("{}\n{}\n{}", t!("workspace.onboarding.title"), t!("workspace.onboarding.description"), t!("session.location.worktree"))
         };
-        trigger("location-branch", a11y).busy(skeleton).max_w(220.0).help(help).help_keys(crate::keymap::Bind::LocationSelect.keycaps())
+        trigger(p, "location-branch", a11y).busy(skeleton).max_w(220.0).help(help).help_keys(crate::keymap::Bind::LocationSelect.keycaps())
             .hover(p.hover)
             .press(p.pressed)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
@@ -91,8 +93,8 @@ pub(in crate::shell::view) fn location(s: &App, p: &Pal, width: f32) -> El {
 }
 
 /// A picker in the row, before its look: Desktop's `TRIGGER` (`view.tsx:274-275`).
-fn trigger(key: &str, label: &str) -> El {
-    row().key(key).role("button").label(label.to_owned()).cursor(rune::Cursor::Pointer).hover_group().h(28.0).pl(6.0).pr(8.0).gap(6.0).center_y().radius(4.0).shrink().min_w(0.0)
+fn trigger(p: &Pal, key: &str, label: &str) -> El {
+    row().key(key).role("button").label(label.to_owned()).cursor(rune::Cursor::Pointer).focus_default(p).hover_group_focus().h(28.0).pl(6.0).pr(8.0).gap(6.0).center_y().radius(4.0).shrink().min_w(0.0)
 }
 
 /// The folder at the row's end, as the server names it (`view.tsx:420-460`): it keeps at

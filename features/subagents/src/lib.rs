@@ -432,12 +432,14 @@ fn build_subagent_row_shell(p: &Pal, it: &Running, name: String, agent_w: f32, e
         .gap(6.0)
         .center_y()
         .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .hover(p.hover)
         .hover_motion(INSTANT, INSTANT)
-        .hover_group()
+        .hover_group_focus()
         .child(activity_ring_sized(p, 16.0))
         .child(text(name).font(UI_MED).color(p.text).w(agent_w))
-        .child(text(it.label.clone()).key("label").font(UI).color(p.muted).truncate_fade().grow(1.0).shrink().min_w(0.0))
+        .child(text(it.label.clone()).key("label").dir(rune::Direction::Auto).font(UI).color(p.muted).truncate_fade().grow(1.0).shrink().min_w(0.0))
         .child(end_el)
 }
 

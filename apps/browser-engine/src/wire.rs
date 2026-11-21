@@ -384,6 +384,9 @@ pub enum EngineMsg {
     },
     /// Copy image's result: the image under the menu, as PNG (base64), for the app's clipboard.
     CopiedImage { tab_id: u64, png_b64: String },
+    /// A tab whose first navigation became the person's download, now placed (or cancelled):
+    /// nothing to show (official `chromium.ts:1076-1083`).
+    DownloadOnlyTab { tab_id: u64 },
     ProfileCookies { request_id: u64, cookies: Vec<WireCookie> },
     ProfileCookiesImported { request_id: u64, imported: u32, failed: u32 },
     ProfileProbeReady { request_id: u64, written: bool, cache_dir: String },

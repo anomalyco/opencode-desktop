@@ -143,6 +143,8 @@ pub struct BrowserHost {
     pub(crate) popup_opens: VecDeque<crate::prompts::PopupRequest>,
     /// The person's Copy image results (PNG, base64), drained by the app for its clipboard.
     pub(crate) copied_images: VecDeque<String>,
+    /// Tabs whose first navigation became the person's download, now placed: drained by the app.
+    pub(crate) download_only_tabs: VecDeque<u64>,
     pub(crate) app_links: VecDeque<(u64, String)>,
     pub(crate) context_menus: VecDeque<(u64, crate::protocol::PageContextMenu)>,
     pub(crate) download_save_requests: VecDeque<crate::protocol::DownloadSaveRequest>,
@@ -215,6 +217,7 @@ impl BrowserHost {
             picked: VecDeque::new(),
             popup_opens: VecDeque::new(),
             copied_images: VecDeque::new(),
+            download_only_tabs: VecDeque::new(),
             app_links: VecDeque::new(),
             context_menus: VecDeque::new(),
             download_save_requests: VecDeque::new(),

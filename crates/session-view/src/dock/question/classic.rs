@@ -104,8 +104,8 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                         .grow(1.0)
                         .shrink()
                         .gap(4.0)
-                        .child(text(label.clone()).key("label").font(LABEL).color(p.text).wrap_anywhere())
-                        .children((!desc.is_empty()).then(|| text(desc.clone()).key("description").font(DESC).color(p.muted).wrap_anywhere())),
+                        .child(text(label.clone()).key("label").dir(rune::Direction::Auto).font(LABEL).color(p.text).wrap_anywhere())
+                        .children((!desc.is_empty()).then(|| text(desc.clone()).key("description").dir(rune::Direction::Auto).font(DESC).color(p.muted).wrap_anywhere())),
                 )
                 .children((i < 9).then(|| shortcut(p, i + 1, picked, d.keyboard)));
             let card = if live {
@@ -171,7 +171,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .center_y()
         .transition(fade())
         .child({
-            let b = button(p, "q-dismiss", opencode_i18n::t!("ui.common.dismiss"), Variant::GhostMuted, None, live).help(format!("{} Esc", opencode_i18n::t!("ui.common.dismiss")));
+            let b = button(p, "q-dismiss", opencode_i18n::t!("ui.common.dismiss"), Variant::GhostMuted, None, live).help(format!("{} Esc", opencode_i18n::t!("ui.common.dismiss"))).help_above();
             if live { b.on_press_tx(|s: &mut S, tx: &mut Tx| if let Some(f) = asking(s) { dismiss(s, &f, tx) }) } else { b }
         })
         .child(spacer())
@@ -180,7 +180,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 .key("q-actions")
                 .gap(8.0)
                 .children((tab > 0).then(|| {
-                    let b = button(p, "q-back", opencode_i18n::t!("ui.common.back"), Variant::Neutral, None, live).help(format!("{} {back}", opencode_i18n::t!("ui.common.back")));
+                    let b = button(p, "q-back", opencode_i18n::t!("ui.common.back"), Variant::Neutral, None, live).help(format!("{} {back}", opencode_i18n::t!("ui.common.back"))).help_above();
                     if live {
                         b.on_press_tx(|s: &mut S, tx: &mut Tx| {
                             let Some(f) = asking(s) else { return };
@@ -196,7 +196,8 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                     let b = button(p, "q-next", label, if last { Variant::Contrast } else { Variant::Neutral }, None, live)
                         .w(advance_w)
                         .justify_center()
-                        .help(format!("{label} {submit}"));
+                        .help(format!("{label} {submit}"))
+                        .help_above();
                     if live { b.on_press_tx(|s: &mut S, tx: &mut Tx| if let Some(f) = asking(s) { next(s, &f, tx) }) } else { b }
                 }),
         );
@@ -259,16 +260,18 @@ fn progress<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, live: bool) -> El
 /// The header's chevron (`icon-button-v2`, ghost, large): folds the dock to its question and back,
 /// turning over as it does.
 fn chevron<S: DockHost>(p: &Pal, minimized: bool, live: bool) -> El {
+    let label = if minimized { opencode_i18n::t!("session.question.restore") } else { opencode_i18n::t!("session.question.minimize") };
     let b = el()
         .key("q-minimize")
         .role("button")
-        .label(if minimized { opencode_i18n::t!("session.question.restore") } else { opencode_i18n::t!("session.question.minimize") })
+        .label(label)
+        .expanded(!minimized)
         .size(28.0, 28.0)
         .radius(6.0)
         .center()
         .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted).rotate(if minimized { PI } else { 0.0 }).rotate_motion(FOLD));
     if live {
-        b.cursor(rune::Cursor::Pointer).hover(p.hover).press(p.pressed).on_press_tx(|s: &mut S, tx: &mut Tx| {
+        b.cursor(rune::Cursor::Pointer).focus_default(p).help(label).help_above().hover(p.hover).press(p.pressed).on_press_tx(|s: &mut S, tx: &mut Tx| {
             let Some(f) = asking(s) else { return };
             tx.motion_curve(FOLD);
             let (tab, _) = place(s, &f);

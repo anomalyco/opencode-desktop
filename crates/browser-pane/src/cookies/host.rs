@@ -123,6 +123,14 @@ impl BrowserHost {
         Some(request_id)
     }
 
+    /// Takes the queued profile/cookie engine responses `wanted` picks, leaving the others for
+    /// whoever asked for them (a cookie import must not swallow another caller's answer).
+    pub fn take_profile_events_matching(&mut self, mut wanted: impl FnMut(&ProfileEvent) -> bool) -> Vec<ProfileEvent> {
+        let (taken, kept): (Vec<_>, Vec<_>) = self.profile_events.drain(..).partition(|ev| wanted(ev));
+        self.profile_events.extend(kept);
+        taken
+    }
+
     /// Drains pending profile/cookie engine responses queued since the last call.
     pub fn take_profile_events(&mut self) -> Vec<ProfileEvent> {
         self.profile_events.drain(..).collect()

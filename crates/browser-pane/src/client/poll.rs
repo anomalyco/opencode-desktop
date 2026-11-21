@@ -268,7 +268,8 @@ impl BrowserHost {
                 | EngineMsg::AuthRequest { .. } | EngineMsg::AuthReset { .. } | EngineMsg::AuthAgentRequired { .. }
                 | EngineMsg::PopupOpen { .. } | EngineMsg::PopupBlocked { .. }
                 | EngineMsg::AppLinkBlocked { .. } | EngineMsg::PasskeyRefused { .. }
-                | EngineMsg::FileChooserBlocked { .. } | EngineMsg::CopiedImage { .. } => {
+                | EngineMsg::FileChooserBlocked { .. } | EngineMsg::CopiedImage { .. }
+                | EngineMsg::DownloadOnlyTab { .. } => {
                     changed |= self.handle_prompt_msg(msg);
                 }
                 EngineMsg::FindResult { tab_id, count, active_match, final_update } => {

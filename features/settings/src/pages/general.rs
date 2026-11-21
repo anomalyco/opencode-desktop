@@ -283,7 +283,7 @@ fn help_feedback_link<H: SettingsHost + 'static>(p: &Pal) -> El {
         .radius(4.0)
         .cursor(Cursor::Pointer)
         .focus_default(p)
-        .hover_group()
+        .hover_group_focus()
         .on_press_tx(|s: &mut H, tx: &mut Tx| crate::open_external(s, URL, tx))
         .child(
             col()
