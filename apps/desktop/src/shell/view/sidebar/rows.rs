@@ -56,7 +56,7 @@ pub(super) fn session_row(s: &App, p: &Pal, key: String, r: SessionRow) -> El {
         .radius(6.0)
         .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
-        .hover(if r.active { p.pressed } else { p.hover })
+        .hover(if r.active { Color::TRANSPARENT } else { p.hover })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open(&open, tx));
     // Rename from its menu opens the Rename dialog (`project-session-row.tsx:185-197`).
     let target = Target::on(r.server, &id, Spot::Row);

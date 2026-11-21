@@ -10,8 +10,9 @@ use cef::rc::Rc as _;
 use cef::{
     App, Browser, CefString, DictionaryValue, Frame, ImplApp, ImplBrowser, ImplFrame,
     ImplListValue, ImplProcessMessage, ImplRenderProcessHandler, ImplV8Context, ImplV8Value,
-    RenderProcessHandler, SchemeRegistrar, V8Context, V8Propertyattribute, WrapApp,
-    WrapRenderProcessHandler, sys, wrap_app, wrap_render_process_handler,
+    ProcessId, ProcessMessage, RenderProcessHandler, SchemeRegistrar, V8Context,
+    V8Propertyattribute, WrapApp, WrapRenderProcessHandler, sys, wrap_app,
+    wrap_render_process_handler,
 };
 
 const CHILD_FRAME_LOCKDOWN_APIS: &[&str] = &[
@@ -154,6 +155,24 @@ wrap_render_process_handler! {
         ) {
             send_renderer_pid(frame.as_deref().cloned());
             lockdown_extension_child_frame(browser.as_deref(), frame.as_deref(), context.as_deref());
+        }
+
+        fn on_process_message_received(
+            &self,
+            browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            source_process: ProcessId,
+            message: Option<&mut ProcessMessage>,
+        ) -> ::std::os::raw::c_int {
+            if source_process != ProcessId::from(sys::cef_process_id_t::PID_BROWSER) {
+                return 0;
+            }
+            let Some(msg) = message else { return 0 };
+            if CefString::from(&msg.name()).to_string() != "opencode.renderer_pid_ping" {
+                return 0;
+            }
+            send_renderer_pid(frame.cloned().or_else(|| browser.and_then(|b| b.main_frame())));
+            1
         }
     }
 }

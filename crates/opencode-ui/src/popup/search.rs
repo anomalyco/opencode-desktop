@@ -52,7 +52,7 @@ pub(super) fn search_field<S: PopupHost + 'static>(s: &S, p: &Pal, placeholder: 
         .gap(6.0)
         .center_y()
         .radius(6.0)
-        .hover(p.hover)
+        .hover(if typed || edit.focused { rune::Color::TRANSPARENT } else { p.hover })
         .child(rune::icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted))
         .child(input);
     if typed || edit.focused {

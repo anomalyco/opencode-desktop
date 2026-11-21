@@ -456,6 +456,7 @@ impl EngineManager {
             dialog,
             find,
             context_menu,
+            crate::tab_client::TabFrameHandler::new(prompts.clone()),
             prompts,
         );
         let mut win_info = WindowInfo::default().set_as_windowless(Default::default());
@@ -627,6 +628,7 @@ impl EngineManager {
                 max_bytes: crate::cdp_ledger::max_cdp_response_bytes(&method),
                 typed: None,
                 reach,
+                is_tracing_start: false,
             },
         );
         let payload = json!({

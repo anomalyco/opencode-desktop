@@ -140,6 +140,19 @@ fn main() {
         }
         return;
     }
+    // Debug builds only: which profile and cookie key a start would use, without starting CEF (so
+    // a proof never reaches the Keychain).
+    #[cfg(target_os = "macos")]
+    if cfg!(debug_assertions) && args.iter().any(|a| a == "--print-profile-decision") {
+        let profile = profile::Profile::open();
+        println!(
+            "key={} lasting={} root={}",
+            mac_app::cookie_key().name(),
+            !profile.temporary,
+            profile.root.display()
+        );
+        return;
+    }
     let arg = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1));
     // `--trace-startup` (or OPENCODE_BROWSER_ENGINE_TRACE in the environment, which reaches an
     // engine the app starts): each start step's µs since main and its wall time, on stderr.

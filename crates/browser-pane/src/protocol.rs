@@ -533,6 +533,9 @@ pub enum EngineMsg {
         /// The engine enforces the WebAuthn / passkey gate and emits `PasskeyRefused`.
         #[serde(default)]
         passkeys: bool,
+        /// The engine enforces committed-main-frame renderer PID trace isolation and a single engine-wide trace lock.
+        #[serde(default)]
+        trace_isolation: bool,
         /// The engine supports Copy image, spellcheck toggle, and spellcheck languages in page menus.
         #[serde(default)]
         menu_extras: bool,

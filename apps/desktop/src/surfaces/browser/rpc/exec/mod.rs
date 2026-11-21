@@ -89,10 +89,9 @@ impl ExecPhase {
 
     pub fn cancel_cleanup(
         &mut self,
+        att: &mut SessionAttachment,
         app: &mut App,
-        session_id: &str,
         tx: Option<&mut Tx>,
-        pending_close_tabs: &mut Vec<u64>,
     ) {
         match self {
             Self::Inspect(st) => {
@@ -109,11 +108,11 @@ impl ExecPhase {
                 app.workspace_panes.browser.host.stop(st.host_id);
                 if st.close_on_fail {
                     if let Some(tx) = tx {
-                        app.close_browser_tab_for_session(session_id, st.host_id, tx);
+                        app.close_browser_tab_for_session(&att.session_id, st.host_id, tx);
                     } else {
                         // Queue full session+UI close for the next `poll` tick so `session_tabs`
                         // and the side-panel tab never leak a ghost entry.
-                        pending_close_tabs.push(st.host_id);
+                        att.pending_close_tabs.push(st.host_id);
                     }
                 }
             }
@@ -130,7 +129,7 @@ impl ExecPhase {
             Self::Input(st) => st.cancel_cleanup(app),
             Self::Dialog(st) => app.workspace_panes.browser.host.cancel_cdp(st.cdp_req),
             Self::Upload(st) => st.cancel_cleanup(app),
-            Self::Profile(st) => app.workspace_panes.browser.host.cancel_cdp(st.stage.cdp_req()),
+            Self::Profile(st) => st.cancel_cleanup(att, app),
         }
     }
 }
@@ -151,13 +150,11 @@ pub(super) struct ActiveCommand {
 impl ActiveCommand {
     pub fn cancel_cleanup(
         &mut self,
+        att: &mut SessionAttachment,
         app: &mut App,
-        session_id: &str,
         tx: Option<&mut Tx>,
-        pending_close_tabs: &mut Vec<u64>,
     ) {
-        self.phase
-            .cancel_cleanup(app, session_id, tx, pending_close_tabs);
+        self.phase.cancel_cleanup(att, app, tx);
     }
 }
 
@@ -315,6 +312,11 @@ fn phase_deadline(phase: &ExecPhase, now: Instant) -> Instant {
     match phase {
         ExecPhase::Wait(w) => (w.deadline + Duration::from_secs(1)).min(now + MAX_WAIT_CMD_TIMEOUT),
         ExecPhase::WaitLoad(w) => w.deadline,
+        ExecPhase::Profile(p)
+            if matches!(p.stage, profile::ProfileStage::TraceStop { .. } | profile::ProfileStage::CpuStop { .. }) =>
+        {
+            now + Duration::from_secs(10)
+        }
         _ => now + DEFAULT_CMD_TIMEOUT,
     }
 }
@@ -357,11 +359,10 @@ pub(super) fn poll_commands(
     let mut earliest: Option<Instant> = None;
     let mut cmds = std::mem::take(&mut att.active_commands);
     let mut still_running = Vec::with_capacity(cmds.len());
-    let sid = att.session_id.clone();
 
     for mut cmd in cmds.drain(..) {
         if !att.attach.is_request_in_flight(&cmd.connection_id, &cmd.request_id) {
-            cmd.cancel_cleanup(app, &sid, Some(tx), &mut att.pending_close_tabs);
+            cmd.cancel_cleanup(att, app, Some(tx));
             changed = true;
             continue;
         }
@@ -402,10 +403,10 @@ pub(super) fn poll_commands(
         };
 
         let done = if let Some(fail) = mid_guard_fail {
-            cmd.cancel_cleanup(app, &sid, Some(tx), &mut att.pending_close_tabs);
+            cmd.cancel_cleanup(att, app, Some(tx));
             Some(fail)
         } else if now >= cmd.deadline && !matches!(cmd.phase, ExecPhase::Wait(_) | ExecPhase::WaitLoad(_)) {
-            cmd.cancel_cleanup(app, &sid, Some(tx), &mut att.pending_close_tabs);
+            cmd.cancel_cleanup(att, app, Some(tx));
             Some(Outcome::fail(
                 failure_code::OPERATION_FAILED,
                 "Browser command timed out locally.",
@@ -496,7 +497,7 @@ pub(super) fn ingest_drag_intercepted(att: &mut SessionAttachment, tab_id: u64, 
 
 fn finish_and_reply(
     att: &mut SessionAttachment,
-    app: &App,
+    app: &mut App,
     connection_id: &str,
     request_id: String,
     outcome: Outcome,

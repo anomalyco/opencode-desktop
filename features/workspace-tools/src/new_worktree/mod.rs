@@ -12,6 +12,7 @@ use opencode_kit::client::{Prompt, Request, Write};
 use opencode_kit::model::{Project, project_git, project_sandboxes};
 use opencode_kit::path;
 use opencode_search::query::{Highlight, HighlightEvent};
+use opencode_ui::focus::FocusExt as _;
 use opencode_ui::keymap::Bind;
 use rune::{Align, Color, El, Key, KeyEvent, Side, TextEdit, Transition, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
@@ -511,14 +512,16 @@ fn close_branch_picker_outside(host: &mut dyn NewWorktreeHost, tx: &mut Tx) {
 fn trigger_shell(host: &dyn NewWorktreeHost, p: &Pal, current: &str) -> El {
     let open = host.new_worktree().picker.is_open();
     let branch = draft_base(host).unwrap_or(current);
-    row()
-        .key(TRIGGER).role("button").label_static(opencode_i18n::t!("rune.branch.choose"))
-        .help(opencode_i18n::t!("command.session.branch.choose")).help_keys(Bind::BranchChoose.keycaps())
+    let el = row()
+        .key(TRIGGER).role("button").label_static(opencode_i18n::t!("rune.branch.choose")).expanded(open)
+        .cursor(rune::Cursor::Pointer).focus_inset(p)
         .hover_group().h(28.0).max_w(220.0).shrink().min_w(0.0).px(6.0).gap(6.0).center_y().radius(4.0)
-        .fill(if open { p.pressed } else { Color::TRANSPARENT }).hover(p.hover)
+        .fill(if open { p.pressed } else { Color::TRANSPARENT })
+        .hover(if open { Color::TRANSPARENT } else { p.hover })
         .child(icon(&ic::BRANCH_OUT, 16.0).color(p.icon_muted))
         .child(text(opencode_i18n::t!("session.new.workspace.fromBranch", branch = branch)).font(UI).color(if open { p.text } else { p.muted }).group_color(p.text).truncate_fade())
-        .child(icon(&ic::CHEVRON_DOWN, 14.0).ml(-2.0).color(p.icon_muted))
+        .child(icon(&ic::CHEVRON_DOWN, 14.0).ml(-2.0).color(p.icon_muted));
+    if open { el } else { el.help(opencode_i18n::t!("command.session.branch.choose")).help_keys(Bind::BranchChoose.keycaps()) }
 }
 
 /// The branch beside a new worktree (`selector.tsx:159-176`): `from <branch>` after the
@@ -537,7 +540,7 @@ fn picker_input_shell(edit: &TextEdit, p: &Pal) -> El {
 
 fn picker_clear_shell(p: &Pal) -> El {
     el().key("branch-picker-clear").role("button").label_static(opencode_i18n::t!("ui.list.clearFilter"))
-        .size(20.0, 20.0).radius(4.0).center()
+        .size(20.0, 20.0).radius(4.0).center().cursor(rune::Cursor::Pointer).focus_inset(p).hover(p.hover)
         .child(icon(&ic::CIRCLE_XMARK, 14.0).color(p.icon_faint))
 }
 
@@ -546,7 +549,7 @@ fn picker_row_shell(p: &Pal, b: &str, active: Option<&str>, stale: bool, selecte
     let title = if checkout { opencode_i18n::t!("session.new.workspace.useMainCheckout") } else { b };
     row()
         .key(format!("branch-{b}")).role("option").label(title.to_owned())
-        .w_full().h(28.0).px(8.0).gap(8.0).center_y().radius(4.0)
+        .w_full().h(28.0).px(8.0).gap(8.0).center_y().radius(4.0).cursor(rune::Cursor::Pointer)
         .fill(if active == Some(b) { p.hover } else { Color::TRANSPARENT })
         // Rows the pending query hasn't confirmed (`opacity-50`).
         .opacity(if stale { 0.5 } else { 1.0 })
