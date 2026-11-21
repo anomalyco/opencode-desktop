@@ -120,6 +120,18 @@ pub(crate) fn peer(key: &ServerKey) -> Option<Rc<ServerPeer>> {
     RUNTIME.with_borrow(|r| r.peers.get(key).cloned())
 }
 
+/// User message ids held by every other server's shared peer (outside `active`), so `App::rest`
+/// never prunes process-global user-message metadata belonging to another server's transcripts.
+pub(crate) fn other_peer_user_message_ids(active: &ServerKey) -> Vec<String> {
+    RUNTIME.with_borrow(|r| {
+        r.peers
+            .iter()
+            .filter(|(k, _)| *k != active)
+            .flat_map(|(_, peer)| peer.user_message_ids())
+            .collect()
+    })
+}
+
 /// A window started `key`'s copy and stream: the runtime holds them while `key` is listed.
 pub(crate) fn keep_peer(key: &ServerKey, peer: &Rc<ServerPeer>) {
     RUNTIME.with_borrow_mut(|r| {
@@ -506,6 +518,7 @@ pub fn enter(s: &mut App) {
 
 /// `App::turn_scope`: the turn ends; the copy goes back.
 pub fn leave(s: &mut App) {
+    crate::windows::sync_shown(s);
     peer::leave(s);
 }
 

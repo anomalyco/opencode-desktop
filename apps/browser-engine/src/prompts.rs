@@ -79,7 +79,26 @@ enum HeldPermission {
         cef_prompt_id: u64,
         callback: PermissionPromptCallback,
     },
+    /// A page's `getUserMedia` held by the media gate (`media_gate.rs`) until the bar's answer.
+    Gate {
+        prompt: PermissionPrompt,
+        allow_msg: String,
+        deny_msg: String,
+    },
 }
+
+impl HeldPermission {
+    fn prompt(&self) -> &PermissionPrompt {
+        match self {
+            Self::Media { prompt, .. } | Self::Prompt { prompt, .. } | Self::Gate { prompt, .. } => prompt,
+        }
+    }
+}
+
+/// How long the gate's Allow lets the same origin's following CEF media request through.
+const MEDIA_GATE_ALLOW_TTL: std::time::Duration = std::time::Duration::from_secs(10);
+/// Held media-gate requests, and unused Allows, one tab keeps at most.
+const MAX_HELD_MEDIA_GATES: usize = 16;
 
 /// Per-tab held CEF prompt callbacks and agent-driven isolation flag.
 #[derive(Default)]
@@ -113,9 +132,73 @@ pub struct TabPrompts {
     /// frame identifier until commit, cancel/error, main-frame nav, or renderer crash — NO
     /// time-out that fails open (`review-rd274.md` Round-4 ruling).
     pending_ext_subframes: Mutex<HashSet<String>>,
+    /// `(origin, CEF media bits, when)` the media gate allowed: the next CEF media request for that
+    /// origin within `MEDIA_GATE_ALLOW_TTL` continues without a second bar.
+    media_gate_allows: Mutex<Vec<(String, u32, std::time::Instant)>>,
+    /// Gate answers (`Runtime.evaluate`) waiting to be sent on the tab's DevTools host.
+    gate_answers: Mutex<Vec<String>>,
+}
+
+fn media_bits(kinds: &[PermissionKind]) -> u32 {
+    let audio = sys::cef_media_access_permission_types_t::CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE as u32;
+    let video = sys::cef_media_access_permission_types_t::CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE as u32;
+    kinds.iter().fold(0, |bits, k| match k {
+        PermissionKind::Camera => bits | video,
+        PermissionKind::Microphone => bits | audio,
+        _ => bits,
+    })
 }
 
 impl TabPrompts {
+    /// Holds a gated `getUserMedia` for the bar and asks the app (`EngineMsg::PermissionRequest`).
+    /// Returns the deny answer instead once the tab already holds `MAX_HELD_MEDIA_GATES`, so a
+    /// page's loop cannot flood the app with requests.
+    pub fn hold_media_gate(
+        &self,
+        tab_id: u64,
+        prompt: PermissionPrompt,
+        allow_msg: String,
+        deny_msg: String,
+        out_tx: &Output,
+    ) -> Option<String> {
+        {
+            let mut held = self.permissions.lock().unwrap();
+            if held.iter().filter(|p| matches!(p, HeldPermission::Gate { .. })).count() >= MAX_HELD_MEDIA_GATES {
+                return Some(deny_msg);
+            }
+            held.push(HeldPermission::Gate { prompt: prompt.clone(), allow_msg, deny_msg });
+        }
+        let _ = out_tx.send(EngineMsg::PermissionRequest { tab_id, request: prompt });
+        None
+    }
+
+    /// Drops every unused Allow of the media gate: a takeover by the agent or a change to the
+    /// site's permissions must not leave one behind for the next 10 s.
+    pub fn clear_media_gate_allows(&self) {
+        self.media_gate_allows.lock().unwrap().clear();
+    }
+
+    /// Answers queued for the tab's DevTools host (sent by the engine outside any observer callback).
+    pub fn take_gate_answers(&self) -> Vec<String> {
+        std::mem::take(&mut *self.gate_answers.lock().unwrap())
+    }
+
+    pub fn queue_gate_answer(&self, msg: String) {
+        self.gate_answers.lock().unwrap().push(msg);
+    }
+
+    /// Consumes the gate's Allow for `origin` when it covers every requested media bit.
+    fn take_media_gate_allow(&self, origin: &str, requested_bits: u32) -> bool {
+        let now = std::time::Instant::now();
+        let mut list = self.media_gate_allows.lock().unwrap();
+        list.retain(|(_, _, at)| now.duration_since(*at) < MEDIA_GATE_ALLOW_TTL);
+        let Some(pos) = list.iter().position(|(o, bits, _)| o == origin && bits & requested_bits == requested_bits) else {
+            return false;
+        };
+        list.remove(pos);
+        true
+    }
+
     /// The agent sent the page input: no pop-up and no native menu off it until the person's own press or key.
     pub fn agent_input(&self) {
         self.popup_credit.store(false, Ordering::Release);
@@ -209,11 +292,7 @@ impl TabPrompts {
     ) -> bool {
         let entry = {
             let mut list = self.permissions.lock().unwrap();
-            let Some(pos) = list.iter().position(|p| match p {
-                HeldPermission::Media { prompt, .. } | HeldPermission::Prompt { prompt, .. } => {
-                    prompt.id == id
-                }
-            }) else {
+            let Some(pos) = list.iter().position(|p| p.prompt().id == id) else {
                 return false;
             };
             list.remove(pos)
@@ -221,6 +300,37 @@ impl TabPrompts {
         let is_default = ctx_scope.is_none();
         let effective_persist = persist && is_default;
         match entry {
+            HeldPermission::Gate { prompt, allow_msg, deny_msg } => {
+                if allow {
+                    {
+                        let mut allows = self.media_gate_allows.lock().unwrap();
+                        if allows.len() >= MAX_HELD_MEDIA_GATES {
+                            allows.remove(0);
+                        }
+                        allows.push((prompt.origin.clone(), media_bits(&prompt.kinds), std::time::Instant::now()));
+                    }
+                    if let Some(ctx) = req_ctx {
+                        for &kind in &prompt.kinds {
+                            if effective_persist {
+                                crate::permissions::set_content_setting(ctx, &prompt.origin, kind, true);
+                                tracker.record_persistent(&prompt.origin, kind, true);
+                            } else {
+                                crate::permissions::set_content_setting(ctx, &prompt.origin, kind, true);
+                                tracker.record_visit(ctx_scope.map(str::to_owned), tab_id, &prompt.origin, kind, ctx.clone());
+                            }
+                        }
+                    }
+                } else if effective_persist
+                    && !dismiss
+                    && let Some(ctx) = req_ctx
+                {
+                    for &kind in &prompt.kinds {
+                        crate::permissions::set_content_setting(ctx, &prompt.origin, kind, false);
+                        tracker.record_persistent(&prompt.origin, kind, false);
+                    }
+                }
+                self.queue_gate_answer(if allow { allow_msg } else { deny_msg });
+            }
             HeldPermission::Media { prompt, requested_bits, callback } => {
                 if allow {
                     callback.cont(requested_bits);
@@ -304,11 +414,7 @@ impl TabPrompts {
             let mut list = self.permissions.lock().unwrap();
             let mut idx = 0;
             while idx < list.len() {
-                let origin_matches = match &list[idx] {
-                    HeldPermission::Media { prompt, .. } | HeldPermission::Prompt { prompt, .. } => {
-                        new_origin == Some(prompt.origin.as_str())
-                    }
-                };
+                let origin_matches = new_origin == Some(list[idx].prompt().origin.as_str());
                 if origin_matches {
                     idx += 1;
                 } else {
@@ -326,9 +432,15 @@ impl TabPrompts {
                     callback.cont(sys::cef_permission_request_result_t::CEF_PERMISSION_RESULT_DISMISS.into());
                     prompt.id
                 }
+                // The asking document is gone with the origin change; its held promise goes with it.
+                HeldPermission::Gate { prompt, .. } => prompt.id,
             };
             let _ = out_tx.send(EngineMsg::PermissionDismissed { tab_id, id });
         }
+        self.media_gate_allows
+            .lock()
+            .unwrap()
+            .retain(|(o, _, _)| new_origin == Some(o.as_str()));
     }
 
     pub fn record_frame_pid(&self, frame_id: String, pid: u32, browser_main_id: Option<&str>) {
@@ -433,6 +545,7 @@ impl TabPrompts {
                 HeldPermission::Prompt { callback, .. } => {
                     callback.cont(sys::cef_permission_request_result_t::CEF_PERMISSION_RESULT_DISMISS.into());
                 }
+                HeldPermission::Gate { .. } => {}
             }
         }
         for (_, cb) in std::mem::take(&mut *self.auth.lock().unwrap()) {
@@ -445,12 +558,7 @@ impl TabPrompts {
             let _ = out_tx.send(EngineMsg::Dialog { tab_id, dialog: dialog.clone() });
         }
         for p in self.permissions.lock().unwrap().iter() {
-            let request = match p {
-                HeldPermission::Media { prompt, .. } | HeldPermission::Prompt { prompt, .. } => {
-                    prompt.clone()
-                }
-            };
-            let _ = out_tx.send(EngineMsg::PermissionRequest { tab_id, request });
+            let _ = out_tx.send(EngineMsg::PermissionRequest { tab_id, request: p.prompt().clone() });
         }
         for (challenge, _) in self.auth.lock().unwrap().iter() {
             let _ = out_tx.send(EngineMsg::AuthRequest { tab_id, challenge: challenge.clone() });
@@ -541,7 +649,7 @@ pub fn handle_auth_credentials(
 }
 
 /// Whether `origin` is a trustworthy context for browser permissions (`site-permissions.ts`).
-fn is_secure_origin(origin: &str) -> bool {
+pub fn is_secure_origin(origin: &str) -> bool {
     let trimmed = origin.trim();
     if trimmed.len() >= 8 && trimmed.as_bytes()[..8].eq_ignore_ascii_case(b"https://") {
         return browser_policy::destination_origin(trimmed).is_some();
@@ -858,6 +966,11 @@ wrap_permission_handler! {
                 callback.cancel();
                 return 1;
             }
+            // The page's call already passed the media gate's bar: no second bar for the same request.
+            if self.prompts.take_media_gate_allow(&req_orig, requested_permissions) {
+                callback.cont(requested_permissions);
+                return 1;
+            }
             let mut kinds = Vec::new();
             if requested_permissions & video != 0 {
                 kinds.push(PermissionKind::Camera);
@@ -968,9 +1081,7 @@ wrap_permission_handler! {
                 let mut list = self.prompts.permissions.lock().unwrap();
                 list.iter()
                     .position(|p| matches!(p, HeldPermission::Prompt { cef_prompt_id, .. } if *cef_prompt_id == prompt_id))
-                    .map(|idx| match list.remove(idx) {
-                        HeldPermission::Media { prompt, .. } | HeldPermission::Prompt { prompt, .. } => prompt.id,
-                    })
+                    .map(|idx| list.remove(idx).prompt().id)
             };
             if let Some(id) = removed_id {
                 let _ = self.out_tx.send(EngineMsg::PermissionDismissed { tab_id: self.tab_id, id });

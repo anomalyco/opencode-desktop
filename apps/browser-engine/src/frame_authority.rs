@@ -157,6 +157,16 @@ impl EngineCdpLedger {
             || self.frames.values().any(|f| f.extension)
     }
 
+    /// The tab's main frame id, once the arm's frame tree or a main-frame commit named it.
+    pub fn main_frame_id(&self) -> Option<String> {
+        self.main_frame.clone()
+    }
+
+    /// Whether `frame_id` is a frame the engine knows on the tab's own (root) session.
+    pub fn is_root_session_frame(&self, frame_id: &str) -> bool {
+        self.frames.get(frame_id).is_some_and(|f| f.session.is_none())
+    }
+
     /// Returns currently attached web OOPIF session IDs so per-tab renderer gates (e.g.
     /// `Page.setInterceptFileChooserDialog`) can update every live child target.
     pub fn web_session_ids(&self) -> Vec<String> {

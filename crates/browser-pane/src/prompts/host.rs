@@ -228,6 +228,11 @@ impl crate::BrowserHost {
         Some(url)
     }
 
+    /// The person's Copy image results (PNG, base64), for the app's clipboard.
+    pub fn drain_copied_images(&mut self) -> impl Iterator<Item = String> + '_ {
+        self.copied_images.drain(..)
+    }
+
     /// Tabs whose first navigation became the person's download and has its place.
     pub fn drain_download_only_tabs(&mut self) -> impl Iterator<Item = u64> + '_ {
         self.download_only_tabs.drain(..)
@@ -464,6 +469,13 @@ impl crate::BrowserHost {
                     ui_changed = true;
                 }
                 ui_changed
+            }
+            EngineMsg::CopiedImage { tab_id, png_b64 } => {
+                // Only for a tab this app opened; at most a few waiting (each is one person's click).
+                if self.tabs.iter().any(|t| t.id == tab_id) && self.copied_images.len() < 4 {
+                    self.copied_images.push_back(png_b64);
+                }
+                true
             }
             EngineMsg::DownloadOnlyTab { tab_id } => {
                 if self.tabs.iter().any(|t| t.id == tab_id) && !self.download_only_tabs.contains(&tab_id) {

@@ -635,8 +635,9 @@ impl EngineManager {
         };
         if let Some(disable) = disable {
             t.host.send_dev_tools_message(Some(disable.as_bytes()));
-            let binding = t.passkeys.binding_msg(None);
-            t.host.send_dev_tools_message(Some(binding.as_bytes()));
+            for binding in [t.passkeys.binding_msg(None), t.media_gate.binding_msg(None)] {
+                t.host.send_dev_tools_message(Some(binding.as_bytes()));
+            }
         }
         let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
         t.cdp_id_map.lock().unwrap().insert(
@@ -935,6 +936,8 @@ impl EngineManager {
             t.snap.lock().unwrap().agent_driven = agent_driven;
             sync_file_choosers(t);
             if agent_driven {
+                // The person's unused media-gate Allow is theirs: the agent never inherits it.
+                t.prompts.clear_media_gate_allows();
                 // Agent-driven tabs permanently refuse WebAuthn/passkeys (`chromium.ts:834-845`).
                 for raw in t.passkeys.enforce_messages() {
                     t.host.send_dev_tools_message(Some(raw.as_bytes()));

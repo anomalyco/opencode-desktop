@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 
+use opencode_kit::servers::ServerKey;
 use rune::Tx;
 use rune_theme_opencode::icons as ic;
 
@@ -14,22 +15,23 @@ use crate::jobs::Apply;
 use crate::popup::{self, Item, Menu};
 use opencode_i18n::t;
 
+fn branch_key(server: &ServerKey, dir: &str) -> (ServerKey, String) {
+    (server.clone(), opencode_servers::home::same_directory_key(dir))
+}
+
 /// Each folder's branch, once read (`None` for a folder that isn't on one), and the recovery
 /// dialog for a new worktree the session didn't move into.
 #[derive(Default)]
 pub struct Location {
-    branches: HashMap<String, Option<String>>,
+    branches: HashMap<(ServerKey, String), Option<String>>,
     changes: Changes,
     pub(super) recovery: Option<super::move_recovery::Recovery>,
 }
 
 /// Keeps cached location-card branches current when `vcs.branch.updated` arrives.
-pub(crate) fn branch_updated(s: &mut App, dir: &str, branch: Option<String>) {
-    let key = opencode_servers::home::comparable_path(dir);
-    for (loc_dir, slot) in &mut s.location.branches {
-        if opencode_servers::home::comparable_path(loc_dir) == key {
-            *slot = branch.clone();
-        }
+pub(crate) fn branch_updated(s: &mut App, server: &ServerKey, dir: &str, branch: Option<String>) {
+    if let Some(slot) = s.location.branches.get_mut(&branch_key(server, dir)) {
+        *slot = branch;
     }
 }
 
@@ -77,18 +79,21 @@ pub(super) fn open_card(s: &mut App, tx: &mut Tx) {
     }
     s.list_worktrees(&info.project);
     show(s, &info, tx);
+    let server = crate::servers::runtime::active(s).clone();
     let root = s.project(&info.project).or_else(|| s.project_at(&session_dir)).map(|p| p.directory.clone());
     for dir in std::iter::once(session_dir).chain(root) {
-        if s.location.branches.contains_key(&dir) {
+        let key = branch_key(&server, &dir);
+        if s.location.branches.contains_key(&key) {
             continue;
         }
+        let srv_key = server.clone();
         s.job(move |srv| {
             let path = format!("/api/vcs?location%5Bdirectory%5D={}", crate::switcher::encode(&dir));
             let branch = srv.get(&path).ok().map(|v| v["data"]["branch"]["current"].as_str().or_else(|| v["branch"]["current"].as_str()).map(str::to_owned));
             Box::new(move |s: &mut App, tx: &mut Tx| {
                 let Some(branch) = branch else { return };
-                s.sidebar_inbox.branches.updated(&dir, branch.clone());
-                s.location.branches.insert(dir, branch);
+                s.sidebar_inbox.branches.updated(&srv_key, &dir, branch.clone());
+                s.location.branches.insert(branch_key(&srv_key, &dir), branch);
                 reshow(s, tx);
             }) as Apply
         });
@@ -107,11 +112,13 @@ fn reshow(s: &mut App, tx: &mut Tx) {
 }
 
 fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
+    let server = crate::servers::runtime::active(s);
     let dir = s.queue.starts.directory(&info.id).unwrap_or(&info.directory).to_owned();
+    let dir_key = branch_key(server, &dir);
     let project = s.project(&info.project).or_else(|| s.project_at(&dir)).cloned();
     let name = project.as_ref().map_or_else(|| crate::view::project_or_dir(None, &dir), |p| p.name.clone());
     let sid = info.id.clone();
-    let git = project.as_ref().is_some_and(|p| opencode_kit::model::project_git(&p.id)) || s.location.branches.get(&dir).is_some_and(Option::is_some);
+    let git = project.as_ref().is_some_and(|p| opencode_kit::model::project_git(&p.id)) || s.location.branches.get(&dir_key).is_some_and(Option::is_some);
     let worktree = super::location::worktree_name(project.as_ref(), &dir);
     let child = info.parent.is_some();
 
@@ -134,7 +141,7 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
         };
     }
 
-    let branch = s.location.branches.get(&dir).cloned().flatten();
+    let branch = s.location.branches.get(&dir_key).cloned().flatten();
     if git {
         menu = match &branch {
             Some(b) => {
@@ -146,7 +153,10 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
                 menu.submenu_icon("branch", b.clone(), &ic::BRANCH, sub)
             }
             None => {
-                let base = project.as_ref().filter(|p| p.directory != dir).and_then(|p| s.location.branches.get(&p.directory).cloned().flatten());
+                let base = project
+                    .as_ref()
+                    .filter(|p| opencode_servers::home::same_directory_key(&p.directory) != dir_key.1)
+                    .and_then(|p| s.location.branches.get(&branch_key(server, &p.directory)).cloned().flatten());
                 let line = match base {
                     Some(base) => format!("{} \u{b7} {}", t!("plugin.details.noBranch"), t!("plugin.details.basedOn", branch = base)),
                     None => t!("plugin.details.noBranch").to_owned(),

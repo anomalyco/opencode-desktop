@@ -18,17 +18,48 @@ const MAX_MESSAGES_BYTES: u64 = 1024 * 1024;
 const MAX_LIST_ITEMS: usize = 256;
 const MAX_ITEM_CHARS: usize = 256;
 
-/// Native Chromium permissions refused at load because they can bypass the extension host
-/// boundary (`debugger`, `nativeMessaging`, `downloads`, `proxy`, `management`). Checked on
-/// required `permissions` only (never `optional_permissions`, which Chromium does not grant at
-/// install and our `permissions.request` shim refuses at runtime).
-pub const DISALLOWED_REQUIRED_PERMS: &[&str] = &[
-    "debugger",
+/// Native Chromium permissions stripped from the staged `manifest.json` handed to Chromium so
+/// Chromium's C++ `Extension::permissions_data()` never grants them (`nativeMessaging`,
+/// `downloads`, `downloads.open`, `downloads.ui`, `management`), while our verified Rust manifest
+/// preserves them for truthful official `stubs.ts` / `permissions.*` replies.
+pub const STRIPPED_NATIVE_PERMS: &[&str] = &[
     "nativeMessaging",
     "downloads",
-    "proxy",
+    "downloads.open",
+    "downloads.ui",
     "management",
 ];
+
+/// Native Chromium permissions still refused at load because they can bypass the extension host
+/// boundary outside our C++ permission-stripping sandbox (`debugger` attaches CDP to any tab;
+/// `proxy` MITMs all traffic). Checked on required `permissions` only.
+pub const DISALLOWED_REQUIRED_PERMS: &[&str] = &[
+    "debugger",
+    "proxy",
+];
+
+/// Removes every entry in [`STRIPPED_NATIVE_PERMS`] from both `"permissions"` and
+/// `"optional_permissions"` of already-verified `manifest.json` bytes. Returns `(stripped_any,
+/// sanitized_bytes)` or `None` on malformed JSON.
+pub fn strip_native_perms_from_manifest(bytes: &[u8]) -> Option<(bool, Vec<u8>)> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    let mut val: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()?;
+    let obj = val.as_object_mut()?;
+    let mut changed = false;
+    for field in ["permissions", "optional_permissions"] {
+        if let Some(arr) = obj.get_mut(field).and_then(Value::as_array_mut) {
+            let before = arr.len();
+            arr.retain(|v| !v.as_str().is_some_and(|p| STRIPPED_NATIVE_PERMS.contains(&p)));
+            if arr.len() != before {
+                changed = true;
+            }
+        }
+    }
+    if !changed {
+        return Some((false, Vec::new()));
+    }
+    serde_json::to_vec(&val).ok().map(|b| (true, b))
+}
 
 #[derive(Clone, Debug)]
 pub struct ActionDefaults {

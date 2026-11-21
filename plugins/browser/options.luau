@@ -230,6 +230,7 @@ function options.renderMore(cb: Callbacks, view: View, d: MenuData): ui.Node
         role = "list",
         label = cb.I18n:T("menu.more"),
         minW = 220,
+        mt = 2,
         pad = 2,
         radius = 6,
         fill = "surface-1",

@@ -42,12 +42,15 @@ pub fn shows_whole_prompt() -> bool {
 /// composer, its words where they were typed. Read further up, nothing flies: the timeline cuts
 /// to its end, where the message already stands. A prompt longer than the composer, whose words
 /// start out of sight in it, arrives where it lands instead of flying.
-pub fn land<S: TimelineHost>(s: &S, session: &str, local: &str, from: &str, tx: &mut Tx) {
+pub fn land<S: TimelineHost>(s: &mut S, session: &str, local: &str, from: &str, tx: &mut Tx) {
     if s.ends().at_end(session) {
         if shows_whole_prompt() {
             tx.launch(from, format!("u-{local}/bubble"));
         }
     } else {
+        // Re-attach follow immediately alongside the instant jump so a same-tick settle cannot
+        // snap back to the old scrolled-up anchor (`interaction.ts:183-199`).
+        s.ends_mut().set_at_end(session, true);
         tx.scroll_to_bottom_instant(format!("scroll-{session}"));
     }
 }
@@ -509,18 +512,21 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
                     .shrink()
                     .grow(if held.is_some() { 1.0 } else { 0.0 })
                     // `composer-scroll`: a plain `overflow-y: auto` box's bar (`editor.tsx:296-300`), in
-                    // the room `editor-pad` keeps for it.
+                    // the room `editor-pad` keeps for it. Drop the 180 pt cap while holding height for
+                    // history previews (`editor.tsx:297`).
                     .child(crate::scroller::scroller("editor-scroll").bar(crate::scroller::Bar::Styled(crate::scroller::native_bar(p))).build::<S>(
                         p,
-                        col()
-                            .w_full()
-                            .shrink()
-                            .max_h(COMPOSER_MAX_H)
-                            // `editor.css:9-20`: a fixed 16 fade over the top padding, and the
-                            // bottom feathering by as much as is left to scroll, up to 16.
-                            .clip_fade_linear(0.0, 16.0, 0.0, 0.0)
-                            .scroll_fade(rune::ScrollFade::feather(16.0).end_only())
-                            .scroll_margin(16.0),
+                        {
+                            let vp = col()
+                                .w_full()
+                                .shrink()
+                                // `editor.css:9-20`: a fixed 16 fade over the top padding, and the
+                                // bottom feathering by as much as is left to scroll, up to 16.
+                                .clip_fade_linear(0.0, 16.0, 0.0, 0.0)
+                                .scroll_fade(rune::ScrollFade::feather(16.0).end_only())
+                                .scroll_margin(16.0);
+                            if held.is_some() { vp.grow(1.0) } else { vp.max_h(COMPOSER_MAX_H) }
+                        },
                                 // The scroll box keeps its 8 pt scroll bar's room at its end
                                 // (`scrollbar-gutter: stable`, `--scrollbar-size`), on the app's side.
                                 col().key("editor-pad").w_full().pr(SCROLLBAR).child(

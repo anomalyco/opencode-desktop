@@ -6,7 +6,17 @@
 // Keeps all working native Chromium APIs (declarativeNetRequest, storage, scripting, alarms,
 // offscreen, runtime, tabs.sendMessage, tabs.connect, webRequest, cookies) native!
 (() => {
-  const LOCKDOWN_APIS = ["tabs", "windows", "action", "browserAction", "pageAction", "contextMenus", "webNavigation"];
+  const LOCKDOWN_APIS = [
+    "tabs",
+    "windows",
+    "action",
+    "browserAction",
+    "pageAction",
+    "contextMenus",
+    "webNavigation",
+    "downloads",
+    "management",
+  ];
   const neutralizeChrome = (win) => {
     if (!win) return;
     for (const rootName of ["chrome", "browser"]) {
@@ -18,6 +28,16 @@
           Object.defineProperty(root, api, { value: undefined, configurable: false, enumerable: false, writable: false });
         } catch {}
       }
+      try {
+        const rt = root.runtime;
+        if (rt && typeof rt === "object") {
+          for (const m of ["connectNative", "sendNativeMessage"]) {
+            try {
+              Object.defineProperty(rt, m, { value: undefined, configurable: false, enumerable: false, writable: false });
+            } catch {}
+          }
+        }
+      } catch {}
     }
   };
   const sweepFrames = (win) => {
@@ -177,9 +197,12 @@
 
   const isPopup = __IS_POPUP__;
   const manifest = chrome.runtime.getManifest();
+  // Merge Rust's verified declared permissions (which retain stripped native permissions such as
+  // `downloads` and `management` so official stubs bind while Chromium C++ holds zero native grant).
   const declared = new Set([
     ...(manifest.permissions || []),
     ...(manifest.host_permissions || []),
+    ...(__DECLARED_PERMS__ || []),
   ]);
 
   let nextReq = 1;
@@ -580,9 +603,20 @@
       methods: [
         "download", "search", "pause", "resume", "cancel", "getFileIcon",
         "open", "show", "showDefaultFolder", "erase", "removeFile",
-        "acceptDanger", "setUiOptions",
+        "acceptDanger", "setUiOptions", "setShelfEnabled",
       ],
       events: ["onCreated", "onErased", "onChanged", "onDeterminingFilename"],
+      stubEvents: true,
+    },
+    {
+      path: "management",
+      permissions: ["management"],
+      methods: [
+        "getSelf", "getAll", "get", "setEnabled", "uninstall", "uninstallSelf",
+        "launchApp", "createAppShortcut", "setLaunchType",
+        "getPermissionWarningsById", "generateAppForLink",
+      ],
+      events: ["onInstalled", "onUninstalled", "onEnabled", "onDisabled"],
       stubEvents: true,
     },
     {
@@ -609,6 +643,22 @@
 
   // Chromium exposes both `chrome` and `browser` (uBlock Origin Lite reads `browser` first!).
   const roots = [...new Set([globalThis.chrome, globalThis.browser].filter(Boolean))];
+
+  // Match Electron 44: `runtime.connectNative` and `runtime.sendNativeMessage` do not exist
+  // (non-configurable `undefined` on both `chrome.runtime` and `browser.runtime`, paired with
+  // C++ `PermissionsData` stripping and `native_messaging.blocklist = ["*"]`).
+  for (const root of roots) {
+    try {
+      const rt = root.runtime;
+      if (rt && typeof rt === "object") {
+        for (const m of ["connectNative", "sendNativeMessage"]) {
+          try {
+            Object.defineProperty(rt, m, { value: undefined, configurable: false, enumerable: false, writable: false });
+          } catch {}
+        }
+      }
+    } catch {}
+  }
 
   for (const ns of NAMESPACES) {
     if (ns.permissions && !ns.permissions.some((p) => declared.has(p))) continue;
