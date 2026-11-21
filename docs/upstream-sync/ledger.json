@@ -2,29 +2,29 @@
   "generated_at": "2026-11-22",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "ba5bbef82c9fc27e033a12ca50657f4ec8d629da",
+  "upstream_head": "2ae1910140804547378da9a266cddf0708aaaf58",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "1e18166b72304db885c923b52dc05b66f9bff040",
-  "post_1114_commit_count": 413,
-  "post_1114_in_ledger": 158,
-  "post_1114_skipped": 255,
+  "rune_desktop_head": "75ef00171349d10afde5c12b16a48134325f61fa",
+  "post_1114_commit_count": 419,
+  "post_1114_in_ledger": 162,
+  "post_1114_skipped": 257,
   "post_1114_skipped_breakdown": {
     "test-only": 21,
     "ci-bench-deps": 15,
-    "docs-site-data": 37,
+    "docs-site-data": 38,
     "tui-only": 11,
     "cli-acp-only": 8,
-    "server-core-ai-codemode-internal": 163
+    "server-core-ai-codemode-internal": 164
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 179,
+  "total_ledger_rows": 183,
   "status_counts": {
-    "have it": 150,
+    "have it": 153,
     "not applicable": 23,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 3
+    "missing": 4
   },
   "rows": [
     {
@@ -4499,6 +4499,99 @@
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"
+    },
+    {
+      "id": "UP-159",
+      "window": "post-1120",
+      "pr": 65325,
+      "sha": "0bc9ccf55d",
+      "title": "feat(desktop): say what Windows toasts ask and take them back once handled",
+      "merged": "2026-11-21",
+      "packages": [
+        "desktop",
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/notifications/notification.tsx",
+        "packages/desktop/src/renderer/platform/notifications.ts"
+      ],
+      "summary": "A permission or form toast's second line says what it asks (the action and what it acts on, or the form's title); each run and request posts under its own tag, so a repeat replaces it, and an answered request's toast is taken back.",
+      "size": "M",
+      "status": "have it",
+      "status_evidence": "Ours goes further (actionable toasts, Windows-first, ported to official by WINDOWS-UPSTREAM): features/notifications/src/actions.rs writes 'action: resources' (or the form's question) and answers from the toast's buttons; an answered request's toast is removed (notifications::answered) and a session's when it is seen (notifications::seen).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-160",
+      "window": "post-1120",
+      "pr": 65330,
+      "sha": "176db8d456",
+      "title": "feat(desktop): drag files from the file tree into other Windows apps",
+      "merged": "2026-11-21",
+      "packages": [
+        "desktop",
+        "app",
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/platform/drag-out.ts",
+        "packages/desktop/src/main/files/index.ts",
+        "packages/gui-plugins/src/file/pierre-tree.tsx"
+      ],
+      "summary": "A file-tree row of this computer drags out as the file itself into Explorer, a browser or a chat app; dropped back into the app it reads as the app's own drag.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "Ours first (ported to official by WINDOWS-UPSTREAM): features/files/src/view.rs and apps/desktop/src/workspace/system/open_in.rs `context` give tree rows `drag_out` (rune::DragItem, `within_app` back into the composer).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "SCREENS-B"
+    },
+    {
+      "id": "UP-161",
+      "window": "post-1120",
+      "pr": 65327,
+      "sha": "b00b733f07",
+      "title": "feat(desktop): add New Session and New Window to the Windows jump list",
+      "merged": "2026-11-21",
+      "packages": [
+        "desktop"
+      ],
+      "main_files": [
+        "packages/desktop/src/main/native/jump-list.ts",
+        "packages/desktop/src/main/lifecycle/index.ts"
+      ],
+      "summary": "The taskbar button's right-click tasks: New Session and New Window, each doing what the File menu item does in the running app.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "Ours first (ported to official by WINDOWS-UPSTREAM): apps/desktop/src/workspace/system/jump_list.rs has the same two tasks, same labels (desktop.menu.newSession, desktop.menu.newWindow) and order; ours also lists recent projects and sessions on the app's own server (official doesn't).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-162",
+      "window": "post-1120",
+      "pr": 65329,
+      "sha": "204af946ba",
+      "title": "feat(app): fold tall file diffs in the timeline",
+      "merged": "2026-11-21",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/tools/tool-renderer.tsx",
+        "packages/session-ui/src/components/message-part.css",
+        "packages/session-ui/src/timeline-next/tools/patch.tsx"
+      ],
+      "summary": "A file's diff in an edit/patch row shows 420 px, fading out under a 32 px 'Show more' / 'Show less' toggle (chevron turns); closing keeps the toggle where it was pressed.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "crates/session-view has no diff fold: a tall file diff in a tool row shows whole.",
+      "depends_on": "none",
+      "risks": "Timeline row heights change: the virtualizer's measured heights and the 'toggle stays put on close' scroll correction.",
+      "workstream": "WS-3"
     }
   ],
   "browser_security_review": {

@@ -1,9 +1,9 @@
 # Upstream Sync Ledger: `anomalyco/opencode` -> `anomalyco/rune-desktop`
 
 - **Updated:** 2026-11-22
-- **Upstream `origin/dev` audited:** `f6e0c2d083` -> `ba5bbef82c` (**413** post-14 Nov commits: **158** in ledger + **255** skipped) plus **15** pre-14 Nov carry-over rows (`3751be8138..f6e0c2d083`) and 6 owner-split sub-rows of `UP-095`.
-- **`rune-desktop` `origin/dev` checked:** `1e18166b72`.
-- **Total ledger rows:** **179** - **150** have it · **23** not applicable · **1** differs on purpose · **2** partly · **3** missing.
+- **Upstream `origin/dev` audited:** `f6e0c2d083` -> `2ae1910140` (**419** post-14 Nov commits: **162** in ledger + **257** skipped) plus **15** pre-14 Nov carry-over rows (`3751be8138..f6e0c2d083`) and 6 owner-split sub-rows of `UP-095`.
+- **`rune-desktop` `origin/dev` checked:** `75ef001713`.
+- **Total ledger rows:** **183** - **153** have it · **23** not applicable · **1** differs on purpose · **2** partly · **4** missing.
 - **Machine-readable twin:** `docs/upstream-sync/ledger.json` (generated together; identical rows).
 - **Status vs. Reviewed:** a row is **have it** only when its code is merged on `dev`; security-review tracking for browser rows lives in the separate **Reviewed** column.
 - **Open PR note column:** informational only (lists unmerged open PRs on `anomalyco/rune-desktop` that touch the same upstream PR; does not change row status).
@@ -17,7 +17,7 @@
 | **PREVIEWS** | 0 | 0 | 0 | _done_ |
 | **BROWSER-TOOLS** | 0 | 0 | 0 | _done_ |
 | **WS-2** | 0 | 0 | 0 | _done_ |
-| **WS-3** | 0 | 0 | 0 | _done_ |
+| **WS-3** | 1 | 0 | 1 | `UP-162` |
 | **WS-4** | 0 | 0 | 0 | _done_ |
 | **WS-5** | 0 | 0 | 0 | _done_ |
 | **WS-6** | 0 | 0 | 0 | _done_ |
@@ -27,7 +27,7 @@
 | **SCREENS-A** | 0 | 0 | 0 | _done_ |
 | **SCREENS-B** | 0 | 0 | 0 | _done_ |
 | **UPDATER** | 0 | 0 | 0 | _done_ |
-| **Total** | **3** | **2** | **5** | |
+| **Total** | **4** | **2** | **6** | |
 
 ## Browser Security Review Status (Tracked Separately in `Reviewed` Column)
 
@@ -56,7 +56,7 @@
 | PRE-14 | #63744 (`46aefe3da3`)<br>fix(app): hide zero session cost for OpenCode Go | 2026-11-13 | **gui-plugins**<br>`packages/gui-plugins/src/context/indicator.tsx`, `packages/gui-plugins/src/context/tab.tsx` | Hide the $0.00 cost line in the session header indicator and omit the Total Cost row in the Context tab when spend is zero on an OpenCode Go model. | S | **have it** |  | Ported in rune-desktop #243 (4b5175ef): plugins/context/indicator.luau and plugins/context/tab.luau hide $0.00 cost for opencode-go and pad odd 2-column grid rows. (PR #243) | none | none | none |  |
 | PRE-15 | #63739 (`f352f5e875`)<br>fix(ui): switch submenus without blinking and keep them open on the way in | 2026-11-13 | **ui, app**<br>`patches/@kobalte%2Fcore@0.13.13.patch`, `packages/app/src/shell/titlebar/sidebar-view-menu.tsx` | Keep submenus open along the pointer aim corridor and avoid flashing when moving between sibling submenu triggers. | S | **have it** |  | Ported in rune-desktop #271 (08f28f82): explicit submenu pointer-corridor aiming + 150 ms leave delay machine in crates/opencode-ui/src/popup/submenu.rs. (PR #271) | none | none | none |  |
 
-## Post-14 Nov Rows (`f6e0c2d083..ba5bbef82c`)
+## Post-14 Nov Rows (`f6e0c2d083..2ae1910140`)
 
 | ID | PR / Commit | Date | Packages & Main Files | What User Sees / Client Must Do | Size | Status | Reviewed | Evidence in `rune-desktop` | Depends On | Risks | Stream | Open PR Note |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -224,3 +224,7 @@
 | UP-156 | #65323 (`3aff591323`)<br>fix(desktop): reopen snapped, moved and minimized windows where they were on Windows | 2026-11-21 | **desktop, app**<br>`packages/desktop/src/main/windows/window-state.ts` | Windows reopen where they were when snapped, moved or minimized. | S | **have it** |  | Ported to official FROM rune-desktop by WINDOWS-UPSTREAM; apps/desktop/src/workspace/windows/placement.rs: a minimized window keeps its last shown frame; snapped or restored saves where it is on screen. | none | none | WS-8 |  |
 | UP-157 | #65321 (`32ae019771`)<br>fix(desktop): resync server event streams after Windows resumes from sleep | 2026-11-21 | **desktop, app**<br>`packages/app/src/runtime/server/client.tsx`, `packages/desktop/src/main/ipc.ts` | After Windows resumes from sleep the server event streams resync. | S | **have it** |  | Ported to official FROM rune-desktop by WINDOWS-UPSTREAM; apps/desktop/src/workspace/lifecycle/launch/network.rs: PowerRegisterSuspendResumeNotification wakes every window on resume to recheck and reconnect its servers. | none | none | WS-8 |  |
 | UP-158 | #65324 (`ba5bbef82c`)<br>fix(desktop): draw the Windows caption buttons in the contrast theme's text colour | 2026-11-21 | **desktop**<br>`packages/desktop/src/main/windows/defaults.ts`, `packages/desktop/src/main/windows/index.ts` | Under a Windows contrast theme the caption buttons draw in the theme's window-text colour (not the app theme's black or white), and follow the theme being turned on or off. | XS | **have it** |  | PR #598: apps/desktop/src/shell/view/mod.rs gives the caption buttons the palette's text colour when the system contrast theme paints the window (p.forced; that text is the theme's window text, themes::contrast). Seen: RUNE_CONTRAST=desert snap, close-button glyph #000000 before, #3D3D3D (Desert's window text) after. Turning the theme on or off rebuilds the palette (Windows reports it); not toggled live here. | none | none | WS-8 |  |
+| UP-159 | #65325 (`0bc9ccf55d`)<br>feat(desktop): say what Windows toasts ask and take them back once handled | 2026-11-21 | **desktop, app**<br>`packages/app/src/shell/notifications/notification.tsx`, `packages/desktop/src/renderer/platform/notifications.ts` | A permission or form toast's second line says what it asks (the action and what it acts on, or the form's title); each run and request posts under its own tag, so a repeat replaces it, and an answered request's toast is taken back. | M | **have it** |  | Ours goes further (actionable toasts, Windows-first, ported to official by WINDOWS-UPSTREAM): features/notifications/src/actions.rs writes 'action: resources' (or the form's question) and answers from the toast's buttons; an answered request's toast is removed (notifications::answered) and a session's when it is seen (notifications::seen). | none | none | WS-8 |  |
+| UP-160 | #65330 (`176db8d456`)<br>feat(desktop): drag files from the file tree into other Windows apps | 2026-11-21 | **desktop, app, gui-plugins**<br>`packages/app/src/runtime/platform/drag-out.ts`, `packages/desktop/src/main/files/index.ts`, `packages/gui-plugins/src/file/pierre-tree.tsx` | A file-tree row of this computer drags out as the file itself into Explorer, a browser or a chat app; dropped back into the app it reads as the app's own drag. | S | **have it** |  | Ours first (ported to official by WINDOWS-UPSTREAM): features/files/src/view.rs and apps/desktop/src/workspace/system/open_in.rs `context` give tree rows `drag_out` (rune::DragItem, `within_app` back into the composer). | none | none | SCREENS-B |  |
+| UP-161 | #65327 (`b00b733f07`)<br>feat(desktop): add New Session and New Window to the Windows jump list | 2026-11-21 | **desktop**<br>`packages/desktop/src/main/native/jump-list.ts`, `packages/desktop/src/main/lifecycle/index.ts` | The taskbar button's right-click tasks: New Session and New Window, each doing what the File menu item does in the running app. | S | **have it** |  | Ours first (ported to official by WINDOWS-UPSTREAM): apps/desktop/src/workspace/system/jump_list.rs has the same two tasks, same labels (desktop.menu.newSession, desktop.menu.newWindow) and order; ours also lists recent projects and sessions on the app's own server (official doesn't). | none | none | WS-8 |  |
+| UP-162 | #65329 (`204af946ba`)<br>feat(app): fold tall file diffs in the timeline | 2026-11-21 | **session-ui**<br>`packages/session-ui/src/tools/tool-renderer.tsx`, `packages/session-ui/src/components/message-part.css`, `packages/session-ui/src/timeline-next/tools/patch.tsx` | A file's diff in an edit/patch row shows 420 px, fading out under a 32 px 'Show more' / 'Show less' toggle (chevron turns); closing keeps the toggle where it was pressed. | S | **missing** |  | crates/session-view has no diff fold: a tall file diff in a tool row shows whole. | none | Timeline row heights change: the virtualizer's measured heights and the 'toggle stays put on close' scroll correction. | WS-3 |  |
