@@ -63,7 +63,7 @@ pub fn handle_upload_files(
         send_err(out_tx, tab_id, request_id, "Agent browser tools cannot upload files into extension pages or tabs with extension frames.");
         return;
     }
-    let reach = t.cdp_ledger.lock().unwrap().reach("DOM.setFileInputFiles", session_id.as_deref(), frame_id.as_deref(), &Value::Null);
+    let reach = t.cdp_ledger.lock().unwrap().reach("DOM.setFileInputFiles", session_id.as_deref(), frame_id.as_deref(), &json!({ "backendNodeId": backend_node_id }));
     if crate::cdp_ledger::grant_gated(t) && crate::cdp_ledger::granted_origin(t, permissions, &reach).is_some() {
         send_err(out_tx, tab_id, request_id, crate::permissions::INHERITED_PERMISSION_MSG);
         return;
