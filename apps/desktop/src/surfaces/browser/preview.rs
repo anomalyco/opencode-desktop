@@ -103,6 +103,14 @@ impl App {
         crate::servers::runtime::active(self).is_sidecar()
     }
 
+    /// Whether session `sid` can open its workspace files in the pane, which makes a refused
+    /// address read "web pages and files inside this session's workspace" (`policy.ts:398`:
+    /// `fileRoots.length || remote`): a local root, or a remote session's directory.
+    pub(crate) fn browser_offers_workspace(&self, sid: Option<&str>) -> bool {
+        !self.browser_file_roots(sid).is_empty()
+            || sid.is_some_and(|id| !self.session_server_is_local(Some(id)) && !self.link_directory(id).is_empty())
+    }
+
     pub(crate) fn bind_preview_tab(&mut self, tab_id: u64, sid: Option<&str>) {
         self.revoke_preview_binding(tab_id);
         if let Some((server_key, server)) = self.preview_server_for(sid) {
@@ -136,8 +144,7 @@ impl App {
     /// When `agent` is `true`, hidden/dotfile entry HTML documents are strictly refused.
     pub fn resolve_preview_target(&self, sid: Option<&str>, url: &str, agent: bool) -> PreviewTarget {
         let trimmed = url.trim();
-        let has_local_roots = !self.browser_file_roots(sid).is_empty();
-        let workspace_refusal = if has_local_roots {
+        let workspace_refusal = if self.browser_offers_workspace(sid) {
             "browser.address.workspace"
         } else {
             "browser.address.web"

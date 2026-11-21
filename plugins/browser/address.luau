@@ -516,7 +516,11 @@ function address.view(state: State, tab: string, epoch: Epoch, visits: { history
     local editing = edit.status == "editing" and edit.tab == tab
     local rows = if editing then computeRows(edit, visits) else {}
     local shown = editing and isListed(edit, rows)
-    local picked, active = if shown then chosenRow(edit, rows) else nil, 0
+    -- Not `if shown then chosenRow(...) else nil, 0`: an if-expression keeps only the first result.
+    local picked: Row?, active = nil, 0
+    if shown then
+        picked, active = chosenRow(edit, rows)
+    end
     local completed = if editing then completionSuffix(edit, rows) else ""
     local fieldText: string
     if editing and edit.status == "editing" and edit.list.type == "held" and picked ~= nil then
