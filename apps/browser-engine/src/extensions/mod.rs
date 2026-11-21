@@ -153,6 +153,8 @@ pub(super) struct ExecutionContextMeta {
 pub(super) struct AttachedSession {
     pub ext_id: String,
     pub kind: SessionKind,
+    pub url: String,
+    pub chromium_tab_id: Option<i32>,
     pub main_frame_id: Option<String>,
     pub last_popup_size: Option<(u32, u32)>,
     pub attach_started: Instant,
