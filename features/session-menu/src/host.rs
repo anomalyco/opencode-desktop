@@ -229,10 +229,10 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     fn toggle_session_pin(&mut self, server: &ServerKey, id: &str) {
         let _ = (server, id);
     }
-    /// Opens session `id` on `server` from a Home row's menu: as a click does, or as a tab behind
-    /// the page that shows (`background`).
-    fn open_session(&mut self, server: &ServerKey, id: &str, background: bool, tx: &mut Tx) {
-        let _ = (server, id, background, tx);
+    /// Opens session `id` on `server` as a tab behind the page that shows (Home row menu's
+    /// "Open in background", upstream #65209/#65212).
+    fn open_session_in_background(&mut self, server: &ServerKey, id: &str) {
+        let _ = (server, id);
     }
     /// Archives session `id` on `server`.
     fn archive_session(&mut self, server: &ServerKey, id: &str, tx: &mut Tx) {

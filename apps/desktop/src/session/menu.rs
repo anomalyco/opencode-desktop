@@ -179,7 +179,14 @@ impl SessionMenuHost for App {
     }
 
     fn open_session(&mut self, server: &ServerKey, id: &str, tx: &mut Tx) {
-        crate::servers::runtime::with_server(self, server, |s| s.open(id, tx));
+        crate::servers::runtime::with_server(self, server, |s| {
+            s.clear_home_search(false, tx);
+            s.open(id, tx);
+        });
+    }
+
+    fn open_session_in_background(&mut self, server: &ServerKey, id: &str) {
+        crate::servers::runtime::with_server(self, server, |s| s.open_in_background(id));
     }
 
     fn pin_menu_extra(&self, server: &ServerKey, id: &str) -> Vec<crate::session_menu::Line> {
@@ -215,16 +222,6 @@ impl SessionMenuHost for App {
         } else {
             recent.pin(key);
         }
-    }
-
-    fn open_session(&mut self, server: &ServerKey, id: &str, background: bool, tx: &mut Tx) {
-        crate::servers::runtime::with_server(self, server, |s| {
-            if background {
-                return s.open_in_background(id);
-            }
-            s.clear_home_search(false, tx);
-            s.open(id, tx);
-        });
     }
 
     fn archive_session(&mut self, server: &ServerKey, id: &str, tx: &mut Tx) {

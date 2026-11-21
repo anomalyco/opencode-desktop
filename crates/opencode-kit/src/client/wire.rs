@@ -53,12 +53,20 @@ pub enum Incoming {
     Active(Vec<String>),
     /// The server's project list (`/api/project`).
     Projects(Vec<model::Project>),
+    /// The folder the server was started in, its default location (the reply to
+    /// `Request::DefaultDirectory`).
+    DefaultDirectory(String),
     /// A folder resolved and registered as a project (`Write::OpenProject`), with the updated
     /// project list and, when `start_session` was set, the new session opened in it.
     ProjectOpened { location: model::LocationInfo, projects: Vec<model::Project>, session: Option<SessionInfo> },
     /// A `Write::Tracked` write's outcome, under the ticket it was sent with: `Ok(Some(session))`
     /// for a fork (the session it made), `Ok(None)` for any other write, or the raw error.
     Settled { ticket: Ticket, result: Result<Option<SessionInfo>, WireError> },
+    /// Fail-open new-session start gate: emitted on the owning `Server`'s write thread right after
+    /// `POST /api/session` succeeds and before `POST /prompt`. Dropping or sending on `release`
+    /// immediately wakes the worker (which also times out fail-open after `PROMPT_GATE_TIMEOUT_MS`).
+    #[cfg(not(target_arch = "wasm32"))]
+    PromptGate { session: String, directory: String, release: std::sync::mpsc::Sender<()> },
 }
 
 /// Which machine asked for a tracked write, for which session, at which attempt: the write's
@@ -88,6 +96,9 @@ pub enum Request {
     Sessions,
     /// The server's project list (`/api/project`).
     Projects,
+    /// The server's default location (`GET /api/location` with no directory), replied as
+    /// `Incoming::DefaultDirectory`; a failed read stays quiet.
+    DefaultDirectory,
     /// One session's info (`time.idle`/`time.viewed` after it finishes or someone views it).
     Info(String),
     /// [`Request::Info`] for a session named in a message, which may not exist: replied as

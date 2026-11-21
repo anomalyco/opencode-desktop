@@ -7,7 +7,9 @@
 # folder is signed between a -StageOnly run and an -ArchiveOnly run (notes for the release
 # workflow: the browser-pane README).
 #
-#   pwsh apps/browser-engine/scripts/package-windows.ps1 [-Arch x64|arm64] [-Out <dir>] [-Cargo <cargo or wrapper.ps1>]
+#   pwsh apps/browser-engine/scripts/package-windows.ps1 [-Arch x64|arm64] [-Out <dir>] [-TargetDir <dir>] [-Cargo <cargo or wrapper.ps1>]
+#   ... -TargetDir <dir>            cargo's target directory and CEF's unpack folder (default:
+#                                   CARGO_TARGET_DIR, else C:\t on GitHub Actions, else apps\browser-engine\target)
 #   ... -StageOnly                  stops after the folder (<out>\stage-<arch>), for signing its programs
 #   ... -ArchiveOnly <stage folder>  archives a (signed) stage and adds it to <out>\index.json
 #   bun apps/browser-engine/scripts/serve.ts [<out>]   # serves it where a development build looks
@@ -18,6 +20,7 @@
 param(
   [ValidateSet('x64', 'arm64')][string]$Arch = 'x64',
   [string]$Out,
+  [string]$TargetDir,
   [string]$Cargo = 'cargo',
   # Package what cargo last built (a build run elsewhere, or a repackage).
   [switch]$SkipBuild,
@@ -28,7 +31,16 @@ param(
 $ErrorActionPreference = 'Stop'
 $Engine = Split-Path -Parent $PSScriptRoot
 $Repo = Split-Path -Parent (Split-Path -Parent $Engine)
-if (-not $Out) { $Out = Join-Path $Engine 'target\package' }
+# CEF's wrapper is compiled by MSVC under cargo's target directory, and its deepest object
+# (`<target>\<triple>\release\build\cef-dll-sys-<hash>\out\build\libcef_dll_wrapper\CMakeFiles\
+# libcef_dll_wrapper.dir\cpptoc\test\api_version_test_ref_ptr_client_child_v2_cpptoc.cc.obj`) passes
+# MAX_PATH (260) under a CI checkout (C1083 "Cannot open compiler generated file"), so CI builds at
+# the drive root.
+if (-not $TargetDir) {
+  $TargetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } elseif ($env:GITHUB_ACTIONS -eq 'true') { 'C:\t' } else { Join-Path $Engine 'target' }
+}
+$TargetDir = [IO.Path]::GetFullPath($TargetDir)
+if (-not $Out) { $Out = Join-Path $TargetDir 'package' }
 
 $CefVersion = '156.0.26+g8ea0c73+chromium-156.0.8078.88'
 $Targets = @{
@@ -50,7 +62,7 @@ if ($lock -notmatch "name = `"cef-dll-sys`"\r?\nversion = `"[^`"]+\+$([regex]::E
 
 if (-not $ArchiveOnly) {
 # 1. CEF, laid out as cef-dll-sys expects it under CEF_PATH (<build>\<dir>, with archive.json).
-$env:CEF_PATH = Join-Path $Engine 'target\cef'
+$env:CEF_PATH = Join-Path $TargetDir 'cef'
 $cefDir = Join-Path $env:CEF_PATH "$CefBuild\$($T.Dir)"
 $archiveName = "cef_binary_${CefVersion}_$($T.Platform)_minimal.tar.bz2"
 if (-not (Test-Path (Join-Path $cefDir 'archive.json'))) {
@@ -82,7 +94,7 @@ if (-not (Test-Path (Join-Path $cefDir 'archive.json'))) {
 # 2. The engine.
 if (-not $SkipBuild) {
   Write-Host "Building opencode-browser-engine $Version ($($T.Triple))"
-  $cargoArgs = @('build', '--release', '--locked', '--manifest-path', (Join-Path $Engine 'Cargo.toml'), '--bins', '--target', $T.Triple)
+  $cargoArgs = @('build', '--release', '--locked', '--manifest-path', (Join-Path $Engine 'Cargo.toml'), '--bins', '--target', $T.Triple, '--target-dir', $TargetDir)
   # The C runtime linked in, as the app's, so the engine's executables need no Visual C++
   # Redistributable. RUSTFLAGS replaces the repository's .cargo/config.toml flags, whose
   # profile-guided ones are the app's.
@@ -91,7 +103,7 @@ if (-not $SkipBuild) {
   try { if ($Cargo -like '*.ps1') { & pwsh -NoProfile $Cargo @cargoArgs } else { & $Cargo @cargoArgs } } finally { $env:RUSTFLAGS = $rustflags }
   if ($LASTEXITCODE -ne 0) { throw 'cargo build failed' }
 }
-$bin = Join-Path $Engine "target\$($T.Triple)\release"
+$bin = Join-Path $TargetDir "$($T.Triple)\release"
 
 # 3. The folder: what a side-panel browser loads, biggest first so the app can check it while the
 #    rest arrives. Left out of CEF's distribution: its static-link sandbox launchers

@@ -195,6 +195,41 @@ pub enum HostMsg {
     },
     /// Closes all connections and drops a non-default preview or remote server context.
     DropContext { context: ContextKind },
+    /// Lists all cookies in the default profile (or a `RemoteServer` partition), excluding probe.
+    ProfileCookiesList {
+        request_id: u64,
+        #[serde(default)]
+        partition: Option<String>,
+    },
+    /// Imports/writes cookies into the default profile (or a `RemoteServer` partition) and flushes.
+    ProfileCookiesSet {
+        request_id: u64,
+        #[serde(default)]
+        partition: Option<String>,
+        cookies: Vec<WireCookie>,
+    },
+    /// Deletes a single cookie by URL and name and flushes the store.
+    ProfileCookieDelete {
+        request_id: u64,
+        #[serde(default)]
+        partition: Option<String>,
+        url: String,
+        name: String,
+    },
+    /// Writes a short-lived probe cookie and flushes so the host can verify disk persistence.
+    ProfileProbeCookies { request_id: u64 },
+    /// "Sign out everywhere": deletes all cookies, HTTP auth credentials, cert exceptions, and
+    /// site storage/caches across the default profile and every active remote server partition.
+    ClearProfileData { request_id: u64 },
+    /// Toggles two-way cookie mirroring between the default profile and remote server partitions.
+    SetShareSignIns { enabled: bool },
+    /// Explicitly reconciles a remote server partition's cookies with the default profile.
+    SyncRemoteCookies {
+        request_id: u64,
+        partition: String,
+        #[serde(default)]
+        from_remote: bool,
+    },
     /// Linux: the app's GPU has finished reading `frame_id` (and every frame before it) of
     /// buffer set `pool`; a read of a set the tab no longer has frees nothing.
     FrameRead { tab_id: u64, pool: u64, frame_id: u64 },
@@ -288,7 +323,14 @@ pub enum EngineMsg {
         preview_credit: bool,
         #[serde(default)]
         extensions: bool,
+        /// The engine exposes `CefCookieManager` list/import/delete/probe/clear & two-way remote cookie mirroring.
+        #[serde(default)]
+        cookies: bool,
     },
+    ProfileCookies { request_id: u64, cookies: Vec<WireCookie> },
+    ProfileCookiesImported { request_id: u64, imported: u32, failed: u32 },
+    ProfileProbeReady { request_id: u64, written: bool, cache_dir: String },
+    ProfileActionDone { request_id: u64, ok: bool },
     /// Requests bytes for a remote workspace or artifact preview from the app host (server
     /// credentials never enter the engine process).
     PreviewFetch {
@@ -303,6 +345,14 @@ pub enum EngineMsg {
     /// A preview page attempted to load a file outside its grant or a secret/hidden path.
     PreviewDenied { tab_id: u64 },
     Refused { tab_id: u64, reason: String },
+    /// A controlled (`agent_driven`) `Default`-profile tab was refused because its origin holds an
+    /// inherited grant (`clipboard-read`, `geolocation`, or `notifications`). Carries the refused
+    /// URL so the host can show the notice bar and offer "Open in new tab" without altering `t.url`.
+    ControlledPermissionRefused {
+        tab_id: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        url: Option<String>,
+    },
     Dialog { tab_id: u64, dialog: PageDialog },
     DialogsReset { tab_id: u64 },
     PermissionRequest { tab_id: u64, request: PermissionPrompt },
@@ -604,4 +654,37 @@ pub enum ContextMenuCommand {
     SaveImage { url: String },
     ReplaceMisspelling { word: String },
     AddToDictionary { word: String },
+}
+
+fn default_cookie_path() -> String {
+    "/".to_owned()
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CookieSameSite {
+    #[default]
+    Unspecified,
+    NoRestriction,
+    Lax,
+    Strict,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WireCookie {
+    /// Leading dot for domain cookies (`.github.com`), bare host for host-only (`github.com`).
+    pub host: String,
+    pub name: String,
+    pub value: String,
+    #[serde(default = "default_cookie_path")]
+    pub path: String,
+    #[serde(default)]
+    pub secure: bool,
+    #[serde(default)]
+    pub http_only: bool,
+    /// Unix timestamp in seconds; `None` for session cookies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires: Option<f64>,
+    #[serde(default)]
+    pub same_site: CookieSameSite,
 }

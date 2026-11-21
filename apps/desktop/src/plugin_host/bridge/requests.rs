@@ -195,10 +195,15 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
                 let trimmed = url.trim();
                 let is_http = trimmed.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("http://"))
                     || trimmed.get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://"));
-                if is_http && !app.external_url_allowed_for_session(app.active_session_id(), trimmed) {
+                if !browser_policy::is_safe_os_external_url(trimmed) {
+                    if browser_policy::classify_app_link(trimmed, browser_policy::AppSchemeSource::Conversation).is_some() {
+                        tx.copy(trimmed.to_owned());
+                        app.toast_say(opencode_i18n::t!("common.copied").to_owned(), String::new());
+                    }
+                } else if is_http && !app.external_url_allowed_for_session(app.active_session_id(), trimmed) {
                     app.toast_fail(opencode_i18n::t!("rune.browser.menu.pageUnavailable").to_owned(), String::new());
                 } else {
-                    crate::open_in::open_external(tx, &url);
+                    crate::open_in::open_external(tx, trimmed);
                 }
             }
         }

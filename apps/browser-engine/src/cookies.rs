@@ -1,0 +1,933 @@
+//! Profile cookie store management (`CefCookieManager`), persistence probe, "Sign out everywhere",
+//! and loop-free two-way remote cookie mirroring (`link-machine.ts` parity).
+//!
+//! - Uses Chromium's real OS-backed encrypted cookie store (DPAPI on Windows, Keychain on macOS,
+//!   Secret Service / KWallet on Linux — `--use-mock-keychain` is removed).
+//! - Excludes the short-lived internal probe cookie (`cookie-check.opencode.invalid`) from all
+//!   user-visible listings and remote mirrors.
+//! - Keeps remote server partitions unlinked by default (`share_sign_ins = false`). When enabled,
+//!   reconciles `Default` <-> each `RemoteServer` partition using `reconcile_cookie` (`link-machine.ts`),
+//!   never mirroring `IsolatedPreview` contexts. Turning sharing off clears remote partition cookies.
+
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use cef::rc::Rc;
+use cef::{
+    Basetime, CefString, CompletionCallback, Cookie, CookieManager, CookiePriority, CookieSameSite,
+    CookieVisitor, DeleteCookiesCallback, ImplCompletionCallback, ImplCookieManager,
+    ImplCookieVisitor, ImplDeleteCookiesCallback, ImplRequestContext, ImplSetCookieCallback,
+    RequestContext, SetCookieCallback, WrapCompletionCallback, WrapCookieVisitor,
+    WrapDeleteCookiesCallback, WrapSetCookieCallback, wrap_completion_callback,
+    wrap_cookie_visitor, wrap_delete_cookies_callback, wrap_set_cookie_callback,
+};
+
+use crate::context::ContextPool;
+use crate::output::Output;
+use crate::wire::{CookieSameSite as WireSameSite, EngineMsg, WireCookie};
+
+pub const PROBE_COOKIE_HOST: &str = "cookie-check.opencode.invalid";
+pub const PROBE_COOKIE_NAME: &str = "opencode_cookie_check";
+
+/// Seconds between 1601-01-01 (Chromium's `base::Time` epoch) and 1970-01-01 (Unix epoch).
+const WINDOWS_EPOCH_OFFSET_SECS: f64 = 11_644_473_600.0;
+const MIRROR_POLL_INTERVAL: Duration = Duration::from_millis(1500);
+const MAX_IMPORT_COOKIES: usize = 50_000;
+const MAX_COOKIE_HOST: usize = 255;
+const MAX_COOKIE_NAME: usize = 4096;
+const MAX_COOKIE_VALUE: usize = 8192;
+const MAX_COOKIE_PATH: usize = 4096;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkSide {
+    Profile,
+    Other,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct CookieKey {
+    host: String,
+    path: String,
+    name: String,
+}
+
+impl CookieKey {
+    fn from_cookie(c: &WireCookie) -> Self {
+        Self {
+            host: c.host.clone(),
+            path: c.path.clone(),
+            name: c.name.clone(),
+        }
+    }
+}
+
+fn is_probe_cookie(c: &WireCookie) -> bool {
+    c.host.trim_start_matches('.').eq_ignore_ascii_case(PROBE_COOKIE_HOST)
+        && c.name == PROBE_COOKIE_NAME
+}
+
+fn now_unix_secs() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_secs_f64())
+}
+
+pub fn cookie_url(cookie: &WireCookie) -> String {
+    let bare = cookie.host.trim_start_matches('.');
+    let bracketed = if bare.contains(':') && !bare.starts_with('[') {
+        format!("[{bare}]")
+    } else {
+        bare.to_owned()
+    };
+    let scheme = if cookie.secure { "https" } else { "http" };
+    let path = if cookie.path.starts_with('/') {
+        cookie.path.as_str()
+    } else {
+        "/"
+    };
+    format!("{scheme}://{bracketed}{path}")
+}
+
+fn to_cef_cookie(cookie: &WireCookie, now_secs: f64) -> Option<(String, Cookie)> {
+    let bare = cookie.host.trim_start_matches('.');
+    if bare.is_empty()
+        || bare.len() > MAX_COOKIE_HOST
+        || cookie.name.len() > MAX_COOKIE_NAME
+        || cookie.value.len() > MAX_COOKIE_VALUE
+        || cookie.path.len() > MAX_COOKIE_PATH
+        || (cookie.name.is_empty() && cookie.value.is_empty())
+    {
+        return None;
+    }
+    if bare.chars().any(|c| matches!(c, '\0' | '\r' | '\n' | '/' | '\\') || c.is_whitespace())
+        || cookie.name.chars().any(|c| matches!(c, '\0' | '\r' | '\n'))
+        || cookie.path.chars().any(|c| matches!(c, '\0' | '\r' | '\n'))
+    {
+        return None;
+    }
+    if let Some(exp) = cookie.expires
+        && (!exp.is_finite() || exp <= now_secs)
+    {
+        return None;
+    }
+    let path = if cookie.path.starts_with('/') {
+        cookie.path.as_str()
+    } else {
+        "/"
+    };
+    // Host-only cookies omit `domain` so Chromium binds them to the URL's host; `__Host-` cookies
+    // must remain host-only per RFC 6265bis (`cookie.ts:58`).
+    let domain = if cookie.host.starts_with('.') && !cookie.name.starts_with("__Host-") {
+        CefString::from(cookie.host.as_str())
+    } else {
+        CefString::default()
+    };
+    let (has_expires, expires) = match cookie.expires {
+        Some(sec) => {
+            let micros = ((sec + WINDOWS_EPOCH_OFFSET_SECS) * 1_000_000.0).round() as i64;
+            (1, Basetime { val: micros })
+        }
+        None => (0, Basetime { val: 0 }),
+    };
+    let same_site = match cookie.same_site {
+        WireSameSite::Unspecified => CookieSameSite::UNSPECIFIED,
+        WireSameSite::NoRestriction => CookieSameSite::NO_RESTRICTION,
+        WireSameSite::Lax => CookieSameSite::LAX_MODE,
+        WireSameSite::Strict => CookieSameSite::STRICT_MODE,
+    };
+    let cef_cookie = Cookie {
+        size: std::mem::size_of::<cef::sys::_cef_cookie_t>(),
+        name: CefString::from(cookie.name.as_str()),
+        value: CefString::from(cookie.value.as_str()),
+        domain,
+        path: CefString::from(path),
+        secure: i32::from(cookie.secure),
+        httponly: i32::from(cookie.http_only),
+        creation: Basetime { val: 0 },
+        last_access: Basetime { val: 0 },
+        has_expires,
+        expires,
+        same_site,
+        priority: CookiePriority::MEDIUM,
+    };
+    Some((cookie_url(cookie), cef_cookie))
+}
+
+fn from_cef_cookie(c: &Cookie) -> WireCookie {
+    let expires = if c.has_expires != 0 && c.expires.val > 0 {
+        Some((c.expires.val as f64) / 1_000_000.0 - WINDOWS_EPOCH_OFFSET_SECS)
+    } else {
+        None
+    };
+    let same_site = if c.same_site == CookieSameSite::NO_RESTRICTION {
+        WireSameSite::NoRestriction
+    } else if c.same_site == CookieSameSite::LAX_MODE {
+        WireSameSite::Lax
+    } else if c.same_site == CookieSameSite::STRICT_MODE {
+        WireSameSite::Strict
+    } else {
+        WireSameSite::Unspecified
+    };
+    let path = c.path.to_string();
+    WireCookie {
+        host: c.domain.to_string(),
+        name: c.name.to_string(),
+        value: c.value.to_string(),
+        path: if path.is_empty() { "/".to_owned() } else { path },
+        secure: c.secure != 0,
+        http_only: c.httponly != 0,
+        expires,
+        same_site,
+    }
+}
+
+fn same_cookie(a: Option<&WireCookie>, b: Option<&WireCookie>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => {
+            a.value == b.value
+                && a.secure == b.secure
+                && a.http_only == b.http_only
+                && a.same_site == b.same_site
+                && a.expires.map(|x| x.round() as i64) == b.expires.map(|x| x.round() as i64)
+        }
+        _ => false,
+    }
+}
+
+struct CookieStep {
+    base: Option<WireCookie>,
+    write: Option<(LinkSide, Option<WireCookie>)>,
+}
+
+/// Exact port of upstream `link-machine.ts::reconcileCookie`.
+fn reconcile_cookie(
+    base: Option<&WireCookie>,
+    profile: Option<&WireCookie>,
+    other: Option<&WireCookie>,
+    changed: LinkSide,
+) -> CookieStep {
+    if same_cookie(profile, other) {
+        return CookieStep {
+            base: profile.cloned(),
+            write: None,
+        };
+    }
+    let profile_moved = !same_cookie(profile, base);
+    let other_moved = !same_cookie(other, base);
+    let from = if profile_moved && other_moved {
+        changed
+    } else if profile_moved {
+        LinkSide::Profile
+    } else {
+        LinkSide::Other
+    };
+    let cookie = match from {
+        LinkSide::Profile => profile.cloned(),
+        LinkSide::Other => other.cloned(),
+    };
+    let to = match from {
+        LinkSide::Profile => LinkSide::Other,
+        LinkSide::Other => LinkSide::Profile,
+    };
+    CookieStep {
+        base: cookie.clone(),
+        write: Some((to, cookie)),
+    }
+}
+
+// --- Zero-cookie-safe CEF visitor & completion callbacks ---
+
+struct VisitDone {
+    cookies: Mutex<Vec<WireCookie>>,
+    include_probe: bool,
+    on_done: Mutex<Option<Box<dyn FnOnce(Vec<WireCookie>) + Send>>>,
+}
+
+impl Drop for VisitDone {
+    fn drop(&mut self) {
+        if let Some(cb) = self.on_done.lock().unwrap().take() {
+            let cookies = std::mem::take(&mut *self.cookies.lock().unwrap());
+            cb(cookies);
+        }
+    }
+}
+
+wrap_cookie_visitor! {
+    struct CollectCookiesVisitor {
+        state: Arc<VisitDone>,
+    }
+
+    impl CookieVisitor {
+        fn visit(
+            &self,
+            cookie: Option<&Cookie>,
+            _count: std::os::raw::c_int,
+            _total: std::os::raw::c_int,
+            _delete_cookie: Option<&mut std::os::raw::c_int>,
+        ) -> std::os::raw::c_int {
+            if let Some(c) = cookie {
+                let wire = from_cef_cookie(c);
+                if self.state.include_probe || !is_probe_cookie(&wire) {
+                    self.state.cookies.lock().unwrap().push(wire);
+                }
+            }
+            1
+        }
+    }
+}
+
+fn visit_all<F>(mgr: &CookieManager, include_probe: bool, on_done: F)
+where
+    F: FnOnce(Vec<WireCookie>) + Send + 'static,
+{
+    let state = Arc::new(VisitDone {
+        cookies: Mutex::new(Vec::new()),
+        include_probe,
+        on_done: Mutex::new(Some(Box::new(on_done))),
+    });
+    let mut visitor = CollectCookiesVisitor::new(state);
+    if mgr.visit_all_cookies(Some(&mut visitor)) == 0 {
+        // `visitor` drops immediately and triggers `VisitDone::drop` with an empty list.
+    }
+}
+
+struct CompletionOnce {
+    cb: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+}
+
+impl Drop for CompletionOnce {
+    fn drop(&mut self) {
+        if let Some(cb) = self.cb.lock().unwrap().take() {
+            cb();
+        }
+    }
+}
+
+wrap_completion_callback! {
+    struct OnceCompletion {
+        inner: Arc<CompletionOnce>,
+    }
+
+    impl CompletionCallback {
+        fn on_complete(&self) {
+            if let Some(cb) = self.inner.cb.lock().unwrap().take() {
+                cb();
+            }
+        }
+    }
+}
+
+fn completion_cb<F: FnOnce() + Send + 'static>(cb: F) -> CompletionCallback {
+    OnceCompletion::new(Arc::new(CompletionOnce {
+        cb: Mutex::new(Some(Box::new(cb))),
+    }))
+}
+
+struct SetOnce {
+    cb: Mutex<Option<Box<dyn FnOnce(bool) + Send>>>,
+}
+
+impl Drop for SetOnce {
+    fn drop(&mut self) {
+        if let Some(cb) = self.cb.lock().unwrap().take() {
+            cb(false);
+        }
+    }
+}
+
+wrap_set_cookie_callback! {
+    struct OnceSetCookie {
+        inner: Arc<SetOnce>,
+    }
+
+    impl SetCookieCallback {
+        fn on_complete(&self, success: std::os::raw::c_int) {
+            if let Some(cb) = self.inner.cb.lock().unwrap().take() {
+                cb(success != 0);
+            }
+        }
+    }
+}
+
+fn set_cookie_cb<F: FnOnce(bool) + Send + 'static>(cb: F) -> SetCookieCallback {
+    OnceSetCookie::new(Arc::new(SetOnce {
+        cb: Mutex::new(Some(Box::new(cb))),
+    }))
+}
+
+struct DeleteOnce {
+    cb: Mutex<Option<Box<dyn FnOnce(i32) + Send>>>,
+}
+
+impl Drop for DeleteOnce {
+    fn drop(&mut self) {
+        if let Some(cb) = self.cb.lock().unwrap().take() {
+            cb(-1);
+        }
+    }
+}
+
+wrap_delete_cookies_callback! {
+    struct OnceDeleteCookies {
+        inner: Arc<DeleteOnce>,
+    }
+
+    impl DeleteCookiesCallback {
+        fn on_complete(&self, num_deleted: std::os::raw::c_int) {
+            if let Some(cb) = self.inner.cb.lock().unwrap().take() {
+                cb(num_deleted);
+            }
+        }
+    }
+}
+
+fn delete_cookies_cb<F: FnOnce(i32) + Send + 'static>(cb: F) -> DeleteCookiesCallback {
+    OnceDeleteCookies::new(Arc::new(DeleteOnce {
+        cb: Mutex::new(Some(Box::new(cb))),
+    }))
+}
+
+// --- Controller & Mirror ---
+
+struct MirrorPartition {
+    base: Arc<Mutex<HashMap<CookieKey, WireCookie>>>,
+    in_flight: Arc<AtomicBool>,
+    pending_side: Arc<Mutex<Option<LinkSide>>>,
+}
+
+impl MirrorPartition {
+    fn new() -> Self {
+        Self {
+            base: Arc::new(Mutex::new(HashMap::new())),
+            in_flight: Arc::new(AtomicBool::new(false)),
+            pending_side: Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
+pub struct CookieController {
+    share_sign_ins: bool,
+    mirrors: HashMap<String, MirrorPartition>,
+    dirty_all_profile: Arc<AtomicBool>,
+    last_periodic: Instant,
+    pump: Sender<crate::Event>,
+}
+
+impl CookieController {
+    pub fn new(pump: Sender<crate::Event>) -> Self {
+        Self {
+            share_sign_ins: false,
+            mirrors: HashMap::new(),
+            dirty_all_profile: Arc::new(AtomicBool::new(false)),
+            last_periodic: Instant::now(),
+            pump,
+        }
+    }
+
+    pub fn share_sign_ins(&self) -> bool {
+        self.share_sign_ins
+    }
+
+    fn resolve_manager(contexts: &ContextPool, partition: Option<&str>) -> Option<CookieManager> {
+        match partition {
+            None => cef::cookie_manager_get_global_manager(None),
+            Some(p) => contexts.remote_context(p).and_then(|ctx| ctx.cookie_manager(None)),
+        }
+    }
+
+    pub fn list(
+        &self,
+        contexts: &ContextPool,
+        partition: Option<&str>,
+        request_id: u64,
+        out_tx: Output,
+    ) {
+        let Some(mgr) = Self::resolve_manager(contexts, partition) else {
+            let _ = out_tx.send(EngineMsg::ProfileCookies {
+                request_id,
+                cookies: Vec::new(),
+            });
+            return;
+        };
+        visit_all(&mgr, false, move |cookies| {
+            let _ = out_tx.send(EngineMsg::ProfileCookies { request_id, cookies });
+        });
+    }
+
+    pub fn set_batch(
+        &self,
+        contexts: &ContextPool,
+        partition: Option<&str>,
+        cookies: Vec<WireCookie>,
+        request_id: u64,
+        out_tx: Output,
+    ) {
+        let Some(mgr) = Self::resolve_manager(contexts, partition) else {
+            let _ = out_tx.send(EngineMsg::ProfileCookiesImported {
+                request_id,
+                imported: 0,
+                failed: cookies.len() as u32,
+            });
+            return;
+        };
+        let now = now_unix_secs();
+        let overflow = cookies.len().saturating_sub(MAX_IMPORT_COOKIES) as u32;
+        let mut prepared = Vec::with_capacity(cookies.len().min(MAX_IMPORT_COOKIES));
+        let mut pre_failed = overflow;
+        for c in cookies.iter().take(MAX_IMPORT_COOKIES) {
+            if is_probe_cookie(c) {
+                continue;
+            }
+            if let Some(pair) = to_cef_cookie(c, now) {
+                prepared.push(pair);
+            } else {
+                pre_failed = pre_failed.saturating_add(1);
+            }
+        }
+        if prepared.is_empty() {
+            let _ = out_tx.send(EngineMsg::ProfileCookiesImported {
+                request_id,
+                imported: 0,
+                failed: pre_failed,
+            });
+            return;
+        }
+        let remaining = Arc::new(AtomicUsize::new(prepared.len()));
+        let imported = Arc::new(AtomicU32::new(0));
+        let failed = Arc::new(AtomicU32::new(pre_failed));
+        let mark_mirror = partition.is_none() && self.share_sign_ins;
+        let dirty_flag = self.dirty_all_profile.clone();
+        let pump = self.pump.clone();
+
+        for (url, cef_cookie) in prepared {
+            let rem = remaining.clone();
+            let imp = imported.clone();
+            let fail = failed.clone();
+            let mgr_done = mgr.clone();
+            let out_done = out_tx.clone();
+            let dirty_done = dirty_flag.clone();
+            let pump_done = pump.clone();
+            let mut cb = set_cookie_cb(move |ok| {
+                if ok {
+                    imp.fetch_add(1, Ordering::Relaxed);
+                } else {
+                    fail.fetch_add(1, Ordering::Relaxed);
+                }
+                if rem.fetch_sub(1, Ordering::AcqRel) == 1 {
+                    let imp_total = imp.load(Ordering::Relaxed);
+                    let fail_total = fail.load(Ordering::Relaxed);
+                    let mut flush = completion_cb(move || {
+                        if mark_mirror {
+                            dirty_done.store(true, Ordering::Release);
+                            let _ = pump_done.send(crate::Event::Pump(0));
+                        }
+                        let _ = out_done.send(EngineMsg::ProfileCookiesImported {
+                            request_id,
+                            imported: imp_total,
+                            failed: fail_total,
+                        });
+                    });
+                    if mgr_done.flush_store(Some(&mut flush)) == 0 {
+                        // Drop of `flush` fires `CompletionOnce::drop`.
+                    }
+                }
+            });
+            let url_cef = CefString::from(url.as_str());
+            if mgr.set_cookie(Some(&url_cef), Some(&cef_cookie), Some(&mut cb)) == 0 {
+                // Drop of `cb` triggers `SetOnce::drop` (`ok = false`).
+            }
+        }
+    }
+
+    pub fn delete_one(
+        &self,
+        contexts: &ContextPool,
+        partition: Option<&str>,
+        url: &str,
+        name: &str,
+        request_id: u64,
+        out_tx: Output,
+    ) {
+        let lower = url.trim().to_ascii_lowercase();
+        if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+            let _ = out_tx.send(EngineMsg::ProfileActionDone { request_id, ok: false });
+            return;
+        }
+        let Some(mgr) = Self::resolve_manager(contexts, partition) else {
+            let _ = out_tx.send(EngineMsg::ProfileActionDone { request_id, ok: false });
+            return;
+        };
+        let mark_mirror = partition.is_none() && self.share_sign_ins;
+        let dirty_flag = self.dirty_all_profile.clone();
+        let pump = self.pump.clone();
+        let mgr_done = mgr.clone();
+        let mut del_cb = delete_cookies_cb(move |deleted| {
+            let ok = deleted >= 0;
+            let mut flush = completion_cb(move || {
+                if mark_mirror {
+                    dirty_flag.store(true, Ordering::Release);
+                    let _ = pump.send(crate::Event::Pump(0));
+                }
+                let _ = out_tx.send(EngineMsg::ProfileActionDone { request_id, ok });
+            });
+            let _ = mgr_done.flush_store(Some(&mut flush));
+        });
+        let url_cef = CefString::from(url);
+        let name_cef = CefString::from(name);
+        let _ = mgr.delete_cookies(Some(&url_cef), Some(&name_cef), Some(&mut del_cb));
+    }
+
+    /// Writes the short-lived persistence probe cookie (`cookie-check.opencode.invalid`) and
+    /// flushes the default cookie store so the host can inspect disk persistence (`probe.ts`).
+    pub fn probe_persistence(&self, cache_dir: &str, request_id: u64, out_tx: Output) {
+        let Some(mgr) = cef::cookie_manager_get_global_manager(None) else {
+            let _ = out_tx.send(EngineMsg::ProfileProbeReady {
+                request_id,
+                written: false,
+                cache_dir: cache_dir.to_owned(),
+            });
+            return;
+        };
+        let probe = WireCookie {
+            host: PROBE_COOKIE_HOST.to_owned(),
+            name: PROBE_COOKIE_NAME.to_owned(),
+            value: "1".to_owned(),
+            path: "/".to_owned(),
+            secure: true,
+            http_only: false,
+            expires: Some(now_unix_secs() + 600.0),
+            same_site: WireSameSite::Lax,
+        };
+        let Some((url, cef_cookie)) = to_cef_cookie(&probe, now_unix_secs()) else {
+            let _ = out_tx.send(EngineMsg::ProfileProbeReady {
+                request_id,
+                written: false,
+                cache_dir: cache_dir.to_owned(),
+            });
+            return;
+        };
+        let cache = cache_dir.to_owned();
+        let mgr_done = mgr.clone();
+        let mut cb = set_cookie_cb(move |ok| {
+            if !ok {
+                let _ = out_tx.send(EngineMsg::ProfileProbeReady {
+                    request_id,
+                    written: false,
+                    cache_dir: cache,
+                });
+                return;
+            }
+            let mut flush = completion_cb(move || {
+                let _ = out_tx.send(EngineMsg::ProfileProbeReady {
+                    request_id,
+                    written: true,
+                    cache_dir: cache,
+                });
+            });
+            let _ = mgr_done.flush_store(Some(&mut flush));
+        });
+        let url_cef = CefString::from(url.as_str());
+        let _ = mgr.set_cookie(Some(&url_cef), Some(&cef_cookie), Some(&mut cb));
+    }
+
+    /// "Sign out everywhere": deletes all cookies, HTTP auth credentials, and cert exceptions on
+    /// both the default profile and every active remote server partition (`profile/index.ts:509-524`).
+    /// Note: open tabs also receive CDP `Storage.clearDataForOrigin` + `Network.clearBrowserCache`
+    /// from `EngineManager` right beside this call.
+    pub fn clear_all(
+        &mut self,
+        contexts: &ContextPool,
+        request_id: u64,
+        out_tx: Output,
+    ) {
+        // Clear all mirror bases so nothing re-propagates stale cookies.
+        for entry in self.mirrors.values() {
+            entry.base.lock().unwrap().clear();
+            *entry.pending_side.lock().unwrap() = None;
+        }
+        // Clear remote partitions first (fire-and-forget flush + auth clear).
+        for (_partition, ctx) in contexts.remote_partitions() {
+            let mut auth_cb = completion_cb(|| {});
+            ctx.clear_http_auth_credentials(Some(&mut auth_cb));
+            if let Some(mgr) = ctx.cookie_manager(None) {
+                let mgr_f = mgr.clone();
+                let mut del_cb = delete_cookies_cb(move |_| {
+                    let _ = mgr_f.flush_store(None);
+                });
+                let _ = mgr.delete_cookies(None, None, Some(&mut del_cb));
+            }
+        }
+        // Clear global default profile HTTP auth cache & cookies + flush.
+        if let Some(global_ctx) = cef::request_context_get_global_context() {
+            let mut auth_cb = completion_cb(|| {});
+            global_ctx.clear_http_auth_credentials(Some(&mut auth_cb));
+        }
+        let Some(mgr) = cef::cookie_manager_get_global_manager(None) else {
+            let _ = out_tx.send(EngineMsg::ProfileActionDone { request_id, ok: false });
+            return;
+        };
+        let mgr_done = mgr.clone();
+        let mut del_cb = delete_cookies_cb(move |deleted| {
+            let ok = deleted >= 0;
+            let mut flush = completion_cb(move || {
+                let _ = out_tx.send(EngineMsg::ProfileActionDone { request_id, ok });
+            });
+            let _ = mgr_done.flush_store(Some(&mut flush));
+        });
+        let _ = mgr.delete_cookies(None, None, Some(&mut del_cb));
+    }
+
+    /// Toggles two-way cookie sharing with remote server partitions (`profile/index.ts:643-647`).
+    /// Turning sharing off stops mirroring AND removes shared cookies from every remote partition.
+    pub fn set_share_sign_ins(&mut self, enabled: bool, contexts: &ContextPool) {
+        if self.share_sign_ins == enabled {
+            return;
+        }
+        self.share_sign_ins = enabled;
+        if enabled {
+            for (partition, ctx) in contexts.remote_partitions() {
+                self.reconcile_partition(&partition, ctx, LinkSide::Profile, None);
+            }
+            return;
+        }
+        // Disabling: stop mirroring and wipe shared cookies from every remote partition.
+        self.mirrors.clear();
+        for (_partition, ctx) in contexts.remote_partitions() {
+            if let Some(mgr) = ctx.cookie_manager(None) {
+                let mgr_f = mgr.clone();
+                let mut del_cb = delete_cookies_cb(move |_| {
+                    let _ = mgr_f.flush_store(None);
+                });
+                let _ = mgr.delete_cookies(None, None, Some(&mut del_cb));
+            }
+        }
+    }
+
+    pub fn on_partition_dropped(&mut self, partition: &str) {
+        self.mirrors.remove(partition);
+    }
+
+    pub fn on_partition_dirty(&mut self, contexts: &ContextPool, partition: &str, side: LinkSide) {
+        if !self.share_sign_ins {
+            return;
+        }
+        if let Some(ctx) = contexts.remote_context(partition) {
+            self.reconcile_partition(partition, ctx, side, None);
+        }
+    }
+
+    pub fn on_profile_dirty(&mut self, contexts: &ContextPool) {
+        if !self.share_sign_ins {
+            return;
+        }
+        for (partition, ctx) in contexts.remote_partitions() {
+            self.reconcile_partition(&partition, ctx, LinkSide::Profile, None);
+        }
+    }
+
+    /// Explicit sync requested by host (or tests), firing `ProfileActionDone` once done.
+    pub fn sync_partition_now(
+        &mut self,
+        contexts: &ContextPool,
+        partition: &str,
+        changed: LinkSide,
+        request_id: u64,
+        out_tx: Output,
+    ) {
+        if !self.share_sign_ins {
+            let _ = out_tx.send(EngineMsg::ProfileActionDone { request_id, ok: false });
+            return;
+        }
+        let Some(ctx) = contexts.remote_context(partition) else {
+            let _ = out_tx.send(EngineMsg::ProfileActionDone { request_id, ok: false });
+            return;
+        };
+        self.reconcile_partition(partition, ctx, changed, Some((request_id, out_tx)));
+    }
+
+    /// Periodic & deferred-dirty mirror reconciliation driven by `EngineManager::poll_picks`.
+    pub fn poll(&mut self, contexts: &ContextPool) {
+        if !self.share_sign_ins {
+            self.dirty_all_profile.store(false, Ordering::Relaxed);
+            return;
+        }
+        if self.dirty_all_profile.swap(false, Ordering::AcqRel) {
+            self.on_profile_dirty(contexts);
+            return;
+        }
+        // Reconcile any partitions queued while a previous sync was in flight, or periodically
+        // every 1.5 s to pick up JS `document.cookie` / XHR cookie writes.
+        let periodic = self.last_periodic.elapsed() >= MIRROR_POLL_INTERVAL;
+        if periodic {
+            self.last_periodic = Instant::now();
+        }
+        for (partition, ctx) in contexts.remote_partitions() {
+            let pending = self
+                .mirrors
+                .get(&partition)
+                .and_then(|e| e.pending_side.lock().unwrap().take());
+            if let Some(side) = pending {
+                self.reconcile_partition(&partition, ctx, side, None);
+            } else if periodic {
+                self.reconcile_partition(&partition, ctx, LinkSide::Other, None);
+            }
+        }
+    }
+
+    fn reconcile_partition(
+        &mut self,
+        partition: &str,
+        remote_ctx: RequestContext,
+        changed: LinkSide,
+        notify: Option<(u64, Output)>,
+    ) {
+        let Some(profile_mgr) = cef::cookie_manager_get_global_manager(None) else {
+            if let Some((request_id, out_tx)) = notify {
+                let _ = out_tx.send(EngineMsg::ProfileActionDone { request_id, ok: false });
+            }
+            return;
+        };
+        let Some(remote_mgr) = remote_ctx.cookie_manager(None) else {
+            if let Some((request_id, out_tx)) = notify {
+                let _ = out_tx.send(EngineMsg::ProfileActionDone { request_id, ok: false });
+            }
+            return;
+        };
+        let entry = self
+            .mirrors
+            .entry(partition.to_owned())
+            .or_insert_with(MirrorPartition::new);
+        if entry
+            .in_flight
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            *entry.pending_side.lock().unwrap() = Some(changed);
+            if let Some((request_id, out_tx)) = notify {
+                let _ = out_tx.send(EngineMsg::ProfileActionDone { request_id, ok: true });
+            }
+            return;
+        }
+        let base_arc = entry.base.clone();
+        let in_flight = entry.in_flight.clone();
+        let pump = self.pump.clone();
+        let profile_mgr_w = profile_mgr.clone();
+        let remote_mgr_r = remote_mgr.clone();
+        let remote_mgr_w = remote_mgr.clone();
+
+        visit_all(&profile_mgr, false, move |profile_list| {
+            visit_all(&remote_mgr_r, false, move |remote_list| {
+                let mut profile_map = HashMap::with_capacity(profile_list.len());
+                for c in profile_list {
+                    profile_map.insert(CookieKey::from_cookie(&c), c);
+                }
+                let mut remote_map = HashMap::with_capacity(remote_list.len());
+                for c in remote_list {
+                    remote_map.insert(CookieKey::from_cookie(&c), c);
+                }
+                let mut base = base_arc.lock().unwrap();
+                let mut keys: HashSet<CookieKey> = HashSet::with_capacity(
+                    base.len() + profile_map.len() + remote_map.len(),
+                );
+                keys.extend(base.keys().cloned());
+                keys.extend(profile_map.keys().cloned());
+                keys.extend(remote_map.keys().cloned());
+
+                let mut ops: Vec<(LinkSide, CookieKey, Option<WireCookie>, bool)> = Vec::new();
+                for key in keys {
+                    let step = reconcile_cookie(
+                        base.get(&key),
+                        profile_map.get(&key),
+                        remote_map.get(&key),
+                        changed,
+                    );
+                    if let Some(b) = step.base {
+                        base.insert(key.clone(), b);
+                    } else {
+                        base.remove(&key);
+                    }
+                    if let Some((to, val)) = step.write {
+                        let target_secure = match to {
+                            LinkSide::Profile => profile_map.get(&key),
+                            LinkSide::Other => remote_map.get(&key),
+                        }
+                        .is_some_and(|c| c.secure);
+                        ops.push((to, key, val, target_secure));
+                    }
+                }
+                drop(base);
+
+                if ops.is_empty() {
+                    in_flight.store(false, Ordering::Release);
+                    if let Some((request_id, out_tx)) = notify {
+                        let _ = out_tx.send(EngineMsg::ProfileActionDone { request_id, ok: true });
+                    }
+                    return;
+                }
+
+                let now = now_unix_secs();
+                let rem = Arc::new(AtomicUsize::new(ops.len()));
+                let notify_arc = Arc::new(Mutex::new(notify));
+                for (to, key, maybe_cookie, target_secure) in ops {
+                    let target = match to {
+                        LinkSide::Profile => &profile_mgr_w,
+                        LinkSide::Other => &remote_mgr_w,
+                    };
+                    let rem_c = rem.clone();
+                    let in_flight_c = in_flight.clone();
+                    let notify_c = notify_arc.clone();
+                    let pump_c = pump.clone();
+                    let p_flush = profile_mgr_w.clone();
+                    let r_flush = remote_mgr_w.clone();
+                    let finish_one = move || {
+                        if rem_c.fetch_sub(1, Ordering::AcqRel) == 1 {
+                            let _ = p_flush.flush_store(None);
+                            let mut cb = completion_cb(move || {
+                                in_flight_c.store(false, Ordering::Release);
+                                let _ = pump_c.send(crate::Event::Pump(0));
+                                if let Some((request_id, out_tx)) = notify_c.lock().unwrap().take()
+                                {
+                                    let _ = out_tx.send(EngineMsg::ProfileActionDone {
+                                        request_id,
+                                        ok: true,
+                                    });
+                                }
+                            });
+                            let _ = r_flush.flush_store(Some(&mut cb));
+                        }
+                    };
+
+                    if let Some(cookie) = maybe_cookie {
+                        if let Some((url, cef_cookie)) = to_cef_cookie(&cookie, now) {
+                            let mut cb = set_cookie_cb(move |_| finish_one());
+                            let url_cef = CefString::from(url.as_str());
+                            let _ = target.set_cookie(Some(&url_cef), Some(&cef_cookie), Some(&mut cb));
+                        } else {
+                            finish_one();
+                        }
+                    } else {
+                        let dummy = WireCookie {
+                            host: key.host.clone(),
+                            name: key.name.clone(),
+                            value: String::new(),
+                            path: key.path.clone(),
+                            secure: target_secure,
+                            http_only: false,
+                            expires: None,
+                            same_site: WireSameSite::Unspecified,
+                        };
+                        let url_del = cookie_url(&dummy);
+                        let mut cb = delete_cookies_cb(move |_| finish_one());
+                        let url_cef = CefString::from(url_del.as_str());
+                        let name_cef = CefString::from(key.name.as_str());
+                        let _ = target.delete_cookies(Some(&url_cef), Some(&name_cef), Some(&mut cb));
+                    }
+                }
+            });
+        });
+    }
+}

@@ -157,11 +157,13 @@ impl AttachMachine {
         self.is_attached()
     }
 
-    /// True when the prompt gate has nothing left to wait for (already attached or will not attach).
+    /// True when the prompt gate has nothing left to wait for (already attached, in backoff, or
+    /// will not attach; matches official `packages/gui-plugins/src/browser/machine.ts:507-509`).
     pub fn prompt_gate_settled(&self) -> bool {
         matches!(
             self.state,
             AttachState::Attached { .. }
+                | AttachState::Backoff { .. }
                 | AttachState::Unavailable
                 | AttachState::Unsupported
                 | AttachState::Blocked { .. }

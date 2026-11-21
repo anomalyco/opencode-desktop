@@ -406,7 +406,8 @@ pub fn run(host: &mut dyn SessionMenuHost, t: &Target, id: &str, tx: &mut Tx) {
         return;
     }
     match id {
-        "open" | "open-background" => host.open_session(&t.server, &t.id, id == "open-background", tx),
+        "open" => host.open_session(&t.server, &t.id, tx),
+        "open-background" => host.open_session_in_background(&t.server, &t.id),
         "pin-toggle" => host.toggle_session_pin(&t.server, &t.id),
         "mute-toggle" => preferences::update(host, preferences::Kind::Muted, &t.server, &t.id, !preferences::muted(&t.server, &t.id)),
         "rename" => begin_rename(host, t),

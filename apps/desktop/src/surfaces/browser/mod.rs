@@ -278,10 +278,12 @@ mod native {
                 .unwrap_or(true)
         }
 
-        /// No engine drives live tabs in this build: they show the unsupported card and have no address
-        /// bar to focus. Mock tabs (headless, tests, stories) still work.
+        /// No engine can drive live tabs in this build (`Unsupported` or `Fault::NotPublished`).
         pub(crate) fn browser_unsupported(&self) -> bool {
-            !self.use_mock_browser() && self.workspace_panes.browser.host.status() == EngineStatus::Unsupported
+            !self.use_mock_browser() && matches!(
+                self.workspace_panes.browser.host.status(),
+                EngineStatus::Unsupported | EngineStatus::Failed(browser_pane::Failure { fault: browser_pane::Fault::NotPublished, .. })
+            )
         }
 
         pub(crate) fn use_mock_browser(&self) -> bool {
