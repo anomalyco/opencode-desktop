@@ -177,15 +177,16 @@ pub(super) fn is_api_allowed(manifest: &ExtensionManifest, name: &str) -> bool {
         | "downloads.setShelfEnabled" => Some("downloads"),
         "management.getSelf"
         | "management.getAll"
-        | "management.get"
+        | "management.uninstallSelf"
+        | "management.getPermissionWarningsByManifest" => None,
+        "management.get"
         | "management.setEnabled"
         | "management.uninstall"
-        | "management.uninstallSelf"
         | "management.launchApp"
         | "management.createAppShortcut"
         | "management.setLaunchType"
         | "management.getPermissionWarningsById"
-        | "management.generateAppForLink" => Some("management"),
+        | "management.generateAppForLink" => None,
         "identity.getAuthToken"
         | "identity.getProfileUserInfo"
         | "identity.getAccounts"
@@ -229,6 +230,7 @@ pub(super) fn is_api_allowed(manifest: &ExtensionManifest, name: &str) -> bool {
         | "permissions.request"
         | "permissions.remove"
         | "commands.getAll"
+        | "webRequest.handlerBehaviorChanged"
         | "extension.isAllowedFileSchemeAccess"
         | "extension.isAllowedIncognitoAccess"
         | "extension.setUpdateUrlData"
@@ -578,18 +580,27 @@ impl ExtensionHost {
                     .manifest
                     .permissions
                     .iter()
-                    .filter(|p| !p.contains("://") && p.as_str() != "<all_urls>")
+                    .filter(|p| {
+                        !p.contains("://")
+                            && p.as_str() != "<all_urls>"
+                            && super::manifest::is_supported_permission(p)
+                    })
                     .collect();
                 Ok(json!({ "permissions": perms, "origins": ext.manifest.hosts }))
             }
             "permissions.contains" | "permissions.request" => {
                 let req = args.first().and_then(Value::as_object);
+                // Deny by default: never grant optional permissions or any stripped/unsupported
+                // permission outside `ALLOWED_CHROMIUM_PERMS` U `SHIMMED_SUPPORTED_PERMS`.
                 let ok_perms = req
                     .and_then(|o| o.get("permissions"))
                     .and_then(Value::as_array)
                     .is_none_or(|arr| {
-                        arr.iter()
-                            .all(|v| v.as_str().is_some_and(|p| ext.manifest.has_permission(p)))
+                        arr.iter().all(|v| {
+                            v.as_str().is_some_and(|p| {
+                                super::manifest::is_supported_permission(p) && ext.manifest.has_permission(p)
+                            })
+                        })
                     });
                 let ok_origins = req
                     .and_then(|o| o.get("origins"))
@@ -597,7 +608,10 @@ impl ExtensionHost {
                     .is_none_or(|arr| {
                         arr.iter().all(|v| {
                             v.as_str().is_some_and(|o| {
-                                ext.manifest.hosts.iter().any(|h| h == o || h == "<all_urls>" || h == "*://*/*")
+                                !o.trim().to_ascii_lowercase().starts_with("file:")
+                                    && ext.manifest.hosts.iter().any(|h| {
+                                        h == o || h == "<all_urls>" || h == "*://*/*"
+                                    })
                             })
                         })
                     });
@@ -656,7 +670,11 @@ impl ExtensionHost {
                     .manifest
                     .permissions
                     .iter()
-                    .filter(|p| !p.contains("://") && p.as_str() != "<all_urls>")
+                    .filter(|p| {
+                        !p.contains("://")
+                            && p.as_str() != "<all_urls>"
+                            && super::manifest::is_supported_permission(p)
+                    })
                     .collect();
                 let options_url = ext
                     .manifest
@@ -684,7 +702,7 @@ impl ExtensionHost {
                     "hostPermissions": ext.manifest.hosts,
                 }))
             }
-            "management.getAll" => Ok(json!([])),
+            "management.getAll" | "management.getPermissionWarningsByManifest" => Ok(json!([])),
             "management.get"
             | "management.setEnabled"
             | "management.uninstall"
@@ -720,7 +738,7 @@ impl ExtensionHost {
                 Ok(Value::Array(list))
             }
             "extension.isAllowedFileSchemeAccess" | "extension.isAllowedIncognitoAccess" => Ok(Value::Bool(false)),
-            "extension.setUpdateUrlData" => Ok(Value::Null),
+            "webRequest.handlerBehaviorChanged" | "extension.setUpdateUrlData" => Ok(Value::Null),
             other if parse_privacy_call(other).is_some() => {
                 let (path, op) = parse_privacy_call(other).unwrap();
                 if op == "get" {

@@ -117,6 +117,8 @@ pub struct SessionReview {
     pub tree: TreeModel<FileNode<ReviewFileMeta>>,
     /// The file the preview shows: the one picked, else the server's first.
     pub active_path: Option<String>,
+    /// The file highlighted by arrow keys inside the Review sidebar filter list (`review/panel.tsx:410-422`).
+    pub highlighted_filter_path: Option<String>,
     pub load: Load,
     /// Pending jump target when `open_for_session` requested a file not yet in a hydrated cache
     /// while a background refresh is in flight.
@@ -141,6 +143,7 @@ impl Default for SessionReview {
             listed: Vec::new(),
             tree: TreeModel::new().key("review-tree"),
             active_path: None,
+            highlighted_filter_path: None,
             load: Load::Loading { focus: None },
             pending_focus: None,
             branch_current: None,
@@ -191,6 +194,7 @@ impl SessionReview {
         self.narrow = mobile::NarrowReview::default();
         self.root_count = 0;
         self.active_path = None;
+        self.highlighted_filter_path = None;
         self.pending_focus = None;
         self.load.restart();
         self.stamp += 1;

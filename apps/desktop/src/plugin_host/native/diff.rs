@@ -278,6 +278,7 @@ pub fn tree_version(app: &App, session: &str) -> u64 {
             let st = sr.tree.get(path).and_then(|n| n.data.as_ref()).map(|m| m.status);
             (path, st).hash(&mut h);
         }
+        sr.highlighted_filter_path.hash(&mut h);
     }
     h.finish()
 }
@@ -394,12 +395,117 @@ fn diff_find_input<'a>(s: &'a mut App, sid: &str) -> &'a mut rune::TextEdit {
     }
 }
 
-/// Keys for the routed session's review while its tab shows and has the keyboard: the diff's
-/// own (moving through hunks, copying the selection).
+/// Depth-first changed-file order with subfolders before sibling files, matching
+/// `plugins/review/kinds.luau:40-80` and Desktop's `packages/gui-plugins/src/review/kinds.ts`.
+fn sorted_review_paths(paths: &[String]) -> Vec<String> {
+    use std::collections::{BTreeMap, HashMap};
+    let mut children: HashMap<String, BTreeMap<(bool, String), String>> = HashMap::new();
+    for p in paths {
+        let mut cur = String::new();
+        let parts: Vec<&str> = p.split('/').collect();
+        for (i, name) in parts.iter().enumerate() {
+            let parent = cur.clone();
+            if !cur.is_empty() {
+                cur.push('/');
+            }
+            cur.push_str(name);
+            let is_file = i + 1 == parts.len();
+            children.entry(parent).or_default().entry((is_file, (*name).to_owned())).or_insert_with(|| cur.clone());
+        }
+    }
+    fn walk(parent: &str, children: &HashMap<String, BTreeMap<(bool, String), String>>, out: &mut Vec<String>) {
+        if let Some(entries) = children.get(parent) {
+            for ((is_file, _), path) in entries {
+                if *is_file {
+                    out.push(path.clone());
+                } else {
+                    walk(path, children, out);
+                }
+            }
+        }
+    }
+    let mut out = Vec::with_capacity(paths.len());
+    walk("", &children, &mut out);
+    out
+}
+
+/// Cycles to the next (`forward == true`) or previous changed file in Review's single-file preview,
+/// matching `SessionReviewV2` (`packages/session-ui/src/v2/components/session-review-v2.tsx:215-262`).
+fn step_review_file(app: &mut App, sid: &str, forward: bool, tx: &mut Tx) -> bool {
+    let target = {
+        let Some(sr) = app.kernel.slots.get(&crate::review::REVIEW).sessions.get(sid) else {
+            return false;
+        };
+        if sr.listed.is_empty() {
+            return false;
+        }
+        let order = sorted_review_paths(&sr.listed);
+        if order.is_empty() {
+            return false;
+        }
+        let at = sr.active_path.as_deref().and_then(|a| order.iter().position(|p| p == a)).unwrap_or(0);
+        let len = order.len();
+        let next = if forward { (at + 1) % len } else { (at + len - 1) % len };
+        order[next].clone()
+    };
+    tx.instant();
+    if let Some(sr) = app.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(sid) {
+        sr.show(&target);
+        sr.tree.reveal(&target, tx);
+    }
+    super::super::bump();
+    if matches!(tx.focused(), Some("review-prev-file" | "review-next-file")) {
+        tx.focus(if forward { "review-next-file" } else { "review-prev-file" }, false);
+    }
+    true
+}
+
+/// Keys for the routed session's review while its tab shows:
+/// - Bare Left/Right cycles previous/next changed file anywhere outside editable inputs and tree
+///   rows (`packages/session-ui/src/v2/components/session-review-v2.tsx:228-262`).
+/// - With the side pane focused, the diff viewer's own keys (hunks, `[`/`]`, copy, find).
 pub fn key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if app.composer.focused || !app.kernel.slots.get(&crate::panels::SIDE).focus.is_focused() || !app.is_review_active() {
+    if !app.is_review_active() {
         return false;
     }
     let Some(sid) = app.active_session_id().map(str::to_owned) else { return false };
+    let unmodified = !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt && !ev.mods.shift;
+    if unmodified && matches!(ev.key, rune::Key::Left | rune::Key::Right) {
+        let diff_find_focused = app
+            .kernel
+            .slots
+            .get(&crate::review::REVIEW)
+            .sessions
+            .get(&sid)
+            .is_some_and(|sr| sr.diffs.find_open() && sr.diffs.find.input.focused);
+        let in_tree = tx.focused().is_some_and(|k| k.starts_with("rt:") || k.starts_with("ft:"));
+        let in_comment = {
+            let lc = app.kernel.slots.get(&crate::line_comments::LINE_COMMENTS);
+            lc.active_card.is_some() || lc.any_draft_focused(&sid)
+        };
+        if !app.composer.focused
+            && !crate::plugin_host::field_focused(app)
+            && !app.kernel.slots.get(&crate::find::FIND).input.focused
+            && !diff_find_focused
+            && !in_tree
+            && !in_comment
+        {
+            let rtl = opencode_i18n::direction() == opencode_i18n::Direction::Rtl;
+            let forward = (ev.key == rune::Key::Right) ^ rtl;
+            if step_review_file(app, &sid, forward, tx) {
+                return true;
+            }
+        }
+    }
+    if app.composer.focused || !app.kernel.slots.get(&crate::panels::SIDE).focus.is_focused() {
+        return false;
+    }
+    if !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt && tx.focused().is_none()
+        && let rune::Key::Text(ref t) = ev.key
+        && matches!(t.as_str(), "[" | "]")
+        && app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid).is_some_and(|sr| sr.diffs.only().is_some())
+    {
+        return step_review_file(app, &sid, t == "]", tx);
+    }
     app.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(&sid).is_some_and(|sr| sr.diffs.handle_key(ev, tx, &crate::code_view::DesktopKeys))
 }

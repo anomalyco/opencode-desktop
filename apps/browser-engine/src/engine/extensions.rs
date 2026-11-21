@@ -32,9 +32,6 @@ impl EngineManager {
         if let Some(ext) = &self.extensions {
             ext.close_pipe();
         }
-        if let Some(root) = self.stub_root.take() {
-            crate::extensions::integrity::cleanup_stub_root(&root);
-        }
     }
 
     pub fn on_extensions_verified(&mut self, startup: crate::extensions::integrity::StartupExtensions) {
@@ -308,6 +305,31 @@ impl EngineManager {
                 }
                 ExtEffect::NotificationClear { ext_id, notif_id } => {
                     let _ = self.out_tx.send(EngineMsg::ExtensionNotificationClear { ext_id, notif_id });
+                }
+                ExtEffect::WakeExtensionWorker { ext_id } => {
+                    if !self.extensions.as_ref().is_some_and(|e| e.is_loaded_extension(&ext_id)) {
+                        continue;
+                    }
+                    static SW_WAKE_SEQ: AtomicU64 = AtomicU64::new(0);
+                    let host = self
+                        .tabs
+                        .values()
+                        .find(|t| !t.isolated && !t.prompts.agent_driven.load(Ordering::Acquire))
+                        .or_else(|| self.tabs.values().find(|t| !t.isolated))
+                        .map(|t| t.host.clone())
+                        .or_else(|| self.seed_probe.clone());
+                    if let Some(host) = host {
+                        let base = crate::extensions::sw_wake::SW_WAKE_ID_BASE
+                            + ((SW_WAKE_SEQ.fetch_add(2, Ordering::Relaxed) % 9_000_000) as i32);
+                        let scope = format!("chrome-extension://{ext_id}/");
+                        for msg in [
+                            json!({ "id": base, "method": "ServiceWorker.enable", "params": {} }),
+                            json!({ "id": base + 1, "method": "ServiceWorker.startWorker", "params": { "scopeURL": scope } }),
+                        ] {
+                            let raw = msg.to_string();
+                            let _ = host.send_dev_tools_message(Some(raw.as_bytes()));
+                        }
+                    }
                 }
             }
         }

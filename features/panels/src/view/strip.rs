@@ -278,6 +278,8 @@ fn tab_natural(entry: &ResolvedEntry, lead: bool) -> f32 {
     let title = rune::text::measure(&entry.tab.title, &[], TAB_UI, None).0.ceil();
     let body = match (lead, entry.tab.icon) {
         (true, _) if matches!(entry.plugin, TERMINAL_PLUGIN | "browser") => 22.0 + title.min(160.0),
+        // `packages/gui-plugins/src/context/renderer.tsx:23`: `gap-2` (8 pt) between 16 pt ring and title.
+        (true, _) if entry.plugin == "context" => 24.0 + title,
         (true, _) => 22.0 + title,
         (false, Some(glyph)) => tab_icon_size(entry, glyph) + 6.0 + title,
         (false, None) => title,

@@ -64,5 +64,6 @@
   "zoom.reset": "Επαναφορά ζουμ",
   "zoom.percent": "{{percent}}%",
   "link.copy": "Αντιγραφή συνδέσμου",
-  "history.clear": "Εκκαθάριση ιστορικού"
+  "history.clear": "Εκκαθάριση ιστορικού",
+  "extensions.compat.feature.management": "Διαχείριση άλλων επεκτάσεων"
 }
