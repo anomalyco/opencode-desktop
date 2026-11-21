@@ -164,6 +164,17 @@ impl Platform for Windows {
             unpack_zip(&zip, &unpack)?;
             let app = locate(&unpack)?;
             self.verify(&app)?;
+            // A crash between `rename` and `receipt::stage` (or another profile targeting the
+            // same install root) can leave an unrecorded `ready-<sha256>` tree beside the root.
+            // Retire it safely (refusing reparse points or a running exe) so Windows `rename`
+            // doesn't fail permanently with `ERROR_DIR_NOT_EMPTY` (os error 145).
+            if std::fs::symlink_metadata(&staged_dir).is_ok() {
+                match bundle::retire(&staged_dir) {
+                    Ok(_) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(format!("could not clear previous staged update: {e}")),
+                }
+            }
             std::fs::rename(&app, &staged_dir).map_err(|e| format!("could not stage the update: {e}"))?;
             receipt::stage(&staged_dir, &found.version, &found.target.sha256)?;
             Ok(Staged { version: found.version, sha256: found.target.sha256, dir: staged_dir.clone() })

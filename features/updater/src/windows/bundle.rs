@@ -296,6 +296,9 @@ fn publish_plain(root: &Path, stage: &Path, previous: &Path) -> io::Result<()> {
 }
 
 pub(crate) fn retire(old: &Path) -> io::Result<Mode> {
+    if fs::symlink_metadata(old)?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(io::Error::other("not following an update reparse point"));
+    }
     let tx = match Transaction::begin() {
         Ok(tx) => tx,
         Err(e) if tx_not_supported(&e) => return retire_plain(old).map(|()| Mode::Plain),
@@ -303,7 +306,8 @@ pub(crate) fn retire(old: &Path) -> io::Result<Mode> {
     };
     let exe = old.join(super::EXE);
     let image = match tx.open_exclusive(&exe) {
-        Ok(h) => h,
+        Ok(h) => Some(h),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
         Err(e) => {
             drop(tx);
             if tx_not_supported(&e) {
@@ -312,9 +316,11 @@ pub(crate) fn retire(old: &Path) -> io::Result<Mode> {
             return Err(e);
         }
     };
-    // SAFETY: `wide(&exe)` is NUL-terminated for this call and `tx.0` is a live transaction handle.
-    check(unsafe { DeleteFileTransactedW(wide(&exe).as_ptr(), tx.0.as_raw_handle()) })?;
-    drop(image);
+    if let Some(image) = image {
+        // SAFETY: `wide(&exe)` is NUL-terminated for this call and `tx.0` is a live transaction handle.
+        check(unsafe { DeleteFileTransactedW(wide(&exe).as_ptr(), tx.0.as_raw_handle()) })?;
+        drop(image);
+    }
     for e in fs::read_dir(old)? {
         let path = e?.path();
         if path != exe {
