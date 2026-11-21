@@ -6,3 +6,4 @@ pub mod state;
 pub mod status;
 pub mod title_change;
 pub mod turn_diffs;
+pub mod viewed;
