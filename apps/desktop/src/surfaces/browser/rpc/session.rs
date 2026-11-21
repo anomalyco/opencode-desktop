@@ -37,12 +37,16 @@ pub(super) enum OutboundMsg {
 
 /// Element ref mappings for one tab (`eN <-> (backendDOMNodeId, cdp_session)`). Invalidated
 /// whenever the tab's document generation changes.
+const MAX_TAB_REFS: usize = 4_096;
+
 #[derive(Default)]
 pub(super) struct TabRefs {
     pub ref_to_target: HashMap<String, (i64, Option<String>)>,
     /// The frame each ref's snapshot was taken in, when it named one; the engine checks it.
     pub ref_frames: HashMap<String, String>,
-    pub backend_to_ref: HashMap<i64, String>,
+    /// Reused ref lookup keyed strictly by `(cdp_session, backend_node_id)` so cross-origin OOPIF
+    /// renderers (each with their own `backendNodeId` sequence) never collide with main-frame refs.
+    pub backend_to_ref: HashMap<(Option<String>, i64), String>,
     pub picked: HashMap<i64, String>,
 }
 
@@ -54,14 +58,35 @@ impl TabRefs {
         self.picked.clear();
     }
 
+    pub fn previous_for_session(&self, cdp_session: Option<&str>) -> HashMap<i64, String> {
+        self.backend_to_ref
+            .iter()
+            .filter_map(|((sid, bid), r)| (sid.as_deref() == cdp_session).then_some((*bid, r.clone())))
+            .collect()
+    }
+
+    /// Merges newly assigned refs from a snapshot without wiping other frames' refs (matching
+    /// official `chromium.ts`, which clears `refs` only on document navigation or close).
     pub fn update_from_snapshot(&mut self, refs: BTreeMap<String, i64>, cdp_session: Option<String>, frame: Option<String>) {
-        self.ref_to_target.clear();
-        self.ref_frames.clear();
-        self.backend_to_ref.clear();
+        if self.ref_to_target.len().saturating_add(refs.len()) > MAX_TAB_REFS {
+            self.ref_to_target.retain(|k, (_, s)| s != &cdp_session || self.ref_frames.get(k) != frame.as_ref());
+            self.ref_frames.retain(|k, _| self.ref_to_target.contains_key(k));
+            self.backend_to_ref.retain(|_, r| self.ref_to_target.contains_key(r));
+        }
+        if self.ref_to_target.len().saturating_add(refs.len()) > MAX_TAB_REFS {
+            self.ref_to_target.clear();
+            self.ref_frames.clear();
+            self.backend_to_ref.clear();
+        }
         for (k, id) in refs {
-            self.backend_to_ref.insert(id, k.clone());
-            if let Some(f) = &frame {
-                self.ref_frames.insert(k.clone(), f.clone());
+            self.backend_to_ref.insert((cdp_session.clone(), id), k.clone());
+            match &frame {
+                Some(f) => {
+                    self.ref_frames.insert(k.clone(), f.clone());
+                }
+                None => {
+                    self.ref_frames.remove(&k);
+                }
             }
             self.ref_to_target.insert(k, (id, cdp_session.clone()));
         }

@@ -321,9 +321,17 @@ pub(super) fn step_snapshot(
             };
             let nodes = val.get("nodes").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
             let empty_map = HashMap::new();
-            let prev = att.refs.get(&st.host_id).map(|r| &r.backend_to_ref).unwrap_or(&empty_map);
-            let picked = att.refs.get(&st.host_id).map(|r| &r.picked).unwrap_or(&empty_map);
-            let prepared = match prepare_snapshot(nodes, st.opts.clone(), prev, picked) {
+            let prev = att
+                .refs
+                .get(&st.host_id)
+                .map(|r| r.previous_for_session(st.cdp_session.as_deref()))
+                .unwrap_or_default();
+            let picked = if st.cdp_session.is_none() {
+                att.refs.get(&st.host_id).map(|r| &r.picked).unwrap_or(&empty_map)
+            } else {
+                &empty_map
+            };
+            let prepared = match prepare_snapshot(nodes, st.opts.clone(), &prev, picked) {
                 Ok(p) => p,
                 Err(e) => return Some(Outcome::fail(failure_code::STALE_REF, e)),
             };
@@ -576,9 +584,17 @@ fn finish_snapshot(
     }
     let host_id = st.host_id;
     let empty_map = HashMap::new();
-    let prev = att.refs.get(&host_id).map(|r| &r.backend_to_ref).unwrap_or(&empty_map);
-    let picked = att.refs.get(&host_id).map(|r| &r.picked).unwrap_or(&empty_map);
-    let out = prepared.finish(readable, boxes, prev, picked, &mut || {
+    let prev = att
+        .refs
+        .get(&host_id)
+        .map(|r| r.previous_for_session(st.cdp_session.as_deref()))
+        .unwrap_or_default();
+    let picked = if st.cdp_session.is_none() {
+        att.refs.get(&host_id).map(|r| &r.picked).unwrap_or(&empty_map)
+    } else {
+        &empty_map
+    };
+    let out = prepared.finish(readable, boxes, &prev, picked, &mut || {
         *ref_counter = ref_counter.saturating_add(1);
         format!("e{ref_counter}")
     });
