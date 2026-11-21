@@ -418,7 +418,19 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
     )?;
     m.raw_set(
         "Refusal",
-        lua.create_function(|lua, this: Table| read_tab(lua, &this, "BrowserTab:Refusal", |app, id| Ok(app.workspace_panes.browser.host.tab(id).and_then(|t| t.refusal.clone()))))?,
+        lua.create_function(|lua, this: Table| {
+            read_tab(lua, &this, "BrowserTab:Refusal", |app, id| {
+                // The engine and the address check know no workspace roots (files open as previews),
+                // so a session that offers its workspace gets the workspace wording here.
+                Ok(app.workspace_panes.browser.host.tab(id).and_then(|t| t.refusal.clone()).map(|code| {
+                    if code == "browser.address.web" && app.browser_offers_workspace(app.browser_tab_session(id)) {
+                        "browser.address.workspace".to_owned()
+                    } else {
+                        code
+                    }
+                }))
+            })
+        })?,
     )?;
     m.raw_set(
         "Rejected",

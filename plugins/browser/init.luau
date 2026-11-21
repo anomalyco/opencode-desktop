@@ -283,13 +283,17 @@ return plugin.defineWindow(function(ctx)
 
     -- Puts page `tab`'s address in the field and the keyboard there, the whole address selected.
     local function edit(tab: BrowserTab)
+        local already = state.edit.status == "editing" and state.edit.tab == tab.Id
         local nextState, effects = address.step(state, { type = "focused", tab = tab.Id, epoch = epoch(tab) })
         state = nextState
         local e = state.edit
-        if e.status == "editing" then
+        if not already and e.status == "editing" then
             setEditorText(e.text)
         end
         editor:Focus()
+        if already then
+            editor:SelectAll()
+        end
         run(effects)
         refresh()
     end
@@ -368,7 +372,8 @@ return plugin.defineWindow(function(ctx)
         end
     end)
 
-    -- Find in page state management (`find.luau`, ready for WS-1 Phase 1c engine `FindHandler`).
+    -- Find in page state management (`find.luau`, matching `page-find.ts`).
+    local findSeq = 0
     local function getFind(tabId: string): find.State
         return findStates[tabId] or find.initial()
     end
@@ -388,7 +393,9 @@ return plugin.defineWindow(function(ctx)
     end
 
     local function openFind(tab: BrowserTab)
-        local next = find.step(getFind(tab.Id), { type = "open" })
+        local cur = getFind(tab.Id)
+        local wasOpen = cur.status ~= "closed"
+        local next = find.step(cur, { type = "open" })
         findStates[tab.Id] = next
         activeFindTab = tab.Id
         if findEditor:Text() ~= next.query then
@@ -396,20 +403,50 @@ return plugin.defineWindow(function(ctx)
         end
         findEditor:Focus()
         findEditor:SelectAll()
-        if next.query ~= "" then
-            runFind(tab, next.query, true, false)
+        if not wasOpen and next.query ~= "" then
+            findSeq += 1
+            -- CEF's `Find` forwards `findNext` to Chromium's `FindTabHelper::StartFinding(..., find_match)`,
+            -- so `true` selects match #1 on a fresh search and advances on repeats.
+            runFind(tab, next.query, true, true)
         end
         refresh()
     end
 
-    local function closeFind(tab: BrowserTab)
+    local function closeFind(tab: BrowserTab, restoreFocus: boolean?)
+        findSeq += 1
         findStates[tab.Id] = find.step(getFind(tab.Id), { type = "close" })
         if activeFindTab == tab.Id then
             activeFindTab = nil
         end
         stopFind(tab)
         findEditor:Blur()
+        if restoreFocus ~= false then
+            local tAny = tab :: any
+            if type(tAny.Focus) == "function" then
+                tAny:Focus()
+            end
+        end
         refresh()
+    end
+
+    local function stepFind(tab: BrowserTab, forward: boolean)
+        findSeq += 1
+        local cur = getFind(tab.Id)
+        if cur.query == "" then
+            return
+        end
+        if cur.status == "closed" then
+            local opened = find.step(cur, { type = "open" })
+            findStates[tab.Id] = opened
+            activeFindTab = tab.Id
+            if findEditor:Text() ~= opened.query then
+                findEditor:SetText(opened.query)
+            end
+            findEditor:Focus()
+            findEditor:SelectAll()
+            refresh()
+        end
+        runFind(tab, cur.query, forward, true)
     end
 
     findEditor.Changed:Connect(function(value: string)
@@ -421,13 +458,24 @@ return plugin.defineWindow(function(ctx)
         if cur.status == "closed" or cur.query == value then
             return
         end
+        findSeq += 1
+        local seq = findSeq
         findStates[tabId] = find.step(cur, { type = "query", query = value })
         local tab = Browser:Get(tabId)
         if tab then
             if value == "" then
                 stopFind(tab)
             else
-                runFind(tab, value, true, false)
+                task.delay(0.12, function()
+                    if findSeq ~= seq or activeFindTab ~= tabId then
+                        return
+                    end
+                    local live = Browser:Get(tabId)
+                    local st = getFind(tabId)
+                    if live and st.status ~= "closed" and st.query == value then
+                        runFind(live, value, true, true)
+                    end
+                end)
             end
         end
         refresh()
@@ -438,9 +486,8 @@ return plugin.defineWindow(function(ctx)
             return
         end
         local tab = Browser:Get(tabId)
-        local cur = getFind(tabId)
-        if tab and cur.query ~= "" then
-            runFind(tab, cur.query, true, true)
+        if tab then
+            stepFind(tab, true)
         end
     end)
     findEditor.KeyPressed:Connect(function(key: string)
@@ -452,12 +499,9 @@ return plugin.defineWindow(function(ctx)
             return
         end
         if key == "Escape" then
-            closeFind(tab)
+            closeFind(tab, true)
         elseif key == "Shift+Enter" then
-            local cur = getFind(activeFindTab)
-            if cur.query ~= "" then
-                runFind(tab, cur.query, false, true)
-            end
+            stepFind(tab, false)
         end
     end)
 
@@ -516,10 +560,7 @@ return plugin.defineWindow(function(ctx)
         local navigated = prev ~= nil and url ~= prevUrl
         syncRefusal(tab, navigated)
         if navigated and findStates[id] ~= nil and findStates[id].status ~= "closed" then
-            findStates[id] = find.step(findStates[id], { type = "close" })
-            if activeFindTab == id then
-                activeFindTab = nil
-            end
+            closeFind(tab, false)
         end
         -- Mark unseen activity dot when an existing background tab navigates while another tab is selected.
         local selected = Browser:Selected(nil)
@@ -860,17 +901,11 @@ return plugin.defineWindow(function(ctx)
             Popover:Close()
             openFind(tab)
         elseif what == "find.next" then
-            local cur = getFind(tab.Id)
-            if cur.query ~= "" then
-                runFind(tab, cur.query, true, true)
-            end
+            stepFind(tab, true)
         elseif what == "find.previous" then
-            local cur = getFind(tab.Id)
-            if cur.query ~= "" then
-                runFind(tab, cur.query, false, true)
-            end
+            stepFind(tab, false)
         elseif what == "find.close" then
-            closeFind(tab)
+            closeFind(tab, true)
         elseif what == "refusal.action" then
             local notice = arg :: refusal.Notice?
             if notice and notice.target then
@@ -1061,7 +1096,7 @@ return plugin.defineWindow(function(ctx)
             local tAny = tab :: any
             if v.query ~= "" and type(tAny.FindResult) == "function" then
                 local res = tAny:FindResult()
-                if type(res) == "table" and type(res.active) == "number" and type(res.total) == "number" then
+                if type(res) == "table" and (res.query == nil or res.query == v.query) and type(res.active) == "number" and type(res.total) == "number" then
                     return { query = v.query, result = { active = res.active, total = res.total } }
                 end
             end

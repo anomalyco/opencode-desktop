@@ -601,8 +601,8 @@ pub fn identify(product: &win_install::Product, headless: bool) {
 
 /// After the first frame, off the UI thread: the registered install's toasts open the app's
 /// scheme, so a toast left in the notification center starts it again; another copy (a zip, a
-/// build folder, a harness run) reads only, and its clicks reach it while it runs. A launch
-/// writes no registration. Then the toast activator is served (`rune_notify::serve_activations`).
+/// build folder, a harness run) reads only, and its clicks reach it while it runs. Only the
+/// registered install writes, and only its own scheme when it went missing (`repair_scheme`). Then the toast activator is served (`rune_notify::serve_activations`).
 #[cfg(target_os = "windows")]
 pub fn settle_identity(product: &win_install::Product, headless: bool) {
     static SETTLED: std::sync::Once = std::sync::Once::new();
@@ -621,6 +621,10 @@ fn settle_once(product: win_install::Product) {
             return;
         };
         let found = win_install::settle_identity(&product, &root);
+        // The registered install keeps its scheme pointed at itself; another copy writes nothing.
+        if let Some(done) = win_install::repair_scheme(&product, &root) {
+            eprintln!("notifications: {done}");
+        }
         if found == win_install::Identity::Installed
             && let Err(e) = rune_notify::adopt(&rune_notify::Identity::new(product.id(), product.name()).activation(product.scheme()))
         {
