@@ -426,8 +426,10 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
         let live = ready || stop || s.composer_dictating();
         let label = if stop { opencode_i18n::t!("ui.promptInput.stop") } else { opencode_i18n::t!("ui.promptInput.send") };
         let b = submit_button(p, live).label(label).child(glyph.color(p.q.submit_text).transition(stop_glyph_swap()));
-        // Official `<Tooltip placement="top" inactive={!stopping && disabled}>` (`editor.tsx:1546-1569`).
+        // Official `<Tooltip placement="top" inactive={!stopping && disabled}>` and
+        // `tabIndex={mode === "normal" ? undefined : -1}` (`editor.tsx:1546-1569`).
         if live {
+            let b = if s.composer_shell_mode() { b.tab_index(-1) } else { b };
             b.help(label).help_above().on_press_tx(move |s: &mut S, tx: &mut Tx| {
                 if stop {
                     s.composer_stop(tx);
