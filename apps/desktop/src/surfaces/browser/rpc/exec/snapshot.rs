@@ -165,7 +165,13 @@ fn start_snapshot(
     } else {
         (None, None, None)
     };
-    let frame_id = cmd.action.get("frameID").and_then(Value::as_str).map(str::to_owned).or(ref_frame);
+    // A ref names its own frame (none: the main frame) and wins over the caller's `frameID`
+    // (official `chromium.ts:2696-2697`: `selected?.frameID ?? action.frameID`).
+    let frame_id = if root.is_some() {
+        ref_frame
+    } else {
+        cmd.action.get("frameID").and_then(Value::as_str).map(str::to_owned)
+    };
     let opts = SnapshotOptions {
         root,
         depth: cmd.action.get("depth").and_then(Value::as_u64).map(|v| v as usize),
@@ -324,9 +330,9 @@ pub(super) fn step_snapshot(
             let prev = att
                 .refs
                 .get(&st.host_id)
-                .map(|r| r.previous_for_session(st.cdp_session.as_deref()))
+                .map(|r| r.previous_for(st.cdp_session.as_deref(), st.frame_id.as_deref()))
                 .unwrap_or_default();
-            let picked = if st.cdp_session.is_none() {
+            let picked = if st.cdp_session.is_none() && st.frame_id.is_none() {
                 att.refs.get(&st.host_id).map(|r| &r.picked).unwrap_or(&empty_map)
             } else {
                 &empty_map
@@ -587,9 +593,9 @@ fn finish_snapshot(
     let prev = att
         .refs
         .get(&host_id)
-        .map(|r| r.previous_for_session(st.cdp_session.as_deref()))
+        .map(|r| r.previous_for(st.cdp_session.as_deref(), st.frame_id.as_deref()))
         .unwrap_or_default();
-    let picked = if st.cdp_session.is_none() {
+    let picked = if st.cdp_session.is_none() && st.frame_id.is_none() {
         att.refs.get(&host_id).map(|r| &r.picked).unwrap_or(&empty_map)
     } else {
         &empty_map
