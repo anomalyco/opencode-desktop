@@ -7,4 +7,5 @@ pub mod diagnostics;
 pub mod field_value;
 pub mod frames;
 pub mod keys;
+pub mod profiling;
 pub mod snapshot;

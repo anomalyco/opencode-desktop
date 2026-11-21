@@ -65,6 +65,15 @@ pub(super) struct ScreenshotState {
     pub stage: ScreenshotStage,
 }
 
+pub(super) struct NetworkGetState {
+    pub host_id: u64,
+    pub req_id: String,
+    pub include_body: bool,
+    pub include_resp: bool,
+    pub max_body: usize,
+    pub cdp_req: u64,
+}
+
 impl ScreenshotState {
     pub fn cancel_cleanup(&mut self, app: &mut App) {
         match &mut self.stage {
@@ -261,7 +270,7 @@ fn exec_network_list(att: &mut SessionAttachment, app: &App, cmd: &Command) -> S
     StepOutcome::Done(Outcome::ok(val, Vec::new()))
 }
 
-fn exec_network_get(att: &mut SessionAttachment, app: &App, cmd: &Command) -> StepOutcome {
+fn exec_network_get(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> StepOutcome {
     let Some(wire_id) = cmd.tab_id() else {
         return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Missing tabID."));
     };
@@ -278,7 +287,7 @@ fn exec_network_get(att: &mut SessionAttachment, app: &App, cmd: &Command) -> St
     let Some(tab) = att.wire_tab(app, host_id) else {
         return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
     };
-    let Some(hop) = att.diagnostics.get(&host_id).and_then(|d| d.network_hop(req_id)) else {
+    let Some(hop) = att.diagnostics.get(&host_id).and_then(|d| d.network_hop(req_id)).cloned() else {
         return StepOutcome::Done(Outcome::fail(
             failure_code::OPERATION_FAILED,
             "Request ID is no longer retained in this tab or belongs to another tab. Call browser.network.list({tabID}) and copy a current id.",
@@ -295,9 +304,62 @@ fn exec_network_get(att: &mut SessionAttachment, app: &App, cmd: &Command) -> St
         .get("maxBodyChars")
         .and_then(Value::as_u64)
         .map_or(20_000, |v| (v as usize).clamp(1, 20_000));
-    let mut val = TabDiagnostics::format_network_get(hop, include_body, include_resp, max_body, None);
+    if (include_resp || include_body)
+        && hop.is_text_response()
+        && !matches!(hop.phase, browser_pane::tools::diagnostics::HopPhase::Pending { .. })
+        && app.workspace_panes.browser.host.engine_agent_tools()
+        && let Ok(cdp_req) = app.workspace_panes.browser.host.send_typed_cdp(
+            host_id,
+            "Network.getResponseBody",
+            json!({ "requestId": hop.native_id }),
+            hop.session_id.clone(),
+        )
+    {
+        return StepOutcome::Pending(ExecPhase::NetworkGet(NetworkGetState {
+            host_id,
+            req_id: req_id.to_owned(),
+            include_body,
+            include_resp,
+            max_body,
+            cdp_req,
+        }));
+    }
+    let mut val = TabDiagnostics::format_network_get(&hop, include_body, include_resp, max_body, None);
     val["tab"] = serde_json::to_value(tab).unwrap_or(Value::Null);
     StepOutcome::Done(Outcome::ok(val, Vec::new()))
+}
+
+pub(super) fn step_network_get(
+    att: &SessionAttachment,
+    app: &mut App,
+    st: &NetworkGetState,
+) -> Option<Outcome> {
+    let resp = app.workspace_panes.browser.host.take_cdp_response(st.cdp_req)?;
+    let Some(tab) = att.wire_tab(app, st.host_id) else {
+        return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
+    };
+    let Some(hop) = att.diagnostics.get(&st.host_id).and_then(|d| d.network_hop(&st.req_id)) else {
+        return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Request ID is no longer retained."));
+    };
+    let fetched = match resp {
+        Ok(v) => {
+            let raw = v.get("body").and_then(Value::as_str).unwrap_or("");
+            let b64 = v.get("base64Encoded").and_then(Value::as_bool).unwrap_or(false);
+            if b64 {
+                base64::engine::general_purpose::STANDARD
+                    .decode(raw)
+                    .ok()
+                    .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+                    .ok_or("backendUnavailable")
+            } else {
+                Ok(raw.to_owned())
+            }
+        }
+        Err(_) => Err("backendUnavailable"),
+    };
+    let mut val = TabDiagnostics::format_network_get(hop, st.include_body, st.include_resp, st.max_body, Some(fetched));
+    val["tab"] = serde_json::to_value(tab).unwrap_or(Value::Null);
+    Some(Outcome::ok(val, Vec::new()))
 }
 
 fn exec_files_list(att: &mut SessionAttachment, app: &App, cmd: &Command) -> StepOutcome {

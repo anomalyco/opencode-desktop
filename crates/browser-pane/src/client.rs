@@ -903,6 +903,7 @@ impl BrowserHost {
                     permission_sync,
                     frame_authority,
                     cookies,
+                    agent_files,
                     ..
                 } => {
                     if !matches!(
@@ -912,20 +913,9 @@ impl BrowserHost {
                         continue;
                     }
                     self.caps = EngineCaps::Known {
-                        downloads,
-                        policy,
-                        prompts,
-                        popups,
-                        find,
-                        context_menu,
-                        partitions,
-                        remote_proxy,
-                        agent_tools,
-                        preview,
-                        extensions,
-                        permission_sync,
-                        frame_authority,
-                        cookies,
+                        downloads, policy, prompts, popups, find, context_menu,
+                        partitions, remote_proxy, agent_tools, preview, extensions,
+                        permission_sync, frame_authority, cookies, agent_files,
                     };
                     self.sync_site_permissions();
                     if cookies && self.share_sign_ins {

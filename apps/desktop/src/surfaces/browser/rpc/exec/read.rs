@@ -123,18 +123,22 @@ pub(super) fn compute_target(
             None => format!("dialog:{generation}:none"),
         };
         TargetMeta { resources, key }
-    } else if let Some(file_id) = cmd.action.get("fileID").and_then(Value::as_str) {
-        let resources = match att
-            .captures
-            .get(&host_id)
-            .and_then(|list| list.iter().find(|c| c.id == file_id))
-        {
-            Some(c) => c.resources.clone(),
-            None => att
-                .download_resources(app, host_id, file_id)
-                .map_err(|e| Outcome::fail(failure_code::OPERATION_FAILED, e))?,
+    } else if ty == "heap.compare" || cmd.action.get("fileID").and_then(Value::as_str).is_some() {
+        let fids: Vec<&str> = if ty == "heap.compare" {
+            ["before", "after"].into_iter().map(|k| cmd.action.get(k).and_then(Value::as_str).unwrap_or("")).collect()
+        } else {
+            vec![cmd.action.get("fileID").and_then(Value::as_str).unwrap_or("")]
         };
-        TargetMeta { resources, key: format!("file:{file_id}") }
+        let mut resources = Vec::new();
+        for fid in &fids {
+            if let Some(c) = att.captures.get(&host_id).and_then(|l| l.iter().find(|c| c.id == *fid)) {
+                resources.extend(c.resources.iter().cloned());
+            } else {
+                resources.extend(att.download_resources(app, host_id, fid).map_err(|e| Outcome::fail(failure_code::OPERATION_FAILED, e))?);
+            }
+        }
+        let key = if fids.len() == 1 { format!("file:{}", fids[0]) } else { format!("files:{}:{}", fids[0], fids[1]) };
+        TargetMeta { resources, key }
     } else if ty == "network.get" {
         let req_id = cmd.action.get("id").and_then(Value::as_str).unwrap_or("");
         let res_url = att
@@ -206,19 +210,10 @@ pub(super) fn needs_live_frame_verify(cmd: &Command) -> bool {
     let ty = cmd.action_type().unwrap_or("");
     !matches!(
         ty,
-        "navigate"
-            | "navigate.path"
-            | "network.get"
-            | "files.get"
-            | "tabs.list"
-            | "tabs.open"
-            | "tabs.focus"
-            | "tabs.close"
-            | "back"
-            | "forward"
-            | "reload"
-            | "stop"
-            | "preview"
+        "navigate" | "navigate.path" | "network.get" | "files.get" | "preview"
+            | "trace.analyze" | "cpu.analyze" | "heap.summary" | "heap.query" | "heap.object" | "heap.compare"
+            | "tabs.list" | "tabs.open" | "tabs.focus" | "tabs.close"
+            | "back" | "forward" | "reload" | "stop"
     )
 }
 
