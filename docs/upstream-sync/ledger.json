@@ -4495,7 +4495,7 @@
       "summary": "Under a Windows contrast theme the caption buttons draw in the theme's window-text colour (not the app theme's black or white), and follow the theme being turned on or off.",
       "size": "XS",
       "status": "have it",
-      "status_evidence": "PR #0: apps/desktop/src/shell/view/mod.rs gives the caption buttons the palette's text colour when the system contrast theme paints the window (p.forced; that text is the theme's window text, themes::contrast). Seen: RUNE_CONTRAST=desert snap, close-button glyph #000000 before, #3D3D3D (Desert's window text) after. Turning the theme on or off rebuilds the palette (Windows reports it); not toggled live here.",
+      "status_evidence": "PR #598: apps/desktop/src/shell/view/mod.rs gives the caption buttons the palette's text colour when the system contrast theme paints the window (p.forced; that text is the theme's window text, themes::contrast). Seen: RUNE_CONTRAST=desert snap, close-button glyph #000000 before, #3D3D3D (Desert's window text) after. Turning the theme on or off rebuilds the palette (Windows reports it); not toggled live here.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"
