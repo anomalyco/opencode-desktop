@@ -144,10 +144,10 @@ impl ExtensionHost {
                         SessionKind::ServiceWorker => vec![
                             json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
                             auto_attach_cmd(self.alloc_id(), &sid),
-                            fetch_enable_cmd(fetch_id, &sid),
                             json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.addBinding", "params": { "name": "__ocExtCall" } }),
                             json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Debugger.enable", "params": {} }),
                             json!({ "id": self.alloc_id(), "sessionId": sid, "method": "EventBreakpoints.setInstrumentationBreakpoint", "params": { "eventName": "scriptFirstStatement" } }),
+                            fetch_enable_cmd(fetch_id, &sid),
                         ],
                         SessionKind::FileGuardOnly => vec![
                             auto_attach_cmd(self.alloc_id(), &sid),
@@ -605,6 +605,7 @@ impl ExtensionHost {
         let waiting = params.get("waitingForDebugger").and_then(Value::as_bool).unwrap_or(false);
         let tinfo = params.get("targetInfo").unwrap_or(&Value::Null);
         let ttype = tinfo.get("type").and_then(Value::as_str).unwrap_or("");
+        let target_id = tinfo.get("targetId").and_then(Value::as_str).unwrap_or("").to_owned();
         let url = tinfo.get("url").and_then(Value::as_str).unwrap_or("");
 
         // 1. Extension service worker: match strictly by verified extension ID.
@@ -612,11 +613,26 @@ impl ExtensionHost {
             && let Some(ext_id) = extension_id_from_url(url)
             && self.extensions.contains_key(ext_id)
         {
+            // Never attach a second concurrent CDP session to the same service-worker target
+            // (e.g. from a child page's `Target.setAutoAttach` when the browser target already
+            // attached it), which causes competing `Debugger`/`Runtime.evaluate` races.
+            if !target_id.is_empty()
+                && self.sessions.values().any(|s| s.kind == SessionKind::ServiceWorker && s.target_id == target_id)
+            {
+                let mut batch = Vec::new();
+                if waiting {
+                    batch.push(json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.runIfWaitingForDebugger", "params": {} }));
+                }
+                batch.push(json!({ "id": self.alloc_id(), "method": "Target.detachFromTarget", "params": { "sessionId": sid } }));
+                self.pipe.send_batch(&batch);
+                return effects;
+            }
             let ext_id = ext_id.to_owned();
             self.sessions.insert(
                 sid.to_owned(),
                 AttachedSession {
                     ext_id,
+                    target_id,
                     kind: SessionKind::ServiceWorker,
                     url: url.to_owned(),
                     chromium_tab_id: None,
@@ -632,13 +648,16 @@ impl ExtensionHost {
             if waiting {
                 let fetch_id = self.alloc_id();
                 self.pending_fetch_resume.insert(fetch_id, sid.to_owned());
+                // Put `Fetch.enable` LAST in the batch so `Debugger.enable` and
+                // `EventBreakpoints.setInstrumentationBreakpoint` are guaranteed processed by
+                // Chromium BEFORE `fetch_id` confirms and sends `Runtime.runIfWaitingForDebugger`.
                 let batch = vec![
                     json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
                     auto_attach_cmd(self.alloc_id(), sid),
-                    fetch_enable_cmd(fetch_id, sid),
                     json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.addBinding", "params": { "name": "__ocExtCall" } }),
                     json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Debugger.enable", "params": {} }),
                     json!({ "id": self.alloc_id(), "sessionId": sid, "method": "EventBreakpoints.setInstrumentationBreakpoint", "params": { "eventName": "scriptFirstStatement" } }),
+                    fetch_enable_cmd(fetch_id, sid),
                 ];
                 // Resume happens strictly in `handle_cdp_reply` after `fetch_id` confirms.
                 self.pipe.send_batch(&batch);
@@ -674,6 +693,7 @@ impl ExtensionHost {
                 sid.to_owned(),
                 AttachedSession {
                     ext_id: ext_id.to_owned(),
+                    target_id,
                     kind: SessionKind::FileGuardOnly,
                     url: url.to_owned(),
                     chromium_tab_id: None,
@@ -747,6 +767,7 @@ impl ExtensionHost {
                 sid.to_owned(),
                 AttachedSession {
                     ext_id,
+                    target_id,
                     kind,
                     url: url.to_owned(),
                     chromium_tab_id: None,
