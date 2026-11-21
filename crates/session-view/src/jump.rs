@@ -302,7 +302,7 @@ pub fn timeline_scroll<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll: El, ha
 /// older-history ring sits under.
 pub fn over<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll: El, pills: Vec<El>, top: f32) -> El {
     let scroll_fade = timeline_scroll(s, p, id, scroll, !pills.is_empty());
-    over_scroll(s, p, id, scroll_fade, pills, top)
+    over_scroll(s, p, id, scroll_fade, pills, top).scroll_bar_hover(&format!("scroll-{id}"))
 }
 
 /// [`over`] taking an already-built `timeline-fade` subtree from [`timeline_scroll`].
@@ -352,7 +352,4 @@ pub fn over_scroll<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll_fade: El, p
         // Over the timeline's top edge, not in it: a row there would move what's on screen.
         .children(s.loading_older(id).then(|| row().key("older-loading").pin(Some(0.0), Some(top + 12.0), Some(0.0), None).center()
             .child(activity_ring(p))))
-        // The thumb follows the hover of the whole area, Jump to latest included, as Desktop's
-        // `thumbHoverTarget={viewRoot()}` (`virtualizer.tsx:1157-1161`).
-        .scroll_bar_hover(&format!("scroll-{id}"))
 }

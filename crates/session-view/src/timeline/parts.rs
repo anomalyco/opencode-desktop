@@ -481,7 +481,7 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, 
         .hover_group_shared(REPLY_HOVER)
         .hover_group_focus()
         .hover_motion(INSTANT, INSTANT)
-        .child(crate::working::row(s, p, session, working).key("working").absolute(0.0, crate::working::LANE_PAD).opacity(if working { 1.0 } else { 0.0 }).opacity_motion(INSTANT));
+        .child(crate::working::row(s, p, session, working).key("working").absolute(0.0, crate::working::LANE_TEXT_TOP).opacity(if working { 1.0 } else { 0.0 }).opacity_motion(INSTANT));
     if interrupted {
         // A stopped turn's footer runs to the reply's end edge, "Model · 3s · Interrupted"
         // after Copy (`text-part-copy-wrapper[data-interrupted]`, `message-part.css:652-655`).

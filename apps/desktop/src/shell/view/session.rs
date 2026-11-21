@@ -1,5 +1,7 @@
 mod host;
 
+use rune_kit::ScrollBar;
+
 use super::*;
 
 #[allow(unused_imports)]
@@ -40,7 +42,8 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
     // when the region is reused or held.
     let content_w = session_view::TimelineHost::content_width(s);
     session_view::style::set_content_w(content_w);
-    let timeline = match s.displayed_session(id) {
+    let displayed = s.displayed_session(id);
+    let timeline = match displayed {
         Some(shown) => {
             let child = s.session(id).is_some_and(|i| i.parent.is_some());
             // Pills sit outside `"timeline-area"` so job updates and activity ticks never dirty
@@ -115,8 +118,13 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
         // refusal contains real, selectable output and a working Copy preview action.
         .child(if s.opening.as_ref().is_some_and(|o| !o.loading()) { timeline.inert() } else { timeline })
         .child(composer_dock(s, p));
-    page = page.children(s.diag.debug.then(|| status_bar(s, p, info))).children(s.displayed_session(id).and_then(|shown| timeline_ring(p, shown)));
-    page
+    page = page.children(s.diag.debug.then(|| status_bar(s, p, info))).children(displayed.and_then(|shown| timeline_ring(p, shown)));
+    // The thumb follows the hover of the whole session frame including the composer dock,
+    // matching official `thumbHoverTarget={viewRoot()}` (`virtualizer.tsx:1145,1189`).
+    match displayed {
+        Some(shown) => page.scroll_bar_hover(&format!("scroll-{shown}")),
+        None => page,
+    }
 }
 
 /// The timeline's keyboard focus ring (`session-timeline-visible::after`, opencode#65192): drawn

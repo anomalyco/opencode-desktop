@@ -29,7 +29,24 @@ pub(crate) fn answered(s: &mut App, directory: String) {
     if directory.is_empty() {
         return;
     }
-    s.kernel.slots.get_mut(&SERVER_DIRECTORIES).0.insert(crate::servers::runtime::current(), directory);
+    s.kernel.slots.get_mut(&SERVER_DIRECTORIES).0.insert(crate::servers::runtime::current(), directory.clone());
+    if s.projects.is_empty() && crate::arg("--directory").is_none() && *s.default_dir == *s.home {
+        let home = (*s.home).clone();
+        *s.default_dir = directory.clone();
+        let mut updated = false;
+        for tab in s.tabs.iter_mut() {
+            if tab.is_draft() && tab.directory == home {
+                tab.directory.clone_from(&directory);
+                updated = true;
+            }
+        }
+        if updated {
+            s.save_tabs();
+        }
+    }
+    if s.composer_ext.pickers.models.is_empty() {
+        crate::connect::picker_reads::refresh(s);
+    }
 }
 
 /// The default directory of the server the turn works against.
@@ -50,9 +67,18 @@ pub(crate) fn resolve(s: &App, here: Option<String>) -> Option<String> {
                 here
             }
         },
-        StartIn::Project => match s.settings.worktree {
-            Worktree::Default => here.map(|dir| s.project_at(&dir).map_or(dir, |p| p.directory.clone())),
-            Worktree::New | Worktree::LastUsed => here,
-        },
+        StartIn::Project => {
+            let picked = match s.settings.worktree {
+                Worktree::Default => here.map(|dir| s.project_at(&dir).map_or(dir, |p| p.directory.clone())),
+                Worktree::New | Worktree::LastUsed => here,
+            };
+            picked.or_else(|| match server_directory(s) {
+                Some(dir) => Some(dir.to_owned()),
+                None => {
+                    ask(s);
+                    None
+                }
+            })
+        }
     }
 }
