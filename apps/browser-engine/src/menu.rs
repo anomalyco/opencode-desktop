@@ -207,7 +207,9 @@ wrap_context_menu_handler! {
             callback: Option<&mut RunContextMenuCallback>,
         ) -> ::std::os::raw::c_int {
             let Some(callback) = callback else { return 1 };
-            if !self.shared.enabled.load(Ordering::Relaxed) {
+            if !self.shared.enabled.load(Ordering::Relaxed)
+                || self.prompts.suppress_context_menu.load(Ordering::Acquire)
+            {
                 callback.cancel();
                 return 1;
             }

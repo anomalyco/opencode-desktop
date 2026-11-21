@@ -548,6 +548,7 @@ impl EngineManager {
                         t.held_buttons |= flag;
                         t.host.set_focus(1);
                         t.prompts.popup_credit.store(true, Ordering::Release);
+                        t.prompts.suppress_context_menu.store(false, Ordering::Release);
                     }
                     let ev = MouseEvent {
                         x: x.round() as i32,
@@ -575,6 +576,7 @@ impl EngineManager {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if down {
                         t.prompts.popup_credit.store(true, Ordering::Release);
+                        t.prompts.suppress_context_menu.store(false, Ordering::Release);
                     }
                     send_key(&t.host, down, text.as_deref(), named.as_deref(), cef_mods(mods));
                 }
@@ -747,7 +749,7 @@ impl EngineManager {
             HostMsg::DropFiles { tab_id, request_id, x, y, files } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
-                    crate::agent::handle_drop_files(t, &self.profile_dir, tab_id, request_id, not_ready, x, y, &files, &self.next_cdp_id, &self.out_tx);
+                    crate::agent::handle_drop_files(t, &self.permissions, &self.profile_dir, tab_id, request_id, not_ready, x, y, &files, &self.next_cdp_id, &self.out_tx);
                 }
             }
             HostMsg::ClearSiteCache { tab_id, request_id } => {

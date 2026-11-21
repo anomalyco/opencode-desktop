@@ -302,8 +302,11 @@ impl InputGuard {
         val: Value,
         browser: Option<&Browser>,
         is_popup: bool,
+        isolated: bool,
+        is_preview: bool,
         snap: &Mutex<TabSnapshot>,
         prompts: &TabPrompts,
+        permissions: &crate::permissions::PermissionTracker,
         ledger: &Mutex<EngineCdpLedger>,
         emulation_scale: &AtomicU32,
         next_cdp_id: &AtomicI32,
@@ -363,9 +366,11 @@ impl InputGuard {
                     fail(self, call.request_id, call.group_id, CHANGED);
                     return !self.queue.is_empty();
                 };
-                let (access, session, start_frame_rev) = {
+                let (access, session, start_frame_rev, hit_url) = {
                     let l = ledger.lock().unwrap();
-                    (l.access(&frame_id), l.session_for_frame(&frame_id), l.frame_chain_rev(&frame_id))
+                    let sid = l.session_for_frame(&frame_id);
+                    let url = l.target_frame_url(sid.as_deref(), Some(&frame_id), &Value::Null);
+                    (l.access(&frame_id), sid, l.frame_chain_rev(&frame_id), url)
                 };
                 match access {
                     Access::Frame => {}
@@ -377,6 +382,14 @@ impl InputGuard {
                         fail(self, call.request_id, call.group_id, UNAVAILABLE_FRAME);
                         return !self.queue.is_empty();
                     }
+                }
+                if !isolated
+                    && !is_preview
+                    && prompts.agent_driven.load(Ordering::Acquire)
+                    && hit_url.is_some_and(|u| permissions.has_inherited_default_grant(&u))
+                {
+                    fail(self, call.request_id, call.group_id, crate::permissions::INHERITED_PERMISSION_MSG);
+                    return !self.queue.is_empty();
                 }
                 let Some(start_frame_rev) = start_frame_rev else {
                     fail(self, call.request_id, call.group_id, UNAVAILABLE_FRAME);
@@ -528,16 +541,12 @@ impl InputGuard {
                     return !self.queue.is_empty();
                 }
                 set_rounded_coords(&mut call.params, rx, ry);
+                prompts.suppress_context_menu.store(true, Ordering::Release);
                 if call.method == "Input.dispatchMouseEvent"
                     && call.params.get("type").and_then(Value::as_str) == Some("mousePressed")
                 {
                     let btn = call.params.get("button").and_then(Value::as_str).unwrap_or("left");
                     self.active_press = Some(btn.to_owned());
-                    prompts.popup_credit.store(true, Ordering::Release);
-                } else if call.method == "Input.dispatchDragEvent"
-                    && call.params.get("type").and_then(Value::as_str) == Some("drop")
-                {
-                    prompts.popup_credit.store(true, Ordering::Release);
                 }
                 let id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
                 let raw = json!({ "id": id, "method": call.method, "params": call.params }).to_string();
@@ -729,6 +738,7 @@ fn prepare_call(
                 && active_press.as_deref() == Some(btn)
             {
                 *active_press = None;
+                prompts.suppress_context_menu.store(true, Ordering::Release);
                 set_rounded_coords(&mut call.params, rx, ry);
                 let id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
                 let raw = json!({ "id": id, "method": call.method, "params": call.params }).to_string();
@@ -758,11 +768,7 @@ fn prepare_call(
         }
         "Input.dispatchKeyEvent" | "Input.insertText" => {
             check_focused_frame(browser, ledger, prompts)?;
-            if call.method == "Input.insertText"
-                || matches!(call.params.get("type").and_then(Value::as_str), Some("keyDown" | "rawKeyDown"))
-            {
-                prompts.popup_credit.store(true, Ordering::Release);
-            }
+            prompts.suppress_context_menu.store(true, Ordering::Release);
             let id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
             let raw = json!({ "id": id, "method": call.method, "params": call.params }).to_string();
             Ok(QueuedBatch {

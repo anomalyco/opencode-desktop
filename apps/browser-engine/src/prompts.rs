@@ -67,9 +67,12 @@ enum HeldPermission {
 #[derive(Default)]
 pub struct TabPrompts {
     pub agent_driven: AtomicBool,
-    /// One pop-up per input event, as Chromium's blocker allows per user activation (it is off:
-    /// `--disable-popup-blocking`). Set by the person's click/key and the agent's `Input.*` command.
+    /// One pop-up per real user input event (`MouseButton` / `Key`); agent `Input.*` never arms
+    /// this so hostile pages cannot spawn unchecked pop-up tabs (`review-rd-tools.md` Critical #7).
     pub popup_credit: AtomicBool,
+    /// Suppresses the app's native right-click context menu after agent `Input.*` until the next
+    /// real user `MouseButton` or `Key` (`chromium.ts:2509-2510`; `review-rd-tools.md` Critical #7).
+    pub suppress_context_menu: AtomicBool,
     /// The person's own click or key on a controlled tab hands its downloads back to them until
     /// the agent acts again (official `policy.ts:121-125, 175-177` `control: "reclaimed"`).
     pub user_reclaimed: AtomicBool,

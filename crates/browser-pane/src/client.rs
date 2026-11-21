@@ -78,6 +78,20 @@ impl BrowserTab {
         let px = |pt: f32| (pt.round().max(1.0) * self.scale).ceil() as u32;
         (px(self.viewport_pt.0), px(self.viewport_pt.1))
     }
+
+    /// Active device-emulation scale (`Emulation.setDeviceMetricsOverride.scale`, `chromium.ts:2496`).
+    pub fn emulation_scale(&self) -> f64 {
+        self.device
+            .as_ref()
+            .map_or(1.0, |d| f64::from(d.fit([self.viewport_pt.0, self.viewport_pt.1])).clamp(0.25, 4.0))
+    }
+
+    /// Whether a mobile/tablet device preset is currently emulated (`chromium.ts:2487`).
+    pub fn is_mobile_emulation(&self) -> bool {
+        self.device
+            .as_ref()
+            .is_some_and(|d| d.profile != crate::device::Profile::Desktop)
+    }
 }
 
 /// A tab's downloads at most (the engine's `downloads::MAX_TAB_FILES`).

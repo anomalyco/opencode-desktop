@@ -102,6 +102,7 @@ pub fn handle_upload_files(
 #[allow(clippy::too_many_arguments)]
 pub fn handle_drop_files(
     t: &ManagedTab,
+    permissions: &crate::permissions::PermissionTracker,
     profile_dir: &Path,
     tab_id: u64,
     request_id: u64,
@@ -120,6 +121,18 @@ pub fn handle_drop_files(
         != crate::engine::Surface::Clean
     {
         send_err(out_tx, tab_id, request_id, "Agent browser tools cannot drop files onto extension pages or tabs with extension frames.");
+        return;
+    }
+    if !t.isolated
+        && t.preview.is_none()
+        && t.prompts.agent_driven.load(Ordering::Acquire)
+        && t.cdp_ledger
+            .lock()
+            .unwrap()
+            .target_frame_url(None, None, &Value::Null)
+            .is_some_and(|u| permissions.has_inherited_default_grant(&u))
+    {
+        send_err(out_tx, tab_id, request_id, crate::permissions::INHERITED_PERMISSION_MSG);
         return;
     }
     let verified = match verify_upload_paths(profile_dir, tab_id, files) {

@@ -76,6 +76,7 @@ type Target = (i64, Option<String>, Option<String>);
 
 pub(super) enum InputStep {
     ResolvePoint(Target),
+    ResolvePointNoScroll(Target),
     StoreFromCenter,
     DispatchMouse { kind: &'static str, button: String, click_count: u32, modifiers: u32 },
     SendInput { method: &'static str, params: Value },
@@ -110,6 +111,7 @@ pub(super) struct InputState {
     obj_frame: Option<String>,
     html5_drag: bool,
     intercepting_drags: bool,
+    drag_pressed: bool,
     drag_data: Option<Value>,
     drag_deadline: Option<Instant>,
 }
@@ -120,8 +122,10 @@ impl InputState {
     }
 
     pub fn ingest_drag_intercepted(&mut self, data: Value) {
-        self.drag_data = Some(data);
-        self.drag_deadline = None;
+        if self.intercepting_drags {
+            self.drag_data = Some(data);
+            self.drag_deadline = None;
+        }
     }
 
     pub fn cancel_cleanup(&mut self, app: &mut App) {
@@ -139,6 +143,17 @@ impl InputState {
                 json!({ "enabled": false }),
                 None,
             );
+        }
+        if self.drag_pressed {
+            self.drag_pressed = false;
+            if let Some((x, y)) = self.saved_pos.or(self.saved_from) {
+                let _ = app.workspace_panes.browser.host.send_typed_cdp(
+                    self.host_id,
+                    "Input.dispatchMouseEvent",
+                    json!({ "type": "mouseReleased", "x": x.round(), "y": y.round(), "button": "left", "clickCount": 1 }),
+                    None,
+                );
+            }
         }
         release_saved_obj(app, self);
     }
@@ -249,10 +264,13 @@ fn start_drag(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> Step
         Err(o) => return StepOutcome::Done(o),
     };
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
+    // Match official `chromium.ts:1812-1815`: scroll destination first, then scroll source and
+    // save `from`, then re-measure destination WITHOUT scrolling so `from` stays in place.
     let mut steps = VecDeque::new();
+    steps.push_back(InputStep::ResolvePoint(to_bid.clone()));
     steps.push_back(InputStep::ResolvePoint(from_bid.clone()));
     steps.push_back(InputStep::StoreFromCenter);
-    steps.push_back(InputStep::ResolvePoint(to_bid));
+    steps.push_back(InputStep::ResolvePointNoScroll(to_bid));
     steps.push_back(InputStep::ResolveNode(from_bid));
     steps.push_back(InputStep::CheckDraggable);
     steps.push_back(InputStep::ReleaseObject);
@@ -419,6 +437,7 @@ fn launch_steps(att: &SessionAttachment, app: &mut App, host_id: u64, steps: Vec
         obj_frame: None,
         html5_drag: false,
         intercepting_drags: false,
+        drag_pressed: false,
         drag_data: None,
         drag_deadline: None,
     };
@@ -505,6 +524,13 @@ fn dispatch_next_step(att: &SessionAttachment, app: &mut App, st: &mut InputStat
             }
             Err(o) => return Some(o),
         },
+        InputStep::ResolvePointNoScroll(target) => match PointResolver::start_with_scroll(att, app, hid, target.clone(), false) {
+            Ok(resolver) => {
+                st.point = Some(resolver);
+                return None;
+            }
+            Err(o) => return Some(o),
+        },
         InputStep::StoreFromCenter => {
             st.saved_from = st.saved_pos;
             return None;
@@ -521,6 +547,13 @@ fn dispatch_next_step(att: &SessionAttachment, app: &mut App, st: &mut InputStat
             app.workspace_panes.browser.host.send_typed_cdp(hid, "Input.dispatchMouseEvent", params, None).map(Some)
         }
         InputStep::SendInput { method, params } => {
+            if *method == "Input.dispatchMouseEvent" {
+                match params.get("type").and_then(Value::as_str) {
+                    Some("mousePressed") => st.drag_pressed = true,
+                    Some("mouseReleased") => st.drag_pressed = false,
+                    _ => {}
+                }
+            }
             app.workspace_panes.browser.host.send_typed_cdp(hid, method, params.clone(), None).map(Some)
         }
         InputStep::CheckDraggable => call_fn(app, st, CHECK_DRAGGABLE_JS, None),
