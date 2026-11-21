@@ -2,29 +2,29 @@
   "generated_at": "2026-11-21",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "b9a60d9d078d87bfb90f039e431090508f88ac02",
+  "upstream_head": "b3b30005e455b4c3fd9d551fd456ef3c830fc878",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "6e98fc2b726ec52bb0f79f78c8d02d506a8ef66d",
-  "post_1114_commit_count": 377,
-  "post_1114_in_ledger": 143,
-  "post_1114_skipped": 234,
+  "rune_desktop_head": "fbd5f0b5a34feeb922b0fcf435e5ae2fd1248ea5",
+  "post_1114_commit_count": 400,
+  "post_1114_in_ledger": 151,
+  "post_1114_skipped": 249,
   "post_1114_skipped_breakdown": {
-    "test-only": 17,
+    "test-only": 21,
     "ci-bench-deps": 15,
     "docs-site-data": 37,
     "tui-only": 11,
-    "cli-acp-only": 4,
-    "server-core-ai-codemode-internal": 150
+    "cli-acp-only": 7,
+    "server-core-ai-codemode-internal": 158
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 164,
+  "total_ledger_rows": 172,
   "status_counts": {
-    "have it": 132,
+    "have it": 134,
     "not applicable": 23,
-    "missing": 5,
     "differs on purpose": 1,
-    "partly": 3
+    "partly": 3,
+    "missing": 11
   },
   "rows": [
     {
@@ -2282,7 +2282,7 @@
       ],
       "summary": "Drop translations left unused after retiring the Projects sidebar mode.",
       "size": "S",
-      "status": "done",
+      "status": "have it",
       "status_evidence": "Dropped unused sidebar.organize.{projects,showLess,empty} keys across all 63 official and 7 fill locale catalogs (crates/opencode-i18n/locales/{official,fill}/*.json), matching anomalyco/opencode#64728 (3dc66ab6e5).",
       "depends_on": "UP-074 (#64727)",
       "risks": "none",
@@ -3552,11 +3552,11 @@
       ],
       "summary": "Render detected browser profiles inline in Settings > Browser and tighten Settings > Browser copy.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "plugins/browser/settings.luau currently lists browser import via a modal/picker rather than inline profile rows with the updated #65174 copy.",
+      "status": "have it",
+      "status_evidence": "Merged on dev in rune-desktop #327 (bf798741, PREVIEWS): Settings > Browser lists detected browser profiles inline with per-row Import..., the import dialog, site permission Selects and official's copy; sign-in import, Choose sites, Share sign-ins with remote servers, Import cookie file and the cookie count follow WS-1's #286 (UP-151 depends on them). The row was left missing by a later ledger merge.",
       "depends_on": "UP-095-UI (#63002), UP-106 (#65073)",
       "risks": "Red flag: gui-plugins/browser.",
-      "workstream": "BROWSER-UI",
+      "workstream": "PREVIEWS",
       "reviewed": "pre-merge review required when opened"
     },
     {
@@ -4149,6 +4149,196 @@
       "risks": "none",
       "workstream": "WS-2",
       "rune_pr": "#349"
+    },
+    {
+      "id": "UP-144",
+      "window": "post-1120",
+      "pr": 65303,
+      "sha": "80f41d7852",
+      "title": "fix(app): keep foreground Code Mode scripts out of the background pill",
+      "merged": "2026-11-21",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/session/requests/background.ts"
+      ],
+      "summary": "The background pill lists a running Code Mode script only once its execute call has ended with the job id: a script still running in the foreground stays out of it.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "features/subagents/src/jobs.rs scripts() lists every running codemode job of the session, named or not.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-145",
+      "window": "post-1120",
+      "pr": 65312,
+      "sha": "b83ea51365",
+      "title": "fix(app): keep the background pill's rows in place",
+      "merged": "2026-11-20",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/session/requests/background.ts"
+      ],
+      "summary": "The background pill orders subagents, shells and jobs by when each started (then by id), so a row never moves when the session list re-sorts by last update.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "To check: the capsule's subagent and shell lists in features/subagents.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-146",
+      "window": "post-1120",
+      "pr": 65308,
+      "sha": "656c273638",
+      "title": "fix: fix Windows MCP pool and review toggle CI failures (review toggle focus)",
+      "merged": "2026-11-20",
+      "packages": [
+        "app",
+        "core"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/plugin/panels.tsx",
+        "packages/app/e2e/regression/review.spec.ts"
+      ],
+      "summary": "Closing the side panel from the review toggle in its strip hands focus to the header's copy of the toggle, not to the prompt (the strip toggle counts as the session's, not the panel's).",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "features/panels/src/state/actions.rs toggle_side_region returns focus to the prompt when focus was in the region, the strip toggle included (UP-131 put it there).",
+      "depends_on": "UP-131 (#65213)",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-147",
+      "window": "post-1120",
+      "pr": 65313,
+      "sha": "34411562e4",
+      "title": "fix(browser): keep the pane's tabs unless the person or the agent closes them",
+      "merged": "2026-11-20",
+      "packages": [
+        "app",
+        "gui-plugins",
+        "plugin"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/model.ts",
+        "packages/gui-plugins/src/browser/pane.ts",
+        "packages/gui-plugins/src/browser/chromium.ts",
+        "packages/gui-plugins/src/browser/errors.ts",
+        "packages/gui-plugins/src/browser/navigation-deadline.ts",
+        "packages/plugin/src/gui/browser.ts"
+      ],
+      "summary": "A browser tab stays in the pane after a failed or timed-out navigation or a page crash; only the person or the agent closing it removes it.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "To check in plugins/browser (tab model, navigation errors).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-6"
+    },
+    {
+      "id": "UP-148",
+      "window": "post-1120",
+      "pr": 65322,
+      "sha": "1bd37e7903",
+      "title": "fix(browser): keep every open tab in the strip",
+      "merged": "2026-11-20",
+      "packages": [
+        "app",
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/machine.ts",
+        "packages/gui-plugins/src/browser/model.ts",
+        "packages/gui-plugins/src/browser/pane-machine.ts"
+      ],
+      "summary": "Every open browser tab keeps its place in the side strip, including tabs restored or opened while the pane was hidden.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "To check in plugins/browser (pane machine, restore).",
+      "depends_on": "UP-147 (#65313)",
+      "risks": "none",
+      "workstream": "WS-6"
+    },
+    {
+      "id": "UP-149",
+      "window": "post-1120",
+      "pr": 65328,
+      "sha": "0811b42484",
+      "title": "fix(app): keep an open session's side tabs when old sessions are forgotten",
+      "merged": "2026-11-20",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/state/layout.tsx",
+        "packages/app/src/shell/state/helpers.ts",
+        "packages/app/src/shell/routes/routes.tsx"
+      ],
+      "summary": "Pruning remembered layout for old sessions no longer drops the side panel tabs of a session that is open.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "To check: features/panels per-session tab state pruning.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "SCREENS-B"
+    },
+    {
+      "id": "UP-150",
+      "window": "post-1120",
+      "pr": 65317,
+      "sha": "7f513b15b7",
+      "title": "feat(desktop): show session status on Windows taskbar progress bar",
+      "merged": "2026-11-20",
+      "packages": [
+        "app",
+        "desktop"
+      ],
+      "main_files": [
+        "packages/desktop/src/main/windows/taskbar-progress.ts",
+        "packages/desktop/src/main/ipc-handlers/window.ts",
+        "packages/app/src/desktop.ts",
+        "packages/app/src/shell/layout/project-avatar-state.ts",
+        "packages/desktop/src/renderer/desktop-app.tsx"
+      ],
+      "summary": "On Windows the taskbar button shows session status: an indeterminate bar while a session works, paused or error when one waits on a request or failed.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "No taskbar progress in rune-desktop; needs a Rune window API (ITaskbarList3).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-151",
+      "window": "post-1120",
+      "pr": 65339,
+      "sha": "46f56ea2d0",
+      "title": "fix(browser): copy sign-ins to a remote server's pages without stalling the app",
+      "merged": "2026-11-20",
+      "packages": [
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/profile/link.ts",
+        "packages/gui-plugins/src/browser/profile/link-machine.ts",
+        "packages/gui-plugins/src/browser/pane.ts",
+        "packages/gui-plugins/src/browser/chromium.ts"
+      ],
+      "summary": "Sharing sign-ins with a remote server's pages copies cookies off the main thread, in batches, so the app doesn't stall.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "\"Share sign-ins with remote servers\" is not built yet (follows WS-1's #286; see UP-120).",
+      "depends_on": "#286 (OS cookie encryption, CefCookieManager), UP-120 follow-ups",
+      "risks": "none",
+      "workstream": "WS-1"
     }
   ],
   "browser_security_review": {
