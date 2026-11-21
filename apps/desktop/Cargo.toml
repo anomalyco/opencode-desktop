@@ -89,7 +89,7 @@ rune-luau = { workspace = true, features = ["serde"] }
 mlua.workspace = true
 rune-register.workspace = true
 rune = { workspace = true, features = ["avif"] }
-rune-kit = { workspace = true, features = ["markdown", "mermaid"] }
+rune-kit = { workspace = true, features = ["markdown", "mermaid", "math"] }
 rune-theme-opencode.workspace = true
 serde_json.workspace = true
 serde = { version = "1", features = ["derive"] }

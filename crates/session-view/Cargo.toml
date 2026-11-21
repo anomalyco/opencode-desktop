@@ -16,7 +16,7 @@ opencode-runtime = { path = "../opencode-runtime" }
 opencode-search = { path = "../opencode-search" }
 opencode-ui = { path = "../opencode-ui" }
 rune.workspace = true
-rune-kit = { workspace = true, features = ["markdown", "mermaid"] }
+rune-kit = { workspace = true, features = ["markdown", "mermaid", "math"] }
 rune-knobs.workspace = true
 rune-parts = { path = "../rune-parts", features = ["view"] }
 rune-theme-opencode.workspace = true

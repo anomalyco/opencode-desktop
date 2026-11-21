@@ -86,7 +86,10 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
                 if let Some((id, row, y)) = s.layout.narrow.reading.borrow_mut().take()
                     && s.narrow() && s.active_session_id() == Some(id.as_str()) && !s.timeline_fx.ends.due(&id)
                 {
-                    tx.scroll_key_to(row, y - r[1]);
+                    // Preserve the scroller's `scrollTop` across the wide->narrow crossing as
+                    // Desktop's single DOM scroller does: narrow hides `HEADER_H` inside the
+                    // scroller while adding narrow chrome above it (`y` is relative to wide view top).
+                    tx.scroll_key_to(row, y - session_view::style::HEADER_H);
                     return;
                 }
                 tx.live_only();
