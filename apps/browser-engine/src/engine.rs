@@ -83,8 +83,7 @@ pub struct EngineManager {
     next_eref: u64,
     /// Agent commands waiting, in arrival order, for their tab's `WebAuthn.enable` reply.
     passkey_held: Vec<HostMsg>,
-    /// The Chrome services official lacks are off on `Default` (`context::lock_chrome_services`).
-    default_locked: bool,
+    default_locked: bool, // `context::lock_chrome_services` held on `Default`
     /// The app's scheme, once it said (`HostMsg::SetColorScheme`).
     dark: Option<bool>,
     /// The user's home directory, for filtering overly broad workspace `file_roots`.
@@ -132,8 +131,7 @@ impl EngineManager {
             crate::permissions::scrub_legacy_content_settings(&global);
             crate::context::disable_non_proxied_udp(&global);
         }
-        // The Chrome services official does not contain are off on `Default` too; if one cannot be
-        // turned off, `Default` tabs are refused rather than opened with it on (READER-7 N9).
+        // Chrome services official lacks, off on `Default` too; else `Default` tabs are refused (N9).
         let default_locked = cef::request_context_get_global_context().is_some_and(|g| crate::context::lock_chrome_services(&g));
         Self {
             tabs: HashMap::new(),
