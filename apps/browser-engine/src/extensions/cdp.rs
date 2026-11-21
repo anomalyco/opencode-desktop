@@ -39,6 +39,26 @@ impl ExtensionHost {
                     self.cleanup_detached_session(sid);
                 }
             }
+            "Runtime.exceptionThrown" => {
+                if let Some(sid) = session_id
+                    && let Some(ext_id) = self
+                        .sessions
+                        .get(&sid)
+                        .filter(|s| s.kind == SessionKind::ServiceWorker)
+                        .map(|s| s.ext_id.clone())
+                {
+                    self.metrics.sw_uncaught_exceptions += 1;
+                    if self.metrics.sw_exception_samples.len() < 16 {
+                        let details = params.get("exceptionDetails");
+                        let desc = details
+                            .and_then(|d| d.pointer("/exception/description").or_else(|| d.get("text")))
+                            .and_then(Value::as_str)
+                            .unwrap_or("uncaught exception");
+                        let sample: String = format!("{ext_id}: {desc}").chars().take(200).collect();
+                        self.metrics.sw_exception_samples.push(sample);
+                    }
+                }
+            }
             "Fetch.requestPaused" => {
                 if let Some(sid) = session_id
                     && let Some(req_id) = params.get("requestId").and_then(Value::as_str)

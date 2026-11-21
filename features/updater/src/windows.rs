@@ -136,12 +136,12 @@ impl Platform for Windows {
 
     fn stage(&self, progress: &dyn Fn(u64, u64)) -> Result<(), String> {
         let found = self.engine.found().ok_or_else(|| "No update to download".to_owned())?;
-        let staged_dir = beside(&self.root, &format!("ready-{}", found.target.sha256));
-        if receipt::staged_matches(&staged_dir, &found.version, &found.target.sha256) {
+        if let Some(staged_dir) = receipt::staged_dir_if_matches(&self.root, &found.version, &found.target.sha256) {
             self.verify_quick(&staged_dir)?;
             *self.staged.lock().unwrap_or_else(|e| e.into_inner()) = Some(Staged { version: found.version, sha256: found.target.sha256, dir: staged_dir });
             return Ok(());
         }
+        let staged_dir = beside(&self.root, &format!("ready-{}", found.target.sha256));
         if let Ok(staged) = self.staged.lock()
             && let Some(st) = staged.as_ref()
             && st.sha256 == found.target.sha256
@@ -164,9 +164,28 @@ impl Platform for Windows {
             unpack_zip(&zip, &unpack)?;
             let app = locate(&unpack)?;
             self.verify(&app)?;
-            std::fs::rename(&app, &staged_dir).map_err(|e| format!("could not stage the update: {e}"))?;
-            receipt::stage(&staged_dir, &found.version, &found.target.sha256)?;
-            Ok(Staged { version: found.version, sha256: found.target.sha256, dir: staged_dir.clone() })
+            let dest = match std::fs::symlink_metadata(&staged_dir) {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => staged_dir.clone(),
+                Ok(_) => match bundle::retire(&staged_dir) {
+                    Ok(_) => staged_dir.clone(),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => staged_dir.clone(),
+                    Err(why) => {
+                        // A stale dir with a file held open by another process or a planted
+                        // junction/reparse point is left untouched (preserving any link target),
+                        // while we route around to a unique sibling directory so the update completes.
+                        log(&format!("updater: leaving obstructed stage {} untouched ({why}); routing around", staged_dir.display()));
+                        let alt = beside(&self.root, &format!("ready-{}-{}-{seq}", found.target.sha256, std::process::id()));
+                        if std::fs::symlink_metadata(&alt).is_ok() {
+                            return Err(format!("could not stage the update: fallback path {} already exists", alt.display()));
+                        }
+                        alt
+                    }
+                },
+                Err(e) => return Err(format!("could not inspect staged path: {e}")),
+            };
+            std::fs::rename(&app, &dest).map_err(|e| format!("could not stage the update: {e}"))?;
+            receipt::stage(&dest, &found.version, &found.target.sha256)?;
+            Ok(Staged { version: found.version, sha256: found.target.sha256, dir: dest })
         })();
         std::fs::remove_dir_all(&download).ok();
         std::fs::remove_dir_all(&unpack).ok();
@@ -333,19 +352,39 @@ fn sweep(root: &Path, updates: &Path) {
     repair_interrupted(root);
     let root_intact = root.join(EXE).is_file();
     let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let keep_ready = receipt::staged()
+        .and_then(|st| st.staged_path(root).file_name().map(|n| n.to_string_lossy().into_owned()));
     if let Some(parent) = root.parent()
         && let Ok(entries) = std::fs::read_dir(parent)
     {
+        let old_prefix = format!(".{name}.old-");
+        let staging_prefix = format!(".{name}.staging-");
+        let ready_prefix = format!(".{name}.ready-");
         for e in entries.flatten() {
             let n = e.file_name().to_string_lossy().into_owned();
-            if root_intact && n.strip_prefix(&format!(".{name}.old-")).and_then(|pid| pid.parse::<u32>().ok()).is_some() {
+            if root_intact && n.strip_prefix(&old_prefix).and_then(|pid| pid.parse::<u32>().ok()).is_some() {
                 // A locked image does not protect the assets beside it. Never remove even one
                 // entry on a refusal; another launch tries again. Stages belong to their helper.
                 bundle::retire(&e.path()).ok();
-            } else if let Some(pid) = n.strip_prefix(&format!(".{name}.staging-")).and_then(|s| s.split_once('-')).and_then(|(p, _)| p.parse::<u32>().ok())
+            } else if let Some(pid) = n.strip_prefix(&staging_prefix).and_then(|s| s.split_once('-')).and_then(|(p, _)| p.parse::<u32>().ok())
                 && bundle::process_gone(pid)
             {
-                std::fs::remove_dir_all(e.path()).ok();
+                bundle::retire(&e.path()).ok();
+            } else if root_intact
+                && let Some(rest) = n.strip_prefix(&ready_prefix)
+                && keep_ready.as_deref().is_none_or(|k| !k.eq_ignore_ascii_case(&n))
+            {
+                // Reclaim orphaned `.ready-<older_sha>` folders from skipped releases (matching
+                // official `installer.nsh:152-215` `removeStagedUpdates`), keeping any routed-around
+                // stage owned by a still-living process.
+                let live_owner = rest
+                    .split_once('-')
+                    .and_then(|(_, tail)| tail.split_once('-'))
+                    .and_then(|(pid, _)| pid.parse::<u32>().ok())
+                    .is_some_and(|pid| pid == std::process::id() || !bundle::process_gone(pid));
+                if !live_owner {
+                    bundle::retire(&e.path()).ok();
+                }
             }
         }
     }
@@ -386,7 +425,7 @@ fn repair_interrupted(root: &Path) {
     }
     let Some(old) = dead_old else { return };
     if let Some(st) = receipt::staged() {
-        let staged_dir = beside(root, &format!("ready-{}", st.sha256));
+        let staged_dir = st.staged_path(root);
         if bundle::matches_id(&staged_dir, &st.bundle) && std::fs::rename(&staged_dir, root).is_ok() {
             log(&format!("updater: completed interrupted swap of {} into {}", st.version, root.display()));
             return;
