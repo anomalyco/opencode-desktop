@@ -85,6 +85,15 @@ pub struct TabPrompts {
 }
 
 impl TabPrompts {
+    /// Whether the agent owns the tab's native dialogs now: driven by the agent and not taken back
+    /// by the person's own input since its last command (official `policy.ts:175-177`
+    /// `activityOwner`; `control: "reclaimed"` is `user_reclaimed`). File pickers follow this, not
+    /// `agent_driven`, which stays set for the restrictions that outlive a takeover (passkeys,
+    /// inherited permissions: `policy.ts:132-135`).
+    pub fn agent_owns_dialogs(&self) -> bool {
+        self.agent_driven.load(Ordering::Acquire) && !self.user_reclaimed.load(Ordering::Acquire)
+    }
+
     pub fn set_pending_top_url(&self, url: Option<String>) {
         *self.pending_top_url.lock().unwrap() = url;
     }
@@ -860,7 +869,7 @@ wrap_dialog_handler! {
             _accept_descriptions: Option<&mut CefStringList>,
             callback: Option<&mut FileDialogCallback>,
         ) -> ::std::os::raw::c_int {
-            if self.is_preview || self.prompts.agent_driven.load(Ordering::Relaxed) {
+            if self.is_preview || self.prompts.agent_owns_dialogs() {
                 if let Some(cb) = callback {
                     cb.cancel();
                 }

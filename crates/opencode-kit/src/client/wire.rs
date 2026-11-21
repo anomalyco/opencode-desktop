@@ -97,6 +97,8 @@ pub enum TicketKind {
     Fork,
     /// A queued or pending prompt's steer, move, removal or undo (`Deliver`, `Cancel`).
     Inbox,
+    /// `Write::View`, reporting a session viewed.
+    View,
 }
 
 pub enum Request {

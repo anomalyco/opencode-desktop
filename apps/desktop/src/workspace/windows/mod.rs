@@ -61,6 +61,8 @@ pub struct Window {
     pub hidden: bool,
     /// Its display scale before or outside `view` (from the opening display, `placement`, or web).
     pub scale: f32,
+    /// It holds the keyboard (`on_focus`): only then does it report what's seen as viewed.
+    pub focused: bool,
 }
 
 impl Window {

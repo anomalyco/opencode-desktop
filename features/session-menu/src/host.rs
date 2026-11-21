@@ -138,6 +138,16 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
         false
     }
 
+    /// Reports root session `root` viewed up to its latest idle mark when it's unread
+    /// (`notification.session.markViewed`).
+    fn mark_viewed(&mut self, root: &str) {
+        let Some(idle) = self.session(root).filter(|info| info.unread()).and_then(|info| info.idle) else { return };
+        if let Some(info) = self.sessions_mut().and_then(|sessions| sessions.iter_mut().find(|i| i.id == root)) {
+            info.viewed = Some(idle);
+        }
+        self.write_server(Write::View { session: root.to_owned(), idle });
+    }
+
     /// Display label for `server` (used in error formatting and labels).
     fn server_label(&self, server: &ServerKey) -> String {
         server.as_str().to_owned()

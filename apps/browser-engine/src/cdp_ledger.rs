@@ -537,19 +537,15 @@ wrap_dev_tools_message_observer! {
                 // last message in `obs.send`), matching `chromium.ts:619`.
                 let resume = obs.send.pop();
                 obs.send.extend(self.passkeys.attach_messages(Some(child_sid)));
-                if self.is_preview
-                    || self.prompts.agent_driven.load(std::sync::atomic::Ordering::Acquire)
-                {
+                if self.is_preview || self.prompts.agent_owns_dialogs() {
                     obs.send.push(self.passkeys.file_chooser_intercept_msg(true, Some(child_sid)));
                 }
                 if let Some(r) = resume {
                     obs.send.push(r);
                 }
             }
-            if method == "Page.fileChooserOpened"
-                && (self.is_preview
-                    || self.prompts.agent_driven.load(std::sync::atomic::Ordering::Acquire))
-            {
+            // Only a picker the intercept cancelled is reported (official `file-choosers.ts:9-11`).
+            if method == "Page.fileChooserOpened" && (self.is_preview || self.prompts.agent_owns_dialogs()) {
                 let _ = self.out_tx.send(EngineMsg::FileChooserBlocked { tab_id: self.tab_id });
             }
             let (pk_send, pk_consumed) = self.passkeys.observe_event(

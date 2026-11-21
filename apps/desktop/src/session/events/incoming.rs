@@ -62,6 +62,7 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             // Terminals that failed under the old connection attach again (`server.connected`).
             s.kernel.slots.get_mut(&crate::terminal::TERMINAL).connections += 1;
             s.pump_outbox();
+            crate::session_viewed::connected(s);
             s.stream_back();
             s.check_sends();
             s.resync_view();
@@ -123,6 +124,7 @@ fn settled(s: &mut App, ticket: Ticket, result: Result<Option<SessionInfo>, open
         TicketKind::Revert => s.revert_settled(session, attempt, result.map(|_| ())),
         TicketKind::Fork => fork::settled(s, attempt, result, tx),
         TicketKind::Inbox => s.queue_settled(session, attempt, result.map(|_| ()).map_err(Some)),
+        TicketKind::View => crate::session_viewed::settled(s, session, attempt, result),
     }
 }
 
