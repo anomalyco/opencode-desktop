@@ -132,8 +132,8 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                     .key("main")
                     .grow(1.0)
                     .gap(2.0)
-                    .child(text(label.clone()).key("label").font(STRONG).color(p.text).wrap())
-                    .children((!desc.is_empty()).then(|| text(desc.clone()).key("description").font(DESC).color(p.muted).wrap())),
+                    .child(text(label.clone()).key("label").dir(rune::Direction::Auto).font(STRONG).color(p.text).wrap())
+                    .children((!desc.is_empty()).then(|| text(desc.clone()).key("description").dir(rune::Direction::Auto).font(DESC).color(p.muted).wrap())),
             );
         let opt = if live {
             opt.cursor(rune::Cursor::Pointer)

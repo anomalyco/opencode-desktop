@@ -205,7 +205,7 @@ fn tabs<H: SettingsHost + 'static>(p: &Pal, on: ExtensionsTab) -> El {
             .focus_selected(picked)
             .focus_default(p)
             .cursor(Cursor::Pointer)
-            .hover_group()
+            .hover_group_focus()
             .h(24.0)
             .center()
             .radius(6.0)

@@ -2158,9 +2158,13 @@ return plugin.defineWindow(function(ctx)
             return bAny:ImportSignInsAsync(choice.sourceId, choice.profileId)
         end)
         local pages = 0
-        if type(bAny.HistoryImportProfile) == "function" then
+        -- The history read runs off the UI thread (`HistoryImportProfileAsync`) where the host has it.
+        local historyImport = if type(bAny.HistoryImportProfileAsync) == "function" then "HistoryImportProfileAsync"
+            elseif type(bAny.HistoryImportProfile) == "function" then "HistoryImportProfile"
+            else nil
+        if historyImport ~= nil then
             local hok, hres = pcall(function()
-                return bAny:HistoryImportProfile(choice.sourceId, choice.profileId)
+                return bAny[historyImport](bAny, choice.sourceId, choice.profileId)
             end)
             if hok and type(hres) == "table" and type(hres.imported) == "number" then
                 pages = hres.imported
