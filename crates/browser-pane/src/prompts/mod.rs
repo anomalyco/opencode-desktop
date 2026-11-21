@@ -676,6 +676,8 @@ pub struct TabPromptState {
     pub passkey_interrupted: bool,
     /// Count of blocked native file choosers on agent-driven tabs.
     pub file_chooser_blocked: u64,
+    /// One-shot pending agent interruption for a blocked native file picker (`file-choosers.ts:10`).
+    pub agent_file_chooser_blocked: bool,
     /// Active dismissible controlled-tab notice reason on this document.
     pub blocked_guard_notice: Option<BlockedGuardReason>,
     /// 500 ms activation delay for `"Open in new tab"` on `blocked_guard_notice`.
@@ -731,6 +733,7 @@ impl TabPromptState {
                 self.dialog.on_document_committed();
                 self.document_input = false;
                 self.agent_passkey_refused = None;
+                self.agent_file_chooser_blocked = false;
                 self.passkey_noticed = false;
                 self.passkey_interrupted = false;
             }
@@ -769,6 +772,7 @@ impl TabPromptState {
         self.document = 0;
         self.document_input = false;
         self.agent_passkey_refused = None;
+        self.agent_file_chooser_blocked = false;
         self.passkey_noticed = false;
         self.passkey_interrupted = false;
     }
@@ -781,6 +785,7 @@ impl TabPromptState {
         self.auth_dismissed.clear();
         self.agent_auth_required = None;
         self.agent_passkey_refused = None;
+        self.agent_file_chooser_blocked = false;
         self.passkey_noticed = false;
         self.passkey_interrupted = false;
         self.clear_blocked_guard_notice();
@@ -812,6 +817,7 @@ impl TabPromptState {
         self.popup.dismiss();
         self.agent_auth_required = None;
         self.agent_passkey_refused = None;
+        self.agent_file_chooser_blocked = false;
         self.passkey_noticed = false;
         self.passkey_interrupted = false;
         self.clear_blocked_guard_notice();

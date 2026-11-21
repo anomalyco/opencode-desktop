@@ -232,6 +232,18 @@ impl TabPasskeyGate {
         vec![add_binding, add_script]
     }
 
+    /// Builds `Page.setInterceptFileChooserDialog` (`file-choosers.ts:19`) for root (`None`) or
+    /// an OOPIF session (`Some(sid)`), suppressing HTML file inputs & File System Access pickers
+    /// in Blink while the tab is agent-driven or a preview.
+    pub fn file_chooser_intercept_msg(&self, enabled: bool, session_id: Option<&str>) -> String {
+        self.build_cdp(
+            "Page.setInterceptFileChooserDialog",
+            json!({ "enabled": enabled, "cancel": enabled }),
+            session_id,
+        )
+        .1
+    }
+
     /// Permanently enforces passkey refusal for this tab (idempotent, never undone): returns
     /// `WebAuthn.enable { enableUI: false }` the first time (or after a failed attempt) so every
     /// frame in the tab's tree (including OOPIFs) fails inside Chromium without touching OS UI.

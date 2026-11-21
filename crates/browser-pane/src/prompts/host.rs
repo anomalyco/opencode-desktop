@@ -300,6 +300,13 @@ impl crate::BrowserHost {
             .and_then(|t| t.prompts.agent_passkey_refused.take())
     }
 
+    pub fn take_agent_file_chooser_blocked(&mut self, tab_id: u64) -> bool {
+        self.tabs
+            .iter_mut()
+            .find(|t| t.id == tab_id)
+            .is_some_and(|t| std::mem::take(&mut t.prompts.agent_file_chooser_blocked))
+    }
+
     pub(crate) fn handle_prompt_msg(&mut self, msg: EngineMsg) -> bool {
         let now = Instant::now();
         match msg {
@@ -456,6 +463,9 @@ impl crate::BrowserHost {
             EngineMsg::FileChooserBlocked { tab_id } => {
                 if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
                     t.prompts.file_chooser_blocked = t.prompts.file_chooser_blocked.saturating_add(1);
+                    if t.prompts.agent_driven {
+                        t.prompts.agent_file_chooser_blocked = true;
+                    }
                     t.prompts.set_blocked_guard_notice(BlockedGuardReason::Action, now);
                     true
                 } else {
