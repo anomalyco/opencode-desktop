@@ -105,6 +105,73 @@ impl crate::BrowserHost {
         self.caps.remote_proxy()
     }
 
+    pub fn engine_agent_tools(&self) -> bool {
+        self.caps.agent_tools()
+    }
+
+    /// Whether `tab_id` has been sent to a connected engine (`OpenTab` already flushed).
+    pub fn tab_open_in_engine(&self, tab_id: u64) -> bool {
+        self.is_connected()
+            && self.tabs.iter().any(|t| t.id == tab_id)
+            && !self.pending_opens.iter().any(|(id, _)| *id == tab_id)
+    }
+
+    /// Discards any buffered or future CDP response for `request_id` so cancelled commands never
+    /// leak orphaned entries in `cdp_responses`.
+    pub fn cancel_cdp(&mut self, request_id: u64) {
+        self.cdp_responses.remove(&request_id);
+        if let Some(pos) = self.cdp_response_order.iter().position(|&id| id == request_id) {
+            self.cdp_response_order.remove(pos);
+        }
+        if self.cancelled_cdp.len() >= 1_024 {
+            self.cancelled_cdp.pop_front();
+        }
+        self.cancelled_cdp.push_back(request_id);
+    }
+
+    pub fn has_cdp_events(&self) -> bool {
+        !self.cdp_events.is_empty()
+    }
+
+    pub fn drain_cdp_events(&mut self) -> impl Iterator<Item = crate::client::CdpEvent> + '_ {
+        self.cdp_events.drain(..)
+    }
+
+    /// Sends a typed CDP call allowed by [`crate::policy::check_typed_cdp`] exclusively for native
+    /// Rust `experimental.browser` executors (never exposed to untrusted Luau plugins). Falls back
+    /// to `HostMsg::CdpCall` for methods already permitted by `check_cdp`.
+    pub fn send_typed_cdp(
+        &mut self,
+        tab_id: u64,
+        method: impl Into<String>,
+        params: serde_json::Value,
+        session_id: Option<String>,
+    ) -> Result<u64, String> {
+        let method = method.into();
+        crate::policy::check_typed_cdp(&method, &params, self.engine_policy())?;
+        let request_id = self.next_req_id;
+        self.next_req_id += 1;
+        if self.engine_agent_tools() {
+            self.send(crate::protocol::HostMsg::TypedCdpCall {
+                tab_id,
+                request_id,
+                method,
+                params,
+                session_id,
+            });
+            return Ok(request_id);
+        }
+        crate::policy::check_cdp(&method, &params, self.engine_policy())?;
+        self.send(crate::protocol::HostMsg::CdpCall {
+            tab_id,
+            request_id,
+            method,
+            params,
+            session_id,
+        });
+        Ok(request_id)
+    }
+
     /// Returns the currently registered loopback tunnel proxy for `server_id`, if any.
     pub fn remote_proxy(&self, server_id: &str) -> Option<&crate::protocol::RemoteProxyConfig> {
         self.remote_proxies.get(server_id.trim())
