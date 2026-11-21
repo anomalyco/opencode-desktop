@@ -7,6 +7,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+browser-policy = { path = "../../crates/browser-policy" }
 bytemuck = { version = "1", features = ["derive"] }
 office-preview = { path = "../../crates/office-preview" }
 opencode-kernel = { path = "../../crates/opencode-kernel" }
