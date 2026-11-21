@@ -1036,18 +1036,24 @@ impl BrowserHost {
             let engine_fav_changed = *last_eng_fav != snap.favicon;
             *last_eng_fav = snap.favicon.clone();
             let resolved_favicon = if engine_fav_changed {
-                if let Some(fav) = &snap.favicon && !snap.url.is_empty() && snap.url != "about:blank" {
-                    if url_favs.len() >= 32 && !url_favs.contains_key(&snap.url) {
-                        url_favs.clear();
-                    }
-                    url_favs.insert(snap.url.clone(), fav.clone());
-                }
                 snap.favicon
             } else if url_changed {
                 url_favs.get(&snap.url).cloned().or(snap.favicon)
             } else {
                 t.favicon.clone()
             };
+            // A page that shares its icon with the one before it never reports a changed favicon,
+            // so each settled page's icon is kept too, not only the ones that changed.
+            if (engine_fav_changed || (!url_changed && !snap.loading))
+                && let Some(fav) = &resolved_favicon
+                && !snap.url.is_empty()
+                && snap.url != "about:blank"
+            {
+                if url_favs.len() >= 32 && !url_favs.contains_key(&snap.url) {
+                    url_favs.clear();
+                }
+                url_favs.insert(snap.url.clone(), fav.clone());
+            }
             let changed = url_changed
                 || t.title != snap.title
                 || t.loading != snap.loading
