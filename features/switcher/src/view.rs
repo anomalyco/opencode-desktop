@@ -8,6 +8,7 @@ use opencode_i18n::t;
 use opencode_kit::model::{Project, SessionInfo};
 use opencode_kit::servers::ServerKey;
 use opencode_search::fulltext::{Kind as FullTextKind, Snippet};
+use opencode_ui::focus::FocusExt as _;
 use opencode_ui::keymap::{LABEL as KEYMAP_LABEL, caps as keymap_caps, chips as keymap_chips};
 use opencode_ui::widgets::DialogSize;
 use rune::{Color, Cx, Direction, El, PointerEvent, Span, Spring, TextStyle, Transition, Tx, col, el, icon, row, text};
@@ -71,8 +72,9 @@ fn stacked(s: &dyn SwitcherHost, e: &Entry) -> bool {
 const GAP: f32 = 2.0;
 /// `search-list-empty`'s height.
 const EMPTY_H: f32 = 120.0;
-/// `command-palette-meta`: tabular figures.
-const META: TextStyle = UI.features("\"tnum\"");
+/// `command-palette-meta` (`packages/app/src/shell/commands/dialog.css:62-76`): 11/16 at 440,
+/// +0.05 tracking, tabular figures.
+const META: TextStyle = TextStyle::new(11.0, 440.0).lh(16.0).tracking(0.05).features("\"tnum\"");
 
 /// The first match of the query in `s`, in the accent colour (`SearchHighlight`).
 pub fn highlighted(s: &str, q: &str, style: TextStyle, color: Color, accent: Color) -> El {
@@ -433,6 +435,7 @@ fn entry_row_shell(s: &dyn SwitcherHost, p: &Pal, e: &Entry, active: bool, q: &s
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
         .fill(if active { p.hover } else { Color::TRANSPARENT })
         // A contrast theme's highlight is an edge, not only a wash it may lose.
         .border(if active && p.forced { 2.0 } else { 0.0 }, p.text)
@@ -477,6 +480,8 @@ fn unhide_button_shell(p: &Pal) -> (El, f32) {
         .px(8.0)
         .center_y()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_inset(p)
         .hover(p.hover)
         .press(p.pressed)
         .child(text(label.to_owned()).font(UI).color(p.muted));

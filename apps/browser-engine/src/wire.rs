@@ -312,6 +312,15 @@ pub enum HostMsg {
     PreviewResponseChunk { req_id: u64, data_b64: String },
     /// Marks EOF (`ok: true`) or failure (`ok: false`) for a pending `EngineMsg::PreviewFetch`.
     PreviewResponseEnd { req_id: u64, ok: bool },
+    /// User clicked or dismissed an OS notification posted by an extension (`chrome.notifications`).
+    ExtensionNotificationEvent {
+        ext_id: String,
+        notif_id: String,
+        clicked: bool,
+        by_user: bool,
+    },
+    /// Whether the app's OS notification sink & Settings > Notifications allow extension toasts.
+    SetNotificationsEnabled { enabled: bool },
     Shutdown,
 }
 
@@ -365,6 +374,9 @@ pub enum EngineMsg {
         /// The engine enforces the WebAuthn / passkey gate (`TabPasskeyGate`) and emits `PasskeyRefused`.
         #[serde(default)]
         passkeys: bool,
+        /// The engine enforces committed-main-frame renderer PID trace isolation and a single engine-wide trace lock.
+        #[serde(default)]
+        trace_isolation: bool,
     },
     ProfileCookies { request_id: u64, cookies: Vec<WireCookie> },
     ProfileCookiesImported { request_id: u64, imported: u32, failed: u32 },
@@ -485,6 +497,18 @@ pub enum EngineMsg {
     },
     ExtensionIntegrityFailed {
         ext_id: String,
+    },
+    /// Extension called `chrome.notifications.create`/`update`; app posts via OS notification center.
+    ExtensionNotificationShow {
+        ext_id: String,
+        ext_name: String,
+        notif_id: String,
+        body: String,
+    },
+    /// Extension cleared or uninstalled a notification; app removes it from OS notification center.
+    ExtensionNotificationClear {
+        ext_id: String,
+        notif_id: String,
     },
     ExtensionMetrics {
         request_id: u64,

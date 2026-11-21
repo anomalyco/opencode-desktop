@@ -21,6 +21,9 @@ use crate::App;
 const UPLOADS_DIR: &str = "opencode-page-uploads";
 const UPLOADS_MARKER: &str = ".opencode-page-uploads";
 const MAX_UPLOAD_FILES: usize = 8;
+/// Staged files one tab keeps at once, and their bytes.
+const MAX_TAB_UPLOAD_FILES: usize = 64;
+const MAX_TAB_UPLOAD_BYTES: u64 = 64 * 1024 * 1024;
 
 pub(super) struct UploadState {
     pub host_id: u64,
@@ -193,6 +196,19 @@ fn stage_files(profile_dir: &Path, host_id: u64, files: &[WireFile]) -> Result<V
     std::fs::write(root.join(UPLOADS_MARKER), b"")
         .map_err(|e| format!("Could not mark upload staging dir: {e}"))?;
 
+    // Staged files stay while the page may still submit them (until the tab closes), so a tab
+    // gets a bounded number: a further upload is refused, never one the page holds deleted.
+    let tab_dir = root.join(host_id.to_string());
+    let (slots, bytes) = std::fs::read_dir(&tab_dir).map_or((0, 0u64), |dir| {
+        dir.flatten()
+            .flat_map(|slot| std::fs::read_dir(slot.path()).into_iter().flatten().flatten())
+            .fold((0usize, 0u64), |(n, b), f| (n + 1, b + f.metadata().map_or(0, |m| m.len())))
+    });
+    if slots + files.len() > MAX_TAB_UPLOAD_FILES || bytes > MAX_TAB_UPLOAD_BYTES {
+        return Err(format!(
+            "This tab already holds {slots} uploaded files; at most {MAX_TAB_UPLOAD_FILES} (64 MiB) stay staged per tab. Open the page in a new tab to upload more; closing this tab frees its files."
+        ));
+    }
     let mut total_bytes = 0usize;
     let mut staged = Vec::with_capacity(files.len());
     for file in files {

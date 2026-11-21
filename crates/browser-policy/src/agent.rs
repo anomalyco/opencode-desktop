@@ -125,13 +125,16 @@ pub fn check_typed_cdp(method: &str, params: &serde_json::Value, engine_has_poli
         | "Profiler.start"
         | "Profiler.stop"
         | "Profiler.disable"
-        | "Tracing.start"
         | "Tracing.end"
-        | "IO.read"
-        | "IO.close"
         | "HeapProfiler.enable"
         | "HeapProfiler.takeHeapSnapshot"
         | "HeapProfiler.disable" => Ok(()),
+        "Tracing.start" => {
+            if params.get("transferMode").and_then(serde_json::Value::as_str) != Some("ReportEvents") {
+                return Err("DevTools method 'Tracing.start' only permits transferMode 'ReportEvents'.".into());
+            }
+            Ok(())
+        }
         "Input.dispatchDragEvent" => {
             if params
                 .get("data")

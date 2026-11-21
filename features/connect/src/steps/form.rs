@@ -86,7 +86,7 @@ fn form_error_el(p: &Pal, f: &form::Form) -> Option<El> {
 }
 
 fn cont<H: ConnectHost + 'static>(p: &Pal, enabled: bool) -> El {
-    ui::button(opencode_i18n::t!("common.continue"), ButtonVariant::Contrast)
+    ui::button(opencode_i18n::t!("common.continue"), ButtonVariant::Submit)
         .disabled(!enabled)
         .on_press_tx(|s: &mut H, tx: &mut Tx| submit_continue(s, tx))
         .build(kit(p))
@@ -113,7 +113,7 @@ fn external<H: ConnectHost + 'static>(p: &Pal, f: &form::Form, url: &str, browse
                     .busy(opening),
             )
             .child(
-                ui::button(opencode_i18n::t!("provider.connect.form.finished"), ButtonVariant::Contrast)
+                ui::button(opencode_i18n::t!("provider.connect.form.finished"), ButtonVariant::Submit)
                     .disabled(!f.can_finish())
                     .on_press_tx(|s: &mut H, tx: &mut Tx| form_input(s, form::Input::Submitted, tx))
                     .build(kit(p))

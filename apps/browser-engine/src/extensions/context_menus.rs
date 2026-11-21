@@ -5,16 +5,22 @@
 #![forbid(unsafe_code)]
 
 use std::collections::{BTreeMap, HashSet};
+use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::extensions::manifest::{extension_label, is_private_url, matches_host};
+use crate::extensions::integrity::read_regular_file_bounded;
+use crate::extensions::manifest::{
+    extension_label, is_extension_scheme, is_private_url, is_valid_ext_id, matches_host,
+};
 use crate::wire::{ExtensionMenuGroup, ExtensionMenuItem, ExtensionMenuItemKind};
 
 const MAX_ITEMS_PER_EXT: usize = 256;
 const MAX_SERIALIZED_BYTES: usize = 256 * 1024;
 const MAX_MENU_DEPTH: usize = 6;
 const MAX_GROUPS: usize = 32;
+const MAX_TOTAL_ITEMS: usize = 512;
 
 /// What was right-clicked on a page (`context-menus.ts:45-51`).
 #[derive(Clone, Debug, Default)]
@@ -57,15 +63,19 @@ impl MenuTarget {
         ctxs
     }
 
-    fn has_private_url(&self) -> bool {
-        is_private_url(&self.page_url)
-            || is_private_url(&self.frame_url)
-            || self.link_url.as_deref().is_some_and(is_private_url)
-            || self.src_url.as_deref().is_some_and(is_private_url)
+    /// Returns `true` if any target URL is private (`file:`, `oc-preview:`, `artifact:`,
+    /// `workspace:`) or `chrome-extension://` so cross-extension pages/frames/resources never
+    /// leak into another extension's `contextMenus.onClicked` (`review-rd294.md` #447 SF #1).
+    pub fn has_private_url(&self) -> bool {
+        let excluded = |u: &str| is_private_url(u) || is_extension_scheme(u);
+        excluded(&self.page_url)
+            || excluded(&self.frame_url)
+            || self.link_url.as_deref().is_some_and(excluded)
+            || self.src_url.as_deref().is_some_and(excluded)
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct StoredMenuItem {
     id: String,
     id_is_num: bool,
@@ -81,33 +91,75 @@ struct StoredMenuItem {
     target_url_patterns: Option<Vec<String>>,
 }
 
+/// Persisted archive matching official `context-menus.ts:37-42` (`MenuArchive`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct MenuArchive {
+    version: String,
+    items: Vec<StoredMenuItem>,
+}
+
 #[derive(Clone, Debug, Default)]
 struct ExtMenus {
     name: String,
+    version: String,
     items: Vec<StoredMenuItem>,
 }
 
 /// Shared catalog of registered extension context-menu items across loaded extensions with the
-/// `"contextMenus"` permission.
+/// `"contextMenus"` permission, persisted per extension version under `<profile>/opencode-ext-menus/`.
 #[derive(Clone, Debug, Default)]
 pub struct ExtensionContextMenuCatalog {
     by_ext: BTreeMap<String, ExtMenus>,
+    storage_dir: Option<PathBuf>,
 }
 
 impl ExtensionContextMenuCatalog {
-    pub fn set_extension_name(&mut self, ext_id: &str, name: &str) {
+    pub fn with_storage_dir(storage_dir: PathBuf) -> Self {
+        Self { by_ext: BTreeMap::new(), storage_dir: Some(storage_dir) }
+    }
+
+    /// Configures `(ext_id, name, version)` and restores persisted menu items when `has_permission`
+    /// is true and the on-disk archive matches `version` (`context-menus.ts:40-42`).
+    pub fn configure_extension(
+        &mut self,
+        ext_id: &str,
+        name: &str,
+        version: &str,
+        has_permission: bool,
+    ) {
+        if !has_permission {
+            self.by_ext.remove(ext_id);
+            self.delete_archive(ext_id);
+            return;
+        }
+        let clean_name = extension_label(name);
+        let already_loaded_same = self
+            .by_ext
+            .get(ext_id)
+            .is_some_and(|e| e.version == version && !e.items.is_empty());
+        if already_loaded_same {
+            if let Some(e) = self.by_ext.get_mut(ext_id) {
+                e.name = clean_name;
+            }
+            return;
+        }
+        let restored = self.load_archive(ext_id, version);
         let entry = self.by_ext.entry(ext_id.to_owned()).or_default();
-        entry.name = extension_label(name);
+        entry.name = clean_name;
+        entry.version = version.to_owned();
+        entry.items = restored;
     }
 
     pub fn remove_extension(&mut self, ext_id: &str) {
         self.by_ext.remove(ext_id);
+        self.delete_archive(ext_id);
     }
 
     pub fn clear_extension(&mut self, ext_id: &str) {
         if let Some(entry) = self.by_ext.get_mut(ext_id) {
             entry.items.clear();
         }
+        self.delete_archive(ext_id);
     }
 
     pub fn create(&mut self, ext_id: &str, ext_name: &str, props: &Value) -> Result<(), String> {
@@ -117,6 +169,7 @@ impl ExtensionContextMenuCatalog {
         let (id, id_is_num) = parse_id(obj.get("id")).unwrap_or_else(|| (String::new(), false));
         let entry = self.by_ext.entry(ext_id.to_owned()).or_insert_with(|| ExtMenus {
             name: extension_label(ext_name),
+            version: String::new(),
             items: Vec::new(),
         });
         if entry.name.is_empty() {
@@ -154,6 +207,7 @@ impl ExtensionContextMenuCatalog {
             return Err("Context menu storage limit exceeded.".into());
         }
         entry.items.push(item);
+        self.persist_extension(ext_id);
         Ok(())
     }
 
@@ -170,6 +224,7 @@ impl ExtensionContextMenuCatalog {
         let Some(pos) = entry.items.iter().position(|i| i.id == id) else {
             return Err(format!("Cannot find menu item with id {id}."));
         };
+        let mut updated = entry.items[pos].clone();
         if let Some((pid, is_num)) = obj.get("parentId").and_then(|v| parse_id(Some(v))) {
             if !entry.items.iter().any(|i| i.id == pid) {
                 return Err(format!("Cannot find menu item with id {pid}."));
@@ -177,34 +232,41 @@ impl ExtensionContextMenuCatalog {
             if is_ancestor(&entry.items, &pid, &id) {
                 return Err(format!("Cannot make menu item {id} a descendant of itself."));
             }
-            entry.items[pos].parent_id = Some(pid);
-            entry.items[pos].parent_is_num = is_num;
+            updated.parent_id = Some(pid);
+            updated.parent_is_num = is_num;
         }
-        let item = &mut entry.items[pos];
         if let Some(t) = obj.get("title").and_then(Value::as_str) {
-            item.title = t.chars().take(256).collect();
+            updated.title = t.chars().take(256).collect();
         }
         if obj.get("type").is_some() {
-            item.kind = parse_kind(obj.get("type"));
+            updated.kind = parse_kind(obj.get("type"));
         }
         if let Some(c) = parse_str_list(obj.get("contexts")) {
-            item.contexts = c;
+            updated.contexts = c;
         }
         if let Some(v) = obj.get("checked").and_then(Value::as_bool) {
-            item.checked = v;
+            updated.checked = v;
         }
         if let Some(v) = obj.get("enabled").and_then(Value::as_bool) {
-            item.enabled = v;
+            updated.enabled = v;
         }
         if let Some(v) = obj.get("visible").and_then(Value::as_bool) {
-            item.visible = v;
+            updated.visible = v;
         }
         if let Some(v) = parse_str_list(obj.get("documentUrlPatterns")) {
-            item.document_url_patterns = Some(v);
+            updated.document_url_patterns = Some(v);
         }
         if let Some(v) = parse_str_list(obj.get("targetUrlPatterns")) {
-            item.target_url_patterns = Some(v);
+            updated.target_url_patterns = Some(v);
         }
+        let next_bytes = approx_bytes(&entry.items)
+            .saturating_sub(approx_item_bytes(&entry.items[pos]))
+            .saturating_add(approx_item_bytes(&updated));
+        if next_bytes > MAX_SERIALIZED_BYTES {
+            return Err("Context menu storage limit exceeded.".into());
+        }
+        entry.items[pos] = updated;
+        self.persist_extension(ext_id);
         Ok(())
     }
 
@@ -229,21 +291,24 @@ impl ExtensionContextMenuCatalog {
             }
         }
         entry.items.retain(|i| !to_remove.contains(&i.id));
+        self.persist_extension(ext_id);
     }
 
     /// Builds sanitized, context-matched extension menu groups for a right-click on a regular web
-    /// tab (`context-menus.ts:235-268`). Returns empty on `file://` targets.
+    /// tab (`context-menus.ts:235-268`). Returns empty on `file://` or `chrome-extension://`
+    /// targets and bounds total emitted items to `MAX_TOTAL_ITEMS`.
     pub fn build_groups(&self, target: &MenuTarget) -> Vec<ExtensionMenuGroup> {
         if target.has_private_url() {
             return Vec::new();
         }
         let ctxs = target.contexts();
         let mut groups = Vec::new();
+        let mut remaining = MAX_TOTAL_ITEMS;
         for (ext_id, entry) in &self.by_ext {
-            if groups.len() >= MAX_GROUPS {
+            if groups.len() >= MAX_GROUPS || remaining == 0 {
                 break;
             }
-            let top = build_level(&entry.items, target, &ctxs, None, 0);
+            let top = build_level(&entry.items, target, &ctxs, None, 0, &mut remaining);
             if !top.is_empty() {
                 let title = if entry.name.is_empty() { ext_id.clone() } else { entry.name.clone() };
                 groups.push(ExtensionMenuGroup { ext_id: ext_id.clone(), title, items: top });
@@ -260,6 +325,9 @@ impl ExtensionContextMenuCatalog {
         item_id: &str,
         target: &MenuTarget,
     ) -> Option<Value> {
+        if target.has_private_url() {
+            return None;
+        }
         let entry = self.by_ext.get_mut(ext_id)?;
         let idx = entry.items.iter().position(|i| i.id == item_id && i.visible && i.enabled)?;
         let chosen = entry.items[idx].clone();
@@ -307,8 +375,130 @@ impl ExtensionContextMenuCatalog {
                 m.insert("checked".into(), Value::Bool(next_checked));
             }
         }
+        if is_choice {
+            self.persist_extension(ext_id);
+        }
         Some(info)
     }
+
+    fn archive_path(&self, ext_id: &str) -> Option<PathBuf> {
+        if !is_valid_ext_id(ext_id) {
+            return None;
+        }
+        Some(self.storage_dir.as_ref()?.join(format!("{ext_id}.json")))
+    }
+
+    fn delete_archive(&self, ext_id: &str) {
+        let Some(path) = self.archive_path(ext_id) else { return };
+        if std::fs::symlink_metadata(&path).is_ok_and(|m| !m.file_type().is_symlink()) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    fn persist_extension(&self, ext_id: &str) {
+        let Some(path) = self.archive_path(ext_id) else { return };
+        let Some(entry) = self.by_ext.get(ext_id) else {
+            self.delete_archive(ext_id);
+            return;
+        };
+        if entry.items.is_empty() || entry.version.is_empty() {
+            self.delete_archive(ext_id);
+            return;
+        }
+        let Some(dir) = path.parent() else { return };
+        if !ensure_regular_dir(dir) {
+            return;
+        }
+        let archive = MenuArchive { version: entry.version.clone(), items: entry.items.clone() };
+        let Ok(bytes) = serde_json::to_vec(&archive) else { return };
+        if bytes.len() > MAX_SERIALIZED_BYTES {
+            return;
+        }
+        let tmp = dir.join(format!("{ext_id}.json.tmp.{}", std::process::id()));
+        if std::fs::symlink_metadata(&tmp).is_ok_and(|m| m.file_type().is_symlink()) {
+            return;
+        }
+        if std::fs::write(&tmp, &bytes).is_ok() {
+            if std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()) {
+                let _ = std::fs::remove_file(&tmp);
+                return;
+            }
+            if std::fs::rename(&tmp, &path).is_err() {
+                let _ = std::fs::remove_file(&tmp);
+            }
+        }
+    }
+
+    fn load_archive(&self, ext_id: &str, expected_version: &str) -> Vec<StoredMenuItem> {
+        let Some(path) = self.archive_path(ext_id) else {
+            return Vec::new();
+        };
+        let Some(bytes) = read_regular_file_bounded(&path, MAX_SERIALIZED_BYTES as u64) else {
+            return Vec::new();
+        };
+        let Ok(archive) = serde_json::from_slice::<MenuArchive>(&bytes) else {
+            self.delete_archive(ext_id);
+            return Vec::new();
+        };
+        if archive.version != expected_version {
+            self.delete_archive(ext_id);
+            return Vec::new();
+        }
+        validate_restored_items(archive.items)
+    }
+}
+
+fn ensure_regular_dir(dir: &Path) -> bool {
+    if let Ok(meta) = std::fs::symlink_metadata(dir) {
+        return !meta.file_type().is_symlink() && meta.is_dir();
+    }
+    std::fs::create_dir_all(dir).is_ok()
+        && std::fs::symlink_metadata(dir).is_ok_and(|m| !m.file_type().is_symlink() && m.is_dir())
+}
+
+fn validate_restored_items(raw: Vec<StoredMenuItem>) -> Vec<StoredMenuItem> {
+    if raw.len() > MAX_ITEMS_PER_EXT {
+        return Vec::new();
+    }
+    let mut seen = HashSet::with_capacity(raw.len());
+    let mut cleaned = Vec::with_capacity(raw.len());
+    for mut item in raw {
+        item.id = item.id.chars().take(128).collect();
+        if !seen.insert(item.id.clone()) {
+            return Vec::new();
+        }
+        item.title = item.title.chars().take(256).collect();
+        item.contexts = item
+            .contexts
+            .into_iter()
+            .take(64)
+            .map(|s| s.chars().take(64).collect())
+            .collect();
+        if item.contexts.is_empty() {
+            item.contexts.push("page".into());
+        }
+        if let Some(pid) = item.parent_id {
+            item.parent_id = Some(pid.chars().take(128).collect());
+        }
+        if let Some(pats) = item.document_url_patterns {
+            item.document_url_patterns = Some(pats.into_iter().take(64).map(|s| s.chars().take(256).collect()).collect());
+        }
+        if let Some(pats) = item.target_url_patterns {
+            item.target_url_patterns = Some(pats.into_iter().take(64).map(|s| s.chars().take(256).collect()).collect());
+        }
+        cleaned.push(item);
+    }
+    if approx_bytes(&cleaned) > MAX_SERIALIZED_BYTES {
+        return Vec::new();
+    }
+    for item in &cleaned {
+        if let Some(pid) = item.parent_id.as_deref() {
+            if !seen.contains(pid) || is_ancestor(&cleaned, pid, &item.id) {
+                return Vec::new();
+            }
+        }
+    }
+    cleaned
 }
 
 fn build_level(
@@ -317,12 +507,16 @@ fn build_level(
     ctxs: &[&str],
     parent_id: Option<&str>,
     depth: usize,
+    remaining: &mut usize,
 ) -> Vec<ExtensionMenuItem> {
-    if depth >= MAX_MENU_DEPTH {
+    if depth >= MAX_MENU_DEPTH || *remaining == 0 {
         return Vec::new();
     }
     let mut out = Vec::new();
     for item in items {
+        if *remaining == 0 {
+            break;
+        }
         if item.parent_id.as_deref() != parent_id || !item.visible {
             continue;
         }
@@ -343,10 +537,11 @@ fn build_level(
                 continue;
             }
         }
-        let children = if item.kind == ExtensionMenuItemKind::Separator {
+        *remaining -= 1;
+        let children = if item.kind == ExtensionMenuItemKind::Separator || *remaining == 0 {
             Vec::new()
         } else {
-            build_level(items, target, ctxs, Some(&item.id), depth + 1)
+            build_level(items, target, ctxs, Some(&item.id), depth + 1, remaining)
         };
         let sel = extension_label(&target.selection_text);
         let title = extension_label(&extension_label(&item.title).replace("%s", &sel));

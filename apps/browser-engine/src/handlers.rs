@@ -316,6 +316,29 @@ wrap_render_handler! {
     }
 }
 
+fn emit_web_nav(
+    events: &std::sync::mpsc::Sender<crate::Event>,
+    tab_id: u64,
+    frame: Option<&Frame>,
+    url: String,
+    kind: crate::extensions::web_nav::WebNavKind,
+) {
+    let Some(f) = frame else { return };
+    let is_main = f.is_main() == 1;
+    let cef_frame_id = CefString::from(&f.identifier()).to_string();
+    let parent_cef_id = (!is_main)
+        .then(|| f.parent().map(|p| CefString::from(&p.identifier()).to_string()))
+        .flatten();
+    let _ = events.send(crate::Event::WebNav(crate::extensions::web_nav::WebNavSignal {
+        tab_id,
+        cef_frame_id,
+        parent_cef_id,
+        is_main,
+        url,
+        kind,
+    }));
+}
+
 wrap_display_handler! {
     pub struct TabDisplayHandler {
         tab_id: u64,
@@ -336,7 +359,12 @@ wrap_display_handler! {
             frame: Option<&mut Frame>,
             url: Option<&CefString>,
         ) {
-            if frame.is_some_and(|f| f.is_main() != 1) {
+            if let Some(f) = frame.as_deref()
+                && f.is_main() != 1
+            {
+                if let Some(u) = url {
+                    emit_web_nav(&self.events, self.tab_id, Some(f), u.to_string(), crate::extensions::web_nav::WebNavKind::AddressChanged);
+                }
                 return;
             }
             if let Some(url) = url {
@@ -395,10 +423,11 @@ wrap_display_handler! {
                 let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
                 let _ = self.events.send(crate::Event::TabMeta {
                     tab_id: self.tab_id,
-                    url: Some(url),
+                    url: Some(url.clone()),
                     title: None,
                     loading: None,
                 });
+                emit_web_nav(&self.events, self.tab_id, frame.as_deref(), url, crate::extensions::web_nav::WebNavKind::AddressChanged);
             }
         }
 
@@ -526,32 +555,32 @@ wrap_load_handler! {
             _transition_type: TransitionType,
         ) {
             let Some(frame) = frame else { return };
+            let url = CefString::from(&frame.url()).to_string();
+            emit_web_nav(&self.events, self.tab_id, Some(frame), url.clone(), crate::extensions::web_nav::WebNavKind::Committed);
             if frame.is_main() == 1 {
                 self.prompts.clear_all_ext_frame_tracking();
                 let mut s = self.snap.lock().unwrap();
                 s.document += 1;
                 let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
-            } else {
-                let url = CefString::from(&frame.url()).to_string();
-                if crate::extensions::manifest::is_extension_scheme(&url) {
-                    let fid = CefString::from(&frame.identifier()).to_string();
-                    self.prompts.mark_pending_ext_subframe(fid);
-                }
+            } else if crate::extensions::manifest::is_extension_scheme(&url) {
+                let fid = CefString::from(&frame.identifier()).to_string();
+                self.prompts.mark_pending_ext_subframe(fid);
             }
         }
 
         // A document from the network (any HTTP status) replaces a failed or crashed page; Chromium's
         // own error page ends with no status.
         fn on_load_end(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, http_status_code: i32) {
-            if let Some(f) = frame
-                && f.is_main() != 1
-            {
+            if let Some(f) = frame.as_deref() {
                 let url = CefString::from(&f.url()).to_string();
-                if crate::extensions::manifest::is_extension_scheme(&url) {
-                    let fid = CefString::from(&f.identifier()).to_string();
-                    self.prompts.clear_pending_ext_subframe(&fid);
+                emit_web_nav(&self.events, self.tab_id, Some(f), url.clone(), crate::extensions::web_nav::WebNavKind::Completed);
+                if f.is_main() != 1 {
+                    if crate::extensions::manifest::is_extension_scheme(&url) {
+                        let fid = CefString::from(&f.identifier()).to_string();
+                        self.prompts.clear_pending_ext_subframe(&fid);
+                    }
+                    return;
                 }
-                return;
             }
             self.prompts.set_pending_top_url(None);
             if http_status_code <= 0 {
@@ -575,6 +604,17 @@ wrap_load_handler! {
         ) {
             use sys::cef_errorcode_t as E;
             let code = *error_code.as_ref();
+            let err_desc = error_text.map(CefString::to_string).unwrap_or_default();
+            if code != E::ERR_ABORTED {
+                let fail_u = failed_url.map(CefString::to_string).unwrap_or_default();
+                emit_web_nav(
+                    &self.events,
+                    self.tab_id,
+                    frame.as_deref(),
+                    fail_u,
+                    crate::extensions::web_nav::WebNavKind::ErrorOccurred { error: err_desc.clone() },
+                );
+            }
             if let Some(f) = frame
                 && f.is_main() != 1
             {
@@ -743,10 +783,14 @@ wrap_request_handler! {
         snap: Arc<Mutex<TabSnapshot>>,
         prompt_shared: crate::prompts::PromptShared,
         prompts: Arc<crate::prompts::TabPrompts>,
+        input_guard: Arc<Mutex<crate::input_guard::InputGuard>>,
+        emulation_scale: Arc<std::sync::atomic::AtomicU32>,
+        next_cdp_id: Arc<std::sync::atomic::AtomicI32>,
         permissions: Arc<crate::permissions::PermissionTracker>,
         context_scope_id: Option<String>,
         diagnostics: Arc<crate::diagnostics::TabDiagnostics>,
         out_tx: Output,
+        events: std::sync::mpsc::Sender<crate::Event>,
     }
 
     impl RequestHandler {
@@ -765,7 +809,7 @@ wrap_request_handler! {
             user_gesture: ::std::os::raw::c_int,
             _is_redirect: ::std::os::raw::c_int,
         ) -> ::std::os::raw::c_int {
-            let (is_main, sub_frame_id) = match frame {
+            let (is_main, sub_frame_id) = match frame.as_deref() {
                 Some(f) if f.is_main() != 1 => (false, Some(CefString::from(&f.identifier()).to_string())),
                 _ => (true, None),
             };
@@ -877,12 +921,19 @@ wrap_request_handler! {
                 return 1;
             }
             if is_main {
-                self.prompts.set_pending_top_url(Some(url));
+                self.prompts.set_pending_top_url(Some(url.clone()));
             } else if crate::extensions::manifest::is_extension_scheme(&url)
                 && let Some(fid) = sub_frame_id
             {
                 self.prompts.mark_pending_ext_subframe(fid);
             }
+            emit_web_nav(
+                &self.events,
+                self.tab_id,
+                frame.as_deref(),
+                url,
+                crate::extensions::web_nav::WebNavKind::BeforeNavigate,
+            );
             0
         }
 
@@ -937,7 +988,10 @@ wrap_request_handler! {
                     && self.ext_policy.allowed_ext_ids.lock().unwrap().iter().any(|id| id == own_id)
                 {
                     if opens_new_tab {
-                        if user_gesture == 0 {
+                        if url.len() > crate::prompts::MAX_POPUP_URL_BYTES
+                            || user_gesture == 0
+                            || !self.prompts.popup_credit.swap(false, Ordering::AcqRel)
+                        {
                             return 1;
                         }
                         let background = *target_disposition.as_ref() == D::CEF_WOD_NEW_BACKGROUND_TAB;
@@ -951,8 +1005,14 @@ wrap_request_handler! {
                     return 0;
                 }
                 // Links opened in a new tab from a popup (`target="_blank"`) require a user
-                // gesture and open as a managed pane tab when allowed by URL policy (`popup.ts:169-180`).
-                if opens_new_tab && user_gesture != 0 && browser_policy::destination_origin(&url).is_some() {
+                // gesture, one-shot `popup_credit`, and `MAX_POPUP_URL_BYTES` (`popup.ts:169-180`;
+                // READER-12 #441 Should-Fix #2).
+                if opens_new_tab
+                    && url.len() <= crate::prompts::MAX_POPUP_URL_BYTES
+                    && user_gesture != 0
+                    && browser_policy::destination_origin(&url).is_some()
+                    && self.prompts.popup_credit.swap(false, Ordering::AcqRel)
+                {
                     let background = *target_disposition.as_ref() == D::CEF_WOD_NEW_BACKGROUND_TAB;
                     let _ = self.out_tx.send(EngineMsg::PopupOpen {
                         tab_id: self.tab_id,
@@ -972,6 +1032,12 @@ wrap_request_handler! {
                 && self.ext_policy.allowed_ext_ids.lock().unwrap().iter().any(|id| id == ext_id)
             {
                 if opens_new_tab {
+                    if url.len() > crate::prompts::MAX_POPUP_URL_BYTES
+                        || user_gesture == 0
+                        || !self.prompts.popup_credit.swap(false, Ordering::AcqRel)
+                    {
+                        return 1;
+                    }
                     let background = *target_disposition.as_ref() == D::CEF_WOD_NEW_BACKGROUND_TAB;
                     let _ = self.out_tx.send(EngineMsg::PopupOpen {
                         tab_id: self.tab_id,
@@ -1111,12 +1177,24 @@ wrap_request_handler! {
         // and a reload loads it in a new renderer, as Desktop's crashed tab does.
         fn on_render_process_terminated(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             status: TerminationStatus,
             error_code: i32,
             error_string: Option<&CefString>,
         ) {
             self.prompts.reset_on_crash(self.tab_id, &self.out_tx);
+            if self.prompt_shared.release_trace(self.tab_id)
+                && let Some(host) = browser.and_then(|b| b.host())
+            {
+                let id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
+                let msg = serde_json::json!({ "id": id, "method": "Tracing.end", "params": {} }).to_string();
+                host.send_dev_tools_message(Some(msg.as_bytes()));
+            }
+            self.emulation_scale.store(1.0f32.to_bits(), Ordering::Release);
+            self.input_guard
+                .lock()
+                .unwrap()
+                .reset_all(self.tab_id, &self.out_tx, "The page crashed before input completed.");
             let err_str = error_string.map(CefString::to_string).unwrap_or_default();
             let (url, was_loading) = {
                 let mut s = self.snap.lock().unwrap();

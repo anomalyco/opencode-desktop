@@ -5,7 +5,9 @@
 //!   first update into this one) never takes it, but holds SQLite's lock for its whole life: when
 //!   it does (macOS), what the record showed is held, as for any other process holding the file.
 //! - **Busy** (another copy, or one still closing its storage: a relaunch's old copy, a launch
-//!   while the app quits): the first frame waits for the lease a few seconds (`SHOW`; a relaunch,
+//!   while the app quits): where the instance claim admits one launch (not macOS) the holder can
+//!   only be closing, so the first frame waits for it up to WAIT and then reads what it saved.
+//!   Elsewhere the first frame waits for the lease a few seconds (`SHOW`; a relaunch,
 //!   which Rune already held up to 10 s for its old copy, `SHOW_RELAUNCH`), since a copy that's
 //!   quitting writes its last state and a frame from before that is one the file no longer shows.
 //!   Then the held path: what was read is shown, held (with "OpenCode is finishing a save"), the
@@ -48,7 +50,13 @@ pub(super) enum Hold {
 pub(super) fn hold(config: &StorageConfig, report: &mut BootReport, t0: Instant, send: &dyn Fn(BootPacket), owe: &mut Owe, packet: &mut Option<BootPacket>, held: &mut Option<BootPacket>) -> Hold {
     let mut waited: Option<Instant> = None;
     let until = Instant::now() + WAIT;
-    let show = if relaunch() { SHOW_RELAUNCH } else { SHOW };
+    // Where the instance claim admits one launch at a time (not macOS), a copy that still has the
+    // lease once this one holds the claim is one closing: it's writing its last state. The first
+    // frame waits for that (as long as the open would wait for SQLite) and then reads it, rather
+    // than show what that write replaces and keep this run in memory once it lands. Official
+    // can't meet this: Electron's single-instance lock lasts the whole process, so a second
+    // launch quits (`lifecycle/configure.ts` `acquireApplicationLock`).
+    let show = if !cfg!(target_os = "macos") { WAIT } else if relaunch() { SHOW_RELAUNCH } else { SHOW };
     loop {
         match lease::try_take(&config.path) {
             lease::Outcome::Held => break,
@@ -80,13 +88,14 @@ pub(super) fn hold(config: &StorageConfig, report: &mut BootReport, t0: Instant,
         }
     }
     lease::decide(true);
-    // A relaunch read the record before Rune waited for its old copy, which may have saved since:
-    // what nothing was shown from yet is read again, through SQLite now that the file is this
-    // process's (the journal's place is still checked there).
-    if relaunch() && packet.is_none() {
+    // The record was read before this launch waited for the copy holding the lease (a relaunch's old
+    // copy, one still closing), which may have saved since: what nothing was shown from yet is read
+    // again, through SQLite now that the file is this process's (the journal's place is still
+    // checked there).
+    if (relaunch() || waited.is_some()) && packet.is_none() {
         owe.packet = None;
         *held = None;
-        report.raw_miss = Some("a relaunch reads the record once its old copy has let go");
+        report.raw_miss = Some("the record is read again once the copy holding the profile has let go");
     }
     if waited.is_some() {
         rune::marks::mark("storage.lease.held");

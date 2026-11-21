@@ -35,6 +35,8 @@ enum Stage {
     OwnerFrame { cdp_req: u64, parent_frame: String, parent_session: Option<String> },
     ResolveOwner { cdp_req: u64, parent_session: Option<String> },
     MeasureOwner { cdp_req: u64, object_id: String, parent_session: Option<String> },
+    /// Mobile device emulation visual-viewport pan offset (`chromium.ts:2487-2492`).
+    MobileVisualOffset { cdp_req: u64, scale: f64 },
 }
 
 pub(super) struct PointResolver {
@@ -52,6 +54,16 @@ impl PointResolver {
         host_id: u64,
         target: ElementRef,
     ) -> Result<Self, Outcome> {
+        Self::start_with_scroll(att, app, host_id, target, true)
+    }
+
+    pub fn start_with_scroll(
+        att: &SessionAttachment,
+        app: &mut App,
+        host_id: u64,
+        target: ElementRef,
+        scroll: bool,
+    ) -> Result<Self, Outcome> {
         let effective_frame = target.2.clone().or_else(|| {
             let sid = target.1.as_deref()?;
             att.frames.get(&host_id).and_then(|f| {
@@ -66,25 +78,47 @@ impl PointResolver {
             .get(&host_id)
             .map(|f| f.ancestor_owners(effective_frame.as_deref()))
             .unwrap_or_default();
-        let cdp_req = app
-            .workspace_panes
-            .browser
-            .host
-            .send_typed_cdp_in_frame(
-                host_id,
-                "DOM.scrollIntoViewIfNeeded",
-                json!({ "backendNodeId": target.0 }),
-                target.1.clone(),
-                effective_frame.clone(),
-            )
-            .map_err(|e| Outcome::fail(failure_code::OPERATION_FAILED, e))?;
+        let stage = if scroll {
+            let cdp_req = app
+                .workspace_panes
+                .browser
+                .host
+                .send_typed_cdp_in_frame(
+                    host_id,
+                    "DOM.scrollIntoViewIfNeeded",
+                    json!({ "backendNodeId": target.0 }),
+                    target.1.clone(),
+                    effective_frame.clone(),
+                )
+                .map_err(|e| Outcome::fail(failure_code::OPERATION_FAILED, e))?;
+            Stage::Scroll { cdp_req }
+        } else {
+            let cdp_req = app
+                .workspace_panes
+                .browser
+                .host
+                .send_typed_cdp_in_frame(
+                    host_id,
+                    "DOM.resolveNode",
+                    json!({ "backendNodeId": target.0 }),
+                    target.1.clone(),
+                    effective_frame.clone(),
+                )
+                .map_err(|e| Outcome::fail(failure_code::OPERATION_FAILED, e))?;
+            Stage::ResolveElem { cdp_req }
+        };
         Ok(Self {
             host_id,
             target: (target.0, target.1, effective_frame),
             ancestors: VecDeque::from(ancestors),
             rect: (0.0, 0.0, 0.0, 0.0),
-            stage: Stage::Scroll { cdp_req },
+            stage,
         })
+    }
+
+    /// The element's box in page-viewport CSS pixels, once `step` answered `Ok`.
+    pub fn rect(&self) -> (f64, f64, f64, f64) {
+        self.rect
     }
 
     pub fn cancel_cleanup(&mut self, app: &mut App) {
@@ -92,7 +126,8 @@ impl PointResolver {
             Stage::Scroll { cdp_req }
             | Stage::ResolveElem { cdp_req }
             | Stage::OwnerFrame { cdp_req, .. }
-            | Stage::ResolveOwner { cdp_req, .. } => (*cdp_req, None),
+            | Stage::ResolveOwner { cdp_req, .. }
+            | Stage::MobileVisualOffset { cdp_req, .. } => (*cdp_req, None),
             Stage::MeasureElem { cdp_req, object_id } => (*cdp_req, Some((object_id.clone(), self.target.1.clone()))),
             Stage::MeasureOwner { cdp_req, object_id, parent_session } => {
                 (*cdp_req, Some((object_id.clone(), parent_session.clone())))
@@ -165,7 +200,15 @@ impl PointResolver {
                         self.stage = Stage::MeasureElem { cdp_req: next, object_id: oid };
                         None
                     }
-                    Err(e) => Some(Err(Outcome::fail(failure_code::OPERATION_FAILED, e))),
+                    Err(e) => {
+                        let _ = app.workspace_panes.browser.host.send_typed_cdp(
+                            self.host_id,
+                            "Runtime.releaseObject",
+                            json!({ "objectId": oid }),
+                            self.target.1.clone(),
+                        );
+                        Some(Err(Outcome::fail(failure_code::OPERATION_FAILED, e)))
+                    }
                 }
             }
             Stage::MeasureElem { cdp_req, object_id } => {
@@ -263,7 +306,15 @@ impl PointResolver {
                         self.stage = Stage::MeasureOwner { cdp_req: next, object_id: oid, parent_session };
                         None
                     }
-                    Err(e) => Some(Err(Outcome::fail(failure_code::OPERATION_FAILED, e))),
+                    Err(e) => {
+                        let _ = app.workspace_panes.browser.host.send_typed_cdp(
+                            self.host_id,
+                            "Runtime.releaseObject",
+                            json!({ "objectId": oid }),
+                            parent_session,
+                        );
+                        Some(Err(Outcome::fail(failure_code::OPERATION_FAILED, e)))
+                    }
                 }
             }
             Stage::MeasureOwner { cdp_req, object_id, parent_session } => {
@@ -295,13 +346,48 @@ impl PointResolver {
                 self.rect = (bx + self.rect.0 * sx, by + self.rect.1 * sy, self.rect.2 * sx, self.rect.3 * sy);
                 self.advance_ancestor(app)
             }
+            Stage::MobileVisualOffset { cdp_req, scale } => {
+                let Some(resp) = app.workspace_panes.browser.host.take_cdp_response(cdp_req) else {
+                    self.stage = Stage::MobileVisualOffset { cdp_req, scale };
+                    return None;
+                };
+                let val = match resp {
+                    Ok(v) => v,
+                    Err(e) => return Some(Err(Outcome::fail(failure_code::OPERATION_FAILED, cdp_err_msg(&e)))),
+                };
+                let vp = val.get("cssVisualViewport");
+                let off_x = vp.and_then(|v| v.get("offsetX")).and_then(Value::as_f64).filter(|n| n.is_finite()).unwrap_or(0.0);
+                let off_y = vp.and_then(|v| v.get("offsetY")).and_then(Value::as_f64).filter(|n| n.is_finite()).unwrap_or(0.0);
+                let (x, y, w, h) = self.rect;
+                Some(Ok((((x - off_x) + w / 2.0) * scale, ((y - off_y) + h / 2.0) * scale)))
+            }
         }
     }
 
     fn advance_ancestor(&mut self, app: &mut App) -> Option<Result<(f64, f64), Outcome>> {
         let Some((child_fid, parent_fid, parent_session)) = self.ancestors.pop_front() else {
+            let (scale, is_mobile) = app
+                .workspace_panes
+                .browser
+                .host
+                .tab(self.host_id)
+                .map_or((1.0, false), |t| t.emulation_info());
+            if is_mobile {
+                match app.workspace_panes.browser.host.send_typed_cdp(
+                    self.host_id,
+                    "Page.getLayoutMetrics",
+                    json!({}),
+                    None,
+                ) {
+                    Ok(cdp_req) => {
+                        self.stage = Stage::MobileVisualOffset { cdp_req, scale };
+                        return None;
+                    }
+                    Err(e) => return Some(Err(Outcome::fail(failure_code::OPERATION_FAILED, e))),
+                }
+            }
             let (x, y, w, h) = self.rect;
-            return Some(Ok((x + w / 2.0, y + h / 2.0)));
+            return Some(Ok(((x + w / 2.0) * scale, (y + h / 2.0) * scale)));
         };
         match app.workspace_panes.browser.host.send_typed_cdp(
             self.host_id,
@@ -335,7 +421,7 @@ fn check_call_val(resp: Result<Value, Value>) -> Result<Value, Outcome> {
         }
         return Err(Outcome::fail(
             failure_code::OPERATION_FAILED,
-            desc.strip_prefix("Error: ").unwrap_or(desc).lines().next().unwrap_or(desc),
+            super::page_exception(desc, "The page's JavaScript threw while the browser tool located the element."),
         ));
     }
     Ok(val.get("result").and_then(|r| r.get("value")).cloned().unwrap_or(Value::Null))

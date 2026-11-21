@@ -8,8 +8,8 @@
 #[allow(unused_imports)]
 pub use opencode_feature_notifications::{
     Ask, CAP, Choice, Coordinator, Kind, Kinds, Note, NotificationReply, NotificationsHost,
-    Notifier, Outcome, Sink, actions, answered, host, notify_event, notify_plugin, on_action,
-    poll, quitting, seen,
+    Notifier, Outcome, Sink, actions, answered, clear_extension, extension_notifications_allowed,
+    host, notify_event, notify_plugin, on_action, poll, post_extension, quitting, seen,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -152,6 +152,15 @@ impl NotificationsHost for App {
 
     fn show_plugin_notification(&mut self, title: String, body: String, _session_id: Option<&str>) {
         crate::status_toast::say(self, title, body);
+    }
+
+    fn on_extension_notification_clicked(&mut self, ext_id: &str, notif_id: &str) {
+        self.workspace_panes.browser.host.send_extension_notification_event(
+            ext_id.to_owned(),
+            notif_id.to_owned(),
+            true,
+            true,
+        );
     }
 }
 

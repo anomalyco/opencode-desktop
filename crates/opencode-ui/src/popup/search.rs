@@ -2,6 +2,7 @@
 
 use rune::{El, Key, TextEdit, TextStyle, Tx, el, row};
 use rune_theme_opencode::icons as ic;
+use crate::focus::FocusExt as _;
 use crate::palette::{Pal, kit};
 
 use super::PopupHost;
@@ -51,7 +52,7 @@ pub(super) fn search_field<S: PopupHost + 'static>(s: &S, p: &Pal, placeholder: 
         .gap(6.0)
         .center_y()
         .radius(6.0)
-        .hover(p.hover)
+        .hover(if typed || edit.focused { rune::Color::TRANSPARENT } else { p.hover })
         .child(rune::icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted))
         .child(input);
     if typed || edit.focused {
@@ -66,7 +67,11 @@ pub(super) fn search_field<S: PopupHost + 'static>(s: &S, p: &Pal, placeholder: 
                 .role("button")
                 .label_static(opencode_i18n::t!("common.clear"))
                 .size(16.0, 16.0)
+                .radius(4.0)
                 .center()
+                .cursor(rune::Cursor::Pointer)
+                .focus_inset(p)
+                .hover_group()
                 .on_press_tx(|s: &mut S, tx: &mut Tx| {
                     tx.instant();
                     let query = &mut s.popup_mut().query;

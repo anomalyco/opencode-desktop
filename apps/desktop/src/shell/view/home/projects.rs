@@ -22,8 +22,8 @@ pub(super) fn column(s: &App, p: &Pal, selected: Option<&model::Project>, wide: 
     // folder-add button (disabled while it's down).
     let mut header = row().key("home-projects-header").w_full().h(28.0).pl(6.0).pr(12.0).center_y().child(text(t!("home.projects")).font(HOME_MED).color(p.muted)).child(spacer());
     if s.kernel.slots.get(&crate::projects::HOME_STATE).servers.len() <= 1 {
-        let add = el().key("home-add-project").role("button").label_static(t!("home.project.add")).help(t!("home.project.add")).size(28.0, 28.0).radius(6.0).center();
-        let add = if failed { add.opacity(0.5) } else { add.hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx)) };
+        let add = el().key("home-add-project").role("button").label_static(t!("home.project.add")).help(t!("home.project.add")).size(28.0, 28.0).radius(6.0).focus_inset(p).center();
+        let add = if failed { add.opacity(0.5).disabled(true) } else { add.cursor(rune::Cursor::Pointer).hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx)) };
         header = header.child(add.child(icon(&ic::FOLDER_ADD_LEFT, 16.0).color(p.icon_muted)));
     }
     // `pr-3`, rows `gap-1`; a row is as wide as the list leaves it, less the scroll bar's gutter
@@ -350,8 +350,10 @@ pub(super) fn scope_trigger(s: &App, p: &Pal, selected: Option<&model::Project>)
         .gap(6.0)
         .center_y()
         .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_inset(p)
         .fill(if open { p.pressed } else { rune::Color::TRANSPARENT })
-        .hover(p.hover)
+        .hover(if open { rune::Color::TRANSPARENT } else { p.hover })
         .hover_group()
         .on_press_tx(|s: &mut App, tx: &mut Tx| {
             tx.instant();

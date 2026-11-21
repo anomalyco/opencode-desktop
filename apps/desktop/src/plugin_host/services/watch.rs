@@ -137,6 +137,19 @@ fn observe(app: &App, plugin: &str, name: &str) -> Option<(u64, Data)> {
             Some((u64::from(focused), Data::Bool(focused)))
         }
         "Updater.StateChanged" => Some((crate::updater::revision(app), crate::updater::state_data(app))),
+        "Browser.AddressSelectionChanged" if plugin == crate::surfaces::browser::PLUGIN => {
+            let (start, end, len, composing, focused) = super::super::editors::selection_in(app, plugin, 0);
+            Some((
+                hash((start, end, len, composing, focused)),
+                map([
+                    ("start", Data::Number(start as f64)),
+                    ("end", Data::Number(end as f64)),
+                    ("len", Data::Number(len as f64)),
+                    ("composing", Data::Bool(composing)),
+                    ("focused", Data::Bool(focused)),
+                ]),
+            ))
+        }
         n => {
             let editor = |suffix: &str| n.strip_prefix("editor.").and_then(|s| s.strip_suffix(suffix)).and_then(|s| s.parse::<usize>().ok());
             if let Some(index) = editor(".FocusChanged") {
@@ -152,6 +165,22 @@ fn observe(app: &App, plugin: &str, name: &str) -> Option<(u64, Data)> {
             } else {
                 n.strip_prefix("Contracts.").and_then(|s| s.strip_suffix(".Changed")).map(|id| (contract_generation(id), Data::Nil))
             }
+        }
+    }
+}
+
+/// Records post-handler stamps for a plugin editor's `Changed` (and the browser's
+/// `AddressSelectionChanged`) after synchronous `input_changed` dispatch so the next poll does not
+/// fire a duplicate change or a spurious caret-moved event after `SetAddressSelection`.
+pub fn sync_editor_watches(app: &App, p: &crate::plugin_host::Plugin, index: usize) {
+    let changed = format!("editor.{index}.Changed");
+    let mut seen = p.half.seen.borrow_mut();
+    if let Some((v, _)) = observe(app, &p.half.id, &changed) {
+        seen.insert(changed, v);
+    }
+    if p.half.is_builtin("browser") && index == 0 {
+        if let Some((v, _)) = observe(app, &p.half.id, "Browser.AddressSelectionChanged") {
+            seen.insert("Browser.AddressSelectionChanged".into(), v);
         }
     }
 }

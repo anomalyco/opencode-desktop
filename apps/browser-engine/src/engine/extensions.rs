@@ -78,6 +78,16 @@ impl EngineManager {
         }
     }
 
+    pub fn on_web_navigation(&mut self, sig: crate::extensions::web_nav::WebNavSignal) {
+        let is_eligible = self.tabs.get(&sig.tab_id).is_some_and(|t| !t.isolated && !t.is_popup);
+        if !is_eligible {
+            return;
+        }
+        if let Some(ext) = &mut self.extensions {
+            ext.on_web_navigation(sig);
+        }
+    }
+
     pub(super) fn cmd_click_extension(&mut self, ext_id: &str) {
         let effects = self.extensions.as_mut().map(|e| e.click_extension(ext_id)).unwrap_or_default();
         self.run_ext_effects(effects);
@@ -293,6 +303,12 @@ impl EngineManager {
                 ExtEffect::ExtensionReloaded { ext_id, ok, error } => {
                     let _ = self.out_tx.send(EngineMsg::ExtensionReloaded { ext_id, ok, error });
                 }
+                ExtEffect::NotificationShow { ext_id, ext_name, notif_id, body } => {
+                    let _ = self.out_tx.send(EngineMsg::ExtensionNotificationShow { ext_id, ext_name, notif_id, body });
+                }
+                ExtEffect::NotificationClear { ext_id, notif_id } => {
+                    let _ = self.out_tx.send(EngineMsg::ExtensionNotificationClear { ext_id, notif_id });
+                }
             }
         }
     }
@@ -392,10 +408,14 @@ impl EngineManager {
             snap.clone(),
             prompt_shared.clone(),
             prompts.clone(),
+            Arc::new(Mutex::new(crate::input_guard::InputGuard::default())),
+            Arc::new(std::sync::atomic::AtomicU32::new(1.0f32.to_bits())),
+            self.next_cdp_id.clone(),
             self.permissions.clone(),
             None,
             diagnostics,
             null_out.clone(),
+            self.events.clone(),
         );
         let download_gen = self.downloads.alloc_tab_gen();
         let download_alive = Arc::new(AtomicBool::new(true));
@@ -454,6 +474,7 @@ impl EngineManager {
             dialog,
             find,
             context_menu,
+            crate::tab_client::TabFrameHandler::new(u64::MAX, prompts.clone(), self.events.clone()),
             prompts,
         );
         let mut win_info = WindowInfo::default().set_as_windowless(Default::default());
@@ -548,6 +569,63 @@ impl EngineManager {
             });
             return;
         }
+        if method == "Page.handleJavaScriptDialog"
+            && (t.prompts.has_leave_dialog() || t.prompts.is_covered())
+        {
+            let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                tab_id,
+                request_id,
+                ok: false,
+                result: json!({ "message": "The user is answering a prompt over this page. Wait for them, or use another tab." }),
+            });
+            return;
+        }
+        // Route raw `Input.*` calls through the same serialized `InputGuard` as `TypedCdpCall` so
+        // no raw caller can bypass hit-test, frame-owner, focused-frame, or prompt-cover checks.
+        if method.starts_with("Input.") {
+            if session_id.is_some() {
+                let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                    tab_id,
+                    request_id,
+                    ok: false,
+                    result: json!({ "message": "Input DevTools calls must target the page root session." }),
+                });
+                return;
+            }
+            t.cdp_ledger.lock().unwrap().app_attached = true;
+            if let Err(msg) = t
+                .input_guard
+                .lock()
+                .unwrap()
+                .enqueue(crate::input_guard::InputCall::single(request_id, method, params))
+            {
+                let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                    tab_id,
+                    request_id,
+                    ok: false,
+                    result: json!({ "message": msg }),
+                });
+                return;
+            }
+            crate::input_guard::pump(
+                tab_id,
+                &t.input_guard,
+                &t.browser,
+                &t.host,
+                t.is_popup,
+                t.isolated,
+                t.preview.is_some(),
+                &t.snap,
+                &t.prompts,
+                &self.permissions,
+                &t.cdp_ledger,
+                &t.emulation_scale,
+                &t.cdp_id_map,
+                &self.next_cdp_id,
+                &self.out_tx,
+            );
+            return;
+        }
         // The engine enabled `Runtime` when it armed the tab: disable it first so Chromium
         // reports the existing contexts to this caller too.
         let disable = {
@@ -568,6 +646,7 @@ impl EngineManager {
                 max_bytes: crate::cdp_ledger::max_cdp_response_bytes(&method),
                 typed: None,
                 reach,
+                is_tracing_start: false,
             },
         );
         let payload = json!({
@@ -747,7 +826,9 @@ impl EngineManager {
             | M::AnswerDownloadSave { .. }
             | M::SetInspect { enabled: false, .. }
             | M::HighlightNode { backend_node_id: None, .. }
-            | M::ContextMenuAction { action: None, .. } => return false,
+            | M::ContextMenuAction { action: None, .. }
+            | M::ExtensionNotificationEvent { .. }
+            | M::SetNotificationsEnabled { .. } => return false,
             // `user_initiated` is set only by the bundled find bar (`#312`), whose `FindResult`
             // never reaches agents or third-party plugins.
             M::Find { query, user_initiated, .. } if query.is_empty() || *user_initiated => return false,

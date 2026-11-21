@@ -118,7 +118,7 @@ fn nav_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon, pressed: bo
         .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .center()
-        .hover(if pressed { p.pressed } else { p.hover })
+        .hover(if pressed { rune::Color::TRANSPARENT } else { p.hover })
         // `ghost-muted`'s `:active` brightens the icon to `icon-base`; its pressed wash loses to the
         // hover rule, whose `:not([data-expanded])` makes it the more specific, so the hover wash stays.
         .press_color(p.icon)

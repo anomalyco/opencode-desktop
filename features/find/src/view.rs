@@ -12,7 +12,7 @@ use session_view::style::{INSTANT, UI};
 
 use crate::FindHost;
 
-const COUNT: TextStyle = TextStyle::new(11.0, 440.0).lh(16.0).features("tnum");
+const COUNT: TextStyle = TextStyle::new(11.0, 440.0).lh(16.0).features("\"tnum\"");
 
 fn input_shell(s: &dyn FindHost, p: &Pal) -> El {
     session_view::style::field(&s.find().input, UI)
@@ -23,7 +23,6 @@ fn input_shell(s: &dyn FindHost, p: &Pal) -> El {
         .grow(1.0)
         .shrink()
         .min_w(0.0)
-        .h(20.0)
         .color(p.text)
         .placeholder(opencode_i18n::t!("session.search.placeholder"), p.faint)
         .caret(p.text, p.selection)
@@ -64,7 +63,7 @@ fn step_button_shell(p: &Pal, up: bool, enabled: bool) -> El {
         .label_static(label)
         .size(20.0, 20.0)
         .center()
-        .radius(2.0)
+        .radius(4.0)
         .preserve_focus_on_press(true)
         .child(glyph);
     if enabled {

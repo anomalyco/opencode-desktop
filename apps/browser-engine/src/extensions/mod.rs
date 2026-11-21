@@ -25,6 +25,7 @@ pub mod manifest;
 pub mod pipe;
 mod png;
 mod rpc;
+pub mod web_nav;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -87,6 +88,8 @@ pub enum ExtEffect {
     OpenPopup { ext_id: String, url: String },
     ExtensionUninstalled { ext_id: String, ok: bool, error: Option<String> },
     ExtensionReloaded { ext_id: String, ok: bool, error: Option<String> },
+    NotificationShow { ext_id: String, ext_name: String, notif_id: String, body: String },
+    NotificationClear { ext_id: String, notif_id: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -153,6 +156,8 @@ pub(super) struct ExecutionContextMeta {
 pub(super) struct AttachedSession {
     pub ext_id: String,
     pub kind: SessionKind,
+    pub url: String,
+    pub chromium_tab_id: Option<i32>,
     pub main_frame_id: Option<String>,
     pub last_popup_size: Option<(u32, u32)>,
     pub attach_started: Instant,
@@ -258,6 +263,7 @@ pub struct ExtensionHost {
     pub(super) tabs: Vec<ExtTab>,
     pub(super) actions: HashMap<String, ActionState>,
     pub(super) context_menus: Arc<std::sync::Mutex<context_menus::ExtensionContextMenuCatalog>>,
+    pub(super) web_nav: web_nav::WebNavTracker,
     pub(super) expected_targets: VecDeque<ExpectedTarget>,
     pub(super) seed_session_id: Option<i32>,
     pub(super) seed_probe_started: bool,
@@ -285,6 +291,9 @@ pub struct ExtensionHost {
     pub(super) open_tab_rates: HashMap<String, RateWindow>,
     pub(super) action_rates: HashMap<String, RateWindow>,
     pub(super) popup_resize_rates: HashMap<String, RateWindow>,
+    pub(super) notification_rates: HashMap<String, RateWindow>,
+    pub(super) notifications: HashMap<String, Vec<String>>,
+    pub(super) notifications_enabled: bool,
     pub metrics: ShimMetrics,
 }
 
@@ -294,7 +303,12 @@ impl ExtensionHost {
         inbound_rx: Receiver<PipeInbound>,
         wake_pending: Arc<AtomicBool>,
         stub_dirs_by_id: HashMap<String, PathBuf>,
+        menu_storage_dir: Option<PathBuf>,
     ) -> Self {
+        let catalog = match menu_storage_dir {
+            Some(dir) => context_menus::ExtensionContextMenuCatalog::with_storage_dir(dir),
+            None => context_menus::ExtensionContextMenuCatalog::default(),
+        };
         Self {
             pipe,
             inbound_rx,
@@ -308,7 +322,8 @@ impl ExtensionHost {
             subscribers: HashMap::new(),
             tabs: Vec::new(),
             actions: HashMap::new(),
-            context_menus: Arc::new(std::sync::Mutex::new(context_menus::ExtensionContextMenuCatalog::default())),
+            context_menus: Arc::new(std::sync::Mutex::new(catalog)),
+            web_nav: web_nav::WebNavTracker::default(),
             expected_targets: VecDeque::new(),
             seed_session_id: None,
             seed_probe_started: false,
@@ -332,6 +347,9 @@ impl ExtensionHost {
             open_tab_rates: HashMap::new(),
             action_rates: HashMap::new(),
             popup_resize_rates: HashMap::new(),
+            notification_rates: HashMap::new(),
+            notifications: HashMap::new(),
+            notifications_enabled: true,
             metrics: ShimMetrics::default(),
         }
     }
@@ -655,6 +673,7 @@ impl ExtensionHost {
     }
 
     pub fn on_tab_closed(&mut self, engine_tab_id: u64) {
+        self.web_nav.remove_tab(engine_tab_id);
         if let Some(pos) = self.tabs.iter().position(|t| t.engine_tab_id == engine_tab_id) {
             let tab = self.tabs.remove(pos);
             let removed: Vec<(String, i32)> = self
@@ -714,23 +733,6 @@ impl ExtensionHost {
         let tab_clone = tab.clone();
         if !is_private_url(url) {
             self.emit_tab_updated(&tab_clone, json!({ "url": url }), true);
-            if !is_extension_scheme(url) {
-                let pairs: Vec<(String, i32)> = self
-                    .ext_tab_ids
-                    .iter()
-                    .filter_map(|(ext_id, map)| map.get(&engine_tab_id).copied().map(|cid| (ext_id.clone(), cid)))
-                    .collect();
-                for (ext_id, cid) in pairs {
-                    self.emit_event(
-                        "webNavigation.onCommitted",
-                        vec![json!({
-                            "tabId": cid, "url": url, "processId": 0, "frameId": 0, "parentFrameId": -1,
-                            "transitionType": "link", "transitionQualifiers": [], "timeStamp": now_ms(),
-                        })],
-                        Some(&ext_id),
-                    );
-                }
-            }
         }
     }
 
@@ -765,21 +767,32 @@ impl ExtensionHost {
         let tab_clone = tab.clone();
         let status = if loading { "loading" } else { "complete" };
         self.emit_tab_updated(&tab_clone, json!({ "status": status }), false);
-        if !loading && !is_private_url(&tab_clone.url) && !is_extension_scheme(&tab_clone.url) {
-            let pairs: Vec<(String, i32)> = self
-                .ext_tab_ids
-                .iter()
-                .filter_map(|(ext_id, map)| map.get(&engine_tab_id).copied().map(|cid| (ext_id.clone(), cid)))
-                .collect();
-            for (ext_id, cid) in pairs {
-                self.emit_event(
-                    "webNavigation.onCompleted",
-                    vec![json!({
-                        "tabId": cid, "url": tab_clone.url, "processId": 0, "frameId": 0,
-                        "parentFrameId": -1, "timeStamp": now_ms(),
-                    })],
-                    Some(&ext_id),
-                );
+    }
+
+    /// Processes a CEF frame navigation signal and emits full `chrome.webNavigation` events
+    /// (main frame + subframes) to subscribed extensions (`web-navigation.ts:28-126`).
+    pub fn on_web_navigation(&mut self, sig: web_nav::WebNavSignal) {
+        let tab_id = sig.tab_id;
+        let Some(tab) = self.tabs.iter().find(|t| t.engine_tab_id == tab_id && !t.agent_driven) else {
+            return;
+        };
+        let tab_url = tab.url.clone();
+        let events = self.web_nav.ingest(&tab_url, sig, now_ms());
+        if events.is_empty() {
+            return;
+        }
+        let pairs: Vec<(String, i32)> = self
+            .ext_tab_ids
+            .iter()
+            .filter_map(|(ext_id, map)| map.get(&tab_id).copied().map(|cid| (ext_id.clone(), cid)))
+            .collect();
+        for (ev_name, base_details) in events {
+            for (ext_id, cid) in &pairs {
+                let mut details = base_details.clone();
+                if let Some(obj) = details.as_object_mut() {
+                    obj.insert("tabId".into(), json!(cid));
+                }
+                self.emit_event(ev_name, vec![details], Some(ext_id));
             }
         }
     }
@@ -912,7 +925,12 @@ impl ExtensionHost {
         is_unpacked: bool,
         loaded: bool,
     ) {
-        self.context_menus.lock().unwrap().set_extension_name(&id, &manifest.name);
+        self.context_menus.lock().unwrap().configure_extension(
+            &id,
+            &manifest.name,
+            &manifest.version,
+            manifest.has_permission("contextMenus"),
+        );
         self.extensions.insert(
             id,
             LoadedExt { dir, sha256, manifest, is_unpacked, loaded, boot_count: 0 },
@@ -940,7 +958,7 @@ impl ExtensionHost {
         let Some(tab) = self.tabs.iter().find(|t| t.engine_tab_id == engine_tab_id && !t.agent_driven).cloned() else {
             return;
         };
-        if is_private_url(&tab.url) {
+        if is_private_url(&tab.url) || is_extension_scheme(&tab.url) || target.has_private_url() {
             return;
         }
         let Some(info) = self
@@ -976,6 +994,40 @@ impl ExtensionHost {
             .entry(ext_id.to_owned())
             .or_default()
             .allow(Instant::now(), Duration::from_secs(1), 30)
+    }
+
+    pub(super) fn allow_notification(&mut self, ext_id: &str) -> bool {
+        self.notification_rates
+            .entry(ext_id.to_owned())
+            .or_default()
+            .allow(Instant::now(), Duration::from_secs(10), 10)
+    }
+
+    pub fn set_notifications_enabled(&mut self, enabled: bool) {
+        self.notifications_enabled = enabled;
+    }
+
+    /// Delivers a desktop OS notification click or dismissal back to the owning extension
+    /// (`extension-api/notifications.ts:43-48`).
+    pub fn on_notification_event(&mut self, ext_id: &str, notif_id: &str, clicked: bool, by_user: bool) {
+        let Some(ext) = self.extensions.get(ext_id) else { return };
+        if !ext.manifest.has_permission("notifications") {
+            return;
+        }
+        let existed = self
+            .notifications
+            .get_mut(ext_id)
+            .is_some_and(|list| {
+                let before = list.len();
+                list.retain(|id| id != notif_id);
+                list.len() != before
+            });
+        if clicked {
+            self.emit_event("notifications.onClicked", vec![json!(notif_id)], Some(ext_id));
+        }
+        if existed || clicked {
+            self.emit_event("notifications.onClosed", vec![json!(notif_id), json!(by_user)], Some(ext_id));
+        }
     }
 
     pub(super) fn alloc_id(&mut self) -> i64 {
