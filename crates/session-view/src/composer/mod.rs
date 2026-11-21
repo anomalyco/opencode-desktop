@@ -311,6 +311,7 @@ pub trait ComposerHost: TimelineHost {
         None
     }
     fn composer_on_change(&mut self, _tx: &mut Tx) {}
+    fn composer_set_hovered(&mut self, _hovered: bool) {}
     fn composer_on_key(&mut self, _ev: &KeyEvent, _tx: &mut Tx) -> bool {
         false
     }
@@ -381,8 +382,8 @@ pub fn submit_surface(base: El, p: &Pal, live: bool) -> El {
         .motion(Spring::NONE)
         .motion_intent(MotionIntent::CUT);
     if !live {
-        // Disabled, so not a Tab stop either.
-        return b.opacity(0.4).focusable(false);
+        // Disabled, so neither clickable nor a Tab stop (`editor.tsx:1548`).
+        return b.opacity(0.4).disabled(true).focusable(false);
     }
     let (hover, pressed) = if p.dark { (black.alpha(0.08), black.alpha(0.4)) } else { (white.alpha(0.12), white.alpha(0.24)) };
     b.hover(hover).press(pressed).focus_default(p)
@@ -419,24 +420,31 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
         (false, false) => icon(&ic::ARROW_UP, 16.0).key("send-glyph"),
     };
     // Send finishes a dictation and sends its words, so it stays live while one runs.
-    let submit = (!docked).then(|| submit_button(p, ready || stop || s.composer_dictating())
-        .label(if stop { opencode_i18n::t!("ui.promptInput.stop") } else { opencode_i18n::t!("ui.promptInput.send") })
-        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
-            if stop {
-                s.composer_stop(tx);
-            } else {
-                s.composer_send(tx);
-            }
-        })
-        .child(glyph.color(p.q.submit_text).transition(stop_glyph_swap())));
+    let submit = (!docked).then(|| {
+        let live = ready || stop || s.composer_dictating();
+        let label = if stop { opencode_i18n::t!("ui.promptInput.stop") } else { opencode_i18n::t!("ui.promptInput.send") };
+        let b = submit_button(p, live).label(label).child(glyph.color(p.q.submit_text).transition(stop_glyph_swap()));
+        // Official `<Tooltip placement="top" inactive={!stopping && disabled}>` (`editor.tsx:1546-1569`).
+        if live {
+            b.help(label).help_above().on_press_tx(move |s: &mut S, tx: &mut Tx| {
+                if stop {
+                    s.composer_stop(tx);
+                } else {
+                    s.composer_send(tx);
+                }
+            })
+        } else {
+            b
+        }
+    });
     let key = if scope.is_empty() {
         "composer".to_owned()
     } else {
         format!("{scope}-composer")
     };
     let face = s.composer_face(p);
-    // A hover group: the default effort shows only while the pointer is over the composer
-    // (`editor.css:75-80`), at once both ways.
+    // Track pointer hover explicitly rather than `.hover_group()` so prompt keyboard focus does
+    // not reveal the default effort button (`editor.css:87`).
     // A landmark F6 lands on (the prompt, or the request standing in its place).
     let box_el = col()
         .key(key)
@@ -448,8 +456,10 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
         .min_h(if docked && s.composer_shell_mode() { 44.0 } else { 88.0 })
         // `rounded-xl` (`editor.tsx:254`): the app's `--radius-xl` is 0.625rem (`theme.css:50`).
         .corners([RADIUS; 4])
-        .hover_group()
-        .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT);
+        .on_hover_change(|s: &mut S, inside, tx: &mut Tx| {
+            s.composer_set_hovered(inside);
+            tx.instant();
+        });
     // A face with surfaces of its own keeps its shadows: no card under it and no clip over it.
     // Otherwise `--v2-elevation-raised` (`editor.tsx:248-251`): two drops, a 0.5 pt ring and
     // dark's lit top edge.
