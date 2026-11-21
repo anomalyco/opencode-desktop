@@ -3,7 +3,8 @@
 
 use std::rc::Rc;
 
-use rune::{PopupAnchor, TextEdit, Tx};
+use rune::{El, PopupAnchor, TextEdit, Tx};
+use crate::palette::Pal;
 use crate::popover;
 
 use super::menu::{Entry, Look, Menu, key_at, row_key};
@@ -95,8 +96,34 @@ pub fn open_searchable<S: PopupHost + 'static>(
     pick: impl FnOnce(&mut S, Option<&str>, &mut Tx) + 'static,
 ) {
     let initial = rows(s, "");
-    let search = Search { placeholder: placeholder.into(), rows: Rc::new(rows) };
+    let search = Search { placeholder: placeholder.into(), rows: Rc::new(rows), field: None };
     open_drawn_inner(s, initial, Some(search), anchor.into(), tx, pick);
+}
+
+/// A drawn menu under a field that edits a value as it's typed rather than filtering its rows,
+/// as Desktop's group menu edits the group's name over its colours (`pinned-area.tsx`'s
+/// `GroupEditor`). `value` fills the field, which takes the keys as the menu opens; `lead`
+/// draws before its text and `changed` runs on every edit. `label` names it. Up and Down light
+/// the rows, Escape closes; Return stays in the field.
+#[allow(clippy::too_many_arguments)]
+pub fn open_with_field<S: PopupHost + 'static>(
+    s: &mut S,
+    label: impl Into<String>,
+    value: &str,
+    lead: impl Fn(&S, &Pal) -> El + 'static,
+    changed: impl Fn(&mut S, &str, &mut Tx) + 'static,
+    rows: impl Fn(&S) -> Menu + 'static,
+    anchor: impl Into<PopupAnchor>,
+    tx: &mut Tx,
+    pick: impl FnOnce(&mut S, Option<&str>, &mut Tx) + 'static,
+) {
+    let initial = rows(s);
+    let field = super::Field { lead: Rc::new(lead), changed: Rc::new(changed) };
+    let search = Search { placeholder: label.into(), rows: Rc::new(move |s: &S, _: &str| rows(s)), field: Some(field) };
+    open_drawn_inner(s, initial, Some(search), anchor.into(), tx, pick);
+    let query = &mut s.popup_mut().query;
+    *query = TextEdit::new(value);
+    query.focused = true;
 }
 
 fn open_drawn_inner<S: PopupHost + 'static>(

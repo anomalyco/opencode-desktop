@@ -7,7 +7,7 @@ use rune_kit::shell::{TabItemStatus, TabOrientation};
 use super::*;
 use crate::popup::{self, Item, Menu, MenuButton as _};
 use crate::session_menu::{Spot, Target, preferences};
-use crate::tabs::pins::{self, HiddenMark, PinColor, PinGroup, PinItem, PinRef, RenameEvent};
+use crate::tabs::pins::{self, HiddenMark, PinColor, PinGroup, PinItem, PinRef};
 use opencode_i18n::t;
 
 /// `sessions-stack` (`packages/ui/src/icons/catalog.ts`): Home's glyph under Consolidated.
@@ -292,36 +292,7 @@ fn vertical_group(s: &App, p: &Pal, g: &PinGroup, nav_order: &[String], show_hin
         .child(group_square(g.color, p.dark))
         .children(mark.map(|m| hidden_dot(p, m, true)));
 
-    let label_el = match pins::state(s).rename.editing(&g.id) {
-        Some(edit) => session_view::style::field(edit, UI_MED)
-            .key("pin-group-name")
-            .label(t!("tabs.groups.name.placeholder"))
-            .single_line()
-            .grow(1.0)
-            .shrink()
-            .min_w(0.0)
-            .color(p.text)
-            .placeholder(t!("tabs.groups.name.placeholder"), p.faint)
-            .caret(p.text, p.selection)
-            .selection_style(p.field_selection)
-            .on_edit(|s: &mut App| {
-                let st = s.kernel.slots.get_mut(&pins::PINS);
-                match &mut st.rename {
-                    pins::PinRename::Arming { field, .. } | pins::PinRename::Editing { field, .. } => field,
-                    pins::PinRename::Idle => &mut st.scratch,
-                }
-            })
-            .on_input_change(|s: &mut App, tx: &mut Tx| pins::rename_step(s, RenameEvent::Typed, tx))
-            .on_input_key(|s: &mut App, ev, tx| {
-                if !matches!(ev.key, Key::Escape | Key::Enter) {
-                    return false;
-                }
-                pins::rename_step(s, RenameEvent::Done, tx);
-                tx.blur();
-                true
-            }),
-        None => text(g.name.clone()).font(UI_MED).color(p.text).shrink().min_w(0.0).truncate().dir(rune::Direction::Auto),
-    };
+    let label_el = text(g.name.clone()).font(UI_MED).color(p.text).shrink().min_w(0.0).truncate().dir(rune::Direction::Auto);
 
     let toggle_id = g.id.clone();
     let ctx_id = g.id.clone();
@@ -440,24 +411,31 @@ fn open_pin_menu(s: &mut App, r: &PinRef, press: rune::PointerPress, tx: &mut Tx
 
 fn open_group_menu(s: &mut App, group_id: &str, at: rune::PopupAnchor, tx: &mut Tx) {
     let Some(g) = pins::state(s).doc.groups().find(|g| g.id == group_id).cloned() else { return };
-    let mut colors = Menu::new(t!("tabs.groups.color"));
-    for c in pins::AUTO_COLORS {
-        colors = colors.item(Item::new(format!("color:{}", c.name()), c.label()).checked(c == g.color));
-    }
-    let menu = Menu::new(g.name.clone())
-        .min_width(192.0)
-        .item(Item::new("rename", t!("common.rename")))
-        .submenu("color", t!("tabs.groups.color"), colors)
-        .separator()
-        .item(Item::new("ungroup", t!("tabs.groups.ungroup")))
-        .item(Item::new("unpin-group", t!("navigation.group.unpin")));
-    let id = g.id.clone();
-    let name = g.name.clone();
+    // `GroupEditor` (`pinned-area.tsx:449-489`): the group's name in a bare field, its square
+    // before it, then its colours as a radio list, then Ungroup and Unpin, 192 wide (`w-48`).
+    let (lead_id, edit_id, rows_id, id) = (g.id.clone(), g.id.clone(), g.id.clone(), g.id.clone());
+    let lead = move |s: &App, p: &Pal| {
+        let color = pins::state(s).doc.groups().find(|g| g.id == lead_id).map(|g| g.color);
+        color.map_or_else(el, |c| group_square(c, p.dark))
+    };
+    let rename = move |s: &mut App, name: &str, _: &mut Tx| pins::update(s, |d| d.rename_group(&edit_id, name.to_owned()));
+    let rows = move |s: &App| {
+        let current = pins::state(s).doc.groups().find(|g| g.id == rows_id).map(|g| g.color);
+        let menu = Menu::new(t!("tabs.groups.color")).width(192.0).separator();
+        pins::AUTO_COLORS
+            .into_iter()
+            .fold(menu, |m, c| {
+                let ((lf, le, _), (df, de, _)) = (group_colors(c, false), group_colors(c, true));
+                m.item(Item::new(format!("color:{}", c.name()), c.label()).swatch([lf, le], [df, de]).checked(Some(c) == current))
+            })
+            .separator()
+            .item(Item::new("ungroup", t!("tabs.groups.ungroup")))
+            .item(Item::new("unpin-group", t!("navigation.group.unpin")))
+    };
     tx.instant();
-    popup::open(s, menu, at, tx, move |s: &mut App, picked, tx| {
+    popup::open_with_field(s, t!("tabs.groups.name.placeholder"), &g.name, lead, rename, rows, at, tx, move |s: &mut App, picked, tx| {
         tx.instant();
         match picked {
-            Some("rename") => pins::rename_step(s, RenameEvent::Start { group: &id, name: &name }, tx),
             Some("ungroup") => pins::update(s, |d| d.ungroup(&id)),
             Some("unpin-group") => pins::update(s, |d| d.unpin_group(&id)),
             Some(choice) => {

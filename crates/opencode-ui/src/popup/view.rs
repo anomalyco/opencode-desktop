@@ -162,6 +162,10 @@ fn build<S: PopupHost + 'static>(
                         };
                         o.lead(row().size(16.0, 16.0).center().child(mark))
                     }
+                    Some(Glyph::Swatch(light, dark)) => {
+                        let [fill, edge] = if p.dark { dark } else { light };
+                        o.lead(el().size(10.0, 10.0).radius(2.0).fill(fill).box_shadow(Pal::ring_in(edge)).a11y_hidden())
+                    }
                     None => o,
                 };
                 let o = match &i.shortcut {
