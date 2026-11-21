@@ -85,6 +85,7 @@ fn nav_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str) -> El {
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .hover_group()
         .hover(p.layer1)
@@ -140,7 +141,9 @@ pub(super) fn project_row(s: &App, p: &Pal, server: &ServerKey, proj: &model::Pr
         .px(6.0)
         .gap(8.0)
         .center_y()
-        .radius(6.0).focus_inset(p)
+        .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_inset(p)
         .hover_group()
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
@@ -173,13 +176,14 @@ pub(crate) fn icon_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon,
         .key(key.to_owned())
         .role("button")
         .label(label)
+        .expanded(expanded)
         .size(20.0, 20.0)
         .radius(4.0)
         .center()
-        .hover(p.hover)
-        .press(p.pressed)
+        .cursor(rune::Cursor::Pointer)
+        .hover_motion(INSTANT, INSTANT)
         .child(icon(glyph, 16.0).color(if expanded { p.icon } else { p.icon_muted }));
-    if expanded { b.fill(p.pressed) } else { b }
+    if expanded { b.fill(p.pressed) } else { b.hover(p.hover).press(p.pressed) }
 }
 
 /// `ProjectMenuItems`: New session, Import session, Edit project, Reveal in File Explorer (a
@@ -297,12 +301,14 @@ pub(super) fn dropdown_trigger(s: &App, p: &Pal, selected: Option<&model::Projec
         .key("home-projects-trigger")
         .role("button")
         .label_static(t!("home.projects"))
+        .expanded(open)
         .w_full()
         .h(40.0)
         .px(6.0)
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .fill(if open { p.layer1 } else { p.bg_base })
         .hover(p.layer1)
