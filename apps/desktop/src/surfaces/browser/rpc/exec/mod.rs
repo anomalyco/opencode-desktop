@@ -585,3 +585,17 @@ pub(super) fn send_rpc_cdp_in_frame(
             .send_cdp(host_id, method, params, None)
     }
 }
+
+/// Actions authorised against every source on the tab, whatever ref they name (`chromium.ts:2122`).
+pub(super) const CAPTURES: &[&str] = &["screenshot", "lighthouse", "trace.start", "cpu.start", "heap.snapshot"];
+
+/// The refs an action names (`chromium.ts:2140-2145`): `drag`'s two, `fill_form`'s fields', or `ref`.
+pub(super) fn action_refs(cmd: &Command) -> Option<Vec<String>> {
+    let a = &cmd.action;
+    let s = |v: &Value| v.as_str().map(str::to_owned);
+    match cmd.action_type()? {
+        "drag" => Some(["from", "to"].iter().filter_map(|k| a.get(*k).and_then(s)).collect()),
+        "fill_form" => Some(a.get("fields")?.as_array()?.iter().filter_map(|f| f.get("ref").and_then(s)).collect()),
+        _ => a.get("ref").and_then(s).map(|r| vec![r]),
+    }
+}

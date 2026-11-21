@@ -35,48 +35,9 @@ pub(super) enum OutboundMsg {
     Stop,
 }
 
-/// Element ref mappings for one tab (`eN <-> (backendDOMNodeId, cdp_session)`). Invalidated
-/// whenever the tab's document generation changes.
-#[derive(Default)]
-pub(super) struct TabRefs {
-    pub ref_to_target: HashMap<String, (i64, Option<String>)>,
-    /// The frame each ref's snapshot was taken in, when it named one; the engine checks it.
-    pub ref_frames: HashMap<String, String>,
-    pub backend_to_ref: HashMap<i64, String>,
-    pub picked: HashMap<i64, String>,
-}
+mod refs;
+pub(super) use refs::TabRefs;
 
-impl TabRefs {
-    pub fn clear_on_nav(&mut self) {
-        self.ref_to_target.clear();
-        self.ref_frames.clear();
-        self.backend_to_ref.clear();
-        self.picked.clear();
-    }
-
-    pub fn update_from_snapshot(&mut self, refs: BTreeMap<String, i64>, cdp_session: Option<String>, frame: Option<String>) {
-        self.ref_to_target.clear();
-        self.ref_frames.clear();
-        self.backend_to_ref.clear();
-        for (k, id) in refs {
-            self.backend_to_ref.insert(id, k.clone());
-            if let Some(f) = &frame {
-                self.ref_frames.insert(k.clone(), f.clone());
-            }
-            self.ref_to_target.insert(k, (id, cdp_session.clone()));
-        }
-    }
-
-    pub fn frame_of(&self, raw: &str) -> Option<String> {
-        let norm = opencode_kit::browser_rpc::normalize_ref(raw)?;
-        self.ref_frames.get(&norm).cloned()
-    }
-
-    pub fn resolve(&self, raw: &str) -> Option<(i64, Option<String>)> {
-        let norm = opencode_kit::browser_rpc::normalize_ref(raw)?;
-        self.ref_to_target.get(&norm).cloned()
-    }
-}
 
 /// One desktop-owned capture artifact owned by a single tab inside a single session.
 #[derive(Clone)]

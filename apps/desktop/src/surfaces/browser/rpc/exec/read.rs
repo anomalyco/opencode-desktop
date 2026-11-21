@@ -165,6 +165,23 @@ pub(super) fn compute_target(
             .unwrap_or("")
             .to_owned();
         TargetMeta { resources: vec![path.clone()], key: format!("navigate.path:{generation}:{path}") }
+    } else if let Some(refs) = super::action_refs(cmd).filter(|r| !r.is_empty() && !super::CAPTURES.contains(&ty)) {
+        // A ref names its own frame, which wins over any `frameID` the caller passed (official
+        // `chromium.ts:2112-2118`): authorise the frames the refs live in, never the caller's.
+        let tab_refs = att.refs.get(&host_id);
+        let mut resources = vec![tab.url.clone()];
+        for r in &refs {
+            let Some(fid) = tab_refs.and_then(|t| t.frame_of(r)) else { continue };
+            let url = att.frames.get(&host_id).filter(|f| !f.frame_cap_exceeded).and_then(|f| f.frame_urls.get(&fid).cloned());
+            let Some(url) = url else {
+                return Err(Outcome::fail(
+                    failure_code::OPERATION_FAILED,
+                    "The ref's frame is no longer tracked. Take a fresh snapshot and retry.",
+                ));
+            };
+            resources.push(url);
+        }
+        TargetMeta { resources, key: format!("refs:{generation}:{}", refs.join(",")) }
     } else if let Some(fid) = cmd.action.get("frameID").and_then(Value::as_str) {
         let Some(frames) = att.frames.get(&host_id) else {
             return Err(Outcome::fail(
