@@ -4,7 +4,9 @@ Embeddable Chromium browser pane for Rune applications.
 
 Talks over a local Unix socket to the out-of-process `OpenCode Browser Engine` CEF sidecar (`apps/browser-engine`) and streams accelerated frames and input events into a Rune element. The engine isn't part of the app: the first page fetches it from the build's source and checks it against the build's trust rule before anything of it runs (`source.rs`: `SOURCE` and `TRUST`, set with `OPENCODE_BROWSER_ENGINE_SOURCE` and `OPENCODE_BROWSER_ENGINE_TRUST` when the app is built), unpacking it as it downloads (`download.rs`, `unpack.rs`, `trust.rs`). A newer release installs beside a running engine for its next start.
 
-On Windows a development build reads `http://127.0.0.1:47981/index.json`: build the engine with `pwsh apps/browser-engine/scripts/package-windows.ps1` and serve it with `bun apps/browser-engine/scripts/serve.ts`. A release build never reads it: without a source it says the browser isn't published. `OPENCODE_BROWSER_ENGINE_BIN` or `OPENCODE_BROWSER_ENGINE_APP` runs an engine from anywhere instead.
+On Windows a development build reads `http://127.0.0.1:47981/index.json`: build the engine with `pwsh apps/browser-engine/scripts/package-windows.ps1` and serve it with `bun apps/browser-engine/scripts/serve.ts`. A release build never reads it: without a source it says the browser isn't published. `OPENCODE_BROWSER_ENGINE_BIN` or `OPENCODE_BROWSER_ENGINE_APP` runs an engine from anywhere instead, in a debug build only; a release build ignores them, as it ignores `OPENCODE_BROWSER_SOCKET` and `OPENCODE_BROWSER_IMPORT_ROOT`.
+
+Privacy: a build with a source and no installed engine makes one request to the engine index (a few KB, no download) after its first frame, and one an hour while the index lists no engine for its platform; with an engine installed it makes none until a page opens.
 
 Each install records the rule that accepted it (`<version>/trust`), and an engine starts only when the build's rule accepts that record, so a release build never runs an engine a development build took from the stand-in.
 

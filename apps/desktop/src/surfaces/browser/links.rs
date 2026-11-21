@@ -23,8 +23,9 @@ impl App {
     ///
     /// - `http:` / `https:` without credentials: opens in the embedded browser pane when
     ///   `browser_links_enabled()` is on, a session is active, the window is wide, the browser
-    ///   is supported, and neither Shift nor middle-click forced the system browser; otherwise
-    ///   opens in the OS default browser (live runs only).
+    ///   pane is available (an engine can run — not `Unsupported` or `Fault::NotPublished`), and
+    ///   no modifier (`Shift`/`Ctrl`/`Cmd`/`Alt`) or middle-click forced the system browser;
+    ///   otherwise opens in the OS default browser (live runs only).
     /// - `http:` / `https:` with credentials (`user:pass@host`): refused (never opened).
     /// - `file:`: never handed to the OS browser (`ours.md` §4).
     /// - App-scheme links (`mailto:`, `slack:`, `obsidian:`, `vscode:`, etc.): validated by
@@ -108,9 +109,16 @@ impl App {
             if destination_origin(trimmed).is_none() {
                 return;
             }
-            let shift = shift_override.unwrap_or_else(|| tx.mods().shift);
+            // Match official (`packages/app/src/runtime/plugin/render.tsx:229`): Shift, Ctrl, Cmd,
+            // Alt, or middle-click bypasses the pane and opens in the OS default browser. Terminal
+            // clicks pass `shift_override = Some(shift)` because Ctrl/Cmd is the terminal link
+            // activation gesture there.
+            let modifier_external = shift_override.unwrap_or_else(|| {
+                let m = tx.mods();
+                m.shift || m.ctrl || m.cmd || m.alt || m.logo
+            });
             let middle = tx.button() == PointerButton::Middle;
-            let open_in_pane = !shift
+            let open_in_pane = !modifier_external
                 && !middle
                 && sid.is_some()
                 && !self.narrow()

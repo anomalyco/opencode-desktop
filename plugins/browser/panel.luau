@@ -722,7 +722,10 @@ function panel.render(env: Env, view: View, props: PanelProps): ui.Node
 
     -- 5. Page area: failed-load plain page, empty new tab home, or live browser surface.
     local url = tab:Url()
-    local blank = (url == "" or url == "about:blank") and not tab:Loading() and not state.navigating
+    local blank = (url == "" or url == "about:blank")
+        and not tab:Loading()
+        and not state.navigating
+        and tab:Refusal() ~= "browser.controlled.inherited_permission"
     if loadErr ~= nil and not tab:Loading() then
         table.insert(items, failed(env, view, tab, loadErr))
     elseif blank and (engine == "ready" or engine == "starting") then

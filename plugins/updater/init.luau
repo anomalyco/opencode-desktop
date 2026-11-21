@@ -1,22 +1,20 @@
 --!strict
--- Desktop's built-in Updater plugin (`packages/gui-plugins/src/updater`, `renderer.tsx`):
+-- Desktop's built-in Updater plugin (`packages/gui-plugins/src/updater`, `renderer.tsx`): the
+-- Update pill in the titlebar or the sidebar's footer while an update is ready or installing,
 -- Preferences > Updates (Release notes, Check for updates), the hidden Check for Updates…
--- command, the checking, up-to-date, Update Ready, Update Available and Request failed toasts,
--- the Update Ready or Update Available toast when the host's own checks find an update, once per
--- version (`notice.luau`; it replaces Desktop's titlebar update pill), Settings > What's
--- new in builds that carry their notes, and What's New after an update. The host's updater does
--- the work (`Updater`); this window's own requests follow `machine.luau` (`window-machine.ts`).
+-- command, and the checking, up-to-date, Update Ready, Update Available and Request failed
+-- toasts of a check the user asked for (`actions.tsx`), Settings > What's new in builds that
+-- carry their notes, and What's New after an update. The host's updater does the work
+-- (`Updater`); this window's own requests follow `machine.luau` (`window-machine.ts`).
 
 local plugin = require("@opencode/plugin")
 local machine = require("@self/machine")
-local notice = require("@self/notice")
 local action = require("@self/action")
 local whatsnew = require("@self/whatsnew")
 local view = require("@self/view")
 
 type ReleaseNotes = { enabled: boolean }
 type Seen = { version: string? }
-type UpdateNotice = { version: string? }
 
 return plugin.defineWindow(function(ctx)
     local I18n = ctx:GetService("I18n")
@@ -31,7 +29,6 @@ return plugin.defineWindow(function(ctx)
     local Theme = ctx:GetService("Theme")
     local releaseNotes = Store:Value("releaseNotes", { enabled = true }) :: StoreValue<ReleaseNotes>
     local seen = Store:Value("seen", {} :: Seen) :: StoreValue<Seen>
-    local updateNotice = Store:Value("updateNotice", {} :: UpdateNotice) :: StoreValue<UpdateNotice>
     local changed = ctx:CreateSignal()
 
     local windowState = machine.initial
@@ -51,11 +48,10 @@ return plugin.defineWindow(function(ctx)
     -- Update Ready (Restart / Later) or, for a download this install can't put in place by itself
     -- (Linux), Update Available (Download OpenCode / Later). One at a time: a newer one replaces it.
     local offer: ToastHandle? = nil
-    local function showOffer(version: string, kind: notice.Kind)
+    local function showOffer(version: string, ready: boolean)
         if offer then
             offer:Dismiss()
         end
-        local ready = kind == "ready"
         offer = Toast:Show({
             title = I18n:T(if ready then "dialog.ready.title" else "dialog.available.title"),
             description = I18n:T(if ready then "dialog.ready.message" else "dialog.available.message", { version = version }),
@@ -69,7 +65,6 @@ return plugin.defineWindow(function(ctx)
         })
     end
 
-    local noticeState = notice.initial
     -- A different process placed this version. Withdraw a stale offer and explain why there
     -- is nothing to install. A manual check can ask to see the explanation again.
     local installedVersion: string? = nil
@@ -83,18 +78,6 @@ return plugin.defineWindow(function(ctx)
         end
         installedVersion = version
     end
-    local function dispatchNotice(event: notice.Event)
-        local next, effects = notice.transition(noticeState, event)
-        noticeState = next
-        for _, effect in effects do
-            if effect.type == "show" then
-                showOffer(effect.version, effect.kind)
-            else
-                updateNotice:Set({ version = effect.version })
-            end
-        end
-    end
-
     -- `actions.tsx` `check`: a loading toast while it runs, then what it found.
     local function check()
         local checking = Toast:Show({ title = I18n:T("action.checking"), variant = "loading", persistent = true })
@@ -113,9 +96,7 @@ return plugin.defineWindow(function(ctx)
         elseif state.phase == "ready" or state.phase == "download-required" then
             -- Desktop confirms its one download-required case (Beta moving to Stable) in a
             -- dialog; here it is Linux's every update, so it toasts like a ready one.
-            local version = state.version or ""
-            showOffer(version, if state.phase == "ready" then "ready" else "download-required")
-            dispatchNotice({ type = "announced", version = version })
+            showOffer(state.version or "", state.phase == "ready")
         elseif state.phase == "error" then
             requestFailed(state.error)
         end
@@ -150,6 +131,27 @@ return plugin.defineWindow(function(ctx)
     local function act(name: machine.Action)
         dispatchWindow({ type = "action.requested", action = name, available = Updater:State() ~= nil })
     end
+
+    -- `renderer.tsx`'s TitlebarItem: shown while an update is ready, offered as a download or
+    -- installing, until the user installs it; its title names what a click does.
+    ctx:AddTitlebarItem({
+        id = "update",
+        show = function()
+            local state = Updater:State()
+            local phase = state and state.phase
+            if phase ~= "ready" and phase ~= "download-required" and phase ~= "installing" then
+                return nil
+            end
+            return {
+                label = I18n:T("status.label"),
+                title = I18n:T(action(state, windowState).label),
+                busy = phase == "installing",
+            }
+        end,
+        run = function()
+            act("install")
+        end,
+    })
 
     ctx:AddSettingsPage({
         id = "updates",
@@ -193,20 +195,15 @@ return plugin.defineWindow(function(ctx)
         end,
     })
 
-    -- The app menu's Check for Updates… checks in the focused window (`main.ts`'s beta path), and
-    -- an update the host's own checks found is announced there.
+    -- The app menu's Check for Updates… checks in the focused window (`main.ts`'s beta path).
     local focused = true
     ctx.FocusChanged:Connect(function(f: boolean)
         focused = f
-        if f then
-            dispatchNotice({ type = "focused", notified = updateNotice:Get().version })
-        end
     end)
     Updater.StateChanged:Connect(function(state: UpdaterState?)
         if state and state.phase == "installed" and state.version then
             installed(state.version, false)
         end
-        dispatchNotice({ type = "updater", phase = state and state.phase, version = state and state.version, focused = focused, notified = updateNotice:Get().version })
     end)
     local menu = Contracts:Use("updater")
     local checks = if menu:State() == "active" then (menu:Get() :: any).checks else 0
@@ -314,7 +311,6 @@ return plugin.defineWindow(function(ctx)
 
     ctx.Disposing:Connect(function()
         dispatchWindow({ type = "disposed" })
-        dispatchNotice({ type = "disposed" })
         dispatchWhatsNew({ type = "disposed" })
     end)
 end)

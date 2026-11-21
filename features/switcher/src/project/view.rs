@@ -55,8 +55,15 @@ pub fn view<H: ProjectSwitcherHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> [El
         .on_input_key(|s: &mut H, ev, tx| super::key_or_shortcut(s, ev, tx));
     let search = search_row_shell(leading, input);
 
-    let mut list = col().key("project-switcher-results").w_full().px(6.0).pb(6.0).gap(2.0);
-    let mut content_h = 6.0_f32;
+    // `command-palette-results` (`location/dialog.css:51-62`): 6 in at the sides and foot, rows 2
+    // apart, 4 above the first row unless a group title starts the group.
+    let mut list = col().key("project-switcher-results").w_full().px(6.0).pb(6.0).gap(2.0).pt(if step_title.is_some() { 0.0 } else { 4.0 });
+    let mut content_h = if step_title.is_some() { 6.0_f32 } else { 10.0 };
+    // `currentDestination`: the drilled project's row the draft runs in shows a check.
+    let current = match &open.mode {
+        StepMode::Worktrees { project, .. } if host.draft_project().is_some_and(|d| &d.id == project) => host.draft_dir(),
+        _ => None,
+    };
     if let Some(title) = step_title {
         list = list.child(step_back_shell(p, title).on_press_tx(|s: &mut H, tx: &mut Tx| super::back(s, tx)));
         content_h += 32.0;
@@ -77,16 +84,18 @@ pub fn view<H: ProjectSwitcherHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> [El
         // worktrees (`dialog.tsx:371-382`).
         let after_actions = idx > 0 && matches!(r.kind, RowKind::Worktree { main: false, .. }) && !matches!(list_rows[idx - 1].kind, RowKind::Worktree { main: false, .. });
         if idx > 0 && (r.kind == RowKind::Add || after_actions) {
-            list = list.child(el().key(format!("psw-divider-{idx}")).h(0.5).my(2.0).mx(-6.0).fill(p.border_muted));
-            content_h += 8.5;
+            // `new-session-location-action-divider`: a 1 pt rule at half its height, 2 above and below.
+            list = list.child(col().key(format!("psw-divider-{idx}")).h(1.0).my(2.0).mx(-6.0).py(0.25).child(el().w_full().h(0.5).fill(p.border_muted)));
+            content_h += 9.0;
         }
-        list = list.child(draw_row(s, p, r, lit.as_deref() == Some(r.key.as_str()), q, w));
+        let checked = current.is_some_and(|dir| matches!(&r.kind, RowKind::Worktree { directory, .. } if same_dir(directory, dir)));
+        list = list.child(draw_row(s, p, r, lit.as_deref() == Some(r.key.as_str()), q, w).children(checked.then(|| icon(&ic::CHECK, 16.0).color(p.icon_muted))));
         content_h += 34.0;
     }
     content_h -= 2.0;
 
-    // The search block (6 above, the field) and the divider (9 between 4 and 4).
-    let head_h = 6.0 + 28.0 + 17.0;
+    // The search block (6 above, the field) and `new-session-location-divider` (1 pt, 6 above, 2 below).
+    let head_h = 6.0 + 28.0 + 6.0 + 1.0 + 2.0;
     let scroll_h = content_h.min(max_h - head_h).max(0.0);
     // `MenuScroll` (`new-session/location/dialog.tsx:335`): its thumb shows while the list scrolls.
     let scroll = opencode_ui::scroller::scroller("project-switcher-scroll")
@@ -145,16 +154,20 @@ fn search_row_shell(leading: El, input: El) -> El {
         .child(input)
 }
 
+/// `command-palette-group-title` in the location dialog (`location/dialog.css:70-80`): 10 above
+/// and 2 below an 18 pt line, 8 in, 12 pt `text-faint`.
+const GROUP_TITLE: TextStyle = TextStyle::new(12.0, 440.0).lh(18.0).tracking(0.05);
+
+fn group_title_shell(key: &'static str) -> El {
+    row().key(key).h(30.0).px(8.0).pt(10.0).pb(2.0).center_y()
+}
+
 fn step_back_shell(p: &Pal, title: &'static str) -> El {
-    row()
-        .key("project-switcher-back")
+    group_title_shell("project-switcher-back")
         .role("button")
         .label_static(t!("session.new.location.back"))
-        .h(28.0)
-        .px(6.0)
-        .center_y()
         .radius(2.0)
-        .child(text(title).font(UI).color(p.muted))
+        .child(text(title).font(GROUP_TITLE).color(p.faint))
 }
 
 fn empty_shell(p: &Pal, waiting: bool) -> El {
@@ -167,12 +180,13 @@ fn empty_shell(p: &Pal, waiting: bool) -> El {
 }
 
 fn other_heading_shell(p: &Pal) -> El {
-    row()
-        .key("psw-other-heading")
-        .h(28.0)
-        .px(6.0)
-        .center_y()
-        .child(text(t!("session.new.location.otherProjects")).font(UI).color(p.muted))
+    group_title_shell("psw-other-heading").child(text(t!("session.new.location.otherProjects")).font(GROUP_TITLE).color(p.faint))
+}
+
+/// `sameDirectory`: one folder however its separators and trailing slash are written.
+fn same_dir(a: &str, b: &str) -> bool {
+    let norm = |s: &str| s.trim_end_matches(['/', '\\']).replace('\\', "/");
+    norm(a) == norm(b)
 }
 
 fn build_dialog_card(p: &Pal, placeholder: &'static str, w: f32, total_h: f32, search: El, scroll: El) -> El {
@@ -189,7 +203,8 @@ fn build_dialog_card(p: &Pal, placeholder: &'static str, w: f32, total_h: f32, s
         .transition(Transition::none())
         .motion(Spring::NONE)
         .child(col().key("project-switcher-search").w_full().pt(6.0).px(6.0).child(search))
-        .child(el().key("project-switcher-divider").h(0.5).w_full().mt(8.0).mb(8.5).fill(p.border))
+        // A 1 pt rule drawn at half its height (`scaleY(0.5)`), 6 under the field and 2 above the rows.
+        .child(col().key("project-switcher-divider").w_full().h(1.0).mt(6.0).mb(2.0).py(0.25).child(el().w_full().h(0.5).fill(p.border)))
         .child(scroll)
 }
 

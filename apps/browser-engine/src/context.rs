@@ -1064,13 +1064,12 @@ impl ContextPool {
     /// Releases `tab_id` from its pooled context and prunes any queued `ready_loads` for `tab_id`.
     /// When the context's last tab closes, removes the entry immediately, clears scheme factories,
     /// closes connections, wipes in-memory cookies, and drops the `CefRequestContext` handle.
-    pub fn release_tab(&mut self, tab_id: u64) {
+    /// Returns the torn-down `ContextKey` if the last tab closed (for the remote cookie mirror).
+    pub fn release_tab(&mut self, tab_id: u64) -> Option<ContextKey> {
         self.default_tabs.remove(&tab_id);
         self.clear_pending_load(tab_id);
         self.tab_gens.remove(&tab_id);
-        let Some(key) = self.tab_keys.remove(&tab_id) else {
-            return;
-        };
+        let key = self.tab_keys.remove(&tab_id)?;
         let empty = if let Some(entry) = self.entries.get_mut(&key) {
             entry.tabs.remove(&tab_id);
             entry.deferred_loads.lock().unwrap().retain(|(id, _, _)| *id != tab_id);
@@ -1080,7 +1079,9 @@ impl ContextPool {
         };
         if empty && let Some(entry) = self.entries.remove(&key) {
             entry.teardown();
+            return Some(key);
         }
+        None
     }
 
     /// Tears down every pooled isolated context on engine shutdown.
@@ -1213,7 +1214,6 @@ impl ContextPool {
     }
 
     /// Returns the live `RequestContext` for a remote server identity (for Phase 3b cookie mirror).
-    #[allow(dead_code)]
     pub fn remote_context(&self, server_id: &str) -> Option<RequestContext> {
         self.entries
             .get(&ContextKey::RemoteServer(server_id.trim().to_owned()))
@@ -1221,7 +1221,6 @@ impl ContextPool {
     }
 
     /// Returns all active remote server partitions and their `RequestContext`s.
-    #[allow(dead_code)]
     pub fn remote_partitions(&self) -> Vec<(String, RequestContext)> {
         self.entries
             .iter()

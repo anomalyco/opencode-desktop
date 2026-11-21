@@ -433,12 +433,15 @@ wrap_dev_tools_message_observer! {
     pub struct TabCdpObserver {
         tab_id: u64,
         is_popup: bool,
+        isolated: bool,
+        is_preview: bool,
         snap: Arc<Mutex<TabSnapshot>>,
         id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
         internal_picked: Arc<Mutex<Vec<i64>>>,
         pending_clears: Arc<Mutex<Vec<PendingClear>>>,
         cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
         prompts: Arc<crate::prompts::TabPrompts>,
+        permissions: Arc<crate::permissions::PermissionTracker>,
         extensions_active: bool,
         out_tx: Output,
     }
@@ -454,6 +457,14 @@ wrap_dev_tools_message_observer! {
             let Some(pending) = self.id_map.lock().unwrap().remove(&message_id) else {
                 return;
             };
+            // Guard 1b (reply-side choke point): re-check committed origin uniformly before ANY
+            // `CdpPending` variant (`Raw`, `CookieCount`, `ClearSite`) leaves the engine.
+            let (CdpPending::Raw { request_id, .. }
+            | CdpPending::CookieCount(request_id)
+            | CdpPending::ClearSite { request_id, .. }) = &pending;
+            if self.refuse_reply(browser.as_deref(), *request_id) {
+                return;
+            }
             if let CdpPending::Raw { request_id, max_bytes } = pending {
                 // Enforce hard byte cap BEFORE parsing JSON or forwarding across IPC.
                 if result.is_some_and(|b| b.len() > max_bytes) {
@@ -604,6 +615,9 @@ wrap_dev_tools_message_observer! {
                     && let Some(CdpPending::Raw { request_id, max_bytes }) =
                         self.id_map.lock().unwrap().remove(&(msg_id as i32))
                 {
+                    if self.refuse_reply(browser.as_deref(), request_id) {
+                        return 1;
+                    }
                     if raw.len() > max_bytes {
                         let _ = self.out_tx.send(EngineMsg::CdpResponse {
                             tab_id: self.tab_id,
@@ -721,6 +735,7 @@ wrap_dev_tools_message_observer! {
                     &self.snap,
                     &self.prompts,
                 )
+                || self.blocked_url(browser.as_deref()).is_some()
             {
                 return 1;
             }
@@ -732,5 +747,28 @@ wrap_dev_tools_message_observer! {
             });
             1
         }
+    }
+}
+
+impl TabCdpObserver {
+    /// Guard 1b: the tab's committed origin holds an inherited `Default` grant (controlled tabs only).
+    fn blocked_url(&self, browser: Option<&Browser>) -> Option<Option<String>> {
+        self.permissions
+            .tab_blocked_url(browser, self.isolated, self.is_preview, &self.snap, &self.prompts)
+    }
+
+    /// Replaces a reply with the generic refusal when Guard 1b holds; `true` when refused.
+    fn refuse_reply(&self, browser: Option<&Browser>, request_id: u64) -> bool {
+        let Some(url) = self.blocked_url(browser) else {
+            return false;
+        };
+        let _ = self.out_tx.send(EngineMsg::ControlledPermissionRefused { tab_id: self.tab_id, url });
+        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+            tab_id: self.tab_id,
+            request_id,
+            ok: false,
+            result: serde_json::json!({ "message": crate::permissions::INHERITED_PERMISSION_MSG }),
+        });
+        true
     }
 }

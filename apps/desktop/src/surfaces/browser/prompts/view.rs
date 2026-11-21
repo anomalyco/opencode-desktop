@@ -26,15 +26,31 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
     let mut out = Vec::new();
     let k = kit(p);
 
-    if tab.prompts.agent_driven && tab.prompts.blocked_guard_notice {
-        let notice = match tab.prompts.driver.as_ref() {
-            Some(browser_pane::TabDriver::Plugin(name)) => {
-                t!("rune.browser.prompt.controlled.plugin", name = name.as_str())
-            }
-            _ => t!("rune.browser.prompt.controlled.agent").to_owned(),
+    if tab.prompts.agent_driven
+        && let Some(reason) = tab.prompts.blocked_guard_notice.as_ref()
+    {
+        let plugin_name = match tab.prompts.driver.as_ref() {
+            Some(browser_pane::TabDriver::Plugin(name)) => Some(name.as_str()),
+            _ => None,
         };
-        let can_reopen = !tab.url.is_empty()
-            && !tab.url.eq_ignore_ascii_case("about:blank")
+        let (notice, reopen_url) = match reason {
+            browser_pane::BlockedGuardReason::InheritedPermission { url } => (
+                match plugin_name {
+                    Some(name) => t!("rune.browser.prompt.controlled.inheritedPermission.plugin", name = name),
+                    None => t!("rune.browser.prompt.controlled.inheritedPermission.agent").to_owned(),
+                },
+                url.clone().unwrap_or_else(|| tab.url.clone()),
+            ),
+            browser_pane::BlockedGuardReason::Action => (
+                match plugin_name {
+                    Some(name) => t!("rune.browser.prompt.controlled.plugin", name = name),
+                    None => t!("rune.browser.prompt.controlled.agent").to_owned(),
+                },
+                tab.url.clone(),
+            ),
+        };
+        let can_reopen = !reopen_url.is_empty()
+            && !reopen_url.eq_ignore_ascii_case("about:blank")
             && tab.refusal.as_deref() != Some("browser.proxy.required");
         let mut actions = row().gap(4.0).center_y();
         if can_reopen {
@@ -46,13 +62,7 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
             .size(rune_kit::ButtonSize::Small)
             .on_press(move |app: &mut App| {
                 if let Some((_, mut ctx)) = app.browser_context_for_opener(tab_id) {
-                    let url = app
-                        .workspace_panes
-                        .browser
-                        .host
-                        .tab(tab_id)
-                        .map(|t| t.url.clone())
-                        .unwrap_or_default();
+                    let url = reopen_url.clone();
                     let proxy_ok = match &mut ctx {
                         browser_pane::ContextKind::RemoteServer { server_id, proxy } => {
                             *proxy = app.workspace_panes.browser.host.remote_proxy(server_id.trim()).cloned();
