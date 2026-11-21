@@ -426,8 +426,12 @@ fn unlink_node(tx: Option<&Transaction>, path: &Path, is_root: bool) -> io::Resu
         let exe = path.join(super::EXE);
         match open_node(tx, &exe, GENERIC_WRITE | DELETE | FILE_READ_ATTRIBUTES, 0) {
             Ok(exe_h) => {
-                if handle_attrs(&exe_h)? & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+                let exe_attrs = handle_attrs(&exe_h)?;
+                if exe_attrs & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
                     return Err(io::Error::other("not following an update reparse point"));
+                }
+                if exe_attrs & FILE_ATTRIBUTE_DIRECTORY != 0 {
+                    return Err(io::Error::other("update executable path is a directory"));
                 }
                 mark_delete(&exe_h)?;
                 drop(exe_h);
