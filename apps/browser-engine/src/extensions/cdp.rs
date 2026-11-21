@@ -139,6 +139,7 @@ impl ExtensionHost {
                 {
                     self.execution_contexts.retain(|(s, _), _| s != &sid);
                     self.pending_fetch_resume.retain(|_, (s, _)| s != &sid);
+                    self.pending_loaded_resume.retain(|(s, _)| s != &sid);
                     let fetch_id = self.alloc_id();
                     self.pending_fetch_resume.insert(fetch_id, (sid.clone(), true));
                     let batch = match kind {

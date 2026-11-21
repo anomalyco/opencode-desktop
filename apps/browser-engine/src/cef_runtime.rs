@@ -201,6 +201,7 @@ wrap_app! {
                     "renderer-cmd-prefix",
                     "utility-cmd-prefix",
                     "force-webrtc-ip-handling-policy",
+                    "extensions-on-chrome-urls",
                 ] {
                     cmd.remove_switch(Some(&sw.into()));
                 }

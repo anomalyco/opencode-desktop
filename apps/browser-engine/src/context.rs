@@ -740,19 +740,24 @@ pub fn verify_extension_file_access_disabled(loaded_id: &str) -> bool {
         return false;
     }
     // Fail closed (deny-by-default) if Chromium's own C++ ExtensionPrefs granted ANY native API
-    // permission outside our exact `ALLOWED_CHROMIUM_PERMS` allow-list.
+    // permission outside our exact `ALLOWED_CHROMIUM_PERMS` allow-list OR any `manifest_permissions`
+    // (READER-7 C-S1: e.g. `chrome_settings_overrides`, `automation`, `sockets`).
     for perm_bucket in ["active_permissions", "granted_permissions"] {
         let Some(bucket) = ext_dict.dictionary(Some(&CefString::from(perm_bucket))) else {
             continue;
         };
-        let Some(api_list) = bucket.list(Some(&CefString::from("api"))) else {
-            continue;
-        };
-        for i in 0..api_list.size() {
-            let api_name = CefString::from(&api_list.string(i)).to_string();
-            if !crate::extensions::manifest::is_allowed_chromium_perm(&api_name) {
-                return false;
+        if let Some(api_list) = bucket.list(Some(&CefString::from("api"))) {
+            for i in 0..api_list.size() {
+                let api_name = CefString::from(&api_list.string(i)).to_string();
+                if !crate::extensions::manifest::is_allowed_chromium_perm(&api_name) {
+                    return false;
+                }
             }
+        }
+        if let Some(mf_list) = bucket.list(Some(&CefString::from("manifest_permissions")))
+            && mf_list.size() > 0
+        {
+            return false;
         }
     }
     true

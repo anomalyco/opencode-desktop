@@ -76,11 +76,36 @@ pub const DISALLOWED_REQUIRED_PERMS: &[&str] = &[
     "proxy",
 ];
 
+/// Disallowed top-level manifest keys stripped from Chromium's staged `manifest.json` so an
+/// extension cannot mutate `Default/Preferences` or activate native Chrome features via
+/// `manifest_permissions` without declaring an entry in `"permissions"` (READER-7 C-S1).
+const STRIPPED_MANIFEST_KEYS: &[&str] = &[
+    "chrome_settings_overrides",
+    "chrome_url_overrides",
+    "tts_engine",
+    "devtools_page",
+    "side_panel",
+    "omnibox",
+    "oauth2",
+    "file_browser_handlers",
+    "file_system_provider_capabilities",
+    "input_components",
+    "automation",
+    "sockets",
+    "bluetooth",
+    "usb_printers",
+    "trial_tokens",
+];
+
 /// Deny-by-default manifest sanitizer for Chromium:
 /// - In `"permissions"`: retains ONLY entries in [`ALLOWED_CHROMIUM_PERMS`] after `.trim()`
 ///   (MV3 host permissions live strictly in `"host_permissions"`, never in `"permissions"`).
 /// - In `"optional_permissions"` and `"optional_host_permissions"`: strips ALL entries so Chromium
 ///   C++ can never grant any optional permission or host permission at runtime.
+/// - Removes disallowed top-level manifest keys ([`STRIPPED_MANIFEST_KEYS`]) that grant
+///   `manifest_permissions` or mutate `Default/Preferences`.
+/// - Strips `_favicon*` entries from `web_accessible_resources[*].resources` (since `"favicon"` is
+///   stripped from `"permissions"`, Chromium refuses to load extensions like Vimium otherwise).
 ///
 /// Returns `(stripped_any, sanitized_bytes)` or `None` on malformed JSON.
 pub fn strip_disallowed_perms_from_manifest(bytes: &[u8]) -> Option<(bool, Vec<u8>)> {
@@ -101,6 +126,22 @@ pub fn strip_disallowed_perms_from_manifest(bytes: &[u8]) -> Option<(bool, Vec<u
         {
             arr.clear();
             changed = true;
+        }
+    }
+    for key in STRIPPED_MANIFEST_KEYS {
+        if obj.remove(*key).is_some() {
+            changed = true;
+        }
+    }
+    if let Some(war) = obj.get_mut("web_accessible_resources").and_then(Value::as_array_mut) {
+        for entry in war.iter_mut() {
+            if let Some(res) = entry.get_mut("resources").and_then(Value::as_array_mut) {
+                let before = res.len();
+                res.retain(|v| !v.as_str().is_some_and(|s| s.trim().starts_with("_favicon")));
+                if res.len() != before {
+                    changed = true;
+                }
+            }
         }
     }
     if !changed {

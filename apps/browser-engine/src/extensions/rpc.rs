@@ -599,7 +599,10 @@ impl ExtensionHost {
                     .is_none_or(|arr| {
                         arr.iter().all(|v| {
                             v.as_str().is_some_and(|o| {
-                                ext.manifest.hosts.iter().any(|h| h == o || h == "<all_urls>" || h == "*://*/*")
+                                !o.trim().to_ascii_lowercase().starts_with("file:")
+                                    && ext.manifest.hosts.iter().any(|h| {
+                                        h == o || h == "<all_urls>" || h == "*://*/*"
+                                    })
                             })
                         })
                     });

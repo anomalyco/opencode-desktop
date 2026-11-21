@@ -317,8 +317,15 @@ fn sweep_stale_stubs(parent: &Path, is_shared_parent: bool) {
         }
         if is_shared_parent {
             let lock_path = path.join(".lock");
-            let can_remove = match OpenOptions::new().read(true).write(true).open(&lock_path) {
-                Ok(f) => f.try_lock().is_ok(),
+            let can_remove = match std::fs::symlink_metadata(&lock_path) {
+                Ok(lm) if lm.is_file() && !is_reparse_or_symlink(&lm) => {
+                    OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .open(&lock_path)
+                        .is_ok_and(|f| f.try_lock().is_ok())
+                }
+                Ok(_) => false,
                 Err(_) => meta
                     .modified()
                     .ok()
