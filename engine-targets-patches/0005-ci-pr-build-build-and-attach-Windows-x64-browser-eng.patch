@@ -1,0 +1,185 @@
+From 3b0d333c54796e7b88cc9c48dcdfcae007dbebc9 Mon Sep 17 00:00:00 2001
+From: LukeParkerDev <10430890+Hona@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 02:56:49 +1000
+Subject: [PATCH] ci(pr-build): build and attach Windows x64 browser engine
+ when apps/browser-engine changes
+
+---
+ .github/release/opencode-rune-pr-plan.sh     | 13 +++-
+ .github/workflows/opencode-rune-pr-build.yml | 78 +++++++++++++++++++-
+ 2 files changed, 87 insertions(+), 4 deletions(-)
+
+diff --git a/.github/release/opencode-rune-pr-plan.sh b/.github/release/opencode-rune-pr-plan.sh
+index 3ef1fb2c8..74ec88ea8 100755
+--- a/.github/release/opencode-rune-pr-plan.sh
++++ b/.github/release/opencode-rune-pr-plan.sh
+@@ -29,6 +29,16 @@ channel="pr-$PR_NUMBER"
+ file_stem="OpenCode-Rune-PR-$PR_NUMBER"
+ release_tag="opencode-rune-pr-$PR_NUMBER"
+ 
++build_engine="false"
++if [ -n "${GITHUB_REPOSITORY:-}" ] && [ -n "${GH_TOKEN:-}" ]; then
++  engine_hits=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" \
++    --jq '[.[].filename | select(startswith("apps/browser-engine/"))] | length' 2>/dev/null \
++    | awk '{s+=$1} END {print s+0}' || echo 0)
++  if [ "$engine_hits" -gt 0 ]; then
++    build_engine="true"
++  fi
++fi
++
+ {
+   echo "pr-number=$PR_NUMBER"
+   echo "head-sha=$HEAD_SHA"
+@@ -42,6 +52,7 @@ release_tag="opencode-rune-pr-$PR_NUMBER"
+   echo "channel=$channel"
+   echo "file-stem=$file_stem"
+   echo "release-tag=$release_tag"
++  echo "build-engine=$build_engine"
+ } >> "$GITHUB_OUTPUT"
+ 
+-echo "Planned PR #$PR_NUMBER test build: $app_name.app ($bundle_id, $version) @ ${HEAD_SHA:0:9}." >> "$GITHUB_STEP_SUMMARY"
++echo "Planned PR #$PR_NUMBER test build: $app_name.app ($bundle_id, $version, build-engine=$build_engine) @ ${HEAD_SHA:0:9}." >> "$GITHUB_STEP_SUMMARY"
+diff --git a/.github/workflows/opencode-rune-pr-build.yml b/.github/workflows/opencode-rune-pr-build.yml
+index 4fdc7a6f2..5c63d76ef 100644
+--- a/.github/workflows/opencode-rune-pr-build.yml
++++ b/.github/workflows/opencode-rune-pr-build.yml
+@@ -11,6 +11,7 @@ on:
+     types: [opened, synchronize, reopened, closed]
+     branches: [dev]
+     paths:
++      - "apps/browser-engine/**"
+       - "apps/desktop/**"
+       - "apps/installer/**"
+       - "crates/**"
+@@ -60,6 +61,9 @@ jobs:
+       github.event.action != 'closed'
+       && github.event.pull_request.head.repo.full_name == github.repository
+     runs-on: blacksmith-2vcpu-ubuntu-2404
++    permissions:
++      contents: read
++      pull-requests: read
+     outputs:
+       pr-number: ${{ steps.plan.outputs.pr-number }}
+       head-sha: ${{ steps.plan.outputs.head-sha }}
+@@ -69,6 +73,7 @@ jobs:
+       version: ${{ steps.plan.outputs.version }}
+       channel: ${{ steps.plan.outputs.channel }}
+       file-stem: ${{ steps.plan.outputs.file-stem }}
++      build-engine: ${{ steps.plan.outputs.build-engine }}
+     steps:
+       # The plan script from the base branch: its outputs come only from the event, never PR files.
+       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+@@ -80,6 +85,7 @@ jobs:
+       - id: plan
+         run: bash .github/release/opencode-rune-pr-plan.sh
+         env:
++          GH_TOKEN: ${{ github.token }}
+           PR_NUMBER: ${{ github.event.pull_request.number }}
+           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+@@ -182,11 +188,63 @@ jobs:
+       - id: digest
+         run: echo "digest-${{ matrix.arch }}=${{ steps.upload.outputs.digest }}" >> "$GITHUB_OUTPUT"
+ 
++  build-engine-windows-x64:
++    needs: plan
++    if: ${{ !cancelled() && needs.plan.outputs.build-engine == 'true' }}
++    runs-on: blacksmith-8vcpu-windows-2025
++    timeout-minutes: 45
++    outputs:
++      digest: ${{ steps.upload.outputs.digest }}
++    steps:
++      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
++        with:
++          ref: ${{ needs.plan.outputs.head-sha }}
++          persist-credentials: false
++      - name: Rust toolchain
++        run: rustup toolchain install
++      - name: Ensure CMake and Ninja
++        shell: pwsh
++        run: |
++          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
++          if ((-not (Get-Command cmake -ErrorAction SilentlyContinue) -or -not (Get-Command ninja -ErrorAction SilentlyContinue)) -and (Test-Path -LiteralPath $vswhere)) {
++            $vs = (& $vswhere -latest -products * -property installationPath | Select-Object -First 1)
++            if ($vs) {
++              foreach ($sub in 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin', 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja') {
++                $dir = Join-Path $vs $sub
++                if (Test-Path -LiteralPath $dir) {
++                  $env:PATH = "$dir;$env:PATH"
++                  $dir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
++                }
++              }
++            }
++          }
++          $missing = @('cmake', 'ninja') | Where-Object { -not (Get-Command $_ -ErrorAction SilentlyContinue) }
++          if ($missing.Count -gt 0) {
++            throw "Missing required build tool(s) on Windows runner image ($($missing -join ', ')): expected on PATH or bundled with Visual Studio."
++          }
++          cmake --version
++          ninja --version
++      - name: Build unsigned Windows x64 PR browser engine
++        shell: pwsh
++        run: |
++          $out = Join-Path $env:RUNNER_TEMP 'engine'
++          New-Item -ItemType Directory -Force -Path $out | Out-Null
++          apps/browser-engine/scripts/package-windows.ps1 -Arch x64 -Out $out
++      - id: upload
++        uses: ./.github/release/upload
++        with:
++          name: build-opencode-rune-pr-engine-windows-x64
++          path: ${{ runner.temp }}/engine
++          retention-days: "7"
++
+   # ---- Publish PR pre-release + sticky PR comment ----------------------------
+ 
+   publish-pr-build:
+-    needs: [plan, build-macos, build-windows]
+-    if: ${{ !cancelled() && needs.build-macos.result == 'success' }}
++    needs: [plan, build-macos, build-windows, build-engine-windows-x64]
++    if: >-
++      ${{ !cancelled()
++      && needs.build-macos.result == 'success'
++      && (needs.build-engine-windows-x64.result == 'success' || needs.build-engine-windows-x64.result == 'skipped') }}
+     runs-on: blacksmith-2vcpu-ubuntu-2404
+     timeout-minutes: 20
+     permissions:
+@@ -225,6 +283,13 @@ jobs:
+           digests: >-
+             build-opencode-rune-pr-windows-x64=${{ needs.build-windows.outputs.digest-x64 }}
+             build-opencode-rune-pr-windows-arm64=${{ needs.build-windows.outputs.digest-arm64 }}
++      - name: Download PR Windows x64 browser engine
++        if: needs.build-engine-windows-x64.outputs.digest != ''
++        uses: ./.github/release/download
++        with:
++          pattern: build-opencode-rune-pr-engine-windows-x64
++          folder: in-engine
++          digests: build-opencode-rune-pr-engine-windows-x64=${{ needs.build-engine-windows-x64.outputs.digest }}
+       - name: Upload PR DMG and update sticky PR comment
+         run: |
+           SHORT_SHA=${HEAD_SHA:0:9}
+@@ -240,6 +305,13 @@ jobs:
+             cp "$setup" "$RUNNER_TEMP/publish/$FILE_STEM-windows-$arch-setup.exe"
+             windows="$windows [\`$arch\`](https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$FILE_STEM-windows-$arch-setup.exe)"
+           done
++          engine_line=
++          engine_tar=$(find "$RUNNER_TEMP/in-engine/build-opencode-rune-pr-engine-windows-x64" -maxdepth 1 -name 'OpenCode-Browser-Engine-*-windows-x64.tar.zst' 2>/dev/null | head -n 1 || true)
++          if [ -n "$engine_tar" ] && [ -f "$engine_tar" ]; then
++            engine_pub="$FILE_STEM-engine-windows-x64.tar.zst"
++            cp "$engine_tar" "$RUNNER_TEMP/publish/$engine_pub"
++            engine_line=$'\n'"- **Browser engine (Windows x64, unsigned):** [\`$engine_pub\`](https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$engine_pub)"
++          fi
+           notes="Side-by-side test build for #$PR_NUMBER (@ $SHORT_SHA). Retired automatically when the PR closes."
+ 
+           if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+@@ -265,7 +337,7 @@ jobs:
+           - **Commit:** \`$SHORT_SHA\` (\`$VERSION\`, sha256 \`${sha:0:12}…\`)
+           - **Side-by-side:** installs alongside \`OpenCode (Rune).app\` without replacing your \`dev\` build; retired automatically when this PR closes.
+           - **Signing:** $trust_line
+-          - **Windows:**${windows:- not built} — unsigned setup (\`$APP_NAME\`, installs side by side). SmartScreen asks once: More info, then Run anyway.
++          - **Windows:**${windows:- not built} — unsigned setup (\`$APP_NAME\`, installs side by side). SmartScreen asks once: More info, then Run anyway.${engine_line}
+           EOF
+           sed -i -E 's/^          //' "$RUNNER_TEMP/comment.md"
+ 
+-- 
+2.56.0.windows.4
+
