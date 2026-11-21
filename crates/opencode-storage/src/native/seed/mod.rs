@@ -622,9 +622,9 @@ pub(crate) fn run(
             }
             tx.execute("INSERT INTO document (key, value) VALUES (?1, ?2) ON CONFLICT DO NOTHING", (key, stored))?;
         }
-        for (name, key, value) in bundle.global_rows {
-            if tx.execute("INSERT INTO state (name, key, value, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING", (&name, &key, &value, now_ms))? > 0 {
-                inserted.push((name, key, value));
+        for (name, key, value) in &bundle.global_rows {
+            if tx.execute("INSERT INTO state (name, key, value, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING", (name, key, value, now_ms))? > 0 {
+                inserted.push((name.clone(), key.clone(), value.clone()));
             }
         }
         if import_windows {
@@ -638,9 +638,9 @@ pub(crate) fn run(
                 }
                 tx.execute("INSERT INTO document (key, value) VALUES (?1, ?2) ON CONFLICT DO NOTHING", (key, stored))?;
             }
-            for (name, key, value) in bundle.window_rows {
-                if tx.execute("INSERT INTO state (name, key, value, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING", (&name, &key, &value, now_ms))? > 0 {
-                    inserted.push((name, key, value));
+            for (name, key, value) in &bundle.window_rows {
+                if tx.execute("INSERT INTO state (name, key, value, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING", (name, key, value, now_ms))? > 0 {
+                    inserted.push((name.clone(), key.clone(), value.clone()));
                 }
             }
             for (id, frame) in &bundle.frames {
