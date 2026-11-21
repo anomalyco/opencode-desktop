@@ -521,7 +521,7 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, 
 
 /// Whether a Markdown reply ends with a fenced code block (`pre` inside `[data-component="markdown-code"]`
 /// keeps its `margin-bottom: 24px`, collapsing with `[data-slot="text-part-copy-wrapper"]`'s `margin-top: 8px`
-/// to `24px`, i.e. 16 pt below `COPY_AT.1`, `markdown.css:420-422`).
+/// to `24px`, i.e. 16 pt below `COPY_AT.1`, `markdown.css:486-488`).
 fn ends_with_code(src: &str) -> bool {
     let mut fence: Option<(u8, usize)> = None;
     let mut last_code = false;

@@ -147,12 +147,12 @@ impl ConnectHost for App {
         self.composer_ext.pickers.selections.insert(scope, selection);
     }
 
-    fn next_picker_reads_generation(&mut self) -> Attempt {
-        self.jobs.picker_reads.next()
+    fn picker_reads(&self) -> &crate::connect::PickerReads {
+        &self.jobs.picker_reads
     }
 
-    fn current_picker_reads_generation(&self) -> Attempt {
-        self.jobs.picker_reads.current()
+    fn picker_reads_mut(&mut self) -> &mut crate::connect::PickerReads {
+        &mut self.jobs.picker_reads
     }
 
     fn before_dialog_open(&mut self) {
