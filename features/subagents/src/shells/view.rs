@@ -4,6 +4,7 @@
 use rune::{El, Key, KeyEvent, Tx, col, icon, row, text};
 use rune_knobs::Knobs;
 use rune_theme_opencode::icons as ic;
+use session_view::focus::FocusExt;
 use session_view::palette::{Elevate as _, Pal, kit};
 use session_view::style::{INSTANT, UI};
 
@@ -27,7 +28,7 @@ pub fn row_of<H: SubagentsHost + 'static>(host: &H, p: &Pal, sh: &Shell, span: f
     let open = sh.clone();
     let stop_key = sh.id.clone();
     let end_el = end(host, p, &sh.id, Kind::Shell, (sh.started > 0).then(|| panel_clock(host) - sh.started), time_w);
-    build_row_shell(p, &format!("shell-{}", sh.id), &ic::CONSOLE, &sh.command, span, end_el)
+    build_row_shell(p, &format!("shell-{}", sh.id), &ic::CONSOLE, &sh.command, span, end_el, true)
         .on_press_tx(move |s: &mut H, tx: &mut Tx| select_shell(s, open.clone(), tx))
         .on_key(move |s: &mut H, ev: &KeyEvent, tx: &mut Tx| stop_on_delete(s, &stop_key, Kind::Shell, ev, tx))
 }
@@ -38,7 +39,7 @@ pub fn row_of<H: SubagentsHost + 'static>(host: &H, p: &Pal, sh: &Shell, span: f
 pub fn script_row<H: SubagentsHost + 'static>(host: &H, p: &Pal, sc: &Script, span: f32, time_w: f32) -> El {
     let stop_key = sc.id.clone();
     let end_el = end(host, p, &sc.id, Kind::Script, (sc.started > 0).then(|| panel_clock(host) - sc.started), time_w);
-    build_row_shell(p, &format!("script-{}", sc.id), &ic::CODE, &sc.label, span, end_el)
+    build_row_shell(p, &format!("script-{}", sc.id), &ic::CODE, &sc.label, span, end_el, false)
         .on_key(move |s: &mut H, ev: &KeyEvent, tx: &mut Tx| stop_on_delete(s, &stop_key, Kind::Script, ev, tx))
 }
 
@@ -56,7 +57,12 @@ pub(crate) fn stop_on_delete(host: &mut dyn SubagentsHost, key: &str, kind: Kind
 pub fn end<H: SubagentsHost + 'static>(host: &H, p: &Pal, key: &str, kind: Kind, ms: Option<i64>, time_w: f32) -> El {
     let stopping = host.shells().activity.stopping.contains_key(key);
     let target = key.to_owned();
-    let stop = build_stop_button_shell(p, kind, stopping).on_press_tx(move |s: &mut H, tx: &mut Tx| request_stop(s, target.clone(), kind, tx));
+    let stop = build_stop_button_shell(p, kind, stopping);
+    let stop = if stopping {
+        stop
+    } else {
+        stop.on_press_tx(move |s: &mut H, tx: &mut Tx| request_stop(s, target.clone(), kind, tx))
+    };
     build_end_layout(p, key, ms, time_w, stopping, stop)
 }
 
@@ -108,8 +114,8 @@ fn back_pressed(host: &mut dyn SubagentsHost, tx: &mut Tx) {
     dispatch(host, Event::Back);
 }
 
-fn build_row_shell(p: &Pal, key: &str, mark: &'static rune::Icon, command: &str, span: f32, end_el: El) -> El {
-    row()
+fn build_row_shell(p: &Pal, key: &str, mark: &'static rune::Icon, command: &str, span: f32, end_el: El, clickable: bool) -> El {
+    let r = row()
         .key(key)
         .role("menuitem")
         .label(command.to_owned())
@@ -119,12 +125,14 @@ fn build_row_shell(p: &Pal, key: &str, mark: &'static rune::Icon, command: &str,
         .gap(6.0)
         .center_y()
         .radius(4.0)
+        .focus_default(p)
         .hover(p.hover)
         .hover_motion(INSTANT, INSTANT)
-        .hover_group()
+        .hover_group_focus()
         .child(icon(mark, 16.0).key("mark").color(p.icon_muted))
         .child(text(command.to_owned()).key("command").font(COMMAND).color(p.text).truncate_fade().w(span).grow(1.0).shrink().min_w(0.0))
-        .child(end_el)
+        .child(end_el);
+    if clickable { r.cursor(rune::Cursor::Pointer) } else { r }
 }
 
 fn build_stop_button_shell(p: &Pal, kind: Kind, stopping: bool) -> El {
@@ -134,17 +142,20 @@ fn build_stop_button_shell(p: &Pal, kind: Kind, stopping: bool) -> El {
         Kind::Shell => opencode_i18n::t!("session.running.stop.shell"),
     };
     let mark = if stopping { rune_kit::Loader::new().size(14.0).build(kit(p)) } else { icon(&ic::OUTLINE_XMARK, 14.0).color(p.icon_muted) };
-    row()
+    let b = row()
         .key("stop")
         .role("button")
         .label(label)
         .size(20.0, 20.0)
         .center()
         .radius(4.0)
-        .hover(p.hover)
-        .hover_motion(INSTANT, INSTANT)
         .hover_alone()
-        .child(mark)
+        .child(mark);
+    if stopping {
+        b.disabled(true).busy(true)
+    } else {
+        b.cursor(rune::Cursor::Pointer).focus_default(p).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
+    }
 }
 
 fn build_end_layout(p: &Pal, key: &str, ms: Option<i64>, time_w: f32, stopping: bool, stop: El) -> El {
@@ -172,6 +183,8 @@ fn build_back_button_shell(p: &Pal, back_lit: bool) -> El {
         .size(28.0, 28.0)
         .center()
         .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .fill(if back_lit { p.hover } else { p.hover.alpha(0.0) })
         .hover(p.hover)
         .press(p.pressed)
@@ -201,7 +214,11 @@ fn build_panel_stop_shell(p: &Pal, stopping: bool, disabled: bool) -> El {
         .center_y()
         .radius(4.0)
         .child(text(words).font(UI).color(if disabled { p.muted } else { p.text }));
-    if disabled { stop } else { stop.hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT) }
+    if disabled {
+        stop.disabled(true).busy(stopping)
+    } else {
+        stop.cursor(rune::Cursor::Pointer).focus_default(p).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
+    }
 }
 
 fn build_panel_sections(host: &dyn SubagentsHost, p: &Pal, sh: &Shell, phase: Phase, read: &tail::Text, back: El, status: El) -> (El, El, El) {
