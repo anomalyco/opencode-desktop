@@ -130,7 +130,12 @@ impl App {
         // Requests asked while the stream was down never arrive as events: read again what shows
         // them, as Desktop's store invalidates its syncs on a disconnect.
         self.forget_request_reads();
-        let mut asked: Vec<String> = self.pending.iter().map(|p| p.session().to_owned()).collect();
+        let mut asked: Vec<String> = self
+            .pending
+            .iter()
+            .map(|p| p.session().to_owned())
+            .chain(self.requests.iter().map(|(s, _)| s.clone()))
+            .collect();
         asked.sort();
         asked.dedup();
         for id in asked {
