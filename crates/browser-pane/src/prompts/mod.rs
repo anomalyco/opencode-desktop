@@ -17,10 +17,12 @@ use std::time::Duration;
 
 use rune::time::Instant;
 
+#[cfg(feature = "engine")]
+pub(crate) use store::scrub_chromium_preferences_for_older_engine;
 pub use store::{
     ACTIVATION_DELAY_MS, AGENT_PERMISSION_TIMEOUT_MS, InputGuard, MAX_SIGN_IN_ATTEMPTS,
-    PROMPT_TEXT_MAX, PermissionStore, REALM_TEXT_MAX, REPEAT_DIALOG_MS, SiteDecision,
-    SitePermissions, SiteSetting, sanitize_prompt_text,
+    PROMPT_TEXT_MAX, PermissionScope, PermissionStore, REALM_TEXT_MAX, REPEAT_DIALOG_MS,
+    SiteDecision, SitePermissions, SiteSetting, sanitize_prompt_text,
 };
 
 use crate::protocol::{AuthChallenge, DialogKind, PageDialog, PermissionKind, PermissionPrompt};
@@ -243,25 +245,34 @@ impl PermissionGate {
             .min()
     }
 
-    /// Evaluates an incoming permission request against kept + visit decisions.
-    /// Returns `Some(allow)` to answer immediately without showing a bar, else enqueues/coalesces.
+    /// Evaluates an incoming permission request against scope-partitioned kept + visit decisions.
+    /// Returns `Some((allow, dismiss, persist))` to answer immediately without showing a bar, else enqueues.
     pub fn evaluate(
         &mut self,
         request: PermissionPrompt,
         agent_driven: bool,
+        scope: &PermissionScope,
         kept: &SitePermissions,
         visit: &HashMap<(String, PermissionKind), SiteSetting>,
         now: Instant,
-    ) -> Option<bool> {
+    ) -> Option<(bool, bool, bool)> {
         if request.kinds.is_empty() || request.origin != request.top_origin {
-            return Some(false);
+            return Some((false, true, false));
         }
+        let is_profile = matches!(scope, PermissionScope::Profile);
         let mut all_allowed = true;
+        let mut all_kept = true;
         for &kind in &request.kinds {
-            let kept_val = kept.get(&request.origin, kind);
+            let kept_val = kept.get_scoped(scope, &request.origin, kind);
             let visit_val = visit.get(&(request.origin.clone(), kind)).copied();
-            if kept_val == Some(SiteSetting::Block) || visit_val == Some(SiteSetting::Block) {
-                return Some(false);
+            if kept_val == Some(SiteSetting::Block) {
+                return Some((false, false, is_profile));
+            }
+            if visit_val == Some(SiteSetting::Block) {
+                return Some((false, true, false));
+            }
+            if kept_val != Some(SiteSetting::Allow) {
+                all_kept = false;
             }
             let allowed = if agent_driven {
                 // Agent tabs never inherit kept user permissions (`site-permissions.ts`).
@@ -274,7 +285,7 @@ impl PermissionGate {
             }
         }
         if all_allowed {
-            return Some(true);
+            return Some((true, false, all_kept && is_profile));
         }
         let key = permission_key(&request, agent_driven);
         let expires_at = agent_driven.then(|| now + Duration::from_millis(AGENT_PERMISSION_TIMEOUT_MS));
@@ -591,6 +602,16 @@ impl TabDriver {
     }
 }
 
+/// Why the controlled-tab notice bar (`#306` / stopgap) is currently shown on a tab.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum BlockedGuardReason {
+    /// Sign-in prompt or file picker was suppressed while a driver controls the tab.
+    Action,
+    /// Controlled actions were refused because the top-level origin holds clipboard, location, or
+    /// notification access in the default profile; carries the refused URL for "Open in new tab".
+    InheritedPermission { url: Option<String> },
+}
+
 /// All prompt, permission, auth, and pop-up states owned by one `BrowserTab`.
 #[derive(Clone, Debug, Default)]
 pub struct TabPromptState {
@@ -611,13 +632,19 @@ pub struct TabPromptState {
     pub agent_auth_required: Option<String>,
     /// Count of blocked native file choosers on agent-driven tabs.
     pub file_chooser_blocked: u64,
-    /// True after a sign-in prompt or file picker was blocked on this document (dismissible UI notice).
-    pub blocked_guard_notice: bool,
+    /// Active dismissible controlled-tab notice reason on this document.
+    pub blocked_guard_notice: Option<BlockedGuardReason>,
 }
 
 impl TabPromptState {
     pub fn has_blocking_modal(&self) -> bool {
         self.dialog.open().is_some() || self.auth.active().is_some()
+    }
+
+    /// The tab waits on the user: a page dialog, a permission request or a sign-in (official
+    /// `PromptView`, `packages/gui-plugins/src/browser/ipc.ts:97-145`). A blocked pop-up is not one.
+    pub fn waiting_on_user(&self) -> bool {
+        self.has_blocking_modal() || self.permission.active().is_some()
     }
 
     pub fn wake_at(&self) -> Option<Instant> {
@@ -639,6 +666,17 @@ impl TabPromptState {
         self.popup = PopupGate::Idle;
     }
 
+    /// Context switched (`reopen_tab_as_preview` / `reopen_tab_as_web`): clears visit-scoped
+    /// permissions, auth state, and notices while keeping `agent_driven` and `driver`.
+    pub fn reset_for_context_switch(&mut self) {
+        self.visit_permissions.clear();
+        self.auth_attempts.clear();
+        self.auth_dismissed.clear();
+        self.agent_auth_required = None;
+        self.blocked_guard_notice = None;
+        self.reset_for_engine();
+    }
+
     /// User started a navigation/reload/back/forward: dismissed auth sites ask again (`prompt-machine.ts:182`).
     pub fn on_user_nav(&mut self) {
         self.auth_attempts.clear();
@@ -653,7 +691,7 @@ impl TabPromptState {
         self.dialog.on_document_committed();
         self.popup.dismiss();
         self.agent_auth_required = None;
-        self.blocked_guard_notice = false;
+        self.blocked_guard_notice = None;
         let same_origin = crate::policy::destination_origin(old_url)
             == crate::policy::destination_origin(new_url);
         if same_origin {

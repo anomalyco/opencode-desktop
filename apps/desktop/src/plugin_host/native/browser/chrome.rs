@@ -87,6 +87,18 @@ fn read_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
 }
 
 pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
+    // The strip's amber `prompt.tab` dot: the page waits on the user while the pane doesn't show it
+    // (official `asking`, `packages/gui-plugins/src/browser/model.ts:900-904` at `b9a60d9d`).
+    m.raw_set(
+        "Asking",
+        lua.create_function(|lua, this: Table| {
+            read_tab(lua, &this, "BrowserTab:Asking", |app, id| {
+                let key = crate::panels::panel_key(crate::surfaces::browser::PLUGIN, &id.to_string());
+                Ok(app.workspace_panes.browser.host.tab(id).is_some_and(|t| t.prompts.waiting_on_user())
+                    && !app.side_tab_visible(&key))
+            })
+        })?,
+    )?;
     m.raw_set(
         "IsPrivate",
         lua.create_function(|lua, this: Table| {
@@ -119,6 +131,10 @@ pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
     m.raw_set(
         "FindResult",
         lua.create_function(|lua, this: Table| {
+            let sc = scope::TabScope::capture(lua);
+            if !sc.is_builtin_browser || sc.tool_sid.is_some() {
+                return Ok(mlua::Value::Nil);
+            }
             let found = read_tab(lua, &this, "BrowserTab:FindResult", |app, id| {
                 Ok(app
                     .workspace_panes
@@ -139,16 +155,28 @@ pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
     m.raw_set(
         "Find",
         lua.create_function(|lua, (this, query, forward, find_next): (Table, String, Option<bool>, Option<bool>)| {
+            let sc = scope::TabScope::capture(lua);
+            if !sc.is_builtin_browser || sc.tool_sid.is_some() {
+                return Err(mlua::Error::runtime(
+                    "BrowserTab:Find is restricted to the built-in browser find bar.",
+                ));
+            }
             let forward = forward.unwrap_or(true);
             let find_next = find_next.unwrap_or(false);
             later(lua, &this, "BrowserTab:Find", move |s, id, _| {
-                s.workspace_panes.browser.host.find(id, &query, forward, false, find_next);
+                s.workspace_panes.browser.host.find(id, &query, forward, false, find_next, true);
             })
         })?,
     )?;
     m.raw_set(
         "StopFinding",
         lua.create_function(|lua, (this, clear_selection): (Table, Option<bool>)| {
+            let sc = scope::TabScope::capture(lua);
+            if !sc.is_builtin_browser || sc.tool_sid.is_some() {
+                return Err(mlua::Error::runtime(
+                    "BrowserTab:StopFinding is restricted to the built-in browser find bar.",
+                ));
+            }
             let clear = clear_selection.unwrap_or(true);
             later(lua, &this, "BrowserTab:StopFinding", move |s, id, _| {
                 s.workspace_panes.browser.host.stop_find(id, clear);

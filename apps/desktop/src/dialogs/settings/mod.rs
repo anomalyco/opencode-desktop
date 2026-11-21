@@ -129,6 +129,10 @@ impl SettingsHost for App {
         App::settings_open(self)
     }
 
+    fn server_directory(&self) -> Option<&str> {
+        crate::start_location::server_directory(self)
+    }
+
     fn set_settings_open(&mut self, open: bool) {
         App::set_settings_open(self, open);
     }

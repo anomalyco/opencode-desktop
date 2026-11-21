@@ -161,8 +161,18 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
         let (tool_sid, _) = super::super::commands::current_tool_scope(lua);
         #[cfg(target_arch = "wasm32")]
         let tool_sid: Option<Option<String>> = None;
-        let path = crate::review::data::normalize_path(&path);
         with_app("Workspace:OpenFileSource", |app| {
+            let dir = app.session(&sid).map(|i| i.directory.clone()).unwrap_or_default();
+            let Some(path) = crate::tool_open::relative(&path, &dir) else {
+                return Err(mlua::Error::runtime(format!("Workspace:OpenFileSource: path '{path}' is outside the session folder")));
+            };
+            #[cfg(not(target_arch = "wasm32"))]
+            if app.can_reveal_outside() && app.live() && !dir.is_empty() {
+                let abs = opencode_kit::path::absolute(&dir, &path);
+                if browser_policy::verify_within_root(&abs, &dir, false).is_none() {
+                    return Err(mlua::Error::runtime(format!("Workspace:OpenFileSource: path '{path}' is outside the session folder")));
+                }
+            }
             if let Some(ref caller_sid) = tool_sid
                 && caller_sid.as_deref() != Some(sid.as_str())
             {

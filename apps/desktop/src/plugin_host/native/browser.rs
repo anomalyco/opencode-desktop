@@ -178,6 +178,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
                     ("policy", Data::Bool(app.workspace_panes.browser.host.engine_policy())),
                     ("preview", Data::Bool(app.workspace_panes.browser.host.engine_preview() || app.use_mock_browser())),
                     ("find", Data::Bool(app.workspace_panes.browser.host.engine_find())),
+                    ("permissionSync", Data::Bool(app.workspace_panes.browser.host.engine_permission_sync())),
                     ("clearCache", Data::Bool(app.workspace_panes.browser.host.engine_policy())),
                     ("hardReload", Data::Bool(true)),
                 ]),
@@ -398,6 +399,9 @@ fn engine(app: &App) -> (&'static str, Option<String>) {
         EngineStatus::Downloading { .. } => ("downloading", None),
         EngineStatus::Verifying => ("verifying", None),
         EngineStatus::Paused(_) => ("paused", None),
+        EngineStatus::Failed(f) if matches!(f.fault, browser_pane::Fault::NotPublished) => {
+            ("unsupported", Some(crate::browser::view::fault_text(&f.fault)))
+        }
         EngineStatus::Failed(f) => ("failed", Some(crate::browser::view::fault_text(&f.fault))),
         EngineStatus::Unchecked | EngineStatus::Installed | EngineStatus::Connecting => ("starting", None),
         EngineStatus::Ready => ("ready", None),
@@ -656,6 +660,7 @@ pub fn version(app: &App) -> u64 {
     format!("{:?}", app.workspace_panes.browser.host.status()).hash(&mut h);
     app.workspace_panes.browser.host.engine_downloads().hash(&mut h);
     app.workspace_panes.browser.host.engine_policy().hash(&mut h);
+    app.workspace_panes.browser.host.engine_permission_sync().hash(&mut h);
     app.workspace_panes.browser.host.engine_preview().hash(&mut h);
     for t in app.workspace_panes.browser.host.tabs() {
         if let Some(d) = &t.device { (&d.preset, d.width, d.height, d.scale.map(f32::to_bits)).hash(&mut h); }
@@ -689,9 +694,10 @@ pub fn version(app: &App) -> u64 {
 }
 
 /// Each open page's id and a number that moves with its address, title, loading and refusal, for
-/// `Browser.Changed`.
+/// `Browser.Changed`. `include_find` is `true` only for the bundled built-in `browser` plugin so
+/// third-party plugins never observe user Find-bar state ticks (`review-rd274.md` #311 §5).
 #[cfg(not(target_arch = "wasm32"))]
-pub fn pages(app: &App) -> Vec<(String, u64)> {
+pub fn pages(app: &App, include_find: bool) -> Vec<(String, u64)> {
     app.workspace_panes.browser
         .host
         .tabs()
@@ -699,7 +705,9 @@ pub fn pages(app: &App) -> Vec<(String, u64)> {
         .map(|t| {
             let mut h = std::hash::DefaultHasher::new();
             (&t.url, &t.title, t.loading, t.preview.map(|p| p as u8), &t.refusal, t.rejected, &t.favicon).hash(&mut h);
-            t.find.hash_state(&mut h);
+            if include_find {
+                t.find.hash_state(&mut h);
+            }
             let review_token = app
                 .workspace_panes
                 .browser
@@ -707,9 +715,19 @@ pub fn pages(app: &App) -> Vec<(String, u64)> {
                 .borrow()
                 .get(&t.id)
                 .map(|r| r.token.clone());
-            review_token.hash(&mut h);
+            // Only the built-in plugin draws the review bar; others never see its token move.
+            if include_find {
+                review_token.hash(&mut h);
+            }
             (t.id.to_string(), h.finish())
         })
+        // The built-in plugin also hears "" when the engine's state (`Browser:Engine().state`)
+        // moves, so its MCP tools follow the start-up index read without polling.
+        .chain(include_find.then(|| {
+            let mut h = std::hash::DefaultHasher::new();
+            engine(app).0.hash(&mut h);
+            (String::new(), h.finish())
+        }))
         .collect()
 }
 

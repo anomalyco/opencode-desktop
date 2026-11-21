@@ -252,6 +252,31 @@ pub(super) fn run_stream(stream: &super::streams::Stream, epoch: u64, resumed: b
         }
     }
 }
+/// Fail-open new-session prompt gate on the owning `Server`'s write thread (`<= 1 s` hard ceiling).
+///
+/// Invariant: no prompt is ever held longer than `PROMPT_GATE_TIMEOUT_MS` (1 s), dropped,
+/// duplicated, reordered, or sent to another server regardless of window close, tab switch,
+/// server switch, app quit, or panic. Dropping or sending on `release` wakes `recv_timeout`
+/// immediately and posts the prompt straight onto this worker's own `Server`.
+#[cfg(not(target_arch = "wasm32"))]
+fn wait_after_create(inbox_tx: &Sender<Incoming>, wake: &Waker, info: &crate::model::SessionInfo) {
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    if inbox_tx
+        .send(Incoming::PromptGate {
+            session: info.id.clone(),
+            directory: info.directory.clone(),
+            release: tx,
+        })
+        .is_ok()
+    {
+        wake();
+        rx.recv_timeout(Duration::from_millis(crate::browser_rpc::PROMPT_GATE_TIMEOUT_MS)).ok();
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn wait_after_create(_inbox_tx: &Sender<Incoming>, _wake: &Waker, _info: &crate::model::SessionInfo) {}
+
 /// Whether a held write may go: its gate's answer (`false` when the gate is gone), or at once.
 fn released(gate: &mut Option<std::sync::mpsc::Receiver<bool>>) -> bool {
     gate.take().is_none_or(|g| g.recv().unwrap_or(false))
@@ -319,6 +344,7 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                             }
                         }),
                         Write::Create { directory, text } => server.create_session(&directory).and_then(|info| {
+                            wait_after_create(&inbox_tx, &wake, &info);
                             server.send_prompt(&info.id, &text)?;
                             inbox_tx.send(Incoming::Created(info)).ok();
                             Ok(())
@@ -333,6 +359,7 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         }
                         Write::SendMovingHome { session, prompt } => server.send_moving_home(&session, &prompt).map(|_| ()),
                         Write::Start { directory, prompt } => server.create_session(&directory).and_then(|mut info| {
+                            wait_after_create(&inbox_tx, &wake, &info);
                             server.send(&info.id, &prompt)?;
                             // The reply to the create came before the switches.
                             if let Some(agent) = &prompt.agent {
@@ -344,16 +371,28 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                             inbox_tx.send(Incoming::Created(info)).ok();
                             Ok(())
                         }),
-                        Write::StartAs { session, directory, prompt } => server.start_as(&session, &directory, &prompt).map(|info| {
-                            inbox_tx.send(Incoming::Created(info)).ok();
-                        }),
+                        Write::StartAs { session, directory, prompt } => server
+                            .start_as(&session, &directory, &prompt, |info| wait_after_create(&inbox_tx, &wake, info))
+                            .map(|info| {
+                                inbox_tx.send(Incoming::Created(info)).ok();
+                            }),
                         Write::StartInNewWorktree { session, project, from, branch, prompt } => {
                             let made = || {
                                 inbox_tx.send(Incoming::WorktreeCreated { project: project.clone() }).ok();
                             };
-                            server.start_in_new_worktree(&session, &project, &from, branch.as_deref(), &prompt, made).map(|info| {
-                                inbox_tx.send(Incoming::Created(info)).ok();
-                            })
+                            server
+                                .start_in_new_worktree(
+                                    &session,
+                                    &project,
+                                    &from,
+                                    branch.as_deref(),
+                                    &prompt,
+                                    made,
+                                    |info| wait_after_create(&inbox_tx, &wake, info),
+                                )
+                                .map(|info| {
+                                    inbox_tx.send(Incoming::Created(info)).ok();
+                                })
                         }
                         Write::Cancel { session, item } => server.cancel_inbox(&session, &item),
                         Write::Deliver { session, item, delivery } => server.set_delivery(&session, &item, delivery),
@@ -447,6 +486,10 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         Request::Projects => match server.projects() {
                             Ok(list) => send(Incoming::Projects(list)),
                             Err(e) => send(Incoming::Failed(e)),
+                        },
+                        Request::DefaultDirectory => match server.get("/api/location").ok().as_ref().and_then(model::parse_location) {
+                            Some(location) => send(Incoming::DefaultDirectory(location.directory)),
+                            None => true,
                         },
                         Request::Info(id) => match server.get(&format!("/api/session/{id}")) {
                             Ok(v) => send(Incoming::Info(model::parse_session(v.get("data").unwrap_or(&v)))),

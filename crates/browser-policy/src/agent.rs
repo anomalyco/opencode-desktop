@@ -110,7 +110,6 @@ pub fn check_typed_cdp(method: &str, params: &serde_json::Value, engine_has_poli
     }
     match method {
         "Page.enable"
-        | "Page.createIsolatedWorld"
         | "Accessibility.getPartialAXTree"
         | "Runtime.enable"
         | "Runtime.releaseObjectGroup"

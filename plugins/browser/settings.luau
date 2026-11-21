@@ -46,18 +46,29 @@ export type ImportBrowser = {
     profiles: { ImportProfile },
 }
 
+-- How the last import from one browser profile ended, shown in its row (`settings.tsx` `Identity`).
+export type ImportMessage = {
+    text: string,
+    error: boolean,
+    -- Announced as it changes (an action's outcome), not a fixed detail.
+    live: boolean?,
+}
+
 export type Env = {
     I18n: I18nService,
     preferences: () -> Preferences,
     updatePreferences: (patch: { [string]: any }) -> (),
     capabilities: () -> Capabilities,
     sitePermissions: () -> { SiteDecision },
+    permissionRestartNote: (() -> boolean)?,
     setSitePermission: (origin: string, permission: string, setting: "allow" | "block") -> (),
     removeSitePermission: (origin: string, permission: string) -> (),
-    historyCount: () -> number,
     clearNotice: () -> string?,
     requestClearBrowsingData: () -> (),
-    openImportHistory: () -> (),
+    importSources: () -> { ImportBrowser },
+    importMessage: (browserId: string, profileId: string) -> ImportMessage?,
+    openImport: (browserId: string, profileId: string) -> (),
+    Menu: MenuService,
     -- Optional contract-backed sections provided by WS-9 (extensions) or WS-1 (cookies/remote).
     renderImport: ((view: View) -> ui.Node?)?,
     renderExtensions: ((view: View) -> ui.Node?)?,
@@ -154,24 +165,70 @@ function settings.entries(i18n: I18nService, caps: Capabilities): { SettingEntry
     return out
 end
 
-local NOTE = table.freeze({ size = 12, weight = "regular", lineHeight = 16, color = "text-muted", wrap = true })
-local MUTED = table.freeze({ size = 13, weight = "regular", lineHeight = 18, color = "text-muted", wrap = true })
-local HEADING = table.freeze({ size = 13, weight = "medium", lineHeight = 18, color = "text-chrome", noWrap = true })
+-- `settings.tsx` `Note`: 12 / 16 in the faint ink, under a section's card.
+local NOTE = table.freeze({ size = 12, weight = "regular", lineHeight = 16, color = "text-faint", wrap = true })
+local MUTED = table.freeze({ size = 13, weight = "regular", lineHeight = 20, color = "text-muted", wrap = true })
+-- `.settings-section-title`, as the Advanced heading's text.
+local HEADING = table.freeze({ size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", noWrap = true })
+-- A settings row's title (`SettingsRow`), for rows that draw their own subject.
+local ROW_TITLE = table.freeze({ size = 13, weight = "medium", lineHeight = 16, tracking = -0.04, color = "text-chrome", truncate = true })
+local ASIDE = table.freeze({ size = 13, weight = "regular", lineHeight = 16, color = "text-muted", truncate = true, shrink = true, minW = 0 })
+local SUBLINE = table.freeze({ size = 13, weight = "regular", lineHeight = 20, color = "text-muted", wrap = true })
 
+-- Official's summary names the remote-server and cookie-file rows too; it is shown only once both exist.
 local function advancedSummary(i18n: I18nService, caps: Capabilities): string
     if caps.remoteSignIns and caps.cookieFile then
         return i18n:T("settings.advanced.summary")
     end
-    local parts: { string } = {}
-    if caps.remoteSignIns then
-        table.insert(parts, "Remote servers")
+    return i18n:T("settings.advanced.summary.local")
+end
+
+-- `choices.tsx` `Glyph`: a 20 pt box holding a muted 16 pt icon.
+local function glyph(name: string): ui.Node
+    return ui.row({ w = 20, h = 20, center = true, shrink = false }, {
+        ui.icon(name, { size = 16, color = "icon-weak" }),
+    })
+end
+
+-- `settings.tsx` `Identity` in a row of its own: the icon, the name with an optional muted aside on
+-- its line, and under them a detail or what the last action did. Search reveals it by `id`.
+local function identityRow(
+    key: string,
+    id: string?,
+    icon: string,
+    name: string,
+    aside: string?,
+    detail: ImportMessage?,
+    control: ui.Node?
+): ui.Node
+    local line: { ui.Node } = { ui.text(name, ROW_TITLE, { shrink = true, minW = 0 }) }
+    if aside ~= nil then
+        table.insert(line, ui.text(aside, ASIDE))
     end
-    table.insert(parts, i18n:T("settings.sites.title"))
-    table.insert(parts, i18n:T("settings.data.title"))
-    if caps.cookieFile then
-        table.insert(parts, "cookie file")
+    local words: { ui.Node } = { ui.row({ gap = 6, align = "center", minW = 0 }, line) }
+    if detail ~= nil then
+        table.insert(words, ui.text(detail.text, SUBLINE, {
+            role = if detail.error then "alert" elseif detail.live then "status" else nil,
+            color = if detail.error then "status-danger" else "text-muted",
+        }))
     end
-    return table.concat(parts, ", ")
+    local items: { ui.Node } = {
+        ui.row({ grow = 1, shrink = true, minW = 0, gap = 12, align = "center" }, {
+            glyph(icon),
+            ui.col({ grow = 1, shrink = true, minW = 0, gap = 4 }, words),
+        }),
+    }
+    if control then
+        table.insert(items, control)
+    end
+    return ui.row({ key = if id then `setting-{id}` else key, w = "full", gap = 16, py = 20, align = "center" }, items)
+end
+
+-- A row holding only muted words, as official's empty states (`Muted` titles).
+local function mutedRow(id: string, words: string): ui.Node
+    return ui.row({ key = `setting-{id}`, w = "full", py = 20 }, {
+        ui.text(words, MUTED),
+    })
 end
 
 local function permissionName(i18n: I18nService, kind: string): string
@@ -208,24 +265,38 @@ function settings.create(env: Env, refresh: () -> ())
             if customImport then
                 table.insert(sections, customImport)
             else
-                table.insert(sections, ui.settingsList({ key = "settings-browser-import-section" }, {
-                    ui.settingsRow(
-                        {
-                            id = "settings-browser-import",
-                            title = i18n:T("settings.import.title"),
-                            description = i18n:T("settings.import.history.description"),
-                        },
-                        ui.button({
-                            key = "settings-browser-import-btn",
-                            text = i18n:T("settings.import.open"),
-                            size = "small",
-                            variant = "neutral",
-                            onPress = view:Handler(function()
-                                env.openImportHistory()
-                            end),
-                        })
-                    ),
-                }))
+                -- `settings.tsx:88-129`: one row per detected browser profile, the browser used last first.
+                local rows: { ui.Node } = {}
+                for _, browser in env.importSources() do
+                    for _, prof in browser.profiles do
+                        local idx = #rows + 1
+                        local bid, pid = browser.id, prof.id
+                        table.insert(rows, identityRow(
+                            `import-source-{idx}`,
+                            if idx == 1 then "settings-browser-import" else nil,
+                            "outline-globe",
+                            browser.name,
+                            if #browser.profiles > 1 then prof.name else nil,
+                            env.importMessage(bid, pid),
+                            ui.button({
+                                key = `import-source-btn-{idx}`,
+                                text = i18n:T("settings.import.open"),
+                                size = "small",
+                                variant = "neutral",
+                                onPress = view:Handler(function()
+                                    env.openImport(bid, pid)
+                                end),
+                            })
+                        ))
+                    end
+                end
+                if #rows == 0 then
+                    table.insert(rows, mutedRow("settings-browser-import", i18n:T("settings.import.none")))
+                end
+                table.insert(sections, ui.settingsList({
+                    key = "settings-browser-import-section",
+                    title = i18n:T("settings.import.title"),
+                }, rows))
             end
         end
 
@@ -264,7 +335,7 @@ function settings.create(env: Env, refresh: () -> ())
             table.insert(disclosureItems, ui.text(advancedSummary(i18n, caps), {
                 size = 13,
                 weight = "regular",
-                lineHeight = 18,
+                lineHeight = 16,
                 color = "text-muted",
                 ml = 8,
                 truncate = true,
@@ -272,23 +343,21 @@ function settings.create(env: Env, refresh: () -> ())
                 minW = 0,
             }))
         end
-        table.insert(disclosureItems, ui.icon(if isAdvanced then "chevron-down" else "chevron-right", {
-            size = 14,
-            color = "icon-weak",
-            ml = 4,
+        -- `ADVANCED_CHEVRON`: the heading's own ink at 40%, ending the line's text.
+        table.insert(disclosureItems, ui.icon(if isAdvanced then "outline-chevron-down" else "outline-chevron-right", {
+            size = 16,
+            color = "text-chrome",
+            opacity = 0.4,
         }))
+        -- `settings.tsx:171-197`: a section heading with no card and no fill that is a button.
         table.insert(sections, ui.row({
             key = "settings-browser-advanced",
             role = "button",
             label = i18n:T("settings.advanced"),
             w = "full",
-            py = 6,
-            px = 4,
+            gap = 4,
             radius = 4,
             align = "center",
-            hover = "surface-hover",
-            press = "surface-press",
-            hoverTransition = "instant",
             onPress = view:Handler(function()
                 local nextOpen = not isAdvanced
                 closedOver = if nextOpen then nil else target
@@ -364,10 +433,7 @@ function settings.create(env: Env, refresh: () -> ())
             local decisions = env.sitePermissions()
             local siteRows: { ui.Node } = {}
             if #decisions == 0 then
-                table.insert(siteRows, ui.settingsRow({
-                    id = "settings-browser-sites",
-                    title = i18n:T("settings.sites.none"),
-                }))
+                table.insert(siteRows, mutedRow("settings-browser-sites", i18n:T("settings.sites.none")))
             else
                 for idx, d in decisions do
                     local origin = d.origin
@@ -378,18 +444,58 @@ function settings.create(env: Env, refresh: () -> ())
                         host = origin
                     end
                     local permLabel = permissionName(i18n, perm)
-                    local settingLabel = i18n:T(if setting == "allow" then "settings.sites.allow" else "settings.sites.block")
-                    local nextSetting: "allow" | "block" = if setting == "allow" then "block" else "allow"
+                    local allowLabel = i18n:T("settings.sites.allow")
+                    local blockLabel = i18n:T("settings.sites.block")
+                    local selectKey = `site-perm-setting-{idx}`
+                    local selectLabel = i18n:T("settings.sites.setting", { permission = permLabel, site = host })
+                    -- `settings.tsx:339-351`: an inline `Select` (`SETTING_COLUMN`, 112 wide) of Allowed and
+                    -- Blocked, drawn as the kit's inline trigger (24 tall, 8 / 4 in, value then chevron).
                     local controls = ui.row({ gap = 8, align = "center" }, {
-                        ui.button({
-                            key = `site-perm-toggle-{idx}`,
-                            text = settingLabel,
-                            label = i18n:T("settings.sites.setting", { permission = permLabel, site = host }),
-                            size = "small",
-                            variant = "neutral",
-                            onPress = view:Handler(function()
-                                env.setSitePermission(origin, perm, nextSetting)
-                            end),
+                        ui.row({ w = 112, justify = "end" }, {
+                            ui.row({
+                                key = selectKey,
+                                role = "button",
+                                label = selectLabel,
+                                h = 24,
+                                py = 4,
+                                pl = 8,
+                                pr = 4,
+                                gap = 4,
+                                radius = 4,
+                                align = "center",
+                                hover = "surface-hover",
+                                press = "surface-press",
+                                hoverTransition = "instant",
+                                shrink = true,
+                                minW = 0,
+                                menuTrigger = true,
+                                onPress = view:Handler(function()
+                                    local picked = env.Menu:OpenAsync({
+                                        anchorKey = selectKey,
+                                        label = selectLabel,
+                                        align = "end",
+                                        minWidth = 160,
+                                        items = {
+                                            { id = "allow", title = allowLabel, checked = setting == "allow" },
+                                            { id = "block", title = blockLabel, checked = setting == "block" },
+                                        },
+                                    })
+                                    if (picked == "allow" or picked == "block") and picked ~= setting then
+                                        env.setSitePermission(origin, perm, picked :: any)
+                                    end
+                                end),
+                            }, {
+                                ui.text(if setting == "allow" then allowLabel else blockLabel, {
+                                    size = 13,
+                                    weight = "medium",
+                                    lineHeight = 16,
+                                    color = "text-chrome",
+                                    truncate = true,
+                                    shrink = true,
+                                    minW = 0,
+                                }),
+                                ui.icon("select-chevron", { size = 16, color = "icon-weak" }),
+                            }),
                         }),
                         ui.iconButton({
                             key = `site-perm-remove-{idx}`,
@@ -403,27 +509,32 @@ function settings.create(env: Env, refresh: () -> ())
                             end),
                         }),
                     })
-                    table.insert(siteRows, ui.settingsRow(
-                        {
-                            id = if idx == 1 then "settings-browser-sites" else `settings-browser-site-{idx}`,
-                            title = host,
-                            description = permLabel,
-                        },
+                    -- `settings.tsx:326-336`: the globe, the site, and the feature under it.
+                    table.insert(siteRows, identityRow(
+                        `site-perm-{idx}`,
+                        if idx == 1 then "settings-browser-sites" else nil,
+                        "outline-globe",
+                        host,
+                        nil,
+                        { text = permLabel, error = false },
                         controls
                     ))
                 end
             end
-            table.insert(sections, ui.col({ key = "settings-browser-sites-section", w = "full", gap = 6 }, {
+            -- `SettingsSection` footer: the notes sit 16 under the card, 4 apart.
+            local notes: { ui.Node } = { ui.text(i18n:T("settings.sites.note"), NOTE) }
+            if env.permissionRestartNote and env.permissionRestartNote() then
+                table.insert(notes, ui.text(i18n:T("settings.sites.restartNote"), NOTE))
+            end
+            table.insert(sections, ui.col({ key = "settings-browser-sites-section", w = "full", gap = 16 }, {
                 ui.settingsList({ key = "settings-browser-sites-list", title = i18n:T("settings.sites.title") }, siteRows),
-                ui.text(i18n:T("settings.sites.note"), NOTE),
+                ui.col({ w = "full", gap = 4 }, notes),
             }))
 
-            -- 4d. Browser data section (`settings-browser-cookies`, UP-117 #65124 confirm before clearing)
-            local count = env.historyCount()
-            local countText = if count > 0
-                then i18n:T(if count == 1 then "settings.history.count.one" else "settings.history.count.other", { count = count })
-                else nil
-            local dataDesc = env.clearNotice() or countText
+            -- 4d. Browser data section (`settings-browser-cookies`, UP-117 #65124 confirm before clearing).
+            -- Official's cookie count ("N cookies. Sign-ins are shared across sessions") needs the
+            -- engine's profile cookie list, which WS-1's #286 adds; until then only the clear outcome shows.
+            local dataDesc = env.clearNotice()
             table.insert(sections, ui.settingsList({ key = "settings-browser-data-section", title = i18n:T("settings.data.title") }, {
                 ui.settingsRow(
                     {
@@ -444,7 +555,8 @@ function settings.create(env: Env, refresh: () -> ())
             }))
         end
 
-        return ui.col({ key = "settings-browser-page", w = "full", gap = 20 }, sections)
+        -- `SettingsLayout`: sections 32 apart.
+        return ui.col({ key = "settings-browser-page", w = "full", gap = 32 }, sections)
     end
 
     return { render = render }
@@ -481,82 +593,46 @@ function settings.renderClearConfirm(i18n: I18nService, view: View, onCancel: ()
     })
 end
 
--- User-explicit read-only browser history importer dialog (`UP-106` `#65073`).
+-- "Import from <browser>" (`site-chooser.tsx:328-347`) for what this build brings over: browsing
+-- history, read-only from the other browser. A clean import closes it and its row says so; a
+-- failed one stays open and says why.
 function settings.renderImportDialog(
     i18n: I18nService,
     view: View,
-    sources: { ImportBrowser },
-    statusText: string?,
-    onImport: (browserId: string, profileId: string) -> (),
+    browserLabel: string,
+    message: ImportMessage?,
+    onImport: () -> (),
     onClose: () -> ()
 ): ui.Node
     local rows: { ui.Node } = {
-        ui.row({ w = "full", align = "center", gap = 8 }, {
-            ui.text(i18n:T("settings.import.title"), DIALOG_TITLE, { grow = 1, shrink = true, minW = 0, truncate = true }),
-            ui.iconButton({
-                key = "settings-import-x",
-                icon = "close",
-                variant = "ghost-muted",
-                size = "small",
-                label = i18n:T("common.close"),
-                onPress = view:Handler(function()
-                    onClose()
-                end),
-            }),
-        }),
+        ui.text(i18n:T("signins.import", { browser = browserLabel }), DIALOG_TITLE, { truncate = true }),
         ui.text(i18n:T("settings.import.history.description"), MUTED),
     }
-    if #sources == 0 then
-        table.insert(rows, ui.row({ key = "settings-import-none", w = "full", py = 12, px = 12, radius = 6, fill = "surface-1" }, {
-            ui.text(i18n:T("settings.import.none"), MUTED),
+    if message ~= nil then
+        table.insert(rows, ui.text(message.text, MUTED, {
+            key = "settings-import-status",
+            role = if message.error then "alert" else "status",
+            color = if message.error then "status-danger" else "text-muted",
         }))
-    else
-        local listItems: { ui.Node } = {}
-        local idx = 0
-        for _, browser in sources do
-            for _, prof in browser.profiles do
-                idx += 1
-                local bid, pid = browser.id, prof.id
-                local label = if #browser.profiles > 1 then `{browser.name} ({prof.name})` else browser.name
-                table.insert(listItems, ui.row({
-                    key = `import-source-{idx}`,
-                    w = "full",
-                    px = 12,
-                    py = 8,
-                    gap = 8,
-                    radius = 6,
-                    fill = "surface-1",
-                    align = "center",
-                }, {
-                    ui.col({ grow = 1, shrink = true, minW = 0, gap = 2 }, {
-                        ui.text(label, HEADING),
-                        ui.text(prof.name, NOTE),
-                    }),
-                    ui.button({
-                        key = `import-source-btn-{idx}`,
-                        text = i18n:T("settings.import.history.action"),
-                        size = "small",
-                        variant = "neutral",
-                        onPress = view:Handler(function()
-                            onImport(bid, pid)
-                        end),
-                    }),
-                }))
-            end
-        end
-        table.insert(rows, ui.col({ key = "settings-import-list", w = "full", maxH = 260, scrollY = true, gap = 6 }, listItems))
-    end
-    if statusText ~= nil and statusText ~= "" then
-        table.insert(rows, ui.text(statusText, { key = "settings-import-status", size = 12, weight = "medium", lineHeight = 16, color = "text-chrome", wrap = true }))
     end
     table.insert(rows, ui.row({ w = "full", justify = "end", gap = 8, pt = 4 }, {
         ui.button({
-            key = "settings-import-close",
-            text = i18n:T("common.close"),
+            key = "settings-import-cancel",
+            text = i18n:T("common.cancel"),
             size = "small",
-            variant = "ghost",
+            variant = "neutral",
             onPress = view:Handler(function()
                 onClose()
+            end),
+        }),
+        ui.button({
+            key = "settings-import-start",
+            text = i18n:T("signins.action"),
+            size = "small",
+            variant = "contrast",
+            autofocus = true,
+            onPress = view:Handler(function()
+                onImport()
             end),
         }),
     }))

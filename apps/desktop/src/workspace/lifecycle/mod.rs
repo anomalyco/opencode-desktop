@@ -8,5 +8,6 @@ pub mod reconnect;
 pub mod restore;
 pub mod rune_mcp;
 pub mod served;
+pub mod start_location;
 pub mod storage;
 pub mod tips;

@@ -130,12 +130,16 @@ pub struct BrowserHost {
     /// different isolation context does not delete its `BrowserTab` entry or `TabSurface`.
     pub(crate) reopening_tabs: HashMap<u64, u32>,
     pub(crate) cdp_responses: HashMap<u64, Result<Value, Value>>,
-    cdp_events: VecDeque<CdpEvent>,
+    pub(crate) cdp_response_order: VecDeque<u64>,
+    pub(crate) cancelled_cdp: VecDeque<u64>,
+    pub(crate) cdp_events: VecDeque<CdpEvent>,
     picked: VecDeque<PickedElement>,
     pub(crate) popup_opens: VecDeque<crate::prompts::PopupRequest>,
     pub(crate) app_links: VecDeque<(u64, String)>,
     pub(crate) context_menus: VecDeque<(u64, crate::protocol::PageContextMenu)>,
     pub(crate) diagnostics: VecDeque<crate::find::PageDiagnostic>,
+    pub(crate) profile_events: VecDeque<crate::cookies::ProfileEvent>,
+    pub(crate) share_sign_ins: bool,
     /// Tab IDs closed by the engine (`EngineMsg::TabClosed`) paired with `fatal_close` (`true` only
     /// on unrecoverable proxy/context failure, never explicit `DropContext` of a suspended tab).
     pub(crate) closed_tabs: VecDeque<(u64, bool)>,
@@ -195,12 +199,16 @@ impl BrowserHost {
             unsupported_local_previews: Vec::new(),
             reopening_tabs: HashMap::new(),
             cdp_responses: HashMap::new(),
+            cdp_response_order: VecDeque::new(),
+            cancelled_cdp: VecDeque::new(),
             cdp_events: VecDeque::new(),
             picked: VecDeque::new(),
             popup_opens: VecDeque::new(),
             app_links: VecDeque::new(),
             context_menus: VecDeque::new(),
             diagnostics: VecDeque::new(),
+            profile_events: VecDeque::new(),
+            share_sign_ins: false,
             closed_tabs: VecDeque::new(),
             remote_proxies: HashMap::new(),
             site_permissions: crate::prompts::SitePermissions::default(),
@@ -306,7 +314,7 @@ impl BrowserHost {
     pub fn engine_configured() -> bool {
         #[cfg(feature = "engine")]
         {
-            let set = |k| std::env::var_os(k).is_some_and(|v| !v.is_empty());
+            let set = |k| crate::installer::dev_override(k).is_some();
             crate::source::configured()
                 || crate::source::has_trust()
                 || set("OPENCODE_BROWSER_ENGINE_BIN")
@@ -318,6 +326,10 @@ impl BrowserHost {
             false
         }
     }
+
+    /// Without the engine there is no source to read (`EngineStatus::Unsupported` already).
+    #[cfg(not(feature = "engine"))]
+    pub fn probe_availability(&self) {}
 
     pub fn with_socket(socket: PathBuf) -> Self {
         let mut h = Self::new();
@@ -710,15 +722,13 @@ impl BrowserHost {
     }
 
     pub fn take_cdp_response(&mut self, request_id: u64) -> Option<Result<Value, Value>> {
-        self.cdp_responses.remove(&request_id)
-    }
-
-    pub fn has_cdp_events(&self) -> bool {
-        !self.cdp_events.is_empty()
-    }
-
-    pub fn drain_cdp_events(&mut self) -> impl Iterator<Item = CdpEvent> + '_ {
-        self.cdp_events.drain(..)
+        let out = self.cdp_responses.remove(&request_id);
+        if out.is_some()
+            && let Some(pos) = self.cdp_response_order.iter().position(|&id| id == request_id)
+        {
+            self.cdp_response_order.remove(pos);
+        }
+        out
     }
 
     /// Whether the page picked an element since the last drain.
@@ -924,7 +934,10 @@ impl BrowserHost {
                     context_menu,
                     partitions,
                     remote_proxy,
+                    agent_tools,
                     preview,
+                    permission_sync,
+                    cookies,
                     ..
                 } => {
                     if !matches!(
@@ -942,8 +955,15 @@ impl BrowserHost {
                         context_menu,
                         partitions,
                         remote_proxy,
+                        agent_tools,
                         preview,
+                        permission_sync,
+                        cookies,
                     };
+                    self.sync_site_permissions();
+                    if cookies && self.share_sign_ins {
+                        self.send(HostMsg::SetShareSignIns { enabled: true });
+                    }
                     // A new engine starts with an empty downloads folder and numbers its files
                     // from 1 again: the last one's files are gone. Held prompts replay if live.
                     for t in &mut self.tabs {
@@ -1013,6 +1033,18 @@ impl BrowserHost {
                         changed = true;
                     }
                 }
+                EngineMsg::ControlledPermissionRefused { tab_id, url } => {
+                    if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+                        t.loading = false;
+                        t.refusal = Some("browser.controlled.inherited_permission".to_owned());
+                        t.rejected += 1;
+                        if t.prompts.agent_driven {
+                            t.prompts.blocked_guard_notice =
+                                Some(crate::prompts::BlockedGuardReason::InheritedPermission { url });
+                        }
+                        changed = true;
+                    }
+                }
                 EngineMsg::TabList { tabs } => {
                     for snap in tabs {
                         self.upsert_tab(snap);
@@ -1062,6 +1094,15 @@ impl BrowserHost {
                     changed = true;
                 }
                 EngineMsg::CdpResponse { request_id, ok, result, .. } => {
+                    if let Some(pos) = self.cancelled_cdp.iter().position(|&id| id == request_id) {
+                        self.cancelled_cdp.remove(pos);
+                        continue;
+                    }
+                    while self.cdp_responses.len() >= 512 {
+                        let Some(oldest) = self.cdp_response_order.pop_front() else { break };
+                        self.cdp_responses.remove(&oldest);
+                    }
+                    self.cdp_response_order.push_back(request_id);
                     self.cdp_responses
                         .insert(request_id, if ok { Ok(result) } else { Err(result) });
                     changed = true;
@@ -1110,6 +1151,36 @@ impl BrowserHost {
                 }
                 EngineMsg::PageDiagnostic { tab_id, level, event, fields } => {
                     self.diagnostics.push_back(crate::find::PageDiagnostic { tab_id, level, event, fields });
+                    changed = true;
+                }
+                EngineMsg::ProfileCookies { request_id, cookies } => {
+                    self.profile_events.push_back(crate::cookies::ProfileEvent::CookiesListed {
+                        request_id,
+                        cookies,
+                    });
+                    changed = true;
+                }
+                EngineMsg::ProfileCookiesImported { request_id, imported, failed } => {
+                    self.profile_events.push_back(crate::cookies::ProfileEvent::CookiesImported {
+                        request_id,
+                        imported,
+                        failed,
+                    });
+                    changed = true;
+                }
+                EngineMsg::ProfileProbeReady { request_id, written, cache_dir } => {
+                    self.profile_events.push_back(crate::cookies::ProfileEvent::ProbeReady {
+                        request_id,
+                        written,
+                        cache_dir,
+                    });
+                    changed = true;
+                }
+                EngineMsg::ProfileActionDone { request_id, ok } => {
+                    self.profile_events.push_back(crate::cookies::ProfileEvent::ActionDone {
+                        request_id,
+                        ok,
+                    });
                     changed = true;
                 }
                 EngineMsg::PreviewFetch { req_id, tab_id, kind, path, method, range } => {
@@ -1280,14 +1351,26 @@ impl BrowserHost {
         self.next_tab_id = self.next_tab_id.max(snap.tab_id + 1);
         let want_zoom = self.site_zoom.get(&snap.url);
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == snap.tab_id) {
+            let blank_after_inherited = snap.url.eq_ignore_ascii_case("about:blank")
+                && matches!(
+                    t.prompts.blocked_guard_notice,
+                    Some(crate::prompts::BlockedGuardReason::InheritedPermission { .. })
+                );
             let url_changed = t.url != snap.url;
             let new_site = site_of(&snap.url).is_some() && site_of(&t.url) != site_of(&snap.url);
-            let clear_refusal = (url_changed || snap.load_error.is_some()) && t.refusal.is_some();
+            let clear_refusal =
+                !blank_after_inherited && (url_changed || snap.load_error.is_some()) && t.refusal.is_some();
+            let preserved_notice = blank_after_inherited
+                .then(|| t.prompts.blocked_guard_notice.clone())
+                .flatten();
             let (cancel_perms, cancel_auth) = if url_changed {
                 t.prompts.on_document_committed(&t.url, &snap.url)
             } else {
                 (Vec::new(), Vec::new())
             };
+            if let Some(notice) = preserved_notice {
+                t.prompts.blocked_guard_notice = Some(notice);
+            }
             let changed = url_changed
                 || t.title != snap.title
                 || t.loading != snap.loading
@@ -1338,7 +1421,7 @@ impl BrowserHost {
                 self.send(HostMsg::SetZoom { tab_id: snap.tab_id, factor: want_zoom });
             }
             for id in cancel_perms {
-                self.send(HostMsg::AnswerPermission { tab_id: snap.tab_id, id, allow: false });
+                self.send(HostMsg::AnswerPermission { tab_id: snap.tab_id, id, allow: false, dismiss: true, persist: false });
             }
             for id in cancel_auth {
                 self.send(HostMsg::AnswerAuth { tab_id: snap.tab_id, id, username: None, password: None });

@@ -118,6 +118,10 @@ pub fn classify_app_link(value: &str, source: AppSchemeSource) -> Option<AppSche
         return None;
     }
     let tail = &value[colon + 1..];
+    // A handler that splices the URI into a command line would read a leading `-` as a flag.
+    if tail.starts_with('-') {
+        return None;
+    }
     if let Some(after_slashes) = tail.strip_prefix("//") {
         let authority = after_slashes.split(['/', '?', '#']).next().unwrap_or("");
         if authority.contains('@') {
@@ -125,7 +129,9 @@ pub fn classify_app_link(value: &str, source: AppSchemeSource) -> Option<AppSche
         }
     }
     if scheme == "mailto" {
-        if tail.is_empty() || tail.starts_with("//") {
+        // Percent-encoded bidi or control characters (`%E2%80%AE`) would reorder what the mail
+        // client shows in an address or subject.
+        if tail.is_empty() || tail.starts_with("//") || percent_decode_strict(tail).is_none() {
             return None;
         }
         return Some(if mailto_query_allowed(tail) {

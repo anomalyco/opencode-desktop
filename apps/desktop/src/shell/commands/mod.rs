@@ -142,6 +142,8 @@ impl App {
         self.search.focused = false;
         self.kernel.slots.get_mut(&crate::find::FIND).input.focused = false;
         self.composer.focused = true;
+        // ^L from the keys shows the prompt's ring; from the palette's pointer it doesn't.
+        tx.focus("prompt", tx.by_keys());
         true
     }
 

@@ -296,6 +296,17 @@ pub enum HostMsg {
         tab_id: u64,
         id: u64,
         allow: bool,
+        #[serde(default)]
+        dismiss: bool,
+        #[serde(default)]
+        persist: bool,
+    },
+    ResetPermission {
+        origin: String,
+        kind: PermissionKind,
+    },
+    SyncSitePermissions {
+        entries: Vec<SitePermissionEntry>,
     },
     AnswerAuth {
         tab_id: u64,
@@ -317,6 +328,8 @@ pub enum HostMsg {
         forward: bool,
         match_case: bool,
         find_next: bool,
+        #[serde(default)]
+        user_initiated: bool,
     },
     StopFind {
         tab_id: u64,
@@ -334,6 +347,46 @@ pub enum HostMsg {
     },
     DropContext {
         context: ContextKind,
+    },
+    ProfileCookiesList {
+        request_id: u64,
+        #[serde(default)]
+        partition: Option<String>,
+    },
+    ProfileCookiesSet {
+        request_id: u64,
+        #[serde(default)]
+        partition: Option<String>,
+        cookies: Vec<WireCookie>,
+    },
+    ProfileCookieDelete {
+        request_id: u64,
+        #[serde(default)]
+        partition: Option<String>,
+        url: String,
+        name: String,
+    },
+    ProfileProbeCookies {
+        request_id: u64,
+    },
+    ClearProfileData {
+        request_id: u64,
+    },
+    SetShareSignIns {
+        enabled: bool,
+    },
+    SyncRemoteCookies {
+        request_id: u64,
+        partition: String,
+        #[serde(default)]
+        from_remote: bool,
+    },
+    TypedCdpCall {
+        tab_id: u64,
+        request_id: u64,
+        method: String,
+        params: Value,
+        session_id: Option<String>,
     },
     /// App-proxied response headers for a remote workspace or artifact `EngineMsg::PreviewFetch`.
     PreviewResponseHead {
@@ -389,12 +442,40 @@ pub enum EngineMsg {
         /// The engine confines proxied `RemoteServer` partitions via `fixed_servers` + `<-loopback>` + WebRTC/DoH hardening.
         #[serde(default)]
         remote_proxy: bool,
+        /// The engine supports `TypedCdpCall` and flattened OOPIF `sessionId` CDP events.
+        #[serde(default)]
+        agent_tools: bool,
         /// The engine serves isolated `oc-preview://` tabs.
         #[serde(default)]
         preview: bool,
+        /// The engine resets Chromium's `HostContentSettingsMap` on one-time/revoked permissions
+        /// and supports `HostMsg::ResetPermission` + `AnswerPermission.dismiss`.
+        #[serde(default)]
+        permission_sync: bool,
         /// The engine emits `EngineMsg::PreviewCredit` for end-to-end preview flow control.
         #[serde(default)]
         preview_credit: bool,
+        /// The engine exposes `CefCookieManager` list/import/delete/probe/clear & two-way remote cookie mirroring.
+        #[serde(default)]
+        cookies: bool,
+    },
+    ProfileCookies {
+        request_id: u64,
+        cookies: Vec<WireCookie>,
+    },
+    ProfileCookiesImported {
+        request_id: u64,
+        imported: u32,
+        failed: u32,
+    },
+    ProfileProbeReady {
+        request_id: u64,
+        written: bool,
+        cache_dir: String,
+    },
+    ProfileActionDone {
+        request_id: u64,
+        ok: bool,
     },
     /// Requests bytes for a remote workspace or artifact preview from the app host.
     PreviewFetch {
@@ -421,6 +502,13 @@ pub enum EngineMsg {
     Refused {
         tab_id: u64,
         reason: String,
+    },
+    /// Controlled `Default`-profile tab refused due to an inherited site permission; carries the
+    /// refused URL for the notice bar and "Open in new tab" without overwriting `BrowserTab.url`.
+    ControlledPermissionRefused {
+        tab_id: u64,
+        #[serde(default)]
+        url: Option<String>,
     },
     Dialog {
         tab_id: u64,
@@ -569,6 +657,9 @@ pub struct DownloadFile {
     /// interrupt reason (`network_failed`, `file_no_space`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Source URL captured by the engine in `on_before_download` before any post-download redirect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -631,6 +722,13 @@ impl PermissionKind {
             Self::ClipboardRead => "clipboard-read",
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SitePermissionEntry {
+    pub origin: String,
+    pub kind: PermissionKind,
+    pub allow: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -789,4 +887,37 @@ pub enum ContextMenuCommand {
     SaveImage { url: String },
     ReplaceMisspelling { word: String },
     AddToDictionary { word: String },
+}
+
+fn default_cookie_path() -> String {
+    "/".to_owned()
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CookieSameSite {
+    #[default]
+    Unspecified,
+    NoRestriction,
+    Lax,
+    Strict,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WireCookie {
+    /// Leading dot for domain cookies (`.github.com`), bare host for host-only (`github.com`).
+    pub host: String,
+    pub name: String,
+    pub value: String,
+    #[serde(default = "default_cookie_path")]
+    pub path: String,
+    #[serde(default)]
+    pub secure: bool,
+    #[serde(default)]
+    pub http_only: bool,
+    /// Unix timestamp in seconds; `None` for session cookies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires: Option<f64>,
+    #[serde(default)]
+    pub same_site: CookieSameSite,
 }
