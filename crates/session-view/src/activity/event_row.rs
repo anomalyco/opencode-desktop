@@ -142,7 +142,7 @@ pub fn mark(p: &Pal, m: Mark, word: &str) -> El {
 /// An interactive event row's hover: a quiet fill that comes and goes at once, 6 past its words
 /// each side with a 4 radius, and the shared ring 2 outside it while the keyboard has it. No underline.
 fn hoverable(p: &Pal, row: El) -> El {
-    row.ml(-6.0).px(6.0).radius(4.0).cursor(rune::Cursor::Pointer).hover(p.hover).hover_group()
+    row.ml(-6.0).px(6.0).radius(4.0).cursor(rune::Cursor::Pointer).hover(p.hover).hover_group_focus()
         .hover_motion(INSTANT, INSTANT)
         .focus_default(p)
 }
