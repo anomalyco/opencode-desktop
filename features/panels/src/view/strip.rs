@@ -273,11 +273,11 @@ fn strip_widths(naturals: &[f32], room: f32) -> Vec<f32> {
 /// The width tab `entry`'s content takes unshrunk (CSS `max-content`), as `tab_trigger` lays
 /// it out: 10 in, the icon and 6, the title, the badge, then 8 to the close button and 4 from the
 /// end, or 10 without one. A panel's own label (`lead`) is taken as the icon and the title it shows; a
-/// terminal's title stops at 160 (`TerminalTabLabel`).
+/// terminal's or browser's title stops at 160 (`TerminalTabLabel`, `browser/renderer.tsx` `max-w-40`).
 fn tab_natural(entry: &ResolvedEntry, lead: bool) -> f32 {
     let title = rune::text::measure(&entry.tab.title, &[], TAB_UI, None).0.ceil();
     let body = match (lead, entry.tab.icon) {
-        (true, _) if entry.plugin == TERMINAL_PLUGIN => 22.0 + title.min(160.0),
+        (true, _) if matches!(entry.plugin, TERMINAL_PLUGIN | "browser") => 22.0 + title.min(160.0),
         (true, _) => 22.0 + title,
         (false, Some(glyph)) => tab_icon_size(entry, glyph) + 6.0 + title,
         (false, None) => title,
