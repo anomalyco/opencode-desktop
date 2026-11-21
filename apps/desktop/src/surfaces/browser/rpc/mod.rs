@@ -412,6 +412,10 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
                     let _ = host.send_typed_cdp(tab_id, "Target.setAutoAttach", auto_attach.clone(), Some(child_sid.clone()));
                 }
                 let _ = host.send_typed_cdp(tab_id, "Runtime.enable", serde_json::json!({}), Some(child_sid.clone()));
+                // An OOPIF's console and requests, as official enables them per session (`diagnostics.ts:231-238`).
+                let _ = host.send_typed_cdp(tab_id, "Log.enable", serde_json::json!({}), Some(child_sid.clone()));
+                let net = serde_json::json!({ "maxTotalBufferSize": 5_242_880, "maxResourceBufferSize": 1_048_576, "maxPostDataSize": 20_000 });
+                let _ = host.send_typed_cdp(tab_id, "Network.enable", net, Some(child_sid.clone()));
                 if let Ok(req_id) = host.send_typed_cdp(tab_id, "Page.getFrameTree", serde_json::json!({}), Some(child_sid.clone())) {
                     oopif_frame_reqs.push((tab_id, req_id, child_sid));
                 }

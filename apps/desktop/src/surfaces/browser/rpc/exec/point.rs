@@ -165,7 +165,15 @@ impl PointResolver {
                         self.stage = Stage::MeasureElem { cdp_req: next, object_id: oid };
                         None
                     }
-                    Err(e) => Some(Err(Outcome::fail(failure_code::OPERATION_FAILED, e))),
+                    Err(e) => {
+                        let _ = app.workspace_panes.browser.host.send_typed_cdp(
+                            self.host_id,
+                            "Runtime.releaseObject",
+                            json!({ "objectId": oid }),
+                            self.target.1.clone(),
+                        );
+                        Some(Err(Outcome::fail(failure_code::OPERATION_FAILED, e)))
+                    }
                 }
             }
             Stage::MeasureElem { cdp_req, object_id } => {
@@ -263,7 +271,15 @@ impl PointResolver {
                         self.stage = Stage::MeasureOwner { cdp_req: next, object_id: oid, parent_session };
                         None
                     }
-                    Err(e) => Some(Err(Outcome::fail(failure_code::OPERATION_FAILED, e))),
+                    Err(e) => {
+                        let _ = app.workspace_panes.browser.host.send_typed_cdp(
+                            self.host_id,
+                            "Runtime.releaseObject",
+                            json!({ "objectId": oid }),
+                            parent_session,
+                        );
+                        Some(Err(Outcome::fail(failure_code::OPERATION_FAILED, e)))
+                    }
                 }
             }
             Stage::MeasureOwner { cdp_req, object_id, parent_session } => {
