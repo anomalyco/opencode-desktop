@@ -127,13 +127,18 @@ fn field(a: &mut NodeArgs) -> Result<El, String> {
 /// editor's `KeyPressed`.
 fn bare_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize) -> El {
     let pal = p(a);
-    let handed: Vec<rune::Key> = match a.data("keys") {
+    let handed: Vec<(rune::Key, bool, &'static str)> = match a.data("keys") {
         Some(Data::List(keys)) => keys
             .iter()
             .filter_map(|k| match k.as_str()? {
-                "ArrowUp" => Some(rune::Key::Up),
-                "ArrowDown" => Some(rune::Key::Down),
-                "Escape" => Some(rune::Key::Escape),
+                "ArrowUp" => Some((rune::Key::Up, false, "ArrowUp")),
+                "ArrowDown" => Some((rune::Key::Down, false, "ArrowDown")),
+                "Escape" => Some((rune::Key::Escape, false, "Escape")),
+                "Tab" => Some((rune::Key::Tab, false, "Tab")),
+                "Shift+Tab" => Some((rune::Key::Tab, true, "Shift+Tab")),
+                "Shift+Delete" => Some((rune::Key::Delete, true, "Shift+Delete")),
+                "Shift+Backspace" => Some((rune::Key::Backspace, true, "Shift+Backspace")),
+                "Shift+Enter" => Some((rune::Key::Enter, true, "Shift+Enter")),
                 _ => None,
             })
             .collect(),
@@ -159,10 +164,8 @@ fn bare_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize)
     input = input.dir(dir(a).unwrap_or(if a.flag("secure") { rune::Direction::Ltr } else { rune::Direction::Auto }));
     if !handed.is_empty() {
         input = input.on_input_key(move |app: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
-            let Some(name) = handed.iter().find(|k| ev.key == **k && !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt).map(|k| match k {
-                rune::Key::Up => "ArrowUp",
-                rune::Key::Down => "ArrowDown",
-                _ => "Escape",
+            let Some(&(_, _, name)) = handed.iter().find(|&&(key, shift, _)| {
+                ev.key == key && ev.mods.shift == shift && !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt
             }) else {
                 return false;
             };

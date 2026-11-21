@@ -381,10 +381,19 @@ return plugin.defineWindow(function(ctx)
         end
     end)
     findEditor.KeyPressed:Connect(function(key: string)
-        if key == "Escape" and activeFindTab ~= nil then
-            local tab = Browser:Get(activeFindTab)
-            if tab then
-                closeFind(tab)
+        if activeFindTab == nil then
+            return
+        end
+        local tab = Browser:Get(activeFindTab)
+        if tab == nil then
+            return
+        end
+        if key == "Escape" then
+            closeFind(tab)
+        elseif key == "Shift+Enter" then
+            local cur = getFind(activeFindTab)
+            if cur.query ~= "" then
+                runFind(tab, cur.query, false, true)
             end
         end
     end)
@@ -1049,7 +1058,6 @@ return plugin.defineWindow(function(ctx)
                     maxW = 160,
                 }),
             }
-            local tAny = tab :: any
             local asking = type(tAny.Asking) == "function" and tAny:Asking() == true
             local unseen = not asking
                 and (unseenTabs[id] == true or (type(tAny.Unseen) == "function" and tAny:Unseen() == true))
@@ -1203,14 +1211,14 @@ return plugin.defineWindow(function(ctx)
         openFind(tab)
         return true
     end)
-    scoped("find.next", "mod+g", false, I18n:T("find.next"), function(tab)
+    scoped("find.next", if App.Platform == "macos" then "mod+g" else "mod+g,f3", false, I18n:T("find.next"), function(tab)
         if pageUrl(tab) == "" or tab:LoadError() ~= nil then
             return false
         end
         act("find.next", tab)
         return true
     end)
-    scoped("find.previous", "mod+shift+g", false, I18n:T("find.previous"), function(tab)
+    scoped("find.previous", if App.Platform == "macos" then "mod+shift+g" else "mod+shift+g,shift+f3", false, I18n:T("find.previous"), function(tab)
         if pageUrl(tab) == "" or tab:LoadError() ~= nil then
             return false
         end
