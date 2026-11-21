@@ -30,6 +30,8 @@ const GAP: f32 = 8.0;
 const ELEMENT_EDITOR_W: f32 = 320.0;
 const PAGE_EDITOR_W: f32 = 400.0;
 const FIELD: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04);
+const NOTE_FIELD: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
+const META: TextStyle = TextStyle::new(11.0, 530.0).lh(14.0).tracking(0.05);
 const MONO: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0).mono();
 
 pub enum Overlay {
@@ -121,11 +123,35 @@ impl BrowserOverlay {
         true
     }
 
-    pub fn version_tag(&self) -> (u8, u64) {
+    /// Hashes all rendered overlay state so the browser pane redraws on CDP resolve, typing,
+    /// `@file` mention updates, and held-Ctrl submit-button flips.
+    pub fn hash_state(&self, h: &mut impl std::hash::Hasher) {
+        use std::hash::Hash as _;
         match &self.state {
-            Overlay::Idle => (0, 0),
-            Overlay::Commenting { tab_id, .. } => (1, *tab_id),
-            Overlay::Noting { tab_id, .. } => (2, *tab_id),
+            Overlay::Idle => 0u8.hash(h),
+            Overlay::Commenting { tab_id, element, draft, field, editor_h, editor_initial_h, .. } => {
+                1u8.hash(h);
+                tab_id.hash(h);
+                element.selector.hash(h);
+                element.label.hash(h);
+                element.rect.map(f32::to_bits).hash(h);
+                editor_h.get().to_bits().hash(h);
+                editor_initial_h.get().to_bits().hash(h);
+                draft.hash(h);
+                field.alternate.hash(h);
+                field.mention.items().hash(h);
+                field.mention.active().hash(h);
+            }
+            Overlay::Noting { tab_id, url, title, draft, field } => {
+                2u8.hash(h);
+                tab_id.hash(h);
+                url.hash(h);
+                title.hash(h);
+                draft.hash(h);
+                field.alternate.hash(h);
+                field.mention.items().hash(h);
+                field.mention.active().hash(h);
+            }
         }
     }
 
@@ -522,7 +548,7 @@ pub fn view(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
 
             let input = session_view::style::field(draft, FIELD)
                 .key("browser-comment-field")
-                .label_static(opencode_i18n::t!("plugin.browser.comment.label"))
+                .label_static(opencode_i18n::t!("rune.browser.comment.label"))
                 .color(p.text)
                 .w_full()
                 .min_h(20.0)
@@ -537,15 +563,15 @@ pub fn view(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
                 .on_input_change(on_input_change)
                 .on_input_key(on_input_key);
             let mentions = mention_rows::<App>(p, &field.mention, act);
-            let field_col = col().grow(1.0).shrink().min_w(0.0).child(input).children(mentions);
+            let field_col = col().grow(1.0).shrink().min_w(0.0).gap(8.0).child(input).children(mentions);
 
             let empty = draft.text.trim().is_empty();
             let alternate = field.alternate;
             let available = s.can_send_comment();
             let primary_label = if empty {
-                opencode_i18n::t!("plugin.browser.comment.attach")
+                opencode_i18n::t!("rune.browser.comment.attach")
             } else {
-                opencode_i18n::t!("plugin.browser.comment.submit")
+                opencode_i18n::t!("rune.browser.comment.submit")
             };
             let alt_label = delivery_label(s);
             let alt_keys = mod_enter_keys();
@@ -642,28 +668,28 @@ pub fn view(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
                 .grow(1.0)
                 .shrink()
                 .min_w(0.0)
-                .gap(6.0)
+                .gap(4.0)
                 .center_y()
                 .dir(rune::Direction::Ltr)
-                .child(icon(&ic::GLOBE, 14.0).color(p.icon_muted))
+                .child(icon(&ic::GLOBE, 14.0).color(p.icon_faint))
                 .child(
                     text(heading)
-                        .font(TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04))
-                        .color(p.muted)
+                        .font(META)
+                        .color(p.faint)
                         .truncate()
                         .grow(1.0)
                         .shrink()
                         .min_w(0.0),
                 );
 
-            let input = session_view::style::field(draft, FIELD)
+            let input = session_view::style::field(draft, NOTE_FIELD)
                 .key("browser-note-field")
                 .label_static(opencode_i18n::t!("plugin.browser.page.add"))
                 .color(p.text)
                 .w_full()
-                .min_h(80.0)
+                .min_h(64.0)
                 .max_h(160.0)
-                .placeholder(opencode_i18n::t!("plugin.browser.page.placeholder"), p.faint)
+                .placeholder(opencode_i18n::t!("rune.browser.page.placeholder"), p.faint)
                 .caret(p.text, p.selection)
                 .selection_style(p.field_selection)
                 .spellcheck(s.settings.spellcheck)
@@ -673,7 +699,7 @@ pub fn view(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
                 .on_input_change(on_input_change)
                 .on_input_key(on_input_key);
             let mentions = mention_rows::<App>(p, &field.mention, act);
-            let field_col = col().w_full().child(input).children(mentions);
+            let field_col = col().w_full().gap(8.0).child(input).children(mentions);
 
             let k = kit(p);
             let empty = draft.text.trim().is_empty();
@@ -704,12 +730,12 @@ pub fn view(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
                 .help_above();
             let footer = row()
                 .w_full()
-                .gap(8.0)
+                .gap(4.0)
                 .center_y()
                 .child(footer_meta)
-                .child(row().gap(6.0).center_y().child(cancel_btn).child(submit_btn));
+                .child(row().gap(8.0).center_y().child(cancel_btn).child(submit_btn));
 
-            let shell = col().w_full().padding(12.0).gap(10.0).child(field_col).child(footer);
+            let shell = col().w_full().padding(12.0).gap(12.0).child(field_col).child(footer);
             let body = session_view::scroller::scroller("browser-note-scroll")
                 .bar(session_view::scroller::Bar::MenuScroll)
                 .build::<App>(p, col().w_full().max_h(max_h), shell);
