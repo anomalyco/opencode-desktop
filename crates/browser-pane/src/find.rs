@@ -59,6 +59,8 @@ impl FindState {
                 if !final_update {
                     return false;
                 }
+                // Match official `find-bar.tsx`: when matches exist, highlight ordinal 1 instead of 0.
+                let active = if total > 0 && active == 0 { 1 } else { active };
                 Self::Found { query: query.clone(), active, total }
             }
             (_, FindEvent::DocumentChanged) => Self::Editing { query: self.query().to_owned() },

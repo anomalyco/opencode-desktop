@@ -426,7 +426,13 @@ impl EngineManager {
             null_out.clone(),
         );
         let dialog = TabFileDialogHandler::new(u64::MAX, false, prompts, null_out.clone());
-        let find = crate::find::TabFindHandler::new(u64::MAX, null_out.clone());
+        let find = crate::find::TabFindHandler::new(
+            u64::MAX,
+            null_out.clone(),
+            std::sync::atomic::AtomicI32::new(-1),
+            std::sync::atomic::AtomicI32::new(0),
+            std::sync::atomic::AtomicI32::new(0),
+        );
         let context_menu = crate::menu::TabContextMenuHandler::new(
             u64::MAX,
             prompt_shared,

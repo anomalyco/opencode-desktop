@@ -99,57 +99,59 @@ enum GripAxis {
 }
 
 pub(super) fn frame(a: &NodeArgs, app: &App, id: u64, surface: El) -> El {
-    let Some(d) = app.workspace_panes.browser.host.tab(id).and_then(|t| t.device.as_ref()) else {
+    let device = app.workspace_panes.browser.host.tab(id).and_then(|t| t.device.as_ref());
+    let Some(area_w) = a.number("areaWidth").map(|n| n as f32) else {
         return surface;
     };
+    let area_h = a.number("areaHeight").unwrap_or(1.0) as f32;
     let p = pal_of(a);
     let zoom = *app.zoom;
-    let area = [
-        a.number("areaWidth").unwrap_or(1.0) as f32,
-        a.number("areaHeight").unwrap_or(1.0) as f32,
-    ];
-    let scale = d.fit(area.map(|n| (n - GRIP * 2.0).max(1.0) * zoom));
-    let width = (d.width as f32 * scale).ceil() / zoom;
-    let height = (d.height as f32 * scale).ceil() / zoom;
-    let centered_w = width <= area[0] - GRIP * 2.0;
-    let centered_h = height <= area[1] - GRIP * 2.0;
 
-    let make_grip = |axis: GripAxis| {
-        let device = d.clone();
+    let make_grip = |axis: GripAxis,
+                     base_device: Device,
+                     frame_w: f32,
+                     frame_h: f32,
+                     scale: f32,
+                     centered_w: bool,
+                     centered_h: bool| {
         let base = el().role("separator").focusable(true).focus_inset(&p).center();
         let face = match axis {
             GripAxis::Width => base
                 .key("browser-device-width-grip")
                 .label_static(opencode_i18n::t!("plugin.browser.viewport.resizeWidth"))
                 .w(GRIP)
-                .h(44.0_f32.min(height))
-                .pin(None, Some(((height - 44.0_f32.min(height)) * 0.5).max(0.0)), Some(-GRIP), None)
+                .h(44.0_f32.min(frame_h))
+                .pin(None, Some(((frame_h - 44.0_f32.min(frame_h)) * 0.5).max(0.0)), Some(-GRIP), None)
                 .cursor(Cursor::ResizeColumn)
-                .child(el().w(3.0).h(24.0_f32.min(height * 0.75)).radius(1.5).fill(p.icon_faint)),
+                .child(el().w(3.0).h(24.0_f32.min(frame_h * 0.75)).radius(1.5).fill(p.icon_faint)),
             GripAxis::Height => base
                 .key("browser-device-height-grip")
                 .label_static(opencode_i18n::t!("plugin.browser.viewport.resizeHeight"))
-                .w(44.0_f32.min(width))
+                .w(44.0_f32.min(frame_w))
                 .h(GRIP)
-                .pin(Some(((width - 44.0_f32.min(width)) * 0.5).max(0.0)), None, None, Some(-GRIP))
+                .pin(Some(((frame_w - 44.0_f32.min(frame_w)) * 0.5).max(0.0)), None, None, Some(-GRIP))
                 .cursor(Cursor::ResizeRow)
-                .child(el().w(24.0_f32.min(width * 0.75)).h(3.0).radius(1.5).fill(p.icon_faint)),
+                .child(el().w(24.0_f32.min(frame_w * 0.75)).h(3.0).radius(1.5).fill(p.icon_faint)),
             GripAxis::Corner => base
                 .key("browser-device-corner-grip")
                 .label_static(opencode_i18n::t!("plugin.browser.viewport.dimensions"))
                 .size(GRIP, GRIP)
                 .pin(None, None, Some(-GRIP), Some(-GRIP))
                 .cursor(Cursor::ResizeColumn)
-                .child(el().size(6.0, 6.0).radius(1.5).fill(p.icon_faint)),
+                .child(
+                    el().size(7.0, 7.0)
+                        .child(el().pin(None, Some(0.0), Some(0.0), Some(0.0)).w(2.0).fill(p.icon_faint))
+                        .child(el().pin(Some(0.0), None, Some(0.0), Some(0.0)).h(2.0).fill(p.icon_faint)),
+                ),
         };
-        let drag_start = std::rc::Rc::new(std::cell::Cell::new((device.width, device.height)));
+        let drag_start = std::rc::Rc::new(std::cell::Cell::new((base_device.width, base_device.height)));
         face.on_drag(move |s: &mut App, drag: &mut Drag, _: &mut Tx| match drag.phase {
             Phase::Down => {
-                drag_start.set((device.width, device.height));
+                drag_start.set((base_device.width, base_device.height));
             }
             Phase::Move | Phase::Up if !drag.cancelled() => {
                 let (w0, h0) = drag_start.get();
-                let mut next = device.clone();
+                let mut next = base_device.clone();
                 if matches!(axis, GripAxis::Width | GripAxis::Corner) {
                     let mult = if centered_w { 2.0 } else { 1.0 };
                     next.width = (w0 as f32 + drag.dx / scale * mult).round().clamp(1.0, 4096.0) as u16;
@@ -166,6 +168,46 @@ pub(super) fn frame(a: &NodeArgs, app: &App, id: u64, surface: El) -> El {
         })
     };
 
+    // Responsive mode (`bar.css:195-204` `[data-resizable]`): 14 pt right + bottom gutters with
+    // interactive width/height/corner drag handles around the auto-sized viewport.
+    let Some(d) = device else {
+        let resp_w = (area_w - GRIP).max(1.0);
+        let resp_h = (area_h - GRIP).max(1.0);
+        let seed = Device {
+            width: resp_w.floor().clamp(1.0, 4096.0) as u16,
+            height: resp_h.floor().clamp(1.0, 4096.0) as u16,
+            scale: None,
+            profile: Profile::Desktop,
+            preset: None,
+        };
+        let page = col()
+            .key("browser-device-frame")
+            .grow(1.0)
+            .w_full()
+            .min_h(0.0)
+            .fill(p.bg_base)
+            .child(surface)
+            .child(make_grip(GripAxis::Width, seed.clone(), resp_w, resp_h, 1.0, false, false))
+            .child(make_grip(GripAxis::Height, seed.clone(), resp_w, resp_h, 1.0, false, false))
+            .child(make_grip(GripAxis::Corner, seed, resp_w, resp_h, 1.0, false, false));
+        return col()
+            .key("browser-device-backdrop")
+            .grow(1.0)
+            .min_h(0.0)
+            .w_full()
+            .pr(GRIP)
+            .pb(GRIP)
+            .fill(p.layer1)
+            .child(page);
+    };
+
+    let area = [area_w, area_h];
+    let scale = d.fit(area.map(|n| (n - GRIP * 2.0).max(1.0) * zoom));
+    let width = (d.width as f32 * scale).ceil() / zoom;
+    let height = (d.height as f32 * scale).ceil() / zoom;
+    let centered_w = width <= area[0] - GRIP * 2.0;
+    let centered_h = height <= area[1] - GRIP * 2.0;
+
     let page = col()
         .key("browser-device-frame")
         .w(width)
@@ -173,9 +215,9 @@ pub(super) fn frame(a: &NodeArgs, app: &App, id: u64, surface: El) -> El {
         .fill(p.bg_base)
         .elevate(p.raised)
         .child(surface)
-        .child(make_grip(GripAxis::Width))
-        .child(make_grip(GripAxis::Height))
-        .child(make_grip(GripAxis::Corner));
+        .child(make_grip(GripAxis::Width, d.clone(), width, height, scale, centered_w, centered_h))
+        .child(make_grip(GripAxis::Height, d.clone(), width, height, scale, centered_w, centered_h))
+        .child(make_grip(GripAxis::Corner, d.clone(), width, height, scale, centered_w, centered_h));
 
     col()
         .key("browser-device-backdrop")
