@@ -684,7 +684,12 @@ pub fn version(app: &App) -> u64 {
     }
     app.workspace_panes.browser.host.focused_tab_id().hash(&mut h);
     app.workspace_panes.browser.openers.unnamed_ids_sorted().hash(&mut h);
-    app.workspace_panes.browser.pending_app_links.borrow().len().hash(&mut h);
+    {
+        let reviews = app.workspace_panes.browser.active_app_reviews.borrow();
+        let mut keys: Vec<_> = reviews.iter().map(|(&id, r)| (id, r.token.as_str(), r.target_fits, r.action as u8)).collect();
+        keys.sort_unstable();
+        keys.hash(&mut h);
+    }
     let mut unseen: Vec<u64> = app.workspace_panes.browser.unseen_tabs.iter().copied().collect();
     unseen.sort_unstable();
     unseen.hash(&mut h);
@@ -713,16 +718,8 @@ pub fn pages(app: &App, include_find: bool) -> Vec<(String, u64)> {
             (&t.url, &t.title, t.loading, t.preview.map(|p| p as u8), &t.refusal, t.rejected, &t.favicon, app.browser_tab_unnamed(t.id)).hash(&mut h);
             if include_find {
                 t.find.hash_state(&mut h);
+                app.workspace_panes.browser.active_app_reviews.borrow().get(&t.id).map(|r| r.token.as_str()).hash(&mut h);
             }
-            let pending_links = app
-                .workspace_panes
-                .browser
-                .pending_app_links
-                .borrow()
-                .iter()
-                .filter(|(id, _)| *id == t.id)
-                .count();
-            pending_links.hash(&mut h);
             (t.id.to_string(), h.finish())
         })
         // The built-in plugin also hears "" when the engine's state (`Browser:Engine().state`)

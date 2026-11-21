@@ -6,6 +6,7 @@
 //! first-class Rune focus/key isolation without inflating `contract.json` or adding fields to
 //! `struct App`.
 
+mod app_link;
 mod keys;
 mod view;
 
@@ -15,6 +16,7 @@ use rune::{KeyEvent, TextEdit, Tx};
 
 use crate::App;
 
+pub use app_link::app_link_review_bar;
 pub use view::{view_bars, view_modal};
 
 pub(super) const PROMPT_CARD_KEY: &str = "browser-prompt-card";

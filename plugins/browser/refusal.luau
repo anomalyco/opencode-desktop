@@ -85,10 +85,10 @@ local function hasUnsafeChars(value: string): boolean
             return true
         end
     end
-    -- C1 controls (U+0080..U+009F) and bidi marks/overrides/isolates.
+    -- C1 controls (U+0080..U+009F), bidi marks/overrides/isolates, BOM, and zero-width chars.
     local ok = pcall(function()
         for _, cp in utf8.codes(value) do
-            if (cp >= 0x80 and cp <= 0x9f) or cp == 0x061c or cp == 0x200e or cp == 0x200f or (cp >= 0x202a and cp <= 0x202e) or (cp >= 0x2066 and cp <= 0x2069) then
+            if (cp >= 0x80 and cp <= 0x9f) or cp == 0x061c or (cp >= 0x200b and cp <= 0x200f) or (cp >= 0x202a and cp <= 0x202e) or cp == 0x2060 or (cp >= 0x2066 and cp <= 0x2069) or cp == 0xfeff then
                 error("unsafe", 0)
             end
         end
@@ -103,14 +103,38 @@ local function hasUnsafeChars(value: string): boolean
     return false
 end
 
-local function isPrintableAsciiBounded(value: string): boolean
-    if #value < 1 or #value > 200 then
+-- Strict RFC 3986 URI character check: refuses `"`, spaces/whitespace, `\`, `< > ` ^ { | }`,
+-- controls, non-ASCII, and malformed `%XX` / `%00`–`%1F` / `%7F` across EVERY scheme (`mailto:` included).
+local function isStrictRfc3986Uri(value: string): boolean
+    local len = #value
+    if len < 1 or len > 2048 then
         return false
     end
-    for i = 1, #value do
+    local i = 1
+    while i <= len do
         local b = string.byte(value, i)
-        if b < 0x21 or b > 0x7e then
-            return false
+        if b == 0x25 then -- '%'
+            if i + 2 > len then
+                return false
+            end
+            local hex = string.sub(value, i + 1, i + 2)
+            if string.match(hex, "^[0-9A-Fa-f][0-9A-Fa-f]$") == nil then
+                return false
+            end
+            local dec = tonumber(hex, 16)
+            if dec == nil or dec <= 0x1f or dec == 0x7f then
+                return false
+            end
+            i += 3
+        else
+            local ok = (b >= 0x30 and b <= 0x39)
+                or (b >= 0x41 and b <= 0x5a)
+                or (b >= 0x61 and b <= 0x7a)
+                or string.find("-._~:/?#[]@!$&'()*+,;=", string.char(b), 1, true) ~= nil
+            if not ok then
+                return false
+            end
+            i += 1
         end
     end
     return true
@@ -125,25 +149,83 @@ local function hasCredentials(value: string, schemeLen: number): boolean
     return string.find(authority, "@", 1, true) ~= nil
 end
 
-local function mailtoHasAttachment(value: string): boolean
-    local query = string.match(value, "%?([^#]*)")
-    if query == nil then
-        return false
-    end
-    for pair in string.gmatch(query, "[^&]+") do
-        local key = string.lower(string.match(pair, "^([^=]*)") or pair)
-        if key == "attach" or key == "attachment" then
-            return true
+-- Strict RFC 6068 allow-list of `mailto:` query keys (`to`, `cc`, `bcc`, `subject`, `body`).
+-- Preserves `+` verbatim (never turns `+` into space) and rejects any un-decodable key or value.
+local MAILTO_ALLOWED_KEYS: { [string]: boolean } = {
+    to = true,
+    cc = true,
+    bcc = true,
+    subject = true,
+    body = true,
+}
+
+local function percentDecodeStrict(raw: string): string?
+    local out: { string } = {}
+    local i = 1
+    local len = #raw
+    while i <= len do
+        local ch = string.sub(raw, i, i)
+        if ch == "%" then
+            if i + 2 > len then
+                return nil
+            end
+            local hex = string.sub(raw, i + 1, i + 2)
+            if string.match(hex, "^[0-9A-Fa-f][0-9A-Fa-f]$") == nil then
+                return nil
+            end
+            local byte = tonumber(hex, 16)
+            if byte == nil or byte <= 0x1f or byte == 0x7f then
+                return nil
+            end
+            table.insert(out, string.char(byte))
+            i += 3
+        else
+            table.insert(out, ch)
+            i += 1
         end
     end
-    return false
+    local decoded = table.concat(out)
+    if hasUnsafeChars(decoded) then
+        return nil
+    end
+    return decoded
+end
+
+local function mailtoQueryAllowed(value: string): boolean
+    local tail = string.sub(value, 8)
+    if tail == "" or string.sub(tail, 1, 2) == "//" or string.find(tail, "#", 1, true) ~= nil then
+        return false
+    end
+    local pathPart = string.match(tail, "^([^?]*)") or ""
+    if pathPart ~= "" and percentDecodeStrict(pathPart) == nil then
+        return false
+    end
+    local query = string.match(tail, "%?(.*)$")
+    if query == nil or query == "" then
+        return true
+    end
+    for pair in string.gmatch(query, "[^&]+") do
+        local rawKey, rawVal = string.match(pair, "^([^=]*)=(.*)$")
+        if rawKey == nil or rawVal == nil then
+            return false
+        end
+        local keyDec = percentDecodeStrict(rawKey)
+        local valDec = percentDecodeStrict(rawVal)
+        if keyDec == nil or valDec == nil then
+            return false
+        end
+        if MAILTO_ALLOWED_KEYS[string.lower(keyDec)] ~= true then
+            return false
+        end
+    end
+    return true
 end
 
 -- Validates an external app URL (`refusal-notice.ts::externalTarget`), returning `"open"`,
 -- `"copy"`, or `nil` when denied. Never trims away bad characters.
 function refusal.externalTarget(value: string, source: Source?): ExternalAction?
     local src: Source = source or "page"
-    if #value > 2048 or value ~= string.gsub(value, "^%s*(.-)%s*$", "%1") or hasUnsafeChars(value) then
+    if not isStrictRfc3986Uri(value) or hasUnsafeChars(value) then
         return nil
     end
     local rawScheme = string.match(value, "^([A-Za-z][A-Za-z0-9+.-]*):")
@@ -157,20 +239,18 @@ function refusal.externalTarget(value: string, source: Source?): ExternalAction?
     if hasCredentials(value, #rawScheme) then
         return nil
     end
-    if src == "conversation" then
-        if scheme == "obsidian" then
-            local tail = string.sub(value, #rawScheme + 2)
-            local okObsidian = string.match(tail, "^//open$") ~= nil or string.match(tail, "^//open%?") ~= nil or string.match(tail, "^//search$") ~= nil or string.match(tail, "^//search%?") ~= nil
-            if not okObsidian then
-                return "copy"
-            end
-        end
-        if scheme == "mailto" and mailtoHasAttachment(value) then
+    if scheme == "mailto" then
+        return if mailtoQueryAllowed(value) then "open" else "copy"
+    end
+    if src == "conversation" and scheme == "obsidian" then
+        local tail = string.sub(value, #rawScheme + 2)
+        local okObsidian = string.match(tail, "^//open$") ~= nil or string.match(tail, "^//open%?") ~= nil or string.match(tail, "^//search$") ~= nil or string.match(tail, "^//search%?") ~= nil
+        if not okObsidian then
             return "copy"
         end
     end
     local permitted = APPS[scheme] == true or (src == "page" and PAGE_ONLY[scheme] == true)
-    return if permitted and isPrintableAsciiBounded(value) then "open" else "copy"
+    return if permitted and #value <= 200 then "open" else "copy"
 end
 
 -- Returns whether `nowMs` is past the 500 ms activation delay and not held by an agent reveal guard.

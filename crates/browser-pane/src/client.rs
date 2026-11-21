@@ -131,6 +131,7 @@ pub struct BrowserHost {
     pub(crate) cdp_events: VecDeque<CdpEvent>,
     picked: VecDeque<PickedElement>,
     pub(crate) popup_opens: VecDeque<crate::prompts::PopupRequest>,
+    pub(crate) app_links: VecDeque<(u64, String)>,
     pub(crate) context_menus: VecDeque<(u64, crate::protocol::PageContextMenu)>,
     pub(crate) download_save_requests: VecDeque<crate::protocol::DownloadSaveRequest>,
     pub(crate) diagnostics: VecDeque<crate::find::PageDiagnostic>,
@@ -200,6 +201,7 @@ impl BrowserHost {
             cdp_events: VecDeque::new(),
             picked: VecDeque::new(),
             popup_opens: VecDeque::new(),
+            app_links: VecDeque::new(),
             context_menus: VecDeque::new(),
             download_save_requests: VecDeque::new(),
             diagnostics: VecDeque::new(),
@@ -1128,16 +1130,11 @@ impl BrowserHost {
                         changed = true;
                     }
                 }
-                EngineMsg::Dialog { .. }
-                | EngineMsg::DialogsReset { .. }
-                | EngineMsg::PermissionRequest { .. }
-                | EngineMsg::PermissionDismissed { .. }
-                | EngineMsg::AuthRequest { .. }
-                | EngineMsg::AuthReset { .. }
-                | EngineMsg::AuthAgentRequired { .. }
-                | EngineMsg::PopupOpen { .. }
-                | EngineMsg::PopupBlocked { .. }
-                | EngineMsg::FileChooserBlocked { .. } => {
+                EngineMsg::Dialog { .. } | EngineMsg::DialogsReset { .. }
+                | EngineMsg::PermissionRequest { .. } | EngineMsg::PermissionDismissed { .. }
+                | EngineMsg::AuthRequest { .. } | EngineMsg::AuthReset { .. } | EngineMsg::AuthAgentRequired { .. }
+                | EngineMsg::PopupOpen { .. } | EngineMsg::PopupBlocked { .. }
+                | EngineMsg::AppLinkBlocked { .. } | EngineMsg::FileChooserBlocked { .. } => {
                     changed |= self.handle_prompt_msg(msg);
                 }
                 EngineMsg::FindResult { tab_id, count, active_match, final_update } => {

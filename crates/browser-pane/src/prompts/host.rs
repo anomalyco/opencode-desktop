@@ -235,6 +235,14 @@ impl crate::BrowserHost {
         self.popup_opens.drain(..)
     }
 
+    pub fn has_app_links(&self) -> bool {
+        !self.app_links.is_empty()
+    }
+
+    pub fn drain_app_links(&mut self) -> impl Iterator<Item = (u64, String)> + '_ {
+        self.app_links.drain(..)
+    }
+
     /// Arms guarded prompt buttons and expires timed-out agent permission prompts.
     /// Returns `(changed, next_wake_at)` so idle frames wake zero times.
     pub fn tick_prompts(&mut self, now: Instant) -> (bool, Option<Instant>) {
@@ -388,6 +396,17 @@ impl crate::BrowserHost {
             EngineMsg::PopupBlocked { tab_id, url } => {
                 if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
                     t.prompts.popup.record(url, now);
+                    true
+                } else {
+                    false
+                }
+            }
+            EngineMsg::AppLinkBlocked { tab_id, url } => {
+                if self.tabs.iter().any(|t| t.id == tab_id) {
+                    if self.app_links.len() >= 64 {
+                        self.app_links.pop_front();
+                    }
+                    self.app_links.push_back((tab_id, url));
                     true
                 } else {
                     false

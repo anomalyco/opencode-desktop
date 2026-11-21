@@ -562,6 +562,12 @@ pub enum EngineMsg {
         tab_id: u64,
         url: String,
     },
+    /// A user-activated non-agent page click on an allow-listed app scheme was cancelled in CEF
+    /// and forwarded to the desktop review bar.
+    AppLinkBlocked {
+        tab_id: u64,
+        url: String,
+    },
     FileChooserBlocked {
         tab_id: u64,
     },

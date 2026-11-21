@@ -135,9 +135,9 @@ mod native {
         pub(crate) preview_bindings: HashMap<u64, super::preview::PreviewTabBinding>,
         /// Monotonic generation assigned to each `PreviewTabBinding` to guard `preview_errors`.
         pub(crate) next_preview_gen: u64,
-        /// Conversation app-scheme links waiting to display inside the browser pane's guarded
-        /// `RefusalBar` (`(tab_id, href)`).
-        pub pending_app_links: std::cell::RefCell<std::collections::VecDeque<(u64, String)>>,
+        /// Active host-owned app-scheme link reviews keyed by `tab_id` (rendered natively above
+        /// the browser panel with a 128-bit CSPRNG token and 500 ms visible+stationary guard).
+        pub active_app_reviews: std::cell::RefCell<HashMap<u64, super::links::AppLinkReview>>,
         /// Persistent SQLite browsing history store (`history.sqlite`, lazily opened).
         pub history: std::cell::RefCell<Option<browser_pane::history::HistoryStore>>,
         /// Serializes human download OS Save dialogs (`EngineMsg::DownloadSaveRequest`) one at a time.
@@ -687,6 +687,7 @@ mod native {
 
         /// Page `id`'s tab left its strip: the page closes and any preview server binding revokes.
         pub fn forget_browser_tab(&mut self, id: u64) {
+            self.workspace_panes.browser.active_app_reviews.borrow_mut().remove(&id);
             self.workspace_panes.browser.openers.on_close(id);
             self.revoke_preview_binding(id);
             for ids in self.workspace_panes.browser.session_tabs.values_mut() {
@@ -732,6 +733,7 @@ mod native {
             let engine_closed: Vec<(u64, bool)> =
                 self.workspace_panes.browser.host.drain_closed_tabs().collect();
             for (closed_id, fatal_close) in engine_closed {
+                self.workspace_panes.browser.active_app_reviews.borrow_mut().remove(&closed_id);
                 self.revoke_preview_binding(closed_id);
                 let owner_sid = self.browser_tab_session(closed_id).map(str::to_owned);
                 for ids in self.workspace_panes.browser.session_tabs.values_mut() {
@@ -756,6 +758,7 @@ mod native {
                 }
             }
             changed |= self.drain_browser_popups();
+            changed |= self.poll_app_link_reviews();
             // Reload persisted site permissions when Settings > Browser edits `rune.sitePermissions`.
             let perm_ver = crate::plugin_host::services::store::store_version("browser", "rune.sitePermissions");
             if perm_ver != self.workspace_panes.browser.site_permissions_version {

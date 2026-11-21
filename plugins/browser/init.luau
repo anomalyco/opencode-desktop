@@ -385,32 +385,6 @@ return plugin.defineWindow(function(ctx)
         end
     end)
 
-    -- Drains any queued conversation app-scheme link reviews into timestamped guarded notices.
-    local function drainAppLinkReviews()
-        local bAny = Browser :: any
-        if type(bAny.TakeAppLinkReview) ~= "function" then
-            return
-        end
-        while true do
-            local review = bAny:TakeAppLinkReview()
-            if review == nil or type(review.tabId) ~= "string" or type(review.url) ~= "string" then
-                break
-            end
-            local action = refusal.externalTarget(review.url, "conversation")
-            if action ~= nil then
-                nextNoticeId += 1
-                refusalNotices[review.tabId] = {
-                    token = `app:{nextNoticeId}`,
-                    origin = I18n:T("notice.conversation"),
-                    text = I18n:T("refused.scheme"),
-                    target = review.url,
-                    action = action,
-                    shownAtMs = System:Now(),
-                }
-            end
-        end
-    end
-
     -- Syncs a tab's policy refusal into a timestamped `refusal.Notice` for the 500 ms guard.
     local function syncRefusal(tab: BrowserTab, navigated: boolean)
         local code = tab:Refusal()
@@ -441,7 +415,6 @@ return plugin.defineWindow(function(ctx)
 
     -- A page that moved: its counts, refusal notice, activity dot, history once loaded, and pane.
     Browser.Changed:Connect(function(id: string)
-        drainAppLinkReviews()
         local tab = Browser:Get(id)
         if tab == nil then
             epochs[id] = nil
@@ -791,12 +764,10 @@ return plugin.defineWindow(function(ctx)
         elseif what == "refusal.action" then
             local notice = arg :: refusal.Notice?
             if notice and notice.target then
-                if notice.action == "open" then
-                    System:OpenExternal(notice.target)
-                else
-                    System:CopyText(notice.target)
-                    Toast:Info(I18n:T("common.copied"))
-                end
+                -- Plugin refusal notices are strictly copy-only; OS app launches occur exclusively
+                -- through the native host-rendered review bar (`surfaces/browser/prompts/app_link.rs`).
+                System:CopyText(notice.target)
+                Toast:Info(I18n:T("common.copied"))
             end
             dismissedRefusals[tab.Id] = tab:Rejected()
             refusalNotices[tab.Id] = nil
@@ -1256,12 +1227,14 @@ return plugin.defineWindow(function(ctx)
             end
             local origin = if source == "conversation" then I18n:T("notice.conversation") else I18n:T("notice.page")
             nextNoticeId += 1
+            -- External contract notices are copy-only: OS app launches require a single-use
+            -- host-minted review token from `Browser:TakeAppLinkReview()` (never a plugin call).
             refusalNotices[tabId] = {
                 token = `ext:{tabId}:{nextNoticeId}`,
                 origin = origin,
                 text = I18n:T("refused.scheme"),
                 target = target,
-                action = action,
+                action = "copy",
                 shownAtMs = System:Now(),
             }
             refresh()
