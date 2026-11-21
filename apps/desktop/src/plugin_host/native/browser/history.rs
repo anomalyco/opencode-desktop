@@ -3,7 +3,9 @@
 
 use std::path::Path;
 
-use browser_pane::history::{HistoryStore, discover_sources, read_profile_history};
+use browser_pane::cookies::BrowserEngineKind;
+use browser_pane::cookies::sources::{list_sources, source_history_database};
+use browser_pane::history::{HistoryStore, ImportEngine, read_profile_history};
 use mlua::{IntoLua, Lua, Table, Value};
 use rune_luau::Data;
 
@@ -105,9 +107,10 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
             Ok(with_store(app, |store| store.count() as i64).unwrap_or(0))
         })
     })?;
+    // Official's list of browsers and their profiles (`profile/sources.ts:60-143,349-423`): a
+    // profile counts when it has a cookie database, named from `Local State` or `profiles.ini`.
     method(lua, t, "HistoryImportSources", |lua, ()| {
-        let sources = discover_sources();
-        let list: Vec<Data> = sources
+        let list: Vec<Data> = list_sources()
             .into_iter()
             .map(|b| {
                 let profiles: Vec<Data> = b
@@ -118,7 +121,7 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
                 map([
                     ("id", Data::String(b.id)),
                     ("name", Data::String(b.name)),
-                    ("engine", Data::String(b.engine.as_str().into())),
+                    ("engine", Data::String(engine_name(b.engine).into())),
                     ("profiles", Data::List(profiles)),
                 ])
             })
@@ -126,18 +129,14 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
         Data::List(list).into_lua(lua)
     })?;
     method(lua, t, "HistoryImportProfile", |lua, (browser_id, profile_id): (String, String)| {
-        // Resolve browser/profile exclusively through `discover_sources()` so plugins cannot
-        // supply arbitrary filesystem paths.
-        let sources = discover_sources();
-        let target = sources
-            .into_iter()
-            .find(|b| b.id == browser_id)
-            .and_then(|b| {
-                let engine = b.engine;
-                b.profiles.into_iter().find(|p| p.id == profile_id).map(|p| (engine, p.db_path))
-            });
-        let Some((engine, db_path)) = target else {
+        // Resolved only through `list_sources()` ids, so a plugin never names a filesystem path.
+        let Some((engine, db_path)) = source_history_database(&browser_id, &profile_id) else {
             return map([("error", Data::String("Browser profile not found".into()))]).into_lua(lua);
+        };
+        let engine = match engine {
+            BrowserEngineKind::Chromium => ImportEngine::Chromium,
+            BrowserEngineKind::Firefox => ImportEngine::Firefox,
+            BrowserEngineKind::Safari => ImportEngine::Safari,
         };
         let pages = match read_profile_history(engine, Path::new(&db_path)) {
             Ok(p) => p,
@@ -152,4 +151,12 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
         }
     })?;
     Ok(())
+}
+
+fn engine_name(engine: BrowserEngineKind) -> &'static str {
+    match engine {
+        BrowserEngineKind::Chromium => "chromium",
+        BrowserEngineKind::Firefox => "firefox",
+        BrowserEngineKind::Safari => "safari",
+    }
 }

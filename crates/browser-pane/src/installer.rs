@@ -46,7 +46,7 @@ pub(crate) const TRUST_MARKER: &str = "trust";
 pub(crate) const NO_DIRS: &str = "the OS has no folder for the browser's data";
 
 /// A development override from the environment (`OPENCODE_BROWSER_ENGINE_BIN`, `_APP`,
-/// `OPENCODE_BROWSER_SOCKET`, `OPENCODE_BROWSER_IMPORT_ROOT`): read only in a debug build, as
+/// `OPENCODE_BROWSER_SOCKET`): read only in a debug build, as
 /// `source::inputs` reads `_SOURCE` and `_TRUST`, so a variable can't make a shipped app run an
 /// engine past its trust rule (whoever sets one could also pass a headless flag).
 pub(crate) fn dev_override(name: &str) -> Option<std::ffi::OsString> {
