@@ -337,7 +337,7 @@ function settings.create(env: Env, refresh: () -> ())
                 weight = "regular",
                 lineHeight = 16,
                 color = "text-muted",
-                ml = 4,
+                ml = 8,
                 truncate = true,
                 shrink = true,
                 minW = 0,
