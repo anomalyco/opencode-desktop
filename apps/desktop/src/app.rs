@@ -20,7 +20,7 @@ use crate::{
     Route, appearance, background, commands, context_window, demo, dictation, dirs, events, files,
     find, history, inbox_model, jobs, keymap, knobs, launch, layout_state, model_prefs,
     plugin_host, popup, projects, prompt_history, recent_page, restore, send_failed, servers,
-    session_catalog, session_pages, session_status, settings, shortcuts, slash, status_toast, stop,
+    session_catalog, session_pages, session_status, settings, shortcuts, slash, start_location, status_toast, stop,
     switcher, tabs, telemetry, turn_diffs, view, wall_ms, windows,
 };
 
@@ -580,20 +580,17 @@ impl App {
         matches!(&*self.route, Route::Session { id, .. } if self.busy(id))
     }
 
-    /// `+`, ⌘T and New session: a new "New session" draft tab, in the open session's or draft's
-    /// folder, as Desktop's `openDraft`. On Home and in Settings it's Home's project, else the
-    /// last used or the first the server lists, and with no project it does nothing.
+    /// `+`, ⌘T and New session: a new "New session" draft tab, as Desktop's `openDraft`, where
+    /// Settings › New sessions start in says (`start_location`): the server's default directory,
+    /// or the open session's or draft's project. On Home and in Settings that's Home's project,
+    /// else the last used or the first the server lists, and with neither it does nothing.
     pub fn new_session(&mut self, tx: &mut Tx) {
-        if self.project_navigation() && (self.settings_open() || self.route == Route::Home) {
+        let home = self.settings_open() || self.route == Route::Home;
+        if self.project_navigation() && home {
             return view::home::browse::start(self, tx);
         }
-        let dir = if self.settings_open() || self.route == Route::Home {
-            let project = self
-                .home_selected()
-                .or_else(|| self.last_used_project())
-                .or_else(|| self.projects.first());
-            let Some(project) = project else { return };
-            Some(project.directory.clone())
+        let here = if home {
+            self.home_selected().or_else(|| self.last_used_project()).or_else(|| self.projects.first()).map(|p| p.directory.clone())
         } else {
             match &*self.route {
                 Route::Session { id, .. } => self.session(id).map(|s| s.directory.clone()),
@@ -601,6 +598,10 @@ impl App {
                 Route::Home => None,
             }
         };
+        let dir = start_location::resolve(self, here);
+        if home && dir.is_none() {
+            return;
+        }
         self.close_settings();
         self.close_picker(false);
         self.close_project_switcher(false);
