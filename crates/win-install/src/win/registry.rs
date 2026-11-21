@@ -74,6 +74,13 @@ pub fn write_scheme(scheme: &str, name: &str, exe: &Path) -> Result<(), String> 
     Ok(())
 }
 
+/// Whether `scheme` starts `exe`.
+pub fn scheme_starts(scheme: &str, exe: &Path) -> bool {
+    let Ok(command) = CURRENT_USER.open(format!(r"Software\Classes\{scheme}\shell\open\command")).and_then(|k| k.get_string("")) else { return false };
+    let program = command.trim_start().trim_start_matches('"').split('"').next().unwrap_or_default().trim().to_owned();
+    super::same_path(Path::new(&program), exe)
+}
+
 /// Removes `scheme` when it still starts a program in `root`; another app's (OpenCode Desktop
 /// took `opencode` back) stays.
 pub fn remove_scheme_if_ours(scheme: &str, root: &Path) -> Option<String> {
