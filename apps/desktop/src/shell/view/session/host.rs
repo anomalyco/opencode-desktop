@@ -188,7 +188,7 @@ impl session_view::TimelineHost for App {
         &mut self.timeline_fx.ends
     }
     fn math_client(&self) -> Option<&rune_kit::math::Client> {
-        Some(&self.timeline_fx.math)
+        Some(self.kernel.slots.get(&crate::app::MATH))
     }
     fn fold_user_messages(&self) -> bool {
         self.settings.fold_user

@@ -93,9 +93,6 @@ pub struct TimelineFx {
     pub agent_hover: rune::Tracked<Option<String>>,
     /// When each run started, for the Working label's rhythm (`working.rs`).
     pub working: rune::Tracked<working::Working>,
-    /// This window's display math: its wake when an equation finishes, and its say in when cached
-    /// bitmaps go (`rune_kit::math::Client`).
-    pub math: rune_kit::math::Client,
 }
 
 /// Theme, motion, text rendering, background, locale, project icons, and window frame state.

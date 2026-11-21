@@ -50,6 +50,9 @@ pub(crate) static VIEW_RUNS: opencode_kernel::Slot<ViewRuns> = opencode_kernel::
 
 /// Per-code-block soft-wrap overrides keyed by `"{row_key}:{block_index}"` (the timeline's Wrap button).
 pub(crate) static CODE_WRAP: opencode_kernel::Slot<std::collections::HashMap<String, bool>> = opencode_kernel::Slot::new();
+/// This window's display math: its wake when an equation finishes, and its say in when cached
+/// bitmaps go (`rune_kit::math::Client`).
+pub(crate) static MATH: opencode_kernel::Slot<rune_kit::math::Client> = opencode_kernel::Slot::new();
 
 #[derive(Default)]
 pub struct App {
@@ -536,7 +539,7 @@ impl App {
         if s.tabs.is_empty() && !matches!(&*s.route, Route::Session { .. }) {
             s.composer_ext.attach.store.rest_pixels();
             // Equations' bitmaps go only once no other window shows any either.
-            s.timeline_fx.math.rest();
+            s.kernel.slots.get(&MATH).rest();
         }
         if has_rest_hooks {
             scheduler.run_rest(s, &|id| kept_ids.contains(id));
