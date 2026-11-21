@@ -1,0 +1,3 @@
+Applies cleanly on `dev` `73291989ae22f6352d18248c5c53c0ff372b8eaf` (after #365): falls back to `hdiutil detach -force -quiet "$check/dmg"` in `verify-macos` so `macos-26-intel` stops exiting 16 (`EBUSY`) right after `smoke-app.sh` passes.
+`git am 0002-ci-release-fall-back-to-hdiutil-detach-force-in-veri.patch` (`1 file changed, 1 insertion(+), 1 deletion(-)`, expected `HEAD:.github` = `ea99c49fe3a51d0fbd93916e1f72ef2445a66347`, `actionlint` exit 0).
+Immediate unblocker for run `44865312737`: re-run failed jobs (`verify-macos (x64)` is a runner flake; all 6 engines + `publish-engine` + `verify-engine-published` already passed).
