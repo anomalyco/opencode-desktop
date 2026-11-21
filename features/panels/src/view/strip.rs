@@ -433,7 +433,7 @@ fn close_button<H: PanelsHost + 'static>(
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(close)
         .child(
-            icon(&ic::XMARK_SMALL, 16.0)
+            icon(&ic::CLOSE, 16.0)
                 .color(if shown { p.icon_muted } else { Color::TRANSPARENT })
                 .group_color(p.icon_muted),
         )
