@@ -18,6 +18,8 @@ mod comment_describe;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod context_menu;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod cookie_import;
+#[cfg(not(target_arch = "wasm32"))]
 mod keys;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod extensions;
@@ -132,6 +134,8 @@ mod native {
         pub session_tabs: HashMap<String, Vec<u64>>,
         /// DevTools calls a plugin waits on, by the engine's request id.
         pub devtools: HashMap<u64, PendingDevtools>,
+        /// Settings > Browser's cookie-file import waiting on the engine (`cookie_import`).
+        pub cookie_import: Option<super::cookie_import::CookieImport>,
         /// Each other browser's icon for Settings > Browser, read off the UI thread (`app_icons`).
         pub app_icons: super::app_icons::AppIcons,
         /// Last observed Luau store version for `plugin.browser/rune.sitePermissions`.
@@ -702,6 +706,7 @@ mod native {
             // Every poll comes here: the pane is written only when the engine has something.
             let mut changed = !self.workspace_panes.browser.host.quiet() && self.workspace_panes.browser.host.poll();
             changed |= self.pump_preview_fetches();
+            changed |= self.pump_cookie_import();
             let fallback_sources = self.workspace_panes.browser.host.drain_unsupported_local_previews();
             for (tab_id, doc) in fallback_sources {
                 // Non-agent local HTML clicks on an older engine (`!Ready.preview`) open in the
