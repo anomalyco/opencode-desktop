@@ -59,7 +59,7 @@ impl NewWorktreeHost for App {
     }
 
     fn checkout_branch(&self, dir: &str) -> Option<&str> {
-        self.sidebar_inbox.branches.get(dir)
+        self.sidebar_inbox.branches.get(crate::servers::runtime::active(self), dir)
     }
 
     fn settings_open(&self) -> bool {

@@ -58,7 +58,7 @@ fn projects_of(s: &App, v: &ServerView) -> Vec<model::Project> {
 }
 
 fn same_dir(a: &str, b: &str) -> bool {
-    opencode_servers::home::comparable_path(a) == opencode_servers::home::comparable_path(b)
+    opencode_servers::home::same_directory_key(a) == opencode_servers::home::same_directory_key(b)
 }
 
 /// `mx-3 h-px bg-v2-border-border-base`.

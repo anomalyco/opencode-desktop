@@ -23,10 +23,12 @@ const CHILD_FRAME_LOCKDOWN_APIS: &[&str] = &[
     "pageAction",
     "contextMenus",
     "webNavigation",
+    "downloads",
+    "management",
 ];
 
 const CHILD_FRAME_V8_LOCKDOWN_JS: &str = r#"(function(){
-  var apis = ["tabs","windows","action","browserAction","pageAction","contextMenus","webNavigation"];
+  var apis = ["tabs","windows","action","browserAction","pageAction","contextMenus","webNavigation","downloads","management"];
   var roots = ["chrome","browser"];
   for (var r = 0; r < roots.length; r++) {
     var root;
@@ -42,6 +44,22 @@ const CHILD_FRAME_V8_LOCKDOWN_JS: &str = r#"(function(){
         });
       } catch (e) {}
     }
+    try {
+      var rt = root.runtime;
+      if (rt && typeof rt === "object") {
+        var nms = ["connectNative","sendNativeMessage"];
+        for (var j = 0; j < nms.length; j++) {
+          try {
+            Object.defineProperty(rt, nms[j], {
+              value: undefined,
+              configurable: false,
+              enumerable: false,
+              writable: false
+            });
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
   }
 })();"#;
 
@@ -108,6 +126,17 @@ fn lockdown_extension_child_frame(
                     let _ = root.delete_value_bykey(Some(&key));
                     if let Some(mut undef) = cef::v8_value_create_undefined() {
                         let _ = root.set_value_bykey(Some(&key), Some(&mut undef), locked.clone());
+                    }
+                }
+                if let Some(rt) = root.value_bykey(Some(&CefString::from("runtime")))
+                    && rt.is_object() != 0
+                {
+                    for nm in ["connectNative", "sendNativeMessage"] {
+                        let key = CefString::from(nm);
+                        let _ = rt.delete_value_bykey(Some(&key));
+                        if let Some(mut undef) = cef::v8_value_create_undefined() {
+                            let _ = rt.set_value_bykey(Some(&key), Some(&mut undef), locked.clone());
+                        }
                     }
                 }
             }

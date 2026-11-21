@@ -47,7 +47,7 @@ use std::sync::{Arc, Mutex};
 use cef::rc::Rc as _;
 use cef::{
     Browser, Callback, CefString, CompletionCallback, Frame, ImplCompletionCallback,
-    ImplCookieManager, ImplDictionaryValue, ImplPreferenceManager, ImplRequest,
+    ImplCookieManager, ImplDictionaryValue, ImplListValue, ImplPreferenceManager, ImplRequest,
     ImplRequestContext, ImplRequestContextHandler, ImplResourceRequestHandler, ImplValue, Request,
     RequestContext, RequestContextHandler, RequestContextSettings, ResourceRequestHandler,
     Response, ReturnValue, WrapCompletionCallback, WrapRequestContextHandler,
@@ -669,14 +669,43 @@ pub fn disallow_extension_file_access(ext_id: &str, normalized_path: &str) -> bo
     ctx.set_preference(Some(&key), Some(&mut val), Some(&mut err)) != 0
 }
 
-/// Post-load fail-closed verification (`review-rd274.md` Round-3 §1a): reads back Chromium's
-/// persisted `extensions.settings.<loaded_id>` after `Extensions.loadUnpacked` succeeds and
-/// requires BOTH:
+/// Defense-in-depth browser-process lockdown of Chromium native messaging preferences on the
+/// global `CefRequestContext` (`native_messaging.blocklist = ["*"]`, empty allowlist, user-level
+/// hosts disabled). Runs alongside C++ `PermissionsData` stripping of `nativeMessaging`.
+pub fn lockdown_global_native_messaging() {
+    let Some(ctx) = cef::request_context_get_global_context() else {
+        return;
+    };
+    let set_list = |name: &str, items: &[&str]| {
+        let key = CefString::from(name);
+        if ctx.has_preference(Some(&key)) == 0 || ctx.can_set_preference(Some(&key)) == 0 {
+            return;
+        }
+        let Some(mut list) = cef::list_value_create() else { return };
+        for (i, item) in items.iter().enumerate() {
+            list.set_string(i, Some(&CefString::from(*item)));
+        }
+        let Some(mut val) = cef::value_create() else { return };
+        val.set_list(Some(&mut list));
+        let mut err = CefString::from(" ");
+        let _ = ctx.set_preference(Some(&key), Some(&mut val), Some(&mut err));
+    };
+    set_list("native_messaging.blocklist", &["*"]);
+    set_list("native_messaging.allowlist", &[]);
+    let _ = set_optional_bool_pref(&ctx, "native_messaging.user_level_hosts", false);
+}
+
+/// Post-load fail-closed verification (`review-rd274.md` Round-3 §1a + 1Password/sandbox gate):
+/// reads back Chromium's persisted `extensions.settings.<loaded_id>` after `Extensions.loadUnpacked`
+/// succeeds and requires ALL THREE:
 /// 1. `creation_flags` is present AND bit `1 << 2` (`0x4`, `Extension::ALLOW_FILE_ACCESS`) is `0`,
-/// 2. `newAllowFileAccess` is present AND `false`.
+/// 2. `newAllowFileAccess` is present AND `false`,
+/// 3. Neither `active_permissions.api` nor `granted_permissions.api` contains any entry in
+///    [`crate::extensions::manifest::STRIPPED_NATIVE_PERMS`] (`nativeMessaging`, `downloads`,
+///    `downloads.open`, `downloads.ui`, `management`).
 ///
-/// Catches any path-normalization drift on macOS/Linux or future Chromium versions immediately so
-/// the caller uninstalls the extension instead of failing open with `ALLOW_FILE_ACCESS`.
+/// Catches any path-normalization drift or manifest-stripping failure immediately so the caller
+/// uninstalls the extension instead of failing open.
 pub fn verify_extension_file_access_disabled(loaded_id: &str) -> bool {
     const EXTENSION_ALLOW_FILE_ACCESS: i32 = 1 << 2;
     let Some(ctx) = cef::request_context_get_global_context() else {
@@ -708,7 +737,25 @@ pub fn verify_extension_file_access_disabled(loaded_id: &str) -> bool {
     {
         return false;
     }
-    ext_dict.bool(Some(&allow_key)) == 0
+    if ext_dict.bool(Some(&allow_key)) != 0 {
+        return false;
+    }
+    // Fail closed if Chromium's own C++ ExtensionPrefs granted any stripped native API permission.
+    for perm_bucket in ["active_permissions", "granted_permissions"] {
+        let Some(bucket) = ext_dict.dictionary(Some(&CefString::from(perm_bucket))) else {
+            continue;
+        };
+        let Some(api_list) = bucket.list(Some(&CefString::from("api"))) else {
+            continue;
+        };
+        for i in 0..api_list.size() {
+            let api_name = CefString::from(&api_list.string(i)).to_string();
+            if crate::extensions::manifest::STRIPPED_NATIVE_PERMS.contains(&api_name.as_str()) {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 wrap_request_context_handler! {
