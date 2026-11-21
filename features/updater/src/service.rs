@@ -333,14 +333,20 @@ impl Worker {
                 Ok(Job::Stage(a)) => {
                     let event = match platform.stage(&|done, total| self.downloaded(done, total)) {
                         Ok(()) => Event::StageSucceeded(a),
-                        Err(e) => Event::StageFailed(a, e),
+                        Err(e) => match platform.fallback_download_url() {
+                            Some(url) => Event::StageFallback(a, url, e),
+                            None => Event::StageFailed(a, e),
+                        },
                     };
                     self.send(Message::Event(event));
                 }
                 Ok(Job::Install(a)) => {
                     let event = match platform.install() {
                         Ok(()) => Event::RestartSucceeded(a),
-                        Err(e) => Event::RestartFailed(a, e),
+                        Err(e) => match platform.fallback_download_url() {
+                            Some(url) => Event::RestartFallback(a, url, e),
+                            None => Event::RestartFailed(a, e),
+                        },
                     };
                     self.send(Message::Event(event));
                 }
