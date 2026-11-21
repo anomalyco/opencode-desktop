@@ -181,7 +181,7 @@ fn page(p: &Pal) -> El {
     let c = &kit(p).c;
     let line = |f: f32| el().w_frac(f).h(3.0).radius(1.5).fill(c.layer_03);
     // Keep `gap(4.0)` on the two lines only so `spacer()` acts like CSS `margin-top: auto` on the
-    // composer (`interface-mode.css:154-160`) without adding an extra 4 pt gap that pushes it 1 px low.
+    // composer (`interface-mode.css:163-167`) without adding an extra 4 pt gap that pushes it 1 px low.
     col()
         .key("page")
         .grow(1.0)
