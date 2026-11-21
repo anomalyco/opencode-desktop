@@ -115,6 +115,12 @@ pub trait FilesHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
 
     /// Working directory of session `sid`, if loaded.
     fn session_directory(&self, sid: &str) -> Option<&str>;
+    /// Pinned physical local working directory of session `sid` (resolved once on first encounter
+    /// for local servers so symlinked/junction-aliased workspaces work without re-resolving
+    /// aliases later). On remote servers, returns the remote directory unchanged.
+    fn session_physical_directory(&self, sid: &str) -> Option<String> {
+        self.session_directory(sid).map(str::to_owned)
+    }
     /// Project root directory for session `sid` (defaults to [`Self::session_directory`]).
     fn session_project_root(&self, sid: &str) -> Option<&str> {
         self.session_directory(sid)
@@ -127,6 +133,12 @@ pub trait FilesHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
     /// Working directory of the active draft when no session directory is available.
     fn draft_directory(&self) -> &str {
         ""
+    }
+    /// Pinned physical local directory of the active draft (resolved once via the process-wide
+    /// pin table on local servers, or `None` if refused).
+    fn draft_physical_directory(&self) -> Option<String> {
+        let dir = self.draft_directory();
+        (!dir.is_empty()).then(|| dir.to_owned())
     }
     /// User home directory used to expand `~` and format out-of-workspace paths.
     fn home_directory(&self) -> &str {
