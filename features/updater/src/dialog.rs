@@ -66,7 +66,7 @@ mod win {
     const CANCEL_ID: i32 = 101;
 
     fn wide(s: &str) -> Vec<u16> {
-        s.encode_utf16().chain(Some(0)).collect()
+        s.chars().filter(|&c| c != '\0').collect::<String>().encode_utf16().chain(Some(0)).collect()
     }
 
     pub(super) fn alert(kind: Kind, title: &str, message: &str) {
@@ -125,12 +125,13 @@ mod mac {
             Kind::Error => "critical",
         };
         let script = format!("on run argv\ndisplay alert (item 1 of argv) message (item 2 of argv) as {style}\nend run");
-        let _ = Command::new("/usr/bin/osascript")
+        Command::new("/usr/bin/osascript")
             .args(["-e", &script, "--", title, message])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .status();
+            .status()
+            .ok();
     }
 
     pub(super) fn confirm(title: &str, message: &str, primary: &str, cancel: &str) -> bool {
@@ -149,49 +150,82 @@ mod mac {
 
 #[cfg(target_os = "linux")]
 mod linux {
+    use std::path::Path;
     use std::process::{Command, Stdio};
 
     use super::Kind;
+
+    fn system_bin(candidates: &[&'static str]) -> Option<&'static str> {
+        candidates.iter().copied().find(|p| Path::new(p).is_file())
+    }
+
+    /// Escapes Qt rich-text / HTML metacharacters so `kdialog` never renders markup in `message`.
+    fn escape_qt_html(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        for ch in s.chars() {
+            match ch {
+                '&' => out.push_str("&amp;"),
+                '<' => out.push_str("&lt;"),
+                '>' => out.push_str("&gt;"),
+                '"' => out.push_str("&quot;"),
+                '\'' => out.push_str("&#39;"),
+                '\0' => {}
+                other => out.push(other),
+            }
+        }
+        out
+    }
 
     pub(super) fn alert(kind: Kind, title: &str, message: &str) {
         let flag = match kind {
             Kind::Info => "--info",
             Kind::Error => "--error",
         };
-        if Command::new("zenity")
-            .args([flag, "--title", title, "--text", message, "--no-markup"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok()
+        if let Some(zenity) = system_bin(&["/usr/bin/zenity", "/bin/zenity"])
+            && Command::new(zenity)
+                .args([flag, "--title", title, "--text", message, "--no-markup"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .is_ok()
         {
             return;
         }
+        let Some(kdialog) = system_bin(&["/usr/bin/kdialog", "/bin/kdialog"]) else {
+            return;
+        };
         let kflag = match kind {
             Kind::Info => "--msgbox",
             Kind::Error => "--error",
         };
-        let _ = Command::new("kdialog")
-            .args(["--title", title, kflag, message])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-    }
-
-    pub(super) fn confirm(title: &str, message: &str, primary: &str, cancel: &str) -> bool {
-        if let Ok(st) = Command::new("zenity")
-            .args(["--question", "--title", title, "--text", message, "--no-markup", "--ok-label", primary, "--cancel-label", cancel])
+        let safe = escape_qt_html(message);
+        Command::new(kdialog)
+            .args(["--title", title, kflag, &safe])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
+            .ok();
+    }
+
+    pub(super) fn confirm(title: &str, message: &str, primary: &str, cancel: &str) -> bool {
+        if let Some(zenity) = system_bin(&["/usr/bin/zenity", "/bin/zenity"])
+            && let Ok(st) = Command::new(zenity)
+                .args(["--question", "--title", title, "--text", message, "--no-markup", "--ok-label", primary, "--cancel-label", cancel])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
         {
             return st.success();
         }
-        Command::new("kdialog")
-            .args(["--title", title, "--yesno", message, "--yes-label", primary, "--no-label", cancel])
+        let Some(kdialog) = system_bin(&["/usr/bin/kdialog", "/bin/kdialog"]) else {
+            return false;
+        };
+        let safe = escape_qt_html(message);
+        Command::new(kdialog)
+            .args(["--title", title, "--yesno", &safe, "--yes-label", primary, "--no-label", cancel])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())

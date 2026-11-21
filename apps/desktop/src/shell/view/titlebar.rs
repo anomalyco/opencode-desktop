@@ -83,6 +83,10 @@ pub(super) fn titlebar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         None => bar,
     };
     if let Some(items) = crate::plugin_host::titlebar_items(s, p) {
+        let items = match ui_direction() {
+            rune::Direction::Rtl => items.ml(12.0),
+            _ => items.mr(12.0),
+        };
         bar = bar.trailing(items);
     }
     Some(bar.tabs(strip).build(crate::palette::kit(p)))

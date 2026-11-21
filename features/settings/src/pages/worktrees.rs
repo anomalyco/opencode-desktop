@@ -16,6 +16,7 @@ use opencode_ui::popup::{self, Item, Menu, MenuButton as _, PopupHost};
 use rune::{Align, El, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
+use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::Pal;
 
 pub use self::delete::{Effect, Event, Inspection, Machine, Phase, Preflight, Run, Scope, Skip, Target};
@@ -28,6 +29,8 @@ use crate::jobs::{SettingsJob, SettingsRequest};
 
 const BODY: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
 const NAME: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04);
+/// `.settings-workspaces-active`: 11 on 11 at 440.
+const ACTIVE: TextStyle = TextStyle::new(11.0, 440.0).lh(11.0);
 
 #[derive(Default)]
 pub struct State {
@@ -184,6 +187,7 @@ fn toolbar<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, list: &[Worktr
     let busy = s.settings_pages().worktrees.delete.busy();
     let all: Vec<Target> = list.iter().map(Worktree::target).collect();
     let unused: Vec<Target> = list.iter().filter(|w| sessions_in(s, &w.dir).is_empty()).map(Worktree::target).collect();
+    let open = s.popup().open_at("settings-workspaces-more");
     let dots = row()
         .key("settings-workspaces-more")
         .role("button")
@@ -191,12 +195,14 @@ fn toolbar<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, list: &[Worktr
         .size(20.0, 20.0)
         .center()
         .radius(4.0)
-        .child(icon(&ic::OUTLINE_DOTS, 14.0).color(if busy { p.icon_faint } else { p.icon_muted }));
+        .focus_default(p)
+        .child(icon(&ic::OUTLINE_DOTS, 16.0).color(p.icon_muted));
     let dots = if busy {
-        dots.disabled(true)
+        dots.disabled(true).opacity(0.5)
     } else {
-        dots.hover(p.hover).press(p.pressed).menu_button("settings-workspaces-more", move |s: &mut H, tx: &mut Tx| {
-            let mut menu = Menu::new(t!("common.moreOptions")).align(Align::End);
+        let dots = if open { dots.fill(p.pressed) } else { dots.hover(p.hover) };
+        dots.press(p.pressed).menu_button("settings-workspaces-more", move |s: &mut H, tx: &mut Tx| {
+            let mut menu = Menu::new(t!("common.moreOptions")).align(Align::End).gap(4.0);
             if !unused.is_empty() {
                 menu = menu.item(Item::new("unused", t!("settings.workspaces.deleteWithoutSessions"))).separator();
             }
@@ -205,14 +211,32 @@ fn toolbar<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, list: &[Worktr
             popup::open(s, menu, "settings-workspaces-more", tx, move |s: &mut H, picked, tx| pick_bulk_delete(s, picked, &unused, &all, &active, tx));
         })
     };
+    let count = text(opencode_i18n::plural!("settings.workspaces.count", list.len())).font(NAME).color(p.text);
+    let filter_el = filter.and_then(|f| project_menu(s, p, f));
+    if crate::rows_wrap() {
+        let mut actions = row().key("settings-workspaces-toolbar-actions").w_full().gap(4.0).center_y();
+        if let Some(f) = filter_el {
+            actions = actions.justify_between().child(f).child(dots);
+        } else {
+            actions = actions.child(dots);
+        }
+        return col()
+            .key("settings-workspaces-toolbar")
+            .w_full()
+            .pb(8.0)
+            .gap(8.0)
+            .items_start()
+            .child(count)
+            .child(actions);
+    }
     row()
         .key("settings-workspaces-toolbar")
         .w_full()
         .pb(8.0)
         .gap(16.0)
         .center_y()
-        .child(text(opencode_i18n::plural!("settings.workspaces.count", list.len())).font(NAME).color(p.text).grow(1.0).shrink().min_w(0.0))
-        .child(row().key("settings-workspaces-toolbar-actions").gap(4.0).center_y().children(filter.and_then(|f| project_menu(s, p, f))).child(dots))
+        .child(count.grow(1.0).shrink().min_w(0.0))
+        .child(row().key("settings-workspaces-toolbar-actions").gap(4.0).center_y().children(filter_el).child(dots))
 }
 
 fn pick_project_filter(s: &mut dyn SettingsHost, picked: Option<&str>) {
@@ -240,8 +264,9 @@ fn project_menu<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, selected:
         .radius(4.0)
         .max_w(192.0)
         .min_w(0.0)
+        .focus_default(p)
         .child(text(label).font(rune::TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04)).color(p.muted).truncate().shrink().min_w(0.0))
-        .child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon_muted));
+        .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted));
     let b = if open { b.fill(p.pressed) } else { b.hover(p.hover) };
     Some(b.press(p.pressed).menu_button(FILTER, move |s: &mut H, tx: &mut Tx| {
         tx.instant();
@@ -271,16 +296,16 @@ fn worktree_row<H: SettingsHost + 'static>(s: &H, p: &Pal, w: &Worktree, active:
     let delete = row()
         .key(key)
         .role("button")
-        .label(confirm.clone())
-        .help(confirm)
+        .label(confirm)
         .size(20.0, 20.0)
         .center()
         .radius(4.0)
-        .child(icon(&ic::OUTLINE_TRASH, 14.0).color(if busy { p.icon_faint } else { p.icon_muted }));
+        .focus_default(p)
+        .child(icon(&ic::OUTLINE_TRASH, 16.0).color(p.icon_muted));
     let target = w.target();
     let active_dir = active.map(str::to_owned);
     let delete = if busy {
-        delete.disabled(true)
+        delete.disabled(true).opacity(0.5)
     } else {
         delete.hover(p.hover).press(p.pressed).on_press_tx(move |s: &mut H, tx: &mut Tx| open_delete_one(s, active_dir.clone(), target.clone(), tx))
     };
@@ -302,18 +327,22 @@ fn worktree_row<H: SettingsHost + 'static>(s: &H, p: &Pal, w: &Worktree, active:
         .spans(vec![rune::Span::new(parent.len(), w.dir.len()).weight(530.0)])
         .shrink()
         .min_w(0.0);
-    let folder = if compact { folder.wrap_anywhere() } else { folder.truncate() };
-    let faint = |words: String| text(words).font(BODY).color(p.faint);
+    let folder = if compact { folder.wrap_anywhere() } else { folder.truncate().help_when_truncated(w.dir.clone()).help_above() };
+    let faint = |words: String| text(words).font(ACTIVE).color(p.faint);
     let now_ms = s.now_ms();
     let status = if compact {
         None
     } else if deleting {
         Some(faint(t!("workspace.lifecycle.deleting").to_owned()).key("settings-worktree-deleting"))
     } else {
-        linked
-            .first()
-            .filter(|x| x.updated > 0)
-            .map(|x| faint(relative_time(now_ms, x.updated)).key("settings-worktree-active").help(t!("settings.workspaces.lastActiveSession").to_owned()))
+        linked.first().filter(|x| x.updated > 0).map(|x| {
+            faint(relative_time(now_ms, x.updated))
+                .key("settings-worktree-active")
+                .focusable(true)
+                .focus_default(p)
+                .help(t!("settings.workspaces.lastActiveSession").to_owned())
+                .help_above()
+        })
     };
     let mut r = col()
         .key(format!("settings-worktree-{}", w.key()))
@@ -326,7 +355,7 @@ fn worktree_row<H: SettingsHost + 'static>(s: &H, p: &Pal, w: &Worktree, active:
                 .w_full()
                 .gap(20.0)
                 .items_start()
-                .child(col().grow(1.0).shrink().min_w(0.0).gap(8.0).child(row().w_full().min_w(0.0).help(w.dir.clone()).child(folder)).child(meta))
+                .child(col().grow(1.0).shrink().min_w(0.0).gap(8.0).child(row().w_full().min_w(0.0).child(folder)).child(meta))
                 .child(row().gap(12.0).center_y().children(status).children((!deleting).then_some(delete))),
         );
     if !linked.is_empty() {

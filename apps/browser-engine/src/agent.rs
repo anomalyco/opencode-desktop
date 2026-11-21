@@ -14,6 +14,7 @@ use cef::ImplBrowserHost;
 use serde_json::{Value, json};
 
 use crate::engine::ManagedTab;
+use crate::frame_authority::Reach;
 use crate::handlers::CdpPending;
 use crate::output::Output;
 use crate::wire::EngineMsg;
@@ -40,12 +41,15 @@ pub fn remove_tab_uploads(profile_dir: &Path, tab_id: u64) {
 #[allow(clippy::too_many_arguments)]
 pub fn handle_upload_files(
     t: &ManagedTab,
+    permissions: &crate::permissions::PermissionTracker,
     profile_dir: &Path,
     tab_id: u64,
     request_id: u64,
     not_ready_reason: Option<&str>,
     backend_node_id: i64,
     files: &[String],
+    session_id: Option<String>,
+    frame_id: Option<String>,
     next_cdp_id: &AtomicI32,
     out_tx: &Output,
 ) {
@@ -58,6 +62,17 @@ pub fn handle_upload_files(
     {
         send_err(out_tx, tab_id, request_id, "Agent browser tools cannot upload files into extension pages or tabs with extension frames.");
         return;
+    }
+    let reach = t.cdp_ledger.lock().unwrap().reach("DOM.setFileInputFiles", session_id.as_deref(), frame_id.as_deref(), &Value::Null);
+    if crate::cdp_ledger::grant_gated(t) && crate::cdp_ledger::granted_origin(t, permissions, &reach).is_some() {
+        send_err(out_tx, tab_id, request_id, crate::permissions::INHERITED_PERMISSION_MSG);
+        return;
+    }
+    if session_id.is_some() || frame_id.is_some() {
+        if let Err(err) = t.cdp_ledger.lock().unwrap().check_upload_target(session_id.as_deref(), frame_id.as_deref()) {
+            send_err(out_tx, tab_id, request_id, &err);
+            return;
+        }
     }
     let verified = match verify_upload_paths(profile_dir, tab_id, files) {
         Ok(paths) => paths,
@@ -72,7 +87,8 @@ pub fn handle_upload_files(
         request_id,
         "DOM.setFileInputFiles",
         json!({ "backendNodeId": backend_node_id, "files": verified }),
-        None,
+        session_id,
+        reach,
         next_cdp_id,
         out_tx,
     );
@@ -126,6 +142,8 @@ pub fn handle_drop_files(
         "Input.dispatchDragEvent",
         json!({ "type": "drop", "x": x, "y": y, "data": drag_data }),
         None,
+        // The drop lands in whatever frame is under the point.
+        Reach::WholeTab,
         next_cdp_id,
         out_tx,
     );
@@ -173,13 +191,13 @@ fn dispatch_cdp(
     method: &str,
     params: Value,
     session_id: Option<String>,
+    reach: Reach,
     next_cdp_id: &AtomicI32,
     out_tx: &Output,
 ) {
     let msg_id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
-    // A file input or drop target can be in any frame: checked against inherited grants again at
-    // reply time across the whole tab (`TabCdpObserver::refuse_reply`).
-    let reach = Some(crate::frame_authority::Reach::WholeTab);
+    // Checked against inherited grants again at reply time (`TabCdpObserver::refuse_reply`).
+    let reach = Some(reach);
     t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::Raw { request_id, max_bytes: 64 * 1024, typed: None, reach });
     let mut payload = json!({
         "id": msg_id,

@@ -360,9 +360,9 @@ impl App {
         }
         if let Source::Live { requests: Some(r), .. } = &*self.source {
             if !self.pages.has_pool() { r.send(Request::Session(id.clone())).ok(); }
-            r.send(Request::Pending(id.clone())).ok();
             r.send(Request::Inbox(id.clone())).ok();
         }
+        self.read_requests(&id);
         self.open_page(&id, tx);
     }
 

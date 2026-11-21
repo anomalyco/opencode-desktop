@@ -12,9 +12,11 @@ pub enum AppIcon {
     Png(Vec<u8>),
 }
 
-/// Where the browser `source_id` is installed, if anywhere this knows to look.
+/// Where the browser `source_id` is installed, if anywhere this knows to look. On Windows only a
+/// path on a local drive counts (`local_disk`): a UNC or device path would make reading its icon
+/// sign in to another machine over SMB.
 pub fn application(source_id: &str) -> Option<PathBuf> {
-    let found = candidates(source_id).into_iter().find(|p| p.exists());
+    let found = candidates(source_id).into_iter().find(|p| local_disk(p) && p.is_file());
     #[cfg(windows)]
     let found = found.or_else(|| app_path_name(source_id).and_then(windows_app_path));
     found
@@ -96,6 +98,20 @@ fn candidates(_id: &str) -> Vec<PathBuf> {
     Vec::new()
 }
 
+/// A path on a local drive (`C:\..`, `\\?\C:\..`), never `\\host\share` or a device: elsewhere true.
+fn local_disk(path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        use std::path::{Component, Prefix};
+        matches!(path.components().next(), Some(Component::Prefix(p)) if matches!(p.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_)))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        true
+    }
+}
+
 /// The program names Windows registers an install path under (`sources.ts:567-577`).
 #[cfg(windows)]
 fn app_path_name(id: &str) -> Option<&'static str> {
@@ -113,8 +129,10 @@ fn app_path_name(id: &str) -> Option<&'static str> {
     })
 }
 
-/// The program's "App Paths" entry, the user's first, then the machine's; it counts only when it is
-/// an absolute path that ends in `name` (`sources.ts:583-605`).
+/// The program's "App Paths" entry, the user's first, then the machine's, as official reads them
+/// (`sources.ts:583-605`: `foreach($h in 'HKCU:','HKLM:')`; per-user installs such as Chrome's
+/// register under HKCU). It counts only when it names `name` on a local drive (`local_disk`): the
+/// user-writable HKCU key could otherwise point at `\\host\share\chrome.exe`.
 #[cfg(windows)]
 #[allow(unsafe_code)]
 fn windows_app_path(name: &str) -> Option<PathBuf> {
@@ -137,7 +155,7 @@ fn windows_app_path(name: &str) -> Option<PathBuf> {
         let value = String::from_utf16_lossy(&buf[..len]);
         let path = PathBuf::from(value.trim().trim_matches('"'));
         let named = path.file_name().is_some_and(|f| f.to_string_lossy().eq_ignore_ascii_case(name));
-        (path.is_absolute() && named && path.exists()).then_some(path)
+        (named && local_disk(&path) && path.is_file()).then_some(path)
     })
 }
 
@@ -176,7 +194,12 @@ fn windows_icon(path: &Path) -> Option<AppIcon> {
         if read == 0 || bm.bmWidth <= 0 || bm.bmHeight <= 0 {
             return None;
         }
+        // An icon asked for at 64 is never larger than 256; anything else is not trusted to size a buffer.
         let (w, h) = (bm.bmWidth, bm.bmHeight);
+        if !(1..=256).contains(&w) || !(1..=256).contains(&h) {
+            return None;
+        }
+        let len = (w as usize).checked_mul(h as usize)?.checked_mul(4)?;
         let mut bmi = BITMAPINFO::default();
         bmi.bmiHeader = BITMAPINFOHEADER {
             biSize: size_of::<BITMAPINFOHEADER>() as u32,
@@ -187,9 +210,12 @@ fn windows_icon(path: &Path) -> Option<AppIcon> {
             biCompression: BI_RGB.0,
             ..Default::default()
         };
-        let mut bgra = vec![0u8; (w * h * 4) as usize];
+        let mut bgra = vec![0u8; len];
         // SAFETY: a memory DC compatible with the screen; deleted below.
         let dc = unsafe { CreateCompatibleDC(None) };
+        if dc.is_invalid() {
+            return None;
+        }
         // SAFETY: `bgra` holds `w * h` 32-bit pixels, the size `bmi` describes, for the call.
         let lines = unsafe { GetDIBits(dc, info.hbmColor, 0, h as u32, Some(bgra.as_mut_ptr().cast()), &mut bmi, DIB_RGB_COLORS) };
         // SAFETY: `dc` came from `CreateCompatibleDC` above and is deleted once.
@@ -221,38 +247,63 @@ fn windows_icon(path: &Path) -> Option<AppIcon> {
     pixels.flatten()
 }
 
-/// The bundle's own icon: the `.icns` its `Info.plist` names (`CFBundleIconFile`, else `AppIcon`
-/// or the only `.icns` in `Resources`), as the PNG it holds closest to 64 px. Read through the
-/// bundle's real path, as official reads Safari's (`/Applications/Safari.app` is a symlink).
+/// The bundle's own icon: the `.icns` its `Info.plist` names (`CFBundleIconFile`, a plain file name
+/// in `Contents/Resources`, else `AppIcon` or the only `.icns` there), as the PNG it holds closest to
+/// 64 px. The bundle is read through its real path, as official reads Safari's
+/// (`/Applications/Safari.app` is a symlink); every file in it through a bounded, non-symlink,
+/// non-blocking regular-file read (`database::read_regular_bounded`): `Info.plist` at most 1 MiB, the
+/// `.icns` at most 16 MiB.
 #[cfg(target_os = "macos")]
 fn bundle_icon(path: &Path) -> Option<AppIcon> {
+    use super::database::read_regular_bounded;
+    const MAX_PLIST: u64 = 1024 * 1024;
+    const MAX_ICNS: u64 = 16 * 1024 * 1024;
+
     let bundle = std::fs::canonicalize(path).ok()?;
     let resources = bundle.join("Contents").join("Resources");
-    let named = std::fs::read_to_string(bundle.join("Contents").join("Info.plist")).ok().and_then(|plist| {
-        let at = plist.find("<key>CFBundleIconFile</key>")?;
-        let rest = &plist[at..];
-        let start = rest.find("<string>")? + "<string>".len();
-        let end = rest[start..].find("</string>")?;
-        let name = rest[start..start + end].trim().to_owned();
-        Some(if name.ends_with(".icns") { name } else { format!("{name}.icns") })
-    });
-    let file = named
+    let named = read_regular_bounded(&bundle.join("Contents").join("Info.plist"), MAX_PLIST)
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .and_then(|plist| {
+            let at = plist.find("<key>CFBundleIconFile</key>")?;
+            let rest = &plist[at..];
+            let start = rest.find("<string>")? + "<string>".len();
+            let end = rest[start..].find("</string>")?;
+            let name = rest[start..start + end].trim().to_owned();
+            // A plain file name only: no separator, no `..`, nothing hidden.
+            let plain = !name.is_empty() && !name.contains('/') && !name.contains('\\') && !name.starts_with('.');
+            plain.then(|| if name.ends_with(".icns") { name } else { format!("{name}.icns") })
+        });
+    let candidates: Vec<PathBuf> = named
         .map(|n| resources.join(n))
-        .filter(|p| p.is_file())
-        .or_else(|| Some(resources.join("AppIcon.icns")).filter(|p| p.is_file()))
-        .or_else(|| {
-            let icns: Vec<PathBuf> = std::fs::read_dir(&resources)
-                .ok()?
-                .flatten()
-                .map(|e| e.path())
-                .filter(|p| p.extension().is_some_and(|e| e == "icns"))
-                .collect();
-            (icns.len() == 1).then(|| icns[0].clone())
-        })?;
-    let data = std::fs::read(&file).ok().filter(|d| d.len() <= 16 * 1024 * 1024)?;
+        .into_iter()
+        .chain(std::iter::once(resources.join("AppIcon.icns")))
+        .chain(
+            std::fs::read_dir(&resources)
+                .ok()
+                .map(|dir| {
+                    let icns: Vec<PathBuf> =
+                        dir.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "icns")).collect();
+                    if icns.len() == 1 { icns } else { Vec::new() }
+                })
+                .unwrap_or_default(),
+        )
+        .collect();
+    let data = candidates.iter().find_map(|file| read_regular_bounded(file, MAX_ICNS).ok())?;
     icns_png(&data).map(AppIcon::Png)
 }
 
+/// A PNG's width and height from its `IHDR`, when the header is well formed.
+#[cfg(target_os = "macos")]
+fn png_size(png: &[u8]) -> Option<(u32, u32)> {
+    let ihdr = png.get(8..24)?;
+    if &ihdr[4..8] != b"IHDR" {
+        return None;
+    }
+    let w = u32::from_be_bytes(ihdr[8..12].try_into().ok()?);
+    let h = u32::from_be_bytes(ihdr[12..16].try_into().ok()?);
+    Some((w, h))
+}
 /// The PNG entry of an `.icns` file closest to 64 px, preferring larger: `ic12` (64), `ic07`
 /// (128), `ic13` (256), `ic08` (256), `ic11` (32), `ic09` (512).
 #[cfg(target_os = "macos")]
@@ -275,6 +326,11 @@ fn icns_png(data: &[u8]) -> Option<Vec<u8>> {
     }
     ORDER
         .iter()
-        .find_map(|want| entries.iter().find(|(k, body)| *k == &want[..] && body.starts_with(PNG)))
+        .find_map(|want| {
+            entries.iter().find(|(k, body)| {
+                // Decoded later off the PNG alone: only sizes an icon has (`IHDR` 1..=1024 each way).
+                *k == &want[..] && body.starts_with(PNG) && png_size(body).is_some_and(|(w, h)| (1..=1024).contains(&w) && (1..=1024).contains(&h))
+            })
+        })
         .map(|(_, body)| body.to_vec())
 }

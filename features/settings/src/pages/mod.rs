@@ -177,6 +177,8 @@ pub struct State {
     pub fonts: appearance::Fields,
     /// About's wordmark, which scrambles each time the page shows.
     pub wordmark: about::Wordmark,
+    /// About's third-party notices dialog state.
+    pub about_notices: about::NoticesState,
     pub shortcuts: shortcuts::State,
     pub projects: projects::State,
     pub worktrees: worktrees::State,
@@ -256,6 +258,7 @@ pub fn show_page(host: &mut dyn SettingsHost, page: Page) {
     }
     if host.settings_pages().page == Page::About {
         host.settings_pages_mut().wordmark.activate(false);
+        about::close_notices(host);
     }
     host.settings_pages_mut().page = page;
 }
