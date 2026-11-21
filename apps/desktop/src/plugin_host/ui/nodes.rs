@@ -164,6 +164,15 @@ fn bare_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize)
     input = input.dir(dir(a).unwrap_or(if a.flag("secure") { rune::Direction::Ltr } else { rune::Direction::Auto }));
     if !handed.is_empty() {
         input = input.on_input_key(move |app: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
+            // Keys during IME composition belong to the candidate window (`panel.tsx:1084`).
+            if super::editors::is_composing(app, &on_key, index) {
+                return false;
+            }
+            // Note Mod+V paste without swallowing it so the next `Changed` cancels inline completion.
+            if ev.key == rune::Key::Command('v') && !ev.mods.shift && !ev.mods.alt {
+                super::editors::mark_pasted(&on_key, index);
+                return false;
+            }
             let Some(&(_, _, name)) = handed.iter().find(|(key, shift, _)| {
                 ev.key == *key && ev.mods.shift == *shift && !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt
             }) else {

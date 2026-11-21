@@ -53,7 +53,7 @@ pub fn parse_inbox_item(v: &Value) -> Option<InboxItem> {
     // it names by path showing as cards, even when it holds no words of its own.
     if let Some((display, comments)) = crate::quote::parse_metadata(&payload["metadata"]) {
         let refs = crate::mention::path_attachments(&payload["metadata"]).unwrap_or_default();
-        if display.is_empty() && !refs.is_empty() {
+        if display.is_empty() && (!refs.is_empty() || !comments.is_empty()) {
             text = display;
         }
         crate::mention::set_user_path_attachments(&s(id), refs);

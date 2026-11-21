@@ -139,6 +139,8 @@ pub(super) fn compute_target(
         }
         let key = if fids.len() == 1 { format!("file:{}", fids[0]) } else { format!("files:{}:{}", fids[0], fids[1]) };
         TargetMeta { resources, key }
+    } else if matches!(ty, "trace.stop" | "cpu.stop") {
+        super::profile::stop_target(att, app, host_id, ty == "trace.stop")?
     } else if ty == "network.get" {
         let req_id = cmd.action.get("id").and_then(Value::as_str).unwrap_or("");
         let res_url = att
@@ -649,11 +651,12 @@ fn eval_result_to_outcome(
                 "Element is no longer attached to the page. Refresh the snapshot first.",
             );
         }
-        let clipped: String = desc.chars().take(800).collect();
-        return Outcome::fail(
-            failure_code::OPERATION_FAILED,
-            format!("Page JavaScript threw an exception: {clipped}"),
+        // Official `chromium.ts` evaluate's wording; the details are the page's, attributed and capped.
+        let what = format!(
+            "Page JavaScript threw an exception. Check the script and {}; inspect the page before repeating code with side effects.",
+            if is_ref { "ref" } else { "frameID" }
         );
+        return Outcome::fail(failure_code::OPERATION_FAILED, super::page_exception(desc, &what));
     }
     let Some(tab) = att.wire_tab(app, host_id) else {
         return Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable.");

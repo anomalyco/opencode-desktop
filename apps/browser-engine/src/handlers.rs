@@ -743,6 +743,9 @@ wrap_request_handler! {
         snap: Arc<Mutex<TabSnapshot>>,
         prompt_shared: crate::prompts::PromptShared,
         prompts: Arc<crate::prompts::TabPrompts>,
+        input_guard: Arc<Mutex<crate::input_guard::InputGuard>>,
+        emulation_scale: Arc<std::sync::atomic::AtomicU32>,
+        next_cdp_id: Arc<std::sync::atomic::AtomicI32>,
         permissions: Arc<crate::permissions::PermissionTracker>,
         context_scope_id: Option<String>,
         diagnostics: Arc<crate::diagnostics::TabDiagnostics>,
@@ -937,7 +940,10 @@ wrap_request_handler! {
                     && self.ext_policy.allowed_ext_ids.lock().unwrap().iter().any(|id| id == own_id)
                 {
                     if opens_new_tab {
-                        if user_gesture == 0 {
+                        if url.len() > crate::prompts::MAX_POPUP_URL_BYTES
+                            || user_gesture == 0
+                            || !self.prompts.popup_credit.swap(false, Ordering::AcqRel)
+                        {
                             return 1;
                         }
                         let background = *target_disposition.as_ref() == D::CEF_WOD_NEW_BACKGROUND_TAB;
@@ -951,8 +957,14 @@ wrap_request_handler! {
                     return 0;
                 }
                 // Links opened in a new tab from a popup (`target="_blank"`) require a user
-                // gesture and open as a managed pane tab when allowed by URL policy (`popup.ts:169-180`).
-                if opens_new_tab && user_gesture != 0 && browser_policy::destination_origin(&url).is_some() {
+                // gesture, one-shot `popup_credit`, and `MAX_POPUP_URL_BYTES` (`popup.ts:169-180`;
+                // READER-12 #441 Should-Fix #2).
+                if opens_new_tab
+                    && url.len() <= crate::prompts::MAX_POPUP_URL_BYTES
+                    && user_gesture != 0
+                    && browser_policy::destination_origin(&url).is_some()
+                    && self.prompts.popup_credit.swap(false, Ordering::AcqRel)
+                {
                     let background = *target_disposition.as_ref() == D::CEF_WOD_NEW_BACKGROUND_TAB;
                     let _ = self.out_tx.send(EngineMsg::PopupOpen {
                         tab_id: self.tab_id,
@@ -972,6 +984,12 @@ wrap_request_handler! {
                 && self.ext_policy.allowed_ext_ids.lock().unwrap().iter().any(|id| id == ext_id)
             {
                 if opens_new_tab {
+                    if url.len() > crate::prompts::MAX_POPUP_URL_BYTES
+                        || user_gesture == 0
+                        || !self.prompts.popup_credit.swap(false, Ordering::AcqRel)
+                    {
+                        return 1;
+                    }
                     let background = *target_disposition.as_ref() == D::CEF_WOD_NEW_BACKGROUND_TAB;
                     let _ = self.out_tx.send(EngineMsg::PopupOpen {
                         tab_id: self.tab_id,
@@ -1111,12 +1129,24 @@ wrap_request_handler! {
         // and a reload loads it in a new renderer, as Desktop's crashed tab does.
         fn on_render_process_terminated(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             status: TerminationStatus,
             error_code: i32,
             error_string: Option<&CefString>,
         ) {
             self.prompts.reset_on_crash(self.tab_id, &self.out_tx);
+            if self.prompt_shared.release_trace(self.tab_id)
+                && let Some(host) = browser.and_then(|b| b.host())
+            {
+                let id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
+                let msg = serde_json::json!({ "id": id, "method": "Tracing.end", "params": {} }).to_string();
+                host.send_dev_tools_message(Some(msg.as_bytes()));
+            }
+            self.emulation_scale.store(1.0f32.to_bits(), Ordering::Release);
+            self.input_guard
+                .lock()
+                .unwrap()
+                .reset_all(self.tab_id, &self.out_tx, "The page crashed before input completed.");
             let err_str = error_string.map(CefString::to_string).unwrap_or_default();
             let (url, was_loading) = {
                 let mut s = self.snap.lock().unwrap();

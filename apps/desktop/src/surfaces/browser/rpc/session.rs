@@ -88,29 +88,50 @@ pub(super) struct CapturedFile {
     pub resources: Vec<String>,
 }
 
+/// Hard cap on distinct URLs accumulated into one active trace/CPU recording before failing closed.
+const MAX_RECORDING_RESOURCES: usize = 256;
+
 /// In-flight or auto-stopped Chromium performance trace for one tab (`profiling-machine.ts`).
 pub(super) struct TraceRecording {
     pub host_id: u64,
+    pub key: String,
     pub started_at: Instant,
     pub duration_ms: u64,
     pub stop_at: Option<Instant>,
     pub renderer_pid: Option<u64>,
     pub events: Vec<Value>,
     pub resources: Vec<String>,
+    pub resources_overflow: bool,
     pub complete: bool,
     pub data_loss: bool,
     pub auto_stop_req: Option<u64>,
     pub auto_stop_ended: bool,
-    pub auto_stopped: Option<Result<(opencode_kit::browser_rpc::WireFile, f64, bool), String>>,
+    pub auto_stop_deadline: Option<Instant>,
+    pub auto_stopped: Option<Result<(String, f64, bool), String>>,
 }
 
 /// In-flight or auto-stopped V8 CPU profile for one tab (`CPU_MAX_DURATION_MS = 30 s`).
 pub(super) struct CpuRecording {
+    pub key: String,
     pub started_at: Instant,
     pub stop_at: Option<Instant>,
     pub resources: Vec<String>,
+    pub resources_overflow: bool,
     pub auto_stop_req: Option<u64>,
-    pub auto_stopped: Option<Result<(opencode_kit::browser_rpc::WireFile, f64), String>>,
+    pub auto_stop_deadline: Option<Instant>,
+    pub auto_stopped: Option<Result<(String, f64), String>>,
+}
+
+fn push_recording_url(resources: &mut Vec<String>, overflow: &mut bool, url: &str) {
+    let trimmed = url.trim();
+    if trimmed.is_empty() || resources.iter().any(|u| u == trimmed) {
+        return;
+    }
+    if resources.len() >= MAX_RECORDING_RESOURCES {
+        *overflow = true;
+        return;
+    }
+    resources.push(trimmed.to_owned());
 }
 
 /// Complete per-session state for one `experimental.browser` v4 attachment.
@@ -193,6 +214,35 @@ impl SessionAttachment {
         }
     }
 
+    /// Ends any active commands, traces, and CPU/heap profiling on session disposal so Chromium's
+    /// browser-wide tracing controller never stays wedged.
+    pub fn dispose_cleanup(&mut self, app: &mut App) {
+        let cmds = std::mem::take(&mut self.active_commands);
+        for mut cmd in cmds {
+            cmd.cancel_cleanup(self, app, None);
+        }
+        if let Some(rec) = self.trace_recording.take()
+            && rec.auto_stopped.is_none()
+        {
+            super::exec::profile::abort_trace(app, rec.host_id);
+        }
+        for (hid, rec) in self.cpu_started.drain() {
+            if rec.auto_stopped.is_none() && app.workspace_panes.browser.host.tab_open_in_engine(hid) {
+                let _ = app.workspace_panes.browser.host.send_typed_cdp(hid, "Profiler.stop", serde_json::json!({}), None);
+                let _ = app.workspace_panes.browser.host.send_typed_cdp(hid, "Profiler.disable", serde_json::json!({}), None);
+            }
+        }
+        for (hid, _) in self.heap_chunks.drain() {
+            if app.workspace_panes.browser.host.tab_open_in_engine(hid) {
+                let _ = app.workspace_panes.browser.host.send_typed_cdp(hid, "HeapProfiler.disable", serde_json::json!({}), None);
+            }
+        }
+        self.stop_outbound();
+        if let Some((_, abort)) = self.attach_abort.take() {
+            abort.abort();
+        }
+    }
+
     pub fn ensure_outbound(&mut self, connection_id: &str) {
         if self.outbound.as_ref().is_some_and(|(cid, _, _, _)| cid == connection_id) {
             return;
@@ -249,6 +299,23 @@ impl SessionAttachment {
         *entry = entry.saturating_add(1);
         if let Some(r) = self.refs.get_mut(&host_id) {
             r.clear_on_nav();
+        }
+    }
+
+    /// Accumulates a frame/navigation URL into any active (not yet stopped) trace or CPU
+    /// recording on `host_id` so `trace.stop`/`cpu.stop` authorize against every visited URL
+    /// (`packages/gui-plugins/src/browser/profiling.ts:295`).
+    pub fn record_recording_url(&mut self, host_id: u64, url: &str) {
+        if let Some(rec) = self.trace_recording.as_mut()
+            && rec.host_id == host_id
+            && rec.auto_stopped.is_none()
+        {
+            push_recording_url(&mut rec.resources, &mut rec.resources_overflow, url);
+        }
+        if let Some(rec) = self.cpu_started.get_mut(&host_id)
+            && rec.auto_stopped.is_none()
+        {
+            push_recording_url(&mut rec.resources, &mut rec.resources_overflow, url);
         }
     }
 
@@ -385,7 +452,7 @@ impl SessionAttachment {
 
     /// Reconciles this session's `tab_<uuid> <-> host_tab_id` map against `BrowserHost` strictly
     /// scoped to `self.session_id`, excluding `ContextKind::Private` tabs.
-    pub fn sync_tabs(&mut self, app: &App) -> (BrowserState, u64) {
+    pub fn sync_tabs(&mut self, app: &mut App) -> (BrowserState, u64) {
         let host_ids: Vec<u64> = app
             .workspace_panes
             .browser
@@ -427,10 +494,19 @@ impl SessionAttachment {
             self.diagnostics.remove(&host_id);
             self.captures.remove(&host_id);
             self.download_wire_ids.retain(|(hid, _), _| *hid != host_id);
-            self.cpu_started.remove(&host_id);
+            if let Some(rec) = self.cpu_started.remove(&host_id)
+                && rec.auto_stopped.is_none()
+                && app.workspace_panes.browser.host.tab_open_in_engine(host_id)
+            {
+                let _ = app.workspace_panes.browser.host.send_typed_cdp(host_id, "Profiler.stop", serde_json::json!({}), None);
+                let _ = app.workspace_panes.browser.host.send_typed_cdp(host_id, "Profiler.disable", serde_json::json!({}), None);
+            }
             self.heap_chunks.remove(&host_id);
-            if self.trace_recording.as_ref().is_some_and(|r| r.host_id == host_id) {
-                self.trace_recording = None;
+            if self.trace_recording.as_ref().is_some_and(|r| r.host_id == host_id)
+                && let Some(rec) = self.trace_recording.take()
+                && rec.auto_stopped.is_none()
+            {
+                super::exec::profile::abort_trace(app, host_id);
             }
             super::exec::files::cleanup_tab_uploads(app, host_id);
             self.download_origins.retain(|(hid, _), _| *hid != host_id);
@@ -454,6 +530,7 @@ impl SessionAttachment {
                 .is_some_and(|prev| prev != &tab.url && !tab.url.is_empty());
             if url_changed {
                 self.bump_generation(*host_id);
+                self.record_recording_url(*host_id, &tab.url);
             }
             if !self.last_urls.contains_key(host_id) || url_changed {
                 self.last_urls.insert(*host_id, tab.url.clone());

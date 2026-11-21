@@ -153,6 +153,8 @@ pub(super) struct ExecutionContextMeta {
 pub(super) struct AttachedSession {
     pub ext_id: String,
     pub kind: SessionKind,
+    pub url: String,
+    pub chromium_tab_id: Option<i32>,
     pub main_frame_id: Option<String>,
     pub last_popup_size: Option<(u32, u32)>,
     pub attach_started: Instant,
@@ -940,7 +942,7 @@ impl ExtensionHost {
         let Some(tab) = self.tabs.iter().find(|t| t.engine_tab_id == engine_tab_id && !t.agent_driven).cloned() else {
             return;
         };
-        if is_private_url(&tab.url) {
+        if is_private_url(&tab.url) || is_extension_scheme(&tab.url) || target.has_private_url() {
             return;
         }
         let Some(info) = self

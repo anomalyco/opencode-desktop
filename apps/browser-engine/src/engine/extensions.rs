@@ -392,6 +392,9 @@ impl EngineManager {
             snap.clone(),
             prompt_shared.clone(),
             prompts.clone(),
+            Arc::new(Mutex::new(crate::input_guard::InputGuard::default())),
+            Arc::new(std::sync::atomic::AtomicU32::new(1.0f32.to_bits())),
+            self.next_cdp_id.clone(),
             self.permissions.clone(),
             None,
             diagnostics,
@@ -454,6 +457,7 @@ impl EngineManager {
             dialog,
             find,
             context_menu,
+            crate::tab_client::TabFrameHandler::new(prompts.clone()),
             prompts,
         );
         let mut win_info = WindowInfo::default().set_as_windowless(Default::default());
@@ -548,6 +552,63 @@ impl EngineManager {
             });
             return;
         }
+        if method == "Page.handleJavaScriptDialog"
+            && (t.prompts.has_leave_dialog() || t.prompts.is_covered())
+        {
+            let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                tab_id,
+                request_id,
+                ok: false,
+                result: json!({ "message": "The user is answering a prompt over this page. Wait for them, or use another tab." }),
+            });
+            return;
+        }
+        // Route raw `Input.*` calls through the same serialized `InputGuard` as `TypedCdpCall` so
+        // no raw caller can bypass hit-test, frame-owner, focused-frame, or prompt-cover checks.
+        if method.starts_with("Input.") {
+            if session_id.is_some() {
+                let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                    tab_id,
+                    request_id,
+                    ok: false,
+                    result: json!({ "message": "Input DevTools calls must target the page root session." }),
+                });
+                return;
+            }
+            t.cdp_ledger.lock().unwrap().app_attached = true;
+            if let Err(msg) = t
+                .input_guard
+                .lock()
+                .unwrap()
+                .enqueue(crate::input_guard::InputCall::single(request_id, method, params))
+            {
+                let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                    tab_id,
+                    request_id,
+                    ok: false,
+                    result: json!({ "message": msg }),
+                });
+                return;
+            }
+            crate::input_guard::pump(
+                tab_id,
+                &t.input_guard,
+                &t.browser,
+                &t.host,
+                t.is_popup,
+                t.isolated,
+                t.preview.is_some(),
+                &t.snap,
+                &t.prompts,
+                &self.permissions,
+                &t.cdp_ledger,
+                &t.emulation_scale,
+                &t.cdp_id_map,
+                &self.next_cdp_id,
+                &self.out_tx,
+            );
+            return;
+        }
         // The engine enabled `Runtime` when it armed the tab: disable it first so Chromium
         // reports the existing contexts to this caller too.
         let disable = {
@@ -568,6 +629,7 @@ impl EngineManager {
                 max_bytes: crate::cdp_ledger::max_cdp_response_bytes(&method),
                 typed: None,
                 reach,
+                is_tracing_start: false,
             },
         );
         let payload = json!({
