@@ -222,6 +222,7 @@ fn vertical_session(s: &App, p: &Pal, r: &PinRef, nav_order: &[String], show_hin
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .fill(if d.active { p.pressed } else if marked { p.hover } else { Color::TRANSPARENT })
         .hover(if d.active { p.pressed } else { p.hover })
@@ -268,6 +269,7 @@ fn horizontal_session(s: &App, p: &Pal, r: &PinRef, nav_order: &[String], show_h
         .size(28.0, 28.0)
         .center()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .fill(if d.active { p.pressed } else if marked { p.hover } else { Color::TRANSPARENT })
         .hover(if d.active { p.pressed } else { p.hover })
@@ -316,6 +318,7 @@ fn vertical_group(s: &App, p: &Pal, g: &PinGroup, nav_order: &[String], show_hin
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .hover(p.hover)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
@@ -360,17 +363,18 @@ fn horizontal_group(s: &App, p: &Pal, g: &PinGroup, nav_order: &[String], show_h
     let toggle_id = g.id.clone();
     let ctx_id = g.id.clone();
     let ctx_key = format!("pin-group-h-{}", g.id);
+    let menu_open = s.popup.open_at(&ctx_key);
     let trigger = row()
         .key(format!("pin-group-h-trigger-{}", g.id))
         .role("button")
         .label(g.name.clone())
-        .help(g.name.clone())
         .expanded(open)
         .size(28.0, 28.0)
         .center()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
-        .hover(p.hover)
+        .hover(if menu_open { p.pressed } else { p.hover })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             pins::update(s, |d| d.toggle_group(&toggle_id));
@@ -378,6 +382,7 @@ fn horizontal_group(s: &App, p: &Pal, g: &PinGroup, nav_order: &[String], show_h
         // Top tabs open it under the group's start (official's hidden `Menu.Trigger`, `bottom-start`).
         .on_secondary_press(move |s: &mut App, _: rune::PointerPress, tx: &mut Tx| open_group_menu(s, &ctx_id, ctx_key.clone().into(), rune::Align::Start, tx))
         .child(marker);
+    let trigger = if menu_open { trigger.fill(p.pressed) } else { trigger.help(g.name.clone()) };
     let mut r = row()
         .key(format!("pin-group-h-{}", g.id))
         .gap(4.0)
