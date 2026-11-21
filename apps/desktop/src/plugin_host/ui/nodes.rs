@@ -288,10 +288,10 @@ fn flyout_row(a: &mut NodeArgs) -> Result<El, String> {
     });
     let lead_icon = a.string("icon").map(str::to_owned);
     let menu_style = lead_icon.is_none();
-    let height = a.number("h").unwrap_or(28.0);
-    let pl = a.number("pl").unwrap_or(12.0);
-    let pr = a.number("pr").unwrap_or(if menu_style { 6.0 } else { 8.0 });
-    let radius = a.number("radius").unwrap_or(4.0);
+    let height = a.number("h").map_or(28.0, |n| n as f32);
+    let pl = a.number("pl").map_or(12.0, |n| n as f32);
+    let pr = a.number("pr").map_or(if menu_style { 6.0 } else { 8.0 }, |n| n as f32);
+    let radius = a.number("radius").map_or(4.0, |n| n as f32);
     let mut r = row()
         .role("button")
         .label(words.clone())
