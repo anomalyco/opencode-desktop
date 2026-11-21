@@ -960,6 +960,13 @@ wrap_request_handler! {
                 return 0;
             }
             let roots = self.file_roots.lock().unwrap().clone();
+            if url.len() > crate::prompts::MAX_POPUP_URL_BYTES {
+                let _ = self.out_tx.send(EngineMsg::Refused {
+                    tab_id: self.tab_id,
+                    reason: browser_policy::Refusal::Web.code().to_owned(),
+                });
+                return 1;
+            }
             if let Some(why) = browser_policy::frame_guard(&url, true, &roots) {
                 let _ = self.out_tx.send(EngineMsg::Refused {
                     tab_id: self.tab_id,
@@ -968,12 +975,27 @@ wrap_request_handler! {
                 return 1;
             }
             if opens_new_tab {
-                let background = *target_disposition.as_ref() == D::CEF_WOD_NEW_BACKGROUND_TAB;
-                let _ = self.out_tx.send(EngineMsg::PopupOpen {
-                    tab_id: self.tab_id,
-                    url,
-                    background,
-                });
+                if user_gesture != 0 && self.prompts.popup_credit.swap(false, Ordering::AcqRel) {
+                    let background = *target_disposition.as_ref() == D::CEF_WOD_NEW_BACKGROUND_TAB;
+                    let _ = self.out_tx.send(EngineMsg::PopupOpen {
+                        tab_id: self.tab_id,
+                        url,
+                        background,
+                    });
+                } else {
+                    // Reject synthetic modifier-click bypasses (e.g. `new MouseEvent('click', { ctrlKey: true })`)
+                    // without a real user gesture by converting to the blocked-popup bar (`review-rd-engine.md`).
+                    let _ = self.out_tx.send(EngineMsg::PopupBlocked {
+                        tab_id: self.tab_id,
+                        url,
+                    });
+                }
+                return 1;
+            }
+            if matches!(
+                *target_disposition.as_ref(),
+                D::CEF_WOD_OFF_THE_RECORD | D::CEF_WOD_NEW_PICTURE_IN_PICTURE
+            ) {
                 return 1;
             }
             0
