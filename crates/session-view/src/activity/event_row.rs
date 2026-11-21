@@ -12,9 +12,18 @@ use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::{INSTANT, ROW_GAP, TOOL_CODE, UI, UI_MED, arrow, readable};
 
-/// The row of `events` in session `session`; `open` lists them, and a press on the
-/// label runs `press`. Nothing when nothing in it has happened yet.
-pub fn view<S: TimelineHost>(s: &S, p: &Pal, session: &str, events: &[Event], open: bool, press: impl Fn(&mut S, &mut Tx) + 'static) -> El {
+/// The row of `events` in session `session`; `open` lists them, a press on the label runs `press`,
+/// and clicking the nested rail runs `collapse` (which only collapses and never re-opens mid-fold).
+/// Nothing when nothing in it has happened yet.
+pub fn view<S: TimelineHost>(
+    s: &S,
+    p: &Pal,
+    session: &str,
+    events: &[Event],
+    open: bool,
+    press: impl Fn(&mut S, &mut Tx) + 'static,
+    collapse: impl Fn(&mut S, &mut Tx) + 'static,
+) -> El {
     let (buckets, failed) = events::summarize_shells(events);
     if buckets.is_empty() {
         return col();
@@ -47,17 +56,15 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, session: &str, events: &[Event], op
     }
     // `self_start`: its hover fill hugs its words rather than the timeline's width.
     let mut trigger = row().key("trigger").h(28.0).gap(4.0).center_y().self_start().shrink().min_w(0.0).child(words);
-    let press = std::rc::Rc::new(press);
     if items.is_empty() {
         trigger = trigger.role("group").label(label.join(" · "));
     } else {
         let a = el().key("arrow").w(16.0).h(24.0).ml(2.0).center().child(arrow(p, open));
-        let on_trigger = std::rc::Rc::clone(&press);
         trigger = hoverable(p, trigger)
             .role("button")
             .label(label.join(" · "))
             .expanded(open)
-            .on_press_tx(move |s: &mut S, tx: &mut Tx| on_trigger(s, tx))
+            .on_press_tx(press)
             .child(if open || crate::style::hover_none() { a } else { a.group_opacity(0.0, 1.0) });
     }
     // The trigger is the row's own `trigger`, which a fold holds in place (`disclosure::toggle_group`).
@@ -70,7 +77,7 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, session: &str, events: &[Event], op
     for (k, e) in items.into_iter().enumerate() {
         list = list.child(item(s, p, session, k, e));
     }
-    c.child(crate::disclosure::reveal(s.knobs(), crate::style::nested_collapsible(p, ROW_GAP, list, move |s: &mut S, tx: &mut Tx| press(s, tx))))
+    c.child(crate::disclosure::reveal(s.knobs(), crate::style::nested_collapsible(p, ROW_GAP, list, collapse)))
 }
 
 /// One shell an events row lists (`TimelineEventItem`): "Shell", its command on one line as a
