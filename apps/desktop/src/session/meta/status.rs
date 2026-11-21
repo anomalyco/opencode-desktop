@@ -222,10 +222,12 @@ impl App {
         }
     }
 
-    /// Whether anything in `root`'s family runs or has a prompt waiting in its inbox (`sessionBusy`).
+    /// Whether anything in `root`'s family runs, has a prompt or compaction waiting in its inbox,
+    /// or holds a live permission request waiting on approval (`sessionBusy`).
     pub fn family_busy(&self, root: &str) -> bool {
         self.has_live_family(root)
             || self.inboxes.iter().any(|(id, inbox)| (!inbox.items.is_empty() || inbox.compaction.is_some()) && self.root_of(id) == root)
+            || self.pending.iter().any(|p| matches!(p, Pending::Permission { .. }) && self.root_of(p.session()) == root)
     }
 
     /// Current server activity, excluding historical busy times and queued but inactive work.

@@ -769,7 +769,9 @@ wrap_request_handler! {
                 Some(f) if f.is_main() != 1 => (false, Some(CefString::from(&f.identifier()).to_string())),
                 _ => (true, None),
             };
-            let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
+            let (url, referrer) = request
+                .map(|r| (CefString::from(&r.url()).to_string(), CefString::from(&r.referrer_url()).to_string()))
+                .unwrap_or_default();
             // Fail closed before `on_request_context_initialized` finishes verifying prefs
             // (and while a remote context is suspended): cancel every non-`about:blank` navigation.
             if !self.context_ready.load(Ordering::Acquire) {
@@ -823,6 +825,14 @@ wrap_request_handler! {
                     tab_id: self.tab_id,
                     reason: browser_policy::Refusal::Blocked.code().to_owned(),
                 });
+                return 1;
+            }
+            // Block non-user extension-initiated navigations on agent-driven tabs (READER-12 C2).
+            if is_agent
+                && user_gesture == 0
+                && !referrer.is_empty()
+                && crate::extensions::manifest::is_extension_scheme(&referrer)
+            {
                 return 1;
             }
             if is_main && let Some(own_id) = &self.ext_policy.popup_ext_id {
@@ -927,6 +937,9 @@ wrap_request_handler! {
                     && self.ext_policy.allowed_ext_ids.lock().unwrap().iter().any(|id| id == own_id)
                 {
                     if opens_new_tab {
+                        if user_gesture == 0 {
+                            return 1;
+                        }
                         let background = *target_disposition.as_ref() == D::CEF_WOD_NEW_BACKGROUND_TAB;
                         let _ = self.out_tx.send(EngineMsg::PopupOpen {
                             tab_id: self.tab_id,
@@ -937,9 +950,9 @@ wrap_request_handler! {
                     }
                     return 0;
                 }
-                // Links opened in a new tab from a popup (`target="_blank"`) open as a managed pane
-                // tab when allowed by URL policy (`popup.ts:169-180`), keeping the popup on-origin.
-                if opens_new_tab && browser_policy::destination_origin(&url).is_some() {
+                // Links opened in a new tab from a popup (`target="_blank"`) require a user
+                // gesture and open as a managed pane tab when allowed by URL policy (`popup.ts:169-180`).
+                if opens_new_tab && user_gesture != 0 && browser_policy::destination_origin(&url).is_some() {
                     let background = *target_disposition.as_ref() == D::CEF_WOD_NEW_BACKGROUND_TAB;
                     let _ = self.out_tx.send(EngineMsg::PopupOpen {
                         tab_id: self.tab_id,

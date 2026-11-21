@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use browser_pane::cookies::BrowserEngineKind;
-use browser_pane::cookies::icons::{AppIcon, application, application_icon};
+use browser_pane::cookies::icons::AppIcon;
 use browser_pane::cookies::sources::{list_sources, source_history_database};
 use browser_pane::history::{
     HistoryStore, ImportEngine, PageVisit, read_profile_history_in, sweep_stale_import_dirs,
@@ -15,7 +15,7 @@ use browser_pane::history::{
 use mlua::{Function, IntoLua, Lua, MultiValue, Table, Value};
 use rune_luau::{Completer, Data, Host};
 
-use super::{App, Vmx, map, method, scope, with_app};
+use super::{App, Dep, Vmx, cx, map, method, scope, with_app};
 
 fn require_builtin_browser(lua: &Lua, what: &str) -> mlua::Result<()> {
     let cap = scope::TabScope::capture(lua);
@@ -174,20 +174,28 @@ pub(super) fn service_methods(lua: &Lua, vmx: &Vmx, t: &Table) -> mlua::Result<(
         Data::List(list).into_lua(lua)
     })?;
     // The browser's own icon (`settings.tsx:108-111` `Identity image`): `("rgba", pixels, w, h)`,
-    // `("png", bytes)`, or nothing, when the browser has no application this knows or the OS no icon.
+    // `("png", bytes)`, `("none")` when the browser has no application this knows or the OS no icon,
+    // or nothing while it is still being read off the UI thread (`surfaces::browser::app_icons`).
     method(lua, t, "HistoryImportIcon", |lua, source_id: String| {
         require_builtin_browser(lua, "Browser:HistoryImportIcon")?;
-        let Some(icon) = application(&source_id).and_then(|path| application_icon(&path)) else {
+        cx::read(Dep::Browser);
+        let known = with_app("Browser:HistoryImportIcon", |app| {
+            Ok(app.workspace_panes.browser.app_icons.get(&source_id, (*app.waker).clone()))
+        })?;
+        let Some(known) = known else {
             return Ok(MultiValue::new());
         };
-        let values = match icon {
+        let Some(icon) = known else {
+            return Ok(MultiValue::from_vec(vec![Value::String(lua.create_string("none")?)]));
+        };
+        let values = match &*icon {
             AppIcon::Rgba { width, height, pixels } => vec![
                 Value::String(lua.create_string("rgba")?),
-                Value::Buffer(lua.create_buffer(pixels)?),
-                Value::Number(f64::from(width)),
-                Value::Number(f64::from(height)),
+                Value::Buffer(lua.create_buffer(pixels.as_slice())?),
+                Value::Number(f64::from(*width)),
+                Value::Number(f64::from(*height)),
             ],
-            AppIcon::Png(bytes) => vec![Value::String(lua.create_string("png")?), Value::Buffer(lua.create_buffer(bytes)?)],
+            AppIcon::Png(bytes) => vec![Value::String(lua.create_string("png")?), Value::Buffer(lua.create_buffer(bytes.as_slice())?)],
         };
         Ok(MultiValue::from_vec(values))
     })?;

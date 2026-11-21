@@ -308,8 +308,9 @@ fn build_dialog_card(p: &Pal, placeholder: &'static str, w: f32, total_h: f32, s
         .transition(Transition::none())
         .motion(Spring::NONE)
         .child(col().key("switcher-search").w_full().pt(6.0).px(6.0).child(search))
-        // `::after`: a 0.5 hairline in `border-base` across the dialog, 8 above the block's foot.
-        .child(el().key("switcher-divider").w_full().h(0.5).mt(6.25).mb(2.25).fill(p.border))
+        // `::after`: a 1 pt rule drawn at half its height (`scaleY(0.5)`) across the dialog
+        // (`commands/dialog.css:152-158`).
+        .child(rune::hairline(p.border).key("switcher-divider").w_full().mt(6.0).mb(2.0))
         .child(scroll)
 }
 

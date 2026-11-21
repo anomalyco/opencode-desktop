@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use opencode_i18n::t;
 use opencode_ui::widgets::{DialogSize, Fit, button, dialog_window, sized_modal};
-use rune::{Color, Cx, Direction, El, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Color, Cx, Direction, El, TextStyle, Tx, col, icon, row, text};
 use rune_kit::{ButtonVariant, TextInput};
 use rune_theme_opencode::icons as ic;
 use opencode_ui::palette::{Elevate as _, Pal, kit};
@@ -182,8 +182,8 @@ pub fn view<H: ProjectsHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> Vec<El> {
                 .w_full()
                 .clip_rounded(12.0)
                 .child(header)
-                // `divider-v2`: a 1 point rule drawn at half its height (`scaleY(0.5)`), centred in it.
-                .child(col().w_full().h(1.0).py(0.25).child(el().w_full().h(0.5).fill(p.q.border_strong)))
+                // `divider-v2`: a 1 point rule drawn at half its height (`scaleY(0.5)`).
+                .child(rune::hairline(p.q.border_strong).w_full())
                 .child(body)
                 .child(footer),
         );

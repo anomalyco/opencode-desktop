@@ -118,8 +118,8 @@ impl App {
     /// once for all its windows (`App::apply_shared`).
     pub(crate) fn resync_shared(&mut self) {
         self.refresh_recent();
+        crate::reconnect::request_active(self, true);
         let Source::Live { requests: Some(r), .. } = &*self.source else { return };
-        r.send(Request::Active).ok();
         r.send(Request::Sessions).ok();
         r.send(Request::Projects).ok();
         r.send(Request::DefaultDirectory).ok();

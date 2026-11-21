@@ -426,7 +426,7 @@ fn open_group_menu(s: &mut App, group_id: &str, at: rune::PopupAnchor, tx: &mut 
             .into_iter()
             .fold(menu, |m, c| {
                 let ((lf, le, _), (df, de, _)) = (group_colors(c, false), group_colors(c, true));
-                m.item(Item::new(format!("color:{}", c.name()), c.label()).swatch([lf, le], [df, de]).checked(Some(c) == current))
+                m.item(Item::new(format!("color:{}", c.name()), c.label()).swatch([lf, le], [df, de]).radio(Some(c) == current))
             })
             .separator()
             .item(Item::new("ungroup", t!("tabs.groups.ungroup")))

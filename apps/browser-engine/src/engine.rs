@@ -78,6 +78,8 @@ pub struct EngineManager {
     next_ext_tab_id: u64,
     next_cdp_id: AtomicI32,
     next_eref: u64,
+    /// Agent commands waiting, in arrival order, for their tab's `WebAuthn.enable` reply.
+    passkey_held: Vec<HostMsg>,
     /// The app's scheme, once it said (`HostMsg::SetColorScheme`).
     dark: Option<bool>,
     /// The user's home directory, for filtering overly broad workspace `file_roots`.
@@ -141,6 +143,7 @@ impl EngineManager {
             next_ext_tab_id: 1_000_000,
             next_cdp_id: AtomicI32::new(100),
             next_eref: 1,
+            passkey_held: Vec::new(),
             dark: None,
             home: crate::profile::home_dir(),
             downloads: crate::downloads::Downloads::open(&downloads),
@@ -171,6 +174,13 @@ impl EngineManager {
         if self.refuse_if_controlled_tab_blocked(&msg) {
             return true;
         }
+        let Some(msg) = self.wait_for_passkey_refusal(msg) else {
+            return true;
+        };
+        self.handle_msg(msg)
+    }
+
+    fn handle_msg(&mut self, msg: HostMsg) -> bool {
         match msg {
             HostMsg::Hello { mach_service, prompts, extensions, download_save, .. } => {
                 self.prompt_shared.enabled.store(prompts, Ordering::Relaxed);
@@ -602,11 +612,6 @@ impl EngineManager {
                     if method.starts_with("Input.") {
                         t.prompts.popup_credit.store(true, Ordering::Release);
                     }
-                    if t.prompts.agent_driven.load(Ordering::Acquire) {
-                        for raw in t.passkeys.enforce_messages() {
-                            t.host.send_dev_tools_message(Some(raw.as_bytes()));
-                        }
-                    }
                 }
                 self.handle_cdp_call(tab_id, request_id, method, params, session_id);
             }
@@ -725,9 +730,6 @@ impl EngineManager {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if method.starts_with("Input.") {
                         t.prompts.popup_credit.store(true, Ordering::Release);
-                    }
-                    for raw in t.passkeys.enforce_messages() {
-                        t.host.send_dev_tools_message(Some(raw.as_bytes()));
                     }
                     let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
                     crate::cdp_ledger::handle_typed_cdp_call(
@@ -1254,6 +1256,7 @@ impl EngineManager {
             dialog,
             find,
             context_menu,
+            prompts.clone(),
         );
 
         let mut win_info = WindowInfo::default().set_as_windowless(Default::default());

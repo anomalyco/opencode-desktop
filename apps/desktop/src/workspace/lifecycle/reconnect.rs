@@ -26,6 +26,102 @@ pub const QUIET: f64 = opencode_kit::servers::link::QUIET;
 /// The event stream is reopened after this long with nothing on it. The server sends a
 /// heartbeat every 15 s, so a tunnel that accepts but never answers is caught here.
 pub const STREAM_IDLE: Duration = Duration::from_secs(25);
+/// Backoff range for retrying a failed `GET /api/session/active` read (`ActiveSync`).
+const ACTIVE_RETRY_MIN: f64 = 0.25;
+const ACTIVE_RETRY_MAX: f64 = 4.0;
+
+/// Sync state of `GET /api/session/active` for one server
+/// (`packages/client/src/solid/data.ts:783-807`).
+#[derive(Default)]
+pub struct ActiveSync {
+    /// Whether an authoritative `/api/session/active` snapshot has landed for this connection.
+    /// False on cold open (until boot's `active` read or `Incoming::Active` succeeds) and reset
+    /// to false on reconnect until the fresh snapshot lands.
+    synced: bool,
+    /// SSE execution lifecycle deltas (`true` = started, `false` = ended) received while a
+    /// `Request::Active` read is in flight, overlaid onto the snapshot so live events win.
+    in_flight: Option<HashMap<String, bool>>,
+    /// Monotonic app-clock deadline for retrying a failed `Request::Active`.
+    retry_at: Option<f64>,
+    /// Consecutive failed `Request::Active` attempts since the last success or reconnect.
+    attempts: u32,
+}
+
+impl ActiveSync {
+    pub fn synced(&self) -> bool {
+        self.synced
+    }
+
+    pub fn mark_boot_synced(&mut self) {
+        self.synced = true;
+        self.retry_at = None;
+        self.attempts = 0;
+    }
+
+    pub fn absorb(&mut self, from: ActiveSync) {
+        if !self.synced && from.synced {
+            self.synced = true;
+        }
+    }
+
+    fn start(&mut self, reset_synced: bool) {
+        if reset_synced {
+            self.synced = false;
+            self.attempts = 0;
+        }
+        self.in_flight = Some(HashMap::new());
+        self.retry_at = None;
+    }
+
+    pub fn note_execution(&mut self, sid: &str, started: bool) {
+        if let Some(updates) = &mut self.in_flight {
+            updates.insert(sid.to_owned(), started);
+        }
+    }
+
+    pub fn landed(&mut self) -> HashMap<String, bool> {
+        self.synced = true;
+        self.retry_at = None;
+        self.attempts = 0;
+        self.in_flight.take().unwrap_or_default()
+    }
+
+    fn failed(&mut self, now: f64) -> f64 {
+        self.in_flight = None;
+        let delay = (ACTIVE_RETRY_MIN * f64::from(1u32 << self.attempts.min(4))).min(ACTIVE_RETRY_MAX);
+        self.attempts = self.attempts.saturating_add(1);
+        self.retry_at = Some(now + delay);
+        delay
+    }
+
+    fn take_due(&mut self, now: f64) -> Option<f64> {
+        let due = self.retry_at?;
+        if due <= now + 1e-9 {
+            self.retry_at = None;
+            Some(0.0)
+        } else {
+            Some(due - now)
+        }
+    }
+}
+
+/// Requests `/api/session/active` and begins tracking concurrent SSE execution deltas so live
+/// transitions arriving mid-request supersede the returned snapshot (`data.ts:783-807`).
+pub fn request_active(s: &mut App, reset_synced: bool) {
+    if let Source::Live { requests: Some(r), .. } = &*s.source {
+        s.stops.active_sync.start(reset_synced);
+        r.send(Request::Active).ok();
+    } else if reset_synced {
+        s.stops.active_sync.start(true);
+    }
+}
+
+/// Records a transient `Request::Active` failure and schedules an exponential-backoff retry.
+pub fn active_failed(s: &mut App, e: &opencode_kit::wire_error::WireError, tx: &mut Tx) {
+    call_failed(s, e, tx);
+    let delay = s.stops.active_sync.failed(*s.clock);
+    tx.wake_after(Duration::from_secs_f64(delay));
+}
 
 /// A server's key (`opencode_kit::servers::ServerKey`'s text: `"sidecar"`, an address, `wsl:…`).
 pub type ServerId = String;
@@ -179,6 +275,14 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let ticking: Vec<ServerId> = s.services.server_links.states.iter().filter(|(_, l)| l.ticks()).map(|(k, _)| k.clone()).collect();
     for server in ticking {
         changed |= step_link(s, &server, Event::Tick { now }, tx);
+    }
+    if let Some(remaining) = s.stops.active_sync.take_due(now) {
+        if remaining <= 0.0 {
+            request_active(s, false);
+            crate::windows::peer::touch(s);
+        } else {
+            tx.wake_after(Duration::from_secs_f64(remaining));
+        }
     }
     changed
 }
