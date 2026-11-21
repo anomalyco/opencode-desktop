@@ -145,7 +145,7 @@ fn build<S: PopupHost + 'static>(
                     .danger(i.danger)
                     .disabled(!i.enabled);
                 let ink = if i.danger { p.danger } else { p.text };
-                // Menu items draw Desktop's `<Icon>` at its default `size="normal"` (16 pt, `icon.tsx:58`).
+                // Menu items draw Desktop's `<Icon>` at its default `size="normal"` (16 pt, `icon.tsx:59`).
                 let o = match i.glyph {
                     Some(Glyph::Ink(g)) if menu.card => o.lead(icon(g, 16.0).color(p.icon_muted)),
                     Some(Glyph::Ink(g)) => o.lead(icon(g, 16.0).color(ink)),

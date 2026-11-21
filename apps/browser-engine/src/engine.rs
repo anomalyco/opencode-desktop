@@ -804,17 +804,13 @@ impl EngineManager {
                             crate::wire::ContextKind::Preview { .. }
                                 | crate::wire::ContextKind::Artifact { .. }
                         );
-                    t.menu.execute(
-                        tab_id,
-                        t.download_gen,
-                        id,
-                        action,
-                        &t.browser,
-                        &t.host,
-                        &roots,
-                        block_downloads,
-                        &self.downloads,
-                    );
+                    let ext_click = t.menu.execute(tab_id, t.download_gen, id, action, &t.browser, &t.host, &roots, block_downloads, &self.downloads);
+                    if let Some((ext_id, item_id, target)) = ext_click
+                        && !t.isolated && !t.is_popup && t.preview.is_none()
+                        && let Some(ext) = self.extensions.as_mut()
+                    {
+                        ext.on_context_menu_clicked(tab_id, &ext_id, &item_id, &target);
+                    }
                 }
             }
             HostMsg::SetPartitionProxy { server_id, proxy } => {
@@ -1236,11 +1232,16 @@ impl EngineManager {
             self.out_tx.clone(),
             std::sync::Arc::new(crate::find::FindState::default()),
         );
+        let ext_menus = (!isolated && !is_popup && preview_grant.is_none())
+            .then(|| self.extensions.as_ref().map(|e| e.context_menu_catalog()))
+            .flatten();
         let context_menu = crate::menu::TabContextMenuHandler::new(
             tab_id,
             self.prompt_shared.clone(),
+            prompts.clone(),
             file_roots.clone(),
             preview_grant.clone(),
+            ext_menus,
             menu_state.clone(),
             self.out_tx.clone(),
         );
