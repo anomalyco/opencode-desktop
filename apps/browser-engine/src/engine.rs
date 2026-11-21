@@ -791,7 +791,8 @@ impl EngineManager {
                                 && t.preview.is_none()
                                 && let Some(ext) = self.extensions.as_mut()
                             {
-                                ext.on_context_menu_clicked(tab_id, &ext_id, &item_id, &target);
+                                let effects = ext.on_context_menu_clicked(tab_id, &ext_id, &item_id, &target);
+                                self.run_ext_effects(effects);
                             }
                         }
                         Some(crate::menu::MenuFollowUp::CopyImage { url, frame_id }) => {
@@ -886,7 +887,8 @@ impl EngineManager {
             }
             HostMsg::ExtensionNotificationEvent { ext_id, notif_id, clicked, by_user } => {
                 if let Some(ext) = &mut self.extensions {
-                    ext.on_notification_event(&ext_id, &notif_id, clicked, by_user);
+                    let effects = ext.on_notification_event(&ext_id, &notif_id, clicked, by_user);
+                    self.run_ext_effects(effects);
                 }
             }
             HostMsg::SetNotificationsEnabled { enabled } => {
