@@ -20,10 +20,10 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 164,
   "status_counts": {
-    "have it": 114,
+    "have it": 115,
     "partly": 4,
     "not applicable": 23,
-    "missing": 22,
+    "missing": 21,
     "differs on purpose": 1
   },
   "rows": [
@@ -4142,11 +4142,12 @@
       ],
       "summary": "Keep side tab group membership and ordering stable when closing a tab inside a group.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Audit features/tab-groups close-tab behavior against upstream #65165 tab-group stability fixes.",
+      "status": "have it",
+      "status_evidence": "Code merged on dev in rune-desktop #349: remembers automatic tab group order and default colors in Doc.colors via remember_auto_groups / stable_colors (keeping colors and order stable when closing tabs), and App::close_tab selects the next visible row in grouped order so collapsed groups stay closed (features/tab-groups/src/model.rs, apps/desktop/src/shell/tabs/groups.rs, actions.rs).",
       "depends_on": "UP-048 (#64407)",
       "risks": "none",
-      "workstream": "WS-2"
+      "workstream": "WS-2",
+      "rune_pr": "#349"
     }
   ],
   "browser_security_review": {

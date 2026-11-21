@@ -3,7 +3,7 @@
 - **Updated:** 2026-11-21
 - **Upstream `origin/dev` audited:** `f6e0c2d083` -> `b9a60d9d07` (**377** post-14 Nov commits: **143** in ledger + **234** skipped) plus **15** pre-14 Nov carry-over rows (`3751be8138..f6e0c2d083`) and 6 owner-split sub-rows of `UP-095`.
 - **`rune-desktop` `origin/dev` checked:** `6e98fc2b72`.
-- **Total ledger rows:** **164** — **114** have it · **4** partly · **23** not applicable · **22** missing · **1** differs on purpose.
+- **Total ledger rows:** **164** — **115** have it · **4** partly · **23** not applicable · **21** missing · **1** differs on purpose.
 - **Machine-readable twin:** `docs/upstream-sync/ledger.json` (generated together; identical rows).
 - **Status vs. Reviewed:** a row is **have it** only when its code is merged on `dev`; security-review tracking for browser rows lives in the separate **Reviewed** column.
 - **Open PR note column:** informational only (lists unmerged open PRs on `anomalyco/rune-desktop` that touch the same upstream PR; does not change row status).
@@ -16,7 +16,7 @@
 | **BROWSER-UI** | 6 | 0 | 6 | `UP-075`, `UP-115`, `UP-116`, `UP-118`, `UP-120`, `UP-137` |
 | **PREVIEWS** | 0 | 0 | 0 | _done_ |
 | **BROWSER-TOOLS** | 2 | 1 | 3 | `UP-095-TOOLS`, `UP-095-3P-CONTRACT`, `UP-095-PROMPT-GATE` |
-| **WS-2** | 1 | 0 | 1 | `UP-143` |
+| **WS-2** | 0 | 0 | 0 | _done_ |
 | **WS-3** | 7 | 1 | 8 | `PRE-02`, `UP-033`, `UP-060`, `UP-065`, `UP-119`, `UP-136`, `UP-139`, `UP-141` |
 | **WS-4** | 0 | 0 | 0 | _done_ |
 | **WS-5** | 0 | 0 | 0 | _done_ |
@@ -24,7 +24,7 @@
 | **WS-7** | 0 | 0 | 0 | _done_ |
 | **WS-8** | 6 | 0 | 6 | `UP-114`, `UP-122`, `UP-127`, `UP-131`, `UP-135`, `UP-142` |
 | **WS-9** | 0 | 1 | 1 | `UP-095-EXT` |
-| **Total** | **22** | **4** | **26** | |
+| **Total** | **21** | **4** | **25** | |
 
 ## Browser Security Review Status (Tracked Separately in `Reviewed` Column)
 
@@ -205,4 +205,4 @@
 | UP-140 | #65236 (`1f926188ac`)<br>feat(automation): give scheduled code the session's Code Mode tools | 2026-11-20 | **codemode, core, protocol, schema**<br>`packages/core/src/automation/code.ts`, `packages/schema/src/automation.ts`, `packages/protocol/openapi.json` | Expose session Code Mode tools inside scheduled automation code runs on the server. | S | **not applicable** |  | Server-side automation/codemode execution and schema only; no desktop UI changes. | none | none | none |  |
 | UP-141 | #65270 (`f691e443db`)<br>fix(session-ui): space a script's diff cards in the old timeline | 2026-11-20 | **session-ui**<br>`packages/session-ui/src/components/message-part.css` | Apply spacing between script diff cards rendered below an execute block. | S | **missing** |  | Apply matching spacing when implementing UP-136 (#65002) script diff cards. | UP-136 (#65002) | none | WS-3 |  |
 | UP-142 | #65274 (`494e8b6154`)<br>fix(ui): keep focus on a focused tabindex=-1 panel when the page changes around it | 2026-11-20 | **ui**<br>`packages/ui/src/context/focus-rescue.tsx` | Preserve focus on a focused programmatic/non-tabbable panel container when surrounding page nodes change instead of rescuing focus away. | S | **missing** |  | Audit Rune focus rescue / panel focus preservation when surrounding content updates in WS-8. | UP-088 (#64909) | none | WS-8 |  |
-| UP-143 | #65165 (`b9a60d9d07`)<br>fix(app): keep tab groups stable when closing a tab | 2026-11-20 | **app**<br>`packages/app/src/shell/titlebar/tab-groups.ts`, `packages/app/src/shell/titlebar/tab-groups-ui.tsx`, `packages/app/src/shell/titlebar/titlebar.tsx` | Keep side tab group membership and ordering stable when closing a tab inside a group. | S | **missing** |  | Audit features/tab-groups close-tab behavior against upstream #65165 tab-group stability fixes. | UP-048 (#64407) | none | WS-2 |  |
+| UP-143 | #65165 (`b9a60d9d07`)<br>fix(app): keep tab groups stable when closing a tab | 2026-11-20 | **app**<br>`packages/app/src/shell/titlebar/tab-groups.ts`, `packages/app/src/shell/titlebar/tab-groups-ui.tsx`, `packages/app/src/shell/titlebar/titlebar.tsx` | Keep side tab group membership and ordering stable when closing a tab inside a group. | S | **have it** |  | Code merged on dev in rune-desktop #349: remembers automatic tab group order and default colors in Doc.colors via remember_auto_groups / stable_colors (keeping colors and order stable when closing tabs), and App::close_tab selects the next visible row in grouped order so collapsed groups stay closed (features/tab-groups/src/model.rs, apps/desktop/src/shell/tabs/groups.rs, actions.rs). (PR #349) | UP-048 (#64407) | none | WS-2 |  |
