@@ -332,6 +332,8 @@ wrap_dev_tools_message_observer! {
         pending_clears: Arc<Mutex<Vec<PendingClear>>>,
         cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
         passkeys: Arc<crate::passkeys::TabPasskeyGate>,
+        media_gate: Arc<crate::media_gate::TabMediaGate>,
+        prompt_shared: crate::prompts::PromptShared,
         prompts: Arc<crate::prompts::TabPrompts>,
         permissions: Arc<crate::permissions::PermissionTracker>,
         extensions_active: bool,
@@ -537,6 +539,7 @@ wrap_dev_tools_message_observer! {
                 // last message in `obs.send`), matching `chromium.ts:619`.
                 let resume = obs.send.pop();
                 obs.send.extend(self.passkeys.attach_messages(Some(child_sid)));
+                obs.send.extend(self.media_gate.attach_messages(Some(child_sid)));
                 if self.is_preview
                     || self.prompts.agent_driven.load(std::sync::atomic::Ordering::Acquire)
                 {
@@ -560,8 +563,14 @@ wrap_dev_tools_message_observer! {
                 &self.out_tx,
             );
             obs.send.extend(pk_send);
+            let (mg_consumed, mg_ask) = self.media_gate.observe_event(&method, &params, session_id.as_deref());
+            if let Some(ask) = mg_ask {
+                if let Some(deny) = self.hold_media_ask(ask) {
+                    obs.send.push(deny);
+                }
+            }
             self.send_all(browser.as_deref(), obs.send);
-            if pk_consumed || !app_attached {
+            if pk_consumed || mg_consumed || !app_attached {
                 return 1;
             }
             for (frame_id, sid) in obs.excluded {
@@ -607,6 +616,31 @@ wrap_dev_tools_message_observer! {
 }
 
 impl TabCdpObserver {
+    /// Holds a gated `getUserMedia` for the bar, or returns the deny answer to send at once: a
+    /// preview tab, prompts off, an unknown or insecure context, or an embedded frame of another
+    /// origin (the same rules as `TabPermissionHandler::on_request_media_access_permission`).
+    fn hold_media_ask(&self, ask: crate::media_gate::MediaAsk) -> Option<String> {
+        let top = crate::prompts::origin_of(&self.snap.lock().unwrap().url);
+        let origin = ask.origin.as_deref().and_then(crate::prompts::origin_of);
+        let ok = !self.is_preview
+            && self.prompt_shared.enabled.load(std::sync::atomic::Ordering::Relaxed)
+            && origin.is_some()
+            && origin == top
+            && origin.as_deref().is_some_and(crate::prompts::is_secure_origin);
+        let (Some(origin), Some(top), true) = (origin, top, ok) else {
+            return Some(ask.deny_msg);
+        };
+        let prompt = crate::wire::PermissionPrompt {
+            id: self.prompt_shared.next_id(),
+            origin,
+            top_origin: top,
+            kinds: ask.kinds,
+            is_media: true,
+        };
+        self.prompts.hold_media_gate(self.tab_id, prompt, ask.allow_msg, ask.deny_msg, &self.out_tx);
+        None
+    }
+
     fn surface(&self, browser: Option<&Browser>) -> crate::engine::Surface {
         crate::engine::classify_surface(browser, self.is_popup, &self.snap, &self.prompts, &self.cdp_ledger)
     }

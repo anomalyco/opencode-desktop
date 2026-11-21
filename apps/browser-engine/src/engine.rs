@@ -688,6 +688,9 @@ impl EngineManager {
                         ctx.as_ref(),
                         &self.permissions,
                     );
+                    for raw in t.prompts.take_gate_answers() {
+                        t.host.send_dev_tools_message(Some(raw.as_bytes()));
+                    }
                     if allow && ctx_scope.is_none() {
                         self.flush_bfcache_for_default_tabs();
                     }
@@ -1332,6 +1335,7 @@ impl EngineManager {
         let cdp_id_map = Arc::new(Mutex::new(HashMap::new()));
         let cdp_ledger = Arc::new(Mutex::new(crate::cdp_ledger::EngineCdpLedger::default()));
         let passkeys = Arc::new(crate::passkeys::TabPasskeyGate::new(tab_id, agent_driven));
+        let media_gate = Arc::new(crate::media_gate::TabMediaGate::new());
         let internal_picked = Arc::new(Mutex::new(Vec::new()));
         let pending_clears = Arc::new(Mutex::new(Vec::new()));
         let mut observer = TabCdpObserver::new(
@@ -1345,6 +1349,8 @@ impl EngineManager {
             pending_clears.clone(),
             cdp_ledger.clone(),
             passkeys.clone(),
+            media_gate.clone(),
+            self.prompt_shared.clone(),
             prompts.clone(),
             self.permissions.clone(),
             self.extensions.is_some(),
@@ -1356,6 +1362,7 @@ impl EngineManager {
         // released first: CEF may deliver the observer callback inside the send.
         let mut arm = cdp_ledger.lock().unwrap().arm();
         arm.extend(passkeys.attach_messages(None));
+        arm.extend(media_gate.attach_messages(None));
         if agent_driven || is_preview {
             arm.push(passkeys.file_chooser_intercept_msg(true, None));
         }

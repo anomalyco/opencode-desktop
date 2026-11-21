@@ -57,7 +57,7 @@ fn fill_os_random(buf: &mut [u8; 16]) -> bool {
     }
 }
 
-fn random_token() -> String {
+pub fn random_token() -> String {
     let mut bytes = [0u8; 16];
     if !fill_os_random(&mut bytes) {
         let mut h = Sha256::new();
