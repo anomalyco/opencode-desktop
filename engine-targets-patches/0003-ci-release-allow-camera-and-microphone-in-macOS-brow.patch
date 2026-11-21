@@ -1,0 +1,27 @@
+From 2ee2db3995e922517aeadcc88607bf20cd6ec996 Mon Sep 17 00:00:00 2001
+From: LukeParkerDev <10430890+Hona@users.noreply.github.com>
+Date: Sat, 21 Nov 2026 15:07:34 +1000
+Subject: [PATCH] ci(release): allow camera and microphone in macOS browser
+ engine entitlements
+
+---
+ .github/release/opencode-rune-engine.entitlements | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/.github/release/opencode-rune-engine.entitlements b/.github/release/opencode-rune-engine.entitlements
+index f2eb2ecb0..a3defc5f8 100644
+--- a/.github/release/opencode-rune-engine.entitlements
++++ b/.github/release/opencode-rune-engine.entitlements
+@@ -8,5 +8,9 @@
+   <true/>
+   <key>com.apple.security.cs.disable-library-validation</key>
+   <true/>
++  <key>com.apple.security.device.audio-input</key>
++  <true/>
++  <key>com.apple.security.device.camera</key>
++  <true/>
+ </dict>
+ </plist>
+-- 
+2.56.0.windows.4
+
