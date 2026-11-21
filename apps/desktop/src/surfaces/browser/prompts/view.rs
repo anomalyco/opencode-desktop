@@ -390,6 +390,7 @@ pub fn view_modal(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
         }
         if kind == DialogKind::Prompt {
             let field = TextInput::new(&ui.prompt_input)
+                .large()
                 .width(None)
                 .placeholder(t!("rune.browser.prompt.value").to_owned())
                 .label(t!("rune.browser.prompt.value").to_owned())
@@ -515,6 +516,7 @@ pub fn view_modal(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
             );
         }
         let user_field = TextInput::new(&ui.auth_user)
+            .large()
             .width(None)
             .placeholder(t!("rune.browser.prompt.auth.username").to_owned())
             .label(t!("rune.browser.prompt.auth.username").to_owned())
@@ -523,6 +525,7 @@ pub fn view_modal(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
             .build(k)
             .key(AUTH_USER_KEY);
         let pass_field = TextInput::new(&ui.auth_pass)
+            .large()
             .secure()
             .width(None)
             .placeholder(t!("rune.browser.prompt.auth.password").to_owned())
