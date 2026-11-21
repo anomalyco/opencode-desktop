@@ -698,7 +698,7 @@ function panel.render(env: Env, view: View, props: PanelProps): ui.Node
 
     if engine ~= "unsupported" then
         table.insert(items, bar(env, view, tab, state, props.width))
-        chromeH += 44
+        chromeH += 45
     end
 
     local url = tab:Url()
