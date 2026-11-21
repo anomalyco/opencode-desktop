@@ -40,6 +40,7 @@ export type Env = {
     optionsOpen: () -> boolean,
     hasExtensions: (() -> boolean)?,
     extMenuOpen: (() -> boolean)?,
+    serverConnected: (() -> boolean)?,
     -- Active notices and find state per tab.
     refusalNotice: (tab: BrowserTab) -> refusal.Notice?,
     failureNotice: (tab: BrowserTab) -> failure.Notice?,
@@ -214,7 +215,24 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
             ui.box({ key = "browser-site-anchor", pin = { left = -10, top = 0, bottom = 0 }, w = 1 }),
         }))
     else
-        table.insert(items, ui.icon("outline-globe", { size = 16, color = "icon-weak" }))
+        local tAny = tab :: any
+        local liveFav: string? = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
+        local chosen = bar.chosen
+        -- Editing leading icon (`panel.tsx:277-285,987`): search glass for search rows,
+        -- chosen page's favicon, or current page's favicon before typing.
+        if bar.editing and chosen ~= nil and chosen.type == "search" then
+            table.insert(items, ui.icon("magnifying-glass", { size = 16, color = "icon-weak" }))
+        elseif bar.editing and chosen ~= nil and chosen.type == "page" and chosen.page.icon ~= nil and chosen.page.icon ~= "" then
+            table.insert(items, ui.image({ src = chosen.page.icon, w = 16, h = 16 }, {
+                ui.icon("outline-globe", { size = 16, color = "icon-weak" }),
+            }))
+        elseif bar.editing and not bar.typed and bar.field ~= "" and liveFav ~= nil and liveFav ~= "" then
+            table.insert(items, ui.image({ src = liveFav, w = 16, h = 16 }, {
+                ui.icon("outline-globe", { size = 16, color = "icon-weak" }),
+            }))
+        else
+            table.insert(items, ui.icon("outline-globe", { size = 16, color = "icon-weak" }))
+        end
     end
     local body: { ui.Node } = {}
     local textAvail = math.max(80, fieldWidth - 44 - (if zoomed then 48 else 0))
@@ -316,7 +334,12 @@ local function bar(env: Env, view: View, tab: BrowserTab, state: address.View, w
         }, { ui.loader({ size = 16 }) })
     else
         reload = large(view, "browser-reload", "outline-rotate-clockwise", env.I18n:T("action.reload"), page ~= "", function()
-            tab:Reload()
+            local tAny = tab :: any
+            if type(tAny.ReloadFromClick) == "function" then
+                tAny:ReloadFromClick()
+            else
+                tab:Reload()
+            end
         end, { keybind = "browser.reload" })
     end
     local tAny = tab :: any
@@ -324,7 +347,7 @@ local function bar(env: Env, view: View, tab: BrowserTab, state: address.View, w
     local showExt = env.hasExtensions ~= nil and env.hasExtensions()
     local rightCount = 1 + (if env.device then 1 else 0) + (if showExt then 1 else 0)
     local rightW = rightCount * 28 + math.max(0, rightCount - 1) * 4
-    local fieldW = math.max(120, width - 24 - 92 - 8 - 8 - rightW)
+    local fieldW = math.max(40, width - 24 - 92 - 8 - 8 - rightW)
     local rightControls: { ui.Node } = {}
     if showExt then
         table.insert(rightControls, large(
@@ -360,7 +383,7 @@ local function bar(env: Env, view: View, tab: BrowserTab, state: address.View, w
         env.I18n:T("options"),
         true,
         function()
-            env.act("options", tab)
+            env.act("options", tab, width)
         end,
         {
             pressed = env.optionsOpen(),
@@ -743,13 +766,36 @@ function panel.render(env: Env, view: View, props: PanelProps): ui.Node
         chromeH += 36
     end
 
-    -- 5. Page area: failed-load plain page, empty new tab home, or live browser surface.
+    -- 5. Page area: suspended/offline notice, failed-load plain page, empty new tab home, or live browser surface.
     local url = tab:Url()
+    local lowerUrl = string.lower(url)
+    local isServerPreview = string.sub(lowerUrl, 1, 12) == "workspace://" or string.sub(lowerUrl, 1, 11) == "artifact://"
+    local offline = isServerPreview and env.serverConnected ~= nil and not env.serverConnected()
+    local suspended = offline or tab:Refusal() == "browser.proxy.required"
     local blank = (url == "" or url == "about:blank")
         and not tab:Loading()
         and not state.navigating
         and tab:Refusal() ~= "browser.controlled.inherited_permission"
-    if loadErr ~= nil and not tab:Loading() then
+    if suspended then
+        table.insert(items, ui.col({
+            key = "browser-suspended",
+            role = "status",
+            w = "full",
+            grow = 1,
+            minH = 0,
+            px = 24,
+            center = true,
+        }, {
+            ui.text(env.I18n:T(if offline then "preview.offline" else "suspended"), {
+                size = 13,
+                weight = "regular",
+                lineHeight = 20,
+                color = "text-muted",
+                textAlign = "center",
+                wrap = true,
+            }),
+        }))
+    elseif loadErr ~= nil and not tab:Loading() then
         table.insert(items, failed(env, view, tab, loadErr))
     elseif blank and (engine == "ready" or engine == "starting") then
         table.insert(items, home(env, view, tab, props.width))

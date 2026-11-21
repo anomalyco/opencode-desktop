@@ -314,7 +314,7 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
                 key = "browser-viewport-preset-menu",
                 role = "list",
                 label = t("preset"),
-                w = 224,
+                w = math.min(224, math.max(160, (tonumber(data.paneW) or 400) - 16)),
                 pad = 4,
                 radius = 10,
                 fill = "bg-base",
@@ -454,7 +454,7 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
                     side = "bottom",
                     align = "start",
                     gap = 4,
-                    data = { tabId = tab.Id, selected = selected },
+                    data = { tabId = tab.Id, selected = selected, paneW = props.width },
                 })
             end) else nil,
         }, {

@@ -593,10 +593,25 @@ return plugin.defineWindow(function(ctx)
     -- Site information: the page it describes, and its two-view cookie/cache state machine.
     local siteState: site.State = site.initial
     local sitePage: { tab: string, url: string }? = nil
+    local serverConnected = true
+    if Server.Connected ~= nil then
+        Server.Connected:Connect(function(up: boolean)
+            serverConnected = up
+            refresh()
+        end)
+    end
+
+    local function syncSiteDetailed(detailed: boolean)
+        local bAny = Browser :: any
+        if type(bAny.SetSiteDetailed) == "function" then
+            bAny:SetSiteDetailed(detailed)
+        end
+    end
 
     local function siteDispatch(event: site.Event)
         local nextState, effects = site.step(siteState, event)
         siteState = nextState
+        syncSiteDetailed(siteState.detailed)
         for _, effect in effects do
             local described = sitePage
             if effect.type == "notify-clear-failed" then
@@ -672,6 +687,15 @@ return plugin.defineWindow(function(ctx)
             return engineHas("clearCache")
         end,
     }
+
+    local bSig = Browser :: any
+    if bSig.SiteBack ~= nil then
+        bSig.SiteBack:Connect(function()
+            if siteState.detailed then
+                siteDispatch({ type = "details", shown = false })
+            end
+        end)
+    end
 
     ctx:AddPopover({
         id = "site",
@@ -823,6 +847,7 @@ return plugin.defineWindow(function(ctx)
                 canFind = canFind,
                 canHardReload = true,
                 canClearHistory = #visits() > 0,
+                paneWidth = if type(arg) == "number" then arg else nil,
             }
             Popover:Toggle({
                 id = "options",
@@ -952,6 +977,9 @@ return plugin.defineWindow(function(ctx)
         end,
         extMenuOpen = function()
             return Popover:IsOpen("extensions")
+        end,
+        serverConnected = function()
+            return serverConnected
         end,
         refusalNotice = function(tab: BrowserTab)
             return refusalNotices[tab.Id]
