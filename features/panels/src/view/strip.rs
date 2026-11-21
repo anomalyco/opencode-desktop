@@ -25,8 +25,8 @@ const TAB_MIN_W: f32 = 72.0;
 
 /// A tab's words: Desktop's trigger sets `font-variant-numeric: tabular-nums` (`tabs.css:554`),
 /// whose `tnum` in Inter changes letters' advances too (`New tab` 50.797 against 50.891).
-pub const TAB_UI: TextStyle = UI.features("tnum");
-const TAB_SMALL: TextStyle = UI_SMALL.features("tnum");
+pub const TAB_UI: TextStyle = UI.features("\"tnum\"");
+const TAB_SMALL: TextStyle = UI_SMALL.features("\"tnum\"");
 
 /// What a closable tab takes after its label: the wrapper's 8 pt gap, the 20 pt close button and
 /// the 4 pt end padding (`tabs-trigger-wrapper`, `tabs.css`).
@@ -291,10 +291,10 @@ fn tab_natural(entry: &ResolvedEntry, lead: bool) -> f32 {
     10.0 + body + badge + end
 }
 
-/// A tab icon's size: Review's and Files' labels draw theirs `size="small"`, 14 on today's
-/// artwork (`icon.tsx`); a file's badge and the browser's page icon are 16.
-fn tab_icon_size(entry: &ResolvedEntry, glyph: &Icon) -> f32 {
-    if entry.tab.file.is_none() && matches!(glyph.name, "review" | "file-tree") { 14.0 } else { 16.0 }
+/// A tab icon's size: Review (`review/renderer.tsx:188`), Files (`file/renderer.tsx:457`),
+/// file badges, and browser page icons all render at 16 pt (`Icon` default `size="small"` = 16 px).
+fn tab_icon_size(_entry: &ResolvedEntry, _glyph: &Icon) -> f32 {
+    16.0
 }
 
 /// One tab of a pane's strip (`PanelTrigger`): 28 tall, 10 in, 72 at the narrowest, the

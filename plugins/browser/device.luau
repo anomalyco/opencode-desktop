@@ -403,9 +403,9 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
         end
         local zoomed = math.abs(tab:Zoom() - 1) > 0.001
         local d = tab:Viewport()
-        -- Reserve the 14 pt right and bottom resize-handle gutters (`bar.css:195-204`).
+        -- Reserve the 45 pt address bar + 36 pt device bar (81 pt) and 14 pt resize gutters (`bar.css:195-204`).
         local areaW = math.max(1, math.floor(props.width - 14))
-        local areaH = math.max(1, math.floor(props.height - 80 - 14))
+        local areaH = math.max(1, math.floor(props.height - 81 - 14))
         local wNum = if d then d.width else areaW
         local hNum = if d then d.height else areaH
         local wStr = if draftTab == tab.Id and draftW ~= nil then draftW else tostring(wNum)
@@ -423,7 +423,7 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
 
         local selected: string? = if d then (d.preset or "custom") else nil
         local presetLabel = if selected == "custom" then t("custom") elseif selected then t(`device.{selected}`) else t("responsive")
-        local eff = effectiveScale(d, props.width - 14, props.height - 80 - 14)
+        local eff = effectiveScale(d, props.width - 14, props.height - 81 - 14)
         local scalePct = math.floor(eff * 100 + 0.5)
         local scaleLabel = if d and d.scale ~= nil
             then i18n:T("zoom.percent", { percent = math.floor(d.scale * 100 + 0.5) })
@@ -490,7 +490,7 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
                 })
             end) else nil,
         }, {
-            ui.text(scaleLabel, { size = 13, weight = "regular", lineHeight = 16, tabular = true, noWrap = true, color = "text-faint" }),
+            ui.text(scaleLabel, { size = 13, weight = "regular", lineHeight = 16, tracking = -0.04, noWrap = true, color = "text-faint" }),
             ui.icon("viewport-chevron", { size = 16, color = "icon-weak" }),
         })
 
@@ -547,7 +547,7 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
                 radius = 4,
                 center = not editing,
                 align = "center",
-                fill = "surface-1",
+                fill = "bg-base",
                 border = if isInvalid and not zoomed
                     then "status-danger"
                     elseif editing then "border-focus"

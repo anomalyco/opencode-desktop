@@ -14,7 +14,9 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use browser_pane::cookies::database::SnapshotScratch;
 use browser_pane::cookies::format::prepare_for_import;
+use browser_pane::cookies::sources::read_source_cookies;
 use browser_pane::cookies::{CookieRead, ImportFailure, ProfileEvent, read_cookie_file};
 use browser_pane::protocol::WireCookie;
 use rune::time::Instant;
@@ -44,6 +46,8 @@ enum Reading {
 pub struct CookieImport {
     done: Completer,
     read: Reading,
+    /// Another browser's sign-ins (its read failures keep their own names), not a file.
+    browser: bool,
     /// Batches still to send, the requests the engine has yet to answer, and its answers so far.
     batches: Vec<Vec<WireCookie>>,
     waiting: HashSet<u64>,
@@ -55,6 +59,17 @@ pub struct CookieImport {
 
 fn failure(reason: &str) -> Data {
     map([("error", Data::String(reason.into()))])
+}
+
+/// A browser's read failure as official names it (`ReadFailure`: `key`, `access`, `locked`, `read`).
+fn browser_reason(f: ImportFailure) -> &'static str {
+    match f {
+        ImportFailure::Key => "key",
+        ImportFailure::Access => "access",
+        ImportFailure::Locked => "locked",
+        ImportFailure::Storage => "storage",
+        ImportFailure::Read | ImportFailure::Format => "read",
+    }
 }
 
 fn reason(f: ImportFailure) -> &'static str {
@@ -127,6 +142,7 @@ impl App {
             pane.cookie_import = Some(CookieImport {
                 done,
                 read: Reading::Pending(slot),
+                browser: false,
                 batches: Vec::new(),
                 waiting: HashSet::new(),
                 sent: false,
@@ -134,6 +150,50 @@ impl App {
                 failed: 0,
                 deadline: Instant::now() + ANSWER_TIMEOUT,
             });
+        });
+    }
+
+    /// Imports the sign-ins of browser `source`'s profile `profile` (ids from `list_sources`, never
+    /// a path), or with `sites` only those sites' (`profile/index.ts:478-486` `importBrowser`): `#286`'s
+    /// `read_source_cookies` reads it on a worker thread (it copies databases and may ask the OS key
+    /// store), then the cookies take the file's path: `prepare_for_import`, batches, the engine.
+    /// `done` gets what a file import's does, with `error` one of `key`, `access`, `locked`, `read`,
+    /// `storage`, `busy`, `failed`.
+    pub(crate) fn start_browser_import(&mut self, source: String, profile: String, sites: Option<Vec<String>>, done: Completer) {
+        if self.workspace_panes.browser.cookie_import.is_some() {
+            return done.complete(failure("busy"));
+        }
+        let slot: Arc<Mutex<Option<Read>>> = Arc::new(Mutex::new(None));
+        let filled = slot.clone();
+        let waker = (*self.waker).clone();
+        let spawned = std::thread::Builder::new().name("browser-signin-import".into()).spawn(move || {
+            let scratch = SnapshotScratch::new(SnapshotScratch::default_dir());
+            let read = read_source_cookies(&source, &profile, &scratch, sites.as_deref());
+            if let Ok(mut s) = filled.lock() {
+                *s = Some(read);
+            }
+            if let Some(w) = &waker {
+                w();
+            }
+        });
+        if spawned.is_err() {
+            return done.complete(failure("failed"));
+        }
+        let start = !self.use_mock_browser() && !self.browser_unsupported();
+        let pane = &mut self.workspace_panes.browser;
+        if !pane.host.engine_cookies() && start {
+            pane.host.prepare(ANSWER_TIMEOUT);
+        }
+        pane.cookie_import = Some(CookieImport {
+            done,
+            read: Reading::Pending(slot),
+            browser: true,
+            batches: Vec::new(),
+            waiting: HashSet::new(),
+            sent: false,
+            imported: 0,
+            failed: 0,
+            deadline: Instant::now() + ANSWER_TIMEOUT,
         });
     }
 
@@ -154,7 +214,7 @@ impl App {
                     job.read = Reading::Ready(CookieRead { cookies: Vec::new(), skipped: read.skipped + skipped, ..read });
                 }
                 Some(Err(f)) => {
-                    job.done.complete(failure(reason(f)));
+                    job.done.complete(failure(if job.browser { browser_reason(f) } else { reason(f) }));
                     return true;
                 }
                 None if Instant::now() >= job.deadline => {
