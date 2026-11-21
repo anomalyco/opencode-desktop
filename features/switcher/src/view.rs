@@ -14,7 +14,7 @@ use opencode_ui::widgets::DialogSize;
 use rune::{Color, Cx, Direction, El, PointerEvent, Span, Spring, TextStyle, Transition, Tx, col, el, icon, row, text};
 use rune_theme_opencode::{file_icons, icons as ic};
 use opencode_ui::palette::{Elevate as _, Pal};
-use opencode_ui::style::{UI, UI_MED, UI_SMALL, activity_ring, field, touch_controls};
+use opencode_ui::style::{UI, UI_SMALL, activity_ring, field, touch_controls};
 
 use crate::entries::{Action, Entry, active, empty, entries};
 use crate::shown::Empty;
@@ -606,7 +606,7 @@ fn command_keys(p: &Pal, e: &Entry) -> Option<(El, f32)> {
 }
 
 /// A file's row: its coloured `FileIcon` badge, then its folder (`text-muted`, 440, cut first)
-/// and name (`text-base`, 530) as one path (`dialog.css:91-114`).
+/// and name (`text-base`, 440) as one path (`dialog.css:91-114`).
 fn file_main(p: &Pal, path: &str, q: &str) -> El {
     let (dir, name) = (opencode_kit::path::parent(path), opencode_kit::path::basename(path));
     // `getDirectory`: the folder with its slash, a bare "/" for a file at the root.
@@ -629,6 +629,6 @@ fn file_main(p: &Pal, path: &str, q: &str) -> El {
                 .dir(Direction::Ltr)
                 .child(highlighted(&dir, q, UI, p.muted, p.accent).truncate().shrink().min_w(0.0))
                 // The name never gives way (`flex-shrink: 0`).
-                .child(highlighted(name, q, UI_MED, p.text, p.accent).min_w(width_in(name, &match_span(name, q, p.accent).into_iter().collect::<Vec<_>>(), UI_MED, Direction::Ltr))),
+                .child(highlighted(name, q, UI, p.text, p.accent).min_w(width_in(name, &match_span(name, q, p.accent).into_iter().collect::<Vec<_>>(), UI, Direction::Ltr))),
         )
 }

@@ -557,6 +557,24 @@ local function renderInstallReview(env: DialogEnv, view: View, rev: InstallRevie
         if hardBlocked and rev.compatibility.cause ~= nil then
             local ck = `extensions.compat.cause.{rev.compatibility.cause}`
             table.insert(compatBlock, ui.text(i18n:T(ck), DANGER_LINE, { role = "alert" }))
+        elseif rev.compatibility.missing ~= nil and #rev.compatibility.missing > 0 then
+            local names: { string } = {}
+            for _, feat in rev.compatibility.missing do
+                local fk = `extensions.compat.feature.{feat}`
+                local label = i18n:T(fk)
+                if label == fk and feat == "management" then
+                    label = "Managing other extensions"
+                end
+                table.insert(names, if label ~= fk then label else feat)
+            end
+            table.insert(
+                compatBlock,
+                ui.text(
+                    `{i18n:T("extensions.compat.missing")} {table.concat(names, ", ")}`,
+                    MUTED_LINE,
+                    { key = "rev-compat-missing" }
+                )
+            )
         end
         table.insert(body, ui.col({ key = "rev-compat-group", w = "full", gap = 4 }, compatBlock))
     end

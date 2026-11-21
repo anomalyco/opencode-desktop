@@ -42,19 +42,20 @@ pub(in crate::shell::view) fn location(s: &App, p: &Pal, width: f32) -> El {
         .child(crate::icons::badge(s, p, project, &name))
         .child(text(name.clone()).font(UI).color(p.muted).group_color(p.text).truncate_fade())
         .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted));
-    let branch = s.sidebar_inbox.branches.get(dir);
-    let settled = !s.live() || s.sidebar_inbox.branches.settled(dir);
+    let server = crate::servers::runtime::active(s);
+    let branch = s.sidebar_inbox.branches.get(server, dir);
+    let settled = !s.live() || s.sidebar_inbox.branches.settled(server, dir);
     // `workspace/selector.tsx`: the checkout branch opens the location dialog. Local is a
     // destination in the dialog, not a second button next to the branch.
     let branch = project.filter(|p| project_git(&p.id) || branch.is_some()).map(|project| {
         if s.draft_creates() {
             return crate::new_worktree::trigger(s, p, branch.unwrap_or_else(|| t!("session.location.noBranch")));
         }
-        // Match official `NewSessionLocation` (`new-session/view.tsx:318-357`, `checkout-machine.ts`):
+        // Match official `NewSessionLocation` (`new-session/view.tsx:343-364`, `checkout-machine.ts`):
         // wait for `/api/vcs` to settle before showing "No branch", painting a 48×8 skeleton pill
         // only if loading exceeds 250 ms.
         let label = s.draft_base().or(branch).or_else(|| settled.then(|| t!("session.location.noBranch")));
-        let skeleton = label.is_none() && s.sidebar_inbox.branches.skeleton(dir);
+        let skeleton = label.is_none() && s.sidebar_inbox.branches.skeleton(server, dir);
         let a11y = label.unwrap_or_else(|| t!("session.location.worktree"));
         let id = project.id.clone();
         let onboarding = !used();

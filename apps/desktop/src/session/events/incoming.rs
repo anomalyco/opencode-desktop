@@ -57,7 +57,8 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             crate::connect::picker_reads::refresh(s);
             s.windows_forgotten();
             crate::session_state::reconnected(s, tx);
-            s.sidebar_inbox.branches.reconnected();
+            let active_server = crate::servers::runtime::active(s).clone();
+            s.sidebar_inbox.branches.reconnected(&active_server);
             reconnect::back(s);
             // Terminals that failed under the old connection attach again (`server.connected`).
             s.kernel.slots.get_mut(&crate::terminal::TERMINAL).connections += 1;
@@ -66,7 +67,6 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.stream_back();
             s.check_sends();
             s.resync_view();
-            let active_server = crate::servers::runtime::active(s).clone();
             crate::settings::pages::extensions::on_server_reconnected(s, &active_server);
             #[cfg(not(target_arch = "wasm32"))]
             crate::surfaces::browser::rpc::on_sse_connected(s, &active_server);
