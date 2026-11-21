@@ -362,6 +362,9 @@ pub enum EngineMsg {
         cookies: bool,
         #[serde(default)]
         agent_files: bool,
+        /// The engine enforces the WebAuthn / passkey gate (`TabPasskeyGate`) and emits `PasskeyRefused`.
+        #[serde(default)]
+        passkeys: bool,
     },
     ProfileCookies { request_id: u64, cookies: Vec<WireCookie> },
     ProfileCookiesImported { request_id: u64, imported: u32, failed: u32 },
@@ -401,6 +404,16 @@ pub enum EngineMsg {
     /// A user-activated non-agent page click on an allow-listed app scheme (`slack:`, `vscode:`,
     /// `mailto:`, etc.) was cancelled in CEF and forwarded to the desktop review bar.
     AppLinkBlocked { tab_id: u64, url: String },
+    /// A site asked for a passkey or security key (`navigator.credentials.{get,create}` with
+    /// `publicKey`) and the tab's passkey gate refused it (`webauthn-gate.ts`).
+    PasskeyRefused {
+        tab_id: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin: Option<String>,
+        #[serde(default)]
+        main_frame: bool,
+        kind: String,
+    },
     FileChooserBlocked { tab_id: u64 },
     FindResult { tab_id: u64, count: u32, active_match: u32, final_update: bool },
     ContextMenu { tab_id: u64, menu: PageContextMenu },

@@ -36,6 +36,7 @@ mod favicon;
 mod frame_authority;
 mod find;
 mod menu;
+mod passkeys;
 mod preview;
 mod profile;
 mod prompts;

@@ -149,18 +149,21 @@ pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option
                 .h(28.0)
                 .motion(crate::panels::view::SIDE_SPRING)
         }));
+    // Official `--session-header-inset-end`: `10px` when vertical tabs / Inbox, `12px` in Top tabs
+    // (`packages/app/src/shell/shell.tsx:217`, `session-identity-header.tsx:57`, `.css:97`).
+    let inset_end = if s.tab_layout().has_sidebar() { 10.0 } else { 12.0 };
     row()
         .key(header_key(scope))
         .h(48.0)
         .pl(10.0)
-        .pr(12.0)
+        .pr(inset_end)
         .center_y()
         .window_drag()
         .motion(crate::panels::view::SIDE_SPRING)
         .child(collapsed_slot(s))
         .child(crumbs)
         .child(actions)
-        .children(scope.is_empty().then(|| el().key(ANCHOR).size(0.0, 28.0).pin(None, Some(10.0), Some(12.0), None)))
+        .children(scope.is_empty().then(|| el().key(ANCHOR).size(0.0, 28.0).pin(None, Some(10.0), Some(inset_end), None)))
 }
 
 /// `SessionHeaderSeparator`: a 13 pt `/` in `icon-faint`, `before` and `after` points of margin.

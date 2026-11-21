@@ -20,11 +20,12 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 164,
   "status_counts": {
-    "have it": 131,
+    "have it": 133,
     "partly": 2,
     "not applicable": 23,
-    "missing": 7,
-    "differs on purpose": 1
+    "missing": 4,
+    "differs on purpose": 1,
+    "done": 1
   },
   "rows": [
     {
@@ -2282,8 +2283,8 @@
       ],
       "summary": "Drop translations left unused after retiring the Projects sidebar mode.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Assigned to BROWSER-UI agent (check behaviour vs pure strings; unified 63-locale sync remains held awaiting orchestrator go-ahead).",
+      "status": "done",
+      "status_evidence": "Dropped unused sidebar.organize.{projects,showLess,empty} keys across all 63 official and 7 fill locale catalogs (crates/opencode-i18n/locales/{official,fill}/*.json), matching anomalyco/opencode#64728 (3dc66ab6e5).",
       "depends_on": "UP-074 (#64727)",
       "risks": "none",
       "workstream": "BROWSER-UI",
@@ -3714,8 +3715,8 @@
       ],
       "summary": "Draw the focused timeline viewport ring on the visible session frame above header/composer with 10 px rounded corners instead of being clipped by the fade mask.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Timeline scroll viewport currently uses standard inset focus ring without 10 px outer-frame overlay above header/composer fade.",
+      "status": "have it",
+      "status_evidence": "The timeline's ring is drawn by an overlay painted after the header and the composer dock (Rune El::focus_ring_for, #1313), over the timeline's visible area, 2 in, keyboard only, with the session frame's 10 pt corners (PR #387)",
       "depends_on": "UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"
@@ -3899,8 +3900,8 @@
       ],
       "summary": "Prevent focus-ring clipping on timeline and settings containers and stop showing misleading outer focus rings when nested controls are focused.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Audit timeline and settings containers/navigation controls for focus-ring clipping and misleading outer rings in features/settings and crates/session-view.",
+      "status": "have it",
+      "status_evidence": "Settings pages are not Tab stops of their own (tab_index -1, no ring); About's version ring is the shared ring around its hover fill, and it holds 'Copied' up; an open tool group's label draws its soft edge only while stuck, so it doesn't paint over its first row's ring at rest (PR #387)",
       "depends_on": "UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"

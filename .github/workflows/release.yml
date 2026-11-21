@@ -604,7 +604,7 @@ jobs:
           spctl --assess --type execute --verbose=2 "$check/dmg/OpenCode (Rune).app"
           diff -qr "$check/dmg/OpenCode (Rune).app" "$check/update/OpenCode (Rune).app"
           OPENCODE_RUNE_SMOKE_HEADLESS=1 apps/desktop/scripts/smoke-app.sh "$check/dmg/OpenCode (Rune).app"
-          hdiutil detach -quiet "$check/dmg"
+          hdiutil detach -quiet "$check/dmg" || hdiutil detach -force -quiet "$check/dmg"
           codesign -dv "$check/update/OpenCode (Rune).app" 2>&1 | grep -E '^(Identifier|TeamIdentifier|Authority=Developer)' >> "$GITHUB_STEP_SUMMARY"
 
   # The publisher every signed file carries must be the one the updater checks, read from the app.

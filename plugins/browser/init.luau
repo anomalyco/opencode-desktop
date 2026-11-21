@@ -43,6 +43,7 @@ return plugin.defineWindow(function(ctx)
     local Popover = ctx:GetService("Popover")
     local Dialog = ctx:GetService("Dialog")
     local Menu = ctx:GetService("Menu")
+    local Images = ctx:GetService("Images")
     local Workspace = ctx:GetService("Workspace")
 
     -- The window's address field, find field, and extension store link field.
@@ -812,6 +813,15 @@ return plugin.defineWindow(function(ctx)
                 gap = 4,
                 data = menuData :: any,
             })
+        elseif what == "extensions" then
+            Popover:Toggle({
+                id = "extensions",
+                anchorKey = "browser-extensions",
+                side = "bottom",
+                align = "end",
+                gap = 4,
+                data = { tabId = tab.Id } :: any,
+            })
         elseif what == "site" then
             local url = pageUrl(tab)
             if sitePage == nil or sitePage.tab ~= tab.Id or sitePage.url ~= url then
@@ -850,6 +860,52 @@ return plugin.defineWindow(function(ctx)
         end,
     })
 
+    local function enabledExtActions(): { extensions.ToolbarAction }
+        if not Server:IsLocal() then
+            return {}
+        end
+        local bAny = Browser :: any
+        if type(bAny.ExtActions) ~= "function" then
+            return {}
+        end
+        local raw = extensionsStore:Get()
+        local stored = if type(raw) == "table" then raw else {}
+        local ok, res = pcall(function()
+            return bAny:ExtActions(stored)
+        end)
+        if ok and type(res) == "table" then
+            return res :: any
+        end
+        return {}
+    end
+
+    ctx:AddPopover({
+        id = "extensions",
+        title = I18n:T("settings.extensions.title"),
+        render = function(view, props)
+            local tabId = if type(props.data) == "table" then (props.data :: any).tabId else nil
+            return extensions.renderToolbarMenu(
+                enabledExtActions(),
+                I18n,
+                view,
+                function(item)
+                    Popover:Close("extensions")
+                    local bAny = Browser :: any
+                    if type(bAny.ExtClick) == "function" then
+                        local optUrl = if item.options and item.options ~= "" and (item.popup == nil or item.popup == "")
+                            then `chrome-extension://{item.id}/{item.options}`
+                            else nil
+                        bAny:ExtClick(item.id, tabId, optUrl)
+                    end
+                end,
+                function()
+                    Popover:Close("extensions")
+                    act("settings", if tabId then Browser:Get(tabId) else nil)
+                end
+            )
+        end,
+    })
+
     local env: panel.Env = {
         device = if device then device.render else nil,
         deviceOpen = if device then device.isOpen else nil,
@@ -871,6 +927,12 @@ return plugin.defineWindow(function(ctx)
         end,
         optionsOpen = function()
             return Popover:IsOpen("options")
+        end,
+        hasExtensions = function()
+            return #enabledExtActions() > 0
+        end,
+        extMenuOpen = function()
+            return Popover:IsOpen("extensions")
         end,
         refusalNotice = function(tab: BrowserTab)
             return refusalNotices[tab.Id]
@@ -1348,6 +1410,7 @@ return plugin.defineWindow(function(ctx)
     local importTarget: { browser: string, profile: string, label: string }? = nil
     local importFailure: settings.ImportMessage? = nil
     local importResults: { [string]: settings.ImportMessage } = {}
+    local importIcons: { [string]: ImageId | false } = {}
     local extDialogState: extensions.DialogState = {
         busy = nil,
         installingId = nil,
@@ -1681,7 +1744,9 @@ return plugin.defineWindow(function(ctx)
             end
             return settings.renderImportDialog(I18n, view, target.label, importFailure, function()
                 local bAny = Browser :: any
-                local res = if type(bAny.HistoryImportProfile) == "function"
+                local res = if type(bAny.HistoryImportProfileAsync) == "function"
+                    then bAny:HistoryImportProfileAsync(target.browser, target.profile)
+                    elseif type(bAny.HistoryImportProfile) == "function"
                     then bAny:HistoryImportProfile(target.browser, target.profile)
                     else nil
                 local imported = if type(res) == "table" and type(res.imported) == "number" then res.imported else nil
@@ -1740,6 +1805,27 @@ return plugin.defineWindow(function(ctx)
             Dialog:Open("clear-data")
         end,
         importSources = listImportSources,
+        importIcon = function(browserId: string): ImageId?
+            -- Each browser's icon is read once a window, and one without an icon is not asked again.
+            local known = importIcons[browserId]
+            if known ~= nil then
+                return if known == false then nil else known :: ImageId
+            end
+            local bAny = Browser :: any
+            local image: ImageId? = nil
+            if type(bAny.HistoryImportIcon) == "function" then
+                local ok, kind, data, width, height = pcall(function()
+                    return bAny:HistoryImportIcon(browserId)
+                end)
+                if ok and kind == "rgba" then
+                    image = Images:FromRgba(data, width, height)
+                elseif ok and kind == "png" then
+                    image = Images:FromEncoded(data)
+                end
+            end
+            importIcons[browserId] = if image ~= nil then image else false
+            return image
+        end,
         importMessage = function(browserId: string, profileId: string): settings.ImportMessage?
             return importResults[`{browserId}\n{profileId}`]
         end,

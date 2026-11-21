@@ -144,11 +144,11 @@ fn build<S: PopupHost + 'static>(
                     .checked(i.checked)
                     .danger(i.danger)
                     .disabled(!i.enabled);
-                let ink = if !i.enabled { p.faint } else if i.danger { p.danger } else { p.text };
-                // The location card's rows draw Desktop's `Icon` at its own 16.
+                let ink = if i.danger { p.danger } else { p.text };
+                // Menu items draw Desktop's `<Icon>` at its default `size="normal"` (16 pt, `icon.tsx:58`).
                 let o = match i.glyph {
                     Some(Glyph::Ink(g)) if menu.card => o.lead(icon(g, 16.0).color(p.icon_muted)),
-                    Some(Glyph::Ink(g)) => o.lead(icon(g, 14.0).color(ink)),
+                    Some(Glyph::Ink(g)) => o.lead(icon(g, 16.0).color(ink)),
                     Some(Glyph::Weak(g)) => o.lead(icon(g, 14.0).color(crate::palette::token(p.dark, "icon-weak-base").unwrap_or(p.icon_faint))),
                     Some(Glyph::App(id)) => match rune_theme_opencode::app_icons::named(id, p.dark) {
                         Some(g) => o.lead(icon(g, 16.0)),

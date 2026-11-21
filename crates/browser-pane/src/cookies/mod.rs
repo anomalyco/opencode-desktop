@@ -17,6 +17,8 @@ pub mod firefox;
 pub mod format;
 pub mod host;
 #[cfg(feature = "engine")]
+pub mod icons;
+#[cfg(feature = "engine")]
 pub mod safari;
 pub mod sites;
 #[cfg(feature = "engine")]

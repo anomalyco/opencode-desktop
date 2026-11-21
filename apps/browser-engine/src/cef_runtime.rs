@@ -242,15 +242,21 @@ wrap_app! {
             // background fetches, which cost network, disk and CPU while nothing is open.
             cmd.append_switch(Some(&"disable-component-update".into()));
             cmd.append_switch(Some(&"disable-background-networking".into()));
-            // Disable Cast/DIAL discovery (UDP 5353/1900) and mDNS local-IP responder (UDP 5353),
-            // and enforce `disable_non_proxied_udp` globally so `NetworkService` never opens
+            // Disable Cast/DIAL discovery (UDP 5353/1900), mDNS local-IP responder (UDP 5353),
+            // and `ConnectionAllowlists` (Spotify CEF 156.0.26 ships with `dcheck_always_on`,
+            // where `services/network/network_context.cc:3616` hits `DCHECK(matcher.has_value())`
+            // `0x80000003` in the NetworkService helper when a response's `Connection-Allowlist`
+            // pattern fails `SimpleUrlPatternMatcher::Create`; previews stay confined by
+            // `TabRequestHandler`, strict CSP, isolated contexts, and `disable_non_proxied_udp`).
+            // Also enforce `disable_non_proxied_udp` globally so `NetworkService` never opens
             // non-loopback UDP listeners (avoiding Windows Defender Firewall and macOS incoming
             // connection prompts) and never exposes local LAN IPs to pages.
-            const DISABLED_NET_FEATURES: [&str; 4] = [
+            const DISABLED_NET_FEATURES: [&str; 5] = [
                 "MediaRouter",
                 "DialMediaRouteProvider",
                 "CastMediaRouteProvider",
                 "WebRtcHideLocalIpsWithMdns",
+                "ConnectionAllowlists",
             ];
             let existing = CefString::from(&cmd.switch_value(Some(&"disable-features".into()))).to_string();
             cmd.remove_switch(Some(&"disable-features".into()));

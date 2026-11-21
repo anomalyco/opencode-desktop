@@ -8,6 +8,7 @@ use std::cell::Cell;
 
 use opencode_i18n::t;
 use rune::{El, Icon, TextStyle, Tx, col, el, icon, row, text};
+use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::Pal;
 
 use crate::host::SettingsHost;
@@ -55,6 +56,7 @@ pub fn view<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
         .role("button")
         .label(if copied { t!("common.copied") } else { t!("ui.message.copy") })
         .help(if copied { t!("common.copied") } else { t!("ui.message.copy") })
+        .help_open(copied)
         .h(24.0)
         .my(-2.0)
         .px(6.0)
@@ -63,6 +65,8 @@ pub fn view<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
         .center_y()
         .hover_group()
         .hover(p.layer2)
+        // The ring follows the hover fill, which reaches past the label (`settings.css`, opencode#65215).
+        .focus_default(p)
         .on_press_tx(move |s: &mut H, tx: &mut Tx| copy_version(s, &copy, tx))
         .child(text(label).font(BODY).color(p.muted).group_color(p.text));
     let site = text(t!("settings.about.website"))

@@ -114,9 +114,22 @@ impl session_view::TimelineHost for App {
         self.running.contains(session)
             || (rune::Tracked::untracked(&self.transcripts).get(session).is_some_and(|t| self.timeline_busy(t)) && !self.stops.has(session))
     }
-    fn timeline_busy(&self,t:&Transcript)->bool {
-        let last=t.messages.iter().rev().find(|m| !matches!(m,Message::Notice(_)) && !matches!(self.unsent.state(m.id()),Some(send_failed::State::Waiting|send_failed::State::Unconfirmed|send_failed::State::Failed)));
-        matches!(last,Some(Message::User{..})) || matches!(last,Some(Message::Assistant(a)) if a.completed.is_none() && a.error.is_none())
+    fn timeline_busy(&self, t: &Transcript) -> bool {
+        if self.live() {
+            if self.running.contains(&t.session)
+                || self.queue.starts.has(&t.session)
+                || self.pending.iter().any(|p| p.session() == t.session)
+            {
+                return true;
+            }
+            // Keep optimistic Working for a freshly sent prompt before `execution.started` lands,
+            // but never treat an idle server session's uncompleted assistant turn as busy forever
+            // (matches official `message-timeline.tsx:549` checking live `session.status`).
+            let last = t.messages.iter().rev().find(|m| !matches!(m, Message::Notice(_)) && !matches!(self.unsent.state(m.id()), Some(send_failed::State::Waiting | send_failed::State::Unconfirmed | send_failed::State::Failed)));
+            return matches!(last, Some(Message::User { .. }));
+        }
+        let last = t.messages.iter().rev().find(|m| !matches!(m, Message::Notice(_)) && !matches!(self.unsent.state(m.id()), Some(send_failed::State::Waiting | send_failed::State::Unconfirmed | send_failed::State::Failed)));
+        matches!(last, Some(Message::User { .. })) || matches!(last, Some(Message::Assistant(a)) if a.completed.is_none() && a.error.is_none())
     }
     fn working_label_for(&self, session: &str) -> Option<&'static str> {
         self.queue.starts.status(session)

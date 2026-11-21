@@ -367,7 +367,12 @@ pub(super) fn poll_commands(
         }
         let host_id = cmd.phase.target_host_tab();
         let mid_guard_fail = if !cmd.is_dialog {
-            if let Some(tab) = app.workspace_panes.browser.host.tab(host_id) {
+            if let Some(site) = app.workspace_panes.browser.host.take_agent_passkey_refused(host_id) {
+                Some(Outcome::fail(
+                    failure_code::SIGN_IN_REQUIRED,
+                    browser_pane::prompts::agent_passkey_refusal_message((!site.is_empty()).then_some(site.as_str())),
+                ))
+            } else if let Some(tab) = app.workspace_panes.browser.host.tab(host_id) {
                 if tab.prompts.dialog.open().is_some() {
                     Some(Outcome::fail(
                         failure_code::OPERATION_FAILED,

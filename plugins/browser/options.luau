@@ -41,7 +41,7 @@ local function menuItem(
     fitWidth: boolean?
 ): ui.Node
     local textExtra: { [string]: any } = if fitWidth
-        then { color = if enabled then "text-chrome" else "text-faint", grow = 1 }
+        then { color = if enabled then "text-chrome" else "text-faint" }
         else { color = if enabled then "text-chrome" else "text-faint", grow = 1, shrink = true, minW = 0, truncate = true }
     local children: { ui.Node } = {
         ui.text(label, ROW_TEXT, textExtra),
@@ -54,6 +54,7 @@ local function menuItem(
         role = "button",
         label = label,
         w = if fitWidth then nil else "full",
+        justify = if fitWidth then "between" else nil,
         h = 28,
         pl = 12,
         pr = 6,

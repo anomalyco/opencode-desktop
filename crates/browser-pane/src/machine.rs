@@ -445,6 +445,7 @@ pub(crate) enum EngineCaps {
         frame_authority: bool,
         cookies: bool,
         agent_files: bool,
+        passkeys: bool,
     },
 }
 
@@ -503,6 +504,11 @@ impl EngineCaps {
 
     pub(crate) fn agent_files(self) -> bool {
         matches!(self, Self::Known { agent_files: true, .. })
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn passkeys(self) -> bool {
+        matches!(self, Self::Known { passkeys: true, .. })
     }
 }
 

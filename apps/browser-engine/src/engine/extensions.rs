@@ -706,10 +706,13 @@ impl EngineManager {
             | M::SyncRemoteCookies { .. }
             | M::Shutdown => return false,
             // Exempt tab-addressed lifecycle, cleanup, layout/zoom, human input, prompt answers,
-            // and `OpenTab`/`Navigate` (guarded by destination pre-check + Guard 2 commit check so
-            // a controlled tab on a granted origin can always navigate away to an ungranted site).
+            // and `OpenTab`/`Navigate`/`Back`/`Forward` (guarded by destination pre-check +
+            // `refuse_history_nav_if_inherited` + Guard 2 commit check so a controlled tab already
+            // on a granted origin can leave to any ungranted site via Navigate, Back, or Forward).
             M::OpenTab { .. }
             | M::Navigate { .. }
+            | M::Back { .. }
+            | M::Forward { .. }
             | M::CloseTab { .. }
             | M::FocusTab { .. }
             | M::Stop { .. }
@@ -744,9 +747,7 @@ impl EngineManager {
             | M::SiteCookies { tab_id, request_id }
             | M::ClearSite { tab_id, request_id }
             | M::ClearSiteCache { tab_id, request_id } => (*tab_id, Some(*request_id), false, false),
-            M::Back { tab_id } | M::Forward { tab_id } | M::Reload { tab_id, .. } => {
-                (*tab_id, None, false, false)
-            }
+            M::Reload { tab_id, .. } => (*tab_id, None, false, false),
             M::Find { tab_id, .. } => (*tab_id, None, true, false),
             M::SetInspect { tab_id, enabled: true }
             | M::HighlightNode { tab_id, backend_node_id: Some(_) } => (*tab_id, None, false, false),
@@ -789,8 +790,21 @@ impl EngineManager {
         if t.isolated || t.preview.is_some() || !t.prompts.agent_driven.load(Ordering::Acquire) {
             return false;
         }
-        let Some(target) = crate::permissions::history_entry_url(&t.host, delta) else {
+        let can_nav = if delta < 0 {
+            t.browser.can_go_back() != 0
+        } else {
+            t.browser.can_go_forward() != 0
+        };
+        if !can_nav {
             return false;
+        }
+        let Some(target) = crate::permissions::history_entry_url(&t.host, delta) else {
+            // Fail closed if Chromium reports a history entry whose URL could not be inspected.
+            let _ = self.out_tx.send(EngineMsg::ControlledPermissionRefused {
+                tab_id,
+                url: None,
+            });
+            return true;
         };
         if !self.permissions.has_inherited_default_grant(&target) {
             return false;
@@ -827,6 +841,10 @@ impl EngineManager {
             t.prompts.user_reclaimed.store(false, Ordering::Release);
             t.snap.lock().unwrap().agent_driven = agent_driven;
             if agent_driven {
+                // Agent-driven tabs permanently refuse WebAuthn/passkeys (`chromium.ts:834-845`).
+                for raw in t.passkeys.enforce_messages() {
+                    t.host.send_dev_tools_message(Some(raw.as_bytes()));
+                }
                 // Agent-driven tabs may never navigate to `chrome-extension://` pages.
                 t.allowed_ext_ids.lock().unwrap().clear();
                 if !was && !t.isolated && t.preview.is_none() {
