@@ -354,6 +354,7 @@ pub(super) fn toggle_button(s: &App, p: &Pal, open: bool) -> El {
         .help(t!("command.sidebar.toggle")).help_keys(crate::keymap::Bind::Sidebar.keycaps())
         .size(28.0, 28.0)
         .radius(6.0)
+        .cursor(Cursor::Pointer)
         .focus_inset(p)
         .center()
         .hover(p.hover)
