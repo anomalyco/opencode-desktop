@@ -179,7 +179,7 @@ fn entry_form<H: ConnectHost + 'static>(s: &H, p: &Pal, label: String, placehold
         .on_submit(|s: &mut H, tx: &mut Tx| submit_entry(s, tx));
     let field = if let Some(message) = &error { field.description(message) } else { field };
     let field = field.build(kit(p)).key("connect-entry");
-    let mut cont = ui::button(opencode_i18n::t!("common.continue"), ButtonVariant::Contrast)
+    let mut cont = ui::button(opencode_i18n::t!("common.continue"), ButtonVariant::Submit)
         .disabled(submitting)
         .on_press_tx(|s: &mut H, tx: &mut Tx| submit_entry(s, tx))
         .build(kit(p))
@@ -326,7 +326,7 @@ pub(super) fn browser<H: ConnectHost + 'static>(s: &H, p: &Pal) -> El {
             if shown && !open.entry.text.trim().is_empty() && *paste != conn::Paste::Accepted {
                 return e.child(
                     actions.child(
-                        ui::button(opencode_i18n::t!("common.continue"), ButtonVariant::Contrast)
+                        ui::button(opencode_i18n::t!("common.continue"), ButtonVariant::Submit)
                             .disabled(locked)
                             .on_press_tx(|s: &mut H, tx: &mut Tx| submit_redirect(s, tx))
                             .build(kit(p))

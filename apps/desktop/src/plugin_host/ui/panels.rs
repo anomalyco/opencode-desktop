@@ -385,6 +385,12 @@ pub fn focused(app: &mut App, plugin: &str, session: &str, tab: &str, restored: 
 
 /// Tab `tab` left `session`'s strip: its panel's `onClose` runs.
 pub fn closed(app: &mut App, plugin: &str, session: &str, tab: &str, tx: &mut Tx) {
+    #[cfg(not(target_arch = "wasm32"))]
+    if plugin == crate::surfaces::browser::PLUGIN
+        && let Ok(id) = tab.parse::<u64>()
+    {
+        app.workspace_panes.browser.closing_tabs.insert(id);
+    }
     let Some((i, all)) = panels(app, plugin) else { return };
     let Some(k) = owner(&all, tab) else { return };
     let Some(f) = all[k].on_close.clone() else { return };

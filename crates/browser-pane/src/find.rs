@@ -99,6 +99,10 @@ impl crate::BrowserHost {
         self.caps.context_menu()
     }
 
+    pub fn engine_menu_extras(&self) -> bool {
+        self.caps.menu_extras()
+    }
+
     pub fn engine_partitions(&self) -> bool {
         self.caps.partitions()
     }

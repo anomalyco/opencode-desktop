@@ -743,6 +743,8 @@ wrap_request_handler! {
         snap: Arc<Mutex<TabSnapshot>>,
         prompt_shared: crate::prompts::PromptShared,
         prompts: Arc<crate::prompts::TabPrompts>,
+        input_guard: Arc<Mutex<crate::input_guard::InputGuard>>,
+        emulation_scale: Arc<std::sync::atomic::AtomicU32>,
         permissions: Arc<crate::permissions::PermissionTracker>,
         context_scope_id: Option<String>,
         diagnostics: Arc<crate::diagnostics::TabDiagnostics>,
@@ -1123,6 +1125,11 @@ wrap_request_handler! {
                 let msg = serde_json::json!({ "id": crate::frame_authority::INTERNAL_ID_BASE + 1, "method": "Tracing.end", "params": {} }).to_string();
                 host.send_dev_tools_message(Some(msg.as_bytes()));
             }
+            self.emulation_scale.store(1.0f32.to_bits(), Ordering::Release);
+            self.input_guard
+                .lock()
+                .unwrap()
+                .reset_all(self.tab_id, &self.out_tx, "The page crashed before input completed.");
             let err_str = error_string.map(CefString::to_string).unwrap_or_default();
             let (url, was_loading) = {
                 let mut s = self.snap.lock().unwrap();

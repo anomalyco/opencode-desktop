@@ -447,6 +447,7 @@ pub(crate) enum EngineCaps {
         agent_files: bool,
         passkeys: bool,
         trace_isolation: bool,
+        menu_extras: bool,
     },
 }
 
@@ -514,6 +515,10 @@ impl EngineCaps {
 
     pub(crate) fn trace_isolation(self) -> bool {
         matches!(self, Self::Known { trace_isolation: true, .. })
+    }
+
+    pub(crate) fn menu_extras(self) -> bool {
+        matches!(self, Self::Known { menu_extras: true, .. })
     }
 }
 

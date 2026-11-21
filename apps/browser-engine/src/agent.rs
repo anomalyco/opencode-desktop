@@ -97,6 +97,7 @@ pub fn handle_upload_files(
 #[allow(clippy::too_many_arguments)]
 pub fn handle_drop_files(
     t: &ManagedTab,
+    permissions: &crate::permissions::PermissionTracker,
     profile_dir: &Path,
     tab_id: u64,
     request_id: u64,
@@ -117,6 +118,12 @@ pub fn handle_drop_files(
         send_err(out_tx, tab_id, request_id, "Agent browser tools cannot drop files onto extension pages or tabs with extension frames.");
         return;
     }
+    if crate::cdp_ledger::grant_gated(t)
+        && crate::cdp_ledger::granted_origin(t, permissions, &Reach::WholeTab).is_some()
+    {
+        send_err(out_tx, tab_id, request_id, crate::permissions::INHERITED_PERMISSION_MSG);
+        return;
+    }
     let verified = match verify_upload_paths(profile_dir, tab_id, files) {
         Ok(paths) => paths,
         Err(err) => {
@@ -124,26 +131,58 @@ pub fn handle_drop_files(
             return;
         }
     };
-    let drag_data = json!({ "items": [], "files": verified, "dragOperationsMask": 1 });
-    for kind in ["dragEnter", "dragOver"] {
-        let msg_id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
-        let raw = json!({
-            "id": msg_id,
-            "method": "Input.dispatchDragEvent",
-            "params": { "type": kind, "x": x, "y": y, "data": drag_data },
-        })
-        .to_string();
-        let _ = t.host.send_dev_tools_message(Some(raw.as_bytes()));
+    if t.prompts.is_covered() {
+        send_err(
+            out_tx,
+            tab_id,
+            request_id,
+            "The user is answering a prompt over this page. Wait for them, or use another tab; no input was sent.",
+        );
+        return;
     }
-    dispatch_cdp(
-        t,
+    let drag_data = json!({ "items": [], "files": verified, "dragOperationsMask": 1 });
+    // Route all 3 `Input.dispatchDragEvent` steps through the serialized `InputGuard` atomically
+    // so `DropFiles` gets the exact same hit-test, frame-owner, scroll-offset, emulation-scale,
+    // inherited-grant, and prompt-cover enforcement as `TypedCdpCall` (`chromium.ts:2025-2034`;
+    // READER-12 Blocker #3 + Round-2 Should-Fix #4).
+    t.cdp_ledger.lock().unwrap().app_attached = true;
+    let enqueued = {
+        let mut g = t.input_guard.lock().unwrap();
+        let group_id = g.alloc_group_id();
+        let calls = [
+            ("dragEnter", true),
+            ("dragOver", true),
+            ("drop", false),
+        ]
+        .into_iter()
+        .map(|(kind, silent)| crate::input_guard::InputCall {
+            request_id,
+            method: "Input.dispatchDragEvent".into(),
+            params: json!({ "type": kind, "x": x, "y": y, "data": drag_data }),
+            silent,
+            group_id,
+        })
+        .collect();
+        g.enqueue_group(calls)
+    };
+    if let Err(msg) = enqueued {
+        send_err(out_tx, tab_id, request_id, msg);
+        return;
+    }
+    crate::input_guard::pump(
         tab_id,
-        request_id,
-        "Input.dispatchDragEvent",
-        json!({ "type": "drop", "x": x, "y": y, "data": drag_data }),
-        None,
-        // The drop lands in whatever frame is under the point.
-        Reach::WholeTab,
+        &t.input_guard,
+        &t.browser,
+        &t.host,
+        t.is_popup,
+        t.isolated,
+        t.preview.is_some(),
+        &t.snap,
+        &t.prompts,
+        permissions,
+        &t.cdp_ledger,
+        &t.emulation_scale,
+        &t.cdp_id_map,
         next_cdp_id,
         out_tx,
     );

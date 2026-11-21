@@ -78,6 +78,13 @@ impl BrowserTab {
         let px = |pt: f32| (pt.round().max(1.0) * self.scale).ceil() as u32;
         (px(self.viewport_pt.0), px(self.viewport_pt.1))
     }
+
+    /// Active `(emulation_scale, is_mobile)` for pointer resolution (`chromium.ts:2486-2499`).
+    pub fn emulation_info(&self) -> (f64, bool) {
+        self.device.as_ref().map_or((1.0, false), |d| {
+            (f64::from(d.fit([self.viewport_pt.0, self.viewport_pt.1])).clamp(0.25, 4.0), d.profile != crate::device::Profile::Desktop)
+        })
+    }
 }
 
 /// A tab's downloads at most (the engine's `downloads::MAX_TAB_FILES`).
@@ -889,24 +896,9 @@ impl BrowserHost {
         for msg in mail {
             match msg {
                 EngineMsg::Ready {
-                    downloads,
-                    policy,
-                    prompts,
-                    popups,
-                    find,
-                    context_menu,
-                    partitions,
-                    remote_proxy,
-                    agent_tools,
-                    preview,
-                    extensions,
-                    permission_sync,
-                    frame_authority,
-                    cookies,
-                    agent_files,
-                    passkeys,
-                    trace_isolation,
-                    ..
+                    downloads, policy, prompts, popups, find, context_menu,
+                    partitions, remote_proxy, agent_tools, preview, extensions,
+                    permission_sync, frame_authority, cookies, agent_files, passkeys, trace_isolation, menu_extras, ..
                 } => {
                     if !matches!(
                         self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::Ready),
@@ -917,7 +909,7 @@ impl BrowserHost {
                     self.caps = EngineCaps::Known {
                         downloads, policy, prompts, popups, find, context_menu,
                         partitions, remote_proxy, agent_tools, preview, extensions,
-                        permission_sync, frame_authority, cookies, agent_files, passkeys, trace_isolation,
+                        permission_sync, frame_authority, cookies, agent_files, passkeys, trace_isolation, menu_extras,
                     };
                     self.sync_site_permissions();
                     if cookies && self.share_sign_ins {
@@ -1256,6 +1248,15 @@ impl BrowserHost {
     pub(crate) fn forward_key(&mut self, tab_id: u64, ev: &KeyEvent, down: bool) -> bool {
         if self.tab(tab_id).is_some_and(|t| t.prompts.has_blocking_modal()) {
             return false;
+        }
+        if ev.key == Key::Escape
+            && !(ev.mods.ctrl || ev.mods.cmd || ev.mods.alt || ev.mods.shift)
+            && self.tab(tab_id).is_some_and(|t| t.inspecting)
+        {
+            if down {
+                self.toggle_inspect(tab_id);
+            }
+            return true;
         }
         if self.shell_shortcut.map_or_else(|| is_shell_shortcut(ev), |f| f(ev)) {
             return false;

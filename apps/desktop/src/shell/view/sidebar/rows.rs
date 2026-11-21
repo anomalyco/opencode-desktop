@@ -54,8 +54,9 @@ pub(super) fn session_row(s: &App, p: &Pal, key: String, r: SessionRow) -> El {
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
-        .hover(p.hover)
+        .hover(if r.active { p.pressed } else { p.hover })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open(&open, tx));
     // Rename from its menu opens the Rename dialog (`project-session-row.tsx:185-197`).
     let target = Target::on(r.server, &id, Spot::Row);
@@ -106,7 +107,9 @@ pub(super) fn group_header(s: &App, p: &Pal, key: &str, label: String, lead: Lea
         .px(8.0)
         .gap(8.0)
         .center_y()
-        .radius(6.0).focus_inset(p)
+        .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_inset(p)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             let c = &mut s.project_state.customize.collapsed;
@@ -147,6 +150,17 @@ pub(crate) fn section_title(p: &Pal, key: &str, label: &str) -> El {
 /// A ghost-muted Button: `small` 24 tall, 23 in from the list's start (`ms-[23px] self-start`),
 /// or `normal` 28 tall across the list (`w-full justify-start px-2`).
 pub(super) fn ghost_button(p: &Pal, key: &str, label: &str, small: bool) -> El {
-    let b = row().key(key.to_owned()).role("button").label(label.to_owned()).px(8.0).center_y().radius(6.0).hover(p.hover).press(p.pressed).child(text(label.to_owned()).font(BUTTON).color(p.muted));
-    if small { b.ml(23.0).self_start().h(24.0) } else { b.w_full().h(28.0).focus_inset(p) }
+    let b = row()
+        .key(key.to_owned())
+        .role("button")
+        .label(label.to_owned())
+        .px(8.0)
+        .center_y()
+        .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_inset(p)
+        .hover(p.hover)
+        .press(p.pressed)
+        .child(text(label.to_owned()).font(BUTTON).color(p.muted));
+    if small { b.ml(23.0).self_start().h(24.0) } else { b.w_full().h(28.0) }
 }

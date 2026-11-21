@@ -298,6 +298,7 @@ impl App {
     }
 
     pub(crate) fn sync_browser_openers(&mut self) -> bool {
+        let mut changed = self.sync_browser_strip_tabs();
         if let Some(sid) = self.active_session_id().map(str::to_owned)
             && let Some(active) = self.active_browser_tab_id()
         {
@@ -307,7 +308,58 @@ impl App {
             }
         }
         let browser: &mut super::BrowserPane = &mut self.workspace_panes.browser;
-        browser.openers.sync_unnamed(&browser.host)
+        changed |= browser.openers.sync_unnamed(&browser.host);
+        changed
+    }
+
+    /// `UP-148` (`#65322`): keeps every live open browser tab for the active session present in
+    /// its side-panel strip, restoring any tab the strip lost without an explicit close in exact
+    /// relative order after its predecessor.
+    fn sync_browser_strip_tabs(&mut self) -> bool {
+        let Some(sid) = self.active_session_id().map(str::to_owned) else {
+            return false;
+        };
+        let live_ids: Vec<u64> = {
+            let browser = &self.workspace_panes.browser;
+            let Some(ids) = browser.session_tabs.get(&sid) else {
+                return false;
+            };
+            ids.iter()
+                .copied()
+                .filter(|id| !browser.closing_tabs.contains(id) && browser.host.tab(*id).is_some())
+                .collect()
+        };
+        if live_ids.is_empty() {
+            return false;
+        }
+        let missing: Vec<(u64, Option<u64>)> = {
+            let side = self.kernel.slots.get(&crate::panels::SIDE);
+            let stored = side.sessions.get(&sid).map(|st| &st.tab_state.tabs.all);
+            live_ids
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, &id)| {
+                    let key = panel_key(PLUGIN, &id.to_string());
+                    let present = stored.is_some_and(|all| all.contains(&key));
+                    if present {
+                        None
+                    } else {
+                        let after = idx.checked_sub(1).and_then(|prev| live_ids.get(prev).copied());
+                        Some((id, after))
+                    }
+                })
+                .collect()
+        };
+        if missing.is_empty() {
+            return false;
+        }
+        let st = self.session_side_mut(&sid);
+        for (id, after) in missing {
+            let key = panel_key(PLUGIN, &id.to_string());
+            let after_key = after.map(|prev| panel_key(PLUGIN, &prev.to_string()));
+            st.tab_state.tabs = crate::panels::tabs::append_session_tab(&st.tab_state.tabs, &key, after_key.as_deref());
+        }
+        true
     }
 
     pub fn browser_tab_unnamed(&self, id: u64) -> bool {
