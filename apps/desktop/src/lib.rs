@@ -236,7 +236,7 @@ fn quit_last() {
     let deadline = if cfg!(pgo_generate) {
         120
     } else if updater::installs_on_quit() {
-        30
+        60
     } else {
         2
     };
