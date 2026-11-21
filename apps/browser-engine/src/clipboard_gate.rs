@@ -238,11 +238,12 @@ pub fn clipboard_gate_script(
         }} catch {{}}
         return apply(promiseThen, apply(target, self, args), [
           (status) => {{
-            let resolvedName = name
+            let resolvedName = ""
             if (status && statusNameGetter) {{
               try {{ resolvedName = apply(statusNameGetter, status, []) }} catch {{}}
             }}
-            if (resolvedName !== "clipboard-write" || canWriteSync()) return status
+            const isClipWrite = name === "clipboard-write" || resolvedName === "clipboard-write" || resolvedName === "clipboard_write"
+            if (!isClipWrite || canWriteSync()) return status
             return new ProxyCtor(status, {{
               get(t, prop) {{
                 if (prop === "state") return "denied"
