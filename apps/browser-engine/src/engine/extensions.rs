@@ -632,7 +632,14 @@ impl EngineManager {
         };
         if let Some(disable) = disable {
             t.host.send_dev_tools_message(Some(disable.as_bytes()));
-            for binding in [t.passkeys.binding_msg(None), t.media_gate.binding_msg(None)] {
+            for binding in [
+                Some(t.passkeys.binding_msg(None)),
+                Some(t.media_gate.binding_msg(None)),
+                t.clipboard_gate.binding_msg(None),
+            ]
+            .into_iter()
+            .flatten()
+            {
                 t.host.send_dev_tools_message(Some(binding.as_bytes()));
             }
         }
@@ -932,6 +939,7 @@ impl EngineManager {
             t.prompts.user_reclaimed.store(false, Ordering::Release);
             t.snap.lock().unwrap().agent_driven = agent_driven;
             sync_file_choosers(t);
+            sync_clipboard_gate(t);
             if agent_driven {
                 // The person's unused media-gate Allow is theirs: the agent never inherits it.
                 t.prompts.clear_media_gate_allows();
@@ -1054,6 +1062,7 @@ impl EngineManager {
         let was = t.prompts.user_reclaimed.swap(reclaimed, Ordering::AcqRel);
         if was != reclaimed && t.prompts.agent_driven.load(Ordering::Acquire) {
             sync_file_choosers(t);
+            sync_clipboard_gate(t);
         }
     }
 
@@ -1178,6 +1187,15 @@ pub(super) fn sync_file_choosers(t: &ManagedTab) {
     let child_sids = t.cdp_ledger.lock().unwrap().web_session_ids();
     for sid in child_sids {
         let raw = t.passkeys.file_chooser_intercept_msg(enabled, Some(&sid));
+        t.host.send_dev_tools_message(Some(raw.as_bytes()));
+    }
+}
+
+/// Keeps `TabClipboardGate` aligned with `is_preview || agent_owns_dialogs()` across all live
+/// execution contexts and sessions (official `site-permissions.ts:152-157`, READER-7 N5).
+pub(super) fn sync_clipboard_gate(t: &ManagedTab) {
+    let blocked = t.preview.is_some() || t.prompts.agent_owns_dialogs();
+    for raw in t.clipboard_gate.set_blocked_messages(blocked) {
         t.host.send_dev_tools_message(Some(raw.as_bytes()));
     }
 }
