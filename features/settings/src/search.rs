@@ -8,8 +8,9 @@
 
 use opencode_i18n::{key, t};
 use opencode_kit::servers::ServerKey;
+use opencode_ui::focus::FocusExt;
 use opencode_ui::keymap::{self, Bind};
-use rune::{El, Icon, Key, KeyEvent, TextEdit, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Cursor, El, Icon, Key, KeyEvent, TextEdit, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use opencode_ui::palette::Pal;
 
@@ -66,6 +67,8 @@ pub struct Find {
     pub revealed_target: Option<String>,
     /// The row a result or the palette opened, lit then faded on the app's clock.
     reveal: Reveal,
+    /// In narrow layouts, selecting a result collapses the results overlay until the query is edited or refocused.
+    pub collapsed_narrow: bool,
 }
 
 /// Three-phase highlight-then-fade timer for the row opened from search or the command palette.
@@ -489,6 +492,10 @@ pub fn open(s: &mut dyn SettingsHost, e: &Entry, tx: &mut Tx) {
     let find = &mut s.settings_pages_mut().find;
     find.selected = Some(e.id.clone());
     find.highlighted = Some(e.id.clone());
+    if crate::compact() {
+        find.collapsed_narrow = true;
+        find.query.focused = false;
+    }
     reveal_entry(s, e, tx);
 }
 
@@ -544,6 +551,7 @@ pub fn key(s: &mut dyn SettingsHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
         pages.search.focused = false;
         pages.shortcuts.filter.focused = false;
         pages.projects.filter.focused = false;
+        pages.find.collapsed_narrow = false;
         let q = &mut pages.find.query;
         q.focused = true;
         let end = q.text.len();
@@ -612,8 +620,10 @@ fn submit_search(s: &mut dyn SettingsHost, tx: &mut Tx) {
 
 fn input_changed(s: &mut dyn SettingsHost, tx: &mut Tx) {
     tx.instant();
-    s.settings_pages_mut().find.highlighted = None;
-    tx.scroll_to_instant("settings-results", 0.0, 0.0);
+    let find = &mut s.settings_pages_mut().find;
+    find.highlighted = None;
+    find.collapsed_narrow = false;
+    tx.scroll_to_instant("settings-results-scroll", 0.0, 0.0);
 }
 
 fn hover_result(s: &mut dyn SettingsHost, id: &str, inside: bool, tx: &mut Tx) {
@@ -635,6 +645,10 @@ pub fn field<H: SettingsHost + 'static>(s: &H, p: &Pal, narrow: bool) -> El {
             .size(20.0, 20.0)
             .center()
             .radius(4.0)
+            .cursor(Cursor::Pointer)
+            .focus_default(p)
+            .hover(p.hover)
+            .press(p.pressed)
             .on_press_tx(|s: &mut H, tx: &mut Tx| clear_and_focus(s, tx))
             .child(icon(&ic::CIRCLE_XMARK, 16.0).color(p.icon_faint))
     });
@@ -721,6 +735,7 @@ pub fn results<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
                 .key(format!("settings-result-{at}"))
                 .role("option")
                 .label(e.title.clone())
+                .cursor(Cursor::Pointer)
                 .w_full()
                 .h(36.0)
                 .px(12.0)

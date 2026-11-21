@@ -25,6 +25,7 @@ use opencode_ui::popup::{self, Menu, MenuButton as _, PopupHost};
 use rune::{El, Icon, TextEdit, TextStyle, Tx, col, el, icon, row, rule, text};
 use rune_kit::{Select, TextInput};
 use rune_theme_opencode::icons as ic;
+use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::{Pal, kit};
 use opencode_ui::style::{UI, UI_MED};
 
@@ -398,7 +399,7 @@ pub fn select_some<H: SettingsHost + PopupHost + 'static>(
         .open(open)
         .trigger(kit(p))
         .menu_button(anchor_key, move |s: &mut H, tx: &mut Tx| {
-            let menu = Menu::picker_some(label.clone(), options.clone(), &current);
+            let menu = Menu::picker_some(label.clone(), options.clone(), &current).gap(6.0);
             popup::open(s, menu, anchor.clone(), tx, move |s: &mut H, picked, tx| {
                 if let Some(id) = picked {
                     tx.instant();
@@ -445,6 +446,10 @@ pub fn filter_field<H: SettingsHost + 'static>(
             .size(20.0, 20.0)
             .center()
             .radius(4.0)
+            .cursor(rune::Cursor::Pointer)
+            .focus_default(p)
+            .hover(p.hover)
+            .press(p.pressed)
             .on_press_tx(move |s: &mut H, tx: &mut Tx| clear_filter_field(s, field, tx))
             .child(icon(&ic::CIRCLE_XMARK, 16.0).color(p.icon_faint))
     });
@@ -493,7 +498,7 @@ pub fn text_field<H: SettingsHost + 'static>(
     TextInput::new(edit)
         .placeholder(placeholder.to_owned())
         .label(label.to_owned())
-        .width(Some(220.0))
+        .width(if crate::rows_wrap() { None } else { Some(220.0) })
         .text_style(style)
         .height(28.0)
         .on_edit(move |s: &mut H| field(s.settings_pages_mut()))
@@ -564,7 +569,7 @@ fn ghost_face(p: &Pal, key: &str, label: &str, glyph: Option<&'static Icon>, mut
         return b.disabled(true).opacity(0.5);
     }
     let b = if open { b.fill(p.pressed) } else { b };
-    b.hover(p.hover).press(p.pressed)
+    b.cursor(rune::Cursor::Pointer).focus_default(p).hover(p.hover).press(p.pressed)
 }
 
 /// `SettingsSearchEmpty`: "No results for" and the query in quotes.

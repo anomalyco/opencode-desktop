@@ -228,7 +228,7 @@ fn select_for<H: SettingsHost + PopupHost + 'static>(
         .open(open)
         .trigger(kit(p))
         .menu_button(anchor.clone(), move |s: &mut H, tx: &mut Tx| {
-            let menu = Menu::picker(label.clone(), options.clone(), &current);
+            let menu = Menu::picker(label.clone(), options.clone(), &current).gap(6.0);
             let pick = pick.clone();
             popup::open(s, menu, anchor.clone(), tx, move |s: &mut H, picked, tx| {
                 if let Some(id) = picked {

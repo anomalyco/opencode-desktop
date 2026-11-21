@@ -166,34 +166,34 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .paint_order(-1)
         .center_y()
         .transition(fade())
-        .child(button(p, "q-dismiss", opencode_i18n::t!("ui.common.dismiss"), Variant::GhostMuted, None, live).help(format!("{} Esc", opencode_i18n::t!("ui.common.dismiss"))).on_press_tx(|s: &mut S, tx: &mut Tx| {
-            if let Some(f) = asking(s) {
-                dismiss(s, &f, tx)
-            }
-        }))
+        .child({
+            let b = button(p, "q-dismiss", opencode_i18n::t!("ui.common.dismiss"), Variant::GhostMuted, None, live).help(format!("{} Esc", opencode_i18n::t!("ui.common.dismiss")));
+            if live { b.on_press_tx(|s: &mut S, tx: &mut Tx| if let Some(f) = asking(s) { dismiss(s, &f, tx) }) } else { b }
+        })
         .child(spacer())
         .child(
             row()
                 .key("q-actions")
                 .gap(8.0)
                 .children((tab > 0).then(|| {
-                    button(p, "q-back", opencode_i18n::t!("ui.common.back"), Variant::Neutral, None, live).help(format!("{} {back}", opencode_i18n::t!("ui.common.back"))).on_press_tx(|s: &mut S, tx: &mut Tx| {
-                        let Some(f) = asking(s) else { return };
-                        let (tab, _) = place(s, &f);
-                        jump(s, &f, tab.saturating_sub(1), tx);
-                    })
+                    let b = button(p, "q-back", opencode_i18n::t!("ui.common.back"), Variant::Neutral, None, live).help(format!("{} {back}", opencode_i18n::t!("ui.common.back")));
+                    if live {
+                        b.on_press_tx(|s: &mut S, tx: &mut Tx| {
+                            let Some(f) = asking(s) else { return };
+                            let (tab, _) = place(s, &f);
+                            jump(s, &f, tab.saturating_sub(1), tx);
+                        })
+                    } else {
+                        b
+                    }
                 }))
                 .child({
                     let label = if last { opencode_i18n::t!("ui.common.submit") } else { opencode_i18n::t!("ui.common.next") };
-                    button(p, "q-next", label, if last { Variant::Contrast } else { Variant::Neutral }, None, live)
+                    let b = button(p, "q-next", label, if last { Variant::Contrast } else { Variant::Neutral }, None, live)
                         .w(advance_w)
                         .justify_center()
-                        .help(format!("{label} {submit}"))
-                        .on_press_tx(|s: &mut S, tx: &mut Tx| {
-                            if let Some(f) = asking(s) {
-                                next(s, &f, tx)
-                            }
-                        })
+                        .help(format!("{label} {submit}"));
+                    if live { b.on_press_tx(|s: &mut S, tx: &mut Tx| if let Some(f) = asking(s) { next(s, &f, tx) }) } else { b }
                 }),
         );
     Some(vec![body, footer])
@@ -407,6 +407,9 @@ fn advance(ev: &KeyEvent) -> bool {
 /// A key while the Classic dock shows (its `nav`); false when it isn't the dock's.
 pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let Some(f) = asking(s) else { return false };
+    if !super::focus_in_dock(tx.focused()) {
+        return false;
+    }
     let (tab, focus) = place(s, &f);
     let field = &f.fields[tab];
     let n = rows(field).len();

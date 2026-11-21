@@ -435,7 +435,9 @@ impl EngineManager {
         let context_menu = crate::menu::TabContextMenuHandler::new(
             u64::MAX,
             prompt_shared,
+            prompts.clone(),
             file_roots,
+            None,
             None,
             menu_state,
             null_out,

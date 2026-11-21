@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 172,
   "status_counts": {
-    "have it": 139,
+    "have it": 140,
     "not applicable": 23,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 7
+    "missing": 6
   },
   "rows": [
     {
@@ -4283,11 +4283,11 @@
       ],
       "summary": "Pruning remembered layout for old sessions no longer drops the side panel tabs of a session that is open.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "To check: features/panels per-session tab state pruning.",
+      "status": "have it",
+      "status_evidence": "Already so, by a different rule: rune-desktop never forgets a session's side panel state. features/restore/src/persist.rs window_keys saves every session's side state, the sessions with a tab open here as 'side' (read for the first frame) and all others as 'side.rest' (read after it); nothing prunes SideState.sessions by count. So an open session's side tabs can't be dropped when old sessions' layout is pruned, which is what #65328 fixed in Desktop's max-N prune.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "SCREENS-B"
+      "workstream": "WS-8"
     },
     {
       "id": "UP-150",

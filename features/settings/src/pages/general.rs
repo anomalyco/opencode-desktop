@@ -4,9 +4,10 @@
 //! prompt marks), and the sections plugins put on the page (`PluginSettingsSections page="general"`).
 
 use opencode_i18n::t;
+use opencode_ui::focus::FocusExt;
 use opencode_ui::keymap::Bind;
 use opencode_ui::popup::PopupHost;
-use rune::{Color, El, Tx, col, row, text};
+use rune::{Color, Cursor, El, Tx, col, row, text};
 use opencode_ui::palette::Pal;
 use opencode_ui::style::UI;
 
@@ -268,25 +269,35 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
     )
 }
 
-/// Official Preferences header link (`packages/app/src/settings/general/general.tsx:335-343`).
+/// Official Preferences header link (`packages/app/src/settings/general/general.tsx:335-343`):
+/// `no-underline hover:text-v2-text-text-base hover:underline`.
 fn help_feedback_link<H: SettingsHost + 'static>(p: &Pal) -> El {
     const URL: &str = "https://opencode.ai/desktop-feedback";
     let words = t!("settings.helpFeedback");
     row()
         .key("settings-help-feedback")
         .role("link")
-        .label_static(words)
+        .label(words)
         .gap(6.0)
         .center_y()
-        .cursor(rune::Cursor::Pointer)
+        .radius(4.0)
+        .cursor(Cursor::Pointer)
+        .focus_default(p)
         .hover_group()
         .on_press_tx(|s: &mut H, tx: &mut Tx| crate::open_external(s, URL, tx))
         .child(
-            text(words)
-                .font(super::NAME_REGULAR)
-                .color(p.muted)
-                .group_color(p.text)
-                .spans(vec![rune::Span::new(0, words.len()).underline(p.muted)]),
+            col()
+                .key("help-label")
+                .child(text(words).font(super::NAME_REGULAR).color(p.muted).group_color(p.text))
+                // Official `general.tsx:339` uses `no-underline hover:text-v2-text-text-base hover:underline`.
+                .child(
+                    rune::el()
+                        .key("help-underline")
+                        .pin(Some(0.0), None, Some(0.0), Some(1.0))
+                        .h(1.0)
+                        .fill(p.text)
+                        .group_opacity(0.0, 1.0),
+                ),
         )
         .child(rune::icon(&super::console_link::ARROW_UP_RIGHT, 14.0).color(p.muted).group_color(p.text))
 }
@@ -312,6 +323,8 @@ fn placement<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
                 .key(format!("placement-{}", pl.name()))
                 .role("radio")
                 .focus_selected(on)
+                .focus_default(p)
+                .cursor(Cursor::Pointer)
                 .h(24.0)
                 .px(10.0)
                 .center()

@@ -7,6 +7,7 @@ use rune::{Anim, El, Icon, Tx, col, el, icon, row, spacer};
 use rune_kit::ScrollBar;
 
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::follow::{self, Effect, Event, Follow};
 use crate::returning::{self, Returning};
 use crate::palette::Pal;
@@ -267,6 +268,8 @@ pub fn face(p: &Pal, radius: f32) -> El {
         .box_shadow(ring)
         .box_shadow(near)
         .box_shadow(far)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(Anim::INSTANT, Anim::INSTANT)

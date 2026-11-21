@@ -140,6 +140,7 @@ fn build_row_shell(p: &Pal, r: PopoverRow, is_active: bool) -> El {
         .gap(8.0)
         .center_y()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
         .fill(if is_active { p.hover } else { Color::TRANSPARENT })
         .child(words)
         .children(trail)
