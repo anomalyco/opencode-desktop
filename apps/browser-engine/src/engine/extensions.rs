@@ -78,6 +78,16 @@ impl EngineManager {
         }
     }
 
+    pub fn on_web_navigation(&mut self, sig: crate::extensions::web_nav::WebNavSignal) {
+        let is_eligible = self.tabs.get(&sig.tab_id).is_some_and(|t| !t.isolated && !t.is_popup);
+        if !is_eligible {
+            return;
+        }
+        if let Some(ext) = &mut self.extensions {
+            ext.on_web_navigation(sig);
+        }
+    }
+
     pub(super) fn cmd_click_extension(&mut self, ext_id: &str) {
         let effects = self.extensions.as_mut().map(|e| e.click_extension(ext_id)).unwrap_or_default();
         self.run_ext_effects(effects);
@@ -394,10 +404,12 @@ impl EngineManager {
             prompts.clone(),
             Arc::new(Mutex::new(crate::input_guard::InputGuard::default())),
             Arc::new(std::sync::atomic::AtomicU32::new(1.0f32.to_bits())),
+            self.next_cdp_id.clone(),
             self.permissions.clone(),
             None,
             diagnostics,
             null_out.clone(),
+            self.events.clone(),
         );
         let download_gen = self.downloads.alloc_tab_gen();
         let download_alive = Arc::new(AtomicBool::new(true));
@@ -456,6 +468,7 @@ impl EngineManager {
             dialog,
             find,
             context_menu,
+            crate::tab_client::TabFrameHandler::new(u64::MAX, prompts.clone(), self.events.clone()),
             prompts,
         );
         let mut win_info = WindowInfo::default().set_as_windowless(Default::default());
@@ -627,6 +640,7 @@ impl EngineManager {
                 max_bytes: crate::cdp_ledger::max_cdp_response_bytes(&method),
                 typed: None,
                 reach,
+                is_tracing_start: false,
             },
         );
         let payload = json!({

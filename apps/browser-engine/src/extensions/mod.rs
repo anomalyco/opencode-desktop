@@ -25,6 +25,7 @@ pub mod manifest;
 pub mod pipe;
 mod png;
 mod rpc;
+pub mod web_nav;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -153,6 +154,8 @@ pub(super) struct ExecutionContextMeta {
 pub(super) struct AttachedSession {
     pub ext_id: String,
     pub kind: SessionKind,
+    pub url: String,
+    pub chromium_tab_id: Option<i32>,
     pub main_frame_id: Option<String>,
     pub last_popup_size: Option<(u32, u32)>,
     pub attach_started: Instant,
@@ -258,6 +261,7 @@ pub struct ExtensionHost {
     pub(super) tabs: Vec<ExtTab>,
     pub(super) actions: HashMap<String, ActionState>,
     pub(super) context_menus: Arc<std::sync::Mutex<context_menus::ExtensionContextMenuCatalog>>,
+    pub(super) web_nav: web_nav::WebNavTracker,
     pub(super) expected_targets: VecDeque<ExpectedTarget>,
     pub(super) seed_session_id: Option<i32>,
     pub(super) seed_probe_started: bool,
@@ -294,7 +298,12 @@ impl ExtensionHost {
         inbound_rx: Receiver<PipeInbound>,
         wake_pending: Arc<AtomicBool>,
         stub_dirs_by_id: HashMap<String, PathBuf>,
+        menu_storage_dir: Option<PathBuf>,
     ) -> Self {
+        let catalog = match menu_storage_dir {
+            Some(dir) => context_menus::ExtensionContextMenuCatalog::with_storage_dir(dir),
+            None => context_menus::ExtensionContextMenuCatalog::default(),
+        };
         Self {
             pipe,
             inbound_rx,
@@ -308,7 +317,8 @@ impl ExtensionHost {
             subscribers: HashMap::new(),
             tabs: Vec::new(),
             actions: HashMap::new(),
-            context_menus: Arc::new(std::sync::Mutex::new(context_menus::ExtensionContextMenuCatalog::default())),
+            context_menus: Arc::new(std::sync::Mutex::new(catalog)),
+            web_nav: web_nav::WebNavTracker::default(),
             expected_targets: VecDeque::new(),
             seed_session_id: None,
             seed_probe_started: false,
@@ -655,6 +665,7 @@ impl ExtensionHost {
     }
 
     pub fn on_tab_closed(&mut self, engine_tab_id: u64) {
+        self.web_nav.remove_tab(engine_tab_id);
         if let Some(pos) = self.tabs.iter().position(|t| t.engine_tab_id == engine_tab_id) {
             let tab = self.tabs.remove(pos);
             let removed: Vec<(String, i32)> = self
@@ -714,23 +725,6 @@ impl ExtensionHost {
         let tab_clone = tab.clone();
         if !is_private_url(url) {
             self.emit_tab_updated(&tab_clone, json!({ "url": url }), true);
-            if !is_extension_scheme(url) {
-                let pairs: Vec<(String, i32)> = self
-                    .ext_tab_ids
-                    .iter()
-                    .filter_map(|(ext_id, map)| map.get(&engine_tab_id).copied().map(|cid| (ext_id.clone(), cid)))
-                    .collect();
-                for (ext_id, cid) in pairs {
-                    self.emit_event(
-                        "webNavigation.onCommitted",
-                        vec![json!({
-                            "tabId": cid, "url": url, "processId": 0, "frameId": 0, "parentFrameId": -1,
-                            "transitionType": "link", "transitionQualifiers": [], "timeStamp": now_ms(),
-                        })],
-                        Some(&ext_id),
-                    );
-                }
-            }
         }
     }
 
@@ -765,21 +759,32 @@ impl ExtensionHost {
         let tab_clone = tab.clone();
         let status = if loading { "loading" } else { "complete" };
         self.emit_tab_updated(&tab_clone, json!({ "status": status }), false);
-        if !loading && !is_private_url(&tab_clone.url) && !is_extension_scheme(&tab_clone.url) {
-            let pairs: Vec<(String, i32)> = self
-                .ext_tab_ids
-                .iter()
-                .filter_map(|(ext_id, map)| map.get(&engine_tab_id).copied().map(|cid| (ext_id.clone(), cid)))
-                .collect();
-            for (ext_id, cid) in pairs {
-                self.emit_event(
-                    "webNavigation.onCompleted",
-                    vec![json!({
-                        "tabId": cid, "url": tab_clone.url, "processId": 0, "frameId": 0,
-                        "parentFrameId": -1, "timeStamp": now_ms(),
-                    })],
-                    Some(&ext_id),
-                );
+    }
+
+    /// Processes a CEF frame navigation signal and emits full `chrome.webNavigation` events
+    /// (main frame + subframes) to subscribed extensions (`web-navigation.ts:28-126`).
+    pub fn on_web_navigation(&mut self, sig: web_nav::WebNavSignal) {
+        let tab_id = sig.tab_id;
+        let Some(tab) = self.tabs.iter().find(|t| t.engine_tab_id == tab_id && !t.agent_driven) else {
+            return;
+        };
+        let tab_url = tab.url.clone();
+        let events = self.web_nav.ingest(&tab_url, sig, now_ms());
+        if events.is_empty() {
+            return;
+        }
+        let pairs: Vec<(String, i32)> = self
+            .ext_tab_ids
+            .iter()
+            .filter_map(|(ext_id, map)| map.get(&tab_id).copied().map(|cid| (ext_id.clone(), cid)))
+            .collect();
+        for (ev_name, base_details) in events {
+            for (ext_id, cid) in &pairs {
+                let mut details = base_details.clone();
+                if let Some(obj) = details.as_object_mut() {
+                    obj.insert("tabId".into(), json!(cid));
+                }
+                self.emit_event(ev_name, vec![details], Some(ext_id));
             }
         }
     }
@@ -912,7 +917,12 @@ impl ExtensionHost {
         is_unpacked: bool,
         loaded: bool,
     ) {
-        self.context_menus.lock().unwrap().set_extension_name(&id, &manifest.name);
+        self.context_menus.lock().unwrap().configure_extension(
+            &id,
+            &manifest.name,
+            &manifest.version,
+            manifest.has_permission("contextMenus"),
+        );
         self.extensions.insert(
             id,
             LoadedExt { dir, sha256, manifest, is_unpacked, loaded, boot_count: 0 },

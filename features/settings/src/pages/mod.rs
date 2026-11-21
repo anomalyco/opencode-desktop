@@ -484,20 +484,21 @@ fn filter_field_escape(s: &mut dyn SettingsHost, field: fn(&mut State) -> &mut T
 }
 
 /// Type-to-search for pages using [`filter_field`] (`SettingsSearchField`, `search-field.tsx:35-56`):
-/// typing a printable character on Models or searchable Projects appends it and focuses the filter.
+/// typing a printable character on Models, Shortcuts, or searchable Projects appends it and focuses the filter.
 pub(crate) fn filter_page_key(s: &mut dyn SettingsHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let Key::Text(t) = &ev.key else { return false };
     if ev.mods.cmd || ev.mods.ctrl || ev.mods.alt || ev.mods.logo || t.trim().is_empty() || tx.focused().is_some() {
         return false;
     }
     let st = s.settings_pages();
-    let any_focused = st.search.focused || st.projects.filter.focused || st.find.query.focused;
-    if any_focused {
+    let any_focused = st.search.focused || st.projects.filter.focused || st.shortcuts.filter.focused || st.find.query.focused;
+    if any_focused || st.shortcuts.capture.is_some() {
         return false;
     }
     let f = match st.page {
         Page::Models => &mut s.settings_pages_mut().search,
         Page::Projects if projects::searchable(s) => &mut s.settings_pages_mut().projects.filter,
+        Page::Shortcuts => &mut s.settings_pages_mut().shortcuts.filter,
         _ => return false,
     };
     tx.instant();
@@ -507,8 +508,9 @@ pub(crate) fn filter_page_key(s: &mut dyn SettingsHost, ev: &KeyEvent, tx: &mut 
     true
 }
 
-/// `.settings-filter-search` (`SettingsSearchField`): 36 pt, `layer-02` at 60%, glass 16 pt in,
-/// clear button once typed, Escape clears then blurs (`search-field.tsx:75-86`).
+/// `.settings-tab-search.settings-filter-search` (`SettingsSearchField`, `settings.css:2092-2120`,
+/// `text-input.css:101-175`): 1 pt side inset, 36 pt tall, `layer-02` at 60%, glass 16 pt in,
+/// 1 pt focus border, clear button once typed, Escape clears then blurs (`search-field.tsx:66-86`).
 pub fn filter_field<H: SettingsHost + 'static>(
     p: &Pal,
     key: &str,
@@ -523,19 +525,21 @@ pub fn filter_field<H: SettingsHost + 'static>(
             .role("button")
             .label_static(t!("common.clear"))
             .size(20.0, 20.0)
+            .mr(-4.0)
             .center()
             .radius(4.0)
             .cursor(rune::Cursor::Pointer)
-            .focus_default(p)
-            .hover_group()
+            .hover(p.hover)
+            .press(p.pressed)
+            .focus_inset(p)
             .on_press_tx(move |s: &mut H, tx: &mut Tx| clear_filter_field(s, field, tx))
-            .child(icon(&ic::XMARK_SMALL, 16.0).color(p.icon_faint).group_color(p.icon))
+            .child(icon(&ic::XMARK_SMALL, 16.0).color(p.icon_muted))
     });
-    row()
+    let mut box_el = row()
         .key(key.to_owned())
         .w_full()
         .h(36.0)
-        .pr(10.0)
+        .pr(8.0)
         .gap(8.0)
         .center_y()
         .radius(6.0)
@@ -558,7 +562,11 @@ pub fn filter_field<H: SettingsHost + 'static>(
                 .on_input_change(|_: &mut H, tx: &mut Tx| tx.instant())
                 .on_input_key(move |s: &mut H, ev, tx| filter_field_escape(s, field, ev, tx)),
         )
-        .children(clear)
+        .children(clear);
+    if edit.focused {
+        box_el = box_el.box_shadow(rune::Shadow { spread: 1.0, color: p.v2.border_focus, inset: true, ..rune::Shadow::default() });
+    }
+    el().w_full().px(1.0).child(box_el)
 }
 
 /// `TextInput appearance="base"` at 220 pt, in its own font, as Appearance's font rows have it.

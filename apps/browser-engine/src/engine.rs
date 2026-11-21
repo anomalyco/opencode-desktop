@@ -215,6 +215,7 @@ impl EngineManager {
                     cookies: true,
                     agent_files: true,
                     passkeys: true,
+                    trace_isolation: true,
                 });
                 for (&tab_id, t) in &self.tabs {
                     t.menu.cancel_all();
@@ -696,8 +697,8 @@ impl EngineManager {
                     }
                     let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
                     crate::cdp_ledger::handle_typed_cdp_call(
-                        tab_id, request_id, not_ready, t, &self.permissions, &self.next_cdp_id, &self.out_tx,
-                        self.extensions.is_some(), method, params, session_id, frame_id,
+                        tab_id, request_id, not_ready, t, &self.prompt_shared, &self.permissions, &self.next_cdp_id,
+                        &self.out_tx, self.extensions.is_some(), method, params, session_id, frame_id,
                     );
                 }
             }
@@ -1145,10 +1146,12 @@ impl EngineManager {
             prompts.clone(),
             input_guard.clone(),
             emulation_scale.clone(),
+            self.next_cdp_id.clone(),
             self.permissions.clone(),
             scope_id,
             diagnostics,
             self.out_tx.clone(),
+            self.events.clone(),
         );
         let download_gen = self.downloads.alloc_tab_gen();
         let download_alive = Arc::new(AtomicBool::new(true));
@@ -1216,18 +1219,8 @@ impl EngineManager {
             self.out_tx.clone(),
         );
         let mut client = SidecarTabClient::new(
-            render,
-            display,
-            load,
-            request,
-            download,
-            life_span,
-            jsdialog,
-            permission,
-            dialog,
-            find,
-            context_menu,
-            prompts.clone(),
+            render, display, load, request, download, life_span, jsdialog, permission, dialog, find,
+            context_menu, crate::tab_client::TabFrameHandler::new(tab_id, prompts.clone(), self.events.clone()), prompts.clone(),
         );
 
         let mut win_info = WindowInfo::default().set_as_windowless(Default::default());
@@ -1315,24 +1308,11 @@ impl EngineManager {
         let internal_picked = Arc::new(Mutex::new(Vec::new()));
         let pending_clears = Arc::new(Mutex::new(Vec::new()));
         let mut observer = TabCdpObserver::new(
-            tab_id,
-            is_popup,
-            isolated,
-            is_preview,
-            snap.clone(),
-            cdp_id_map.clone(),
-            internal_picked.clone(),
-            pending_clears.clone(),
-            cdp_ledger.clone(),
-            passkeys.clone(),
-            input_guard.clone(),
-            emulation_scale.clone(),
-            self.next_cdp_id.clone(),
-            prompts.clone(),
-            self.permissions.clone(),
-            self.extensions.is_some(),
-            self.events.clone(),
-            self.out_tx.clone(),
+            tab_id, is_popup, isolated, is_preview, snap.clone(), cdp_id_map.clone(),
+            internal_picked.clone(), pending_clears.clone(), cdp_ledger.clone(), passkeys.clone(),
+            self.prompt_shared.clone(), input_guard.clone(), emulation_scale.clone(),
+            self.next_cdp_id.clone(), prompts.clone(), self.permissions.clone(),
+            self.extensions.is_some(), self.events.clone(), self.out_tx.clone(),
         );
         let cdp_reg = host.add_dev_tools_message_observer(Some(&mut observer));
         // Every tab is armed, as official arms every page (`chromium.ts:1391-1398`). The lock is
@@ -1408,6 +1388,9 @@ impl EngineManager {
     fn close_managed_tab(&mut self, tab_id: u64) {
         self.permissions.on_tab_closed(tab_id);
         if let Some(tab) = self.tabs.remove(&tab_id) {
+            if self.prompt_shared.release_trace(tab_id) {
+                self.send_internal_cdp(&tab.host, "Tracing.end", json!({}));
+            }
             self.release_preview(tab_id, tab.preview.as_ref());
             tab.menu.cancel_all();
             tab.prompts.dismiss_all();

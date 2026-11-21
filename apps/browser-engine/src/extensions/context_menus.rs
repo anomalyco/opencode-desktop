@@ -5,10 +5,15 @@
 #![forbid(unsafe_code)]
 
 use std::collections::{BTreeMap, HashSet};
+use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::extensions::manifest::{extension_label, is_extension_scheme, is_private_url, matches_host};
+use crate::extensions::integrity::read_regular_file_bounded;
+use crate::extensions::manifest::{
+    extension_label, is_extension_scheme, is_private_url, is_valid_ext_id, matches_host,
+};
 use crate::wire::{ExtensionMenuGroup, ExtensionMenuItem, ExtensionMenuItemKind};
 
 const MAX_ITEMS_PER_EXT: usize = 256;
@@ -70,7 +75,7 @@ impl MenuTarget {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct StoredMenuItem {
     id: String,
     id_is_num: bool,
@@ -86,33 +91,75 @@ struct StoredMenuItem {
     target_url_patterns: Option<Vec<String>>,
 }
 
+/// Persisted archive matching official `context-menus.ts:37-42` (`MenuArchive`).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct MenuArchive {
+    version: String,
+    items: Vec<StoredMenuItem>,
+}
+
 #[derive(Clone, Debug, Default)]
 struct ExtMenus {
     name: String,
+    version: String,
     items: Vec<StoredMenuItem>,
 }
 
 /// Shared catalog of registered extension context-menu items across loaded extensions with the
-/// `"contextMenus"` permission.
+/// `"contextMenus"` permission, persisted per extension version under `<profile>/opencode-ext-menus/`.
 #[derive(Clone, Debug, Default)]
 pub struct ExtensionContextMenuCatalog {
     by_ext: BTreeMap<String, ExtMenus>,
+    storage_dir: Option<PathBuf>,
 }
 
 impl ExtensionContextMenuCatalog {
-    pub fn set_extension_name(&mut self, ext_id: &str, name: &str) {
+    pub fn with_storage_dir(storage_dir: PathBuf) -> Self {
+        Self { by_ext: BTreeMap::new(), storage_dir: Some(storage_dir) }
+    }
+
+    /// Configures `(ext_id, name, version)` and restores persisted menu items when `has_permission`
+    /// is true and the on-disk archive matches `version` (`context-menus.ts:40-42`).
+    pub fn configure_extension(
+        &mut self,
+        ext_id: &str,
+        name: &str,
+        version: &str,
+        has_permission: bool,
+    ) {
+        if !has_permission {
+            self.by_ext.remove(ext_id);
+            self.delete_archive(ext_id);
+            return;
+        }
+        let clean_name = extension_label(name);
+        let already_loaded_same = self
+            .by_ext
+            .get(ext_id)
+            .is_some_and(|e| e.version == version && !e.items.is_empty());
+        if already_loaded_same {
+            if let Some(e) = self.by_ext.get_mut(ext_id) {
+                e.name = clean_name;
+            }
+            return;
+        }
+        let restored = self.load_archive(ext_id, version);
         let entry = self.by_ext.entry(ext_id.to_owned()).or_default();
-        entry.name = extension_label(name);
+        entry.name = clean_name;
+        entry.version = version.to_owned();
+        entry.items = restored;
     }
 
     pub fn remove_extension(&mut self, ext_id: &str) {
         self.by_ext.remove(ext_id);
+        self.delete_archive(ext_id);
     }
 
     pub fn clear_extension(&mut self, ext_id: &str) {
         if let Some(entry) = self.by_ext.get_mut(ext_id) {
             entry.items.clear();
         }
+        self.delete_archive(ext_id);
     }
 
     pub fn create(&mut self, ext_id: &str, ext_name: &str, props: &Value) -> Result<(), String> {
@@ -122,6 +169,7 @@ impl ExtensionContextMenuCatalog {
         let (id, id_is_num) = parse_id(obj.get("id")).unwrap_or_else(|| (String::new(), false));
         let entry = self.by_ext.entry(ext_id.to_owned()).or_insert_with(|| ExtMenus {
             name: extension_label(ext_name),
+            version: String::new(),
             items: Vec::new(),
         });
         if entry.name.is_empty() {
@@ -159,6 +207,7 @@ impl ExtensionContextMenuCatalog {
             return Err("Context menu storage limit exceeded.".into());
         }
         entry.items.push(item);
+        self.persist_extension(ext_id);
         Ok(())
     }
 
@@ -217,6 +266,7 @@ impl ExtensionContextMenuCatalog {
             return Err("Context menu storage limit exceeded.".into());
         }
         entry.items[pos] = updated;
+        self.persist_extension(ext_id);
         Ok(())
     }
 
@@ -241,6 +291,7 @@ impl ExtensionContextMenuCatalog {
             }
         }
         entry.items.retain(|i| !to_remove.contains(&i.id));
+        self.persist_extension(ext_id);
     }
 
     /// Builds sanitized, context-matched extension menu groups for a right-click on a regular web
@@ -324,8 +375,130 @@ impl ExtensionContextMenuCatalog {
                 m.insert("checked".into(), Value::Bool(next_checked));
             }
         }
+        if is_choice {
+            self.persist_extension(ext_id);
+        }
         Some(info)
     }
+
+    fn archive_path(&self, ext_id: &str) -> Option<PathBuf> {
+        if !is_valid_ext_id(ext_id) {
+            return None;
+        }
+        Some(self.storage_dir.as_ref()?.join(format!("{ext_id}.json")))
+    }
+
+    fn delete_archive(&self, ext_id: &str) {
+        let Some(path) = self.archive_path(ext_id) else { return };
+        if std::fs::symlink_metadata(&path).is_ok_and(|m| !m.file_type().is_symlink()) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    fn persist_extension(&self, ext_id: &str) {
+        let Some(path) = self.archive_path(ext_id) else { return };
+        let Some(entry) = self.by_ext.get(ext_id) else {
+            self.delete_archive(ext_id);
+            return;
+        };
+        if entry.items.is_empty() || entry.version.is_empty() {
+            self.delete_archive(ext_id);
+            return;
+        }
+        let Some(dir) = path.parent() else { return };
+        if !ensure_regular_dir(dir) {
+            return;
+        }
+        let archive = MenuArchive { version: entry.version.clone(), items: entry.items.clone() };
+        let Ok(bytes) = serde_json::to_vec(&archive) else { return };
+        if bytes.len() > MAX_SERIALIZED_BYTES {
+            return;
+        }
+        let tmp = dir.join(format!("{ext_id}.json.tmp.{}", std::process::id()));
+        if std::fs::symlink_metadata(&tmp).is_ok_and(|m| m.file_type().is_symlink()) {
+            return;
+        }
+        if std::fs::write(&tmp, &bytes).is_ok() {
+            if std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()) {
+                let _ = std::fs::remove_file(&tmp);
+                return;
+            }
+            if std::fs::rename(&tmp, &path).is_err() {
+                let _ = std::fs::remove_file(&tmp);
+            }
+        }
+    }
+
+    fn load_archive(&self, ext_id: &str, expected_version: &str) -> Vec<StoredMenuItem> {
+        let Some(path) = self.archive_path(ext_id) else {
+            return Vec::new();
+        };
+        let Some(bytes) = read_regular_file_bounded(&path, MAX_SERIALIZED_BYTES as u64) else {
+            return Vec::new();
+        };
+        let Ok(archive) = serde_json::from_slice::<MenuArchive>(&bytes) else {
+            self.delete_archive(ext_id);
+            return Vec::new();
+        };
+        if archive.version != expected_version {
+            self.delete_archive(ext_id);
+            return Vec::new();
+        }
+        validate_restored_items(archive.items)
+    }
+}
+
+fn ensure_regular_dir(dir: &Path) -> bool {
+    if let Ok(meta) = std::fs::symlink_metadata(dir) {
+        return !meta.file_type().is_symlink() && meta.is_dir();
+    }
+    std::fs::create_dir_all(dir).is_ok()
+        && std::fs::symlink_metadata(dir).is_ok_and(|m| !m.file_type().is_symlink() && m.is_dir())
+}
+
+fn validate_restored_items(raw: Vec<StoredMenuItem>) -> Vec<StoredMenuItem> {
+    if raw.len() > MAX_ITEMS_PER_EXT {
+        return Vec::new();
+    }
+    let mut seen = HashSet::with_capacity(raw.len());
+    let mut cleaned = Vec::with_capacity(raw.len());
+    for mut item in raw {
+        item.id = item.id.chars().take(128).collect();
+        if !seen.insert(item.id.clone()) {
+            return Vec::new();
+        }
+        item.title = item.title.chars().take(256).collect();
+        item.contexts = item
+            .contexts
+            .into_iter()
+            .take(64)
+            .map(|s| s.chars().take(64).collect())
+            .collect();
+        if item.contexts.is_empty() {
+            item.contexts.push("page".into());
+        }
+        if let Some(pid) = item.parent_id {
+            item.parent_id = Some(pid.chars().take(128).collect());
+        }
+        if let Some(pats) = item.document_url_patterns {
+            item.document_url_patterns = Some(pats.into_iter().take(64).map(|s| s.chars().take(256).collect()).collect());
+        }
+        if let Some(pats) = item.target_url_patterns {
+            item.target_url_patterns = Some(pats.into_iter().take(64).map(|s| s.chars().take(256).collect()).collect());
+        }
+        cleaned.push(item);
+    }
+    if approx_bytes(&cleaned) > MAX_SERIALIZED_BYTES {
+        return Vec::new();
+    }
+    for item in &cleaned {
+        if let Some(pid) = item.parent_id.as_deref() {
+            if !seen.contains(pid) || is_ancestor(&cleaned, pid, &item.id) {
+                return Vec::new();
+            }
+        }
+    }
+    cleaned
 }
 
 fn build_level(

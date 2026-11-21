@@ -14,9 +14,40 @@ use super::manifest::{
     glob_match, is_extension_scheme, is_private_url, matches_host, read_icon_data_url,
 };
 use super::png::rgba_to_png_data_url;
-use super::{ExtEffect, ExtTab, ExtensionHost, WINDOW_ID, WINDOW_ID_CURRENT};
+use super::{ExtEffect, ExtTab, ExtensionHost, SessionKind, WINDOW_ID, WINDOW_ID_CURRENT};
 
 const MAX_NAV_URL_BYTES: usize = 8192;
+
+/// Exact `privacy.*` defaults from official `extension-api/stubs.ts:6-23` (`edacc868`).
+fn privacy_setting_default(path: &str) -> Option<Value> {
+    Some(match path {
+        "privacy.network.networkPredictionEnabled" => Value::Bool(true),
+        "privacy.network.webRTCIPHandlingPolicy" => Value::String("default".into()),
+        "privacy.services.alternateErrorPagesEnabled" => Value::Bool(false),
+        "privacy.services.autofillAddressEnabled" => Value::Bool(true),
+        "privacy.services.autofillCreditCardEnabled" => Value::Bool(true),
+        "privacy.services.autofillEnabled" => Value::Bool(true),
+        "privacy.services.passwordSavingEnabled" => Value::Bool(true),
+        "privacy.services.safeBrowsingEnabled" => Value::Bool(true),
+        "privacy.services.searchSuggestEnabled" => Value::Bool(true),
+        "privacy.services.spellingServiceEnabled" => Value::Bool(false),
+        "privacy.services.translationServiceEnabled" => Value::Bool(false),
+        "privacy.websites.hyperlinkAuditingEnabled" => Value::Bool(true),
+        "privacy.websites.referrersEnabled" => Value::Bool(true),
+        "privacy.websites.thirdPartyCookiesAllowed" => Value::Bool(true),
+        "privacy.websites.doNotTrackEnabled" => Value::Bool(false),
+        "privacy.websites.protectedContentEnabled" => Value::Bool(true),
+        _ => return None,
+    })
+}
+
+fn parse_privacy_call(name: &str) -> Option<(&str, &str)> {
+    let (path, op) = name.rsplit_once('.')?;
+    if !matches!(op, "get" | "set" | "clear") || privacy_setting_default(path).is_none() {
+        return None;
+    }
+    Some((path, op))
+}
 
 /// Exact finite allow-list of supported shimmed event names (prevents unbounded `subscribers` OOM;
 /// `review-rd274.md` §4).
@@ -35,6 +66,9 @@ pub(super) fn is_supported_event(name: &str) -> bool {
             | "webNavigation.onCommitted"
             | "webNavigation.onDOMContentLoaded"
             | "webNavigation.onCompleted"
+            | "webNavigation.onErrorOccurred"
+            | "webNavigation.onReferenceFragmentUpdated"
+            | "webNavigation.onHistoryStateUpdated"
             | "contextMenus.onClicked"
             | "notifications.onClicked"
             | "notifications.onClosed"
@@ -82,6 +116,47 @@ pub(super) fn is_api_allowed(manifest: &ExtensionManifest, name: &str) -> bool {
         | "fontSettings.getFont"
         | "fontSettings.setFont"
         | "fontSettings.clearFont" => Some("fontSettings"),
+        "history.search"
+        | "history.getVisits"
+        | "history.addUrl"
+        | "history.deleteUrl"
+        | "history.deleteRange"
+        | "history.deleteAll" => Some("history"),
+        "bookmarks.get"
+        | "bookmarks.getChildren"
+        | "bookmarks.getRecent"
+        | "bookmarks.getTree"
+        | "bookmarks.getSubTree"
+        | "bookmarks.search"
+        | "bookmarks.create"
+        | "bookmarks.move"
+        | "bookmarks.update"
+        | "bookmarks.remove"
+        | "bookmarks.removeTree" => Some("bookmarks"),
+        "sessions.getRecentlyClosed"
+        | "sessions.getDevices"
+        | "sessions.restore" => Some("sessions"),
+        "search.query" => Some("search"),
+        "downloads.download"
+        | "downloads.search"
+        | "downloads.pause"
+        | "downloads.resume"
+        | "downloads.cancel"
+        | "downloads.getFileIcon"
+        | "downloads.open"
+        | "downloads.show"
+        | "downloads.showDefaultFolder"
+        | "downloads.erase"
+        | "downloads.removeFile"
+        | "downloads.acceptDanger"
+        | "downloads.setUiOptions" => Some("downloads"),
+        "identity.getAuthToken"
+        | "identity.getProfileUserInfo"
+        | "identity.getAccounts"
+        | "identity.removeCachedAuthToken"
+        | "identity.clearAllCachedAuthTokens"
+        | "identity.launchWebAuthFlow"
+        | "identity.getRedirectURL" => Some("identity"),
         "tabs.query"
         | "tabs.get"
         | "tabs.getCurrent"
@@ -122,7 +197,7 @@ pub(super) fn is_api_allowed(manifest: &ExtensionManifest, name: &str) -> bool {
         | "extension.isAllowedIncognitoAccess"
         | "extension.setUpdateUrlData"
         | "runtime.openOptionsPage" => None,
-        other if other.starts_with("privacy.") && other.len() <= 96 => Some("privacy"),
+        other if parse_privacy_call(other).is_some() => Some("privacy"),
         _ => return false,
     };
     required.is_none_or(|perm| manifest.has_permission(perm))
@@ -159,7 +234,30 @@ impl ExtensionHost {
                     None => Err(format!("No tab with id: {}.", wanted.unwrap_or(-1))),
                 }
             }
-            "tabs.getCurrent" => Ok(Value::Null),
+            "tabs.getCurrent" => {
+                // Official `extension-api/tabs.ts:345-349`: returns the calling extension page's
+                // own pane tab, or `undefined` (`null` over JSON) from service workers and popups.
+                let found = self
+                    .sessions
+                    .get(sid)
+                    .filter(|s| s.kind == SessionKind::ExtensionPage)
+                    .and_then(|s| {
+                        let url = s.url.clone();
+                        let cid = s.chromium_tab_id;
+                        cid.and_then(|id| self.find_visible_tab_by_ext_cid(ext_id, id))
+                            .filter(|t| extension_id_from_url(&t.url) == Some(ext_id))
+                            .or_else(|| {
+                                self.visible_tabs().find(|t| {
+                                    t.url == url && extension_id_from_url(&t.url) == Some(ext_id)
+                                })
+                            })
+                    })
+                    .cloned();
+                match found {
+                    Some(t) => Ok(self.tab_json(ext_id, &t, &ext.manifest, false)),
+                    None => Ok(Value::Null),
+                }
+            }
             "tabs.create" => {
                 if !self.allow_open_tab(ext_id) {
                     Err("Too many tabs opened by this extension.".into())
@@ -303,26 +401,17 @@ impl ExtensionHost {
 
             "webNavigation.getFrame" => {
                 let tid = args.first().and_then(|v| v.get("tabId")).and_then(Value::as_i64).map(|n| n as i32);
-                let fid = args.first().and_then(|v| v.get("frameId")).and_then(Value::as_i64).unwrap_or(0);
-                if fid == 0
-                    && let Some(t) = tid.and_then(|id| self.find_visible_tab_by_ext_cid(ext_id, id))
-                    && !is_private_url(&t.url)
-                    && (!is_extension_scheme(&t.url) || extension_id_from_url(&t.url) == Some(ext_id))
-                {
-                    Ok(json!({ "url": t.url, "errorOccurred": false, "processId": 0, "frameId": 0, "parentFrameId": -1 }))
-                } else {
-                    Ok(Value::Null)
+                let fid = args.first().and_then(|v| v.get("frameId")).and_then(Value::as_i64).unwrap_or(0) as i32;
+                match tid.and_then(|id| self.find_visible_tab_by_ext_cid(ext_id, id)) {
+                    Some(t) => Ok(self.web_nav.get_frame(t.engine_tab_id, &t.url, fid).unwrap_or(Value::Null)),
+                    None => Err(format!("No tab with id: {}.", tid.unwrap_or(-1))),
                 }
             }
             "webNavigation.getAllFrames" => {
                 let tid = args.first().and_then(|v| v.get("tabId")).and_then(Value::as_i64).map(|n| n as i32);
-                if let Some(t) = tid.and_then(|id| self.find_visible_tab_by_ext_cid(ext_id, id))
-                    && !is_private_url(&t.url)
-                    && (!is_extension_scheme(&t.url) || extension_id_from_url(&t.url) == Some(ext_id))
-                {
-                    Ok(json!([{ "url": t.url, "errorOccurred": false, "processId": 0, "frameId": 0, "parentFrameId": -1 }]))
-                } else {
-                    Ok(json!([]))
+                match tid.and_then(|id| self.find_visible_tab_by_ext_cid(ext_id, id)) {
+                    Some(t) => Ok(Value::Array(self.web_nav.all_frames(t.engine_tab_id, &t.url))),
+                    None => Err(format!("No tab with id: {}.", tid.unwrap_or(-1))),
                 }
             }
 
@@ -420,6 +509,49 @@ impl ExtensionHost {
             "sidePanel.getOptions" => Ok(json!({ "enabled": false })),
             "sidePanel.getPanelBehavior" => Ok(json!({ "openPanelOnActionClick": false })),
             "sidePanel.open" => Err("This browser has no side panel.".into()),
+            // Startup stubs matching official `extension-api/stubs.ts:88-145` (`edacc868`).
+            "history.search" | "history.getVisits" => Ok(json!([])),
+            "history.addUrl" | "history.deleteUrl" | "history.deleteRange" | "history.deleteAll" => Ok(Value::Null),
+            "bookmarks.get"
+            | "bookmarks.getChildren"
+            | "bookmarks.getRecent"
+            | "bookmarks.getSubTree"
+            | "bookmarks.search" => Ok(json!([])),
+            "bookmarks.getTree" => Ok(json!([{ "id": "0", "title": "", "children": [] }])),
+            "bookmarks.create"
+            | "bookmarks.move"
+            | "bookmarks.update"
+            | "bookmarks.remove"
+            | "bookmarks.removeTree" => Err("This browser has no bookmarks.".into()),
+            "sessions.getRecentlyClosed" | "sessions.getDevices" => Ok(json!([])),
+            "sessions.restore" => Err("This browser keeps no closed sessions.".into()),
+            "search.query" => Err("This browser has no search engine for extensions.".into()),
+            "downloads.download" => Err("Extensions cannot download files in this browser.".into()),
+            "downloads.search" | "downloads.erase" => Ok(json!([])),
+            "downloads.pause"
+            | "downloads.resume"
+            | "downloads.cancel"
+            | "downloads.getFileIcon"
+            | "downloads.open"
+            | "downloads.show"
+            | "downloads.showDefaultFolder"
+            | "downloads.removeFile"
+            | "downloads.acceptDanger"
+            | "downloads.setUiOptions" => Ok(Value::Null),
+            "identity.getAuthToken" => Err("This browser has no browser account to sign in with.".into()),
+            "identity.getProfileUserInfo" => Ok(json!({ "email": "", "id": "" })),
+            "identity.getAccounts" => Ok(json!([])),
+            "identity.removeCachedAuthToken" | "identity.clearAllCachedAuthTokens" => Ok(Value::Null),
+            "identity.launchWebAuthFlow" => Err("This browser cannot open a sign-in window for extensions.".into()),
+            "identity.getRedirectURL" => {
+                let raw_path = args.first().and_then(Value::as_str).unwrap_or("");
+                let clean: String = raw_path
+                    .chars()
+                    .filter(|c| !c.is_control())
+                    .take(2048)
+                    .collect();
+                Ok(Value::String(format!("https://{ext_id}.chromiumapp.org/{clean}")))
+            }
             "commands.getAll" => {
                 let list: Vec<Value> = ext
                     .manifest
@@ -431,9 +563,11 @@ impl ExtensionHost {
             }
             "extension.isAllowedFileSchemeAccess" | "extension.isAllowedIncognitoAccess" => Ok(Value::Bool(false)),
             "extension.setUpdateUrlData" => Ok(Value::Null),
-            other if other.starts_with("privacy.") => {
-                if other.ends_with(".get") {
-                    Ok(json!({ "value": true, "levelOfControl": "not_controllable" }))
+            other if parse_privacy_call(other).is_some() => {
+                let (path, op) = parse_privacy_call(other).unwrap();
+                if op == "get" {
+                    let val = privacy_setting_default(path).unwrap_or(Value::Bool(false));
+                    Ok(json!({ "value": val, "levelOfControl": "not_controllable" }))
                 } else {
                     Ok(Value::Null)
                 }
