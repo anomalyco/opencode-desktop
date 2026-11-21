@@ -297,9 +297,10 @@ fn main() {
         io_pipes_switch,
         events.clone(),
     );
+    let menu_storage_dir = _cef.download_roots().profile.join("opencode-ext-menus");
     let ext_host = ext_pipe_bundle.map(|(pipe, rx_in, wake)| {
         pipe.mark_adopted_by_cef();
-        extensions::ExtensionHost::new(pipe, rx_in, wake, stub_dirs_by_id)
+        extensions::ExtensionHost::new(pipe, rx_in, wake, stub_dirs_by_id, Some(menu_storage_dir))
     });
     step("cef_initialized");
 
