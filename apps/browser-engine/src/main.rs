@@ -318,7 +318,7 @@ fn main() {
     #[cfg(windows)]
     let mut manager = EngineManager::new(
         out_tx,
-        _cef.profile_root(),
+        _cef.download_roots(),
         events.clone(),
         previews,
         gpu.join().ok().flatten(),
@@ -329,7 +329,7 @@ fn main() {
     #[cfg(target_os = "linux")]
     let mut manager = EngineManager::new(
         out_tx,
-        _cef.profile_root(),
+        _cef.download_roots(),
         events.clone(),
         previews,
         linux_gpu::transport(gpu.join().ok().flatten()),
@@ -340,7 +340,7 @@ fn main() {
     #[cfg(target_os = "macos")]
     let mut manager = EngineManager::new(
         out_tx,
-        _cef.profile_root(),
+        _cef.download_roots(),
         events.clone(),
         previews,
         ext_host,
