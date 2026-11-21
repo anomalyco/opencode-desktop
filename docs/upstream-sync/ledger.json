@@ -3507,11 +3507,11 @@
       ],
       "summary": "Insert a new browser tab opened from a page link or context menu beside its opener tab (Chrome opener-chain order) and keep its new-tab label until the first page names itself.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Browser tabs opened from links/popups currently append at the end of the side-panel tab strip without opener-chain placement (`placed.after`) or `unnamed` initial title hold.",
+      "status": "have it",
+      "status_evidence": "Ported in apps/desktop/src/surfaces/browser/openers.rs, features/panels/src/tabs.rs (append_session_tab / open_session_tab_after), apps/desktop/src/surfaces/browser/{mod,context_menu}.rs, apps/desktop/src/plugin_host/native/browser/chrome.rs (BrowserTab:Unnamed), and plugins/browser/init.luau (Chrome opener-chain placement + initial New tab title hold without changing contract.json).",
       "depends_on": "UP-095 (#63002), UP-112 (#65091)",
-      "risks": "Red flag: gui-plugins/browser, plugin/gui contract (adds optional `after` placement on tab open).",
-      "workstream": "BROWSER-UI",
+      "risks": "none",
+      "workstream": "none",
       "reviewed": "pre-merge review required when opened"
     },
     {
