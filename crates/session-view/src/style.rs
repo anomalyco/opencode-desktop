@@ -225,7 +225,7 @@ pub fn markdown_styled_wrap<S: TimelineHost, H: rune_kit::markdown::HighlightIte
         None => md,
     };
     match media {
-        Some(m) => crate::images::markdown_pictures::<S>(md, m),
+        Some(m) => crate::images::markdown_pictures::<S>(p, md, m),
         None => md,
     }.build(crate::palette::kit(p)).selection_group(false)
 }
@@ -281,6 +281,8 @@ fn wrap_button<S: TimelineHost>(p: &Pal, key: String, wrapped: bool, wrap_defaul
         .size(24.0, 24.0)
         .center()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
@@ -317,6 +319,8 @@ fn copy_button<S: TimelineHost>(p: &Pal, text: &str, key: String, label: &'stati
         .size(24.0, 24.0)
         .center()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
