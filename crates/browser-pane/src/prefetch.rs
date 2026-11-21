@@ -345,11 +345,17 @@ impl Job {
             unzip(partial, staging)?;
         }
         verifier.finish(&staging.join(ENGINE_BUNDLE_NAME)).map_err(Cut::Rejected)?;
-        #[cfg(windows)]
-        unpack::grant_sandbox_rx(&staging.join(ENGINE_BUNDLE_NAME));
         rune::marks::mark("browser.engine.verified");
         if !installer::bin_in(staging).is_file() {
             return Err(Cut::Rejected(Fault::Corrupt));
+        }
+        #[cfg(windows)]
+        {
+            if !installer::bin_in(staging).with_file_name("opencode-browser-engine.dll").is_file() {
+                return Err(Cut::Rejected(Fault::Corrupt));
+            }
+            unpack::grant_sandbox_rx(&staging.join(ENGINE_BUNDLE_NAME))
+                .map_err(|e| Cut::Failed(Fault::Write(format!("sandbox permissions: {e}"))))?;
         }
         // Which rule accepted it: a later build starts it only if it accepts that rule too.
         std::fs::write(staging.join(installer::TRUST_MARKER), source::marker(&release.trust, &release.sha256)).map_err(|e| Cut::Failed(err_write(&e)))?;
