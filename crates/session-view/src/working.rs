@@ -142,11 +142,14 @@ pub fn sync<S: TimelineHost>(s: &mut S) -> bool {
 /// The label alone on the text column, as Desktop's Working is. Hidden, it is drawn still: its
 /// loops would keep waking frames.
 pub fn row<S: TimelineHost>(s: &S, p: &Pal, session: &str, live: bool) -> El {
-    rune::row().h(H).center_y().child(label(s, p, session, live && !s.reduced_motion()))
+    rune::row().h(16.0).center_y().child(label(s, p, session, live && !s.reduced_motion()))
 }
 
 /// Desktop's Working lane under a turn (`h-9 pt-3`): its row is the bottom 24 of 36.
+/// Official's `StatusLane` (`timeline-next.css:523-541`) lays the 16 pt label flush at its top
+/// gap without the extra 4 pt centering of a 24 pt box (`LANE_TEXT_TOP`).
 pub const LANE_PAD: f32 = 12.0;
+pub const LANE_TEXT_TOP: f32 = 10.0;
 pub const H: f32 = 24.0;
 pub const LANE: f32 = LANE_PAD + H;
 
@@ -165,11 +168,13 @@ pub fn width(label: &str) -> f32 {
 
 fn label<S: TimelineHost>(s: &S, p: &Pal, session: &str, on: bool) -> El {
     let words = status(s, session);
+    if !on {
+        // Under reduced motion official inherits `[data-slot="timeline-status-label"]`'s muted ink
+        // (`timeline-next.css:562`, `text-shimmer.css:133-140`), not shimmer's faint base color.
+        return rune::row().child(text(words).key("label").font(UI).color(p.muted));
+    }
     let (weak, strong) = colors(p);
     let base = text(words).key("label").font(UI).color(weak);
-    if !on {
-        return rune::row().child(base);
-    }
     let clock = s.clock();
     let run = Run { since: s.working_state().since.get(session).copied().unwrap_or(clock), now: clock };
     let lit = weak.mix(strong, s.knobs().get(&WORKING_INTENSITY));
