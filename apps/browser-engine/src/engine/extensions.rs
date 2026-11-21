@@ -332,6 +332,7 @@ impl EngineManager {
             context: ContextKind::Default,
             preview: None,
             agent_driven: false,
+            document: 0,
         }));
         let allowed_ext = vec![ext_id.clone()];
         let file_roots = Arc::new(Mutex::new(Vec::new()));

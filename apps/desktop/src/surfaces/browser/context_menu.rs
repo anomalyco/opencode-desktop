@@ -265,11 +265,23 @@ fn log_diagnostics(app: &App, records: Vec<PageDiagnostic>) {
         if std::fs::create_dir_all(&logs_dir).is_err() {
             return;
         }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let _ = std::fs::set_permissions(&logs_dir, std::fs::Permissions::from_mode(0o700));
+        }
         let path = logs_dir.join("browser-page.log");
         if std::fs::metadata(&path).is_ok_and(|m| m.len() >= MAX_DIAG_LOG_BYTES) {
             let _ = std::fs::remove_file(&path);
         }
-        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) {
+        let mut opts = OpenOptions::new();
+        opts.create(true).append(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            opts.mode(0o600);
+        }
+        if let Ok(mut file) = opts.open(&path) {
             for line in lines {
                 let _ = writeln!(file, "{line}");
             }

@@ -542,6 +542,7 @@ impl EngineManager {
             HostMsg::Stop { tab_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     t.browser.stop_load();
+                    t.prompts.clear_auth_on_nav(tab_id, &self.out_tx);
                 }
             }
             HostMsg::SetZoom { tab_id, factor } => {
@@ -1152,6 +1153,7 @@ impl EngineManager {
             context: effective_context.redacted(),
             preview: preview_grant.as_ref().map(|g| g.kind.tag()),
             agent_driven,
+            document: 0,
         }));
         #[cfg(windows)]
         let frames: FrameRing = self
