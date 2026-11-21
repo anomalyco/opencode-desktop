@@ -382,6 +382,7 @@ fn list_row(s: &App, p: &Pal, ses: &SessionInfo, nav_ids: &std::rc::Rc<Vec<Strin
         .gap(ROW_GAP)
         .center_y()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .hover_group()
         .hover(p.hover)
