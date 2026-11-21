@@ -53,13 +53,31 @@ pub struct CookieJobs {
 
 /// Clear browsing data's engine half (`profile/index.ts:523-540` `clear`): every cookie, HTTP sign-in,
 /// site's stored data and the HTTP cache, through `ClearProfileData`.
+/// First the profile's cookies are listed (`listed`), so the engine can check afterwards that none of
+/// those sites keeps stored data (`sites`); then the clear is asked (`asked`).
 struct ClearJob {
     done: Completer,
+    listed: Option<u64>,
+    sites: Option<Vec<String>>,
     asked: Option<u64>,
     deadline: Instant,
 }
 
-/// The profile's cookie count (`profile/index.ts:517-522` `summary`: every cookie of the shared`n/// profile, session cookies included, never a remote server's). While the engine runs it is asked,
+/// The origins a site's cookies belong to: `http://` and `https://` of each host, once each.
+fn cookie_sites(cookies: &[browser_pane::protocol::WireCookie]) -> Vec<String> {
+    let mut sites: Vec<String> = cookies
+        .iter()
+        .map(|c| c.host.trim_start_matches('.').to_ascii_lowercase())
+        .filter(|h| !h.is_empty())
+        .flat_map(|h| [format!("https://{h}"), format!("http://{h}")])
+        .collect();
+    sites.sort();
+    sites.dedup();
+    sites
+}
+
+/// The profile's cookie count (`profile/index.ts:517-522` `summary`: every cookie of the shared
+/// profile, session cookies included, never a remote server's). While the engine runs it is asked,
 /// when Settings > Browser asks and the last read is older than `COUNT_FRESH` or an import or clear
 /// changed the store. While it is idle the count comes from the profile's own cookie store on disk
 /// (`disk`), read once and kept until the engine next runs or a clear. `None` until a read lands.
@@ -74,11 +92,13 @@ struct CookieCount {
 
 /// The on-disk count: whether a read finished since the engine last ran or a clear (`done`),
 /// what it found (`None` when the store could not be read), and whether one is on its worker now.
+/// `generation` moves at each of those, so a read started before one never lands after it.
 #[derive(Default)]
 struct DiskCount {
     done: bool,
     value: Option<usize>,
     reading: bool,
+    generation: u64,
 }
 
 const COUNT_FRESH: Duration = Duration::from_secs(5);
@@ -278,6 +298,7 @@ impl App {
         }
         let profile = self.workspace_panes.browser.host.engine_profile_dir()?;
         d.reading = true;
+        let generation = d.generation;
         drop(d);
         let waker = (*self.waker).clone();
         let filled = disk.clone();
@@ -285,8 +306,10 @@ impl App {
             let count = read_disk_count(&profile);
             if let Ok(mut d) = filled.lock() {
                 d.reading = false;
-                d.done = true;
-                d.value = count;
+                if d.generation == generation {
+                    d.done = true;
+                    d.value = count;
+                }
             }
             if let Some(w) = &waker {
                 w();
@@ -300,18 +323,42 @@ impl App {
         None
     }
 
-    /// Clears every cookie and the open sites' stored data, starting the engine if it is idle;
-    /// `done` gets whether the engine did. One clear runs at a time.
+    /// Clears every site's cookies, sign-ins, stored data and cache, starting the engine if it is
+    /// idle; `done` gets whether the engine did and found nothing left. One clear runs at a time.
+    /// With no engine to run it (none in this build, not installed, or failed to start) it answers
+    /// at once: done when the profile was never made on disk (nothing to clear), else failed.
     pub(crate) fn start_profile_clear(&mut self, done: Completer) {
         if self.workspace_panes.browser.cookies.clear.is_some() {
             return done.complete(Data::Bool(false));
         }
-        let start = !self.use_mock_browser() && !self.browser_unsupported();
-        let pane = &mut self.workspace_panes.browser;
-        if !pane.host.engine_cookies() && start {
-            pane.host.prepare(ANSWER_TIMEOUT);
+        if self.use_mock_browser() || self.browser_unsupported() {
+            return done.complete(Data::Bool(false));
         }
-        pane.cookies.clear = Some(ClearJob { done, asked: None, deadline: Instant::now() + ANSWER_TIMEOUT });
+        let pane = &mut self.workspace_panes.browser;
+        if !pane.host.engine_cookies() {
+            if let Some(cleared) = self.clear_without_engine() {
+                return done.complete(Data::Bool(cleared));
+            }
+            self.workspace_panes.browser.host.prepare(ANSWER_TIMEOUT);
+        }
+        self.workspace_panes.browser.cookies.clear =
+            Some(ClearJob { done, listed: None, sites: None, asked: None, deadline: Instant::now() + ANSWER_TIMEOUT });
+    }
+
+    /// When no engine can run the clear: `Some(true)` if the profile was never made on disk,
+    /// `Some(false)` if it was, `None` when the engine can be started for it.
+    fn clear_without_engine(&self) -> Option<bool> {
+        let host = &self.workspace_panes.browser.host;
+        if !matches!(host.status(), browser_pane::EngineStatus::NotInstalled | browser_pane::EngineStatus::Failed(_)) {
+            return None;
+        }
+        Some(host.engine_profile_dir().is_none_or(|p| !p.join("Default").exists()))
+    }
+
+    /// When the clear or an import next needs a look without anything else waking the app.
+    pub(crate) fn cookie_jobs_deadline(&self) -> Option<Instant> {
+        let jobs = &self.workspace_panes.browser.cookies;
+        [jobs.clear.as_ref().map(|j| j.deadline), jobs.import.as_ref().map(|j| j.deadline)].into_iter().flatten().min()
     }
 
     /// Moves the cookie import, the clear and the count on. True when one of them changed.
@@ -326,8 +373,9 @@ impl App {
         // The engine runs (or a clear ran): what the disk said is old by the time it is idle again.
         if (cleared || running)
             && let Ok(mut d) = count.disk.lock()
-            && !d.reading
+            && (d.done || d.reading)
         {
+            d.generation += 1;
             d.done = false;
             d.value = None;
         }
@@ -356,8 +404,21 @@ impl App {
         let pane = &mut self.workspace_panes.browser;
         let Some(mut job) = pane.cookies.clear.take() else { return false };
         let host = &mut pane.host;
-        if job.asked.is_none() && host.engine_cookies() {
-            job.asked = host.clear_profile_data();
+        // The sites the profile has cookies for, so the engine can check none keeps stored data.
+        if job.sites.is_none() && job.listed.is_none() && host.engine_cookies() {
+            job.listed = host.request_profile_cookies(None);
+        }
+        if let Some(listed) = job.listed {
+            let answer = host.take_profile_events_matching(|ev| matches!(ev, ProfileEvent::CookiesListed { request_id, .. } if *request_id == listed));
+            if let Some(ProfileEvent::CookiesListed { cookies, .. }) = answer.into_iter().next() {
+                job.sites = Some(cookie_sites(&cookies));
+                job.listed = None;
+            }
+        }
+        if job.asked.is_none()
+            && let Some(sites) = job.sites.clone()
+        {
+            job.asked = host.clear_profile_data(sites);
         }
         let done = job.asked.and_then(|asked| {
             host.take_profile_events_matching(|ev| matches!(ev, ProfileEvent::ActionDone { request_id, .. } if *request_id == asked))
@@ -367,7 +428,8 @@ impl App {
         let result = match done {
             Some(ok) => ok,
             None if job.asked.is_none() && host.engine_caps_known() && !host.engine_cookies() => false,
-            None if (job.asked.is_some() && !host.has_live_sidecar()) || Instant::now() >= job.deadline => false,
+            None if matches!(host.status(), browser_pane::EngineStatus::NotInstalled | browser_pane::EngineStatus::Failed(_)) => false,
+            None if ((job.asked.is_some() || job.listed.is_some()) && !host.has_live_sidecar()) || Instant::now() >= job.deadline => false,
             None => {
                 pane.cookies.clear = Some(job);
                 return false;
@@ -451,16 +513,20 @@ impl App {
 }
 
 /// The shared profile's cookie count on disk (`Default/Network/Cookies`, else Chromium's older
-/// `Default/Cookies`): 0 when there is no store yet, `None` when it cannot be read.
+/// `Default/Cookies`), expired ones left out: 0 when there is no store yet, `None` when it cannot be read.
 fn read_disk_count(profile: &std::path::Path) -> Option<usize> {
     let default = profile.join("Default");
     let Some(file) = [default.join("Network").join("Cookies"), default.join("Cookies")].into_iter().find(|f| f.is_file()) else {
         return Some(0);
     };
+    // Chromium's time: microseconds since 1601-01-01; an expired cookie is not counted, as the
+    // engine's listing leaves it out.
+    let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_micros() as i64);
+    let now = unix + 11_644_473_600 * 1_000_000;
     let scratch = SnapshotScratch::new(SnapshotScratch::default_dir());
     browser_pane::cookies::database::snapshot_database(&file, &scratch, |conn| {
         conn.query_row(
-            "SELECT COUNT(*) FROM cookies WHERE NOT (trim(host_key, '.') = ?1 AND name = ?2)",
+            &format!("SELECT COUNT(*) FROM cookies WHERE NOT (trim(host_key, '.') = ?1 AND name = ?2) AND (has_expires = 0 OR expires_utc > {now})"),
             [PROBE_COOKIE_HOST, PROBE_COOKIE_NAME],
             |r| r.get::<_, i64>(0),
         )

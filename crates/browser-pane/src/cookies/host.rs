@@ -104,14 +104,15 @@ impl BrowserHost {
     }
 
     /// "Sign out everywhere": clears all cookies, HTTP auth credentials, certificate exceptions,
-    /// and site storage/caches across the default profile and every active remote server partition.
-    pub fn clear_profile_data(&mut self) -> Option<u64> {
+    /// and site storage/caches across the default profile and every active remote server partition;
+    /// `sites` (origins) are checked afterwards for anything left.
+    pub fn clear_profile_data(&mut self, sites: Vec<String>) -> Option<u64> {
         if !self.engine_cookies() {
             return None;
         }
         let request_id = self.next_req_id;
         self.next_req_id += 1;
-        self.send(HostMsg::ClearProfileData { request_id });
+        self.send(HostMsg::ClearProfileData { request_id, sites });
         Some(request_id)
     }
 
