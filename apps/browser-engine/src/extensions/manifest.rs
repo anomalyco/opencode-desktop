@@ -18,41 +18,105 @@ const MAX_MESSAGES_BYTES: u64 = 1024 * 1024;
 const MAX_LIST_ITEMS: usize = 256;
 const MAX_ITEM_CHARS: usize = 256;
 
-/// Native Chromium permissions stripped from the staged `manifest.json` handed to Chromium so
-/// Chromium's C++ `Extension::permissions_data()` never grants them (`nativeMessaging`,
-/// `downloads`, `downloads.open`, `downloads.ui`, `management`), while our verified Rust manifest
-/// preserves them for truthful official `stubs.ts` / `permissions.*` replies.
-pub const STRIPPED_NATIVE_PERMS: &[&str] = &[
-    "nativeMessaging",
-    "downloads",
-    "downloads.open",
-    "downloads.ui",
-    "management",
+/// Single deny-by-default allow-list of Chromium C++ API permissions permitted to reach
+/// Chromium's `Extension::permissions_data()` (`compatibility.ts:14-33` + `policy.ts:93-95`,
+/// excluding APIs implemented or stubbed by our own Rust host and excluding `proxy`).
+///
+/// DENY BY DEFAULT: every non-host-pattern permission outside this exact list — including
+/// `nativeMessaging`, `downloads*`, `management`, `contentSettings`, `desktopCapture`,
+/// `tabCapture`, `pageCapture`, `webAuthenticationProxy`, `history`, `bookmarks`, `sessions`,
+/// `privacy`, `fontSettings`, `identity*`, `sidePanel`, `search`, `notifications`, `contextMenus`,
+/// `webNavigation`, `browsingData`, `system.{storage,cpu,memory}`, `geolocation`, `userScripts`,
+/// `webRequestAuthProvider`, `tts*`, `debugger`, `proxy`, and any future Chromium API — is
+/// stripped from Chromium's staged manifest (both required and optional), refused at
+/// `permissions.request`, and asserted absent in Chromium's `ExtensionPrefs` post-load.
+pub const ALLOWED_CHROMIUM_PERMS: &[&str] = &[
+    "activeTab",
+    "alarms",
+    "background",
+    "clipboardRead",
+    "clipboardWrite",
+    "cookies",
+    "declarativeNetRequest",
+    "declarativeNetRequestFeedback",
+    "declarativeNetRequestWithHostAccess",
+    "idle",
+    "offscreen",
+    "power",
+    "scripting",
+    "storage",
+    "system.display",
+    "tabs",
+    "unlimitedStorage",
+    "webRequest",
+    "webRequestBlocking",
 ];
+
+/// Permissions implemented safely by our own extension host (stripped from Chromium C++ so child
+/// frames / native Chromium APIs can never bypass our host, while still reported as supported).
+pub const SHIMMED_SUPPORTED_PERMS: &[&str] = &[
+    "contextMenus",
+    "notifications",
+    "webNavigation",
+];
+
+/// Returns `true` iff `perm` is on the deny-by-default Chromium C++ API allow-list.
+pub fn is_allowed_chromium_perm(perm: &str) -> bool {
+    ALLOWED_CHROMIUM_PERMS.contains(&perm.trim())
+}
+
+/// Returns `true` iff `perm` is supported in this browser (either native Chromium allow-listed or
+/// implemented by our own extension host shim).
+pub fn is_supported_permission(perm: &str) -> bool {
+    let p = perm.trim();
+    ALLOWED_CHROMIUM_PERMS.contains(&p) || SHIMMED_SUPPORTED_PERMS.contains(&p)
+}
 
 /// Native Chromium permissions still refused at load because they can bypass the extension host
 /// boundary outside our C++ permission-stripping sandbox (`debugger` attaches CDP to any tab;
-/// `proxy` MITMs all traffic). Checked on required `permissions` only.
+/// `proxy` MITMs all traffic). Checked on required `permissions` only (and stripped from
+/// `optional_permissions` by deny-by-default).
 pub const DISALLOWED_REQUIRED_PERMS: &[&str] = &[
     "debugger",
     "proxy",
 ];
 
-/// Removes every entry in [`STRIPPED_NATIVE_PERMS`] from both `"permissions"` and
-/// `"optional_permissions"` of already-verified `manifest.json` bytes. Returns `(stripped_any,
-/// sanitized_bytes)` or `None` on malformed JSON.
-pub fn strip_native_perms_from_manifest(bytes: &[u8]) -> Option<(bool, Vec<u8>)> {
+fn is_non_file_host_pattern(perm: &str) -> bool {
+    let p = perm.trim();
+    if p == "<all_urls>" {
+        return true;
+    }
+    p.contains("://") && !p.to_ascii_lowercase().starts_with("file:")
+}
+
+/// Deny-by-default manifest sanitizer for Chromium:
+/// - In `"permissions"`: retains ONLY entries in [`ALLOWED_CHROMIUM_PERMS`] or valid non-`file://`
+///   host patterns (stripping everything else after `.trim()`).
+/// - In `"optional_permissions"` and `"optional_host_permissions"`: strips ALL entries so Chromium
+///   C++ can never grant any optional permission or host permission at runtime.
+///
+/// Returns `(stripped_any, sanitized_bytes)` or `None` on malformed JSON.
+pub fn strip_disallowed_perms_from_manifest(bytes: &[u8]) -> Option<(bool, Vec<u8>)> {
     let text = std::str::from_utf8(bytes).ok()?;
     let mut val: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()?;
     let obj = val.as_object_mut()?;
     let mut changed = false;
-    for field in ["permissions", "optional_permissions"] {
-        if let Some(arr) = obj.get_mut(field).and_then(Value::as_array_mut) {
-            let before = arr.len();
-            arr.retain(|v| !v.as_str().is_some_and(|p| STRIPPED_NATIVE_PERMS.contains(&p)));
-            if arr.len() != before {
-                changed = true;
-            }
+    if let Some(arr) = obj.get_mut("permissions").and_then(Value::as_array_mut) {
+        let before = arr.len();
+        arr.retain(|v| {
+            v.as_str()
+                .is_some_and(|p| is_allowed_chromium_perm(p) || is_non_file_host_pattern(p))
+        });
+        if arr.len() != before {
+            changed = true;
+        }
+    }
+    for opt_field in ["optional_permissions", "optional_host_permissions"] {
+        if let Some(arr) = obj.get_mut(opt_field).and_then(Value::as_array_mut)
+            && !arr.is_empty()
+        {
+            arr.clear();
+            changed = true;
         }
     }
     if !changed {

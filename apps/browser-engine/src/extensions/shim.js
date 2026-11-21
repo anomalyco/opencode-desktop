@@ -6,36 +6,41 @@
 // Keeps all working native Chromium APIs (declarativeNetRequest, storage, scripting, alarms,
 // offscreen, runtime, tabs.sendMessage, tabs.connect, webRequest, cookies) native!
 (() => {
-  const LOCKDOWN_APIS = [
-    "tabs",
-    "windows",
-    "action",
-    "browserAction",
-    "pageAction",
-    "contextMenus",
-    "webNavigation",
-    "downloads",
-    "management",
+  const CHILD_FRAME_ALLOWED = new Set(["runtime", "i18n", "storage", "dom"]);
+  const CHILD_ALWAYS_LOCK = [
+    "tabs", "windows", "action", "browserAction", "pageAction", "contextMenus", "webNavigation",
+    "downloads", "management", "notifications", "permissions", "history", "bookmarks", "sessions",
+    "privacy", "fontSettings", "identity", "sidePanel", "search", "contentSettings",
+    "desktopCapture", "tabCapture", "pageCapture", "webAuthenticationProxy", "browsingData",
+    "system", "userScripts", "tts", "ttsEngine", "debugger", "proxy", "topSites", "readingList",
+    "tabGroups", "omnibox", "devtools", "extension", "commands", "webRequest",
+    "declarativeNetRequest", "scripting", "offscreen", "cookies", "alarms", "idle", "power",
+    "app", "csi", "loadTimes", "gcm", "instanceID", "declarativeContent",
   ];
+  const lockUndefined = (obj, prop) => {
+    try {
+      Object.defineProperty(obj, prop, { value: undefined, configurable: false, enumerable: false, writable: false });
+    } catch {}
+  };
+  // DENY BY DEFAULT in child frames: walk own keys of `chrome`/`browser` and lock everything
+  // outside `{runtime, i18n, storage, dom}` (plus `runtime.{connectNative,sendNativeMessage}`).
   const neutralizeChrome = (win) => {
     if (!win) return;
     for (const rootName of ["chrome", "browser"]) {
       let root;
       try { root = win[rootName]; } catch { continue; }
-      if (!root) continue;
-      for (const api of LOCKDOWN_APIS) {
-        try {
-          Object.defineProperty(root, api, { value: undefined, configurable: false, enumerable: false, writable: false });
-        } catch {}
+      if (!root || typeof root !== "object") continue;
+      let keys = [];
+      try { keys = Object.getOwnPropertyNames(root); } catch {}
+      for (const k of keys) {
+        if (!CHILD_FRAME_ALLOWED.has(k)) lockUndefined(root, k);
       }
+      for (const api of CHILD_ALWAYS_LOCK) lockUndefined(root, api);
       try {
         const rt = root.runtime;
         if (rt && typeof rt === "object") {
-          for (const m of ["connectNative", "sendNativeMessage"]) {
-            try {
-              Object.defineProperty(rt, m, { value: undefined, configurable: false, enumerable: false, writable: false });
-            } catch {}
-          }
+          lockUndefined(rt, "connectNative");
+          lockUndefined(rt, "sendNativeMessage");
         }
       } catch {}
     }
@@ -609,12 +614,13 @@
       stubEvents: true,
     },
     {
+      // Unconditionally bound (Chromium exposes `management.getSelf`, `uninstallSelf`, and
+      // `getPermissionWarningsByManifest` natively even without the `"management"` permission).
       path: "management",
-      permissions: ["management"],
       methods: [
         "getSelf", "getAll", "get", "setEnabled", "uninstall", "uninstallSelf",
         "launchApp", "createAppShortcut", "setLaunchType",
-        "getPermissionWarningsById", "generateAppForLink",
+        "getPermissionWarningsById", "getPermissionWarningsByManifest", "generateAppForLink",
       ],
       events: ["onInstalled", "onUninstalled", "onEnabled", "onDisabled"],
       stubEvents: true,
@@ -746,6 +752,39 @@
         def(cur, "onChange", makeLocalEvent());
       }
     }
+  }
+
+  // DENY-BY-DEFAULT top-level namespace sweep: remove any Chromium `chrome.*` / `browser.*` API
+  // outside the exact official Electron + Rune supported/stubbed allow-list, strip non-`display`
+  // sub-APIs from `chrome.system`, and neutralize `webRequest.onAuthRequired` (P5).
+  const TOP_FRAME_ALLOWED = new Set([
+    "runtime", "i18n", "dom", "events", "types", "extensionTypes",
+    "alarms", "cookies", "declarativeNetRequest", "idle", "offscreen", "power",
+    "scripting", "storage", "system", "webRequest",
+    "tabs", "windows", "action", "browserAction", "pageAction", "contextMenus",
+    "webNavigation", "notifications", "permissions", "management", "commands",
+    "sidePanel", "fontSettings", "history", "bookmarks", "sessions", "search",
+    "downloads", "identity", "privacy", "extension",
+  ]);
+  for (const root of roots) {
+    let keys = [];
+    try { keys = Object.getOwnPropertyNames(root); } catch {}
+    for (const k of keys) {
+      if (!TOP_FRAME_ALLOWED.has(k)) lockUndefined(root, k);
+    }
+    try {
+      const sys = root.system;
+      if (sys && typeof sys === "object") {
+        for (const sk of Object.getOwnPropertyNames(sys)) {
+          if (sk !== "display") lockUndefined(sys, sk);
+        }
+        for (const sk of ["cpu", "memory", "storage"]) lockUndefined(sys, sk);
+      }
+    } catch {}
+    try {
+      const wr = root.webRequest;
+      if (wr && typeof wr === "object") lockUndefined(wr, "onAuthRequired");
+    } catch {}
   }
 
   // Auto-report popup document content size for anchored OSR popups (Chrome limits: 25..800 x 25..600).

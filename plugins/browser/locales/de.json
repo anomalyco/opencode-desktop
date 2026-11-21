@@ -64,5 +64,6 @@
   "zoom.reset": "Zoom zurücksetzen",
   "zoom.percent": "{{percent}} %",
   "link.copy": "Link kopieren",
-  "history.clear": "Verlauf löschen"
+  "history.clear": "Verlauf löschen",
+  "extensions.compat.feature.management": "Andere Erweiterungen verwalten"
 }

@@ -327,6 +327,7 @@ impl ExtensionHost {
         self.sessions.remove(sid);
         self.execution_contexts.retain(|(s, _), _| s != sid);
         self.pending_fetch_resume.retain(|_, s| s != sid);
+        self.pending_loaded_resume.retain(|s| s != sid);
         self.failed_probe_sessions.remove(sid);
         let detached_probe_ext = self
             .probe_in_flight
@@ -352,8 +353,16 @@ impl ExtensionHost {
             // Fail closed if `Fetch.enable` returned an error: NEVER resume an unguarded target
             // (`review-rd274.md` Round-3 §1). Because `auto_attach_cmd` precedes `fetch_enable_cmd`
             // in the batch, a non-error reply strictly guarantees both completed before JS runs.
-            if msg.get("error").is_none() && self.sessions.contains_key(&sid) {
-                let _ = self.send_cdp("Runtime.runIfWaitingForDebugger", json!({}), Some(&sid));
+            // Also hold resume until `ext.loaded == true` (after post-load
+            // `verify_extension_file_access_disabled` passes; READER-7 F2).
+            if msg.get("error").is_none()
+                && let Some(ext_id) = self.sessions.get(&sid).map(|s| s.ext_id.clone())
+            {
+                if self.extensions.get(&ext_id).is_some_and(|e| e.loaded) {
+                    let _ = self.send_cdp("Runtime.runIfWaitingForDebugger", json!({}), Some(&sid));
+                } else if !self.pending_loaded_resume.iter().any(|s| s == &sid) {
+                    self.pending_loaded_resume.push(sid);
+                }
             }
             return effects;
         }
@@ -368,7 +377,8 @@ impl ExtensionHost {
             let loaded_id = msg.pointer("/result/id").and_then(Value::as_str).unwrap_or("");
             // Post-load fail-closed verification: confirm Chromium actually cleared
             // `Extension::ALLOW_FILE_ACCESS` (`creation_flags & 4 == 0` and
-            // `newAllowFileAccess == false`) under `<loaded_id>` (`review-rd274.md` Round-3 §1a).
+            // `newAllowFileAccess == false`) AND granted zero permissions outside
+            // `ALLOWED_CHROMIUM_PERMS` under `<loaded_id>` (`review-rd274.md` Round-3 §1a).
             let file_access_revoked =
                 ok && loaded_id == expected_id && crate::context::verify_extension_file_access_disabled(loaded_id);
             if file_access_revoked {
@@ -376,6 +386,7 @@ impl ExtensionHost {
                     ext.is_unpacked = true;
                     ext.loaded = true;
                 }
+                self.resume_sessions_loaded_for(&expected_id);
                 if let Some(snap) = self.action_snapshot(&expected_id) {
                     effects.push(ExtEffect::ActionUpdated(snap));
                 }
@@ -384,7 +395,12 @@ impl ExtensionHost {
                     effects.extend(self.click_extension(&expected_id));
                 }
             } else {
-                self.extensions.remove(&expected_id);
+                self.drop_loaded_resumes_for(&expected_id);
+                if let Some(removed) = self.extensions.remove(&expected_id)
+                    && let Some(staged) = removed.staged_dir
+                {
+                    super::integrity::cleanup_staged_dir(&staged);
+                }
                 self.verified_startup.remove(&expected_id);
                 self.actions.remove(&expected_id);
                 self.queued_clicks.retain(|cid| cid != &expected_id);
@@ -434,7 +450,12 @@ impl ExtensionHost {
         if let Some(ext_id) = self.pending_uninstall_cmd.remove(&id) {
             let ok = msg.get("error").is_none();
             if ok {
-                self.extensions.remove(&ext_id);
+                self.drop_loaded_resumes_for(&ext_id);
+                if let Some(removed) = self.extensions.remove(&ext_id)
+                    && let Some(staged) = removed.staged_dir
+                {
+                    super::integrity::cleanup_staged_dir(&staged);
+                }
                 self.actions.remove(&ext_id);
                 self.context_menus.lock().unwrap().remove_extension(&ext_id);
                 if let Some(ids) = self.notifications.remove(&ext_id) {
@@ -469,9 +490,15 @@ impl ExtensionHost {
                     ext.is_unpacked = true;
                     ext.loaded = true;
                 }
+                self.resume_sessions_loaded_for(&expected_id);
                 effects.push(ExtEffect::ExtensionReloaded { ext_id: loaded_id, ok: true, error: None });
             } else {
-                self.extensions.remove(&expected_id);
+                self.drop_loaded_resumes_for(&expected_id);
+                if let Some(removed) = self.extensions.remove(&expected_id)
+                    && let Some(staged) = removed.staged_dir
+                {
+                    super::integrity::cleanup_staged_dir(&staged);
+                }
                 self.verified_startup.remove(&expected_id);
                 let stale_sids: Vec<String> = self
                     .sessions
@@ -1138,22 +1165,58 @@ impl ExtensionHost {
         }
         effects
     }
+    fn resume_sessions_loaded_for(&mut self, ext_id: &str) {
+        let mut remaining = Vec::new();
+        let mut to_resume = Vec::new();
+        for sid in std::mem::take(&mut self.pending_loaded_resume) {
+            if self.sessions.get(&sid).is_some_and(|s| s.ext_id == ext_id) {
+                to_resume.push(sid);
+            } else if self.sessions.contains_key(&sid) {
+                remaining.push(sid);
+            }
+        }
+        self.pending_loaded_resume = remaining;
+        for sid in to_resume {
+            let _ = self.send_cdp("Runtime.runIfWaitingForDebugger", json!({}), Some(&sid));
+        }
+    }
+
+    fn drop_loaded_resumes_for(&mut self, ext_id: &str) {
+        self.pending_loaded_resume
+            .retain(|sid| self.sessions.get(sid).is_some_and(|s| s.ext_id != ext_id));
+    }
 }
 
 const IFRAME_LOCKDOWN_JS: &str = r#"(() => {
+  const allowed = new Set(["runtime", "i18n", "storage", "dom"]);
+  const alwaysLock = [
+    "tabs", "windows", "action", "browserAction", "pageAction", "contextMenus", "webNavigation",
+    "downloads", "management", "notifications", "permissions", "history", "bookmarks", "sessions",
+    "privacy", "fontSettings", "identity", "sidePanel", "search", "contentSettings",
+    "desktopCapture", "tabCapture", "pageCapture", "webAuthenticationProxy", "browsingData",
+    "system", "userScripts", "tts", "ttsEngine", "debugger", "proxy", "topSites", "readingList",
+    "tabGroups", "omnibox", "devtools", "extension", "commands", "webRequest",
+    "declarativeNetRequest", "scripting", "offscreen", "cookies", "alarms", "idle", "power",
+    "app", "csi", "loadTimes", "gcm", "instanceID", "declarativeContent"
+  ];
+  const lockProp = (obj, prop) => {
+    try { Object.defineProperty(obj, prop, { value: undefined, configurable: false, enumerable: false, writable: false }); } catch {}
+  };
   for (const rootName of ["chrome", "browser"]) {
     let root;
     try { root = globalThis[rootName]; } catch { continue; }
-    if (!root) continue;
-    for (const api of ["tabs", "windows", "action", "browserAction", "pageAction", "contextMenus", "webNavigation", "downloads", "management"]) {
-      try { Object.defineProperty(root, api, { value: undefined, configurable: false, enumerable: false, writable: false }); } catch {}
+    if (!root || typeof root !== "object") continue;
+    let keys = [];
+    try { keys = Object.getOwnPropertyNames(root); } catch {}
+    for (const k of keys) {
+      if (!allowed.has(k)) lockProp(root, k);
     }
+    for (const api of alwaysLock) lockProp(root, api);
     try {
       const rt = root.runtime;
       if (rt && typeof rt === "object") {
-        for (const m of ["connectNative", "sendNativeMessage"]) {
-          try { Object.defineProperty(rt, m, { value: undefined, configurable: false, enumerable: false, writable: false }); } catch {}
-        }
+        lockProp(rt, "connectNative");
+        lockProp(rt, "sendNativeMessage");
       }
     } catch {}
   }

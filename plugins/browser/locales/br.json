@@ -65,5 +65,6 @@
   "zoom.reset": "Redefinir zoom",
   "zoom.percent": "{{percent}}%",
   "link.copy": "Copiar link",
-  "history.clear": "Limpar histórico"
+  "history.clear": "Limpar histórico",
+  "extensions.compat.feature.management": "Merañ astennoù all"
 }

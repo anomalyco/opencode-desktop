@@ -64,5 +64,6 @@
   "zoom.reset": "بازنشانی بزرگ‌نمایی",
   "zoom.percent": "⁨{{percent}}⁩٪",
   "link.copy": "کپی پیوند",
-  "history.clear": "پاک کردن تاریخچه"
+  "history.clear": "پاک کردن تاریخچه",
+  "extensions.compat.feature.management": "مدیریت سایر افزونه‌ها"
 }

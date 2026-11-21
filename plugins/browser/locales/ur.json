@@ -64,5 +64,6 @@
   "zoom.reset": "زوم ری سیٹ کریں",
   "zoom.percent": "{{percent}}%",
   "link.copy": "لنک کاپی کریں",
-  "history.clear": "تاریخ صاف کریں"
+  "history.clear": "تاریخ صاف کریں",
+  "extensions.compat.feature.management": "دوسری ایکسٹینشنز کا نظم کرنا"
 }

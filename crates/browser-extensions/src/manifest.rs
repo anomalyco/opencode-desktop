@@ -415,7 +415,8 @@ fn permission_feature(perm: &str) -> Option<ExtensionFeature> {
         | "favicon"
         | "downloads"
         | "downloads.open"
-        | "downloads.ui" => ExtensionFeature::BrowserData,
+        | "downloads.ui"
+        | "downloads.shelf" => ExtensionFeature::BrowserData,
         "management" => ExtensionFeature::Management,
         "privacy" | "fontSettings" | "contentSettings" | "browsingData" => ExtensionFeature::Settings,
         "userScripts" => ExtensionFeature::UserScripts,

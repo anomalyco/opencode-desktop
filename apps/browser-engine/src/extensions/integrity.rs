@@ -13,16 +13,16 @@
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use base64::Engine as _;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::extensions::manifest::{
-    DISALLOWED_REQUIRED_PERMS, ExtensionManifest, is_valid_ext_id, strip_native_perms_from_manifest,
+    DISALLOWED_REQUIRED_PERMS, ExtensionManifest, is_valid_ext_id, strip_disallowed_perms_from_manifest,
 };
 
 const MAX_DEPTH: usize = 64;
@@ -31,6 +31,7 @@ const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const STUB_PREFIX: &str = ".ext-exempt-";
+static STAGE_SEQ: AtomicU64 = AtomicU64::new(1);
 
 /// A parsed `--extension <id>:<sha256>:<dir>` specification awaiting full SHA-256 verification.
 #[derive(Clone, Debug)]
@@ -41,9 +42,12 @@ pub struct ExtensionCandidate {
 }
 
 /// Result of fast pre-CEF stub preparation (<1 ms).
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct PreparedStartup {
     pub stub_root: Option<PathBuf>,
+    /// Exclusive lock held on `<stub_root>/.lock` for the lifetime of the CEF runtime so shared
+    /// comma-fallback directories (`%LOCALAPPDATA%` / `$TMPDIR`) sweep dead runs safely.
+    pub stub_lock: Option<File>,
     pub stub_dirs: Vec<PathBuf>,
     pub stub_dirs_by_id: HashMap<String, PathBuf>,
     pub candidates: Vec<ExtensionCandidate>,
@@ -151,7 +155,12 @@ pub fn parse_spec(raw: &str) -> Option<ExtensionCandidate> {
 /// and no disallowed required permissions) and emits a 100-byte inert stub manifest (0 perms,
 /// 0 scripts, 0 DNR) in a comma-free user-only directory for `--disable-extensions-except`.
 pub fn prepare_startup_stubs(specs: &[String], profile_root: &Path) -> PreparedStartup {
-    sweep_stale_stubs(profile_root);
+    sweep_stale_stubs(profile_root, false);
+    if let Some(fallback_parent) = comma_fallback_parent()
+        && fallback_parent != profile_root
+    {
+        sweep_stale_stubs(&fallback_parent, true);
+    }
     let parsed: Vec<ExtensionCandidate> = specs.iter().filter_map(|s| parse_spec(s)).collect();
     if parsed.is_empty() {
         return PreparedStartup::default();
@@ -160,31 +169,14 @@ pub fn prepare_startup_stubs(specs: &[String], profile_root: &Path) -> PreparedS
     // pick a user-owned comma-free parent (never rely on profile-overwritten `TMP` on Windows, and
     // create an atomic non-predictable `0o700` dir on Unix; fail closed if unavailable).
     let base_parent = if profile_root.to_string_lossy().contains(',') {
-        #[cfg(windows)]
-        {
-            match std::env::var_os("LOCALAPPDATA")
-                .map(PathBuf::from)
-                .filter(|p| !p.to_string_lossy().contains(','))
-            {
-                Some(p) => p,
-                None => {
-                    return PreparedStartup {
-                        pre_rejected_ids: parsed.into_iter().map(|c| c.id).collect(),
-                        ..PreparedStartup::default()
-                    };
-                }
-            }
-        }
-        #[cfg(not(windows))]
-        {
-            let p = std::env::temp_dir();
-            if p.to_string_lossy().contains(',') {
+        match comma_fallback_parent() {
+            Some(p) => p,
+            None => {
                 return PreparedStartup {
                     pre_rejected_ids: parsed.into_iter().map(|c| c.id).collect(),
                     ..PreparedStartup::default()
                 };
             }
-            p
         }
     } else {
         profile_root.to_path_buf()
@@ -217,6 +209,13 @@ pub fn prepare_startup_stubs(specs: &[String], profile_root: &Path) -> PreparedS
             ..PreparedStartup::default()
         };
     }
+    let stub_lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(stub_root.join(".lock"))
+        .ok()
+        .and_then(|f| f.try_lock().ok().map(|()| f));
     let mut out = PreparedStartup::default();
     for cand in parsed {
         let Some((version, key)) = read_mv3_stub_fields(&cand.dir, &cand.id) else {
@@ -254,14 +253,30 @@ pub fn prepare_startup_stubs(specs: &[String], profile_root: &Path) -> PreparedS
         out.candidates.push(cand);
     }
     if out.stub_dirs.is_empty() {
+        drop(stub_lock);
         let _ = std::fs::remove_dir_all(&stub_root);
     } else {
         out.stub_root = Some(stub_root);
+        out.stub_lock = stub_lock;
     }
     out
 }
 
-/// Removes the engine's temporary inert-stub directory on shutdown.
+fn comma_fallback_parent() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .filter(|p| !p.to_string_lossy().contains(','))
+    }
+    #[cfg(not(windows))]
+    {
+        let p = std::env::temp_dir();
+        (!p.to_string_lossy().contains(',')).then_some(p)
+    }
+}
+
+/// Removes the engine's temporary inert-stub directory on shutdown (called after `cef::shutdown()`).
 pub fn cleanup_stub_root(stub_root: &Path) {
     if let Ok(meta) = std::fs::symlink_metadata(stub_root)
         && !is_reparse_or_symlink(&meta)
@@ -270,9 +285,22 @@ pub fn cleanup_stub_root(stub_root: &Path) {
     }
 }
 
+/// Removes one staged `_rt/<ext_id>-<seq>` runtime mirror directory on uninstall or failed verify.
+pub fn cleanup_staged_dir(staged_dir: &Path) {
+    if let Ok(meta) = std::fs::symlink_metadata(staged_dir)
+        && meta.is_dir()
+        && !is_reparse_or_symlink(&meta)
+    {
+        let _ = std::fs::remove_dir_all(staged_dir);
+    }
+}
+
 /// Sweeps any leftover `.ext-exempt-<pid>` stub folders from earlier crashed engine processes.
-fn sweep_stale_stubs(profile_root: &Path) {
-    let Ok(entries) = std::fs::read_dir(profile_root) else { return };
+/// In a shared comma-fallback parent (`%LOCALAPPDATA%` / `$TMPDIR`), requires acquiring the
+/// directory's `.lock` file (or age > 1 h for legacy lockless dirs) so live sibling engines
+/// are never disturbed.
+fn sweep_stale_stubs(parent: &Path, is_shared_parent: bool) {
+    let Ok(entries) = std::fs::read_dir(parent) else { return };
     let my_pid = std::process::id();
     for entry in entries.flatten() {
         let name = entry.file_name();
@@ -280,12 +308,28 @@ fn sweep_stale_stubs(profile_root: &Path) {
         let Some(pid_part) = name.strip_prefix(STUB_PREFIX) else { continue };
         let pid_str = pid_part.split('-').next().unwrap_or(pid_part);
         let path = entry.path();
-        if pid_str.parse::<u32>().ok().is_some_and(|p| p != my_pid)
-            && std::fs::symlink_metadata(&path)
-                .is_ok_and(|m| m.is_dir() && !is_reparse_or_symlink(&m))
-        {
-            let _ = std::fs::remove_dir_all(path);
+        if !pid_str.parse::<u32>().ok().is_some_and(|p| p != my_pid) {
+            continue;
         }
+        let Ok(meta) = std::fs::symlink_metadata(&path) else { continue };
+        if !meta.is_dir() || is_reparse_or_symlink(&meta) {
+            continue;
+        }
+        if is_shared_parent {
+            let lock_path = path.join(".lock");
+            let can_remove = match OpenOptions::new().read(true).write(true).open(&lock_path) {
+                Ok(f) => f.try_lock().is_ok(),
+                Err(_) => meta
+                    .modified()
+                    .ok()
+                    .and_then(|m| m.elapsed().ok())
+                    .is_some_and(|age| age > std::time::Duration::from_secs(3600)),
+            };
+            if !can_remove {
+                continue;
+            }
+        }
+        let _ = std::fs::remove_dir_all(path);
     }
 }
 
@@ -378,7 +422,7 @@ pub fn verify_extension_dir_and_stage(
         return None;
     }
     let manifest = ExtensionManifest::from_verified_bytes(dir, &manifest_bytes)?;
-    let (needs_strip, stripped_bytes) = strip_native_perms_from_manifest(&manifest_bytes)?;
+    let (needs_strip, stripped_bytes) = strip_disallowed_perms_from_manifest(&manifest_bytes)?;
     if !needs_strip {
         return Some((manifest, dir.to_path_buf()));
     }
@@ -402,12 +446,12 @@ fn stage_sanitized_mirror(
     if !rt_meta.is_dir() || is_reparse_or_symlink(&rt_meta) {
         return None;
     }
-    let dst = rt_root.join(ext_id);
-    if let Ok(m) = std::fs::symlink_metadata(&dst) {
-        if is_reparse_or_symlink(&m) {
-            return None;
-        }
-        std::fs::remove_dir_all(&dst).ok()?;
+    // Use a monotonic `<ext_id>-<seq>` subdir so live reloads on Windows never fail with
+    // `ERROR_SHARING_VIOLATION` while Chromium still holds handles inside an earlier stage dir.
+    let seq = STAGE_SEQ.fetch_add(1, Ordering::Relaxed);
+    let dst = rt_root.join(format!("{ext_id}-{seq}"));
+    if std::fs::symlink_metadata(&dst).is_ok() {
+        return None;
     }
     std::fs::create_dir(&dst).ok()?;
     let mut entries = 0usize;
@@ -438,6 +482,7 @@ fn mirror_tree(src: &Path, dst: &Path, depth: usize, entries: &mut usize, total_
         return false;
     }
     let Ok(rd) = std::fs::read_dir(src) else { return false };
+    let mut buf = [0u8; 64 * 1024];
     for entry in rd {
         let Ok(entry) = entry else { return false };
         *entries += 1;
@@ -462,16 +507,33 @@ fn mirror_tree(src: &Path, dst: &Path, depth: usize, entries: &mut usize, total_
                 return false;
             }
         } else if meta.is_file() {
-            let sz = meta.len();
+            // Open with `open_regular_no_follow` + `Read::take(MAX_FILE_BYTES + 1)` instead of
+            // `std::fs::copy` to close transient symlink/size TOCTOU before the post-copy hash.
+            let Some((file, sz)) = open_regular_no_follow(&from) else { return false };
             if sz > MAX_FILE_BYTES {
                 return false;
             }
-            *total_bytes = total_bytes.saturating_add(sz);
-            if *total_bytes > MAX_TOTAL_BYTES {
+            let Ok(mut out) = OpenOptions::new().write(true).create_new(true).open(&to) else {
                 return false;
-            }
-            if std::fs::copy(&from, &to).is_err() {
-                return false;
+            };
+            let mut copied: u64 = 0;
+            let mut limited = (&file).take(MAX_FILE_BYTES.saturating_add(1));
+            loop {
+                let Ok(n) = limited.read(&mut buf) else { return false };
+                if n == 0 {
+                    break;
+                }
+                copied = copied.saturating_add(n as u64);
+                if copied > MAX_FILE_BYTES {
+                    return false;
+                }
+                *total_bytes = total_bytes.saturating_add(n as u64);
+                if *total_bytes > MAX_TOTAL_BYTES {
+                    return false;
+                }
+                if out.write_all(&buf[..n]).is_err() {
+                    return false;
+                }
             }
         } else {
             return false;

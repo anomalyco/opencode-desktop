@@ -64,5 +64,6 @@
   "zoom.reset": "জুম রিসেট করুন",
   "zoom.percent": "{{percent}}%",
   "link.copy": "লিঙ্ক কপি করুন",
-  "history.clear": "ইতিহাস মুছুন"
+  "history.clear": "ইতিহাস মুছুন",
+  "extensions.compat.feature.management": "অন্যান্য এক্সটেনশন পরিচালনা"
 }
