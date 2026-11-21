@@ -83,6 +83,12 @@ impl DictationHost for App {
     }
 
     fn is_dictate_bind(&self, ev: &KeyEvent) -> bool {
+        if !self.dictation().active() && matches!(crate::updater::build_channel(), "dev" | "local") {
+            let field = self.plugins.editors.borrow().iter().any(|((p, _), e)| p == "browser" && e.focused);
+            if self.focused_browser_pane(field).is_some() {
+                return false;
+            }
+        }
         crate::keymap::Bind::Dictate.matches(ev)
     }
 

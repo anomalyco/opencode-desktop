@@ -458,7 +458,7 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
                 })
             end) else nil,
         }, {
-            ui.text(presetLabel, ROW_TEXT, { color = "text-chrome", truncate = true, shrink = true, minW = 0 }),
+            ui.text(presetLabel, { size = 13, weight = "medium", lineHeight = 16, tracking = -0.04, noWrap = true, color = "text-chrome", truncate = true, shrink = true, minW = 0 }),
             ui.icon("viewport-chevron", { size = 16, color = "icon-weak" }),
         })
 
@@ -544,15 +544,16 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
                 w = 50,
                 h = 24,
                 px = if editing then 6 else 4,
-                radius = 4,
+                radius = 6,
                 center = not editing,
                 align = "center",
                 fill = "bg-base",
+                shadow = if editing or (isInvalid and not zoomed) then nil else "raised",
                 border = if isInvalid and not zoomed
                     then "status-danger"
                     elseif editing then "border-focus"
-                    else "border-base",
-                borderWidth = if editing then 1 else 0.5,
+                    else nil,
+                borderWidth = if editing or (isInvalid and not zoomed) then 1 else nil,
                 opacity = if zoomed then 0.5 else nil,
                 onPress = if not zoomed and not editing then view:Handler(function()
                     ed:Focus()

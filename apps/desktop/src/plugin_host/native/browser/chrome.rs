@@ -241,11 +241,15 @@ pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
                     .browser
                     .host
                     .tab(id)
-                    .and_then(|t| t.find.matches()))
+                    .and_then(|t| t.find.matches().map(|(a, total)| (t.find.query().to_owned(), a, total))))
             })?;
             match found {
-                Some((active, total)) => mlua::IntoLua::into_lua(
-                    map([("active", Data::Number(active as f64)), ("total", Data::Number(total as f64))]),
+                Some((query, active, total)) => mlua::IntoLua::into_lua(
+                    map([
+                        ("query", Data::String(query)),
+                        ("active", Data::Number(active as f64)),
+                        ("total", Data::Number(total as f64)),
+                    ]),
                     lua,
                 ),
                 None => Ok(mlua::Value::Nil),
@@ -280,6 +284,22 @@ pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
             let clear = clear_selection.unwrap_or(true);
             later(lua, &this, "BrowserTab:StopFinding", move |s, id, _| {
                 s.workspace_panes.browser.host.stop_find(id, clear);
+            })
+        })?,
+    )?;
+    m.raw_set(
+        "Focus",
+        lua.create_function(|lua, this: Table| {
+            let sc = scope::TabScope::capture(lua);
+            if !sc.is_builtin_browser || sc.tool_sid.is_some() {
+                return Ok(());
+            }
+            later(lua, &this, "BrowserTab:Focus", move |s, id, tx| {
+                if s.active_browser_tab_id() == Some(id) {
+                    tx.focus("browser-surface", false);
+                    s.focus_browser_page(id);
+                    s.workspace_panes.browser.host.focus_tab(id);
+                }
             })
         })?,
     )?;

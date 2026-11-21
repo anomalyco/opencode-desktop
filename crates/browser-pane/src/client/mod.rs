@@ -177,6 +177,9 @@ pub struct BrowserHost {
     #[cfg(feature = "engine")]
     pub(crate) prepared: Arc<std::sync::atomic::AtomicU64>,
     pub(crate) extensions: crate::extensions::BrowserExtensionsState,
+    /// Per-tab `(last_engine_favicon, url -> favicon)` cache (bounded to 32 URLs/tab) so same-origin
+    /// bfcache Back/Forward restores each page's icon when CEF omits `on_favicon_urlchange`.
+    pub(crate) tab_favicons: HashMap<u64, (Option<String>, HashMap<String, String>)>,
 }
 
 impl Default for BrowserHost {
@@ -241,6 +244,7 @@ impl BrowserHost {
             #[cfg(feature = "engine")]
             prepared: Arc::default(),
             extensions: Default::default(),
+            tab_favicons: HashMap::new(),
         }
     }
 
@@ -416,6 +420,7 @@ impl BrowserHost {
 
     pub fn close_tab(&mut self, id: u64) {
         self.preview_chunk_budget.cancel_tab(id);
+        self.tab_favicons.remove(&id);
         if let Some(pos) = self.tabs.iter().position(|t| t.id == id) {
             let removed = self.tabs.remove(pos);
             removed.surface.clear();
@@ -1027,6 +1032,22 @@ impl BrowserHost {
                 t.prompts.blocked_guard_notice = Some(notice);
                 t.prompts.blocked_guard_input = guard;
             }
+            let (last_eng_fav, url_favs) = self.tab_favicons.entry(snap.tab_id).or_default();
+            let engine_fav_changed = *last_eng_fav != snap.favicon;
+            *last_eng_fav = snap.favicon.clone();
+            let resolved_favicon = if engine_fav_changed {
+                if let Some(fav) = &snap.favicon && !snap.url.is_empty() && snap.url != "about:blank" {
+                    if url_favs.len() >= 32 && !url_favs.contains_key(&snap.url) {
+                        url_favs.clear();
+                    }
+                    url_favs.insert(snap.url.clone(), fav.clone());
+                }
+                snap.favicon
+            } else if url_changed {
+                url_favs.get(&snap.url).cloned().or(snap.favicon)
+            } else {
+                t.favicon.clone()
+            };
             let changed = url_changed
                 || t.title != snap.title
                 || t.loading != snap.loading
@@ -1035,7 +1056,7 @@ impl BrowserHost {
                 || (t.zoom - snap.zoom).abs() > 0.001
                 || t.cursor != snap.cursor
                 || t.load_error != snap.load_error
-                || t.favicon != snap.favicon
+                || t.favicon != resolved_favicon
                 || clear_refusal
                 || !cancel_perms.is_empty()
                 || !cancel_auth.is_empty();
@@ -1060,7 +1081,7 @@ impl BrowserHost {
             } else {
                 snap.load_error
             };
-            t.favicon = snap.favicon;
+            t.favicon = resolved_favicon;
             if snap.preview.is_some() {
                 t.preview = snap.preview;
             }
@@ -1105,6 +1126,11 @@ impl BrowserHost {
         prompts.agent_driven = snap.agent_driven;
         if snap.agent_driven {
             prompts.driver = Some(crate::prompts::TabDriver::Agent);
+        }
+        if let Some(fav) = &snap.favicon && !snap.url.is_empty() && snap.url != "about:blank" {
+            let (last, map) = self.tab_favicons.entry(snap.tab_id).or_default();
+            *last = Some(fav.clone());
+            map.insert(snap.url.clone(), fav.clone());
         }
         self.tabs.push(BrowserTab {
             id: snap.tab_id,

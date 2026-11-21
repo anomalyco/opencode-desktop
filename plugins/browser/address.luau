@@ -426,7 +426,7 @@ function address.step(state: State, event: Event): (State, { Effect })
                 return { asked = state.asked, edit = nextEdit, holds = state.holds }, {}
             end
             if not edit.typed then
-                return state, { BLUR }
+                return { asked = state.asked, edit = { status = "rest" }, holds = state.holds }, { BLUR }
             end
             local hold = activeHold(state, edit.tab, event.epoch)
             local restored = if hold then hold.text else event.epoch.url
@@ -491,7 +491,7 @@ function address.step(state: State, event: Event): (State, { Effect })
         if text ~= "" then
             return navigate(state, event.tab, text, event.epoch, true)
         end
-        return state, { BLUR }
+        return { asked = state.asked, edit = { status = "rest" }, holds = state.holds }, { BLUR }
     else
         return navigate(state, event.tab, event.url, event.epoch, false)
     end
