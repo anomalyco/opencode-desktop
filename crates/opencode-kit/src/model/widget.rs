@@ -36,6 +36,48 @@ pub struct WidgetState {
     /// The tool call waits for the answer.
     pub wait: bool,
     pub created: i64,
+    /// The program error its last report recorded (any client's); the status stays as it was.
+    pub failure: Option<WidgetFailure>,
+}
+
+/// A widget's recorded program error (`Widget.Failure`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct WidgetFailure {
+    pub phase: String,
+    pub message: String,
+    /// 1-based, in the template's source.
+    pub line: Option<u32>,
+    pub column: Option<u32>,
+    /// The client that reported it: `tui`, `rune`, `ios`, `android`, `web`.
+    pub client: String,
+    /// The agent has been told.
+    pub sent: bool,
+}
+
+impl WidgetFailure {
+    fn parse(v: &Value) -> Option<WidgetFailure> {
+        let n = |k: &str| v[k].as_u64().and_then(|n| u32::try_from(n).ok());
+        Some(WidgetFailure {
+            phase: v["phase"].as_str()?.to_owned(),
+            message: v["message"].as_str()?.to_owned(),
+            line: n("line"),
+            column: n("column"),
+            client: s(&v["client"]),
+            sent: v["sent"].as_bool().unwrap_or(false),
+        })
+    }
+
+    /// The error as `report` takes it again (`ask`): `{ phase, message, line?, column? }`.
+    pub fn error(&self) -> Value {
+        let mut e = serde_json::json!({ "phase": self.phase, "message": self.message });
+        if let Some(l) = self.line {
+            e["line"] = l.into();
+        }
+        if let Some(c) = self.column {
+            e["column"] = c.into();
+        }
+        e
+    }
 }
 
 impl WidgetState {
@@ -60,6 +102,7 @@ impl WidgetState {
             status,
             wait: v["wait"].as_bool().unwrap_or(false),
             created: i(&v["time"]["created"]),
+            failure: WidgetFailure::parse(&v["failure"]),
         })
     }
 

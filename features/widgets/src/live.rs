@@ -157,8 +157,9 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
             Post::Submit(value) => Event::Answered(Response::Submit(value)),
             Post::Dismiss => Event::Answered(Response::Dismiss),
             Post::Send(message) => Event::Sending(message),
+            // Over the post rate: the program's error.
             Post::Dropped(n) => {
-                eprintln!("widget {id}: dropped {n} posts over 240 a second");
+                crate::report(host, id, "main", &format!("dropped {n} posts over 240 a second"), None, 0);
                 continue;
             }
             Post::Capture(on) => {
@@ -167,8 +168,9 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
                 }
                 continue;
             }
+            // A fetch that failed is the program's to handle (it gets the error): not a failure.
             Post::Failed { phase, message } => {
-                crate::report(host, id, phase, &message, None, 0);
+                crate::client_error(host, id, phase, &message);
                 continue;
             }
         };
@@ -186,6 +188,10 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
             Ended::Failed(m) => {
                 crate::report(host, id, "main", &m, failed_at, offset);
                 Some(crate::in_source(&m, failed_at, offset))
+            }
+            Ended::Broke(m) => {
+                crate::client_error(host, id, "main", &m);
+                Some(m)
             }
             Ended::Returned | Ended::Stopped => None,
         };

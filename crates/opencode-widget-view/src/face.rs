@@ -9,7 +9,7 @@ use rune::{El, Tx, col, el, icon, row, text};
 use rune_kit::{Button, ButtonVariant, Kit, Loader};
 use serde_json::Value;
 
-use crate::{Action, Buttons, Hooks, Local, Look, view};
+use crate::{Action, Buttons, Hooks, Local, Look, Recorded, view};
 
 /// The keyboard glyph of the focus hint.
 static KEYBOARD: rune::Icon = rune::Icon {
@@ -56,6 +56,11 @@ pub struct Words {
     pub release: String,
     /// A widget a newer one replaced.
     pub superseded: String,
+    /// Sends a recorded program error to the agent.
+    pub ask: String,
+    pub asking: String,
+    /// A recorded program error the agent heard of.
+    pub told: String,
 }
 
 impl Default for Words {
@@ -73,6 +78,9 @@ impl Default for Words {
             fullscreen: "Full screen".into(),
             exit_fullscreen: "Exit full screen".into(),
             elsewhere: "Open in full screen".into(),
+            ask: "Ask agent to fix it".into(),
+            asking: "Asking the agent…".into(),
+            told: "The agent was told about this error.".into(),
             release: "Esc to release".into(),
             superseded: "Updated below".into(),
         }
@@ -112,7 +120,7 @@ fn status(k: &Kit, glyph: &'static rune::Icon, tint: rune::Color, words: &str, d
 /// The widget in its frame. `title` names it (the message's title, or its template's name);
 /// `buttons` are what Try again (or Restart) and the expand button do.
 pub fn frame<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, face: Face<'_>, title: &str, buttons: Buttons<S>) -> El {
-    let Buttons { retry, expand } = buttons;
+    let Buttons { retry, expand, failure } = buttons;
     local.built();
     let k = look.kit;
     let c = &k.c;
@@ -154,6 +162,9 @@ pub fn frame<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, f
             b
         }
     };
+    // A program error the server recorded (here or on another client): what it was, and the agent
+    // told of it or the user's button to tell it.
+    let body: Vec<El> = body.into_iter().chain(failure.map(|f| recorded(look, f))).collect();
     // What the widget may do beyond drawing, granted (a live widget's `fetch`): "Network: api.github.com".
     let chip = look.chip.map(|chip| {
         row().key("capabilities").child(
@@ -200,6 +211,26 @@ pub fn frame<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, f
         frame = frame.hover_group().hover_group_focus().child(button.pin(None, Some(10.0), Some(10.0), None));
     }
     frame
+}
+
+/// A recorded program error's rows: its words (unless the widget shows its own error), then "The
+/// agent was told about this error." or "Ask agent to fix it".
+fn recorded<S: 'static>(look: &Look, f: Recorded<S>) -> El {
+    let k = look.kit;
+    let c = &k.c;
+    let words = f.text.map(|t| text(t).key("words").font(k.ty.small.lh(16.0)).color(c.danger.fg).wrap().selectable(true).w_full());
+    let action = if f.sent {
+        text(look.words.told.clone()).key("told").font(k.ty.small.lh(16.0)).color(c.text_muted)
+    } else {
+        let label = if f.ask.is_some() { look.words.ask.clone() } else { look.words.asking.clone() };
+        let button = Button::new(label).variant(ButtonVariant::Neutral);
+        let button = match f.ask {
+            Some(ask) => button.on_press_tx(move |s: &mut S, tx: &mut Tx| ask(s, tx)),
+            None => button.state(rune_kit::State::Disabled),
+        };
+        row().key("ask").child(button.build(k))
+    };
+    col().key("failure").w_full().gap(8.0).role("status").children(words).child(action)
 }
 
 /// Room around a full-screen widget, each side.

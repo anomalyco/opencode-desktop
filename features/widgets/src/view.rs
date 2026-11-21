@@ -59,8 +59,27 @@ pub fn view<H: WidgetsHost + TimelineHost>(s: &H, p: &Pal, session: &str, messag
             crate::fullscreen::send(s, ScreenEvent::Enter(id.clone()), now, tx);
         }) as opencode_widget_view::Action<H>
     });
-    let buttons = Buttons { retry: Some(retry), expand };
+    let failure = recorded::<H>(s, e, session, &key);
+    let buttons = Buttons { retry: Some(retry), expand, failure };
     Some(session_view::widget::frame(s, p, session, &key, &e.label, e.machine.face(), &e.local, Some(&hooks::<H>(&key)), Place::Inline(buttons), chip(s, e).as_deref()))
+}
+
+/// Widget `key`'s recorded program error (`State.failure`, any client's) while it's open: its
+/// words, unless the widget shows its own error, then "The agent was told about this error." or
+/// the "Ask agent to fix it" button.
+fn recorded<H: WidgetsHost + 'static>(s: &H, e: &Entry, session: &str, key: &str) -> Option<opencode_widget_view::Recorded<H>> {
+    let f = crate::failure_of(s.widgets(), session, key)?;
+    let shows_own = matches!(e.machine.face(), opencode_widget::Face::Failed(_) | opencode_widget::Face::Live { error: Some(_), .. });
+    let at = match (f.line, f.column) {
+        (Some(l), Some(c)) => format!(" ({l}:{c})"),
+        (Some(l), None) => format!(" (line {l})"),
+        _ => String::new(),
+    };
+    let error = format!("{}: {}{at}", f.phase, f.message);
+    let text = (!shows_own).then(|| opencode_i18n::t!("rune.widget.failedOn", client = f.client.clone(), error = error).to_string());
+    let id = key.to_owned();
+    let ask = (!e.asking()).then(|| Rc::new(move |s: &mut H, _tx: &mut Tx| crate::ask(s, &id)) as opencode_widget_view::Action<H>);
+    Some(opencode_widget_view::Recorded { text, sent: f.sent, ask })
 }
 
 /// Where widget `key`'s view sends what the user does: its events, and its keys and pointer

@@ -87,8 +87,11 @@ pub enum Post {
 pub enum Ended {
     /// `main` returned.
     Returned,
-    /// It threw, or broke a budget: the message to show.
+    /// It threw, or broke a budget: the message to show. A program error.
     Failed(String),
+    /// This client couldn't keep it running (no thread, a snapshot that didn't restore): a client
+    /// error, shown but never reported.
+    Broke(String),
     /// The client stopped it.
     Stopped,
 }

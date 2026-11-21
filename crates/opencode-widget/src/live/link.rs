@@ -239,7 +239,7 @@ impl Link {
         let era = st.era;
         let spawned = std::thread::Builder::new().name("widget-live".into()).stack_size(STACK).spawn(move || run(link, era, snapshot));
         if let Err(e) = spawned {
-            st.run = Run::Ended(Ended::Failed(format!("couldn't start the widget: {e}")));
+            st.run = Run::Ended(Ended::Broke(format!("couldn't start the widget: {e}")));
             return;
         }
         clock().watch(self.me.clone());
@@ -260,12 +260,12 @@ impl Link {
                     Ended::Failed(d.message_lossy())
                 }
             },
-            Ok(RunOutcome::Suspended(_)) => Ended::Failed("the widget stopped".into()),
+            Ok(RunOutcome::Suspended(_)) => Ended::Broke("the widget stopped".into()),
             Err(_) => Ended::Stopped,
         };
         let run = std::mem::replace(&mut st.run, Run::Discarded);
         st.run = match (run, result) {
-            _ if failure.is_some() => Run::Ended(Ended::Failed(failure.unwrap_or_default())),
+            _ if failure.is_some() => Run::Ended(Ended::Broke(failure.unwrap_or_default())),
             (Run::Saving, Ok(RunOutcome::Suspended(s))) => Run::Saved(s.state),
             (Run::Discarding, _) => Run::Discarded,
             (Run::Killing { reason, .. }, _) => Run::Ended(Ended::Failed(reason)),

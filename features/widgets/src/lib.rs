@@ -29,7 +29,7 @@ use opencode_widget_view::Local;
 use rune::Tx;
 use serde_json::Value;
 
-pub use engine::{Compiled, Grants, Kind, Program, compile, compile_as, offset};
+pub use engine::{Compiled, Grants, Kind, LoadError, Program, compile, compile_as, offset};
 pub use opencode_widget::{RespondError, fixtures};
 pub use view::{screen_key, screen_view, view};
 /// The shader slots' GPU side, for the host's compositor.
@@ -64,9 +64,16 @@ pub struct Entry {
     reported: std::collections::HashSet<String>,
     /// Its live program asked for the pointer (`widget.capturePointer()`).
     capture_wanted: bool,
+    /// The user's "Ask agent to fix it" is on its way.
+    asking: bool,
 }
 
 impl Entry {
+    /// The user's "Ask agent to fix it" is on its way.
+    pub fn asking(&self) -> bool {
+        self.asking
+    }
+
     /// Whether it asks for pointer capture: its live program did, or its view's root says
     /// `capture: "pointer"`.
     pub fn wants_capture(&self) -> bool {
@@ -155,9 +162,10 @@ pub trait WidgetsHost {
     /// Posts `value` as a message from open widget `call` of `message` (`send`) off the UI
     /// thread; answers with [`sent`].
     fn post_message(&mut self, session: &str, message: &str, call: &str, value: Value, wake: bool);
-    /// Tells the agent widget `call` of `message` failed here (`report`, `error`: `{ phase,
-    /// message, line?, column? }`), off the UI thread; nothing answers.
-    fn post_report(&mut self, session: &str, message: &str, call: &str, error: Value);
+    /// Records the program error widget `call` of `message` hit here (`report`, `error`: `{ phase,
+    /// message, line?, column? }`), off the UI thread. With `ask` (the user's "Ask agent to fix
+    /// it"), it goes to the agent too, and the job answers with [`asked`].
+    fn post_report(&mut self, session: &str, message: &str, call: &str, error: Value, ask: bool);
     /// Where the OS cursor is on screen, for a widget capturing the pointer; `None` where it
     /// can't be read.
     fn pointer_at(&self) -> Option<[f64; 2]>;
@@ -236,7 +244,11 @@ fn run(host: &mut dyn WidgetsHost, id: &str, effect: Effect) -> Option<Event> {
             };
             let result = result.map_err(|(f, offset)| {
                 let phase = if f.view { "view" } else if matches!(input, opencode_widget::Step::Init) { "init" } else { "event" };
-                report(host, id, phase, &f.message, f.location, offset);
+                if f.program {
+                    report(host, id, phase, &f.message, f.location, offset);
+                } else {
+                    client_error(host, id, phase, &f.message);
+                }
                 in_source(&f.message, f.location, offset)
             });
             Some(Event::Ran(result))
@@ -272,15 +284,17 @@ fn mode(c: &Compiled) -> Mode {
 }
 
 /// `name@version`'s program came back (compiled), or why it couldn't.
-pub fn loaded(host: &mut dyn WidgetsHost, name: &str, version: &str, result: Result<Arc<Compiled>, String>) {
+pub fn loaded(host: &mut dyn WidgetsHost, name: &str, version: &str, result: Result<Arc<Compiled>, engine::LoadError>) {
     let key = format!("{name}@{version}");
     let event = match &result {
         Ok(c) => Event::Loaded(mode(c)),
-        Err(m) => Event::LoadFailed(m.clone()),
+        Err(e) => Event::LoadFailed(e.message().to_owned()),
     };
+    // Only a program that didn't compile is the template's to fix.
+    let program = matches!(result, Err(engine::LoadError::Program(_)));
     let slot = match result {
         Ok(p) => Template::Ready(p),
-        Err(m) => Template::Failed(m),
+        Err(e) => Template::Failed(e.message().to_owned()),
     };
     host.widgets_mut().templates.insert(key.clone(), slot);
     let waiting: Vec<String> = host
@@ -292,7 +306,11 @@ pub fn loaded(host: &mut dyn WidgetsHost, name: &str, version: &str, result: Res
         .collect();
     for id in waiting {
         if let Event::LoadFailed(m) = &event {
-            report(host, &id, "load", m, None, 0);
+            if program {
+                report(host, &id, "load", m, None, 0);
+            } else {
+                client_error(host, &id, "load", m);
+            }
         }
         advance(host, &id, event.clone());
     }
@@ -429,7 +447,7 @@ pub fn sync(host: &mut dyn WidgetsHost) -> bool {
                 let (machine, effects) = Widget::open(c.data().clone(), status(&state.status));
                 let data = engine::Data::new(&machine.data);
                 let label = c.input["title"].as_str().filter(|t| !t.is_empty()).unwrap_or(state.label()).to_owned();
-                let entry = Entry { session: session.clone(), message: c.message.clone(), call: c.call.clone(), template: state.template_key(), label, machine, data, local: Local::default(), seen: state.status.clone(), run: live::Run::default(), reported: Default::default(), capture_wanted: false };
+                let entry = Entry { session: session.clone(), message: c.message.clone(), call: c.call.clone(), template: state.template_key(), label, machine, data, local: Local::default(), seen: state.status.clone(), run: live::Run::default(), reported: Default::default(), capture_wanted: false, asking: false };
                 host.widgets_mut().entries.insert(key.clone(), entry);
                 for effect in effects {
                     if let Some(next) = run(host, &key, effect) {
@@ -482,7 +500,11 @@ pub fn draw_canvases(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool 
         }
     }
     for (id, f, offset) in failed {
-        report(host, &id, "draw", &f.message, f.location, offset);
+        if f.program {
+            report(host, &id, "draw", &f.message, f.location, offset);
+        } else {
+            client_error(host, &id, "draw", &f.message);
+        }
     }
     true
 }
@@ -497,9 +519,51 @@ pub(crate) fn in_source(message: &str, location: Option<(u32, u32)>, offset: u32
     }
 }
 
-/// Tells the agent widget `id` failed here (`report`), once per distinct error: `phase` is where
-/// (`init`, `update`, `view`, `draw`, `main`, `shader`, `fetch`, `load`), `location` the line
-/// and column in the program, less `offset` lines to be in the template's source.
+/// A client error widget `id` hit (`widgets.md`, Failures): this client's bug, never reported;
+/// logged in dev mode only. The widget shows it as it would any failure.
+pub(crate) fn client_error(host: &mut dyn WidgetsHost, id: &str, phase: &str, message: &str) {
+    if host.widget_dev_mode() {
+        eprintln!("widget {id}: client error in {phase}: {message}");
+    }
+}
+
+/// The user's "Ask agent to fix it" on widget `id`'s recorded failure: `report` again with the
+/// same error and `ask`, once, while nothing else asks.
+pub fn ask(host: &mut dyn WidgetsHost, id: &str) {
+    let Some(e) = host.widgets().entries.get(id) else { return };
+    if e.asking {
+        return;
+    }
+    let (session, message, call) = (e.session.clone(), e.message.clone(), e.call.clone());
+    let Some(failure) = failure_of(host.widgets(), &session, id).filter(|f| !f.sent) else { return };
+    if let Some(e) = host.widgets_mut().entries.get_mut(id) {
+        e.asking = true;
+    }
+    host.post_report(&session, &message, &call, failure.error(), true);
+}
+
+/// The ask for widget `id` went (`Ok`), or didn't. Its `changed` event brings `sent`.
+pub fn asked(host: &mut dyn WidgetsHost, id: &str, result: Result<(), String>) {
+    if let Err(m) = &result {
+        client_error(host, id, "ask", m);
+    }
+    if let Some(e) = host.widgets_mut().entries.get_mut(id) {
+        e.asking = false;
+    }
+}
+
+/// Widget `id`'s recorded program error, while it's open (`State.failure`).
+pub(crate) fn failure_of(w: &Widgets, session: &str, id: &str) -> Option<opencode_kit::model::WidgetFailure> {
+    match w.states(session) {
+        Some(States::Ready(map)) => map.get(id).filter(|s| s.status == WidgetStatus::Open).and_then(|s| s.failure.clone()),
+        _ => None,
+    }
+}
+
+/// Records a program error widget `id` hit here (`report`), once per distinct error: `phase` is
+/// where (`init`, `event`, `view`, `draw`, `main`, `shader`, `load`), `location` the line and
+/// column in the program, less `offset` lines to be in the template's source. The server tells
+/// the agent when the widget's session made the template; otherwise the user may ask.
 pub(crate) fn report(host: &mut dyn WidgetsHost, id: &str, phase: &str, message: &str, location: Option<(u32, u32)>, offset: u32) {
     let Some(e) = host.widgets_mut().entries.get_mut(id) else { return };
     if !e.machine.open_here() && !matches!(e.machine.phase, Phase::Starting { .. } | Phase::Failed { .. } | Phase::Stopped { .. } | Phase::Loading { .. }) {
@@ -519,7 +583,7 @@ pub(crate) fn report(host: &mut dyn WidgetsHost, id: &str, phase: &str, message:
         error["column"] = column.into();
     }
     let (session, message, call) = (e.session.clone(), e.message.clone(), e.call.clone());
-    host.post_report(&session, &message, &call, error);
+    host.post_report(&session, &message, &call, error, false);
 }
 
 /// Commits typing whose debounce ran out or whose field lost focus, and asks to wake for the
@@ -532,8 +596,12 @@ pub fn poll(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool {
     if opencode_widget_view::shader::take_changed() {
         // The shader's slot failed or froze: its widget builds again to say so, and the agent
         // hears of a shader that didn't compile.
-        for (scope, message) in opencode_widget_view::shader::failures() {
-            report(host, &scope, "shader", &message, None, 0);
+        for (scope, message, program) in opencode_widget_view::shader::failures() {
+            if program {
+                report(host, &scope, "shader", &message, None, 0);
+            } else {
+                client_error(host, &scope, "shader", &message);
+            }
         }
         changed = true;
     }

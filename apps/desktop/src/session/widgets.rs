@@ -56,22 +56,35 @@ impl WidgetsHost for App {
         let directory = self.widget_directory(session);
         self.job(move |srv| {
             // Compiled on the job thread too: the window only takes the finished program.
-            let result = srv.widget_program(&directory, &name, &version).map_err(|e| e.to_string()).and_then(|p| compile_as(&p.program, &p.mode, grant(&p.capabilities), offset(&p.program, &p.source))).map(Arc::new);
+            let result = srv.widget_program(&directory, &name, &version).map_err(|e| LoadError::Client(e.to_string())).and_then(|p| compile_as(&p.program, &p.mode, grant(&p.capabilities), offset(&p.program, &p.source))).map(Arc::new);
             Box::new(move |s: &mut App, _tx: &mut Tx| loaded(s, &name, &version, result)) as Apply
         });
     }
 
-    fn post_report(&mut self, session: &str, message: &str, call: &str, error: Value) {
+    fn post_report(&mut self, session: &str, message: &str, call: &str, error: Value, ask: bool) {
+        let key = opencode_kit::model::widget_key(message, call);
+        // A fixture run or story has no server: an ask goes nowhere, and the button comes back.
         if !self.live() {
+            if ask {
+                asked(self, &key, Ok(()));
+            }
             return;
         }
         let (directory, session, message, call) = (self.widget_directory(session), session.to_owned(), message.to_owned(), call.to_owned());
         self.job(move |srv| {
-            // Best effort: the error already shows here; the agent hears of it when this goes.
-            if let Err(e) = srv.widget_report(&directory, &session, &message, &call, error) {
-                eprintln!("widget report failed: {e}");
-            }
-            Box::new(|_: &mut App, _: &mut Tx| {}) as Apply
+            // Best effort: the error already shows here.
+            let result = srv.widget_report(&directory, &session, &message, &call, error, ask).map_err(|e| e.to_string());
+            Box::new(move |s: &mut App, _: &mut Tx| {
+                match result {
+                    Err(e) if !ask => {
+                        if s.widget_dev_mode() {
+                            eprintln!("widget report failed: {e}");
+                        }
+                    }
+                    result if ask => asked(s, &key, result),
+                    _ => {}
+                }
+            }) as Apply
         });
     }
 

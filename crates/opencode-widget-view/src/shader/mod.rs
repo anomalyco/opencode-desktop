@@ -29,8 +29,9 @@ pub fn is_mark(mark: u32) -> bool {
 pub enum Status {
     #[default]
     Running,
-    /// Its WGSL didn't compile (or the device refused it).
-    Failed(String),
+    /// It didn't run: its WGSL failed validation (`program`: the template's error), or the device
+    /// refused WGSL that validated (a client error, never reported).
+    Failed { message: String, program: bool },
     /// It ran over 50 ms a frame three frames in a row: stopped on its last frame.
     Frozen,
 }
@@ -91,13 +92,14 @@ pub fn take_changed() -> bool {
     CHANGED.replace(false)
 }
 
-/// The slots whose shader didn't compile: the scope each was built in (its widget) and why.
-pub fn failures() -> Vec<(String, String)> {
+/// The slots that failed: their widget's scope, why, and whether it's the program's error (WGSL
+/// that failed validation) rather than this client's.
+pub fn failures() -> Vec<(String, String, bool)> {
     REGISTRY.with_borrow(|r| {
         r.marks
             .iter()
             .filter_map(|(key, m)| match &r.slots.get(m)?.status {
-                Status::Failed(e) => Some((key.rsplit_once('/').map_or(key.as_str(), |(scope, _)| scope).to_owned(), e.clone())),
+                Status::Failed { message, program } => Some((key.rsplit_once('/').map_or(key.as_str(), |(scope, _)| scope).to_owned(), message.clone(), *program)),
                 _ => None,
             })
             .collect()
@@ -180,7 +182,7 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, size: S
         Some(w) => b.w(w as f32).max_w(cx.look.width),
         None => b.w_full(),
     };
-    if let Status::Failed(error) = status {
+    if let Status::Failed { message: error, .. } = status {
         // The poster, or the words it stands for, with why the shader didn't run under it.
         let picture = poster.and_then(|src| (cx.look.image)(src)).filter(|i| i.error().is_none());
         let b = match picture {

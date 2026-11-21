@@ -37,6 +37,24 @@ pub struct Failure {
     pub location: Option<(u32, u32)>,
     /// It returned something that isn't a view.
     pub view: bool,
+    /// The template's own error (reported); otherwise this client's (logged in dev mode only).
+    pub program: bool,
+}
+
+/// Why a template's program isn't here: its own code didn't compile (a program error, reported),
+/// or this client couldn't have it (the `program` fetch failed, no runner here: never reported).
+#[derive(Clone, Debug)]
+pub enum LoadError {
+    Program(String),
+    Client(String),
+}
+
+impl LoadError {
+    pub fn message(&self) -> &str {
+        match self {
+            LoadError::Program(m) | LoadError::Client(m) => m,
+        }
+    }
 }
 
 /// Lines of `program` before `source`, its tail.
@@ -53,12 +71,12 @@ pub fn compile(program: &str) -> Result<Program, String> {
 /// `program` compiled for `mode` (`"step"` or `"live"`), a live one granted `grants`; `offset`
 /// lines of it come before the template's source.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn compile_as(program: &str, mode: &str, grants: Grants, offset: u32) -> Result<Compiled, String> {
+pub fn compile_as(program: &str, mode: &str, grants: Grants, offset: u32) -> Result<Compiled, LoadError> {
     let kind = if mode == "live" {
-        let program = LiveProgram::compile(program).map_err(|e| e.to_string())?;
+        let program = LiveProgram::compile(program).map_err(|e| LoadError::Program(e.to_string()))?;
         Kind::Live { program: std::sync::Arc::new(program), grants }
     } else {
-        Kind::Step(compile(program)?)
+        Kind::Step(compile(program).map_err(LoadError::Program)?)
     };
     Ok(Compiled { kind, offset })
 }
@@ -69,7 +87,9 @@ fn failure(e: opencode_widget::Error) -> Failure {
         opencode_widget::Error::Script { location, .. } => *location,
         _ => None,
     };
-    Failure { view: matches!(e, opencode_widget::Error::Output(_)), message: e.to_string(), location }
+    // Only an input this client built wrong is its own error; the rest is the program's.
+    let program = !matches!(e, opencode_widget::Error::Input(_));
+    Failure { view: matches!(e, opencode_widget::Error::Output(_)), message: e.to_string(), location, program }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -118,12 +138,12 @@ mod page {
         Err(opencode_i18n::t!("rune.widget.unsupported").to_owned())
     }
 
-    pub fn compile_as(_program: &str, _mode: &str, _grants: Grants, _offset: u32) -> Result<Compiled, String> {
-        Err(opencode_i18n::t!("rune.widget.unsupported").to_owned())
+    pub fn compile_as(_program: &str, _mode: &str, _grants: Grants, _offset: u32) -> Result<Compiled, LoadError> {
+        Err(LoadError::Client(opencode_i18n::t!("rune.widget.unsupported").to_owned()))
     }
 
     fn unsupported() -> Failure {
-        Failure { message: opencode_i18n::t!("rune.widget.unsupported").to_owned(), location: None, view: false }
+        Failure { message: opencode_i18n::t!("rune.widget.unsupported").to_owned(), location: None, view: false, program: false }
     }
 
     pub fn step(_program: &Program, _data: &Data, _step: &Step) -> Result<StepOutput, Failure> {

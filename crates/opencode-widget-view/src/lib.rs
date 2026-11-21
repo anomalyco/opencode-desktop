@@ -89,12 +89,25 @@ pub struct Buttons<S> {
     pub retry: Option<Action<S>>,
     /// The expand button, top right, on hover and keyboard focus: full screen.
     pub expand: Option<Action<S>>,
+    /// A program error the server recorded for the widget (`State.failure`).
+    pub failure: Option<Recorded<S>>,
 }
 
 impl<S> Default for Buttons<S> {
     fn default() -> Self {
-        Buttons { retry: None, expand: None }
+        Buttons { retry: None, expand: None, failure: None }
     }
+}
+
+/// A program error the server recorded for an open widget (`widgets.md`, Failures), with what
+/// the user can do about it.
+pub struct Recorded<S> {
+    /// "Failed on ios: event: … (12:5)"; none when the widget shows its own error already.
+    pub text: Option<String>,
+    /// The agent was told about it.
+    pub sent: bool,
+    /// "Ask agent to fix it"; none while the ask is on its way.
+    pub ask: Option<Action<S>>,
 }
 
 /// Input the host's keyboard focus and pointer capture take (`widgets-input.md`), before it

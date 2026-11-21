@@ -31,7 +31,7 @@ struct Gpu {
     uniform_layout: wgpu::BindGroupLayout,
     pipeline_layout: wgpu::PipelineLayout,
     /// Compiled pipelines by source hash, or why one didn't compile.
-    pipelines: HashMap<u64, Result<wgpu::RenderPipeline, String>>,
+    pipelines: HashMap<u64, Result<wgpu::RenderPipeline, (String, bool)>>,
     blit: Blit,
     slots: HashMap<u32, SlotGpu>,
 }
@@ -107,18 +107,21 @@ fn now<F: std::future::Future>(f: F) -> Option<F::Output> {
 
 /// Compiles `source`'s module: checked with naga first, so a template's mistake comes back as
 /// a message with its line rather than a device error.
-fn compile(device: &wgpu::Device, layout: &wgpu::PipelineLayout, source: &str) -> Result<wgpu::RenderPipeline, String> {
-    let code = shader::module_with_vertex(source)?;
+/// The pipeline for `source`, or why not and whether that's the program's error: WGSL naga rejects
+/// is; a device refusing WGSL that validated is this client's.
+fn compile(device: &wgpu::Device, layout: &wgpu::PipelineLayout, source: &str) -> Result<wgpu::RenderPipeline, (String, bool)> {
+    let program = |m: String| (m, true);
+    let code = shader::module_with_vertex(source).map_err(program)?;
     // Lines as the template wrote them: the header comes first.
     let header = shader::HEADER.lines().count() as u32;
     let at = |line: u32| line.saturating_sub(header);
     let module = naga::front::wgsl::parse_str(&code).map_err(|e| match e.location(&code) {
-        Some(l) => format!("line {}: {}", at(l.line_number), e.message()),
-        None => e.message().to_owned(),
+        Some(l) => program(format!("line {}: {}", at(l.line_number), e.message())),
+        None => program(e.message().to_owned()),
     })?;
     naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::empty())
         .validate(&module)
-        .map_err(|e| e.emit_to_string(&code).lines().next().unwrap_or("the shader is invalid").trim_start_matches("error: ").to_owned())?;
+        .map_err(|e| program(e.emit_to_string(&code).lines().next().unwrap_or("the shader is invalid").trim_start_matches("error: ").to_owned()))?;
     let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("widget shader"), source: wgpu::ShaderSource::Wgsl(code.into()) });
     let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -138,7 +141,7 @@ fn compile(device: &wgpu::Device, layout: &wgpu::PipelineLayout, source: &str) -
         cache: None,
     });
     match now(scope.pop()) {
-        Some(Some(e)) => Err(e.to_string()),
+        Some(Some(e)) => Err((e.to_string(), false)),
         _ => Ok(pipeline),
     }
 }
@@ -215,8 +218,8 @@ impl ShaderGpu {
             };
             let pipeline = match pipeline {
                 Ok(p) => p,
-                Err(e) => {
-                    set_status(m, Status::Failed(e.clone()));
+                Err((message, program)) => {
+                    set_status(m, Status::Failed { message: message.clone(), program: *program });
                     continue;
                 }
             };

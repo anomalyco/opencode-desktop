@@ -94,8 +94,14 @@ impl Server {
 
     /// Tells the agent that running widget `call` of `message` failed on this client (`report`):
     /// `error` is `{ phase, message, line?, column? }`.
-    pub fn widget_report(&self, directory: &str, session: &str, message: &str, call: &str, error: Value) -> Result<(), WidgetError> {
-        self.widget_rpc(directory, "report", json!({ "sessionID": session, "messageID": message, "callID": call, "error": error, "client": "rune" })).map(|_| ())
+    /// With `ask` (the user's "Ask agent to fix it"), the error goes to the agent in the widget's
+    /// session even when that session didn't make the template.
+    pub fn widget_report(&self, directory: &str, session: &str, message: &str, call: &str, error: Value, ask: bool) -> Result<(), WidgetError> {
+        let mut input = json!({ "sessionID": session, "messageID": message, "callID": call, "error": error, "client": "rune" });
+        if ask {
+            input["ask"] = true.into();
+        }
+        self.widget_rpc(directory, "report", input).map(|_| ())
     }
 
     /// Whether `e` says the plugin isn't loaded in the location yet (`rpc.unavailable`).

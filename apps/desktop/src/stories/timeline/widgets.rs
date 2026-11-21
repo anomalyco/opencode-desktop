@@ -36,6 +36,8 @@ pub const VARIANTS: &[(&str, usize)] = &[
     ("Live shader, rebuilt", 15),
     ("Superseded, template calls", 16),
     ("Live program that fails", 17),
+    ("Failed on another client", 18),
+    ("Failed, the agent told", 19),
 ];
 pub const KEYS: &[Trigger] = &[
     replay(open),
@@ -223,7 +225,7 @@ fn template(v: usize) -> &'static str {
         13 => SHADER_GAME,
         14 => INPUT,
         15 => SHADER_GAME,
-        16 => "confirm",
+        16 | 18 | 19 => "confirm",
         17 => FAILING,
         _ => "suggestions",
     }
@@ -253,7 +255,7 @@ fn data(v: usize) -> (&'static str, Value) {
                 { "key": "notes", "type": "text", "label": "Notes for reviewers", "multiline": true },
             ],
         })),
-        2 => ("Delete the branch", json!({
+        2 | 18 | 19 => ("Delete the branch", json!({
             "title": "Delete feature/reconnect-backoff?",
             "message": "The branch is merged into `main`. Deleting it removes it **locally and on origin**; its commits stay in `main`.",
             "confirmLabel": "Delete branch",
@@ -394,6 +396,10 @@ fn changed(s: &mut App, status: &str, response: Value, tx: &mut Tx) {
     });
     if status == "submitted" {
         state["response"] = response;
+    }
+    // A program error another client recorded: not told yet (18), or told (19).
+    if status == "open" && matches!(v, 18 | 19) {
+        state["failure"] = json!({ "phase": "event", "message": "TypeError: undefined is not an object (evaluating 'state.branch.name')", "line": 42, "column": 17, "client": "ios", "sent": v == 19 });
     }
     emit(s, opencode_kit::model::WIDGET_CHANGED_EVENT, json!({ "sessionID": sid, "state": state }), tx);
 }
