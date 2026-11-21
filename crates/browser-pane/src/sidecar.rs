@@ -18,6 +18,9 @@ use crate::transport::{Link, UnixStream, spawn_and_attach, wire_stream};
 #[cfg(target_os = "macos")]
 static NEXT_RECEIVER_TAG: AtomicU64 = AtomicU64::new(1);
 
+/// How long a running app waits between two reads of an index that publishes nothing for it.
+const PROBE_RECHECK: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
 impl BrowserHost {
     /// Nothing is looked for until a page needs the engine (`EngineStatus::Unchecked`), unless
     /// this build has no engine source, trust rule or binary override at all (`Fault::NotPublished`).
@@ -45,13 +48,30 @@ impl BrowserHost {
                 return rune::marks::mark("browser.engine.probe.installed");
             }
             rune::marks::mark("browser.engine.probe.index");
-            if crate::source::latest().err() != Some(Fault::NotPublished) {
-                return;
-            }
-            rune::marks::mark("browser.engine.probe.not_published");
-            let effect = shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::ProbeNotPublished);
-            if let (EngineEffect::Wake, Some(wake)) = (effect, waker) {
-                wake();
+            // While nothing is published the index is read again every hour, so a running app
+            // finds an engine published meanwhile (a stale copy, or a revision this build
+            // rejects, reads as `NotPublished` too). Any other answer ends the watch.
+            loop {
+                let event = match crate::source::latest() {
+                    Err(Fault::NotPublished) => EngineEvent::ProbeNotPublished,
+                    Ok(_) => EngineEvent::ProbePublished,
+                    Err(_) => return,
+                };
+                let not_published = matches!(event, EngineEvent::ProbeNotPublished);
+                if not_published {
+                    rune::marks::mark("browser.engine.probe.not_published");
+                }
+                let mut engine = shared.lock().unwrap_or_else(PoisonError::into_inner);
+                let effect = engine.step(event);
+                let watching = not_published && engine.status().is_not_published();
+                drop(engine);
+                if let (EngineEffect::Wake, Some(wake)) = (effect, waker.as_ref()) {
+                    wake();
+                }
+                if !watching {
+                    return;
+                }
+                std::thread::sleep(PROBE_RECHECK);
             }
         });
         rune::marks::mark("browser.engine.probe.spawned");

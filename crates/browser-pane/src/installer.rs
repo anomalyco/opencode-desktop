@@ -231,6 +231,11 @@ impl EngineStatus {
     pub fn is_hung(&self) -> bool {
         matches!(self, Self::Failed(f) if f.fault == Fault::Hung)
     }
+
+    /// The source publishes no engine this build accepts for this platform.
+    pub fn is_not_published(&self) -> bool {
+        matches!(self, Self::Failed(f) if f.fault == Fault::NotPublished)
+    }
 }
 
 impl Failure {
