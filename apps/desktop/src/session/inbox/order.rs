@@ -13,7 +13,7 @@ use opencode_kit::servers::ServerKey;
 use rune::Tracked;
 
 use crate::App;
-use crate::inbox_model::{Entry, RECENT_LIMIT, Sections};
+use crate::inbox_model::{ARCHIVED_SHOWN, Entry, RECENT_LIMIT, Sections};
 
 /// Which of the inbox's groups a row is in, in the order they show.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -23,12 +23,18 @@ pub enum Group {
     Needs,
     Unread,
     Recent,
+    /// Archived sessions, under the list behind a header that opens and shuts.
+    Archived,
     /// The pinned shelf below the list.
     Working,
 }
 
-impl Group {
-    pub const ALL: [Group; 5] = [Group::Current, Group::Needs, Group::Unread, Group::Recent, Group::Working];
+/// Which of the list's two folds are open (`InboxUi`): Recent past its first [`RECENT_LIMIT`],
+/// and Archived.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Open {
+    pub recent: bool,
+    pub archived: bool,
 }
 
 /// One row: its session, on its server.
@@ -46,15 +52,14 @@ pub struct Shown {
 #[derive(Debug, Default, PartialEq)]
 pub struct Order {
     pub rows: Vec<Shown>,
-    /// Where each group's rows are in `rows`, in [`Group::ALL`]'s order.
-    pub groups: [Range<usize>; 5],
+    /// Where each group's rows are in `rows`, in [`Group`]'s order.
+    pub groups: [Range<usize>; 6],
     /// Recent has more than it shows shut.
     pub more: bool,
-    /// Shut, Recent shows its first [`RECENT_LIMIT`]: the open session past them shows as the
-    /// current row (its place in `rows`).
-    pub shut_current: Option<usize>,
-    /// Some session is archived: the Archived button shows.
-    pub archived: bool,
+    /// The open session's place in `rows`, in Recent or Archived: while its fold doesn't show
+    /// it (Recent past its first [`RECENT_LIMIT`], Archived shut or past its first
+    /// [`ARCHIVED_SHOWN`]) it shows as the current row.
+    pub selected: Option<usize>,
     /// Which reading this is: a new one has a new number.
     pub generation: u64,
 }
@@ -64,37 +69,47 @@ impl Order {
         &self.rows[self.groups[g as usize].clone()]
     }
 
-    /// The places in `rows` group `g` shows, with Recent open (`expanded`) or shut.
-    pub fn shows(&self, g: Group, expanded: bool) -> Vec<usize> {
+    /// The places in `rows` group `g` shows, with the folds as `open` has them.
+    pub fn shows(&self, g: Group, open: Open) -> Vec<usize> {
         let range = self.groups[g as usize].clone();
         match g {
-            Group::Recent if !expanded => range.take(RECENT_LIMIT).collect(),
-            Group::Current if !expanded => range.chain(self.shut_current).collect(),
+            Group::Recent | Group::Archived => range.take(self.cap(g, open)).collect(),
+            Group::Current => range.chain(self.selected.filter(|&at| !self.folded_in(at, open))).collect(),
             _ => range.collect(),
         }
     }
 
-    /// Nothing to list, Working included.
-    pub fn is_empty(&self) -> bool {
-        self.rows.is_empty()
+    /// How many rows of fold `g` show.
+    fn cap(&self, g: Group, open: Open) -> usize {
+        match g {
+            Group::Recent if !open.recent => RECENT_LIMIT,
+            Group::Archived if !open.archived => 0,
+            Group::Archived => ARCHIVED_SHOWN,
+            _ => usize::MAX,
+        }
+    }
+
+    /// Whether Recent or Archived shows the row at `at`.
+    fn folded_in(&self, at: usize, open: Open) -> bool {
+        [Group::Recent, Group::Archived].into_iter().any(|g| {
+            let range = &self.groups[g as usize];
+            range.contains(&at) && at - range.start < self.cap(g, open)
+        })
     }
 
     fn of(app: &App, sections: &Sections<'_>) -> Order {
         let mut rows = Vec::new();
-        let mut groups: [Range<usize>; 5] = Default::default();
-        for (g, entries) in [&sections.current, &sections.needs, &sections.unread, &sections.recent, &sections.working].into_iter().enumerate() {
+        let mut groups: [Range<usize>; 6] = Default::default();
+        for (g, entries) in [&sections.current, &sections.needs, &sections.unread, &sections.recent, &sections.archived, &sections.working].into_iter().enumerate() {
             let start = rows.len();
             rows.extend(entries.iter().map(shown));
             groups[g] = start..rows.len();
         }
-        // Read with Recent open: shut, the open session past its cap stands first, unheaded.
-        let shut_current = if sections.current.is_empty() {
-            sections.recent.iter().skip(RECENT_LIMIT).position(|e| app.inbox_selected(e)).map(|k| groups[Group::Recent as usize].start + RECENT_LIMIT + k)
-        } else {
-            None
-        };
+        // Read with both folds open: where one doesn't show the open session, it stands first, unheaded.
+        let held = |g: Group, entries: &[Entry<'_>]| entries.iter().position(|e| app.inbox_selected(e)).map(|k| groups[g as usize].start + k);
+        let selected = held(Group::Recent, &sections.recent).or_else(|| held(Group::Archived, &sections.archived));
         GENERATION.set(GENERATION.get() + 1);
-        Order { rows, groups, more: sections.more, shut_current, archived: sections.archived, generation: GENERATION.get() }
+        Order { rows, groups, more: sections.more, selected, generation: GENERATION.get() }
     }
 }
 
@@ -112,6 +127,12 @@ thread_local! {
 pub struct Kept(RefCell<Option<(u64, Rc<Order>)>>);
 
 impl App {
+    /// The folds as the window has them (`InboxUi`).
+    pub fn inbox_open(&self) -> Open {
+        let ui = self.kernel.slots.get(&crate::restore::RESTORE).inbox;
+        Open { recent: ui.recent_expanded, archived: ui.archived_expanded }
+    }
+
     /// The inbox's rows in order (`inbox_sections`), read again only when something they're read
     /// from changed.
     pub fn inbox_order(&self) -> Rc<Order> {
@@ -121,7 +142,7 @@ impl App {
         {
             return order.clone();
         }
-        let order = Rc::new(Order::of(self, &self.inbox_sections_with(true)));
+        let order = Rc::new(Order::of(self, &self.inbox_sections()));
         *self.sidebar_inbox.order.0.borrow_mut() = Some((key, order.clone()));
         order
     }
@@ -157,7 +178,8 @@ impl App {
             kv.hash(&mut one);
             acc ^ one.finish()
         }).hash(&mut h);
-        inbox.archived.iter().map(|a| (&a.id, a.archived)).for_each(|a| a.hash(&mut h));
+        inbox.archived_on.hash(&mut h);
+        inbox.archived.iter().map(|a| (&a.id, &a.title, a.archived)).for_each(|a| a.hash(&mut h));
         inbox.other_servers_hash(&mut h);
         h.finish()
     }

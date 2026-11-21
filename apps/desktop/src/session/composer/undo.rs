@@ -24,8 +24,9 @@ pub enum Undoable {
     DraftTab { draft: String },
     /// Window `id`, closed while others stayed: it opens again with its tabs and drafts.
     Window { id: String },
-    /// Session `session` on `server`, archived: it comes back, with its tab.
-    Archived { server: ServerKey, session: String },
+    /// Sessions archived, each on its server: they come back, with their tabs. A run of archives
+    /// shares one offer (`archived`), so clearing a list still has one Undo for all of it.
+    Archived { sessions: Vec<(ServerKey, String)> },
     /// A server added by address, removed: it's listed again where it was, password and all.
     Server { server: crate::servers::Server, index: usize },
     /// Session `session` on `server` and its subagents (`hidden`), deleted: off the list at once,
@@ -63,6 +64,8 @@ pub enum Event {
     ToastClosed(u64),
     /// Its Undo was pressed.
     UndoPressed(u64),
+    /// One more session is being archived: the archive still on offer joins it under one toast.
+    ArchivingAnother,
 }
 
 pub enum Effect {
@@ -70,6 +73,8 @@ pub enum Effect {
     Run(Undoable),
     /// Do `what` now: its toast went (or the app quits) and it was waiting for that.
     Commit(Undoable),
+    /// Toast `toast`'s archived sessions, withdrawn: the next offer takes them along.
+    Regroup { toast: u64, sessions: Vec<(ServerKey, String)> },
 }
 
 /// Offers in flight at most; older ones' toasts are gone by then anyway.
@@ -100,6 +105,13 @@ impl Undos {
                 let at = self.offers.iter().position(|o| o.toast == toast)?;
                 Some(Effect::Run(self.offers.remove(at).what))
             }
+            Event::ArchivingAnother => {
+                let at = self.offers.iter().rposition(|o| matches!(o.what, Undoable::Archived { .. }))?;
+                match self.offers.remove(at) {
+                    Offer { toast, what: Undoable::Archived { sessions } } => Some(Effect::Regroup { toast, sessions }),
+                    _ => None,
+                }
+            }
         }
     }
 
@@ -117,6 +129,27 @@ pub fn offer(s: &mut App, title: &str, what: Undoable) {
     }
     let toast = crate::status_toast::undoable(s, title);
     let _ = s.composer_ext.undos.step(Event::Offered { toast, what });
+}
+
+/// Session `session` on `server` was just archived. Archives made while the last one's toast
+/// still shows share one toast, which counts them and whose Undo brings them all back: before,
+/// each archive replaced the one before it, which lost its way back.
+pub fn archived(s: &mut App, server: ServerKey, session: String) {
+    let mut sessions = match s.composer_ext.undos.step(Event::ArchivingAnother) {
+        // A toast the person closed took its offer with it: those stay archived.
+        Some(Effect::Regroup { toast, sessions }) if s.toast.stack.entries().iter().any(|e| e.id == toast) => {
+            crate::status_toast::dismiss_id(s, toast);
+            sessions
+        }
+        _ => Vec::new(),
+    };
+    sessions.retain(|(on, id)| *on != server || *id != session);
+    sessions.push((server, session));
+    let title = match sessions.len() {
+        1 => opencode_i18n::t!("rune.undo.sessionArchived").to_owned(),
+        n => opencode_i18n::plural!("rune.undo.sessionsArchived", n),
+    };
+    offer(s, &title, Undoable::Archived { sessions });
 }
 
 /// Toast `toast`'s Undo.
@@ -150,9 +183,11 @@ fn run(s: &mut App, what: Undoable, tx: &mut Tx) {
     match what {
         Undoable::DraftTab { draft } => s.reopen_closed(Some(&draft), false, tx),
         Undoable::Window { id } => crate::windows::reopen(s, &id),
-        Undoable::Archived { server, session } => {
-            crate::servers::runtime::with_server(s, &server, |s| s.unarchive_session(&session));
-            s.reopen_closed(Some(&session), false, tx);
+        Undoable::Archived { sessions } => {
+            for (server, session) in sessions {
+                crate::servers::runtime::with_server(s, &server, |s| s.unarchive_session(&session));
+                s.reopen_closed(Some(&session), false, tx);
+            }
         }
         Undoable::Server { server, index } => crate::servers::put_back(server, index),
         Undoable::Deleted { server, hidden, .. } => s.undelete(&server, hidden),

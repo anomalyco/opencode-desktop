@@ -119,17 +119,19 @@ pub enum StorageNotice {
 }
 
 /// The inbox's disclosures, as Desktop's `sidebar.inbox` (`inbox.tsx`): Working open, Recent
-/// showing its first ten; and Home's automation folds, shut.
+/// showing its first ten; and, beyond Desktop, the Archived group and Home's automation folds,
+/// shut.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct InboxUi {
     pub working_expanded: bool,
     pub recent_expanded: bool,
+    pub archived_expanded: bool,
     pub home_automations: bool,
 }
 
 impl Default for InboxUi {
     fn default() -> Self {
-        InboxUi { working_expanded: true, recent_expanded: false, home_automations: false }
+        InboxUi { working_expanded: true, recent_expanded: false, archived_expanded: false, home_automations: false }
     }
 }
 
@@ -138,6 +140,7 @@ impl InboxUi {
         json!({
             "workingExpanded": self.working_expanded,
             "recentExpanded": self.recent_expanded,
+            "archivedExpanded": self.archived_expanded,
             "homeAutomationsExpanded": self.home_automations,
         })
     }
@@ -147,6 +150,7 @@ impl InboxUi {
         InboxUi {
             working_expanded: v["workingExpanded"].as_bool().unwrap_or(d.working_expanded),
             recent_expanded: v["recentExpanded"].as_bool().unwrap_or(d.recent_expanded),
+            archived_expanded: v["archivedExpanded"].as_bool().unwrap_or(d.archived_expanded),
             home_automations: v["homeAutomationsExpanded"].as_bool().unwrap_or(d.home_automations),
         }
     }
