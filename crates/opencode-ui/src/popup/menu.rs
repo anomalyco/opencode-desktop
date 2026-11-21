@@ -30,6 +30,8 @@ pub struct Item {
     pub(super) title: String,
     pub(super) enabled: bool,
     pub(super) checked: bool,
+    /// One of a radio group's rows (`Menu.RadioItem`): a `menuitemradio` checked when it's the value.
+    pub(super) radio: bool,
     pub(super) danger: bool,
     /// The folder whose project avatar leads the row (drawn menus only).
     pub(super) project: Option<String>,
@@ -95,6 +97,7 @@ impl Item {
             title: title.into(),
             enabled: true,
             checked: false,
+            radio: false,
             danger: false,
             project: None,
             shortcut: None,
@@ -151,6 +154,13 @@ impl Item {
     }
 
     /// A check at the row's end, as a picker marks its current value.
+    /// A radio group's row (`Menu.RadioItem`), checked when `on`: read as a `menuitemradio`.
+    pub fn radio(mut self, on: bool) -> Item {
+        self.radio = true;
+        self.checked = on;
+        self
+    }
+
     pub fn checked(mut self, on: bool) -> Item {
         self.checked = on;
         self
