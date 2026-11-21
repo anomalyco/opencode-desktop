@@ -83,6 +83,8 @@ pub struct EngineManager {
     home: Option<String>,
     /// The pages' downloads, in the profile's `opencode-page-downloads` folder.
     downloads: Arc<crate::downloads::Downloads>,
+    /// Engine profile directory holding `opencode-page-downloads` and `opencode-page-uploads`.
+    profile_dir: std::path::PathBuf,
     /// Shared prompt-handling toggle (`Hello.prompts`) and monotonic ID counter.
     prompt_shared: crate::prompts::PromptShared,
     /// Tracks persistent `"Always"` and per-tab `"Allow this time"` site permissions.
@@ -141,6 +143,7 @@ impl EngineManager {
             dark: None,
             home: crate::profile::home_dir(),
             downloads: crate::downloads::Downloads::open(&downloads),
+            profile_dir: downloads.profile.clone(),
             prompt_shared: crate::prompts::PromptShared::default(),
             permissions: Arc::new(crate::permissions::PermissionTracker::default()),
             previews,
@@ -197,6 +200,7 @@ impl EngineManager {
                     frame_authority: true,
                     extensions: true,
                     cookies: true,
+                    agent_files: true,
                 });
                 for (&tab_id, t) in &self.tabs {
                     t.menu.cancel_all();
@@ -285,6 +289,7 @@ impl EngineManager {
                 let is_normal = self.tabs.get(&tab_id).is_some_and(|t| !t.isolated && !t.is_popup);
                 for (&id, t) in &mut self.tabs {
                     let active = id == tab_id;
+                    let agent = t.prompts.agent_driven.load(Ordering::Relaxed);
                     #[cfg(target_os = "linux")]
                     {
                         t.shown = active;
@@ -294,7 +299,8 @@ impl EngineManager {
                         }
                     }
                     if !t.is_popup {
-                        t.host.was_hidden(i32::from(!active));
+                        // Agent-driven background tabs stay unthrottled so waits, screenshots and traces never stall.
+                        t.host.was_hidden(i32::from(!active && !agent));
                     }
                     t.host.set_focus(i32::from(active));
                     if active {
@@ -709,18 +715,21 @@ impl EngineManager {
                     t.prompts.user_reclaimed.store(false, Ordering::Release);
                     let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
                     crate::cdp_ledger::handle_typed_cdp_call(
-                        tab_id,
-                        request_id,
-                        not_ready,
-                        t,
-                        &self.next_cdp_id,
-                        &self.out_tx,
-                        self.extensions.is_some(),
-                        method,
-                        params,
-                        session_id,
-                        frame_id,
+                        tab_id, request_id, not_ready, t, &self.next_cdp_id, &self.out_tx,
+                        self.extensions.is_some(), method, params, session_id, frame_id,
                     );
+                }
+            }
+            HostMsg::UploadFiles { tab_id, request_id, backend_node_id, files } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
+                    crate::agent::handle_upload_files(t, &self.profile_dir, tab_id, request_id, not_ready, backend_node_id, &files, &self.next_cdp_id, &self.out_tx);
+                }
+            }
+            HostMsg::DropFiles { tab_id, request_id, x, y, files } => {
+                if let Some(t) = self.tabs.get(&tab_id) {
+                    let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
+                    crate::agent::handle_drop_files(t, &self.profile_dir, tab_id, request_id, not_ready, x, y, &files, &self.next_cdp_id, &self.out_tx);
                 }
             }
             HostMsg::ClearSiteCache { tab_id, request_id } => {
@@ -1299,7 +1308,9 @@ impl EngineManager {
         } else if focused {
             for existing in self.tabs.values() {
                 if !existing.is_popup {
-                    existing.host.was_hidden(1);
+                    if !existing.prompts.agent_driven.load(Ordering::Relaxed) {
+                        existing.host.was_hidden(1);
+                    }
                     existing.host.set_focus(0);
                 }
             }
@@ -1398,6 +1409,7 @@ impl EngineManager {
             tab.download_alive.store(false, Ordering::Release);
             tab.host.close_browser(1);
             self.downloads.close_tab(tab_id, tab.download_gen);
+            crate::agent::remove_tab_uploads(&self.profile_dir, tab_id);
             self.release_tab_context(tab_id);
             if !tab.isolated && !tab.is_popup
                 && let Some(ext) = &mut self.extensions

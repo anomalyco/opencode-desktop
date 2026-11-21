@@ -192,6 +192,49 @@ impl crate::BrowserHost {
         Ok(request_id)
     }
 
+    /// The engine stages agent files for confined `UploadFiles` and `DropFiles` (`Ready.agent_files`).
+    pub fn engine_agent_files(&self) -> bool {
+        self.caps.agent_files()
+    }
+
+    /// Sends confined `UploadFiles` for files staged in `<profile>/opencode-page-uploads/<tab_id>/`.
+    pub fn upload_files(&mut self, tab_id: u64, backend_node_id: i64, files: Vec<String>) -> Result<u64, String> {
+        if !self.engine_agent_files() {
+            return Err("File uploads require an updated browser engine.".into());
+        }
+        let request_id = self.next_req_id;
+        self.next_req_id += 1;
+        self.send(crate::protocol::HostMsg::UploadFiles { tab_id, request_id, backend_node_id, files });
+        Ok(request_id)
+    }
+
+    /// Sends confined `DropFiles` at page point `(x, y)` for files staged like [`Self::upload_files`].
+    pub fn drop_files(&mut self, tab_id: u64, x: f64, y: f64, files: Vec<String>) -> Result<u64, String> {
+        if !self.engine_agent_files() {
+            return Err("File drops require an updated browser engine.".into());
+        }
+        let request_id = self.next_req_id;
+        self.next_req_id += 1;
+        self.send(crate::protocol::HostMsg::DropFiles { tab_id, request_id, x, y, files });
+        Ok(request_id)
+    }
+
+    /// The engine's profile folder holding `opencode-page-uploads/` (`OPENCODE_BROWSER_PROFILE`,
+    /// else the configured profile, else the shared one).
+    pub fn uploads_profile_dir(&self) -> Option<std::path::PathBuf> {
+        #[cfg(feature = "engine")]
+        {
+            if let Some(p) = std::env::var_os(crate::profile::PROFILE_ENV).filter(|v| !v.is_empty()) {
+                return Some(std::path::PathBuf::from(p));
+            }
+            Some(self.profile_dir.clone().unwrap_or_else(crate::profile::shared_profile_dir))
+        }
+        #[cfg(not(feature = "engine"))]
+        {
+            self.profile_dir.clone()
+        }
+    }
+
     /// Returns the currently registered loopback tunnel proxy for `server_id`, if any.
     pub fn remote_proxy(&self, server_id: &str) -> Option<&crate::protocol::RemoteProxyConfig> {
         self.remote_proxies.get(server_id.trim())

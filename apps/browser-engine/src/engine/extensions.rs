@@ -739,6 +739,8 @@ impl EngineManager {
             // Guarded tab-addressed commands (default for any new command added to `HostMsg`).
             M::CdpCall { tab_id, request_id, .. }
             | M::TypedCdpCall { tab_id, request_id, .. }
+            | M::UploadFiles { tab_id, request_id, .. }
+            | M::DropFiles { tab_id, request_id, .. }
             | M::SiteCookies { tab_id, request_id }
             | M::ClearSite { tab_id, request_id }
             | M::ClearSiteCache { tab_id, request_id } => (*tab_id, Some(*request_id), false, false),

@@ -434,6 +434,19 @@ pub enum HostMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         frame_id: Option<String>,
     },
+    UploadFiles {
+        tab_id: u64,
+        request_id: u64,
+        backend_node_id: i64,
+        files: Vec<String>,
+    },
+    DropFiles {
+        tab_id: u64,
+        request_id: u64,
+        x: f64,
+        y: f64,
+        files: Vec<String>,
+    },
     /// App-proxied response headers for a remote workspace or artifact `EngineMsg::PreviewFetch`.
     PreviewResponseHead {
         req_id: u64,
@@ -507,6 +520,9 @@ pub enum EngineMsg {
         /// The engine owns `Target.setAutoAttach` and frame exclusion authority (`EngineCdpLedger`).
         #[serde(default)]
         frame_authority: bool,
+        /// The engine stages agent files for confined `UploadFiles` and `DropFiles`.
+        #[serde(default)]
+        agent_files: bool,
         /// The engine exposes `CefCookieManager` list/import/delete/probe/clear & two-way remote cookie mirroring.
         #[serde(default)]
         cookies: bool,

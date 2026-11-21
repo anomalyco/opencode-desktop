@@ -133,9 +133,10 @@ impl CefRuntime {
 impl Drop for CefRuntime {
     fn drop(&mut self) {
         cef::shutdown();
-        // The pages' downloads end with the engine, as Desktop's go with its pages.
+        // The pages' downloads and staged agent uploads end with the engine.
         crate::downloads::remove_owned(&self.profile.root);
         crate::downloads::remove_owned_isolated(&self.profile.isolated_downloads_base, std::process::id());
+        crate::agent::remove_owned_uploads(&self.profile.root);
         if self.profile.temporary {
             let _ = std::fs::remove_dir_all(&self.profile.root);
         }

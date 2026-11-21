@@ -444,6 +444,7 @@ pub(crate) enum EngineCaps {
         permission_sync: bool,
         frame_authority: bool,
         cookies: bool,
+        agent_files: bool,
     },
 }
 
@@ -498,6 +499,10 @@ impl EngineCaps {
 
     pub(crate) fn frame_authority(self) -> bool {
         matches!(self, Self::Known { frame_authority: true, .. })
+    }
+
+    pub(crate) fn agent_files(self) -> bool {
+        matches!(self, Self::Known { agent_files: true, .. })
     }
 }
 
