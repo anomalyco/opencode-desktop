@@ -299,6 +299,88 @@ pub(super) fn service_methods(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> m
         })
     })?;
 
+    method(lua, t, "ExtActions", |lua, stored_val: Value| {
+        require_builtin_user(lua)?;
+        cx::read(Dep::Browser);
+        let stored = decode_stored(lua, stored_val);
+        let items: Vec<serde_json::Value> = with_app("Browser:ExtActions", |app| {
+            let Ok(mgr) = manager() else {
+                return Ok(Vec::new());
+            };
+            let live = app.workspace_panes.browser.host.extension_actions().to_vec();
+            let mut out = Vec::new();
+            for rec in stored.iter().filter(|r| r.enabled) {
+                let Some(desc) = mgr.describe(rec, false, None) else { continue };
+                let act = live.iter().find(|a| a.ext_id == rec.id);
+                let title = act.map(|a| a.title.as_str()).filter(|s| !s.is_empty()).unwrap_or(&desc.name);
+                let icon = act
+                    .and_then(|a| a.icon.as_deref())
+                    .filter(|s| !s.is_empty())
+                    .or(desc.icon.as_deref());
+                let badge = act.map(|a| a.badge_text.as_str()).filter(|s| !s.is_empty());
+                let badge_bg = act.and_then(|a| a.badge_color.as_deref()).filter(|s| !s.is_empty());
+                let badge_fg = act.and_then(|a| a.badge_text_color.as_deref()).filter(|s| !s.is_empty());
+                let enabled = act.is_none_or(|a| a.enabled);
+                let popup = act.and_then(|a| a.popup.as_deref()).or(desc.popup.as_deref());
+                let options = act.and_then(|a| a.options.as_deref()).or(desc.options.as_deref());
+                let actionable = act.is_some_and(|a| a.popup.is_some() || a.enabled)
+                    || popup.is_some()
+                    || options.is_some();
+                out.push(serde_json::json!({
+                    "id": rec.id,
+                    "name": desc.name,
+                    "title": title,
+                    "icon": icon,
+                    "badge": badge,
+                    "badgeColor": badge_bg,
+                    "badgeTextColor": badge_fg,
+                    "enabled": enabled && actionable,
+                    "popup": popup,
+                    "options": options,
+                }));
+            }
+            out.sort_by(|a, b| {
+                a["name"].as_str().unwrap_or("").to_ascii_lowercase()
+                    .cmp(&b["name"].as_str().unwrap_or("").to_ascii_lowercase())
+            });
+            Ok(out)
+        })?;
+        to_lua_json(lua, &items)
+    })?;
+
+    method(lua, t, "ExtClick", |lua, (ext_id, tab_id_str, options_url): (String, Option<String>, Option<String>)| {
+        require_builtin_user(lua)?;
+        let tab_id = tab_id_str.as_deref().and_then(|s| s.parse::<u64>().ok());
+        with_app("Browser:ExtClick", |app| {
+            app.later(Box::new(move |s: &mut App, _: &mut Tx| {
+                let host = &mut s.workspace_panes.browser.host;
+                let has_action = host.extension_actions().iter().any(|a| a.ext_id == ext_id);
+                if !has_action
+                    && let Some(url) = options_url.filter(|u| u.starts_with(&format!("chrome-extension://{ext_id}/")))
+                {
+                    let new_id = host.open_extension_page_tab(&url);
+                    if let Some(sid) = s.active_session_id().map(str::to_owned) {
+                        s.workspace_panes.browser.session_tabs.entry(sid).or_default().push(new_id);
+                    }
+                    s.workspace_panes.browser.host.focus_tab(new_id);
+                    return;
+                }
+                host.click_extension(&ext_id, browser_pane::PopupPlacement::default(), tab_id);
+            }));
+            Ok(())
+        })
+    })?;
+
+    method(lua, t, "ExtClosePopup", |lua, ()| {
+        require_builtin_user(lua)?;
+        with_app("Browser:ExtClosePopup", |app| {
+            app.later(Box::new(|s: &mut App, _: &mut Tx| {
+                s.workspace_panes.browser.host.close_extension_popup();
+            }));
+            Ok(())
+        })
+    })?;
+
     for (method_name, async_key) in [
         ("ExtStageStoreAsync", "Browser.ExtStageStoreAsync"),
         ("ExtStageBrowserAsync", "Browser.ExtStageBrowserAsync"),

@@ -813,6 +813,15 @@ return plugin.defineWindow(function(ctx)
                 gap = 4,
                 data = menuData :: any,
             })
+        elseif what == "extensions" then
+            Popover:Toggle({
+                id = "extensions",
+                anchorKey = "browser-extensions",
+                side = "bottom",
+                align = "end",
+                gap = 4,
+                data = { tabId = tab.Id } :: any,
+            })
         elseif what == "site" then
             local url = pageUrl(tab)
             if sitePage == nil or sitePage.tab ~= tab.Id or sitePage.url ~= url then
@@ -851,6 +860,52 @@ return plugin.defineWindow(function(ctx)
         end,
     })
 
+    local function enabledExtActions(): { extensions.ToolbarAction }
+        if not Server:IsLocal() then
+            return {}
+        end
+        local bAny = Browser :: any
+        if type(bAny.ExtActions) ~= "function" then
+            return {}
+        end
+        local raw = extensionsStore:Get()
+        local stored = if type(raw) == "table" then raw else {}
+        local ok, res = pcall(function()
+            return bAny:ExtActions(stored)
+        end)
+        if ok and type(res) == "table" then
+            return res :: any
+        end
+        return {}
+    end
+
+    ctx:AddPopover({
+        id = "extensions",
+        title = I18n:T("settings.extensions.title"),
+        render = function(view, props)
+            local tabId = if type(props.data) == "table" then (props.data :: any).tabId else nil
+            return extensions.renderToolbarMenu(
+                enabledExtActions(),
+                I18n,
+                view,
+                function(item)
+                    Popover:Close("extensions")
+                    local bAny = Browser :: any
+                    if type(bAny.ExtClick) == "function" then
+                        local optUrl = if item.options and item.options ~= "" and (item.popup == nil or item.popup == "")
+                            then `chrome-extension://{item.id}/{item.options}`
+                            else nil
+                        bAny:ExtClick(item.id, tabId, optUrl)
+                    end
+                end,
+                function()
+                    Popover:Close("extensions")
+                    act("settings", if tabId then Browser:Get(tabId) else nil)
+                end
+            )
+        end,
+    })
+
     local env: panel.Env = {
         device = if device then device.render else nil,
         deviceOpen = if device then device.isOpen else nil,
@@ -872,6 +927,12 @@ return plugin.defineWindow(function(ctx)
         end,
         optionsOpen = function()
             return Popover:IsOpen("options")
+        end,
+        hasExtensions = function()
+            return #enabledExtActions() > 0
+        end,
+        extMenuOpen = function()
+            return Popover:IsOpen("extensions")
         end,
         refusalNotice = function(tab: BrowserTab)
             return refusalNotices[tab.Id]

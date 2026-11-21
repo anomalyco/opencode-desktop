@@ -38,6 +38,8 @@ export type Env = {
     -- Popover states.
     siteOpen: () -> boolean,
     optionsOpen: () -> boolean,
+    hasExtensions: (() -> boolean)?,
+    extMenuOpen: (() -> boolean)?,
     -- Active notices and find state per tab.
     refusalNotice: (tab: BrowserTab) -> refusal.Notice?,
     failureNotice: (tab: BrowserTab) -> failure.Notice?,
@@ -318,10 +320,24 @@ local function bar(env: Env, view: View, tab: BrowserTab, state: address.View, w
         end, { keybind = "browser.reload" })
     end
     local picking = tab:Inspecting()
-    local rightCount = 1 + (if env.device then 1 else 0)
+    local showExt = env.hasExtensions ~= nil and env.hasExtensions()
+    local rightCount = 1 + (if env.device then 1 else 0) + (if showExt then 1 else 0)
     local rightW = rightCount * 28 + math.max(0, rightCount - 1) * 4
     local fieldW = math.max(120, width - 24 - 92 - 8 - 8 - rightW)
     local rightControls: { ui.Node } = {}
+    if showExt then
+        table.insert(rightControls, large(
+            view,
+            "browser-extensions",
+            "puzzle",
+            env.I18n:T("settings.extensions.title"),
+            true,
+            function()
+                env.act("extensions", tab)
+            end,
+            { pressed = env.extMenuOpen ~= nil and env.extMenuOpen(), menuTrigger = env.menuTrigger }
+        ))
+    end
     if env.device then
         local devOpen = if env.deviceOpen then env.deviceOpen(tab) else false
         table.insert(rightControls, large(
