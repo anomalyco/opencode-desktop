@@ -320,6 +320,7 @@ wrap_dev_tools_message_observer! {
         internal_picked: Arc<Mutex<Vec<i64>>>,
         pending_clears: Arc<Mutex<Vec<PendingClear>>>,
         cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
+        passkeys: Arc<crate::passkeys::TabPasskeyGate>,
         prompts: Arc<crate::prompts::TabPrompts>,
         permissions: Arc<crate::permissions::PermissionTracker>,
         extensions_active: bool,
@@ -339,6 +340,15 @@ wrap_dev_tools_message_observer! {
                 let body = result.and_then(|b| serde_json::from_slice::<Value>(b).ok());
                 let send = self.cdp_ledger.lock().unwrap().on_internal_reply(message_id, success != 0, body.as_ref());
                 self.send_all(browser.as_deref(), send.unwrap_or_default());
+                return;
+            }
+            if message_id >= crate::passkeys::PASSKEY_ID_BASE {
+                if self.passkeys.on_reply(message_id, success != 0) {
+                    let _ = self.out_tx.send(EngineMsg::Refused {
+                        tab_id: self.tab_id,
+                        reason: "browser.passkeys.unrestricted".to_owned(),
+                    });
+                }
                 return;
             }
             let Some(pending) = self.id_map.lock().unwrap().remove(&message_id) else {
@@ -473,6 +483,9 @@ wrap_dev_tools_message_observer! {
                     self.send_all(browser.as_deref(), send.unwrap_or_default());
                     return 1;
                 }
+                if msg_id >= crate::passkeys::PASSKEY_ID_BASE {
+                    return 1;
+                }
                 let pending = self.id_map.lock().unwrap().remove(&msg_id);
                 let Some(CdpPending::Raw { request_id, max_bytes, typed }) = pending else {
                     return 0;
@@ -502,13 +515,30 @@ wrap_dev_tools_message_observer! {
             }
             // The ledger sees every event first; a paused child's resume goes out from here,
             // before any filter below.
-            let (obs, app_attached) = {
+            let (mut obs, app_attached) = {
                 let mut ledger = self.cdp_ledger.lock().unwrap();
                 let obs = ledger.observe_event(&method, &params, session_id.as_deref());
                 (obs, ledger.app_attached)
             };
+            if let Some(child_sid) = obs.new_web_session.as_deref() {
+                // Attach the passkey wrapper on the paused OOPIF BEFORE `Runtime.runIfWaitingForDebugger`
+                // (the last message in `obs.send`), matching `chromium.ts:619`.
+                let resume = obs.send.pop();
+                obs.send.extend(self.passkeys.attach_messages(Some(child_sid)));
+                if let Some(r) = resume {
+                    obs.send.push(r);
+                }
+            }
+            let (pk_send, pk_consumed) = self.passkeys.observe_event(
+                &method,
+                &params,
+                session_id.as_deref(),
+                &self.snap,
+                &self.out_tx,
+            );
+            obs.send.extend(pk_send);
             self.send_all(browser.as_deref(), obs.send);
-            if !app_attached {
+            if pk_consumed || !app_attached {
                 return 1;
             }
             for (frame_id, sid) in obs.excluded {
