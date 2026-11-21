@@ -30,7 +30,8 @@ pub fn button(label: impl Into<String>, variant: ButtonVariant) -> Button {
 }
 
 pub fn badge(p: &Pal, label: impl Into<String>) -> El {
-    Badge::new(label).build(kit(p))
+    // `badge.css:2-13` uses CSS `border: 0.5px` which snaps to 1 device px in layout (`+2 px` width).
+    Badge::new(label).build(kit(p)).border_layout()
 }
 
 /// Desktop's `Loader` beside muted words: a sign-in or a check under way.
