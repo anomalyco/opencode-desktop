@@ -1,13 +1,13 @@
 {
-  "generated_at": "2026-11-21",
+  "generated_at": "2026-11-22",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "32ae0197715f822fb1247504f81e3eefc7d3c8fb",
+  "upstream_head": "ba5bbef82c9fc27e033a12ca50657f4ec8d629da",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "835bbd74464567069bd389762aa382e91e491915",
-  "post_1114_commit_count": 412,
-  "post_1114_in_ledger": 157,
+  "rune_desktop_head": "1e18166b72304db885c923b52dc05b66f9bff040",
+  "post_1114_commit_count": 413,
+  "post_1114_in_ledger": 158,
   "post_1114_skipped": 255,
   "post_1114_skipped_breakdown": {
     "test-only": 21,
@@ -18,12 +18,12 @@
     "server-core-ai-codemode-internal": 163
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 178,
+  "total_ledger_rows": 179,
   "status_counts": {
-    "have it": 148,
+    "have it": 150,
     "not applicable": 23,
     "differs on purpose": 1,
-    "partly": 3,
+    "partly": 2,
     "missing": 3
   },
   "rows": [
@@ -4427,8 +4427,8 @@
       ],
       "summary": "opencode://open-project?directory=<folder> opens the folder as a project in a new session; opencode://new-session?directory=<folder>&prompt=<text> does the same with the prompt typed in, not sent; links given at a cold start open too.",
       "size": "S",
-      "status": "partly",
-      "status_evidence": "Code merged (PR #580): apps/desktop/src/workspace/system/deep_links.rs takes open-project?directory= and new-session?directory=&prompt= (prompt typed into the opened session's composer, not sent), in arrival order, cold-start links waiting for their server. Not driven yet: headless runs don't take launch links.",
+      "status": "have it",
+      "status_evidence": "PR #580. Driven windowed (C:\\tmp\\opencode\\ws8\\link-drive.ts, local build of dev 330d1415+): a cold start with opencode-rune-dev://new-session?directory=<acme-web>&prompt=First link prompt, then a second launch handing new-session?directory=<notes>&prompt=Second link prompt to the running copy: two new sessions, tabs in that order, each in its folder with its prompt in the composer, not sent (saved drafts and tab list read back from the profile).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"
@@ -4474,6 +4474,28 @@
       "size": "S",
       "status": "have it",
       "status_evidence": "Ported to official FROM rune-desktop by WINDOWS-UPSTREAM; apps/desktop/src/workspace/lifecycle/launch/network.rs: PowerRegisterSuspendResumeNotification wakes every window on resume to recheck and reconnect its servers.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-158",
+      "window": "post-1120",
+      "pr": 65324,
+      "sha": "ba5bbef82c",
+      "title": "fix(desktop): draw the Windows caption buttons in the contrast theme's text colour",
+      "merged": "2026-11-21",
+      "packages": [
+        "desktop"
+      ],
+      "main_files": [
+        "packages/desktop/src/main/windows/defaults.ts",
+        "packages/desktop/src/main/windows/index.ts"
+      ],
+      "summary": "Under a Windows contrast theme the caption buttons draw in the theme's window-text colour (not the app theme's black or white), and follow the theme being turned on or off.",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "PR #0: apps/desktop/src/shell/view/mod.rs gives the caption buttons the palette's text colour when the system contrast theme paints the window (p.forced; that text is the theme's window text, themes::contrast). Seen: RUNE_CONTRAST=desert snap, close-button glyph #000000 before, #3D3D3D (Desert's window text) after. Turning the theme on or off rebuilds the palette (Windows reports it); not toggled live here.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"

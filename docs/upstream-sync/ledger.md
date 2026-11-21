@@ -1,9 +1,9 @@
 # Upstream Sync Ledger: `anomalyco/opencode` -> `anomalyco/rune-desktop`
 
-- **Updated:** 2026-11-21
-- **Upstream `origin/dev` audited:** `f6e0c2d083` -> `32ae019771` (**412** post-14 Nov commits: **157** in ledger + **255** skipped) plus **15** pre-14 Nov carry-over rows (`3751be8138..f6e0c2d083`) and 6 owner-split sub-rows of `UP-095`.
-- **`rune-desktop` `origin/dev` checked:** `835bbd7446`.
-- **Total ledger rows:** **178** - **148** have it · **23** not applicable · **1** differs on purpose · **3** partly · **3** missing.
+- **Updated:** 2026-11-22
+- **Upstream `origin/dev` audited:** `f6e0c2d083` -> `ba5bbef82c` (**413** post-14 Nov commits: **158** in ledger + **255** skipped) plus **15** pre-14 Nov carry-over rows (`3751be8138..f6e0c2d083`) and 6 owner-split sub-rows of `UP-095`.
+- **`rune-desktop` `origin/dev` checked:** `1e18166b72`.
+- **Total ledger rows:** **179** - **150** have it · **23** not applicable · **1** differs on purpose · **2** partly · **3** missing.
 - **Machine-readable twin:** `docs/upstream-sync/ledger.json` (generated together; identical rows).
 - **Status vs. Reviewed:** a row is **have it** only when its code is merged on `dev`; security-review tracking for browser rows lives in the separate **Reviewed** column.
 - **Open PR note column:** informational only (lists unmerged open PRs on `anomalyco/rune-desktop` that touch the same upstream PR; does not change row status).
@@ -22,12 +22,12 @@
 | **WS-5** | 0 | 0 | 0 | _done_ |
 | **WS-6** | 0 | 0 | 0 | _done_ |
 | **WS-7** | 0 | 0 | 0 | _done_ |
-| **WS-8** | 0 | 1 | 1 | `UP-155` |
+| **WS-8** | 0 | 0 | 0 | _done_ |
 | **WS-9** | 0 | 1 | 1 | `UP-095-EXT` |
 | **SCREENS-A** | 0 | 0 | 0 | _done_ |
 | **SCREENS-B** | 0 | 0 | 0 | _done_ |
 | **UPDATER** | 0 | 0 | 0 | _done_ |
-| **Total** | **3** | **3** | **6** | |
+| **Total** | **3** | **2** | **5** | |
 
 ## Browser Security Review Status (Tracked Separately in `Reviewed` Column)
 
@@ -56,7 +56,7 @@
 | PRE-14 | #63744 (`46aefe3da3`)<br>fix(app): hide zero session cost for OpenCode Go | 2026-11-13 | **gui-plugins**<br>`packages/gui-plugins/src/context/indicator.tsx`, `packages/gui-plugins/src/context/tab.tsx` | Hide the $0.00 cost line in the session header indicator and omit the Total Cost row in the Context tab when spend is zero on an OpenCode Go model. | S | **have it** |  | Ported in rune-desktop #243 (4b5175ef): plugins/context/indicator.luau and plugins/context/tab.luau hide $0.00 cost for opencode-go and pad odd 2-column grid rows. (PR #243) | none | none | none |  |
 | PRE-15 | #63739 (`f352f5e875`)<br>fix(ui): switch submenus without blinking and keep them open on the way in | 2026-11-13 | **ui, app**<br>`patches/@kobalte%2Fcore@0.13.13.patch`, `packages/app/src/shell/titlebar/sidebar-view-menu.tsx` | Keep submenus open along the pointer aim corridor and avoid flashing when moving between sibling submenu triggers. | S | **have it** |  | Ported in rune-desktop #271 (08f28f82): explicit submenu pointer-corridor aiming + 150 ms leave delay machine in crates/opencode-ui/src/popup/submenu.rs. (PR #271) | none | none | none |  |
 
-## Post-14 Nov Rows (`f6e0c2d083..32ae019771`)
+## Post-14 Nov Rows (`f6e0c2d083..ba5bbef82c`)
 
 | ID | PR / Commit | Date | Packages & Main Files | What User Sees / Client Must Do | Size | Status | Reviewed | Evidence in `rune-desktop` | Depends On | Risks | Stream | Open PR Note |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -220,6 +220,7 @@
 | UP-152 | #65320 (`f05c0fdc06`)<br>feat(desktop): open in Windows Terminal and list only installed apps on Windows | 2026-11-21 | **desktop, app**<br>`packages/desktop/src/main/files/apps.ts`, `packages/gui-plugins/src/file/open-in-app.tsx` | Open in lists Windows Terminal and only the apps installed on this machine. | S | **have it** |  | Ported to official FROM rune-desktop by WINDOWS-UPSTREAM; features/open-in/src/lib.rs lists only installed apps (checked once, off the UI thread) and has Windows Terminal (wt). | none | none | WS-8 |  |
 | UP-153 | #65319 (`844a6aa6fe`)<br>feat(desktop): flash the Windows taskbar button for requests that wait on you | 2026-11-21 | **desktop, app**<br>`packages/desktop/src/main/windows/attention.ts`, `packages/app/src/shell/notifications/notification.tsx` | The taskbar button flashes for a new permission or question while the app isn't in front. | S | **have it** |  | Ported to official FROM rune-desktop by WINDOWS-UPSTREAM; apps/desktop/src/workspace/windows/taskbar.rs: bounded flash for a new permission or question when the app is not in front and no toast announced it. | none | none | WS-8 |  |
 | UP-154 | #65318 (`edacc8686a`)<br>feat(desktop): show a count badge for sessions that need you on the Windows taskbar | 2026-11-21 | **desktop, app**<br>`packages/desktop/src/main/windows/taskbar-badge.ts`, `packages/app/src/shell/layout/project-avatar-state.ts` | A count badge on the taskbar button for sessions that need you. | S | **have it** |  | Ported to official FROM rune-desktop by WINDOWS-UPSTREAM; apps/desktop/src/workspace/windows/taskbar.rs: badge = waiting + ended-unread tabs (Rune Taskbar overlay icon). | none | none | WS-8 |  |
-| UP-155 | #65332 (`b310a05b54`)<br>fix(desktop): open projects and new sessions from opencode:// links again | 2026-11-21 | **desktop, app**<br>`packages/app/src/shell/deep-links/machine.ts`, `packages/desktop/src/main/lifecycle/launch-links.ts`, `packages/desktop/src/renderer/startup/deep-links.ts` | opencode://open-project?directory=<folder> opens the folder as a project in a new session; opencode://new-session?directory=<folder>&prompt=<text> does the same with the prompt typed in, not sent; links given at a cold start open too. | S | **partly** |  | Code merged (PR #580): apps/desktop/src/workspace/system/deep_links.rs takes open-project?directory= and new-session?directory=&prompt= (prompt typed into the opened session's composer, not sent), in arrival order, cold-start links waiting for their server. Not driven yet: headless runs don't take launch links. | none | none | WS-8 |  |
+| UP-155 | #65332 (`b310a05b54`)<br>fix(desktop): open projects and new sessions from opencode:// links again | 2026-11-21 | **desktop, app**<br>`packages/app/src/shell/deep-links/machine.ts`, `packages/desktop/src/main/lifecycle/launch-links.ts`, `packages/desktop/src/renderer/startup/deep-links.ts` | opencode://open-project?directory=<folder> opens the folder as a project in a new session; opencode://new-session?directory=<folder>&prompt=<text> does the same with the prompt typed in, not sent; links given at a cold start open too. | S | **have it** |  | PR #580. Driven windowed (C:\tmp\opencode\ws8\link-drive.ts, local build of dev 330d1415+): a cold start with opencode-rune-dev://new-session?directory=<acme-web>&prompt=First link prompt, then a second launch handing new-session?directory=<notes>&prompt=Second link prompt to the running copy: two new sessions, tabs in that order, each in its folder with its prompt in the composer, not sent (saved drafts and tab list read back from the profile). | none | none | WS-8 |  |
 | UP-156 | #65323 (`3aff591323`)<br>fix(desktop): reopen snapped, moved and minimized windows where they were on Windows | 2026-11-21 | **desktop, app**<br>`packages/desktop/src/main/windows/window-state.ts` | Windows reopen where they were when snapped, moved or minimized. | S | **have it** |  | Ported to official FROM rune-desktop by WINDOWS-UPSTREAM; apps/desktop/src/workspace/windows/placement.rs: a minimized window keeps its last shown frame; snapped or restored saves where it is on screen. | none | none | WS-8 |  |
 | UP-157 | #65321 (`32ae019771`)<br>fix(desktop): resync server event streams after Windows resumes from sleep | 2026-11-21 | **desktop, app**<br>`packages/app/src/runtime/server/client.tsx`, `packages/desktop/src/main/ipc.ts` | After Windows resumes from sleep the server event streams resync. | S | **have it** |  | Ported to official FROM rune-desktop by WINDOWS-UPSTREAM; apps/desktop/src/workspace/lifecycle/launch/network.rs: PowerRegisterSuspendResumeNotification wakes every window on resume to recheck and reconnect its servers. | none | none | WS-8 |  |
+| UP-158 | #65324 (`ba5bbef82c`)<br>fix(desktop): draw the Windows caption buttons in the contrast theme's text colour | 2026-11-21 | **desktop**<br>`packages/desktop/src/main/windows/defaults.ts`, `packages/desktop/src/main/windows/index.ts` | Under a Windows contrast theme the caption buttons draw in the theme's window-text colour (not the app theme's black or white), and follow the theme being turned on or off. | XS | **have it** |  | PR #0: apps/desktop/src/shell/view/mod.rs gives the caption buttons the palette's text colour when the system contrast theme paints the window (p.forced; that text is the theme's window text, themes::contrast). Seen: RUNE_CONTRAST=desert snap, close-button glyph #000000 before, #3D3D3D (Desert's window text) after. Turning the theme on or off rebuilds the palette (Windows reports it); not toggled live here. | none | none | WS-8 |  |
