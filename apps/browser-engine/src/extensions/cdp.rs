@@ -699,8 +699,9 @@ impl ExtensionHost {
             return effects;
         }
 
-        // Never attach shims to iframes, dedicated/shared workers, or non-page targets.
-        let is_page_like = matches!(ttype, "page" | "other");
+        // Never attach shims to iframes, dedicated/shared workers, or non-page targets;
+        // include MV2 `background_page` so it is never detached unshimmed (READER-12 #441).
+        let is_page_like = matches!(ttype, "page" | "other" | "background_page");
         let ext_target = if is_page_like
             && let Some(ext_id) = super::manifest::extension_id_from_target_url(url)
             && self.extensions.contains_key(ext_id)
