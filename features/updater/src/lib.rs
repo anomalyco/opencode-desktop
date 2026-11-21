@@ -11,9 +11,10 @@
 //!   Authenticode), stages it beside the install folder, and swaps the folders once the app exits
 //!   (`apply.rs`, the app's own executable as the helper) on Restart to update. Plain quit never
 //!   installs (`platform.ts:30`).
-//! - **Linux** (`linux.rs`): checks only. The AppImage, `.deb` and `.rpm` don't replace
-//!   themselves, so a newer release is offered as a download (`download-required`, Desktop's
-//!   external mode) for the package this build was installed from.
+//! - **Linux** (`linux.rs`): AppImage, `.deb` and `.rpm` builds update in-app from the release
+//!   feed (downloading and verifying size and SHA-256 into a private `0700` staging directory,
+//!   then atomically replacing the AppImage or elevating `dpkg`/`apt`/`zypper`/`dnf`/`yum`/`rpm`
+//!   via `pkexec` and relaunching). Snap, Flatpak and distro packages disable the updater.
 //!
 //! All check ten seconds after launch and every ten minutes. The Updater plugin
 //! (`plugins/updater`) draws it, as Desktop's updater plugin does: the titlebar's Update pill while
