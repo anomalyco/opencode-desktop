@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use opencode_ui::palette::{Elevate as _, Pal, kit};
 
 use super::{Page, header, page, select};
-use crate::host::{ServerKind, SettingsHost};
+use crate::host::SettingsHost;
 use crate::jobs::{SettingsJob, SettingsRequest};
 use crate::{list, neutral_lift, setting};
 
@@ -79,7 +79,8 @@ pub struct State {
     /// A Projects row being renamed in place, by folder, and its field.
     pub renaming: Option<String>,
     pub rename: TextEdit,
-    /// Whether the loaded project's folder is missing on disk (local server only, checked on load).
+    /// Whether the server reported `LocationNotFoundError` for the loaded project's folder
+    /// (`workspaces/location.tsx:63-77`, works on both local and remote servers).
     pub missing: bool,
     pub extensions: super::project_extensions::State,
 }
@@ -91,7 +92,6 @@ pub fn project<'a>(s: &'a dyn SettingsHost, dir: &str) -> Option<&'a Project> {
 
 /// Fills the fields for `dir`'s project, as it opens.
 pub fn load(s: &mut dyn SettingsHost, dir: &str, tab: Tab) {
-    let missing = matches!(super::servers::inventory::selected(s).kind, ServerKind::Own { .. }) && !dir.is_empty() && !std::path::Path::new(dir).exists();
     if s.settings_pages().project.dir != dir {
         let meta = project(s, dir).map(|p| project_meta(&p.id)).unwrap_or_default();
         let shown = if meta.name.is_empty() { super::projects::folder_name(dir) } else { meta.name.clone() };
@@ -102,9 +102,10 @@ pub fn load(s: &mut dyn SettingsHost, dir: &str, tab: Tab) {
         st.startup_h = None;
         st.sent = (shown, meta.start.clone());
         st.failed.clear();
-        st.missing = missing;
-    } else {
-        s.settings_pages_mut().project.missing = missing;
+        st.missing = false;
+    }
+    if !dir.is_empty() {
+        s.spawn_job(SettingsJob::ActiveServer(SettingsRequest::CheckProjectLocation { dir: dir.to_owned() }));
     }
     match tab {
         Tab::Worktrees => {
