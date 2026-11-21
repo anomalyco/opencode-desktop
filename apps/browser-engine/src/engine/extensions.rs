@@ -694,7 +694,9 @@ impl EngineManager {
             | M::SetInspect { enabled: false, .. }
             | M::HighlightNode { backend_node_id: None, .. }
             | M::ContextMenuAction { action: None, .. } => return false,
-            M::Find { query, .. } if query.is_empty() => return false,
+            // `user_initiated` is set only by the bundled find bar (`#312`), whose `FindResult`
+            // never reaches agents or third-party plugins.
+            M::Find { query, user_initiated, .. } if query.is_empty() || *user_initiated => return false,
             // Guarded tab-addressed commands (default for any new command added to `HostMsg`).
             M::CdpCall { tab_id, request_id, .. }
             | M::TypedCdpCall { tab_id, request_id, .. }

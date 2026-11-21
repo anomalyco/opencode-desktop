@@ -459,30 +459,10 @@ wrap_dev_tools_message_observer! {
             };
             // Guard 1b (reply-side choke point): re-check committed origin uniformly before ANY
             // `CdpPending` variant (`Raw`, `CookieCount`, `ClearSite`) leaves the engine.
-            let pending_req_id = match &pending {
-                CdpPending::Raw { request_id, .. }
-                | CdpPending::CookieCount(request_id)
-                | CdpPending::ClearSite { request_id, .. } => *request_id,
-            };
-            if let Some(blocked_url) = self.permissions.tab_blocked_url(
-                browser.as_deref(),
-                self.isolated,
-                self.is_preview,
-                &self.snap,
-                &self.prompts,
-            ) {
-                let _ = self.out_tx.send(EngineMsg::ControlledPermissionRefused {
-                    tab_id: self.tab_id,
-                    url: blocked_url,
-                });
-                let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                    tab_id: self.tab_id,
-                    request_id: pending_req_id,
-                    ok: false,
-                    result: serde_json::json!({
-                        "message": crate::permissions::INHERITED_PERMISSION_MSG
-                    }),
-                });
+            let (CdpPending::Raw { request_id, .. }
+            | CdpPending::CookieCount(request_id)
+            | CdpPending::ClearSite { request_id, .. }) = &pending;
+            if self.refuse_reply(browser.as_deref(), *request_id) {
                 return;
             }
             if let CdpPending::Raw { request_id, max_bytes } = pending {
@@ -635,25 +615,7 @@ wrap_dev_tools_message_observer! {
                     && let Some(CdpPending::Raw { request_id, max_bytes }) =
                         self.id_map.lock().unwrap().remove(&(msg_id as i32))
                 {
-                    if let Some(blocked_url) = self.permissions.tab_blocked_url(
-                        browser.as_deref(),
-                        self.isolated,
-                        self.is_preview,
-                        &self.snap,
-                        &self.prompts,
-                    ) {
-                        let _ = self.out_tx.send(EngineMsg::ControlledPermissionRefused {
-                            tab_id: self.tab_id,
-                            url: blocked_url,
-                        });
-                        let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                            tab_id: self.tab_id,
-                            request_id,
-                            ok: false,
-                            result: serde_json::json!({
-                                "message": crate::permissions::INHERITED_PERMISSION_MSG
-                            }),
-                        });
+                    if self.refuse_reply(browser.as_deref(), request_id) {
                         return 1;
                     }
                     if raw.len() > max_bytes {
@@ -773,16 +735,7 @@ wrap_dev_tools_message_observer! {
                     &self.snap,
                     &self.prompts,
                 )
-                || self
-                    .permissions
-                    .tab_blocked_url(
-                        browser.as_deref(),
-                        self.isolated,
-                        self.is_preview,
-                        &self.snap,
-                        &self.prompts,
-                    )
-                    .is_some()
+                || self.blocked_url(browser.as_deref()).is_some()
             {
                 return 1;
             }
@@ -794,5 +747,28 @@ wrap_dev_tools_message_observer! {
             });
             1
         }
+    }
+}
+
+impl TabCdpObserver {
+    /// Guard 1b: the tab's committed origin holds an inherited `Default` grant (controlled tabs only).
+    fn blocked_url(&self, browser: Option<&Browser>) -> Option<Option<String>> {
+        self.permissions
+            .tab_blocked_url(browser, self.isolated, self.is_preview, &self.snap, &self.prompts)
+    }
+
+    /// Replaces a reply with the generic refusal when Guard 1b holds; `true` when refused.
+    fn refuse_reply(&self, browser: Option<&Browser>, request_id: u64) -> bool {
+        let Some(url) = self.blocked_url(browser) else {
+            return false;
+        };
+        let _ = self.out_tx.send(EngineMsg::ControlledPermissionRefused { tab_id: self.tab_id, url });
+        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+            tab_id: self.tab_id,
+            request_id,
+            ok: false,
+            result: serde_json::json!({ "message": crate::permissions::INHERITED_PERMISSION_MSG }),
+        });
+        true
     }
 }
