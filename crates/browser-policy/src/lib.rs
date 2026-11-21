@@ -329,7 +329,8 @@ pub fn resolve_address(input: &str) -> String {
 
 mod network;
 pub use network::{
-    is_local_or_loopback_host, is_strict_loopback_ip, loopback_host, validate_proxy_endpoint,
+    is_local_or_loopback_host, is_public_http_url, is_public_ip, is_public_ipv4, is_public_ipv6,
+    is_strict_loopback_ip, loopback_host, validate_proxy_endpoint,
 };
 
 fn is_loopback_authority(value: &str) -> bool {

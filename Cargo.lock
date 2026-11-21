@@ -3901,6 +3901,7 @@ dependencies = [
  "serde",
  "serde_json",
  "socket2",
+ "tempfile",
  "tungstenite",
  "ureq",
  "ureq-web",
@@ -3914,6 +3915,7 @@ dependencies = [
 name = "opencode-platform"
 version = "0.0.1"
 dependencies = [
+ "browser-policy",
  "opencode-kit",
  "otlp-lite",
  "rune",

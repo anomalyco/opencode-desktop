@@ -52,6 +52,10 @@ pub(crate) fn agent_for(base: &str) -> ureq::Agent {
 impl Server {
     /// One request: `body` sent as JSON when there is one, `timeout` for the whole exchange.
     pub(crate) fn exchange(&self, method: &'static str, path: &str, body: Option<&[u8]>, timeout: Option<Duration>, headers: &[(&str, &str)]) -> Result<Answer, WireError> {
+        self.exchange_with_limit(method, path, body, timeout, headers, inline_limit(path))
+    }
+
+    pub(crate) fn exchange_with_limit(&self, method: &'static str, path: &str, body: Option<&[u8]>, timeout: Option<Duration>, headers: &[(&str, &str)], limit: u64) -> Result<Answer, WireError> {
         let url = format!("{}{path}", self.base);
         let fail = |kind| WireError::new(method, path, kind);
         let a = &self.agent;
@@ -69,7 +73,6 @@ impl Server {
         let (status, content_type, location) = (resp.status().as_u16(), header("content-type").unwrap_or_default(), header("location"));
         // An error's body is only its explanation: a little of it is enough.
         let length = header("content-length").and_then(|s| s.parse::<u64>().ok());
-        let limit = inline_limit(path);
         let body = if status >= 300 {
             let mut bytes = Vec::new();
             // The status remains authoritative even if its explanation is oversized or cut short.

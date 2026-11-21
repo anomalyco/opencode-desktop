@@ -17,10 +17,12 @@ fn parse_ipv4_permissive(hostname: &str) -> Option<std::net::Ipv4Addr> {
             return None;
         }
         let val = if let Some(hex) = part.strip_prefix("0x").or_else(|| part.strip_prefix("0X")) {
+            // WHATWG URL §3.5 parses empty `"0x"` as `0`.
             if hex.is_empty() {
-                return None;
+                0
+            } else {
+                u32::from_str_radix(hex, 16).ok()?
             }
-            u32::from_str_radix(hex, 16).ok()?
         } else if part.len() > 1 && part.starts_with('0') {
             if !part.bytes().all(|b| (b'0'..=b'7').contains(&b)) {
                 return None;
@@ -157,4 +159,171 @@ pub fn validate_proxy_endpoint(
         return Err("browser.proxy.invalid");
     }
     Ok(())
+}
+
+/// Whether an IPv4 address is globally routable (excludes unspecified, loopback, RFC 1918 private,
+/// CGNAT/Tailscale `100.64.0.0/10`, link-local & cloud IMDS `169.254.0.0/16`, documentation,
+/// benchmarking, multicast, and reserved ranges).
+pub fn is_public_ipv4(ip: std::net::Ipv4Addr) -> bool {
+    let [a, b, c, _] = ip.octets();
+    !(a == 0
+        || a == 10
+        || (a == 100 && (b & 0xc0) == 64)
+        || a == 127
+        || (a == 169 && b == 254)
+        || (a == 172 && (b & 0xf0) == 16)
+        || (a == 192 && b == 0 && (c == 0 || c == 2))
+        || (a == 192 && b == 88 && c == 99)
+        || (a == 192 && b == 168)
+        || (a == 198 && (b & 0xfe) == 18)
+        || (a == 198 && b == 51 && c == 100)
+        || (a == 203 && b == 0 && c == 113)
+        || a >= 224)
+}
+
+/// Whether an IPv6 address is globally routable (excludes unspecified, loopback, ULA `fc00::/7`
+/// incl. AWS IMDS `fd00:ec2::254`, link-local `fe80::/10`, multicast, documentation, Teredo, and
+/// non-public embedded IPv4 in mapped/compatible/NAT64/6to4 ranges).
+pub fn is_public_ipv6(ip: std::net::Ipv6Addr) -> bool {
+    if ip.is_unspecified() || ip.is_loopback() {
+        return false;
+    }
+    if let Some(v4) = ip.to_ipv4_mapped() {
+        return is_public_ipv4(v4);
+    }
+    let seg = ip.segments();
+    if seg[..6] == [0; 6] {
+        let v4 = std::net::Ipv4Addr::from(((seg[6] as u32) << 16) | (seg[7] as u32));
+        return is_public_ipv4(v4);
+    }
+    if seg[0] == 0x0064 && seg[1] == 0xff9b {
+        if seg[2] == 0x0001 {
+            return false;
+        }
+        if seg[2..6] == [0; 4] {
+            let v4 = std::net::Ipv4Addr::from(((seg[6] as u32) << 16) | (seg[7] as u32));
+            return is_public_ipv4(v4);
+        }
+        return false;
+    }
+    if seg[0] == 0x2002 {
+        let v4 = std::net::Ipv4Addr::from(((seg[1] as u32) << 16) | (seg[2] as u32));
+        return is_public_ipv4(v4);
+    }
+    if seg[0] == 0x2001
+        && (seg[1] == 0x0000
+            || seg[1] == 0x0db8
+            || (seg[1] == 0x0002 && seg[2] == 0x0000)
+            || (seg[1] & 0xfff0) == 0x0010
+            || (seg[1] & 0xfff0) == 0x0020)
+    {
+        return false;
+    }
+    (seg[0] & 0xe000) == 0x2000
+}
+
+/// Whether `ip` is globally routable (neither loopback, private LAN, link-local/IMDS, nor ULA).
+pub fn is_public_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => is_public_ipv4(v4),
+        std::net::IpAddr::V6(v6) => is_public_ipv6(v6),
+    }
+}
+
+fn looks_like_ipv4_number(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        // Include empty `"0x"` because WHATWG URL §3.5 parses `"0x"` as `0` (e.g. `127.0x`).
+        return hex.bytes().all(|b| b.is_ascii_hexdigit());
+    }
+    s.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// Returns `true` only if `input` is a credential-free `http://` or `https://` URL whose host is
+/// a globally routable public IP literal or multi-label public DNS name (refusing credentials,
+/// loopback, RFC 1918 LAN, CGNAT, link-local/IMDS, ULA, `.localhost`/`.local`/`.internal`/`.arpa`/
+/// `metadata.goog`, alternate IPv4 encodings, and invalid/zero ports).
+pub fn is_public_http_url(input: &str) -> bool {
+    let Some(origin) = crate::destination_origin(input) else {
+        return false;
+    };
+    let Some((_, authority)) = origin.split_once("://") else {
+        return false;
+    };
+    if let Some(rest) = authority.strip_prefix('[') {
+        let Some((ipv6_str, tail)) = rest.split_once(']') else {
+            return false;
+        };
+        if ipv6_str.contains('%') {
+            return false;
+        }
+        if !tail.is_empty()
+            && !tail.strip_prefix(':').and_then(|p| p.parse::<u16>().ok()).is_some_and(|n| n > 0)
+        {
+            return false;
+        }
+        return ipv6_str.parse::<std::net::Ipv6Addr>().is_ok_and(is_public_ipv6);
+    }
+    let (host, tail) = match authority.split_once(':') {
+        Some((h, p)) => (h, Some(p)),
+        None => (authority, None),
+    };
+    if let Some(p) = tail
+        && !p.parse::<u16>().is_ok_and(|n| n > 0)
+    {
+        return false;
+    }
+    if host.is_empty()
+        || host.len() > 253
+        || host.contains('%')
+        || !host.is_ascii()
+        || host.starts_with('.')
+        || host.contains("..")
+    {
+        return false;
+    }
+    let trimmed = host.strip_suffix('.').unwrap_or(host);
+    if trimmed.is_empty() || trimmed.ends_with('.') {
+        return false;
+    }
+    let labels: Vec<&str> = trimmed.split('.').collect();
+    if let Some(last) = labels.last()
+        && looks_like_ipv4_number(last)
+    {
+        return parse_ipv4_permissive(trimmed).is_some_and(is_public_ipv4);
+    }
+    if labels.len() < 2 {
+        return false;
+    }
+    for label in &labels {
+        if label.is_empty()
+            || label.len() > 63
+            || label.starts_with('-')
+            || label.ends_with('-')
+            || !label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        {
+            return false;
+        }
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if lower == "metadata.goog" || lower.ends_with(".metadata.goog") {
+        return false;
+    }
+    let tld = labels.last().copied().unwrap_or("").to_ascii_lowercase();
+    !matches!(
+        tld.as_str(),
+        "localhost"
+            | "local"
+            | "localdomain"
+            | "internal"
+            | "arpa"
+            | "lan"
+            | "home"
+            | "corp"
+            | "intranet"
+            | "private"
+            | "localnet"
+    )
 }
