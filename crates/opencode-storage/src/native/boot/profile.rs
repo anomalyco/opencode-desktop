@@ -7,10 +7,11 @@
 //! - **Busy** (another copy, or one still closing its storage: a relaunch's old copy, a launch
 //!   while the app quits): the first frame waits for the lease a short while (`SHOW_CLOSING` where
 //!   the instance claim admits one launch, not macOS: the holder can only be closing, and a closing
-//!   copy lets go within a few milliseconds; `SHOW` on macOS; a relaunch, which Rune already held
-//!   up to 10 s for its old copy, `SHOW_RELAUNCH`), since a copy that's quitting writes its last
-//!   state and a frame from before that is one the file no longer shows. Taken in that time, the
-//!   record is read again and shown.
+//!   copy lets go within a few milliseconds, a relaunch's too; `SHOW` on macOS; a relaunch there,
+//!   which Rune already held up to 10 s for its old copy, `SHOW_RELAUNCH`; counted from the
+//!   instance claim's start), since a copy that's quitting writes its last state and a frame from
+//!   before that is one the file no longer shows. Taken in that time, the record is read again
+//!   and shown.
 //!   Then the held path: what was read is shown, held (with "OpenCode is finishing a save"), the
 //!   lease is tried again for as long as the open waits for SQLite's lock, and once it's taken the
 //!   open goes on; what the windows were shown is kept only if the file still shows it
@@ -33,7 +34,7 @@ use crate::Storage;
 const WAIT: Duration = Duration::from_secs(30);
 /// How long a busy launch's first frame waits for the lease before it shows what was read, held.
 const SHOW: Duration = Duration::from_secs(5);
-/// The same for a relaunch (Restart, an update's), which Rune held up to 10 s for its old copy.
+/// The same for a relaunch (Restart, an update's) on macOS, which Rune held up to 10 s for its old copy.
 const SHOW_RELAUNCH: Duration = Duration::from_secs(2);
 /// The same where the instance claim admits one launch (not macOS): the holder is a copy closing,
 /// which lets go of the profile ~1 ms after its last save (`harness/perf/relaunch-wait.ts`). One
@@ -62,7 +63,7 @@ pub(super) fn hold(config: &StorageConfig, report: &mut BootReport, t0: Instant,
     // what was read, held ("OpenCode is finishing a save"), instead of nothing for up to `WAIT`.
     // Official's second launch quits instead (Electron's single-instance lock lasts the whole
     // process: `lifecycle/configure.ts` `acquireApplicationLock`), so a person sees nothing at all.
-    let show = if relaunch() { SHOW_RELAUNCH } else if cfg!(target_os = "macos") { SHOW } else { SHOW_CLOSING };
+    let show = match (cfg!(target_os = "macos"), relaunch()) { (true, true) => SHOW_RELAUNCH, (true, false) => SHOW, (false, _) => SHOW_CLOSING };
     let claimed_at = claim_start();
     loop {
         match lease::try_take(&config.path) {
