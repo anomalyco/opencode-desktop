@@ -9,7 +9,7 @@ use super::keys::key;
 use super::menu::{Entry, Glyph, Look, Menu, hug_width, key_at, row_key};
 use super::rows::{self, CHEVRON, detail_row, diff_note};
 use super::search::{SEARCH_H, search_field};
-use super::state::{choose, choose_at, close, hover_focus, moved, open_sub_at};
+use super::state::{choose, choose_at, close, hover_focus, left, moved, open_sub_at};
 use super::{CARD, CONTEXT_MIN_W, GAP, GROUP, GROUP_H, PRESS_ON_DOWN, PopupHost, SURFACE, focus, standard};
 
 /// The drawn menu and the scrim under it that dismisses it, for the window's top layer.
@@ -257,11 +257,14 @@ fn build<S: PopupHost + 'static>(
         .min_w(menu.min_w)
         .on_pointer_move_local(|s: &mut S, e: rune::PointerEvent, tx: &mut Tx| moved(s, [e.window_x, e.window_y], tx));
     // An open menu holds focus (`menu-v2-content`, tabindex -1) and takes the keys from there.
-    let holds_focus = search_placeholder.is_none();
+    // A menu under an editing field holds it too ([`super::open_with_field`]); a search field keeps it.
+    let holds_focus = search_placeholder.is_none() || s.is_some_and(|s| s.popup().holds_focus());
     let surface = match s {
         Some(_) if holds_focus => surface.focusable(true).tab_index(-1).no_focus_ring().on_key(|s: &mut S, ev, tx: &mut Tx| key(s, ev, tx)),
         _ => surface,
     };
+    // A menu under an editing field is a Kobalte menu: the row the pointer lit goes dark as it leaves.
+    let surface = if !nested && s.is_some_and(|s| s.popup().edits()) { surface.on_hover_change(|s: &mut S, inside, tx: &mut Tx| if !inside { left(s, tx) }) } else { surface };
     // A submenu is as wide as its widest row (`w-max`), its rows laid out apart from it.
     let width = menu.width.or_else(|| nested.then(|| hug_width(menu).max(menu.min_w)));
     let surface = match width {

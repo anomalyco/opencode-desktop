@@ -136,7 +136,7 @@ mod native {
         pub devtools: HashMap<u64, PendingDevtools>,
         /// Settings > Browser's cookie-file import waiting on the engine (`cookie_import`).
         pub cookie_import: Option<super::cookie_import::CookieImport>,
-        /// Each other browser's icon for Settings > Browser, read off the UI thread (`app_icons`).
+        /// Each other browser's icon and the browsers' list for Settings > Browser, read off the UI thread (`app_icons`).
         pub app_icons: super::app_icons::AppIcons,
         /// Last observed Luau store version for `plugin.browser/rune.sitePermissions`.
         pub site_permissions_version: u64,

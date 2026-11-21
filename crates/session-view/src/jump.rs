@@ -315,6 +315,7 @@ pub fn over_scroll<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll_fade: El, p
     let curve = crate::knobs::jump(s.knobs(), shown);
     let rise = if shown || s.reduced_motion() { 0.0 } else { s.knobs().get(&crate::knobs::JUMP_RISE) };
     let target = format!("scroll-{id}");
+    let session = id.to_owned();
     let mut button = face(p, s.knobs().get(&crate::knobs::CAPSULE_RADIUS))
         .opacity(if shown { 1.0 } else { 0.0 })
         .opacity_motion(curve)
@@ -324,6 +325,7 @@ pub fn over_scroll<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll_fade: El, p
             // Instant snap under reduced motion (`virtualizer.tsx:1168`); keyboard activation
             // moves focus to the composer before this button becomes inert (`virtualizer.tsx:1171`).
             if s.reduced_motion() {
+                s.ends_mut().set_at_end(&session, true);
                 tx.scroll_to_bottom_instant(target.clone());
             } else {
                 tx.scroll_to_bottom(target.clone());

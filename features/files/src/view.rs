@@ -21,7 +21,9 @@ use crate::{FilesHost, SessionFiles, ops};
 const INSTANT: Anim = Anim::INSTANT;
 const TREE_ROW_H: f32 = chrome::ROW_H;
 const LIST_ROW_H: f32 = 28.0;
-const LIST_LABEL: rune::TextStyle = rune::TextStyle::new(13.0, 530.0).lh(16.0);
+// `.text-12-medium` (`utilities.css:30-37` + `theme.css:8,16`): `--font-size-small: 13px`,
+// `--font-weight-medium: 500`, `--line-height-large: 150%` (19.5px).
+const LIST_LABEL: rune::TextStyle = rune::TextStyle::new(13.0, 500.0).lh(19.5);
 
 fn on_filter_edit(host: &mut dyn FilesHost) -> &mut TextEdit {
     ops::request_sidebar_file_search(host);
@@ -332,17 +334,17 @@ pub fn filtered_files_view<H: FilesHost + 'static>(
                 let dir = &path[..path.len() - name.len()];
                 let (click_p, dbl_p) = (path.clone(), path.clone());
                 let t = tree_icons::file(name);
-                // `file-tree-v2-row`: 28 tall, 8 in, 6 apart, 6 round; its folder (with its slash) then its
-                // name, both 13 at 530, the folder darker as Desktop draws them.
+                // `file-tree-v2-row` (`packages/gui-plugins/src/file/list.tsx:201-206`): 28 tall,
+                // 8 in, 6 apart, 6 round; folder muted, filename base ink, both `.text-12-medium`.
                 let label = row()
                     .grow(1.0)
                     .min_w(0.0)
                     .mr(12.0)
-                    .children((!dir.is_empty()).then(|| text(dir.to_owned()).font(LIST_LABEL).color(pal.text)))
+                    .children((!dir.is_empty()).then(|| text(dir.to_owned()).font(LIST_LABEL).color(pal.muted)))
                     .child(
                         text(name.to_owned())
                             .font(LIST_LABEL)
-                            .color(pal.muted)
+                            .color(pal.text)
                             .shrink()
                             .min_w(0.0)
                             .truncate_fade(),

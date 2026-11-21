@@ -165,7 +165,19 @@ pub(super) fn is_api_allowed(manifest: &ExtensionManifest, name: &str) -> bool {
         | "downloads.erase"
         | "downloads.removeFile"
         | "downloads.acceptDanger"
-        | "downloads.setUiOptions" => Some("downloads"),
+        | "downloads.setUiOptions"
+        | "downloads.setShelfEnabled" => Some("downloads"),
+        "management.getSelf"
+        | "management.getAll"
+        | "management.get"
+        | "management.setEnabled"
+        | "management.uninstall"
+        | "management.uninstallSelf"
+        | "management.launchApp"
+        | "management.createAppShortcut"
+        | "management.setLaunchType"
+        | "management.getPermissionWarningsById"
+        | "management.generateAppForLink" => Some("management"),
         "identity.getAuthToken"
         | "identity.getProfileUserInfo"
         | "identity.getAccounts"
@@ -629,7 +641,53 @@ impl ExtensionHost {
             | "downloads.showDefaultFolder"
             | "downloads.removeFile"
             | "downloads.acceptDanger"
-            | "downloads.setUiOptions" => Ok(Value::Null),
+            | "downloads.setUiOptions"
+            | "downloads.setShelfEnabled" => Ok(Value::Null),
+            "management.getSelf" => {
+                let perms: Vec<&String> = ext
+                    .manifest
+                    .permissions
+                    .iter()
+                    .filter(|p| !p.contains("://") && p.as_str() != "<all_urls>")
+                    .collect();
+                let options_url = ext
+                    .manifest
+                    .options_page
+                    .as_deref()
+                    .and_then(|p| extension_page_url(ext_id, p))
+                    .unwrap_or_default();
+                Ok(json!({
+                    "id": ext_id,
+                    "name": ext.manifest.name,
+                    "shortName": ext.manifest.name,
+                    "description": "",
+                    "version": ext.manifest.version,
+                    "enabled": true,
+                    "type": "extension",
+                    "installType": "normal",
+                    "mayDisable": false,
+                    "mayEnable": false,
+                    "isApp": false,
+                    "offlineEnabled": false,
+                    "homepageUrl": "",
+                    "updateUrl": "",
+                    "optionsUrl": options_url,
+                    "permissions": perms,
+                    "hostPermissions": ext.manifest.hosts,
+                }))
+            }
+            "management.getAll" => Ok(json!([])),
+            "management.get"
+            | "management.setEnabled"
+            | "management.uninstall"
+            | "management.uninstallSelf"
+            | "management.launchApp"
+            | "management.createAppShortcut"
+            | "management.setLaunchType"
+            | "management.getPermissionWarningsById"
+            | "management.generateAppForLink" => {
+                Err("Extensions cannot manage other extensions in this browser.".into())
+            }
             "identity.getAuthToken" => Err("This browser has no browser account to sign in with.".into()),
             "identity.getProfileUserInfo" => Ok(json!({ "email": "", "id": "" })),
             "identity.getAccounts" => Ok(json!([])),

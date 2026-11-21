@@ -21,6 +21,19 @@ use crate::code_view::find_bar::{FindBar, find_bar, over};
 use crate::code_view::{DiffViewer, ExpandMode};
 use crate::review::{ChangeMode, SessionReview};
 
+fn saved_review_mode(app: &App, sid: &str) -> ChangeMode {
+    if let Some(sr) = app.kernel.slots.get(&crate::review::REVIEW).sessions.get(sid) {
+        return sr.mode;
+    }
+    use crate::plugin_host::{services::store, stores};
+    let ns = opencode_storage::plugin_namespace("review");
+    let key = stores::key("session", &store::scope_session(app, sid));
+    store::session_text("review", &ns, "session", sid, &key)
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|v| ChangeMode::parse(v.get("mode")?.as_str()?))
+        .unwrap_or_default()
+}
+
 /// A routed session with the built-in Review already on screen needs its saved source in
 /// the navigation update, before its label asks for the count. Don't start an inactive VM
 /// or apply the bundled plugin's store schema to a third-party panel.
@@ -31,17 +44,31 @@ pub(crate) fn prepare_route(app: &mut App, sid: &str) {
         if app.side_open() { app.kernel.slots.get_mut(&crate::review::REVIEW).refresh.step(crate::review::RefreshEvent::Immediate); }
         return;
     }
-    let mode = if let Some(sr) = app.kernel.slots.get(&crate::review::REVIEW).sessions.get(sid) {
-        sr.mode
-    } else {
-        use crate::plugin_host::{services::store, stores};
-        let ns = opencode_storage::plugin_namespace("review");
-        let key = stores::key("session", &store::scope_session(app, sid));
-        store::session_text("review", &ns, "session", sid, &key)
-            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-            .and_then(|v| ChangeMode::parse(v.get("mode")?.as_str()?)).unwrap_or_default()
-    };
+    let mode = saved_review_mode(app, sid);
     app.set_session_change_mode(sid, mode);
+}
+
+/// Hydrates or refreshes `sid`'s built-in Review synchronously when the Review panel opens or
+/// reopens (`Request::OpenPanel`/`TogglePanel`), eliminating the one-frame delay before firing
+/// `/api/vcs/diff` and refreshing cached diffs in the background as Desktop's `side.opened` does.
+pub(crate) fn open_review(app: &mut App, sid: &str) {
+    if !app.plugins.running().any(|(_, p)| p.tier == super::super::Tier::Bundled && p.manifest.id == "review") {
+        app.refresh_review_on_open(sid);
+        return;
+    }
+    let mode = saved_review_mode(app, sid);
+    let already_same_mode = app
+        .kernel
+        .slots
+        .get(&crate::review::REVIEW)
+        .sessions
+        .get(sid)
+        .is_some_and(|sr| sr.mode == mode);
+    if already_same_mode {
+        app.refresh_review_on_open(sid);
+    } else {
+        app.set_session_change_mode(sid, mode);
+    }
 }
 
 /// `Diff:Open(spec)`: session `sessionId`'s changes, read from `source`.

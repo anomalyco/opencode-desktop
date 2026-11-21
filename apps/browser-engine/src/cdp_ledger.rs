@@ -185,8 +185,9 @@ pub(crate) fn handle_typed_cdp_call(
         Ok(Dispatch::ReEnable) => {
             let disable = t.cdp_ledger.lock().unwrap().runtime_disable(session_id.as_deref());
             t.host.send_dev_tools_message(Some(disable.as_bytes()));
-            let binding = t.passkeys.binding_msg(session_id.as_deref());
-            t.host.send_dev_tools_message(Some(binding.as_bytes()));
+            for binding in [t.passkeys.binding_msg(session_id.as_deref()), t.media_gate.binding_msg(session_id.as_deref())] {
+                t.host.send_dev_tools_message(Some(binding.as_bytes()));
+            }
             Post::None
         }
         Ok(Dispatch::Send(post)) => post,
@@ -429,12 +430,15 @@ wrap_dev_tools_message_observer! {
         is_popup: bool,
         isolated: bool,
         is_preview: bool,
+        preview: Option<Arc<crate::preview::PreviewGrant>>,
         snap: Arc<Mutex<TabSnapshot>>,
         id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
         internal_picked: Arc<Mutex<Vec<i64>>>,
         pending_clears: Arc<Mutex<Vec<PendingClear>>>,
         cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
         passkeys: Arc<crate::passkeys::TabPasskeyGate>,
+        media_gate: Arc<crate::media_gate::TabMediaGate>,
+        context_ready: Arc<std::sync::atomic::AtomicBool>,
         prompt_shared: crate::prompts::PromptShared,
         input_guard: Arc<Mutex<crate::input_guard::InputGuard>>,
         emulation_scale: Arc<std::sync::atomic::AtomicU32>,
@@ -513,7 +517,9 @@ wrap_dev_tools_message_observer! {
                 return;
             }
             if let CdpPending::CopyImageContent { .. } | CdpPending::CopyImageWorld { .. } | CdpPending::CopyImageEncode = pending {
-                if success != 0 {
+                // A reply larger than any image the engine sends on is dropped before it is parsed.
+                let fits = result.is_some_and(|b| b.len() <= crate::menu_extras::MAX_COPIED_IMAGE_B64 + 65_536);
+                if success != 0 && fits {
                     let val = result.and_then(|b| serde_json::from_slice::<Value>(b).ok()).unwrap_or(Value::Null);
                     self.copy_image_step(browser.as_deref(), pending, &val);
                 }
@@ -782,6 +788,7 @@ wrap_dev_tools_message_observer! {
                 // last message in `obs.send`), matching `chromium.ts:619`.
                 let resume = obs.send.pop();
                 obs.send.extend(self.passkeys.attach_messages(Some(child_sid)));
+                obs.send.extend(self.media_gate.attach_messages(Some(child_sid)));
                 if self.is_preview || self.prompts.agent_owns_dialogs() {
                     obs.send.push(self.passkeys.file_chooser_intercept_msg(true, Some(child_sid)));
                 }
@@ -801,8 +808,14 @@ wrap_dev_tools_message_observer! {
                 &self.out_tx,
             );
             obs.send.extend(pk_send);
+            let (mg_consumed, mg_ask) = self.media_gate.observe_event(&method, &params, session_id.as_deref());
+            if let Some(ask) = mg_ask {
+                if let Some(deny) = self.hold_media_ask(browser.as_deref(), ask) {
+                    obs.send.push(deny);
+                }
+            }
             self.send_all(browser.as_deref(), obs.send);
-            if pk_consumed || !app_attached {
+            if pk_consumed || mg_consumed || !app_attached {
                 return 1;
             }
             for (frame_id, sid) in obs.excluded {
@@ -871,6 +884,9 @@ wrap_dev_tools_message_observer! {
                     obj.insert("rendererPid".into(), serde_json::json!(start_pid));
                 }
             }
+            if let Some(grant) = &self.preview {
+                scrub_preview_urls(grant, &mut params);
+            }
             let _ = self.out_tx.send(EngineMsg::CdpEvent {
                 tab_id: self.tab_id,
                 method,
@@ -883,6 +899,39 @@ wrap_dev_tools_message_observer! {
 }
 
 impl TabCdpObserver {
+    /// Holds a gated `getUserMedia` for the bar, or returns the deny answer to send at once: a
+    /// preview tab, prompts off, an unknown or insecure context, or an embedded frame of another
+    /// origin (the same rules as `TabPermissionHandler::on_request_media_access_permission`).
+    fn hold_media_ask(&self, browser: Option<&Browser>, ask: crate::media_gate::MediaAsk) -> Option<String> {
+        // The live main frame, as `on_request_media_access_permission` reads it: the snapshot can
+        // lag a navigation that just committed.
+        let live = browser
+            .and_then(cef::ImplBrowser::main_frame)
+            .map(|f| cef::CefString::from(&cef::ImplFrame::url(&f)).to_string());
+        let top = live
+            .filter(|u| !u.trim().is_empty())
+            .or_else(|| Some(self.snap.lock().unwrap().url.clone()))
+            .and_then(|u| crate::prompts::origin_of(&u));
+        let origin = ask.origin.as_deref().and_then(crate::prompts::origin_of);
+        let ok = !self.is_preview
+            && self.context_ready.load(std::sync::atomic::Ordering::Acquire)
+            && self.prompt_shared.enabled.load(std::sync::atomic::Ordering::Relaxed)
+            && origin.is_some()
+            && origin == top
+            && origin.as_deref().is_some_and(crate::prompts::is_secure_origin);
+        let (Some(origin), Some(top), true) = (origin, top, ok) else {
+            return Some(ask.deny_msg);
+        };
+        let prompt = crate::wire::PermissionPrompt {
+            id: self.prompt_shared.next_id(),
+            origin,
+            top_origin: top,
+            kinds: ask.kinds,
+            is_media: true,
+        };
+        self.prompts.hold_media_gate(self.tab_id, prompt, ask.allow_msg, ask.deny_msg, &self.out_tx)
+    }
+
     fn surface(&self, browser: Option<&Browser>) -> crate::engine::Surface {
         crate::engine::classify_surface(browser, self.is_popup, &self.snap, &self.prompts, &self.cdp_ledger)
     }
@@ -1029,4 +1078,31 @@ impl TabCdpObserver {
         };
         let _ = self.out_tx.send(EngineMsg::CdpResponse { tab_id: self.tab_id, request_id, ok, result });
     }
+}
+
+/// A preview's internal `oc-preview://` addresses reach the agent as the page's display URL, as
+/// official maps console text, sources and request URLs (`diagnostics.ts:43,47,157`).
+fn scrub_preview_urls(grant: &crate::preview::PreviewGrant, value: &mut Value) {
+    match value {
+        Value::String(s) if s.to_ascii_lowercase().contains("oc-preview:") => *s = replace_preview_urls(grant, s),
+        Value::Array(items) => items.iter_mut().for_each(|v| scrub_preview_urls(grant, v)),
+        Value::Object(map) => map.values_mut().for_each(|v| scrub_preview_urls(grant, v)),
+        _ => {}
+    }
+}
+
+fn replace_preview_urls(grant: &crate::preview::PreviewGrant, s: &str) -> String {
+    // ASCII lowercasing keeps every byte offset.
+    let lower = s.to_ascii_lowercase();
+    let mut out = String::with_capacity(s.len());
+    let mut at = 0;
+    while let Some(off) = lower[at..].find("oc-preview:") {
+        let start = at + off;
+        out.push_str(&s[at..start]);
+        let end = s[start..].find(|c: char| c.is_whitespace() || "\"'<>()[]".contains(c)).map_or(s.len(), |e| start + e);
+        out.push_str(&grant.sanitize_reported_url(&s[start..end]));
+        at = end;
+    }
+    out.push_str(&s[at..]);
+    out
 }

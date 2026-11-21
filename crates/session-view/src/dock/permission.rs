@@ -10,11 +10,11 @@
 //! goes and the composer comes back with its draft (`permission-machine.ts`).
 
 use opencode_kit::model::Pending;
-use rune::{El, Shadow, TextStyle, Tx, col, el, icon, row, spacer, text};
+use rune::{El, TextStyle, Tx, col, el, icon, row, spacer, text};
 use rune_theme_opencode::icons as ic;
 
 use super::{DockHost, Variant, button, face_transition, morph};
-use crate::palette::Pal;
+use crate::palette::{Elevate as _, Pal};
 
 /// `permission-header-title`: 13 px medium on the base line height.
 const TITLE: TextStyle = TextStyle::new(13.0, 500.0).lh(20.0);
@@ -157,11 +157,10 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 .child(answer("perm-always", opencode_i18n::t!("ui.permission.allowAlways"), Variant::Neutral, "always"))
                 .child(answer("perm-once", opencode_i18n::t!("ui.permission.allowOnce"), Variant::Submit, "once")),
         );
-    // Its own card (`dock-prompt[data-kind="permission"]`): the raised elevation outside the
-    // box over a `bg-base` hairline that masks what's behind, where the composer's card has
-    // its hairline inside.
-    let raised = p.raised;
-    let ring = Shadow { spread: 0.5, color: super::flat(raised[2].color, p.bg_base), ..Shadow::default() };
+    // Its own card (`dock-prompt[data-kind="permission"]`): mask the tray edge behind the card
+    // with an opaque `bg-base` 0.5 pt ring underneath `--v2-elevation-raised` (`composer/mod.rs:473`),
+    // keeping `raised[2]` translucent so dark's lit top edge (`raised[3]`, `alpha-light-6`) composites
+    // cleanly at the top border (`theme.css:220-224`).
     // Out of the Tab order; its buttons follow it.
     let card = col()
         .key(PERMISSION_FOCUS)
@@ -173,10 +172,8 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .w_full()
         .radius(12.0)
         .fill(crate::composer::composer_fill(p))
-        .box_shadow(raised[3])
-        .box_shadow(ring)
-        .box_shadow(raised[1])
-        .box_shadow(raised[0])
+        .box_shadow(Pal::ring_out(p.bg_base))
+        .elevate(p.raised)
         .transition(fade())
         .child(body)
         .child(footer);

@@ -20,8 +20,8 @@ use rune::machine::{Attempt, Effects, Seq};
 pub use opencode_runtime::ContextFile;
 pub use reply_image::add_reply_image;
 pub use session_view::composer::attachments::{
-    MAX_BYTES, from_path, head, inputs, mime_for, name_of, native_mime, path_lines, push_unique,
-    reconcile, remove_button,
+    MAX_BYTES, from_path, head, inputs, mime_for, name_of, native_mime, native_mime_for,
+    path_lines, push_unique, reconcile, remove_button,
 };
 pub use session_view::images::{
     MediaStore, PreparedImage, identity, inline_images, prepare_images, view_image, viewer,
@@ -121,14 +121,16 @@ pub struct AttachMut<'a> {
 }
 
 impl AttachMut<'_> {
-    pub fn add(&mut self, a: Attachment) {
-        push_unique(self.files, a);
+    pub fn add(&mut self, a: Attachment) -> bool {
+        push_unique(self.files, a)
     }
 
-    pub fn add_path(&mut self, r: PathAttachment) {
-        if !self.paths.iter().any(|x| x.path == r.path) {
-            self.paths.push(r);
+    pub fn add_path(&mut self, r: PathAttachment) -> bool {
+        if self.paths.iter().any(|x| x.path == r.path) {
+            return false;
         }
+        self.paths.push(r);
+        true
     }
 }
 
@@ -138,14 +140,16 @@ impl<C> Attach<C> {
         !self.files.is_empty() || !self.paths.is_empty()
     }
 
-    pub fn add_path(&mut self, r: PathAttachment) {
-        if !self.paths.iter().any(|x| x.path == r.path) {
-            self.paths.push(r);
+    pub fn add_path(&mut self, r: PathAttachment) -> bool {
+        if self.paths.iter().any(|x| x.path == r.path) {
+            return false;
         }
+        self.paths.push(r);
+        true
     }
 
-    pub fn add(&mut self, a: Attachment) {
-        push_unique(&mut self.files, a);
+    pub fn add(&mut self, a: Attachment) -> bool {
+        push_unique(&mut self.files, a)
     }
 
     /// Read-only non-generic projection for [`AttachmentsHost::attach_ref`].
@@ -208,6 +212,10 @@ pub trait AttachmentsHost: opencode_kernel::AppFeedback {
         None
     }
 
+    /// What the selected model reads natively besides text (images, PDFs; `attachments.ts:75`).
+    fn attachment_input(&self) -> session_view::pickers::AttachmentInput {
+        session_view::pickers::AttachmentInput { image: true, pdf: true }
+    }
     /// Notifies the host that the draft changed (for example, ending prompt-history recall).
     fn on_draft_edited(&mut self) {}
     /// Ensures the persistent upload progress toast is visible in the toast stack.
@@ -215,7 +223,9 @@ pub trait AttachmentsHost: opencode_kernel::AppFeedback {
     /// Lands a completed remote upload in `draft` (or the shown composer when it matches).
     fn land_upload(&mut self, draft: Option<&str>, attachment: PathAttachment) {
         let _ = draft;
-        self.attach_mut().add_path(attachment);
+        if !self.attach_mut().add_path(attachment) {
+            self.toast_say(opencode_i18n::t!("prompt.toast.attachmentDuplicate.title").into(), String::new());
+        }
     }
 
     /// Whether picking a file from the dialog should focus the composer.
@@ -248,9 +258,13 @@ pub fn attach_path(host: &mut dyn AttachmentsHost, path: &Path) {
             return;
         }
     };
-    if native_mime(path).is_some() && size <= MAX_BYTES {
+    if native_mime_for(path, host.attachment_input()).is_some() && size <= MAX_BYTES {
         match from_path(path) {
-            Ok(a) => host.attach_mut().add(a),
+            Ok(a) => {
+                if !host.attach_mut().add(a) {
+                    host.toast_say(opencode_i18n::t!("prompt.toast.attachmentDuplicate.title").into(), String::new());
+                }
+            }
             Err(e) => host.toast_fail(opencode_i18n::t!("rune.attach.failed").into(), opencode_ui::toast::plain(&e)),
         }
         return;
@@ -263,11 +277,13 @@ pub fn attach_path(host: &mut dyn AttachmentsHost, path: &Path) {
         }
     };
     let Some(server) = host.live_server().filter(|s| !s.is_local()) else {
-        host.attach_mut().add_path(PathAttachment {
+        if !host.attach_mut().add_path(PathAttachment {
             name,
             mime,
             path: path.to_string_lossy().into_owned(),
-        });
+        }) {
+            host.toast_say(opencode_i18n::t!("prompt.toast.attachmentDuplicate.title").into(), String::new());
+        }
         return;
     };
     // Each upload is its own (`attachments.ts:132`, a fresh id), so the same file twice

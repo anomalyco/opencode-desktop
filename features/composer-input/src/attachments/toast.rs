@@ -13,7 +13,7 @@ use crate::attachments::uploads::Upload;
 
 /// `upload-row-label`: 13 on the base line, -0.04 tracking; the name at 530.
 const NAME: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0).tracking(-0.04);
-const PERCENT: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04).features("tnum");
+const PERCENT: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04).features("\"tnum\"");
 
 fn on_cancel_upload(host: &mut dyn AttachmentsHost, id: &str, tx: &mut Tx) {
     tx.instant();

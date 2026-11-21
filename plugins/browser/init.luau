@@ -20,6 +20,7 @@ local panel = require("@self/panel")
 local refusal = require("@self/refusal")
 local savedTabs = require("@self/saved_tabs")
 local settings = require("@self/settings")
+local signins = require("@self/signins")
 local site = require("@self/site")
 
 -- The panel's id: its tabs key as `browser:<page id>`, as Desktop's.
@@ -1012,6 +1013,9 @@ return plugin.defineWindow(function(ctx)
         end,
     })
 
+    -- The pane's sign-in offer (`signins.luau`), set once its jobs exist below.
+    local signInOffer: ((view: View, tab: BrowserTab, variant: string) -> ui.Node?)? = nil
+
     local env: panel.Env = {
         device = if device then device.render else nil,
         deviceOpen = if device then device.isOpen else nil,
@@ -1068,6 +1072,9 @@ return plugin.defineWindow(function(ctx)
             return untilMs ~= nil and System:Now() < untilMs
         end,
         act = act,
+        signIns = function(view: View, tab: BrowserTab, variant: string): ui.Node?
+            return if signInOffer then signInOffer(view, tab, variant) else nil
+        end,
     }
 
     -- A tab's label: "New tab" for a blank or unnamed link-opened page, else live/saved title, else host/URL.
@@ -1510,10 +1517,9 @@ return plugin.defineWindow(function(ctx)
     local importDialogHandle: Contribution? = nil
     local extDialogHandle: Contribution? = nil
     local clearNoticeText: string? = nil
-    -- Browsers are listed only while Settings > Browser draws (never at startup), read again once a
+    -- Browsers are listed only when asked (never at startup), by the host off the UI thread, again once a
     -- listing is a few seconds old, so a visit sees browsers installed since the last one.
     local importSources: { settings.ImportBrowser } = {}
-    local importSourcesAt: number? = nil
     -- The profile the import dialog is for, what its last import said, and each row's last outcome.
     local importTarget: { browser: string, profile: string, label: string }? = nil
     local importFailure: settings.ImportMessage? = nil
@@ -1534,12 +1540,9 @@ return plugin.defineWindow(function(ctx)
     }
 
     local function listImportSources(): { settings.ImportBrowser }
-        local now = System:Now()
-        if importSourcesAt == nil or now - importSourcesAt > 5000 then
-            local bAny = Browser :: any
-            importSources = if type(bAny.HistoryImportSources) == "function" then (bAny:HistoryImportSources() :: any) or {} else {}
-            importSourcesAt = now
-        end
+        -- The host lists them off the UI thread and keeps the last listing, so asking is cheap.
+        local bAny = Browser :: any
+        importSources = if type(bAny.HistoryImportSources) == "function" then (bAny:HistoryImportSources() :: any) or {} else {}
         return importSources
     end
 
@@ -1563,6 +1566,31 @@ return plugin.defineWindow(function(ctx)
             return { text = I18n:T("signins.imported.incomplete", { count = imported, omitted = lost }), error = imported == 0, live = true }
         end
         return { text = I18n:T("signins.imported", { count = imported }), error = imported == 0, live = true }
+    end
+
+    -- Each browser's icon is kept once a window, and one without an icon is not asked again.
+    local function importIcon(browserId: string): ImageId?
+        local known = importIcons[browserId]
+        if known ~= nil then
+            return if known == false then nil else known :: ImageId
+        end
+        local bAny = Browser :: any
+        local image: ImageId? = nil
+        if type(bAny.HistoryImportIcon) == "function" then
+            local ok, kind, data, width, height = pcall(function()
+                return bAny:HistoryImportIcon(browserId)
+            end)
+            if ok and kind == "rgba" then
+                image = Images:FromRgba(data, width, height)
+            elseif ok and kind == "png" then
+                image = Images:FromEncoded(data)
+            elseif not ok or kind == nil then
+                -- Still being read off the UI thread: the page draws again when it is.
+                return nil
+            end
+        end
+        importIcons[browserId] = if image ~= nil then image else false
+        return image
     end
 
     local function refreshSettings()
@@ -1935,30 +1963,7 @@ return plugin.defineWindow(function(ctx)
             Dialog:Open("clear-data")
         end,
         importSources = listImportSources,
-        importIcon = function(browserId: string): ImageId?
-            -- Each browser's icon is read once a window, and one without an icon is not asked again.
-            local known = importIcons[browserId]
-            if known ~= nil then
-                return if known == false then nil else known :: ImageId
-            end
-            local bAny = Browser :: any
-            local image: ImageId? = nil
-            if type(bAny.HistoryImportIcon) == "function" then
-                local ok, kind, data, width, height = pcall(function()
-                    return bAny:HistoryImportIcon(browserId)
-                end)
-                if ok and kind == "rgba" then
-                    image = Images:FromRgba(data, width, height)
-                elseif ok and kind == "png" then
-                    image = Images:FromEncoded(data)
-                elseif not ok or kind == nil then
-                    -- Still being read off the UI thread: the page draws again when it is.
-                    return nil
-                end
-            end
-            importIcons[browserId] = if image ~= nil then image else false
-            return image
-        end,
+        importIcon = importIcon,
         importMessage = function(browserId: string, profileId: string): settings.ImportMessage?
             return importResults[`{browserId}\n{profileId}`]
         end,
@@ -2084,6 +2089,151 @@ return plugin.defineWindow(function(ctx)
         syncRemoteSignIns()
         refreshSettings()
     end)
+
+    -- The pane's sign-in offer (`import-prompt.tsx`): one import at a time, shared by the bar and the
+    -- card; what it said, and the confirmation that replaces it for 5 s (`CONFIRMATION_MS`).
+    local signInRunning: signins.Choice? = nil
+    local signInMessage: signins.Message? = nil
+    local signInConfirmed: { choice: signins.Choice?, text: string }? = nil
+    local signInConfirmToken = 0
+
+    -- `jobs.ts:186-276` for an `import-browser` job: names the browser where the person has to act.
+    local function describeBrowserImport(choice: signins.Choice, res: any, pages: number): (signins.Message, boolean)
+        local browser = choice.sourceName
+        if res == nil or type(res.error) == "string" then
+            local reason = if res then res.error else nil
+            if reason == "locked" then
+                return { text = I18n:T("signins.failed.locked.named", { browser = browser }), error = true }, false
+            elseif reason == "key" and App.Platform == "macos" then
+                return { text = I18n:T("signins.failed.keychain", { browser = browser }), error = true }, false
+            elseif reason == "key" or reason == "access" or reason == "read" or reason == "storage" then
+                return { text = I18n:T(`signins.failed.{reason}`), error = true }, false
+            end
+            return { text = I18n:T("settings.failed.import"), error = true }, false
+        end
+        local imported = tonumber(res.imported) or 0
+        local failed = tonumber(res.failed) or 0
+        local protected = tonumber(res.protected) or 0
+        local loss = if failed > 0 then "other" elseif protected > 0 then "protected" else nil
+        if imported == 0 and loss == "protected" then
+            return { text = I18n:T("signins.protected.named", { browser = browser }), error = true }, false
+        end
+        if imported == 0 and loss ~= nil and pages == 0 then
+            return { text = I18n:T("signins.imported.none.from", { browser = browser }), error = true }, false
+        end
+        if loss ~= nil then
+            return { text = I18n:T("signins.imported.partial.named", { browser = browser }), error = false }, imported > 0
+        end
+        if imported > 0 then
+            local key = if pages > 0 then "signins.imported.history.from" else "signins.imported.from"
+            return { text = I18n:T(key, { browser = browser }), error = false }, true
+        end
+        if pages > 0 then
+            return { text = I18n:T("signins.imported.history.only.from", { browser = browser }), error = false }, true
+        end
+        return { text = I18n:T("signins.imported.none.from", { browser = browser }), error = true }, false
+    end
+
+    local function closeSignInConfirmation()
+        signInConfirmed = nil
+        signInMessage = nil
+        refresh()
+    end
+
+    -- Brings the profile's sign-ins and its history (`import-prompt.tsx:84-85`, both ticked); cookies
+    -- that came in load the pane's page again (`panel.tsx:594-598`) and end the offer for good.
+    local function runSignIns(choice: signins.Choice, tab: BrowserTab?)
+        if signInRunning ~= nil then
+            return
+        end
+        signInRunning = choice
+        signInMessage = nil
+        refresh()
+        local bAny = Browser :: any
+        local ok, res = pcall(function()
+            return bAny:ImportSignInsAsync(choice.sourceId, choice.profileId)
+        end)
+        local pages = 0
+        -- The history read runs off the UI thread (`HistoryImportProfileAsync`) where the host has it.
+        local historyImport = if type(bAny.HistoryImportProfileAsync) == "function" then "HistoryImportProfileAsync"
+            elseif type(bAny.HistoryImportProfile) == "function" then "HistoryImportProfile"
+            else nil
+        if historyImport ~= nil then
+            local hok, hres = pcall(function()
+                return bAny[historyImport](bAny, choice.sourceId, choice.profileId)
+            end)
+            if hok and type(hres) == "table" and type(hres.imported) == "number" then
+                pages = hres.imported
+            end
+        end
+        signInRunning = nil
+        local result = if ok and type(res) == "table" then res else nil
+        local message, confirmed = describeBrowserImport(choice, result, pages)
+        local cookies = if result and type(result.imported) == "number" then result.imported else 0
+        if cookies > 0 then
+            -- `jobs.ts:114-115`: an import that brought sign-ins ends the offer.
+            updatePreferences({ welcomed = true })
+            if tab ~= nil and tab:Url() ~= "" and tab:Url() ~= "about:blank" then
+                tab:Reload()
+            end
+        end
+        if confirmed then
+            signInConfirmed = { choice = choice, text = message.text }
+            signInConfirmToken += 1
+            local token = signInConfirmToken
+            task.delay(5, function()
+                if signInConfirmToken == token and signInConfirmed ~= nil then
+                    closeSignInConfirmation()
+                end
+            end)
+        else
+            signInMessage = message
+        end
+        refresh()
+        refreshSettings()
+    end
+
+    signInOffer = function(view: View, tab: BrowserTab, variant: string): ui.Node?
+        local bAny = Browser :: any
+        if type(bAny.ImportSignInsAsync) ~= "function" or not Browser:Available() then
+            return nil
+        end
+        local offering = not preferences().welcomed
+        if not offering and signInConfirmed == nil then
+            return nil
+        end
+        return signins.render({
+            I18n = I18n,
+            Menu = Menu,
+            choices = function(): { signins.Choice }
+                return signins.choices(listImportSources())
+            end,
+            icon = importIcon,
+            blocked = function(): boolean
+                return signInRunning ~= nil
+            end,
+            importing = function(choice: signins.Choice): boolean
+                return signInRunning ~= nil and signInRunning.sourceId == choice.sourceId and signInRunning.profileId == choice.profileId
+            end,
+            message = function(): signins.Message?
+                return signInMessage
+            end,
+            confirmed = function()
+                return signInConfirmed
+            end,
+            run = function(choice: signins.Choice)
+                runSignIns(choice, tab)
+            end,
+            decline = function()
+                updatePreferences({ welcomed = true })
+                refresh()
+            end,
+            more = function()
+                Layout:OpenSettings("browser")
+            end,
+            close = closeSignInConfirmation,
+        }, view, variant :: any, offering)
+    end
 
     settingsHandle = ctx:AddSettingsPage({
         id = "browser",

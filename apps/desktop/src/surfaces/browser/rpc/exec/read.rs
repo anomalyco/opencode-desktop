@@ -171,6 +171,10 @@ pub(super) fn compute_target(
         let tab_refs = att.refs.get(&host_id);
         let mut resources = vec![tab.url.clone()];
         for r in &refs {
+            // An unknown ref is stale here, as official `target(ref)` throws (`chromium.ts:2112`).
+            if tab_refs.and_then(|t| t.resolve(r)).is_none() {
+                return Err(Outcome::fail(failure_code::STALE_REF, format!("Element ref {r} is stale or absent. Refresh the snapshot first.")));
+            }
             let Some(fid) = tab_refs.and_then(|t| t.frame_of(r)) else { continue };
             let url = att.frames.get(&host_id).filter(|f| !f.frame_cap_exceeded).and_then(|f| f.frame_urls.get(&fid).cloned());
             let Some(url) = url else {
@@ -662,7 +666,7 @@ fn eval_result_to_outcome(
             .and_then(Value::as_str)
             .or_else(|| ex.get("text").and_then(Value::as_str))
             .unwrap_or("JavaScript exception");
-        if is_ref && desc.starts_with("Error: browser.detached_ref") {
+        if is_ref && super::is_detached_ref(desc) {
             return Outcome::fail(
                 failure_code::STALE_REF,
                 "Element is no longer attached to the page. Refresh the snapshot first.",
@@ -673,7 +677,7 @@ fn eval_result_to_outcome(
             "Page JavaScript threw an exception. Check the script and {}; inspect the page before repeating code with side effects.",
             if is_ref { "ref" } else { "frameID" }
         );
-        return Outcome::fail(failure_code::OPERATION_FAILED, super::page_exception(desc, &what));
+        return Outcome::fail(failure_code::OPERATION_FAILED, super::page_exception(desc, &what, false));
     }
     let Some(tab) = att.wire_tab(app, host_id) else {
         return Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable.");

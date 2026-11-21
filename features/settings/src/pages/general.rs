@@ -269,8 +269,9 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
     )
 }
 
-/// Official Preferences header link (`packages/app/src/settings/general/general.tsx:335-343`):
-/// `no-underline hover:text-v2-text-text-base hover:underline`.
+/// Official Preferences header link (`general.tsx:335-343`, `external-link.tsx:13`):
+/// `ExternalLink` adds `underline` which wins over `no-underline` in Tailwind v4 cascade, so the
+/// link rests underlined in `text-muted` and shifts to `text-base` on hover/focus.
 fn help_feedback_link<H: SettingsHost + 'static>(p: &Pal) -> El {
     const URL: &str = "https://opencode.ai/desktop-feedback";
     let words = t!("settings.helpFeedback");
@@ -289,14 +290,13 @@ fn help_feedback_link<H: SettingsHost + 'static>(p: &Pal) -> El {
             col()
                 .key("help-label")
                 .child(text(words).font(super::NAME_REGULAR).color(p.muted).group_color(p.text))
-                // Official `general.tsx:339` uses `no-underline hover:text-v2-text-text-base hover:underline`.
                 .child(
                     rune::el()
                         .key("help-underline")
                         .pin(Some(0.0), None, Some(0.0), Some(1.0))
                         .h(1.0)
-                        .fill(p.text)
-                        .group_opacity(0.0, 1.0),
+                        .fill(p.muted)
+                        .child(rune::el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).fill(p.text).group_opacity(0.0, 1.0)),
                 ),
         )
         .child(rune::icon(&super::console_link::ARROW_UP_RIGHT, 14.0).color(p.muted).group_color(p.text))

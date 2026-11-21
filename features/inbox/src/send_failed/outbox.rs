@@ -478,6 +478,7 @@ pub fn pump_outbox(host: &mut dyn SendFailedHost) -> bool {
 /// Puts a prompt that never went back in the composer, when that's empty.
 pub fn restore_draft(host: &mut dyn SendFailedHost, sent: Sent) {
     host.retain_echoes_without(&sent.id);
+    host.remove_prompt_history(&sent.draft);
     if host.composer().text.is_empty() && !host.composer_has_attachments() && !host.composer_has_quotes() {
         let caret = sent.draft.text.len();
         sent.draft.put(host.composer_mut(), caret);
@@ -499,6 +500,7 @@ pub(super) fn restore_rejection(host: &mut dyn SendFailedHost, id: &str) {
     let Some(s) = host.unsent().get(id).cloned() else { return };
     if !host.is_session_here(&s.session) {
         // Its session's draft takes it back whole, files and quotes too, when that's empty.
+        host.remove_prompt_history(&s.draft);
         let quotes = s.prompt.map(|p| p.comments).unwrap_or_default();
         host.restore_inactive_draft(&s.session, s.draft, s.files, s.paths, quotes);
         return;
