@@ -174,6 +174,7 @@ impl crate::BrowserHost {
         crate::policy::check_typed_cdp(&method, &params, self.engine_policy())?;
         let request_id = self.next_req_id;
         self.next_req_id += 1;
+        crate::rpc_trace::t("cdp.send", format_args!("{request_id} {method}"));
         if self.engine_agent_tools() {
             self.send(crate::protocol::HostMsg::TypedCdpCall {
                 tab_id,
