@@ -4166,7 +4166,7 @@
       "summary": "The background pill lists a running Code Mode script only once its execute call has ended with the job id: a script still running in the foreground stays out of it.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "features/subagents/src/jobs.rs scripts() lists a running Code Mode job only once a completed execute call names it by metadata.jobID, so a script still in the foreground stays out of the background pill (PR #0)",
+      "status_evidence": "features/subagents/src/jobs.rs scripts() lists a running Code Mode job only once a completed execute call names it by metadata.jobID, so a script still in the foreground stays out of the background pill (PR #424)",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"
@@ -4210,7 +4210,7 @@
       "summary": "Closing the side panel from the review toggle in its strip hands focus to the header's copy of the toggle, not to the prompt (the strip toggle counts as the session's, not the panel's).",
       "size": "S",
       "status": "have it",
-      "status_evidence": "features/panels/src/state/actions.rs: closing the side region from the toggle in its strip hands focus to the header's copy of the toggle, not to the prompt (PR #0)",
+      "status_evidence": "features/panels/src/state/actions.rs: closing the side region from the toggle in its strip hands focus to the header's copy of the toggle, not to the prompt (PR #424)",
       "depends_on": "UP-131 (#65213)",
       "risks": "none",
       "workstream": "WS-8"
