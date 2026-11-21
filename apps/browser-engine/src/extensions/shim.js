@@ -6,12 +6,91 @@
 // Keeps all working native Chromium APIs (declarativeNetRequest, storage, scripting, alarms,
 // offscreen, runtime, tabs.sendMessage, tabs.connect, webRequest, cookies) native!
 (() => {
-  if (!globalThis.chrome?.runtime?.getManifest) return "WAIT";
-  if (globalThis.location && globalThis.location.origin !== "chrome-extension://" + chrome.runtime.id) {
-    return "DENIED";
+  const neutralizeChrome = (win) => {
+    if (!win) return;
+    for (const rootName of ["chrome", "browser"]) {
+      let root;
+      try { root = win[rootName]; } catch { continue; }
+      if (!root) continue;
+      for (const api of ["tabs", "windows", "action", "browserAction", "pageAction", "contextMenus", "webNavigation"]) {
+        try {
+          Object.defineProperty(root, api, { value: undefined, configurable: false, enumerable: false, writable: false });
+        } catch {}
+      }
+    }
+  };
+  if (globalThis.location) {
+    const href = String(globalThis.location.href || "");
+    const origin = String(globalThis.location.origin || "");
+    const extId = globalThis.chrome?.runtime?.id;
+    // Neutralize chrome.tabs/windows/etc. in child about:blank / srcdoc / non-matching-origin frames
+    // instead of returning early and leaving unshimmed native APIs reachable (READER-12 C2).
+    if (!extId || origin !== "chrome-extension://" + extId) {
+      if (href === "about:blank" || href === "about:srcdoc" || origin === "null") {
+        neutralizeChrome(globalThis);
+        return "NEUTRALIZED";
+      }
+      return "DENIED";
+    }
   }
+  if (!globalThis.chrome?.runtime?.getManifest) return "WAIT";
   if (globalThis.__ocExtInstalled) return "ALREADY";
   globalThis.__ocExtInstalled = true;
+
+  // Harden synchronous child iframes (`const f = document.createElement('iframe'); body.appendChild(f);
+  // f.contentWindow.chrome.tabs...`) by neutralizing unshimmed `chrome.*` on child windows on access.
+  if (typeof globalThis.HTMLIFrameElement !== "undefined") {
+    for (const ctor of [globalThis.HTMLIFrameElement, globalThis.HTMLFrameElement]) {
+      if (!ctor?.prototype) continue;
+      const desc = Object.getOwnPropertyDescriptor(ctor.prototype, "contentWindow");
+      if (desc && typeof desc.get === "function") {
+        const origGet = desc.get;
+        try {
+          Object.defineProperty(ctor.prototype, "contentWindow", {
+            configurable: false,
+            enumerable: desc.enumerable,
+            get() {
+              const cw = origGet.call(this);
+              try {
+                if (cw && !cw.__ocExtInstalled) neutralizeChrome(cw);
+              } catch {}
+              return cw;
+            },
+          });
+        } catch {}
+      }
+    }
+    const neutralizeTree = (node) => {
+      if (!node || typeof node !== "object") return;
+      try {
+        if (node.tagName === "IFRAME" || node.tagName === "FRAME") {
+          const cw = node.contentWindow;
+          if (cw && !cw.__ocExtInstalled) neutralizeChrome(cw);
+        } else if (typeof node.querySelectorAll === "function") {
+          for (const f of node.querySelectorAll("iframe,frame")) {
+            const cw = f.contentWindow;
+            if (cw && !cw.__ocExtInstalled) neutralizeChrome(cw);
+          }
+        }
+      } catch {}
+    };
+    for (const method of ["appendChild", "insertBefore", "replaceChild"]) {
+      const orig = Node.prototype[method];
+      if (typeof orig === "function") {
+        try {
+          Object.defineProperty(Node.prototype, method, {
+            configurable: false,
+            writable: false,
+            value: function (...a) {
+              const res = orig.apply(this, a);
+              neutralizeTree(a[0]);
+              return res;
+            },
+          });
+        } catch {}
+      }
+    }
+  }
 
   const isPopup = __IS_POPUP__;
   const manifest = chrome.runtime.getManifest();
@@ -272,7 +351,12 @@
   const NAMESPACES = [
     {
       path: "tabs",
-      methods: ["query", "get", "getCurrent", "create", "update", "remove", "reload", "highlight"],
+      methods: [
+        "query", "get", "getCurrent", "create", "update", "remove", "reload", "highlight",
+        "goBack", "goForward", "setZoom", "getZoom", "setZoomSettings", "getZoomSettings",
+        "captureVisibleTab", "duplicate", "move", "discard", "group", "ungroup",
+        "detectLanguage", "executeScript", "insertCSS", "removeCSS",
+      ],
       events: ["onCreated", "onUpdated", "onActivated", "onRemoved", "onHighlighted", "onReplaced", "onMoved"],
       constants: { TAB_ID_NONE: -1, TAB_INDEX_NONE: -1 },
     },
