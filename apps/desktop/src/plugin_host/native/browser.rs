@@ -782,7 +782,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         let payload = map([("tabId", Data::String(pick.tab_id.to_string())), ("ref", Data::String(pick.eref)), ("selector", Data::String(pick.selector))]);
         for i in 0..app.plugins.list.len() {
             if third_party_ok || app.plugins.list[i].half.is_builtin("browser") {
-                changed |= super::super::fire_named(app, i, "Browser.Picked", payload.clone());
+                let _ = super::super::fire_named(app, i, "Browser.Picked", payload.clone());
             }
         }
         changed = true;

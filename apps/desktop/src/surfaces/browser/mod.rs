@@ -12,6 +12,8 @@ mod activity;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod comment;
 #[cfg(not(target_arch = "wasm32"))]
+mod comment_describe;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod context_menu;
 #[cfg(not(target_arch = "wasm32"))]
 mod keys;
@@ -155,6 +157,8 @@ mod native {
         pub overlay: super::comment::BrowserOverlay,
         /// True while Site information popover is on View 2 ("Site settings") so Escape steps back.
         pub site_detailed: bool,
+        /// Live Shift key state tracked in `home_modifiers` for synchronous Shift+Click checks.
+        pub shift_held: bool,
     }
 
     pub use super::keys::claims_app_shortcut;
