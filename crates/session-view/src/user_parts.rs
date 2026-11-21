@@ -172,8 +172,8 @@ fn note_card(p: &Pal, n: &opencode_kit::model::NoteComment, active: bool, wide: 
         &n.label
     };
     let glyph = match n.icon.as_deref() {
-        Some("select-element") => &ic::SELECT_ELEMENT,
-        _ => &ic::GLOBE,
+        Some("select-element") => &rune_theme_opencode::icons::SELECT_ELEMENT,
+        _ => &rune_theme_opencode::icons::GLOBE,
     };
     let title = text(heading).key("title").font(CARD_TITLE).color(p.text).truncate_fade().w_full();
     let subtitle = row()
