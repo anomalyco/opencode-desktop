@@ -481,7 +481,7 @@ pub fn extension_access(manifest: &Manifest) -> Vec<ExtensionAccess> {
     let mut out = Vec::new();
     if all {
         out.push(ExtensionAccess::AllSites);
-    } else if !sites.is_empty() {
+    } else if !sites.is_empty() || manifest.permissions.iter().any(|p| p == "scripting") {
         out.push(ExtensionAccess::SomeSites);
     }
     if manifest.permissions.iter().any(|p| p == "cookies") {
@@ -496,6 +496,8 @@ pub fn extension_access(manifest: &Manifest) -> Vec<ExtensionAccess> {
             "declarativeNetRequest"
                 | "declarativeNetRequestWithHostAccess"
                 | "declarativeNetRequestFeedback"
+                | "webRequest"
+                | "webRequestBlocking"
         )
     }) {
         out.push(ExtensionAccess::BlockRequests);
@@ -507,7 +509,11 @@ pub fn extension_access(manifest: &Manifest) -> Vec<ExtensionAccess> {
     {
         out.push(ExtensionAccess::Activity);
     }
-    if manifest.permissions.iter().any(|p| p == "clipboardRead") {
+    if manifest
+        .permissions
+        .iter()
+        .any(|p| matches!(p.as_str(), "clipboardRead" | "clipboardWrite"))
+    {
         out.push(ExtensionAccess::Clipboard);
     }
     if manifest.permissions.iter().any(|p| p == "management") {
@@ -563,14 +569,30 @@ fn parse_pattern(pattern: &str) -> Option<ParsedPattern> {
     };
     let slash = rest.find('/')?;
     let authority = &rest[..slash];
-    let (raw_host, port) = match authority.split_once(':') {
-        Some((h, p)) if p == "*" || (!p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())) => {
-            (h, Some(p.to_owned()))
+    let (raw_host, port) = if let Some(after_open) = authority.strip_prefix('[') {
+        let (inner, trailing) = after_open.split_once(']')?;
+        let ip = inner.parse::<std::net::Ipv6Addr>().ok()?;
+        let port = if trailing.is_empty() {
+            None
+        } else {
+            let p = trailing.strip_prefix(':')?;
+            if p == "*" || (!p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())) {
+                Some(p.to_owned())
+            } else {
+                return None;
+            }
+        };
+        (format!("[{ip}]"), port)
+    } else {
+        match authority.split_once(':') {
+            Some((h, p)) if p == "*" || (!p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())) => {
+                (h.to_ascii_lowercase(), Some(p.to_owned()))
+            }
+            Some(_) => return None,
+            None => (authority.to_ascii_lowercase(), None),
         }
-        Some(_) => return None,
-        None => (authority, None),
     };
-    let host = raw_host.to_ascii_lowercase();
+    let host = raw_host;
     let path = rest[slash..].to_owned();
     Some(ParsedPattern { schemes, host, port, path })
 }

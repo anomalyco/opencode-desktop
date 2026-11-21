@@ -7,6 +7,7 @@ use rune::{Anim, El, Icon, Tx, col, el, icon, row, spacer};
 use rune_kit::ScrollBar;
 
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::follow::{self, Effect, Event, Follow};
 use crate::returning::{self, Returning};
 use crate::palette::Pal;
@@ -267,6 +268,8 @@ pub fn face(p: &Pal, radius: f32) -> El {
         .box_shadow(ring)
         .box_shadow(near)
         .box_shadow(far)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(Anim::INSTANT, Anim::INSTANT)
@@ -317,7 +320,18 @@ pub fn over_scroll<S: TimelineHost>(s: &S, p: &Pal, id: &str, scroll_fade: El, p
         .opacity_motion(curve)
         .offset(0.0, rise)
         .offset_motion(curve)
-        .on_press_tx(move |_: &mut S, tx: &mut Tx| tx.scroll_to_bottom(target.clone()));
+        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+            // Instant snap under reduced motion (`virtualizer.tsx:1168`); keyboard activation
+            // moves focus to the composer before this button becomes inert (`virtualizer.tsx:1171`).
+            if s.reduced_motion() {
+                tx.scroll_to_bottom_instant(target.clone());
+            } else {
+                tx.scroll_to_bottom(target.clone());
+            }
+            if tx.by_keys() {
+                s.focus_composer(tx);
+            }
+        });
     if !shown {
         button = button.inert();
     }

@@ -177,9 +177,9 @@ pub fn search_row(p: &Pal, key: &str, field: El, trailing: Vec<El>) -> El {
         .children((!trailing.is_empty()).then(|| row().key("search-trailing").gap(4.0).center_y().children(trailing)));
     col().key(key.to_owned()).w_full().pt(LIST.inset).gap(LIST.inset)
         .child(row().w_full().px(LIST.inset).child(field))
-        // A 1 pt box drawn at half its height (`transform: scaleY(0.5)`), so the list starts
-        // a whole point under it.
-        .child(col().key("search-rule").w_full().h(1.0).pt(0.25).child(divider(p, "search-divider")))
+        // A 1 pt box drawn at half its height (`transform: scaleY(0.5)`), `border-base`
+        // (`select-dialog.css:54-58`).
+        .child(rune::hairline(p.border).key("search-rule").w_full())
 }
 
 /// A 24 pt `ghost-muted` icon button at the search row's end (`icon-button.css`): a muted 14 pt
@@ -272,7 +272,7 @@ pub fn option_tx<S: 'static>(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut S,
         .radius(look.row_radius)
         .fill(lit(p, o.active && !o.slides && !o.disabled));
     let r = if o.disabled {
-        // `[data-component="menu-v2-item"][data-disabled]` (`menu.css:154-157`): fades the whole row to 0.5.
+        // `[data-component="menu-v2-item"][data-disabled]` (`menu.css:157-160`): fades the whole row to 0.5.
         r.disabled(true).opacity(0.5)
     } else {
         r.press(p.pressed)

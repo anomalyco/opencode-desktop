@@ -101,4 +101,12 @@ impl QuoteHost for App {
     fn remove_line_comment_card(&mut self, key: u64) {
         App::remove_line_comment_card(self, key);
     }
+
+    fn open_note_card(&mut self, origin: &str, href: &str, tx: &mut Tx) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if origin == "browser" {
+            self.reveal_browser_note_href(href, tx);
+        }
+        let _ = (origin, href, tx);
+    }
 }

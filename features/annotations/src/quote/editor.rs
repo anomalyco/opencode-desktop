@@ -29,7 +29,7 @@ const ALERT: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
 const PATH: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
 
 /// `quote-check.svg`, the compact action's tick.
-static CHECK: Icon = Icon {
+pub static CHECK: Icon = Icon {
     name: "line-comment-check",
     view: 16.0,
     body: r#"<path d="M2.44444 8.22222L6 12.6667L13.5556 3.33333" stroke-linecap="square" stroke="currentColor"/>"#,
@@ -230,14 +230,14 @@ fn search(host: &mut dyn QuoteHost, attempt: rune::machine::Attempt, query: Stri
 }
 
 /// Resolved destination for a comment field's `@` path search.
-pub(crate) enum PathSearch {
+pub enum PathSearch {
     Immediate(Vec<String>),
     Live { server: Server, directory: String },
 }
 
 /// Prepares a comment field's search for paths to mention (Desktop's `searchPaths`): the
 /// fixture's files at once, or the server's search for files and folders.
-pub(crate) fn prepare_path_search(host: &dyn QuoteHost, query: &str) -> PathSearch {
+pub fn prepare_path_search(host: &dyn QuoteHost, query: &str) -> PathSearch {
     match host.live_server() {
         Some(server) => PathSearch::Live { server, directory: host.active_directory() },
         None => PathSearch::Immediate(host.search_local_paths(query, 50)),
@@ -245,7 +245,7 @@ pub(crate) fn prepare_path_search(host: &dyn QuoteHost, query: &str) -> PathSear
 }
 
 /// Dispatches an async `/api/fs/find` search into `latest`.
-pub(crate) fn request_path_search(
+pub fn request_path_search(
     latest: &mut rune::Latest<(rune::machine::Attempt, Option<Vec<String>>)>,
     server: Server,
     directory: String,
@@ -650,7 +650,7 @@ fn source_position(
 
 /// `--v2-elevation-button-neutral`: a drop and the 0.5px ring outside the button, and in dark the
 /// 0.5px lit top edge (`theme.css`).
-fn neutral_lift(p: &Pal) -> [Shadow; 4] {
+pub fn neutral_lift(p: &Pal) -> [Shadow; 4] {
     let (y, blur) = if p.dark { (1.0, 2.0) } else { (1.0, 1.5) };
     let top = if p.dark { Shadow { y: -0.5, color: Color::WHITE.alpha(0.1), ..Shadow::default() } } else { Shadow::default() };
     [Shadow { y, blur, color: p.q.neutral_shadow, ..Shadow::default() }, Pal::ring_out(p.q.neutral_ring), top, Shadow::default()]
@@ -736,12 +736,12 @@ fn mention_row_shell(p: &Pal, i: usize, path: &str, active: bool) -> El {
         )
 }
 
-pub(crate) type FieldAct<H> = Rc<dyn Fn(&mut H, FieldEvent, &mut Tx)>;
+pub type FieldAct<H> = Rc<dyn Fn(&mut H, FieldEvent, &mut Tx)>;
 
 /// `line-comment-v2-mention-list`: up to ten paths under the field, 8 below it, 4 in, rows 4
 /// apart on `bg-layer-02` in a 0.5 `border-muted` hairline; the lit row on `bg-layer-03`. A
 /// row is the file's icon, then its folder (muted, cut at its end) and name.
-pub(crate) fn mention_rows<H: 'static>(
+pub fn mention_rows<H: 'static>(
     p: &Pal,
     mention: &Mention,
     act: FieldAct<H>,

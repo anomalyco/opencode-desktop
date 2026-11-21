@@ -139,6 +139,8 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         .on_window_focus(|s: &mut App, focused, tx| {
             s.plugins.window_blurred.set(!focused);
             if !focused {
+                #[cfg(not(target_arch = "wasm32"))]
+                s.workspace_panes.browser.host.close_extension_popup();
                 s.clear_app_link_reviews();
                 crate::tab_hints::window_left(s, tx);
             }
@@ -148,8 +150,12 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
         })
         // A resize across the breakpoint reaches the drawers in the frame it lands.
         .on_layout_tx(|s: &mut App, rect, tx: &mut Tx| {
+            #[cfg(not(target_arch = "wasm32"))]
+            let closed_popup = s.workspace_panes.browser.host.observe_window_size(rect[2], rect[3]);
+            #[cfg(target_arch = "wasm32")]
+            let closed_popup = false;
             let flipped = s.observe_app_link_window_rect(rect, tx);
-            if !crate::narrow::settle(s, tx) && !flipped { tx.live_only(); }
+            if !crate::narrow::settle(s, tx) && !flipped && !closed_popup { tx.live_only(); }
         })
         .on_magnify(|s: &mut App, ev, tx| s.pinch(ev, tx))
         // A text field's menu shows and flips Settings › General › Spellcheck, as Desktop's

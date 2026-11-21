@@ -22,9 +22,10 @@ pub mod worktrees;
 
 use opencode_i18n::t;
 use opencode_ui::popup::{self, Menu, MenuButton as _, PopupHost};
-use rune::{El, Icon, TextEdit, TextStyle, Tx, col, el, icon, row, rule, text};
+use rune::{El, Icon, Key, KeyEvent, TextEdit, TextStyle, Tx, col, el, icon, row, rule, text};
 use rune_kit::{Select, TextInput};
 use rune_theme_opencode::icons as ic;
+use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::{Pal, kit};
 use opencode_ui::style::{UI, UI_MED};
 
@@ -166,6 +167,10 @@ pub struct State {
     pub search: TextEdit,
     /// Providers folded shut on Models.
     pub collapsed: models::Folds,
+    /// Pending provider expand/scroll/focus started from Providers' Console list.
+    pub models_reveal: models::Reveal,
+    /// Whether the OpenCode Console workspace provider list is expanded on Providers.
+    pub console_expanded: bool,
     pub tab: ExtensionsTab,
     /// Server-wide Extensions page state (plugins, skills, Console sources, plugin update machine).
     pub extensions: extensions::State,
@@ -177,6 +182,8 @@ pub struct State {
     pub fonts: appearance::Fields,
     /// About's wordmark, which scrambles each time the page shows.
     pub wordmark: about::Wordmark,
+    /// About's third-party notices dialog state.
+    pub about_notices: about::NoticesState,
     pub shortcuts: shortcuts::State,
     pub projects: projects::State,
     pub worktrees: worktrees::State,
@@ -254,8 +261,12 @@ pub fn show_page(host: &mut dyn SettingsHost, page: Page) {
         }
         _ => {}
     }
+    if host.settings_pages().page == Page::Models && page != Page::Models {
+        models::cancel_reveal(host);
+    }
     if host.settings_pages().page == Page::About {
         host.settings_pages_mut().wordmark.activate(false);
+        about::close_notices(host);
     }
     host.settings_pages_mut().page = page;
 }
@@ -383,6 +394,36 @@ pub fn select_some<H: SettingsHost + PopupHost + 'static>(
     current: &str,
     pick: fn(&mut dyn SettingsHost, &str, &mut Tx),
 ) -> El {
+    select_with_highlight(s, p, key, label, options, current, pick, None)
+}
+
+/// [`select`] that also calls `highlight` when a choice becomes highlighted in the drawn menu
+/// (hover or arrow keys), matching official `Select`'s `onHighlight` (`notifications.tsx:53`).
+#[allow(clippy::too_many_arguments)]
+pub fn select_preview<H: SettingsHost + PopupHost + 'static>(
+    s: &H,
+    p: &Pal,
+    key: &str,
+    label: &str,
+    options: Vec<(String, String)>,
+    current: &str,
+    pick: fn(&mut dyn SettingsHost, &str, &mut Tx),
+    highlight: fn(&mut dyn SettingsHost, &str),
+) -> El {
+    select_with_highlight(s, p, key, label, options.into_iter().map(|(id, title)| (id, title, true)).collect(), current, pick, Some(highlight))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn select_with_highlight<H: SettingsHost + PopupHost + 'static>(
+    s: &H,
+    p: &Pal,
+    key: &str,
+    label: &str,
+    options: Vec<(String, String, bool)>,
+    current: &str,
+    pick: fn(&mut dyn SettingsHost, &str, &mut Tx),
+    highlight: Option<fn(&mut dyn SettingsHost, &str)>,
+) -> El {
     let shown = options.iter().find(|(id, _, _)| id == current).map_or_else(String::new, |(_, l, _)| l.clone());
     let anchor = format!("{key}-trigger");
     let label = label.to_owned();
@@ -395,13 +436,16 @@ pub fn select_some<H: SettingsHost + PopupHost + 'static>(
         .open(open)
         .trigger(kit(p))
         .menu_button(anchor_key, move |s: &mut H, tx: &mut Tx| {
-            let menu = Menu::picker_some(label.clone(), options.clone(), &current);
+            let menu = Menu::picker_some(label.clone(), options.clone(), &current).gap(6.0);
             popup::open(s, menu, anchor.clone(), tx, move |s: &mut H, picked, tx| {
                 if let Some(id) = picked {
                     tx.instant();
                     pick(s, id, tx);
                 }
             });
+            if let Some(cb) = highlight {
+                popup::set_highlight(s, move |s: &mut H, id: &str| cb(s, id));
+            }
         })
 }
 
@@ -424,8 +468,47 @@ fn clear_filter_field(s: &mut dyn SettingsHost, field: fn(&mut State) -> &mut Te
     e.focused = true;
 }
 
+fn filter_field_escape(s: &mut dyn SettingsHost, field: fn(&mut State) -> &mut TextEdit, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    if ev.key != Key::Escape {
+        return false;
+    }
+    tx.instant();
+    let e = field(s.settings_pages_mut());
+    if !e.text.is_empty() {
+        *e = TextEdit::new("");
+        e.focused = true;
+    } else {
+        e.focused = false;
+    }
+    true
+}
+
+/// Type-to-search for pages using [`filter_field`] (`SettingsSearchField`, `search-field.tsx:35-56`):
+/// typing a printable character on Models or searchable Projects appends it and focuses the filter.
+pub(crate) fn filter_page_key(s: &mut dyn SettingsHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    let Key::Text(t) = &ev.key else { return false };
+    if ev.mods.cmd || ev.mods.ctrl || ev.mods.alt || ev.mods.logo || t.trim().is_empty() || tx.focused().is_some() {
+        return false;
+    }
+    let st = s.settings_pages();
+    let any_focused = st.search.focused || st.projects.filter.focused || st.find.query.focused;
+    if any_focused {
+        return false;
+    }
+    let f = match st.page {
+        Page::Models => &mut s.settings_pages_mut().search,
+        Page::Projects if projects::searchable(s) => &mut s.settings_pages_mut().projects.filter,
+        _ => return false,
+    };
+    tx.instant();
+    let text = format!("{}{t}", f.text);
+    *f = TextEdit::new(&text);
+    f.focused = true;
+    true
+}
+
 /// `.settings-filter-search` (`SettingsSearchField`): 36 pt, `layer-02` at 60%, glass 16 pt in,
-/// clear button once typed.
+/// clear button once typed, Escape clears then blurs (`search-field.tsx:75-86`).
 pub fn filter_field<H: SettingsHost + 'static>(
     p: &Pal,
     key: &str,
@@ -442,6 +525,10 @@ pub fn filter_field<H: SettingsHost + 'static>(
             .size(20.0, 20.0)
             .center()
             .radius(4.0)
+            .cursor(rune::Cursor::Pointer)
+            .focus_default(p)
+            .hover(p.hover)
+            .press(p.pressed)
             .on_press_tx(move |s: &mut H, tx: &mut Tx| clear_filter_field(s, field, tx))
             .child(icon(&ic::CIRCLE_XMARK, 16.0).color(p.icon_faint))
     });
@@ -470,7 +557,8 @@ pub fn filter_field<H: SettingsHost + 'static>(
                 .selection_style(p.field_selection)
                 .label(placeholder.to_owned())
                 .on_edit(move |s: &mut H| field(s.settings_pages_mut()))
-                .on_input_change(|_: &mut H, tx: &mut Tx| tx.instant()),
+                .on_input_change(|_: &mut H, tx: &mut Tx| tx.instant())
+                .on_input_key(move |s: &mut H, ev, tx| filter_field_escape(s, field, ev, tx)),
         )
         .children(clear)
 }
@@ -490,7 +578,7 @@ pub fn text_field<H: SettingsHost + 'static>(
     TextInput::new(edit)
         .placeholder(placeholder.to_owned())
         .label(label.to_owned())
-        .width(Some(220.0))
+        .width(if crate::rows_wrap() { None } else { Some(220.0) })
         .text_style(style)
         .height(28.0)
         .on_edit(move |s: &mut H| field(s.settings_pages_mut()))
@@ -561,12 +649,17 @@ fn ghost_face(p: &Pal, key: &str, label: &str, glyph: Option<&'static Icon>, mut
         return b.disabled(true).opacity(0.5);
     }
     let b = if open { b.fill(p.pressed) } else { b };
-    b.hover(p.hover).press(p.pressed)
+    b.cursor(rune::Cursor::Pointer).focus_default(p).hover(p.hover).press(p.pressed)
 }
 
-/// `SettingsSearchEmpty`: "No results for" and the query in quotes.
+/// `SettingsSearchEmpty`: "No results for" and the query in quotes (rail search).
 pub fn no_results(p: &Pal, key: &str, query: &str) -> El {
     row().key(key.to_owned()).w_full().h(28.0).pl(8.0).pr(6.0).gap(4.0).center_y().children(no_results_words(p, query))
+}
+
+/// `.settings-tab-search-empty` (`settings.css:1405-1417`): centered empty state for page filters.
+pub fn tab_no_results(p: &Pal, key: &str, query: &str) -> El {
+    row().key(key.to_owned()).w_full().py(48.0).px(24.0).gap(4.0).center().children(no_results_words(p, query))
 }
 
 /// `settings.search.empty`'s words, muted, around the query in quotes, which truncates.

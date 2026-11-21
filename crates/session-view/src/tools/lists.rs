@@ -6,6 +6,7 @@ use serde_json::Value;
 
 use super::{Call, Ctx, Display, Press, Trigger, body, busy, directory, disclosure, field, file_name, output, path, still, sub_key, trigger};
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::{HOVER_FADE, INSTANT, UI, arrow, readable};
 
@@ -82,6 +83,10 @@ pub fn read_group<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, calls: &[Call]) -> E
             .child(if open { a } else { a.group_opacity(0.0, 1.0) })
             .role("button")
             .label_static(opencode_i18n::t!("ui.tool.read"))
+            .expanded(open)
+            .radius(4.0)
+            .cursor(rune::Cursor::Pointer)
+            .focus_default(p)
             .on_press_tx(crate::disclosure::toggle::<S>(k, format!("tool-{}", first.id)));
     }
     r

@@ -5,17 +5,19 @@
 
 use std::collections::HashSet;
 
-use rune::{Color, El, Key, Shadow, TextEdit, TextStyle, Transition, Tx, col, el, icon, row, spacer, text};
+use rune::{Align, Color, El, Key, Shadow, Side, TextEdit, TextStyle, Transition, Tx, col, el, icon, row, spacer, text};
 use rune_theme_opencode::icons as ic;
 
 use super::{Model, ModelAction, PickerHost, host, mark, search};
 use crate::palette::Pal;
+use crate::popover::{self as pop, MENU, Opt};
 use crate::style::{UI, UI_MED};
 
-/// The open dialog: its query and the providers folded shut.
+/// The open dialog: its query, the providers folded shut, and the open provider options menu.
 pub struct Manage {
     pub search: TextEdit,
     pub collapsed: HashSet<String>,
+    pub menu: Option<String>,
 }
 
 /// `dialog-title` and `dialog-description` as `.search-dialog` sets them (`shell/search-list.css`,
@@ -28,7 +30,7 @@ impl super::Pickers {
     pub fn open_manage(&mut self) {
         let mut search = TextEdit::new("");
         search.focused = true;
-        self.manage = Some(Manage { search, collapsed: HashSet::new() });
+        self.manage = Some(Manage { search, collapsed: HashSet::new(), menu: None });
     }
 
     pub fn close_manage(&mut self) {
@@ -80,18 +82,21 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
                 return false;
             }
             tx.instant();
+            if let Some(m) = s.pickers_mut().manage.as_mut() && m.menu.take().is_some() {
+                return true;
+            }
             s.pickers_mut().close_manage();
             true
         });
-    // `manage-models-search` (`providers/models/manage.css`, `#64882`): 8 pt in, a 32 pt field
-    // with its glass 8 pt in and the query 8 pt after it; a full-width hairline 8 pt below.
-    let search_row = col().key("manage-models-search").w_full().px(8.0)
+    // `manage-models-search` (`providers/models/manage.css:1-9`, `#64882`): 8 pt sides & bottom,
+    // 32 pt field, 6 pt gap to a full-width hairline across the dialog.
+    let search_row = col().key("manage-models-search").w_full().px(8.0).pb(8.0).gap(6.0)
         .child(row().key("field").h(32.0).w_full().pl(8.0).pr(8.0).gap(8.0).center_y()
             .child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted))
-            .child(field));
-    let hairline = el().key("manage-models-rule").w_full().h(0.5).mt(8.0).fill(p.border_muted);
+            .child(field))
+        .child(rune::hairline(p.border).key("manage-models-rule").w_full().mx(-8.0));
 
-    let mut body = col().key("manage-models-list").w_full().padding(8.0).gap(8.0);
+    let mut body = col().key("manage-models-list").w_full().px(8.0).pb(8.0).gap(8.0);
     if groups.is_empty() {
         let mut status = row().key("manage-models-empty").w_full().min_h(120.0).gap(4.0).center()
             .child(text(opencode_i18n::t!("dialog.model.empty")).font(UI).color(p.muted));
@@ -100,11 +105,18 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
         }
         body = body.child(status);
     }
+    let open_menu = m.menu.clone();
+    let mut menu_keys: Option<(String, Vec<String>)> = None;
     for (provider, models) in &groups {
         let open = searching || !m.collapsed.contains(provider);
+        let menu_here = open_menu.as_deref() == Some(provider.as_str());
+        if menu_here {
+            menu_keys = Some((provider.clone(), models.iter().map(|m| m.key.clone()).collect()));
+        }
+        // `provider-model-group` (`settings.css`): `bg-layer-01`, 8 pt radius, inset 0.5 pt `border-muted`.
         let mut section = col().key(format!("manage-provider-{provider}")).w_full().radius(8.0)
-            .fill(p.layer1).border(0.5, p.border).border_layout().clip_soft(0.0);
-        section = section.child(header::<S>(s, p, provider, models, open, searching));
+            .fill(p.layer1).box_shadow(Pal::ring_in(p.border_muted)).clip_soft(0.0);
+        section = section.child(header::<S>(p, provider, models, open, searching, menu_here));
         if open {
             section = section.child(rows::<S>(s, p, models));
         }
@@ -136,29 +148,40 @@ pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
                 .child(text(opencode_i18n::t!("dialog.model.manage.description")).font(DESCRIPTION).color(p.muted)))
             .children(s.picker_model_actions().contains(&ModelAction::Connect).then(|| connect::<S>(p))))
         .child(search_row)
-        .child(hairline)
         // `settings-panel`: no bar, as Desktop hides it (`manage.tsx:134-135`, `settings.css:593-607`).
         .child(crate::scroller::scroller("manage-models-scroll").hidden(col().w_full().grow(1.0).shrink().min_h(0.0), body));
     let scrim = el().key("manage-models-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none());
     let modal = col().key("manage-models-modal").absolute(0.0, 0.0).w_full().h_full().px(16.0).py(48.0).center().transition(Transition::none()).child(dialog).raise();
-    vec![scrim, modal]
+    let mut out = vec![scrim, modal];
+    if let Some((provider, keys)) = menu_keys {
+        out.push(
+            pop::scrim::<S>("manage-menu-dismiss", |s: &mut S, tx| {
+                tx.instant();
+                if let Some(m) = s.pickers_mut().manage.as_mut() {
+                    m.menu = None;
+                }
+            })
+            .press_on_down()
+            .raise(),
+        );
+        out.push(provider_menu::<S>(s, p, &provider, keys).raise());
+    }
+    out
 }
 
-/// A provider's header (`provider-group.tsx:98-120`, `manage.css:34-60`): its chevron, mark and
-/// name fold it, and its switch shows or hides every model it has, 24 pt in from the end.
-fn header<S: PickerHost>(s: &S, p: &Pal, provider: &str, models: &[&Model], open: bool, searching: bool) -> El {
-    let pk = s.pickers();
-    let all = models.iter().all(|m| pk.visible(m));
+/// A provider's header (`provider-group.tsx:222-270`, `manage.css:34-60`): icon, name, chevron to
+/// the right of the name, and an `outline-dots` menu trigger pinned 16 pt from the end.
+fn header<S: PickerHost>(p: &Pal, provider: &str, models: &[&Model], open: bool, searching: bool, menu_open: bool) -> El {
     let name = models.first().map_or(provider.to_owned(), |m| m.group.clone());
     let first = models.first().map_or(String::new(), |m| m.key.clone());
     let fold = provider.to_owned();
-    let mut trigger = row().key("trigger").role("button").expanded(open).label(format!("{name} models")).h(28.0)
-        .pt(4.0).pr(8.0).pb(4.0).pl(4.0).gap(4.0).center_y().radius(4.0)
-        .child(row().key("chevron").size(20.0, 20.0).center()
-            .child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 }).mirror_in_rtl()))
-        .child(row().key("label").gap(8.0).center_y()
-            .child(icon(mark::mark(&first), 16.0).color(p.text))
-            .child(text(name.clone()).font(UI_MED).color(p.text)));
+    let mut trigger = row().key("trigger").role("button").expanded(open).label(format!("{name} models")).w_full().min_h(36.0)
+        .pl(12.0).pr(40.0).center_y().radius(6.0)
+        .child(row().key("label").gap(8.0).center_y().shrink().min_w(0.0)
+            .child(icon(mark::mark(&first), 16.0).color(p.icon))
+            .child(text(name.clone()).font(UI_MED).color(p.text).truncate().shrink().min_w(0.0))
+            .child(icon(&ic::CHEVRON_DOWN, 14.0).key("chevron").color(p.icon_muted).ml(-2.0)
+                .rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 }).mirror_in_rtl()));
     if !searching {
         trigger = trigger.hover(p.hover).press(p.pressed).on_press_tx(move |s: &mut S, tx: &mut Tx| {
             tx.instant();
@@ -168,16 +191,72 @@ fn header<S: PickerHost>(s: &S, p: &Pal, provider: &str, models: &[&Model], open
             }
         });
     }
-    let keys: Vec<String> = models.iter().map(|m| m.key.clone()).collect();
-    let flip = switch::<S>(p, &format!("switch-{provider}"), all, move |s: &mut S| s.pickers_mut().set_shown(keys.clone(), !all));
-    row().key("header").w_full().padding(4.0).center_y().child(trigger.grow(1.0)).child(flip.mr(4.0))
+    let menu_id = provider.to_owned();
+    let more = el()
+        .key(format!("manage-more-{provider}"))
+        .role("button")
+        .label_static(opencode_i18n::t!("common.moreOptions"))
+        .expanded(menu_open)
+        .size(24.0, 24.0)
+        .radius(6.0)
+        .center()
+        .fill(if menu_open { p.pressed } else { Color::TRANSPARENT })
+        .hover(if menu_open { Color::TRANSPARENT } else { p.hover })
+        .press(p.pressed)
+        .pin(None, Some(10.0), Some(16.0), None)
+        .press_on_down()
+        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+            tx.instant();
+            let Some(m) = s.pickers_mut().manage.as_mut() else { return };
+            m.menu = if m.menu.as_deref() == Some(menu_id.as_str()) { None } else { Some(menu_id.clone()) };
+        })
+        .child(icon(&ic::OUTLINE_DOTS, 16.0).color(p.icon_muted));
+    row().key("header").w_full().padding(4.0).center_y().child(trigger).child(more)
 }
 
-/// A provider's models (`manage.tsx:74-99`, `manage.css:81-113`): 36 pt rows 1 pt apart, a
-/// hairline between them, each a press that flips its switch.
+/// The provider header's `⋯` menu (`provider-group.tsx:251-269`): Enable all / Disable all models.
+fn provider_menu<S: PickerHost>(s: &S, p: &Pal, provider: &str, keys: Vec<String>) -> El {
+    let enable_keys = keys.clone();
+    let disable_keys = keys;
+    let menu = pop::surface::<S>(p, MENU, format!("manage-menu-{provider}"), opencode_i18n::t!("common.moreOptions"))
+        .w(180.0)
+        .child(
+            col().w_full().padding(MENU.inset).gap(2.0)
+                .child(pop::option_tx(
+                    p,
+                    MENU,
+                    Opt::new("enable-all", opencode_i18n::t!("settings.models.enableAll")),
+                    |_: &mut S, _: &mut Tx| {},
+                    move |s: &mut S, tx: &mut Tx| {
+                        tx.instant();
+                        s.pickers_mut().set_shown(enable_keys.clone(), true);
+                        if let Some(m) = s.pickers_mut().manage.as_mut() {
+                            m.menu = None;
+                        }
+                    },
+                ))
+                .child(pop::option_tx(
+                    p,
+                    MENU,
+                    Opt::new("disable-all", opencode_i18n::t!("settings.models.disableAll")),
+                    |_: &mut S, _: &mut Tx| {},
+                    move |s: &mut S, tx: &mut Tx| {
+                        tx.instant();
+                        s.pickers_mut().set_shown(disable_keys.clone(), false);
+                        if let Some(m) = s.pickers_mut().manage.as_mut() {
+                            m.menu = None;
+                        }
+                    },
+                )),
+        );
+    pop::place(s.knobs(), menu, &format!("manage-more-{provider}"), Side::Bottom, Align::End, 4.0)
+}
+
+/// A provider's models (`manage.tsx:74-99`, `manage.css:73-91`): 8 pt sides & bottom inset, a
+/// 0.5 pt top rule, 4 pt gap, then 36 pt rows each flipping its switch.
 fn rows<S: PickerHost>(s: &S, p: &Pal, models: &[&Model]) -> El {
     let pk = s.pickers();
-    let mut list = col().key("rows").w_full();
+    let mut list = col().key("rows").w_full().pt(4.0);
     for m in models {
         let shown = pk.visible(m);
         let key = m.key.clone();
@@ -192,7 +271,9 @@ fn rows<S: PickerHost>(s: &S, p: &Pal, models: &[&Model]) -> El {
             .child(switch::<S>(p, "switch", shown, move |s: &mut S| s.pickers_mut().set_shown(vec![key.clone()], !shown)));
         list = list.child(r);
     }
-    list
+    col().key("models").w_full().px(8.0).pb(8.0)
+        .child(rune::rule(0.5, p.border).key("rows-rule").w_full())
+        .child(list)
 }
 
 /// Desktop's switch (`switch.css`): 24 × 16 with 4 pt corners, a 12 pt thumb with 2 pt corners

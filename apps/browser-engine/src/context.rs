@@ -495,8 +495,14 @@ wrap_request_context_handler! {
 
 fn is_blocked_file_url(url: &str) -> bool {
     let mut cur = url.trim();
-    while cur.len() >= 5 && cur.as_bytes()[..5].eq_ignore_ascii_case(b"blob:") {
-        cur = cur[5..].trim();
+    loop {
+        if cur.len() >= 5 && cur.as_bytes()[..5].eq_ignore_ascii_case(b"blob:") {
+            cur = cur[5..].trim();
+        } else if cur.len() >= 11 && cur.as_bytes()[..11].eq_ignore_ascii_case(b"filesystem:") {
+            cur = cur[11..].trim();
+        } else {
+            break;
+        }
     }
     browser_policy::is_file_scheme(cur)
 }

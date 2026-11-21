@@ -256,8 +256,10 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
         .px(12.0)
         .gap(20.0)
         .center_y()
+        .cursor(rune::Cursor::Pointer)
         .fill(p.bg_base)
-        .hover(p.hover)
+        // Half the usual hover overlay, so the header only hints that it toggles (`timeline-next.css:116-117`).
+        .hover(p.hover.alpha(p.hover.a * 0.5))
         .border(1.0, p.border)
         .border_layout()
         .corners([top, top, bottom, bottom])

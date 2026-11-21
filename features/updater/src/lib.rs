@@ -281,6 +281,19 @@ pub fn finish_quit() {
     }
 }
 
+/// Whether the shared updater service is attached and active (not disabled).
+///
+/// Used by menu builders (`commands::menubar_items`) so dormant plugin caches never serve a stale
+/// enabled/disabled flag for Check for Updates… after switching builds on a shared profile.
+pub fn shared_enabled() -> bool {
+    SHARED.with(|shared| {
+        shared
+            .borrow()
+            .as_ref()
+            .is_some_and(|svc| svc.borrow().snapshot().state != machine::View::Disabled)
+    })
+}
+
 /// A start that waited for the storage's decision (`start_if_packaged`).
 pub fn poll_owed(s: &mut dyn UpdaterHost) {
     if !matches!(s.updater().state, Lifecycle::WaitingProfile) {

@@ -148,7 +148,7 @@ pub enum SettingsReply {
     },
     ProjectExtensionsLoaded {
         dir: String,
-        plugins: Option<(Vec<String>, Vec<String>)>,
+        plugins: Result<(Vec<String>, Vec<String>), ()>,
         skills: Option<SkillPairs>,
         sources: Result<Vec<ConsoleMcp>, ()>,
         lsps: Result<(bool, Vec<Lsp>), ()>,
@@ -257,9 +257,10 @@ pub fn execute_request(srv: &Server, request: SettingsRequest) -> SettingsReply 
             SettingsReply::PluginUpdateSettled { server, id, result }
         }
         SettingsRequest::LoadProjectExtensions { dir } => {
-            let global_plugins = load_plugins(srv, None).ok().map(|v| plugin_labels(&v));
-            let project_plugins = load_plugins(srv, Some(&dir)).ok().map(|v| plugin_labels(&v));
-            let plugins = global_plugins.zip(project_plugins);
+            let plugins = match (load_plugins(srv, None), load_plugins(srv, Some(&dir))) {
+                (Ok(global), Ok(project)) => Ok((plugin_labels(&global), plugin_labels(&project))),
+                _ => Err(()),
+            };
             let global_skills = srv.list_skills(None).ok().map(|ep| ep.into_option().unwrap_or_default());
             let project_skills = srv.list_skills(Some(&dir)).ok().map(|ep| ep.into_option().unwrap_or_default());
             let skills = global_skills.zip(project_skills);

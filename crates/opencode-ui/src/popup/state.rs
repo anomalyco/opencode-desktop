@@ -3,7 +3,8 @@
 
 use std::rc::Rc;
 
-use rune::{PopupAnchor, TextEdit, Tx};
+use rune::{El, PopupAnchor, TextEdit, Tx};
+use crate::palette::Pal;
 use crate::popover;
 
 use super::menu::{Entry, Look, Menu, key_at, row_key};
@@ -95,8 +96,34 @@ pub fn open_searchable<S: PopupHost + 'static>(
     pick: impl FnOnce(&mut S, Option<&str>, &mut Tx) + 'static,
 ) {
     let initial = rows(s, "");
-    let search = Search { placeholder: placeholder.into(), rows: Rc::new(rows) };
+    let search = Search { placeholder: placeholder.into(), rows: Rc::new(rows), field: None };
     open_drawn_inner(s, initial, Some(search), anchor.into(), tx, pick);
+}
+
+/// A drawn menu under a field that edits a value as it's typed rather than filtering its rows,
+/// as Desktop's group menu edits the group's name over its colours (`pinned-area.tsx`'s
+/// `GroupEditor`). `value` fills the field, which takes the keys as the menu opens; `lead`
+/// draws before its text and `changed` runs on every edit. `label` names it. Up and Down light
+/// the rows, Escape closes; Return stays in the field.
+#[allow(clippy::too_many_arguments)]
+pub fn open_with_field<S: PopupHost + 'static>(
+    s: &mut S,
+    label: impl Into<String>,
+    value: &str,
+    lead: impl Fn(&S, &Pal) -> El + 'static,
+    changed: impl Fn(&mut S, &str, &mut Tx) + 'static,
+    rows: impl Fn(&S) -> Menu + 'static,
+    anchor: impl Into<PopupAnchor>,
+    tx: &mut Tx,
+    pick: impl FnOnce(&mut S, Option<&str>, &mut Tx) + 'static,
+) {
+    let initial = rows(s);
+    let field = super::Field { lead: Rc::new(lead), changed: Rc::new(changed) };
+    let search = Search { placeholder: label.into(), rows: Rc::new(move |s: &S, _: &str| rows(s)), field: Some(field) };
+    open_drawn_inner(s, initial, Some(search), anchor.into(), tx, pick);
+    let query = &mut s.popup_mut().query;
+    *query = TextEdit::new(value);
+    query.focused = true;
 }
 
 fn open_drawn_inner<S: PopupHost + 'static>(
@@ -142,10 +169,25 @@ fn open_drawn_inner<S: PopupHost + 'static>(
         s.on_focus_taken();
         tx.focus(key, ring);
     }
-    s.popup_mut().shown = Some(Shown { menu, anchor, active, subs: Vec::new(), opened, search, pick: Box::new(pick) });
+    s.popup_mut().shown = Some(Shown { menu, anchor, active, subs: Vec::new(), opened, search, highlight: None, pick: Box::new(pick) });
     s.popup_mut().submenu = super::submenu::State::Steady;
     refresh(s);
     popover::motion::opening(s.knobs(), tx);
+}
+
+/// Attaches a callback invoked whenever a root item of the currently open drawn menu becomes
+/// highlighted by pointer hover or keyboard navigation (e.g. live sound previews in Settings).
+pub fn set_highlight<S: PopupHost + 'static>(s: &mut S, cb: impl Fn(&mut S, &str) + 'static) {
+    if let Some(shown) = s.popup_mut().shown.as_mut() {
+        shown.highlight = Some(Rc::new(cb));
+    }
+}
+
+pub(super) fn notify_highlight<S: PopupHost + 'static>(s: &mut S, id: &str) {
+    let cb = s.popup().shown.as_ref().and_then(|m| m.highlight.as_ref().map(Rc::clone));
+    if let Some(cb) = cb {
+        cb(s, id);
+    }
 }
 
 /// Closes the drawn menu as a press outside it would. Nothing when none is open.
@@ -327,21 +369,29 @@ fn hover_at<S: PopupHost + 'static>(s: &mut S, level: usize, n: usize, tx: &mut 
 /// Row `n` of the menu `level` deep lights, opening its submenu in place of the open one; a row
 /// without one leaves the open submenu to the machine's delay.
 fn light<S: PopupHost + 'static>(s: &mut S, level: usize, n: usize) {
-    let Some(shown) = s.popup_mut().shown.as_mut() else { return };
-    shown.set_active(level, n);
-    let opens = shown.menu_at(level).is_some_and(|m| m.sub_at(n).is_some());
-    match shown.subs.get(level) {
-        Some(o) if o.at == n => {}
-        Some(_) if !opens => {}
-        _ => {
-            shown.subs.truncate(level);
-            if opens {
-                shown.subs.push(SubOpen { at: n, active: None });
+    let (opens, highlight_id) = {
+        let Some(shown) = s.popup_mut().shown.as_mut() else { return };
+        let changed = level == 0 && shown.active != Some(n);
+        shown.set_active(level, n);
+        let opens = shown.menu_at(level).is_some_and(|m| m.sub_at(n).is_some());
+        match shown.subs.get(level) {
+            Some(o) if o.at == n => {}
+            Some(_) if !opens => {}
+            _ => {
+                shown.subs.truncate(level);
+                if opens {
+                    shown.subs.push(SubOpen { at: n, active: None });
+                }
             }
         }
-    }
+        let id = changed.then(|| shown.menu.item_at(n).filter(|i| i.enabled).map(|i| i.id.clone())).flatten();
+        (opens, id)
+    };
     if opens {
         super::submenu::step(&mut s.popup_mut().submenu, super::submenu::Event::Returned);
+    }
+    if let Some(id) = highlight_id {
+        notify_highlight(s, &id);
     }
 }
 

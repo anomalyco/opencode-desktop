@@ -120,7 +120,7 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
         .child(composer_dock(s, p));
     page = page.children(s.diag.debug.then(|| status_bar(s, p, info))).children(displayed.and_then(|shown| timeline_ring(p, shown)));
     // The thumb follows the hover of the whole session frame including the composer dock,
-    // matching official `thumbHoverTarget={viewRoot()}` (`virtualizer.tsx:1145,1189`).
+    // matching official `thumbHoverTarget={viewRoot()}` (`virtualizer.tsx:1147,1192`).
     match displayed {
         Some(shown) => page.scroll_bar_hover(&format!("scroll-{shown}")),
         None => page,

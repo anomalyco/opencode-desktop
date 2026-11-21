@@ -548,10 +548,7 @@ return plugin.defineWindow(function(ctx)
         refresh()
     end)
 
-    -- A picked element goes into the composer as a pill naming its `@eN` ref and selector.
-    Browser.Picked:Connect(function(pick: BrowserPick)
-        Composer:InsertPill(`browser:{pick.ref}`, `{pick.ref} ({pick.selector})`)
-    end)
+    -- Picked elements open the native spotlight + comment editor (`surfaces/browser/comment.rs`).
 
     -- A loopback address opens on the machine that runs the server; the system browser here
     -- reaches it only when the server runs here too (authoritative Rust policy via CanOpenExternally).
@@ -596,10 +593,25 @@ return plugin.defineWindow(function(ctx)
     -- Site information: the page it describes, and its two-view cookie/cache state machine.
     local siteState: site.State = site.initial
     local sitePage: { tab: string, url: string }? = nil
+    local serverConnected = true
+    if Server.Connected ~= nil then
+        Server.Connected:Connect(function(up: boolean)
+            serverConnected = up
+            refresh()
+        end)
+    end
+
+    local function syncSiteDetailed(detailed: boolean)
+        local bAny = Browser :: any
+        if type(bAny.SetSiteDetailed) == "function" then
+            bAny:SetSiteDetailed(detailed)
+        end
+    end
 
     local function siteDispatch(event: site.Event)
         local nextState, effects = site.step(siteState, event)
         siteState = nextState
+        syncSiteDetailed(siteState.detailed)
         for _, effect in effects do
             local described = sitePage
             if effect.type == "notify-clear-failed" then
@@ -676,6 +688,15 @@ return plugin.defineWindow(function(ctx)
         end,
     }
 
+    local bSig = Browser :: any
+    if bSig.SiteBack ~= nil then
+        bSig.SiteBack:Connect(function()
+            if siteState.detailed then
+                siteDispatch({ type = "details", shown = false })
+            end
+        end)
+    end
+
     ctx:AddPopover({
         id = "site",
         title = I18n:T("site.info"),
@@ -708,11 +729,16 @@ return plugin.defineWindow(function(ctx)
             tab:SetZoom(arg :: any)
         elseif what == "page" then
             Popover:Close()
-            local url = pageUrl(tab)
-            local shownHost = hostDisplay.displayHost(url)
-            local title = tab:Title()
-            local labelText = if title ~= "" then title elseif shownHost ~= "" then shownHost else url
-            Composer:InsertPill(`browser:{url}`, `{labelText} ({url})`)
+            local tAny = tab :: any
+            if type(tAny.OpenNote) == "function" then
+                tAny:OpenNote()
+            else
+                local url = pageUrl(tab)
+                local shownHost = hostDisplay.displayHost(url)
+                local title = tab:Title()
+                local labelText = if title ~= "" then title elseif shownHost ~= "" then shownHost else url
+                Composer:InsertPill(`browser:{url}`, `{labelText} ({url})`)
+            end
         elseif what == "link.copy" then
             Popover:Close()
             local url = pageUrl(tab)
@@ -821,6 +847,7 @@ return plugin.defineWindow(function(ctx)
                 canFind = canFind,
                 canHardReload = true,
                 canClearHistory = #visits() > 0,
+                paneWidth = if type(arg) == "number" then arg else nil,
             }
             Popover:Toggle({
                 id = "options",
@@ -910,7 +937,7 @@ return plugin.defineWindow(function(ctx)
                     local bAny = Browser :: any
                     if type(bAny.ExtClick) == "function" then
                         local optUrl = if item.options and item.options ~= "" and (item.popup == nil or item.popup == "")
-                            then `chrome-extension://{item.id}/{item.options}`
+                            then (if string.sub(item.options, 1, 19) == "chrome-extension://" then item.options else `chrome-extension://{item.id}/{item.options}`)
                             else nil
                         bAny:ExtClick(item.id, tabId, optUrl)
                     end
@@ -950,6 +977,9 @@ return plugin.defineWindow(function(ctx)
         end,
         extMenuOpen = function()
             return Popover:IsOpen("extensions")
+        end,
+        serverConnected = function()
+            return serverConnected
         end,
         refusalNotice = function(tab: BrowserTab)
             return refusalNotices[tab.Id]
@@ -1837,6 +1867,9 @@ return plugin.defineWindow(function(ctx)
                     image = Images:FromRgba(data, width, height)
                 elseif ok and kind == "png" then
                     image = Images:FromEncoded(data)
+                elseif not ok or kind == nil then
+                    -- Still being read off the UI thread: the page draws again when it is.
+                    return nil
                 end
             end
             importIcons[browserId] = if image ~= nil then image else false

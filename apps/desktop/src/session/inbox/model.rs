@@ -464,7 +464,7 @@ impl SidebarInbox {
 pub fn settle_now(s: &mut App, tx: &mut Tx) -> bool {
     if s.sidebar_inbox.settled() { return false; }
     let live = s.live();
-    let working: Vec<String> = s.sessions.iter().filter(|i| i.parent.is_none() && s.has_live_family(&i.id)).map(|i| i.id.clone()).collect();
+    let working = s.inbox_request_ids();
     s.sidebar_inbox.settle(live, &working, *s.now_ms, tx)
 }
 

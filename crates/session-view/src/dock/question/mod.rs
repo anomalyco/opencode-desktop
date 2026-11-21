@@ -132,12 +132,34 @@ pub enum Intent {
     None,
 }
 
-/// Where the keyboard is: on an answer, on "Type your own answer", or typing in it.
+/// Where the keyboard is: on an answer, on "Type your own answer", typing in it, or on a
+/// footer/header button (`QuestionKeyZone`, `question-keys.ts:4`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Zone {
     Option,
     Custom,
     Input,
+    Other,
+}
+
+/// Whether keyboard focus sits inside the question dock (or nowhere specific, as right after the
+/// dock opens). Unlike official (where `onKeyDown` is scoped to the dock DOM node), Rune's
+/// `question_key` runs window-wide (`keys.rs:27`), so focus on widgets outside the dock (tabs,
+/// sidebar, timeline) must not have `Left`/`Right`/`1..9`/`Escape`/`Cmd+Enter` hijacked.
+pub(super) fn focus_in_dock(focused: Option<&str>) -> bool {
+    match focused {
+        None => true,
+        Some(k) => k.starts_with("q-") || k.starts_with("question"),
+    }
+}
+
+/// Whether keyboard focus `focused` sits on a question option or nowhere specific (as opposed to a
+/// header/footer button like Dismiss, Back, Next/Submit, Minimize, or progress segments).
+pub(super) fn focus_in_options(focused: Option<&str>) -> bool {
+    match focused {
+        None | Some("q-custom" | "q-input") => true,
+        Some(k) => k.starts_with("q-opt-"),
+    }
 }
 
 /// Desktop's `questionKey`: `count` answers including the typed one.
@@ -176,8 +198,15 @@ pub fn intent(ev: &KeyEvent, zone: Zone, count: usize) -> Intent {
     // The questions run toward the end of the line: leftward in a right-to-left window.
     let ahead = if opencode_i18n::direction() == opencode_i18n::Direction::Rtl { -1 } else { 1 };
     match &ev.key {
-        Key::Left => Intent::Question(-ahead),
-        Key::Right => Intent::Question(ahead),
+        Key::Left => return Intent::Question(-ahead),
+        Key::Right => return Intent::Question(ahead),
+        _ => {}
+    }
+    // Footer and progress buttons keep their own Enter/Space/arrows (`question-keys.ts:66`).
+    if zone == Zone::Other {
+        return Intent::None;
+    }
+    match &ev.key {
         Key::Down => Intent::Move(1),
         Key::Up => Intent::Move(-1),
         Key::Home => Intent::First,
@@ -445,10 +474,16 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
     let Some(f) = asking(s) else { return false };
     let (tab, focus) = place(s, &f);
+    let editing_here = editing(s, &f, tab);
+    if !editing_here && !focus_in_dock(tx.focused()) {
+        return false;
+    }
     let field = &f.fields[tab];
     let n = rows(field).len();
-    let zone = if editing(s, &f, tab) {
+    let zone = if editing_here {
         Zone::Input
+    } else if !focus_in_options(tx.focused()) {
+        Zone::Other
     } else if focus >= n && has_custom(field) {
         Zone::Custom
     } else {
@@ -522,6 +557,7 @@ fn typed_key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
             tx.instant();
             stop_typing(s, &f, tab);
             dock(s, &f).focus = n;
+            reveal_focus(s, tx);
             true
         }
         Key::Up if n > 0 && !m.shift && !m.alt && !m.cmd && !m.ctrl && s.dock().typed.get(&f.key(tab)).is_none_or(|t| face::on_first_line(t, s.dock().input_w)) => {

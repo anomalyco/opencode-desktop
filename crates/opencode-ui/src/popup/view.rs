@@ -139,13 +139,13 @@ fn build<S: PopupHost + 'static>(
             Entry::Item(i) if i.detail => list.other(detail_row(p, &row_key(&i.id), i), MENU.row_h),
             Entry::Item(i) => {
                 let o = Opt::new(row_key(&i.id), i.title.clone())
-                    .role(role)
+                    .role(if i.radio { "menuitemradio" } else { role })
                     .active(active == Some(n))
                     .checked(i.checked)
                     .danger(i.danger)
                     .disabled(!i.enabled);
                 let ink = if i.danger { p.danger } else { p.text };
-                // Menu items draw Desktop's `<Icon>` at its default `size="normal"` (16 pt, `icon.tsx:58`).
+                // Menu items draw Desktop's `<Icon>` at its default `size="normal"` (16 pt, `icon.tsx:59`).
                 let o = match i.glyph {
                     Some(Glyph::Ink(g)) if menu.card => o.lead(icon(g, 16.0).color(p.icon_muted)),
                     Some(Glyph::Ink(g)) => o.lead(icon(g, 16.0).color(ink)),
@@ -161,6 +161,10 @@ fn build<S: PopupHost + 'static>(
                             None => rows::status_mark(p, ind),
                         };
                         o.lead(row().size(16.0, 16.0).center().child(mark))
+                    }
+                    Some(Glyph::Swatch(light, dark)) => {
+                        let [fill, edge] = if p.dark { dark } else { light };
+                        o.lead(el().size(10.0, 10.0).radius(2.0).fill(fill).box_shadow(Pal::ring_in(edge)).a11y_hidden())
                     }
                     None => o,
                 };

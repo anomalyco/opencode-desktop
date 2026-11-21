@@ -21,6 +21,7 @@ export type MenuData = {
     canFind: boolean,
     canHardReload: boolean,
     canClearHistory: boolean,
+    paneWidth: number?,
 }
 
 export type Callbacks = {
@@ -78,7 +79,7 @@ local function menuHint(text: string): ui.Node
 end
 
 local function separator(): ui.Node
-    return ui.col({ w = "full", h = 1, my = 2, fill = "border-muted" })
+    return ui.col({ w = "full", h = 1, my = 2, fill = "border-weak" })
 end
 
 -- Renders the top-level 220 pt '...' options popover (`menu.css`, `panel.tsx:1255-1346`).
@@ -229,6 +230,7 @@ function options.renderMore(cb: Callbacks, view: View, d: MenuData): ui.Node
         role = "list",
         label = cb.I18n:T("menu.more"),
         minW = 220,
+        maxW = math.max(220, (d.paneWidth or 600) - 32),
         pad = 2,
         radius = 6,
         fill = "surface-1",

@@ -317,6 +317,8 @@ pub trait TimelineHost: Sized + 'static {
         false
     }
     fn switch_model(&mut self, _tx: &mut Tx) {}
+    /// Returns focus to the composer after a keyboard-triggered Jump to latest (`virtualizer.tsx:1171`).
+    fn focus_composer(&mut self, _tx: &mut Tx) {}
     fn model_name(&self, model: &ModelRef) -> String {
         if model.id.is_empty() {
             model.provider.clone()

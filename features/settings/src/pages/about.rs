@@ -4,13 +4,16 @@
 //! the tagline, the MIT and globe marks and the copyright over Anomaly's brush mark, centred in
 //! a 560 pt column.
 
+pub mod notices;
+
 use std::cell::Cell;
 
 use opencode_i18n::t;
-use rune::{El, Icon, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Cursor, El, Icon, Link, LinkPaint, TextStyle, Tx, col, el, icon, row, text};
 use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::Pal;
 
+pub use self::notices::{NoticesState, close as close_notices, dialog as notices_dialog};
 use crate::host::SettingsHost;
 
 /// `.settings-about-content`: 13 on 20 at 440, -0.04 tracking.
@@ -35,14 +38,31 @@ fn copy_version(host: &mut dyn SettingsHost, value: &str, tx: &mut Tx) {
     host.mark_copied("settings-about-version", tx);
 }
 
-fn open_site(host: &mut dyn SettingsHost, tx: &mut Tx) {
-    host.open_external("https://opencode.ai", tx);
+fn profile(name: &str) -> String {
+    match name {
+        "r44vcorp" => "https://github.com/R44VC0RP".to_owned(),
+        "ludvigrask_" => "https://x.com/ludvigrask_".to_owned(),
+        _ => format!("https://github.com/{name}"),
+    }
 }
 
-// Official Desktop opens an in-app notices dialog (`packages/app/src/settings/about/notices/dialog.tsx`);
-// OpenCode (Rune) links directly to its repository third-party notices document.
 fn open_notices(host: &mut dyn SettingsHost, tx: &mut Tx) {
-    host.open_external("https://github.com/anomalyco/rune-desktop/blob/dev/THIRD_PARTY_NOTICES.md", tx);
+    notices::open(host, tx);
+}
+
+fn credit_line<H: SettingsHost + 'static>(p: &Pal, key: &str, words: String, entries: &[(String, String)]) -> El {
+    let hover = LinkPaint::new().color(p.text).underline(p.text);
+    let mut el = text(words.clone()).key(key.to_owned()).font(BODY).color(p.faint).wrap().align(rune::Align::Center);
+    let mut cursor = 0usize;
+    for (label, url) in entries {
+        if let Some(rel) = words[cursor..].find(label.as_str()) {
+            let start = cursor + rel;
+            let end = start + label.len();
+            el = el.link(Link::new(start..end, url.clone()).role("link").label(label.clone()).hover(hover));
+            cursor = end;
+        }
+    }
+    el.on_link(|s: &mut H, url: &str, tx: &mut Tx| crate::open_external(s, url, tx))
 }
 
 pub fn view<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
@@ -56,6 +76,7 @@ pub fn view<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
         .role("button")
         .label(if copied { t!("common.copied") } else { t!("ui.message.copy") })
         .help(if copied { t!("common.copied") } else { t!("ui.message.copy") })
+        .help_above()
         .help_open(copied)
         .h(24.0)
         .my(-2.0)
@@ -63,28 +84,32 @@ pub fn view<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
         .mx(-6.0)
         .radius(4.0)
         .center_y()
+        .cursor(Cursor::Pointer)
         .hover_group()
         .hover(p.layer2)
         // The ring follows the hover fill, which reaches past the label (`settings.css`, opencode#65215).
         .focus_default(p)
         .on_press_tx(move |s: &mut H, tx: &mut Tx| copy_version(s, &copy, tx))
         .child(text(label).font(BODY).color(p.muted).group_color(p.text));
-    let site = text(t!("settings.about.website"))
+    let link_hover = LinkPaint::new().color(p.text).underline(p.text);
+    let site_words = t!("settings.about.website");
+    let site = text(site_words)
         .key("settings-about-site")
-        .role("link")
         .font(BODY)
         .color(p.faint)
-        .on_press_tx(|s: &mut H, tx: &mut Tx| open_site(s, tx));
-    let notices = text(t!("settings.about.notices.title"))
+        .link(Link::new(0..site_words.len(), "https://opencode.ai").role("link").label(site_words).hover(link_hover))
+        .on_link(|s: &mut H, url: &str, tx: &mut Tx| crate::open_external(s, url, tx));
+    let notices_words = t!("settings.about.notices.title");
+    let notices = text(notices_words)
         .key("settings-about-notices")
-        .role("button")
         .font(BODY)
         .color(p.muted)
-        .on_press_tx(|s: &mut H, tx: &mut Tx| open_notices(s, tx));
-    build_about_page(s, p, info.other_contributors, version_button, site, notices)
+        .link(Link::new(0..notices_words.len(), "notices").role("button").label(notices_words).hover(link_hover))
+        .on_link(|s: &mut H, _: &str, tx: &mut Tx| open_notices(s, tx));
+    build_about_page::<H>(s, p, info.other_contributors, version_button, site, notices)
 }
 
-fn build_about_page(s: &dyn SettingsHost, p: &Pal, others: u32, version_button: El, site: El, notices: El) -> El {
+fn build_about_page<H: SettingsHost + 'static>(s: &H, p: &Pal, others: u32, version_button: El, site: El, notices: El) -> El {
     let line = |key: &str, words: &str, faint: bool| {
         text(words.to_owned())
             .key(key.to_owned())
@@ -93,8 +118,12 @@ fn build_about_page(s: &dyn SettingsHost, p: &Pal, others: u32, version_button: 
             .wrap()
             .align(rune::Align::Center)
     };
+    let others_label = opencode_i18n::plural!("settings.about.otherContributor", others);
     let mut writers: Vec<String> = WRITERS.iter().map(|w| (*w).to_owned()).collect();
-    writers.push(opencode_i18n::plural!("settings.about.otherContributor", others));
+    writers.push(others_label.clone());
+    let mut writer_links: Vec<(String, String)> = WRITERS.iter().map(|w| ((*w).to_owned(), profile(w))).collect();
+    writer_links.push((others_label, "https://github.com/anomalyco/opencode/graphs/contributors".to_owned()));
+    let illustrator_links: Vec<(String, String)> = ILLUSTRATORS.iter().map(|w| ((*w).to_owned(), profile(w))).collect();
     let ink = p.muted;
     let (stem, weak) = (ink.alpha(ink.a * 0.2), ink.alpha(ink.a * 0.2 * 0.3));
     let wordmark = wordmark(&s.settings_pages().wordmark.letters, 178.0 / 234.0, stem, weak).key("settings-about-wordmark");
@@ -103,6 +132,7 @@ fn build_about_page(s: &dyn SettingsHost, p: &Pal, others: u32, version_button: 
         .key("settings-about-content")
         .w_full()
         .max_w(560.0)
+        .min_h(462.0)
         .pt(80.0)
         .pb(80.0)
         .gap(24.0)
@@ -115,8 +145,8 @@ fn build_about_page(s: &dyn SettingsHost, p: &Pal, others: u32, version_button: 
                 .w_full()
                 .items_center()
                 .gap(16.0)
-                .child(line("writers", &t!("settings.about.writtenByNames", names = opencode_i18n::list(&writers)), true))
-                .child(line("illustrators", &t!("settings.about.illustratedByNames", names = opencode_i18n::list(&ILLUSTRATORS)), true)),
+                .child(credit_line::<H>(p, "writers", t!("settings.about.writtenByNames", names = opencode_i18n::list(&writers)), &writer_links))
+                .child(credit_line::<H>(p, "illustrators", t!("settings.about.illustratedByNames", names = opencode_i18n::list(&ILLUSTRATORS)), &illustrator_links)),
         )
         .child(
             col()
