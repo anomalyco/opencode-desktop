@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 
 use super::super::session::{CapturedFile, SessionAttachment};
 use super::read::{queue_live_frame_refresh, step_live_frame_refresh};
-use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards, send_rpc_cdp, verify_authorized_state};
+use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards, send_rpc_cdp, send_rpc_cdp_in_frame, verify_authorized_state};
 use crate::App;
 
 const MAX_FULLPAGE_EDGE: f64 = 16_384.0;
@@ -152,12 +152,14 @@ fn start_screenshot(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -
                 format!("Element ref {r} is stale or absent. Refresh the snapshot first."),
             ));
         };
-        match send_rpc_cdp(
+        let ref_frame = att.refs.get(&host_id).and_then(|t| t.frame_of(r));
+        match send_rpc_cdp_in_frame(
             app,
             host_id,
             "DOM.getBoxModel",
             json!({ "backendNodeId": bid }),
             ref_session,
+            ref_frame,
         ) {
             Ok(cdp_req) => StepOutcome::Pending(ExecPhase::Screenshot(ScreenshotState {
                 host_id,
@@ -172,7 +174,7 @@ fn start_screenshot(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -
             Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
         }
     } else if full_page {
-        match app.workspace_panes.browser.host.send_cdp(host_id, "Page.getLayoutMetrics", json!({}), None) {
+        match send_rpc_cdp(app, host_id, "Page.getLayoutMetrics", json!({}), None) {
             Ok(cdp_req) => StepOutcome::Pending(ExecPhase::Screenshot(ScreenshotState {
                 host_id,
                 format,
@@ -192,7 +194,7 @@ fn start_screenshot(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -
         {
             params["quality"] = json!(q);
         }
-        match app.workspace_panes.browser.host.send_cdp(host_id, "Page.captureScreenshot", params, None) {
+        match send_rpc_cdp(app, host_id, "Page.captureScreenshot", params, None) {
             Ok(cdp_req) => StepOutcome::Pending(ExecPhase::Screenshot(ScreenshotState {
                 host_id,
                 format,
@@ -401,12 +403,24 @@ fn exec_files_get(att: &mut SessionAttachment, app: &App, cmd: &Command) -> Step
                 "Download path failed confinement verification.",
             ));
         };
-        let Ok(bytes) = std::fs::read(&verified) else {
+        let max_bytes = opencode_kit::browser_rpc::MAX_FILE_BYTES as u64;
+        let mut bytes = Vec::new();
+        let read_res = std::fs::File::open(&verified).and_then(|f| {
+            use std::io::Read as _;
+            f.take(max_bytes + 1).read_to_end(&mut bytes)
+        });
+        if read_res.is_err() {
             return StepOutcome::Done(Outcome::fail(
                 failure_code::OPERATION_FAILED,
                 "Could not read verified download file.",
             ));
-        };
+        }
+        if bytes.len() as u64 > max_bytes {
+            return StepOutcome::Done(Outcome::fail(
+                failure_code::OPERATION_FAILED,
+                "Download file exceeds the 5 MiB transfer limit.",
+            ));
+        }
         return match WireFile::from_bytes(file_id.to_owned(), df.name.clone(), df.mime.clone(), &bytes) {
             Ok(wf) => StepOutcome::Done(Outcome::ok(json!({ "tab": tab }), vec![wf])),
             Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
@@ -451,7 +465,7 @@ pub(super) fn step_screenshot(
             {
                 params["quality"] = json!(q);
             }
-            match app.workspace_panes.browser.host.send_cdp(st.host_id, "Page.captureScreenshot", params, None) {
+            match send_rpc_cdp(app, st.host_id, "Page.captureScreenshot", params, None) {
                 Ok(req) => {
                     st.stage = ScreenshotStage::Capture { cdp_req: req };
                     None
@@ -488,7 +502,7 @@ pub(super) fn step_screenshot(
             {
                 params["quality"] = json!(q);
             }
-            match app.workspace_panes.browser.host.send_cdp(st.host_id, "Page.captureScreenshot", params, None) {
+            match send_rpc_cdp(app, st.host_id, "Page.captureScreenshot", params, None) {
                 Ok(req) => {
                     st.stage = ScreenshotStage::Capture { cdp_req: req };
                     None

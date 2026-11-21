@@ -3,28 +3,15 @@
 
 use mlua::{Function, Lua, MultiValue, Table};
 use rune::Tx;
-use rune_luau::{Completer, Data, Host};
 use rune::time::Instant;
+use rune_luau::{Completer, Data, Host};
 
-use super::{App, DEVTOOLS_TIMEOUT, Dep, Vmx, cx, id_of, later, map, not_running, read_tab, scope, with_app};
+use super::{App, DEVTOOLS_TIMEOUT, Vmx, id_of, later, map, not_running, read_tab, scope, with_app};
 
 pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
-    t.raw_set(
-        "TakeAppLinkReview",
-        lua.create_function(|lua, ()| {
-            cx::read(Dep::Browser);
-            let next = with_app("Browser:TakeAppLinkReview", |app| {
-                Ok(app.workspace_panes.browser.pending_app_links.borrow_mut().pop_front())
-            })?;
-            match next {
-                Some((tab_id, url)) => mlua::IntoLua::into_lua(
-                    map([("tabId", Data::String(tab_id.to_string())), ("url", Data::String(url))]),
-                    lua,
-                ),
-                None => Ok(mlua::Value::Nil),
-            }
-        })?,
-    )
+    // App-scheme link reviews are rendered natively by the host (`surfaces/browser/prompts/app_link.rs`)
+    // so review tokens never cross into Luau; keep `TakeAppLinkReview` returning nil for compatibility.
+    t.raw_set("TakeAppLinkReview", lua.create_function(|_, ()| Ok(mlua::Value::Nil))?)
 }
 
 pub(super) fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
@@ -100,6 +87,29 @@ fn read_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
 }
 
 pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
+    // The strip's amber `prompt.tab` dot: the page waits on the user while the pane doesn't show it
+    // (official `asking`, `packages/gui-plugins/src/browser/model.ts:900-904` at `b9a60d9d`).
+    m.raw_set(
+        "Asking",
+        lua.create_function(|lua, this: Table| {
+            read_tab(lua, &this, "BrowserTab:Asking", |app, id| Ok(app.browser_tab_asking(id)))
+        })?,
+    )?;
+    // The strip's blue `tab.activity` dot: an agent opened or drove this tab while hidden
+    // (official `unseen`, `packages/gui-plugins/src/browser/machine.ts:690-715` at `b9a60d9d`).
+    m.raw_set(
+        "Unseen",
+        lua.create_function(|lua, this: Table| {
+            read_tab(lua, &this, "BrowserTab:Unseen", |app, id| Ok(app.browser_tab_unseen(id)))
+        })?,
+    )?;
+    // True while a link-opened tab's first page has not named itself yet (`UP-118`, `pane-machine.ts`).
+    m.raw_set(
+        "Unnamed",
+        lua.create_function(|lua, this: Table| {
+            read_tab(lua, &this, "BrowserTab:Unnamed", |app, id| Ok(app.browser_tab_unnamed(id)))
+        })?,
+    )?;
     m.raw_set(
         "IsPrivate",
         lua.create_function(|lua, this: Table| {

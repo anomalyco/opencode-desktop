@@ -52,8 +52,9 @@ pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Tr
         opencode_kit::model::project_sandboxes_version(),
         crate::servers::version(),
         info.map(|i| {
+            let dir = s.queue.starts.directory(&i.id).unwrap_or(&i.directory);
             let trail: Vec<_> = ancestors(s, i).into_iter().map(|a| (a.id.clone(), a.title.clone())).collect();
-            (i.id.clone(), i.title.clone(), i.directory.clone(), i.project.clone(), trail, crate::plugin_host::services::session_version(s, &i.id))
+            (i.id.clone(), i.title.clone(), dir.to_owned(), i.project.clone(), trail, crate::plugin_host::services::session_version(s, &i.id))
         }),
         crate::plugin_host::surfaces_version(s),
     );
@@ -67,10 +68,11 @@ pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Tr
 /// name, then the actions drop their details; only then does the title truncate.
 pub(crate) fn header_in(s: &App, p: &Pal, info: Option<&SessionInfo>, _t: Option<&Transcript>, scope: &str) -> El {
     let reserve_side = !s.side_open() && s.fixture_run.stage.is_none();
-    let project = info.and_then(|i| s.project(&i.project));
-    let proj = info.map(|i| super::project_or_dir(project, &i.directory)).unwrap_or_default();
+    let dir = info.map(|i| s.queue.starts.directory(&i.id).unwrap_or(&i.directory));
+    let project = info.and_then(|i| s.project(&i.project).or_else(|| dir.and_then(|d| s.project_at(d))));
+    let proj = dir.map(|d| super::project_or_dir(project, d)).unwrap_or_default();
     let trail = info.map(|i| ancestors(s, i)).unwrap_or_default();
-    let worktree = info.filter(|i| i.parent.is_none()).and_then(|i| super::location::worktree_name(project, &i.directory));
+    let worktree = info.filter(|i| i.parent.is_none()).and_then(|_| dir).and_then(|d| super::location::worktree_name(project, d));
     let fit = fit(s, info, &proj, worktree.as_deref(), scope);
     let compact = fit.compact();
 

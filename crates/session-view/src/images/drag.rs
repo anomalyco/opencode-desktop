@@ -126,10 +126,7 @@ pub(crate) fn sniff_image_ext(bytes: &[u8]) -> Option<&'static str> {
     }
 }
 
-/// A safe file name for an image: sanitized stem from `hint` paired strictly with an allow-listed
-/// extension sniffed from `bytes` (defaulting to `png` when unrecognized — NEVER keeping the
-/// URL's or attachment's extension such as `.bat`, `.hta`, `.cmd`, `.svg`, or `.html`).
-pub(crate) fn file_name(hint: &str, bytes: &[u8]) -> String {
+fn sanitize_stem(hint: &str) -> String {
     let last = hint.split(['?', '#']).next().unwrap_or("").rsplit(['/', '\\']).next().unwrap_or("");
     let raw_stem = match last.rsplit_once('.') {
         Some((s, _)) if !s.is_empty() => s,
@@ -147,12 +144,39 @@ pub(crate) fn file_name(hint: &str, bytes: &[u8]) -> String {
         .collect();
     let trimmed = clean.trim().trim_matches(['.', ' ']);
     let device_stem = trimmed.split('.').next().unwrap_or(trimmed);
-    let stem = if trimmed.is_empty() || browser_policy::is_windows_device_name(device_stem) {
-        "image"
+    if trimmed.is_empty() || browser_policy::is_windows_device_name(device_stem) {
+        "image".to_owned()
     } else {
-        trimmed
-    };
+        trimmed.to_owned()
+    }
+}
+
+/// Whether `bytes` look like an SVG document (used ONLY to suggest a `.svg` filename in the
+/// user-confirmed Save Image As… dialog — never for drag-out or opening in a browser tab).
+fn looks_like_svg(bytes: &[u8]) -> bool {
+    let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
+    let trimmed = bytes.trim_ascii_start();
+    trimmed.get(..4).is_some_and(|h| h.eq_ignore_ascii_case(b"<svg"))
+        || (trimmed.get(..5).is_some_and(|h| h.eq_ignore_ascii_case(b"<?xml"))
+            && trimmed.windows(4).take(512).any(|w| w.eq_ignore_ascii_case(b"<svg")))
+}
+
+/// A safe file name for drag-out / reveal: sanitized stem from `hint` paired strictly with an
+/// allow-listed raster extension sniffed from `bytes` (NEVER keeping `.bat`, `.hta`, `.cmd`,
+/// `.svg`, or `.html`).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn file_name(hint: &str, bytes: &[u8]) -> String {
+    let stem = sanitize_stem(hint);
     let ext = sniff_image_ext(bytes).unwrap_or("png");
+    format!("{stem}.{ext}")
+}
+
+/// Suggested filename for the user-confirmed Save Image As… file dialog: preserves `.svg` when
+/// `bytes` sniff as SVG so saved SVGs aren't misnamed `.png`; all other images keep sniffed
+/// raster extensions only.
+pub(crate) fn save_file_name(hint: &str, bytes: &[u8]) -> String {
+    let stem = sanitize_stem(hint);
+    let ext = sniff_image_ext(bytes).unwrap_or_else(|| if looks_like_svg(bytes) { "svg" } else { "png" });
     format!("{stem}.{ext}")
 }
 

@@ -127,17 +127,17 @@ pub fn seek_active(s: &mut dyn FindHost, tx: &mut Tx) {
     }
     let scroll_key = format!("scroll-{sid}");
     // Mount the match's row, then land the match where Desktop's `probeSeek` puts it
-    // (`search-controller.ts:293-298`, scrolled with `behavior: "auto"`): centred in the
-    // scroll view, which runs under the composer to the page's bottom, less the sticky
-    // header's 64 (its 48 and the 16 its fade takes, `[data-session-title]`'s height).
+    // (`search-controller.ts:305-308`, scrolled with `behavior: "auto"`): centred in the full
+    // scroll viewport down to the page foot. Official places `[data-session-title]` outside
+    // `<ScrollView>` (`virtualizer.tsx:1182-1190`), so `root.querySelector("[data-session-title]")`
+    // returns null (`inset = 0`).
     tx.scroll_center_in_instant(&scroll_key, &row_key);
     tx.scroll_center_in_instant(&scroll_key, ACTIVE_KEY);
     if let (Some([_, top, _, _]), Some([_, page_y, _, page_h])) = (s.timeline_view_rect(), s.timeline_page_rect()) {
-        let header = if s.is_narrow() { 0.0 } else { session_view::style::HEADER_H + 16.0 };
         // `scroll_key_to` places the top of Rune's highlight *line box*. Blink instead places
         // the text range, already inset by half the leading. Centre the line, not an 18 pt
         // glyph box with its top mistaken for the line's (3–4 device pixels low at 1.875x).
         let line = if row_key.starts_with("u-") { session_view::style::BUBBLE } else { session_view::style::MD };
-        tx.scroll_key_to(ACTIVE_KEY, header + (page_y + page_h - top - line.line_px()) / 2.0);
+        tx.scroll_key_to(ACTIVE_KEY, (page_y + page_h - top - line.line_px()) / 2.0 + 1.0);
     }
 }

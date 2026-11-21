@@ -34,7 +34,7 @@ pub use host::{
     build_version, configure,
 };
 pub use jobs::{SettingsJob, SettingsReply, SettingsRequest, apply_reply, execute_request};
-pub use prefs::{BackgroundActivity, Choice, Destination, FollowUp, Navigation, Organize, SOUNDS, Sounds, TimelineWidth, TitlebarPosition};
+pub use prefs::{BackgroundActivity, Choice, FollowUp, Navigation, Organize, SOUNDS, Sounds, StartIn, TimelineWidth, TitlebarPosition, Worktree};
 pub use types::{
     CODE_FONTS, DockPlacement, Font, NotifyKind, NotifyKinds, ReduceMotion, Scheme, TERMINAL_FONTS, TabLayout, TerminalMarkShell, TextRenderer, UI_FONTS, ZOOM_LEVELS, ZOOM_MAX, ZOOM_MIN,
     css_family, custom_name, font_index, step_zoom,
@@ -122,9 +122,12 @@ pub struct Settings {
     /// The display language Settings picked (Desktop's `language` store), an `opencode_i18n`
     /// locale id; `None` follows the system's languages.
     pub language: Option<String>,
-    /// Where a new session starts (`workspaces.defaultDestination`).
-    pub default_destination: Destination,
-    /// Where each project's last session started (`workspaces.lastUsed`): `"local"` or `"workspace"`.
+    /// Where a new session starts (`workspaces.startIn`).
+    pub start_in: StartIn,
+    /// Which checkout of the current project a new session uses (`workspaces.worktree`).
+    pub worktree: Worktree,
+    /// Where each project's last session started (`workspaces.lastUsed`): `"default"` (its main
+    /// checkout or an existing worktree) or `"workspace"` (a new worktree).
     pub last_used: BTreeMap<String, String>,
     /// What Enter does while the agent works (`general.followUpBehavior`).
     pub follow_up: FollowUp,
@@ -157,6 +160,7 @@ pub struct Settings {
     pub timeline_width: TimelineWidth,
     pub background_activity: BackgroundActivity,
     pub turn_diffs: bool,
+    pub wrap_code_blocks: bool,
 }
 
 impl Default for Settings {
@@ -190,7 +194,8 @@ impl Default for Settings {
             terminal_option_meta: false,
             terminal_marks: Vec::new(),
             language: None,
-            default_destination: Destination::default(),
+            start_in: StartIn::default(),
+            worktree: Worktree::default(),
             last_used: BTreeMap::new(),
             follow_up: FollowUp::default(),
             pinch_zoom: false,
@@ -208,6 +213,7 @@ impl Default for Settings {
             timeline_width: TimelineWidth::default(),
             background_activity: BackgroundActivity::default(),
             turn_diffs: false,
+            wrap_code_blocks: false,
         }
     }
 }
@@ -250,7 +256,7 @@ impl Settings {
             "smoothTimeline": self.smooth_timeline,
             "terminal": { "optionAsMeta": self.terminal_option_meta, "marks": self.terminal_marks },
             "language": self.language,
-            "workspaces": { "defaultDestination": self.default_destination.name(), "lastUsed": self.last_used },
+            "workspaces": { "startIn": self.start_in.name(), "worktree": self.worktree.name(), "lastUsed": self.last_used },
             "followUpBehavior": self.follow_up.name(),
             "pinchZoom": self.pinch_zoom,
             "spellcheck": self.spellcheck,
@@ -266,6 +272,7 @@ impl Settings {
             "timelineWidth": self.timeline_width.name(),
             "backgroundActivity": self.background_activity.name(),
             "showTurnDiffs": self.turn_diffs,
+            "wrapCodeBlocks": self.wrap_code_blocks,
         })
     }
 
@@ -309,12 +316,21 @@ impl Settings {
                 .as_str()
                 .filter(|l| opencode_i18n::locales().iter().any(|locale| locale.id() == *l))
                 .map(str::to_owned),
-            default_destination: Destination::parse(v["workspaces"]["defaultDestination"].as_str()),
+            start_in: StartIn::parse(v["workspaces"]["startIn"].as_str()),
+            worktree: match v["workspaces"]["worktree"].as_str() {
+                Some(name) => Worktree::parse(Some(name)),
+                None => Worktree::migrate(v["workspaces"]["defaultDestination"].as_str()),
+            },
+            // Older files wrote the main checkout as `"local"`.
             last_used: v["workspaces"]["lastUsed"]
                 .as_object()
                 .map(|m| {
                     m.iter()
-                        .filter_map(|(k, v)| Some((k.clone(), v.as_str().filter(|v| matches!(*v, "local" | "workspace"))?.to_owned())))
+                        .filter_map(|(k, v)| match v.as_str()? {
+                            "default" | "local" => Some((k.clone(), "default".to_owned())),
+                            "workspace" => Some((k.clone(), "workspace".to_owned())),
+                            _ => None,
+                        })
                         .collect()
                 })
                 .unwrap_or_default(),
@@ -339,6 +355,7 @@ impl Settings {
             timeline_width: TimelineWidth::parse(v["timelineWidth"].as_str()),
             background_activity: BackgroundActivity::parse(v["backgroundActivity"].as_str()),
             turn_diffs: v["showTurnDiffs"].as_bool().unwrap_or(false),
+            wrap_code_blocks: v["wrapCodeBlocks"].as_bool().unwrap_or(false),
         }
     }
 

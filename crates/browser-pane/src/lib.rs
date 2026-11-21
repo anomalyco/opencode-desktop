@@ -17,11 +17,13 @@ pub mod address;
 #[cfg(feature = "engine")]
 mod background;
 mod client;
+pub mod cookies;
 pub mod device;
 #[cfg(feature = "engine")]
 mod download;
 #[cfg(all(feature = "engine", target_os = "linux"))]
 mod dmabuf;
+pub mod extensions;
 #[cfg(all(feature = "engine", target_os = "linux"))]
 mod fd_lines;
 pub mod find;
@@ -56,6 +58,11 @@ mod unpack;
 
 pub use address::{bare_url, host_of, resolve_address};
 pub use client::{BrowserHost, BrowserTab, CdpEvent};
+pub use extensions::{
+    ExtensionLifecycleEvent, ExtensionOpenRequest, FILTER_READY_DEADLINE, FilterGateState,
+    OpenExtensionPopup, POPUP_MAX_H, POPUP_MAX_W, POPUP_MIN_H, POPUP_MIN_W, PopupAnchor,
+    PopupPlacement, PopupRect, PopupState, StartupExtensionSpec, popup_bounds,
+};
 pub use find::{FindEvent, FindState, PageDiagnostic};
 pub use frame::TabSurface;
 pub use installer::{Distrust, ENGINE_DOWNLOAD_MB, ENGINE_REVISION, EngineStatus, Failure, Fault, Net, PauseReason, Version};
@@ -65,11 +72,15 @@ pub use policy::{
 };
 #[cfg(feature = "engine")]
 pub use profile::shared_profile_dir;
+pub use cookies::{
+    BrowserEngineKind, BrowserProfileInfo, BrowserSource, CookieHost, CookieRead, ImportFailure,
+    ImportResult, ProfileEvent, ProfileSite, SiteList, SiteListOrder,
+};
 pub use protocol::CursorKind;
 pub use protocol::{
-    AuthChallenge, ContextKind, ContextMenuCommand, DialogKind, DownloadFile, DownloadState,
-    PageContextMenu, PageDialog, PermissionKind, PermissionPrompt, PreviewKindTag, PreviewSpec,
-    RemoteProxyConfig,
+    AuthChallenge, ContextKind, ContextMenuCommand, CookieSameSite, DialogKind, DownloadFile,
+    DownloadSaveRequest, DownloadState, ExtensionActionSnapshot, PageContextMenu, PageDialog,
+    PermissionKind, PermissionPrompt, PreviewKindTag, PreviewSpec, RemoteProxyConfig, WireCookie,
 };
 pub use preview::{PreviewFetchRequest, PreviewResponder};
 pub use protocol::PickedElement;

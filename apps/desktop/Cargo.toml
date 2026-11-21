@@ -24,7 +24,7 @@ default = ["knobs", "office", "stories"]
 office = ["dep:office-preview", "dep:opencode-feature-office"]
 # Standalone storybook modules under `stories/{composer,shell,timeline}/`.
 stories = []
-# The embedded browser's engine. Enabled on macOS, Windows and Linux x86_64 below.
+# The embedded browser's engine. Enabled on macOS, Windows and Linux below.
 browser = ["browser-pane/engine"]
 # Harness builds: the browser engine install's injected faults (OPENCODE_BROWSER_FAULT_DISK_FULL).
 browser-faults = ["browser-pane/faults"]
@@ -89,7 +89,7 @@ rune-luau = { workspace = true, features = ["serde"] }
 mlua.workspace = true
 rune-register.workspace = true
 rune = { workspace = true, features = ["avif"] }
-rune-kit = { workspace = true, features = ["markdown", "mermaid"] }
+rune-kit = { workspace = true, features = ["markdown", "mermaid", "math"] }
 rune-theme-opencode.workspace = true
 serde_json.workspace = true
 serde = { version = "1", features = ["derive"] }
@@ -101,6 +101,7 @@ terminal = { path = "../../crates/terminal" }
 # release builds too, as before Rune #834: the harnesses run release builds; `keys-overlay` keeps `--pointer`
 # and `--keys` there (Rune #857). Not in a page, where they would only add to the module.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+browser-extensions = { path = "../../crates/browser-extensions" }
 browser-pane = { path = "../../crates/browser-pane" }
 # Random ids and passwords for plugins (System:RandomId, the askpass token).
 getrandom = "0.3"
@@ -137,10 +138,8 @@ rune = { workspace = true, features = ["ogg-audio"] }
 libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2"
-
-[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
 browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }
+libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }

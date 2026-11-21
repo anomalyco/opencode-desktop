@@ -99,6 +99,12 @@ impl CefRuntime {
                 .map(|l| if l.starts_with("en") { format!("{l},en") } else { format!("{l},en-US,en") })
                 .map(|list| CefString::from(list.as_str()))
                 .unwrap_or_default(),
+            // Dedicated macOS Keychain item name (CEF PR #4247) so OSCrypt creates and owns its
+            // own item under our Developer ID identity instead of colliding with `"Chromium Safe Storage"`.
+            #[cfg(target_os = "macos")]
+            keychain_service_name: CefString::from("OpenCode Browser Safe Storage"),
+            #[cfg(target_os = "macos")]
+            keychain_account_name: CefString::from("OpenCode Browser"),
             ..Default::default()
         };
         let ok = cef::initialize(Some(&main_args), Some(&settings), Some(&mut app), std::ptr::null_mut());
@@ -114,9 +120,13 @@ impl CefRuntime {
         }
     }
 
-    /// The profile the pages' downloads go in (`downloads::DIR_NAME`), so a throwaway profile's go with it.
-    pub fn profile_root(&self) -> std::path::PathBuf {
-        self.profile.root.clone()
+    /// The profile and sibling isolated-downloads roots for `Downloads::open`.
+    pub fn download_roots(&self) -> crate::downloads::DownloadRoots {
+        crate::downloads::DownloadRoots {
+            profile: self.profile.root.clone(),
+            lasting_profile: self.profile.lasting_root.clone(),
+            isolated_base: self.profile.isolated_downloads_base.clone(),
+        }
     }
 }
 
@@ -125,6 +135,7 @@ impl Drop for CefRuntime {
         cef::shutdown();
         // The pages' downloads end with the engine, as Desktop's go with its pages.
         crate::downloads::remove_owned(&self.profile.root);
+        crate::downloads::remove_owned_isolated(&self.profile.isolated_downloads_base, std::process::id());
         if self.profile.temporary {
             let _ = std::fs::remove_dir_all(&self.profile.root);
         }
@@ -165,6 +176,18 @@ wrap_app! {
                     "allow-file-access-from-files",
                     "user-data-dir",
                     "disable-site-isolation-trials",
+                    "proxy-server",
+                    "proxy-pac-url",
+                    "proxy-bypass-list",
+                    "host-resolver-rules",
+                    "ignore-certificate-errors",
+                    "use-mock-keychain",
+                    "password-store",
+                    "unsafely-treat-insecure-origin-as-secure",
+                    "js-flags",
+                    "renderer-cmd-prefix",
+                    "utility-cmd-prefix",
+                    "force-webrtc-ip-handling-policy",
                 ] {
                     cmd.remove_switch(Some(&sw.into()));
                 }
@@ -194,7 +217,22 @@ wrap_app! {
             // host's "Pop-up blocked" bar) instead of silently swallowing them before CEF sees them.
             cmd.append_switch(Some(&"disable-popup-blocking".into()));
             cmd.append_switch(Some(&"mute-audio".into()));
-            cmd.append_switch(Some(&"use-mock-keychain".into()));
+            // Windows keeps real DPAPI cookie encryption (silent, logon-bound).
+            // macOS uses real Keychain encryption under `"OpenCode Browser Safe Storage"` (CEF PR #4247)
+            // on real certificate-signed builds (`has_team_code_signature()`), while keeping
+            // `--use-mock-keychain` for unsigned/ad-hoc local dev builds and explicit
+            // `OPENCODE_BROWSER_MOCK_KEYCHAIN=1` runs so changing ad-hoc signatures never prompt.
+            // Linux stays on `--password-store=basic` because Secret Service / KWallet can prompt
+            // or stall when a keyring is locked or absent on desktop/headless Linux.
+            #[cfg(target_os = "macos")]
+            if std::env::var_os("OPENCODE_BROWSER_MOCK_KEYCHAIN").as_deref()
+                == Some(std::ffi::OsStr::new("1"))
+                || !crate::mac_app::has_team_code_signature()
+            {
+                cmd.append_switch(Some(&"use-mock-keychain".into()));
+            }
+            #[cfg(target_os = "linux")]
+            cmd.append_switch_with_value(Some(&"password-store".into()), Some(&"basic".into()));
             cmd.append_switch(Some(&"no-startup-window".into()));
             cmd.append_switch(Some(&"noerrdialogs".into()));
             cmd.append_switch(Some(&"hide-crash-restore-bubble".into()));
@@ -203,6 +241,34 @@ wrap_app! {
             // background fetches, which cost network, disk and CPU while nothing is open.
             cmd.append_switch(Some(&"disable-component-update".into()));
             cmd.append_switch(Some(&"disable-background-networking".into()));
+            // Disable Cast/DIAL discovery (UDP 5353/1900) and mDNS local-IP responder (UDP 5353),
+            // and enforce `disable_non_proxied_udp` globally so `NetworkService` never opens
+            // non-loopback UDP listeners (avoiding Windows Defender Firewall and macOS incoming
+            // connection prompts) and never exposes local LAN IPs to pages.
+            const DISABLED_NET_FEATURES: [&str; 4] = [
+                "MediaRouter",
+                "DialMediaRouteProvider",
+                "CastMediaRouteProvider",
+                "WebRtcHideLocalIpsWithMdns",
+            ];
+            let existing = CefString::from(&cmd.switch_value(Some(&"disable-features".into()))).to_string();
+            cmd.remove_switch(Some(&"disable-features".into()));
+            let mut features: Vec<&str> = existing
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .collect();
+            for feat in DISABLED_NET_FEATURES {
+                if !features.contains(&feat) {
+                    features.push(feat);
+                }
+            }
+            let merged = features.join(",");
+            cmd.append_switch_with_value(Some(&"disable-features".into()), Some(&merged.as_str().into()));
+            cmd.append_switch_with_value(
+                Some(&"force-webrtc-ip-handling-policy".into()),
+                Some(&"disable_non_proxied_udp".into()),
+            );
             if let Some(luid) = &self.adapter_luid {
                 cmd.append_switch_with_value(Some(&"use-adapter-luid".into()), Some(&luid.as_str().into()));
             }

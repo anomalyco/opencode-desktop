@@ -62,6 +62,10 @@ pub struct TabSnapshot {
     /// Whether this tab is agent-driven (preserved across reconnects so file choosers / HTTP auth stay guarded).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub agent_driven: bool,
+    /// Counts main-frame document loads (`on_load_start`); unchanged by `history.pushState`,
+    /// `replaceState` and hash changes. `0` from engines before it existed.
+    #[serde(default)]
+    pub document: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,6 +103,7 @@ pub enum HostMsg {
     /// `prompts`: the app shows and answers page dialogs, permission prompts, and HTTP auth;
     /// older apps leave it false so the engine suppresses dialogs and denies permissions/auth.
     /// `extensions`: the app handles extension-initiated tab opens (`EngineMsg::ExtensionOpenTab`).
+    /// `download_save`: the app handles `EngineMsg::DownloadSaveRequest` via a native Save dialog.
     Hello {
         mach_service: Option<String>,
         pid: u32,
@@ -106,6 +111,8 @@ pub enum HostMsg {
         prompts: bool,
         #[serde(default)]
         extensions: bool,
+        #[serde(default)]
+        download_save: bool,
     },
     OpenTab {
         tab_id: u64,
@@ -195,6 +202,41 @@ pub enum HostMsg {
     },
     /// Closes all connections and drops a non-default preview or remote server context.
     DropContext { context: ContextKind },
+    /// Lists all cookies in the default profile (or a `RemoteServer` partition), excluding probe.
+    ProfileCookiesList {
+        request_id: u64,
+        #[serde(default)]
+        partition: Option<String>,
+    },
+    /// Imports/writes cookies into the default profile (or a `RemoteServer` partition) and flushes.
+    ProfileCookiesSet {
+        request_id: u64,
+        #[serde(default)]
+        partition: Option<String>,
+        cookies: Vec<WireCookie>,
+    },
+    /// Deletes a single cookie by URL and name and flushes the store.
+    ProfileCookieDelete {
+        request_id: u64,
+        #[serde(default)]
+        partition: Option<String>,
+        url: String,
+        name: String,
+    },
+    /// Writes a short-lived probe cookie and flushes so the host can verify disk persistence.
+    ProfileProbeCookies { request_id: u64 },
+    /// "Sign out everywhere": deletes all cookies, HTTP auth credentials, cert exceptions, and
+    /// site storage/caches across the default profile and every active remote server partition.
+    ClearProfileData { request_id: u64 },
+    /// Toggles two-way cookie mirroring between the default profile and remote server partitions.
+    SetShareSignIns { enabled: bool },
+    /// Explicitly reconciles a remote server partition's cookies with the default profile.
+    SyncRemoteCookies {
+        request_id: u64,
+        partition: String,
+        #[serde(default)]
+        from_remote: bool,
+    },
     /// Linux: the app's GPU has finished reading `frame_id` (and every frame before it) of
     /// buffer set `pool`; a read of a set the tab no longer has frees nothing.
     FrameRead { tab_id: u64, pool: u64, frame_id: u64 },
@@ -226,11 +268,22 @@ pub enum HostMsg {
     SyncSitePermissions { entries: Vec<SitePermissionEntry> },
     /// The app's answer to an HTTP 401 auth challenge (`EngineMsg::AuthRequest`); `None` cancels.
     AnswerAuth { tab_id: u64, id: u64, username: Option<String>, password: Option<String> },
+    /// The app's answer to a human download Save dialog (`EngineMsg::DownloadSaveRequest`); `None` cancels.
+    AnswerDownloadSave { tab_id: u64, id: u64, path: Option<String> },
     /// Marks a tab as agent-driven (cancels native file choosers, skips `beforeunload`, rejects HTTP auth).
     SetAgentDriven { tab_id: u64, agent_driven: bool },
     /// Typed CDP call issued strictly by Rune's native Rust `experimental.browser` executors
     /// (`browser_policy::check_typed_cdp`), never exposed to untrusted Luau plugins.
-    TypedCdpCall { tab_id: u64, request_id: u64, method: String, params: Value, session_id: Option<String> },
+    TypedCdpCall {
+        tab_id: u64,
+        request_id: u64,
+        method: String,
+        params: Value,
+        session_id: Option<String>,
+        /// The frame an element ref came from; the engine checks it belongs to `session_id`.
+        #[serde(default)]
+        frame_id: Option<String>,
+    },
     /// App-proxied response headers for a remote workspace or artifact `EngineMsg::PreviewFetch`.
     PreviewResponseHead {
         req_id: u64,
@@ -286,9 +339,19 @@ pub enum EngineMsg {
         permission_sync: bool,
         #[serde(default)]
         preview_credit: bool,
+        /// The engine owns `Target.setAutoAttach` / frame exclusion authority (`EngineCdpLedger`).
+        #[serde(default)]
+        frame_authority: bool,
         #[serde(default)]
         extensions: bool,
+        /// The engine exposes `CefCookieManager` list/import/delete/probe/clear & two-way remote cookie mirroring.
+        #[serde(default)]
+        cookies: bool,
     },
+    ProfileCookies { request_id: u64, cookies: Vec<WireCookie> },
+    ProfileCookiesImported { request_id: u64, imported: u32, failed: u32 },
+    ProfileProbeReady { request_id: u64, written: bool, cache_dir: String },
+    ProfileActionDone { request_id: u64, ok: bool },
     /// Requests bytes for a remote workspace or artifact preview from the app host (server
     /// credentials never enter the engine process).
     PreviewFetch {
@@ -320,6 +383,9 @@ pub enum EngineMsg {
     AuthAgentRequired { tab_id: u64, origin: String },
     PopupOpen { tab_id: u64, url: String, background: bool },
     PopupBlocked { tab_id: u64, url: String },
+    /// A user-activated non-agent page click on an allow-listed app scheme (`slack:`, `vscode:`,
+    /// `mailto:`, etc.) was cancelled in CEF and forwarded to the desktop review bar.
+    AppLinkBlocked { tab_id: u64, url: String },
     FileChooserBlocked { tab_id: u64 },
     FindResult { tab_id: u64, count: u32, active_match: u32, final_update: bool },
     ContextMenu { tab_id: u64, menu: PageContextMenu },
@@ -335,8 +401,18 @@ pub enum EngineMsg {
     /// named shared fence to `frame_id` once it has read it, and the engine reuses the texture
     /// only after that.
     SharedFrame { tab_id: u64, frame_id: u64, width: u32, height: u32, texture: String, release_fence: String },
-    /// A download started, moved on or ended. An app from before it skips the message.
+    /// A download started, moved on or ended (agent-driven tabs only). An app from before it skips the message.
     Download { tab_id: u64, file: DownloadFile },
+    /// A human-initiated download (or right-click "Save image as…") awaiting an OS Save dialog path
+    /// outside the engine profile and `opencode-page-downloads`.
+    DownloadSaveRequest {
+        tab_id: u64,
+        id: u64,
+        name: String,
+        mime: String,
+        #[serde(default)]
+        executable: bool,
+    },
     /// Linux: a tab's new linear ARGB8888 dmabufs, one file descriptor each, sent with this line
     /// (`SCM_RIGHTS`). Frames name them by `pool` and index.
     DmabufPool { tab_id: u64, pool: u64, buffers: u32, width: u32, height: u32, stride: u32, offset: u32, modifier: u64 },
@@ -612,4 +688,37 @@ pub enum ContextMenuCommand {
     SaveImage { url: String },
     ReplaceMisspelling { word: String },
     AddToDictionary { word: String },
+}
+
+fn default_cookie_path() -> String {
+    "/".to_owned()
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CookieSameSite {
+    #[default]
+    Unspecified,
+    NoRestriction,
+    Lax,
+    Strict,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WireCookie {
+    /// Leading dot for domain cookies (`.github.com`), bare host for host-only (`github.com`).
+    pub host: String,
+    pub name: String,
+    pub value: String,
+    #[serde(default = "default_cookie_path")]
+    pub path: String,
+    #[serde(default)]
+    pub secure: bool,
+    #[serde(default)]
+    pub http_only: bool,
+    /// Unix timestamp in seconds; `None` for session cookies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires: Option<f64>,
+    #[serde(default)]
+    pub same_site: CookieSameSite,
 }

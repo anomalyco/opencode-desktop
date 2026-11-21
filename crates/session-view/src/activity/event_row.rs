@@ -10,7 +10,7 @@ use super::events::{self, Event, Verb};
 use crate::TimelineHost;
 use crate::focus::FocusExt;
 use crate::palette::Pal;
-use crate::style::{INSTANT, ROW_GAP, TOOL_CODE, UI, arrow, readable};
+use crate::style::{INSTANT, ROW_GAP, TOOL_CODE, UI, UI_MED, arrow, readable};
 
 /// The row of `events` in session `session`; `open` lists them, and a press on the
 /// label runs `press`. Nothing when nothing in it has happened yet.
@@ -178,27 +178,42 @@ static INFO: Icon = Icon {
     body: r#"<circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.4v3.4M8 5.3v.1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>"#,
 };
 
-/// A subagent's event, a row of its own (`TimelineEventItem`, anomalyco/opencode e3ed63c7de,
-/// #64102): a bare mark saying what happened (see [`mark`]), its agent's name in muted
-/// ("Explore Agent"), and its task when it names one. 28 tall around its 16 pt line like the
-/// timeline's other rows; when it opens a session it takes a faint rounded fill under the
-/// pointer, and a press opens it.
+/// State colour for a subagent status pill or mark (`timeline-next.css:309-328`).
+fn state_ink(p: &Pal, m: Mark) -> Color {
+    match m {
+        Mark::Started => p.faint,
+        Mark::Updated => mix_srgb(p.info, p.muted, 0.7),
+        Mark::Completed => p.success,
+        Mark::Failed => p.danger,
+        Mark::Stopped => p.muted,
+        Mark::Info => p.faint,
+    }
+}
+
+/// A subagent's event, a row of its own (`TimelineEventItem`, anomalyco/opencode #65164):
+/// a 3x10 rounded coloured bar and its status word in the state's colour, its agent's name in
+/// muted ("Explore Agent"), and its task when it names one. 28 tall around its 16 pt line like
+/// the timeline's other rows; no hover fill or title underline, keeping focus ring and click-to-open.
 pub fn subagent<S: TimelineHost>(s: &S, p: &Pal, session: &str, e: &Event) -> El {
     let name = match e.agent.as_deref().filter(|a| !a.is_empty()) {
         Some(agent) => opencode_i18n::t!("ui.timeline.subagent.name", name = opencode_kit::model::capitalize(agent)),
         None => opencode_i18n::t!("ui.tool.agent.default").to_owned(),
     };
     let status = events::subagent_status(e);
+    let ink = state_ink(p, Mark::of(e));
     let title = e.title.clone().unwrap_or_default();
     let child = s.resolve_subagent(session, e.session.as_deref(), &title).map(str::to_owned).filter(|_| s.can_open_subagent());
     let said = [status, name.as_str(), title.as_str()].iter().filter(|w| !w.is_empty()).copied().collect::<Vec<_>>().join(" ");
-    let line = row().key("subagent").h(28.0).gap(8.0).center_y().shrink().min_w(0.0).label(said)
-        .child(mark(p, Mark::of(e), status))
+    let badge = row().key("status").gap(6.0).center_y()
+        .child(el().key("bar").size(3.0, 10.0).radius(1.5).fill(ink))
+        .child(text(status).key("word").font(UI_MED).color(ink));
+    let line = row().key("subagent").h(28.0).gap(6.0).center_y().shrink().min_w(0.0).label(said)
+        .child(badge)
         .child(text(name.clone()).key("subagent-agent").font(UI).color(p.muted))
         .children((!title.is_empty()).then(|| text(title.clone()).key("title").font(UI).color(p.text).truncate_fade().shrink().min_w(0.0)));
     let Some(child) = child else { return row().w_full().child(line.role("group")) };
     let (parent, agent) = (session.to_owned(), e.agent.clone().unwrap_or_default());
-    let line = hoverable(p, line.role("link"))
+    let line = line.role("link").radius(4.0).focus_default(p)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             // A click with a modifier opens nothing (`event-row.tsx`).
             if crate::plain_click(tx) {

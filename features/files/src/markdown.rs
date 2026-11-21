@@ -302,8 +302,9 @@ pub fn rendered<H: FilesHost + 'static>(
             .elevate(p.raised)
             .border(0.5, p.border)
             .child(body.w_full().max_w(768.0));
-        // A plain `overflow-y-auto` box's bar, as the file view's (`gui-plugins/src/file/view.tsx:517`).
-        return opencode_ui::scroller::scroller(key).build::<H>(
+        // `[data-document-surface-scrollport]` (`document-surface.css:23-26`): `scrollbar-gutter: stable`
+        // keeps the 8 pt gutter beside the sheet whether or not the document overflows.
+        return opencode_ui::scroller::scroller(key).stable_gutter().build::<H>(
             p,
             col().w_full().grow(1.0).min_h(0.0).fill(p.layer1),
             col().w_full().px(gutter).pt(1.0).pb(foot).child(sheet),

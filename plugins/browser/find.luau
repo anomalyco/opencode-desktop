@@ -141,8 +141,8 @@ function find.render(
         end),
     }))
     return ui.col({ key = "browser-find-bar", role = "region", label = i18n:T("find.open"), w = "full" }, {
-        ui.row({ w = "full", h = 36, px = 12, gap = 4, align = "center", fill = "surface-1" }, items),
-        ui.col({ w = "full", h = 1, fill = "border-weak", opacity = 0.5 }),
+        ui.row({ w = "full", h = 35, px = 12, gap = 4, align = "center", fill = "surface-1" }, items),
+        ui.col({ w = "full", h = 1, fill = "border-weak" }),
     })
 end
 

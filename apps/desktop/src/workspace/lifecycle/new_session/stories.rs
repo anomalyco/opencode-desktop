@@ -61,7 +61,7 @@ fn start_scene(s: &mut App, worktree: bool) {
     s.transcripts.insert(id.clone(), opencode_kit::model::Transcript { session: id.clone(), messages: vec![Message::User { id: prompt.clone(), text: TEXT.into() }] });
     *s.route = Route::here(id.clone());
     let start = if worktree {
-        super::Start::Worktree { attempt: rune::machine::Attempt(1), draft: None, held: super::Held { id: prompt.clone() }, due: f64::INFINITY }
+        super::Start::Worktree { attempt: rune::machine::Attempt(1), draft: None, project_directory: directory, held: super::Held { id: prompt.clone() }, due: f64::INFINITY }
     } else {
         super::Start::Creating { directory, draft: None, created: false }
     };

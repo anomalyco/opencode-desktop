@@ -13,7 +13,8 @@ pub enum Incoming {
     Info(SessionInfo),
     LookupMissing(String),
     Inbox { session: String, items: Vec<Value> },
-    Worktrees { project: String, directories: Vec<String> },
+    /// Every worktree, and those of them OpenCode made (`managed`).
+    Worktrees { project: String, directories: Vec<String>, managed: Vec<String> },
     Branches { directory: String, search: String, result: Result<Vec<String>, WireError> },
     InterruptAcknowledged { session: String, interrupted: bool },
     WorktreeCreated { project: String },
@@ -53,6 +54,9 @@ pub enum Incoming {
     Active(Vec<String>),
     /// The server's project list (`/api/project`).
     Projects(Vec<model::Project>),
+    /// The folder the server was started in, its default location (the reply to
+    /// `Request::DefaultDirectory`).
+    DefaultDirectory(String),
     /// A folder resolved and registered as a project (`Write::OpenProject`), with the updated
     /// project list and, when `start_session` was set, the new session opened in it.
     ProjectOpened { location: model::LocationInfo, projects: Vec<model::Project>, session: Option<SessionInfo> },
@@ -93,6 +97,9 @@ pub enum Request {
     Sessions,
     /// The server's project list (`/api/project`).
     Projects,
+    /// The server's default location (`GET /api/location` with no directory), replied as
+    /// `Incoming::DefaultDirectory`; a failed read stays quiet.
+    DefaultDirectory,
     /// One session's info (`time.idle`/`time.viewed` after it finishes or someone views it).
     Info(String),
     /// [`Request::Info`] for a session named in a message, which may not exist: replied as

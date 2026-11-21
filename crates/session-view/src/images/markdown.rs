@@ -297,13 +297,18 @@ impl MdStore {
     }
 }
 
-/// What image `src` reads: a web URL as is; a path (or `file:` URL) through the server, in its
-/// own directory when absolute, else in the session's (`localImagePath`, `readLocalImage`).
+/// What image `src` reads: a public web URL as is; a verified local path (or `file:` URL)
+/// through the server, in its own directory when absolute, else in the session's. Refuses raw
+/// UNC/device paths and non-public web URLs before enqueuing any zero-click fetch.
 fn image_source(directory: Option<&str>, src: &str) -> Option<Source> {
-    let value = src.trim().replace(['\\'], "/").replace("%5C", "/").replace("%5c", "/");
+    let raw = src.trim();
+    if raw.is_empty() || browser_policy::is_raw_unc_href(raw) {
+        return None;
+    }
+    let value = raw.replace(['\\'], "/").replace("%5C", "/").replace("%5c", "/");
     let lower = value.to_ascii_lowercase();
     if lower.starts_with("http://") || lower.starts_with("https://") {
-        return Some(Source::Web(src.trim().to_owned()));
+        return browser_policy::is_public_http_url(raw).then(|| Source::Web(raw.to_owned()));
     }
     if value.is_empty() || value.starts_with("//") || value.chars().any(char::is_control) {
         return None;
@@ -322,6 +327,9 @@ fn image_source(directory: Option<&str>, src: &str) -> Option<Source> {
         None => value,
     };
     let path = decode(&path)?;
+    if browser_policy::is_raw_unc_href(&path) || browser_policy::is_unc_or_device_path(&path) {
+        return None;
+    }
     let drive = path.len() > 2 && path.as_bytes()[1] == b':' && path.as_bytes()[0].is_ascii_alphabetic() && matches!(path.as_bytes()[2], b'/' | b'\\');
     if !drive && path.split_once(':').is_some_and(|(scheme, _)| !scheme.is_empty() && scheme.chars().all(|c| c.is_ascii_alphanumeric() || "+.-".contains(c))) {
         return None;
@@ -339,11 +347,13 @@ fn image_source(directory: Option<&str>, src: &str) -> Option<Source> {
 }
 
 /// The host to ask a favicon for: a public name, not GitHub's (it keeps its mark), nor a
-/// reserved, local or private one (`publicFaviconHost`, `privateFaviconSuffix`).
+/// reserved, local, credentialed, or private one (`publicFaviconHost`, `privateFaviconSuffix`).
 fn favicon_host(url: &str) -> Option<String> {
+    if !browser_policy::is_public_http_url(url) {
+        return None;
+    }
     let rest = url.split_once("://").filter(|(s, _)| s.eq_ignore_ascii_case("http") || s.eq_ignore_ascii_case("https"))?.1;
     let authority = rest.split(['/', '?', '#']).next()?;
-    let authority = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
     let host = authority.split(':').next()?.to_ascii_lowercase();
     if host == "github.com" || host == "home.arpa" || host.ends_with(".home.arpa") {
         return None;

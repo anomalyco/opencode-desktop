@@ -63,13 +63,15 @@ impl EngineManager {
                     self.release_preview(tab_id, tab.preview.as_ref());
                     let was_agent = tab.prompts.agent_driven.load(Ordering::Acquire);
                     self.permissions.on_tab_closed(tab_id);
+                    tab.download_alive.store(false, Ordering::Release);
                     tab.host.close_browser(1);
+                    self.downloads.close_tab(tab_id, tab.download_gen);
                     if !tab.isolated && !tab.is_popup
                         && let Some(ext) = &mut self.extensions
                     {
                         ext.on_tab_closed(tab_id);
                     }
-                    self.contexts.release_tab(tab_id);
+                    self.release_tab_context(tab_id);
                     let url = tab.snap.lock().unwrap().url.clone();
                     let v = tab.view_state.lock().unwrap().clone();
                     let roots = tab.file_roots.lock().unwrap().clone();
@@ -92,7 +94,7 @@ impl EngineManager {
                         None,
                     );
                     if !self.tabs.contains_key(&tab_id) {
-                        self.contexts.release_tab(tab_id);
+                        self.release_tab_context(tab_id);
                     }
                 }
             }

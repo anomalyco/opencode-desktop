@@ -13,7 +13,7 @@ use opencode_ui::style::UI;
 use super::{choice, header, page_with, select};
 use crate::host::SettingsHost;
 use crate::types::{DockPlacement, TerminalMarkShell};
-use crate::{Choice as _, Destination, FollowUp, TitlebarPosition, change_settings, list, set_show_agent, set_terminal_placement, setting, setting_at, switch};
+use crate::{Choice as _, FollowUp, StartIn, TitlebarPosition, Worktree, change_settings, list, set_show_agent, set_terminal_placement, setting, setting_at, switch};
 
 fn toggle_shared_side_panel(s: &mut dyn SettingsHost) {
     change_settings(s, |x| x.shared_side_panel = !x.shared_side_panel);
@@ -23,8 +23,35 @@ fn pick_language(s: &mut dyn SettingsHost, id: &str, _tx: &mut Tx) {
     s.set_language(id);
 }
 
-fn pick_destination(s: &mut dyn SettingsHost, id: &str, _tx: &mut Tx) {
-    change_settings(s, |x| x.default_destination = Destination::parse(Some(id)));
+fn pick_start_in(s: &mut dyn SettingsHost, id: &str, _tx: &mut Tx) {
+    change_settings(s, |x| x.start_in = StartIn::parse(Some(id)));
+}
+
+fn pick_worktree(s: &mut dyn SettingsHost, id: &str, _tx: &mut Tx) {
+    change_settings(s, |x| x.worktree = Worktree::parse(Some(id)));
+}
+
+/// New sessions start in, and under Current project the Worktree it uses. Default directory
+/// names the folder the server reports for itself (`GET /api/location`) once it's known.
+fn start_rows<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> Vec<(&'static str, El)> {
+    let st = s.settings();
+    let title = t!("rune.settings.newSession.startIn.title");
+    let about = match (st.start_in, s.server_directory()) {
+        (StartIn::Directory, Some(dir)) => t!("rune.settings.newSession.startIn.directoryDescription", directory = dir).to_string(),
+        (StartIn::Directory, None) => t!("rune.settings.newSession.startIn.directoryUnknown").to_owned(),
+        (StartIn::Project, _) => t!("rune.settings.newSession.startIn.description").to_owned(),
+    };
+    let mut rows = vec![("settings-new-session-start", setting(p, "settings-new-session-start", title, &about, choice(s, p, "settings-new-session-start-select", title, st.start_in, pick_start_in)))];
+    if st.start_in == StartIn::Project {
+        let title = t!("rune.settings.newSession.worktree.title");
+        let about = match st.worktree {
+            Worktree::Default => t!("rune.settings.newSession.worktree.defaultDescription"),
+            Worktree::New => t!("rune.settings.newSession.worktree.newDescription"),
+            Worktree::LastUsed => t!("rune.settings.newSession.worktree.lastUsedDescription"),
+        };
+        rows.push(("settings-new-session-worktree", setting(p, "settings-new-session-worktree", title, about, choice(s, p, "settings-new-session-worktree-select", title, st.worktree, pick_worktree))));
+    }
+    rows
 }
 
 fn toggle_auto_accept(s: &mut dyn SettingsHost) {
@@ -127,16 +154,9 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                 ),
             ),
         ),
-        (
-            "settings-workspace-destination",
-            setting(
-                p,
-                "settings-workspace-destination",
-                t!("settings.workspaces.default.title"),
-                t!("settings.workspaces.default.description"),
-                choice(s, p, "settings-workspace-destination-select", t!("settings.workspaces.default.title"), st.default_destination, pick_destination),
-            ),
-        ),
+    ]);
+    rows.extend(start_rows(s, p));
+    rows.extend([
         (
             "settings-auto-accept-permissions",
             setting(

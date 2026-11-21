@@ -27,7 +27,10 @@ mod hub;
 mod ids;
 mod jobs;
 pub mod mcp;
+mod media;
 mod mentions;
+#[cfg(not(target_arch = "wasm32"))]
+pub use media::TempMediaFile;
 mod output_head;
 mod plugins;
 #[cfg(not(target_arch = "wasm32"))]
@@ -331,16 +334,6 @@ impl Server {
     /// change, so callers cache them by hash; a 404 means nothing references them anymore.
     pub fn media(&self, hash: &str) -> Result<Vec<u8>, WireError> {
         self.get_bytes(&format!("/api/experimental/media/{hash}"))
-    }
-
-    /// `path` as a URL a media player opens on its own, which sends no header of ours: the
-    /// credential rides along as `auth_token`, which the server takes in its place
-    /// (`packages/server/src/middleware/authorization.ts`).
-    pub fn stream_url(&self, path: &str) -> String {
-        let url = format!("{}{path}", self.base);
-        let Some(token) = self.auth.as_deref().and_then(|a| a.strip_prefix("Basic ")) else { return url };
-        let token: String = token.chars().map(|c| match c { '+' => "%2B".into(), '/' => "%2F".into(), '=' => "%3D".into(), c => c.to_string() }).collect();
-        format!("{url}{}auth_token={token}", if path.contains('?') { '&' } else { '?' })
     }
 
     /// Raw bytes from `path` (such as `/api/fs/read/<path>?location[directory]=…`).

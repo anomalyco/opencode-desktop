@@ -1,13 +1,12 @@
-//! Read-only browser history discovery & snapshot importer (`UP-106` `#65073`,
-//! `packages/gui-plugins/src/browser/profile/{history.ts,sources.ts,database.ts}`).
+//! Read-only browser history snapshot importer (`UP-106` `#65073`,
+//! `packages/gui-plugins/src/browser/profile/{history.ts,database.ts}`). Which browsers and
+//! profiles exist is `cookies::sources` (official `sources.ts`); this reads one profile's history.
 //!
 //! Safety invariants:
-//! - Called ONLY on explicit user click inside Settings > Browser ("Import..."), never on startup.
+//! - Called ONLY on explicit user action inside Settings > Browser, never on startup.
 //! - Copies the target SQLite database (+ `-wal` / `-shm` if present) into a private scratch dir
 //!   and opens the copy strictly read-only (`SQLITE_OPEN_READ_ONLY`, `PRAGMA query_only = ON`,
 //!   `PRAGMA temp_store = MEMORY`). Source profiles are never modified or locked.
-//! - When `OPENCODE_BROWSER_IMPORT_ROOT` is set (proof harnesses), scans ONLY synthetic profiles
-//!   under that root and never inspects real OS browser directories.
 
 use std::collections::HashSet;
 use std::fs;
@@ -47,68 +46,6 @@ impl ImportEngine {
             _ => None,
         }
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ImportProfile {
-    pub id: String,
-    pub name: String,
-    pub db_path: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ImportBrowser {
-    pub id: String,
-    pub name: String,
-    pub engine: ImportEngine,
-    pub profiles: Vec<ImportProfile>,
-}
-
-struct BrowserDef {
-    id: &'static str,
-    name: &'static str,
-    engine: ImportEngine,
-    root: PathBuf,
-    flat: bool,
-}
-
-/// Discovers installed browsers with readable history databases (most recently modified first).
-/// When `OPENCODE_BROWSER_IMPORT_ROOT` is set, ONLY inspects synthetic profiles inside that root.
-pub fn discover_sources() -> Vec<ImportBrowser> {
-    let defs = if let Some(override_root) = std::env::var_os("OPENCODE_BROWSER_IMPORT_ROOT").filter(|v| !v.is_empty()) {
-        let base = PathBuf::from(override_root);
-        vec![
-            BrowserDef { id: "chrome", name: "Google Chrome", engine: ImportEngine::Chromium, root: base.join("chrome"), flat: false },
-            BrowserDef { id: "firefox", name: "Firefox", engine: ImportEngine::Firefox, root: base.join("firefox"), flat: false },
-            BrowserDef { id: "safari", name: "Safari", engine: ImportEngine::Safari, root: base.join("safari"), flat: true },
-        ]
-    } else {
-        system_definitions()
-    };
-
-    let mut found: Vec<(u64, ImportBrowser)> = Vec::new();
-    for def in defs {
-        if !def.root.exists() {
-            continue;
-        }
-        let mut profiles = discover_profiles(&def);
-        if profiles.is_empty() {
-            continue;
-        }
-        profiles.sort_by(|a, b| b.0.cmp(&a.0));
-        let newest = profiles[0].0;
-        found.push((
-            newest,
-            ImportBrowser {
-                id: def.id.to_owned(),
-                name: def.name.to_owned(),
-                engine: def.engine,
-                profiles: profiles.into_iter().map(|(_, p)| p).collect(),
-            },
-        ));
-    }
-    found.sort_by(|a, b| b.0.cmp(&a.0));
-    found.into_iter().map(|(_, b)| b).collect()
 }
 
 /// Reads up to [`MAX_PAGES`] web history rows from `db_path` by copying it into a private scratch
@@ -279,138 +216,3 @@ fn collect_rows(conn: &Connection, select: &str, now: i64) -> Result<Vec<PageVis
     Ok(out)
 }
 
-fn mtime_secs(path: &Path) -> u64 {
-    fs::metadata(path)
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
-fn discover_profiles(def: &BrowserDef) -> Vec<(u64, ImportProfile)> {
-    let mut out = Vec::new();
-    match def.engine {
-        ImportEngine::Safari => {
-            let db = def.root.join("Safari").join("History.db");
-            let db = if db.is_file() { db } else { def.root.join("History.db") };
-            if db.is_file() {
-                out.push((
-                    mtime_secs(&db),
-                    ImportProfile { id: "default".into(), name: "Default".into(), db_path: db.to_string_lossy().into_owned() },
-                ));
-            }
-        }
-        ImportEngine::Chromium => {
-            if def.flat {
-                let db = def.root.join("History");
-                if db.is_file() {
-                    out.push((
-                        mtime_secs(&db),
-                        ImportProfile { id: "default".into(), name: "Default".into(), db_path: db.to_string_lossy().into_owned() },
-                    ));
-                }
-            } else if let Ok(entries) = fs::read_dir(&def.root) {
-                for entry in entries.flatten() {
-                    let dir = entry.path();
-                    if !dir.is_dir() {
-                        continue;
-                    }
-                    let id = entry.file_name().to_string_lossy().into_owned();
-                    let db = dir.join("History");
-                    if !db.is_file() {
-                        continue;
-                    }
-                    let display = chromium_profile_name(&dir).unwrap_or_else(|| id.clone());
-                    out.push((
-                        mtime_secs(&db),
-                        ImportProfile { id, name: display, db_path: db.to_string_lossy().into_owned() },
-                    ));
-                }
-            }
-        }
-        ImportEngine::Firefox => {
-            let roots = [def.root.join("Profiles"), def.root.clone()];
-            let mut seen = HashSet::new();
-            for base in roots {
-                let Ok(entries) = fs::read_dir(&base) else { continue };
-                for entry in entries.flatten() {
-                    let dir = entry.path();
-                    if !dir.is_dir() {
-                        continue;
-                    }
-                    let db = dir.join("places.sqlite");
-                    if !db.is_file() || !seen.insert(db.clone()) {
-                        continue;
-                    }
-                    let raw = entry.file_name().to_string_lossy().into_owned();
-                    let display = raw.split_once('.').map(|(_, rest)| rest.to_owned()).unwrap_or_else(|| raw.clone());
-                    out.push((
-                        mtime_secs(&db),
-                        ImportProfile { id: raw, name: display, db_path: db.to_string_lossy().into_owned() },
-                    ));
-                }
-            }
-        }
-    }
-    out
-}
-
-fn chromium_profile_name(profile_dir: &Path) -> Option<String> {
-    let text = fs::read_to_string(profile_dir.join("Preferences")).ok()?;
-    let val: serde_json::Value = serde_json::from_str(&text).ok()?;
-    val.get("profile")?.get("name")?.as_str().filter(|s| !s.trim().is_empty()).map(str::to_owned)
-}
-
-fn system_definitions() -> Vec<BrowserDef> {
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
-        .unwrap_or_default();
-
-    #[cfg(target_os = "windows")]
-    {
-        let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(|| home.join("AppData").join("Local"));
-        let roaming = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| home.join("AppData").join("Roaming"));
-        vec![
-            BrowserDef { id: "chrome", name: "Google Chrome", engine: ImportEngine::Chromium, root: local.join("Google").join("Chrome").join("User Data"), flat: false },
-            BrowserDef { id: "edge", name: "Microsoft Edge", engine: ImportEngine::Chromium, root: local.join("Microsoft").join("Edge").join("User Data"), flat: false },
-            BrowserDef { id: "brave", name: "Brave", engine: ImportEngine::Chromium, root: local.join("BraveSoftware").join("Brave-Browser").join("User Data"), flat: false },
-            BrowserDef { id: "vivaldi", name: "Vivaldi", engine: ImportEngine::Chromium, root: local.join("Vivaldi").join("User Data"), flat: false },
-            BrowserDef { id: "opera", name: "Opera", engine: ImportEngine::Chromium, root: roaming.join("Opera Software").join("Opera Stable"), flat: true },
-            BrowserDef { id: "chromium", name: "Chromium", engine: ImportEngine::Chromium, root: local.join("Chromium").join("User Data"), flat: false },
-            BrowserDef { id: "firefox", name: "Firefox", engine: ImportEngine::Firefox, root: roaming.join("Mozilla").join("Firefox"), flat: false },
-            BrowserDef { id: "zen", name: "Zen", engine: ImportEngine::Firefox, root: roaming.join("zen"), flat: false },
-        ]
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let support = home.join("Library").join("Application Support");
-        vec![
-            BrowserDef { id: "chrome", name: "Google Chrome", engine: ImportEngine::Chromium, root: support.join("Google").join("Chrome"), flat: false },
-            BrowserDef { id: "edge", name: "Microsoft Edge", engine: ImportEngine::Chromium, root: support.join("Microsoft Edge"), flat: false },
-            BrowserDef { id: "arc", name: "Arc", engine: ImportEngine::Chromium, root: support.join("Arc").join("User Data"), flat: false },
-            BrowserDef { id: "brave", name: "Brave", engine: ImportEngine::Chromium, root: support.join("BraveSoftware").join("Brave-Browser"), flat: false },
-            BrowserDef { id: "vivaldi", name: "Vivaldi", engine: ImportEngine::Chromium, root: support.join("Vivaldi"), flat: false },
-            BrowserDef { id: "opera", name: "Opera", engine: ImportEngine::Chromium, root: support.join("com.operasoftware.Opera"), flat: true },
-            BrowserDef { id: "chromium", name: "Chromium", engine: ImportEngine::Chromium, root: support.join("Chromium"), flat: false },
-            BrowserDef { id: "safari", name: "Safari", engine: ImportEngine::Safari, root: home.join("Library"), flat: true },
-            BrowserDef { id: "firefox", name: "Firefox", engine: ImportEngine::Firefox, root: support.join("Firefox"), flat: false },
-            BrowserDef { id: "zen", name: "Zen", engine: ImportEngine::Firefox, root: support.join("zen"), flat: false },
-        ]
-    }
-    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-    {
-        let config = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".config"));
-        vec![
-            BrowserDef { id: "chrome", name: "Google Chrome", engine: ImportEngine::Chromium, root: config.join("google-chrome"), flat: false },
-            BrowserDef { id: "edge", name: "Microsoft Edge", engine: ImportEngine::Chromium, root: config.join("microsoft-edge"), flat: false },
-            BrowserDef { id: "brave", name: "Brave", engine: ImportEngine::Chromium, root: config.join("BraveSoftware").join("Brave-Browser"), flat: false },
-            BrowserDef { id: "vivaldi", name: "Vivaldi", engine: ImportEngine::Chromium, root: config.join("vivaldi"), flat: false },
-            BrowserDef { id: "opera", name: "Opera", engine: ImportEngine::Chromium, root: config.join("opera"), flat: true },
-            BrowserDef { id: "chromium", name: "Chromium", engine: ImportEngine::Chromium, root: config.join("chromium"), flat: false },
-            BrowserDef { id: "firefox", name: "Firefox", engine: ImportEngine::Firefox, root: home.join(".mozilla").join("firefox"), flat: false },
-            BrowserDef { id: "zen", name: "Zen", engine: ImportEngine::Firefox, root: home.join(".zen"), flat: false },
-        ]
-    }
-}

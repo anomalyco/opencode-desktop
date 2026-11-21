@@ -22,7 +22,7 @@ pub(crate) use store::scrub_chromium_preferences_for_older_engine;
 pub use store::{
     ACTIVATION_DELAY_MS, AGENT_PERMISSION_TIMEOUT_MS, InputGuard, MAX_SIGN_IN_ATTEMPTS,
     PROMPT_TEXT_MAX, PermissionScope, PermissionStore, REALM_TEXT_MAX, REPEAT_DIALOG_MS,
-    SiteDecision, SitePermissions, SiteSetting, sanitize_prompt_text,
+    SiteDecision, SitePermissions, SiteSetting, sanitize_prompt_text, sanitize_single_line_prompt,
 };
 
 use crate::protocol::{AuthChallenge, DialogKind, PageDialog, PermissionKind, PermissionPrompt};
@@ -152,6 +152,12 @@ impl DialogGate {
 
     pub fn reset(&mut self) {
         *self = Self::default();
+    }
+
+    pub fn rearm(&mut self, now: Instant) {
+        if let Self::Open { input, .. } = self {
+            *input = InputGuard::arm(now);
+        }
     }
 
     pub fn tick(&mut self, now: Instant) -> bool {
@@ -304,12 +310,11 @@ impl PermissionGate {
                 *self = Self::Prompting { queue };
             }
             Self::Prompting { queue } => {
-                if let Some((idx, item)) = queue.iter_mut().enumerate().find(|(_, q)| q.key == key) {
+                if let Some((_, item)) = queue.iter_mut().enumerate().find(|(_, q)| q.key == key) {
+                    // Coalesce duplicate requests without resetting `InputGuard` so a spamming page
+                    // cannot keep buttons permanently locked or flicker an active prompt.
                     item.extra_ids.push(request.id);
                     item.asked = item.asked.saturating_add(1);
-                    if idx == 0 {
-                        item.input = InputGuard::arm(now);
-                    }
                 } else {
                     queue.push_back(QueuedPermission {
                         key,
@@ -378,6 +383,14 @@ impl PermissionGate {
     pub fn drain_all_ids(&mut self) -> Vec<u64> {
         let Self::Prompting { queue } = std::mem::take(self) else { return Vec::new() };
         queue.into_iter().flat_map(|q| q.all_ids()).collect()
+    }
+
+    pub fn rearm(&mut self, now: Instant) {
+        if let Self::Prompting { queue } = self
+            && let Some(head) = queue.front_mut()
+        {
+            head.input = InputGuard::arm(now);
+        }
     }
 
     pub fn tick(&mut self, now: Instant) -> (bool, Vec<u64>) {
@@ -525,6 +538,14 @@ impl AuthGate {
         queue.into_iter().flat_map(|a| a.all_ids()).collect()
     }
 
+    pub fn rearm(&mut self, now: Instant) {
+        if let Self::Prompting { queue } = self
+            && let Some(head) = queue.front_mut()
+        {
+            head.input = InputGuard::arm(now);
+        }
+    }
+
     pub fn tick(&mut self, now: Instant) -> bool {
         match self {
             Self::Prompting { queue } => queue.front_mut().is_some_and(|a| a.input.tick(now)),
@@ -571,6 +592,12 @@ impl PopupGate {
         match self {
             Self::Blocked { input, .. } => input.wake_at(),
             Self::Idle => None,
+        }
+    }
+
+    pub fn rearm(&mut self, now: Instant) {
+        if let Self::Blocked { input, .. } = self {
+            *input = InputGuard::arm(now);
         }
     }
 
@@ -634,11 +661,71 @@ pub struct TabPromptState {
     pub file_chooser_blocked: u64,
     /// Active dismissible controlled-tab notice reason on this document.
     pub blocked_guard_notice: Option<BlockedGuardReason>,
+    /// 500 ms activation delay for `"Open in new tab"` on `blocked_guard_notice`.
+    pub blocked_guard_input: Option<InputGuard>,
+    /// Last seen main-frame `on_load_start` counter (`TabSnapshot::document`), immune to
+    /// `history.replaceState` / `pushState` / hash changes.
+    pub document: u64,
+    /// True once the host has forwarded real user pointer/key input to the current document
+    /// (cleared on navigation/reload/context switch; matches official `chromium.ts:377,399,424,871,887,907`).
+    pub document_input: bool,
 }
 
 impl TabPromptState {
+    pub fn record_document_input(&mut self) {
+        if !self.agent_driven {
+            self.document_input = true;
+        }
+    }
+
+    pub fn set_blocked_guard_notice(&mut self, reason: BlockedGuardReason, now: Instant) {
+        if self.blocked_guard_notice.as_ref() != Some(&reason) {
+            self.blocked_guard_notice = Some(reason);
+            self.blocked_guard_input = Some(InputGuard::arm(now));
+        }
+    }
+
+    pub fn clear_blocked_guard_notice(&mut self) {
+        self.blocked_guard_notice = None;
+        self.blocked_guard_input = None;
+    }
+
+    pub fn blocked_guard_armed(&self) -> bool {
+        self.blocked_guard_input.is_none_or(InputGuard::is_live)
+    }
+
+    /// Re-arms every open prompt/banner `InputGuard` when a tab is revealed or focused so prompts
+    /// that opened while hidden never accept a click within 500 ms of becoming visible.
+    pub fn rearm_visible(&mut self, now: Instant) {
+        self.dialog.rearm(now);
+        self.permission.rearm(now);
+        self.auth.rearm(now);
+        self.popup.rearm(now);
+        if self.blocked_guard_notice.is_some() {
+            self.blocked_guard_input = Some(InputGuard::arm(now));
+        }
+    }
+
+    /// Resets "stop further dialogs" strictly when the engine reports a new main-frame document
+    /// load (`on_load_start`), never on `history.replaceState` / `pushState` / hash changes.
+    pub fn on_snapshot_document(&mut self, snap_doc: u64) {
+        if snap_doc > 0 && snap_doc != self.document {
+            if self.document > 0 {
+                self.dialog.on_document_committed();
+                self.document_input = false;
+            }
+            self.document = snap_doc;
+        }
+    }
+
     pub fn has_blocking_modal(&self) -> bool {
         self.dialog.open().is_some() || self.auth.active().is_some()
+    }
+
+    /// The tab waits on the user: a page dialog, a permission request or a sign-in (official
+    /// `PromptView`, `packages/gui-plugins/src/browser/ipc.ts:97-145`). A blocked pop-up is not one.
+    pub fn waiting_on_user(&self) -> bool {
+        self.has_blocking_modal() || self.permission.active().is_some()
     }
 
     pub fn wake_at(&self) -> Option<Instant> {
@@ -647,6 +734,7 @@ impl TabPromptState {
             self.permission.wake_at(),
             self.auth.wake_at(),
             self.popup.wake_at(),
+            self.blocked_guard_input.and_then(InputGuard::wake_at),
         ]
         .into_iter()
         .flatten()
@@ -658,6 +746,8 @@ impl TabPromptState {
         self.permission = PermissionGate::Idle;
         self.auth = AuthGate::Idle;
         self.popup = PopupGate::Idle;
+        self.document = 0;
+        self.document_input = false;
     }
 
     /// Context switched (`reopen_tab_as_preview` / `reopen_tab_as_web`): clears visit-scoped
@@ -667,7 +757,7 @@ impl TabPromptState {
         self.auth_attempts.clear();
         self.auth_dismissed.clear();
         self.agent_auth_required = None;
-        self.blocked_guard_notice = None;
+        self.clear_blocked_guard_notice();
         self.reset_for_engine();
     }
 
@@ -676,16 +766,27 @@ impl TabPromptState {
         self.auth_attempts.clear();
         self.auth_dismissed.clear();
         self.popup.dismiss();
+        self.document_input = false;
     }
 
-    /// Top-level URL changed: allow scripted dialogs on the new document, clear visit permissions
-    /// and auth/permission prompts on origin change (`prompt-machine.ts:189`, `dialog-machine.ts:182`).
+    /// Top-level URL changed: allow scripted dialogs again only on a new document (`new_document`:
+    /// the change came with a load, not `history.replaceState`/`pushState` or a hash change, which
+    /// a page could use to undo "stop dialogs"), clear visit permissions and auth/permission
+    /// prompts on origin change (`prompt-machine.ts:189`, `dialog-machine.ts:182`).
     /// Returns `(cancel_permission_ids, cancel_auth_ids)` to settle in the engine.
-    pub fn on_document_committed(&mut self, old_url: &str, new_url: &str) -> (Vec<u64>, Vec<u64>) {
-        self.dialog.on_document_committed();
+    pub fn on_document_committed(
+        &mut self,
+        old_url: &str,
+        new_url: &str,
+        new_document: bool,
+    ) -> (Vec<u64>, Vec<u64>) {
+        if new_document {
+            self.dialog.on_document_committed();
+        }
         self.popup.dismiss();
         self.agent_auth_required = None;
-        self.blocked_guard_notice = None;
+        self.clear_blocked_guard_notice();
+        self.document_input = false;
         let same_origin = crate::policy::destination_origin(old_url)
             == crate::policy::destination_origin(new_url);
         if same_origin {
@@ -707,7 +808,8 @@ impl TabPromptState {
             return Some(challenge.id);
         }
         self.auth_attempts.insert(key.clone(), next);
-        challenge.realm = sanitize_prompt_text(&challenge.realm, REALM_TEXT_MAX);
+        challenge.realm = sanitize_single_line_prompt(&challenge.realm, REALM_TEXT_MAX);
+        challenge.host = sanitize_single_line_prompt(&challenge.host, REALM_TEXT_MAX);
         self.auth.push(key, challenge, next, now);
         None
     }

@@ -82,6 +82,7 @@ impl crate::BrowserHost {
     /// the engine if `agent_driven` was not yet enabled. `Agent` takes precedence over `Plugin`.
     pub fn set_tab_driver(&mut self, tab_id: u64, driver: TabDriver) {
         let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else { return };
+        t.allow_extension_pages = false;
         if t.prompts.driver != Some(TabDriver::Agent) {
             t.prompts.driver = Some(driver);
         }
@@ -93,7 +94,13 @@ impl crate::BrowserHost {
 
     pub fn dismiss_blocked_guard_notice(&mut self, tab_id: u64) {
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
-            t.prompts.blocked_guard_notice = None;
+            t.prompts.clear_blocked_guard_notice();
+        }
+    }
+
+    pub fn rearm_tab_prompts(&mut self, tab_id: u64) {
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+            t.prompts.rearm_visible(Instant::now());
         }
     }
 
@@ -229,6 +236,14 @@ impl crate::BrowserHost {
         self.popup_opens.drain(..)
     }
 
+    pub fn has_app_links(&self) -> bool {
+        !self.app_links.is_empty()
+    }
+
+    pub fn drain_app_links(&mut self) -> impl Iterator<Item = (u64, String)> + '_ {
+        self.app_links.drain(..)
+    }
+
     /// Arms guarded prompt buttons and expires timed-out agent permission prompts.
     /// Returns `(changed, next_wake_at)` so idle frames wake zero times.
     pub fn tick_prompts(&mut self, now: Instant) -> (bool, Option<Instant>) {
@@ -243,12 +258,39 @@ impl crate::BrowserHost {
             }
             changed |= t.prompts.auth.tick(now);
             changed |= t.prompts.popup.tick(now);
+            if let Some(guard) = t.prompts.blocked_guard_input.as_mut() {
+                changed |= guard.tick(now);
+            }
         }
         for (tab_id, id) in expired {
             self.send(HostMsg::AnswerPermission { tab_id, id, allow: false, dismiss: true, persist: false });
         }
         let next = self.tabs.iter().filter_map(|t| t.prompts.wake_at()).min();
         (changed, next)
+    }
+
+    /// Clears open dialogs/permissions/auth/pop-ups across tabs on engine disconnect/crash so
+    /// stale modals and typed auth credentials clear immediately without waiting for reconnect.
+    pub(crate) fn clear_prompts_on_disconnect(&mut self) {
+        for t in &mut self.tabs {
+            t.prompts.reset_for_engine();
+        }
+        self.context_menus.clear();
+        self.popup_opens.clear();
+    }
+
+    pub(crate) fn push_context_menu(&mut self, tab_id: u64, menu: crate::protocol::PageContextMenu) {
+        if self.context_menus.len() >= 16 {
+            self.context_menus.pop_front();
+        }
+        self.context_menus.push_back((tab_id, menu));
+    }
+
+    pub(crate) fn push_diagnostic(&mut self, tab_id: u64, level: String, event: String, fields: serde_json::Value) {
+        if self.diagnostics.len() >= 128 {
+            self.diagnostics.pop_front();
+        }
+        self.diagnostics.push_back(crate::find::PageDiagnostic { tab_id, level, event, fields });
     }
 
     pub(crate) fn handle_prompt_msg(&mut self, msg: EngineMsg) -> bool {
@@ -314,7 +356,7 @@ impl crate::BrowserHost {
                         // Defense in depth against older engines where `OpenTab` doesn't carry
                         // `agent_driven` yet and a fast 401 on `TID_IO` races `SetAgentDriven`.
                         t.prompts.agent_auth_required = Some(challenge.origin);
-                        t.prompts.blocked_guard_notice = Some(BlockedGuardReason::Action);
+                        t.prompts.set_blocked_guard_notice(BlockedGuardReason::Action, now);
                         (Some(challenge.id), true)
                     } else {
                         let cancel = t.prompts.auth_challenge(challenge, now);
@@ -340,14 +382,16 @@ impl crate::BrowserHost {
             EngineMsg::AuthAgentRequired { tab_id, origin } => {
                 if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
                     t.prompts.agent_auth_required = Some(origin);
-                    t.prompts.blocked_guard_notice = Some(BlockedGuardReason::Action);
+                    t.prompts.set_blocked_guard_notice(BlockedGuardReason::Action, now);
                     true
                 } else {
                     false
                 }
             }
             EngineMsg::PopupOpen { tab_id, url, background } => {
-                self.popup_opens.push_back(PopupRequest { opener_tab_id: tab_id, url, background });
+                if self.popup_opens.len() < 32 {
+                    self.popup_opens.push_back(PopupRequest { opener_tab_id: tab_id, url, background });
+                }
                 true
             }
             EngineMsg::PopupBlocked { tab_id, url } => {
@@ -358,10 +402,21 @@ impl crate::BrowserHost {
                     false
                 }
             }
+            EngineMsg::AppLinkBlocked { tab_id, url } => {
+                if self.tabs.iter().any(|t| t.id == tab_id) {
+                    if self.app_links.len() >= 64 {
+                        self.app_links.pop_front();
+                    }
+                    self.app_links.push_back((tab_id, url));
+                    true
+                } else {
+                    false
+                }
+            }
             EngineMsg::FileChooserBlocked { tab_id } => {
                 if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
                     t.prompts.file_chooser_blocked = t.prompts.file_chooser_blocked.saturating_add(1);
-                    t.prompts.blocked_guard_notice = Some(BlockedGuardReason::Action);
+                    t.prompts.set_blocked_guard_notice(BlockedGuardReason::Action, now);
                     true
                 } else {
                     false

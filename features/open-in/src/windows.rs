@@ -6,7 +6,8 @@
 //! executable named like the command beside it; failing those, the folder its installer puts it
 //! in. File Explorer shows a verified local directory or reveals a file with it selected
 //! (`SHOpenFolderAndSelectItems`, never executing files); PowerShell (5 or 7) opens in its own
-//! console in the folder, Windows Terminal in a new window there (refusing `;` in folder names).
+//! console in the folder, Windows Terminal in a new window there (using `-d .` with `.current_dir`
+//! so folder names containing `;` work safely).
 
 use std::ffi::OsString;
 use std::os::windows::process::CommandExt;
@@ -58,17 +59,13 @@ impl Launcher for Win {
                     return powershell(&exe, &dir);
                 }
                 if is_terminal(&exe) {
-                    // Windows Terminal splits its command line on `;` even inside quoted arguments.
-                    // Refuse any folder path containing `;` so repository names cannot inject commands.
-                    if dir.to_string_lossy().contains(';') {
-                        return Err("Windows Terminal cannot open folders whose name contains ';'".into());
-                    }
                     if rune::is_headless() {
                         return Ok(());
                     }
-                    // Windows Terminal opens in a window of its own (`-w new`, never a tab in one
-                    // the person already has open) in the folder (`-d`), not the path.
-                    return start(Command::new(exe).args(["-w", "new", "-d"]).arg(&dir));
+                    // Windows Terminal splits its command line on `;` even inside quoted arguments.
+                    // Pass `-d .` and set the folder via `.current_dir(&dir)` so repository names
+                    // containing `;` work safely without ever placing `dir` on `wt`'s command line.
+                    return start(Command::new(exe).args(["-w", "new", "-d", "."]).current_dir(&dir));
                 }
                 if rune::is_headless() {
                     return Ok(());
@@ -93,6 +90,38 @@ impl Launcher for Win {
 
 fn is_terminal(exe: &Path) -> bool {
     exe.file_stem().is_some_and(|s| s.eq_ignore_ascii_case("wt"))
+}
+
+/// Opens a user-confirmed allow-listed app-scheme URI via Windows Shell association
+/// (`ShellExecuteExW` with `lpVerb = "open"` and `SEE_MASK_FLAG_NO_UI`, never splicing a shell
+/// command line ourselves).
+///
+/// Windows' Shell association engine resolves both classic `HKCR\<scheme>\shell\open\command`
+/// (`"%1"` substitution) and modern MSIX/UWP `DelegateExecute` handlers. Because classic `%1`
+/// substitution injects the URI text inside `"%1"`, `browser_policy::is_strict_rfc3986_uri` is
+/// re-verified here to ban `"`, `\`, spaces/whitespace, controls, `< > ` ^ { | }`, non-ASCII, and
+/// malformed `%XX`, preventing quote break-out and argument injection.
+#[allow(unsafe_code)]
+pub(crate) fn open_app_uri(uri: &str) -> bool {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::{SEE_MASK_FLAG_NO_UI, SHELLEXECUTEINFOW, ShellExecuteExW};
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    if !browser_policy::is_strict_rfc3986_uri(uri) {
+        return false;
+    }
+    let verb: Vec<u16> = OsStr::new("open").encode_wide().chain([0]).collect();
+    let target: Vec<u16> = OsStr::new(uri).encode_wide().chain([0]).collect();
+    // SAFETY: zero-initialized `SHELLEXECUTEINFOW` with exact `cbSize`, valid NUL-terminated
+    // UTF-16 `verb` and `target` buffers live across the synchronous `ShellExecuteExW` call.
+    let mut info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
+    info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+    info.fMask = SEE_MASK_FLAG_NO_UI;
+    info.lpVerb = verb.as_ptr();
+    info.lpFile = target.as_ptr();
+    info.nShow = SW_SHOWNORMAL;
+    unsafe { ShellExecuteExW(&mut info) != 0 }
 }
 
 /// Starts `cmd` on its own: the app keeps running after the launch answers.
@@ -146,7 +175,8 @@ fn resolve(app: &str, var: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf>
     if let Some(exe) = named_like(app, &found) {
         return Some(exe);
     }
-    installed_at(app, var).or_else(|| found.into_iter().next())
+    // Never fall back to spawning a `.cmd`/`.bat` shim directly (cmd.exe metacharacter exposure).
+    installed_at(app, var).or_else(|| found.into_iter().find(|p| ext(p, "exe")))
 }
 
 /// What `where` finds for `app` on the `PATH`, in order: each folder of `PATH` with each

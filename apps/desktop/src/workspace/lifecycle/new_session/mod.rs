@@ -37,8 +37,8 @@ struct Held {
 /// rather than timing out.
 #[derive(Clone)]
 enum Start {
-    /// Making a worktree of `project` from the checkout `from`.
-    Worktree { attempt: Attempt, draft: Option<String>, held: Held, due: f64 },
+    /// Making a worktree of `project` from the checkout `project_directory`.
+    Worktree { attempt: Attempt, draft: Option<String>, project_directory: String, held: Held, due: f64 },
     /// Waiting for the MCP toggles in flight in `directory` (`waiting`); `failed` once one of
     /// them failed. `created`: the worktree this start made.
     Mcp { attempt: Attempt, draft: Option<String>, held: Held, directory: String, created: bool, waiting: Vec<Attempt>, failed: bool, due: f64 },
@@ -103,6 +103,15 @@ impl Starts {
         }
     }
 
+    /// Where the pending session will run (`viewNewSessionStart(state).directory`, #65190):
+    /// the project root stands in while a new worktree is created, then the target worktree.
+    pub fn directory(&self, session: &str) -> Option<&str> {
+        match self.starts.get(session)? {
+            Start::Worktree { project_directory, .. } => Some(project_directory.as_str()),
+            Start::Mcp { directory, .. } | Start::Creating { directory, .. } => Some(directory.as_str()),
+        }
+    }
+
     /// When the next phase's time runs out.
     fn due(&self) -> Option<f64> {
         self.starts.values().filter_map(|s| match s { Start::Worktree { due, .. } | Start::Mcp { due, .. } => Some(*due), Start::Creating { .. } => None }).reduce(f64::min)
@@ -112,7 +121,7 @@ impl Starts {
         match (self.starts.remove(session), event) {
             (None, Event::Begin { place: Place::New { project, from, branch }, draft, held, now, .. }) => {
                 let attempt = self.seq.next();
-                self.starts.insert(session.to_owned(), Start::Worktree { attempt, draft, held, due: now + WORKTREE_SECS });
+                self.starts.insert(session.to_owned(), Start::Worktree { attempt, draft, project_directory: from.clone(), held, due: now + WORKTREE_SECS });
                 vec![Effect::CreateWorktree { attempt, project, from, branch }]
             }
             (None, Event::Begin { place: Place::Existing(directory), draft, held, toggling, now }) => {
@@ -286,26 +295,47 @@ impl App {
                         let result = srv.create_worktree(&project, &from, branch.as_deref()).map_err(|e| e.to_string());
                         Box::new(move |s: &mut App, tx: &mut Tx| {
                             crate::servers::runtime::with_server(s, &key, |s| {
-                                if result.is_ok() {
+                                if let Ok(dir) = &result {
+                                    opencode_kit::model::add_project_sandbox(&project, dir.clone());
                                     s.worktree_updated(&project);
                                 }
                                 let now = *s.clock;
                                 let effects = s.queue.starts.step(&session, Event::WorktreeMade { attempt, result, now });
+                                if let Some(dir) = s.queue.starts.directory(&session).map(str::to_owned) {
+                                    s.set_start_directory(&session, &dir);
+                                }
                                 s.start_effects(&session, effects, tx);
                             });
                         })
                     });
                 }
                 Effect::Create { directory, held } => {
-                    if let Some(info) = self.sessions.iter_mut().find(|s| s.id == id) {
-                        info.directory.clone_from(&directory);
-                    }
+                    self.set_start_directory(id, &directory);
                     // Its row goes from Preparing to Waiting, on to the folder the session runs in.
                     self.release_prepared(&held.id, Some(directory));
                 }
                 Effect::Promote => {}
                 Effect::Rollback { directory, draft, held, worktree, why } => self.roll_back_start(id, directory, draft, held, worktree, why, tx),
             }
+        }
+    }
+
+    fn set_start_directory(&mut self, id: &str, directory: &str) {
+        if let Some(info) = self.sessions.iter_mut().find(|s| s.id == id) {
+            info.directory.clear();
+            info.directory.push_str(directory);
+        }
+        let server = crate::servers::runtime::active(self).clone();
+        let mut updated = false;
+        if let Some(tab) = self.tabs.iter_mut().find(|t| !t.is_draft() && t.server == server && t.id == id)
+            && tab.directory != directory
+        {
+            tab.directory.clear();
+            tab.directory.push_str(directory);
+            updated = true;
+        }
+        if updated {
+            self.save_tabs();
         }
     }
 

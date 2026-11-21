@@ -55,6 +55,10 @@ pub trait ProjectSwitcherHost: opencode_kernel::AppEnv + opencode_kernel::AppOve
     fn draft_project(&self) -> Option<&Project> {
         None
     }
+    /// The folder the open draft runs in, which the worktree step checks (`currentDestination`).
+    fn draft_dir(&self) -> Option<&str> {
+        None
+    }
     fn open_branch_picker(&mut self, _tx: &mut Tx) {}
     fn close_branch_picker(&mut self, _tx: &mut Tx) {}
     fn choose_new_worktree(&mut self, project_id: &str, directory: String);
@@ -217,7 +221,6 @@ pub enum RowKind {
     Worktree { project_id: String, directory: String, main: bool, server: Option<ServerKey> },
     /// New worktree: the session starts in a worktree made from the project's checkout.
     Create { project_id: String, directory: String, server: Option<ServerKey> },
-    Base { directory: String },
     Branch,
     Other { count: usize },
     Add,
@@ -545,7 +548,6 @@ pub fn choose(host: &mut dyn ProjectSwitcherHost, key: &str, tx: &mut Tx) {
 
 fn choose_here(host: &mut dyn ProjectSwitcherHost, row: SwitcherRow, worktree: bool, base: Option<String>, tx: &mut Tx) {
     match row.kind {
-        RowKind::Base { directory } => branches::open_base(host, directory, tx),
         RowKind::Branch => {
             location_event(host, location::Event::BranchChosen(row.title), tx);
         }

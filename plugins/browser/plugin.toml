@@ -14,3 +14,7 @@ scope = "global"
 [[stores]]
 name = "preferences"
 scope = "global"
+
+[[stores]]
+name = "extensions"
+scope = "global"
