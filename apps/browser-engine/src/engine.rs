@@ -34,7 +34,7 @@ pub(crate) struct ManagedTab {
     allow_extension_pages: bool,
     pub(super) isolated: bool,
     pub(crate) is_popup: bool,
-    preview: Option<Arc<PreviewGrant>>,
+    pub(crate) preview: Option<Arc<PreviewGrant>>,
     #[cfg(target_os = "linux")]
     preview_spec: Option<PreviewSpec>,
     view_state: Arc<Mutex<ViewRectState>>,
@@ -725,7 +725,7 @@ impl EngineManager {
                     }
                     let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
                     crate::cdp_ledger::handle_typed_cdp_call(
-                        tab_id, request_id, not_ready, t, &self.next_cdp_id, &self.out_tx,
+                        tab_id, request_id, not_ready, t, &self.permissions, &self.next_cdp_id, &self.out_tx,
                         self.extensions.is_some(), method, params, session_id, frame_id,
                     );
                 }
@@ -1356,6 +1356,9 @@ impl EngineManager {
         // released first: CEF may deliver the observer callback inside the send.
         let mut arm = cdp_ledger.lock().unwrap().arm();
         arm.extend(passkeys.attach_messages(None));
+        if agent_driven || is_preview {
+            arm.push(passkeys.file_chooser_intercept_msg(true, None));
+        }
         if !passkeys.native() || agent_driven {
             arm.extend(passkeys.enforce_messages());
         }

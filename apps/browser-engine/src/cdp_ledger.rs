@@ -58,6 +58,7 @@ pub(crate) fn handle_typed_cdp_call(
     request_id: u64,
     not_ready_reason: Option<&str>,
     t: &crate::engine::ManagedTab,
+    permissions: &crate::permissions::PermissionTracker,
     next_cdp_id: &std::sync::atomic::AtomicI32,
     out_tx: &crate::output::Output,
     extensions_active: bool,
@@ -72,8 +73,18 @@ pub(crate) fn handle_typed_cdp_call(
 
     let surface = crate::engine::classify_surface(Some(&t.browser), t.is_popup, &t.snap, &t.prompts, &t.cdp_ledger);
     let profiling = ["HeapProfiler.", "Profiler.", "Tracing."].iter().any(|p| method.starts_with(p));
+    let oopif_inherited_blocked = !t.isolated
+        && t.preview.is_none()
+        && t.prompts.agent_driven.load(Ordering::Acquire)
+        && t.cdp_ledger
+            .lock()
+            .unwrap()
+            .target_frame_url(session_id.as_deref(), frame_id.as_deref(), &params)
+            .is_some_and(|u| permissions.has_inherited_default_grant(&u));
     let checked = if let Some(reason) = not_ready_reason {
         Err(reason.to_owned())
+    } else if oopif_inherited_blocked {
+        Err(crate::permissions::INHERITED_PERMISSION_MSG.into())
     } else if surface == crate::engine::Surface::WholeTab {
         Err(EXTENSION_SURFACE.into())
     } else if method.starts_with("Input.") && surface != crate::engine::Surface::Clean {
@@ -521,13 +532,25 @@ wrap_dev_tools_message_observer! {
                 (obs, ledger.app_attached)
             };
             if let Some(child_sid) = obs.new_web_session.as_deref() {
-                // Attach the passkey wrapper on the paused OOPIF BEFORE `Runtime.runIfWaitingForDebugger`
-                // (the last message in `obs.send`), matching `chromium.ts:619`.
+                // Attach the passkey wrapper (and renderer file-chooser intercept when controlled
+                // or preview) on the paused OOPIF BEFORE `Runtime.runIfWaitingForDebugger` (the
+                // last message in `obs.send`), matching `chromium.ts:619`.
                 let resume = obs.send.pop();
                 obs.send.extend(self.passkeys.attach_messages(Some(child_sid)));
+                if self.is_preview
+                    || self.prompts.agent_driven.load(std::sync::atomic::Ordering::Acquire)
+                {
+                    obs.send.push(self.passkeys.file_chooser_intercept_msg(true, Some(child_sid)));
+                }
                 if let Some(r) = resume {
                     obs.send.push(r);
                 }
+            }
+            if method == "Page.fileChooserOpened"
+                && (self.is_preview
+                    || self.prompts.agent_driven.load(std::sync::atomic::Ordering::Acquire))
+            {
+                let _ = self.out_tx.send(EngineMsg::FileChooserBlocked { tab_id: self.tab_id });
             }
             let (pk_send, pk_consumed) = self.passkeys.observe_event(
                 &method,
