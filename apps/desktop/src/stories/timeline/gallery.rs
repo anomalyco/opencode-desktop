@@ -99,9 +99,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
 }
 
 fn view_first(s: &mut App, tx: &mut Play<App>) {
-    if let Some(f) = pictures().first() {
-        crate::attachments::view_image(s, &format!("tool-images-{TOOL}"), 0, f, tx);
-    }
+    crate::attachments::view_image(s, &format!("tool-images-{TOOL}"), pictures(), 0, tx);
 }
 
 /// The timeline in a frame as wide as the variant asks (the column follows it).

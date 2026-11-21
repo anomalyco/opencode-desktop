@@ -23,7 +23,7 @@ use crate::focus::FocusExt;
 use crate::palette::Pal;
 
 pub use drag::{Dragged, draggable};
-pub use viewer::{Viewing, opens, poll, shown, view_image, viewer};
+pub use viewer::{Strip, Viewing, opens, poll, shown, view_image, viewer};
 
 /// Newest message window checked by `transcript_ready` (matches `session_pages::LATEST`).
 pub const LATEST: usize = 12;
@@ -475,7 +475,7 @@ pub fn markdown_pictures<S: TimelineHost>(p: &Pal, md: rune_kit::Markdown, m: ma
             let dragged = Dragged::Markdown { directory: m.directory.as_deref().map(str::to_owned), src: f.src.to_owned() };
             let img = menu::on_image::<S>(draggable::<S>(img, dragged.clone()), dragged.clone(), m.message.as_deref());
             el().w_full().child(img.key("img").matched(id.clone()).token_motion(m.flight).role("button").label(name.clone()).focusable(true).focus_default(&pal).cursor(rune::Cursor::ZoomIn).on_press_tx(move |s: &mut S, tx: &mut rune::Tx| {
-                viewer::open(s, Viewing { id: id.clone(), name: name.clone(), image: image.clone(), dragged: dragged.clone() }, tx);
+                viewer::open(s, Viewing { id: id.clone(), name: name.clone(), image: image.clone(), dragged: dragged.clone(), strip: None }, tx);
             }))
         })
 }
@@ -486,18 +486,20 @@ pub fn shows(files: &[Attachment]) -> bool {
 }
 
 /// Images in the transcript, right-aligned for a user: one at its own shape (at most 320×240
-/// points, 2× pixels), several in a bento block (`bento`). A ref still on its way holds a tile;
+/// points, 2× pixels), several in a bento block (`bento`) as wide as the timeline's column less
+/// `inset`, the room the caller indents it by. A ref still on its way holds a tile;
 /// one whose bytes are gone shows the server's placeholder as a chip.
 ///
 /// `key` names the gallery, and must be unique in the window: each image's shared-element id
 /// is its place in it ([`gallery_id`]), which a refreshed page keeps.
 ///
 /// `message`: the message the images belong to, whose items follow theirs in a right-click menu.
-pub fn gallery<S: TimelineHost>(s: &S, p: &Pal, key: &str, files: &[Attachment], end: bool, message: Option<&str>) -> Option<El> {
+pub fn gallery<S: TimelineHost>(s: &S, p: &Pal, key: &str, files: &[Attachment], end: bool, inset: f32, message: Option<&str>) -> Option<El> {
     let images: Vec<&Attachment> = files.iter().filter(|f| shows(std::slice::from_ref(f))).collect();
     if images.is_empty() {
         return None;
     }
+    let strip: Arc<[Attachment]> = images.iter().map(|&f| f.clone()).collect();
     let store = s.media_store();
     // Pictures (and refs still loading) go in the bento block; the rest are named chips.
     let mut shown = Vec::new();
@@ -514,7 +516,7 @@ pub fn gallery<S: TimelineHost>(s: &S, p: &Pal, key: &str, files: &[Attachment],
         }
     }
     let sizes: Vec<_> = shown.iter().map(|(_, _, f, img)| if img.is_some() { store.thumbnail_size(f) } else { (160.0, 120.0) }).collect();
-    let ((bw, bh), tiles) = bento::tiles(&sizes);
+    let ((bw, bh), tiles) = bento::tiles(&sizes, crate::genui::width(s) - inset);
     let mut block = el().key(key).size(bw, bh);
     for ((i, k, f, img), [x, y, w, h]) in shown.into_iter().zip(tiles) {
         let tile = el().key(k.clone()).label(f.name.clone()).size(w, h).radius(bento::RADIUS).fill(p.layer2);
@@ -523,7 +525,7 @@ pub fn gallery<S: TimelineHost>(s: &S, p: &Pal, key: &str, files: &[Attachment],
                 let held = el().key(format!("{k}-held")).size(w, h).absolute(x, y);
                 // The tile crops to its slot rather than letterboxing inside it.
                 let thumb = tile.box_shadow(Pal::ring_in(p.border_muted)).pixels_fit(img.pixels(), SurfaceFit::Fill).absolute(x, y);
-                opens(s, thumb, held, gallery_id(key, i), f, img, message)
+                opens(s, thumb, held, Ok(Strip::new(key, strip.clone(), i)), f, img, message)
             }
             None => tile.absolute(x, y),
         });

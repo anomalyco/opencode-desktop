@@ -202,7 +202,7 @@ pub fn node(a: &mut NodeArgs) -> Result<El, String> {
         }
         let Some((image, bytes)) = state.and_then(crate::plugin_host::images::shown).filter(|_| loaded) else { return Ok(out) };
         let file = opencode_kit::model::Attachment { mime: load::mime(&bytes).into(), name: label.unwrap_or_else(|| "image".into()), bytes, media: None };
-        Ok(session_view::images::opens::<App>(app, out, el(), format!("plugin-image-{plugin}-{id}"), &file, image, None))
+        Ok(session_view::images::opens::<App>(app, out, el(), Err(format!("plugin-image-{plugin}-{id}")), &file, image, None))
     })
     .ok_or_else(|| "ui.image draws only in a window".to_owned())?
 }
