@@ -27,6 +27,7 @@ mod mac_app;
 mod agent;
 mod cdp_ledger;
 mod cef_runtime;
+mod clipboard_gate;
 mod cookies;
 mod diagnostics;
 mod favicon;

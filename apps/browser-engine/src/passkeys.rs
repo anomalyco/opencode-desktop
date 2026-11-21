@@ -224,7 +224,7 @@ impl TabPasskeyGate {
     }
 
     fn alloc_id(&self) -> i32 {
-        let n = self.next_id.fetch_add(1, Ordering::Relaxed).rem_euclid(90_000_000);
+        let n = self.next_id.fetch_add(1, Ordering::Relaxed).rem_euclid(50_000_000);
         PASSKEY_ID_BASE + n
     }
 
