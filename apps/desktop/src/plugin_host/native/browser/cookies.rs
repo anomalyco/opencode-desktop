@@ -44,11 +44,19 @@ pub(super) fn service_methods(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> m
         .set_name("=Browser:ImportCookieFileAsync")
         .call(raw)?;
     t.raw_set("ImportCookieFileAsync", call)?;
+    // `Browser:ImportSignInsAsync(source, profile, sites?)`: another browser's sign-ins (`cookie_import`).
+    let raw: Function = vmx.asyncs.raw_get("Browser.ImportSignInsAsync")?;
+    let call: Function = lua
+        .load("local raw = ... return function(self, source, profile, sites) return raw(source, profile, sites) end")
+        .set_name("=Browser:ImportSignInsAsync")
+        .call(raw)?;
+    t.raw_set("ImportSignInsAsync", call)?;
     Ok(())
 }
 
 pub(super) fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
-    t.raw_set("Browser.ImportCookieFileAsync", host.async_function("Browser:ImportCookieFileAsync", import_cookie_file)?)
+    t.raw_set("Browser.ImportCookieFileAsync", host.async_function("Browser:ImportCookieFileAsync", import_cookie_file)?)?;
+    t.raw_set("Browser.ImportSignInsAsync", host.async_function("Browser:ImportSignInsAsync", import_sign_ins)?)
 }
 
 fn import_cookie_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
@@ -56,6 +64,15 @@ fn import_cookie_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result
     require_settings_caller(lua, "Browser:ImportCookieFileAsync")?;
     with_app("Browser:ImportCookieFileAsync", |app| {
         app.later(Box::new(move |s: &mut App, tx: &mut Tx| s.start_cookie_file_import(title, done, tx)));
+        Ok(())
+    })
+}
+
+fn import_sign_ins(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
+    let (source, profile, sites): (String, String, Option<Vec<String>>) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
+    require_settings_caller(lua, "Browser:ImportSignInsAsync")?;
+    with_app("Browser:ImportSignInsAsync", |app| {
+        app.later(Box::new(move |s: &mut App, _: &mut Tx| s.start_browser_import(source, profile, sites, done)));
         Ok(())
     })
 }
