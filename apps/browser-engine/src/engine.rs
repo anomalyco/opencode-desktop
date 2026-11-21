@@ -19,7 +19,7 @@ use crate::keys::send_key;
 use crate::preview::{PreviewGrant, PreviewRegistry};
 use crate::tab_client::SidecarTabClient;
 use crate::wire::{
-    CursorKind, EngineMsg, HostMsg, PickedElement, PointerBtn, PreviewSpec, TabSnapshot,
+    CursorKind, EngineMsg, HostMsg, PointerBtn, PreviewSpec, TabSnapshot,
 };
 
 /// Opaque page background (ARGB) for pages that specify none. macOS uses Rune's dark base.
@@ -154,117 +154,10 @@ impl EngineManager {
         self.downloads.cancel_all_pending_saves();
     }
 
-    pub fn poll_picks(&mut self) {
-        for outcome in self.contexts.drain_ready_loads() {
-            match outcome {
-                crate::context::DeferredOutcome::Load { tab_id, generation, url } => {
-                    if let Some(tab) = self.tabs.get(&tab_id)
-                        && tab.generation == generation
-                        && self.contexts.is_tab_ready(tab_id)
-                    {
-                        tab.deferred_initial.store(false, Ordering::Release);
-                        if !url.trim().eq_ignore_ascii_case("about:blank")
-                            && let Some(frame) = tab.browser.main_frame()
-                        {
-                            frame.load_url(Some(&CefString::from(url.as_str())));
-                        }
-                    }
-                }
-                crate::context::DeferredOutcome::Refuse { tab_id, generation, reason } => {
-                    if self.tabs.get(&tab_id).is_some_and(|t| t.generation == generation) {
-                        self.close_and_refuse_tab(tab_id, reason);
-                    }
-                }
-            }
-        }
-        let mut ready = Vec::new();
-        let mut clears = Vec::new();
-        for (&tab_id, tab) in &self.tabs {
-            for backend_id in tab.internal_picked.lock().unwrap().drain(..) {
-                ready.push((tab_id, backend_id));
-            }
-            for clear in tab.pending_clears.lock().unwrap().drain(..) {
-                clears.push(clear);
-            }
-        }
-        for clear in clears {
-            if let Some(tab) = self.tabs.get(&clear.tab_id) {
-                if !self.contexts.is_tab_ready(clear.tab_id) {
-                    let reason = self.contexts.not_ready_reason(clear.tab_id);
-                    let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                        tab_id: clear.tab_id,
-                        request_id: clear.request_id,
-                        ok: false,
-                        result: json!({ "message": reason }),
-                    });
-                    continue;
-                }
-                for (name, domain, path) in clear.cookies {
-                    self.send_internal_cdp(
-                        &tab.host,
-                        "Network.deleteCookies",
-                        json!({ "name": name, "domain": domain, "path": path }),
-                    );
-                }
-                self.send_internal_cdp(
-                    &tab.host,
-                    "Storage.clearDataForOrigin",
-                    json!({
-                        "origin": clear.origin,
-                        "storageTypes": "local_storage,indexeddb,service_workers,cache_storage,file_systems,shader_cache",
-                    }),
-                );
-                tab.browser.reload();
-                let _ = self.out_tx.send(EngineMsg::CdpResponse {
-                    tab_id: clear.tab_id,
-                    request_id: clear.request_id,
-                    ok: true,
-                    result: json!({}),
-                });
-            }
-        }
-        for (tab_id, backend_id) in ready {
-            let eref = format!("@e{}", self.next_eref);
-            self.next_eref += 1;
-            if let Some(tab) = self.tabs.get(&tab_id) {
-                // Turn off inspect mode and highlight the chosen node cleanly.
-                self.send_internal_cdp(
-                    &tab.host,
-                    "Overlay.setInspectMode",
-                    json!({ "mode": "none", "highlightConfig": {} }),
-                );
-                self.send_internal_cdp(
-                    &tab.host,
-                    "Overlay.highlightNode",
-                    json!({
-                        "backendNodeId": backend_id,
-                        "highlightConfig": {
-                            "showInfo": true,
-                            "contentColor": { "r": 56, "g": 189, "b": 248, "a": 0.28 },
-                            "borderColor": { "r": 56, "g": 189, "b": 248, "a": 0.90 }
-                        }
-                    }),
-                );
-            }
-            let _ = self.out_tx.send(EngineMsg::InspectState {
-                tab_id,
-                active: false,
-                picked: Some(PickedElement {
-                    tab_id,
-                    eref: eref.clone(),
-                    backend_node_id: backend_id,
-                    selector: format!("node#{backend_id}"),
-                    label: format!("{eref} (node #{backend_id})"),
-                    role: None,
-                    name: None,
-                    text: None,
-                    rect: [0.0; 4],
-                }),
-            });
-        }
-    }
-
     pub fn handle(&mut self, msg: HostMsg) -> bool {
+        if self.refuse_if_controlled_tab_blocked(&msg) {
+            return true;
+        }
         match msg {
             HostMsg::Hello { mach_service, prompts, extensions, download_save, .. } => {
                 self.prompt_shared.enabled.store(prompts, Ordering::Relaxed);
@@ -445,6 +338,15 @@ impl EngineManager {
                             tab_id,
                             reason: why.code().to_owned(),
                         });
+                    } else if is_agent
+                        && !isolated
+                        && self.tabs.get(&tab_id).is_some_and(|t| t.preview.is_none())
+                        && self.permissions.has_inherited_default_grant(&url)
+                    {
+                        let _ = self.out_tx.send(EngineMsg::ControlledPermissionRefused {
+                            tab_id,
+                            url: Some(url),
+                        });
                     } else {
                         match self.contexts.gate_navigation(tab_id, &url) {
                             Ok(true) => {
@@ -480,7 +382,9 @@ impl EngineManager {
             HostMsg::Back { tab_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if self.contexts.is_tab_ready(tab_id) {
-                        t.browser.go_back();
+                        if !self.refuse_history_nav_if_inherited(tab_id, t, -1) {
+                            t.browser.go_back();
+                        }
                     } else if self.contexts.is_tab_suspended(tab_id) {
                         let _ = self.out_tx.send(EngineMsg::Refused {
                             tab_id,
@@ -492,7 +396,9 @@ impl EngineManager {
             HostMsg::Forward { tab_id } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
                     if self.contexts.is_tab_ready(tab_id) {
-                        t.browser.go_forward();
+                        if !self.refuse_history_nav_if_inherited(tab_id, t, 1) {
+                            t.browser.go_forward();
+                        }
                     } else if self.contexts.is_tab_suspended(tab_id) {
                         let _ = self.out_tx.send(EngineMsg::Refused {
                             tab_id,
@@ -752,6 +658,9 @@ impl EngineManager {
                         ctx.as_ref(),
                         &self.permissions,
                     );
+                    if allow && ctx_scope.is_none() {
+                        self.flush_bfcache_for_default_tabs();
+                    }
                 }
             }
             HostMsg::ResetPermission { origin, kind } => {
@@ -759,6 +668,9 @@ impl EngineManager {
             }
             HostMsg::SyncSitePermissions { entries } => {
                 self.permissions.sync_profile_permissions(&entries);
+                if entries.iter().any(|e| e.allow) {
+                    self.flush_bfcache_for_default_tabs();
+                }
             }
             HostMsg::AnswerAuth { tab_id, id, username, password } => {
                 if let Some(t) = self.tabs.get(&tab_id) {
@@ -986,6 +898,7 @@ impl EngineManager {
         };
         let mut preview_grant: Option<Arc<PreviewGrant>> = None;
         let mut refused_reason: Option<String> = None;
+        let mut refused_inherited_url: Option<String> = None;
         let mut req_ctx: Option<RequestContext>;
         let context_ready;
         let deferred_initial;
@@ -1067,6 +980,12 @@ impl EngineManager {
                 url
             } else if let Some(why) = browser_policy::frame_guard(url, true, &file_roots) {
                 refused_reason = Some(why.code().to_owned());
+                "about:blank"
+            } else if agent_driven
+                && !isolated
+                && self.permissions.has_inherited_default_grant(url)
+            {
+                refused_inherited_url = Some(url.to_owned());
                 "about:blank"
             } else {
                 url
@@ -1200,6 +1119,7 @@ impl EngineManager {
             snap.clone(),
             self.prompt_shared.clone(),
             prompts.clone(),
+            self.permissions.clone(),
             scope_id,
             diagnostics,
             self.out_tx.clone(),
@@ -1357,12 +1277,15 @@ impl EngineManager {
         let mut observer = TabCdpObserver::new(
             tab_id,
             is_popup,
+            isolated,
+            is_preview,
             snap.clone(),
             cdp_id_map.clone(),
             internal_picked.clone(),
             pending_clears.clone(),
             cdp_ledger.clone(),
             prompts.clone(),
+            self.permissions.clone(),
             self.extensions.is_some(),
             self.out_tx.clone(),
         );
@@ -1416,6 +1339,12 @@ impl EngineManager {
         }
         if let Some(reason) = refused_reason {
             let _ = self.out_tx.send(EngineMsg::Refused { tab_id, reason });
+        }
+        if let Some(refused_url) = refused_inherited_url {
+            let _ = self.out_tx.send(EngineMsg::ControlledPermissionRefused {
+                tab_id,
+                url: Some(refused_url),
+            });
         }
     }
 
@@ -1471,3 +1400,4 @@ pub(crate) use extensions::{browser_has_extension_surface, tab_is_extension_surf
 mod emulation;
 mod extensions;
 mod frames;
+mod picks;

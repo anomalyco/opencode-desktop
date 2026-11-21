@@ -308,6 +308,14 @@ pub enum EngineMsg {
     /// A preview page attempted to load a file outside its grant or a secret/hidden path.
     PreviewDenied { tab_id: u64 },
     Refused { tab_id: u64, reason: String },
+    /// A controlled (`agent_driven`) `Default`-profile tab was refused because its origin holds an
+    /// inherited grant (`clipboard-read`, `geolocation`, or `notifications`). Carries the refused
+    /// URL so the host can show the notice bar and offer "Open in new tab" without altering `t.url`.
+    ControlledPermissionRefused {
+        tab_id: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        url: Option<String>,
+    },
     Dialog { tab_id: u64, dialog: PageDialog },
     DialogsReset { tab_id: u64 },
     PermissionRequest { tab_id: u64, request: PermissionPrompt },

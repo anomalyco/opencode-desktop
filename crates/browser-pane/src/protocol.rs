@@ -457,6 +457,13 @@ pub enum EngineMsg {
         tab_id: u64,
         reason: String,
     },
+    /// Controlled `Default`-profile tab refused due to an inherited site permission; carries the
+    /// refused URL for the notice bar and "Open in new tab" without overwriting `BrowserTab.url`.
+    ControlledPermissionRefused {
+        tab_id: u64,
+        #[serde(default)]
+        url: Option<String>,
+    },
     Dialog {
         tab_id: u64,
         dialog: PageDialog,

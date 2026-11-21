@@ -415,7 +415,7 @@ return plugin.defineWindow(function(ctx)
         local code = tab:Refusal()
         local rej = tab:Rejected()
         local existing = refusalNotices[tab.Id]
-        if code == nil then
+        if code == nil or code == "browser.controlled.inherited_permission" then
             if existing ~= nil and (navigated or string.sub(existing.token, 1, 4) ~= "app:") then
                 refusalNotices[tab.Id] = nil
             end
