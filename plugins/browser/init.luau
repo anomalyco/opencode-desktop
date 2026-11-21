@@ -972,20 +972,21 @@ return plugin.defineWindow(function(ctx)
             local sid = props.sessionId or ""
             local title = tabText(sid, tab)
             local preview = isPreviewTab(tab)
+            local labelColor: Color = if props.active then "text-chrome" else "text-muted"
             local iconNode: ui.Node
             if preview then
-                iconNode = ui.icon("folder", { size = 16, color = "icon-weak" })
+                iconNode = ui.icon("folder", { size = 16, color = labelColor })
             else
                 local tAny = tab :: any
                 local liveFav = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
                 local saved = savedTabs.find(savedTabs.normalize(savedTabsStore:Get()), sid, id)
                 local fav = savedTabs.tabIcon(pageUrl(tab), liveFav, saved)
                 if fav ~= nil then
-                    iconNode = ui.image({ src = fav, w = 16, h = 16, radius = 2 }, {
-                        ui.icon("globe", { size = 16, color = "icon-weak" }),
+                    iconNode = ui.image({ src = fav, w = 16, h = 16 }, {
+                        ui.icon("globe", { size = 16, color = labelColor }),
                     })
                 else
-                    iconNode = ui.icon("globe", { size = 16, color = "icon-weak" })
+                    iconNode = ui.icon("globe", { size = 16, color = labelColor })
                 end
             end
             local children: { ui.Node } = {
@@ -994,7 +995,10 @@ return plugin.defineWindow(function(ctx)
                     size = 13,
                     weight = "regular",
                     lineHeight = 16,
-                    color = if props.active then "text-chrome" else "text-muted",
+                    tracking = -0.04,
+                    tabular = true,
+                    noWrap = true,
+                    color = labelColor,
                     truncate = true,
                     shrink = true,
                     minW = 0,
