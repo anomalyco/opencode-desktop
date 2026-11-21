@@ -38,6 +38,8 @@ pub(super) enum OutboundMsg {
 #[derive(Default)]
 pub(super) struct TabRefs {
     pub ref_to_target: HashMap<String, (i64, Option<String>)>,
+    /// The frame each ref's snapshot was taken in, when it named one; the engine checks it.
+    pub ref_frames: HashMap<String, String>,
     pub backend_to_ref: HashMap<i64, String>,
     pub picked: HashMap<i64, String>,
 }
@@ -45,17 +47,27 @@ pub(super) struct TabRefs {
 impl TabRefs {
     pub fn clear_on_nav(&mut self) {
         self.ref_to_target.clear();
+        self.ref_frames.clear();
         self.backend_to_ref.clear();
         self.picked.clear();
     }
 
-    pub fn update_from_snapshot(&mut self, refs: BTreeMap<String, i64>, cdp_session: Option<String>) {
+    pub fn update_from_snapshot(&mut self, refs: BTreeMap<String, i64>, cdp_session: Option<String>, frame: Option<String>) {
         self.ref_to_target.clear();
+        self.ref_frames.clear();
         self.backend_to_ref.clear();
         for (k, id) in refs {
             self.backend_to_ref.insert(id, k.clone());
+            if let Some(f) = &frame {
+                self.ref_frames.insert(k.clone(), f.clone());
+            }
             self.ref_to_target.insert(k, (id, cdp_session.clone()));
         }
+    }
+
+    pub fn frame_of(&self, raw: &str) -> Option<String> {
+        let norm = opencode_kit::browser_rpc::normalize_ref(raw)?;
+        self.ref_frames.get(&norm).cloned()
     }
 
     pub fn resolve(&self, raw: &str) -> Option<(i64, Option<String>)> {
@@ -220,16 +232,18 @@ impl SessionAttachment {
         let host = &mut app.workspace_panes.browser.host;
         let _ = host.send_typed_cdp(host_id, "Page.enable", serde_json::json!({}), None);
         let _ = host.send_typed_cdp(host_id, "Runtime.enable", serde_json::json!({}), None);
-        let _ = host.send_typed_cdp(
-            host_id,
-            "Target.setAutoAttach",
-            serde_json::json!({
-                "autoAttach": true,
-                "waitForDebuggerOnStart": false,
-                "flatten": true,
-            }),
-            None,
-        );
+        if !host.engine_frame_authority() {
+            let _ = host.send_typed_cdp(
+                host_id,
+                "Target.setAutoAttach",
+                serde_json::json!({
+                    "autoAttach": true,
+                    "waitForDebuggerOnStart": false,
+                    "flatten": true,
+                }),
+                None,
+            );
+        }
         if let Ok(req_id) = host.send_typed_cdp(host_id, "Page.getFrameTree", serde_json::json!({}), None) {
             self.bootstrap_frame_reqs.push((host_id, req_id, None));
         }

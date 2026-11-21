@@ -11,6 +11,9 @@ use crate::wire::{EngineMsg, PickedElement};
 
 impl EngineManager {
     pub fn poll_picks(&mut self) {
+        for t in self.tabs.values() {
+            crate::cdp_ledger::flush_outbox(&t.cdp_ledger, &t.host);
+        }
         for outcome in self.contexts.drain_ready_loads() {
             match outcome {
                 crate::context::DeferredOutcome::Load { tab_id, generation, url } => {

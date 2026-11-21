@@ -398,6 +398,9 @@ pub enum HostMsg {
         method: String,
         params: Value,
         session_id: Option<String>,
+        /// The frame an element ref came from; the engine checks it belongs to `session_id`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        frame_id: Option<String>,
     },
     /// App-proxied response headers for a remote workspace or artifact `EngineMsg::PreviewFetch`.
     PreviewResponseHead {
@@ -466,6 +469,9 @@ pub enum EngineMsg {
         /// The engine emits `EngineMsg::PreviewCredit` for end-to-end preview flow control.
         #[serde(default)]
         preview_credit: bool,
+        /// The engine owns `Target.setAutoAttach` and frame exclusion authority (`EngineCdpLedger`).
+        #[serde(default)]
+        frame_authority: bool,
         /// The engine exposes `CefCookieManager` list/import/delete/probe/clear & two-way remote cookie mirroring.
         #[serde(default)]
         cookies: bool,

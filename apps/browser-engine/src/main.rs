@@ -32,6 +32,7 @@ mod cef_runtime;
 mod cookies;
 mod diagnostics;
 mod favicon;
+mod frame_authority;
 mod find;
 mod menu;
 mod preview;

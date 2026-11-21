@@ -913,6 +913,7 @@ impl BrowserHost {
                     agent_tools,
                     preview,
                     permission_sync,
+                    frame_authority,
                     cookies,
                     ..
                 } => {
@@ -934,6 +935,7 @@ impl BrowserHost {
                         agent_tools,
                         preview,
                         permission_sync,
+                        frame_authority,
                         cookies,
                     };
                     self.sync_site_permissions();

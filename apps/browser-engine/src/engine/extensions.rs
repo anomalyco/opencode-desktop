@@ -518,7 +518,15 @@ impl EngineManager {
             });
             return;
         }
-        if let Err(err) = browser_policy::check_cdp(&method, &params, true) {
+        // Official has no raw DOM or accessibility access at all; with extensions active, a raw
+        // caller could reach content scripts' closed shadow roots, so only typed calls may.
+        let raw_dom = self.extensions.is_some() && (method.starts_with("DOM.") || method.starts_with("Accessibility."));
+        let checked = if raw_dom {
+            Err("DOM and accessibility DevTools calls are not permitted while browser extensions are active.".to_owned())
+        } else {
+            browser_policy::check_cdp(&method, &params, true)
+        };
+        if let Err(err) = checked {
             let _ = self.out_tx.send(EngineMsg::CdpResponse {
                 tab_id,
                 request_id,
@@ -527,12 +535,23 @@ impl EngineManager {
             });
             return;
         }
+        // The engine enabled `Runtime` when it armed the tab: disable it first so Chromium
+        // reports the existing contexts to this caller too.
+        let disable = {
+            let mut ledger = t.cdp_ledger.lock().unwrap();
+            ledger.app_attached = true;
+            (method == "Runtime.enable").then(|| ledger.runtime_disable(None))
+        };
+        if let Some(disable) = disable {
+            t.host.send_dev_tools_message(Some(disable.as_bytes()));
+        }
         let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
         t.cdp_id_map.lock().unwrap().insert(
             msg_id,
             CdpPending::Raw {
                 request_id,
                 max_bytes: crate::cdp_ledger::max_cdp_response_bytes(&method),
+                typed: None,
             },
         );
         let payload = json!({
@@ -874,40 +893,40 @@ impl EngineManager {
     }
 }
 
-/// Fail-closed whole-tab extension guard checked at dispatch AND reply time for `HostMsg::CdpCall`,
+/// Fail-closed extension guard checked at dispatch AND reply time for `HostMsg::CdpCall`,
 /// `HostMsg::Find`, `SetInspect`, and `HighlightNode` (`review-rd274.md` Round-4 & Round-5).
 pub(crate) fn tab_is_extension_surface(t: &ManagedTab) -> bool {
-    browser_has_extension_surface(Some(&t.browser), t.is_popup, &t.snap, &t.prompts)
+    classify_surface(Some(&t.browser), t.is_popup, &t.snap, &t.prompts, &t.cdp_ledger) != Surface::Clean
 }
 
-pub(crate) fn browser_has_extension_surface(
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Surface {
+    Clean,
+    /// A web page with an extension frame in it: typed calls go on under the ledger's rules.
+    Subframes,
+    /// An extension page, a pop-up, or a tab that can't be inspected: everything is refused.
+    WholeTab,
+}
+
+pub(crate) fn classify_surface(
     browser: Option<&cef::Browser>,
     is_popup: bool,
     snap: &Mutex<TabSnapshot>,
     prompts: &TabPrompts,
-) -> bool {
-    if is_popup {
-        return true;
-    }
-    if crate::extensions::manifest::is_extension_scheme(&snap.lock().unwrap().url) {
-        return true;
-    }
-    if let Some(pending) = prompts.pending_top_url()
-        && crate::extensions::manifest::is_extension_scheme(&pending)
-    {
-        return true;
-    }
-    if prompts.has_cdp_ext_frames() {
-        return true;
+    ledger: &Mutex<crate::cdp_ledger::EngineCdpLedger>,
+) -> Surface {
+    let ext = crate::extensions::manifest::is_extension_scheme;
+    if is_popup || ext(&snap.lock().unwrap().url) || prompts.pending_top_url().is_some_and(|p| ext(&p)) {
+        return Surface::WholeTab;
     }
     let Some(browser) = browser else {
-        return prompts.has_any_pending_ext_subframes();
+        return Surface::WholeTab;
     };
-    if let Some(frame) = browser.main_frame() {
-        let live_url = CefString::from(&frame.url()).to_string();
-        if crate::extensions::manifest::is_extension_scheme(&live_url) {
-            return true;
-        }
+    if browser.main_frame().is_some_and(|f| ext(&CefString::from(&f.url()).to_string())) {
+        return Surface::WholeTab;
+    }
+    if ledger.lock().unwrap().has_excluded() {
+        return Surface::Subframes;
     }
     let mut ids = cef::CefStringList::new();
     browser.frame_identifiers(Some(&mut ids));
@@ -917,10 +936,10 @@ pub(crate) fn browser_has_extension_surface(
             continue;
         };
         let furl = CefString::from(&frame.url()).to_string();
-        if crate::extensions::manifest::is_extension_scheme(&furl) {
-            return true;
+        if ext(&furl) {
+            return Surface::Subframes;
         }
         live_frames.insert(id, furl);
     }
-    prompts.has_pending_ext_subframes(&live_frames)
+    if prompts.has_pending_ext_subframes(&live_frames) { Surface::Subframes } else { Surface::Clean }
 }

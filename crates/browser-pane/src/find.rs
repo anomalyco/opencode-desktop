@@ -109,6 +109,10 @@ impl crate::BrowserHost {
         self.caps.agent_tools()
     }
 
+    pub fn engine_frame_authority(&self) -> bool {
+        self.caps.frame_authority()
+    }
+
     /// Whether `tab_id` has been sent to a connected engine (`OpenTab` already flushed).
     pub fn tab_open_in_engine(&self, tab_id: u64) -> bool {
         self.is_connected()
@@ -147,6 +151,19 @@ impl crate::BrowserHost {
         params: serde_json::Value,
         session_id: Option<String>,
     ) -> Result<u64, String> {
+        self.send_typed_cdp_in_frame(tab_id, method, params, session_id, None)
+    }
+
+    /// As [`Self::send_typed_cdp`], naming the frame an element ref came from (`frame_id`), which
+    /// the engine checks before the call and again on its reply.
+    pub fn send_typed_cdp_in_frame(
+        &mut self,
+        tab_id: u64,
+        method: impl Into<String>,
+        params: serde_json::Value,
+        session_id: Option<String>,
+        frame_id: Option<String>,
+    ) -> Result<u64, String> {
         let method = method.into();
         crate::policy::check_typed_cdp(&method, &params, self.engine_policy())?;
         let request_id = self.next_req_id;
@@ -158,6 +175,7 @@ impl crate::BrowserHost {
                 method,
                 params,
                 session_id,
+                frame_id,
             });
             return Ok(request_id);
         }
