@@ -541,7 +541,8 @@ impl App {
                 Route::Home => None,
             };
             if loc.is_none() || loc == crate::start_location::server_directory(self) || loc == active_dir {
-                crate::connect::picker_reads::schedule(self, list, *self.clock);
+                let now = *self.clock;
+                crate::connect::picker_reads::schedule(self, list, now);
             }
         }
         if ty == "config.updated" {

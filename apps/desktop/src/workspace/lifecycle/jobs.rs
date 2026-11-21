@@ -103,7 +103,8 @@ impl App {
         for apply in done {
             apply(self, tx);
         }
-        crate::connect::picker_reads::poll(self, *self.clock, tx);
+        let now = *self.clock;
+        crate::connect::picker_reads::poll(self, now, tx);
         any
     }
 
