@@ -73,6 +73,7 @@ pub(crate) fn handle_typed_cdp_call(
     request_id: u64,
     not_ready_reason: Option<&str>,
     t: &crate::engine::ManagedTab,
+    prompt_shared: &crate::prompts::PromptShared,
     permissions: &crate::permissions::PermissionTracker,
     next_cdp_id: &std::sync::atomic::AtomicI32,
     out_tx: &crate::output::Output,
@@ -82,7 +83,7 @@ pub(crate) fn handle_typed_cdp_call(
     session_id: Option<String>,
     frame_id: Option<String>,
 ) {
-    use cef::ImplBrowserHost;
+    use cef::{ImplBrowser, ImplBrowserHost};
     use serde_json::json;
     use std::sync::atomic::Ordering;
 
@@ -92,6 +93,15 @@ pub(crate) fn handle_typed_cdp_call(
         t.cdp_ledger.lock().unwrap().reach(&method, session_id.as_deref(), frame_id.as_deref(), &params)
     });
     let oopif_inherited_blocked = reach.as_ref().is_some_and(|r| granted_origin(t, permissions, r).is_some());
+    let trace_start_pid = if method == "Tracing.start" {
+        let pid = t.prompts.committed_main_renderer_pid(Some(&t.browser));
+        if pid == 0 && let Some(f) = t.browser.main_frame() {
+            crate::tab_client::ping_renderer_pid(&f);
+        }
+        pid
+    } else {
+        0
+    };
     let checked = if let Some(reason) = not_ready_reason {
         Err(reason.to_owned())
     } else if oopif_inherited_blocked {
@@ -104,8 +114,12 @@ pub(crate) fn handle_typed_cdp_call(
         Err("Agent browser tools cannot profile pages while browser extensions are active.".into())
     } else if profiling && session_id.is_some() {
         Err("Agent profiling commands only target the tab's own main renderer process.".into())
-    } else if method == "Tracing.start" && t.prompts.renderer_pid.load(Ordering::Acquire) == 0 {
+    } else if method == "Tracing.start" && params.get("transferMode").and_then(Value::as_str) != Some("ReportEvents") {
+        Err("Tracing.start only permits transferMode 'ReportEvents'.".into())
+    } else if method == "Tracing.start" && trace_start_pid == 0 {
         Err("Tab renderer process ID is not ready yet; wait for the page to load and retry browser.trace.start.".into())
+    } else if method == "Tracing.end" && !prompt_shared.is_trace_owner(tab_id) {
+        Err("No active performance trace is owned by this tab.".into())
     } else if let Err(e) = browser_policy::check_typed_cdp(&method, &params, true) {
         Err(e)
     } else {
@@ -131,6 +145,18 @@ pub(crate) fn handle_typed_cdp_call(
         }
         Ok(Dispatch::Send(post)) => post,
     };
+    let started_trace = method == "Tracing.start";
+    if started_trace {
+        if let Err(owner) = prompt_shared.try_claim_trace(tab_id) {
+            let msg = if owner == tab_id {
+                "A performance trace is already active in this tab. Use browser.trace.stop({tabID}) to finish it before starting another."
+            } else {
+                "Another tab owns the active performance trace. Wait for its owner to finish; do not stop or replace another tab's recording."
+            };
+            return reply(false, json!({ "message": msg }));
+        }
+        t.prompts.trace_pid.store(trace_start_pid, Ordering::Release);
+    }
     let msg_id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
     t.cdp_id_map.lock().unwrap().insert(
         msg_id,
@@ -139,21 +165,18 @@ pub(crate) fn handle_typed_cdp_call(
             max_bytes: max_cdp_response_bytes(&method),
             typed: Some((post, session_id.clone())),
             reach,
+            is_tracing_start: started_trace,
         },
     );
     let mut payload = json!({ "id": msg_id, "method": method, "params": params });
     if let Some(sid) = session_id {
         payload["sessionId"] = Value::String(sid);
     }
-    let started_trace = method == "Tracing.start";
-    if started_trace {
-        let pid = t.prompts.renderer_pid.load(Ordering::Acquire);
-        t.prompts.trace_pid.store(pid, Ordering::Release);
-    }
     let raw = payload.to_string();
     if t.host.send_dev_tools_message(Some(raw.as_bytes())) != 1 {
         if started_trace {
             t.prompts.trace_pid.store(0, Ordering::Release);
+            prompt_shared.release_trace(tab_id);
         }
         t.cdp_id_map.lock().unwrap().remove(&msg_id);
         reply(false, json!({ "message": "send_dev_tools_message rejected" }));
@@ -336,7 +359,7 @@ pub enum CdpPending {
     /// call (`None`) is refused at reply time on any extension frame.
     /// `reach` is what an agent call on a controlled `Default` tab can act in, checked again
     /// against inherited grants when the reply comes back (`None`: not checked).
-    Raw { request_id: u64, max_bytes: usize, typed: Option<(Post, Option<String>)>, reach: Option<Reach> },
+    Raw { request_id: u64, max_bytes: usize, typed: Option<(Post, Option<String>)>, reach: Option<Reach>, is_tracing_start: bool },
     CookieCount(u64),
     ClearSite { request_id: u64, origin: String },
 }
@@ -360,6 +383,7 @@ wrap_dev_tools_message_observer! {
         pending_clears: Arc<Mutex<Vec<PendingClear>>>,
         cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
         passkeys: Arc<crate::passkeys::TabPasskeyGate>,
+        prompt_shared: crate::prompts::PromptShared,
         prompts: Arc<crate::prompts::TabPrompts>,
         permissions: Arc<crate::permissions::PermissionTracker>,
         extensions_active: bool,
@@ -405,18 +429,25 @@ wrap_dev_tools_message_observer! {
                 CdpPending::Raw { reach, .. } => reach.as_ref(),
                 _ => None,
             };
+            let is_tracing_start = matches!(pending, CdpPending::Raw { is_tracing_start: true, .. });
             if self.refuse_reply(browser.as_deref(), *request_id, reach) {
+                if is_tracing_start {
+                    self.release_trace_start(browser.as_deref(), success != 0);
+                }
                 return;
             }
-            if let CdpPending::Raw { request_id, max_bytes, typed, reach } = pending {
+            if let CdpPending::Raw { request_id, max_bytes, typed, reach, is_tracing_start } = pending {
                 // Enforce hard byte cap BEFORE parsing JSON or forwarding across IPC.
                 if result.is_some_and(|b| b.len() > max_bytes) {
+                    if is_tracing_start {
+                        self.release_trace_start(browser.as_deref(), success != 0);
+                    }
                     return self.too_big(request_id, max_bytes);
                 }
                 let val = result
                     .and_then(|b| serde_json::from_slice::<Value>(b).ok())
                     .unwrap_or(Value::Null);
-                return self.finish_reply(browser.as_deref(), request_id, typed, reach.is_some(), success != 0, val);
+                return self.finish_reply(browser.as_deref(), request_id, typed, reach.is_some(), is_tracing_start, success != 0, val);
             }
             let val = result
                 .and_then(|b| serde_json::from_slice::<Value>(b).ok())
@@ -533,7 +564,7 @@ wrap_dev_tools_message_observer! {
                     return 1;
                 }
                 let pending = self.id_map.lock().unwrap().remove(&msg_id);
-                let Some(CdpPending::Raw { request_id, max_bytes, typed, reach }) = pending else {
+                let Some(CdpPending::Raw { request_id, max_bytes, typed, reach, .. }) = pending else {
                     return 0;
                 };
                 if self.refuse_reply(browser.as_deref(), request_id, reach.as_ref()) {
@@ -543,7 +574,7 @@ wrap_dev_tools_message_observer! {
                     self.too_big(request_id, max_bytes);
                     return 1;
                 }
-                self.finish_reply(browser.as_deref(), request_id, typed, reach.is_some(), ok, payload);
+                self.finish_reply(browser.as_deref(), request_id, typed, reach.is_some(), false, ok, payload);
                 return 1;
             }
             let Some(method) = val.get("method").and_then(Value::as_str).map(str::to_owned) else {
@@ -649,10 +680,11 @@ wrap_dev_tools_message_observer! {
                 }
             } else if method == "Tracing.tracingComplete" {
                 let start_pid = self.prompts.trace_pid.swap(0, std::sync::atomic::Ordering::AcqRel);
+                self.prompt_shared.release_trace(self.tab_id);
                 if start_pid == 0 {
                     return 1;
                 }
-                let cur_pid = self.prompts.renderer_pid.load(std::sync::atomic::Ordering::Acquire);
+                let cur_pid = self.prompts.committed_main_renderer_pid(browser.as_deref());
                 if let Some(obj) = params.as_object_mut() {
                     if cur_pid != start_pid {
                         obj.insert("dataLossOccurred".into(), serde_json::json!(true));
@@ -715,6 +747,15 @@ impl TabCdpObserver {
     /// CEF's DevTools observer list forbids re-entrancy, so nothing is sent from a callback: the
     /// messages wait in the ledger's outbox for [`flush_outbox`] after this loop turn, and an
     /// immediate `Event::Pump(0)` wakes the loop outside busy windows (e.g. macOS idle).
+    fn release_trace_start(&self, browser: Option<&Browser>, end_chromium: bool) {
+        self.prompts.trace_pid.store(0, std::sync::atomic::Ordering::Release);
+        self.prompt_shared.release_trace(self.tab_id);
+        if end_chromium {
+            let msg = serde_json::json!({ "id": crate::frame_authority::INTERNAL_ID_BASE + 1, "method": "Tracing.end", "params": {} }).to_string();
+            self.send_all(browser, vec![msg]);
+        }
+    }
+
     fn send_all(&self, _browser: Option<&Browser>, messages: Vec<String>) {
         if !messages.is_empty() {
             self.cdp_ledger.lock().unwrap().outbox.extend(messages);
@@ -736,12 +777,14 @@ impl TabCdpObserver {
     /// Re-checks the tab at reply time so an extension frame appearing mid-flight never leaks into
     /// a response (`review-rd274.md` Round-5 §2): a raw call is refused on any extension frame, a
     /// typed call on a whole extension tab or when the ledger's after-check fails.
+    #[allow(clippy::too_many_arguments)]
     fn finish_reply(
         &self,
         browser: Option<&Browser>,
         request_id: u64,
         typed: Option<(Post, Option<String>)>,
         grants_checked: bool,
+        is_tracing_start: bool,
         ok: bool,
         mut val: Value,
     ) {
@@ -770,6 +813,9 @@ impl TabCdpObserver {
         };
         if wake {
             let _ = self.events.send(crate::Event::Pump(0));
+        }
+        if is_tracing_start && (!ok || checked.is_err()) {
+            self.release_trace_start(browser, ok);
         }
         let (ok, result) = match checked {
             Ok(()) => (ok, val),

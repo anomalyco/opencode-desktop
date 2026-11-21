@@ -33,6 +33,49 @@ pub(super) enum ProfileStage {
     HeapTake { cdp_req: u64 },
 }
 
+impl ProfileState {
+    pub fn cancel_cleanup(&mut self, att: &mut SessionAttachment, app: &mut App) {
+        app.workspace_panes.browser.host.cancel_cdp(self.stage.cdp_req());
+        match self.stage {
+            ProfileStage::TraceStart { .. } | ProfileStage::TraceStop { .. } => {
+                if att.trace_recording.as_ref().is_some_and(|r| r.host_id == self.host_id) {
+                    att.trace_recording = None;
+                }
+                abort_trace(app, self.host_id);
+            }
+            ProfileStage::CpuEnable { .. } | ProfileStage::CpuStart { .. } | ProfileStage::CpuStop { .. } => {
+                att.cpu_started.remove(&self.host_id);
+                if app.workspace_panes.browser.host.tab_open_in_engine(self.host_id) {
+                    let _ = app.workspace_panes.browser.host.send_typed_cdp(self.host_id, "Profiler.stop", json!({}), None);
+                    let _ = app.workspace_panes.browser.host.send_typed_cdp(self.host_id, "Profiler.disable", json!({}), None);
+                }
+            }
+            ProfileStage::HeapEnable { .. } | ProfileStage::HeapTake { .. } => {
+                att.heap_chunks.remove(&self.host_id);
+                if app.workspace_panes.browser.host.tab_open_in_engine(self.host_id) {
+                    let _ = app.workspace_panes.browser.host.send_typed_cdp(self.host_id, "HeapProfiler.disable", json!({}), None);
+                }
+            }
+        }
+    }
+}
+
+pub(in super::super) fn clear_trace_owner(app: &mut App, host_id: u64) {
+    let st = app.kernel.slots.get_mut(&super::super::BROWSER_RPC);
+    if st.active_trace_host == Some(host_id) {
+        st.active_trace_host = None;
+    }
+}
+
+/// Sends `Tracing.end` (when the tab is still open in the engine) and releases the app-wide trace
+/// owner lock so tab close, session disposal, or command cancel never wedges Chromium's tracing.
+pub(in super::super) fn abort_trace(app: &mut App, host_id: u64) {
+    clear_trace_owner(app, host_id);
+    if app.workspace_panes.browser.host.tab_open_in_engine(host_id) {
+        let _ = app.workspace_panes.browser.host.send_typed_cdp(host_id, "Tracing.end", json!({}), None);
+    }
+}
+
 impl ProfileStage {
     pub fn cdp_req(&self) -> u64 {
         match self {
@@ -123,6 +166,7 @@ pub(in super::super) fn poll_auto_stops(
                     Err(e) => {
                         rec.auto_stop_req = None;
                         rec.auto_stopped = Some(Err(cdp_err_msg(&e)));
+                        clear_trace_owner(app, rec.host_id);
                     }
                 }
             }
@@ -134,7 +178,10 @@ pub(in super::super) fn poll_auto_stops(
                 rec.stop_at = None;
                 match app.workspace_panes.browser.host.send_typed_cdp(rec.host_id, "Tracing.end", json!({}), None) {
                     Ok(req) => rec.auto_stop_req = Some(req),
-                    Err(e) => rec.auto_stopped = Some(Err(e)),
+                    Err(e) => {
+                        rec.auto_stopped = Some(Err(e));
+                        clear_trace_owner(app, rec.host_id);
+                    }
                 }
             } else {
                 note(stop_at);
@@ -143,6 +190,7 @@ pub(in super::super) fn poll_auto_stops(
     }
     if finish_trace && let Some(mut rec) = att.trace_recording.take() {
         let saved = finalize_trace(att, app, rec.host_id, rec.started_at, rec.renderer_pid, std::mem::take(&mut rec.events), std::mem::take(&mut rec.resources), rec.data_loss, now);
+        clear_trace_owner(app, rec.host_id);
         rec.auto_stop_req = None;
         rec.auto_stopped = Some(saved);
         att.trace_recording = Some(rec);
@@ -217,10 +265,11 @@ pub(super) fn try_start(
 }
 
 /// Recording requires BOTH `frame_authority` (engine extensions-active profiling refusal) AND
-/// `agent_files` (current revision with renderer-PID trace isolation).
+/// `trace_isolation` (dedicated capability bit for committed-main-frame renderer PID filtering
+/// and the engine-wide single-trace lock; prevents unfiltered traces on `156.0.26-4`).
 fn require_profiling_engine(app: &App, name: &str) -> Result<(), Outcome> {
     let host = &app.workspace_panes.browser.host;
-    if !host.engine_frame_authority() || !host.engine_agent_files() {
+    if !host.engine_frame_authority() || !host.engine_trace_isolation() {
         return Err(Outcome::fail(
             failure_code::UNSUPPORTED,
             format!("browser.{name} requires an updated browser engine."),
@@ -242,6 +291,14 @@ fn start_trace(att: &mut SessionAttachment, app: &mut App, cmd: &Command, now: I
     }
     if let Err(o) = require_profiling_engine(app, "trace.start") {
         return StepOutcome::Done(o);
+    }
+    if let Some(owner) = app.kernel.slots.get(&super::super::BROWSER_RPC).active_trace_host {
+        let msg = if owner == host_id {
+            "A performance trace is already active in this tab. Use browser.trace.stop({tabID}) to finish it before starting another."
+        } else {
+            "Another tab owns the active performance trace. Wait for its owner to finish; do not stop or replace another tab's recording."
+        };
+        return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, msg));
     }
     if att.trace_recording.is_some() {
         return StepOutcome::Done(Outcome::fail(
@@ -282,6 +339,7 @@ fn start_trace(att: &mut SessionAttachment, app: &mut App, cmd: &Command, now: I
         None,
     ) {
         Ok(cdp_req) => {
+            app.kernel.slots.get_mut(&super::super::BROWSER_RPC).active_trace_host = Some(host_id);
             att.trace_recording = Some(super::super::session::TraceRecording {
                 host_id,
                 started_at: now,
@@ -493,6 +551,7 @@ pub(super) fn step_profile(
                 }
                 Err(e) => {
                     att.trace_recording = None;
+                    clear_trace_owner(app, st.host_id);
                     Some(Outcome::fail(failure_code::OPERATION_FAILED, cdp_err_msg(&e)))
                 }
             }
@@ -502,6 +561,7 @@ pub(super) fn step_profile(
                 let resp = app.workspace_panes.browser.host.take_cdp_response(*cdp_req)?;
                 if let Err(e) = resp {
                     att.trace_recording = None;
+                    clear_trace_owner(app, st.host_id);
                     return Some(Outcome::fail(failure_code::OPERATION_FAILED, cdp_err_msg(&e)));
                 }
                 *ended = true;
@@ -511,6 +571,7 @@ pub(super) fn step_profile(
                 return None;
             }
             let rec = att.trace_recording.take()?;
+            clear_trace_owner(app, st.host_id);
             match finalize_trace(att, app, st.host_id, rec.started_at, rec.renderer_pid, rec.events, rec.resources, rec.data_loss, now) {
                 Ok((wf, duration_ms, incomplete)) => {
                     let tab = att.wire_tab(app, st.host_id)?;

@@ -197,6 +197,11 @@ impl crate::BrowserHost {
         self.caps.agent_files()
     }
 
+    /// The engine isolates traces to the committed main-frame renderer OS PID and holds one engine-wide trace lock (`Ready.trace_isolation`).
+    pub fn engine_trace_isolation(&self) -> bool {
+        self.caps.trace_isolation()
+    }
+
     /// Sends confined `UploadFiles` for files staged in `<profile>/opencode-page-uploads/<tab_id>/`.
     pub fn upload_files(
         &mut self,

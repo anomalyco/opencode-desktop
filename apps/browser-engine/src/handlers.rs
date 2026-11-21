@@ -1111,12 +1111,18 @@ wrap_request_handler! {
         // and a reload loads it in a new renderer, as Desktop's crashed tab does.
         fn on_render_process_terminated(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             status: TerminationStatus,
             error_code: i32,
             error_string: Option<&CefString>,
         ) {
             self.prompts.reset_on_crash(self.tab_id, &self.out_tx);
+            if self.prompt_shared.release_trace(self.tab_id)
+                && let Some(host) = browser.and_then(|b| b.host())
+            {
+                let msg = serde_json::json!({ "id": crate::frame_authority::INTERNAL_ID_BASE + 1, "method": "Tracing.end", "params": {} }).to_string();
+                host.send_dev_tools_message(Some(msg.as_bytes()));
+            }
             let err_str = error_string.map(CefString::to_string).unwrap_or_default();
             let (url, was_loading) = {
                 let mut s = self.snap.lock().unwrap();

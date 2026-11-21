@@ -905,6 +905,7 @@ impl BrowserHost {
                     cookies,
                     agent_files,
                     passkeys,
+                    trace_isolation,
                     ..
                 } => {
                     if !matches!(
@@ -916,7 +917,7 @@ impl BrowserHost {
                     self.caps = EngineCaps::Known {
                         downloads, policy, prompts, popups, find, context_menu,
                         partitions, remote_proxy, agent_tools, preview, extensions,
-                        permission_sync, frame_authority, cookies, agent_files, passkeys,
+                        permission_sync, frame_authority, cookies, agent_files, passkeys, trace_isolation,
                     };
                     self.sync_site_permissions();
                     if cookies && self.share_sign_ins {
