@@ -10,8 +10,34 @@ use std::path::Path;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::{Arc, Mutex, OnceLock};
 
-#[cfg(not(target_arch = "wasm32"))]
-use super::Server;
+use super::{Server, WireError};
+use std::time::Duration;
+
+impl Server {
+    /// Matches official `anomalyco/opencode` (`packages/app/src/runtime/server/api.ts:45-56`,
+    /// `fileStreamUrl`): returns the ranged-read URL for media elements ONLY when the server has
+    /// no password (`self.auth.is_none()`). Credentials never go in a URL query parameter
+    /// (`auth_token`); password-protected servers download media through the authenticated API
+    /// (`Authorization` header) instead.
+    pub fn stream_url(&self, path: &str) -> Option<String> {
+        if self.auth.is_some() {
+            return None;
+        }
+        Some(format!("{}{path}", self.base))
+    }
+
+    /// Whether this server sends an `Authorization` header on API requests.
+    pub fn has_auth(&self) -> bool {
+        self.auth.is_some()
+    }
+
+    /// Authenticated media bytes from `path` (up to `64 MiB`), sending credentials strictly via
+    /// the `Authorization` HTTP header (never query parameters) with zero redirects.
+    pub fn get_media_bytes(&self, path: &str) -> Result<Vec<u8>, WireError> {
+        self.exchange_with_limit("GET", path, None, Some(Duration::from_secs(60)), &[], 64 << 20)?
+            .bytes("GET", path)
+    }
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 const ALLOWED_VIDEO_EXTS: &[&str] = &[

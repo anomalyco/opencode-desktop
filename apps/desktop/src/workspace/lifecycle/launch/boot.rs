@@ -348,11 +348,15 @@ impl App {
         // Markdown images read through the server as Desktop's `readLocalImage` does; web
         // images and link favicons come from the web, as the browser fetches them for Desktop.
         let files = server.clone();
+        #[cfg(not(target_arch = "wasm32"))]
+        let home = (!self.home.is_empty()).then(|| (*self.home).clone());
         self.composer_ext.attach.markdown.set_fetch(
             std::sync::Arc::new(move |directory: &str, path: &str| {
                 #[cfg(not(target_arch = "wasm32"))]
                 if files.is_local() {
-                    let abs = opencode_kit::path::absolute(directory, path);
+                    let root = opencode_feature_open_in::pinned_local_root(directory, home.as_deref())
+                        .unwrap_or_else(|| directory.to_owned());
+                    let abs = opencode_kit::path::absolute(&root, path);
                     if !browser_policy::verify_local_path(&abs).is_ok_and(|v| v.is_file) {
                         return Err("refused non-local or unsafe image path".to_owned());
                     }

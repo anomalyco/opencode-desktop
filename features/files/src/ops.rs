@@ -213,20 +213,36 @@ pub fn ensure_file_loaded(host: &mut dyn FilesHost, session_id: &str, path: &str
         } else {
             Some(directory.clone())
         };
-        let Some(source) = video_dir.and_then(|d| video::source(Some(&server), &d, path)) else {
-            // Rejected by local workspace confinement (e.g. symlink/junction/missing): never fall
-            // back to `/api/fs/read/...` on a local server.
+        if let Some(source) = video_dir.as_deref().and_then(|d| video::source(Some(&server), d, path)) {
+            let pane = host.files_mut();
+            let wrap = pane.wrap;
+            let clip = video::FileVideo::new(&source, pane.waker.clone());
+            let ws = pane.sessions.entry(session_id.to_owned()).or_default();
+            let mut doc = wrap.doc(path, "");
+            doc.set_binary(0);
+            ws.docs.insert(path.to_owned(), doc);
+            ws.videos.insert(path.to_owned(), clip);
             return;
-        };
-        let pane = host.files_mut();
-        let wrap = pane.wrap;
-        let clip = video::FileVideo::new(&source, pane.waker.clone());
-        let ws = pane.sessions.entry(session_id.to_owned()).or_default();
-        let mut doc = wrap.doc(path, "");
-        doc.set_binary(0);
-        ws.docs.insert(path.to_owned(), doc);
-        ws.videos.insert(path.to_owned(), clip);
-        return;
+        }
+        // On a local server, `source() == None` means confinement refused a symlink/junction or
+        // missing file: never fall back to `/api/fs/read/...`.
+        if server.is_local() {
+            return;
+        }
+        // Password-protected remote server: never put `auth_token` in a URL; download via
+        // `Authorization` header off the UI thread on native (on wasm32 fall through to `read_file`).
+        #[cfg(not(target_arch = "wasm32"))]
+        if server.has_auth()
+            && let Some(dir) = video_dir
+        {
+            let pane = host.files_mut();
+            let wrap = pane.wrap;
+            let waker = pane.waker.clone();
+            let ws = pane.sessions.entry(session_id.to_owned()).or_default();
+            ws.docs.entry(path.to_owned()).or_insert_with(|| wrap.doc(path, ""));
+            pane.auth_videos.start(&server, &dir, session_id, path, waker);
+            return;
+        }
     }
 
     // A stale file keeps its text while it reads again; a failed one shows loading.

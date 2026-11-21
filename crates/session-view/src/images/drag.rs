@@ -164,6 +164,7 @@ fn looks_like_svg(bytes: &[u8]) -> bool {
 /// A safe file name for drag-out / reveal: sanitized stem from `hint` paired strictly with an
 /// allow-listed raster extension sniffed from `bytes` (NEVER keeping `.bat`, `.hta`, `.cmd`,
 /// `.svg`, or `.html`).
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn file_name(hint: &str, bytes: &[u8]) -> String {
     let stem = sanitize_stem(hint);
     let ext = sniff_image_ext(bytes).unwrap_or("png");

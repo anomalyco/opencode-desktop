@@ -106,10 +106,25 @@ pub(crate) fn video(app: &App, href: &str) -> Option<String> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn keep_reply_temp_media(temp: opencode_kit::client::TempMediaFile) -> Option<String> {
+    use std::collections::VecDeque;
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<VecDeque<opencode_kit::client::TempMediaFile>>> = OnceLock::new();
+    let path = temp.path_str()?.to_owned();
+    let mut guard = CACHE.get_or_init(|| Mutex::new(VecDeque::new())).lock().unwrap_or_else(|e| e.into_inner());
+    guard.push_back(temp);
+    while guard.len() > 16 {
+        guard.pop_front();
+    }
+    Some(path)
+}
+
 /// Verifies and resolves a standalone reply video target strictly on an explicit user click on
 /// the Play control:
 /// - `Link::Inside`: verifies inside workspace via `video::source` (`verify_within_root` on local
-///   sessions; server `/api/fs/read/...` on remote sessions).
+///   sessions; ranged URL for unauthenticated remote servers or `Authorization`-header temp download
+///   for password-protected remote servers — never `auth_token` in a URL).
 /// - `Link::Outside` (local sessions only): verifies via `browser_policy::verify_local_path`
 ///   (fixed drive / `MNT_LOCAL`, no UNC, mapped/`subst`-to-UNC, symlinks/junctions, or autofs;
 ///   regular file only).
@@ -123,7 +138,20 @@ pub(crate) fn load_video(app: &mut App, href: &str) -> Option<String> {
     match link {
         Link::Inside { path, .. } if video::is_video(&path) => {
             let src = if remote {
-                video::source(app.live_server(), &dir, &path)
+                match app.live_server() {
+                    Some(srv) if srv.has_auth() => {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            let (req, ext) = video::remote_read_request(&dir, &path);
+                            srv.download_media_temp(&req, &ext).ok().and_then(keep_reply_temp_media)
+                        }
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            None
+                        }
+                    }
+                    srv => video::source(srv, &dir, &path),
+                }
             } else {
                 app.pinned_local_root(&dir).and_then(|root| video::source(app.live_server(), &root, &path))
             };
