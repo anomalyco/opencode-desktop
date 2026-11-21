@@ -243,6 +243,9 @@ pub fn open_side_tab_for_session(
     preview: bool,
     first: bool,
 ) {
+    if let Some((plugin, _)) = split_panel_key(key) {
+        host.ensure_panel_plugin(plugin);
+    }
     let was = host
         .side()
         .sessions
@@ -324,6 +327,9 @@ pub fn hide_side_tab(host: &mut dyn PanelsHost, key: &str, tx: &mut Tx) {
 /// new tab lands in `target`, else beside its plugin's last tab, else in its panel's default
 /// pane.
 pub fn show_side_tab(host: &mut dyn PanelsHost, session_id: &str, key: &str, target: Option<SessionPane>) {
+    if let Some((plugin, _)) = split_panel_key(key) {
+        host.ensure_panel_plugin(plugin);
+    }
     let was = host
         .side()
         .sessions

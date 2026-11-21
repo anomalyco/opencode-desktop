@@ -293,7 +293,7 @@ mod native {
         pub fn browser_plugin_ready(&self) -> bool {
             !self.browser_unsupported()
                 && !self.narrow()
-                && self.plugins.list.iter().any(|p| p.manifest.id == PLUGIN && p.running())
+                && self.plugins.plugin_available(PLUGIN)
         }
 
         /// Whether `path`, inside the session's folder, opens as a preview page in the browser pane
