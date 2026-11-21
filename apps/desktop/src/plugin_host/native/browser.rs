@@ -770,21 +770,15 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
             changed = true;
         }
     }
-    changed |= crate::surfaces::browser::prompts::poll(app, tx, now)
-        | crate::surfaces::browser::context_menu::poll(app, tx)
-        | crate::surfaces::browser::comment::poll(app, tx) | crate::surfaces::browser::extensions::poll_popup_focus(app, tx);
-    if let Some(next) = app.workspace_panes.browser.devtools.values().map(|p| p.deadline).min() {
-        tx.wake_after(next.saturating_duration_since(now).max(Duration::from_millis(25)));
-    }
+    changed |= crate::surfaces::browser::prompts::poll(app, tx, now) | crate::surfaces::browser::context_menu::poll(app, tx) | crate::surfaces::browser::comment::poll(app, tx) | crate::surfaces::browser::extensions::poll_popup_focus(app, tx);
+    if let Some(next) = app.workspace_panes.browser.devtools.values().map(|p| p.deadline).min() { tx.wake_after(next.saturating_duration_since(now).max(Duration::from_millis(25))); }
     let picks: Vec<_> = if app.workspace_panes.browser.host.has_picked() { app.workspace_panes.browser.host.drain_picked_elements().collect() } else { Vec::new() };
     for pick in picks {
         app.open_browser_element_comment(pick.clone());
         let third_party_ok = scope::tab_visible_to_third_party(app, pick.tab_id);
         let payload = map([("tabId", Data::String(pick.tab_id.to_string())), ("ref", Data::String(pick.eref)), ("selector", Data::String(pick.selector))]);
         for i in 0..app.plugins.list.len() {
-            if third_party_ok || app.plugins.list[i].half.is_builtin("browser") {
-                let _ = super::super::fire_named(app, i, "Browser.Picked", payload.clone());
-            }
+            if third_party_ok || app.plugins.list[i].half.is_builtin("browser") { let _ = super::super::fire_named(app, i, "Browser.Picked", payload.clone()); }
         }
         changed = true;
     }
