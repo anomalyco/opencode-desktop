@@ -247,13 +247,6 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
             label = env.I18n:T("address.label"),
             grow = 1,
         }))
-        -- Inline completion suffix after what the user typed (`address-machine.ts::completion`).
-        if bar.completion ~= "" and #bar.query <= address.HINT_MAX_LENGTH then
-            table.insert(body, ui.row({ key = "browser-address-completion", pin = { left = 0, top = 0, bottom = 0 }, gap = 0, align = "center" }, {
-                text(bar.query, "text-muted", { opacity = 0 }),
-                text(bar.completion, "text-muted", { truncate = true, shrink = true, minW = 0 }),
-            }))
-        end
     elseif bar.field ~= "" then
         table.insert(body, display(bar.field, textAvail))
     else
