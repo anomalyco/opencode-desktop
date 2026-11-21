@@ -1,9 +1,10 @@
 //! macOS: team builds (`anomaly.opencode-rune`) update from Anomaly's release feed. A download is
 //! verified (size, SHA-256, code signature, signing team, Gatekeeper) and unpacked into a private
-//! folder under `~/Library/Caches/anomaly.opencode-rune/Updates`; Restart to update checks the
-//! staged bundle again, swaps it in atomically (the old bundle comes back when the move fails),
-//! and the app starts again from it as the app menu's Restart does (`Tx::relaunch`). Local dev bundles (`anomaly.opencode-rune.dev`) and bare `cargo`
-//! binaries never update.
+//! folder under `~/Library/Caches/anomaly.opencode-rune/Updates`; Restart to update or quitting
+//! with a ready update checks the staged bundle again and swaps it in atomically (the old bundle
+//! comes back when the move fails), and Restart to update starts the app again from it as the app
+//! menu's Restart does (`Tx::relaunch`). Local dev bundles (`anomaly.opencode-rune.dev`) and bare
+//! `cargo` binaries never update.
 
 use std::io;
 use std::os::unix::fs::MetadataExt as _;
@@ -156,6 +157,17 @@ impl Platform for Mac {
     /// The swapped bundle sits where this one ran, so the app's own relaunch opens it.
     fn relaunches(&self) -> bool {
         true
+    }
+
+    /// Official installs a staged update on quit on macOS only (`platform.ts:30`).
+    fn installs_on_quit(&self) -> bool {
+        true
+    }
+
+    fn install_on_quit(&self) {
+        if let Err(e) = self.apply() {
+            eprintln!("updater: couldn't install on quit: {e}");
+        }
     }
 
     fn auto_install(&self) -> bool {
