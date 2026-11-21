@@ -190,6 +190,7 @@ pub fn contract_generation(id: &str) -> u64 {
 
 /// Forgets what plugin `owner`'s `kind` half provided from any VM but `keep`.
 pub fn withdraw_owner(owner: &str, kind: Kind, keep: Option<u64>) {
+    super::browser_contract::revoke_owner(owner, keep);
     if opencode_plugin_runtime::contracts::withdraw_owner(owner, kind, keep) {
         crate::plugin_host::bump();
     }
@@ -211,5 +212,49 @@ fn contracts(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
             trace_on: crate::files::trace::on,
             trace_call: |plugin, name, args, us| crate::files::trace::luau(plugin, "contract", name, args, us),
         },
-    )
+    )?;
+    // Reserve `"browser"` for the host-provided narrow contract (`UP-095-3P-CONTRACT`, official
+    // `packages/plugin/src/gui/browser.ts`): third-party plugins cannot squat it and each consumer
+    // gets isolated per-VM `ExperimentalBrowserTab` handles.
+    let base_provide: mlua::Function = t.raw_get("Provide")?;
+    let is_builtin_browser = vmx.half.is_builtin("browser");
+    t.raw_set(
+        "Provide",
+        lua.create_function(move |_, (this, id, value): (Table, String, Value)| {
+            if id == "browser" && !is_builtin_browser {
+                return Err(mlua::Error::runtime(
+                    "The built-in 'browser' contract is provided by the host and cannot be overridden.",
+                ));
+            }
+            base_provide.call::<Value>((this, id, value))
+        })?,
+    )?;
+    let base_use: mlua::Function = t.raw_get("Use")?;
+    let v_use = vmx.clone();
+    t.raw_set(
+        "Use",
+        lua.create_function(move |lua, (this, id): (Table, String)| {
+            if id == "browser" {
+                let v_s = v_use.clone();
+                return Ok(Value::Table(super::browser_contract::use_handle(
+                    lua,
+                    &v_use,
+                    move |lua, name| signal(lua, &v_s, name),
+                )?));
+            }
+            base_use.call::<Value>((this, id))
+        })?,
+    )?;
+    let base_summary: mlua::Function = t.raw_get("Summary")?;
+    t.raw_set(
+        "Summary",
+        lua.create_function(move |_, this: Table| {
+            let out: Table = base_summary.call(this)?;
+            if super::browser_contract::available() {
+                out.raw_set("browser", "active")?;
+            }
+            Ok(out)
+        })?,
+    )?;
+    Ok(())
 }

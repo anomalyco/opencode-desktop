@@ -568,6 +568,7 @@ mod native {
         pub fn navigate_browser_tab_with_agent(&mut self, id: u64, url: &str, agent: bool) {
             if !agent {
                 self.note_browser_addressed(id);
+                crate::plugin_host::services::browser_contract::revoke_tab(id);
             }
             let sid = self.browser_tab_session(id).map(str::to_owned);
             let resolved = browser_pane::resolve_address(url);
@@ -669,6 +670,7 @@ mod native {
         pub fn forget_browser_tab(&mut self, id: u64) {
             self.workspace_panes.browser.active_app_reviews.borrow_mut().remove(&id);
             self.workspace_panes.browser.openers.on_close(id);
+            crate::plugin_host::services::browser_contract::revoke_tab(id);
             self.revoke_preview_binding(id);
             for ids in self.workspace_panes.browser.session_tabs.values_mut() {
                 ids.retain(|&x| x != id);
