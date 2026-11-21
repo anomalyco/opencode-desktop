@@ -399,6 +399,9 @@ fn engine(app: &App) -> (&'static str, Option<String>) {
         EngineStatus::Downloading { .. } => ("downloading", None),
         EngineStatus::Verifying => ("verifying", None),
         EngineStatus::Paused(_) => ("paused", None),
+        EngineStatus::Failed(f) if matches!(f.fault, browser_pane::Fault::NotPublished) => {
+            ("unsupported", Some(crate::browser::view::fault_text(&f.fault)))
+        }
         EngineStatus::Failed(f) => ("failed", Some(crate::browser::view::fault_text(&f.fault))),
         EngineStatus::Unchecked | EngineStatus::Installed | EngineStatus::Connecting => ("starting", None),
         EngineStatus::Ready => ("ready", None),
@@ -707,6 +710,13 @@ pub fn pages(app: &App, include_find: bool) -> Vec<(String, u64)> {
             pending_links.hash(&mut h);
             (t.id.to_string(), h.finish())
         })
+        // The built-in plugin also hears "" when the engine's state (`Browser:Engine().state`)
+        // moves, so its MCP tools follow the start-up index read without polling.
+        .chain(include_find.then(|| {
+            let mut h = std::hash::DefaultHasher::new();
+            engine(app).0.hash(&mut h);
+            (String::new(), h.finish())
+        }))
         .collect()
 }
 

@@ -100,6 +100,18 @@ fn read_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
 }
 
 pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
+    // The strip's amber `prompt.tab` dot: the page waits on the user while the pane doesn't show it
+    // (official `asking`, `packages/gui-plugins/src/browser/model.ts:900-904` at `b9a60d9d`).
+    m.raw_set(
+        "Asking",
+        lua.create_function(|lua, this: Table| {
+            read_tab(lua, &this, "BrowserTab:Asking", |app, id| {
+                let key = crate::panels::panel_key(crate::surfaces::browser::PLUGIN, &id.to_string());
+                Ok(app.workspace_panes.browser.host.tab(id).is_some_and(|t| t.prompts.waiting_on_user())
+                    && !app.side_tab_visible(&key))
+            })
+        })?,
+    )?;
     m.raw_set(
         "IsPrivate",
         lua.create_function(|lua, this: Table| {

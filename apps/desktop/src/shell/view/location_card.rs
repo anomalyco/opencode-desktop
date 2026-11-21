@@ -182,7 +182,7 @@ fn show(s: &mut App, info: &opencode_kit::model::SessionInfo, tx: &mut Tx) {
         Some("changes") => s.show_review(&sid, tx),
         Some("copy-path") => copied(s, &dir, tx),
         Some("reveal") => {
-            if let Err(e) = reveal(&dir) {
+            if let Err(e) = reveal_target(s, &dir).and_then(|t| reveal(&t)) {
                 crate::status_toast::fail(s, t!("common.requestFailed"), e);
             }
         }
@@ -322,6 +322,20 @@ pub(crate) fn reveal_label() -> &'static str {
 /// Error string returned by [`reveal`] when a verified local path does not exist on disk,
 /// so callers never need to touch `Path::exists()` on a refused UNC/mapped/reparse path.
 pub(crate) const MISSING_DIR_ERR: &str = "Path doesn't exist";
+
+/// The folder Reveal shows for workspace `dir`: its root as pinned at start-up (the real folder
+/// behind a symlink or junction). A root that couldn't be pinned then says so, and that its links
+/// are refused until the app restarts; a missing folder still reaches `reveal`'s own message.
+pub(crate) fn reveal_target(s: &App, dir: &str) -> Result<String, String> {
+    if !s.can_reveal_outside() {
+        return Ok(dir.to_owned());
+    }
+    match s.pinned_local_root(dir) {
+        Some(root) => Ok(root),
+        None if !std::path::Path::new(dir).exists() => Ok(dir.to_owned()),
+        None => Err(t!("rune.files.root.refused").to_owned()),
+    }
+}
 
 /// Shows folder `dir` in the system's file manager; a headless run opens nothing. Verifies local
 /// fixed drive / `MNT_LOCAL`, non-`subst`-UNC, zero symlinks/reparse points, directory kind, and

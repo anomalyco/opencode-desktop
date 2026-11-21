@@ -77,6 +77,7 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         // The first open: the link was never down, but the health poll can stand down now.
         Incoming::Opened => {
             reconnect::back(s);
+            crate::start_location::ask(s);
             crate::files::watch::connected(s);
             #[cfg(not(target_arch = "wasm32"))]
             {
@@ -224,7 +225,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         }
         Incoming::LookupMissing(_) => return false,
         Incoming::Inbox { session, items } => s.inbox_listed(&session, &items),
-        Incoming::Worktrees { project, directories } => s.worktrees_listed(project, directories),
+        Incoming::Worktrees { project, directories, managed } => s.worktrees_listed(project, directories, managed),
         Incoming::Branches { directory, search, result } => return s.branches_listed(&directory, &search, result.ok()),
         Incoming::InterruptAcknowledged { session, interrupted } => {
             if !interrupted { stop::confirmed(s, &session); }
@@ -288,10 +289,16 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.sort_projects();
             s.list_unlisted_worktrees();
         }
+        Incoming::DefaultDirectory(directory) => crate::start_location::answered(s, directory),
         Incoming::ProjectOpened { location, projects, session } => {
             s.apply_project_opened(location, projects, session, tx);
         }
         Incoming::Settled { ticket, result } => settled(s, ticket, result, tx),
+        #[cfg(not(target_arch = "wasm32"))]
+        Incoming::PromptGate { session, directory, release } => {
+            crate::surfaces::browser::rpc::hold_start_gate(s, &session, &directory, release);
+            return false;
+        }
         Incoming::Created(info) if s.queue.starts.has(&info.id) => {
             s.started(info, tx);
         }

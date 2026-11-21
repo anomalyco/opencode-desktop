@@ -7,6 +7,7 @@
 mod exec;
 mod frames;
 mod session;
+mod start_gate;
 mod suppression;
 mod tunnel;
 
@@ -25,6 +26,8 @@ use rune::{Tx, Waker};
 use serde_json::Value;
 
 use self::session::SessionAttachment;
+use self::start_gate::{StartWaiter, drain_start_waiters};
+pub use self::start_gate::{hold_start_gate, release_start_waiters};
 use self::suppression::{maybe_start_capability_probe, server_suppressed, sync_mcp_suppression};
 use crate::{App, Route, Source};
 
@@ -85,6 +88,11 @@ pub struct BrowserRpcState {
     /// Sessions the user actually routed into on this window (`model.ts:664-689`). Restored or
     /// background tabs sitting in `app.tabs` are not attached until routed.
     routed_sessions: BTreeSet<(ServerKey, String)>,
+    /// Starts whose `POST /api/session` returned (`Incoming::PromptGate`), so `attach` never races
+    /// the create into `Blocked::Missing`. Pruned once the start leaves `app.queue.starts`.
+    created_starts: BTreeSet<(ServerKey, String)>,
+    /// New-session starts holding their one prompt (`start_gate.rs`).
+    start_waiters: Vec<StartWaiter>,
     sse_connected: BTreeMap<ServerKey, bool>,
     /// Per-server endpoint capability verdict (`LegacyAllowed` stays sticky across empty
     /// sessions/tab close/slow SSE until reconnect or `plugin.updated`).
@@ -105,6 +113,8 @@ impl Default for BrowserRpcState {
         Self {
             sessions: BTreeMap::new(),
             routed_sessions: BTreeSet::new(),
+            created_starts: BTreeSet::new(),
+            start_waiters: Vec::new(),
             sse_connected: BTreeMap::new(),
             server_verdicts: BTreeMap::new(),
             probe_gen: 0,
@@ -189,6 +199,7 @@ pub fn on_sse_disconnected(app: &mut App, server_key: &ServerKey) {
         .sse_connected
         .insert(server_key.clone(), false);
     tunnel::suspend_server_tunnels(app, server_key);
+    drain_start_waiters(app);
 }
 
 /// Called when `/api/event` opens or reconnects (`Incoming::Opened` / `Incoming::Reconnected`).
@@ -383,43 +394,21 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         }
         if app.workspace_panes.browser.host.engine_agent_tools() {
             let host = &mut app.workspace_panes.browser.host;
-            let engine_owns_auto_attach = host.engine_frame_authority();
-            if !engine_owns_auto_attach {
+            let engine_auth = host.engine_frame_authority();
+            if !engine_auth {
                 for (tab_id, ext_sid) in oopif_detaches {
-                    let _ = host.send_typed_cdp(
-                        tab_id,
-                        "Target.detachFromTarget",
-                        serde_json::json!({ "sessionId": ext_sid }),
-                        None,
-                    );
+                    let _ = host.send_typed_cdp(tab_id, "Target.detachFromTarget", serde_json::json!({ "sessionId": ext_sid }), None);
                 }
             }
             let mut oopif_frame_reqs: Vec<(u64, u64, String)> = Vec::new();
+            let auto_attach = serde_json::json!({ "autoAttach": true, "waitForDebuggerOnStart": false, "flatten": true });
             for (tab_id, child_sid) in oopif_enables {
-                if !engine_owns_auto_attach {
+                if !engine_auth {
                     let _ = host.send_typed_cdp(tab_id, "Page.enable", serde_json::json!({}), Some(child_sid.clone()));
+                    let _ = host.send_typed_cdp(tab_id, "Target.setAutoAttach", auto_attach.clone(), Some(child_sid.clone()));
                 }
                 let _ = host.send_typed_cdp(tab_id, "Runtime.enable", serde_json::json!({}), Some(child_sid.clone()));
-                if !engine_owns_auto_attach {
-                    let _ = host.send_typed_cdp(
-                        tab_id,
-                        "Target.setAutoAttach",
-                        serde_json::json!({
-                            "autoAttach": true,
-                            "waitForDebuggerOnStart": false,
-                            "flatten": true,
-                        }),
-                        Some(child_sid.clone()),
-                    );
-                }
-                // Immediately enumerate any already-loaded same-process child iframes inside the
-                // OOPIF so `source_urls()` and `frameID` authorization never miss them.
-                if let Ok(req_id) = host.send_typed_cdp(
-                    tab_id,
-                    "Page.getFrameTree",
-                    serde_json::json!({}),
-                    Some(child_sid.clone()),
-                ) {
+                if let Ok(req_id) = host.send_typed_cdp(tab_id, "Page.getFrameTree", serde_json::json!({}), Some(child_sid.clone())) {
                     oopif_frame_reqs.push((tab_id, req_id, child_sid));
                 }
             }
@@ -552,9 +541,18 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
     // Match official (`packages/gui-plugins/src/browser/model.ts:664-689`, `machine.ts:1000-1025`):
     // attach a session only when it is routed on screen, and keep already-attached sessions alive
     // while they stay open in `app.tabs` (never eagerly attaching restored or background tabs).
+    // Skip new-session starts until `POST /api/session` returns (`created_starts`).
+    let created_starts = {
+        let st = app.kernel.slots.get_mut(&BROWSER_RPC);
+        st.created_starts.retain(|(_, sid)| app.queue.starts.has(sid));
+        st.created_starts.clone()
+    };
+    let pending_create = |sid: &str| {
+        app.queue.starts.has(sid) && !created_starts.contains(&(active_server.clone(), sid.to_owned()))
+    };
     let mut open_dirs: BTreeMap<(ServerKey, String), String> = BTreeMap::new();
     for t in &app.tabs {
-        if !t.is_draft() && t.server == active_server {
+        if !t.is_draft() && t.server == active_server && !pending_create(&t.id) {
             let dir = session_directory(app, &t.id, &t.directory);
             if !dir.is_empty() {
                 open_dirs.insert((active_server.clone(), t.id.clone()), dir);
@@ -564,6 +562,7 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
     let mut routed_now: Option<(ServerKey, String)> = None;
     if let Route::Session { server: rk, id } = &*app.route
         && *rk == active_server
+        && !pending_create(id)
     {
         let key = (active_server.clone(), id.clone());
         let dir = session_directory(app, id, "");
@@ -647,6 +646,7 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
     maybe_start_capability_probe(app);
     sync_mcp_suppression(app);
     tunnel::sync_remote_tunnels(app);
+    drain_start_waiters(app);
     changed
 }
 
@@ -763,6 +763,7 @@ fn apply_batch_effects(
     app.kernel.slots.get_mut(&BROWSER_RPC).sessions = sessions;
     sync_mcp_suppression(app);
     tunnel::sync_remote_tunnels(app);
+    drain_start_waiters(app);
 }
 
 pub(super) fn live_server_clone(app: &App) -> Option<Server> {

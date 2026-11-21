@@ -167,9 +167,12 @@ impl App {
 
     /// Picks the folder for the open draft (Desktop's `updateDraft`), and for drafts to come.
     pub fn set_draft_dir(&mut self, dir: String) {
+        if self.can_reveal_outside() && !dir.is_empty() {
+            let _ = self.pinned_local_root(&dir);
+        }
         crate::view::draft_location::picked(self, &dir);
         self.forget_new_worktree();
-        self.note_destination(&dir, "local");
+        self.note_destination(&dir, "default");
         let open = match &*self.route {
             Route::Draft(id) => self.tabs.iter_mut().find(|t| t.id == *id && t.directory != dir),
             _ => None,

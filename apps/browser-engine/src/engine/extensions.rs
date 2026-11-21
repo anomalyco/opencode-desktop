@@ -206,9 +206,10 @@ impl EngineManager {
                         self.permissions.on_tab_closed(engine_tab_id);
                         tab.menu.cancel_all();
                         tab.prompts.dismiss_all();
+                        tab.download_alive.store(false, Ordering::Release);
                         tab.host.close_browser(1);
-                        self.downloads.close_tab(engine_tab_id);
-                        self.contexts.release_tab(engine_tab_id);
+                        self.downloads.close_tab(engine_tab_id, tab.download_gen);
+                        self.release_tab_context(engine_tab_id);
                         if engine_tab_id >= 1_000_000 {
                             self.unmanaged_ext_tabs = self.unmanaged_ext_tabs.saturating_sub(1);
                         }
@@ -276,8 +277,9 @@ impl EngineManager {
                             if let Some(tab) = self.tabs.remove(&pid) {
                                 tab.menu.cancel_all();
                                 tab.prompts.dismiss_all();
+                                tab.download_alive.store(false, Ordering::Release);
                                 tab.host.close_browser(1);
-                                self.downloads.close_tab(pid);
+                                self.downloads.close_tab(pid, tab.download_gen);
                                 let _ = self.out_tx.send(EngineMsg::TabClosed { tab_id: pid });
                             }
                         }
@@ -388,16 +390,21 @@ impl EngineManager {
             snap.clone(),
             prompt_shared.clone(),
             prompts.clone(),
+            self.permissions.clone(),
             None,
             diagnostics,
             null_out.clone(),
         );
+        let download_gen = self.downloads.alloc_tab_gen();
+        let download_alive = Arc::new(AtomicBool::new(true));
         let download = crate::downloads::TabDownloadHandler::new(
             u64::MAX,
-            file_roots.clone(),
+            download_gen,
+            download_alive,
             true,
             false,
             context_ready.clone(),
+            prompts.clone(),
             self.downloads.clone(),
             null_out.clone(),
         );
@@ -661,13 +668,163 @@ impl EngineManager {
         }
     }
 
+    /// Guard 1a (deny-by-default single dispatch choke point): exhaustively classifies every
+    /// `HostMsg` with no `_ =>` catch-all. Non-exempt tab-addressed commands are checked against
+    /// the tab's committed origin only (never destination, so navigating away always succeeds).
+    pub(super) fn refuse_if_controlled_tab_blocked(&self, msg: &crate::wire::HostMsg) -> bool {
+        use crate::wire::HostMsg as M;
+        let (tab_id, req_id, is_find, is_menu) = match msg {
+            // Engine-global / non-tab-addressed messages.
+            M::Hello { .. }
+            | M::ClickExtension { .. }
+            | M::ListExtensions { .. }
+            | M::UninstallExtension { .. }
+            | M::ReloadExtension { .. }
+            | M::CancelExtensionOpenTab { .. }
+            | M::ExtensionMetrics { .. }
+            | M::SetColorScheme { .. }
+            | M::SetPartitionProxy { .. }
+            | M::DropContext { .. }
+            | M::DmabufFailed { .. }
+            | M::ResetPermission { .. }
+            | M::SyncSitePermissions { .. }
+            | M::PreviewResponseHead { .. }
+            | M::PreviewResponseChunk { .. }
+            | M::PreviewResponseEnd { .. }
+            // Profile cookie store messages from Settings > Browser (`#286`): not tab-addressed.
+            | M::ProfileCookiesList { .. }
+            | M::ProfileCookiesSet { .. }
+            | M::ProfileCookieDelete { .. }
+            | M::ProfileProbeCookies { .. }
+            | M::ClearProfileData { .. }
+            | M::SetShareSignIns { .. }
+            | M::SyncRemoteCookies { .. }
+            | M::Shutdown => return false,
+            // Exempt tab-addressed lifecycle, cleanup, layout/zoom, human input, prompt answers,
+            // and `OpenTab`/`Navigate` (guarded by destination pre-check + Guard 2 commit check so
+            // a controlled tab on a granted origin can always navigate away to an ungranted site).
+            M::OpenTab { .. }
+            | M::Navigate { .. }
+            | M::CloseTab { .. }
+            | M::FocusTab { .. }
+            | M::Stop { .. }
+            | M::StopFind { .. }
+            | M::SetTabPolicy { .. }
+            | M::SetAgentDriven { .. }
+            | M::SetZoom { .. }
+            | M::Resize { .. }
+            | M::Emulate { .. }
+            | M::MouseMove { .. }
+            | M::MouseButton { .. }
+            | M::Wheel { .. }
+            | M::Key { .. }
+            | M::EditCmd { .. }
+            | M::Ime { .. }
+            | M::FrameRead { .. }
+            | M::AnswerDialog { .. }
+            | M::AnswerPermission { .. }
+            | M::AnswerAuth { .. }
+            | M::AnswerDownloadSave { .. }
+            | M::SetInspect { enabled: false, .. }
+            | M::HighlightNode { backend_node_id: None, .. }
+            | M::ContextMenuAction { action: None, .. } => return false,
+            // `user_initiated` is set only by the bundled find bar (`#312`), whose `FindResult`
+            // never reaches agents or third-party plugins.
+            M::Find { query, user_initiated, .. } if query.is_empty() || *user_initiated => return false,
+            // Guarded tab-addressed commands (default for any new command added to `HostMsg`).
+            M::CdpCall { tab_id, request_id, .. }
+            | M::TypedCdpCall { tab_id, request_id, .. }
+            | M::SiteCookies { tab_id, request_id }
+            | M::ClearSite { tab_id, request_id }
+            | M::ClearSiteCache { tab_id, request_id } => (*tab_id, Some(*request_id), false, false),
+            M::Back { tab_id } | M::Forward { tab_id } | M::Reload { tab_id, .. } => {
+                (*tab_id, None, false, false)
+            }
+            M::Find { tab_id, .. } => (*tab_id, None, true, false),
+            M::SetInspect { tab_id, enabled: true }
+            | M::HighlightNode { tab_id, backend_node_id: Some(_) } => (*tab_id, None, false, false),
+            M::ContextMenuAction { tab_id, action: Some(_), .. } => (*tab_id, None, false, true),
+        };
+        let Some(t) = self.tabs.get(&tab_id) else {
+            return false;
+        };
+        let Some(blocked_url) = self.permissions.tab_blocked_url(
+            Some(&t.browser),
+            t.isolated,
+            t.preview.is_some(),
+            &t.snap,
+            &t.prompts,
+        ) else {
+            return false;
+        };
+        if is_find {
+            t.host.stop_finding(1);
+        }
+        if is_menu {
+            t.menu.cancel_all();
+        }
+        let _ = self.out_tx.send(EngineMsg::ControlledPermissionRefused {
+            tab_id,
+            url: blocked_url,
+        });
+        if let Some(request_id) = req_id {
+            let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                tab_id,
+                request_id,
+                ok: false,
+                result: json!({ "message": crate::permissions::INHERITED_PERMISSION_MSG }),
+            });
+        }
+        true
+    }
+
+    pub(super) fn refuse_history_nav_if_inherited(&self, tab_id: u64, t: &ManagedTab, delta: i32) -> bool {
+        if t.isolated || t.preview.is_some() || !t.prompts.agent_driven.load(Ordering::Acquire) {
+            return false;
+        }
+        let Some(target) = crate::permissions::history_entry_url(&t.host, delta) else {
+            return false;
+        };
+        if !self.permissions.has_inherited_default_grant(&target) {
+            return false;
+        }
+        let _ = self.out_tx.send(EngineMsg::ControlledPermissionRefused {
+            tab_id,
+            url: Some(target),
+        });
+        true
+    }
+
+    /// Evicts Chromium's BFCache when at least one controlled `Default` tab exists alongside an
+    /// inherited grant so neither `Back`/`Forward` nor JS `history.back()` can restore a cached
+    /// granted document without passing `on_before_browse`. Zero-cost when no controlled `Default`
+    /// tab or no inherited grant exists.
+    pub(super) fn flush_bfcache_for_default_tabs(&self) {
+        if !self.permissions.has_any_default_inherited_grant() {
+            return;
+        }
+        if let Some(t) = self.tabs.values().find(|t| {
+            !t.isolated && t.preview.is_none() && t.prompts.agent_driven.load(Ordering::Acquire)
+        }) {
+            self.send_internal_cdp(
+                &t.host,
+                "Memory.simulatePressureNotification",
+                json!({ "level": "critical" }),
+            );
+        }
+    }
+
     pub(super) fn handle_set_agent_driven(&mut self, tab_id: u64, agent_driven: bool) {
         if let Some(t) = self.tabs.get(&tab_id) {
-            t.prompts.agent_driven.store(agent_driven, Ordering::Release);
+            let was = t.prompts.agent_driven.swap(agent_driven, Ordering::AcqRel);
+            t.prompts.user_reclaimed.store(false, Ordering::Release);
             t.snap.lock().unwrap().agent_driven = agent_driven;
             if agent_driven {
                 // Agent-driven tabs may never navigate to `chrome-extension://` pages.
                 t.allowed_ext_ids.lock().unwrap().clear();
+                if !was && !t.isolated && t.preview.is_none() {
+                    self.flush_bfcache_for_default_tabs();
+                }
             }
             if let Some(ext) = &mut self.extensions {
                 ext.set_tab_agent_driven(tab_id, agent_driven);

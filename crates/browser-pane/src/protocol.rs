@@ -151,6 +151,9 @@ pub enum HostMsg {
         /// This app shows and answers page dialogs, permissions, and HTTP auth (`prompts.rs`).
         #[serde(default)]
         prompts: bool,
+        /// This app handles `EngineMsg::DownloadSaveRequest` via a native OS Save dialog.
+        #[serde(default)]
+        download_save: bool,
     },
     OpenTab {
         tab_id: u64,
@@ -314,6 +317,11 @@ pub enum HostMsg {
         username: Option<String>,
         password: Option<String>,
     },
+    AnswerDownloadSave {
+        tab_id: u64,
+        id: u64,
+        path: Option<String>,
+    },
     SetAgentDriven {
         tab_id: u64,
         agent_driven: bool,
@@ -347,6 +355,39 @@ pub enum HostMsg {
     },
     DropContext {
         context: ContextKind,
+    },
+    ProfileCookiesList {
+        request_id: u64,
+        #[serde(default)]
+        partition: Option<String>,
+    },
+    ProfileCookiesSet {
+        request_id: u64,
+        #[serde(default)]
+        partition: Option<String>,
+        cookies: Vec<WireCookie>,
+    },
+    ProfileCookieDelete {
+        request_id: u64,
+        #[serde(default)]
+        partition: Option<String>,
+        url: String,
+        name: String,
+    },
+    ProfileProbeCookies {
+        request_id: u64,
+    },
+    ClearProfileData {
+        request_id: u64,
+    },
+    SetShareSignIns {
+        enabled: bool,
+    },
+    SyncRemoteCookies {
+        request_id: u64,
+        partition: String,
+        #[serde(default)]
+        from_remote: bool,
     },
     TypedCdpCall {
         tab_id: u64,
@@ -428,6 +469,27 @@ pub enum EngineMsg {
         /// The engine owns `Target.setAutoAttach` and frame exclusion authority (`EngineCdpLedger`).
         #[serde(default)]
         frame_authority: bool,
+        /// The engine exposes `CefCookieManager` list/import/delete/probe/clear & two-way remote cookie mirroring.
+        #[serde(default)]
+        cookies: bool,
+    },
+    ProfileCookies {
+        request_id: u64,
+        cookies: Vec<WireCookie>,
+    },
+    ProfileCookiesImported {
+        request_id: u64,
+        imported: u32,
+        failed: u32,
+    },
+    ProfileProbeReady {
+        request_id: u64,
+        written: bool,
+        cache_dir: String,
+    },
+    ProfileActionDone {
+        request_id: u64,
+        ok: bool,
     },
     /// Requests bytes for a remote workspace or artifact preview from the app host.
     PreviewFetch {
@@ -454,6 +516,13 @@ pub enum EngineMsg {
     Refused {
         tab_id: u64,
         reason: String,
+    },
+    /// Controlled `Default`-profile tab refused due to an inherited site permission; carries the
+    /// refused URL for the notice bar and "Open in new tab" without overwriting `BrowserTab.url`.
+    ControlledPermissionRefused {
+        tab_id: u64,
+        #[serde(default)]
+        url: Option<String>,
     },
     Dialog {
         tab_id: u64,
@@ -552,10 +621,20 @@ pub enum EngineMsg {
         texture: String,
         release_fence: String,
     },
-    /// A download started, moved on or ended. An engine from before it sends none.
+    /// A download started, moved on or ended (agent-driven tabs only). An engine from before it sends none.
     Download {
         tab_id: u64,
         file: DownloadFile,
+    },
+    /// A human-initiated download (or right-click "Save image as…") awaiting a native OS Save
+    /// dialog path outside the engine profile and `opencode-page-downloads`.
+    DownloadSaveRequest {
+        tab_id: u64,
+        id: u64,
+        name: String,
+        mime: String,
+        #[serde(default)]
+        executable: bool,
     },
     /// Linux: a tab's new linear ARGB8888 dmabufs, their descriptors sent with the line
     /// (`SCM_RIGHTS`, `fd_lines.rs`), one per buffer.
@@ -576,6 +655,16 @@ pub enum EngineMsg {
         pool: u64,
         slot: u32,
     },
+}
+
+/// A human download awaiting an OS Save dialog choice in the host app (`EngineMsg::DownloadSaveRequest`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DownloadSaveRequest {
+    pub tab_id: u64,
+    pub id: u64,
+    pub name: String,
+    pub mime: String,
+    pub executable: bool,
 }
 
 /// A file a page downloaded, kept in the engine's private downloads folder for the agent's tools
@@ -826,4 +915,37 @@ pub enum ContextMenuCommand {
     SaveImage { url: String },
     ReplaceMisspelling { word: String },
     AddToDictionary { word: String },
+}
+
+fn default_cookie_path() -> String {
+    "/".to_owned()
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CookieSameSite {
+    #[default]
+    Unspecified,
+    NoRestriction,
+    Lax,
+    Strict,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WireCookie {
+    /// Leading dot for domain cookies (`.github.com`), bare host for host-only (`github.com`).
+    pub host: String,
+    pub name: String,
+    pub value: String,
+    #[serde(default = "default_cookie_path")]
+    pub path: String,
+    #[serde(default)]
+    pub secure: bool,
+    #[serde(default)]
+    pub http_only: bool,
+    /// Unix timestamp in seconds; `None` for session cookies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires: Option<f64>,
+    #[serde(default)]
+    pub same_site: CookieSameSite,
 }

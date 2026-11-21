@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 /// revision (`156.0.26.1`). Bump it when the app needs an engine built from newer engine code (a
 /// protocol change); a release of a newer CEF with the same revision is an update for every app
 /// that accepts it.
-pub const ENGINE_REVISION: u32 = 2;
+pub const ENGINE_REVISION: u32 = 3;
 #[cfg(not(any(windows, target_os = "linux")))]
 pub const ENGINE_BUNDLE_NAME: &str = "OpenCode Browser Engine.app";
 #[cfg(not(any(windows, target_os = "linux")))]
@@ -44,6 +44,17 @@ pub(crate) const TRUST_MARKER: &str = "trust";
 /// The OS named no folder for the app's data (`Fault::Dirs`).
 #[cfg(feature = "engine")]
 pub(crate) const NO_DIRS: &str = "the OS has no folder for the browser's data";
+
+/// A development override from the environment (`OPENCODE_BROWSER_ENGINE_BIN`, `_APP`,
+/// `OPENCODE_BROWSER_SOCKET`, `OPENCODE_BROWSER_IMPORT_ROOT`): read only in a debug build, as
+/// `source::inputs` reads `_SOURCE` and `_TRUST`, so a variable can't make a shipped app run an
+/// engine past its trust rule (whoever sets one could also pass a headless flag).
+pub(crate) fn dev_override(name: &str) -> Option<std::ffi::OsString> {
+    cfg!(debug_assertions)
+        .then(|| std::env::var_os(name))
+        .flatten()
+        .filter(|v| !v.is_empty())
+}
 
 /// What went wrong getting the engine or keeping it running: each one names its cause and what
 /// the user can do, and the app words it from its catalog (`Display` is the English the logs and
@@ -220,6 +231,11 @@ impl EngineStatus {
     pub fn is_hung(&self) -> bool {
         matches!(self, Self::Failed(f) if f.fault == Fault::Hung)
     }
+
+    /// The source publishes no engine this build accepts for this platform.
+    pub fn is_not_published(&self) -> bool {
+        matches!(self, Self::Failed(f) if f.fault == Fault::NotPublished)
+    }
 }
 
 impl Failure {
@@ -346,10 +362,10 @@ pub struct Installed {
 /// the newest installed version this build accepts. Reads one folder; call it off the UI thread.
 #[cfg(feature = "engine")]
 pub fn installed() -> Option<Installed> {
-    if let Some(bin) = std::env::var_os("OPENCODE_BROWSER_ENGINE_BIN").map(PathBuf::from).filter(|p| p.is_file()) {
+    if let Some(bin) = dev_override("OPENCODE_BROWSER_ENGINE_BIN").map(PathBuf::from).filter(|p| p.is_file()) {
         return Some(Installed { version: None, bin });
     }
-    if let Some(bin) = std::env::var_os("OPENCODE_BROWSER_ENGINE_APP").map(|app| PathBuf::from(app).join(ENGINE_BIN_REL)).filter(|p| p.is_file()) {
+    if let Some(bin) = dev_override("OPENCODE_BROWSER_ENGINE_APP").map(|app| PathBuf::from(app).join(ENGINE_BIN_REL)).filter(|p| p.is_file()) {
         return Some(Installed { version: None, bin });
     }
     let root = try_engines_root()?;
@@ -448,7 +464,7 @@ pub fn socket_path() -> PathBuf {
 
 #[cfg(feature = "engine")]
 pub fn try_socket_path() -> Result<PathBuf, &'static str> {
-    if let Some(custom) = std::env::var_os("OPENCODE_BROWSER_SOCKET") {
+    if let Some(custom) = dev_override("OPENCODE_BROWSER_SOCKET") {
         return custom_socket(Path::new(&custom));
     }
     let dirs = engine_dirs().ok_or(NO_DIRS)?;

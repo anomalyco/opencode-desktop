@@ -78,10 +78,6 @@ impl BrowserTab {
     }
 }
 
-/// The engine profile's downloads folder (the engine's `downloads::DIR_NAME`).
-#[cfg(feature = "engine")]
-const DOWNLOADS_DIR: &str = "opencode-page-downloads";
-
 /// A tab's downloads at most (the engine's `downloads::MAX_TAB_FILES`).
 pub const MAX_TAB_FILES: usize = 64;
 
@@ -136,7 +132,10 @@ pub struct BrowserHost {
     picked: VecDeque<PickedElement>,
     pub(crate) popup_opens: VecDeque<crate::prompts::PopupRequest>,
     pub(crate) context_menus: VecDeque<(u64, crate::protocol::PageContextMenu)>,
+    pub(crate) download_save_requests: VecDeque<crate::protocol::DownloadSaveRequest>,
     pub(crate) diagnostics: VecDeque<crate::find::PageDiagnostic>,
+    pub(crate) profile_events: VecDeque<crate::cookies::ProfileEvent>,
+    pub(crate) share_sign_ins: bool,
     /// Tab IDs closed by the engine (`EngineMsg::TabClosed`) paired with `fatal_close` (`true` only
     /// on unrecoverable proxy/context failure, never explicit `DropContext` of a suspended tab).
     pub(crate) closed_tabs: VecDeque<(u64, bool)>,
@@ -202,7 +201,10 @@ impl BrowserHost {
             picked: VecDeque::new(),
             popup_opens: VecDeque::new(),
             context_menus: VecDeque::new(),
+            download_save_requests: VecDeque::new(),
             diagnostics: VecDeque::new(),
+            profile_events: VecDeque::new(),
+            share_sign_ins: false,
             closed_tabs: VecDeque::new(),
             remote_proxies: HashMap::new(),
             site_permissions: crate::prompts::SitePermissions::default(),
@@ -264,30 +266,6 @@ impl BrowserHost {
         self.caps.preview()
     }
 
-    /// Where tab `tab_id`'s download `file` is, when it's where the engine keeps it: the engine
-    /// profile's `opencode-page-downloads\<tab>\<file id>\` (or a throwaway profile's beside it).
-    /// None for any other path the engine named: the app opens no file another process points at.
-    pub fn download_path(&self, tab_id: u64, file: &DownloadFile) -> Option<PathBuf> {
-        #[cfg(feature = "engine")]
-        {
-            let profile = std::fs::canonicalize(crate::profile::for_spawn(self.profile_dir.as_deref())?).ok()?;
-            let path = std::fs::canonicalize(&file.path).ok()?;
-            let folder = path.parent()?;
-            let tab = folder.parent()?;
-            let dir = tab.parent()?;
-            let root = dir.parent()?;
-            let named = folder.file_name()? == file.id.as_str() && tab.file_name()? == tab_id.to_string().as_str() && dir.file_name()? == DOWNLOADS_DIR;
-            let throwaway = profile.file_name().map(|n| format!("{}-throwaway", n.to_string_lossy()));
-            let ours = root == profile || (root.parent().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()) == throwaway && root.parent()?.parent() == profile.parent());
-            (named && ours && path.is_file()).then_some(path)
-        }
-        #[cfg(not(feature = "engine"))]
-        {
-            let _ = (tab_id, file);
-            None
-        }
-    }
-
     pub fn set_profile_dir(&mut self, dir: PathBuf) {
         self.profile_dir = Some(dir);
     }
@@ -308,7 +286,7 @@ impl BrowserHost {
     pub fn engine_configured() -> bool {
         #[cfg(feature = "engine")]
         {
-            let set = |k| std::env::var_os(k).is_some_and(|v| !v.is_empty());
+            let set = |k| crate::installer::dev_override(k).is_some();
             crate::source::configured()
                 || crate::source::has_trust()
                 || set("OPENCODE_BROWSER_ENGINE_BIN")
@@ -320,6 +298,10 @@ impl BrowserHost {
             false
         }
     }
+
+    /// Without the engine there is no source to read (`EngineStatus::Unsupported` already).
+    #[cfg(not(feature = "engine"))]
+    pub fn probe_availability(&self) {}
 
     pub fn with_socket(socket: PathBuf) -> Self {
         let mut h = Self::new();
@@ -495,6 +477,7 @@ impl BrowserHost {
             removed.surface.clear();
             self.surfaces.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
             self.pending_opens.retain(|(tid, _)| *tid != id);
+            self.cancel_download_save_requests(id);
             self.send(HostMsg::CloseTab { tab_id: id });
             if self.focused_tab == Some(id) {
                 self.focused_tab = if self.tabs.is_empty() {
@@ -928,6 +911,7 @@ impl BrowserHost {
                     preview,
                     permission_sync,
                     frame_authority,
+                    cookies,
                     ..
                 } => {
                     if !matches!(
@@ -949,10 +933,15 @@ impl BrowserHost {
                         preview,
                         permission_sync,
                         frame_authority,
+                        cookies,
                     };
                     self.sync_site_permissions();
+                    if cookies && self.share_sign_ins {
+                        self.send(HostMsg::SetShareSignIns { enabled: true });
+                    }
                     // A new engine starts with an empty downloads folder and numbers its files
                     // from 1 again: the last one's files are gone. Held prompts replay if live.
+                    self.download_save_requests.clear();
                     for t in &mut self.tabs {
                         t.files.clear();
                         t.prompts.reset_for_engine();
@@ -1020,6 +1009,18 @@ impl BrowserHost {
                         changed = true;
                     }
                 }
+                EngineMsg::ControlledPermissionRefused { tab_id, url } => {
+                    if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+                        t.loading = false;
+                        t.refusal = Some("browser.controlled.inherited_permission".to_owned());
+                        t.rejected += 1;
+                        if t.prompts.agent_driven {
+                            t.prompts.blocked_guard_notice =
+                                Some(crate::prompts::BlockedGuardReason::InheritedPermission { url });
+                        }
+                        changed = true;
+                    }
+                }
                 EngineMsg::TabList { tabs } => {
                     for snap in tabs {
                         self.upsert_tab(snap);
@@ -1042,6 +1043,7 @@ impl BrowserHost {
                         continue;
                     }
                     self.pending_opens.retain(|(id, _)| *id != tab_id);
+                    self.download_save_requests.retain(|r| r.tab_id != tab_id);
                     let fatal_close = if let Some(pos) = self.tabs.iter().position(|t| t.id == tab_id) {
                         let removed = self.tabs.remove(pos);
                         removed.surface.clear();
@@ -1082,8 +1084,14 @@ impl BrowserHost {
                         .insert(request_id, if ok { Ok(result) } else { Err(result) });
                     changed = true;
                 }
-                EngineMsg::Download { tab_id, file } => {
+                EngineMsg::Download { tab_id, mut file } => {
+                    file.name = crate::policy::sanitize_download_name(&file.name);
                     if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+                        // Never expose human-tab downloads in `BrowserTab.files` (defense in depth
+                        // for older engines before `DownloadSaveRequest`).
+                        if !t.prompts.agent_driven {
+                            continue;
+                        }
                         match t.files.iter().position(|f| f.id == file.id) {
                             Some(known) => t.files[known] = file,
                             // The engine keeps at most MAX_TAB_FILES a tab; the list holds those and
@@ -1095,6 +1103,23 @@ impl BrowserHost {
                                 }
                             }
                         }
+                        changed = true;
+                    }
+                }
+                EngineMsg::DownloadSaveRequest { tab_id, id, name, mime, executable } => {
+                    let known = self.tabs.iter().any(|t| t.id == tab_id);
+                    if !known || self.download_save_requests.len() >= 16 {
+                        self.send(HostMsg::AnswerDownloadSave { tab_id, id, path: None });
+                    } else {
+                        let clean_mime = crate::policy::sanitize_download_mime(&mime);
+                        let dangerous = executable || crate::policy::is_dangerous_download(&name, &clean_mime);
+                        self.download_save_requests.push_back(crate::protocol::DownloadSaveRequest {
+                            tab_id,
+                            id,
+                            name: crate::policy::sanitize_download_name(&name),
+                            mime: clean_mime,
+                            executable: dangerous,
+                        });
                         changed = true;
                     }
                 }
@@ -1125,6 +1150,36 @@ impl BrowserHost {
                 }
                 EngineMsg::PageDiagnostic { tab_id, level, event, fields } => {
                     self.diagnostics.push_back(crate::find::PageDiagnostic { tab_id, level, event, fields });
+                    changed = true;
+                }
+                EngineMsg::ProfileCookies { request_id, cookies } => {
+                    self.profile_events.push_back(crate::cookies::ProfileEvent::CookiesListed {
+                        request_id,
+                        cookies,
+                    });
+                    changed = true;
+                }
+                EngineMsg::ProfileCookiesImported { request_id, imported, failed } => {
+                    self.profile_events.push_back(crate::cookies::ProfileEvent::CookiesImported {
+                        request_id,
+                        imported,
+                        failed,
+                    });
+                    changed = true;
+                }
+                EngineMsg::ProfileProbeReady { request_id, written, cache_dir } => {
+                    self.profile_events.push_back(crate::cookies::ProfileEvent::ProbeReady {
+                        request_id,
+                        written,
+                        cache_dir,
+                    });
+                    changed = true;
+                }
+                EngineMsg::ProfileActionDone { request_id, ok } => {
+                    self.profile_events.push_back(crate::cookies::ProfileEvent::ActionDone {
+                        request_id,
+                        ok,
+                    });
                     changed = true;
                 }
                 EngineMsg::PreviewFetch { req_id, tab_id, kind, path, method, range } => {
@@ -1295,14 +1350,26 @@ impl BrowserHost {
         self.next_tab_id = self.next_tab_id.max(snap.tab_id + 1);
         let want_zoom = self.site_zoom.get(&snap.url);
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == snap.tab_id) {
+            let blank_after_inherited = snap.url.eq_ignore_ascii_case("about:blank")
+                && matches!(
+                    t.prompts.blocked_guard_notice,
+                    Some(crate::prompts::BlockedGuardReason::InheritedPermission { .. })
+                );
             let url_changed = t.url != snap.url;
             let new_site = site_of(&snap.url).is_some() && site_of(&t.url) != site_of(&snap.url);
-            let clear_refusal = (url_changed || snap.load_error.is_some()) && t.refusal.is_some();
+            let clear_refusal =
+                !blank_after_inherited && (url_changed || snap.load_error.is_some()) && t.refusal.is_some();
+            let preserved_notice = blank_after_inherited
+                .then(|| t.prompts.blocked_guard_notice.clone())
+                .flatten();
             let (cancel_perms, cancel_auth) = if url_changed {
                 t.prompts.on_document_committed(&t.url, &snap.url)
             } else {
                 (Vec::new(), Vec::new())
             };
+            if let Some(notice) = preserved_notice {
+                t.prompts.blocked_guard_notice = Some(notice);
+            }
             let changed = url_changed
                 || t.title != snap.title
                 || t.loading != snap.loading

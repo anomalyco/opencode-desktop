@@ -49,7 +49,7 @@ pub(crate) use crate::session::{
 #[allow(unused_imports)]
 pub(crate) use crate::workspace::{
     lifecycle::{
-        idle, jobs, launch, new_session, new_worktree, page_sign_in, reconnect, restore, rune_mcp,
+        idle, jobs, launch, new_session, new_worktree, page_sign_in, reconnect, restore, rune_mcp, start_location,
         served, storage, tips,
     },
     projects,
