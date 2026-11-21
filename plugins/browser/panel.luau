@@ -49,6 +49,8 @@ export type Env = {
     revealGuarded: (tab: BrowserTab) -> boolean,
     -- What the pane's controls do.
     act: (what: string, tab: BrowserTab?, arg: any?) -> (),
+    -- The sign-in offer: a `bar` over a page or a `card` on the new tab page (`signins.luau`).
+    signIns: ((view: View, tab: BrowserTab, variant: string) -> ui.Node?)?,
 }
 
 -- `text-13-regular` at `--line-height-compact`, as bar.css sets the field and its rows.
@@ -460,8 +462,11 @@ end
 -- The new tab page: Open a page and what it's for, top-aligned; or the newest visits.
 local function home(env: Env, view: View, tab: BrowserTab, width: number): ui.Node
     local visits = env.visits()
+    -- `panel.tsx:1474-1477`: the sign-in offer heads the new tab page while it offers.
+    local offer = if env.signIns then env.signIns(view, tab, "card") else nil
     if #visits == 0 then
         return ui.col({ key = "browser-home", dir = "auto", w = "full", grow = 1, minH = 0, scrollY = true, align = "center" }, {
+            offer or ui.spacer({ w = 0, h = 0 } :: any),
             ui.col({ w = "full", maxW = 360, px = 24, pt = 80, gap = 16, align = "center" }, {
                 ui.icon("outline-globe", { size = 20, color = "icon-weak" }),
                 ui.col({ w = "full", gap = 8, align = "center" }, {
@@ -482,6 +487,7 @@ local function home(env: Env, view: View, tab: BrowserTab, width: number): ui.No
         end))
     end
     return ui.col({ key = "browser-home", dir = "auto", w = "full", grow = 1, minH = 0, scrollY = true, align = "center" }, {
+        offer or ui.spacer({ w = 0, h = 0 } :: any),
         ui.col({ w = "full", maxW = 608, px = 24, pt = 48, pb = 40, gap = 16 }, {
             ui.text(env.I18n:T("home.recent"), { size = 13, weight = "regular", lineHeight = 16, color = "text-muted" }),
             ui.col({ w = "full", gap = 8 }, rows),
@@ -695,7 +701,26 @@ function panel.render(env: Env, view: View, props: PanelProps): ui.Node
         chromeH += 44
     end
 
+    local url = tab:Url()
+    local lowerUrl = string.lower(url)
+    local isServerPreview = string.sub(lowerUrl, 1, 12) == "workspace://" or string.sub(lowerUrl, 1, 11) == "artifact://"
+    local offline = isServerPreview and env.serverConnected ~= nil and not env.serverConnected()
+    local suspended = offline or tab:Refusal() == "browser.proxy.required"
+    local blank = (url == "" or url == "about:blank")
+        and not tab:Loading()
+        and not state.navigating
+        and tab:Refusal() ~= "browser.controlled.inherited_permission"
+
     -- Stacked bars in exact upstream order (`panel.tsx:1326-1417`):
+    -- 0. The sign-in offer over a page (`panel.tsx:1357-1360`), never over the new tab page.
+    if env.signIns and not blank and not suspended and engine ~= "unsupported" then
+        local offer = env.signIns(view, tab, "bar")
+        if offer then
+            table.insert(items, offer)
+            chromeH += 45
+        end
+    end
+
     -- 1. Refusal notice (with 500 ms activation delay + agent reveal hold)
     local loadErr = tab:LoadError()
     local refNotice = if loadErr == nil then env.refusalNotice(tab) else nil
@@ -762,15 +787,6 @@ function panel.render(env: Env, view: View, props: PanelProps): ui.Node
     end
 
     -- 5. Page area: suspended/offline notice, failed-load plain page, empty new tab home, or live browser surface.
-    local url = tab:Url()
-    local lowerUrl = string.lower(url)
-    local isServerPreview = string.sub(lowerUrl, 1, 12) == "workspace://" or string.sub(lowerUrl, 1, 11) == "artifact://"
-    local offline = isServerPreview and env.serverConnected ~= nil and not env.serverConnected()
-    local suspended = offline or tab:Refusal() == "browser.proxy.required"
-    local blank = (url == "" or url == "about:blank")
-        and not tab:Loading()
-        and not state.navigating
-        and tab:Refusal() ~= "browser.controlled.inherited_permission"
     if suspended then
         table.insert(items, ui.col({
             key = "browser-suspended",
