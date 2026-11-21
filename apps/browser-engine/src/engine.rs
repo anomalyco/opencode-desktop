@@ -684,7 +684,17 @@ impl EngineManager {
             }
             HostMsg::AnswerDownloadSave { tab_id, id, path } => {
                 let ready = self.tabs.contains_key(&tab_id) && self.contexts.is_tab_ready(tab_id);
-                self.downloads.answer_save(tab_id, id, path.as_deref(), ready);
+                // A tab whose first navigation became this download has nothing to show once the
+                // download has its place or was cancelled (official `chromium.ts:1076-1083`); the app
+                // closes it if a page opened it (`closesUnshown`, `window-open.ts`).
+                if self.downloads.answer_save(tab_id, id, path.as_deref(), ready)
+                    && let Some(t) = self.tabs.get(&tab_id)
+                    && !t.is_popup
+                    && t.snap.lock().unwrap().document == 0
+                    && t.browser.can_go_back() == 0
+                {
+                    let _ = self.out_tx.send(EngineMsg::DownloadOnlyTab { tab_id });
+                }
             }
             HostMsg::SetAgentDriven { tab_id, agent_driven } => {
                 self.handle_set_agent_driven(tab_id, agent_driven);

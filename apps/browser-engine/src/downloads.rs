@@ -213,26 +213,25 @@ impl Downloads {
         Some(dir)
     }
 
-    /// Resolves a held human Save dialog callback (`HostMsg::AnswerDownloadSave`).
-    pub fn answer_save(&self, tab_id: u64, id: u64, path: Option<&str>, context_ready: bool) {
+    /// Resolves a held human Save dialog callback (`HostMsg::AnswerDownloadSave`). Returns whether
+    /// it answered a held request: the download then has its place, or was cancelled.
+    pub fn answer_save(&self, tab_id: u64, id: u64, path: Option<&str>, context_ready: bool) -> bool {
         let Some(pending) = self.pending_saves.lock().unwrap().remove(&(tab_id, id)) else {
-            return;
+            return false;
         };
         if !context_ready || !pending.tab_alive.load(Ordering::Acquire) {
             // Drop `pending.callback` without calling `.cont()` -> cancels in CEF.
-            return;
+            return true;
         }
-        let Some(raw_path) = path else {
-            return;
-        };
-        let Some(target) = self.validate_user_save_path(raw_path) else {
-            return;
+        let Some(target) = path.and_then(|raw| self.validate_user_save_path(raw)) else {
+            return true;
         };
         let Some(target_str) = target.to_str() else {
-            return;
+            return true;
         };
         self.user_saves.lock().unwrap().insert((tab_id, pending.tab_gen, pending.item_id));
         pending.callback.cont(Some(&CefString::from(target_str)), 0);
+        true
     }
 
     fn validate_user_save_path(&self, raw: &str) -> Option<PathBuf> {

@@ -654,6 +654,10 @@ pub enum EngineMsg {
     FileChooserBlocked {
         tab_id: u64,
     },
+    /// A tab whose first navigation became the person's download, now placed (or cancelled).
+    DownloadOnlyTab {
+        tab_id: u64,
+    },
     FindResult {
         tab_id: u64,
         count: u32,
