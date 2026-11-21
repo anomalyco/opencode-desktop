@@ -372,6 +372,7 @@ fn picker<H: ConnectHost + 'static>(s: &H, open: &Open, p: &Pal) -> El {
         .spellcheck(s.spellcheck())
         .leading_icon(&ic::MAGNIFYING_GLASS)
         .width(None)
+        .height(32.0)
         .plain()
         .on_edit(|s: &mut H| s.connect_mut().search_mut())
         .on_change(|s: &mut H, tx: &mut Tx| clear_active(s, tx))
@@ -402,13 +403,13 @@ fn build_group_section(p: &Pal, title: &'static str, rows: Vec<El>) -> El {
 }
 
 fn build_picker_frame(p: &Pal, field: El, sections: Vec<El>) -> El {
-    // The hairline reaches across the body's 6 pt padding.
+    // The hairline reaches across the body's 8 pt padding (`dialog.tsx:266,328`: `px-2 pb-2`, `after:!-mx-2`).
     let search = col()
         .key("connect-search-row")
         .w_full()
         .gap(6.0)
         .child(field)
-        .child(rune::hairline(p.border).key("connect-search-rule").mx(-6.0));
+        .child(rune::hairline(p.border).key("connect-search-rule").mx(-8.0));
     let mut list = col().key("connect-groups").w_full().gap(2.0).pb(32.0);
     if sections.is_empty() {
         list = list.child(row().key("connect-empty").w_full().h(96.0).center().child(text(opencode_i18n::t!("dialog.provider.empty")).font(BODY).color(p.muted)));
@@ -421,8 +422,8 @@ fn build_picker_frame(p: &Pal, field: El, sections: Vec<El>) -> El {
         .grow(1.0)
         .shrink()
         .min_h(0.0)
-        .px(6.0)
-        .pb(6.0)
+        .px(8.0)
+        .pb(8.0)
         .gap(2.0)
         .child(search)
         // No bar, as Desktop hides it (`[scrollbar-width:none]`, `providers/connect/dialog.tsx:338`).
