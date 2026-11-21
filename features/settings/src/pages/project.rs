@@ -433,11 +433,21 @@ fn colors<H: SettingsHost + 'static>(p: &Pal, x: &Project) -> El {
             .radius(6.0)
             .cursor(Cursor::Pointer)
             .focus_default(p)
-            .on_press_tx(move |s: &mut H, tx: &mut Tx| pick_color(s, &id, i, selected, tx))
+            .on_press_tx(move |s: &mut H, tx: &mut Tx| pick_color(s, &id, i, selected, tx));
+        // Selection is a neutral ring and focus the shared outline, so the two stay apart (`project.css`, opencode#64909);
+        // unselected swatches fade in the `border-strong` double ring on hover over 120 ms (`project.css:341-346`).
+        let swatch = if selected {
+            ring(p.v2.border_inverse).into_iter().rev().fold(swatch, El::box_shadow)
+        } else {
+            let hover_ring = ring(p.q.border_strong).into_iter().rev().fold(
+                el().key("hover-ring").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).radius(6.0).group_opacity(0.0, 1.0),
+                El::box_shadow,
+            );
+            swatch.hover_group().hover_motion(opencode_ui::style::HOVER_FADE, opencode_ui::style::HOVER_FADE).child(hover_ring)
+        };
+        let swatch = swatch
             .child(tile(p, "", i, 20.0, 11.0))
             .children(selected.then(|| row().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).center().child(icon(&ic::CHECK, 14.0).color(p.icon_contrast))));
-        // Selection is a neutral ring and focus the shared outline, so the two stay apart (`project.css`, opencode#64909).
-        let swatch = if selected { ring(p.v2.border_inverse).into_iter().rev().fold(swatch, El::box_shadow) } else { swatch };
         r.child(swatch)
     })
 }
