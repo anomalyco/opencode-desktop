@@ -307,7 +307,9 @@ pub fn turn_footer<S: TimelineHost>(s: &S, p: &Pal, t: &Transcript, message: usi
     };
     let copy_key = format!("copy-{}-{part}", a.id);
     let key = copy_key.clone();
-    let button = row().key("copy").role("button").label_static(opencode_i18n::t!("ui.message.copyResponse"))
+    let done = crate::copied::is_copied(s, &copy_key);
+    let label = if done { opencode_i18n::t!("ui.message.copied") } else { opencode_i18n::t!("ui.message.copyResponse") };
+    let button = row().key("copy").role("button").label_static(label).help(label).help_above().help_open(done)
         .size(COPY, COPY).center().radius(4.0).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             tx.copy(body.clone());
@@ -409,6 +411,9 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, 
         .opacity_motion(INSTANT)
         .child(crate::copied::glyph(s, &copy_key, COPY_GLYPH, p.muted));
     if !busy && has_text {
+        let done = crate::copied::is_copied(s, &copy_key);
+        let label = if done { opencode_i18n::t!("ui.message.copied") } else { opencode_i18n::t!("ui.message.copyResponse") };
+        button = button.label_static(label).help(label).help_above().help_open(done);
         let session = session.to_owned();
         let id = message.id().to_owned();
         button = button.on_press_tx(move |s: &mut S, tx: &mut Tx| {
