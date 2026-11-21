@@ -298,7 +298,7 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
                     selectPreset(tabId, p.id)
                 end, 30, 5))
             end
-            table.insert(items, ui.col({ w = "full", h = 1, my = 4, fill = "border-muted" }))
+            table.insert(items, ui.col({ w = "full", h = 1, my = 4, fill = "border-weak" }))
             table.insert(items, ui.flyoutRow({
                 key = "vp-more-devices",
                 text = t("moreDevices"),
@@ -365,7 +365,7 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
                 checkRow(view, "vp-scale-fit", t("fit"), currentScale == nil, function()
                     selectScale(tabId, nil, autoW, autoH)
                 end),
-                ui.col({ w = "full", h = 1, my = 4, fill = "border-muted" }),
+                ui.col({ w = "full", h = 1, my = 4, fill = "border-weak" }),
             }
             for _, factor in SCALES do
                 local pct = i18n:T("zoom.percent", { percent = math.floor(factor * 100 + 0.5) })

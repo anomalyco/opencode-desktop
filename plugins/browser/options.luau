@@ -79,7 +79,7 @@ local function menuHint(text: string): ui.Node
 end
 
 local function separator(): ui.Node
-    return ui.col({ w = "full", h = 1, my = 2, fill = "border-muted" })
+    return ui.col({ w = "full", h = 1, my = 2, fill = "border-weak" })
 end
 
 -- Renders the top-level 220 pt '...' options popover (`menu.css`, `panel.tsx:1255-1346`).
