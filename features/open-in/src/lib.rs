@@ -795,6 +795,6 @@ pub fn pick(host: &mut dyn OpenInHost, rel: &str, id: &str, reveal: bool, tx: &m
 pub fn drag_item(host: &dyn OpenInHost, rel: &str) -> Option<DragItem> {
     let raw = can_open(host).then(|| resolve_path(host, rel)).flatten()?;
     let verified = browser_policy::verify_local_path(&raw).ok()?;
-    host.open_in().dragged.record(verified.path.clone(), rel);
+    host.open_in().dragged.record(&verified.path, rel);
     Some(DragItem::new().file(verified.path).within_app())
 }

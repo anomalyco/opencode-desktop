@@ -3,15 +3,15 @@
 //! `composer/attachments/attachments.ts:217-223`) while external drops still attach as files.
 
 use std::cell::RefCell;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 #[derive(Default)]
-pub struct DragTracker(RefCell<Option<(PathBuf, String, Instant)>>);
+pub struct DragTracker(RefCell<Option<(String, String, Instant)>>);
 
 impl DragTracker {
-    pub fn record(&self, physical: PathBuf, rel: &str) {
-        *self.0.borrow_mut() = Some((physical, rel.to_owned(), Instant::now()));
+    pub fn record(&self, physical: &str, rel: &str) {
+        *self.0.borrow_mut() = Some((crate::pin_key(physical), rel.to_owned(), Instant::now()));
     }
 
     pub fn take(&self, path: &Path) -> Option<String> {
@@ -19,7 +19,6 @@ impl DragTracker {
         if at.elapsed() > Duration::from_secs(30) {
             return None;
         }
-        (crate::pin_key(&dragged.to_string_lossy()) == crate::pin_key(&path.to_string_lossy()))
-            .then_some(rel)
+        (dragged == crate::pin_key(&path.to_string_lossy())).then_some(rel)
     }
 }
