@@ -9,6 +9,7 @@ local plugin = require("@opencode/plugin")
 local ui = require("@opencode/ui")
 local address = require("@self/address")
 local createDevice = require("@self/device")
+local extensions = require("@self/extensions")
 local failure = require("@self/failure")
 local find = require("@self/find")
 local history = require("@self/history")
@@ -44,12 +45,14 @@ return plugin.defineWindow(function(ctx)
     local Menu = ctx:GetService("Menu")
     local Workspace = ctx:GetService("Workspace")
 
-    -- The window's address field and find field.
+    -- The window's address field, find field, and extension store link field.
     local editor = ctx:CreateEditor("")
     local findEditor = ctx:CreateEditor("")
+    local extLinkEditor = ctx:CreateEditor("")
     local stored = Store:Value("history", { visits = {} })
     local prefsStore = Store:Value("preferences", { links = true, agentPages = true, advanced = false, welcomed = false })
     local sitePermsStore = Store:Value("rune.sitePermissions", {})
+    local extensionsStore = Store:Value("extensions", {})
     local savedTabsStore = Store:Value("savedTabs", { sessions = {} })
     local recorder = Contracts:Use("browser.history")
     local extContract = Contracts:Use("browser.extensions")
@@ -1302,6 +1305,24 @@ return plugin.defineWindow(function(ctx)
         sitePermsStore:Set(nextList :: any)
     end
 
+    local function storedExtensions(): { any }
+        local raw = extensionsStore:Get()
+        return if type(raw) == "table" then raw :: { any } else {}
+    end
+
+    local function extNativeAvailable(): boolean
+        local bAny = Browser :: any
+        return type(bAny.ExtAvailable) == "function" and bAny:ExtAvailable() == true
+    end
+
+    -- Sync verified on-disk startup extension specs once on window boot (never discovers other browsers).
+    if extNativeAvailable() then
+        local bAny = Browser :: any
+        if type(bAny.ExtSync) == "function" then
+            bAny:ExtSync(storedExtensions(), false)
+        end
+    end
+
     local function settingsCapabilities(): settings.Capabilities
         local prof = profileContract:Get()
         local ext = extContract:Get()
@@ -1309,7 +1330,7 @@ return plugin.defineWindow(function(ctx)
         return {
             available = avail,
             import = avail,
-            extensions = type(ext) == "table" and type(ext.renderSettings) == "function",
+            extensions = extNativeAvailable() or (type(ext) == "table" and type(ext.renderSettings) == "function"),
             remoteSignIns = avail and type((Browser :: any).ShareSignIns) == "function",
             cookieFile = type(prof) == "table" and type(prof.pickCookieFile) == "function",
         }
@@ -1317,6 +1338,7 @@ return plugin.defineWindow(function(ctx)
 
     local settingsHandle: Contribution? = nil
     local importDialogHandle: Contribution? = nil
+    local extDialogHandle: Contribution? = nil
     local clearNoticeText: string? = nil
     -- Browsers are listed only while Settings > Browser draws (never at startup), read again once a
     -- listing is a few seconds old, so a visit sees browsers installed since the last one.
@@ -1326,6 +1348,19 @@ return plugin.defineWindow(function(ctx)
     local importTarget: { browser: string, profile: string, label: string }? = nil
     local importFailure: settings.ImportMessage? = nil
     local importResults: { [string]: settings.ImportMessage } = {}
+    local extDialogState: extensions.DialogState = {
+        busy = nil,
+        installingId = nil,
+        choices = {},
+        selectedKey = nil,
+        candidates = {},
+        candidatesLoaded = false,
+        devOpen = false,
+        review = nil,
+        showAllSites = false,
+        approving = false,
+        message = nil,
+    }
 
     local function listImportSources(): { settings.ImportBrowser }
         local now = System:Now()
@@ -1342,6 +1377,257 @@ return plugin.defineWindow(function(ctx)
             settingsHandle:Refresh()
         end
     end
+
+    local function refreshExtDialog()
+        if extDialogHandle then
+            extDialogHandle:Refresh()
+        end
+    end
+
+    extensionsStore.Changed:Connect(function()
+        refreshSettings()
+    end)
+
+    extLinkEditor.Changed:Connect(function()
+        refreshExtDialog()
+    end)
+
+    local function reloadExtCandidates()
+        local choice = extensions.findChoice(extDialogState.choices, extDialogState.selectedKey)
+        if choice == nil then
+            extDialogState.candidates = {}
+            extDialogState.candidatesLoaded = true
+            return
+        end
+        local bAny = Browser :: any
+        local list = if type(bAny.ExtBrowserList) == "function"
+            then bAny:ExtBrowserList(choice.sourceId, choice.profileId, storedExtensions())
+            else {}
+        extDialogState.candidates = if type(list) == "table" then list :: any else {}
+        extDialogState.candidatesLoaded = true
+    end
+
+    local function openAddExtensionDialog()
+        local bAny = Browser :: any
+        local rawSources = if type(bAny.ExtBrowserSources) == "function" then bAny:ExtBrowserSources() else {}
+        local sources: { extensions.BrowserSource } = if type(rawSources) == "table" then rawSources :: any else {}
+        local choices = extensions.flattenChoices(sources)
+        extDialogState = {
+            busy = nil,
+            installingId = nil,
+            choices = choices,
+            selectedKey = if #choices > 0 then extensions.choiceKey(choices[1]) else nil,
+            candidates = {},
+            candidatesLoaded = false,
+            devOpen = false,
+            review = nil,
+            showAllSites = false,
+            approving = false,
+            message = nil,
+        }
+        extLinkEditor:SetText("")
+        reloadExtCandidates()
+        Dialog:Open("add-extension")
+        extLinkEditor:Focus()
+    end
+
+    local function handleStageResult(res: any)
+        extDialogState.busy = nil
+        extDialogState.installingId = nil
+        if type(res) == "table" and res.type == "review" and type(res.review) == "table" then
+            extDialogState.review = res.review :: any
+            extDialogState.showAllSites = false
+            extDialogState.message = nil
+        elseif type(res) == "table" and res.type == "cancelled" then
+            -- User dismissed folder dialog or superseded an older stage.
+        elseif type(res) == "table" and res.type == "failed" then
+            extDialogState.message = {
+                text = extensions.failureMessage(I18n, res.reason),
+                error = true,
+                compatibility = nil,
+            }
+        else
+            extDialogState.message = {
+                text = I18n:T("settings.failed.install"),
+                error = true,
+                compatibility = nil,
+            }
+        end
+        refreshExtDialog()
+    end
+
+    local function startStoreInstall()
+        if extDialogState.busy ~= nil or extDialogState.approving then
+            return
+        end
+        local url = string.match(extLinkEditor:Text(), "^%s*(.-)%s*$") or ""
+        if url == "" then
+            return
+        end
+        extDialogState.busy = "install-store"
+        extDialogState.installingId = nil
+        extDialogState.message = nil
+        extLinkEditor:SetText("")
+        refreshExtDialog()
+        task.spawn(function()
+            local bAny = Browser :: any
+            local ok, res = pcall(function()
+                return bAny:ExtStageStoreAsync(url, storedExtensions())
+            end)
+            handleStageResult(if ok then res else nil)
+        end)
+    end
+
+    local function startBrowserInstall(sourceId: string, profileId: string, extId: string)
+        if extDialogState.busy ~= nil or extDialogState.approving then
+            return
+        end
+        extDialogState.busy = "install-browser"
+        extDialogState.installingId = extId
+        extDialogState.message = nil
+        refreshExtDialog()
+        task.spawn(function()
+            local bAny = Browser :: any
+            local ok, res = pcall(function()
+                return bAny:ExtStageBrowserAsync(sourceId, profileId, extId, storedExtensions())
+            end)
+            handleStageResult(if ok then res else nil)
+        end)
+    end
+
+    local function startFolderInstall()
+        if extDialogState.busy ~= nil or extDialogState.approving then
+            return
+        end
+        extDialogState.busy = "install-folder"
+        extDialogState.installingId = nil
+        extDialogState.message = nil
+        refreshExtDialog()
+        local pickTitle = I18n:T("settings.extensions.folder.pick")
+        task.spawn(function()
+            local bAny = Browser :: any
+            local ok, res = pcall(function()
+                return bAny:ExtStageFolderAsync(pickTitle, storedExtensions())
+            end)
+            handleStageResult(if ok then res else nil)
+        end)
+    end
+
+    local function approveExtReview(token: string)
+        if extDialogState.approving then
+            return
+        end
+        extDialogState.approving = true
+        refreshExtDialog()
+        task.spawn(function()
+            local bAny = Browser :: any
+            local ok, res = pcall(function()
+                return bAny:ExtApproveAsync(token, storedExtensions())
+            end)
+            extDialogState.approving = false
+            extDialogState.review = nil
+            extDialogState.showAllSites = false
+            if ok and type(res) == "table" and res.type == "installed" and type(res.records) == "table" then
+                extensionsStore:Set(res.records)
+                if type(bAny.ExtSync) == "function" then
+                    bAny:ExtSync(res.records, true)
+                end
+                if type(res.extension) == "table" then
+                    extDialogState.message = extensions.installedMessage(I18n, res.extension :: any)
+                end
+                reloadExtCandidates()
+                refreshSettings()
+            else
+                local reason = if ok and type(res) == "table" then res.reason else nil
+                extDialogState.message = {
+                    text = extensions.failureMessage(I18n, reason),
+                    error = true,
+                    compatibility = nil,
+                }
+            end
+            refreshExtDialog()
+        end)
+    end
+
+    local function cancelExtReview()
+        local bAny = Browser :: any
+        if type(bAny.ExtCancelReview) == "function" then
+            bAny:ExtCancelReview()
+        end
+        extDialogState.review = nil
+        extDialogState.showAllSites = false
+        refreshExtDialog()
+    end
+
+    ctx:AddPopover({
+        id = "ext-browser-profile",
+        title = I18n:T("settings.extensions.browser.select"),
+        render = function(view)
+            return extensions.renderProfileMenu(extDialogState.choices, extDialogState.selectedKey, view, function(key: string)
+                Popover:Close()
+                extDialogState.selectedKey = key
+                reloadExtCandidates()
+                refreshExtDialog()
+            end)
+        end,
+    })
+
+    extDialogHandle = ctx:AddDialog({
+        id = "add-extension",
+        title = I18n:T("settings.extensions.add.title"),
+        size = "normal",
+        render = function(view)
+            return extensions.renderAddDialog({
+                I18n = I18n,
+                linkEditor = extLinkEditor,
+                state = extDialogState,
+                onAddLink = startStoreInstall,
+                onSelectProfile = function(key: string)
+                    extDialogState.selectedKey = key
+                    reloadExtCandidates()
+                    refreshExtDialog()
+                end,
+                onOpenProfileMenu = function()
+                    Popover:Toggle({
+                        id = "ext-browser-profile",
+                        anchorKey = "ext-browser-profile-btn",
+                        side = "bottom",
+                        align = "end",
+                        gap = 4,
+                    })
+                end,
+                onAddFromBrowser = startBrowserInstall,
+                onToggleDev = function()
+                    extDialogState.devOpen = not extDialogState.devOpen
+                    refreshExtDialog()
+                end,
+                onPickFolder = startFolderInstall,
+                onToggleSites = function()
+                    extDialogState.showAllSites = not extDialogState.showAllSites
+                    refreshExtDialog()
+                end,
+                onApprove = approveExtReview,
+                onCancelReview = cancelExtReview,
+                onClose = function()
+                    Dialog:Close()
+                end,
+            }, view)
+        end,
+        onDismiss = function()
+            Popover:Close()
+            local bAny = Browser :: any
+            if type(bAny.ExtCancelReview) == "function" then
+                bAny:ExtCancelReview()
+            end
+            extDialogState.review = nil
+            extDialogState.showAllSites = false
+            extDialogState.approving = false
+            extDialogState.busy = nil
+            extDialogState.installingId = nil
+            extDialogState.message = nil
+            extLinkEditor:SetText("")
+        end,
+    })
 
     local function runClearBrowsingData()
         local bAny = Browser :: any
@@ -1489,7 +1775,41 @@ return plugin.defineWindow(function(ctx)
             if type(ext) == "table" and type(ext.renderSettings) == "function" then
                 return ext.renderSettings(view)
             end
-            return nil
+            if not extNativeAvailable() then
+                return nil
+            end
+            local bAny = Browser :: any
+            local rawList = if type(bAny.ExtList) == "function" then bAny:ExtList(storedExtensions()) else {}
+            local list: { extensions.ProfileExtension } = if type(rawList) == "table" then rawList :: any else {}
+            return extensions.renderSettingsSection({
+                I18n = I18n,
+                available = Browser:Available(),
+                busy = extDialogState.busy ~= nil or extDialogState.approving,
+                list = list,
+                onOpenAdd = openAddExtensionDialog,
+                onToggle = function(id: string, enabled: boolean)
+                    local res = if type(bAny.ExtSetEnabled) == "function"
+                        then bAny:ExtSetEnabled(id, enabled, storedExtensions())
+                        else nil
+                    if type(res) == "table" and res.ok == true and type(res.records) == "table" then
+                        extensionsStore:Set(res.records)
+                    else
+                        Toast:Error(I18n:T("settings.failed.extension"))
+                    end
+                    refreshSettings()
+                end,
+                onRemove = function(id: string)
+                    local res = if type(bAny.ExtRemove) == "function"
+                        then bAny:ExtRemove(id, storedExtensions())
+                        else nil
+                    if type(res) == "table" and res.ok == true and type(res.records) == "table" then
+                        extensionsStore:Set(res.records)
+                    else
+                        Toast:Error(I18n:T("settings.failed.extension"))
+                    end
+                    refreshSettings()
+                end,
+            }, view)
         end,
         remoteSignInsEnabled = function(): boolean?
             local bAny = Browser :: any

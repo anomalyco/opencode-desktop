@@ -58,6 +58,8 @@ pub struct BrowserTab {
     pub view_zoom: f32,
     /// Storage/cookie/extension isolation context (`Default`, `Preview`, `Artifact`, `Private`, or `RemoteServer`).
     pub context: crate::protocol::ContextKind,
+    /// User-opened tab allowed to host loaded `chrome-extension://` pages (never agent/isolated).
+    pub allow_extension_pages: bool,
     pub(crate) file_roots: Vec<String>,
     pub(crate) viewport_pt: (f32, f32),
     pub(crate) scale: f32,
@@ -143,7 +145,7 @@ pub struct BrowserHost {
     /// Live loopback tunnel proxy configs registered per remote server identity (`ServerKey::as_str()`).
     pub(crate) remote_proxies: HashMap<String, crate::protocol::RemoteProxyConfig>,
     pub(crate) site_permissions: crate::prompts::SitePermissions,
-    site_zoom: SiteZoom,
+    pub(crate) site_zoom: SiteZoom,
     pub(crate) keep_engine: bool,
     /// The scheme pages draw in: 0 not given yet, 1 light, 2 dark.
     color_scheme: std::sync::atomic::AtomicU8,
@@ -162,6 +164,7 @@ pub struct BrowserHost {
     pub(crate) opened: Arc<std::sync::atomic::AtomicU64>,
     #[cfg(feature = "engine")]
     pub(crate) prepared: Arc<std::sync::atomic::AtomicU64>,
+    pub(crate) extensions: crate::extensions::BrowserExtensionsState,
 }
 
 impl Default for BrowserHost {
@@ -223,6 +226,7 @@ impl BrowserHost {
             opened: Arc::default(),
             #[cfg(feature = "engine")]
             prepared: Arc::default(),
+            extensions: Default::default(),
         }
     }
 
@@ -328,6 +332,9 @@ impl BrowserHost {
         for tab in &self.tabs {
             frame::wake_window(&tab.surface, &waker);
         }
+        if let crate::extensions::PopupState::Open { surface, .. } = &self.extensions.popup {
+            frame::wake_window(surface, &waker);
+        }
         self.waker = Some(waker);
     }
 
@@ -353,7 +360,7 @@ impl BrowserHost {
     }
 
     pub fn open_tab(&mut self, raw_url: &str) -> u64 {
-        self.open_tab_with_roots(raw_url, Vec::new(), true)
+        self.open_tab_with_context(raw_url, Vec::new(), crate::protocol::ContextKind::Default, true, false)
     }
 
     pub fn open_tab_with_roots(&mut self, raw_url: &str, file_roots: Vec<String>, from_address: bool) -> u64 {
@@ -363,95 +370,12 @@ impl BrowserHost {
     pub fn open_tab_with_context(
         &mut self,
         raw_url: &str,
-        _file_roots: Vec<String>,
+        file_roots: Vec<String>,
         context: crate::protocol::ContextKind,
         from_address: bool,
         agent_driven: bool,
     ) -> u64 {
-        rune::marks::mark("browser.tab.open");
-        self.opened.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        // Resolve & strictly validate cached loopback proxy for `RemoteServer`; fail closed if missing/invalid.
-        let mut context = context;
-        let proxy_err = self.resolve_remote_context(&mut context);
-        let candidate = if from_address { resolve_address(raw_url) } else { crate::policy::with_scheme(raw_url) };
-        let connected = self.is_connected();
-        let ready = self.status() == EngineStatus::Ready;
-        let ctx_ok = !ready || context.is_supported(self.engine_partitions(), self.engine_remote_proxy());
-        // Raw `file://` is banned unconditionally; local workspace files open via `open_preview_tab`.
-        let refused = if let Some(err) = proxy_err {
-            Some(err.to_owned())
-        } else if !ctx_ok {
-            Some("browser.partitions.unsupported".to_owned())
-        } else {
-            crate::policy::refusal(&candidate, &[]).map(|r| r.code().to_owned())
-        };
-        let url = if refused.is_some() { "about:blank".to_owned() } else { candidate };
-        let can_open_in_engine = proxy_err.is_none() && ctx_ok;
-        let id = self.alloc_tab_id();
-        let surface = TabSurface::new();
-        if let Some(w) = &self.waker {
-            frame::wake_window(&surface, w);
-        }
-        self.surfaces.lock().unwrap_or_else(PoisonError::into_inner).insert(id, surface.clone());
-        if !context.is_isolated() {
-            self.site_zoom.prepare();
-        }
-        let ((width_pt, height_pt), scale) = self.last_viewport;
-        let mut prompts = crate::prompts::TabPromptState::default();
-        prompts.agent_driven = agent_driven;
-        self.tabs.push(BrowserTab {
-            id,
-            url: url.clone(),
-            title: "New tab".into(),
-            loading: refused.is_none(),
-            can_go_back: false,
-            can_go_forward: false,
-            zoom: 1.0,
-            cursor: CursorKind::Default,
-            load_error: None,
-            favicon: None,
-            preview: None,
-            preview_spec: None,
-            refusal: refused.clone(),
-            rejected: u64::from(refused.is_some()),
-            inspecting: false,
-            files: Vec::new(),
-            prompts,
-            find: Default::default(),
-            surface,
-            surface_origin: (0.0, 0.0),
-            view_zoom: 1.0,
-            context: context.clone(),
-            file_roots: Vec::new(),
-            viewport_pt: (width_pt, height_pt),
-            device: None,
-            scale,
-            sent_resize: (can_open_in_engine && connected && (context.is_default() || ready)).then_some((width_pt, height_pt, scale)),
-            has_engine_tab: can_open_in_engine,
-            engine_confirmed: false,
-        });
-        self.focused_tab = Some(id);
-
-        if can_open_in_engine {
-            if connected && (context.is_default() || ready) {
-                self.send_open_tab(
-                    id,
-                    url,
-                    width_pt,
-                    height_pt,
-                    scale,
-                    true,
-                    Vec::new(),
-                    context,
-                    None,
-                    agent_driven,
-                );
-            } else {
-                self.pending_opens.push((id, url));
-                self.ensure_connected();
-            }
-        }
-        id
+        self.open_tab_full(raw_url, file_roots, context, from_address, agent_driven, false, None)
     }
 
     pub fn set_tab_policy(&mut self, tab_id: u64, _file_roots: Vec<String>) {
@@ -468,6 +392,7 @@ impl BrowserHost {
     pub fn focus_tab(&mut self, id: u64) {
         if self.tabs.iter().any(|t| t.id == id) {
             if self.focused_tab != Some(id) {
+                self.close_extension_popup();
                 self.rearm_tab_prompts(id);
             }
             self.focused_tab = Some(id);
@@ -482,6 +407,7 @@ impl BrowserHost {
             removed.surface.clear();
             self.surfaces.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
             self.pending_opens.retain(|(tid, _)| *tid != id);
+            self.on_tab_closed_extensions(id);
             self.cancel_download_save_requests(id);
             self.send(HostMsg::CloseTab { tab_id: id });
             if self.focused_tab == Some(id) {
@@ -513,11 +439,16 @@ impl BrowserHost {
         let ready = self.status() == EngineStatus::Ready;
         let engine_partitions = self.engine_partitions();
         let engine_remote_proxy = self.engine_remote_proxy();
+        let loaded_ext = self.is_loaded_extension_url(&url) && (self.engine_extensions() || !connected);
         let remote_proxies = &self.remote_proxies;
         let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else {
             return;
         };
-        if let Some(why) = crate::policy::refusal(&url, &[]) {
+        let allow_ext =
+            t.allow_extension_pages && !t.context.is_isolated() && !t.prompts.agent_driven && loaded_ext;
+        if !allow_ext
+            && let Some(why) = crate::policy::refusal(&url, &[])
+        {
             t.loading = false;
             t.refusal = Some(why.code().to_owned());
             t.rejected += 1;
@@ -525,7 +456,7 @@ impl BrowserHost {
         }
         // If this tab never opened in the engine (e.g. `RemoteServer` opened before proxy was live),
         // either promote it now that a valid proxy exists or keep failing closed (never infinite spin).
-        let mut promote_open: Option<((f32, f32), f32, Vec<String>, crate::protocol::ContextKind, bool)> = None;
+        let mut promote_open: Option<((f32, f32), f32, Vec<String>, crate::protocol::ContextKind, bool, bool)> = None;
         if !t.has_engine_tab {
             if let crate::protocol::ContextKind::RemoteServer { server_id, proxy } = &mut t.context {
                 if proxy.is_none() {
@@ -554,21 +485,29 @@ impl BrowserHost {
                 return;
             }
             t.has_engine_tab = true;
-            promote_open = Some((t.viewport_pt, t.scale, t.file_roots.clone(), t.context.clone(), t.prompts.agent_driven));
+            promote_open = Some((
+                t.viewport_pt,
+                t.scale,
+                t.file_roots.clone(),
+                t.context.clone(),
+                t.prompts.agent_driven,
+                t.allow_extension_pages,
+            ));
         } else if matches!(t.context, crate::protocol::ContextKind::RemoteServer { proxy: None, .. }) {
             t.loading = false;
             t.refusal = Some("browser.proxy.required".to_owned());
             t.rejected += 1;
             return;
         }
+        let tab_isolated = t.context.is_isolated() || t.preview.is_some();
         t.refusal = None;
         if from_address || !t.prompts.agent_driven {
             t.prompts.on_user_nav();
         }
         t.loading = true;
-        if let Some(((width_pt, height_pt), scale, _file_roots, context, agent_driven)) = promote_open {
+        if let Some(((width_pt, height_pt), scale, _file_roots, context, agent_driven, allow_ext_pages)) = promote_open {
             if connected && (context.is_default() || ready) {
-                self.send_open_tab(
+                self.send_open_tab_with_ext(
                     tab_id,
                     url,
                     width_pt,
@@ -579,6 +518,8 @@ impl BrowserHost {
                     context,
                     None,
                     agent_driven,
+                    allow_ext_pages,
+                    None,
                 );
             } else {
                 self.pending_opens.push((tab_id, url));
@@ -591,6 +532,13 @@ impl BrowserHost {
         if let Some((_, pending_url)) = self.pending_opens.iter_mut().find(|(id, _)| *id == tab_id) {
             *pending_url = url;
         } else if connected {
+            if !tab_isolated && self.extensions.filter_gate.maybe_hold(tab_id, &url) {
+                if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+                    t.url = url;
+                }
+                return;
+            }
+            self.extensions.filter_gate.cancel_tab(tab_id);
             self.send(HostMsg::Navigate { tab_id, url });
         } else {
             self.pending_opens.push((tab_id, url));
@@ -618,7 +566,13 @@ impl BrowserHost {
         self.send(HostMsg::Reload { tab_id, ignore_cache: false });
     }
 
-    pub fn stop(&self, tab_id: u64) {
+    pub fn stop(&mut self, tab_id: u64) {
+        if self.extensions.filter_gate.is_holding(tab_id) {
+            self.extensions.filter_gate.cancel_tab(tab_id);
+            if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+                t.loading = false;
+            }
+        }
         self.send(HostMsg::Stop { tab_id });
     }
 
@@ -748,15 +702,16 @@ impl BrowserHost {
         // one given another address or laid out at another size meanwhile gets them.
         for (&tab_id, (sent_url, sent_size)) in &early {
             let pending_url = self.pending_opens.iter().find(|(id, _)| *id == tab_id).map(|(_, u)| u.clone());
-            let (size, nav_url, agent_driven) = {
+            let (size, nav_url, agent_driven, isolated) = {
                 let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else {
                     self.send(HostMsg::CloseTab { tab_id });
                     continue;
                 };
                 let size = (t.viewport_pt.0, t.viewport_pt.1, t.scale);
                 t.sent_resize = Some(size);
+                let held_same = self.extensions.filter_gate.held_url(tab_id) == pending_url.as_deref();
                 let nav = match pending_url {
-                    Some(url) if &url != sent_url => {
+                    Some(url) if &url != sent_url && !held_same => {
                         if crate::policy::is_file_scheme(&url) {
                             t.loading = false;
                             t.refusal = Some(crate::policy::Refusal::Workspace.code().to_owned());
@@ -768,7 +723,7 @@ impl BrowserHost {
                     }
                     _ => None,
                 };
-                (size, nav, t.prompts.agent_driven)
+                (size, nav, t.prompts.agent_driven, t.context.is_isolated() || t.preview.is_some())
             };
             if agent_driven {
                 self.send(HostMsg::SetAgentDriven { tab_id, agent_driven: true });
@@ -777,6 +732,9 @@ impl BrowserHost {
                 self.send(HostMsg::Resize { tab_id, width_pt: size.0, height_pt: size.1, scale: size.2 });
             }
             if let Some(url) = nav_url {
+                if !isolated && self.extensions.filter_gate.maybe_hold(tab_id, &url) {
+                    continue;
+                }
                 self.send(HostMsg::Navigate { tab_id, url });
             }
         }
@@ -784,15 +742,18 @@ impl BrowserHost {
         let engine_remote_proxy = self.engine_remote_proxy();
         let engine_preview = self.engine_preview();
         let mut deferred = Vec::new();
+        let engine_extensions = self.engine_extensions();
         for (tab_id, url) in std::mem::take(&mut self.pending_opens).into_iter().filter(|(id, _)| !early.contains_key(id)) {
+            let is_ext_url = crate::policy::extension_origin(&url);
             let needs_ready = crate::policy::is_file_scheme(&url)
+                || is_ext_url
                 || self.tabs.iter().any(|t| t.id == tab_id && (!t.context.is_default() || t.preview_spec.is_some()));
             if needs_ready && !ready {
                 deferred.push((tab_id, url));
                 continue;
             }
             let mut skip_open = false;
-            let (open_url, ((width_pt, height_pt), scale), context, preview, emulate, agent_driven) =
+            let (open_url, ((width_pt, height_pt), scale), context, preview, emulate, agent_driven, allow_ext_pages) =
                 if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
                     t.sent_resize = Some((t.viewport_pt.0, t.viewport_pt.1, t.scale));
                     let (open_url, preview) = if let Some(spec) = t.preview_spec.clone() {
@@ -849,6 +810,12 @@ impl BrowserHost {
                             t.rejected += 1;
                             skip_open = true;
                             ("about:blank".into(), None)
+                        } else if !skip_open && is_ext_url && !engine_extensions {
+                            t.url = "about:blank".into();
+                            t.loading = false;
+                            t.refusal = Some(crate::policy::Refusal::Web.code().to_owned());
+                            t.rejected += 1;
+                            ("about:blank".into(), None)
                         } else if skip_open {
                             ("about:blank".into(), None)
                         } else {
@@ -859,7 +826,15 @@ impl BrowserHost {
                     if !skip_open {
                         t.has_engine_tab = true;
                     }
-                    (open_url, (t.viewport_pt, t.scale), t.context.clone(), preview, emulate, t.prompts.agent_driven)
+                    (
+                        open_url,
+                        (t.viewport_pt, t.scale),
+                        t.context.clone(),
+                        preview,
+                        emulate,
+                        t.prompts.agent_driven,
+                        t.allow_extension_pages,
+                    )
                 } else {
                     // Tab was closed before flush: never synthesize a `ContextKind::Default` open!
                     continue;
@@ -867,7 +842,7 @@ impl BrowserHost {
             if skip_open {
                 continue;
             }
-            self.send_open_tab(
+            self.send_open_tab_with_ext(
                 tab_id,
                 open_url,
                 width_pt,
@@ -878,6 +853,8 @@ impl BrowserHost {
                 context,
                 preview,
                 agent_driven,
+                allow_ext_pages,
+                None,
             );
             if let Some((device, emu_scale)) = emulate {
                 self.send(HostMsg::Emulate { tab_id, device: Some(device), scale: emu_scale });
@@ -893,11 +870,19 @@ impl BrowserHost {
         if let Ok(msg) = self.inbox_rx.try_recv() {
             self.held.borrow_mut().push_back(msg);
         }
-        self.held.borrow().is_empty() && self.pending_opens.is_empty() && self.status() == self.last_polled_status
+        self.held.borrow().is_empty()
+            && self.pending_opens.is_empty()
+            && self.status() == self.last_polled_status
+            && self
+                .extensions
+                .filter_gate
+                .deadline()
+                .is_none_or(|d| rune::time::Instant::now() < d)
     }
 
     pub fn poll(&mut self) -> bool {
-        let mut changed = false;
+        let (flushed, _) = self.tick_extensions(rune::time::Instant::now());
+        let mut changed = flushed;
         self.flush_pending_opens();
         let mut mail = std::mem::take(&mut *self.held.borrow_mut());
         mail.extend(std::iter::from_fn(|| self.inbox_rx.try_recv().ok()));
@@ -914,6 +899,7 @@ impl BrowserHost {
                     remote_proxy,
                     agent_tools,
                     preview,
+                    extensions,
                     permission_sync,
                     frame_authority,
                     cookies,
@@ -936,6 +922,7 @@ impl BrowserHost {
                         remote_proxy,
                         agent_tools,
                         preview,
+                        extensions,
                         permission_sync,
                         frame_authority,
                         cookies,
@@ -944,6 +931,7 @@ impl BrowserHost {
                     if cookies && self.share_sign_ins {
                         self.send(HostMsg::SetShareSignIns { enabled: true });
                     }
+                    self.on_extensions_ready(extensions);
                     // A new engine starts with an empty downloads folder and numbers its files
                     // from 1 again: the last one's files are gone. Held prompts replay if live.
                     self.download_save_requests.clear();
@@ -1041,6 +1029,10 @@ impl BrowserHost {
                     changed |= self.upsert_tab(tab);
                 }
                 EngineMsg::TabClosed { tab_id } => {
+                    if self.close_popup_if_tab(tab_id) {
+                        changed = true;
+                        continue;
+                    }
                     if let Some(pending) = self.reopening_tabs.get_mut(&tab_id) {
                         if *pending <= 1 {
                             self.reopening_tabs.remove(&tab_id);
@@ -1055,6 +1047,7 @@ impl BrowserHost {
                         let removed = self.tabs.remove(pos);
                         removed.surface.clear();
                         self.surfaces.lock().unwrap_or_else(PoisonError::into_inner).remove(&tab_id);
+                        self.extensions.filter_gate.cancel_tab(tab_id);
                         if self.focused_tab == Some(tab_id) {
                             self.focused_tab = self.tabs.last().map(|t| t.id);
                         }
@@ -1179,14 +1172,7 @@ impl BrowserHost {
                     changed = true;
                 }
                 EngineMsg::PreviewFetch { req_id, tab_id, kind, path, method, range } => {
-                    self.preview_fetches.push(crate::preview::PreviewFetchRequest {
-                        req_id,
-                        tab_id,
-                        kind,
-                        path,
-                        method,
-                        range,
-                    });
+                    self.preview_fetches.push(crate::preview::PreviewFetchRequest { req_id, tab_id, kind, path, method, range });
                     changed = true;
                 }
                 EngineMsg::PreviewCredit { req_id, bytes, cancel } => {
@@ -1208,6 +1194,9 @@ impl BrowserHost {
                 }
                 // The socket reader delivers frames directly to the tab's retained Rune surface.
                 EngineMsg::SharedFrame { .. } | EngineMsg::CpuFrame { .. } | EngineMsg::DmabufPool { .. } | EngineMsg::DmabufFrame { .. } => {}
+                other => {
+                    changed |= self.handle_extension_msg(other);
+                }
             }
         }
         #[cfg(feature = "engine")]
@@ -1238,7 +1227,7 @@ impl BrowserHost {
     }
 
     pub fn ime(&self, ime: &Ime) -> bool {
-        let Some(tab_id) = self.focused_tab else {
+        let Some(tab_id) = self.popup_tab_id().or(self.focused_tab) else {
             return false;
         };
         match ime {
@@ -1257,6 +1246,7 @@ impl BrowserHost {
     /// Builds a focusable Rune `El` displaying `tab_id`'s zero-copy `NativeSurface` and forwarding
     /// layout resizes, pointer clicks/drags/wheel, cursor shapes, and non-shell keys.
     pub fn shutdown_sidecar(&mut self) {
+        self.close_extension_popup();
         let effect = self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::Shutdown);
         #[cfg(feature = "engine")]
         if let Ok(sock) = self.engine_socket() {
@@ -1347,6 +1337,12 @@ impl BrowserHost {
         self.next_tab_id = self.next_tab_id.max(snap.tab_id + 1);
         let want_zoom = self.site_zoom.get(&snap.url);
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == snap.tab_id) {
+            // While an `http(s)` navigation is held behind startup DNR filter readiness, the
+            // engine paints an initial `about:blank` shell; keep the tab showing its target URL
+            // and spinner so the address bar never flickers.
+            if self.extensions.filter_gate.is_holding(snap.tab_id) && snap.url == "about:blank" {
+                return false;
+            }
             let blank_after_inherited = snap.url.eq_ignore_ascii_case("about:blank")
                 && matches!(
                     t.prompts.blocked_guard_notice,
@@ -1470,6 +1466,7 @@ impl BrowserHost {
             surface_origin: (0.0, 0.0),
             view_zoom: 1.0,
             context: restored_ctx,
+            allow_extension_pages: false,
             file_roots: Vec::new(),
             viewport_pt: (800.0, 600.0),
             device: None,

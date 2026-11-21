@@ -114,12 +114,12 @@ pub fn server_menu_items(app: &App, menu: &str) -> Vec<(&'static str, String)> {
     super::commands::menu_items(app, menu).into_iter().map(|(key, title, ..)| (key, title)).collect()
 }
 
-/// The app menu's plugin items: `(submenu, key, title)`, the submenu one of `file`, `edit`,
-/// `view`, `go`, `window`, `help` (`app` items join Help where there's no app menu).
-pub fn menubar_items() -> Vec<(&'static str, &'static str, String)> {
-    let mut items: Vec<_> = super::commands::menubar_items().into_iter().map(|(key, menu, label, order)| (order, menu_name(&menu), key, label)).collect();
+/// The app menu's plugin items: `(submenu, key, title, enabled)`, the submenu one of `file`,
+/// `edit`, `view`, `go`, `window`, `help` (`app` items join Help where there's no app menu).
+pub fn menubar_items() -> Vec<(&'static str, &'static str, String, bool)> {
+    let mut items: Vec<_> = super::commands::menubar_items().into_iter().map(|(key, menu, label, order, enabled)| (order, menu_name(&menu), key, label, enabled)).collect();
     items.sort_by_key(|i| i.0);
-    items.into_iter().map(|(_, menu, key, title)| (menu, key, title)).collect()
+    items.into_iter().map(|(_, menu, key, title, enabled)| (menu, key, title, enabled)).collect()
 }
 
 fn menu_name(target: &str) -> &'static str {

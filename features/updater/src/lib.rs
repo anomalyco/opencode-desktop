@@ -6,10 +6,11 @@
 //! - **macOS** (`mac.rs`): team builds (`anomaly.opencode-rune`) download and verify a signed
 //!   bundle (code signature, signing team, Gatekeeper) into a private folder under
 //!   `~/Library/Caches/anomaly.opencode-rune/Updates`, and swap it in atomically on Restart to
-//!   update. Local dev bundles and bare `cargo` binaries never update.
+//!   update or on quit (`platform.ts:30`). Local dev bundles and bare `cargo` binaries never update.
 //! - **Windows** (`windows.rs`): a per-user install verifies the download (size, SHA-256,
 //!   Authenticode), stages it beside the install folder, and swaps the folders once the app exits
-//!   (`apply.rs`, the app's own executable as the helper), on Restart to update or on quit.
+//!   (`apply.rs`, the app's own executable as the helper) on Restart to update. Plain quit never
+//!   installs (`platform.ts:30`).
 //! - **Linux** (`linux.rs`): checks only. The AppImage, `.deb` and `.rpm` don't replace
 //!   themselves, so a newer release is offered as a download (`download-required`, Desktop's
 //!   external mode) for the package this build was installed from.
@@ -25,6 +26,7 @@ extern crate ureq_web as ureq;
 
 #[cfg(windows)]
 pub mod apply;
+pub mod dialog;
 pub mod engine;
 mod feed;
 #[cfg(target_os = "linux")]
@@ -242,7 +244,7 @@ impl Updater {
     }
 
     /// This window closes. When it's the last, the app quits, and a ready update installs on the
-    /// way out (Windows).
+    /// way out on macOS (`platform.ts:30`).
     pub fn closing(&mut self) {
         let LifecycleEffect::Detach(service) = step(&mut self.state, LifecycleEvent::Closing) else { return };
         let left = WINDOWS.get().saturating_sub(1);

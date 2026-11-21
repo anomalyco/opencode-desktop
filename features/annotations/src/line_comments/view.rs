@@ -418,11 +418,13 @@ fn editor_v1<H: LineCommentsHost + 'static>(
         .padding(8.0)
         .radius(6.0)
         .fill(field_bg)
-        .box_shadow(rune::Shadow { spread: 1.0, color: border, inset: true, ..rune::Shadow::default() })
+        // Focused, the border turns `border-focus` with a 1 px outline of it just outside: an
+        // outline, not a shadow, still marks focus in a contrast theme (opencode#65100).
+        .box_shadow(rune::Shadow { spread: 1.0, color: if focused { p.v2.border_focus } else { border }, inset: true, ..rune::Shadow::default() })
         .child(field_input::<H>(s, p, spot, draft, V1_FIELD, opencode_i18n::t!("ui.lineComment.placeholder")).h_full())
         .child(grip::<H>(p, spot, height));
     if focused {
-        input = focus_select(p).into_iter().rev().fold(input, El::box_shadow);
+        input = input.outline(1.0, 0.0, p.v2.border_focus);
     }
     let can = !draft.text.text.trim().is_empty();
     let (cancel, send) = (spot.clone(), spot.clone());
@@ -482,15 +484,6 @@ fn grip_shell(p: &Pal) -> El {
 fn grip<H: LineCommentsHost + 'static>(p: &Pal, spot: &Spot, height: f32) -> El {
     let spot = spot.clone();
     grip_shell(p).on_drag(move |s: &mut H, d: &mut Drag, tx: &mut Tx| on_grip_drag(s, &spot, height, d, tx))
-}
-
-/// `--shadow-xs-border-select`, in CSS order (the first on top): a 3 px wash over a 1 px ring,
-/// over three soft drops.
-fn focus_select(p: &Pal) -> [rune::Shadow; 5] {
-    let s = |y: f32, blur: f32, spread: f32, color: Color| rune::Shadow { y, blur, spread, color, ..rune::Shadow::default() };
-    let (wash, ring) = if p.dark { (hex("#021858").alpha(0.6), hex("#1456f7").alpha(0.9)) } else { (hex("#d2e1fd").alpha(0.5), hex("#054dfd").alpha(0.99)) };
-    let ink = |a: f32| hex("#131010").alpha(a);
-    [s(0.0, 0.0, 3.0, wash), s(0.0, 0.0, 1.0, ring), s(1.0, 2.0, -1.0, ink(0.25)), s(1.0, 2.0, 0.0, ink(0.08)), s(1.0, 3.0, 0.0, ink(0.12))]
 }
 
 fn hex(s: &str) -> Color {

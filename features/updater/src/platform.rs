@@ -27,6 +27,12 @@ pub trait Platform: Send + Sync + 'static {
         false
     }
 
+    /// Whether quitting with an update staged installs it on the way out (`platform.ts:30`:
+    /// `autoInstallOnAppQuit = process.platform === "darwin"` — macOS only).
+    fn installs_on_quit(&self) -> bool {
+        false
+    }
+
     /// The app quits with an update staged: install it on the way out, without starting again.
     fn install_on_quit(&self) {}
 

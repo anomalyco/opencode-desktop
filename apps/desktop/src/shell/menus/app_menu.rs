@@ -186,9 +186,9 @@ fn menu(s: &App) -> Menu {
             None => menu.separator(),
             Some((title, act, keys)) => menu.item(Item::new(id(m, r), opencode_i18n::I18N.text(*title)).shortcut(label(*keys)).enabled(enabled(s, *act))),
         });
-        let theirs: Vec<_> = plugin_items.iter().filter(|(menu, _, _)| menu.eq_ignore_ascii_case(name)).collect();
+        let theirs: Vec<_> = plugin_items.iter().filter(|(menu, _, _, _)| menu.eq_ignore_ascii_case(name)).collect();
         let sub = if theirs.is_empty() { sub } else { sub.separator() };
-        let sub = theirs.into_iter().fold(sub, |menu, (_, key, title)| menu.item(Item::new(format!("{PLUGIN}{key}"), title.clone())));
+        let sub = theirs.into_iter().fold(sub, |menu, (_, key, title, is_enabled)| menu.item(Item::new(format!("{PLUGIN}{key}"), title.clone()).enabled(*is_enabled)));
         (m, title, sub)
     });
     menus.fold(Menu::new(opencode_i18n::t!("desktop.menu.app")).standard(W).remembers_focus().group(opencode_i18n::t!("desktop.menu.app")), |menu, (m, title, sub)| {

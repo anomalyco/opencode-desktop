@@ -78,15 +78,15 @@ fn app() -> Vec<MenuItem<App>> {
 /// a plain `fn`, so each slot runs the plugin item at its place in the list.
 fn plugin_items() -> Vec<MenuItem<App>> {
     const SLOTS: [fn(&mut App, &mut Tx); 8] = [plugin_slot::<0>, plugin_slot::<1>, plugin_slot::<2>, plugin_slot::<3>, plugin_slot::<4>, plugin_slot::<5>, plugin_slot::<6>, plugin_slot::<7>];
-    app_items().into_iter().zip(SLOTS).map(|((key, label), slot)| MenuItem::new(label, slot).id(format!("App/{key}"))).collect()
+    app_items().into_iter().zip(SLOTS).map(|((key, label, enabled), slot)| MenuItem::new(label, slot).id(format!("App/{key}")).enabled(enabled)).collect()
 }
 
-fn app_items() -> Vec<(&'static str, String)> {
-    crate::plugin_host::commands::menubar_items().into_iter().filter(|(_, menu, _, _)| menu == "app").map(|(key, _, label, _)| (key, label)).collect()
+fn app_items() -> Vec<(&'static str, String, bool)> {
+    crate::plugin_host::commands::menubar_items().into_iter().filter(|(_, menu, _, _, _)| menu == "app").map(|(key, _, label, _, enabled)| (key, label, enabled)).collect()
 }
 
 fn plugin_slot<const I: usize>(s: &mut App, tx: &mut Tx) {
-    if let Some((key, _)) = app_items().get(I) {
+    if let Some((key, _, true)) = app_items().get(I) {
         crate::plugin_host::run_menubar(s, key, tx);
     }
 }

@@ -145,6 +145,10 @@ pub struct PickedElement {
     pub rect: [f32; 4],
 }
 
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum HostMsg {
@@ -154,6 +158,9 @@ pub enum HostMsg {
         /// This app shows and answers page dialogs, permissions, and HTTP auth (`prompts.rs`).
         #[serde(default)]
         prompts: bool,
+        /// This app handles extension-initiated tab opens (`EngineMsg::ExtensionOpenTab`).
+        #[serde(default)]
+        extensions: bool,
         /// This app handles `EngineMsg::DownloadSaveRequest` via a native OS Save dialog.
         #[serde(default)]
         download_save: bool,
@@ -173,6 +180,31 @@ pub enum HostMsg {
         preview: Option<PreviewSpec>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         agent_driven: bool,
+        /// Allows navigating to loaded `chrome-extension://` pages (user tabs & popups only;
+        /// never set for agent-driven or isolated tabs).
+        #[serde(default, skip_serializing_if = "is_false")]
+        allow_extension_pages: bool,
+        /// True when this tab is an anchored extension popup (enables content auto-sizing).
+        #[serde(default, skip_serializing_if = "is_false")]
+        is_popup: bool,
+        /// When answering `EngineMsg::ExtensionOpenTab`, correlates this newly opened pane tab.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ext_open_request_id: Option<u64>,
+    },
+    ClickExtension {
+        ext_id: String,
+    },
+    ListExtensions {
+        request_id: u64,
+    },
+    UninstallExtension {
+        ext_id: String,
+    },
+    ReloadExtension {
+        ext_id: String,
+    },
+    CancelExtensionOpenTab {
+        request_id: u64,
     },
     SetTabPolicy {
         tab_id: u64,
@@ -469,6 +501,9 @@ pub enum EngineMsg {
         /// The engine emits `EngineMsg::PreviewCredit` for end-to-end preview flow control.
         #[serde(default)]
         preview_credit: bool,
+        /// The engine hosts verified MV3 extensions over its private in-process CDP pipe.
+        #[serde(default)]
+        extensions: bool,
         /// The engine owns `Target.setAutoAttach` and frame exclusion authority (`EngineCdpLedger`).
         #[serde(default)]
         frame_authority: bool,
@@ -664,6 +699,72 @@ pub enum EngineMsg {
         pool: u64,
         slot: u32,
     },
+    ExtensionsState {
+        request_id: Option<u64>,
+        extensions: Vec<ExtensionActionSnapshot>,
+    },
+    ExtensionAction {
+        action: ExtensionActionSnapshot,
+    },
+    ExtensionPopupRequested {
+        ext_id: String,
+        url: String,
+    },
+    ExtensionPopupResized {
+        ext_id: String,
+        width: u32,
+        height: u32,
+    },
+    ExtensionOpenTab {
+        request_id: u64,
+        ext_id: String,
+        url: String,
+        active: bool,
+    },
+    ExtensionFocusTab {
+        tab_id: u64,
+    },
+    ExtensionFiltersReady,
+    ExtensionUninstalled {
+        ext_id: String,
+        ok: bool,
+        error: Option<String>,
+    },
+    ExtensionReloaded {
+        ext_id: String,
+        ok: bool,
+        error: Option<String>,
+    },
+    ExtensionIntegrityFailed {
+        ext_id: String,
+    },
+}
+
+/// Live toolbar button snapshot for one loaded extension (`apps/browser-engine/src/extensions/mod.rs`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionActionSnapshot {
+    pub ext_id: String,
+    pub name: String,
+    pub version: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub popup: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub badge_text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge_color: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge_text_color: Option<String>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// A human download awaiting an OS Save dialog choice in the host app (`EngineMsg::DownloadSaveRequest`).

@@ -78,6 +78,61 @@ pub fn install_async(s: &App, done: Completer) {
     }
 }
 
+/// Checks for updates from the app menu on non-beta channels and reports the outcome in a native
+/// OS dialog, matching official (`packages/gui-plugins/src/updater/main.ts:69-128`).
+pub fn check_with_dialog(s: &mut App) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use opencode_feature_updater::dialog;
+        let lang = opencode_i18n::locale().id();
+        let msg = |key: &str, fallback: &str| {
+            crate::plugin_host::sources::builtin_message("updater", lang, key).unwrap_or(fallback).to_owned()
+        };
+        let err_title = msg("dialog.checkFailed.title", "Update Error");
+        let err_msg = msg("dialog.checkFailed.message", "Update check failed.");
+        let ok_title = msg("dialog.upToDate.title", "No Updates");
+        let ok_msg = msg("dialog.upToDate.message", "You're up to date.");
+        let ready_title = msg("dialog.ready.title", "Update Ready");
+        let ready_tpl = msg("dialog.ready.message", "Update {{version}} downloaded. Restart now?");
+        let restart_label = msg("dialog.restart", "Restart");
+        let later_label = msg("dialog.later", "Later");
+        let waker = (*s.waker).clone();
+        opencode_feature_updater::check_with(s, move |view| {
+            let Some(view) = view else { return };
+            match view.phase {
+                "error" => {
+                    std::thread::Builder::new().name("opencode-update-dialog".into()).spawn(move || {
+                        dialog::alert(dialog::Kind::Error, &err_title, &err_msg);
+                    }).ok();
+                }
+                "up-to-date" => {
+                    std::thread::Builder::new().name("opencode-update-dialog".into()).spawn(move || {
+                        dialog::alert(dialog::Kind::Info, &ok_title, &ok_msg);
+                    }).ok();
+                }
+                "ready" => {
+                    let version = view.version.unwrap_or_default();
+                    let body = ready_tpl.replace("{{version}}", &version);
+                    std::thread::Builder::new().name("opencode-update-dialog".into()).spawn(move || {
+                        if dialog::confirm(&ready_title, &body, &restart_label, &later_label) {
+                            PENDING_DIALOG_INSTALL.store(true, std::sync::atomic::Ordering::Release);
+                            if let Some(w) = waker {
+                                w();
+                            }
+                        }
+                    }).ok();
+                }
+                _ => {}
+            }
+        });
+    }
+    #[cfg(target_arch = "wasm32")]
+    let _ = s;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+static PENDING_DIALOG_INSTALL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Starts the update service after the first frame when this build updates itself.
 pub fn start_if_packaged(s: &mut App) {
     #[cfg(not(target_arch = "wasm32"))]
@@ -200,7 +255,16 @@ impl Feature<App> for UpdaterFeature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.register_slot(&UPDATER);
-        builder.schedule(crate::tick::stage::INGEST_LOCAL, "updater.poll", |s, _, tx| poll(s, tx));
+        builder.schedule(crate::tick::stage::INGEST_LOCAL, "updater.poll", |s, _, tx| {
+            if PENDING_DIALOG_INSTALL.swap(false, std::sync::atomic::Ordering::AcqRel) {
+                opencode_feature_updater::install_with(s, |err| {
+                    if let Some(err) = err {
+                        eprintln!("updater: menu dialog install failed: {err}");
+                    }
+                });
+            }
+            poll(s, tx)
+        });
         builder.schedule(crate::tick::stage::PERSIST_FLUSH, "updater.poll_owed", |s, _, _| {
             poll_owed(s);
             false
