@@ -191,6 +191,9 @@ pub fn read_raw(db: &Path) -> FastBoot {
     if !(super::schema::BASE_SCHEMA..=SCHEMA_VERSION).contains(&(version >> FLAG_BITS)) || version & FLAG_BOOT_PAGE2 == 0 {
         return FastBoot::UseSqlite("boot isn't on page 2");
     }
+    if version & super::schema::FLAG_SEED_SETTLED == 0 {
+        return FastBoot::UseSqlite("seed unsettled");
+    }
     // Pages smaller than 64 KiB: page 2 is already in the first read.
     if n < 2 * page_size {
         return FastBoot::UseSqlite("short read");
