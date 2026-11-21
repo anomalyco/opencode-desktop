@@ -169,6 +169,22 @@ fn observe(app: &App, plugin: &str, name: &str) -> Option<(u64, Data)> {
     }
 }
 
+/// Records post-handler stamps for a plugin editor's `Changed` (and the browser's
+/// `AddressSelectionChanged`) after synchronous `input_changed` dispatch so the next poll does not
+/// fire a duplicate change or a spurious caret-moved event after `SetAddressSelection`.
+pub fn sync_editor_watches(app: &App, p: &crate::plugin_host::Plugin, index: usize) {
+    let changed = format!("editor.{index}.Changed");
+    let mut seen = p.half.seen.borrow_mut();
+    if let Some((v, _)) = observe(app, &p.half.id, &changed) {
+        seen.insert(changed, v);
+    }
+    if p.half.is_builtin("browser") && index == 0 {
+        if let Some((v, _)) = observe(app, &p.half.id, "Browser.AddressSelectionChanged") {
+            seen.insert("Browser.AddressSelectionChanged".into(), v);
+        }
+    }
+}
+
 /// Takes what signal `name` of plugin half `half` follows as it is when the plugin connects to
 /// it, so a change between its setup and the next poll (a launch's routed session loading)
 /// fires it rather than becoming its first value.

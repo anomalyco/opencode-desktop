@@ -58,11 +58,12 @@ pub static OUTLINE_QUOTE: Icon = Icon {
     body: r#"<path d="M9.5 8.49927C10.8333 8.49927 12.1667 8.49927 13.5 8.49927C13.5 9.74927 13.5 11.2493 13.5 12.4993C12.1667 12.4993 10.8333 12.4993 9.5 12.4993V7C9.5 5 10.5 3.5 13 3.5001" stroke="currentColor"/><path d="M2.5 8.49927C3.83333 8.49927 5.16667 8.49927 6.5 8.49927C6.5 9.74927 6.5 11.2493 6.5 12.4993C5.16667 12.4993 3.83333 12.4993 2.5 12.4993V7C2.5 5 3.5 3.5 6 3.5001" stroke="currentColor"/>"#,
 };
 
-/// Desktop's `speech-bubble`: what a session mention's chip leads with.
+/// Desktop's `comment` (`"speech-bubble"` alias in `packages/ui/src/icons/catalog.ts:221-224, 586`):
+/// what a session mention's chip and `@` suggestion row lead with.
 pub static SESSION: Icon = Icon {
-    name: "speech-bubble",
-    view: 20.0,
-    body: r#"<path d="M18.3334 10.0003C18.3334 5.57324 15.0927 2.91699 10.0001 2.91699C4.90749 2.91699 1.66675 5.57324 1.66675 10.0003C1.66675 11.1497 2.45578 13.1016 2.5771 13.3949C2.5878 13.4207 2.59839 13.4444 2.60802 13.4706C2.69194 13.6996 3.04282 14.9364 1.66675 16.7684C3.5186 17.6538 5.48526 16.1982 5.48526 16.1982C6.84592 16.9202 8.46491 17.0837 10.0001 17.0837C15.0927 17.0837 18.3334 14.4274 18.3334 10.0003Z" stroke="currentColor" stroke-linecap="square"/>"#,
+    name: "comment",
+    view: 16.0,
+    body: r#"<path d="M1.5 2.5V10.5H5.5L8 13.5L10.5 10.5H14.5V2.5H1.5Z" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor"/>"#,
 };
 
 thread_local! {
@@ -290,21 +291,22 @@ pub fn nested_collapsible<S: 'static>(
     col().key("nested").w_full().pt(gap).pl(14.0).child(rail).child(content)
 }
 
-/// Match `i` of a row in plain text, as `text_highlights` paints it.
+/// Match `i` of a row in plain text, as `text_highlights` paints it (`::highlight(timeline-search-hit*)`:
+/// square corners, no horizontal pad, tight vertical bounds matching Blink `index.css:163-181`).
 pub fn text_mark(p: &Pal, r: Range<usize>, i: usize, active: bool) -> TextHighlight {
     if active {
-        TextHighlight::new(r, p.accent).color(p.bg_deep).key(ACTIVE_KEY)
+        TextHighlight::new(r, p.accent).color(p.bg_deep).pad(0.0).radius(0.0).vpad(0.5).key(ACTIVE_KEY)
     } else {
-        TextHighlight::new(r, hit_bg(p)).key(format!("find-hit-{i}"))
+        TextHighlight::new(r, hit_bg(p)).pad(0.0).radius(0.0).vpad(0.5).key(format!("find-hit-{i}"))
     }
 }
 
-/// Match `i` of a row in Markdown, as `markdown_highlights` paints it.
+/// Match `i` of a row in Markdown, as `markdown_highlights` paints it (`::highlight(timeline-search-hit*)`).
 pub fn markdown_mark(p: &Pal, i: usize, active: bool) -> rune_kit::Highlight {
     if active {
-        rune_kit::Highlight::new().bg(p.accent).fg(p.bg_deep).key(ACTIVE_KEY)
+        rune_kit::Highlight::new().bg(p.accent).fg(p.bg_deep).pad(0.0).radius(0.0).vpad(0.5).key(ACTIVE_KEY)
     } else {
-        rune_kit::Highlight::new().bg(hit_bg(p)).key(format!("find-hit-{i}"))
+        rune_kit::Highlight::new().bg(hit_bg(p)).pad(0.0).radius(0.0).vpad(0.5).key(format!("find-hit-{i}"))
     }
 }
 

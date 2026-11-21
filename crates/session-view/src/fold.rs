@@ -119,7 +119,7 @@ fn toggle<S: TimelineHost>(p: &Pal, id: &str, open: bool, past: bool) -> El {
         .radius(4.0)
         .cursor(rune::Cursor::Pointer)
         .focus_default(p)
-        .hover_group()
+        .hover_group_focus()
         .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT)
         // The label and the chevron flip in the press's frame.
         .instant_changes()

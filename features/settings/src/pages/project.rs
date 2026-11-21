@@ -135,6 +135,7 @@ const COPY: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
 const TITLE: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0);
 const FAILED: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0);
 const HINT_CODE: TextStyle = TextStyle::new(12.0, 440.0).lh(20.0).mono();
+const HINT_PILL: TextStyle = TextStyle::new(12.0, 440.0).lh(15.0).mono();
 
 /// Desktop's avatar colours, in its order (`PROJECT_AVATAR_VARIANTS`).
 const COLORS: [&str; 9] = ["orange", "yellow", "cyan", "green", "red", "pink", "blue", "purple", "gray"];
@@ -164,8 +165,15 @@ fn variant(color: &str) -> usize {
 
 fn tile(p: &Pal, letter: &str, v: usize, size: f32, font: f32) -> El {
     let (bg, ring) = p.avatars[v];
-    let t = el().size(size, size).radius(6.0).fill(bg).box_shadow(Pal::ring_in(ring)).center();
-    let t = if v == 8 { t } else { t.gradient(Color::WHITE.alpha(0x29 as f32 / 255.0), Color::WHITE.alpha(0.0)) };
+    // `project-avatar.css:24-26`: top-to-bottom `alpha-light-16` sheen applies to all 9 colour
+    // variants including `gray` (`v == 8`).
+    let t = el()
+        .size(size, size)
+        .radius(6.0)
+        .fill(bg)
+        .gradient(Color::WHITE.alpha(0x29 as f32 / 255.0), Color::WHITE.alpha(0.0))
+        .box_shadow(Pal::ring_in(ring))
+        .center();
     if letter.is_empty() {
         return t;
     }
@@ -222,7 +230,7 @@ fn general<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, x: &Project) -
             .radius(4.0)
             .cursor(Cursor::Pointer)
             .focus_default(p)
-            .hover_group()
+            .hover_group_focus()
             .on_press_tx(|s: &mut H, tx: &mut Tx| super::open_page(s, Page::Servers, tx))
             .child(text(server_name).font(super::NAME_REGULAR).color(p.muted).group_color(p.text).truncate())
             .child(el().pin(Some(0.0), None, Some(0.0), Some(0.0)).h(1.0).fill(p.text).group_opacity(0.0, 1.0))
@@ -249,7 +257,9 @@ fn general<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, x: &Project) -
             rune_kit::TextInput::new(&st.name)
                 .placeholder(folder)
                 .label(t!("project.settings.name.title"))
-                .width(if crate::rows_wrap() { None } else { Some(280.0) })
+                // `.project-settings-name { width: min(280px, 100%); }` inside `width: auto`
+                // `[data-slot="settings-row-control"]` resolves to the `<input>`'s intrinsic width (194 px).
+                .width(if crate::rows_wrap() { None } else { Some(194.0) })
                 .spellcheck(s.settings().spellcheck)
                 .text_style(super::NAME_REGULAR)
                 .height(28.0)
@@ -383,7 +393,7 @@ fn icon_button<H: SettingsHost + 'static>(s: &H, p: &Pal, x: &Project) -> El {
         .fill(p.contrast.alpha(0.8))
         .center()
         .group_opacity(0.0, 1.0)
-        .child(icon(if custom { &ic::XMARK_SMALL } else { &ic::SHARE }, 16.0).color(p.icon_contrast));
+        .child(icon(if custom { &ic::CLOSE } else { &ic::SHARE }, 16.0).color(p.icon_contrast));
     let failed = s.settings_pages().project.failed.contains(&Field::Icon);
     let id = x.id.clone();
     let button = el()
@@ -395,7 +405,7 @@ fn icon_button<H: SettingsHost + 'static>(s: &H, p: &Pal, x: &Project) -> El {
         .clip_rounded(6.0)
         .cursor(Cursor::Pointer)
         .focus_default(p)
-        .hover_group()
+        .hover_group_focus()
         .hover_motion(opencode_ui::style::HOVER_FADE, opencode_ui::style::HOVER_FADE)
         .on_press_tx(move |s: &mut H, tx: &mut Tx| {
             tx.instant();
@@ -448,7 +458,7 @@ fn colors<H: SettingsHost + 'static>(p: &Pal, x: &Project) -> El {
         };
         let swatch = swatch
             .child(tile(p, "", i, 20.0, 11.0))
-            .children(selected.then(|| row().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).center().child(icon(&ic::CHECK, 14.0).color(p.icon_contrast))));
+            .children(selected.then(|| row().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).center().child(icon(&ic::CHECK, 16.0).color(p.icon_contrast))));
         r.child(swatch)
     })
 }
@@ -546,10 +556,11 @@ fn startup<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
         let (before, var, after) = (&sentence[..at], &sentence[at..end], &sentence[end..]);
         row()
             .w_full()
+            .min_h(21.0)
             .wrap()
             .center_y()
             .children((!before.is_empty()).then(|| text(before).font(COPY).color(p.muted)))
-            .children((!var.is_empty()).then(|| row().px(4.0).radius(4.0).fill(p.layer2).child(text(var).font(HINT_CODE).color(p.text))))
+            .children((!var.is_empty()).then(|| row().h(15.0).px(4.0).center_y().radius(4.0).fill(p.layer2).child(text(var).font(HINT_PILL).color(p.text))))
             .children((!after.is_empty()).then(|| text(after).font(COPY).color(p.muted)))
     };
     col()

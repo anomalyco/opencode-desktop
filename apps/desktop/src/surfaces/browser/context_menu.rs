@@ -430,3 +430,19 @@ fn log_diagnostics(app: &App, records: Vec<PageDiagnostic>) {
         }
     });
 }
+
+impl App {
+    /// The page menu's Copy image (`ContextMenuCommand::CopyImage`): the engine sends the image as
+    /// PNG, and it goes to the person's clipboard.
+    pub(super) fn copy_browser_images(&mut self) {
+        let images: Vec<String> = self.workspace_panes.browser.host.drain_copied_images().collect();
+        for png_b64 in images {
+            let Ok(png) = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, png_b64) else { continue };
+            if let Some(image) = rune::ClipboardImage::from_png(png) {
+                self.later(Box::new(move |_s: &mut App, tx: &mut Tx| {
+                    tx.copy_rich(rune::ClipboardContent::default().with_image(image));
+                }));
+            }
+        }
+    }
+}

@@ -18,6 +18,8 @@ mod comment_describe;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod context_menu;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod cookie_import;
+#[cfg(not(target_arch = "wasm32"))]
 mod keys;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod extensions;
@@ -132,6 +134,8 @@ mod native {
         pub session_tabs: HashMap<String, Vec<u64>>,
         /// DevTools calls a plugin waits on, by the engine's request id.
         pub devtools: HashMap<u64, PendingDevtools>,
+        /// Settings > Browser's cookie-file import waiting on the engine (`cookie_import`).
+        pub cookie_import: Option<super::cookie_import::CookieImport>,
         /// Each other browser's icon for Settings > Browser, read off the UI thread (`app_icons`).
         pub app_icons: super::app_icons::AppIcons,
         /// Last observed Luau store version for `plugin.browser/rune.sitePermissions`.
@@ -157,6 +161,9 @@ mod native {
         pub unseen_tabs: std::collections::HashSet<u64>,
         /// Tabs whose strip close is in flight (`UP-148` `strip.closing`) so reconciliation never re-adds them.
         pub closing_tabs: std::collections::HashSet<u64>,
+        /// Tabs a page opened (`PopupOpen`): one whose first navigation only became a download
+        /// closes itself once the download has its place (official `closesUnshown`).
+        pub page_opened_tabs: std::collections::HashSet<u64>,
         /// Chrome-style opener chains and initial `"New tab"` title holds (`UP-118`).
         pub openers: super::openers::TabOpeners,
         /// Floating element-comment spotlight/editor and whole-page note editor (`panel.tsx:1525-1665`).
@@ -702,6 +709,7 @@ mod native {
             // Every poll comes here: the pane is written only when the engine has something.
             let mut changed = !self.workspace_panes.browser.host.quiet() && self.workspace_panes.browser.host.poll();
             changed |= self.pump_preview_fetches();
+            changed |= self.pump_cookie_import();
             let fallback_sources = self.workspace_panes.browser.host.drain_unsupported_local_previews();
             for (tab_id, doc) in fallback_sources {
                 // Non-agent local HTML clicks on an older engine (`!Ready.preview`) open in the
@@ -728,6 +736,7 @@ mod native {
                 self.workspace_panes.browser.host.drain_closed_tabs().collect();
             for (closed_id, fatal_close) in engine_closed {
                 self.workspace_panes.browser.closing_tabs.remove(&closed_id);
+                self.workspace_panes.browser.page_opened_tabs.remove(&closed_id);
                 self.workspace_panes.browser.active_app_reviews.borrow_mut().remove(&closed_id);
                 self.revoke_preview_binding(closed_id);
                 let owner_sid = self.browser_tab_session(closed_id).map(str::to_owned);
@@ -754,6 +763,8 @@ mod native {
             }
             changed |= self.drain_browser_popups();
             changed |= self.poll_app_link_reviews();
+            changed |= self.close_download_only_tabs();
+            self.copy_browser_images();
             // Reload persisted site permissions when Settings > Browser edits `rune.sitePermissions`.
             let perm_ver = crate::plugin_host::services::store::store_version("browser", "rune.sitePermissions");
             if perm_ver != self.workspace_panes.browser.site_permissions_version {

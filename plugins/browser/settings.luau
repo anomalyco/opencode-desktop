@@ -79,6 +79,8 @@ export type Env = {
     remoteSignInsEnabled: (() -> boolean?)?,
     setRemoteSignIns: ((enabled: boolean) -> ())?,
     pickCookieFile: (() -> ())?,
+    cookieFileMessage: (() -> ImportMessage?)?,
+    cookieFileBusy: (() -> boolean)?,
 }
 
 -- Search entries whose rows live inside the collapsible Advanced disclosure (`settings-view.ts`).
@@ -420,27 +422,34 @@ function settings.create(env: Env, refresh: () -> ())
             ))
             table.insert(sections, ui.settingsList({ key = "settings-browser-behavior-section" }, advRows))
 
-            -- 4b. Cookie file import (gated on WS-1 Phase 3 capability)
+            -- 4b. Import cookie file (`settings.tsx:230-255`): how the last import ended takes the
+            -- description's place, in the danger ink when it failed.
             if caps.cookieFile and env.pickCookieFile then
+                local message = if env.cookieFileMessage then env.cookieFileMessage() else nil
+                local busy = env.cookieFileBusy ~= nil and env.cookieFileBusy()
                 table.insert(sections, ui.settingsList({ key = "settings-browser-cookie-file-section" }, {
-                    ui.settingsRow(
-                        {
-                            id = "settings-browser-cookie-file",
-                            title = i18n:T("settings.import.file.title"),
-                            description = i18n:T("settings.import.file.description"),
-                        },
+                    ui.row({ key = "setting-settings-browser-cookie-file", w = "full", gap = 16, py = 20, align = "center" }, {
+                        ui.col({ grow = 1, shrink = true, minW = 0, gap = 4 }, {
+                            ui.text(i18n:T("settings.import.file.title"), ROW_TITLE, { truncate = false, wrap = true }),
+                            ui.text(if message then message.text else i18n:T("settings.import.file.description"), SUBLINE, {
+                                role = if message == nil then nil elseif message.error then "alert" else "status",
+                                color = if message ~= nil and message.error then "status-danger" else "text-muted",
+                            }),
+                        }),
                         ui.button({
                             key = "settings-browser-cookie-file-btn",
                             text = i18n:T("settings.import.file.action"),
                             size = "small",
                             variant = "neutral",
+                            loading = busy,
+                            disabled = busy,
                             onPress = view:Handler(function()
                                 if env.pickCookieFile then
                                     env.pickCookieFile()
                                 end
                             end),
-                        })
-                    ),
+                        }),
+                    }),
                 }))
             end
 

@@ -10,6 +10,7 @@ use opencode_kit::model::{Message, Part, ToolStatus, Transcript};
 use rune::{El, Icon, Shape, TextStyle, Tween, Tx, canvas, col, el, icon, row, text};
 use rune_knobs::{Group, Knob, Knobs};
 use serde_json::Value;
+use session_view::focus::FocusExt;
 use session_view::palette::{Elevate as _, Pal};
 use session_view::style::{INSTANT, UI};
 
@@ -255,11 +256,10 @@ fn words_width(todos: &[Todo]) -> f32 {
     panel_width(todos) - 2.0 * (PAD + 0.5 + 6.0) - 16.0 - 8.0
 }
 
-/// "2 of 5 todos done", the pill's and list's name for screen readers.
+/// "2 of 5 todos done", the pill's and list's name for screen readers (`todo-pill.tsx:31`).
 fn label(todos: &[Todo]) -> String {
     let done = todos.iter().filter(|t| t.status == Status::Completed).count();
-    let n = todos.len();
-    format!("{done} of {n} todo{} done", if n == 1 { "" } else { "s" })
+    opencode_i18n::plural!("session.todo.label", todos.len(), done = done)
 }
 
 /// Toggles the todo plan popover, notifies sibling popovers, and reveals the active todo.
@@ -287,13 +287,13 @@ fn pill_shell(host: &dyn TodosHost, p: &Pal, id: &str) -> Option<El> {
     let mut chip = host.todo_chip(p, "todo-pill", label(&todos), host.todo_open())
         .pl(8.0).gap(6.0).shrink().min_w(0.0)
         .child(glyph(p, now.status, 0.0, None))
-        .child(text(now.content.clone()).key("todo-now").font(UI).color(p.text).truncate_fade().max_w(PILL_TEXT_MAX).shrink().min_w(0.0));
+        .child(text(now.content.clone()).key("todo-now").dir(rune::Direction::Auto).font(UI).color(p.text).truncate_fade().max_w(PILL_TEXT_MAX).shrink().min_w(0.0));
     if more > 0 {
         // Desktop's compact `Badge`: 16 tall, a hairline over `layer-02`.
         let hairline = rune::Shadow { spread: 0.5, color: p.border, inset: true, ..rune::Shadow::default() };
         chip = chip.child(
             row().key("todo-more").h(16.0).px(4.0).center().radius(2.0).fill(p.layer2).box_shadow(hairline)
-                .child(text(format!("+{more}")).dir(rune::Direction::Ltr).font(BADGE).color(p.muted)),
+                .child(text(opencode_i18n::t!("session.todo.moreInProgress", count = more)).dir(rune::Direction::Ltr).font(BADGE).color(p.muted)),
         );
     }
     Some(chip)
@@ -366,7 +366,8 @@ fn default_chip(knobs: &Knobs, p: &Pal, key: &str, label: String, open: bool) ->
         (true, true) => p.layer2,
     };
     let [far, near, ring, edge] = p.raised;
-    let chip = row().key(key).role("button").label(label).h(session_view::jump::chip_height())
+    let chip = row().key(key).role("button").label(label).expanded(open).cursor(rune::Cursor::Pointer).focus_default(p)
+        .h(session_view::jump::chip_height())
         .px(10.0).gap(8.0).center_y().radius(knobs.get(&session_view::knobs::CAPSULE_RADIUS)).fill(bg)
         .box_shadow(edge).box_shadow(ring).box_shadow(near).box_shadow(far).hover_motion(INSTANT, INSTANT);
     if open { chip } else { chip.hover(p.hover).press(p.pressed) }
@@ -375,7 +376,7 @@ fn default_chip(knobs: &Knobs, p: &Pal, key: &str, label: String, open: bool) ->
 /// A row's words, struck through once finished. A todo finishing draws its strike: the same
 /// words, struck with clear glyphs, over its own, in a clip that opens left to right.
 fn words(t: &Todo, color: rune::Color, wrap: f32, fill: Option<&Fill>) -> El {
-    let words = || text(t.content.clone()).font(ROW).wrap().w_full();
+    let words = || text(t.content.clone()).dir(rune::Direction::Auto).font(ROW).wrap().w_full();
     let own = words().key("text").color(color);
     let own = if t.finished() && fill.is_none() { own.strikes(strikes(&t.content, wrap, None)) } else { own };
     el().key("words").grow(1.0).shrink().min_w(0.0).transition(rune::Transition::none()).instant_changes().child(own).children(fill.map(|fill| {

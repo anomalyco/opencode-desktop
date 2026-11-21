@@ -353,7 +353,7 @@ fn console_section<H: SettingsHost + PopupHost + 'static>(
             .hover_group()
             .child(el().pin(Some(4.0), Some(0.0), None, Some(0.0)).w(1.0).fill(p.border).group_opacity(0.5, 1.0));
         if !searching {
-            rail = rail.on_press_tx(|s: &mut H, tx: &mut Tx| toggle_provider_fold(s, CONSOLE_GROUP_KEY, tx));
+            rail = rail.cursor(Cursor::Pointer).on_press_tx(|s: &mut H, tx: &mut Tx| toggle_provider_fold(s, CONSOLE_GROUP_KEY, tx));
         }
         section = section.child(col().key("settings-models-console-groups").w_full().ml(14.0).pl(16.0).child(rail).child(cards));
     }
