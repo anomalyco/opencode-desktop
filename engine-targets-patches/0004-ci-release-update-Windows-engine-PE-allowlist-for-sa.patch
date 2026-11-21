@@ -1,0 +1,461 @@
+From 12f0dc00e5335c061099e3d9a76a8ba6d33bfca4 Mon Sep 17 00:00:00 2001
+From: LukeParkerDev <10430890+Hona@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 02:40:28 +1000
+Subject: [PATCH] ci(release): update Windows engine PE allowlist for sandbox
+ bootstrap and verify live OS sandboxes
+
+---
+ .../opencode-rune-package-engine-windows.ps1  |  15 +-
+ .../opencode-rune-verify-engine-sandbox.py    | 163 +++++++++++++++++
+ ...ode-rune-verify-engine-windows-sandbox.ps1 | 165 ++++++++++++++++++
+ .github/workflows/release.yml                 |  30 +++-
+ 4 files changed, 370 insertions(+), 3 deletions(-)
+ create mode 100644 .github/release/opencode-rune-verify-engine-sandbox.py
+ create mode 100644 .github/release/opencode-rune-verify-engine-windows-sandbox.ps1
+
+diff --git a/.github/release/opencode-rune-package-engine-windows.ps1 b/.github/release/opencode-rune-package-engine-windows.ps1
+index d1dda8ac7..996e45a19 100644
+--- a/.github/release/opencode-rune-package-engine-windows.ps1
++++ b/.github/release/opencode-rune-package-engine-windows.ps1
+@@ -27,7 +27,7 @@ $ExpectedPE = @(
+   'chrome_elf.dll',
+   'dxcompiler.dll',
+   'libcef.dll',
+-  'opencode-browser-engine-helper.exe',
++  'opencode-browser-engine.dll',
+   'opencode-browser-engine.exe'
+ )
+ $AllowedNonPE = @(
+@@ -51,7 +51,7 @@ $ArchiveOrder = @(
+   'CREDITS.html',
+   'LICENSE.txt',
+   'opencode-browser-engine.exe',
+-  'opencode-browser-engine-helper.exe'
++  'opencode-browser-engine.dll'
+ )
+ 
+ function Assert-CleanBundle([string]$StageRoot) {
+@@ -90,6 +90,17 @@ function Assert-CleanBundle([string]$StageRoot) {
+   if (($sortedPE -join "`n") -ne ($expectedSorted -join "`n")) {
+     throw "PE allowlist mismatch in ${app}. Expected: [$($expectedSorted -join ', ')]. Found: [$($sortedPE -join ', ')]."
+   }
++  $exePath = Join-Path $app 'opencode-browser-engine.exe'
++  $peBytes = [IO.File]::ReadAllBytes($exePath)
++  $peOff = [BitConverter]::ToInt32($peBytes, 0x3C)
++  $optMagic = [BitConverter]::ToUInt16($peBytes, $peOff + 24)
++  if ($optMagic -ne 0x20B) {
++    throw "Unexpected PE optional header magic 0x$($optMagic.ToString('x')) in $exePath."
++  }
++  $stackReserve = [BitConverter]::ToUInt64($peBytes, $peOff + 24 + 72)
++  if ($stackReserve -lt 8388608) {
++    throw "$exePath has SizeOfStackReserve=$stackReserve (< 8 MiB required for MV3 workers, #582)."
++  }
+   return $app
+ }
+ 
+diff --git a/.github/release/opencode-rune-verify-engine-sandbox.py b/.github/release/opencode-rune-verify-engine-sandbox.py
+new file mode 100644
+index 000000000..b2442784a
+--- /dev/null
++++ b/.github/release/opencode-rune-verify-engine-sandbox.py
+@@ -0,0 +1,163 @@
++#!/usr/bin/env python3
++"""Live OS-sandbox verification for packaged browser-engine builds (macOS and Linux).
++
++Usage:
++  python3 opencode-rune-verify-engine-sandbox.py macos <path/to/opencode-browser-engine>
++  python3 opencode-rune-verify-engine-sandbox.py linux <path/to/opencode-browser-engine>
++
++Launches the engine against a local loopback HTTP page, verifies the page loads, and checks that
++every spawned renderer subprocess is confined by the OS sandbox:
++  - macOS: libSystem sandbox_check(pid, NULL, SANDBOX_FILTER_NONE) == 1
++  - Linux: /proc/<pid>/status reports Seccomp: 2 and NoNewPrivs: 1
++"""
++import ctypes
++import glob
++import http.server
++import json
++import os
++import shutil
++import socket
++import subprocess
++import sys
++import tempfile
++import threading
++import time
++
++
++class _Handler(http.server.BaseHTTPRequestHandler):
++    def do_GET(self):
++        body = b"<!doctype html><title>SandboxProbeOK</title><h1>OK</h1>"
++        self.send_response(200)
++        self.send_header("Content-Type", "text/html")
++        self.send_header("Content-Length", str(len(body)))
++        self.end_headers()
++        self.wfile.write(body)
++
++    def log_message(self, *args):
++        pass
++
++
++def main() -> int:
++    if len(sys.argv) != 3 or sys.argv[1] not in ("macos", "linux"):
++        print("Usage: opencode-rune-verify-engine-sandbox.py <macos|linux> <engine-bin>", file=sys.stderr)
++        return 2
++    platform, bin_path = sys.argv[1], sys.argv[2]
++    work = tempfile.mkdtemp(prefix="opencode-sandbox-probe-")
++    sock_path = os.path.join(work, "e.sock")
++    prof_dir = os.path.join(work, "profile")
++    os.makedirs(prof_dir, exist_ok=True)
++    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
++    threading.Thread(target=srv.serve_forever, daemon=True).start()
++
++    env = os.environ.copy()
++    env["OPENCODE_BROWSER_PROFILE"] = prof_dir
++    env["OPENCODE_RUNE_OTEL"] = "0"
++    if platform == "macos":
++        env["OPENCODE_BROWSER_MOCK_KEYCHAIN"] = "1"
++    else:
++        env.pop("DISPLAY", None)
++        env.pop("WAYLAND_DISPLAY", None)
++
++    proc = subprocess.Popen(
++        [bin_path, "--socket", sock_path, "--lang", "en-US"],
++        env=env,
++        stdout=subprocess.PIPE,
++        stderr=subprocess.PIPE,
++        text=True,
++    )
++    try:
++        line = proc.stdout.readline() if proc.stdout else ""
++        if line.strip() != "listening":
++            err = proc.stderr.read() if proc.stderr else ""
++            raise RuntimeError(f"expected 'listening', got {line!r}; stderr={err}")
++        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
++        sock.settimeout(25)
++        sock.connect(sock_path)
++        fp = sock.makefile("rwb", buffering=0)
++
++        def send(obj):
++            fp.write((json.dumps(obj) + "\n").encode("utf-8"))
++
++        send({
++            "type": "hello",
++            "mach_service": None,
++            "pid": os.getpid(),
++            "prompts": True,
++            "extensions": False,
++            "download_save": True,
++        })
++        title_ok = False
++        browser_pid = proc.pid
++        deadline = time.time() + 25
++        while time.time() < deadline and not title_ok:
++            raw = fp.readline()
++            if not raw:
++                break
++            msg = json.loads(raw)
++            kind = msg.get("type")
++            if kind == "ready":
++                browser_pid = int(msg.get("pid", proc.pid))
++                send({
++                    "type": "open_tab",
++                    "tab_id": 1,
++                    "url": f"http://127.0.0.1:{srv.server_address[1]}/",
++                    "width_pt": 640.0,
++                    "height_pt": 480.0,
++                    "scale": 1.0,
++                    "focused": True,
++                })
++            elif kind == "tab_update" and msg.get("tab", {}).get("title") == "SandboxProbeOK":
++                title_ok = True
++        if not title_ok:
++            raise RuntimeError(f"{platform} sandboxed probe page did not load")
++        time.sleep(0.5)
++
++        if platform == "macos":
++            ps = subprocess.check_output(["ps", "-axo", "pid=,ppid=,command="], text=True)
++            renderers = []
++            for ln in ps.splitlines():
++                parts = ln.strip().split(None, 2)
++                if len(parts) == 3 and int(parts[1]) == browser_pid and "--type=renderer" in parts[2]:
++                    renderers.append(int(parts[0]))
++            if not renderers:
++                raise RuntimeError("no macOS renderer subprocess found")
++            lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
++            lib.sandbox_check.restype = ctypes.c_int
++            for rpid in renderers:
++                sb = lib.sandbox_check(ctypes.c_int(rpid), ctypes.c_char_p(None), ctypes.c_int(0))
++                print(f"macOS sandbox verified: renderer pid={rpid} sandbox_check={sb}")
++                if sb != 1:
++                    raise RuntimeError(f"macOS renderer pid={rpid} not sandboxed (sandbox_check={sb})")
++        else:
++            renderers = []
++            for cpath in glob.glob("/proc/[0-9]*/cmdline"):
++                try:
++                    cmd = open(cpath, "rb").read()
++                except OSError:
++                    continue
++                if b"opencode-browser-engine-helper" in cmd and b"--type=renderer" in cmd:
++                    renderers.append(int(cpath.split("/")[2]))
++            if not renderers:
++                raise RuntimeError("no Linux renderer subprocess found")
++            for rpid in renderers:
++                status = open(f"/proc/{rpid}/status", encoding="utf-8").read()
++                seccomp = [l for l in status.splitlines() if l.startswith("Seccomp:")]
++                nnp = [l for l in status.splitlines() if l.startswith("NoNewPrivs:")]
++                print(f"Linux sandbox verified: renderer pid={rpid} {seccomp} {nnp}")
++                if not (any("2" in l for l in seccomp) and any("1" in l for l in nnp)):
++                    raise RuntimeError(f"Linux renderer pid={rpid} not sandboxed: {seccomp} {nnp}")
++
++        send({"type": "shutdown"})
++        sock.close()
++        return 0
++    finally:
++        srv.shutdown()
++        try:
++            proc.wait(timeout=10)
++        except subprocess.TimeoutExpired:
++            proc.kill()
++        shutil.rmtree(work, ignore_errors=True)
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/.github/release/opencode-rune-verify-engine-windows-sandbox.ps1 b/.github/release/opencode-rune-verify-engine-windows-sandbox.ps1
+new file mode 100644
+index 000000000..6824058f6
+--- /dev/null
++++ b/.github/release/opencode-rune-verify-engine-windows-sandbox.ps1
+@@ -0,0 +1,165 @@
++# Verifies that a signed Windows browser engine bundle boots under CEF's bootstrap.exe
++# (CheckDllCodeSigning passes) and runs renderer subprocesses with Untrusted (0x0000) integrity
++# and restricted SIDs.
++param(
++  [Parameter(Mandatory)][string]$EngineDir
++)
++$ErrorActionPreference = 'Stop'
++
++$exe = Join-Path $EngineDir 'opencode-browser-engine.exe'
++if (-not (Test-Path -LiteralPath $exe)) { throw "Missing engine executable at $exe." }
++
++& icacls $EngineDir /grant '*S-1-15-2-2:(OI)(CI)(RX)' /grant '*S-1-15-2-1:(OI)(CI)(RX)' /T /Q
++if ($LASTEXITCODE -ne 0) { throw "icacls LPAC RX grant failed on $EngineDir." }
++
++Add-Type -TypeDefinition @'
++using System;
++using System.Net;
++using System.Net.Sockets;
++using System.Runtime.InteropServices;
++using System.Text;
++using System.Threading;
++
++public static class WinSboxCheck {
++  [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint a, bool b, int p);
++  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
++  [DllImport("advapi32.dll")] static extern bool OpenProcessToken(IntPtr p, uint a, out IntPtr t);
++  [DllImport("advapi32.dll")] static extern bool GetTokenInformation(IntPtr t, int c, IntPtr b, int l, out int n);
++  [DllImport("advapi32.dll")] static extern IntPtr GetSidSubAuthorityCount(IntPtr s);
++  [DllImport("advapi32.dll")] static extern IntPtr GetSidSubAuthority(IntPtr s, uint i);
++
++  public static TcpListener StartHttp(out int port) {
++    var tcp = new TcpListener(IPAddress.Loopback, 0);
++    tcp.Start();
++    port = ((IPEndPoint)tcp.LocalEndpoint).Port;
++    var t = new Thread(() => {
++      byte[] body = Encoding.UTF8.GetBytes("<!doctype html><title>WinSandboxOK</title><h1>OK</h1>");
++      byte[] hdr = Encoding.ASCII.GetBytes(
++        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: " + body.Length + "\r\nConnection: close\r\n\r\n");
++      try {
++        while (true) {
++          var cli = tcp.AcceptTcpClient();
++          ThreadPool.QueueUserWorkItem(_ => {
++            var buf = new byte[4096];
++            try {
++              cli.ReceiveTimeout = 2000;
++              using (cli)
++              using (var st = cli.GetStream()) {
++                int n = st.Read(buf, 0, buf.Length);
++                if (n > 0) {
++                  st.Write(hdr, 0, hdr.Length);
++                  st.Write(body, 0, body.Length);
++                }
++              }
++            } catch {}
++          });
++        }
++      } catch {}
++    });
++    t.IsBackground = true;
++    t.Start();
++    return tcp;
++  }
++
++  public static string Inspect(int pid) {
++    IntPtr hp = OpenProcess(0x1000, false, pid);
++    if (hp == IntPtr.Zero) return "err_proc";
++    try {
++      IntPtr ht;
++      if (!OpenProcessToken(hp, 8, out ht)) return "err_tok";
++      try {
++        int n = 0;
++        GetTokenInformation(ht, 25, IntPtr.Zero, 0, out n);
++        IntPtr b = Marshal.AllocHGlobal(n);
++        uint rid = 0xFFFF;
++        try {
++          if (GetTokenInformation(ht, 25, b, n, out n)) {
++            IntPtr sid = Marshal.ReadIntPtr(b, 0);
++            byte cnt = Marshal.ReadByte(GetSidSubAuthorityCount(sid));
++            rid = (uint)Marshal.ReadInt32(GetSidSubAuthority(sid, (uint)(cnt - 1)));
++          }
++        } finally { Marshal.FreeHGlobal(b); }
++        int rn = 0;
++        GetTokenInformation(ht, 11, IntPtr.Zero, 0, out rn);
++        int rs = 0;
++        if (rn > 0) {
++          IntPtr rb = Marshal.AllocHGlobal(rn);
++          try { if (GetTokenInformation(ht, 11, rb, rn, out rn)) rs = Marshal.ReadInt32(rb, 0); }
++          finally { Marshal.FreeHGlobal(rb); }
++        }
++        return rid + ":" + rs;
++      } finally { CloseHandle(ht); }
++    } finally { CloseHandle(hp); }
++  }
++}
++'@
++
++$probe = Join-Path ([IO.Path]::GetTempPath()) "win-sandbox-probe-$PID"
++$prof = Join-Path $probe 'profile'
++$sockPath = Join-Path $probe 'e.sock'
++New-Item -ItemType Directory -Force -Path $prof | Out-Null
++
++$port = 0
++$tcp = [WinSboxCheck]::StartHttp([ref]$port)
++
++$psi = [Diagnostics.ProcessStartInfo]::new($exe, "--socket `"$sockPath`" --lang en-US")
++$psi.UseShellExecute = $false
++$psi.RedirectStandardOutput = $true
++$psi.RedirectStandardError = $true
++$psi.Environment['OPENCODE_BROWSER_PROFILE'] = $prof
++$psi.Environment['OPENCODE_RUNE_OTEL'] = '0'
++$proc = [Diagnostics.Process]::Start($psi)
++try {
++  $first = $proc.StandardOutput.ReadLine()
++  if ($first -ne 'listening') {
++    throw "Expected 'listening', got '$first': $($proc.StandardError.ReadToEnd())"
++  }
++  $sock = [Net.Sockets.Socket]::new(
++    [Net.Sockets.AddressFamily]::Unix,
++    [Net.Sockets.SocketType]::Stream,
++    [Net.Sockets.ProtocolType]::Unspecified
++  )
++  $sock.ReceiveTimeout = 25000
++  $sock.Connect([Net.Sockets.UnixDomainSocketEndPoint]::new($sockPath))
++  $ns = [Net.Sockets.NetworkStream]::new($sock, $true)
++  $wr = [IO.StreamWriter]::new($ns, [Text.UTF8Encoding]::new($false))
++  $wr.NewLine = "`n"
++  $wr.AutoFlush = $true
++  $rd = [IO.StreamReader]::new($ns, [Text.UTF8Encoding]::new($false))
++
++  $hello = @{ type = 'hello'; mach_service = $null; pid = $PID; prompts = $true; extensions = $false; download_save = $true }
++  $wr.WriteLine(($hello | ConvertTo-Json -Compress))
++  $titleOk = $false
++  $browserPid = $proc.Id
++  $dl = [DateTime]::UtcNow.AddSeconds(25)
++  while ([DateTime]::UtcNow -lt $dl -and -not $titleOk) {
++    $line = $rd.ReadLine()
++    if (-not $line) { break }
++    $m = $line | ConvertFrom-Json
++    if ($m.type -eq 'ready') {
++      if ($m.pid) { $browserPid = [int]$m.pid }
++      $open = @{ type = 'open_tab'; tab_id = 1; url = "http://127.0.0.1:$port/"; width_pt = 640.0; height_pt = 480.0; scale = 1.0; focused = $true }
++      $wr.WriteLine(($open | ConvertTo-Json -Compress))
++    } elseif ($m.type -eq 'tab_update' -and $m.tab.title -eq 'WinSandboxOK') {
++      $titleOk = $true
++    }
++  }
++  if (-not $titleOk) { throw 'Signed Windows x64 sandboxed page did not load.' }
++  Start-Sleep -Milliseconds 500
++  $renderers = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $browserPid" | Where-Object { $_.CommandLine -match '--type=renderer' })
++  if ($renderers.Count -eq 0) { throw 'No sandboxed renderer process found.' }
++  foreach ($r in $renderers) {
++    $res = [WinSboxCheck]::Inspect([int]$r.ProcessId)
++    Write-Host "Windows sandbox verified: renderer=$($r.ProcessId) integrity_rid:restricted_sids=$res"
++    $parts = $res -split ':'
++    if ([int]$parts[0] -ne 0 -or [int]$parts[1] -lt 1) {
++      throw "Renderer $($r.ProcessId) not sandboxed ($res)."
++    }
++  }
++  $wr.WriteLine((@{ type = 'shutdown' } | ConvertTo-Json -Compress))
++  $ns.Close()
++} finally {
++  $tcp.Stop()
++  if (-not $proc.WaitForExit(10000)) { $proc.Kill($true) }
++  Remove-Item -Recurse -Force $probe -ErrorAction SilentlyContinue
++}
+diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
+index 04a4f42be..294bd6a18 100644
+--- a/.github/workflows/release.yml
++++ b/.github/workflows/release.yml
+@@ -771,6 +771,17 @@ jobs:
+         run: rustup toolchain install
+       - name: Package Linux ${{ matrix.arch }} browser engine
+         run: bash apps/browser-engine/scripts/package-linux.sh --arch "${{ matrix.arch }}" "$RUNNER_TEMP/engine"
++      - name: Verify Linux ${{ matrix.arch }} browser engine sandbox (when userns available)
++        run: |
++          if ! unshare -Ur true 2>/dev/null; then
++            echo "Linux unprivileged user namespaces are restricted on this runner; skipping live sandbox probe." >> "$GITHUB_STEP_SUMMARY"
++            exit 0
++          fi
++          probe=$(mktemp -d)
++          trap 'rm -rf "$probe"' EXIT
++          tar --zstd -xf "$RUNNER_TEMP/engine/OpenCode-Browser-Engine-$ENGINE_VERSION-linux-${{ matrix.arch }}.tar.zst" -C "$probe"
++          python3 .github/release/opencode-rune-verify-engine-sandbox.py linux "$probe/OpenCode Browser Engine/opencode-browser-engine"
++          echo "Linux ${{ matrix.arch }} browser engine: sandbox verified (userns + Seccomp=2 + NoNewPrivs=1)." >> "$GITHUB_STEP_SUMMARY"
+       - id: upload
+         uses: ./.github/release/upload
+         with:
+@@ -974,14 +985,26 @@ jobs:
+             New-Item -ItemType Directory -Force -Path $dest | Out-Null
+             & "$env:SystemRoot\System32\tar.exe" -xf $archive -C $dest
+             if ($LASTEXITCODE -ne 0) { throw "Could not unpack $name." }
+-            foreach ($bin in 'opencode-browser-engine.exe', 'opencode-browser-engine-helper.exe', 'libcef.dll', 'chrome_elf.dll', 'dxcompiler.dll') {
++            foreach ($bin in 'opencode-browser-engine.exe', 'opencode-browser-engine.dll', 'libcef.dll', 'chrome_elf.dll', 'dxcompiler.dll') {
+               if (-not (Test-Path -LiteralPath (Join-Path $dest "OpenCode Browser Engine/$bin"))) {
+                 throw "$name lacks OpenCode Browser Engine/$bin."
+               }
+             }
++            $exePath = Join-Path $dest 'OpenCode Browser Engine/opencode-browser-engine.exe'
++            $peBytes = [IO.File]::ReadAllBytes($exePath)
++            $peOff = [BitConverter]::ToInt32($peBytes, 0x3C)
++            $stackReserve = [BitConverter]::ToUInt64($peBytes, $peOff + 24 + 72)
++            if ($stackReserve -lt 8388608) {
++              throw "$name opencode-browser-engine.exe has SizeOfStackReserve=$stackReserve (< 8 MiB)."
++            }
+           }
+           .github/release/opencode-rune-verify-windows.ps1 -Folders $unpacked -Publisher $publisher
+           "Windows browser engines ($env:ENGINE_VERSION, x64 + arm64): signed by $publisher." >> $env:GITHUB_STEP_SUMMARY
++      - name: Verify signed Windows x64 browser engine sandbox
++        shell: pwsh
++        run: |
++          .github/release/opencode-rune-verify-engine-windows-sandbox.ps1 -EngineDir "$env:RUNNER_TEMP/verify-engine/x64/OpenCode Browser Engine"
++          "Windows x64 signed browser engine: sandbox verified (CheckDllCodeSigning + Untrusted 0x0000 renderer token)." >> $env:GITHUB_STEP_SUMMARY
+ 
+   verify-engine-macos:
+     needs: [plan, sign-engine-macos]
+@@ -1022,7 +1045,12 @@ jobs:
+           xcrun stapler validate "$app"
+           spctl --assess --type execute --verbose=2 "$app"
+           codesign --verify --deep --strict -R="anchor apple generic and certificate leaf[subject.OU] = \"$SEER_TEAM_ID\" and notarized" "$app"
++          [ -f "$app/Contents/Frameworks/Chromium Embedded Framework.framework/Libraries/libcef_sandbox.dylib" ] || {
++            echo "::error::Missing libcef_sandbox.dylib in $app." >&2; exit 1;
++          }
+           codesign -dv "$app" 2>&1 | grep -E '^(Identifier|TeamIdentifier|Authority=Developer)' >> "$GITHUB_STEP_SUMMARY"
++          python3 .github/release/opencode-rune-verify-engine-sandbox.py macos "$app/Contents/MacOS/opencode-browser-engine"
++          echo "macOS ${{ matrix.arch }} signed browser engine: sandbox verified (libcef_sandbox.dylib + sandbox_check=1)." >> "$GITHUB_STEP_SUMMARY"
+ 
+   # ---- Publish browser engine: release environment; OIDC only ----------------
+   # One atomic publish replacing opencode-rune/browser-engine/stable with all six targets.
+-- 
+2.56.0.windows.4
+
