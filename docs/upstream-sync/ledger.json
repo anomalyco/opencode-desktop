@@ -2,29 +2,29 @@
   "generated_at": "2026-11-21",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "5ca87b9ddaf3536d4d6aa740218d33efb6577563",
+  "upstream_head": "32ae0197715f822fb1247504f81e3eefc7d3c8fb",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "87fc4c2565ddf87405b2f48a75aecdf8b18e29e2",
-  "post_1114_commit_count": 404,
-  "post_1114_in_ledger": 151,
-  "post_1114_skipped": 253,
+  "rune_desktop_head": "835bbd74464567069bd389762aa382e91e491915",
+  "post_1114_commit_count": 412,
+  "post_1114_in_ledger": 157,
+  "post_1114_skipped": 255,
   "post_1114_skipped_breakdown": {
     "test-only": 21,
     "ci-bench-deps": 15,
     "docs-site-data": 37,
     "tui-only": 11,
     "cli-acp-only": 8,
-    "server-core-ai-codemode-internal": 161
+    "server-core-ai-codemode-internal": 163
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 172,
+  "total_ledger_rows": 178,
   "status_counts": {
-    "have it": 140,
+    "have it": 148,
     "not applicable": 23,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 6
+    "missing": 4
   },
   "rows": [
     {
@@ -4236,8 +4236,8 @@
       ],
       "summary": "A browser tab stays in the pane after a failed or timed-out navigation or a page crash; only the person or the agent closing it removes it.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "To check in plugins/browser (tab model, navigation errors).",
+      "status": "have it",
+      "status_evidence": "apps/desktop/src/surfaces/browser/rpc/exec/nav.rs aligns LOAD_TIMEOUT to 15s and keeps tabs open past the navigation deadline when still loading with no load_error (returning official's tabID reuse message to agents; user tabs also remain open on load_error), logging 'browser tab closed: its open failed' on rollback (PR #511).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-6"
@@ -4260,8 +4260,8 @@
       ],
       "summary": "Every open browser tab keeps its place in the side strip, including tabs restored or opened while the pane was hidden.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "To check in plugins/browser (pane machine, restore).",
+      "status": "have it",
+      "status_evidence": "apps/desktop/src/surfaces/browser/{mod,openers}.rs and plugin_host/ui/panels.rs track in-flight strip closes (closing_tabs) and reconcile missing live open browser tabs back into the active session's side strip in exact predecessor order via sync_browser_strip_tabs (PR #511).",
       "depends_on": "UP-147 (#65313)",
       "risks": "none",
       "workstream": "WS-6"
@@ -4338,6 +4338,144 @@
       "depends_on": "#286 (OS cookie encryption, CefCookieManager), UP-120 follow-ups",
       "risks": "none",
       "workstream": "WS-1"
+    },
+    {
+      "id": "UP-152",
+      "window": "post-1120",
+      "pr": 65320,
+      "sha": "f05c0fdc06",
+      "title": "feat(desktop): open in Windows Terminal and list only installed apps on Windows",
+      "merged": "2026-11-21",
+      "packages": [
+        "desktop",
+        "app"
+      ],
+      "main_files": [
+        "packages/desktop/src/main/files/apps.ts",
+        "packages/gui-plugins/src/file/open-in-app.tsx"
+      ],
+      "summary": "Open in lists Windows Terminal and only the apps installed on this machine.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "Ported to official FROM rune-desktop by WINDOWS-UPSTREAM; features/open-in/src/lib.rs lists only installed apps (checked once, off the UI thread) and has Windows Terminal (wt).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-153",
+      "window": "post-1120",
+      "pr": 65319,
+      "sha": "844a6aa6fe",
+      "title": "feat(desktop): flash the Windows taskbar button for requests that wait on you",
+      "merged": "2026-11-21",
+      "packages": [
+        "desktop",
+        "app"
+      ],
+      "main_files": [
+        "packages/desktop/src/main/windows/attention.ts",
+        "packages/app/src/shell/notifications/notification.tsx"
+      ],
+      "summary": "The taskbar button flashes for a new permission or question while the app isn't in front.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "Ported to official FROM rune-desktop by WINDOWS-UPSTREAM; apps/desktop/src/workspace/windows/taskbar.rs: bounded flash for a new permission or question when the app is not in front and no toast announced it.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-154",
+      "window": "post-1120",
+      "pr": 65318,
+      "sha": "edacc8686a",
+      "title": "feat(desktop): show a count badge for sessions that need you on the Windows taskbar",
+      "merged": "2026-11-21",
+      "packages": [
+        "desktop",
+        "app"
+      ],
+      "main_files": [
+        "packages/desktop/src/main/windows/taskbar-badge.ts",
+        "packages/app/src/shell/layout/project-avatar-state.ts"
+      ],
+      "summary": "A count badge on the taskbar button for sessions that need you.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "Ported to official FROM rune-desktop by WINDOWS-UPSTREAM; apps/desktop/src/workspace/windows/taskbar.rs: badge = waiting + ended-unread tabs (Rune Taskbar overlay icon).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-155",
+      "window": "post-1120",
+      "pr": 65332,
+      "sha": "b310a05b54",
+      "title": "fix(desktop): open projects and new sessions from opencode:// links again",
+      "merged": "2026-11-21",
+      "packages": [
+        "desktop",
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/deep-links/machine.ts",
+        "packages/desktop/src/main/lifecycle/launch-links.ts",
+        "packages/desktop/src/renderer/startup/deep-links.ts"
+      ],
+      "summary": "opencode://open-project?directory=<folder> opens the folder as a project in a new session; opencode://new-session?directory=<folder>&prompt=<text> does the same with the prompt typed in, not sent; links given at a cold start open too.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "apps/desktop/src/workspace/system/deep_links.rs takes open?project=<folder> and the jump list's new-session (no directory or prompt), not official's open-project?directory= / new-session?directory=&prompt= forms.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-156",
+      "window": "post-1120",
+      "pr": 65323,
+      "sha": "3aff591323",
+      "title": "fix(desktop): reopen snapped, moved and minimized windows where they were on Windows",
+      "merged": "2026-11-21",
+      "packages": [
+        "desktop",
+        "app"
+      ],
+      "main_files": [
+        "packages/desktop/src/main/windows/window-state.ts"
+      ],
+      "summary": "Windows reopen where they were when snapped, moved or minimized.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "Ported to official FROM rune-desktop by WINDOWS-UPSTREAM; apps/desktop/src/workspace/windows/placement.rs: a minimized window keeps its last shown frame; snapped or restored saves where it is on screen.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-157",
+      "window": "post-1120",
+      "pr": 65321,
+      "sha": "32ae019771",
+      "title": "fix(desktop): resync server event streams after Windows resumes from sleep",
+      "merged": "2026-11-21",
+      "packages": [
+        "desktop",
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/server/client.tsx",
+        "packages/desktop/src/main/ipc.ts"
+      ],
+      "summary": "After Windows resumes from sleep the server event streams resync.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "Ported to official FROM rune-desktop by WINDOWS-UPSTREAM; apps/desktop/src/workspace/lifecycle/launch/network.rs: PowerRegisterSuspendResumeNotification wakes every window on resume to recheck and reconnect its servers.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
     }
   ],
   "browser_security_review": {

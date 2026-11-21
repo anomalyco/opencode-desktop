@@ -11,6 +11,7 @@ use opencode_kit::model::{FileComment, PromptComment, Quote};
 use rune::{Color, El, Icon, PillStyle, TextStyle, Tx, col, el, icon, row, text};
 
 use crate::TimelineHost;
+use crate::focus::FocusExt as _;
 use crate::palette::Pal;
 
 /// `attachment-card.css`: 11/14, with room for Inter's descenders where it truncates.
@@ -306,7 +307,18 @@ pub fn quotes_on_message<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) 
     if !open {
         let id = id.to_owned();
         c = c.child(
-            row().key("show-more").role("button").h(24.0).px(9.0).center_y().radius(4.0).hover(p.hover).press(p.pressed)
+            row()
+                .key("show-more")
+                .role("button")
+                .label_static(opencode_i18n::t!("ui.common.showMore"))
+                .h(24.0)
+                .px(9.0)
+                .center_y()
+                .radius(4.0)
+                .cursor(rune::Cursor::Pointer)
+                .focus_inset(p)
+                .hover(p.hover)
+                .press(p.pressed)
                 .on_press_tx(move |s: &mut S, tx: &mut Tx| {
                     tx.instant();
                     s.open_quote_more(id.clone());

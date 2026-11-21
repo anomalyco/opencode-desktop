@@ -194,7 +194,7 @@ fn failed<H: ConnectHost + 'static>(s: &H, p: &Pal, console: bool) -> El {
     } else {
         opencode_i18n::t!("common.retry")
     };
-    let retry = ui::button(retry_label, ButtonVariant::Contrast)
+    let retry = ui::button(retry_label, ButtonVariant::Submit)
         .on_press_tx(|s: &mut H, tx: &mut Tx| input(s, Input::Retry, tx))
         .build(kit(p))
         .key("connect-retry");
@@ -297,7 +297,7 @@ fn no_models<H: ConnectHost + 'static>(p: &Pal, pending: bool, refreshing: bool)
             .on_press_tx(|s: &mut H, tx: &mut Tx| open_url(s, "https://opencode.ai/console", tx))
             .build(kit(p))
     });
-    let refresh = ui::button(opencode_i18n::t!("provider.connect.console.refresh"), ButtonVariant::Contrast)
+    let refresh = ui::button(opencode_i18n::t!("provider.connect.console.refresh"), ButtonVariant::Submit)
         .disabled(refreshing)
         .on_press_tx(|s: &mut H, tx: &mut Tx| input(s, Input::Refresh, tx))
         .build(kit(p))
@@ -372,7 +372,7 @@ fn claude<H: ConnectHost + 'static>(s: &H, p: &Pal, checking: bool, can_check: b
         } else {
             opencode_i18n::t!("provider.connect.claudeAgent.connect")
         };
-        ui::button(submit_label, ButtonVariant::Contrast)
+        ui::button(submit_label, ButtonVariant::Submit)
             .disabled(!can_check)
             .on_press_tx(|s: &mut H, tx: &mut Tx| trigger_claude_check(s, tx))
             .build(kit(p))
