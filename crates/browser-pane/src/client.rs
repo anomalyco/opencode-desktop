@@ -1130,17 +1130,11 @@ impl BrowserHost {
                         changed = true;
                     }
                 }
-                EngineMsg::Dialog { .. }
-                | EngineMsg::DialogsReset { .. }
-                | EngineMsg::PermissionRequest { .. }
-                | EngineMsg::PermissionDismissed { .. }
-                | EngineMsg::AuthRequest { .. }
-                | EngineMsg::AuthReset { .. }
-                | EngineMsg::AuthAgentRequired { .. }
-                | EngineMsg::PopupOpen { .. }
-                | EngineMsg::PopupBlocked { .. }
-                | EngineMsg::AppLinkBlocked { .. }
-                | EngineMsg::FileChooserBlocked { .. } => {
+                EngineMsg::Dialog { .. } | EngineMsg::DialogsReset { .. }
+                | EngineMsg::PermissionRequest { .. } | EngineMsg::PermissionDismissed { .. }
+                | EngineMsg::AuthRequest { .. } | EngineMsg::AuthReset { .. } | EngineMsg::AuthAgentRequired { .. }
+                | EngineMsg::PopupOpen { .. } | EngineMsg::PopupBlocked { .. }
+                | EngineMsg::AppLinkBlocked { .. } | EngineMsg::FileChooserBlocked { .. } => {
                     changed |= self.handle_prompt_msg(msg);
                 }
                 EngineMsg::FindResult { tab_id, count, active_match, final_update } => {

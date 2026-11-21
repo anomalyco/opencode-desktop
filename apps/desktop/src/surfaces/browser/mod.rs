@@ -757,15 +757,7 @@ mod native {
                         continue;
                     };
                     let sid = self.browser_tab_session(popup.opener_tab_id).map(str::to_owned);
-                    let _new_id = self.open_new_browser_tab_with_context(
-                        sid.as_deref(),
-                        &popup.url,
-                        None,
-                        !popup.background,
-                        false,
-                        opener_ctx,
-                        driver,
-                    );
+                    let _ = self.open_new_browser_tab_with_context(sid.as_deref(), &popup.url, None, !popup.background, false, opener_ctx, driver);
                     changed = true;
                 }
             }

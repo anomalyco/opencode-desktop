@@ -592,21 +592,12 @@ pub fn open_confirmed_app_url(tx: &mut Tx, url: &str, source: browser_policy::Ap
         return false;
     }
     #[cfg(not(target_arch = "wasm32"))]
-    if allow_harness_log()
-        && let Some(log) = std::env::var_os("HARNESS_OPEN_EXTERNAL_LOG").filter(|v| !v.is_empty())
-    {
+    if allow_harness_log() && let Some(log) = std::env::var_os("HARNESS_OPEN_EXTERNAL_LOG").filter(|v| !v.is_empty()) {
         use std::io::Write as _;
         let path = Path::new(&log);
-        if let Some(parent) = path.parent() {
-            drop(std::fs::create_dir_all(parent));
-        }
+        if let Some(parent) = path.parent() { drop(std::fs::create_dir_all(parent)); }
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-            let entry = json!({
-                "pid": std::process::id(),
-                "kind": "openConfirmedApp",
-                "url": trimmed,
-            });
-            drop(writeln!(f, "{entry}"));
+            drop(writeln!(f, "{}", json!({ "pid": std::process::id(), "kind": "openConfirmedApp", "url": trimmed })));
         }
         return true;
     }

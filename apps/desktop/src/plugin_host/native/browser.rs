@@ -685,11 +685,7 @@ pub fn version(app: &App) -> u64 {
     app.workspace_panes.browser.host.focused_tab_id().hash(&mut h);
     {
         let reviews = app.workspace_panes.browser.active_app_reviews.borrow();
-        reviews.len().hash(&mut h);
-        let mut keys: Vec<_> = reviews
-            .iter()
-            .map(|(&id, r)| (id, r.token.as_str(), r.target_fits, r.action as u8))
-            .collect();
+        let mut keys: Vec<_> = reviews.iter().map(|(&id, r)| (id, r.token.as_str(), r.target_fits, r.action as u8)).collect();
         keys.sort_unstable();
         keys.hash(&mut h);
     }
@@ -721,17 +717,7 @@ pub fn pages(app: &App, include_find: bool) -> Vec<(String, u64)> {
             (&t.url, &t.title, t.loading, t.preview.map(|p| p as u8), &t.refusal, t.rejected, &t.favicon).hash(&mut h);
             if include_find {
                 t.find.hash_state(&mut h);
-            }
-            let review_token = app
-                .workspace_panes
-                .browser
-                .active_app_reviews
-                .borrow()
-                .get(&t.id)
-                .map(|r| r.token.clone());
-            // Only the built-in plugin draws the review bar; others never see its token move.
-            if include_find {
-                review_token.hash(&mut h);
+                app.workspace_panes.browser.active_app_reviews.borrow().get(&t.id).map(|r| r.token.as_str()).hash(&mut h);
             }
             (t.id.to_string(), h.finish())
         })
