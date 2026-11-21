@@ -104,7 +104,7 @@ pub fn wire<S: AsRef<str>>(text: &str, pills: &[(Range<usize>, S)], directory: &
             // Session mentions are already encoded inline as `@session:<id>` in `out.text` above.
             "session" => {}
             // Official decodes a closed `ContentPart` schema union and leaves non-matching parts
-            // as plain text in `text` (`packages/app/src/composer/request.ts:121-150`); log any
+            // as plain text in `text` (`packages/app/src/composer/request.ts:126-154`); log any
             // unrecognized pill kind here so a malformed/unprefixed pill never vanishes silently.
             other => {
                 eprintln!("opencode-mentions: unrecognized mention pill kind {other:?} (id={id:?}, text={shown:?}); sent as plain text");

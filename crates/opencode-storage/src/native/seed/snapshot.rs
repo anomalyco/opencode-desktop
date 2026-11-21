@@ -137,12 +137,15 @@ fn stamp_consistent(before: &DbWalStamp, after: &DbWalStamp) -> bool {
         && after.wal_len >= before.wal_len
 }
 
-/// Sweeps any leftover `.seed-copy-*` directories left by a prior hard kill mid-copy.
+/// Sweeps any leftover `.seed-copy-*` directories left by a prior hard kill mid-copy,
+/// skipping directories belonging to this process so an active `Snapshot` is never unlinked.
 fn sweep_stale_copies(scratch_parent: &Path) {
     let Ok(entries) = fs::read_dir(scratch_parent) else { return };
+    let own_prefix = format!("{SEED_COPY_PREFIX}{}-", std::process::id());
     for entry in entries.flatten() {
         let name = entry.file_name();
-        if name.to_string_lossy().starts_with(SEED_COPY_PREFIX) {
+        let name = name.to_string_lossy();
+        if name.starts_with(SEED_COPY_PREFIX) && !name.starts_with(&own_prefix) {
             let _ = fs::remove_dir_all(entry.path());
         }
     }
@@ -189,7 +192,6 @@ pub(super) fn open_snapshot(official_dir: &Path, scratch_parent: &Path) -> Resul
         return Err(SnapshotErr::NotFound);
     }
     fs::create_dir_all(scratch_parent).map_err(|e| SnapshotErr::Retryable(format!("scratch parent: {e}")))?;
-    sweep_stale_copies(scratch_parent);
 
     let src_wal = official_dir.join("drafts.sqlite-wal");
     let mut last_err = String::new();
@@ -265,6 +267,7 @@ pub(super) enum PickResult {
 /// Picks the newest valid Official Desktop `userData` folder among `dirs`, supporting both modern
 /// `state`-table databases and older pre-`state` (`document`/`blob`-only) databases.
 pub(super) fn pick_dir(dirs: &[PathBuf], scratch_parent: &Path) -> PickResult {
+    sweep_stale_copies(scratch_parent);
     let mut best: Option<(i64, PathBuf, Snapshot)> = None;
     let mut last_err: Option<String> = None;
 

@@ -212,14 +212,14 @@ pub fn tell_storage_notice(host: &mut dyn RestoreHost) -> bool {
         }
         Some(StorageNotice::SeedDroppedDrafts { count, official_dir }) => {
             let title = if count == 1 {
-                "1 draft could not be brought over from OpenCode Desktop".to_owned()
+                t!("rune.storage.seedDroppedDrafts.titleOne").to_owned()
             } else {
-                format!("{count} drafts could not be brought over from OpenCode Desktop")
+                t!("rune.storage.seedDroppedDrafts.titleMany", count = count)
             };
             let desc = if official_dir.is_empty() {
-                "Your OpenCode Desktop data was not modified.".to_owned()
+                t!("rune.storage.seedDroppedDrafts.description").to_owned()
             } else {
-                format!("Your OpenCode Desktop data was not modified and is still in {}.", toast::plain(&official_dir))
+                t!("rune.storage.seedDroppedDrafts.descriptionPath", path = toast::plain(&official_dir))
             };
             host.toast_fail(&title, &desc);
         }
