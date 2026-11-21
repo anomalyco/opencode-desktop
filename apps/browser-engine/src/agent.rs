@@ -40,6 +40,7 @@ pub fn remove_tab_uploads(profile_dir: &Path, tab_id: u64) {
 #[allow(clippy::too_many_arguments)]
 pub fn handle_upload_files(
     t: &ManagedTab,
+    permissions: &crate::permissions::PermissionTracker,
     profile_dir: &Path,
     tab_id: u64,
     request_id: u64,
@@ -59,6 +60,18 @@ pub fn handle_upload_files(
         != crate::engine::Surface::Clean
     {
         send_err(out_tx, tab_id, request_id, "Agent browser tools cannot upload files into extension pages or tabs with extension frames.");
+        return;
+    }
+    if !t.isolated
+        && t.preview.is_none()
+        && t.prompts.agent_driven.load(Ordering::Acquire)
+        && t.cdp_ledger
+            .lock()
+            .unwrap()
+            .target_frame_url(session_id.as_deref(), frame_id.as_deref(), &Value::Null)
+            .is_some_and(|u| permissions.has_inherited_default_grant(&u))
+    {
+        send_err(out_tx, tab_id, request_id, crate::permissions::INHERITED_PERMISSION_MSG);
         return;
     }
     if session_id.is_some() || frame_id.is_some() {
