@@ -53,7 +53,7 @@ local function menuItem(
         key = key,
         role = "button",
         label = label,
-        w = "full",
+        w = if fitWidth then nil else "full",
         h = 28,
         pl = 12,
         pr = 6,
