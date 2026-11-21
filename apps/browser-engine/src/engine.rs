@@ -216,6 +216,7 @@ impl EngineManager {
                     agent_files: true,
                     passkeys: true,
                     trace_isolation: true,
+                    menu_extras: true,
                 });
                 for (&tab_id, t) in &self.tabs {
                     t.menu.cancel_all();
@@ -781,12 +782,32 @@ impl EngineManager {
                             crate::wire::ContextKind::Preview { .. }
                                 | crate::wire::ContextKind::Artifact { .. }
                         );
-                    let ext_click = t.menu.execute(tab_id, t.download_gen, id, action, &t.browser, &t.host, &roots, block_downloads, &self.downloads);
-                    if let Some((ext_id, item_id, target)) = ext_click
-                        && !t.isolated && !t.is_popup && t.preview.is_none()
-                        && let Some(ext) = self.extensions.as_mut()
-                    {
-                        ext.on_context_menu_clicked(tab_id, &ext_id, &item_id, &target);
+                    let follow_up = t.menu.execute(tab_id, t.download_gen, id, action, &t.browser, &t.host, &roots, block_downloads, &self.downloads);
+                    match follow_up {
+                        Some(crate::menu::MenuFollowUp::Extension { ext_id, item_id, target }) => {
+                            if !t.isolated
+                                && !t.is_popup
+                                && t.preview.is_none()
+                                && let Some(ext) = self.extensions.as_mut()
+                            {
+                                ext.on_context_menu_clicked(tab_id, &ext_id, &item_id, &target);
+                            }
+                        }
+                        Some(crate::menu::MenuFollowUp::CopyImage { url, frame_id }) => {
+                            // The menu's own frame when the engine knows it on the tab's session,
+                            // else the main frame (an image in an out-of-process frame is not read).
+                            let frame = {
+                                let ledger = t.cdp_ledger.lock().unwrap();
+                                frame_id.filter(|f| ledger.is_root_session_frame(f)).or_else(|| ledger.main_frame_id())
+                            };
+                            if let Some(frame) = frame {
+                                let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
+                                t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::CopyImageContent { frame_id: frame.clone() });
+                                let raw = crate::menu_extras::resource_request(msg_id, &frame, &url);
+                                t.host.send_dev_tools_message(Some(raw.as_bytes()));
+                            }
+                        }
+                        None => {}
                     }
                 }
             }

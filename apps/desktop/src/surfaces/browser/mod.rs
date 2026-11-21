@@ -764,6 +764,7 @@ mod native {
             changed |= self.drain_browser_popups();
             changed |= self.poll_app_link_reviews();
             changed |= self.close_download_only_tabs();
+            self.copy_browser_images();
             // Reload persisted site permissions when Settings > Browser edits `rune.sitePermissions`.
             let perm_ver = crate::plugin_host::services::store::store_version("browser", "rune.sitePermissions");
             if perm_ver != self.workspace_panes.browser.site_permissions_version {
