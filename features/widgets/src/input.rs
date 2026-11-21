@@ -140,7 +140,7 @@ pub fn take(host: &mut dyn WidgetsHost, id: &str, input: Input<'_>, tx: &mut Tx)
         }
         Input::Press => {
             focus(host, id);
-            let key = if host.widgets().screen.is(id) { "widget-screen".to_owned() } else { format!("widget-{id}") };
+            let key = if host.widgets().screen.is(id) { format!("widget-screen-{id}") } else { format!("widget-{id}") };
             tx.focus(key, false);
             let wants = host.widgets().entries.get(id).is_some_and(|e| e.wants_capture());
             let home = host.pointer_at();
@@ -207,7 +207,7 @@ pub(crate) fn poll(host: &mut dyn WidgetsHost, tx: &mut Tx) {
     let full = host.widgets().screen.is(&id);
     let here = e.machine.open_here() && (full || shown.as_deref() == Some(e.session.as_str()));
     // Focus on the widget's frame, or a control in it (keyed by its node path).
-    let inside = tx.focused().is_some_and(|k| k == format!("widget-{id}") || (full && k == "widget-screen") || k == "w" || k.starts_with("w."));
+    let inside = tx.focused().is_some_and(|k| k == format!("widget-{id}") || (full && k == format!("widget-screen-{id}")) || k == "w" || k.starts_with("w."));
     if !here || !inside {
         release(host);
         return;

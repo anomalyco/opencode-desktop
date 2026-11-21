@@ -38,6 +38,9 @@ pub const VARIANTS: &[(&str, usize)] = &[
     ("Live program that fails", 17),
     ("Failed on another client", 18),
     ("Failed, the agent told", 19),
+    ("Drag", 20),
+    ("Drag, full screen", 21),
+    ("Keyboard and pointer, full screen", 22),
 ];
 pub const KEYS: &[Trigger] = &[
     replay(open),
@@ -164,6 +167,42 @@ const FAILING_SOURCE: &str = r##"async function main(data) {
 }
 "##;
 
+/// A shader and a canvas that count the pointer events their widget template hears, for a drag
+/// inline and full screen.
+const DRAG: &str = "story-drag";
+const DRAG_SOURCE: &str = r##"async function main(data) {
+  const s = { orb: { down: 0, move: 0, up: 0, x: 0 }, pad: { down: 0, move: 0, up: 0, x: 0 } }
+  const on = (k) => (p) => {
+    s[k][p.kind] = (s[k][p.kind] || 0) + 1
+    s[k].x = p.x
+    show(s)
+  }
+  s.onOrb = on("orb")
+  s.onPad = on("pad")
+  show(s)
+}
+
+function line(name, c) {
+  return name + ": down " + c.down + " · move " + c.move + " · up " + c.up + " · x " + Math.round(c.x)
+}
+
+function show(s) {
+  widget.render(
+    ui.column({ gap: 1 }, [
+      ui.text("Drag", { style: "title" }),
+      ui.shader("fn shade(frag: vec2f) -> vec4f { let uv = frag / widget.resolution; return vec4f(0.15 + 0.5 * uv.x, 0.2, 0.5 - 0.3 * uv.y, 1.0); }", { key: "orb", height: 160, fill: false, alt: "A shader to drag on", onPointer: s.onOrb }),
+      ui.canvas({ key: "pad", height: 100, fill: false, alt: "A canvas to drag on", onPointer: s.onPad }),
+      ui.text(line("shader", s.orb), { style: "body" }),
+      ui.text(line("canvas", s.pad), { style: "body" }),
+    ]),
+  )
+  const g = ui.draw()
+  g.rrect(0, 0, 2000, 100, 0, "surface")
+  g.circle(s.pad.x, 50, 10, "accent")
+  widget.draw("pad", g)
+}
+"##;
+
 /// A canvas that fills the screen in full screen, and a layout that changes when it goes there.
 const FULLSCREEN: &str = "story-fullscreen";
 const FULLSCREEN_SOURCE: &str = r##"function init(data) {
@@ -223,10 +262,11 @@ fn widget_template(v: usize) -> &'static str {
         11 => RUNAWAY,
         12 => FULLSCREEN,
         13 => SHADER_GAME,
-        14 => INPUT,
+        14 | 22 => INPUT,
         15 => SHADER_GAME,
         16 | 18 | 19 => "confirm",
         17 => FAILING,
+        20 | 21 => DRAG,
         _ => "suggestions",
     }
 }
@@ -287,11 +327,12 @@ fn data(v: usize) -> (&'static str, Value) {
         11 => ("Price ticker", json!({})),
         12 => ("Starfield", json!({ "stars": 140 })),
         13 => ("Shader paddle", json!({})),
-        14 => ("Keyboard and pointer", json!({})),
+        14 | 22 => ("Keyboard and pointer", json!({})),
         // The same game with a caption that changes every frame: every frame builds the widget
         // again, the cost the values-only path saves.
         15 => ("Shader paddle", json!({ "clock": true })),
         17 => ("Neon gate", json!({})),
+        20 | 21 => ("Drag", json!({})),
         16 => ("Delete the branch", json!({ "title": "Delete feature/reconnect-backoff?", "message": "The branch is merged into `main`." })),
         _ => ("Pick a hero image", json!({
             "title": "Which hero image should the landing page use?",
@@ -341,6 +382,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     preload(s, RUNAWAY, &version(RUNAWAY), &runaway, "live", &json!({ "https": { "hosts": ["api.coingecko.com"] } }));
     preload(s, SHADER_GAME, &version(SHADER_GAME), &format!("{}\n{SHADER_GAME_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);
     preload(s, INPUT, &version(INPUT), &format!("{}\n{INPUT_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);
+    preload(s, DRAG, &version(DRAG), &format!("{}\n{DRAG_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);
     preload(s, FAILING, &version(FAILING), &format!("{}\n{FAILING_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);
     preload(s, FULLSCREEN, &version(FULLSCREEN), &format!("{}\n{FULLSCREEN_SOURCE}", fixtures::PRELUDE), "step", &Value::Null);
     tx.after(0.3, |s, tx| post(s, tx));
@@ -351,7 +393,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     if *s.fixture_run.variant == 16 {
         tx.after(0.9, |s, tx| changed(s, "superseded", Value::Null, tx));
     }
-    if *s.fixture_run.variant == 12 {
+    if matches!(*s.fixture_run.variant, 12 | 21 | 22) {
         tx.after(1.8, |s, tx| fullscreen(s, tx));
     }
 }
