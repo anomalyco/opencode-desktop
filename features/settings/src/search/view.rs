@@ -58,7 +58,7 @@ pub fn field<H: SettingsHost + 'static>(s: &H, p: &Pal, narrow: bool) -> El {
             .radius(4.0)
             .cursor(Cursor::Pointer)
             .focus_default(p)
-            .hover_group()
+            .hover_group_focus()
             .on_press_tx(|s: &mut H, tx: &mut Tx| clear_and_focus(s, tx))
             .child(icon(&ic::XMARK_SMALL, 16.0).color(p.icon_faint).group_color(p.icon))
     });
