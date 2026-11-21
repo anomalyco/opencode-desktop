@@ -15,9 +15,9 @@
 //!   external mode) for the package this build was installed from.
 //!
 //! All check ten seconds after launch and every ten minutes. The Updater plugin
-//! (`plugins/updater`) draws it, as Desktop's updater plugin does: Settings > Updates, the toasts
-//! (an update these checks find toasts once per version, in place of Desktop's update pill) and
-//! What's new. It reaches the service through the `Updater` Luau service, whose state, checks and
+//! (`plugins/updater`) draws it, as Desktop's updater plugin does: the titlebar's Update pill while
+//! an update is ready, Settings > Updates, the toasts of a check the user asked for, and What's
+//! new. It reaches the service through the `Updater` Luau service, whose state, checks and
 //! installs this crate answers ([`state_data`], [`check_async`], [`install_async`]).
 
 #[cfg(target_arch = "wasm32")]
