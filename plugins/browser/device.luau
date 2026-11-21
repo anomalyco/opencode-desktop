@@ -538,7 +538,7 @@ return function(ctx: any, i18n: I18nService, popover: PopoverService, refresh: (
                 })
             return ui.row({
                 key = key,
-                role = "textbox",
+                role = if editing then nil else "button",
                 label = ariaLabel,
                 dir = "ltr",
                 w = 50,

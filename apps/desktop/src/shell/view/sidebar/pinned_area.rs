@@ -300,6 +300,7 @@ fn vertical_group(s: &App, p: &Pal, g: &PinGroup, nav_order: &[String], show_hin
     let menu_open = s.popup.open_at(&menu_key);
     let trigger_id = g.id.clone();
     let trigger_key = menu_key.clone();
+    let ctx_key = menu_key.clone();
 
     let trigger = row()
         .key(format!("pin-group-trigger-{}", g.id))
@@ -321,13 +322,14 @@ fn vertical_group(s: &App, p: &Pal, g: &PinGroup, nav_order: &[String], show_hin
             tx.instant();
             pins::update(s, |d| d.toggle_group(&toggle_id));
         })
-        .on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| open_group_menu(s, &ctx_id, press.into(), tx))
+        // A right-click opens the menu where the row's `⋯` does, as official's `Menu` (`bottom-end`).
+        .on_secondary_press(move |s: &mut App, _: rune::PointerPress, tx: &mut Tx| open_group_menu(s, &ctx_id, ctx_key.clone().into(), rune::Align::End, tx))
         .child(marker)
         .child(label_el)
         .child(icon(&ic::FILL_TRIANGLE_DOWN, 14.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 }).mirror_in_rtl());
 
     let dots = super::super::home::projects::icon_button(p, &menu_key, t!("navigation.group.options"), &ic::OUTLINE_DOTS, menu_open)
-        .menu_button(menu_key.clone(), move |s: &mut App, tx: &mut Tx| open_group_menu(s, &trigger_id, trigger_key.clone().into(), tx));
+        .menu_button(menu_key.clone(), move |s: &mut App, tx: &mut Tx| open_group_menu(s, &trigger_id, trigger_key.clone().into(), rune::Align::End, tx));
     let dots = el().pin(None, Some(4.0), Some(4.0), None).child(if menu_open { dots } else { session_view::style::hover_reveal(dots) });
     let header_row = row().key(format!("pin-group-row-{}", g.id)).w_full().hover_group().child(trigger).child(dots);
 
@@ -357,6 +359,7 @@ fn horizontal_group(s: &App, p: &Pal, g: &PinGroup, nav_order: &[String], show_h
         .children(mark.map(|m| hidden_dot(p, m, false)));
     let toggle_id = g.id.clone();
     let ctx_id = g.id.clone();
+    let ctx_key = format!("pin-group-h-{}", g.id);
     let trigger = row()
         .key(format!("pin-group-h-trigger-{}", g.id))
         .role("button")
@@ -372,7 +375,8 @@ fn horizontal_group(s: &App, p: &Pal, g: &PinGroup, nav_order: &[String], show_h
             tx.instant();
             pins::update(s, |d| d.toggle_group(&toggle_id));
         })
-        .on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| open_group_menu(s, &ctx_id, press.into(), tx))
+        // Top tabs open it under the group's start (official's hidden `Menu.Trigger`, `bottom-start`).
+        .on_secondary_press(move |s: &mut App, _: rune::PointerPress, tx: &mut Tx| open_group_menu(s, &ctx_id, ctx_key.clone().into(), rune::Align::Start, tx))
         .child(marker);
     let mut r = row()
         .key(format!("pin-group-h-{}", g.id))
@@ -409,19 +413,25 @@ fn open_pin_menu(s: &mut App, r: &PinRef, press: rune::PointerPress, tx: &mut Tx
     });
 }
 
-fn open_group_menu(s: &mut App, group_id: &str, at: rune::PopupAnchor, tx: &mut Tx) {
+fn open_group_menu(s: &mut App, group_id: &str, at: rune::PopupAnchor, align: rune::Align, tx: &mut Tx) {
     let Some(g) = pins::state(s).doc.groups().find(|g| g.id == group_id).cloned() else { return };
     // `GroupEditor` (`pinned-area.tsx:449-489`): the group's name in a bare field, its square
     // before it, then its colours as a radio list, then Ungroup and Unpin, 192 wide (`w-48`).
-    let (lead_id, edit_id, rows_id, id) = (g.id.clone(), g.id.clone(), g.id.clone(), g.id.clone());
+    let (lead_id, edit_id, rows_id, color_id, id) = (g.id.clone(), g.id.clone(), g.id.clone(), g.id.clone(), g.id.clone());
     let lead = move |s: &App, p: &Pal| {
         let color = pins::state(s).doc.groups().find(|g| g.id == lead_id).map(|g| g.color);
         color.map_or_else(el, |c| group_square(c, p.dark))
     };
     let rename = move |s: &mut App, name: &str, _: &mut Tx| pins::update(s, |d| d.rename_group(&edit_id, name.to_owned()));
+    // A colour is a radio row: it recolours the group and the menu stays open.
+    let recolor = move |s: &mut App, choice: &str, _: &mut Tx| {
+        if let Some(c) = choice.strip_prefix("color:").and_then(|c| PinColor::parse(Some(c))) {
+            pins::update(s, |d| d.recolor_group(&color_id, c));
+        }
+    };
     let rows = move |s: &App| {
         let current = pins::state(s).doc.groups().find(|g| g.id == rows_id).map(|g| g.color);
-        let menu = Menu::new(t!("tabs.groups.color")).width(192.0).separator();
+        let menu = Menu::new(t!("tabs.groups.color")).width(192.0).align(align).separator();
         pins::AUTO_COLORS
             .into_iter()
             .fold(menu, |m, c| {
@@ -433,17 +443,12 @@ fn open_group_menu(s: &mut App, group_id: &str, at: rune::PopupAnchor, tx: &mut 
             .item(Item::new("unpin-group", t!("navigation.group.unpin")))
     };
     tx.instant();
-    popup::open_with_field(s, t!("tabs.groups.name.placeholder"), &g.name, lead, rename, rows, at, tx, move |s: &mut App, picked, tx| {
+    popup::open_with_field(s, t!("tabs.groups.name.placeholder"), &g.name, lead, rename, recolor, rows, at, tx, move |s: &mut App, picked, tx| {
         tx.instant();
         match picked {
             Some("ungroup") => pins::update(s, |d| d.ungroup(&id)),
             Some("unpin-group") => pins::update(s, |d| d.unpin_group(&id)),
-            Some(choice) => {
-                if let Some(c) = choice.strip_prefix("color:").and_then(|c| PinColor::parse(Some(c))) {
-                    pins::update(s, |d| d.recolor_group(&id, c));
-                }
-            }
-            None => {}
+            _ => {}
         }
     });
 }

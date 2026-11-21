@@ -524,10 +524,26 @@ impl App {
             let active_server = crate::servers::runtime::active(self).clone();
             crate::surfaces::browser::rpc::on_session_lifecycle(self, &active_server, ty, &sid);
         }
-        if matches!(ty, "provider.updated" | "model.updated" | "agent.updated" | "config.updated") {
-            // Config providers and agents activate asynchronously after SDK plugins; refresh picker
-            // catalogs when `*.updated` arrives (`sync.tsx:163`, `solid/data.ts:1463-1466`).
-            crate::connect::picker_reads::refresh(self);
+        if let Some(list) = match ty {
+            "provider.updated" => Some(crate::connect::PickerList::Providers),
+            "model.updated" => Some(crate::connect::PickerList::Models),
+            "agent.updated" => Some(crate::connect::PickerList::Agents),
+            "config.updated" => Some(crate::connect::PickerList::Config),
+            _ => None,
+        } {
+            // Only react to global updates or updates for the active/default location, and
+            // coalesce bursts per single resource (`packages/app/src/runtime/server/sync.tsx:163`,
+            // `packages/client/src/solid/data.ts:346-356,1460-1528`).
+            let loc = data["eventLocation"]["directory"].as_str();
+            let active_dir = match &*self.route {
+                Route::Session { id, .. } => self.session(id).map(|i| i.directory.as_str()),
+                Route::Draft(_) => Some(self.draft_dir()),
+                Route::Home => None,
+            };
+            if loc.is_none() || loc == crate::start_location::server_directory(self) || loc == active_dir {
+                let now = *self.clock;
+                crate::connect::picker_reads::schedule(self, list, now);
+            }
         }
         if ty == "config.updated" {
             let loc = data["eventLocation"]["directory"].as_str();

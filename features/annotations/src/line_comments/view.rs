@@ -153,9 +153,38 @@ fn on_cancel(host: &mut dyn LineCommentsHost, spot: &Spot, tx: &mut Tx) {
     line_comment_field(host, spot, FieldEvent::CancelRequested, tx);
 }
 
+fn is_mod_only(mods: rune::Mods) -> bool {
+    (mods.ctrl || mods.cmd) && !mods.alt && !mods.shift
+}
+
+fn delivery_label(host: &dyn LineCommentsHost) -> &'static str {
+    match (host.quote_session_busy(), host.quote_follow_up()) {
+        (false, _) => opencode_i18n::t!("rune.browser.comment.send"),
+        (true, crate::quote::FollowUp::Steer) => opencode_i18n::t!("rune.browser.comment.steer"),
+        (true, crate::quote::FollowUp::Queue) => opencode_i18n::t!("rune.browser.comment.queue"),
+    }
+}
+
+fn mod_enter_keys() -> [String; 2] {
+    let mod_key = if cfg!(target_os = "macos") { "⌘".to_owned() } else { opencode_i18n::t!("common.key.ctrl").to_owned() };
+    [mod_key, "⏎".to_owned()]
+}
+
 fn on_submit(host: &mut dyn LineCommentsHost, spot: &Spot, tx: &mut Tx) {
     let config = line_comment_config(host, spot);
-    line_comment_field(host, spot, FieldEvent::SubmitRequested { config }, tx);
+    let modified = is_mod_only(tx.mods());
+    line_comment_field(host, spot, FieldEvent::Clicked { modified, config }, tx);
+}
+
+fn on_submit_hover(host: &mut dyn LineCommentsHost, spot: &Spot, tx: &mut Tx) {
+    let config = line_comment_config(host, spot);
+    let held = is_mod_only(tx.mods());
+    if host.line_comments().mode(spot).draft().is_some_and(|d| d.field.alternate != held) {
+        line_comment_field(host, spot, FieldEvent::Modifier { held, config }, tx);
+        tx.instant();
+    } else {
+        tx.live_only();
+    }
 }
 
 fn on_card_hover(host: &mut dyn LineCommentsHost, spot: &Spot, range: Range, inside: bool, tx: &mut Tx) {
@@ -236,7 +265,27 @@ fn small_button<H: 'static>(p: &Pal, key: &str, label: &str, variant: Variant, l
 fn editor_v2<H: LineCommentsHost + 'static>(s: &H, p: &Pal, spot: &Spot, draft: &Draft, submit: &str, editing: Option<&str>) -> El {
     let input = field_input::<H>(s, p, spot, draft, V2_TEXT, opencode_i18n::t!("ui.lineComment.contextPlaceholder")).h(64.0);
     let can = !draft.text.text.trim().is_empty();
-    let (cancel, send) = (spot.clone(), spot.clone());
+    let alt = draft.field.alternate;
+    let can_send = s.can_send_comment();
+    let delivery = delivery_label(s);
+    let submit_label = if alt { delivery } else { submit };
+    let submit_live = can && (!alt || can_send);
+    let (cancel, send, hover) = (spot.clone(), spot.clone(), spot.clone());
+    let submit_btn = small_button::<H>(p, "line-comment-submit", submit_label, Variant::Contrast, submit_live, move |s, tx| {
+        on_submit(s, &send, tx);
+    })
+    .help(submit)
+    .help_keys(["⏎".to_owned()])
+    .help_row(delivery)
+    .help_keys(mod_enter_keys())
+    .help_above()
+    .on_hover_change(move |s: &mut H, inside, tx: &mut Tx| {
+        if inside {
+            on_submit_hover(s, &hover, tx);
+        } else {
+            tx.live_only();
+        }
+    });
     let actions = row()
         .key("actions")
         .gap(8.0)
@@ -244,9 +293,7 @@ fn editor_v2<H: LineCommentsHost + 'static>(s: &H, p: &Pal, spot: &Spot, draft: 
         .child(small_button::<H>(p, "line-comment-cancel", opencode_i18n::t!("ui.lineComment.cancel"), Variant::Ghost, true, move |s, tx| {
             on_cancel(s, &cancel, tx);
         }))
-        .child(small_button::<H>(p, "line-comment-submit", submit, Variant::Contrast, can, move |s, tx| {
-            on_submit(s, &send, tx);
-        }));
+        .child(submit_btn);
     col()
         .key(editing.map_or_else(|| "line-comment-draft".to_owned(), |id| format!("line-comment-edit-{id}")))
         .w_full()
@@ -427,11 +474,28 @@ fn editor_v1<H: LineCommentsHost + 'static>(
         input = input.outline(1.0, 0.0, p.v2.border_focus);
     }
     let can = !draft.text.text.trim().is_empty();
-    let (cancel, send) = (spot.clone(), spot.clone());
+    let alt = draft.field.alternate;
+    let can_send = s.can_send_comment();
+    let delivery = delivery_label(s);
+    let submit_label = if alt { delivery } else { submit };
+    let submit_live = can && (!alt || can_send);
+    let (cancel, send, hover) = (spot.clone(), spot.clone(), spot.clone());
     let cancel_btn = v1_action_shell(p, border, "line-comment-cancel", opencode_i18n::t!("ui.common.cancel"), false, true)
         .on_press_tx(move |s: &mut H, tx: &mut Tx| on_cancel(s, &cancel, tx));
-    let submit_shell = v1_action_shell(p, border, "line-comment-submit", submit, true, can);
-    let submit_btn = if can {
+    let submit_shell = v1_action_shell(p, border, "line-comment-submit", submit_label, true, submit_live)
+        .help(submit)
+        .help_keys(["⏎".to_owned()])
+        .help_row(delivery)
+        .help_keys(mod_enter_keys())
+        .help_above()
+        .on_hover_change(move |s: &mut H, inside, tx: &mut Tx| {
+            if inside {
+                on_submit_hover(s, &hover, tx);
+            } else {
+                tx.live_only();
+            }
+        });
+    let submit_btn = if submit_live {
         submit_shell.on_press_tx(move |s: &mut H, tx: &mut Tx| on_submit(s, &send, tx))
     } else {
         submit_shell

@@ -228,7 +228,7 @@ fn select_for<H: SettingsHost + PopupHost + 'static>(
         .open(open)
         .trigger(kit(p))
         .menu_button(anchor.clone(), move |s: &mut H, tx: &mut Tx| {
-            let menu = Menu::picker(label.clone(), options.clone(), &current);
+            let menu = Menu::picker(label.clone(), options.clone(), &current).gap(6.0);
             let pick = pick.clone();
             popup::open(s, menu, anchor.clone(), tx, move |s: &mut H, picked, tx| {
                 if let Some(id) = picked {
@@ -286,15 +286,23 @@ fn handle_shell_pick(s: &mut dyn SettingsHost, picked: &str, shell_key: Option<&
     true
 }
 
-fn handle_own_menu_pick(s: &mut dyn SettingsHost, shell_key: Option<&ServerKey>, opts: &[(String, String)], picked: Option<&str>, tx: &mut Tx) {
+fn handle_own_menu_pick(s: &mut dyn SettingsHost, server_key: &ServerKey, shell_key: Option<&ServerKey>, opts: &[(String, String)], picked: Option<&str>, tx: &mut Tx) {
     match picked {
         Some(p) if handle_shell_pick(s, p, shell_key, opts, tx) => {}
+        Some("show") => {
+            tx.instant();
+            s.set_server_hidden(server_key, false);
+        }
+        Some("hide") => {
+            tx.instant();
+            s.set_server_hidden(server_key, true);
+        }
         Some("sign-out") => s.page_sign_out(),
         _ => {}
     }
 }
 
-fn build_own_menu(s: &dyn SettingsHost, shell_key: Option<&ServerKey>) -> (Menu, Vec<(String, String)>) {
+fn build_own_menu(s: &dyn SettingsHost, server_key: &ServerKey, shell_key: Option<&ServerKey>) -> (Menu, Vec<(String, String)>) {
     let mut menu = Menu::new(t!("settings.section.server"))
         .align(Align::End)
         .gap(6.0)
@@ -308,20 +316,28 @@ fn build_own_menu(s: &dyn SettingsHost, shell_key: Option<&ServerKey>) -> (Menu,
     } else {
         Vec::new()
     };
+    if s.server_is_hidden(server_key) {
+        menu = menu.item(Item::new("show", t!("dialog.server.menu.show")));
+    } else if s.server_can_hide(server_key) {
+        menu = menu.item(Item::new("hide", t!("dialog.server.menu.hide")));
+    }
     let menu = if s.can_page_sign_out() { menu.separator().item(Item::new("sign-out", t!("rune.web.signOut"))) } else { menu };
     (menu, opts)
 }
 
 fn own_row<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, server: &Server, shell_key: Option<ServerKey>) -> El {
     let url = server.address();
+    let server_key = server.key.clone();
     let open = s.popup().open_at("settings-server-menu");
     let dots = row()
         .key("settings-server-menu")
         .role("button")
         .label_static(t!("common.moreOptions"))
+        .expanded(open)
         .size(20.0, 20.0)
         .center()
         .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
         .focus_default(p);
     let dots = if open { dots.fill(p.pressed) } else { dots.hover(p.hover) };
     let dots = dots
@@ -335,10 +351,11 @@ fn own_row<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, server: &Serve
                     request: SettingsRequest::LoadServerShells { key: key.clone() },
                 });
             }
-            let (menu, opts) = build_own_menu(s, shell_key.as_ref());
+            let (menu, opts) = build_own_menu(s, &server_key, shell_key.as_ref());
+            let skey = server_key.clone();
             let key = shell_key.clone();
             popup::open(s, menu, "settings-server-menu", tx, move |s: &mut H, picked, tx| {
-                handle_own_menu_pick(s, key.as_ref(), &opts, picked, tx);
+                handle_own_menu_pick(s, &skey, key.as_ref(), &opts, picked, tx);
             });
         })
         .child(icon(&ic::OUTLINE_DOTS, 16.0).color(p.icon_muted));
@@ -369,7 +386,7 @@ fn own_row<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, server: &Serve
         .child(dots)
 }
 
-fn build_http_menu(s: &dyn SettingsHost, url: &str, shell_key: Option<&ServerKey>) -> (Menu, Vec<(String, String)>) {
+fn build_http_menu(s: &dyn SettingsHost, server_key: &ServerKey, url: &str, shell_key: Option<&ServerKey>) -> (Menu, Vec<(String, String)>) {
     let mut menu = Menu::new(t!("settings.section.server"))
         .align(Align::End)
         .gap(6.0)
@@ -383,14 +400,27 @@ fn build_http_menu(s: &dyn SettingsHost, url: &str, shell_key: Option<&ServerKey
     } else {
         Vec::new()
     };
+    if s.server_is_hidden(server_key) {
+        menu = menu.item(Item::new("show", t!("dialog.server.menu.show")));
+    } else if s.server_can_hide(server_key) {
+        menu = menu.item(Item::new("hide", t!("dialog.server.menu.hide")));
+    }
     menu = menu.separator().item(Item::new("remove", t!("dialog.server.menu.remove")));
     let menu = if s.is_page_server(url) { menu.separator().item(Item::new("sign-out", t!("rune.web.signOut"))) } else { menu };
     (menu, opts)
 }
 
-fn handle_http_menu_pick(s: &mut dyn SettingsHost, url: &str, shell_key: Option<&ServerKey>, opts: &[(String, String)], picked: Option<&str>, tx: &mut Tx) {
+fn handle_http_menu_pick(s: &mut dyn SettingsHost, server_key: &ServerKey, url: &str, shell_key: Option<&ServerKey>, opts: &[(String, String)], picked: Option<&str>, tx: &mut Tx) {
     match picked {
         Some(p) if handle_shell_pick(s, p, shell_key, opts, tx) => {}
+        Some("show") => {
+            tx.instant();
+            s.set_server_hidden(server_key, false);
+        }
+        Some("hide") => {
+            tx.instant();
+            s.set_server_hidden(server_key, true);
+        }
         Some("sign-out") => s.page_sign_out(),
         Some("edit") => s.open_server_dialog(Some(url), tx),
         Some("remove") => {
@@ -415,13 +445,16 @@ pub fn http_row<H: SettingsHost + PopupHost + 'static>(p: &Pal, server: &HttpSer
 fn http_row_with<H: SettingsHost + PopupHost + 'static>(p: &Pal, server: &HttpServer, health: Option<&Health>, shell_key: Option<ServerKey>, open: bool) -> El {
     let anchor = format!("settings-server-menu-{}", server.url);
     let url = server.url.clone();
+    let server_key = ServerConn::http_server(&server.url).map_or_else(|| ServerKey::new(&server.url), |c| c.key());
     let dots = row()
         .key(anchor.clone())
         .role("button")
         .label_static(t!("common.moreOptions"))
+        .expanded(open)
         .size(20.0, 20.0)
         .center()
         .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
         .focus_default(p);
     let dots = if open { dots.fill(p.pressed) } else { dots.hover(p.hover) };
     let dots = dots
@@ -435,11 +468,12 @@ fn http_row_with<H: SettingsHost + PopupHost + 'static>(p: &Pal, server: &HttpSe
                     request: SettingsRequest::LoadServerShells { key: key.clone() },
                 });
             }
-            let (menu, opts) = build_http_menu(s, &url, shell_key.as_ref());
+            let (menu, opts) = build_http_menu(s, &server_key, &url, shell_key.as_ref());
+            let skey = server_key.clone();
             let url = url.clone();
             let key = shell_key.clone();
             popup::open(s, menu, anchor.clone(), tx, move |s: &mut H, picked, tx| {
-                handle_http_menu_pick(s, &url, key.as_ref(), &opts, picked, tx);
+                handle_http_menu_pick(s, &skey, &url, key.as_ref(), &opts, picked, tx);
             });
         })
         .child(icon(&ic::OUTLINE_DOTS, 16.0).color(p.icon_muted));

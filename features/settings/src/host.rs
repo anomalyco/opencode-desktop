@@ -508,6 +508,17 @@ pub trait SettingsHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback +
     fn remove_http_server(&mut self, url: &str, tx: &mut Tx) {
         let _ = (url, tx);
     }
+    fn server_is_hidden(&self, key: &ServerKey) -> bool {
+        let _ = key;
+        false
+    }
+    fn server_can_hide(&self, key: &ServerKey) -> bool {
+        let _ = key;
+        false
+    }
+    fn set_server_hidden(&mut self, key: &ServerKey, hidden: bool) {
+        let _ = (key, hidden);
+    }
     fn server_add_menu_items(&self) -> Vec<(String, String)> {
         Vec::new()
     }

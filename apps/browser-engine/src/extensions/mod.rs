@@ -19,6 +19,7 @@
 #![deny(unsafe_code)]
 
 mod cdp;
+pub mod context_menus;
 pub mod integrity;
 pub mod manifest;
 pub mod pipe;
@@ -256,7 +257,7 @@ pub struct ExtensionHost {
     pub(super) subscribers: HashMap<String, HashMap<String, HashSet<String>>>,
     pub(super) tabs: Vec<ExtTab>,
     pub(super) actions: HashMap<String, ActionState>,
-    pub(super) context_menus: HashMap<String, Vec<Value>>,
+    pub(super) context_menus: Arc<std::sync::Mutex<context_menus::ExtensionContextMenuCatalog>>,
     pub(super) expected_targets: VecDeque<ExpectedTarget>,
     pub(super) seed_session_id: Option<i32>,
     pub(super) seed_probe_started: bool,
@@ -307,7 +308,7 @@ impl ExtensionHost {
             subscribers: HashMap::new(),
             tabs: Vec::new(),
             actions: HashMap::new(),
-            context_menus: HashMap::new(),
+            context_menus: Arc::new(std::sync::Mutex::new(context_menus::ExtensionContextMenuCatalog::default())),
             expected_targets: VecDeque::new(),
             seed_session_id: None,
             seed_probe_started: false,
@@ -911,10 +912,49 @@ impl ExtensionHost {
         is_unpacked: bool,
         loaded: bool,
     ) {
+        self.context_menus.lock().unwrap().set_extension_name(&id, &manifest.name);
         self.extensions.insert(
             id,
             LoadedExt { dir, sha256, manifest, is_unpacked, loaded, boot_count: 0 },
         );
+    }
+
+    pub fn context_menu_catalog(&self) -> Arc<std::sync::Mutex<context_menus::ExtensionContextMenuCatalog>> {
+        self.context_menus.clone()
+    }
+
+    /// Dispatches a user click on a page context-menu extension item (`context-menus.ts:206-233`).
+    pub fn on_context_menu_clicked(
+        &mut self,
+        engine_tab_id: u64,
+        ext_id: &str,
+        item_id: &str,
+        target: &context_menus::MenuTarget,
+    ) {
+        let Some(ext) = self.extensions.get(ext_id).cloned() else {
+            return;
+        };
+        if !ext.manifest.has_permission("contextMenus") {
+            return;
+        }
+        let Some(tab) = self.tabs.iter().find(|t| t.engine_tab_id == engine_tab_id && !t.agent_driven).cloned() else {
+            return;
+        };
+        if is_private_url(&tab.url) {
+            return;
+        }
+        let Some(info) = self
+            .context_menus
+            .lock()
+            .unwrap()
+            .choose_and_build_click_info(ext_id, item_id, target)
+        else {
+            return;
+        };
+        let reveal_via_active_tab =
+            ext.manifest.has_permission("activeTab") && target.page_url == tab.url && !is_extension_scheme(&tab.url);
+        let tab_info = self.tab_json(ext_id, &tab, &ext.manifest, reveal_via_active_tab);
+        self.emit_event("contextMenus.onClicked", vec![info, tab_info], Some(ext_id));
     }
 
     pub(super) fn allow_open_tab(&mut self, ext_id: &str) -> bool {

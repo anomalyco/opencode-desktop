@@ -95,6 +95,7 @@ pub fn agent_icon<S: PickerHost>(_: &S, p: &Pal, name: &str) -> El {
         .size(28.0, 28.0)
         .radius(6.0)
         .center()
+        .cursor(rune::Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         .motion(Spring::NONE)
