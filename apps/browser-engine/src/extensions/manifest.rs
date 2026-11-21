@@ -76,17 +76,9 @@ pub const DISALLOWED_REQUIRED_PERMS: &[&str] = &[
     "proxy",
 ];
 
-fn is_non_file_host_pattern(perm: &str) -> bool {
-    let p = perm.trim();
-    if p == "<all_urls>" {
-        return true;
-    }
-    p.contains("://") && !p.to_ascii_lowercase().starts_with("file:")
-}
-
 /// Deny-by-default manifest sanitizer for Chromium:
-/// - In `"permissions"`: retains ONLY entries in [`ALLOWED_CHROMIUM_PERMS`] or valid non-`file://`
-///   host patterns (stripping everything else after `.trim()`).
+/// - In `"permissions"`: retains ONLY entries in [`ALLOWED_CHROMIUM_PERMS`] after `.trim()`
+///   (MV3 host permissions live strictly in `"host_permissions"`, never in `"permissions"`).
 /// - In `"optional_permissions"` and `"optional_host_permissions"`: strips ALL entries so Chromium
 ///   C++ can never grant any optional permission or host permission at runtime.
 ///
@@ -98,10 +90,7 @@ pub fn strip_disallowed_perms_from_manifest(bytes: &[u8]) -> Option<(bool, Vec<u
     let mut changed = false;
     if let Some(arr) = obj.get_mut("permissions").and_then(Value::as_array_mut) {
         let before = arr.len();
-        arr.retain(|v| {
-            v.as_str()
-                .is_some_and(|p| is_allowed_chromium_perm(p) || is_non_file_host_pattern(p))
-        });
+        arr.retain(|v| v.as_str().is_some_and(is_allowed_chromium_perm));
         if arr.len() != before {
             changed = true;
         }
