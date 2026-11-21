@@ -88,6 +88,10 @@ pub struct ImportSummary {
     /// Files moved into the retired folder.
     pub retired: usize,
     pub seeded_rows: usize,
+    /// Drafts skipped during first-run Official Desktop migration because a chunk/attachment blob
+    /// was missing or unreadable (surfaced once to the user; Official's files remain untouched).
+    pub seeded_dropped_drafts: usize,
+    pub seeded_source_dir: Option<PathBuf>,
     pub scan_ns: u64,
     pub write_ns: u64,
     pub verify_ns: u64,
@@ -104,6 +108,8 @@ pub(crate) struct Deferred {
     pub groups: u32,
     /// The data folder, where the retired folder goes.
     pub dir: Option<PathBuf>,
+    /// Parent directory of OUR `opencode.sqlite`, where temporary seed snapshots live.
+    pub scratch_parent: Option<PathBuf>,
     pub summary: ImportSummary,
 }
 
@@ -126,6 +132,7 @@ struct Driver<'a> {
     flags: u32,
     groups: u32,
     dir: Option<PathBuf>,
+    scratch_parent: Option<PathBuf>,
     summary: ImportSummary,
     files: Vec<PathBuf>,
     plan: Plan,
@@ -134,17 +141,40 @@ struct Driver<'a> {
     seeded: Vec<(String, String, String)>,
 }
 
-/// Runs the open's part: schema flags to verified import. Returns the summary, what waits for
-/// the first frame, and the header flags to store.
-pub(crate) fn run(conn: &mut Connection, reopen: Reopen<'_>, cfg: &ImportConfig, official: &[PathBuf], flags: u32, now_ms: i64) -> (ImportSummary, Deferred, u32) {
+/// Runs the open's part: schema flags to verified import (and first-run Official Desktop seed).
+/// Returns the summary, what waits for the first frame, and the header flags to store.
+pub(crate) fn run(
+    conn: &mut Connection,
+    reopen: Reopen<'_>,
+    cfg: &ImportConfig,
+    official: &[PathBuf],
+    scratch_parent: PathBuf,
+    flags: u32,
+    now_ms: i64,
+) -> (ImportSummary, Deferred, u32) {
     let mut state = ImportState::default();
     let groups = cfg.pending(flags);
     let effects = machine::step(&mut state, ImportEvent::SchemaReady { pending: groups != 0, seed_settled: flags & FLAG_SEED_SETTLED != 0 });
-    let mut d = Driver { conn, reopen: Some(reopen), cfg: Some(cfg), official, now_ms, flags, groups, dir: Some(cfg.dir.clone()), summary: ImportSummary::default(), files: Vec::new(), plan: Plan::default(), inserted: Vec::new(), seeded: Vec::new() };
+    let mut d = Driver {
+        conn,
+        reopen: Some(reopen),
+        cfg: Some(cfg),
+        official,
+        now_ms,
+        flags,
+        groups,
+        dir: Some(cfg.dir.clone()),
+        scratch_parent: Some(scratch_parent.clone()),
+        summary: ImportSummary::default(),
+        files: Vec::new(),
+        plan: Plan::default(),
+        inserted: Vec::new(),
+        seeded: Vec::new(),
+    };
     drive(&mut state, effects, &mut d);
     let flags = d.flags;
     let summary = d.summary;
-    (summary.clone(), Deferred { state, official: official.to_vec(), flags, groups, dir: Some(cfg.dir.clone()), summary }, flags)
+    (summary.clone(), Deferred { state, official: official.to_vec(), flags, groups, dir: Some(cfg.dir.clone()), scratch_parent: Some(scratch_parent), summary }, flags)
 }
 
 /// The first frame is up: retires verified files, or seeds a fresh profile from Desktop's
@@ -153,7 +183,22 @@ pub(crate) fn run(conn: &mut Connection, reopen: Reopen<'_>, cfg: &ImportConfig,
 pub(crate) fn after_first_frame(conn: &mut Connection, deferred: &mut Deferred, now_ms: i64) -> Vec<(String, String, String)> {
     let effects = machine::step(&mut deferred.state, ImportEvent::FirstFramePresented);
     let official = std::mem::take(&mut deferred.official);
-    let mut d = Driver { conn, reopen: None, cfg: None, official: &official, now_ms, flags: deferred.flags, groups: deferred.groups, dir: deferred.dir.clone(), summary: std::mem::take(&mut deferred.summary), files: Vec::new(), plan: Plan::default(), inserted: Vec::new(), seeded: Vec::new() };
+    let mut d = Driver {
+        conn,
+        reopen: None,
+        cfg: None,
+        official: &official,
+        now_ms,
+        flags: deferred.flags,
+        groups: deferred.groups,
+        dir: deferred.dir.clone(),
+        scratch_parent: deferred.scratch_parent.clone(),
+        summary: std::mem::take(&mut deferred.summary),
+        files: Vec::new(),
+        plan: Plan::default(),
+        inserted: Vec::new(),
+        seeded: Vec::new(),
+    };
     drive(&mut deferred.state, effects, &mut d);
     if d.flags & FLAG_RETIRED != 0 {
         let clean = d.summary.mismatched.is_empty() && !d.summary.reports.iter().any(|r| r.contains("failed"));
@@ -177,11 +222,36 @@ fn drive(state: &mut ImportState, effects: Effects<ImportEffect>, d: &mut Driver
                 Some(ImportEvent::FilesRetired { failed })
             }
             ImportEffect::Seed => {
-                let (rows, report) = super::seed::run(d.conn, d.official, d.now_ms);
-                d.summary.seeded_rows = rows.len();
-                d.summary.reports.extend(report);
-                d.seeded = rows;
-                Some(ImportEvent::OfficialSeedSettled)
+                let scratch = d
+                    .scratch_parent
+                    .clone()
+                    .or_else(|| d.dir.clone())
+                    .unwrap_or_else(std::env::temp_dir);
+                let settle_flags = d.flags | d.groups | FLAG_SEED_SETTLED;
+                match super::seed::run(d.conn, &scratch, d.official, settle_flags, d.now_ms) {
+                    super::seed::SeedOutcome::NoSource => {
+                        d.flags = settle_flags;
+                        d.summary.reports.push("no Desktop database to seed from".into());
+                        Some(ImportEvent::OfficialSeedSettled)
+                    }
+                    super::seed::SeedOutcome::Seeded { rows, dropped_drafts, source_dir, report } => {
+                        d.flags = settle_flags;
+                        d.summary.seeded_rows = rows.len();
+                        d.summary.seeded_dropped_drafts = dropped_drafts;
+                        d.summary.seeded_source_dir = Some(source_dir);
+                        d.summary.reports.extend(report);
+                        d.seeded = rows;
+                        Some(ImportEvent::OfficialSeedSettled)
+                    }
+                    super::seed::SeedOutcome::Failed { exhausted: true, report } => {
+                        d.flags = settle_flags;
+                        d.summary.reports.push(report);
+                        Some(ImportEvent::OfficialSeedSettled)
+                    }
+                    super::seed::SeedOutcome::Failed { exhausted: false, report } => {
+                        Some(ImportEvent::OfficialSeedFailed { error: report })
+                    }
+                }
             }
             ImportEffect::MarkGroupsSettled => mark(d, d.groups),
             ImportEffect::MarkSeedSettled => mark(d, FLAG_SEED_SETTLED),
@@ -221,8 +291,16 @@ fn scan(d: &mut Driver<'_>) -> ImportEvent {
     d.files = all.into_iter().filter(|p| shapes::group_of(cfg, p).is_some_and(|g| d.groups & g.flag() != 0)).collect();
     d.summary.scan_ns = ns_since(t);
     if d.files.is_empty() {
-        let empty = !d.conn.query_row("SELECT EXISTS (SELECT 1 FROM state) OR EXISTS (SELECT 1 FROM document) OR EXISTS (SELECT 1 FROM window_state)", [], |r| r.get::<_, bool>(0)).unwrap_or(true);
-        return ImportEvent::NoRuneFiles { fresh: empty && !any };
+        let empty = !d
+            .conn
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM state WHERE name != 'rune.storage') OR EXISTS (SELECT 1 FROM document) OR EXISTS (SELECT 1 FROM window_state)",
+                [],
+                |r| r.get::<_, bool>(0),
+            )
+            .unwrap_or(true);
+        let retrying = super::seed::prior_attempts(d.conn) > 0;
+        return ImportEvent::NoRuneFiles { fresh: (empty || retrying) && !any };
     }
     ImportEvent::FoundRuneFiles { files: d.files.len() }
 }
