@@ -4,8 +4,8 @@
 //! `confirm`) and their fixture data. Variants: each built-in, one another client already
 //! answered (read-only, its final view and answer), a template whose `init` throws (the error
 //! card), the `chart` canvas (bars, and a line you can choose a point on), the `backdrop`
-//! shader (plasma, aurora), a shader whose WGSL doesn't compile, and the live `minigame`, whose
-//! program runs on a thread of its own. R replays; E answers it from another client, D dismisses it from one. Pictures
+//! shader (plasma, aurora), a shader whose WGSL doesn't compile, and live programs, each on a
+//! thread of its own. R replays; E answers it from another client, D dismisses it from one. Pictures
 //! come from the storybook, never the web.
 
 use std::sync::Arc;
@@ -29,7 +29,6 @@ pub const VARIANTS: &[(&str, usize)] = &[
     ("Backdrop", 7),
     ("Backdrop aurora", 8),
     ("Broken shader", 9),
-    ("Minigame (live)", 10),
     ("Live runaway", 11),
     ("Full screen", 12),
     ("Live shader", 13),
@@ -219,7 +218,6 @@ fn template(v: usize) -> &'static str {
         5 | 6 => "chart",
         7 | 8 => "backdrop",
         9 => BROKEN_SHADER,
-        10 => "minigame",
         11 => RUNAWAY,
         12 => FULLSCREEN,
         13 => SHADER_GAME,
@@ -284,7 +282,6 @@ fn data(v: usize) -> (&'static str, Value) {
         7 => ("Launch banner", json!({ "title": "Rune 1.0 is out", "text": "Native **GPU** rendering, now with widgets.", "preset": "plasma" })),
         8 => ("Aurora", json!({ "title": "Northern lights", "text": "An aurora drawn by a WGSL shader.", "preset": "aurora" })),
         9 => ("Broken shader", json!({})),
-        10 => ("Tap the dots", json!({ "title": "Tap the dots", "seconds": 20 })),
         11 => ("Price ticker", json!({})),
         12 => ("Starfield", json!({ "stars": 140 })),
         13 => ("Shader paddle", json!({})),

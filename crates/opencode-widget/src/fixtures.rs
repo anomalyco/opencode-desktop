@@ -14,13 +14,14 @@ pub const DIAGRAMS: [&str; 17] = [
 ];
 
 /// The built-in templates' names.
-pub const BUILTINS: [&str; 23] = [
-    "suggestions", "form", "confirm", "chart", "backdrop", "minigame", "pie", "scatter", "histogram", "area", "heatmap", "treemap", "sankey", "graph", "tree", "timeline", "funnel", "radar", "gauge", "boxplot", "flowchart", "sequence", "table",
+pub const BUILTINS: [&str; 22] = [
+    "suggestions", "form", "confirm", "chart", "backdrop", "pie", "scatter", "histogram", "area", "heatmap", "treemap", "sankey", "graph", "tree", "timeline", "funnel", "radar", "gauge", "boxplot", "flowchart", "sequence", "table",
 ];
 
-/// How built-in template `name` runs: `"live"` or `"step"`.
-pub fn mode(name: &str) -> &'static str {
-    if name == "minigame" { "live" } else { "step" }
+/// How built-in template `name` runs: every built-in steps (`"step"`); live templates are the
+/// agent's own.
+pub fn mode(_name: &str) -> &'static str {
+    "step"
 }
 
 /// Built-in template `name`'s source.
@@ -31,7 +32,6 @@ pub fn source(name: &str) -> Option<&'static str> {
         "confirm" => include_str!("../fixtures/confirm.js"),
         "chart" => include_str!("../fixtures/chart.js"),
         "backdrop" => include_str!("../fixtures/backdrop.js"),
-        "minigame" => include_str!("../fixtures/minigame.js"),
         "pie" => include_str!("../fixtures/pie.js"),
         "scatter" => include_str!("../fixtures/scatter.js"),
         "histogram" => include_str!("../fixtures/histogram.js"),
