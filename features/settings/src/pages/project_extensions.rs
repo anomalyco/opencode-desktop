@@ -8,9 +8,10 @@
 use opencode_i18n::t;
 use opencode_kit::integration::{McpServer, McpStatus};
 use opencode_kit::model::{ConsoleMcp, Project, SkillInfo};
+use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::Pal;
 use opencode_ui::widgets;
-use rune::{El, Icon, TextStyle, Tx, col, icon, row, text};
+use rune::{Cursor, El, Icon, TextStyle, Tx, col, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
 
@@ -52,8 +53,8 @@ pub struct State {
     pub tab: Tab,
     /// "Shared with all projects" unfolded.
     pub shared: bool,
-    /// (the server's, the folder's)
-    plugins: Option<(Vec<String>, Vec<String>)>,
+    /// (the server's, the folder's), loading (`None`), or failed (`Some(Err(()))`).
+    plugins: Option<Result<(Vec<String>, Vec<String>), ()>>,
     /// (the server's, the folder's)
     skills: Option<SkillPairs>,
     /// Console-managed MCP sources for this project folder.
@@ -65,12 +66,12 @@ pub struct State {
 impl State {
     pub(crate) fn apply_loaded(
         &mut self,
-        plugins: Option<(Vec<String>, Vec<String>)>,
+        plugins: Result<(Vec<String>, Vec<String>), ()>,
         skills: Option<SkillPairs>,
         sources: Result<Vec<ConsoleMcp>, ()>,
         lsps: Result<(bool, Vec<Lsp>), ()>,
     ) {
-        self.plugins = plugins;
+        self.plugins = Some(plugins);
         // A failed read keeps the lists already read, as Desktop's location data does.
         self.skills = skills.or(self.skills.take());
         self.sources.apply(sources);
@@ -178,6 +179,7 @@ pub fn view<H: SettingsHost + 'static>(s: &H, p: &Pal, x: &Project) -> El {
                 "mcps",
                 manage(p),
                 own.is_empty(),
+                None,
                 (!own.is_empty()).then(|| make_rows(&own, "settings-project-mcps")),
                 shared.len(),
                 (!shared.is_empty()).then(|| make_rows(&shared, "settings-project-shared-mcps")),
@@ -185,17 +187,30 @@ pub fn view<H: SettingsHost + 'static>(s: &H, p: &Pal, x: &Project) -> El {
             )
         }
         Tab::Plugins => {
-            let (shared, own) = st.plugins.clone().unwrap_or_default();
-            let own: Vec<String> = own.into_iter().filter(|n| !shared.contains(n)).collect();
+            let loaded = st.plugins.as_ref().and_then(|r| r.as_ref().ok());
+            let (shared, own_raw) = loaded.cloned().unwrap_or_default();
+            let own: Vec<String> = own_raw.into_iter().filter(|n| !shared.contains(n)).collect();
             let make_rows = |list: &[String], key: &str| {
                 catalog(p, key, list.iter().map(|n| plain_row(p, &format!("{key}-{n}"), &ic::CUBE, n)).collect())
+            };
+            let status = match &st.plugins {
+                None => Some(text(t!("common.loading")).font(BODY).color(p.muted)),
+                Some(Err(())) => Some(load_failed::<H>(
+                    p,
+                    "project-plugins-failed",
+                    t!("settings.extensions.plugins.loadFailed"),
+                    t!("common.retry"),
+                    retry_project,
+                )),
+                Some(Ok(_)) => None,
             };
             section_with::<H>(
                 s,
                 p,
                 "plugins",
                 manage(p),
-                st.plugins.is_some() && own.is_empty(),
+                loaded.is_some() && own.is_empty(),
+                status,
                 (!own.is_empty()).then(|| make_rows(&own, "settings-project-plugins")),
                 shared.len(),
                 (!shared.is_empty()).then(|| make_rows(&shared, "settings-project-shared-plugins")),
@@ -221,6 +236,7 @@ pub fn view<H: SettingsHost + 'static>(s: &H, p: &Pal, x: &Project) -> El {
                 "skills",
                 skills_link::<H>(p),
                 own.is_empty(),
+                None,
                 (!own.is_empty()).then(|| make_rows(&own, "settings-project-skills")),
                 shared.len(),
                 (!shared.is_empty()).then(|| make_rows(&shared, "settings-project-shared-skills")),
@@ -229,11 +245,17 @@ pub fn view<H: SettingsHost + 'static>(s: &H, p: &Pal, x: &Project) -> El {
         }
         Tab::Lsps => lsps::<H>(p, st.lsps.as_ref()),
     };
+    let content = col()
+        .key("settings-project-extensions")
+        .w_full()
+        .gap(16.0)
+        .children(s.settings_pages().project.missing.then(|| super::project::folder_missing(p, &x.directory)))
+        .child(col().w_full().child(tabs::<H>(p, st.tab)).child(col().w_full().pt(24.0).child(body)));
     page(
         p,
         "settings-project-extensions-page",
         header(p, t!("settings.tab.extensions"), t!("project.settings.extensions.description")),
-        col().key("settings-project-extensions").w_full().child(tabs::<H>(p, st.tab)).child(col().w_full().pt(24.0).child(body)),
+        content,
     )
 }
 
@@ -265,7 +287,7 @@ fn mcp_row<H: SettingsHost + 'static>(
     };
     let name_el = match (managed, &links) {
         (Some(_), Some(l)) => console_name::<H>(p, format!("{prefix}-console-{name}"), name, l.manage.clone(), disabled),
-        _ => text(name.to_owned()).font(NAME).color(if disabled { p.muted } else { p.text }).truncate().shrink().min_w(0.0),
+        _ => text(name.to_owned()).font(NAME).color(if disabled { p.muted } else { p.text }).truncate().help_when_truncated(name.to_owned()).help_above().shrink().min_w(0.0),
     };
     let badge = sources
         .mcp(name)
@@ -306,7 +328,7 @@ fn skill_row<H: SettingsHost + 'static>(
 ) -> El {
     let name_el = match sources.skill(skill, signed_in) {
         Some(href) => console_name::<H>(p, format!("{key}-console"), &skill.name, href, false),
-        None => text(skill.name.clone()).font(NAME).color(p.text).truncate().shrink().min_w(0.0),
+        None => text(skill.name.clone()).font(NAME).color(p.text).truncate().help_when_truncated(skill.name.clone()).help_above().shrink().min_w(0.0),
     };
     row()
         .key(key.to_owned())
@@ -327,7 +349,7 @@ fn names(mut v: Vec<String>) -> Vec<String> {
 
 /// Pill tabs, as Extensions' (`tabs-v2` pill).
 fn tabs<H: SettingsHost + 'static>(p: &Pal, on: Tab) -> El {
-    let mut list = row().key("settings-project-extensions-tabs").gap(6.0).pb(8.0);
+    let mut list = row().key("settings-project-extensions-tabs").role("tablist").focus_group().gap(6.0).pb(8.0);
     for (tab, id, label) in [
         (Tab::Mcps, "mcps", t!("settings.extensions.tab.mcps")),
         (Tab::Plugins, "plugins", t!("settings.extensions.tab.plugins")),
@@ -339,6 +361,9 @@ fn tabs<H: SettingsHost + 'static>(p: &Pal, on: Tab) -> El {
             .key(format!("settings-project-extensions-tab-{id}"))
             .role("tab")
             .label(label)
+            .focus_selected(picked)
+            .focus_default(p)
+            .cursor(Cursor::Pointer)
             .h(24.0)
             .px(8.0)
             .center()
@@ -357,6 +382,7 @@ fn section_with<H: SettingsHost + 'static>(
     kind: &str,
     action: El,
     empty: bool,
+    status: Option<El>,
     own_card: Option<El>,
     shared_count: usize,
     shared_card: Option<El>,
@@ -373,10 +399,10 @@ fn section_with<H: SettingsHost + 'static>(
         .shrink()
         .min_w(0.0)
         .gap(6.0)
-        .child(text(title).font(HEAD).color(p.text))
-        .children(empty.then(|| text(none_about).font(BODY).color(p.muted)));
+        .child(text(title).font(HEAD).color(p.text).wrap())
+        .children(empty.then(|| text(none_about).font(BODY).color(p.muted).wrap()));
     let head = row().key("project-settings-extension-section-header").w_full().gap(16.0).items_start().child(copy).child(action);
-    let mut c = col().key(format!("project-settings-extension-{kind}")).w_full().gap(16.0).child(head);
+    let mut c = col().key(format!("project-settings-extension-{kind}")).w_full().gap(16.0).child(head).children(status);
     if let Some(card) = own_card {
         c = c.child(card);
     }
@@ -394,6 +420,8 @@ fn section_with<H: SettingsHost + 'static>(
             .center_y()
             .radius(4.0)
             .self_start()
+            .cursor(Cursor::Pointer)
+            .focus_default(p)
             .hover(p.layer2)
             .on_press_tx(|s: &mut H, tx: &mut Tx| toggle_shared(s, tx))
             .child(
@@ -432,7 +460,7 @@ fn plain_row(p: &Pal, key: &str, glyph: &'static Icon, name: &str) -> El {
         .gap(8.0)
         .center_y()
         .child(icon(glyph, 16.0).color(p.icon_muted))
-        .child(text(name.to_owned()).font(NAME).color(p.text).truncate().shrink().min_w(0.0))
+        .child(text(name.to_owned()).font(NAME).color(p.text).truncate().help_when_truncated(name.to_owned()).help_above().shrink().min_w(0.0))
 }
 
 fn manage(p: &Pal) -> El {
@@ -467,8 +495,8 @@ fn lsps<H: SettingsHost + 'static>(p: &Pal, read: Option<&Result<(bool, Vec<Lsp>
         .shrink()
         .min_w(0.0)
         .gap(6.0)
-        .child(text(title).font(HEAD).color(p.text))
-        .children(about.map(|a| text(a).font(BODY).color(p.muted)));
+        .child(text(title).font(HEAD).color(p.text).wrap())
+        .children(about.map(|a| text(a).font(BODY).color(p.muted).wrap()));
     let head = row().w_full().gap(16.0).items_start().child(copy).child(text(t!("project.settings.extensions.lsp.description")).font(BODY).color(p.muted));
     let mut c = col().key("project-settings-extension-lsps").w_full().gap(16.0).child(head);
     match read {
@@ -491,7 +519,7 @@ fn lsps<H: SettingsHost + 'static>(p: &Pal, read: Option<&Result<(bool, Vec<Lsp>
                         .shrink()
                         .min_w(0.0)
                         .gap(4.0)
-                        .child(text(l.name.clone()).font(NAME).color(p.text).truncate())
+                        .child(text(l.name.clone()).font(NAME).color(p.text).truncate().help_when_truncated(l.name.clone()).help_above())
                         .children((!l.extensions.is_empty()).then(|| text(l.extensions.join(", ")).font(BODY).color(p.muted).wrap()));
                     row()
                         .key(format!("settings-project-lsp-{}", l.name))
