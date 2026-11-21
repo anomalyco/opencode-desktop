@@ -29,6 +29,9 @@ use crate::jobs::{SettingsJob, SettingsRequest};
 
 const BODY: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
 const NAME: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0).tracking(-0.04);
+/// `.settings-workspaces-empty` (`settings.css:2122-2137`): 13 on 16 at 440/530 with normal tracking (0).
+const EMPTY_TITLE: TextStyle = TextStyle::new(13.0, 530.0).lh(16.0);
+const EMPTY_BODY: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0);
 /// `.settings-workspaces-active`: 11 on 11 at 440.
 const ACTIVE: TextStyle = TextStyle::new(11.0, 440.0).lh(11.0);
 
@@ -161,9 +164,9 @@ pub fn view_for<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, only: Opt
         .key("settings-workspaces-empty")
         .w_full()
         .gap(4.0)
-        .child(text(t!("settings.workspaces.empty")).font(NAME).color(p.text).wrap())
-        // `.settings-workspaces-empty` uses compact 16 pt line-height (`settings.css:2356-2365`).
-        .child(text(t!("settings.workspaces.empty.description")).font(BODY.lh(16.0)).color(p.muted).wrap());
+        // `.settings-workspaces-empty` (`settings.css:2122-2137`): 13/16 with normal tracking (0).
+        .child(text(t!("settings.workspaces.empty")).font(EMPTY_TITLE).color(p.text).wrap())
+        .child(text(t!("settings.workspaces.empty.description")).font(EMPTY_BODY).color(p.muted).wrap());
     let empty_motion = col()
         .key("settings-workspaces-empty-motion")
         .w_full()

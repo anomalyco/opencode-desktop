@@ -430,6 +430,7 @@ wrap_dev_tools_message_observer! {
         is_popup: bool,
         isolated: bool,
         is_preview: bool,
+        preview: Option<Arc<crate::preview::PreviewGrant>>,
         snap: Arc<Mutex<TabSnapshot>>,
         id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
         internal_picked: Arc<Mutex<Vec<i64>>>,
@@ -437,6 +438,7 @@ wrap_dev_tools_message_observer! {
         cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
         passkeys: Arc<crate::passkeys::TabPasskeyGate>,
         media_gate: Arc<crate::media_gate::TabMediaGate>,
+        context_ready: Arc<std::sync::atomic::AtomicBool>,
         prompt_shared: crate::prompts::PromptShared,
         input_guard: Arc<Mutex<crate::input_guard::InputGuard>>,
         emulation_scale: Arc<std::sync::atomic::AtomicU32>,
@@ -808,7 +810,7 @@ wrap_dev_tools_message_observer! {
             obs.send.extend(pk_send);
             let (mg_consumed, mg_ask) = self.media_gate.observe_event(&method, &params, session_id.as_deref());
             if let Some(ask) = mg_ask {
-                if let Some(deny) = self.hold_media_ask(ask) {
+                if let Some(deny) = self.hold_media_ask(browser.as_deref(), ask) {
                     obs.send.push(deny);
                 }
             }
@@ -882,6 +884,9 @@ wrap_dev_tools_message_observer! {
                     obj.insert("rendererPid".into(), serde_json::json!(start_pid));
                 }
             }
+            if let Some(grant) = &self.preview {
+                scrub_preview_urls(grant, &mut params);
+            }
             let _ = self.out_tx.send(EngineMsg::CdpEvent {
                 tab_id: self.tab_id,
                 method,
@@ -897,10 +902,19 @@ impl TabCdpObserver {
     /// Holds a gated `getUserMedia` for the bar, or returns the deny answer to send at once: a
     /// preview tab, prompts off, an unknown or insecure context, or an embedded frame of another
     /// origin (the same rules as `TabPermissionHandler::on_request_media_access_permission`).
-    fn hold_media_ask(&self, ask: crate::media_gate::MediaAsk) -> Option<String> {
-        let top = crate::prompts::origin_of(&self.snap.lock().unwrap().url);
+    fn hold_media_ask(&self, browser: Option<&Browser>, ask: crate::media_gate::MediaAsk) -> Option<String> {
+        // The live main frame, as `on_request_media_access_permission` reads it: the snapshot can
+        // lag a navigation that just committed.
+        let live = browser
+            .and_then(cef::ImplBrowser::main_frame)
+            .map(|f| cef::CefString::from(&cef::ImplFrame::url(&f)).to_string());
+        let top = live
+            .filter(|u| !u.trim().is_empty())
+            .or_else(|| Some(self.snap.lock().unwrap().url.clone()))
+            .and_then(|u| crate::prompts::origin_of(&u));
         let origin = ask.origin.as_deref().and_then(crate::prompts::origin_of);
         let ok = !self.is_preview
+            && self.context_ready.load(std::sync::atomic::Ordering::Acquire)
             && self.prompt_shared.enabled.load(std::sync::atomic::Ordering::Relaxed)
             && origin.is_some()
             && origin == top
@@ -915,8 +929,7 @@ impl TabCdpObserver {
             kinds: ask.kinds,
             is_media: true,
         };
-        self.prompts.hold_media_gate(self.tab_id, prompt, ask.allow_msg, ask.deny_msg, &self.out_tx);
-        None
+        self.prompts.hold_media_gate(self.tab_id, prompt, ask.allow_msg, ask.deny_msg, &self.out_tx)
     }
 
     fn surface(&self, browser: Option<&Browser>) -> crate::engine::Surface {
@@ -1065,4 +1078,31 @@ impl TabCdpObserver {
         };
         let _ = self.out_tx.send(EngineMsg::CdpResponse { tab_id: self.tab_id, request_id, ok, result });
     }
+}
+
+/// A preview's internal `oc-preview://` addresses reach the agent as the page's display URL, as
+/// official maps console text, sources and request URLs (`diagnostics.ts:43,47,157`).
+fn scrub_preview_urls(grant: &crate::preview::PreviewGrant, value: &mut Value) {
+    match value {
+        Value::String(s) if s.to_ascii_lowercase().contains("oc-preview:") => *s = replace_preview_urls(grant, s),
+        Value::Array(items) => items.iter_mut().for_each(|v| scrub_preview_urls(grant, v)),
+        Value::Object(map) => map.values_mut().for_each(|v| scrub_preview_urls(grant, v)),
+        _ => {}
+    }
+}
+
+fn replace_preview_urls(grant: &crate::preview::PreviewGrant, s: &str) -> String {
+    // ASCII lowercasing keeps every byte offset.
+    let lower = s.to_ascii_lowercase();
+    let mut out = String::with_capacity(s.len());
+    let mut at = 0;
+    while let Some(off) = lower[at..].find("oc-preview:") {
+        let start = at + off;
+        out.push_str(&s[at..start]);
+        let end = s[start..].find(|c: char| c.is_whitespace() || "\"'<>()[]".contains(c)).map_or(s.len(), |e| start + e);
+        out.push_str(&grant.sanitize_reported_url(&s[start..end]));
+        at = end;
+    }
+    out.push_str(&s[at..]);
+    out
 }

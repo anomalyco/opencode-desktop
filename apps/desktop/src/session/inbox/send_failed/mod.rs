@@ -148,6 +148,10 @@ impl SendFailedHost for App {
         self.composer_ext.attach.echoes.retain(|e| e.1 != id);
     }
 
+    fn remove_prompt_history(&mut self, entry: &Entry) {
+        self.kernel.slots.get_mut(&crate::prompt_history::PROMPTS).remove(entry, false);
+    }
+
     fn restore_inactive_draft(&mut self, session: &str, entry: Entry, files: Vec<Attachment>, paths: Vec<PathAttachment>, quotes: Vec<PromptComment>) {
         if self.capture_draft(session).is_empty() {
             let caret = entry.text.len();

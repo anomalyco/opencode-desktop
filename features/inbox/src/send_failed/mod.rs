@@ -145,6 +145,10 @@ pub trait SendFailedHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback
     fn retain_echoes_without(&mut self, id: &str) {
         let _ = id;
     }
+    /// Removes a rejected/restored prompt from recall history (`removeHistoryEntry`, `model.ts:306`).
+    fn remove_prompt_history(&mut self, entry: &Entry) {
+        let _ = entry;
+    }
     /// Restores a rejected prompt into a non-active `session`'s parked draft when empty.
     fn restore_inactive_draft(&mut self, session: &str, entry: Entry, files: Vec<Attachment>, paths: Vec<PathAttachment>, quotes: Vec<PromptComment>) {
         let _ = (session, entry, files, paths, quotes);

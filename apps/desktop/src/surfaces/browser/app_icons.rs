@@ -16,6 +16,8 @@ pub type Known = Option<Arc<AppIcon>>;
 pub struct AppIcons {
     done: Arc<Mutex<HashMap<String, Known>>>,
     asked: RefCell<HashSet<String>>,
+    /// The other browsers and their profiles (`ImportSources`).
+    pub sources: ImportSources,
 }
 
 impl AppIcons {
@@ -50,5 +52,52 @@ impl AppIcons {
     /// How many browsers' icons are read: part of `Dep::Browser`'s version.
     pub fn finished(&self) -> usize {
         self.done.lock().map(|d| d.len()).unwrap_or(0)
+    }
+}
+
+/// The other browsers and their profiles (`cookies::sources::list_sources`), listed off the UI
+/// thread: it reads each browser's `Local State` / `profiles.ini`, which can be large. An ask returns
+/// the last listing at once (empty before the first) and, when that is older than `FRESH`, starts
+/// another; its end wakes the app and moves `Dep::Browser`'s version, so the page and the pane's
+/// sign-in offer draw again with it.
+#[derive(Default)]
+pub struct ImportSources {
+    listed: Arc<Mutex<Option<(rune::time::Instant, Vec<browser_pane::cookies::BrowserSource>)>>>,
+    listing: Arc<std::sync::atomic::AtomicBool>,
+    generation: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+const FRESH: std::time::Duration = std::time::Duration::from_secs(5);
+
+impl ImportSources {
+    pub fn get(&self, waker: Option<rune::Waker>) -> Vec<browser_pane::cookies::BrowserSource> {
+        use std::sync::atomic::Ordering;
+        let current = self.listed.lock().ok().and_then(|l| l.clone());
+        let stale = current.as_ref().is_none_or(|(at, _)| at.elapsed() >= FRESH);
+        if stale && !self.listing.swap(true, Ordering::AcqRel) {
+            let listed = self.listed.clone();
+            let listing = self.listing.clone();
+            let generation = self.generation.clone();
+            let spawned = std::thread::Builder::new().name("browser-import-sources".into()).spawn(move || {
+                let sources = browser_pane::cookies::sources::list_sources();
+                if let Ok(mut l) = listed.lock() {
+                    *l = Some((rune::time::Instant::now(), sources));
+                }
+                generation.fetch_add(1, Ordering::AcqRel);
+                listing.store(false, Ordering::Release);
+                if let Some(w) = &waker {
+                    w();
+                }
+            });
+            if spawned.is_err() {
+                self.listing.store(false, Ordering::Release);
+            }
+        }
+        current.map(|(_, s)| s).unwrap_or_default()
+    }
+
+    /// Moves each time a listing lands: part of `Dep::Browser`'s version.
+    pub fn generation(&self) -> usize {
+        self.generation.load(std::sync::atomic::Ordering::Acquire)
     }
 }
