@@ -374,8 +374,8 @@ local function bar(env: Env, view: View, tab: BrowserTab, state: address.View, w
             field(env, view, tab, state, tab:Zoom(), fieldW),
             ui.row({ align = "center", gap = 4 }, rightControls),
         }),
-        -- `border-b-[0.5px]`: one device pixel at half the colour.
-        ui.col({ w = "full", h = 1, fill = "border-weak", opacity = 0.5 }),
+        -- `border-b-[0.5px] border-v2-border-border-muted` (`panel.tsx:938`): Chromium clamps 0.5px to 1 device px at full colour.
+        ui.col({ w = "full", h = 1, fill = "border-weak" }),
     })
 end
 

@@ -62,6 +62,10 @@ pub struct TabSnapshot {
     /// Whether this tab is agent-driven (preserved across reconnects so file choosers / HTTP auth stay guarded).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub agent_driven: bool,
+    /// Counts main-frame document loads (`on_load_start`); unchanged by `history.pushState`,
+    /// `replaceState` and hash changes. `0` from engines before it existed.
+    #[serde(default)]
+    pub document: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

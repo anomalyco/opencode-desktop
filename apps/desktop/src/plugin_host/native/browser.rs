@@ -24,6 +24,8 @@ mod chrome;
 mod composer;
 pub use composer::composer;
 #[cfg(not(target_arch = "wasm32"))]
+mod cookies;
+#[cfg(not(target_arch = "wasm32"))]
 mod history;
 #[cfg(not(target_arch = "wasm32"))]
 mod scope;
@@ -179,6 +181,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
                     ("preview", Data::Bool(app.workspace_panes.browser.host.engine_preview() || app.use_mock_browser())),
                     ("find", Data::Bool(app.workspace_panes.browser.host.engine_find())),
                     ("permissionSync", Data::Bool(app.workspace_panes.browser.host.engine_permission_sync())),
+                    ("cookies", Data::Bool(app.workspace_panes.browser.host.engine_cookies())),
                     ("clearCache", Data::Bool(app.workspace_panes.browser.host.engine_policy())),
                     ("hardReload", Data::Bool(true)),
                 ]),
@@ -212,6 +215,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     })?;
     chrome::service_methods(lua, t)?;
     history::service_methods(lua, t)?;
+    cookies::service_methods(lua, t)?;
     let raw: Function = vmx.asyncs.raw_get("Browser.OpenAsync")?;
     let open: Function = lua.load("local raw = ... return function(self, spec) local id = raw(spec) return if id then self:Get(id) else nil end").set_name("=Browser:OpenAsync").call(raw)?;
     t.raw_set("OpenAsync", open)?;
@@ -669,6 +673,9 @@ pub fn version(app: &App) -> u64 {
     app.workspace_panes.browser.host.engine_downloads().hash(&mut h);
     app.workspace_panes.browser.host.engine_policy().hash(&mut h);
     app.workspace_panes.browser.host.engine_permission_sync().hash(&mut h);
+    app.workspace_panes.browser.host.engine_caps_known().hash(&mut h);
+    app.workspace_panes.browser.host.engine_cookies().hash(&mut h);
+    app.workspace_panes.browser.host.share_sign_ins().hash(&mut h);
     app.workspace_panes.browser.host.engine_preview().hash(&mut h);
     for t in app.workspace_panes.browser.host.tabs() {
         if let Some(d) = &t.device { (&d.preset, d.width, d.height, d.scale.map(f32::to_bits)).hash(&mut h); }

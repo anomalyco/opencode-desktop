@@ -666,6 +666,8 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
             #[cfg(target_os = "linux")]
             let (mut pools, mut frames) = (crate::dmabuf::Pools::new(frames_tx), crate::dmabuf::Frames::None);
             let mut line = String::new();
+            #[cfg(not(target_os = "linux"))]
+            let mut raw_buf: Vec<u8> = Vec::new();
             loop {
                 line.clear();
                 #[cfg(target_os = "linux")]
@@ -673,7 +675,18 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                 #[cfg(target_os = "linux")]
                 if !link.current() { break; }
                 #[cfg(not(target_os = "linux"))]
-                if !matches!(reader.read_line(&mut line), Ok(1..)) || !link.current() { break; }
+                {
+                    match read_bounded_wire_line(&mut reader, &mut raw_buf, &mut line) {
+                        BoundedLine::Line => {
+                            if !link.current() { break; }
+                        }
+                        BoundedLine::Oversized => {
+                            if !link.current() { break; }
+                            continue;
+                        }
+                        BoundedLine::Eof => break,
+                    }
+                }
                 // The sidecar writes the type tag first. Borrow the large base64 field directly
                 // from the reusable line buffer. Other layouts still go through the wire enum.
                 if line.starts_with("{\"type\":\"cpu_frame\",")
@@ -822,6 +835,56 @@ fn push_shared(surfaces: &Surfaces, tab_id: u64, frame_id: u64, width: u32, heig
         let frame = rune::native_surface::windows::SharedTexture::named(texture, width, height)
             .release_fence(release_fence, frame_id);
         surface.push_shared(frame, frame_id).ok();
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+enum BoundedLine {
+    Line,
+    Oversized,
+    Eof,
+}
+
+#[cfg(not(target_os = "linux"))]
+fn read_bounded_wire_line<R: BufRead>(reader: &mut R, raw: &mut Vec<u8>, out: &mut String) -> BoundedLine {
+    const MAX_WIRE_LINE_BYTES: usize = 32 * 1024 * 1024;
+    raw.clear();
+    let mut oversized = false;
+    loop {
+        let Ok(avail) = reader.fill_buf() else { return BoundedLine::Eof };
+        if avail.is_empty() {
+            if raw.is_empty() && !oversized {
+                return BoundedLine::Eof;
+            }
+            break;
+        }
+        if let Some(pos) = avail.iter().position(|&b| b == b'\n') {
+            if !oversized && raw.len() + pos <= MAX_WIRE_LINE_BYTES {
+                raw.extend_from_slice(&avail[..pos]);
+            } else {
+                oversized = true;
+            }
+            reader.consume(pos + 1);
+            break;
+        }
+        let n = avail.len();
+        if !oversized && raw.len() + n <= MAX_WIRE_LINE_BYTES {
+            raw.extend_from_slice(avail);
+        } else {
+            oversized = true;
+            raw.clear();
+        }
+        reader.consume(n);
+    }
+    if oversized {
+        return BoundedLine::Oversized;
+    }
+    match std::str::from_utf8(raw) {
+        Ok(s) => {
+            out.push_str(s);
+            BoundedLine::Line
+        }
+        Err(_) => BoundedLine::Oversized,
     }
 }
 

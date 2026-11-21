@@ -20,10 +20,10 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 164,
   "status_counts": {
-    "have it": 111,
+    "have it": 115,
     "partly": 4,
     "not applicable": 23,
-    "missing": 25,
+    "missing": 21,
     "differs on purpose": 1
   },
   "rows": [
@@ -3693,11 +3693,12 @@
       ],
       "summary": "Display the pending session's target worktree/project directory in the session identity header while worktree creation and session start are in flight.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Carry target directory through new-session startup states and read it in the session header while pending.",
+      "status": "have it",
+      "status_evidence": "Code merged on dev in rune-desktop #348: Start::Worktree carries project_directory, Starts::directory exposes the target worktree across Worktree/Mcp/Creating, add_project_sandbox records created worktrees immediately, and session header/location card read Starts::directory while pending (new_session/mod.rs, header.rs, location_card.rs).",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "WS-2"
+      "workstream": "WS-2",
+      "rune_pr": "#348"
     },
     {
       "id": "UP-127",
@@ -3735,11 +3736,12 @@
       ],
       "summary": "Add background-open action to the Home session row context menu (refined by UP-129 #65212).",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Home search supports modifier background open (home/search.rs:208), but the Home session row context menu does not yet expose Open / Open in background.",
+      "status": "have it",
+      "status_evidence": "Code merged on dev in rune-desktop #345: the Home session row menu leads with Open (as a click: clears Home search, opens) and Open in background (a tab behind the current page), then a separator, Rename, Export..., Mark as read/unread, separator, Delete... (features/session-menu open_home; home.sessions.openInBackground).",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "WS-2"
+      "workstream": "WS-2",
+      "rune_pr": "#345"
     },
     {
       "id": "UP-129",
@@ -3757,11 +3759,12 @@
       ],
       "summary": "Show separate 'Open' and 'Open in background' items above a separator in the Home session row menu (i18n key home.sessions.openInBackground).",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Paired with UP-128 (#65209): add 'Open' and 'Open in background' items to Home session row menu.",
+      "status": "have it",
+      "status_evidence": "Code merged on dev in rune-desktop #345: the Home session row menu leads with Open (as a click: clears Home search, opens) and Open in background (a tab behind the current page), then a separator, Rename, Export..., Mark as read/unread, separator, Delete... (features/session-menu open_home; home.sessions.openInBackground).",
       "depends_on": "UP-128 (#65209)",
       "risks": "none",
-      "workstream": "WS-2"
+      "workstream": "WS-2",
+      "rune_pr": "#345"
     },
     {
       "id": "UP-130",
@@ -4139,11 +4142,12 @@
       ],
       "summary": "Keep side tab group membership and ordering stable when closing a tab inside a group.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Audit features/tab-groups close-tab behavior against upstream #65165 tab-group stability fixes.",
+      "status": "have it",
+      "status_evidence": "Code merged on dev in rune-desktop #349: remembers automatic tab group order and default colors in Doc.colors via remember_auto_groups / stable_colors (keeping colors and order stable when closing tabs), and App::close_tab selects the next visible row in grouped order so collapsed groups stay closed (features/tab-groups/src/model.rs, apps/desktop/src/shell/tabs/groups.rs, actions.rs).",
       "depends_on": "UP-048 (#64407)",
       "risks": "none",
-      "workstream": "WS-2"
+      "workstream": "WS-2",
+      "rune_pr": "#349"
     }
   ],
   "browser_security_review": {

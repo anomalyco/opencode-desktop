@@ -528,6 +528,9 @@ wrap_load_handler! {
             let Some(frame) = frame else { return };
             if frame.is_main() == 1 {
                 self.prompts.clear_all_ext_frame_tracking();
+                let mut s = self.snap.lock().unwrap();
+                s.document += 1;
+                let _ = self.out_tx.send(EngineMsg::TabUpdate { tab: s.clone() });
             } else {
                 let url = CefString::from(&frame.url()).to_string();
                 if crate::extensions::manifest::is_extension_scheme(&url) {

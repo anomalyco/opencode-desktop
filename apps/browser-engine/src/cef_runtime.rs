@@ -210,8 +210,16 @@ wrap_app! {
             // host's "Pop-up blocked" bar) instead of silently swallowing them before CEF sees them.
             cmd.append_switch(Some(&"disable-popup-blocking".into()));
             cmd.append_switch(Some(&"mute-audio".into()));
-            // Real OS cookie encryption is enabled (DPAPI on Windows, Keychain on macOS,
-            // Secret Service / KWallet on Linux); `ProfileProbeCookies` detects locked key stores.
+            // Windows keeps real DPAPI cookie encryption (silent, logon-bound).
+            // macOS restores `--use-mock-keychain` until the `-67030` process-requirement /
+            // dedicated Keychain service name fix lands in a follow-up PR, so the first load never
+            // raises a `SecurityAgent` prompt or stalls.
+            // Linux sets `--password-store=basic` so a locked or absent Secret Service / KWallet
+            // keyring can never prompt or stall the first load.
+            #[cfg(target_os = "macos")]
+            cmd.append_switch(Some(&"use-mock-keychain".into()));
+            #[cfg(target_os = "linux")]
+            cmd.append_switch_with_value(Some(&"password-store".into()), Some(&"basic".into()));
             cmd.append_switch(Some(&"no-startup-window".into()));
             cmd.append_switch(Some(&"noerrdialogs".into()));
             cmd.append_switch(Some(&"hide-crash-restore-bubble".into()));

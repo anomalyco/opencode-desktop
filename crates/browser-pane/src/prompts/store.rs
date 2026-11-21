@@ -70,10 +70,21 @@ pub fn sanitize_prompt_text(text: &str, max: usize) -> String {
                     | 0x200f
                     | 0x202a..=0x202e
                     | 0x2066..=0x2069
+                    | 0xfeff
             )
         })
         .take(max)
         .collect()
+}
+
+/// Single-line sanitization for auth realms, hostnames, and origins (also strips `\n`/`\r`).
+pub fn sanitize_single_line_prompt(text: &str, max: usize) -> String {
+    sanitize_prompt_text(text, max)
+        .chars()
+        .map(|c| if c == '\n' || c == '\r' || c == '\t' { ' ' } else { c })
+        .collect::<String>()
+        .trim()
+        .to_owned()
 }
 
 /// Saved per-site permission decision (`site-permissions.ts` `SiteDecision`).

@@ -31,6 +31,8 @@ pub(super) const AUTH_SUBMIT_KEY: &str = "browser-auth-submit";
 /// Per-window UI buffers for the active browser page prompt or HTTP auth challenge.
 #[derive(Default)]
 pub struct PromptUiState {
+    /// Last visible browser tab id in the side panel (re-arms `InputGuard` on reveal/switch).
+    pub visible_tab: Option<u64>,
     /// `(tab_id, dialog_id)` currently synced into `prompt_input` & `stop_dialogs`.
     pub dialog_target: Option<(u64, u64)>,
     pub prompt_input: TextEdit,
@@ -140,6 +142,13 @@ pub fn sync_ui(s: &mut App, tx: &mut Tx) {
     let tab_id = (s.side_open() && !s.narrow())
         .then(|| s.active_browser_tab_id())
         .flatten();
+    let prev_visible = s.kernel.slots.get(&BROWSER_PROMPTS).visible_tab;
+    if prev_visible != tab_id {
+        s.kernel.slots.get_mut(&BROWSER_PROMPTS).visible_tab = tab_id;
+        if let Some(tid) = tab_id {
+            s.workspace_panes.browser.host.rearm_tab_prompts(tid);
+        }
+    }
     let dialog_now = tab_id.and_then(|id| {
         let t = s.workspace_panes.browser.host.tab(id)?;
         let d = t.prompts.dialog.open()?;
@@ -169,12 +178,13 @@ pub fn sync_ui(s: &mut App, tx: &mut Tx) {
                     let len = ui.prompt_input.text.len();
                     ui.prompt_input.set_selection(0, len);
                 }
-                // Match `page-prompts.ts:212`: take focus when the page had it or a human tab opened it.
+                // Match `page-prompts.ts:212`: take focus when the page had it or a human tab opened it,
+                // never auto-focusing Accept (`PROMPT_OK_KEY`) so a held Enter/Space cannot auto-confirm.
                 if in_browser || (!agent && !user_elsewhere) {
-                    focus_target = Some(if kind == DialogKind::Prompt {
-                        PROMPT_INPUT_KEY
-                    } else {
-                        PROMPT_OK_KEY
+                    focus_target = Some(match kind {
+                        DialogKind::Prompt => PROMPT_INPUT_KEY,
+                        DialogKind::Alert => PROMPT_CARD_KEY,
+                        DialogKind::Confirm | DialogKind::Leave => PROMPT_CANCEL_KEY,
                     });
                 }
             }
