@@ -284,9 +284,11 @@ pub(super) fn note_row(l: &CodeLook, st: &DiffDocState, f: usize) -> El {
 
 #[allow(clippy::too_many_arguments)]
 fn file_header_wrap(pal: &Pal, st: &DiffDocState, f: usize, sticky: bool, full_path: &str, adds: usize, dels: usize, inner: El) -> El {
+    // Hug `inner`'s device-snapped border height (33 pt at 1x, 49 px = 32.67 pt at 1.5x) rather
+    // than forcing `HEADER_H` (33 pt = 49.5 px), which leaves a 1-device-px gap below the border
+    // and shifts every diff line down 1 px at 1.5x (`session-review-v2.css:372, 374`).
     let mut h = col()
         .w_full()
-        .h(HEADER_H)
         .role("heading")
         .label(format!("{full_path}, {adds} added, {dels} removed"));
     if let (false, Some(w)) = (sticky, view_w(st)) {
