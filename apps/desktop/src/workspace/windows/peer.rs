@@ -100,6 +100,7 @@ impl ServerData {
             self.transcripts.entry(id).or_insert(transcript);
         }
         self.running.extend(std::mem::take(&mut *from.running));
+        self.stops.active_sync.absorb(std::mem::take(&mut from.stops.active_sync));
         self.requests.extend(std::mem::take(&mut *from.requests));
         for p in std::mem::take(&mut *from.pending) {
             if !self.pending.iter().any(|x| x.id() == p.id()) {
