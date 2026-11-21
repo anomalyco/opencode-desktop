@@ -95,7 +95,7 @@ pub(super) fn tab_bar<H: PanelsHost + 'static>(
     let naturals: Vec<f32> = entries
         .iter()
         .zip(&leads)
-        .map(|(e, l)| tab_natural(e, l.is_some()))
+        .map(|(e, l)| tab_natural(e, l.is_some()) + host.panel_tab_extra_w(e.plugin, &e.tab))
         .chain(live_new.iter().map(|_| new_natural))
         .collect();
     let gaps = 8.0 * naturals.len().saturating_sub(1) as f32;

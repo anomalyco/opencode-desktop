@@ -5,9 +5,9 @@
 
 local history = {}
 
-export type Visit = { url: string, title: string }
+export type Visit = { url: string, title: string, icon: string? }
 export type HistoryPage = { url: string, title: string, score: number }
-export type Suggestion = { url: string, title: string, completion: string? }
+export type Suggestion = { url: string, title: string, icon: string?, completion: string? }
 export type Part = { text: string, match: boolean }
 
 local MAX_VISITS = 30
@@ -42,15 +42,21 @@ end
 
 function history.remember(visits: { Visit }, visit: Visit): { Visit }
     local title = visit.title
+    local icon = visit.icon
     for _, v in visits do
-        if v.url == visit.url and title == "" then
-            title = v.title
+        if v.url == visit.url then
+            if title == "" then
+                title = v.title
+            end
+            if (icon == nil or icon == "") and v.icon ~= nil and v.icon ~= "" then
+                icon = v.icon
+            end
         end
     end
-    local out: { Visit } = { { url = visit.url, title = title } }
+    local out: { Visit } = { { url = visit.url, title = title, icon = icon } }
     for _, v in visits do
         if v.url ~= visit.url and #out < MAX_VISITS then
-            table.insert(out, { url = v.url, title = v.title })
+            table.insert(out, { url = v.url, title = v.title, icon = v.icon })
         end
     end
     return out
@@ -187,6 +193,7 @@ function history.suggestMerged(text: string, visits: { Visit }, answer: { Histor
         local v: Visit = {
             url = page.url,
             title = if page.title ~= "" then page.title elseif known then known.title else "",
+            icon = if known then known.icon else nil,
         }
         local q = matchQuality(words, v.url, v.title)
         if q > 0 then
@@ -220,6 +227,7 @@ function history.suggestMerged(text: string, visits: { Visit }, answer: { Histor
         table.insert(out, {
             url = v.url,
             title = v.title,
+            icon = v.icon,
             completion = history.completion(leadTrimmed, v.url),
         })
     end

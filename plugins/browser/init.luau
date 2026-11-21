@@ -483,7 +483,9 @@ return plugin.defineWindow(function(ctx)
         -- Private/isolated preview tabs and internal server files NEVER write to history.
         if not isPrivate and not previewTab and not tab:Loading() and history.recordable(url) and not isServerFile(url) then
             local title = tab:Title()
+            local liveFav: string? = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
             local visit = `{url}\n{title}`
+            local visitWithIcon = `{visit}\n{liveFav or ""}`
             local keeper = recorder:Get()
             local bAny = Browser :: any
             if recorded[id] ~= visit then
@@ -491,7 +493,7 @@ return plugin.defineWindow(function(ctx)
                 recorded[id] = visit
                 recordedUrl[id] = url
                 if keeper then
-                    keeper.remember(url, title)
+                    keeper.remember(url, title, liveFav)
                 end
                 ensureAdopted()
                 if sameUrl then
@@ -504,6 +506,11 @@ return plugin.defineWindow(function(ctx)
                     if type(bAny.HistoryVisit) == "function" then
                         bAny:HistoryVisit(url, title, wasTyped, id)
                     end
+                end
+            elseif liveFav ~= nil and liveFav ~= "" and recorded[`icon:{id}`] ~= visitWithIcon then
+                recorded[`icon:{id}`] = visitWithIcon
+                if keeper then
+                    keeper.remember(url, title, liveFav)
                 end
             end
         end
@@ -957,8 +964,7 @@ return plugin.defineWindow(function(ctx)
             local out: { PanelTab } = {}
             for _, info in Browser:List(sid, open) do
                 if info.open then
-                    local tabIcon: IconName = if isPreviewUrl(info.url) then "folder" else "globe"
-                    table.insert(out, { instance = info.id, title = label(sid, info), icon = tabIcon, fallback = true })
+                    table.insert(out, { instance = info.id, title = label(sid, info), icon = "globe", fallback = true })
                 end
             end
             return out
@@ -971,23 +977,18 @@ return plugin.defineWindow(function(ctx)
             end
             local sid = props.sessionId or ""
             local title = tabText(sid, tab)
-            local preview = isPreviewTab(tab)
             local labelColor: Color = if props.active then "text-chrome" else "text-muted"
             local iconNode: ui.Node
-            if preview then
-                iconNode = ui.icon("folder", { size = 16, color = labelColor })
+            local tAny = tab :: any
+            local liveFav = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
+            local saved = savedTabs.find(savedTabs.normalize(savedTabsStore:Get()), sid, id)
+            local fav = savedTabs.tabIcon(pageUrl(tab), liveFav, saved)
+            if fav ~= nil then
+                iconNode = ui.image({ src = fav, w = 16, h = 16 }, {
+                    ui.icon("globe", { size = 16, color = labelColor }),
+                })
             else
-                local tAny = tab :: any
-                local liveFav = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
-                local saved = savedTabs.find(savedTabs.normalize(savedTabsStore:Get()), sid, id)
-                local fav = savedTabs.tabIcon(pageUrl(tab), liveFav, saved)
-                if fav ~= nil then
-                    iconNode = ui.image({ src = fav, w = 16, h = 16 }, {
-                        ui.icon("globe", { size = 16, color = labelColor }),
-                    })
-                else
-                    iconNode = ui.icon("globe", { size = 16, color = labelColor })
-                end
+                iconNode = ui.icon("globe", { size = 16, color = labelColor })
             end
             local children: { ui.Node } = {
                 iconNode,
@@ -1005,7 +1006,23 @@ return plugin.defineWindow(function(ctx)
                     maxW = 160,
                 }),
             }
-            if unseenTabs[id] then
+            local tAny = tab :: any
+            local asking = type(tAny.Asking) == "function" and tAny:Asking() == true
+            local unseen = not asking
+                and (unseenTabs[id] == true or (type(tAny.Unseen) == "function" and tAny:Unseen() == true))
+            -- Official `renderer.tsx:536-538`: amber `prompt.tab` ("Waiting for you") takes precedence
+            -- over blue `tab.activity` ("The agent used this tab"), both 6×6 rounded dots.
+            if asking then
+                table.insert(children, ui.box({
+                    key = `browser-tab-dot-{id}`,
+                    role = "img",
+                    label = I18n:T("prompt.tab"),
+                    w = 6,
+                    h = 6,
+                    radius = 3,
+                    fill = "status-warning",
+                }))
+            elseif unseen then
                 table.insert(children, ui.box({
                     key = `browser-tab-dot-{id}`,
                     role = "img",
