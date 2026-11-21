@@ -85,9 +85,9 @@ pub fn view<H: ProjectSwitcherHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> [El
         // worktrees (`dialog.tsx:371-382`).
         let after_actions = idx > 0 && matches!(r.kind, RowKind::Worktree { main: false, .. }) && !matches!(list_rows[idx - 1].kind, RowKind::Worktree { main: false, .. });
         if idx > 0 && (r.kind == RowKind::Add || after_actions) {
-            // `new-session-location-action-divider`: a 1 pt rule at half its height, 2 above and below.
+            // `new-session-location-action-divider`: a 1 pt rule at half its height, 2 above and below (`5 pt` + `2 pt` flex gap = `7 pt`).
             list = list.child(rune::hairline(p.border).key(format!("psw-divider-{idx}")).my(2.0).mx(-6.0));
-            content_h += 9.0;
+            content_h += 7.0;
         }
         let checked = current.is_some_and(|dir| matches!(&r.kind, RowKind::Worktree { directory, .. } if same_dir(directory, dir)));
         list = list.child(draw_row(s, p, r, lit.as_deref() == Some(r.key.as_str()), q, w).children(checked.then(|| icon(&ic::CHECK, 16.0).color(p.icon_muted))));
