@@ -16,6 +16,8 @@ pub type Known = Option<Arc<AppIcon>>;
 pub struct AppIcons {
     done: Arc<Mutex<HashMap<String, Known>>>,
     asked: RefCell<HashSet<String>>,
+    /// The other browsers and their profiles (`ImportSources`).
+    pub sources: ImportSources,
 }
 
 impl AppIcons {

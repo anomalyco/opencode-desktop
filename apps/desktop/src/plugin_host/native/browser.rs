@@ -579,7 +579,7 @@ pub fn version(app: &App) -> u64 {
     app.workspace_panes.browser.host.share_sign_ins().hash(&mut h);
     app.workspace_panes.browser.host.engine_preview().hash(&mut h);
     app.workspace_panes.browser.app_icons.finished().hash(&mut h);
-    app.workspace_panes.browser.import_sources.generation().hash(&mut h);
+    app.workspace_panes.browser.app_icons.sources.generation().hash(&mut h);
     for t in app.workspace_panes.browser.host.tabs() {
         if let Some(d) = &t.device { (&d.preset, d.width, d.height, d.scale.map(f32::to_bits)).hash(&mut h); }
         (t.id, &t.url, &t.title, t.loading, t.can_go_back, t.can_go_forward, t.zoom.to_bits(), t.inspecting, &t.load_error, &t.favicon, &t.refusal, t.rejected).hash(&mut h);
