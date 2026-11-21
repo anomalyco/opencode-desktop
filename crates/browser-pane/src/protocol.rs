@@ -100,6 +100,31 @@ pub struct TabSnapshot {
     /// Site favicon as a bounded `data:image/png;base64,...` data URL (`UP-109` `#65094`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub favicon: Option<String>,
+    /// Isolation scope of this tab (with proxy credentials stripped), preserved across reconnects.
+    #[serde(default, skip_serializing_if = "ContextKind::is_default")]
+    pub context: ContextKind,
+    /// Set on isolated `oc-preview://` tabs so browser chrome marks them as previews.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<PreviewKindTag>,
+    /// Whether this tab is agent-driven (preserved across reconnects).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agent_driven: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PreviewKindTag {
+    Local,
+    Remote,
+    Artifact,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PreviewSpec {
+    Local { root: String, document: String },
+    Remote { root: String, session_prefix: String, document: String },
+    Artifact { artifact_id: String, path: String },
 }
 
 /// An element chosen with the visual element picker (`Overlay.setInspectMode`), ready to insert
@@ -138,6 +163,10 @@ pub enum HostMsg {
         file_roots: Vec<String>,
         #[serde(default, skip_serializing_if = "ContextKind::is_default")]
         context: ContextKind,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        preview: Option<PreviewSpec>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        agent_driven: bool,
     },
     SetTabPolicy {
         tab_id: u64,
@@ -267,6 +296,17 @@ pub enum HostMsg {
         tab_id: u64,
         id: u64,
         allow: bool,
+        #[serde(default)]
+        dismiss: bool,
+        #[serde(default)]
+        persist: bool,
+    },
+    ResetPermission {
+        origin: String,
+        kind: PermissionKind,
+    },
+    SyncSitePermissions {
+        entries: Vec<SitePermissionEntry>,
     },
     AnswerAuth {
         tab_id: u64,
@@ -288,6 +328,8 @@ pub enum HostMsg {
         forward: bool,
         match_case: bool,
         find_next: bool,
+        #[serde(default)]
+        user_initiated: bool,
     },
     StopFind {
         tab_id: u64,
@@ -339,6 +381,34 @@ pub enum HostMsg {
         #[serde(default)]
         from_remote: bool,
     },
+    TypedCdpCall {
+        tab_id: u64,
+        request_id: u64,
+        method: String,
+        params: Value,
+        session_id: Option<String>,
+    },
+    /// App-proxied response headers for a remote workspace or artifact `EngineMsg::PreviewFetch`.
+    PreviewResponseHead {
+        req_id: u64,
+        ok: bool,
+        status: u16,
+        mime: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content_length: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content_range: Option<String>,
+    },
+    /// App-proxied base64 body chunk for a pending `EngineMsg::PreviewFetch`.
+    PreviewResponseChunk {
+        req_id: u64,
+        data_b64: String,
+    },
+    /// Marks EOF (`ok: true`) or failure (`ok: false`) for a pending `EngineMsg::PreviewFetch`.
+    PreviewResponseEnd {
+        req_id: u64,
+        ok: bool,
+    },
     Shutdown,
 }
 
@@ -372,6 +442,19 @@ pub enum EngineMsg {
         /// The engine confines proxied `RemoteServer` partitions via `fixed_servers` + `<-loopback>` + WebRTC/DoH hardening.
         #[serde(default)]
         remote_proxy: bool,
+        /// The engine supports `TypedCdpCall` and flattened OOPIF `sessionId` CDP events.
+        #[serde(default)]
+        agent_tools: bool,
+        /// The engine serves isolated `oc-preview://` tabs.
+        #[serde(default)]
+        preview: bool,
+        /// The engine resets Chromium's `HostContentSettingsMap` on one-time/revoked permissions
+        /// and supports `HostMsg::ResetPermission` + `AnswerPermission.dismiss`.
+        #[serde(default)]
+        permission_sync: bool,
+        /// The engine emits `EngineMsg::PreviewCredit` for end-to-end preview flow control.
+        #[serde(default)]
+        preview_credit: bool,
         /// The engine exposes `CefCookieManager` list/import/delete/probe/clear & two-way remote cookie mirroring.
         #[serde(default)]
         cookies: bool,
@@ -393,6 +476,27 @@ pub enum EngineMsg {
     ProfileActionDone {
         request_id: u64,
         ok: bool,
+    },
+    /// Requests bytes for a remote workspace or artifact preview from the app host.
+    PreviewFetch {
+        req_id: u64,
+        tab_id: u64,
+        kind: PreviewKindTag,
+        path: String,
+        method: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        range: Option<String>,
+    },
+    /// Byte-credit replenishment (or immediate cancellation) for an in-flight `PreviewFetch`.
+    PreviewCredit {
+        req_id: u64,
+        bytes: u32,
+        #[serde(default)]
+        cancel: bool,
+    },
+    /// A preview page attempted to load a file outside its grant or a secret/hidden path.
+    PreviewDenied {
+        tab_id: u64,
     },
     /// A frame navigation or redirect was refused by URL policy while keeping the current page.
     Refused {
@@ -540,6 +644,9 @@ pub struct DownloadFile {
     /// interrupt reason (`network_failed`, `file_no_space`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Source URL captured by the engine in `on_before_download` before any post-download redirect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -605,6 +712,13 @@ impl PermissionKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SitePermissionEntry {
+    pub origin: String,
+    pub kind: PermissionKind,
+    pub allow: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PermissionPrompt {
     pub id: u64,
     pub origin: String,
@@ -660,7 +774,7 @@ pub struct PageContextMenu {
     pub suggestions: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteProxyConfig {
     pub host: String,
     pub port: u16,
@@ -670,6 +784,18 @@ pub struct RemoteProxyConfig {
     pub password: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub realm: Option<String>,
+}
+
+impl std::fmt::Debug for RemoteProxyConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemoteProxyConfig")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("username", &self.username.as_ref().map(|_| "<redacted>"))
+            .field("password", &self.password.as_ref().map(|_| "<redacted>"))
+            .field("realm", &self.realm)
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -706,12 +832,29 @@ impl ContextKind {
         !self.is_default()
     }
 
+    pub fn redacted(&self) -> Self {
+        match self {
+            Self::RemoteServer { server_id, .. } => Self::RemoteServer {
+                server_id: server_id.trim().to_owned(),
+                proxy: None,
+            },
+            Self::Preview { workspace, grant } => Self::Preview {
+                workspace: workspace.trim().to_owned(),
+                grant: grant.trim().to_owned(),
+            },
+            Self::Artifact { artifact_id } => Self::Artifact {
+                artifact_id: artifact_id.trim().to_owned(),
+            },
+            other => other.clone(),
+        }
+    }
+
     pub fn is_supported(&self, partitions: bool, remote_proxy: bool) -> bool {
         match self {
             Self::Default => true,
             Self::Preview { .. } | Self::Artifact { .. } | Self::Private => partitions,
-            Self::RemoteServer { proxy: None, .. } => partitions,
-            Self::RemoteServer { proxy: Some(_), .. } => partitions && remote_proxy,
+            // Remote servers ALWAYS require an authenticated loopback tunnel proxy (never direct).
+            Self::RemoteServer { .. } => partitions && remote_proxy,
         }
     }
 }

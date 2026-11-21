@@ -36,6 +36,7 @@ mod machine;
 pub use browser_policy as policy;
 #[cfg(feature = "engine")]
 mod prefetch;
+pub mod preview;
 #[cfg(feature = "engine")]
 pub mod profile;
 pub mod prompts;
@@ -72,9 +73,10 @@ pub use cookies::{
 pub use protocol::CursorKind;
 pub use protocol::{
     AuthChallenge, ContextKind, ContextMenuCommand, CookieSameSite, DialogKind, DownloadFile,
-    DownloadState, PageContextMenu, PageDialog, PermissionKind, PermissionPrompt,
-    RemoteProxyConfig, WireCookie,
+    DownloadState, PageContextMenu, PageDialog, PermissionKind, PermissionPrompt, PreviewKindTag,
+    PreviewSpec, RemoteProxyConfig, WireCookie,
 };
+pub use preview::{PreviewFetchRequest, PreviewResponder};
 pub use protocol::PickedElement;
-pub use prompts::{PermissionDecision, PermissionStore, SiteDecision, SitePermissions, SiteSetting};
+pub use prompts::{PermissionDecision, PermissionStore, SiteDecision, SitePermissions, SiteSetting, TabDriver};
 pub use site_zoom::ZoomStore;

@@ -13,10 +13,11 @@ export type Part = { text: string, match: boolean }
 local MAX_VISITS = 30
 local MAX_URL_LENGTH = 2048
 
--- Pages kept in the window's recent list: web pages and workspace files, never blank or internal.
+-- The pages the history records: web pages only, never blank pages, internal URLs, or isolated
+-- workspace/artifact previews (`file://`, `workspace://`, `artifact://`, `oc-preview://`).
 function history.recordable(url: string): boolean
     local lower = string.lower(url)
-    return string.match(lower, "^https?://") ~= nil or string.match(lower, "^file://") ~= nil
+    return string.match(lower, "^https?://") ~= nil
 end
 
 -- Canonical web-page deduplication key matching Rust `history::page::page_key`.
@@ -164,9 +165,11 @@ function history.suggestMerged(text: string, visits: { Visit }, answer: { Histor
     local leadTrimmed = string.gsub(text, "^%s+", "")
     local listed: { [string]: Visit } = {}
     for _, v in visits do
-        local k = history.pageKey(v.url) or v.url
-        if listed[k] == nil then
-            listed[k] = v
+        if history.recordable(v.url) then
+            local k = history.pageKey(v.url) or v.url
+            if listed[k] == nil then
+                listed[k] = v
+            end
         end
     end
 
@@ -175,6 +178,9 @@ function history.suggestMerged(text: string, visits: { Visit }, answer: { Histor
     local cands: { Cand } = {}
 
     for _, page in answer do
+        if not history.recordable(page.url) then
+            continue
+        end
         local k = history.pageKey(page.url) or page.url
         answered[k] = true
         local known = listed[k]
@@ -189,6 +195,9 @@ function history.suggestMerged(text: string, visits: { Visit }, answer: { Histor
     end
 
     for idx, v in visits do
+        if not history.recordable(v.url) then
+            continue
+        end
         local k = history.pageKey(v.url) or v.url
         if not answered[k] then
             local q = matchQuality(words, v.url, v.title)

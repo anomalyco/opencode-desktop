@@ -95,18 +95,56 @@ return plugin.defineWindow(function(ctx)
         return string.sub(url, 1, 12) == "workspace://" or string.sub(url, 1, 11) == "artifact://" or string.sub(url, 1, 13) == "oc-preview://"
     end
 
-    local function workspaceSourcePath(url: string): string?
+    local function isPreviewUrl(url: string): boolean
+        local lower = string.lower(url)
+        return string.sub(lower, 1, 7) == "file://" or isServerFile(lower)
+    end
+
+    local function isPreviewTab(tab: BrowserTab): boolean
+        local tAny = tab :: any
+        if type(tAny.PreviewKind) == "function" and tAny:PreviewKind() ~= nil then
+            return true
+        end
+        return isPreviewUrl(pageUrl(tab))
+    end
+
+    local function decodePercent(s: string): string
+        return (string.gsub(s, "%%(%x%x)", function(hex)
+            local byte = tonumber(hex, 16)
+            return if byte and byte >= 32 then string.char(byte) else `%{hex}`
+        end))
+    end
+
+    local function localFilePath(url: string): string?
         if string.sub(url, 1, 8) == "file:///" then
             local path = string.sub(url, 8)
             path = string.match(path, "^([^?#]*)") or path
-            path = string.gsub(path, "%%(%x%x)", function(hex: string)
-                local byte = tonumber(hex, 16)
-                return if byte then string.char(byte) else `%{hex}`
-            end)
+            path = decodePercent(path)
             if App.Platform == "windows" and string.match(path, "^/[A-Za-z]:") ~= nil then
                 path = string.sub(path, 2)
             end
             return path
+        end
+        return nil
+    end
+
+    -- Resolves workspace-relative source path for BOTH local (`file:///...`) and remote
+    -- (`workspace://<session_id>/<rel>`) previews so "Show the file's code" works everywhere.
+    local function workspaceSourceRel(url: string, session: Session?): string?
+        if session == nil then
+            return nil
+        end
+        local localPath = localFilePath(url)
+        if localPath ~= nil then
+            return Workspace:Relative(localPath, session.directory)
+        end
+        local prefix = `workspace://{string.lower(session.id)}/`
+        if string.sub(string.lower(url), 1, #prefix) == prefix then
+            local rest = string.sub(url, #prefix + 1)
+            rest = string.match(rest, "^([^?#]*)") or rest
+            if rest ~= "" then
+                return decodePercent(rest)
+            end
         end
         return nil
     end
@@ -440,8 +478,9 @@ return plugin.defineWindow(function(ctx)
         end
         local tAny = tab :: any
         local isPrivate = type(tAny.IsPrivate) == "function" and tAny:IsPrivate() == true
+        local previewTab = isPreviewTab(tab)
         -- Private/isolated preview tabs and internal server files NEVER write to history.
-        if not isPrivate and not tab:Loading() and history.recordable(url) and not isServerFile(url) then
+        if not isPrivate and not previewTab and not tab:Loading() and history.recordable(url) and not isServerFile(url) then
             local title = tab:Title()
             local visit = `{url}\n{title}`
             local keeper = recorder:Get()
@@ -468,19 +507,25 @@ return plugin.defineWindow(function(ctx)
             end
         end
         -- Sync saved tabs for immediate restore & loading hold (`UP-100` `#65067`).
+        -- Isolated tabs (`Preview`, `Artifact`, `Private`, `RemoteServer`) NEVER persist to disk.
         local routed = Sessions:Routed()
         if routed ~= nil then
             local curSaved = savedTabs.normalize(savedTabsStore:Get())
             local reported: { savedTabs.Reported } = {}
             for _, info in Browser:List(routed.id, {}) do
-                if info.open then
+                if info.open and history.recordable(info.url) then
                     local live = Browser:Get(info.id)
-                    table.insert(reported, {
-                        id = info.id,
-                        url = info.url,
-                        title = if live then live:Title() else info.title,
-                        loading = if live then live:Loading() else false,
-                    })
+                    local liveAny = live :: any
+                    local skip = live ~= nil
+                        and (isPreviewTab(live) or (type(liveAny.IsPrivate) == "function" and liveAny:IsPrivate() == true))
+                    if not skip then
+                        table.insert(reported, {
+                            id = info.id,
+                            url = info.url,
+                            title = if live then live:Title() else info.title,
+                            loading = if live then live:Loading() else false,
+                        })
+                    end
                 end
             end
             local nextSaved = savedTabs.save(curSaved, routed.id, reported)
@@ -488,11 +533,13 @@ return plugin.defineWindow(function(ctx)
                 curSaved = nextSaved
                 savedTabsStore:Set(curSaved :: any)
             end
-            local fav = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
-            if type(fav) == "string" and fav ~= "" then
-                local withIcon = savedTabs.saveIcon(curSaved, routed.id, id, fav)
-                if withIcon ~= nil then
-                    savedTabsStore:Set(withIcon :: any)
+            if not isPrivate and not previewTab then
+                local fav = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
+                if type(fav) == "string" and fav ~= "" then
+                    local withIcon = savedTabs.saveIcon(curSaved, routed.id, id, fav)
+                    if withIcon ~= nil then
+                        savedTabsStore:Set(withIcon :: any)
+                    end
                 end
             end
         end
@@ -505,17 +552,22 @@ return plugin.defineWindow(function(ctx)
     end)
 
     -- A loopback address opens on the machine that runs the server; the system browser here
-    -- reaches it only when the server runs here too.
-    local function reachable(url: string): boolean
+    -- reaches it only when the server runs here too (authoritative Rust policy via CanOpenExternally).
+    local function reachable(url: string, tab: BrowserTab?): boolean
+        local tAny = tab :: any
+        if tAny ~= nil and type(tAny.CanOpenExternally) == "function" then
+            return tAny:CanOpenExternally() == true
+        end
         local scheme, host = address.parts(url)
         local lower = string.lower(scheme)
-        if lower == "file://" then
-            return false
-        end
         if lower ~= "http://" and lower ~= "https://" then
             return false
         end
+        if string.find(host, "@", 1, true) ~= nil then
+            return false
+        end
         local name = string.match(host, "^%[[^%]]*%]") or string.match(host, "^[^:]*") or host
+        name = string.gsub(name, "%.+$", "")
         return Server:IsLocal() or not address.loopback(name)
     end
 
@@ -554,6 +606,10 @@ return plugin.defineWindow(function(ctx)
                 local attempt = effect.attempt
                 local tab = Browser:Get(described.tab)
                 if effect.type == "load" then
+                    if not site.isWeb(described.url) then
+                        siteDispatch({ type = "load.succeeded", attempt = attempt, cookies = 0 })
+                        continue
+                    end
                     task.delay(site.LOAD_TIMEOUT, function()
                         siteDispatch({ type = "timeout", phase = "loading", attempt = attempt })
                     end)
@@ -665,24 +721,26 @@ return plugin.defineWindow(function(ctx)
         elseif what == "external" then
             Popover:Close()
             local url = pageUrl(tab)
-            if reachable(url) then
+            if reachable(url, tab) then
                 System:OpenExternal(url)
             else
                 Toast:Error(I18n:T("menu.failed"))
             end
         elseif what == "reveal" then
             Popover:Close()
-            local path = workspaceSourcePath(pageUrl(tab))
+            local path = localFilePath(pageUrl(tab))
             if path then
                 System:Reveal(path)
             end
         elseif what == "view.source" then
             Popover:Close()
-            local path = workspaceSourcePath(pageUrl(tab))
             local session = Sessions:Routed()
-            if path and session then
-                local rel = Workspace:Relative(path, session.directory)
-                if rel then
+            local rel = workspaceSourceRel(pageUrl(tab), session)
+            if rel and session then
+                local wsAny = Workspace :: any
+                if type(wsAny.OpenFileSource) == "function" then
+                    wsAny:OpenFileSource(session.id, rel)
+                else
                     Workspace:OpenFile(session.id, rel)
                 end
             end
@@ -744,9 +802,9 @@ return plugin.defineWindow(function(ctx)
             refresh()
         elseif what == "options" then
             local url = pageUrl(tab)
-            local srcPath = workspaceSourcePath(url)
+            local localPath = localFilePath(url)
             local session = Sessions:Routed()
-            local canSource = srcPath ~= nil and session ~= nil and Workspace:Relative(srcPath, session.directory) ~= nil
+            local canSource = workspaceSourceRel(url, session) ~= nil
             local eng = Browser:Engine() :: any
             local canFind = eng == nil or eng.state ~= "ready" or eng.find == true
             local menuData: options.MenuData = {
@@ -754,11 +812,11 @@ return plugin.defineWindow(function(ctx)
                 url = url,
                 zoom = tab:Zoom(),
                 inspectable = url ~= "" and tab:LoadError() == nil,
-                suspended = false,
+                suspended = tab:Refusal() == "browser.proxy.required",
                 failed = tab:LoadError() ~= nil,
                 serverFile = isServerFile(url),
-                canOpenExternal = reachable(url),
-                canRevealFile = srcPath ~= nil and Server:IsLocal(),
+                canOpenExternal = reachable(url, tab),
+                canRevealFile = localPath ~= nil and Server:IsLocal(),
                 canViewSource = canSource,
                 canFind = canFind,
                 canHardReload = true,
@@ -898,7 +956,8 @@ return plugin.defineWindow(function(ctx)
             local out: { PanelTab } = {}
             for _, info in Browser:List(sid, open) do
                 if info.open then
-                    table.insert(out, { instance = info.id, title = label(sid, info), icon = "globe", fallback = true })
+                    local tabIcon: IconName = if isPreviewUrl(info.url) then "folder" else "globe"
+                    table.insert(out, { instance = info.id, title = label(sid, info), icon = tabIcon, fallback = true })
                 end
             end
             return out
@@ -911,17 +970,22 @@ return plugin.defineWindow(function(ctx)
             end
             local sid = props.sessionId or ""
             local title = tabText(sid, tab)
-            local tAny = tab :: any
-            local liveFav = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
-            local saved = savedTabs.find(savedTabs.normalize(savedTabsStore:Get()), sid, id)
-            local fav = savedTabs.tabIcon(pageUrl(tab), liveFav, saved)
+            local preview = isPreviewTab(tab)
             local iconNode: ui.Node
-            if fav ~= nil then
-                iconNode = ui.image({ src = fav, w = 16, h = 16, radius = 2 }, {
-                    ui.icon("globe", { size = 16, color = "icon-weak" }),
-                })
+            if preview then
+                iconNode = ui.icon("folder", { size = 16, color = "icon-weak" })
             else
-                iconNode = ui.icon("globe", { size = 16, color = "icon-weak" })
+                local tAny = tab :: any
+                local liveFav = if type(tAny.Favicon) == "function" then tAny:Favicon() else nil
+                local saved = savedTabs.find(savedTabs.normalize(savedTabsStore:Get()), sid, id)
+                local fav = savedTabs.tabIcon(pageUrl(tab), liveFav, saved)
+                if fav ~= nil then
+                    iconNode = ui.image({ src = fav, w = 16, h = 16, radius = 2 }, {
+                        ui.icon("globe", { size = 16, color = "icon-weak" }),
+                    })
+                else
+                    iconNode = ui.icon("globe", { size = 16, color = "icon-weak" })
+                end
             end
             local children: { ui.Node } = {
                 iconNode,
@@ -978,8 +1042,15 @@ return plugin.defineWindow(function(ctx)
         end,
         closedTab = function(props): ClosedTab?
             local tab = if props.instance then Browser:Get(props.instance) else nil
-            local url = if tab then pageUrl(tab) else ""
-            if url == "" then
+            if tab == nil or isPreviewTab(tab) then
+                return nil
+            end
+            local tAny = tab :: any
+            if type(tAny.IsPrivate) == "function" and tAny:IsPrivate() == true then
+                return nil
+            end
+            local url = pageUrl(tab)
+            if url == "" or not history.recordable(url) then
                 return nil
             end
             local host = hostDisplay.displayHost(url)
@@ -1188,7 +1259,7 @@ return plugin.defineWindow(function(ctx)
         end
         local out: { settings.SiteDecision } = {}
         for _, item in raw :: { any } do
-            if type(item) == "table" and type(item.origin) == "string" and type(item.permission) == "string" and (item.setting == "allow" or item.setting == "block") then
+            if type(item) == "table" and type(item.origin) == "string" and string.match(string.lower(item.origin), "^https?://") ~= nil and type(item.permission) == "string" and (item.setting == "allow" or item.setting == "block") then
                 table.insert(out, {
                     origin = item.origin,
                     permission = item.permission,
@@ -1200,6 +1271,9 @@ return plugin.defineWindow(function(ctx)
     end
 
     local function setSitePermission(origin: string, permission: string, setting: "allow" | "block")
+        if string.match(string.lower(origin), "^https?://") == nil then
+            return
+        end
         local list = sitePermissionsList()
         local updated = false
         for _, d in list do
@@ -1336,6 +1410,10 @@ return plugin.defineWindow(function(ctx)
         end,
         capabilities = settingsCapabilities,
         sitePermissions = sitePermissionsList,
+        permissionRestartNote = function(): boolean
+            local eng = Browser:Engine() :: any
+            return eng ~= nil and eng.state == "ready" and eng.permissionSync ~= true
+        end,
         setSitePermission = function(origin, permission, setting)
             setSitePermission(origin, permission, setting)
             refreshSettings()

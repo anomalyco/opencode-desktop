@@ -51,10 +51,13 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
     })?;
     method(lua, t, "HistoryVisit", |_, (url, title, typed, tab_id): (String, String, Option<bool>, Option<String>)| {
         with_app("Browser:HistoryVisit", |app| {
-            // Never record history from isolated/private preview tabs.
+            // Never record history from isolated/preview tabs or non-HTTP(S) URLs.
+            if browser_pane::policy::destination_origin(&url).is_none() {
+                return Ok(());
+            }
             if let Some(id) = tab_id.as_deref().and_then(|s| s.parse::<u64>().ok())
                 && let Some(tab) = app.workspace_panes.browser.host.tab(id)
-                && matches!(tab.context, browser_pane::protocol::ContextKind::IsolatedPreview { .. })
+                && (tab.context.is_isolated() || tab.preview.is_some())
             {
                 return Ok(());
             }
@@ -64,6 +67,9 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
     })?;
     method(lua, t, "HistoryRetitle", |_, (url, title): (String, String)| {
         with_app("Browser:HistoryRetitle", |app| {
+            if browser_pane::policy::destination_origin(&url).is_none() {
+                return Ok(());
+            }
             with_store(app, |store| store.retitle(&url, &title));
             Ok(())
         })
@@ -74,7 +80,7 @@ pub(super) fn service_methods(lua: &Lua, t: &Table) -> mlua::Result<()> {
             for item in tbl.sequence_values::<Table>().flatten() {
                 let url: String = item.raw_get("url").unwrap_or_default();
                 let title: String = item.raw_get("title").unwrap_or_default();
-                if !url.is_empty() {
+                if browser_pane::policy::destination_origin(&url).is_some() {
                     pairs.push((url, title));
                 }
             }

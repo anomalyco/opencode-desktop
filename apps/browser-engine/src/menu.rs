@@ -70,7 +70,8 @@ impl TabMenuState {
         action: Option<ContextMenuCommand>,
         browser: &Browser,
         host: &BrowserHost,
-        file_roots: &[String],
+        _file_roots: &[String],
+        is_preview: bool,
     ) {
         let matched = {
             let mut slot = self.held.lock().unwrap();
@@ -118,9 +119,7 @@ impl TabMenuState {
                 }
             }
             ContextMenuCommand::SaveImage { url } => {
-                if browser_policy::destination_origin(&url).is_some()
-                    || browser_policy::file_url_within(&url, file_roots)
-                {
+                if !is_preview && browser_policy::destination_origin(&url).is_some() {
                     host.start_download(Some(&CefString::from(url.as_str())));
                 }
             }
@@ -134,19 +133,26 @@ impl TabMenuState {
     }
 }
 
-fn allowed_menu_url(raw: &str, roots: &[String]) -> Option<String> {
+fn allowed_menu_url(
+    raw: &str,
+    _roots: &[String],
+    preview: Option<&Arc<crate::preview::PreviewGrant>>,
+) -> Option<String> {
     let trimmed = raw.trim();
-    if trimmed.is_empty() {
+    if trimmed.is_empty() || trimmed.len() > crate::prompts::MAX_POPUP_URL_BYTES {
         return None;
     }
-    if browser_policy::destination_origin(trimmed).is_some()
-        || browser_policy::file_url_within(trimmed, roots)
-        || trimmed.len() >= 13 && trimmed.as_bytes()[..13].eq_ignore_ascii_case(b"oc-preview://")
-    {
-        Some(trimmed.to_owned())
-    } else {
-        None
+    if let Some(grant) = preview {
+        if let Some(display) = grant.compute_display_url(trimmed) {
+            return Some(display);
+        }
+        return browser_policy::destination_origin(trimmed)
+            .is_some()
+            .then(|| trimmed.to_owned());
     }
+    browser_policy::destination_origin(trimmed)
+        .is_some()
+        .then(|| trimmed.to_owned())
 }
 
 wrap_context_menu_handler! {
@@ -154,6 +160,7 @@ wrap_context_menu_handler! {
         tab_id: u64,
         shared: PromptShared,
         file_roots: Arc<Mutex<Vec<String>>>,
+        preview: Option<Arc<crate::preview::PreviewGrant>>,
         menu_state: Arc<TabMenuState>,
         out_tx: Output,
     }
@@ -194,8 +201,10 @@ wrap_context_menu_handler! {
             let roots = self.file_roots.lock().unwrap().clone();
             let raw_link = CefString::from(&params.link_url()).to_string();
             let raw_src = CefString::from(&params.source_url()).to_string();
-            let page_url = CefString::from(&params.page_url()).to_string();
-            let frame_url = CefString::from(&params.frame_url()).to_string();
+            let raw_page = CefString::from(&params.page_url()).to_string();
+            let raw_frame = CefString::from(&params.frame_url()).to_string();
+            let page_url = self.preview.as_ref().map_or(raw_page.clone(), |g| g.sanitize_reported_url(&raw_page));
+            let frame_url = self.preview.as_ref().map_or(raw_frame.clone(), |g| g.sanitize_reported_url(&raw_frame));
             let selection_text = CefString::from(&params.selection_text()).to_string();
             let misspelled_raw = CefString::from(&params.misspelled_word()).to_string();
             let mut sugg_list = CefStringList::new();
@@ -216,8 +225,13 @@ wrap_context_menu_handler! {
                 y: params.ycoord(),
                 page_url,
                 frame_url,
-                link_url: allowed_menu_url(&raw_link, &roots),
-                src_url: if is_image { allowed_menu_url(&raw_src, &roots) } else { None },
+                link_url: allowed_menu_url(&raw_link, &roots, self.preview.as_ref()),
+                // Never expose `src_url` / `SaveImage` on preview tabs (`notes/review-rd281.md` #5).
+                src_url: if is_image && self.preview.is_none() {
+                    allowed_menu_url(&raw_src, &roots, None)
+                } else {
+                    None
+                },
                 is_image,
                 has_image_contents: params.has_image_contents() != 0,
                 is_editable: params.is_editable() != 0,

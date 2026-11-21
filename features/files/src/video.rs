@@ -16,24 +16,40 @@ use rune::{
 };
 use rune_theme_opencode::icons as ic;
 use opencode_ui::palette::{Pal, kit};
+pub use opencode_ui::video_overlay::{Effect, Event, Overlay, step};
 
 use crate::FilesHost;
 
-/// What Desktop shows as a video, by extension (`util/src/artifact.ts:46-51`).
-pub fn is_video(path: &str) -> bool {
-    let name = opencode_kit::path::basename(path);
-    name.rsplit_once('.')
-        .filter(|(stem, _)| !stem.is_empty())
-        .is_some_and(|(_, e)| {
-            matches!(
-                e.to_ascii_lowercase().as_str(),
-                "mp4" | "m4v" | "webm" | "mov" | "ogv" | "mkv"
-            )
-        })
+pub use opencode_kit::path::is_video;
+
+/// Workspace movie source shared by the file viewer and chat; never fetch the entire file, and
+/// verify local files stay inside `directory` without symlinks/junctions before handing a local
+/// path to `rune::Player`. On native local servers (or with no server), a rejected path returns
+/// `None` with no fallback to `/api/fs/read/...` so symlinks and junctions cannot bypass
+/// confinement.
+pub fn source(server: Option<&opencode_kit::client::Server>, directory: &str, path: &str) -> Option<String> {
+    use opencode_search::query::{encode_fs_path, percent_encode};
+    let stream_url = |s: &opencode_kit::client::Server| {
+        s.stream_url(&format!(
+            "/api/fs/read/{}?location%5Bdirectory%5D={}",
+            encode_fs_path(path),
+            percent_encode(directory)
+        ))
+    };
+    #[cfg(target_arch = "wasm32")]
+    {
+        return server.map(stream_url);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if let Some(s) = server.filter(|s| !s.is_local()) {
+            return Some(stream_url(s));
+        }
+        let candidate = std::path::Path::new(directory).join(path).to_string_lossy().into_owned();
+        browser_policy::verify_within_root(&candidate, directory, true)
+    }
 }
 
-/// `VIDEO_IDLE_MS`: how long a playing clip keeps its controls after the pointer last moved.
-const IDLE: f64 = 2.5;
 /// How often a playing clip's time and timeline move: Chromium's `timeupdate`.
 const TICK: f64 = 0.25;
 /// Chromium's controls: 48 pt buttons over a 24 pt timeline, a 112 pt scrim under them.
@@ -84,58 +100,8 @@ impl FileVideo {
 
     /// Chromium's controls show (and so does Desktop's expand button).
     fn controls_shown(&self) -> bool {
-        matches!(self.overlay, Overlay::Paused | Overlay::Active { .. }) || self.scrub != Scrub::Idle
+        self.overlay.shown() || self.scrub != Scrub::Idle
     }
-}
-
-/// Desktop's `VideoOverlayState` without the preview's `expanded`: loading until the first frame,
-/// then paused, or playing with the controls up until `due`, or playing with them down.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub enum Overlay {
-    #[default]
-    Loading,
-    Paused,
-    /// Playing, the pointer moved lately: the controls go at `due` on the window clock.
-    Active { due: f64 },
-    /// Playing, the pointer rested or left.
-    Idle,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Event {
-    /// The clip has a frame to show (`media.loaded`).
-    Loaded { paused: bool, now: f64 },
-    /// It started or stopped playing (`playback.changed`).
-    Playback { paused: bool, now: f64 },
-    /// The pointer moved over the stage (`pointer.moved`).
-    Moved { now: f64 },
-    /// The pointer left the stage (`pointer.left`).
-    Left,
-    /// The window clock reached `now` (`idle.elapsed`).
-    Tick { now: f64 },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Effect {
-    WakeAt(f64),
-}
-
-/// `transitionVideoOverlay`, as one transition. A later move's timer replaces an earlier one's:
-/// the state keeps only the newest `due`, so an older timer's tick changes nothing.
-pub fn step(state: &mut Overlay, event: Event) -> Option<Effect> {
-    let active = |now: f64| (Overlay::Active { due: now + IDLE }, Some(Effect::WakeAt(now + IDLE)));
-    let (next, effect) = match (*state, event) {
-        (Overlay::Loading, Event::Loaded { paused: true, .. }) => (Overlay::Paused, None),
-        (Overlay::Loading, Event::Loaded { paused: false, now }) => active(now),
-        (Overlay::Paused, Event::Playback { paused: false, now }) => active(now),
-        (Overlay::Active { .. } | Overlay::Idle, Event::Playback { paused: true, .. }) => (Overlay::Paused, None),
-        (Overlay::Active { .. } | Overlay::Idle, Event::Moved { now }) => active(now),
-        (Overlay::Active { .. }, Event::Left) => (Overlay::Idle, None),
-        (Overlay::Active { due }, Event::Tick { now }) if now >= due => (Overlay::Idle, None),
-        _ => return None,
-    };
-    *state = next;
-    effect
 }
 
 /// The timeline's drag (Chromium's range input): where it points, and whether the clip played

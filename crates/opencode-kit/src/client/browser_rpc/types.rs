@@ -69,6 +69,19 @@ fn fill_random(out: &mut [u8]) {
     }
 }
 
+/// Cryptographically random lowercase hex bytes (`bytes * 2` hex chars). Fails closed if the
+/// OS CSPRNG (`getrandom::fill`) fails — never falls back to a non-cryptographic hash.
+pub fn try_random_hex(bytes: usize) -> Result<String, String> {
+    let mut buf = vec![0u8; bytes];
+    getrandom::fill(&mut buf)
+        .map_err(|e| format!("OS cryptographic RNG unavailable for browser tunnel credentials: {e}"))?;
+    let mut out = String::with_capacity(bytes * 2);
+    for b in buf {
+        out.push_str(&format!("{b:02x}"));
+    }
+    Ok(out)
+}
+
 /// Cryptographically random RFC 4122 version-4 UUID (`xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`).
 pub fn uuid_v4() -> String {
     let mut b = [0u8; 16];
@@ -191,13 +204,39 @@ impl WireFile {
     }
 
     pub fn decode_bytes(&self) -> Result<Vec<u8>, String> {
+        let trimmed = self.data_base64.trim();
+        let max_b64 = MAX_FILE_BYTES.div_ceil(3) * 4 + 4;
+        if trimmed.len() > max_b64 {
+            return Err(format!("File {} exceeds the 5 MiB transfer limit.", self.name));
+        }
         let bytes = base64::engine::general_purpose::STANDARD
-            .decode(self.data_base64.trim())
+            .decode(trimmed)
             .map_err(|e| format!("Invalid base64 payload for {}: {e}", self.name))?;
         if bytes.len() > MAX_FILE_BYTES {
             return Err(format!("File {} exceeds the 5 MiB transfer limit.", self.name));
         }
         Ok(bytes)
+    }
+
+    /// Validates that a batch of wire files respects both the 8-file count cap and the combined
+    /// 5 MiB transfer limit before decoding.
+    pub fn validate_batch(files: &[Self]) -> Result<(), String> {
+        if files.len() > 8 {
+            return Err("Too many files in transfer (maximum 8).".into());
+        }
+        let mut total = 0usize;
+        for f in files {
+            let trimmed = f.data_base64.trim();
+            let est = (trimmed.len() / 4).saturating_mul(3);
+            if est > MAX_FILE_BYTES {
+                return Err(format!("File {} exceeds the 5 MiB transfer limit.", f.name));
+            }
+            total = total.saturating_add(est);
+            if total > MAX_FILE_BYTES + 24 {
+                return Err("Combined transfer files exceed the 5 MiB limit.".into());
+            }
+        }
+        Ok(())
     }
 }
 

@@ -48,6 +48,12 @@ pub fn generation() -> u64 {
 /// Routes `call` to the plugin whose tool it names, in this window.
 pub(super) fn execute(host: &mut dyn RuneMcpHost, sid: &str, call: McpCall, tx: &mut Tx) {
     let name = call.name.clone();
+    if super::is_browser_tool(&name)
+        && let Some(reason) = host.browser_mcp_refusal(sid)
+    {
+        call.respond(McpResult::error(reason));
+        return;
+    }
     if let Some(call) = host.dispatch_mcp_call(sid, call, tx) {
         call.respond(McpResult::error(format!("Unknown tool: {name}")));
     }

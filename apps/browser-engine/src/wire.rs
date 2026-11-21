@@ -53,6 +53,31 @@ pub struct TabSnapshot {
     /// Site favicon as a bounded `data:image/png;base64,...` data URL (`UP-109` `#65094`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub favicon: Option<String>,
+    /// Isolation scope of this tab (with proxy credentials stripped), preserved across reconnects.
+    #[serde(default, skip_serializing_if = "ContextKind::is_default")]
+    pub context: ContextKind,
+    /// Set on isolated `oc-preview://` tabs so browser chrome marks them as previews.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<PreviewKindTag>,
+    /// Whether this tab is agent-driven (preserved across reconnects so file choosers / HTTP auth stay guarded).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agent_driven: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PreviewKindTag {
+    Local,
+    Remote,
+    Artifact,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PreviewSpec {
+    Local { root: String, document: String },
+    Remote { root: String, session_prefix: String, document: String },
+    Artifact { artifact_id: String, path: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -73,11 +98,14 @@ pub struct PickedElement {
 pub enum HostMsg {
     /// `prompts`: the app shows and answers page dialogs, permission prompts, and HTTP auth;
     /// older apps leave it false so the engine suppresses dialogs and denies permissions/auth.
+    /// `extensions`: the app handles extension-initiated tab opens (`EngineMsg::ExtensionOpenTab`).
     Hello {
         mach_service: Option<String>,
         pid: u32,
         #[serde(default)]
         prompts: bool,
+        #[serde(default)]
+        extensions: bool,
     },
     OpenTab {
         tab_id: u64,
@@ -88,9 +116,35 @@ pub enum HostMsg {
         focused: bool,
         #[serde(default)]
         file_roots: Vec<String>,
+        /// Partitioned `CefRequestContext` (`Default`, `IsolatedPreview`, `RemoteServer`, or
+        /// `Private`). Non-default contexts are strictly invisible to extensions.
         #[serde(default)]
         context: ContextKind,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        preview: Option<PreviewSpec>,
+        /// Set before browser creation so cold-start / restarted agent tabs never race OS file choosers or HTTP auth.
+        #[serde(default)]
+        agent_driven: bool,
+        /// Legacy shorthand for `ContextKind::Private` when `context` is `Default`.
+        #[serde(default)]
+        isolated: bool,
+        /// Allows navigating to loaded `chrome-extension://` pages (user tabs & popups only;
+        /// never set for agent-driven or non-default context tabs).
+        #[serde(default)]
+        allow_extension_pages: bool,
+        /// True when this tab is an anchored extension popup (enables content auto-sizing).
+        #[serde(default)]
+        is_popup: bool,
+        /// When answering `EngineMsg::ExtensionOpenTab`, correlates this newly opened pane tab.
+        #[serde(default)]
+        ext_open_request_id: Option<u64>,
     },
+    ClickExtension { ext_id: String },
+    ListExtensions { request_id: u64 },
+    UninstallExtension { ext_id: String },
+    ReloadExtension { ext_id: String },
+    CancelExtensionOpenTab { request_id: u64 },
+    ExtensionMetrics { request_id: u64 },
     SetTabPolicy { tab_id: u64, file_roots: Vec<String> },
     CloseTab { tab_id: u64 },
     FocusTab { tab_id: u64 },
@@ -121,7 +175,15 @@ pub enum HostMsg {
     /// Clears origin-scoped cache storage, service workers, and HTTP cache while keeping cookies.
     ClearSiteCache { tab_id: u64, request_id: u64 },
     /// In-page text search (`FindHandler`).
-    Find { tab_id: u64, query: String, forward: bool, match_case: bool, find_next: bool },
+    Find {
+        tab_id: u64,
+        query: String,
+        forward: bool,
+        match_case: bool,
+        find_next: bool,
+        #[serde(default)]
+        user_initiated: bool,
+    },
     StopFind { tab_id: u64, clear_selection: bool },
     /// Executes or cancels a held page right-click context menu (`EngineMsg::ContextMenu`).
     ContextMenuAction { tab_id: u64, id: u64, action: Option<ContextMenuCommand> },
@@ -176,11 +238,49 @@ pub enum HostMsg {
     /// The app's answer to a held JavaScript dialog or `beforeunload` (`EngineMsg::Dialog`).
     AnswerDialog { tab_id: u64, id: u64, accept: bool, text: String },
     /// The app's answer to a held permission request (`EngineMsg::PermissionRequest`).
-    AnswerPermission { tab_id: u64, id: u64, allow: bool },
+    AnswerPermission {
+        tab_id: u64,
+        id: u64,
+        allow: bool,
+        /// When `true` and `!allow`, answers with `CEF_PERMISSION_RESULT_DISMISS` so Chromium does
+        /// not permanently block the origin (for `"Not now"`, timeouts, and origin changes).
+        #[serde(default)]
+        dismiss: bool,
+        /// When `true` (`"Always allow"` / `"Never allow"` in `Default`), keeps the grant/block
+        /// persistent in Chromium's `HostContentSettingsMap` until changed in `Settings > Browser`.
+        /// When `false` (`"Allow this time"`), tracked as a per-tab visit grant and reset on
+        /// cross-origin navigation, tab close, or shutdown.
+        #[serde(default)]
+        persist: bool,
+    },
+    /// Resets Chromium's `HostContentSettingsMap` entry for `(origin, kind)` back to `DEFAULT`
+    /// when a site permission is revoked or changed in `Settings > Browser`.
+    ResetPermission { origin: String, kind: PermissionKind },
+    /// Syncs Chromium's `Default` `HostContentSettingsMap` to match Rune's persisted
+    /// `rune.sitePermissions` (`Default` `"Always allow"` / `"Never allow"` decisions).
+    SyncSitePermissions { entries: Vec<SitePermissionEntry> },
     /// The app's answer to an HTTP 401 auth challenge (`EngineMsg::AuthRequest`); `None` cancels.
     AnswerAuth { tab_id: u64, id: u64, username: Option<String>, password: Option<String> },
     /// Marks a tab as agent-driven (cancels native file choosers, skips `beforeunload`, rejects HTTP auth).
     SetAgentDriven { tab_id: u64, agent_driven: bool },
+    /// Typed CDP call issued strictly by Rune's native Rust `experimental.browser` executors
+    /// (`browser_policy::check_typed_cdp`), never exposed to untrusted Luau plugins.
+    TypedCdpCall { tab_id: u64, request_id: u64, method: String, params: Value, session_id: Option<String> },
+    /// App-proxied response headers for a remote workspace or artifact `EngineMsg::PreviewFetch`.
+    PreviewResponseHead {
+        req_id: u64,
+        ok: bool,
+        status: u16,
+        mime: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content_length: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content_range: Option<String>,
+    },
+    /// App-proxied base64 body chunk for a pending `EngineMsg::PreviewFetch`.
+    PreviewResponseChunk { req_id: u64, data_b64: String },
+    /// Marks EOF (`ok: true`) or failure (`ok: false`) for a pending `EngineMsg::PreviewFetch`.
+    PreviewResponseEnd { req_id: u64, ok: bool },
     Shutdown,
 }
 
@@ -189,7 +289,11 @@ pub enum HostMsg {
 pub enum EngineMsg {
     /// `downloads`: keeps page downloads; `policy`: enforces URL/CDP policy; `prompts`: holds
     /// dialogs/permissions/auth for the app; `popups`: routes pop-ups to managed tabs; `find`:
-    /// supports in-page `FindHandler`; `context_menu`: routes right-click menus to the app.
+    /// supports in-page `FindHandler`; `context_menu`: routes right-click menus to the app;
+    /// `partitions` / `remote_proxy`: isolated `CefRequestContext` partitions; `agent_tools`:
+    /// supports `TypedCdpCall` and flattened OOPIF `sessionId` CDP events; `preview`: serves
+    /// isolated `oc-preview://` tabs; `extensions`: hosts verified MV3 extensions over the private
+    /// in-process CDP pipe.
     Ready {
         chromium_major: u32,
         pid: u32,
@@ -208,12 +312,38 @@ pub enum EngineMsg {
         #[serde(default)]
         remote_proxy: bool,
         #[serde(default)]
+        agent_tools: bool,
+        #[serde(default)]
+        preview: bool,
+        /// The engine tracks one-time vs persistent permissions and supports
+        /// `HostMsg::SyncSitePermissions`, `HostMsg::ResetPermission`, and `AnswerPermission.{dismiss,persist}`.
+        #[serde(default)]
+        permission_sync: bool,
+        #[serde(default)]
+        preview_credit: bool,
+        #[serde(default)]
+        extensions: bool,
+        /// The engine exposes `CefCookieManager` list/import/delete/probe/clear & two-way remote cookie mirroring.
+        #[serde(default)]
         cookies: bool,
     },
     ProfileCookies { request_id: u64, cookies: Vec<WireCookie> },
     ProfileCookiesImported { request_id: u64, imported: u32, failed: u32 },
     ProfileProbeReady { request_id: u64, written: bool, cache_dir: String },
     ProfileActionDone { request_id: u64, ok: bool },
+    /// Requests bytes for a remote workspace or artifact preview from the app host (server
+    /// credentials never enter the engine process).
+    PreviewFetch {
+        req_id: u64,
+        tab_id: u64,
+        kind: PreviewKindTag,
+        path: String,
+        method: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        range: Option<String>,
+    },
+    /// A preview page attempted to load a file outside its grant or a secret/hidden path.
+    PreviewDenied { tab_id: u64 },
     Refused { tab_id: u64, reason: String },
     Dialog { tab_id: u64, dialog: PageDialog },
     DialogsReset { tab_id: u64 },
@@ -247,6 +377,56 @@ pub enum EngineMsg {
     /// Linux: a finished frame in buffer `slot` of `pool`. The app says when it has read it
     /// (`HostMsg::FrameRead`), and the engine writes that buffer again only after.
     DmabufFrame { tab_id: u64, frame_id: u64, pool: u64, slot: u32 },
+    ExtensionsState {
+        request_id: Option<u64>,
+        extensions: Vec<crate::extensions::ExtensionActionSnapshot>,
+    },
+    ExtensionAction {
+        action: crate::extensions::ExtensionActionSnapshot,
+    },
+    ExtensionPopupRequested {
+        ext_id: String,
+        url: String,
+    },
+    ExtensionPopupResized {
+        ext_id: String,
+        width: u32,
+        height: u32,
+    },
+    ExtensionOpenTab {
+        request_id: u64,
+        ext_id: String,
+        url: String,
+        active: bool,
+    },
+    ExtensionFocusTab {
+        tab_id: u64,
+    },
+    ExtensionFiltersReady,
+    ExtensionUninstalled {
+        ext_id: String,
+        ok: bool,
+        error: Option<String>,
+    },
+    ExtensionReloaded {
+        ext_id: String,
+        ok: bool,
+        error: Option<String>,
+    },
+    ExtensionIntegrityFailed {
+        ext_id: String,
+    },
+    ExtensionMetrics {
+        request_id: u64,
+        metrics: crate::extensions::ShimMetrics,
+    },
+    /// Byte-credit replenishment (or immediate cancellation) for an in-flight `PreviewFetch`.
+    PreviewCredit {
+        req_id: u64,
+        bytes: u32,
+        #[serde(default)]
+        cancel: bool,
+    },
 }
 
 /// A file a page downloaded, kept in the engine's private downloads folder for the agent's tools
@@ -267,6 +447,9 @@ pub struct DownloadFile {
     /// interrupt reason (`network_failed`, `file_no_space`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Source URL captured by the engine in `on_before_download` before any post-download redirect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -306,6 +489,13 @@ pub enum PermissionKind {
     Location,
     Notifications,
     ClipboardRead,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SitePermissionEntry {
+    pub origin: String,
+    pub kind: PermissionKind,
+    pub allow: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -364,7 +554,7 @@ pub struct PageContextMenu {
     pub suggestions: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteProxyConfig {
     pub host: String,
     pub port: u16,
@@ -374,6 +564,18 @@ pub struct RemoteProxyConfig {
     pub password: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub realm: Option<String>,
+}
+
+impl std::fmt::Debug for RemoteProxyConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemoteProxyConfig")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("username", &self.username.as_ref().map(|_| "<redacted>"))
+            .field("password", &self.password.as_ref().map(|_| "<redacted>"))
+            .field("realm", &self.realm)
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -408,6 +610,24 @@ impl ContextKind {
 
     pub fn is_isolated(&self) -> bool {
         !self.is_default()
+    }
+
+    /// Returns a wire-safe copy with `RemoteProxyConfig` credentials omitted for `TabSnapshot`.
+    pub fn redacted(&self) -> Self {
+        match self {
+            Self::RemoteServer { server_id, .. } => Self::RemoteServer {
+                server_id: server_id.trim().to_owned(),
+                proxy: None,
+            },
+            Self::Preview { workspace, grant } => Self::Preview {
+                workspace: workspace.trim().to_owned(),
+                grant: grant.trim().to_owned(),
+            },
+            Self::Artifact { artifact_id } => Self::Artifact {
+                artifact_id: artifact_id.trim().to_owned(),
+            },
+            other => other.clone(),
+        }
     }
 }
 

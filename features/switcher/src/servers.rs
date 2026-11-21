@@ -8,6 +8,8 @@
 //! other one is a [`Remote`]: the root sessions it had loaded when the search opened, and what its
 //! server finds for the query.
 
+use std::collections::HashMap;
+
 use opencode_kit::client::Server;
 use opencode_kit::model::{self, Project, SessionInfo};
 use opencode_kit::servers::ServerKey;
@@ -25,6 +27,8 @@ pub struct RemoteSeed {
     pub conn: Server,
     /// Its root sessions loaded when the search opened.
     pub known: Vec<SessionInfo>,
+    /// Clamped recency `(active_ms, idle)` indexed per session id from that server's `recent_page`.
+    pub indexed: HashMap<String, (i64, i64)>,
     /// Its projects, for each row's name and avatar.
     pub projects: Vec<Project>,
 }
@@ -37,6 +41,8 @@ pub(crate) struct Remote {
     conn: Server,
     /// Its root sessions loaded when the search opened, and those its server found since.
     known: Vec<SessionInfo>,
+    /// Clamped recency `(active_ms, idle)` indexed per session id (`mergeRootSessionIndex`).
+    indexed: HashMap<String, (i64, i64)>,
     /// Its projects, for each row's name and avatar.
     pub projects: Vec<Project>,
     /// It lists archived sessions (the Inbox's Archived).
@@ -56,6 +62,13 @@ impl Remote {
 
     pub fn loading(&self, q: &str) -> bool {
         self.source.query() != Some(q) || self.source.loading()
+    }
+
+    fn active_ms(&self, s: &SessionInfo) -> i64 {
+        match self.indexed.get(&s.id) {
+            Some(&(indexed_updated, indexed_idle)) if s.idle.unwrap_or(0) <= indexed_idle => indexed_updated,
+            _ => s.active_ms(),
+        }
     }
 }
 
@@ -82,6 +95,7 @@ pub(crate) fn open(host: &mut dyn SwitcherHost) -> Vec<Remote> {
                 tag: seed.tag,
                 conn: seed.conn,
                 known: seed.known,
+                indexed: seed.indexed,
                 projects: seed.projects,
                 archived,
                 source: search::Source::default(),
@@ -113,7 +127,7 @@ pub(crate) fn remote_matches(host: &dyn SwitcherHost, q: &str, group: &'static s
     let mut out = Vec::new();
     for r in remotes {
         let mut rows: Vec<&SessionInfo> = r.known.iter().filter(|i| i.archived.is_some() == archived && !(needle.is_empty() && is_automation(&i.title))).collect();
-        rows.sort_by_key(|a| std::cmp::Reverse(a.active_ms()));
+        rows.sort_by_key(|a| std::cmp::Reverse(r.active_ms(a)));
         for ses in rows {
             let (project_id, project) = project_of(r, ses);
             let title = title_of(ses);
@@ -130,7 +144,7 @@ pub(crate) fn remote_matches(host: &dyn SwitcherHost, q: &str, group: &'static s
                 hint: None,
                 chord: None,
                 group,
-                updated: Some(ses.updated),
+                updated: Some(r.active_ms(ses)),
                 open: host.is_tab_open(Some(&r.server), &ses.id),
             });
             if out.len() >= if needle.is_empty() { RECENT_SESSIONS } else { MATCHES } * remotes.len() {
@@ -159,7 +173,20 @@ pub(crate) fn poll_remotes(host: &mut dyn SwitcherHost, now: f64, tx: &mut Tx) -
         if let Some(reply) = r.fetch.take() {
             let event = match reply.items {
                 Ok(sessions) => {
-                    upsert_latest(&mut r.known, sessions.into_iter().filter(|i| i.parent.is_none()), |a, b| a.id == b.id, |s| s.updated);
+                    let roots: Vec<SessionInfo> = sessions.into_iter().filter(|i| i.parent.is_none()).collect();
+                    for s in &roots {
+                        let next_idle = s.idle.unwrap_or(0);
+                        r.indexed
+                            .entry(s.id.clone())
+                            .and_modify(|(t, idle)| {
+                                if next_idle > *idle {
+                                    *t = s.active_ms();
+                                    *idle = next_idle;
+                                }
+                            })
+                            .or_insert_with(|| (s.active_ms(), next_idle));
+                    }
+                    upsert_latest(&mut r.known, roots, |a, b| a.id == b.id, |s| s.updated);
                     search::Event::Answered { attempt: reply.attempt, items: Vec::new() }
                 }
                 Err(()) => search::Event::Failed { attempt: reply.attempt },

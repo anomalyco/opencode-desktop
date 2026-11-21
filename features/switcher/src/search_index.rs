@@ -315,7 +315,7 @@ fn recent_sessions(host: &dyn SwitcherHost, archived: bool, limit: usize) -> Vec
         .sessions()
         .iter()
         .filter(|s| s.parent.is_none() && s.archived.is_some() == archived && !crate::is_automation(&s.title))
-        .map(|s| (s.active_ms(), s.id.as_str()))
+        .map(|s| (host.session_active_ms(s), s.id.as_str()))
         .collect();
     if limit < rows.len() {
         rows.select_nth_unstable_by_key(limit, |r| std::cmp::Reverse(r.0));
@@ -348,7 +348,7 @@ fn session_snapshot(host: &dyn SwitcherHost) -> Snapshot {
         text.push_str(label);
         ids.push(s.id.as_str().into());
         ends.push(text.len() as u32);
-        rows.push(Row { active_ms: s.active_ms(), archived: s.archived.is_some(), automation: crate::is_automation(&s.title), project: *project });
+        rows.push(Row { active_ms: host.session_active_ms(s), archived: s.archived.is_some(), automation: crate::is_automation(&s.title), project: *project });
     }
     Snapshot { version: session_version(host), text, ids, ends, rows, projects }
 }
