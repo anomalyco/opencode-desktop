@@ -22,6 +22,7 @@ impl EngineManager {
                 &t.snap,
                 &t.prompts,
                 &t.cdp_ledger,
+                &t.emulation_scale,
                 &t.cdp_id_map,
                 &self.next_cdp_id,
                 &self.out_tx,

@@ -129,24 +129,58 @@ pub fn handle_drop_files(
             return;
         }
     };
-    let drag_data = json!({ "items": [], "files": verified, "dragOperationsMask": 1 });
-    for kind in ["dragEnter", "dragOver"] {
-        let msg_id = next_cdp_id.fetch_add(1, Ordering::Relaxed);
-        let raw = json!({
-            "id": msg_id,
-            "method": "Input.dispatchDragEvent",
-            "params": { "type": kind, "x": x, "y": y, "data": drag_data },
-        })
-        .to_string();
-        let _ = t.host.send_dev_tools_message(Some(raw.as_bytes()));
+    if t.prompts.is_covered() {
+        send_err(
+            out_tx,
+            tab_id,
+            request_id,
+            "The user is answering a prompt over this page. Wait for them, or use another tab; no input was sent.",
+        );
+        return;
     }
-    dispatch_cdp(
-        t,
+    let drag_data = json!({ "items": [], "files": verified, "dragOperationsMask": 1 });
+    // Route all 3 `Input.dispatchDragEvent` steps through the serialized `InputGuard` so
+    // `DropFiles` gets the exact same hit-test, frame-owner, scroll-offset, emulation-scale, and
+    // prompt-cover enforcement as `TypedCdpCall` (`chromium.ts:2025-2034`; READER-12 Blocker #3).
+    t.cdp_ledger.lock().unwrap().app_attached = true;
+    let enqueued = {
+        let mut g = t.input_guard.lock().unwrap();
+        let group_id = g.alloc_group_id();
+        let steps = [
+            ("dragEnter", true),
+            ("dragOver", true),
+            ("drop", false),
+        ];
+        let mut ok = Ok(());
+        for (kind, silent) in steps {
+            if let Err(msg) = g.enqueue(crate::input_guard::InputCall {
+                request_id,
+                method: "Input.dispatchDragEvent".into(),
+                params: json!({ "type": kind, "x": x, "y": y, "data": drag_data }),
+                silent,
+                group_id,
+            }) {
+                ok = Err(msg);
+                break;
+            }
+        }
+        ok
+    };
+    if let Err(msg) = enqueued {
+        send_err(out_tx, tab_id, request_id, msg);
+        return;
+    }
+    crate::input_guard::pump(
         tab_id,
-        request_id,
-        "Input.dispatchDragEvent",
-        json!({ "type": "drop", "x": x, "y": y, "data": drag_data }),
-        None,
+        &t.input_guard,
+        &t.browser,
+        &t.host,
+        t.is_popup,
+        &t.snap,
+        &t.prompts,
+        &t.cdp_ledger,
+        &t.emulation_scale,
+        &t.cdp_id_map,
         next_cdp_id,
         out_tx,
     );

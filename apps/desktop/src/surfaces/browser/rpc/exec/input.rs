@@ -77,13 +77,13 @@ type Target = (i64, Option<String>, Option<String>);
 pub(super) enum InputStep {
     ResolvePoint(Target),
     StoreFromCenter,
-    HitTestSaved,
     DispatchMouse { kind: &'static str, button: String, click_count: u32, modifiers: u32 },
+    SendInput { method: &'static str, params: Value },
     CheckDraggable,
     SetInterceptDrags(bool),
-    DispatchDragMotion,
+    ExpandDragMotion,
     WaitDragData,
-    FinishDrag,
+    ExpandFinishDrag,
     ResolveNode(Target),
     CheckEditable { bid: Target, text: String },
     SetStructured { text: String },
@@ -231,7 +231,6 @@ fn start_hover(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> Ste
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     let mut steps = VecDeque::new();
     steps.push_back(InputStep::ResolvePoint(bid));
-    steps.push_back(InputStep::HitTestSaved);
     steps.push_back(InputStep::DispatchMouse { kind: "mouseMoved", button: "none".into(), click_count: 0, modifiers: 0 });
     launch_steps(att, app, host_id, steps)
 }
@@ -252,17 +251,15 @@ fn start_drag(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> Step
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     let mut steps = VecDeque::new();
     steps.push_back(InputStep::ResolvePoint(from_bid.clone()));
-    steps.push_back(InputStep::HitTestSaved);
     steps.push_back(InputStep::StoreFromCenter);
     steps.push_back(InputStep::ResolvePoint(to_bid));
-    steps.push_back(InputStep::HitTestSaved);
     steps.push_back(InputStep::ResolveNode(from_bid));
     steps.push_back(InputStep::CheckDraggable);
     steps.push_back(InputStep::ReleaseObject);
     steps.push_back(InputStep::SetInterceptDrags(true));
-    steps.push_back(InputStep::DispatchDragMotion);
+    steps.push_back(InputStep::ExpandDragMotion);
     steps.push_back(InputStep::WaitDragData);
-    steps.push_back(InputStep::FinishDrag);
+    steps.push_back(InputStep::ExpandFinishDrag);
     launch_steps(att, app, host_id, steps)
 }
 
@@ -386,7 +383,6 @@ fn start_scroll(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -> St
 
 fn push_click_steps(steps: &mut VecDeque<InputStep>, bid: Target, button: String, count: u32, modifiers: u32) {
     steps.push_back(InputStep::ResolvePoint(bid));
-    steps.push_back(InputStep::HitTestSaved);
     steps.push_back(InputStep::DispatchMouse { kind: "mouseMoved", button: "none".into(), click_count: 0, modifiers });
     for click_count in 1..=count {
         steps.push_back(InputStep::DispatchMouse { kind: "mousePressed", button: button.clone(), click_count, modifiers });
@@ -513,17 +509,6 @@ fn dispatch_next_step(att: &SessionAttachment, app: &mut App, st: &mut InputStat
             st.saved_from = st.saved_pos;
             return None;
         }
-        InputStep::HitTestSaved => {
-            let Some((x, y)) = st.saved_pos else {
-                return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Missing element coordinates."));
-            };
-            app.workspace_panes.browser.host.send_typed_cdp(
-                hid,
-                "DOM.getNodeForLocation",
-                json!({ "x": x.round() as i64, "y": y.round() as i64, "ignorePointerEventsNone": false }),
-                None,
-            ).map(Some)
-        }
         InputStep::DispatchMouse { kind, button, click_count, modifiers } => {
             let Some((x, y)) = st.saved_pos else {
                 return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Missing element coordinates."));
@@ -535,6 +520,9 @@ fn dispatch_next_step(att: &SessionAttachment, app: &mut App, st: &mut InputStat
             }
             app.workspace_panes.browser.host.send_typed_cdp(hid, "Input.dispatchMouseEvent", params, None).map(Some)
         }
+        InputStep::SendInput { method, params } => {
+            app.workspace_panes.browser.host.send_typed_cdp(hid, method, params.clone(), None).map(Some)
+        }
         InputStep::CheckDraggable => call_fn(app, st, CHECK_DRAGGABLE_JS, None),
         InputStep::SetInterceptDrags(enabled) => {
             st.intercepting_drags = *enabled;
@@ -545,19 +533,24 @@ fn dispatch_next_step(att: &SessionAttachment, app: &mut App, st: &mut InputStat
                 None,
             ).map(Some)
         }
-        InputStep::DispatchDragMotion => {
+        InputStep::ExpandDragMotion => {
             let (Some((fx, fy)), Some((tx, ty))) = (st.saved_from, st.saved_pos) else {
                 return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Missing drag endpoints."));
             };
-            let host = &mut app.workspace_panes.browser.host;
-            let _ = host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseMoved", "x": fx.round(), "y": fy.round() }), None);
-            let _ = host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mousePressed", "x": fx.round(), "y": fy.round(), "button": "left", "buttons": 1, "clickCount": 1 }), None);
-            for i in 1..10 {
+            // Enqueue each step sequentially (never pipelined fire-and-forget) so any InputGuard
+            // refusal aborts cleanly and releases `SetInterceptDrags(false)` (`review-rd294.md` #8).
+            let mut seq = Vec::with_capacity(12);
+            seq.push(InputStep::SendInput { method: "Input.dispatchMouseEvent", params: json!({ "type": "mouseMoved", "x": fx.round(), "y": fy.round() }) });
+            seq.push(InputStep::SendInput { method: "Input.dispatchMouseEvent", params: json!({ "type": "mousePressed", "x": fx.round(), "y": fy.round(), "button": "left", "buttons": 1, "clickCount": 1 }) });
+            for i in 1..=10 {
                 let t = f64::from(i) / 10.0;
                 let (mx, my) = (fx + (tx - fx) * t, fy + (ty - fy) * t);
-                let _ = host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseMoved", "x": mx.round(), "y": my.round(), "button": "left", "buttons": 1 }), None);
+                seq.push(InputStep::SendInput { method: "Input.dispatchMouseEvent", params: json!({ "type": "mouseMoved", "x": mx.round(), "y": my.round(), "button": "left", "buttons": 1 }) });
             }
-            host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseMoved", "x": tx.round(), "y": ty.round(), "button": "left", "buttons": 1 }), None).map(Some)
+            for item in seq.into_iter().rev() {
+                st.steps.push_front(item);
+            }
+            return None;
         }
         InputStep::WaitDragData => {
             if st.html5_drag && st.drag_data.is_none() {
@@ -565,26 +558,30 @@ fn dispatch_next_step(att: &SessionAttachment, app: &mut App, st: &mut InputStat
             }
             return None;
         }
-        InputStep::FinishDrag => {
+        InputStep::ExpandFinishDrag => {
             let Some((tx, ty)) = st.saved_pos else {
                 return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Missing drag target coordinates."));
             };
-            let host = &mut app.workspace_panes.browser.host;
+            let mut seq = Vec::with_capacity(5);
             if let Some(data) = st.drag_data.take() {
                 for kind in ["dragEnter", "dragOver", "drop"] {
-                    let _ = host.send_typed_cdp(
-                        hid,
-                        "Input.dispatchDragEvent",
-                        json!({ "type": kind, "x": tx.round(), "y": ty.round(), "data": data }),
-                        None,
-                    );
+                    seq.push(InputStep::SendInput {
+                        method: "Input.dispatchDragEvent",
+                        params: json!({ "type": kind, "x": tx.round(), "y": ty.round(), "data": data }),
+                    });
                 }
             }
             if st.intercepting_drags {
-                st.intercepting_drags = false;
-                let _ = host.send_typed_cdp(hid, "Input.setInterceptDrags", json!({ "enabled": false }), None);
+                seq.push(InputStep::SetInterceptDrags(false));
             }
-            host.send_typed_cdp(hid, "Input.dispatchMouseEvent", json!({ "type": "mouseReleased", "x": tx.round(), "y": ty.round(), "button": "left", "clickCount": 1 }), None).map(Some)
+            seq.push(InputStep::SendInput {
+                method: "Input.dispatchMouseEvent",
+                params: json!({ "type": "mouseReleased", "x": tx.round(), "y": ty.round(), "button": "left", "clickCount": 1 }),
+            });
+            for item in seq.into_iter().rev() {
+                st.steps.push_front(item);
+            }
+            return None;
         }
         InputStep::ResolveNode((bid, sid, fid)) => {
             st.obj_session = sid.clone();
@@ -605,9 +602,9 @@ fn dispatch_next_step(att: &SessionAttachment, app: &mut App, st: &mut InputStat
             if let Some(txt) = &spec.text {
                 down["text"] = json!(txt);
             }
-            let host = &mut app.workspace_panes.browser.host;
-            let _ = host.send_typed_cdp(hid, "Input.dispatchKeyEvent", down, None);
-            host.send_typed_cdp(hid, "Input.dispatchKeyEvent", up, None).map(Some)
+            st.steps.push_front(InputStep::SendInput { method: "Input.dispatchKeyEvent", params: up });
+            st.steps.push_front(InputStep::SendInput { method: "Input.dispatchKeyEvent", params: down });
+            return None;
         }
         InputStep::CallSelect(values) => call_fn(app, st, SELECT_OPTIONS_JS, Some(json!(values))),
         InputStep::CallCheckPre { checked, .. } => call_fn(app, st, CHECK_PRE_JS, Some(json!(checked))),
@@ -660,14 +657,6 @@ fn handle_step_response(st: &mut InputState, step: InputStep, resp: Result<Value
     match step {
         InputStep::CheckDraggable => {
             st.html5_drag = val.get("result").and_then(|r| r.get("value")).and_then(Value::as_bool).unwrap_or(false);
-        }
-        InputStep::HitTestSaved => {
-            if val.get("backendNodeId").and_then(Value::as_i64).is_none() {
-                return Err(Outcome::fail(
-                    failure_code::OPERATION_FAILED,
-                    "Input target changed or could not be verified. Take a fresh snapshot and use the page outside extension UI.",
-                ));
-            }
         }
         InputStep::ResolveNode(_) => {
             let Some(oid) = val.get("object").and_then(|o| o.get("objectId")).and_then(Value::as_str) else {

@@ -43,6 +43,7 @@ pub(crate) struct ManagedTab {
     pub(crate) cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
     pub(crate) passkeys: Arc<crate::passkeys::TabPasskeyGate>,
     pub(crate) input_guard: Arc<Mutex<crate::input_guard::InputGuard>>,
+    pub(crate) emulation_scale: Arc<std::sync::atomic::AtomicU32>,
     internal_picked: Arc<Mutex<Vec<i64>>>,
     pending_clears: Arc<Mutex<Vec<PendingClear>>>,
     pub(crate) prompts: Arc<crate::prompts::TabPrompts>,
@@ -480,6 +481,12 @@ impl EngineManager {
                 if let Some(t) = self.tabs.get(&tab_id)
                     && self.contexts.is_tab_ready(tab_id)
                 {
+                    let applied = if device.is_some() {
+                        if scale.is_finite() { scale.clamp(0.25, 4.0) } else { 1.0 }
+                    } else {
+                        1.0
+                    };
+                    t.emulation_scale.store(applied.to_bits(), Ordering::Release);
                     emulation::apply(device.as_ref(), scale, |method, params| self.send_internal_cdp(&t.host, method, params));
                 }
             }
@@ -609,11 +616,6 @@ impl EngineManager {
             HostMsg::HighlightNode { tab_id, backend_node_id } => self.handle_highlight_node(tab_id, backend_node_id),
             HostMsg::CdpCall { tab_id, request_id, method, params, session_id } => {
                 self.set_user_reclaimed(tab_id, false);
-                if let Some(t) = self.tabs.get(&tab_id) {
-                    if method.starts_with("Input.") {
-                        t.prompts.popup_credit.store(true, Ordering::Release);
-                    }
-                }
                 self.handle_cdp_call(tab_id, request_id, method, params, session_id);
             }
             HostMsg::SiteCookies { tab_id, request_id } => {
@@ -729,9 +731,6 @@ impl EngineManager {
             HostMsg::TypedCdpCall { tab_id, request_id, method, params, session_id, frame_id } => {
                 self.set_user_reclaimed(tab_id, false);
                 if let Some(t) = self.tabs.get(&tab_id) {
-                    if method.starts_with("Input.") {
-                        t.prompts.popup_credit.store(true, Ordering::Release);
-                    }
                     let not_ready = (!self.contexts.is_tab_ready(tab_id)).then(|| self.contexts.not_ready_reason(tab_id));
                     crate::cdp_ledger::handle_typed_cdp_call(
                         tab_id, request_id, not_ready, t, &self.permissions, &self.next_cdp_id, &self.out_tx,
@@ -1163,6 +1162,8 @@ impl EngineManager {
             self.out_tx.clone(),
             self.events.clone(),
         );
+        let input_guard = Arc::new(Mutex::new(crate::input_guard::InputGuard::default()));
+        let emulation_scale = Arc::new(std::sync::atomic::AtomicU32::new(1.0f32.to_bits()));
         let request = TabRequestHandler::new(
             tab_id,
             file_roots.clone(),
@@ -1176,6 +1177,8 @@ impl EngineManager {
             snap.clone(),
             self.prompt_shared.clone(),
             prompts.clone(),
+            input_guard.clone(),
+            emulation_scale.clone(),
             self.permissions.clone(),
             scope_id,
             diagnostics,
@@ -1343,7 +1346,6 @@ impl EngineManager {
         let cdp_id_map = Arc::new(Mutex::new(HashMap::new()));
         let cdp_ledger = Arc::new(Mutex::new(crate::cdp_ledger::EngineCdpLedger::default()));
         let passkeys = Arc::new(crate::passkeys::TabPasskeyGate::new(tab_id, agent_driven));
-        let input_guard = Arc::new(Mutex::new(crate::input_guard::InputGuard::default()));
         let internal_picked = Arc::new(Mutex::new(Vec::new()));
         let pending_clears = Arc::new(Mutex::new(Vec::new()));
         let mut observer = TabCdpObserver::new(
@@ -1358,6 +1360,7 @@ impl EngineManager {
             cdp_ledger.clone(),
             passkeys.clone(),
             input_guard.clone(),
+            emulation_scale.clone(),
             self.next_cdp_id.clone(),
             prompts.clone(),
             self.permissions.clone(),
@@ -1403,6 +1406,7 @@ impl EngineManager {
                 cdp_ledger,
                 passkeys,
                 input_guard,
+                emulation_scale,
                 internal_picked,
                 pending_clears,
                 prompts,

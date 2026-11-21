@@ -392,6 +392,8 @@ impl EngineManager {
             snap.clone(),
             prompt_shared.clone(),
             prompts.clone(),
+            Arc::new(Mutex::new(crate::input_guard::InputGuard::default())),
+            Arc::new(std::sync::atomic::AtomicU32::new(1.0f32.to_bits())),
             self.permissions.clone(),
             None,
             diagnostics,
@@ -543,15 +545,27 @@ impl EngineManager {
             });
             return;
         }
+        if method == "Page.handleJavaScriptDialog"
+            && (t.prompts.has_leave_dialog() || t.prompts.is_covered())
+        {
+            let _ = self.out_tx.send(EngineMsg::CdpResponse {
+                tab_id,
+                request_id,
+                ok: false,
+                result: json!({ "message": "The user is answering a prompt over this page. Wait for them, or use another tab." }),
+            });
+            return;
+        }
         // Route raw `Input.*` calls through the same serialized `InputGuard` as `TypedCdpCall` so
         // no raw caller can bypass hit-test, frame-owner, focused-frame, or prompt-cover checks.
         if method.starts_with("Input.") {
             t.cdp_ledger.lock().unwrap().app_attached = true;
-            if let Err(msg) = t.input_guard.lock().unwrap().enqueue(crate::input_guard::InputCall {
-                request_id,
-                method,
-                params,
-            }) {
+            if let Err(msg) = t
+                .input_guard
+                .lock()
+                .unwrap()
+                .enqueue(crate::input_guard::InputCall::single(request_id, method, params))
+            {
                 let _ = self.out_tx.send(EngineMsg::CdpResponse {
                     tab_id,
                     request_id,
@@ -569,6 +583,7 @@ impl EngineManager {
                 &t.snap,
                 &t.prompts,
                 &t.cdp_ledger,
+                &t.emulation_scale,
                 &t.cdp_id_map,
                 &self.next_cdp_id,
                 &self.out_tx,

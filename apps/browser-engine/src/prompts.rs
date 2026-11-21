@@ -141,6 +141,18 @@ impl TabPrompts {
         !self.dialogs.lock().unwrap().is_empty() || !self.auth.lock().unwrap().is_empty()
     }
 
+    pub fn has_any_pending_ext_subframe(&self) -> bool {
+        !self.pending_ext_subframes.lock().unwrap().is_empty()
+    }
+
+    pub fn has_leave_dialog(&self) -> bool {
+        self.dialogs
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(d, _)| d.kind == DialogKind::Leave)
+    }
+
     pub fn answer_dialog(&self, id: u64, accept: bool, text: &str) -> bool {
         let cb = {
             let mut list = self.dialogs.lock().unwrap();
