@@ -50,7 +50,19 @@ struct HeldMenu {
     id: u64,
     src_url: Option<String>,
     target: crate::extensions::context_menus::MenuTarget,
+    /// The menu was for an editable field: only then do Spellcheck / Languages run.
+    editable: bool,
+    /// The frame the menu opened in (CEF's identifier, which is the DevTools frame id).
+    frame_id: Option<String>,
     callback: RunContextMenuCallback,
+}
+
+/// What the engine still does after a menu command ran.
+pub enum MenuFollowUp {
+    /// An extension's item: the engine tells the extension (`contextMenus.onClicked`).
+    Extension { ext_id: String, item_id: String, target: crate::extensions::context_menus::MenuTarget },
+    /// Copy image: the engine reads and re-encodes the image (`menu_extras.rs`).
+    CopyImage { url: String, frame_id: Option<String> },
 }
 
 /// Per-tab held CEF context menu callback (at most one active at a time).
@@ -78,7 +90,7 @@ impl TabMenuState {
         _file_roots: &[String],
         block_downloads: bool,
         downloads: &crate::downloads::Downloads,
-    ) -> Option<(String, String, crate::extensions::context_menus::MenuTarget)> {
+    ) -> Option<MenuFollowUp> {
         let matched = {
             let mut slot = self.held.lock().unwrap();
             if slot.as_ref().is_some_and(|h| h.id == id) {
@@ -87,15 +99,30 @@ impl TabMenuState {
                 None
             }
         };
-        let (held_src_url, held_target) = if let Some(held) = matched {
-            // Always cancel CEF's native menu runner; we execute the chosen action directly.
-            held.callback.cancel();
-            (held.src_url, held.target)
-        } else {
-            return None;
-        };
+        // Always cancel CEF's native menu runner; we execute the chosen action directly.
+        let held = matched?;
+        held.callback.cancel();
+        let held_src_url = held.src_url;
         let cmd = action?;
         match cmd {
+            // `src_url` is held only for an image with contents, outside preview tabs.
+            ContextMenuCommand::CopyImage => {
+                return held_src_url.map(|url| MenuFollowUp::CopyImage { url, frame_id: held.frame_id });
+            }
+            ContextMenuCommand::ToggleSpellcheck => {
+                if held.editable
+                    && let Some(ctx) = host.request_context()
+                {
+                    crate::menu_extras::toggle_spellcheck(&ctx);
+                }
+            }
+            ContextMenuCommand::ToggleLanguage { value } => {
+                if held.editable
+                    && let Some(ctx) = host.request_context()
+                {
+                    crate::menu_extras::toggle_language(&ctx, &value);
+                }
+            }
             ContextMenuCommand::Back => browser.go_back(),
             ContextMenuCommand::Forward => browser.go_forward(),
             ContextMenuCommand::Reload => browser.reload(),
@@ -141,7 +168,7 @@ impl TabMenuState {
                 host.add_word_to_dictionary(Some(&CefString::from(word.as_str())));
             }
             ContextMenuCommand::ExtensionItem { ext_id, item_id } => {
-                return Some((ext_id, item_id, held_target));
+                return Some(MenuFollowUp::Extension { ext_id, item_id, target: held.target });
             }
         }
         None
@@ -200,8 +227,8 @@ wrap_context_menu_handler! {
 
         fn run_context_menu(
             &self,
-            _browser: Option<&mut Browser>,
-            _frame: Option<&mut Frame>,
+            browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
             params: Option<&mut ContextMenuParams>,
             _model: Option<&mut MenuModel>,
             callback: Option<&mut RunContextMenuCallback>,
@@ -265,6 +292,13 @@ wrap_context_menu_handler! {
                 None
             };
             let is_editable = params.is_editable() != 0;
+            let (spellcheck, languages, dictionaries) = browser
+                .as_ref()
+                .filter(|_| is_editable)
+                .and_then(|b| b.host())
+                .and_then(|h| h.request_context())
+                .map(|ctx| crate::menu_extras::spellcheck_state(&ctx))
+                .unwrap_or_default();
             let sel_capped: String = selection_text.chars().take(512).collect();
             let target = crate::extensions::context_menus::MenuTarget {
                 page_url: clean_page_url.clone(),
@@ -304,11 +338,16 @@ wrap_context_menu_handler! {
                     .then(|| crate::prompts::sanitize_wire_line(&misspelled_raw, 256)),
                 suggestions,
                 extensions,
+                spellcheck,
+                languages,
+                dictionaries,
             };
             if let Some(prev) = self.menu_state.held.lock().unwrap().replace(HeldMenu {
                 id,
-                src_url: menu.src_url.clone(),
+                src_url: menu.src_url.clone().filter(|_| menu.has_image_contents),
                 target,
+                editable: is_editable,
+                frame_id: frame.map(|f| CefString::from(&f.identifier()).to_string()).filter(|s| !s.is_empty()),
                 callback: callback.clone(),
             }) {
                 prev.callback.cancel();
