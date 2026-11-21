@@ -564,7 +564,9 @@ impl App {
         match ty {
             "vcs.branch.updated" => {
                 let Some(dir) = data["eventLocation"]["directory"].as_str() else { return false };
-                self.sidebar_inbox.branches.updated(dir, data["branch"].as_str().map(str::to_owned));
+                let branch = data["branch"].as_str().map(str::to_owned);
+                self.sidebar_inbox.branches.updated(dir, branch.clone());
+                crate::view::location_card::branch_updated(self, dir, branch);
                 true
             }
             "permission.asked" | "form.created" => {

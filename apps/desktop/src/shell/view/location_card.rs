@@ -23,6 +23,16 @@ pub struct Location {
     pub(super) recovery: Option<super::move_recovery::Recovery>,
 }
 
+/// Keeps cached location-card branches current when `vcs.branch.updated` arrives.
+pub(crate) fn branch_updated(s: &mut App, dir: &str, branch: Option<String>) {
+    let key = opencode_servers::home::comparable_path(dir);
+    for (loc_dir, slot) in &mut s.location.branches {
+        if opencode_servers::home::comparable_path(loc_dir) == key {
+            *slot = branch.clone();
+        }
+    }
+}
+
 /// The location menu's working-tree count is ungrouped, independent of the Review tab's scope.
 #[derive(Default)]
 enum Changes {
@@ -77,6 +87,7 @@ pub(super) fn open_card(s: &mut App, tx: &mut Tx) {
             let branch = srv.get(&path).ok().map(|v| v["data"]["branch"]["current"].as_str().or_else(|| v["branch"]["current"].as_str()).map(str::to_owned));
             Box::new(move |s: &mut App, tx: &mut Tx| {
                 let Some(branch) = branch else { return };
+                s.sidebar_inbox.branches.updated(&dir, branch.clone());
                 s.location.branches.insert(dir, branch);
                 reshow(s, tx);
             }) as Apply
