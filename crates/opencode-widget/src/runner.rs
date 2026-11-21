@@ -12,7 +12,7 @@ use psychoscript::{Compiled, DiagnosticKind, HostFunction, HostValue, Limits, Ru
 use serde_json::Value;
 
 use crate::draw::{Command, DRAW_TIMEOUT_MS, DrawOutput, Frame};
-use crate::step::{StepInput, StepOutput};
+use crate::step::{Step, StepInput, StepOutput};
 
 /// The contract's step budget; a client may use less.
 pub const STEP_TIMEOUT_MS: u64 = 250;
@@ -50,14 +50,38 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// A widget's `data` as its program reads it: converted once per widget, then copied into each
+/// step's and draw's input as it is, never serialized and parsed again.
+#[derive(Clone)]
+pub struct Data(Arc<HostValue>);
+
+impl Data {
+    pub fn new(data: &Value) -> Data {
+        Data(Arc::new(HostValue::from_json(data)))
+    }
+}
+
+impl fmt::Debug for Data {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Data")
+    }
+}
+
+/// A step's input object (`{ phase, data, ... }`) around `data`, the rest of it from JSON.
+fn input(phase: &str, data: &Data, rest: Vec<(&str, HostValue)>) -> HostValue {
+    let mut fields = vec![("phase".into(), HostValue::String(phase.into())), ("data".into(), (*data.0).clone())];
+    fields.extend(rest.into_iter().map(|(k, v)| (k.into(), v)));
+    HostValue::Object(fields)
+}
+
 /// A compiled template program, ready to step. Steps on one program run one at a time.
 pub struct Program {
     runtime: Runtime,
     /// The same program under the draw budget.
     drawing: Runtime,
     compiled: Compiled,
-    /// What `__input()` returns to the step running now.
-    input: Arc<Mutex<Value>>,
+    /// What `__input()` returns to the step running now (once: the step's tail reads it once).
+    input: Arc<Mutex<HostValue>>,
     /// Held across a step, so concurrent steps don't read each other's input.
     running: Mutex<()>,
 }
@@ -76,13 +100,13 @@ impl Program {
 
     /// [`Program::compile`] with a step budget of `timeout_ms` (at least 1, at most the contract's).
     pub fn compile_with(program: &str, timeout_ms: u64) -> Result<Program, Error> {
-        let input: Arc<Mutex<Value>> = Arc::new(Mutex::new(Value::Null));
+        let input: Arc<Mutex<HostValue>> = Arc::new(Mutex::new(HostValue::Null));
         let make = |timeout_ms: u64| {
             let reads = input.clone();
             Runtime::make()
                 .globals(move |_run| {
                     let reads = reads.clone();
-                    [("__input", HostFunction::new(move |_args, _call| HostValue::from_json(&reads.lock().unwrap_or_else(PoisonError::into_inner))))]
+                    [("__input", HostFunction::new(move |_args, _call| std::mem::take(&mut *reads.lock().unwrap_or_else(PoisonError::into_inner))))]
                 })
                 .limits(Limits { timeout_ms: Some(timeout_ms), ..Default::default() })
         };
@@ -102,24 +126,46 @@ impl Program {
         StepOutput::from_value(self.step_value(input)?).map_err(Error::Output)
     }
 
+    /// Runs one step on a widget's `data` as converted once ([`Data`]): `init` or an event.
+    pub fn step_with(&self, data: &Data, step: &Step) -> Result<StepOutput, Error> {
+        let input = match step {
+            Step::Init => input("init", data, vec![]),
+            Step::Event { state, event } => {
+                let event = serde_json::to_value(event).map_err(|e| Error::Input(e.to_string()))?;
+                input("event", data, vec![("state", HostValue::from_json(state)), ("event", HostValue::from_json(&event))])
+            }
+        };
+        StepOutput::from_value(self.run(&self.runtime, input)?).map_err(Error::Output)
+    }
+
     /// Draws a canvas's frame: the template's `draw(state, data, frame)`, under the 8 ms budget,
     /// its commands held to 2,000. A template without `draw` draws nothing.
     pub fn draw(&self, data: &Value, state: &Value, frame: &Frame) -> Result<Vec<Command>, Error> {
         let input = serde_json::json!({ "phase": "draw", "data": data, "state": state, "frame": frame });
+        self.drawn(HostValue::from_json(&input))
+    }
+
+    /// [`Program::draw`] on a widget's `data` as converted once ([`Data`]).
+    pub fn draw_with(&self, data: &Data, state: &Value, frame: &Frame) -> Result<Vec<Command>, Error> {
+        let frame = serde_json::to_value(frame).map_err(|e| Error::Input(e.to_string()))?;
+        self.drawn(input("draw", data, vec![("state", HostValue::from_json(state)), ("frame", HostValue::from_json(&frame))]))
+    }
+
+    fn drawn(&self, input: HostValue) -> Result<Vec<Command>, Error> {
         let out = self.run(&self.drawing, input)?;
         DrawOutput::from_value(&out).map(|d| d.commands).map_err(|e| if e.contains("over the budget") { Error::Budget(e) } else { Error::Output(e) })
     }
 
     /// Runs one step on a raw input, returning the program's raw value unchecked.
     pub fn step_value(&self, input: Value) -> Result<Value, Error> {
-        self.run(&self.runtime, input)
+        self.run(&self.runtime, HostValue::from_json(&input))
     }
 
-    fn run(&self, runtime: &Runtime, input: Value) -> Result<Value, Error> {
+    fn run(&self, runtime: &Runtime, input: HostValue) -> Result<Value, Error> {
         let _running = self.running.lock().unwrap_or_else(PoisonError::into_inner);
         *self.input.lock().unwrap_or_else(PoisonError::into_inner) = input;
         let outcome = runtime.execute(&self.compiled);
-        *self.input.lock().unwrap_or_else(PoisonError::into_inner) = Value::Null;
+        *self.input.lock().unwrap_or_else(PoisonError::into_inner) = HostValue::Null;
         outcome.json().map_err(|d| match d.kind {
             DiagnosticKind::TimeoutExceeded => Error::Timeout,
             DiagnosticKind::ParseError | DiagnosticKind::UnsupportedSyntax if d.location.is_none() => Error::Compile(d.message_lossy()),

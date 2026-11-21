@@ -33,4 +33,4 @@ pub use node::{Align, ButtonVariant, Node, SelectOption, SelectValue, TextStyle,
 #[cfg(feature = "runner")]
 pub use runner::{Error, Program, STEP_TIMEOUT_MS, step_json};
 pub use draw::{Command, DrawOutput, Frame, Paint};
-pub use step::{EventKind, Key, PointerKind, Response, SendMessage, StepInput, StepOutput, WidgetEvent};
+pub use step::{EventKind, Key, PointerKind, Response, SendMessage, Step, StepInput, StepOutput, WidgetEvent};

@@ -1,7 +1,7 @@
 //! The runners where they run: the Rust PsychoScript natively, steps here and live programs on
 //! threads of their own; in a page none, so every widget there says it needs the desktop app.
 
-use opencode_widget::{StepInput, StepOutput};
+use opencode_widget::{Step, StepOutput};
 use serde_json::Value;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -10,6 +10,9 @@ pub type Program = opencode_widget::Program;
 pub type LiveProgram = opencode_widget::live::LiveProgram;
 #[cfg(not(target_arch = "wasm32"))]
 pub use opencode_widget::live::{Ended, Grants, Live, Post, Setup};
+/// A widget's `data`, converted once for its program's steps and draws.
+#[cfg(not(target_arch = "wasm32"))]
+pub type Data = opencode_widget::runner::Data;
 
 /// A template version's program, compiled for how it runs.
 #[derive(Debug)]
@@ -70,14 +73,14 @@ fn failure(e: opencode_widget::Error) -> Failure {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn step(program: &Program, input: &StepInput) -> Result<StepOutput, Failure> {
-    program.step(input).map_err(failure)
+pub fn step(program: &Program, data: &Data, step: &Step) -> Result<StepOutput, Failure> {
+    program.step_with(data, step).map_err(failure)
 }
 
 /// A canvas's frame: `draw(state, data, frame)` under the draw budget.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn draw(program: &Program, data: &Value, state: &Value, frame: &opencode_widget::Frame) -> Result<Vec<opencode_widget::Command>, Failure> {
-    program.draw(data, state, frame).map_err(failure)
+pub fn draw(program: &Program, data: &Data, state: &Value, frame: &opencode_widget::Frame) -> Result<Vec<opencode_widget::Command>, Failure> {
+    program.draw_with(data, state, frame).map_err(failure)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -102,6 +105,15 @@ mod page {
     /// A live program never runs in a page.
     pub struct Live;
 
+    #[derive(Clone, Debug)]
+    pub struct Data;
+
+    impl Data {
+        pub fn new(_data: &Value) -> Data {
+            Data
+        }
+    }
+
     pub fn compile(_program: &str) -> Result<Program, String> {
         Err(opencode_i18n::t!("rune.widget.unsupported").to_owned())
     }
@@ -114,11 +126,11 @@ mod page {
         Failure { message: opencode_i18n::t!("rune.widget.unsupported").to_owned(), location: None, view: false }
     }
 
-    pub fn step(_program: &Program, _input: &StepInput) -> Result<StepOutput, Failure> {
+    pub fn step(_program: &Program, _data: &Data, _step: &Step) -> Result<StepOutput, Failure> {
         Err(unsupported())
     }
 
-    pub fn draw(_program: &Program, _data: &Value, _state: &Value, _frame: &opencode_widget::Frame) -> Result<Vec<opencode_widget::Command>, Failure> {
+    pub fn draw(_program: &Program, _data: &Data, _state: &Value, _frame: &opencode_widget::Frame) -> Result<Vec<opencode_widget::Command>, Failure> {
         Err(unsupported())
     }
 }

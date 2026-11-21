@@ -33,7 +33,7 @@
 use serde_json::Value;
 
 use crate::node::Node;
-use crate::step::{Response, StepInput, StepOutput, WidgetEvent};
+use crate::step::{Response, Step, StepOutput, WidgetEvent};
 
 /// How a widget ended, as the server reports it.
 #[derive(Clone, Debug, PartialEq)]
@@ -143,7 +143,7 @@ pub enum Effect {
     /// Fetch (or find cached) the template's program; answer with `Loaded` or `LoadFailed`.
     Fetch,
     /// Run this step on the program; answer with `Ran`.
-    Run(StepInput),
+    Run(Step),
     /// Post the response; answer with `Responded` carrying `attempt`.
     Respond { response: Response, attempt: u32 },
     /// Post a non-final message to the agent; answer with `Sent`. The widget stays open.
@@ -235,11 +235,10 @@ impl Widget {
 
 /// The transition function.
 pub fn step(w: &mut Widget, event: Event) -> Vec<Effect> {
-    let data = &w.data;
     let attempt = w.attempts + 1;
     let phase = std::mem::replace(&mut w.phase, Phase::Loading { status: Status::Open });
     let (next, effects) = match (phase, event) {
-        (Phase::Loading { status }, Event::Loaded(Mode::Step)) => (Phase::Starting { status }, vec![Effect::Run(StepInput::Init { data: data.clone() })]),
+        (Phase::Loading { status }, Event::Loaded(Mode::Step)) => (Phase::Starting { status }, vec![Effect::Run(Step::Init)]),
         // A live widget answered already has no view to show: its program never ran here.
         (Phase::Loading { status }, Event::Loaded(Mode::Live)) => match status {
             Status::Closed(how) => (Phase::Closed { view: None, state: Value::Null, how }, vec![]),
@@ -281,7 +280,7 @@ pub fn step(w: &mut Widget, event: Event) -> Vec<Effect> {
             (Err(_), Status::Closed(how)) => (Phase::Closed { view: None, state: Value::Null, how }, vec![]),
         },
         (Phase::Ready { state, view, .. }, Event::Input(event)) => {
-            let input = StepInput::Event { data: data.clone(), state: state.clone(), event };
+            let input = Step::Event { state: state.clone(), event };
             (Phase::Stepping { state, view }, vec![Effect::Run(input)])
         }
         (Phase::Stepping { state, view }, Event::Ran(result)) => match result {

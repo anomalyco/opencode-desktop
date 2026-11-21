@@ -53,6 +53,8 @@ pub struct Entry {
     /// Its title, else its template's name.
     pub label: String,
     pub machine: Widget,
+    /// The machine's `data`, converted once for its program.
+    data: engine::Data,
     pub local: Local,
     /// The status as last read, so a change reaches the machine once.
     seen: WidgetStatus,
@@ -224,15 +226,16 @@ fn run(host: &mut dyn WidgetsHost, id: &str, effect: Effect) -> Option<Event> {
             }
         },
         Effect::Run(input) => {
-            let result = match host.widgets().templates.get(&key) {
-                Some(Template::Ready(c)) => match &c.kind {
-                    Kind::Step(p) => engine::step(p, &input).map_err(|f| (f, c.offset)),
+            let w = host.widgets();
+            let result = match (w.templates.get(&key), w.entries.get(id)) {
+                (Some(Template::Ready(c)), Some(e)) => match &c.kind {
+                    Kind::Step(p) => engine::step(p, &e.data, &input).map_err(|f| (f, c.offset)),
                     Kind::Live { .. } => return Some(Event::Ran(Err("a live widget has no steps".to_owned()))),
                 },
                 _ => return Some(Event::Ran(Err("the widget's program isn't loaded".to_owned()))),
             };
             let result = result.map_err(|(f, offset)| {
-                let phase = if f.view { "view" } else if matches!(input, opencode_widget::StepInput::Init { .. }) { "init" } else { "event" };
+                let phase = if f.view { "view" } else if matches!(input, opencode_widget::Step::Init) { "init" } else { "event" };
                 report(host, id, phase, &f.message, f.location, offset);
                 in_source(&f.message, f.location, offset)
             });
@@ -424,8 +427,9 @@ pub fn sync(host: &mut dyn WidgetsHost) -> bool {
             }
             None => {
                 let (machine, effects) = Widget::open(c.data().clone(), status(&state.status));
+                let data = engine::Data::new(&machine.data);
                 let label = c.input["title"].as_str().filter(|t| !t.is_empty()).unwrap_or(state.label()).to_owned();
-                let entry = Entry { session: session.clone(), message: c.message.clone(), call: c.call.clone(), template: state.template_key(), label, machine, local: Local::default(), seen: state.status.clone(), run: live::Run::default(), reported: Default::default(), capture_wanted: false };
+                let entry = Entry { session: session.clone(), message: c.message.clone(), call: c.call.clone(), template: state.template_key(), label, machine, data, local: Local::default(), seen: state.status.clone(), run: live::Run::default(), reported: Default::default(), capture_wanted: false };
                 host.widgets_mut().entries.insert(key.clone(), entry);
                 for effect in effects {
                     if let Some(next) = run(host, &key, effect) {
@@ -464,12 +468,12 @@ pub fn draw_canvases(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool 
     let mut failed = Vec::new();
     let Widgets { templates, entries, .. } = host.widgets_mut();
     for (id, e) in entries.iter_mut() {
-        let Entry { machine, local, template, .. } = e;
+        let Entry { machine, local, template, data, .. } = e;
         let (Some(view), Some(state)) = (machine.view(), machine.state()) else { continue };
         let Some(Template::Ready(c)) = templates.get(template.as_str()) else { continue };
         let Kind::Step(program) = &c.kind else { continue };
         for (path, frame) in local.canvases_due(view, now, f64::from(scale), dark) {
-            let result = engine::draw(program, &machine.data, state, &frame).map_err(|f| {
+            let result = engine::draw(program, data, state, &frame).map_err(|f| {
                 let message = in_source(&f.message, f.location, c.offset);
                 failed.push((id.clone(), f, c.offset));
                 message

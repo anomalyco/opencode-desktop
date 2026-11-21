@@ -126,6 +126,15 @@ pub struct Key {
     pub meta: bool,
 }
 
+/// A step the lifecycle machine asks for, without the widget's `data`, which the host keeps
+/// converted once per widget and puts in: the step input is `{ phase, data, ... }` as
+/// [`StepInput`] serializes it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Step {
+    Init,
+    Event { state: Value, event: WidgetEvent },
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "phase", rename_all = "lowercase")]
 pub enum StepInput {
