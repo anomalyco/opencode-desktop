@@ -161,7 +161,9 @@ impl ExtensionHost {
                                 fetch_enable_cmd(fetch_id, &sid),
                             ];
                             if kind != SessionKind::SeedProbe {
-                                let code = shim_source(kind == SessionKind::PopupPage);
+                                let ext_id = self.sessions.get(&sid).map(|s| s.ext_id.clone()).unwrap_or_default();
+                                let perms = self.extensions.get(&ext_id).map(|e| e.manifest.permissions.as_slice()).unwrap_or(&[]);
+                                let code = shim_source(kind == SessionKind::PopupPage, perms);
                                 cmds.push(json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.addBinding", "params": { "name": "__ocExtCall" } }));
                                 cmds.push(json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Page.addScriptToEvaluateOnNewDocument", "params": { "source": code } }));
                             }
@@ -175,9 +177,10 @@ impl ExtensionHost {
             }
             "Debugger.paused" => {
                 if let Some(sid) = session_id
-                    && let Some(sess) = self.sessions.get(&sid)
+                    && let Some((kind, ext_id)) = self.sessions.get(&sid).map(|s| (s.kind, s.ext_id.clone()))
                 {
-                    let code = shim_source(sess.kind == SessionKind::PopupPage);
+                    let perms = self.extensions.get(&ext_id).map(|e| e.manifest.permissions.as_slice()).unwrap_or(&[]);
+                    let code = shim_source(kind == SessionKind::PopupPage, perms);
                     let pause_now = Instant::now();
                     let eval_id = self.send_cdp(
                         "Runtime.evaluate",
@@ -616,7 +619,7 @@ impl ExtensionHost {
             self.sessions.insert(
                 sid.to_owned(),
                 AttachedSession {
-                    ext_id,
+                    ext_id: ext_id.clone(),
                     kind: SessionKind::ServiceWorker,
                     url: url.to_owned(),
                     chromium_tab_id: None,
@@ -648,7 +651,8 @@ impl ExtensionHost {
                     s.pause_started = Some(Instant::now());
                     s.pending_shim_eval_id = Some(eval_id);
                 }
-                let code = shim_source(false);
+                let perms = self.extensions.get(&ext_id).map(|e| e.manifest.permissions.as_slice()).unwrap_or(&[]);
+                let code = shim_source(false, perms);
                 let batch = vec![
                     json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
                     auto_attach_cmd(self.alloc_id(), sid),
@@ -746,7 +750,7 @@ impl ExtensionHost {
             self.sessions.insert(
                 sid.to_owned(),
                 AttachedSession {
-                    ext_id,
+                    ext_id: ext_id.clone(),
                     kind,
                     url: url.to_owned(),
                     chromium_tab_id: None,
@@ -770,7 +774,8 @@ impl ExtensionHost {
                 fetch_enable_cmd(fetch_id, sid),
             ];
             if kind != SessionKind::SeedProbe {
-                let code = shim_source(kind == SessionKind::PopupPage);
+                let perms = self.extensions.get(&ext_id).map(|e| e.manifest.permissions.as_slice()).unwrap_or(&[]);
+                let code = shim_source(kind == SessionKind::PopupPage, perms);
                 batch.push(json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.addBinding", "params": { "name": "__ocExtCall" } }));
                 batch.push(json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Page.addScriptToEvaluateOnNewDocument", "params": { "source": code } }));
                 if let Some(s) = self.sessions.get_mut(sid) {
@@ -1123,9 +1128,17 @@ const IFRAME_LOCKDOWN_JS: &str = r#"(() => {
     let root;
     try { root = globalThis[rootName]; } catch { continue; }
     if (!root) continue;
-    for (const api of ["tabs", "windows", "action", "browserAction", "pageAction", "contextMenus", "webNavigation"]) {
+    for (const api of ["tabs", "windows", "action", "browserAction", "pageAction", "contextMenus", "webNavigation", "downloads", "management"]) {
       try { Object.defineProperty(root, api, { value: undefined, configurable: false, enumerable: false, writable: false }); } catch {}
     }
+    try {
+      const rt = root.runtime;
+      if (rt && typeof rt === "object") {
+        for (const m of ["connectNative", "sendNativeMessage"]) {
+          try { Object.defineProperty(rt, m, { value: undefined, configurable: false, enumerable: false, writable: false }); } catch {}
+        }
+      }
+    } catch {}
   }
 })();"#;
 
