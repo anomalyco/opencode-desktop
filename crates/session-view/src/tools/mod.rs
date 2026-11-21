@@ -340,14 +340,17 @@ pub fn trigger<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, d: Display, t
     // muted, what it worked on bright, counts muted, all at one weight.
     let mut words = row().key("words").gap(gap).center_y().shrink().min_w(0.0).child(title(s, p, &t.title, UI, d));
     if let Some(sub) = t.subtitle.filter(|x| !x.is_empty()) {
-        let font = if t.code { TOOL_CODE.lh(16.0) } else { UI };
+        // `basic-tool.css:111` sets `font-variant-numeric: tabular-nums` (inherited under
+        // `message-part.css:1438`), which in Inter widens digits and operators (`=`, `/`, `*`).
+        let font = if t.code { TOOL_CODE.lh(16.0) } else { UI.features("\"tnum\"") };
         // A command reads left to right in any window; a path, a pattern or a task's words read
         // their own way, and fade at their own end.
         let dir = if t.code { rune::Direction::Ltr } else { rune::Direction::Auto };
         words = words.child(readable(p, text(sub).key("subtitle").dir(dir).font(font).color(p.text).truncate_fade()).shrink().min_w(0.0));
     }
     for (k, a) in t.args.into_iter().enumerate() {
-        words = words.child(readable(p, text(a).key(format!("arg-{k}")).dir(rune::Direction::Auto).font(UI).color(p.text).truncate_fade()).shrink().min_w(0.0));
+        // `basic-tool.css:157`: `font-variant-numeric: tabular-nums` on tool arguments.
+        words = words.child(readable(p, text(a).key(format!("arg-{k}")).dir(rune::Direction::Auto).font(UI.features("\"tnum\"")).color(p.text).truncate_fade()).shrink().min_w(0.0));
     }
     if let Some(l) = t.link {
         words = words.child(l);

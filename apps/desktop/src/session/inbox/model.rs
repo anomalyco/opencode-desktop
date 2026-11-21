@@ -139,7 +139,7 @@ impl App {
     fn inbox_entry<'a>(&'a self, server: &'a ServerKey, session: &'a SessionInfo) -> Entry<'a> {
         let (status, since) = self.inbox_status(session);
         let project = self.project_for_session(session).or_else(|| self.project_at(&session.directory));
-        Entry { server, session, active_ms: self.recent_page.active_ms(session), status, since, project, worktree: in_worktree(self, session), branch: self.sidebar_inbox.branches.get(&session.directory) }
+        Entry { server, session, active_ms: self.recent_page.active_ms(session), status, since, project, worktree: in_worktree(self, session), branch: self.sidebar_inbox.branches.get(server, &session.directory) }
     }
 
     /// A root session's state and when its age counts from, on the server the window works
@@ -492,10 +492,11 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         if draft_dir.is_none() && hovered.is_none() && revealed.is_empty() {
             return false;
         }
-        s.sidebar_inbox.branches.enqueue_draft(draft_dir);
-        s.sidebar_inbox.branches.observe(hovered.into_iter().chain(revealed));
+        let server = crate::servers::runtime::active(s).clone();
+        s.sidebar_inbox.branches.enqueue_draft(&server, draft_dir);
+        s.sidebar_inbox.branches.observe(&server, hovered.into_iter().chain(revealed));
         let waker = (*s.waker).clone();
-        return s.sidebar_inbox.branches.poll(&s.source, waker.as_ref(), now, tx);
+        return s.sidebar_inbox.branches.poll(&server, &s.source, waker.as_ref(), now, tx);
     }
     // A working root's pending requests load in `session_status::poll`, so a run waiting on a
     // person shows in Needs attention rather than Working (`inbox-settle-machine`).
@@ -527,10 +528,11 @@ pub fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         changed = true;
     }
     tx.wake_after(Duration::from_millis((step - s.now_ms.rem_euclid(step)).max(1) as u64));
-    s.sidebar_inbox.branches.enqueue_draft(draft_dir);
-    s.sidebar_inbox.branches.observe(dirs.into_iter().chain(hovered).chain(revealed));
+    let server = crate::servers::runtime::active(s).clone();
+    s.sidebar_inbox.branches.enqueue_draft(&server, draft_dir);
+    s.sidebar_inbox.branches.observe(&server, dirs.into_iter().chain(hovered).chain(revealed));
     let waker = (*s.waker).clone();
-    changed |= s.sidebar_inbox.branches.poll(&s.source, waker.as_ref(), now, tx);
+    changed |= s.sidebar_inbox.branches.poll(&server, &s.source, waker.as_ref(), now, tx);
     changed
 }
 
@@ -585,9 +587,9 @@ pub fn snap(s: &mut App) {
             Row { session, status, since, project, worktree: in_worktree(s, i), branch: None }
         })
         .collect();
-    s.sidebar_inbox.branches.observe(rows.iter().map(|r| r.session.directory.clone()));
+    s.sidebar_inbox.branches.observe(&key, rows.iter().map(|r| r.session.directory.clone()));
     for r in &mut rows {
-        r.branch = s.sidebar_inbox.branches.get(&r.session.directory).map(str::to_owned);
+        r.branch = s.sidebar_inbox.branches.get(&key, &r.session.directory).map(str::to_owned);
     }
     let face = |r: &Row| (r.session.id.clone(), r.session.title.clone(), r.session.updated, r.session.archived, r.status, r.since, r.branch.clone(), r.project.as_ref().map(|p| p.id.clone()), r.worktree);
     let inbox = &mut *s.sidebar_inbox;
@@ -613,8 +615,9 @@ pub fn poll_branches(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     if s.tab_layout() != TabLayout::Inbox {
         return false;
     }
+    let server = crate::servers::runtime::active(s).clone();
     let waker = (*s.waker).clone();
-    s.sidebar_inbox.branches.poll(&s.source, waker.as_ref(), now, tx)
+    s.sidebar_inbox.branches.poll(&server, &s.source, waker.as_ref(), now, tx)
 }
 
 /// The age beside a row: "now" under a minute ("12s" while working), then m, h, d.

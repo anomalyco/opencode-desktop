@@ -213,10 +213,10 @@ pub const ACTIVE_KEY: &str = "find-active";
 /// What a reply's file-naming inline code links to: this, then the code as written.
 pub const CODE_LINK: &str = "opencode-code-path:";
 
-/// Desktop's disclosure triangle (`Collapsible.Arrow`): `fill-triangle-down` at 14 pt, pointing
-/// right while shut, in the colour its arrows inherit.
+/// Desktop's disclosure triangle (`Collapsible.Arrow`, `collapsible.tsx:39`): `fill-triangle-down`
+/// at default 16 pt (`5×6` glyph), pointing right while shut, in the colour its arrows inherit.
 pub fn arrow(p: &Pal, open: bool) -> El {
-    icon(if open { &ic::FILL_TRIANGLE_DOWN } else { &TRIANGLE_RIGHT }, 14.0).key("chevron").color(p.v1_text_base)
+    icon(if open { &ic::FILL_TRIANGLE_DOWN } else { &TRIANGLE_RIGHT }, 16.0).key("chevron").color(p.v1_text_base)
 }
 
 /// `fill-triangle-down` turned a quarter left, as Desktop's CSS turns a shut arrow, drawn so

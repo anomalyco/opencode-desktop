@@ -152,7 +152,7 @@ mod native {
 
     /// Refuses an open past `OPEN_BURST` a second for this VM or `MAX_LIVE_TABS` live tabs for this plugin.
     /// Opens admitted but not yet run count toward the cap: they run a turn later (`app.later`).
-    fn admit_open(app: &App, vm_id: u64, driver: &browser_pane::TabDriver) -> mlua::Result<()> {
+    fn admit_open(app: &App, vm_id: u64, driver: &browser_pane::TabDriver) -> mlua::Result<PendingOpen> {
         let live = app.workspace_panes.browser.host.tabs().iter().filter(|t| t.prompts.driver.as_ref() == Some(driver)).count();
         let pending = PENDING_OPENS.with_borrow(|p| p.get(driver).copied().unwrap_or(0));
         if live + pending >= MAX_LIVE_TABS {
@@ -172,10 +172,18 @@ mod native {
             Ok(())
         })?;
         PENDING_OPENS.with_borrow_mut(|p| *p.entry(driver.clone()).or_default() += 1);
-        Ok(())
+        Ok(PendingOpen(driver.clone()))
     }
 
-    /// An admitted open ran or was dropped.
+    /// An admitted open until it runs, or its window drops it unrun: either way it settles.
+    struct PendingOpen(browser_pane::TabDriver);
+
+    impl Drop for PendingOpen {
+        fn drop(&mut self) {
+            settle_open(&self.0);
+        }
+    }
+
     fn settle_open(driver: &browser_pane::TabDriver) {
         PENDING_OPENS.with_borrow_mut(|p| {
             if let Some(n) = p.get_mut(driver) {
@@ -347,10 +355,10 @@ mod native {
                     let target = if file { resolve_open_file(app, &arg.id, &raw) } else { resolve_open_url(app, &arg.id, &raw) }
                         .map_err(mlua::Error::runtime)?;
                     let driver = browser_pane::TabDriver::plugin(&plugin_driver_name(app, &pid));
-                    admit_open(app, vm_id, &driver)?;
+                    let pending = admit_open(app, vm_id, &driver)?;
                     let (sid, pid) = (arg.id, pid.clone());
                     app.later(Box::new(move |s, tx| {
-                        settle_open(&driver);
+                        drop(pending);
                         // The plugin reloaded or stopped, or the person routed elsewhere, before this ran.
                         let running = s.plugins.list.iter().any(|p| *p.half.id == *pid && p.script().is_some_and(|sc| sc.vm_id() == Some(vm_id)));
                         if !running || s.active_session_id() != Some(sid.as_str()) {
@@ -387,7 +395,7 @@ mod native {
                 if held >= MAX_HANDLES_PER_VM {
                     return Err(mlua::Error::runtime("Too many open experimental browser tab handles for this plugin."));
                 }
-                admit_open(app, vm_id, &driver)?;
+                let pending = admit_open(app, vm_id, &driver)?;
                 let handle = opencode_kit::browser_rpc::new_tab_id().replacen("tab_", "btab_", 1);
                 OWNED_TABS.with_borrow_mut(|tabs| {
                     tabs.insert(
@@ -406,7 +414,7 @@ mod native {
                 let handle_for_cb = handle.clone();
                 let sid = arg.id;
                 app.later(Box::new(move |s, tx| {
-                    settle_open(&driver);
+                    drop(pending);
                     let live = OWNED_TABS.with_borrow(|tabs| tabs.get(&handle_for_cb).is_some_and(|t| t.half.strong_count() > 0));
                     if !live || s.active_session_id() != Some(sid.as_str()) {
                         OWNED_TABS.with_borrow_mut(|tabs| tabs.remove(&handle_for_cb));
