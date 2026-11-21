@@ -403,6 +403,13 @@ fn apply_fetched_vcs(host: &mut dyn ReviewHost, server_base: String, dkey: Strin
 /// Lands a read; returns the change a step asked to show once it did.
 fn apply_fetched_diffs(host: &mut dyn ReviewHost, fetched: FetchedDiffs) -> Option<(String, Option<Anchor>)> {
     let swap = Instant::now();
+    let stale_server = !fetched.server_base.is_empty() && host.live_server().is_none_or(|s| s.base != fetched.server_base);
+    if stale_server {
+        if let Ok(prepared) = fetched.changes {
+            opencode_code_view::prepared::drop_off_ui(prepared);
+        }
+        return None;
+    }
     let diff_mode = host.review().diff_mode;
     let expand_mode = host.review().expand_mode;
     let wrap = host.wrap_lines();
@@ -483,7 +490,8 @@ fn apply_fetched_diffs(host: &mut dyn ReviewHost, fetched: FetchedDiffs) -> Opti
             let old_narrow = old_narrow.into_prepared();
             opencode_code_view::prepared::drop_off_ui((old_diffs, old_meta, old_listed, old_tree, old_folders, old_narrow));
         }
-        let focus = sr.load.landed(fetched.mode, fetched.revision, no_git);
+        let load_focus = sr.load.landed(fetched.mode, fetched.revision, no_git);
+        let focus = sr.pending_focus.take().or(load_focus);
         if let Some(entry) = cache_entry {
             let key = ReviewCacheKey::for_target(&fetched.server_base, &fetched.directory, &fetched.session_id, fetched.mode);
             review.store_cache(key, entry);
@@ -645,9 +653,25 @@ pub fn open_for_session(
     }
     if let Some(p) = path {
         let anchor = line.map(|n| Anchor { side: Side::New, text: String::new(), near: Some(n.max(1)) });
-        if let Some(Load::Loading { focus }) = host.review_mut().sessions.get_mut(sid).map(|sr| &mut sr.load) {
-            *focus = Some((p.to_owned(), anchor));
-        } else {
+        let defer = {
+            let rev = host.review().revision;
+            if let Some(sr) = host.review_mut().sessions.get_mut(sid) {
+                match &mut sr.load {
+                    Load::Loading { focus } => {
+                        *focus = Some((p.to_owned(), anchor.clone()));
+                        true
+                    }
+                    Load::Ready { revision, .. } if *revision != rev && !sr.listed.iter().any(|l| l == p) => {
+                        sr.pending_focus = Some((p.to_owned(), anchor.clone()));
+                        true
+                    }
+                    _ => false,
+                }
+            } else {
+                false
+            }
+        };
+        if !defer {
             focus_change(host, sid, p, anchor.as_ref(), tx);
         }
     }
