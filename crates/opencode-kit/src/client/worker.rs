@@ -505,7 +505,7 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                                 let map = v.get("data").unwrap_or(&v);
                                 send(Incoming::Active(map.as_object().into_iter().flatten().map(|(k, _)| k.clone()).collect()))
                             }
-                            Err(e) => send(Incoming::Failed(e)),
+                            Err(e) => send(Incoming::ActiveFailed(e)),
                         },
                         Request::Pending(id) => send(Incoming::Pending { items: server.pending(&id), session: id }),
                         Request::Worktrees { project, root } => match server.get(&format!("/api/worktree?projectID={}", encode_component(&project))) {

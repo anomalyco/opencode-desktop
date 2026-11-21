@@ -205,6 +205,10 @@ impl App {
                 let done = self.apply_event_shared(&ty, &data);
                 Heard::Event(StreamEvent { ty, data, done, notice: Cell::default(), sound: Cell::default() })
             }
+            Incoming::Opened => {
+                crate::reconnect::request_active(self, false);
+                Heard::Message(Box::new(Incoming::Opened))
+            }
             Incoming::Reconnected => {
                 self.resync_shared();
                 Heard::Message(Box::new(Incoming::Reconnected))
@@ -358,6 +362,7 @@ impl App {
         let id = |v: &Value| v.as_str().unwrap_or("").to_owned();
         match ty {
             "session.execution.started" => {
+                self.stops.active_sync.note_execution(sid, true);
                 if let Some(missing) = self.missing_ancestor(sid) {
                     self.fetch_info(&missing);
                 }
@@ -369,6 +374,7 @@ impl App {
                 self.running.insert(sid.to_owned())
             }
             "session.execution.succeeded" | "session.execution.failed" | "session.execution.interrupted" => {
+                self.stops.active_sync.note_execution(sid, false);
                 let was = self.running.remove(sid);
                 crate::stop::confirmed(self, sid);
                 if ty == "session.execution.interrupted" && data["reason"] == "shutdown" {

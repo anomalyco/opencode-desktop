@@ -574,10 +574,74 @@ impl App {
         self.projects.iter().find(|p| p.id == id)
     }
 
-    /// The composer's own session, as Desktop's session status. Background helpers have their
-    /// own runs: they keep the activity chip busy, not this session's Send button.
+    /// Whether `id`'s inbox has queued/steered prompts or a pending compaction waiting to run
+    /// (matches official `sessionBusy`: `packages/app/src/shell/layout/project-avatar-state.ts:109-114`).
+    pub(crate) fn inbox_busy(&self, id: &str) -> bool {
+        self.inboxes.get(id).is_some_and(|i| !i.items.is_empty() || i.compaction.is_some())
+    }
+
+    fn last_settled_message<'a>(&self, t: &'a Transcript) -> Option<&'a opencode_kit::model::Message> {
+        t.messages.iter().rev().find(|m| {
+            !matches!(m, opencode_kit::model::Message::Notice(_))
+                && !matches!(
+                    self.unsent.state(m.id()),
+                    Some(send_failed::State::Waiting | send_failed::State::Unconfirmed | send_failed::State::Failed),
+                )
+        })
+    }
+
+    /// Whether `t` ends in an unanswered user prompt or an assistant step that has neither
+    /// completed nor errored.
+    pub(crate) fn transcript_unsettled(&self, t: &Transcript) -> bool {
+        matches!(self.last_settled_message(t), Some(opencode_kit::model::Message::User { .. }))
+            || matches!(self.last_settled_message(t), Some(opencode_kit::model::Message::Assistant(a)) if a.completed.is_none() && a.error.is_none())
+    }
+
+    /// Whether session `id` itself is busy: running on the server, waiting on queued/steered
+    /// prompts or pending compaction in its inbox, starting a fresh session, or — before
+    /// `/api/session/active` has synced on a cold open/reconnect (or in fixture mode) — holding
+    /// an unsettled turn in its transcript.
+    pub fn session_busy(&self, id: &str) -> bool {
+        if self.stops.pending(id) {
+            return false;
+        }
+        if self.running.contains(id) || self.inbox_busy(id) || self.queue.starts.has(id) {
+            return true;
+        }
+        if self.stops.has(id) {
+            return false;
+        }
+        let transcript = rune::Tracked::untracked(&self.transcripts).get(id);
+        if !self.live() || !self.stops.active_sync.synced() {
+            return transcript.is_some_and(|t| self.transcript_unsettled(t));
+        }
+        // Keep optimistic busy for a freshly submitted prompt before `session.execution.started`
+        // arrives, while never treating an idle server session's uncompleted assistant turn as busy.
+        transcript.is_some_and(|t| matches!(self.last_settled_message(t), Some(opencode_kit::model::Message::User { .. })))
+    }
+
+    /// Whether `id` or any descendant sub-agent is busy (running, waiting on inbox/compaction
+    /// work, or waiting on a permission request). Used by the timeline so a parent with a running
+    /// or approval-waiting sub-agent never drops to idle/Copy (`session-request-tree.ts`,
+    /// `project-avatar-state.ts:98-114`).
+    pub fn subtree_busy(&self, id: &str) -> bool {
+        if self.session_busy(id) {
+            return true;
+        }
+        if self.stops.pending(id) {
+            return false;
+        }
+        let root = self.root_of(id);
+        self.running.iter().any(|x| x != id && self.descends(x, id))
+            || self.inboxes.iter().any(|(x, inbox)| x != id && (!inbox.items.is_empty() || inbox.compaction.is_some()) && self.descends(x, id))
+            || self.pending.iter().any(|p| matches!(p, Pending::Permission { .. }) && self.root_of(p.session()) == root)
+    }
+
+    /// The composer's own session, as Desktop's session status (`sessionBusy` for `id`, plus
+    /// unsettled-turn fallback while `/api/session/active` has not yet synced). Detached
+    /// background helpers keep the activity chip busy, not this session's Send button.
     pub fn busy(&self, id: &str) -> bool {
-        self.running.contains(id)
+        self.session_busy(id)
     }
 
     pub(crate) fn route_busy(&self) -> bool {

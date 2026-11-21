@@ -374,6 +374,9 @@ wrap_dev_tools_message_observer! {
                         reason: "browser.passkeys.unrestricted".to_owned(),
                     });
                 }
+                // Agent commands held for this reply run (or are refused) on the loop's next turn
+                // (`EngineManager::release_passkey_held`).
+                let _ = self.events.send(crate::Event::Pump(0));
                 return;
             }
             let Some(pending) = self.id_map.lock().unwrap().remove(&message_id) else {
