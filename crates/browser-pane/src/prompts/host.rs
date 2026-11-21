@@ -228,6 +228,11 @@ impl crate::BrowserHost {
         Some(url)
     }
 
+    /// Tabs whose first navigation became the person's download and has its place.
+    pub fn drain_download_only_tabs(&mut self) -> impl Iterator<Item = u64> + '_ {
+        self.download_only_tabs.drain(..)
+    }
+
     pub fn has_popup_opens(&self) -> bool {
         !self.popup_opens.is_empty()
     }
@@ -459,6 +464,12 @@ impl crate::BrowserHost {
                     ui_changed = true;
                 }
                 ui_changed
+            }
+            EngineMsg::DownloadOnlyTab { tab_id } => {
+                if self.tabs.iter().any(|t| t.id == tab_id) && !self.download_only_tabs.contains(&tab_id) {
+                    self.download_only_tabs.push_back(tab_id);
+                }
+                true
             }
             EngineMsg::FileChooserBlocked { tab_id } => {
                 if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
