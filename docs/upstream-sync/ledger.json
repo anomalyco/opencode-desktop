@@ -4428,7 +4428,7 @@
       "summary": "opencode://open-project?directory=<folder> opens the folder as a project in a new session; opencode://new-session?directory=<folder>&prompt=<text> does the same with the prompt typed in, not sent; links given at a cold start open too.",
       "size": "S",
       "status": "partly",
-      "status_evidence": "Code merged (PR #0): apps/desktop/src/workspace/system/deep_links.rs takes open-project?directory= and new-session?directory=&prompt= (prompt typed into the opened session's composer, not sent), in arrival order, cold-start links waiting for their server. Not driven yet: headless runs don't take launch links.",
+      "status_evidence": "Code merged (PR #580): apps/desktop/src/workspace/system/deep_links.rs takes open-project?directory= and new-session?directory=&prompt= (prompt typed into the opened session's composer, not sent), in arrival order, cold-start links waiting for their server. Not driven yet: headless runs don't take launch links.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"
