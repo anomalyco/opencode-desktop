@@ -37,7 +37,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use self::integrity::{StartupExtensions, VerifiedExtension, verify_extension_dir_and_manifest};
+use self::integrity::{StartupExtensions, VerifiedExtension, verify_extension_dir_and_stage};
 use self::manifest::{
     ExtensionManifest, extension_label, extension_page_url, is_extension_scheme, is_private_url,
 };
@@ -155,6 +155,7 @@ pub(super) struct ExecutionContextMeta {
 #[derive(Debug)]
 pub(super) struct AttachedSession {
     pub ext_id: String,
+    pub target_id: String,
     pub kind: SessionKind,
     pub url: String,
     pub chromium_tab_id: Option<i32>,
@@ -255,6 +256,7 @@ pub struct ExtensionHost {
     pub(super) extensions: HashMap<String, LoadedExt>,
     pub(super) verified_startup: HashMap<String, VerifiedExtension>,
     pub(super) stub_dirs_by_id: HashMap<String, PathBuf>,
+    pub(super) stub_root: Option<PathBuf>,
     pub(super) sessions: HashMap<String, AttachedSession>,
     /// Tracks `(session_id, executionContextId) -> ExecutionContextMeta` (origin, isDefault,
     /// type, frameId) so `Runtime.bindingCalled` only accepts verified default-world calls.
@@ -303,6 +305,7 @@ impl ExtensionHost {
         inbound_rx: Receiver<PipeInbound>,
         wake_pending: Arc<AtomicBool>,
         stub_dirs_by_id: HashMap<String, PathBuf>,
+        stub_root: Option<PathBuf>,
         menu_storage_dir: Option<PathBuf>,
     ) -> Self {
         let catalog = match menu_storage_dir {
@@ -317,6 +320,7 @@ impl ExtensionHost {
             extensions: HashMap::new(),
             verified_startup: HashMap::new(),
             stub_dirs_by_id,
+            stub_root,
             sessions: HashMap::new(),
             execution_contexts: HashMap::new(),
             subscribers: HashMap::new(),
@@ -399,7 +403,7 @@ impl ExtensionHost {
         for item in ordered {
             let is_filter = item.manifest.is_filter_extension();
             let id = item.id.clone();
-            let Some(path_str) = crate::context::canonical_extension_load_path(&item.dir) else {
+            let Some(path_str) = crate::context::canonical_extension_load_path(&item.load_dir) else {
                 self.uninstall_inert_stub(&id);
                 effects.push(ExtEffect::IntegrityFailed { ext_id: id });
                 continue;
@@ -532,14 +536,19 @@ impl ExtensionHost {
             let id = self.send_cdp("Extensions.uninstall", json!({ "id": ext_id }), None);
             self.pending_uninstall_cmd.insert(id, ext_id.to_owned());
         } else {
-            if verify_extension_dir_and_manifest(&ext.dir, ext_id, &ext.sha256).is_none() {
+            let Some((_, load_dir)) = verify_extension_dir_and_stage(
+                &ext.dir,
+                ext_id,
+                &ext.sha256,
+                self.stub_root.as_deref(),
+            ) else {
                 return vec![ExtEffect::ExtensionUninstalled {
                     ext_id: ext_id.to_owned(),
                     ok: false,
                     error: Some("Extension files changed on disk; restart required.".into()),
                 }];
-            }
-            let Some(path_str) = crate::context::canonical_extension_load_path(&ext.dir) else {
+            };
+            let Some(path_str) = crate::context::canonical_extension_load_path(&load_dir) else {
                 return vec![ExtEffect::ExtensionUninstalled {
                     ext_id: ext_id.to_owned(),
                     ok: false,
@@ -571,14 +580,19 @@ impl ExtensionHost {
                 error: Some("Extension was not exempted at engine startup; restart required.".into()),
             }];
         };
-        let Some(manifest) = verify_extension_dir_and_manifest(&item.dir, &item.id, &item.sha256) else {
+        let Some((manifest, load_dir)) = verify_extension_dir_and_stage(
+            &item.dir,
+            &item.id,
+            &item.sha256,
+            self.stub_root.as_deref(),
+        ) else {
             return vec![ExtEffect::ExtensionReloaded {
                 ext_id: ext_id.to_owned(),
                 ok: false,
                 error: Some("Extension integrity digest mismatch.".into()),
             }];
         };
-        let Some(path_str) = crate::context::canonical_extension_load_path(&item.dir) else {
+        let Some(path_str) = crate::context::canonical_extension_load_path(&load_dir) else {
             return vec![ExtEffect::ExtensionReloaded {
                 ext_id: ext_id.to_owned(),
                 ok: false,
@@ -1047,8 +1061,11 @@ impl ExtensionHost {
     }
 }
 
-pub(super) fn shim_source(is_popup: bool) -> String {
-    SHIM_TEMPLATE.replace("__IS_POPUP__", if is_popup { "true" } else { "false" })
+pub(super) fn shim_source(is_popup: bool, declared_perms: &[String]) -> String {
+    let perms_json = serde_json::to_string(declared_perms).unwrap_or_else(|_| "[]".into());
+    SHIM_TEMPLATE
+        .replace("__IS_POPUP__", if is_popup { "true" } else { "false" })
+        .replace("__DECLARED_PERMS__", &perms_json)
 }
 
 fn now_ms() -> f64 {

@@ -291,21 +291,22 @@ pub fn nested_collapsible<S: 'static>(
     col().key("nested").w_full().pt(gap).pl(14.0).child(rail).child(content)
 }
 
-/// Match `i` of a row in plain text, as `text_highlights` paints it.
+/// Match `i` of a row in plain text, as `text_highlights` paints it (`::highlight(timeline-search-hit*)`:
+/// square corners, no horizontal pad, tight vertical bounds matching Blink `index.css:163-181`).
 pub fn text_mark(p: &Pal, r: Range<usize>, i: usize, active: bool) -> TextHighlight {
     if active {
-        TextHighlight::new(r, p.accent).color(p.bg_deep).key(ACTIVE_KEY)
+        TextHighlight::new(r, p.accent).color(p.bg_deep).pad(0.0).radius(0.0).vpad(0.5).key(ACTIVE_KEY)
     } else {
-        TextHighlight::new(r, hit_bg(p)).key(format!("find-hit-{i}"))
+        TextHighlight::new(r, hit_bg(p)).pad(0.0).radius(0.0).vpad(0.5).key(format!("find-hit-{i}"))
     }
 }
 
-/// Match `i` of a row in Markdown, as `markdown_highlights` paints it.
+/// Match `i` of a row in Markdown, as `markdown_highlights` paints it (`::highlight(timeline-search-hit*)`).
 pub fn markdown_mark(p: &Pal, i: usize, active: bool) -> rune_kit::Highlight {
     if active {
-        rune_kit::Highlight::new().bg(p.accent).fg(p.bg_deep).key(ACTIVE_KEY)
+        rune_kit::Highlight::new().bg(p.accent).fg(p.bg_deep).pad(0.0).radius(0.0).vpad(0.5).key(ACTIVE_KEY)
     } else {
-        rune_kit::Highlight::new().bg(hit_bg(p)).key(format!("find-hit-{i}"))
+        rune_kit::Highlight::new().bg(hit_bg(p)).pad(0.0).radius(0.0).vpad(0.5).key(format!("find-hit-{i}"))
     }
 }
 

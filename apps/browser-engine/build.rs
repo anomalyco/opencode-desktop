@@ -14,5 +14,8 @@ fn main() {
         println!("cargo::rerun-if-changed={}", manifest.display());
         println!("cargo::rustc-link-arg-bins=/MANIFEST:EMBED");
         println!("cargo::rustc-link-arg-bins=/MANIFESTINPUT:{}", manifest.display());
+        // Match Chromium's 8 MiB Windows stack reserve (`chrome.exe`) so V8 compiling large MV3
+        // service workers (Bitwarden 3.5 MB, 1Password 3.0 MB) never overflows the default 1 MiB stack.
+        println!("cargo::rustc-link-arg-bins=/STACK:8388608");
     }
 }

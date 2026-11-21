@@ -162,7 +162,7 @@ pub fn effort_trigger<S: PickerHost>(s: &S, p: &Pal, variant: &str, chevron: boo
     let button = trigger(s, p, Kind::Effort, &label, p.muted, chevron);
     let shown = crate::style::hover_none() || !default || s.pickers().open() == Some(Kind::Effort) || s.pickers().composer_hovered;
     let button = if shown { button } else { button.group_opacity(0.0, 1.0) };
-    el().key("effort-slot").hover_group().hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT).child(button)
+    el().key("effort-slot").hover_group_focus().hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT).child(button)
 }
 
 /// The open menu (agent, effort or project), above its trigger.

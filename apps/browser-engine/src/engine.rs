@@ -42,6 +42,7 @@ pub(crate) struct ManagedTab {
     pub(crate) cdp_id_map: Arc<Mutex<HashMap<i32, CdpPending>>>,
     pub(crate) cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
     pub(crate) passkeys: Arc<crate::passkeys::TabPasskeyGate>,
+    pub(crate) media_gate: Arc<crate::media_gate::TabMediaGate>,
     pub(crate) input_guard: Arc<Mutex<crate::input_guard::InputGuard>>,
     pub(crate) emulation_scale: Arc<std::sync::atomic::AtomicU32>,
     internal_picked: Arc<Mutex<Vec<i64>>>,
@@ -216,6 +217,7 @@ impl EngineManager {
                     agent_files: true,
                     passkeys: true,
                     trace_isolation: true,
+                    menu_extras: true,
                 });
                 for (&tab_id, t) in &self.tabs {
                     t.menu.cancel_all();
@@ -663,6 +665,9 @@ impl EngineManager {
                         ctx.as_ref(),
                         &self.permissions,
                     );
+                    for raw in t.prompts.take_gate_answers() {
+                        t.host.send_dev_tools_message(Some(raw.as_bytes()));
+                    }
                     if allow && ctx_scope.is_none() {
                         self.flush_bfcache_for_default_tabs();
                     }
@@ -684,7 +689,17 @@ impl EngineManager {
             }
             HostMsg::AnswerDownloadSave { tab_id, id, path } => {
                 let ready = self.tabs.contains_key(&tab_id) && self.contexts.is_tab_ready(tab_id);
-                self.downloads.answer_save(tab_id, id, path.as_deref(), ready);
+                // A tab whose first navigation became this download has nothing to show once the
+                // download has its place or was cancelled (official `chromium.ts:1076-1083`); the app
+                // closes it if a page opened it (`closesUnshown`, `window-open.ts`).
+                if self.downloads.answer_save(tab_id, id, path.as_deref(), ready)
+                    && let Some(t) = self.tabs.get(&tab_id)
+                    && !t.is_popup
+                    && t.snap.lock().unwrap().document == 0
+                    && t.browser.can_go_back() == 0
+                {
+                    let _ = self.out_tx.send(EngineMsg::DownloadOnlyTab { tab_id });
+                }
             }
             HostMsg::SetAgentDriven { tab_id, agent_driven } => {
                 self.handle_set_agent_driven(tab_id, agent_driven);
@@ -771,12 +786,32 @@ impl EngineManager {
                             crate::wire::ContextKind::Preview { .. }
                                 | crate::wire::ContextKind::Artifact { .. }
                         );
-                    let ext_click = t.menu.execute(tab_id, t.download_gen, id, action, &t.browser, &t.host, &roots, block_downloads, &self.downloads);
-                    if let Some((ext_id, item_id, target)) = ext_click
-                        && !t.isolated && !t.is_popup && t.preview.is_none()
-                        && let Some(ext) = self.extensions.as_mut()
-                    {
-                        ext.on_context_menu_clicked(tab_id, &ext_id, &item_id, &target);
+                    let follow_up = t.menu.execute(tab_id, t.download_gen, id, action, &t.browser, &t.host, &roots, block_downloads, &self.downloads);
+                    match follow_up {
+                        Some(crate::menu::MenuFollowUp::Extension { ext_id, item_id, target }) => {
+                            if !t.isolated
+                                && !t.is_popup
+                                && t.preview.is_none()
+                                && let Some(ext) = self.extensions.as_mut()
+                            {
+                                ext.on_context_menu_clicked(tab_id, &ext_id, &item_id, &target);
+                            }
+                        }
+                        Some(crate::menu::MenuFollowUp::CopyImage { url, frame_id }) => {
+                            // The menu's own frame when the engine knows it on the tab's session,
+                            // else the main frame (an image in an out-of-process frame is not read).
+                            let frame = {
+                                let ledger = t.cdp_ledger.lock().unwrap();
+                                frame_id.filter(|f| ledger.is_root_session_frame(f)).or_else(|| ledger.main_frame_id())
+                            };
+                            if let Some(frame) = frame {
+                                let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
+                                t.cdp_id_map.lock().unwrap().insert(msg_id, CdpPending::CopyImageContent { frame_id: frame.clone() });
+                                let raw = crate::menu_extras::resource_request(msg_id, &frame, &url);
+                                t.host.send_dev_tools_message(Some(raw.as_bytes()));
+                            }
+                        }
+                        None => {}
                     }
                 }
             }
@@ -1315,12 +1350,13 @@ impl EngineManager {
         let cdp_id_map = Arc::new(Mutex::new(HashMap::new()));
         let cdp_ledger = Arc::new(Mutex::new(crate::cdp_ledger::EngineCdpLedger::default()));
         let passkeys = Arc::new(crate::passkeys::TabPasskeyGate::new(tab_id, agent_driven));
+        let media_gate = Arc::new(crate::media_gate::TabMediaGate::new());
         let internal_picked = Arc::new(Mutex::new(Vec::new()));
         let pending_clears = Arc::new(Mutex::new(Vec::new()));
         let mut observer = TabCdpObserver::new(
             tab_id, is_popup, isolated, is_preview, snap.clone(), cdp_id_map.clone(),
             internal_picked.clone(), pending_clears.clone(), cdp_ledger.clone(), passkeys.clone(),
-            self.prompt_shared.clone(), input_guard.clone(), emulation_scale.clone(),
+            media_gate.clone(), self.prompt_shared.clone(), input_guard.clone(), emulation_scale.clone(),
             self.next_cdp_id.clone(), prompts.clone(), self.permissions.clone(),
             self.extensions.is_some(), self.events.clone(), self.out_tx.clone(),
         );
@@ -1329,6 +1365,7 @@ impl EngineManager {
         // released first: CEF may deliver the observer callback inside the send.
         let mut arm = cdp_ledger.lock().unwrap().arm();
         arm.extend(passkeys.attach_messages(None));
+        arm.extend(media_gate.attach_messages(None));
         if agent_driven || is_preview {
             arm.push(passkeys.file_chooser_intercept_msg(true, None));
         }
@@ -1361,6 +1398,7 @@ impl EngineManager {
                 cdp_id_map,
                 cdp_ledger,
                 passkeys,
+                media_gate,
                 input_guard,
                 emulation_scale,
                 internal_picked,

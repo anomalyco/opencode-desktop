@@ -36,7 +36,9 @@ mod favicon;
 mod frame_authority;
 mod find;
 mod input_guard;
+mod media_gate;
 mod menu;
+mod menu_extras;
 mod passkeys;
 mod preview;
 mod profile;
@@ -257,10 +259,14 @@ fn main() {
     // `cef::initialize()` (~35-60 ms hidden completely behind CEF's ~135 ms init).
     if !candidates.is_empty() {
         let verify_tx = events.clone();
+        let verify_stub_root = stub_root.clone();
         let _ = std::thread::Builder::new()
             .name("engine-ext-verify".into())
             .spawn(move || {
-                let res = extensions::integrity::verify_candidates_parallel(candidates);
+                let res = extensions::integrity::verify_candidates_parallel(
+                    candidates,
+                    verify_stub_root.as_deref(),
+                );
                 let _ = verify_tx.send(Event::ExtensionsVerified(res));
             });
     }
@@ -299,10 +305,18 @@ fn main() {
         io_pipes_switch,
         events.clone(),
     );
+    context::lockdown_global_native_messaging();
     let menu_storage_dir = _cef.download_roots().profile.join("opencode-ext-menus");
     let ext_host = ext_pipe_bundle.map(|(pipe, rx_in, wake)| {
         pipe.mark_adopted_by_cef();
-        extensions::ExtensionHost::new(pipe, rx_in, wake, stub_dirs_by_id, Some(menu_storage_dir))
+        extensions::ExtensionHost::new(
+            pipe,
+            rx_in,
+            wake,
+            stub_dirs_by_id,
+            stub_root.clone(),
+            Some(menu_storage_dir),
+        )
     });
     step("cef_initialized");
 
