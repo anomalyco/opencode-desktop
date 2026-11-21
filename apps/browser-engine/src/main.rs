@@ -441,6 +441,7 @@ fn main() {
             last_pump = now;
             cef::do_message_loop_work();
             manager.poll_picks();
+            manager.release_passkey_held();
         }
         #[cfg(target_os = "macos")]
         mac_app::pump_run_loop(0.004);

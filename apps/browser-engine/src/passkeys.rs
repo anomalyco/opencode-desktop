@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, Ordering};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -30,6 +30,24 @@ pub const PASSKEY_ID_BASE: i32 = 1_500_000_000;
 
 /// Exact user- and agent-facing refusal message (`webauthn-gate.ts:17-18`).
 pub const PASSKEY_REFUSAL: &str = "Passkeys and security keys are not supported in this browser yet. Use another sign-in method, or sign in with your own browser and import the sign-in.";
+
+/// Why an agent command did not run: the tab could not refuse passkeys in the browser process.
+pub const PASSKEYS_UNRESTRICTED: &str = "This tab could not turn off passkeys and security keys, so agent browser tools cannot act in it. Open the page in a new tab.";
+
+/// `WebAuthn.enable` for the tab: not sent, sent and unanswered, in effect, or failed.
+const ENABLE_IDLE: u8 = 0;
+const ENABLE_PENDING: u8 = 1;
+const ENABLE_ON: u8 = 2;
+const ENABLE_FAILED: u8 = 3;
+
+/// Where an agent command stands against the tab's browser-process refusal (official
+/// `afterRefusal`, `webauthn-gate.ts:121-127`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AgentGate {
+    Go,
+    Wait,
+    Refuse,
+}
 
 static TOKEN_SEQ: AtomicU64 = AtomicU64::new(1);
 
@@ -174,8 +192,10 @@ pub struct TabPasskeyGate {
     tab_id: u64,
     native: bool,
     enforced: AtomicBool,
-    webauthn_enabled: AtomicBool,
+    enable_state: AtomicU8,
     enable_msg_id: AtomicI32,
+    /// A native failure stopped the tab's page (once).
+    ended: AtomicBool,
     next_id: AtomicI32,
     report: String,
     answer: String,
@@ -189,8 +209,9 @@ impl TabPasskeyGate {
             tab_id,
             native,
             enforced: AtomicBool::new(!native || initially_enforced),
-            webauthn_enabled: AtomicBool::new(false),
+            enable_state: AtomicU8::new(ENABLE_IDLE),
             enable_msg_id: AtomicI32::new(0),
+            ended: AtomicBool::new(false),
             next_id: AtomicI32::new(0),
             report: random_token(),
             answer: random_token(),
@@ -219,8 +240,7 @@ impl TabPasskeyGate {
     /// CDP messages installing the hidden binding and page-side fast-path wrapper on the root
     /// session (`None`) or a paused web OOPIF session (`Some(sid)`).
     pub fn attach_messages(&self, session_id: Option<&str>) -> Vec<String> {
-        let (_, add_binding) =
-            self.build_cdp("Runtime.addBinding", json!({ "name": self.report }), session_id);
+        let add_binding = self.binding_msg(session_id);
         let (_, add_script) = self.build_cdp(
             "Page.addScriptToEvaluateOnNewDocument",
             json!({
@@ -245,18 +265,32 @@ impl TabPasskeyGate {
     }
 
     /// Permanently enforces passkey refusal for this tab (idempotent, never undone): returns
-    /// `WebAuthn.enable { enableUI: false }` the first time (or after a failed attempt) so every
-    /// frame in the tab's tree (including OOPIFs) fails inside Chromium without touching OS UI.
+    /// `WebAuthn.enable { enableUI: false }` the first time so every frame in the tab's tree
+    /// (including OOPIFs) fails inside Chromium without touching OS UI. A failed attempt is sent
+    /// again on macOS and Linux; on Windows it is final and the tab's page is stopped
+    /// (`chromium.ts:834-842`).
     pub fn enforce_messages(&self) -> Vec<String> {
         self.enforced.store(true, Ordering::Release);
-        if self
-            .webauthn_enabled
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
+        let from = self.enable_state.load(Ordering::Acquire);
+        let send = from == ENABLE_IDLE || (from == ENABLE_FAILED && !self.native);
+        if !send
+            || self
+                .enable_state
+                .compare_exchange(from, ENABLE_PENDING, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
         {
             return Vec::new();
         }
-        let (id, raw) = self.build_cdp("WebAuthn.enable", json!({ "enableUI": false }), None);
+        // Debug builds only: `OPENCODE_BROWSER_FAULT_WEBAUTHN_ENABLE=1` makes the command fail
+        // (an unknown method), to prove the failure path; release builds never read it.
+        let method = if cfg!(debug_assertions)
+            && std::env::var_os("OPENCODE_BROWSER_FAULT_WEBAUTHN_ENABLE").as_deref() == Some(std::ffi::OsStr::new("1"))
+        {
+            "WebAuthn.enableFault"
+        } else {
+            "WebAuthn.enable"
+        };
+        let (id, raw) = self.build_cdp(method, json!({ "enableUI": false }), None);
         self.enable_msg_id.store(id, Ordering::Release);
         vec![raw]
     }
@@ -265,11 +299,36 @@ impl TabPasskeyGate {
     /// `WebAuthn.enable` failed on a native-WebAuthn platform (Windows), where failing open would
     /// leave the system dialog reachable on an agent tab (`chromium.ts:839`).
     pub fn on_reply(&self, msg_id: i32, ok: bool) -> bool {
-        if !ok && self.enable_msg_id.load(Ordering::Acquire) == msg_id {
-            self.webauthn_enabled.store(false, Ordering::Release);
-            return self.native;
+        if self.enable_msg_id.load(Ordering::Acquire) != msg_id {
+            return false;
         }
-        false
+        self.enable_state.store(if ok { ENABLE_ON } else { ENABLE_FAILED }, Ordering::Release);
+        !ok && self.native
+    }
+
+    /// An agent command runs only once `WebAuthn.enable` is in effect, waits while it is
+    /// unanswered, and is refused when it failed (official `afterRefusal`, `chromium.ts:1554`).
+    pub fn agent_gate(&self) -> AgentGate {
+        match self.enable_state.load(Ordering::Acquire) {
+            ENABLE_ON => AgentGate::Go,
+            ENABLE_PENDING => AgentGate::Wait,
+            _ => AgentGate::Refuse,
+        }
+    }
+
+    /// `true` once, when `WebAuthn.enable` failed on Windows: the caller stops the tab's page
+    /// (official `end({ cause: "passkeys-unrestricted" })`, `chromium.ts:839`).
+    pub fn take_end(&self) -> bool {
+        self.native
+            && self.enable_state.load(Ordering::Acquire) == ENABLE_FAILED
+            && !self.ended.swap(true, Ordering::AcqRel)
+    }
+
+    /// `Runtime.addBinding` for the wrapper's report channel on `session_id`. A `Runtime.disable`
+    /// on that session drops it (V8 `V8RuntimeAgentImpl::disable` removes `globalBindings`), so
+    /// the engine sends it again after each `Runtime.disable` it sends.
+    pub fn binding_msg(&self, session_id: Option<&str>) -> String {
+        self.build_cdp("Runtime.addBinding", json!({ "name": self.report }), session_id).1
     }
 
     /// Observes a CDP event. Returns `(queued_cdp_messages, consumed)` where `consumed == true`

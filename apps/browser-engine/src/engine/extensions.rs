@@ -17,8 +17,9 @@ use crate::prompts::{
     PromptShared, TabDialogHandler, TabFileDialogHandler, TabLifeSpanHandler,
     TabPermissionHandler, TabPrompts,
 };
+use crate::passkeys::AgentGate;
 use crate::tab_client::SidecarTabClient;
-use crate::wire::{ContextKind, CursorKind, EngineMsg, TabSnapshot};
+use crate::wire::{ContextKind, CursorKind, EngineMsg, HostMsg, TabSnapshot};
 
 const MAX_PENDING_EXT_OPENS: usize = 16;
 const MAX_UNMANAGED_EXT_TABS: usize = 16;
@@ -548,6 +549,8 @@ impl EngineManager {
         };
         if let Some(disable) = disable {
             t.host.send_dev_tools_message(Some(disable.as_bytes()));
+            let binding = t.passkeys.binding_msg(None);
+            t.host.send_dev_tools_message(Some(binding.as_bytes()));
         }
         let msg_id = self.next_cdp_id.fetch_add(1, Ordering::Relaxed);
         t.cdp_id_map.lock().unwrap().insert(
@@ -858,6 +861,94 @@ impl EngineManager {
         }
     }
 
+    /// An agent command first makes its tab refuse passkeys in the browser process, and runs only
+    /// once Chromium answered `WebAuthn.enable` (official `afterRefusal`, `webauthn-gate.ts:121-127`,
+    /// `chromium.ts:1552-1554`): held until then, refused if it failed. `None` when held or refused.
+    pub(super) fn wait_for_passkey_refusal(&mut self, msg: HostMsg) -> Option<HostMsg> {
+        let (tab_id, agent_only) = match &msg {
+            HostMsg::CdpCall { tab_id, .. } => (*tab_id, true),
+            HostMsg::TypedCdpCall { tab_id, .. } | HostMsg::UploadFiles { tab_id, .. } | HostMsg::DropFiles { tab_id, .. } => {
+                (*tab_id, false)
+            }
+            _ => return Some(msg),
+        };
+        let Some(t) = self.tabs.get(&tab_id) else {
+            return Some(msg);
+        };
+        if agent_only && !t.prompts.agent_driven.load(Ordering::Acquire) {
+            return Some(msg);
+        }
+        for raw in t.passkeys.enforce_messages() {
+            t.host.send_dev_tools_message(Some(raw.as_bytes()));
+        }
+        // A command after held ones waits behind them, so the tab's commands keep their order.
+        if self.passkey_held.iter().any(|held| held_tab(held) == Some(tab_id)) {
+            self.passkey_held.push(msg);
+            return None;
+        }
+        match t.passkeys.agent_gate() {
+            AgentGate::Go => Some(msg),
+            AgentGate::Wait => {
+                self.passkey_held.push(msg);
+                None
+            }
+            AgentGate::Refuse => {
+                self.refuse_passkeys_unrestricted(&msg);
+                None
+            }
+        }
+    }
+
+    /// After CEF's work: stops each Windows tab whose `WebAuthn.enable` failed (official
+    /// `end({ cause: "passkeys-unrestricted" })`, `chromium.ts:839`), then runs or refuses the
+    /// agent commands whose tab has its answer.
+    pub fn release_passkey_held(&mut self) {
+        for t in self.tabs.values() {
+            if t.passkeys.take_end() {
+                t.browser.stop_load();
+                if let Some(f) = t.browser.main_frame() {
+                    f.load_url(Some(&CefString::from("about:blank")));
+                }
+            }
+        }
+        if self.passkey_held.is_empty() {
+            return;
+        }
+        let mut waiting: Vec<u64> = Vec::new();
+        for msg in std::mem::take(&mut self.passkey_held) {
+            let tab_id = held_tab(&msg).unwrap_or_default();
+            let gate = self.tabs.get(&tab_id).map(|t| t.passkeys.agent_gate());
+            if waiting.contains(&tab_id) || gate == Some(AgentGate::Wait) {
+                waiting.push(tab_id);
+                self.passkey_held.push(msg);
+                continue;
+            }
+            if gate == Some(AgentGate::Refuse) {
+                self.refuse_passkeys_unrestricted(&msg);
+                continue;
+            }
+            if !self.refuse_if_controlled_tab_blocked(&msg) {
+                self.handle_msg(msg);
+            }
+        }
+    }
+
+    fn refuse_passkeys_unrestricted(&self, msg: &HostMsg) {
+        let (HostMsg::CdpCall { tab_id, request_id, .. }
+        | HostMsg::TypedCdpCall { tab_id, request_id, .. }
+        | HostMsg::UploadFiles { tab_id, request_id, .. }
+        | HostMsg::DropFiles { tab_id, request_id, .. }) = msg
+        else {
+            return;
+        };
+        let _ = self.out_tx.send(EngineMsg::CdpResponse {
+            tab_id: *tab_id,
+            request_id: *request_id,
+            ok: false,
+            result: json!({ "message": crate::passkeys::PASSKEYS_UNRESTRICTED }),
+        });
+    }
+
     /// The person's own click or key took the tab back (`user_reclaimed` false -> true), or the
     /// agent acted again (true -> false): the renderer's file-chooser intercept follows.
     pub(super) fn set_user_reclaimed(&self, tab_id: u64, reclaimed: bool) {
@@ -990,5 +1081,14 @@ pub(super) fn sync_file_choosers(t: &ManagedTab) {
     for sid in child_sids {
         let raw = t.passkeys.file_chooser_intercept_msg(enabled, Some(&sid));
         t.host.send_dev_tools_message(Some(raw.as_bytes()));
+    }
+}
+fn held_tab(msg: &HostMsg) -> Option<u64> {
+    match msg {
+        HostMsg::CdpCall { tab_id, .. }
+        | HostMsg::TypedCdpCall { tab_id, .. }
+        | HostMsg::UploadFiles { tab_id, .. }
+        | HostMsg::DropFiles { tab_id, .. } => Some(*tab_id),
+        _ => None,
     }
 }

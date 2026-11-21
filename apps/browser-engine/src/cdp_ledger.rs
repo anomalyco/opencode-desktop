@@ -110,6 +110,8 @@ pub(crate) fn handle_typed_cdp_call(
         Ok(Dispatch::ReEnable) => {
             let disable = t.cdp_ledger.lock().unwrap().runtime_disable(session_id.as_deref());
             t.host.send_dev_tools_message(Some(disable.as_bytes()));
+            let binding = t.passkeys.binding_msg(session_id.as_deref());
+            t.host.send_dev_tools_message(Some(binding.as_bytes()));
             Post::None
         }
         Ok(Dispatch::Send(post)) => post,
@@ -360,6 +362,9 @@ wrap_dev_tools_message_observer! {
                         reason: "browser.passkeys.unrestricted".to_owned(),
                     });
                 }
+                // Agent commands held for this reply run (or are refused) on the loop's next turn
+                // (`EngineManager::release_passkey_held`).
+                let _ = self.events.send(crate::Event::Pump(0));
                 return;
             }
             let Some(pending) = self.id_map.lock().unwrap().remove(&message_id) else {
