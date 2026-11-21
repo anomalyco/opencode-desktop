@@ -76,6 +76,26 @@ pub fn select_all(plugin: &str, index: usize) {
     });
 }
 
+pub fn set_selection(plugin: &str, index: usize, anchor: usize, focus: usize) {
+    with(|e| {
+        if let Some(edit) = e.borrow_mut().get_mut(&(plugin.to_owned(), index)) {
+            edit.set_selection(anchor, focus);
+        }
+    });
+    bump();
+}
+
+/// Returns `(start, end, len, composing, focused)` in UTF-8 bytes for `plugin`'s editor `index`.
+pub fn selection_in(app: &App, plugin: &str, index: usize) -> (usize, usize, usize, bool, bool) {
+    app.plugins
+        .editors
+        .borrow()
+        .get(&(plugin.to_owned(), index))
+        .map_or((0, 0, 0, false, false), |t| {
+            (t.anchor.min(t.focus), t.anchor.max(t.focus), t.text.len(), t.preedit().is_some(), t.focused)
+        })
+}
+
 pub fn focused(plugin: &str, index: usize) -> bool {
     with(|e| e.borrow().get(&(plugin.to_owned(), index)).is_some_and(|t| t.focused)).unwrap_or(false)
 }

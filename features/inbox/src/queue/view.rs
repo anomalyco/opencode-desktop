@@ -169,6 +169,7 @@ pub fn alternate_hint<H: QueueHost + 'static>(p: &Pal, room: f32, sm: bool, stee
         .gap(6.0)
         .center_y()
         .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         .transition(rune::Transition::opacity())
@@ -322,6 +323,7 @@ fn icon_button<H: QueueHost + 'static>(p: &Pal, key: &str, label: &str, glyph: &
         .size(side, side)
         .center()
         .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         // The row it takes away goes at once (rows enter and leave on `SpringPair::NONE`), and the
@@ -367,6 +369,7 @@ fn queue_row<H: QueueHost + 'static>(p: &Pal, session: &str, r: &QueueRow, ids: 
         .gap(2.0)
         .center_y()
         .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         .on_press(move |s: &mut H| super::steer_queued(s, &ss, &is))

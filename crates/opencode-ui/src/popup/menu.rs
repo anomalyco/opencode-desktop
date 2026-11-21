@@ -242,6 +242,7 @@ pub(super) struct Sub {
     pub(super) menu: Menu,
     /// The glyph before the title (drawn menus only).
     pub(super) glyph: Option<Glyph>,
+    pub(super) enabled: bool,
 }
 
 /// How a drawn menu looks.
@@ -363,13 +364,19 @@ impl Menu {
 
     /// A row titled `title` that opens `menu` beside it; its items answer the same `pick`.
     pub fn submenu(mut self, id: impl Into<String>, title: impl Into<String>, menu: Menu) -> Menu {
-        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: None })));
+        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: None, enabled: true })));
+        self
+    }
+
+    /// [`Menu::submenu`] that may be disabled (stays visible at disabled opacity and never opens).
+    pub fn submenu_enabled(mut self, id: impl Into<String>, title: impl Into<String>, enabled: bool, menu: Menu) -> Menu {
+        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: None, enabled })));
         self
     }
 
     /// [`Menu::submenu`] led by `glyph`, as the location card's branch and folder rows are.
     pub fn submenu_icon(mut self, id: impl Into<String>, title: impl Into<String>, glyph: &'static Icon, menu: Menu) -> Menu {
-        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: Some(Glyph::Ink(glyph)) })));
+        self.entries.push(Entry::Sub(Box::new(Sub { id: id.into(), title: title.into(), menu, glyph: Some(Glyph::Ink(glyph)), enabled: true })));
         self
     }
 
@@ -441,7 +448,8 @@ impl Menu {
             Entry::Item(i) => m.item(PopupItem::new(i.id.clone(), i.title.clone()).enabled(i.enabled).checked(i.checked)),
             Entry::Separator => m.separator(),
             Entry::Group(title) => m.item(PopupItem::new(format!("group-{title}"), title.clone()).enabled(false)),
-            Entry::Sub(sub) => m.submenu(sub.title.clone(), sub.menu.native()),
+            Entry::Sub(sub) if sub.enabled => m.submenu(sub.title.clone(), sub.menu.native()),
+            Entry::Sub(sub) => m.item(PopupItem::new(sub.id.clone(), sub.title.clone()).enabled(false)),
         });
         match &self.selected {
             Some(id) => menu.selected(id.clone()),
@@ -458,7 +466,7 @@ impl Menu {
 
     pub(super) fn sub_at(&self, n: usize) -> Option<&Menu> {
         match self.entries.get(n)? {
-            Entry::Sub(sub) => Some(&sub.menu),
+            Entry::Sub(sub) if sub.enabled => Some(&sub.menu),
             _ => None,
         }
     }

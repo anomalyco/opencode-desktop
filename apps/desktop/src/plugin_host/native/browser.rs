@@ -221,7 +221,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     let raw: Function = vmx.asyncs.raw_get("Browser.OpenAsync")?;
     let open: Function = lua.load("local raw = ... return function(self, spec) local id = raw(spec) return if id then self:Get(id) else nil end").set_name("=Browser:OpenAsync").call(raw)?;
     t.raw_set("OpenAsync", open)?;
-    lazy_signals(lua, vmx, t, "Browser", &["Changed", "Picked", "SiteBack"])
+    lazy_signals(lua, vmx, t, "Browser", &["Changed", "Picked", "SiteBack", "AddressSelection"])
 }
 
 /// The host's async functions: `Browser:OpenAsync` and `BrowserTab`'s async methods.
@@ -588,7 +588,7 @@ pub fn version(app: &App) -> u64 {
         t.files.iter().for_each(|f| (&f.id, f.bytes, f.state as u8, &f.error).hash(&mut h));
     }
     app.workspace_panes.browser.host.focused_tab_id().hash(&mut h);
-    app.workspace_panes.browser.overlay.version_tag().hash(&mut h);
+    app.workspace_panes.browser.overlay.hash_state(&mut h);
     app.workspace_panes.browser.openers.unnamed_ids_sorted().hash(&mut h);
     {
         let reviews = app.workspace_panes.browser.active_app_reviews.borrow();

@@ -139,6 +139,8 @@ pub(super) fn compute_target(
         }
         let key = if fids.len() == 1 { format!("file:{}", fids[0]) } else { format!("files:{}:{}", fids[0], fids[1]) };
         TargetMeta { resources, key }
+    } else if matches!(ty, "trace.stop" | "cpu.stop") {
+        super::profile::stop_target(att, app, host_id, ty == "trace.stop")?
     } else if ty == "network.get" {
         let req_id = cmd.action.get("id").and_then(Value::as_str).unwrap_or("");
         let res_url = att

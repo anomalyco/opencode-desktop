@@ -81,6 +81,8 @@ pub(super) fn tip(s: &App, p: &Pal) -> Vec<El> {
         .pl(6.0)
         .center_y()
         .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_inset(p)
         .hover(p.hover)
         .hover_group()
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.open_connect(None, true, tx))
@@ -100,6 +102,8 @@ pub(super) fn tip(s: &App, p: &Pal) -> Vec<El> {
         .size(24.0, 24.0)
         .center()
         .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_inset(p)
         .hover(p.hover)
         .on_press_tx(dismiss)
         .child(icon(&ic::CLOSE, 16.0).color(p.icon_muted));
