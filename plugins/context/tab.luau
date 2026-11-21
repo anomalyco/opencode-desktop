@@ -84,7 +84,7 @@ local EXPORT = table.freeze({
     hoverTransition = "instant",
     hoverGroup = true,
 } :: UiBoxProps)
-local EXPORT_ICON = table.freeze({ size = 14, color = "text-weak", hoverGroupColor = "text-chrome" } :: UiIconProps)
+local EXPORT_ICON = table.freeze({ size = 16, color = "text-weak", hoverGroupColor = "text-chrome" } :: UiIconProps)
 local EXPORT_TEXT = table.freeze({
     size = 13,
     weight = "medium" :: FontWeight,
