@@ -1,0 +1,801 @@
+From 474d07a34fc13f817a7735f60c9bc950020ada71 Mon Sep 17 00:00:00 2001
+From: LukeParkerDev <10430890+Hona@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 06:49:29 +1000
+Subject: [PATCH] ci(pr-build): run 12-check Windows x64 smoke job on PR builds
+
+---
+ .../release/opencode-rune-smoke-windows.ts    | 630 ++++++++++++++++++
+ .github/workflows/opencode-rune-pr-build.yml  | 140 ++++
+ 2 files changed, 770 insertions(+)
+ create mode 100644 .github/release/opencode-rune-smoke-windows.ts
+
+diff --git a/.github/release/opencode-rune-smoke-windows.ts b/.github/release/opencode-rune-smoke-windows.ts
+new file mode 100644
+index 000000000..e3e059a20
+--- /dev/null
++++ b/.github/release/opencode-rune-smoke-windows.ts
+@@ -0,0 +1,630 @@
++// Self-contained 12-check Windows x64 smoke runner for GitHub Actions (`smoke-windows-x64`).
++// Mirrors `harness/smoke.ts` without hidden-desktop scheduling or external fixture repos:
++//   1. first-frame      - window renders a non-empty UI tree
++//   2. plugins          - every built-in plugin loads cleanly (--plugins-eager --plugin-index)
++//   3. launcher         - New tab launcher lists Review, Browser, Terminal, and Open file
++//   4. browser          - browser tab opens and loads a local HTTP page (published or PR engine)
++//   5. terminal         - terminal tab opens cleanly
++//   6. settings         - Settings opens every discovered page without errors
++//   7. session          - session opens and draws its timeline
++//   8. prompt           - a prompt is typed and sent to the local mock server
++//   9. element-comment  - browser element-comment editor opens and sends with origin="browser"
++//  10. queued-prompt    - a follow-up prompt queued while a turn runs shows in the queue tray
++//  11. extension-popup  - MV3 test extension popup opens (zero external network / CRX download)
++//  12. quit             - every run exits cleanly (exit 0, 0 own-process crash dumps/panics)
++
++import { Database } from "bun:sqlite"
++import { dlopen, FFIType } from "bun:ffi"
++import { createHash, generateKeyPairSync } from "node:crypto"
++import { closeSync, cpSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs"
++import { tmpdir } from "node:os"
++import { basename, join, normalize, resolve } from "node:path"
++
++if (process.platform === "win32") {
++  try {
++    dlopen("kernel32.dll", { SetErrorMode: { args: [FFIType.u32], returns: FFIType.u32 } }).symbols.SetErrorMode(0x0001 | 0x0002 | 0x8000)
++  } catch {}
++}
++
++const argv = process.argv.slice(2)
++const opt = (name: string) => {
++  const i = argv.indexOf(`--${name}`)
++  return i >= 0 ? argv[i + 1] : undefined
++}
++const EXE = opt("exe")
++const ENGINE_DIR = opt("engine-dir")
++const LABEL = opt("label") ?? (EXE ? basename(EXE) : "unknown")
++const REPORT = opt("report")
++const PASSWORD = "ci-smoke-password"
++const ENGINE_TRUST = "publisher:Anomaly Innovations, Inc https://anoma.ly/\n"
++
++if (!EXE || !existsSync(EXE)) {
++  console.error(`smoke: missing --exe (${EXE ?? "none"})`)
++  process.exit(2)
++}
++
++const t0 = performance.now()
++const runId = `ci-smoke-${process.pid}-${Date.now().toString(36)}`
++const BASE = resolve(join(tmpdir(), runId))
++const ROOT = join(BASE, "profile")
++const ROOT_EXT = join(BASE, "profile-ext")
++const REPO_DIR = join(BASE, "repo")
++mkdirSync(REPO_DIR, { recursive: true })
++writeFileSync(join(REPO_DIR, "README.md"), "# Smoke Fixture Repo\n")
++
++type TreeEl = { key?: string; path?: string; role?: string; label?: string; text?: string; value?: string; rect?: number[] }
++type PassResult = { name: string; code: number; log: string; tree: TreeEl[]; elapsedMs: number }
++
++function isEngineDir(dir: string): boolean {
++  return existsSync(join(dir, "opencode-browser-engine.exe")) && existsSync(join(dir, "libcef.dll"))
++}
++
++function seedEngine(root: string) {
++  if (!ENGINE_DIR) return
++  const src = isEngineDir(ENGINE_DIR) ? ENGINE_DIR : join(ENGINE_DIR, "OpenCode Browser Engine")
++  if (!isEngineDir(src)) throw new Error(`--engine-dir missing opencode-browser-engine.exe + libcef.dll: ${ENGINE_DIR}`)
++  const enginesRoot = join(root, "state", "co.anomaly.opencode", "browser-engine")
++  mkdirSync(enginesRoot, { recursive: true })
++  // Match current published and dev engine revisions.
++  for (const ver of ["156.0.26.7", "156.0.26.8"]) {
++    const slot = join(enginesRoot, ver)
++    if (existsSync(join(slot, "OpenCode Browser Engine", "opencode-browser-engine.exe"))) continue
++    mkdirSync(slot, { recursive: true })
++    writeFileSync(join(slot, "trust"), ENGINE_TRUST)
++    cpSync(src, join(slot, "OpenCode Browser Engine"), { recursive: true })
++  }
++}
++
++function makeTestPopupExtension(extBase: string): { id: string; dir: string; digest: string; name: string; version: string } {
++  const { publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
++  const pubDer = publicKey.export({ type: "spki", format: "der" }) as Buffer
++  const hash = createHash("sha256").update(pubDer).digest()
++  let id = ""
++  for (let i = 0; i < 16; i++) {
++    const b = hash[i]!
++    id += String.fromCharCode(97 + (b >> 4)) + String.fromCharCode(97 + (b & 0xf))
++  }
++  const dir = join(extBase, id)
++  mkdirSync(dir, { recursive: true })
++  const mf = {
++    manifest_version: 3,
++    name: "CI Smoke Popup",
++    version: "1.0.0",
++    key: pubDer.toString("base64"),
++    action: { default_popup: "popup.html", default_title: "CI Smoke Popup" },
++  }
++  writeFileSync(join(dir, "manifest.json"), JSON.stringify(mf, null, 2))
++  writeFileSync(
++    join(dir, "popup.html"),
++    "<!doctype html><html><body style='margin:0;width:300px;height:240px;background:#1a1a1a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center'><h3>CI_POPUP_OK</h3></body></html>",
++  )
++  const records: string[] = []
++  for (const name of readdirSync(dir).sort()) {
++    const h = createHash("sha256").update(readFileSync(join(dir, name))).digest("hex")
++    records.push(JSON.stringify([name, h]))
++  }
++  records.sort()
++  const digest = createHash("sha256").update(records.join("\n")).digest("hex")
++  return { id, dir, digest, name: mf.name, version: mf.version }
++}
++
++function inspectMinidump(filePath: string): { pid: number | null; exe: string | null } {
++  const fnamePid = /\.(\d+)\.dmp$/i.exec(basename(filePath))?.[1]
++  let pid: number | null = fnamePid ? Number(fnamePid) : null
++  let exe: string | null = null
++  let fd: number | null = null
++  try {
++    fd = openSync(filePath, "r")
++    const readAt = (off: number, len: number) => {
++      const b = Buffer.alloc(len)
++      return b.subarray(0, readSync(fd!, b, 0, len, off))
++    }
++    const hdr = readAt(0, 32)
++    if (hdr.length < 32 || hdr.subarray(0, 4).toString("ascii") !== "MDMP") return { pid, exe }
++    const nStreams = Math.min(hdr.readUInt32LE(8), 64)
++    const dirRva = hdr.readUInt32LE(12)
++    const dir = readAt(dirRva, nStreams * 12)
++    for (let i = 0; i < nStreams && (i + 1) * 12 <= dir.length; i++) {
++      const st = dir.readUInt32LE(i * 12)
++      const sz = dir.readUInt32LE(i * 12 + 4)
++      const rva = dir.readUInt32LE(i * 12 + 8)
++      if (st === 4 && sz >= 4 + 108) {
++        const ml = readAt(rva, 4 + 108)
++        if (ml.length >= 28 && ml.readUInt32LE(0) >= 1) {
++          const nameRva = ml.readUInt32LE(4 + 20)
++          const slen = readAt(nameRva, 4)
++          if (slen.length === 4) {
++            const decoded = readAt(nameRva + 4, Math.min(slen.readUInt32LE(0), 2048)).toString("utf16le").replace(/\0+$/, "")
++            if (decoded) exe = decoded
++          }
++        }
++      } else if (st === 15 && sz >= 12) {
++        const mi = readAt(rva, 12)
++        if (mi.length >= 12 && (mi.readUInt32LE(4) & 1) !== 0) pid = mi.readUInt32LE(8)
++      }
++    }
++  } catch {} finally {
++    if (fd !== null) try { closeSync(fd) } catch {}
++  }
++  return { pid, exe }
++}
++
++function listCrashDumps(dirs: string[]): Set<string> {
++  const out = new Set<string>()
++  for (const dir of dirs) {
++    if (!existsSync(dir)) continue
++    try {
++      const stack = [dir]
++      while (stack.length > 0) {
++        const cur = stack.pop()!
++        for (const e of readdirSync(cur, { withFileTypes: true })) {
++          const full = join(cur, e.name)
++          if (e.isDirectory()) stack.push(full)
++          else if (/\.dmp$/i.test(e.name) || /crash/i.test(e.name)) out.add(full)
++        }
++      }
++    } catch {}
++  }
++  return out
++}
++
++const ownPids = new Map<number, string>()
++const basePrefixLower = `${normalize(BASE).toLowerCase()}\\`
++const realCrashDir = process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, "CrashDumps") : ""
++const preWerDumps = listCrashDumps(realCrashDir ? [realCrashDir] : [])
++
++function collectOwnCrashDumps(): string[] {
++  const found: string[] = []
++  for (const p of listCrashDumps([ROOT, ROOT_EXT])) {
++    const info = /\.dmp$/i.test(p) ? inspectMinidump(p) : { pid: null, exe: null }
++    found.push(`${p} (exe=${info.exe ?? (info.pid !== null ? ownPids.get(info.pid) : undefined) ?? "unknown"})`)
++  }
++  if (realCrashDir) {
++    for (const p of listCrashDumps([realCrashDir])) {
++      if (preWerDumps.has(p)) continue
++      const info = /\.dmp$/i.test(p) ? inspectMinidump(p) : { pid: null, exe: null }
++      const pidMatch = info.pid !== null && ownPids.has(info.pid)
++      const pathMatch = Boolean(info.exe && normalize(info.exe).toLowerCase().startsWith(basePrefixLower))
++      if (!pidMatch && !pathMatch) continue
++      found.push(`${p} (exe=${info.exe ?? (info.pid !== null ? ownPids.get(info.pid) : undefined) ?? "unknown"})`)
++    }
++  }
++  return found
++}
++
++function clearWindowState(root: string) {
++  const dbPath = join(root, "data", "rune-opencode", "opencode.sqlite")
++  if (!existsSync(dbPath)) {
++    mkdirSync(join(root, "AppData", "Local"), { recursive: true })
++    mkdirSync(join(root, "AppData", "Roaming"), { recursive: true })
++    return
++  }
++  const db = new Database(dbPath)
++  try {
++    db.query("DELETE FROM state WHERE name LIKE 'opencode.window.%' OR name = 'opencode.settings' OR name = 'plugin.browser'").run()
++    db.query("DELETE FROM window_state").run()
++    db.query("DELETE FROM boot").run()
++  } catch {} finally {
++    db.close()
++  }
++}
++
++async function runPass(
++  name: string,
++  opts: {
++    serverUrl?: string
++    session?: string
++    harnessWrites?: boolean
++    realtime?: boolean
++    extraArgs?: string[]
++    events?: Record<string, unknown>[]
++    at: number
++    secs?: number
++    timeoutMs?: number
++    warmDb?: boolean
++    keepData?: boolean
++    rootOverride?: string
++  },
++): Promise<PassResult> {
++  const rootDir = opts.rootOverride ?? ROOT
++  if (opts.keepData) {
++    mkdirSync(join(rootDir, "AppData", "Local"), { recursive: true })
++    mkdirSync(join(rootDir, "AppData", "Roaming"), { recursive: true })
++  } else if (opts.warmDb) {
++    clearWindowState(rootDir)
++  } else {
++    rmSync(join(rootDir, "data", "rune-opencode"), { recursive: true, force: true })
++    mkdirSync(join(rootDir, "AppData", "Local"), { recursive: true })
++    mkdirSync(join(rootDir, "AppData", "Roaming"), { recursive: true })
++  }
++  const passTmp = join(rootDir, "tmp")
++  mkdirSync(passTmp, { recursive: true })
++
++  const treeFile = join(BASE, `tree-${name}.json`)
++  const outFile = join(BASE, `out-${name}.txt`)
++  const errFile = join(BASE, `err-${name}.txt`)
++  writeFileSync(outFile, "")
++  writeFileSync(errFile, "")
++
++  const args: string[] = ["--size", "1280x800", "--scale", "1", "--theme", "dark", "--reduced-motion", "--at", String(opts.at), "--tree", treeFile]
++  if (opts.serverUrl) args.push("--live", "--server", opts.serverUrl)
++  if (opts.harnessWrites) args.push("--harness-writes")
++  if (opts.realtime) args.push("--realtime")
++  if (opts.events) {
++    const sf = join(BASE, `script-${name}.json`)
++    writeFileSync(sf, JSON.stringify({ secs: opts.secs ?? opts.at + 0.3, events: opts.events }))
++    args.push("--script", sf)
++  }
++  if (opts.session) args.push("--session", opts.session)
++  if (opts.extraArgs) args.push(...opts.extraArgs)
++
++  const env: Record<string, string> = { ...(process.env as Record<string, string>) }
++  for (const k of [
++    "OPENCODE_BROWSER_PROFILE",
++    "OPENCODE_BROWSER_SOCKET",
++    "OPENCODE_BROWSER_ENGINE_BIN",
++    "OPENCODE_BROWSER_ENGINE_APP",
++    "OPENCODE_BROWSER_ENGINE_SOURCE",
++    "OPENCODE_BROWSER_ENGINE_TRUST",
++    "OPENCODE_RUNE_PROFILE",
++  ]) delete env[k]
++  Object.assign(env, {
++    RUNE_DIRS_ROOT: rootDir,
++    OPENCODE_RUNE_HOME: rootDir,
++    HOME: rootDir,
++    USERPROFILE: rootDir,
++    APPDATA: join(rootDir, "AppData", "Roaming"),
++    LOCALAPPDATA: join(rootDir, "AppData", "Local"),
++    TEMP: passTmp,
++    TMP: passTmp,
++    OPENCODE_SERVER_PASSWORD: PASSWORD,
++    OPENCODE_RUNE_OTEL: "0",
++    RUNE_PERF_WARN: "0",
++    OPENCODE_BROWSER_LIVE_TEST: "1",
++  })
++
++  const start = performance.now()
++  const proc = Bun.spawn([EXE!, ...args], {
++    cwd: resolve(EXE!, ".."),
++    windowsHide: true,
++    env,
++    stdout: Bun.file(outFile),
++    stderr: Bun.file(errFile),
++  })
++  ownPids.set(proc.pid, EXE!)
++
++  const secs = opts.secs ?? opts.at + 0.3
++  const limit = opts.timeoutMs ?? Math.max(25_000, Math.round((secs + 16) * 1000))
++  let timedOut = false
++  const timer = setTimeout(() => {
++    timedOut = true
++    try { Bun.spawnSync(["taskkill", "/PID", String(proc.pid), "/T", "/F"], { stdout: "ignore", stderr: "ignore", windowsHide: true }) } catch {}
++  }, limit)
++  const code = await proc.exited
++  clearTimeout(timer)
++
++  const outText = existsSync(outFile) ? readFileSync(outFile, "utf8") : ""
++  const errText = existsSync(errFile) ? readFileSync(errFile, "utf8") : ""
++  const log = outText && errText ? `${outText}\n${errText}` : outText || errText
++  let tree: TreeEl[] = []
++  if (existsSync(treeFile)) {
++    try {
++      const parsed = JSON.parse(readFileSync(treeFile, "utf8"))
++      tree = Array.isArray(parsed?.elements) ? parsed.elements : []
++    } catch {}
++  }
++  return { name, code: timedOut ? 124 : code, log, tree, elapsedMs: performance.now() - start }
++}
++
++function findPluginErrors(log: string, opts?: { onlyPlugin?: string; strictWatchdog?: boolean }): string[] {
++  const errs: string[] = []
++  let watchdogs = 0
++  let firstW = ""
++  for (const raw of log.split(/\r?\n/)) {
++    const line = raw.trim()
++    if (!line) continue
++    if (line.startsWith("plugin index: error:")) {
++      if (!opts?.onlyPlugin || line.startsWith(`plugin index: error: ${opts.onlyPlugin}:`)) errs.push(line)
++      continue
++    }
++    const m = /^plugin\s+([a-z0-9_.-]+):\s*(.*)$/i.exec(line)
++    if (m) {
++      if (opts?.onlyPlugin && (m[1] ?? "").toLowerCase() !== opts.onlyPlugin.toLowerCase()) continue
++      const body = m[2] ?? ""
++      if (/script ran longer than its time limit \(watchdog\)/i.test(body)) {
++        watchdogs++
++        if (!firstW) firstW = line
++        continue
++      }
++      if (/runtime error|attempt to |stack traceback|\blua\b|\bluau\b|syntax error|compile error|panic|failed to|rejected:|error:/i.test(body) || /:\d+:\s+/.test(body)) {
++        errs.push(line)
++      }
++    }
++  }
++  if (watchdogs > 0 && (opts?.strictWatchdog || watchdogs >= 2)) errs.push(firstW)
++  return errs
++}
++
++function parsePluginIndex(log: string) {
++  const plugins: { id: string; tier: string; life: string }[] = []
++  const errors: string[] = []
++  for (const raw of log.split(/\r?\n/)) {
++    const line = raw.trim()
++    const pm = /^plugin index: plugin:\s+(\S+)\s+\S+\s+\(contract\s+\S+,\s+([^,]+),\s+([^)]+)\)/.exec(line)
++    if (pm) plugins.push({ id: pm[1]!, tier: pm[2]!.trim(), life: pm[3]!.trim() })
++    else if (line.startsWith("plugin index: error:")) errors.push(line)
++  }
++  return { plugins, errors }
++}
++
++const promptPosts: { path: string; status: number; body: string }[] = []
++const sseWriters: ReadableStreamDefaultController<Uint8Array>[] = []
++const emitSse = (ev: any) => {
++  const chunk = new TextEncoder().encode(`data: ${JSON.stringify(ev)}\n\n`)
++  for (const c of sseWriters) try { c.enqueue(chunk) } catch {}
++}
++
++const SES_MAIN = "ses_ci_smoke_main"
++const SES_QUEUE = "ses_ci_smoke_queue"
++const nowMs = Date.now()
++const inboxItems: any[] = []
++
++const mockApi = Bun.serve({
++  hostname: "127.0.0.1",
++  port: 0,
++  idleTimeout: 255,
++  async fetch(req) {
++    const u = new URL(req.url)
++    const p = u.pathname
++    const json = (v: any, status = 200) => new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json" } })
++    if (p === "/global/health" || p === "/api/health") return json({ healthy: true, version: "2.0.0-ci-smoke" })
++    if (p === "/api/event" || p === "/global/event") {
++      const stream = new ReadableStream<Uint8Array>({
++        start(ctrl) {
++          sseWriters.push(ctrl)
++          ctrl.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: "server.connected", properties: {} })}\n\n`))
++        },
++      })
++      return new Response(stream, { headers: { "content-type": "text/event-stream", "cache-control": "no-cache" } })
++    }
++    if (p === "/api/project") return json([{ id: "proj_ci", worktree: REPO_DIR, vcs: "git", time: { created: nowMs - 10_000, updated: nowMs } }])
++    if (p === "/api/session") {
++      return json([
++        { id: SES_MAIN, slug: SES_MAIN, projectID: "proj_ci", directory: REPO_DIR, title: "Formatting tour", version: "2.0.0", time: { created: nowMs - 9_000, updated: nowMs - 1_000 } },
++        { id: SES_QUEUE, slug: SES_QUEUE, projectID: "proj_ci", directory: REPO_DIR, title: "Check the repo state", version: "2.0.0", time: { created: nowMs - 8_000, updated: nowMs - 2_000 } },
++      ])
++    }
++    if (p === "/api/session/active") return json({})
++    if (p === `/api/session/${SES_MAIN}/message` || p === `/api/session/${SES_QUEUE}/message`) {
++      return json([
++        {
++          info: { id: "msg_u1", sessionID: SES_MAIN, role: "user", time: { created: nowMs - 5_000 } },
++          parts: [{ id: "prt_u1", sessionID: SES_MAIN, messageID: "msg_u1", type: "text", text: "Check formatting across components." }],
++        },
++        {
++          info: { id: "msg_a1", sessionID: SES_MAIN, role: "assistant", parentID: "msg_u1", time: { created: nowMs - 4_000, completed: nowMs - 3_000 }, modelID: "ci-mock", providerID: "ci" },
++          parts: [{ id: "prt_a1", sessionID: SES_MAIN, messageID: "msg_a1", type: "text", text: "All checks look clean in the fixture repo." }],
++        },
++      ])
++    }
++    if (p === `/api/session/${SES_QUEUE}/inbox` && req.method === "GET") return json(inboxItems)
++    if (p === `/api/session/${SES_QUEUE}/inbox` && req.method === "POST") {
++      const body: any = await req.json()
++      const item = { id: `q_${inboxItems.length + 1}`, sessionID: SES_QUEUE, text: body?.text ?? "", createdAt: Date.now() }
++      inboxItems.push(item)
++      emitSse({ type: "session.inbox.updated", properties: { sessionID: SES_QUEUE, items: inboxItems } })
++      return json(item)
++    }
++    if (/^\/api\/session\/[^/]+\/(prompt|prompt_async|message)$/.test(p) && req.method === "POST") {
++      const txt = await req.text()
++      promptPosts.push({ path: p, status: 200, body: txt })
++      if (txt.includes("[[sleep]]")) {
++        emitSse({ type: "session.status", properties: { sessionID: SES_QUEUE, status: { type: "busy" } } })
++      }
++      return json({ ok: true })
++    }
++    if (p === "/api/provider") return json({ all: [{ id: "ci", name: "CI", models: { "ci-mock": { id: "ci-mock", name: "CI Mock", limit: { context: 128000, output: 8192 } } } }], default: { ci: "ci-mock" }, connected: ["ci"] })
++    if (p === "/api/model") return json([{ providerID: "ci", modelID: "ci-mock", name: "CI Mock" }])
++    if (p === "/api/agent") return json([{ name: "build", mode: "primary", builtIn: true }])
++    if (p === "/api/config") return json({ model: "ci/ci-mock" })
++    return json([])
++  },
++})
++
++let localPageHits = 0
++const localWeb = Bun.serve({
++  hostname: "127.0.0.1",
++  port: 0,
++  fetch(req) {
++    if (new URL(req.url).pathname === "/smoke-page") {
++      localPageHits++
++      return new Response(
++        "<!doctype html><html><head><meta charset='utf-8'><title>SMOKE_LOCAL_OK</title><style>html,body{margin:0;height:100%;display:flex;align-items:center;justify-content:center;font-family:sans-serif}h1{padding:80px;font-size:48px;border:2px solid #333}</style></head><body><h1 id='smoke-heading'>Smoke Local Page</h1></body></html>",
++        { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
++      )
++    }
++    return new Response("ok")
++  },
++})
++
++const serverUrl = `http://127.0.0.1:${mockApi.port}`
++const localPageUrl = `http://127.0.0.1:${localWeb.port}/smoke-page`
++const promptNonce = `smoke-ping-${runId}`
++const commentNonce = `smoke-comment-${runId}`
++const queueNonce = `smoke-queued-${runId}`
++
++try {
++  seedEngine(ROOT)
++  const passes: PassResult[] = []
++
++  const pIndex = await runPass("plugins", { extraArgs: ["--plugins-eager", "--plugin-index"], at: 0.2, secs: 0.4 })
++  passes.push(pIndex)
++  const idx = parsePluginIndex(pIndex.log)
++  const browserPluginFailed = idx.plugins.some((p) => p.id === "browser" && !/^(on|running)$/i.test(p.life))
++
++  const pSession = await runPass("session", {
++    serverUrl, session: "Formatting tour", harnessWrites: true, realtime: true,
++    events: [{ t: 3.0, type: "tap", key: "prompt" }, { t: 3.3, type: "type", text: promptNonce, every: 0.015 }, { t: 4.1, type: "key", name: "Enter" }],
++    at: 5.8, secs: 6.1,
++  })
++  passes.push(pSession)
++
++  const pLauncher = await runPass("launcher", {
++    serverUrl, session: "Formatting tour", harnessWrites: true, realtime: true, warmDb: true,
++    events: [{ t: 1.6, type: "tap", key: "context-usage" }, { t: 2.4, type: "tap", key: "side-add-side" }],
++    at: 3.5, secs: 3.8,
++  })
++  passes.push(pLauncher)
++
++  const pTerminal = await runPass("terminal", {
++    serverUrl, session: "Formatting tour", harnessWrites: true, realtime: true, warmDb: true,
++    events: [{ t: 1.6, type: "key", name: "`", ctrl: true }],
++    at: 3.8, secs: 4.1,
++  })
++  passes.push(pTerminal)
++
++  const hits0 = localPageHits
++  const browserEvents: Record<string, unknown>[] = [{ t: 2.6, type: "key", name: "b", cmd: true, alt: true }]
++  if (!browserPluginFailed) {
++    browserEvents.push(
++      { t: 4.8, type: "tap", key: "browser-address" },
++      { t: 5.2, paste: localPageUrl },
++      { t: 5.5, type: "key", name: "Enter" },
++      { t: 9.2, type: "tap", key: "browser-options" },
++      { t: 9.9, type: "move", key: "browser-menu-more" },
++      { t: 10.6, type: "tap", key: "browser-more-inspect" },
++      { t: 11.4, type: "move", key: "browser-surface" },
++      { t: 12.0, type: "tap", key: "browser-surface" },
++      { t: 14.0, type: "tap", key: "browser-comment-field" },
++      { t: 14.4, type: "type", text: commentNonce, every: 0.015 },
++      { t: 15.4, type: "key", name: "Enter", cmd: true },
++    )
++  }
++  const pBrowser = await runPass("browser", {
++    serverUrl, session: "Formatting tour", harnessWrites: true, realtime: true, warmDb: true, extraArgs: ["--plugins-eager"],
++    events: browserEvents, at: browserPluginFailed ? 3.4 : 17.2, secs: browserPluginFailed ? 3.7 : 17.5, timeoutMs: 45_000,
++  })
++  passes.push(pBrowser)
++  const browserHits = localPageHits - hits0
++
++  const pSettingsList = await runPass("settings-list", {
++    serverUrl, session: "Formatting tour", harnessWrites: true, realtime: true, warmDb: true,
++    events: [{ t: 1.0, type: "key", name: ",", cmd: true }], at: 2.0, secs: 2.3,
++  })
++  passes.push(pSettingsList)
++  const navKeys = Array.from(new Set(pSettingsList.tree.map((e) => e.key).filter((k): k is string => Boolean(k && k.startsWith("settings-nav-") && !k.startsWith("settings-nav-group") && k !== "settings-nav-list" && k !== "settings-nav-room" && k !== "settings-nav-groups"))))
++  const settingsEvents: Record<string, unknown>[] = [{ t: 1.0, type: "key", name: ",", cmd: true }]
++  let st = 1.7
++  for (const nk of navKeys) { settingsEvents.push({ t: +st.toFixed(2), type: "tap", key: nk }); st += 0.24 }
++  const pSettingsWalk = await runPass("settings-walk", {
++    serverUrl, session: "Formatting tour", harnessWrites: true, realtime: true, warmDb: true,
++    events: settingsEvents, at: +(st + 0.5).toFixed(2), secs: +(st + 0.8).toFixed(2),
++  })
++  passes.push(pSettingsWalk)
++
++  const pQueue = await runPass("queued-prompt", {
++    serverUrl, session: "Check the repo state", harnessWrites: true, realtime: true, warmDb: true,
++    events: [
++      { t: 1.8, type: "tap", key: "prompt" },
++      { t: 2.1, type: "type", text: "[[sleep]] wait", every: 0.015 },
++      { t: 2.7, type: "key", name: "Enter" },
++      { t: 4.5, type: "tap", key: "prompt" },
++      { t: 4.8, type: "type", text: queueNonce, every: 0.015 },
++      { t: 5.7, type: "key", name: "Enter", alt: true },
++    ],
++    at: 7.4, secs: 7.7,
++  })
++  passes.push(pQueue)
++
++  let pExt: PassResult | null = null
++  let extMeta: ReturnType<typeof makeTestPopupExtension> | null = null
++  if (!browserPluginFailed && existsSync(join(ROOT, "data", "rune-opencode", "opencode.sqlite"))) {
++    seedEngine(ROOT_EXT)
++    const extRoot = join(ROOT_EXT, "data", "rune-opencode", "browser-extensions")
++    mkdirSync(extRoot, { recursive: true })
++    cpSync(join(ROOT, "data", "rune-opencode", "opencode.sqlite"), join(ROOT_EXT, "data", "rune-opencode", "opencode.sqlite"))
++    extMeta = makeTestPopupExtension(extRoot)
++    const db = new Database(join(ROOT_EXT, "data", "rune-opencode", "opencode.sqlite"))
++    const rec = [{ id: extMeta.id, directory: `\\\\?\\${resolve(extMeta.dir)}`, enabled: true, source: "store", origin: "chrome", digest: extMeta.digest, name: extMeta.name, version: extMeta.version }]
++    db.query("DELETE FROM state WHERE name LIKE 'opencode.window.%' OR name = 'opencode.settings' OR name = 'plugin.browser'").run()
++    db.query("INSERT OR REPLACE INTO state (name, key, value, updated_at) VALUES ('plugin.browser', 'extensions', ?, ?)").run(JSON.stringify(rec), Date.now())
++    db.query("DELETE FROM window_state").run()
++    db.query("DELETE FROM boot").run()
++    db.close()
++    pExt = await runPass("extension-popup", {
++      serverUrl, session: "Formatting tour", harnessWrites: true, realtime: true, keepData: true, rootOverride: ROOT_EXT, extraArgs: ["--plugins-eager"],
++      events: [
++        { t: 2.6, type: "key", name: "b", cmd: true, alt: true },
++        { t: 4.8, type: "tap", key: "browser-address" },
++        { t: 5.2, paste: localPageUrl },
++        { t: 5.5, type: "key", name: "Enter" },
++        { t: 10.5, type: "tap", key: "browser-extensions" },
++        { t: 11.5, type: "tap", key: `browser-ext-item-${extMeta.id}` },
++      ],
++      at: 15.2, secs: 15.5, timeoutMs: 48_000,
++    })
++    passes.push(pExt)
++  }
++
++  const allPluginErrors = Array.from(new Set(passes.flatMap((p) => findPluginErrors(p.log, { strictWatchdog: p.name === "plugins" }))))
++  const allPanics = passes.flatMap((p) => p.log.split(/\r?\n/).filter((l) => /panicked at|RUST_BACKTRACE|fatal runtime error|STATUS_ACCESS_VIOLATION|NTSTATUS/i.test(l)).map((l) => `${p.name}: ${l.trim()}`))
++  const scriptDie = (log: string) => log.split(/\r?\n/).map((l) => l.trim()).find((l) => /^script:/i.test(l)) ?? ""
++
++  const firstFrameOk = pIndex.tree.length >= 10 && pSession.tree.length >= 20 && pSession.tree.some((e) => Array.isArray(e.rect) && e.rect[2]! > 100 && e.rect[3]! > 100)
++  const bundled = idx.plugins.filter((p) => /built-?in|bundled/i.test(p.tier))
++  const plist = bundled.length > 0 ? bundled : idx.plugins
++  const pluginsOk = plist.length > 0 && plist.every((p) => /^(on|running)$/i.test(p.life)) && idx.errors.length === 0 && allPluginErrors.length === 0
++  const launcherCards = pLauncher.tree.filter((e) => e.key?.startsWith("side-launch-"))
++  const launcherTxt = launcherCards.map((e) => `${e.key ?? ""} ${e.label ?? ""}`).join(" | ")
++  const launcherOk = [/\breview\b/i, /\bbrowser\b/i, /\bterminal\b/i, /\bopen file\b|side-launch-file-/i].every((re) => re.test(launcherTxt))
++  const hasBrowserTab = pBrowser.tree.some((e) => e.key?.startsWith("side-tab-browser") || e.key === "browser-address")
++  const hasLocalTitleOrUrl = pBrowser.tree.map((e) => `${e.label ?? ""} ${e.text ?? ""} ${e.value ?? ""}`).join(" ").includes("SMOKE_LOCAL_OK")
++  const browserOk = !browserPluginFailed && hasBrowserTab && browserHits >= 1 && hasLocalTitleOrUrl && findPluginErrors(pBrowser.log, { onlyPlugin: "browser" }).length === 0
++  const termTab = pTerminal.tree.find((e) => e.key?.startsWith("side-tab-terminal"))
++  const terminalOk = Boolean(termTab) && findPluginErrors(pTerminal.log, { onlyPlugin: "terminal" }).length === 0
++  const settingsOk = navKeys.length >= 10 && pSettingsWalk.tree.some((e) => e.key === "settings-page" || e.key === "settings-content") && pSettingsWalk.code === 0
++  const timelineBubbles = pSession.tree.filter((e) => e.path && /\/(u-msg_|a-msg_|t-)/.test(e.path))
++  const sessionOk = pSession.tree.some((e) => e.key === "session") && timelineBubbles.length > 0
++  const matchedPost = promptPosts.find((p) => p.body.includes(promptNonce))
++  const promptOk = Boolean(matchedPost && matchedPost.status >= 200 && matchedPost.status < 400)
++  const commentPost = promptPosts.find((p) => p.status >= 200 && p.status < 400 && p.body.includes(commentNonce))
++  const elementCommentOk = !browserPluginFailed && Boolean(commentPost) && /"origin"\s*:\s*"browser"/.test(commentPost?.body ?? "") && pBrowser.code === 0
++  const queuedPromptOk = pQueue.code === 0 && pQueue.tree.some((e) => e.key === "queue" || e.key === "queue-tray" || e.key?.startsWith("queued-")) && pQueue.tree.some((e) => `${e.text ?? ""} ${e.label ?? ""}`.includes(queueNonce))
++  const popupEl = pExt?.tree.find((e) => e.key === "browser-ext-popup" && Array.isArray(e.rect) && e.rect[2]! >= 100 && e.rect[3]! >= 100)
++  const extPopupOk = Boolean(!browserPluginFailed && extMeta && pExt && pExt.code === 0 && popupEl && pExt.tree.some((e) => e.key === "browser-ext-popup-card"))
++  const newDumps = collectOwnCrashDumps()
++  const badExits = passes.filter((p) => p.code !== 0).map((p) => `${p.name}=${p.code}`)
++  const quitOk = badExits.length === 0 && allPanics.length === 0 && newDumps.length === 0
++
++  const results: [string, boolean, string][] = [
++    ["first-frame", firstFrameOk, firstFrameOk ? `${pSession.tree.length} elements` : `boot=${pIndex.tree.length} session=${pSession.tree.length}`],
++    ["plugins", pluginsOk, pluginsOk ? `${plist.length} built-in` : `errors=${allPluginErrors.slice(0, 2).join(" | ") || "non-running"}`],
++    ["launcher", launcherOk, launcherCards.map((e) => e.label || e.key || "").join(", ") || "none"],
++    ["browser", browserOk, browserOk ? `loaded ${localPageUrl} (hits=${browserHits})` : `tab=${hasBrowserTab} hits=${browserHits} title=${hasLocalTitleOrUrl}`],
++    ["terminal", terminalOk, terminalOk ? `tab opened (${termTab?.label || termTab?.key})` : "no terminal tab"],
++    ["settings", settingsOk, `${navKeys.length}/${navKeys.length} pages (code=${pSettingsWalk.code})`],
++    ["session", sessionOk, `timeline drawn (${timelineBubbles.length} message elements)`],
++    ["prompt", promptOk, promptOk ? `POST ${matchedPost!.path} -> ${matchedPost!.status}` : `posts=${promptPosts.length}`],
++    ["element-comment", elementCommentOk, elementCommentOk ? `POST ${commentPost!.path} -> ${commentPost!.status}` : `code=${pBrowser.code} ${scriptDie(pBrowser.log)}`],
++    ["queued-prompt", queuedPromptOk, queuedPromptOk ? "queue tray rendered with queued prompt" : `code=${pQueue.code}`],
++    ["extension-popup", extPopupOk, extPopupOk ? `${extMeta!.name} popup ${Math.round(popupEl!.rect![2]!)}x${Math.round(popupEl!.rect![3]!)}` : `code=${pExt?.code ?? "none"} ${pExt ? scriptDie(pExt.log) : ""}`],
++    ["quit", quitOk, quitOk ? `all ${passes.length} runs exit 0, 0 crash dumps` : [...(badExits.length ? [`exits=[${badExits.join(", ")}]`] : []), ...(allPanics.length ? [`panics=[${allPanics.slice(0, 2).join(" | ")}]`] : []), ...(newDumps.length ? [`dumps=[${newDumps.join(", ")}]`] : [])].join("; ")],
++  ]
++  const passed = results.filter(([, ok]) => ok).length
++  const totalSecs = ((performance.now() - t0) / 1000).toFixed(1)
++  const out = [`smoke: ${LABEL} (${EXE})`, ...results.map(([n, ok, d]) => `${n}: ${ok ? "yes" : "no"} (${d})`), `total: ${passed}/${results.length} in ${totalSecs}s`].join("\n") + "\n"
++  process.stdout.write(out)
++  if (REPORT) writeFileSync(REPORT, out)
++  if (passed !== results.length) process.exitCode = 1
++} finally {
++  mockApi.stop(true)
++  localWeb.stop(true)
++  if (process.platform === "win32") {
++    try {
++      const eb = BASE.replaceAll("'", "''")
++      Bun.spawnSync(["pwsh", "-NoProfile", "-Command", `Get-CimInstance Win32_Process -Filter "Name LIKE 'opencode-browser-engine%'" -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith('${eb}\\', [System.StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`], { stdout: "ignore", stderr: "ignore", windowsHide: true })
++    } catch {}
++  }
++  await Bun.sleep(400)
++  try { rmSync(BASE, { recursive: true, force: true, maxRetries: 6, retryDelay: 300 }) } catch {}
++}
+diff --git a/.github/workflows/opencode-rune-pr-build.yml b/.github/workflows/opencode-rune-pr-build.yml
+index 5c63d76ef..469987d0a 100644
+--- a/.github/workflows/opencode-rune-pr-build.yml
++++ b/.github/workflows/opencode-rune-pr-build.yml
+@@ -237,6 +237,146 @@ jobs:
+           path: ${{ runner.temp }}/engine
+           retention-days: "7"
+ 
++  smoke-windows-x64:
++    needs: [plan, build-windows, build-engine-windows-x64]
++    if: >-
++      ${{ !cancelled()
++      && needs.build-windows.result == 'success'
++      && needs.build-windows.outputs.digest-x64 != ''
++      && (needs.build-engine-windows-x64.result == 'success' || needs.build-engine-windows-x64.result == 'skipped') }}
++    runs-on: blacksmith-8vcpu-windows-2025
++    timeout-minutes: 15
++    permissions:
++      contents: read
++    env:
++      PR_NUMBER: ${{ needs.plan.outputs.pr-number }}
++      HEAD_SHA: ${{ needs.plan.outputs.head-sha }}
++      BUILD_ENGINE: ${{ needs.plan.outputs.build-engine }}
++    steps:
++      # Check out only the base branch's smoke helper so a PR cannot alter its own check.
++      - name: Check out smoke helper from base branch
++        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
++        with:
++          ref: ${{ github.event.pull_request.base.sha }}
++          sparse-checkout: /.github/release/
++          sparse-checkout-cone-mode: false
++          persist-credentials: false
++      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
++      - name: Download PR Windows x64 desktop build
++        uses: ./.github/release/download
++        with:
++          pattern: build-opencode-rune-pr-windows-x64
++          folder: smoke-in-app
++          digests: build-opencode-rune-pr-windows-x64=${{ needs.build-windows.outputs.digest-x64 }}
++      - name: Download PR Windows x64 browser engine (engine PRs)
++        if: needs.build-engine-windows-x64.outputs.digest != ''
++        uses: ./.github/release/download
++        with:
++          pattern: build-opencode-rune-pr-engine-windows-x64
++          folder: smoke-in-engine
++          digests: build-opencode-rune-pr-engine-windows-x64=${{ needs.build-engine-windows-x64.outputs.digest }}
++      - name: Resolve published browser engine metadata (non-engine PRs)
++        if: needs.build-engine-windows-x64.outputs.digest == ''
++        id: pub-engine
++        shell: pwsh
++        run: |
++          $idx = Invoke-RestMethod -Uri 'https://anoma.ly/release/opencode-rune/browser-engine/stable.json' -TimeoutSec 30
++          $t = $idx.release.targets.'windows-x64'
++          $url = if ($t.url -match '^https?://') { $t.url } else { "https://anoma.ly$($t.url)" }
++          "version=$($idx.release.version)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
++          "sha256=$($t.sha256)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
++          "url=$url" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
++      - name: Restore cached published browser engine
++        if: needs.build-engine-windows-x64.outputs.digest == ''
++        id: cache-engine
++        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
++        with:
++          path: ${{ runner.temp }}/pub-engine-cache
++          key: smoke-browser-engine-win-x64-${{ steps.pub-engine.outputs.sha256 }}
++      - name: Unpack desktop app and browser engine
++        id: unpack
++        shell: pwsh
++        env:
++          PUB_ENGINE_URL: ${{ steps.pub-engine.outputs.url }}
++          PUB_ENGINE_SHA256: ${{ steps.pub-engine.outputs.sha256 }}
++        run: |
++          $ErrorActionPreference = 'Stop'
++          $appIn = Join-Path $env:RUNNER_TEMP 'smoke-in-app/build-opencode-rune-pr-windows-x64'
++          $appOut = Join-Path $env:RUNNER_TEMP 'smoke-app'
++          New-Item -ItemType Directory -Force -Path $appOut | Out-Null
++          $zip = Get-ChildItem -LiteralPath $appIn -Recurse -Filter '*.zip' | Select-Object -First 1
++          if (-not $zip) {
++            $setup = Get-ChildItem -LiteralPath $appIn -Recurse -Filter '*setup*.exe' | Select-Object -First 1
++            if (-not $setup) { throw "No Windows x64 zip or setup.exe found in $appIn" }
++            $zipPath = Join-Path $env:RUNNER_TEMP 'smoke-setup-payload.zip'
++            & bun -e 'import { readFileSync, writeFileSync } from "node:fs"; const [s, d] = process.argv.slice(1); const b = readFileSync(s); for (let i = b.length - 22; i >= 0; i--) { if (b[i]===0x50&&b[i+1]===0x4b&&b[i+2]===0x05&&b[i+3]===0x06) { const o = b.readUInt32LE(i+16), l = b.readUInt32LE(i+12), z = i - o - l; if (z >= 0 && b[z]===0x50 && b[z+1]===0x4b) { writeFileSync(d, b.subarray(z)); process.exit(0); } } } process.exit(1);' $setup.FullName $zipPath
++            if ($LASTEXITCODE -ne 0) { throw "Failed extracting appended ZIP from $($setup.FullName)" }
++            Expand-Archive -LiteralPath $zipPath -DestinationPath $appOut -Force
++          } else {
++            Expand-Archive -LiteralPath $zip.FullName -DestinationPath $appOut -Force
++          }
++          $exe = (Get-ChildItem -LiteralPath $appOut -Recurse -Filter 'opencode-desktop.exe' | Select-Object -First 1).FullName
++          if (-not $exe) { throw "opencode-desktop.exe not found under $appOut" }
++
++          function Expand-TarZst([string]$ArchivePath, [string]$OutDir) {
++            New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
++            & tar --zstd -xf $ArchivePath -C $OutDir 2>$null
++            if ($LASTEXITCODE -eq 0) { return }
++            $tarPath = "$ArchivePath.tar"
++            & zstd -d -f $ArchivePath -o $tarPath
++            if ($LASTEXITCODE -ne 0) { throw "Failed decompressing $ArchivePath" }
++            & tar -xf $tarPath -C $OutDir
++            if ($LASTEXITCODE -ne 0) { throw "Failed extracting $tarPath" }
++            Remove-Item -Force $tarPath -ErrorAction SilentlyContinue
++          }
++
++          $engDir = ''
++          if ($env:BUILD_ENGINE -eq 'true') {
++            $engIn = Join-Path $env:RUNNER_TEMP 'smoke-in-engine/build-opencode-rune-pr-engine-windows-x64'
++            $zst = Get-ChildItem -LiteralPath $engIn -Filter 'OpenCode-Browser-Engine-*-windows-x64.tar.zst' | Select-Object -First 1
++            if (-not $zst) { throw "PR browser engine archive not found in $engIn" }
++            $engOut = Join-Path $env:RUNNER_TEMP 'smoke-pr-engine'
++            Expand-TarZst $zst.FullName $engOut
++            $engDir = Join-Path $engOut 'OpenCode Browser Engine'
++          } else {
++            $cacheDir = Join-Path $env:RUNNER_TEMP 'pub-engine-cache'
++            $engDir = Join-Path $cacheDir 'OpenCode Browser Engine'
++            if (-not (Test-Path -LiteralPath (Join-Path $engDir 'opencode-browser-engine.exe'))) {
++              New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
++              $archive = Join-Path $env:RUNNER_TEMP 'pub-engine.tar.zst'
++              & curl.exe -fsSL --retry 3 --retry-delay 2 -o $archive $env:PUB_ENGINE_URL
++              if ($LASTEXITCODE -ne 0) { throw "Failed downloading published engine" }
++              $got = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
++              if ($got -ne $env:PUB_ENGINE_SHA256.ToLowerInvariant()) { throw "Published engine SHA-256 mismatch: $got" }
++              Expand-TarZst $archive $cacheDir
++            }
++          }
++          if (-not (Test-Path -LiteralPath (Join-Path $engDir 'opencode-browser-engine.exe'))) { throw "Engine binary missing in $engDir" }
++          "exe=$exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
++          "engine-dir=$engDir" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
++      - name: Run 12-check Windows x64 smoke test
++        id: smoke
++        shell: pwsh
++        env:
++          SMOKE_EXE: ${{ steps.unpack.outputs.exe }}
++          SMOKE_ENGINE_DIR: ${{ steps.unpack.outputs.engine-dir }}
++        run: |
++          $short = $env:HEAD_SHA.Substring(0, 9)
++          $report = Join-Path $env:RUNNER_TEMP 'smoke-report.txt'
++          & bun .github/release/opencode-rune-smoke-windows.ts `
++            --exe $env:SMOKE_EXE `
++            --engine-dir $env:SMOKE_ENGINE_DIR `
++            --label "PR #$($env:PR_NUMBER) ($short)" `
++            --report $report
++          $rc = $LASTEXITCODE
++          if (Test-Path -LiteralPath $report) {
++            "### Windows x64 12-check smoke (PR #$($env:PR_NUMBER) @ ``$short``)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
++            '```text' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
++            Get-Content -LiteralPath $report | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
++            '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
++          }
++          exit $rc
++
+   # ---- Publish PR pre-release + sticky PR comment ----------------------------
+ 
+   publish-pr-build:
+-- 
+2.56.0.windows.4
+
