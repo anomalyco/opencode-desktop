@@ -1,0 +1,822 @@
+From 4a58875ff2a799ec7da97554dbb947ae66a9a062 Mon Sep 17 00:00:00 2001
+From: LukeParkerDev <10430890+Hona@users.noreply.github.com>
+Date: Sat, 21 Nov 2026 13:13:14 +1000
+Subject: [PATCH] ci(release): build, sign, publish and gate macos-x64 and
+ linux-arm64 browser engines
+
+---
+ .github/release/opencode-rune-check-engine.sh | 141 ++++++++---
+ .github/release/opencode-rune-plan.sh         |  16 +-
+ .../opencode-rune-sign-engine-macos.sh        |  12 +-
+ .github/workflows/release.yml                 | 221 +++++++++++-------
+ 4 files changed, 264 insertions(+), 126 deletions(-)
+
+diff --git a/.github/release/opencode-rune-check-engine.sh b/.github/release/opencode-rune-check-engine.sh
+index 3591a0341..b81edb46b 100755
+--- a/.github/release/opencode-rune-check-engine.sh
++++ b/.github/release/opencode-rune-check-engine.sh
+@@ -4,16 +4,18 @@
+ #
+ # Modes:
+ #   --plan-state --version <cef-rev>
+-#       Prints `complete=true|false` and `linux_x64_sha256=<64-hex or empty>`.
+-#       Fails hard on network, HTTP, or JSON schema errors.
++#       Prints `complete=true|false`, `linux_x64_sha256=<64-hex or empty>`, and
++#       `linux_arm64_sha256=<64-hex or empty>`. Fails hard on network, HTTP, or
++#       JSON schema errors.
+ #   --assert-not-complete --version <cef-rev>
+-#       Fails if <cef-rev> already has all four targets in the live index
++#       Fails if <cef-rev> already has all six targets in the live index
+ #       (refuses overwriting a complete engine version with new archive hashes).
+-#   --assert-published --version <cef-rev> [--linux-sha256 <64-hex>] [--source-rs <path>]
+-#       Verifies the live index serves <cef-rev> exactly, all four targets are
++#   --assert-published --version <cef-rev> --linux-x64-sha256 <64-hex>
++#       --linux-arm64-sha256 <64-hex> [--source-rs <path>]
++#       Verifies the live index serves <cef-rev> exactly, all six targets are
+ #       present and reachable (HEAD HTTP 200 + matching Content-Length), the
+-#       linux-x64 sha256 matches --linux-sha256, and --source-rs points at the
+-#       same hardcoded index URL.
++#       linux-x64 and linux-arm64 sha256 values match the pins, and --source-rs
++#       points at the same hardcoded index URL for all six targets.
+ #
+ # Testing only: --index-url http://127.0.0.1:<port>/... overrides the hardcoded
+ # URL strictly for loopback fixtures; release.yml never passes --index-url.
+@@ -22,7 +24,7 @@
+ readonly DEFAULT_INDEX_URL="https://anoma.ly/release/opencode-rune/browser-engine/stable.json"
+ readonly EXPECTED_WIN_TRUST="publisher:Anomaly Innovations, Inc https://anoma.ly/"
+ readonly EXPECTED_MAC_TRUST="publisher:5NZ4Q7NXJ4"
+-readonly ENGINE_TARGETS=(windows-x64 windows-arm64 macos-arm64 linux-x64)
++readonly ENGINE_TARGETS=(windows-x64 windows-arm64 macos-arm64 macos-x64 linux-x64 linux-arm64)
+ 
+ for cmd in curl jq sed awk; do
+   command -v "$cmd" > /dev/null || die "opencode-rune-check-engine.sh needs $cmd."
+@@ -30,8 +32,10 @@ done
+ 
+ mode=""
+ version=""
+-linux_sha256=""
+-linux_sha256_set=false
++linux_x64_sha256=""
++linux_x64_sha256_set=false
++linux_arm64_sha256=""
++linux_arm64_sha256_set=false
+ source_rs=""
+ index_url="$DEFAULT_INDEX_URL"
+ 
+@@ -47,11 +51,18 @@ while [ $# -gt 0 ]; do
+       version=$2
+       shift 2
+       ;;
+-    --linux-sha256)
+-      [ $# -ge 2 ] || die "--linux-sha256 requires a value."
+-      [[ "$2" =~ ^[0-9a-f]{64}$ ]] || die "Invalid --linux-sha256 '$2' (expected 64 lowercase hex characters)."
+-      linux_sha256=$2
+-      linux_sha256_set=true
++    --linux-x64-sha256 | --linux-sha256)
++      [ $# -ge 2 ] || die "$1 requires a value."
++      [[ "$2" =~ ^[0-9a-f]{64}$ ]] || die "Invalid $1 '$2' (expected 64 lowercase hex characters)."
++      linux_x64_sha256=$2
++      linux_x64_sha256_set=true
++      shift 2
++      ;;
++    --linux-arm64-sha256)
++      [ $# -ge 2 ] || die "--linux-arm64-sha256 requires a value."
++      [[ "$2" =~ ^[0-9a-f]{64}$ ]] || die "Invalid --linux-arm64-sha256 '$2' (expected 64 lowercase hex characters)."
++      linux_arm64_sha256=$2
++      linux_arm64_sha256_set=true
+       shift 2
+       ;;
+     --source-rs)
+@@ -76,7 +87,8 @@ done
+ [ -n "$mode" ] || die "Usage: opencode-rune-check-engine.sh --plan-state|--assert-not-complete|--assert-published --version <cef-rev> ..."
+ [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$ ]] || die "Invalid engine release version '$version' (expected X.Y.Z-R)."
+ if [ "$mode" = --assert-published ]; then
+-  [ "$linux_sha256_set" = true ] || die "--assert-published requires --linux-sha256 <64-hex>."
++  [ "$linux_x64_sha256_set" = true ] || die "--assert-published requires --linux-x64-sha256 <64-hex>."
++  [ "$linux_arm64_sha256_set" = true ] || die "--assert-published requires --linux-arm64-sha256 <64-hex>."
+ fi
+ 
+ work=$(mktemp -d)
+@@ -139,11 +151,21 @@ check_source_rs() {
+     BEGIN {
+       cfg = ""
+       release_source = ""
++      in_target = 0
+       has_win = 0
+-      has_mac = 0
+-      has_linux = 0
++      has_mac_arm64 = 0
++      has_mac_x64 = 0
++      has_linux_x64 = 0
++      has_linux_arm64 = 0
+       has_win_trust = 0
+-      has_mac_trust = 0
++      has_mac_arm64_trust = 0
++      has_mac_x64_trust = 0
++      has_t_win_x64 = 0
++      has_t_win_arm64 = 0
++      has_t_mac_arm64 = 0
++      has_t_mac_x64 = 0
++      has_t_linux_x64 = 0
++      has_t_linux_arm64 = 0
+       err = ""
+     }
+     {
+@@ -151,6 +173,21 @@ check_source_rs() {
+       sub(/\r$/, "", line)
+       gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+       if (line == "" || line ~ /^\/\//) next
++      if (in_target) {
++        if (line ~ /"windows-x64"/) has_t_win_x64 = 1
++        if (line ~ /"windows-arm64"/) has_t_win_arm64 = 1
++        if (line ~ /"macos-arm64"/) has_t_mac_arm64 = 1
++        if (line ~ /"macos-x64"/) has_t_mac_x64 = 1
++        if (line ~ /"linux-x64"/) has_t_linux_x64 = 1
++        if (line ~ /"linux-arm64"/) has_t_linux_arm64 = 1
++        if (line ~ /^};$/) in_target = 0
++        next
++      }
++      if (line ~ /^const[[:space:]]+TARGET[[:space:]]*:[[:space:]]*&str[[:space:]]*=/) {
++        in_target = 1
++        cfg = ""
++        next
++      }
+       if (line ~ /^#\[cfg\(/) {
+         cfg = line
+         next
+@@ -193,12 +230,24 @@ check_source_rs() {
+           if (cfg == "#[cfg(all(windows, not(debug_assertions)))]") {
+             if (val == expected) has_win = 1
+             else err = err "windows release DEV_SOURCE is \"" val "\", expected \"" expected "\"\n"
+-          } else if (cfg == "#[cfg(all(target_os = \"macos\", target_arch = \"aarch64\"))]" || cfg == "#[cfg(target_os = \"macos\")]") {
+-            if (val == expected) has_mac = 1
++          } else if (cfg == "#[cfg(target_os = \"macos\")]" || cfg == "#[cfg(all(target_os = \"macos\", any(target_arch = \"aarch64\", target_arch = \"x86_64\")))]") {
++            if (val == expected) { has_mac_arm64 = 1; has_mac_x64 = 1 }
++            else err = err "macos DEV_SOURCE is \"" val "\", expected \"" expected "\"\n"
++          } else if (cfg == "#[cfg(all(target_os = \"macos\", target_arch = \"aarch64\"))]") {
++            if (val == expected) has_mac_arm64 = 1
+             else err = err "macos arm64 DEV_SOURCE is \"" val "\", expected \"" expected "\"\n"
++          } else if (cfg == "#[cfg(all(target_os = \"macos\", target_arch = \"x86_64\"))]") {
++            if (val == expected) has_mac_x64 = 1
++            else err = err "macos x64 DEV_SOURCE is \"" val "\", expected \"" expected "\"\n"
++          } else if (cfg == "#[cfg(target_os = \"linux\")]" || cfg == "#[cfg(all(target_os = \"linux\", any(target_arch = \"x86_64\", target_arch = \"aarch64\")))]") {
++            if (val == expected) { has_linux_x64 = 1; has_linux_arm64 = 1 }
++            else err = err "linux DEV_SOURCE is \"" val "\", expected \"" expected "\"\n"
+           } else if (cfg == "#[cfg(all(target_os = \"linux\", target_arch = \"x86_64\"))]") {
+-            if (val == expected) has_linux = 1
++            if (val == expected) has_linux_x64 = 1
+             else err = err "linux x86_64 DEV_SOURCE is \"" val "\", expected \"" expected "\"\n"
++          } else if (cfg == "#[cfg(all(target_os = \"linux\", target_arch = \"aarch64\"))]") {
++            if (val == expected) has_linux_arm64 = 1
++            else err = err "linux aarch64 DEV_SOURCE is \"" val "\", expected \"" expected "\"\n"
+           }
+         }
+         cfg = ""
+@@ -211,9 +260,15 @@ check_source_rs() {
+         if (cfg == "#[cfg(all(windows, not(debug_assertions)))]") {
+           if (rhs == win_trust) has_win_trust = 1
+           else err = err "windows release DEV_TRUST is \"" rhs "\", expected \"" win_trust "\"\n"
+-        } else if (cfg == "#[cfg(all(target_os = \"macos\", target_arch = \"aarch64\"))]" || cfg == "#[cfg(target_os = \"macos\")]") {
+-          if (rhs == mac_trust) has_mac_trust = 1
++        } else if (cfg == "#[cfg(target_os = \"macos\")]" || cfg == "#[cfg(all(target_os = \"macos\", any(target_arch = \"aarch64\", target_arch = \"x86_64\")))]") {
++          if (rhs == mac_trust) { has_mac_arm64_trust = 1; has_mac_x64_trust = 1 }
++          else err = err "macos DEV_TRUST is \"" rhs "\", expected \"" mac_trust "\"\n"
++        } else if (cfg == "#[cfg(all(target_os = \"macos\", target_arch = \"aarch64\"))]") {
++          if (rhs == mac_trust) has_mac_arm64_trust = 1
+           else err = err "macos arm64 DEV_TRUST is \"" rhs "\", expected \"" mac_trust "\"\n"
++        } else if (cfg == "#[cfg(all(target_os = \"macos\", target_arch = \"x86_64\"))]") {
++          if (rhs == mac_trust) has_mac_x64_trust = 1
++          else err = err "macos x64 DEV_TRUST is \"" rhs "\", expected \"" mac_trust "\"\n"
+         }
+         cfg = ""
+         next
+@@ -222,16 +277,25 @@ check_source_rs() {
+     }
+     END {
+       if (!has_win) err = err "missing windows release DEV_SOURCE == " expected "\n"
+-      if (!has_mac) err = err "missing macos arm64 DEV_SOURCE == " expected "\n"
+-      if (!has_linux) err = err "missing linux x86_64 DEV_SOURCE == " expected "\n"
++      if (!has_mac_arm64) err = err "missing macos arm64 DEV_SOURCE == " expected "\n"
++      if (!has_mac_x64) err = err "missing macos x64 DEV_SOURCE == " expected "\n"
++      if (!has_linux_x64) err = err "missing linux x86_64 DEV_SOURCE == " expected "\n"
++      if (!has_linux_arm64) err = err "missing linux aarch64 DEV_SOURCE == " expected "\n"
+       if (!has_win_trust) err = err "missing windows release DEV_TRUST == " win_trust "\n"
+-      if (!has_mac_trust) err = err "missing macos arm64 DEV_TRUST == " mac_trust "\n"
++      if (!has_mac_arm64_trust) err = err "missing macos arm64 DEV_TRUST == " mac_trust "\n"
++      if (!has_mac_x64_trust) err = err "missing macos x64 DEV_TRUST == " mac_trust "\n"
++      if (!has_t_win_x64) err = err "TARGET missing windows-x64\n"
++      if (!has_t_win_arm64) err = err "TARGET missing windows-arm64\n"
++      if (!has_t_mac_arm64) err = err "TARGET missing macos-arm64\n"
++      if (!has_t_mac_x64) err = err "TARGET missing macos-x64\n"
++      if (!has_t_linux_x64) err = err "TARGET missing linux-x64\n"
++      if (!has_t_linux_arm64) err = err "TARGET missing linux-arm64\n"
+       if (err != "") {
+         printf "%s", err > "/dev/stderr"
+         exit 1
+       }
+     }
+-    ' "$file" || die "$file does not configure the required release engine defaults for Windows, macOS arm64, and Linux x86_64."
++    ' "$file" || die "$file does not configure the required release engine defaults for all six targets (Windows x64/arm64, macOS arm64/x64, Linux x64/arm64)."
+ }
+ 
+ index_file=$(fetch_index)
+@@ -239,13 +303,17 @@ index_file=$(fetch_index)
+ case "$mode" in
+   --plan-state)
+     if index_complete "$index_file"; then
+-      linux_hash=$(jq -r '.release.targets["linux-x64"].sha256' "$index_file")
+-      [[ "$linux_hash" =~ ^[0-9a-f]{64}$ ]] || die "Invalid linux-x64 sha256 '$linux_hash' in $index_url."
++      linux_x64_hash=$(jq -r '.release.targets["linux-x64"].sha256' "$index_file")
++      linux_arm64_hash=$(jq -r '.release.targets["linux-arm64"].sha256' "$index_file")
++      [[ "$linux_x64_hash" =~ ^[0-9a-f]{64}$ ]] || die "Invalid linux-x64 sha256 '$linux_x64_hash' in $index_url."
++      [[ "$linux_arm64_hash" =~ ^[0-9a-f]{64}$ ]] || die "Invalid linux-arm64 sha256 '$linux_arm64_hash' in $index_url."
+       echo "complete=true"
+-      echo "linux_x64_sha256=$linux_hash"
++      echo "linux_x64_sha256=$linux_x64_hash"
++      echo "linux_arm64_sha256=$linux_arm64_hash"
+     else
+       echo "complete=false"
+       echo "linux_x64_sha256="
++      echo "linux_arm64_sha256="
+     fi
+     ;;
+ 
+@@ -277,9 +345,12 @@ case "$mode" in
+       [ "$actual_size" = "$expected_size" ] ||
+         die "Target '$target' at $resolved has Content-Length $actual_size, expected $expected_size."
+     done
+-    live_linux=$(jq -r '.release.targets["linux-x64"].sha256' "$index_file")
+-    [ "$live_linux" = "$linux_sha256" ] ||
+-      die "Published linux-x64 sha256 '$live_linux' does not match Linux app pin '$linux_sha256'."
+-    echo "ok - $index_url serves $version (${#ENGINE_TARGETS[@]} targets verified, linux-x64 sha256 matched)"
++    live_linux_x64=$(jq -r '.release.targets["linux-x64"].sha256' "$index_file")
++    [ "$live_linux_x64" = "$linux_x64_sha256" ] ||
++      die "Published linux-x64 sha256 '$live_linux_x64' does not match Linux x64 app pin '$linux_x64_sha256'."
++    live_linux_arm64=$(jq -r '.release.targets["linux-arm64"].sha256' "$index_file")
++    [ "$live_linux_arm64" = "$linux_arm64_sha256" ] ||
++      die "Published linux-arm64 sha256 '$live_linux_arm64' does not match Linux arm64 app pin '$linux_arm64_sha256'."
++    echo "ok - $index_url serves $version (${#ENGINE_TARGETS[@]} targets verified, linux-x64 and linux-arm64 sha256 matched)"
+     ;;
+ esac
+diff --git a/.github/release/opencode-rune-plan.sh b/.github/release/opencode-rune-plan.sh
+index 69a31a13e..7f0134371 100755
+--- a/.github/release/opencode-rune-plan.sh
++++ b/.github/release/opencode-rune-plan.sh
+@@ -6,13 +6,13 @@
+ #           service's dev channel. Every release contains the full desktop matrix. A scheduled
+ #           run builds nothing when dev hasn't changed an app or engine file since the last
+ #           successful run and the live browser-engine index already serves this commit's engines.
+-#   check   a dispatch from dev: builds, signs and verifies all desktop targets and all four
++#   check   a dispatch from dev: builds, signs and verifies all desktop targets and all six
+ #           browser engines, published nowhere. Its last job pushes and deletes a throwaway
+ #           v0.0.0-test-<run> tag to prove it can tag.
+ #   stable  a dispatch from dev with BUMP (patch, minor or major): the latest vX.Y.Z tag (0.0.0
+ #           when there is none) bumped, on the stable channel, every platform. Tags start nothing:
+ #           the workflow tags v<version> and creates the GitHub release only after publishing.
+-#   engine  a dispatch from dev: builds, signs, verifies and publishes the four browser engines
++#   engine  a dispatch from dev: builds, signs, verifies and publishes the six browser engines
+ #           without building desktop; refuses if this commit's engine version is already complete
+ #           in the live index (bump ENGINE_REVISION or CEF to publish a new engine).
+ #
+@@ -83,10 +83,12 @@ engine_release_version="$cef_build-$engine_revision"
+ # Query the live browser-engine index (fail hard on network, HTTP, or JSON errors).
+ engine_state=$(bash "$release_dir/opencode-rune-check-engine.sh" --plan-state --version "$engine_release_version")
+ engine_complete=$(sed -n 's/^complete=//p' <<< "$engine_state")
+-live_linux_sha256=$(sed -n 's/^linux_x64_sha256=//p' <<< "$engine_state")
++live_linux_x64_sha256=$(sed -n 's/^linux_x64_sha256=//p' <<< "$engine_state")
++live_linux_arm64_sha256=$(sed -n 's/^linux_arm64_sha256=//p' <<< "$engine_state")
+ [[ "$engine_complete" = true || "$engine_complete" = false ]] || die "Unexpected engine index state '$engine_complete'."
+ if [ "$engine_complete" = true ]; then
+-  [[ "$live_linux_sha256" =~ ^[0-9a-f]{64}$ ]] || die "Invalid linux-x64 sha256 '$live_linux_sha256' from engine index."
++  [[ "$live_linux_x64_sha256" =~ ^[0-9a-f]{64}$ ]] || die "Invalid linux-x64 sha256 '$live_linux_x64_sha256' from engine index."
++  [[ "$live_linux_arm64_sha256" =~ ^[0-9a-f]{64}$ ]] || die "Invalid linux-arm64 sha256 '$live_linux_arm64_sha256' from engine index."
+ fi
+ 
+ # Only full-matrix runs from this workflow generation can serve as the comparison base.
+@@ -111,6 +113,7 @@ fi
+ 
+ build_engine=false
+ linux_x64_sha256=""
++linux_arm64_sha256=""
+ case "$CHANNEL" in
+   check)
+     build_engine=true
+@@ -128,13 +131,15 @@ case "$CHANNEL" in
+       build_desktop=true
+       reason=""
+     else
+-      linux_x64_sha256=$live_linux_sha256
++      linux_x64_sha256=$live_linux_x64_sha256
++      linux_arm64_sha256=$live_linux_arm64_sha256
+     fi
+     ;;
+ esac
+ 
+ if [ "$build_engine" = false ] && [ "$build_desktop" = true ]; then
+   [[ "$linux_x64_sha256" =~ ^[0-9a-f]{64}$ ]] || die "Missing valid linux-x64 sha256 for desktop build."
++  [[ "$linux_arm64_sha256" =~ ^[0-9a-f]{64}$ ]] || die "Missing valid linux-arm64 sha256 for desktop build."
+ fi
+ 
+ {
+@@ -149,6 +154,7 @@ fi
+   echo "engine-release-version=$engine_release_version"
+   echo "build-engine=$build_engine"
+   echo "linux-x64-sha256=$linux_x64_sha256"
++  echo "linux-arm64-sha256=$linux_arm64_sha256"
+ } >> "$GITHUB_OUTPUT"
+ if [ "$build_desktop" = false ] && [ "$build_engine" = false ]; then
+   echo "Nothing to build: $reason (browser engine $engine_release_version is already complete)." >> "$GITHUB_STEP_SUMMARY"
+diff --git a/.github/release/opencode-rune-sign-engine-macos.sh b/.github/release/opencode-rune-sign-engine-macos.sh
+index cb14d22a4..eb016ee92 100755
+--- a/.github/release/opencode-rune-sign-engine-macos.sh
++++ b/.github/release/opencode-rune-sign-engine-macos.sh
+@@ -15,7 +15,8 @@ input=${1:?Usage: opencode-rune-sign-engine-macos.sh <unsigned.zip> <out dir> [a
+ out=${2:?Usage: opencode-rune-sign-engine-macos.sh <unsigned.zip> <out dir> [arch]}
+ arch=${3:-arm64}
+ 
+-[[ "$arch" = arm64 ]] || die "Unsupported macOS engine architecture '$arch'."
++[[ "$arch" = arm64 || "$arch" = x64 ]] || die "Unsupported macOS engine architecture '$arch'."
++expected_cpu=$([ "$arch" = arm64 ] && echo arm64 || echo x86_64)
+ [[ "${ENGINE_VERSION:-}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+   die "ENGINE_VERSION must be X.Y.Z.R, got '${ENGINE_VERSION:-}'."
+ 
+@@ -109,7 +110,7 @@ check_helper "Helper (Renderer)" "helper-renderer"
+ check_helper "Helper (Plugin)" "helper-plugin"
+ check_helper "Helper (Alerts)" "helper-alerts"
+ 
+-# Exact Mach-O allowlist across the entire bundle (derived from real arm64 assembly).
++# Exact Mach-O allowlist across the entire bundle (derived from real arm64 and x64 assemblies).
+ expected_macho=$(printf '%s\n' \
+   'Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework' \
+   'Contents/Frameworks/Chromium Embedded Framework.framework/Libraries/libcef_sandbox.dylib' \
+@@ -131,7 +132,12 @@ if [ "$found_macho" != "$expected_macho" ]; then
+   diff_out=$(diff <(printf '%s\n' "$expected_macho") <(printf '%s\n' "$found_macho") || true)
+   die "Unexpected Mach-O code in OpenCode Browser Engine.app: $diff_out"
+ fi
+-echo "ok - verified OpenCode Browser Engine.app $ENGINE_VERSION (8 allowlisted Mach-O files, 5 helper bundles)"
++while IFS= read -r rel; do
++  actual_cpu=$(lipo -archs "$app/$rel")
++  [ "$actual_cpu" = "$expected_cpu" ] ||
++    die "$rel has Mach-O architecture '$actual_cpu', expected '$expected_cpu' for macos-$arch."
++done <<< "$expected_macho"
++echo "ok - verified OpenCode Browser Engine.app $ENGINE_VERSION ($arch; 8 allowlisted Mach-O files, 5 helper bundles)"
+ 
+ # Fail hard before signing if any signing or notarization credential is absent.
+ [ -n "${SEER_KEYCHAIN:-}" ] || die "SEER_KEYCHAIN is required to sign the macOS browser engine."
+diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
+index 01ef0912c..eabd97b94 100644
+--- a/.github/workflows/release.yml
++++ b/.github/workflows/release.yml
+@@ -92,6 +92,7 @@ jobs:
+       engine-release-version: ${{ steps.plan.outputs.engine-release-version }}
+       build-engine: ${{ steps.plan.outputs.build-engine }}
+       linux-x64-sha256: ${{ steps.plan.outputs.linux-x64-sha256 }}
++      linux-arm64-sha256: ${{ steps.plan.outputs.linux-arm64-sha256 }}
+     steps:
+       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+         with:
+@@ -206,12 +207,12 @@ jobs:
+         run: echo "digest-${{ matrix.arch }}=${{ steps.upload.outputs.digest }}" >> "$GITHUB_OUTPUT"
+ 
+   build-linux:
+-    needs: [plan, credentials, build-engine-linux-x64]
++    needs: [plan, credentials, build-engine-linux]
+     if: >-
+       ${{ !cancelled()
+       && needs.plan.outputs.build-desktop == 'true'
+       && needs.credentials.result == 'success'
+-      && (needs.plan.outputs.build-engine != 'true' || needs.build-engine-linux-x64.result == 'success') }}
++      && (needs.plan.outputs.build-engine != 'true' || needs.build-engine-linux.result == 'success') }}
+     strategy:
+       matrix:
+         include:
+@@ -226,6 +227,7 @@ jobs:
+       digest-x64: ${{ steps.digest.outputs.digest-x64 }}
+       digest-arm64: ${{ steps.digest.outputs.digest-arm64 }}
+       linux-x64-engine-sha256: ${{ steps.engine-trust.outputs.linux-x64-engine-sha256 }}
++      linux-arm64-engine-sha256: ${{ steps.engine-trust.outputs.linux-arm64-engine-sha256 }}
+     steps:
+       - *build-checkout
+       - name: Install native build and packaging dependencies
+@@ -241,20 +243,17 @@ jobs:
+           path: ~/.cache/seer/ghostty-vt
+           key: ghostty-vt-linux-${{ matrix.arch }}-${{ hashFiles('crates/terminal/build.rs', 'crates/terminal/build_support.rs') }}
+       - id: engine-trust
+-        if: matrix.arch == 'x64'
+-        name: Resolve Linux x64 browser engine sha256 pin
++        name: Resolve Linux ${{ matrix.arch }} browser engine sha256 pin
+         env:
+-          PINNED_SHA256: ${{ needs.plan.outputs.build-engine == 'true' && needs.build-engine-linux-x64.outputs.sha256 || needs.plan.outputs.linux-x64-sha256 }}
++          PINNED_SHA256: ${{ needs.plan.outputs.build-engine == 'true' && needs.build-engine-linux.outputs[format('sha256-{0}', matrix.arch)] || needs.plan.outputs[format('linux-{0}-sha256', matrix.arch)] }}
+         run: |
+-          [[ "$PINNED_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::Invalid Linux x64 browser engine sha256 '$PINNED_SHA256'." >&2; exit 1; }
+-          echo "linux-x64-engine-sha256=$PINNED_SHA256" >> "$GITHUB_OUTPUT"
++          [[ "$PINNED_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::Invalid Linux ${{ matrix.arch }} browser engine sha256 '$PINNED_SHA256'." >&2; exit 1; }
++          echo "linux-${{ matrix.arch }}-engine-sha256=$PINNED_SHA256" >> "$GITHUB_OUTPUT"
+       - name: Build and package desktop
+         env:
+-          LINUX_X64_ENGINE_SHA256: ${{ steps.engine-trust.outputs.linux-x64-engine-sha256 }}
++          LINUX_ENGINE_SHA256: ${{ steps.engine-trust.outputs[format('linux-{0}-engine-sha256', matrix.arch)] }}
+         run: |
+-          if [ "${{ matrix.arch }}" = x64 ]; then
+-            export OPENCODE_BROWSER_ENGINE_TRUST="sha256:$LINUX_X64_ENGINE_SHA256"
+-          fi
++          export OPENCODE_BROWSER_ENGINE_TRUST="sha256:$LINUX_ENGINE_SHA256"
+           apps/desktop/scripts/set-crate-version.sh "$PWD" "$OPENCODE_RUNE_VERSION"
+           cargo build --locked -p opencode-desktop --profile release-quick
+           bash apps/desktop/scripts/package-linux.sh target/release-quick/opencode-desktop "$RUNNER_TEMP/linux"
+@@ -651,7 +650,8 @@ jobs:
+ 
+   # ---- Browser engine: build (no environment, secrets, or id-token) ----------
+   # Builds only when plan finds the live stable.json lacks this commit's <cef>-<rev>
+-  # across windows-x64, windows-arm64, macos-arm64, linux-x64 (or on check/engine dispatch).
++  # across windows-x64, windows-arm64, macos-arm64, macos-x64, linux-x64, linux-arm64
++  # (or on check/engine dispatch).
+ 
+   build-engine-windows:
+     needs: [plan, credentials]
+@@ -711,10 +711,15 @@ jobs:
+   build-engine-macos:
+     needs: [plan, credentials]
+     if: ${{ needs.plan.outputs.build-engine == 'true' }}
+-    runs-on: blacksmith-6vcpu-macos-26
++    strategy:
++      fail-fast: false
++      matrix:
++        include:
++          - { arch: arm64, host: blacksmith-6vcpu-macos-26 }
++          - { arch: x64, host: macos-26-intel }
++    runs-on: ${{ matrix.host }}
+     timeout-minutes: 60
+-    outputs:
+-      digest: ${{ steps.upload.outputs.digest }}
++    outputs: *arch-digests
+     steps:
+       - *build-checkout
+       - name: Check release engine entitlements match repository copy
+@@ -726,52 +731,62 @@ jobs:
+           fi
+       - name: Rust toolchain
+         run: rustup toolchain install
+-      - name: Assemble unsigned macOS arm64 browser engine
++      - name: Assemble unsigned macOS ${{ matrix.arch }} browser engine
+         run: |
+           mkdir -p "$RUNNER_TEMP/macos"
+-          bash apps/browser-engine/scripts/package-release.sh --assemble-only "$RUNNER_TEMP/macos/OpenCode-Browser-Engine.app.zip"
++          bash apps/browser-engine/scripts/package-release.sh --arch "${{ matrix.arch }}" --assemble-only "$RUNNER_TEMP/macos/OpenCode-Browser-Engine.app.zip"
+       - id: upload
+         uses: ./.github/release/upload
+         with:
+-          name: build-engine-macos-arm64
++          name: build-engine-macos-${{ matrix.arch }}
+           path: ${{ runner.temp }}/macos
+           retention-days: "7"
++      - *report-digest
+ 
+-  build-engine-linux-x64:
++  build-engine-linux:
+     needs: [plan, credentials]
+     if: ${{ needs.plan.outputs.build-engine == 'true' }}
+-    runs-on: blacksmith-4vcpu-ubuntu-2404
++    strategy:
++      fail-fast: false
++      matrix:
++        include:
++          - { arch: x64, host: blacksmith-4vcpu-ubuntu-2404 }
++          - { arch: arm64, host: blacksmith-4vcpu-ubuntu-2404-arm }
++    runs-on: ${{ matrix.host }}
+     timeout-minutes: 60
+     env:
+       ENGINE_VERSION: ${{ needs.plan.outputs.engine-version }}
+     outputs:
+-      digest: ${{ steps.upload.outputs.digest }}
+-      sha256: ${{ steps.archive-hash.outputs.sha256 }}
++      digest-x64: ${{ steps.digest.outputs.digest-x64 }}
++      digest-arm64: ${{ steps.digest.outputs.digest-arm64 }}
++      sha256-x64: ${{ steps.archive-hash.outputs.sha256-x64 }}
++      sha256-arm64: ${{ steps.archive-hash.outputs.sha256-arm64 }}
+     steps:
+       - *build-checkout
+       - name: Install Linux browser engine build and packaging dependencies
+         run: |
+           sudo apt-get update
+-          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build binutils bzip2 jq zstd libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2t64
++          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build binutils bzip2 curl jq zstd libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2t64
+       - name: Rust toolchain
+         run: rustup toolchain install
+-      - name: Package Linux x64 browser engine
+-        run: bash apps/browser-engine/scripts/package-linux.sh "$RUNNER_TEMP/engine"
++      - name: Package Linux ${{ matrix.arch }} browser engine
++        run: bash apps/browser-engine/scripts/package-linux.sh --arch "${{ matrix.arch }}" "$RUNNER_TEMP/engine"
+       - id: upload
+         uses: ./.github/release/upload
+         with:
+-          name: build-engine-linux-x64
++          name: build-engine-linux-${{ matrix.arch }}
+           path: ${{ runner.temp }}/engine
+           retention-days: "7"
++      - *report-digest
+       # Read the archive hash directly from the upload action's SHA256SUMS so build-linux's pin
+       # and publish-engine's verified artifact are cryptographically tied to the same file.
+       - id: archive-hash
+-        name: Report Linux x64 engine archive sha256
++        name: Report Linux ${{ matrix.arch }} engine archive sha256
+         run: |
+-          archive="OpenCode-Browser-Engine-$ENGINE_VERSION-linux-x64.tar.zst"
++          archive="OpenCode-Browser-Engine-$ENGINE_VERSION-linux-${{ matrix.arch }}.tar.zst"
+           sha=$(awk -v f="$archive" 'substr($0, 67) == f { print $1 }' "$RUNNER_TEMP/engine/SHA256SUMS")
+           [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::Missing $archive in SHA256SUMS." >&2; exit 1; }
+-          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
++          echo "sha256-${{ matrix.arch }}=$sha" >> "$GITHUB_OUTPUT"
+ 
+   # ---- Browser engine: sign (release environment; /.github/release/ only) ----
+ 
+@@ -861,6 +876,12 @@ jobs:
+ 
+   sign-engine-macos:
+     needs: [plan, build-engine-macos]
++    strategy:
++      fail-fast: false
++      matrix:
++        include:
++          - { arch: arm64, host: blacksmith-6vcpu-macos-26 }
++          - { arch: x64, host: macos-26-intel }
+     runs-on: blacksmith-6vcpu-macos-26
+     timeout-minutes: 60
+     environment: release
+@@ -869,21 +890,20 @@ jobs:
+       id-token: write
+     env:
+       ENGINE_VERSION: ${{ needs.plan.outputs.engine-version }}
+-    outputs:
+-      digest: ${{ steps.upload.outputs.digest }}
++    outputs: *arch-digests
+     steps:
+       - *checkout-release
+-      - name: Download unsigned macOS browser engine
++      - name: Download unsigned macOS ${{ matrix.arch }} browser engine
+         uses: ./.github/release/download
+         with:
+-          pattern: build-engine-macos-arm64
+-          digests: build-engine-macos-arm64=${{ needs.build-engine-macos.outputs.digest }}
++          pattern: build-engine-macos-${{ matrix.arch }}
++          digests: build-engine-macos-${{ matrix.arch }}=${{ needs.build-engine-macos.outputs[format('digest-{0}', matrix.arch)] }}
+       - id: aws
+         name: Configure AWS credentials
+         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+         with:
+           role-to-assume: arn:aws:iam::604439173067:role/github/rune-desktop-release
+-          role-session-name: rune-desktop-engine-${{ github.run_id }}
++          role-session-name: rune-desktop-engine-${{ matrix.arch }}-${{ github.run_id }}
+           role-duration-seconds: 900
+           aws-region: us-east-1
+           output-env-credentials: false
+@@ -898,8 +918,8 @@ jobs:
+             APPLE_SIGNING_CERTIFICATE=shared/APPLE_SIGNING_CERTIFICATE \
+             APPLE_NOTARY_KEY=shared/APPLE_NOTARY_KEY \
+             -- bash .github/release/macos-credentials.sh "$RUNNER_TEMP/credentials"
+-      - name: Sign, notarize, and staple macOS browser engine
+-        run: bash .github/release/opencode-rune-sign-engine-macos.sh "$RUNNER_TEMP/in/build-engine-macos-arm64/OpenCode-Browser-Engine.app.zip" "$RUNNER_TEMP/out" arm64
++      - name: Sign, notarize, and staple macOS ${{ matrix.arch }} browser engine
++        run: bash .github/release/opencode-rune-sign-engine-macos.sh "$RUNNER_TEMP/in/build-engine-macos-${{ matrix.arch }}/OpenCode-Browser-Engine.app.zip" "$RUNNER_TEMP/out" "${{ matrix.arch }}"
+         env:
+           SEER_NOTARY_KEY_ID: ${{ vars.APPLE_NOTARY_KEY_ID }}
+           SEER_NOTARY_ISSUER: ${{ vars.APPLE_NOTARY_ISSUER_ID }}
+@@ -911,8 +931,9 @@ jobs:
+       - id: upload
+         uses: ./.github/release/upload
+         with:
+-          name: sign-engine-macos-arm64
++          name: sign-engine-macos-${{ matrix.arch }}
+           path: ${{ runner.temp }}/out
++      - *report-digest
+ 
+   # ---- Browser engine: verify (no environment, secrets, or id-token) ---------
+ 
+@@ -965,7 +986,13 @@ jobs:
+   verify-engine-macos:
+     needs: [plan, sign-engine-macos]
+     if: ${{ !cancelled() && needs.sign-engine-macos.result == 'success' }}
+-    runs-on: blacksmith-6vcpu-macos-26
++    strategy:
++      fail-fast: false
++      matrix:
++        include:
++          - { arch: arm64, host: blacksmith-6vcpu-macos-26 }
++          - { arch: x64, host: macos-26-intel }
++    runs-on: ${{ matrix.host }}
+     timeout-minutes: 20
+     env:
+       ENGINE_VERSION: ${{ needs.plan.outputs.engine-version }}
+@@ -973,17 +1000,22 @@ jobs:
+       - *checkout-release
+       - uses: ./.github/release/download
+         with:
+-          pattern: sign-engine-macos-arm64
+-          digests: sign-engine-macos-arm64=${{ needs.sign-engine-macos.outputs.digest }}
+-      - name: Verify signed macOS browser engine
++          pattern: sign-engine-macos-${{ matrix.arch }}
++          digests: sign-engine-macos-${{ matrix.arch }}=${{ needs.sign-engine-macos.outputs[format('digest-{0}', matrix.arch)] }}
++      - name: Verify signed macOS ${{ matrix.arch }} browser engine
+         run: |
+-          zip="$RUNNER_TEMP/in/sign-engine-macos-arm64/OpenCode-Browser-Engine-$ENGINE_VERSION-macos-arm64.zip"
++          zip="$RUNNER_TEMP/in/sign-engine-macos-${{ matrix.arch }}/OpenCode-Browser-Engine-$ENGINE_VERSION-macos-${{ matrix.arch }}.zip"
+           [ -f "$zip" ] || { echo "::error::Signed macOS engine artifact lacks $(basename "$zip")." >&2; exit 1; }
+           check=$(mktemp -d)
+           trap 'rm -rf "$check"' EXIT
+           /usr/bin/ditto -x -k "$zip" "$check"
+           app="$check/OpenCode Browser Engine.app"
+           [ -x "$app/Contents/MacOS/opencode-browser-engine" ] || { echo "::error::Missing engine executable in $app." >&2; exit 1; }
++          expected_cpu=$([ "${{ matrix.arch }}" = arm64 ] && echo arm64 || echo x86_64)
++          actual_cpu=$(lipo -archs "$app/Contents/MacOS/opencode-browser-engine")
++          [ "$actual_cpu" = "$expected_cpu" ] || {
++            echo "::error::$app main binary arch is '$actual_cpu', expected '$expected_cpu'." >&2; exit 1;
++          }
+           [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$ENGINE_VERSION" ] || {
+             echo "::error::$app is not version $ENGINE_VERSION." >&2; exit 1;
+           }
+@@ -993,16 +1025,16 @@ jobs:
+           codesign -dv "$app" 2>&1 | grep -E '^(Identifier|TeamIdentifier|Authority=Developer)' >> "$GITHUB_STEP_SUMMARY"
+ 
+   # ---- Publish browser engine: release environment; OIDC only ----------------
+-  # One atomic publish replacing opencode-rune/browser-engine/stable with all four targets.
++  # One atomic publish replacing opencode-rune/browser-engine/stable with all six targets.
+   # Shared job concurrency prevents two channels from overwriting the same version with new hashes.
+ 
+   publish-engine:
+-    needs: [plan, build-engine-linux-x64, sign-engine-macos, verify-engine-macos, sign-engine-windows, verify-engine-windows]
++    needs: [plan, build-engine-linux, sign-engine-macos, verify-engine-macos, sign-engine-windows, verify-engine-windows]
+     if: >-
+       ${{ !cancelled()
+       && needs.plan.outputs.build-engine == 'true'
+       && needs.plan.outputs.channel != 'check'
+-      && needs.build-engine-linux-x64.result == 'success'
++      && needs.build-engine-linux.result == 'success'
+       && needs.sign-engine-macos.result == 'success'
+       && needs.verify-engine-macos.result == 'success'
+       && needs.sign-engine-windows.result == 'success'
+@@ -1020,7 +1052,8 @@ jobs:
+       RELEASE: ${{ needs.plan.outputs.service }}
+       ENGINE_VERSION: ${{ needs.plan.outputs.engine-version }}
+       ENGINE_RELEASE_VERSION: ${{ needs.plan.outputs.engine-release-version }}
+-      LINUX_X64_SHA256: ${{ needs.build-engine-linux-x64.outputs.sha256 }}
++      LINUX_X64_SHA256: ${{ needs.build-engine-linux.outputs.sha256-x64 }}
++      LINUX_ARM64_SHA256: ${{ needs.build-engine-linux.outputs.sha256-arm64 }}
+       NOTES_URL: https://github.com/${{ github.repository }}/commit/${{ github.sha }}
+     steps:
+       - *checkout-release
+@@ -1031,34 +1064,46 @@ jobs:
+           folder: win
+       - uses: ./.github/release/download
+         with:
+-          pattern: sign-engine-macos-arm64
+-          digests: sign-engine-macos-arm64=${{ needs.sign-engine-macos.outputs.digest }}
++          pattern: sign-engine-macos-*
++          digests: >-
++            sign-engine-macos-arm64=${{ needs.sign-engine-macos.outputs.digest-arm64 }}
++            sign-engine-macos-x64=${{ needs.sign-engine-macos.outputs.digest-x64 }}
+           folder: mac
+       - uses: ./.github/release/download
+         with:
+-          pattern: build-engine-linux-x64
+-          digests: build-engine-linux-x64=${{ needs.build-engine-linux-x64.outputs.digest }}
++          pattern: build-engine-linux-*
++          digests: >-
++            build-engine-linux-x64=${{ needs.build-engine-linux.outputs.digest-x64 }}
++            build-engine-linux-arm64=${{ needs.build-engine-linux.outputs.digest-arm64 }}
+           folder: linux
+       - name: Publish browser engines atomically
+         run: |
+           win_x64="$RUNNER_TEMP/win/sign-engine-windows/OpenCode-Browser-Engine-$ENGINE_VERSION-windows-x64.tar.zst"
+           win_arm64="$RUNNER_TEMP/win/sign-engine-windows/OpenCode-Browser-Engine-$ENGINE_VERSION-windows-arm64.tar.zst"
+           mac_arm64="$RUNNER_TEMP/mac/sign-engine-macos-arm64/OpenCode-Browser-Engine-$ENGINE_VERSION-macos-arm64.zip"
+-          linux_name="OpenCode-Browser-Engine-$ENGINE_VERSION-linux-x64.tar.zst"
+-          linux_x64="$RUNNER_TEMP/linux/build-engine-linux-x64/$linux_name"
+-          [[ "$LINUX_X64_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+-            echo "::error::Invalid LINUX_X64_SHA256 '$LINUX_X64_SHA256'." >&2
+-            exit 1
+-          }
+-          actual_linux_sha=$(awk -v f="$linux_name" 'substr($0, 67) == f { print $1 }' "$RUNNER_TEMP/linux/build-engine-linux-x64/SHA256SUMS")
+-          [[ "$actual_linux_sha" =~ ^[0-9a-f]{64}$ ]] || {
+-            echo "::error::Missing or invalid SHA256SUMS entry for $linux_name ('$actual_linux_sha')." >&2
+-            exit 1
+-          }
+-          [ "$actual_linux_sha" = "$LINUX_X64_SHA256" ] || {
+-            echo "::error::Linux engine SHA256SUMS entry '$actual_linux_sha' differs from job output '$LINUX_X64_SHA256'." >&2
+-            exit 1
++          mac_x64="$RUNNER_TEMP/mac/sign-engine-macos-x64/OpenCode-Browser-Engine-$ENGINE_VERSION-macos-x64.zip"
++          linux_x64_name="OpenCode-Browser-Engine-$ENGINE_VERSION-linux-x64.tar.zst"
++          linux_x64="$RUNNER_TEMP/linux/build-engine-linux-x64/$linux_x64_name"
++          linux_arm64_name="OpenCode-Browser-Engine-$ENGINE_VERSION-linux-arm64.tar.zst"
++          linux_arm64="$RUNNER_TEMP/linux/build-engine-linux-arm64/$linux_arm64_name"
++          check_linux_sha() {
++            local arch=$1 name=$2 expected=$3 sums=$4 actual
++            [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || {
++              echo "::error::Invalid LINUX_${arch}_SHA256 '$expected'." >&2
++              exit 1
++            }
++            actual=$(awk -v f="$name" 'substr($0, 67) == f { print $1 }' "$sums")
++            [[ "$actual" =~ ^[0-9a-f]{64}$ ]] || {
++              echo "::error::Missing or invalid SHA256SUMS entry for $name ('$actual')." >&2
++              exit 1
++            }
++            [ "$actual" = "$expected" ] || {
++              echo "::error::Linux $arch engine SHA256SUMS entry '$actual' differs from job output '$expected'." >&2
++              exit 1
++            }
+           }
++          check_linux_sha x64 "$linux_x64_name" "$LINUX_X64_SHA256" "$RUNNER_TEMP/linux/build-engine-linux-x64/SHA256SUMS"
++          check_linux_sha arm64 "$linux_arm64_name" "$LINUX_ARM64_SHA256" "$RUNNER_TEMP/linux/build-engine-linux-arm64/SHA256SUMS"
+           bash .github/release/opencode-rune-check-engine.sh --assert-not-complete --version "$ENGINE_RELEASE_VERSION"
+           jq -n \
+             --arg version "$ENGINE_RELEASE_VERSION" \
+@@ -1072,7 +1117,9 @@ jobs:
+             --target "windows-x64=$win_x64" \
+             --target "windows-arm64=$win_arm64" \
+             --target "macos-arm64=$mac_arm64" \
++            --target "macos-x64=$mac_x64" \
+             --target "linux-x64=$linux_x64" \
++            --target "linux-arm64=$linux_arm64" \
+             --out "$RUNNER_TEMP/engine-manifest.json" \
+             --verify-downloads
+           {
+@@ -1084,7 +1131,7 @@ jobs:
+   # stable.json and asserts source.rs names the same URL.
+ 
+   verify-engine-published:
+-    needs: [plan, build-engine-linux-x64, publish-engine, build-linux]
++    needs: [plan, build-engine-linux, publish-engine, build-linux]
+     if: >-
+       ${{ !cancelled()
+       && (needs.plan.outputs.channel == 'dev' || needs.plan.outputs.channel == 'stable')
+@@ -1102,28 +1149,36 @@ jobs:
+             /crates/browser-pane/src/source.rs
+           sparse-checkout-cone-mode: false
+           persist-credentials: false
+-      - name: Verify live browser engine index and Linux pin
++      - name: Verify live browser engine index and Linux pins
+         env:
+           ENGINE_RELEASE_VERSION: ${{ needs.plan.outputs.engine-release-version }}
+-          EXPECTED_LINUX_SHA256: ${{ needs.plan.outputs.build-engine == 'true' && needs.build-engine-linux-x64.outputs.sha256 || needs.plan.outputs.linux-x64-sha256 }}
+-          PINNED_LINUX_SHA256: ${{ needs.build-linux.outputs.linux-x64-engine-sha256 }}
++          EXPECTED_LINUX_X64_SHA256: ${{ needs.plan.outputs.build-engine == 'true' && needs.build-engine-linux.outputs.sha256-x64 || needs.plan.outputs.linux-x64-sha256 }}
++          PINNED_LINUX_X64_SHA256: ${{ needs.build-linux.outputs.linux-x64-engine-sha256 }}
++          EXPECTED_LINUX_ARM64_SHA256: ${{ needs.plan.outputs.build-engine == 'true' && needs.build-engine-linux.outputs.sha256-arm64 || needs.plan.outputs.linux-arm64-sha256 }}
++          PINNED_LINUX_ARM64_SHA256: ${{ needs.build-linux.outputs.linux-arm64-engine-sha256 }}
+         run: |
+-          [[ "$EXPECTED_LINUX_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+-            echo "::error::Invalid EXPECTED_LINUX_SHA256 '$EXPECTED_LINUX_SHA256'." >&2
+-            exit 1
+-          }
+-          [[ "$PINNED_LINUX_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+-            echo "::error::Invalid PINNED_LINUX_SHA256 '$PINNED_LINUX_SHA256'." >&2
+-            exit 1
+-          }
+-          [ "$PINNED_LINUX_SHA256" = "$EXPECTED_LINUX_SHA256" ] || {
+-            echo "::error::Linux app pinned '$PINNED_LINUX_SHA256', expected '$EXPECTED_LINUX_SHA256'." >&2
+-            exit 1
++          check_pin() {
++            local arch=$1 expected=$2 pinned=$3
++            [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || {
++              echo "::error::Invalid EXPECTED_LINUX_${arch}_SHA256 '$expected'." >&2
++              exit 1
++            }
++            [[ "$pinned" =~ ^[0-9a-f]{64}$ ]] || {
++              echo "::error::Invalid PINNED_LINUX_${arch}_SHA256 '$pinned'." >&2
++              exit 1
++            }
++            [ "$pinned" = "$expected" ] || {
++              echo "::error::Linux $arch app pinned '$pinned', expected '$expected'." >&2
++              exit 1
++            }
+           }
++          check_pin x64 "$EXPECTED_LINUX_X64_SHA256" "$PINNED_LINUX_X64_SHA256"
++          check_pin arm64 "$EXPECTED_LINUX_ARM64_SHA256" "$PINNED_LINUX_ARM64_SHA256"
+           bash .github/release/opencode-rune-check-engine.sh \
+             --assert-published \
+             --version "$ENGINE_RELEASE_VERSION" \
+-            --linux-sha256 "$PINNED_LINUX_SHA256" \
++            --linux-x64-sha256 "$PINNED_LINUX_X64_SHA256" \
++            --linux-arm64-sha256 "$PINNED_LINUX_ARM64_SHA256" \
+             --source-rs crates/browser-pane/src/source.rs
+ 
+   # ---- Publish desktop: release environment; OIDC only -----------------------
+@@ -1254,13 +1309,13 @@ jobs:
+   github:
+     name: Tag and GitHub release
+     environment: release
+-    needs: [plan, build-linux, publish-desktop, sign-macos, verify-macos, sign-windows-setup, verify-windows, build-engine-linux-x64, verify-engine-macos, verify-engine-windows]
++    needs: [plan, build-linux, publish-desktop, sign-macos, verify-macos, sign-windows-setup, verify-windows, build-engine-linux, verify-engine-macos, verify-engine-windows]
+     if: >-
+       ${{ !cancelled() && (
+         (needs.plan.outputs.channel == 'stable' && needs.publish-desktop.result == 'success')
+         || (needs.plan.outputs.channel == 'check' && needs.verify-windows.result == 'success'
+             && needs.verify-macos.result == 'success' && needs.build-linux.result == 'success'
+-            && needs.build-engine-linux-x64.result == 'success'
++            && needs.build-engine-linux.result == 'success'
+             && needs.verify-engine-macos.result == 'success'
+             && needs.verify-engine-windows.result == 'success')) }}
+     runs-on: blacksmith-2vcpu-ubuntu-2404
+-- 
+2.56.0.windows.4
+
