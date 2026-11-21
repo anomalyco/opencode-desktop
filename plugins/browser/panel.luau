@@ -692,7 +692,7 @@ function panel.render(env: Env, view: View, props: PanelProps): ui.Node
 
     if engine ~= "unsupported" then
         table.insert(items, bar(env, view, tab, state, props.width))
-        chromeH += 44
+        chromeH += 45
     end
 
     -- Stacked bars in exact upstream order (`panel.tsx:1326-1417`):
