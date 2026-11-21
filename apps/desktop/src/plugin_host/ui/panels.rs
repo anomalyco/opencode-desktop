@@ -276,7 +276,7 @@ pub fn render(app: &App, p: &Pal, ctx: &PanelViewCtx) -> El {
     };
     #[cfg(target_arch = "wasm32")]
     let review_bar: Option<El> = None;
-    col().key(key).w_full().h_full().children(review_bar).child(body.grow(1.0).min_h(0.0))
+    col().key(key).w_full().h_full().children(review_bar).child(body.grow(1.0).min_h(0.0).clip_soft(0.0))
 }
 
 /// A tab's own label in the strip (`PanelSpec.label`).

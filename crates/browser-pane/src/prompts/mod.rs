@@ -634,9 +634,18 @@ pub struct TabPromptState {
     pub file_chooser_blocked: u64,
     /// Active dismissible controlled-tab notice reason on this document.
     pub blocked_guard_notice: Option<BlockedGuardReason>,
+    /// True once the host has forwarded real user pointer/key input to the current document
+    /// (cleared on navigation/reload/context switch; matches official `chromium.ts:377,399,424,871,887,907`).
+    pub document_input: bool,
 }
 
 impl TabPromptState {
+    pub fn record_document_input(&mut self) {
+        if !self.agent_driven {
+            self.document_input = true;
+        }
+    }
+
     pub fn has_blocking_modal(&self) -> bool {
         self.dialog.open().is_some() || self.auth.active().is_some()
     }
@@ -664,6 +673,7 @@ impl TabPromptState {
         self.permission = PermissionGate::Idle;
         self.auth = AuthGate::Idle;
         self.popup = PopupGate::Idle;
+        self.document_input = false;
     }
 
     /// Context switched (`reopen_tab_as_preview` / `reopen_tab_as_web`): clears visit-scoped
@@ -682,6 +692,7 @@ impl TabPromptState {
         self.auth_attempts.clear();
         self.auth_dismissed.clear();
         self.popup.dismiss();
+        self.document_input = false;
     }
 
     /// Top-level URL changed: allow scripted dialogs on the new document, clear visit permissions
@@ -692,6 +703,7 @@ impl TabPromptState {
         self.popup.dismiss();
         self.agent_auth_required = None;
         self.blocked_guard_notice = None;
+        self.document_input = false;
         let same_origin = crate::policy::destination_origin(old_url)
             == crate::policy::destination_origin(new_url);
         if same_origin {

@@ -115,6 +115,11 @@ impl BrowserHost {
                     pressed(s, tab_id);
                 }
                 let host = access(s);
+                if d.phase == Phase::Down
+                    && let Some(t) = host.tabs.iter_mut().find(|t| t.id == tab_id)
+                {
+                    t.prompts.record_document_input();
+                }
                 match d.phase {
                     Phase::Down => host.send(HostMsg::MouseButton {
                         tab_id,
@@ -150,6 +155,9 @@ impl BrowserHost {
                 let mods = pack_mods(tx.mods());
                 pressed(s, tab_id);
                 let host = access(s);
+                if let Some(t) = host.tabs.iter_mut().find(|t| t.id == tab_id) {
+                    t.prompts.record_document_input();
+                }
                 for up in [false, true] {
                     host.send(HostMsg::MouseButton {
                         tab_id,
@@ -197,7 +205,16 @@ impl BrowserHost {
                 }
                 true
             })
-            .on_key(move |s: &mut S, ev: &KeyEvent, _tx| access(s).forward_key(tab_id, ev, true))
+            .on_key(move |s: &mut S, ev: &KeyEvent, _tx| {
+                let host = access(s);
+                let handled = host.forward_key(tab_id, ev, true);
+                if handled
+                    && let Some(t) = host.tabs.iter_mut().find(|t| t.id == tab_id)
+                {
+                    t.prompts.record_document_input();
+                }
+                handled
+            })
             .on_key_up(move |s: &mut S, ev: &KeyEvent, _tx| access(s).forward_key(tab_id, ev, false))
     }
 }

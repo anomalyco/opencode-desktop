@@ -147,7 +147,10 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
             crate::tips::on_focus(s, focused);
         })
         // A resize across the breakpoint reaches the drawers in the frame it lands.
-        .on_layout_tx(|s: &mut App, _, tx: &mut Tx| { if !crate::narrow::settle(s, tx) { tx.live_only(); } })
+        .on_layout_tx(|s: &mut App, rect, tx: &mut Tx| {
+            let flipped = s.observe_app_link_window_rect(rect, tx);
+            if !crate::narrow::settle(s, tx) && !flipped { tx.live_only(); }
+        })
         .on_magnify(|s: &mut App, ev, tx| s.pinch(ev, tx))
         // A text field's menu shows and flips Settings › General › Spellcheck, as Desktop's
         // context menu does (`spellcheck.ts`).

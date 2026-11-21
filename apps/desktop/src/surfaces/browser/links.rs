@@ -47,20 +47,30 @@ pub struct AppLinkReview {
     pub tab_url: String,
     /// Last drawn rect `[x, y, w, h]` of the bar reported by `El::on_drawn_layout_tx`.
     pub last_rect: Option<[f32; 4]>,
-    /// Last drawn size `[w, h]` of the target viewport (`max_h = 80`) and full target text for
-    /// official's `fits()` check (`refusal-bar.tsx:22-26`).
-    pub target_box_size: Option<[f32; 2]>,
+    /// Last drawn viewport rect `[x, y, w, h]` of the target box (`max_h = 80`), window rect, and
+    /// full target text size `[w, h]` for official's `fits()` check (`refusal-bar.tsx:22-26`).
+    pub target_box_rect: Option<[f32; 4]>,
+    pub window_rect: Option<[f32; 4]>,
     pub target_text_size: Option<[f32; 2]>,
-    /// True ONLY when the entire target URL fits unclipped inside the target box (`fits()`).
-    /// Starts `false` until both box and text layouts confirm full visibility; any clip downgrades
-    /// the action to Copy-only.
+    /// True ONLY when the entire target URL fits unclipped inside the target box AND inside the
+    /// window viewport (`fits()`). Starts `false` until layouts confirm full visibility; any clip
+    /// downgrades the action to Copy-only.
     pub target_fits: bool,
     /// When the bar became visible and stationary in the focused window (`None` while hidden or
     /// moving; resets whenever `target_fits` transitions to `true`, matching `refusal-bar.tsx:63`).
     pub visible_since: Option<Instant>,
+    /// Timestamp of a pointer-down on the Open/Copy or Dismiss button (only recorded when
+    /// `visible_since` has already elapsed 500 ms, matching `activation-delay.ts:13-53`).
+    pub action_pressed_at: Option<Instant>,
+    pub dismiss_pressed_at: Option<Instant>,
     /// True once the bar has been drawn on screen; switching tabs or closing the side panel after
     /// visibility immediately kills the review.
     pub was_visible: bool,
+    /// True once the owning tab was observed not loading (`!tab.loading`). Prevents initial
+    /// `about:blank` or mid-load tab state from destroying a conversation review before it draws.
+    pub saw_settled: bool,
+    /// True once `tx.wake_after` was armed for the 60 s TTL expiry so idle bars flip to Copy.
+    pub ttl_wake_scheduled: bool,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -318,13 +328,23 @@ impl App {
         if !is_strict_rfc3986_uri(href) {
             return false;
         }
-        let Some(action) = classify_app_link(href, source) else {
+        let Some(mut action) = classify_app_link(href, source) else {
             return false;
         };
+        // Match official (`refusal-notice.ts:52-54`, `chromium.ts:377,399,424,871,887,907`):
+        // page-initiated editor schemes (`vscode:`, `cursor:`, `zed:`, `jetbrains:`) downgrade to
+        // Copy unless the host recorded direct user pointer/key input to this document.
+        if source == AppSchemeSource::Page
+            && !tab.prompts.document_input
+            && browser_policy::is_page_only_app_scheme(href)
+        {
+            action = AppSchemeAction::Copy;
+        }
         let Some(token) = random_review_token() else {
             return false;
         };
         let tab_url = tab.url.clone();
+        let saw_settled = !tab.loading;
         let now = Instant::now();
         self.workspace_panes.browser.active_app_reviews.borrow_mut().insert(
             tab_id,
@@ -337,11 +357,16 @@ impl App {
                 expires_at: now + Duration::from_secs(REVIEW_TTL_SECS),
                 tab_url,
                 last_rect: None,
-                target_box_size: None,
+                target_box_rect: None,
+                window_rect: None,
                 target_text_size: None,
                 target_fits: false,
                 visible_since: None,
+                action_pressed_at: None,
+                dismiss_pressed_at: None,
                 was_visible: false,
+                saw_settled,
+                ttl_wake_scheduled: false,
             },
         );
         crate::plugin_host::bump();
@@ -395,8 +420,20 @@ impl App {
             let Some(tab) = self.workspace_panes.browser.host.tab(tab_id) else {
                 return false;
             };
-            if tab.url != r.tab_url || tab.loading {
+            // Match official (`pane.ts:470-481`, `chromium.ts:886-890`): a committed navigation
+            // (`tab.url != r.tab_url`) clears a settled notice, while a freshly opened
+            // `about:blank` or already mid-load tab does NOT destroy a conversation review while
+            // its in-flight load finishes (`!r.saw_settled`). Page-origin reviews always clear on
+            // URL change or a new load after settling.
+            if r.source == AppSchemeSource::Conversation && !r.saw_settled {
+                r.tab_url = tab.url.clone();
+            } else if tab.url != r.tab_url
+                || (r.source == AppSchemeSource::Page && r.saw_settled && tab.loading)
+            {
                 return false;
+            }
+            if !tab.loading {
+                r.saw_settled = true;
             }
             if self.browser_tab_session(tab_id) != active_sid.as_deref() {
                 return false;
@@ -447,6 +484,8 @@ impl App {
         if !visible_now {
             review.last_rect = None;
             review.visible_since = None;
+            review.action_pressed_at = None;
+            review.dismiss_pressed_at = None;
             return;
         }
         let stationary = review.last_rect.is_some_and(|prev| {
@@ -456,29 +495,136 @@ impl App {
                 && (prev[3] - rect[3]).abs() <= 0.5
         });
         review.was_visible = true;
+        let now = Instant::now();
         if !stationary || review.visible_since.is_none() {
             review.last_rect = Some(rect);
-            review.visible_since = Some(Instant::now());
+            review.visible_since = Some(now);
+            review.action_pressed_at = None;
+            review.dismiss_pressed_at = None;
+        }
+        let mut expired_now = false;
+        if matches!(review.action, AppSchemeAction::Open | AppSchemeAction::Mail) {
+            if now >= review.expires_at {
+                review.action = AppSchemeAction::Copy;
+                expired_now = true;
+            } else if !review.ttl_wake_scheduled {
+                review.ttl_wake_scheduled = true;
+                tx.wake_after(review.expires_at.saturating_duration_since(now));
+            }
+        }
+        drop(reviews);
+        if expired_now {
+            crate::plugin_host::bump();
+            tx.instant();
         }
     }
 
-    /// Live `fits()` viewport-box observation (`refusal-bar.tsx:18-61`).
+    /// Records pointer-down (`Phase::Down`) on the Open/Copy or Dismiss button so the 500 ms
+    /// activation guard is enforced when the press BEGINS (matching official `activation-delay.ts:13-53`),
+    /// never allowing a press started before 500 ms and released after 500 ms to activate.
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn observe_app_link_target_box(&mut self, token: &str, rect: [f32; 4], tx: &mut Tx) {
-        self.update_app_link_target_fit(token, Some([rect[2], rect[3]]), None, tx);
+    pub(crate) fn note_app_link_pointer(
+        &mut self,
+        token: &str,
+        is_action: bool,
+        phase: rune::Phase,
+        cancelled: bool,
+        tx: &mut Tx,
+    ) {
+        tx.live_only();
+        let mut reviews = self.workspace_panes.browser.active_app_reviews.borrow_mut();
+        let Some(review) = reviews.values_mut().find(|r| r.token == token) else {
+            return;
+        };
+        let slot = if is_action { &mut review.action_pressed_at } else { &mut review.dismiss_pressed_at };
+        match phase {
+            rune::Phase::Down => {
+                let now = Instant::now();
+                let allowed = review
+                    .visible_since
+                    .is_some_and(|shown| now.saturating_duration_since(shown) >= Duration::from_millis(REVIEW_GUARD_MS));
+                *slot = allowed.then_some(now);
+            }
+            rune::Phase::Up if cancelled => {
+                *slot = None;
+            }
+            _ => {}
+        }
+    }
+
+    /// Re-evaluates `fits()` whenever the window viewport resizes while a review bar is active,
+    /// so shrinking a window past the target box immediately downgrades Open to Copy.
+    pub(crate) fn observe_app_link_window_rect(&mut self, win_rect: [f32; 4], tx: &mut Tx) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (win_rect, tx);
+            false
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut flipped = false;
+            {
+                let mut reviews = self.workspace_panes.browser.active_app_reviews.borrow_mut();
+                if reviews.is_empty() {
+                    return false;
+                }
+                for review in reviews.values_mut() {
+                    review.window_rect = Some(win_rect);
+                    let next_fits = match (review.target_box_rect, review.target_text_size) {
+                        (Some([bx, by, bw, bh]), Some([tw, th])) => {
+                            let inside_box = bw > 0.5 && bh > 0.5 && tw <= bw + 0.5 && th <= bh + 0.5;
+                            let inside_win = win_rect[2] > 0.5
+                                && win_rect[3] > 0.5
+                                && bx >= win_rect[0] - 1.0
+                                && by >= win_rect[1] - 1.0
+                                && bx + bw <= win_rect[0] + win_rect[2] + 1.0
+                                && by + bh <= win_rect[1] + win_rect[3] + 1.0;
+                            inside_box && inside_win
+                        }
+                        _ => false,
+                    };
+                    if next_fits != review.target_fits {
+                        review.target_fits = next_fits;
+                        review.visible_since = Some(Instant::now());
+                        review.action_pressed_at = None;
+                        review.dismiss_pressed_at = None;
+                        flipped = true;
+                    }
+                }
+            }
+            if flipped {
+                crate::plugin_host::bump();
+                tx.instant();
+            }
+            flipped
+        }
+    }
+
+    /// Live `fits()` viewport-box observation (`refusal-bar.tsx:18-61`), including window viewport
+    /// clipping so a short or narrow window downgrades Open to Copy.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn observe_app_link_target_box(
+        &mut self,
+        token: &str,
+        rect: [f32; 4],
+        win_rect: Option<[f32; 4]>,
+        tx: &mut Tx,
+    ) {
+        self.update_app_link_target_fit(token, Some(rect), win_rect, None, tx);
     }
 
     /// Live `fits()` full target-text observation (`refusal-bar.tsx:18-61`).
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn observe_app_link_target_text(&mut self, token: &str, rect: [f32; 4], tx: &mut Tx) {
-        self.update_app_link_target_fit(token, None, Some([rect[2], rect[3]]), tx);
+        self.update_app_link_target_fit(token, None, None, Some([rect[2], rect[3]]), tx);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     fn update_app_link_target_fit(
         &mut self,
         token: &str,
-        box_size: Option<[f32; 2]>,
+        box_rect: Option<[f32; 4]>,
+        win_rect: Option<[f32; 4]>,
         text_size: Option<[f32; 2]>,
         tx: &mut Tx,
     ) {
@@ -486,15 +632,28 @@ impl App {
         {
             let mut reviews = self.workspace_panes.browser.active_app_reviews.borrow_mut();
             if let Some(review) = reviews.values_mut().find(|r| r.token == token) {
-                if let Some(b) = box_size {
-                    review.target_box_size = Some(b);
+                if let Some(b) = box_rect {
+                    review.target_box_rect = Some(b);
+                }
+                if let Some(w) = win_rect {
+                    review.window_rect = Some(w);
                 }
                 if let Some(t) = text_size {
                     review.target_text_size = Some(t);
                 }
-                let next_fits = match (review.target_box_size, review.target_text_size) {
-                    (Some([bw, bh]), Some([tw, th])) => {
-                        bw > 0.5 && bh > 0.5 && tw <= bw + 0.5 && th <= bh + 0.5
+                let next_fits = match (review.target_box_rect, review.target_text_size) {
+                    (Some([bx, by, bw, bh]), Some([tw, th])) => {
+                        let inside_box = bw > 0.5 && bh > 0.5 && tw <= bw + 0.5 && th <= bh + 0.5;
+                        let inside_win = match review.window_rect {
+                            Some([wx, wy, ww, wh]) if ww > 0.5 && wh > 0.5 => {
+                                bx >= wx - 1.0
+                                    && by >= wy - 1.0
+                                    && bx + bw <= wx + ww + 1.0
+                                    && by + bh <= wy + wh + 1.0
+                            }
+                            _ => true,
+                        };
+                        inside_box && inside_win
                     }
                     _ => false,
                 };
@@ -503,6 +662,8 @@ impl App {
                     // Restart the 500 ms activation delay whenever the button flips between Copy
                     // and Open (`refusal-bar.tsx:63`).
                     review.visible_since = Some(Instant::now());
+                    review.action_pressed_at = None;
+                    review.dismiss_pressed_at = None;
                     flipped = true;
                 }
             }
@@ -534,15 +695,24 @@ impl App {
         if self.plugins.window_blurred.get() {
             return;
         }
+        let by_keys = tx.by_keys();
         let matched = {
-            let reviews = self.workspace_panes.browser.active_app_reviews.borrow();
+            let mut reviews = self.workspace_panes.browser.active_app_reviews.borrow_mut();
             reviews
-                .values()
+                .values_mut()
                 .find(|r| r.token == token)
                 .map(|r| {
-                    let armed = r
-                        .visible_since
-                        .is_some_and(|t| t.elapsed() >= Duration::from_millis(REVIEW_GUARD_MS));
+                    let pressed_at = r.action_pressed_at.take();
+                    let armed = if by_keys {
+                        r.visible_since
+                            .is_some_and(|s| s.elapsed() >= Duration::from_millis(REVIEW_GUARD_MS))
+                    } else {
+                        pressed_at.is_some_and(|p| {
+                            r.visible_since.is_some_and(|s| {
+                                p.saturating_duration_since(s) >= Duration::from_millis(REVIEW_GUARD_MS)
+                            })
+                        })
+                    };
                     (r.tab_id, armed)
                 })
         };
@@ -575,16 +745,26 @@ impl App {
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn dismiss_app_link_review(&mut self, token: &str, tx: &mut Tx) {
         self.sync_app_link_reviews();
+        let by_keys = tx.by_keys();
         let tab_id = {
-            let reviews = self.workspace_panes.browser.active_app_reviews.borrow();
+            let mut reviews = self.workspace_panes.browser.active_app_reviews.borrow_mut();
             reviews
-                .values()
-                .find(|r| {
-                    r.token == token
-                        && r.visible_since
-                            .is_some_and(|t| t.elapsed() >= Duration::from_millis(REVIEW_GUARD_MS))
+                .values_mut()
+                .find(|r| r.token == token)
+                .and_then(|r| {
+                    let pressed_at = r.dismiss_pressed_at.take();
+                    let armed = if by_keys {
+                        r.visible_since
+                            .is_some_and(|s| s.elapsed() >= Duration::from_millis(REVIEW_GUARD_MS))
+                    } else {
+                        pressed_at.is_some_and(|p| {
+                            r.visible_since.is_some_and(|s| {
+                                p.saturating_duration_since(s) >= Duration::from_millis(REVIEW_GUARD_MS)
+                            })
+                        })
+                    };
+                    armed.then_some(r.tab_id)
                 })
-                .map(|r| r.tab_id)
         };
         if let Some(tab_id) = tab_id {
             self.workspace_panes.browser.active_app_reviews.borrow_mut().remove(&tab_id);

@@ -46,16 +46,22 @@ pub fn app_link_review_bar(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
         t!("rune.browser.menu.copyLink")
     };
 
+    let win_rect = rune::memo::layout_with("zoom", |r| r);
     let confirm_token = review.token.clone();
+    let confirm_down_token = review.token.clone();
     let action_btn = crate::widgets::button(action_label, ButtonVariant::Neutral)
         .control_size(ControlSize::Regular)
         .on_press_tx(move |app: &mut App, tx: &mut Tx| {
             app.confirm_app_link_review(&confirm_token, tx);
         })
         .build(k)
+        .on_drag(move |app: &mut App, d: &mut rune::Drag, tx: &mut Tx| {
+            app.note_app_link_pointer(&confirm_down_token, true, d.phase, d.cancelled(), tx);
+        })
         .key("browser-refusal-action");
 
     let dismiss_token = review.token.clone();
+    let dismiss_down_token = review.token.clone();
     let dismiss_btn = row()
         .key("browser-refusal-dismiss")
         .role("button")
@@ -67,6 +73,9 @@ pub fn app_link_review_bar(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
         .radius(4.0)
         .cursor(Cursor::Pointer)
         .hover(p.hover)
+        .on_drag(move |app: &mut App, d: &mut rune::Drag, tx: &mut Tx| {
+            app.note_app_link_pointer(&dismiss_down_token, false, d.phase, d.cancelled(), tx);
+        })
         .on_press_tx(move |app: &mut App, tx: &mut Tx| {
             app.dismiss_app_link_review(&dismiss_token, tx);
         })
@@ -106,7 +115,7 @@ pub fn app_link_review_bar(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
         .w_full()
         .max_h(TARGET_MAX_H)
         .on_drawn_layout_tx(move |app: &mut App, rect, tx| {
-            app.observe_app_link_target_box(&box_token, rect, tx);
+            app.observe_app_link_target_box(&box_token, rect, win_rect, tx);
         })
         .child(session_view::scroller::scroller("browser-refusal-target-scroll").build::<App>(
             p,
