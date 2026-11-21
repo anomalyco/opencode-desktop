@@ -141,6 +141,8 @@ pub struct BrowserHost {
     pub(crate) cdp_events: VecDeque<CdpEvent>,
     picked: VecDeque<PickedElement>,
     pub(crate) popup_opens: VecDeque<crate::prompts::PopupRequest>,
+    /// The person's Copy image results (PNG, base64), drained by the app for its clipboard.
+    pub(crate) copied_images: VecDeque<String>,
     pub(crate) app_links: VecDeque<(u64, String)>,
     pub(crate) context_menus: VecDeque<(u64, crate::protocol::PageContextMenu)>,
     pub(crate) download_save_requests: VecDeque<crate::protocol::DownloadSaveRequest>,
@@ -212,6 +214,7 @@ impl BrowserHost {
             cdp_events: VecDeque::new(),
             picked: VecDeque::new(),
             popup_opens: VecDeque::new(),
+            copied_images: VecDeque::new(),
             app_links: VecDeque::new(),
             context_menus: VecDeque::new(),
             download_save_requests: VecDeque::new(),

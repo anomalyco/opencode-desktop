@@ -754,6 +754,16 @@ mod native {
             }
             changed |= self.drain_browser_popups();
             changed |= self.poll_app_link_reviews();
+            // The page menu's Copy image (`ContextMenuCommand::CopyImage`): the engine sends PNG.
+            let images: Vec<String> = self.workspace_panes.browser.host.drain_copied_images().collect();
+            for png_b64 in images {
+                let Ok(png) = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, png_b64) else { continue };
+                if let Some(image) = rune::ClipboardImage::from_png(png) {
+                    self.later(Box::new(move |_s: &mut App, tx: &mut Tx| {
+                        tx.copy_rich(rune::ClipboardContent::default().with_image(image));
+                    }));
+                }
+            }
             // Reload persisted site permissions when Settings > Browser edits `rune.sitePermissions`.
             let perm_ver = crate::plugin_host::services::store::store_version("browser", "rune.sitePermissions");
             if perm_ver != self.workspace_panes.browser.site_permissions_version {

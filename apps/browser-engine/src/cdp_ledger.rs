@@ -409,6 +409,11 @@ pub enum CdpPending {
     InputGuard,
     CookieCount(u64),
     ClearSite { request_id: u64, origin: String },
+    /// The person's Copy image (`menu_extras.rs`): the image's bytes, an isolated world in its
+    /// frame, then the PNG re-encode. Nothing of it reaches an agent.
+    CopyImageContent { frame_id: String },
+    CopyImageWorld { b64: String },
+    CopyImageEncode,
 }
 
 pub struct PendingClear {
@@ -507,6 +512,13 @@ wrap_dev_tools_message_observer! {
                 }
                 return;
             }
+            if let CdpPending::CopyImageContent { .. } | CdpPending::CopyImageWorld { .. } | CdpPending::CopyImageEncode = pending {
+                if success != 0 {
+                    let val = result.and_then(|b| serde_json::from_slice::<Value>(b).ok()).unwrap_or(Value::Null);
+                    self.copy_image_step(browser.as_deref(), pending, &val);
+                }
+                return;
+            }
             // Guard 1b (reply-side choke point): re-check committed origin uniformly before ANY
             // `CdpPending` variant (`Raw`, `CookieCount`, `ClearSite`) leaves the engine.
             let (CdpPending::Raw { request_id, .. }
@@ -543,7 +555,11 @@ wrap_dev_tools_message_observer! {
                 .and_then(|b| serde_json::from_slice::<Value>(b).ok())
                 .unwrap_or(Value::Null);
             match pending {
-                CdpPending::Raw { .. } | CdpPending::InputGuard => unreachable!(),
+                CdpPending::Raw { .. }
+                | CdpPending::InputGuard
+                | CdpPending::CopyImageContent { .. }
+                | CdpPending::CopyImageWorld { .. }
+                | CdpPending::CopyImageEncode => unreachable!(),
                 CdpPending::CookieCount(req_id) => {
                     let count = val.get("cookies").and_then(Value::as_array).map_or(0, Vec::len);
                     let _ = self.out_tx.send(EngineMsg::CdpResponse {
@@ -875,6 +891,32 @@ impl TabCdpObserver {
     fn blocked_url(&self, browser: Option<&Browser>) -> Option<Option<String>> {
         self.permissions
             .tab_blocked_url(browser, self.isolated, self.is_preview, &self.snap, &self.prompts)
+    }
+
+    /// The next step of the person's Copy image, from the last step's reply (`menu_extras.rs`).
+    /// Each step's message waits in the ledger's outbox, like every observer-made message.
+    fn copy_image_step(&self, browser: Option<&Browser>, step: CdpPending, reply: &Value) {
+        let next_id = || self.next_cdp_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let next = match step {
+            CdpPending::CopyImageContent { frame_id } => crate::menu_extras::resource_base64(reply).map(|b64| {
+                let id = next_id();
+                (id, CdpPending::CopyImageWorld { b64 }, crate::menu_extras::world_request(id, &frame_id))
+            }),
+            CdpPending::CopyImageWorld { b64 } => {
+                let id = next_id();
+                crate::menu_extras::encode_request(id, reply, &b64).map(|msg| (id, CdpPending::CopyImageEncode, msg))
+            }
+            _ => {
+                if let Some(png_b64) = crate::menu_extras::png_result(reply) {
+                    let _ = self.out_tx.send(EngineMsg::CopiedImage { tab_id: self.tab_id, png_b64 });
+                }
+                None
+            }
+        };
+        if let Some((id, pending, msg)) = next {
+            self.id_map.lock().unwrap().insert(id, pending);
+            self.send_all(browser, vec![msg]);
+        }
     }
 
     /// The granted origin an agent call's `reach` touches now, on a tab Guard 1 covers.
