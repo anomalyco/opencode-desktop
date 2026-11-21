@@ -1333,7 +1333,7 @@ return plugin.defineWindow(function(ctx)
             import = avail,
             extensions = extNativeAvailable() or (type(ext) == "table" and type(ext.renderSettings) == "function"),
             remoteSignIns = avail and type((Browser :: any).ShareSignIns) == "function",
-            cookieFile = type(prof) == "table" and type(prof.pickCookieFile) == "function",
+            cookieFile = avail and type((Browser :: any).ImportCookieFileAsync) == "function",
         }
     end
 
@@ -1372,6 +1372,28 @@ return plugin.defineWindow(function(ctx)
             importSourcesAt = now
         end
         return importSources
+    end
+
+    -- Settings > Browser's cookie-file import: running, and how the last one ended.
+    local cookieFileBusy = false
+    local cookieFileMessage: settings.ImportMessage? = nil
+
+    -- `jobs.ts:186-276` for an `import-file` job: a file names no browser and its cookies are counted.
+    local function describeCookieFile(res: any): settings.ImportMessage
+        if res == nil or type(res.error) == "string" then
+            local reason = if res then res.error else nil
+            local key = if reason == "read" then "signins.failed.read.file"
+                elseif reason == "format" then "signins.failed.format"
+                elseif reason == "storage" then "signins.failed.storage"
+                else "settings.failed.import"
+            return { text = I18n:T(key), error = true, live = true }
+        end
+        local imported = tonumber(res.imported) or 0
+        local lost = (tonumber(res.failed) or 0) + (tonumber(res.protected) or 0)
+        if lost > 0 then
+            return { text = I18n:T("signins.imported.incomplete", { count = imported, omitted = lost }), error = imported == 0, live = true }
+        end
+        return { text = I18n:T("signins.imported", { count = imported }), error = imported == 0, live = true }
     end
 
     local function refreshSettings()
@@ -1849,10 +1871,27 @@ return plugin.defineWindow(function(ctx)
             refreshSettings()
         end,
         pickCookieFile = function()
-            local prof = profileContract:Get()
-            if type(prof) == "table" and type(prof.pickCookieFile) == "function" then
-                prof.pickCookieFile()
+            if cookieFileBusy then
+                return
             end
+            cookieFileBusy = true
+            refreshSettings()
+            local ok, res = pcall(function()
+                return (Browser :: any):ImportCookieFileAsync(I18n:T("settings.import.file.pick"))
+            end)
+            cookieFileBusy = false
+            if ok and type(res) == "table" and res.cancelled == true then
+                refreshSettings()
+                return
+            end
+            cookieFileMessage = describeCookieFile(if ok and type(res) == "table" then res else nil)
+            refreshSettings()
+        end,
+        cookieFileMessage = function(): settings.ImportMessage?
+            return cookieFileMessage
+        end,
+        cookieFileBusy = function(): boolean
+            return cookieFileBusy
         end,
     }, refreshSettings)
 
