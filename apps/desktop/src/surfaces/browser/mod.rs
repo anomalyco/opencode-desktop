@@ -10,6 +10,8 @@ pub mod links;
 #[cfg(not(target_arch = "wasm32"))]
 mod activity;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod comment;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod context_menu;
 #[cfg(not(target_arch = "wasm32"))]
 mod keys;
@@ -149,6 +151,8 @@ mod native {
         pub unseen_tabs: std::collections::HashSet<u64>,
         /// Chrome-style opener chains and initial `"New tab"` title holds (`UP-118`).
         pub openers: super::openers::TabOpeners,
+        /// Floating element-comment spotlight/editor and whole-page note editor (`panel.tsx:1525-1665`).
+        pub overlay: super::comment::BrowserOverlay,
     }
 
     pub use super::keys::claims_app_shortcut;
@@ -224,6 +228,7 @@ mod native {
         }
 
         pub fn setup_browser(&mut self, waker: Waker) {
+            self.workspace_panes.browser.overlay.set_waker(waker.clone());
             self.workspace_panes.browser.host.set_waker(waker);
             self.workspace_panes.browser.host.set_shell_shortcut(claims_app_shortcut);
             // The levels live in the app's state (`plugin.browser`, Desktop's browser plugin namespace),

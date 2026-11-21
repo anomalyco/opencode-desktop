@@ -685,6 +685,7 @@ pub fn version(app: &App) -> u64 {
         t.files.iter().for_each(|f| (&f.id, f.bytes, f.state as u8, &f.error).hash(&mut h));
     }
     app.workspace_panes.browser.host.focused_tab_id().hash(&mut h);
+    app.workspace_panes.browser.overlay.version_tag().hash(&mut h);
     app.workspace_panes.browser.openers.unnamed_ids_sorted().hash(&mut h);
     {
         let reviews = app.workspace_panes.browser.active_app_reviews.borrow();
@@ -768,13 +769,15 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
             changed = true;
         }
     }
-    changed |= crate::surfaces::browser::prompts::poll(app, tx, now);
-    changed |= crate::surfaces::browser::context_menu::poll(app, tx);
+    changed |= crate::surfaces::browser::prompts::poll(app, tx, now)
+        | crate::surfaces::browser::context_menu::poll(app, tx)
+        | crate::surfaces::browser::comment::poll(app, tx);
     if let Some(next) = app.workspace_panes.browser.devtools.values().map(|p| p.deadline).min() {
         tx.wake_after(next.saturating_duration_since(now).max(Duration::from_millis(25)));
     }
     let picks: Vec<_> = if app.workspace_panes.browser.host.has_picked() { app.workspace_panes.browser.host.drain_picked_elements().collect() } else { Vec::new() };
     for pick in picks {
+        app.open_browser_element_comment(pick.clone());
         let third_party_ok = scope::tab_visible_to_third_party(app, pick.tab_id);
         let payload = map([("tabId", Data::String(pick.tab_id.to_string())), ("ref", Data::String(pick.eref)), ("selector", Data::String(pick.selector))]);
         for i in 0..app.plugins.list.len() {
@@ -782,6 +785,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
                 changed |= super::super::fire_named(app, i, "Browser.Picked", payload.clone());
             }
         }
+        changed = true;
     }
     changed
 }
@@ -790,11 +794,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn ime(app: &mut App, ime: &Ime) -> bool {
     let Some(id) = app.active_browser_tab_id() else { return false };
-    if !app.side_open() || app.composer.focused || super::super::field_focused(app) {
-        return false;
-    }
-    if app.workspace_panes.browser.host.tab(id).is_some_and(|t| t.prompts.dialog.open().is_some() || t.prompts.auth.active().is_some()) {
-        return false;
-    }
-    app.workspace_panes.browser.host.ime(ime)
+    let blocked = !app.side_open() || app.composer.focused || super::super::field_focused(app) || app.browser_overlay_active(id)
+        || app.workspace_panes.browser.host.tab(id).is_some_and(|t| t.prompts.dialog.open().is_some() || t.prompts.auth.active().is_some());
+    !blocked && app.workspace_panes.browser.host.ime(ime)
 }

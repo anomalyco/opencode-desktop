@@ -319,7 +319,8 @@ local function bar(env: Env, view: View, tab: BrowserTab, state: address.View, w
             tab:Reload()
         end, { keybind = "browser.reload" })
     end
-    local picking = tab:Inspecting()
+    local tAny = tab :: any
+    local picking = tab:Inspecting() or (type(tAny.OverlayAccent) == "function" and tAny:OverlayAccent() == true)
     local showExt = env.hasExtensions ~= nil and env.hasExtensions()
     local rightCount = 1 + (if env.device then 1 else 0) + (if showExt then 1 else 0)
     local rightW = rightCount * 28 + math.max(0, rightCount - 1) * 4

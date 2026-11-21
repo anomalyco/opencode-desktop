@@ -147,15 +147,20 @@ pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
                         })
                         .child(card)
                 });
+            let comment_overlay = super::comment::view(s, p, tab.id);
             // `embeds.View`: the page on the pane's base background, with top prompt/popup bars
-            // above the page and any page modal (JS dialog / HTTP auth) or extension popup overlaid.
+            // above the page and any comment/note overlay, page modal, or extension popup overlaid.
             let page_stack = col()
                 .key("browser-page-stack")
                 .grow(1.0)
                 .min_h(0.0)
                 .w_full()
+                .on_layout(|app: &mut App, [_, _, w, h]| {
+                    app.workspace_panes.browser.overlay.set_pane_size(w, h);
+                })
                 .child(s.workspace_panes.browser.host.surface_el("browser-surface", tab.id, scale / *s.zoom, *s.zoom, |app: &mut App| &mut app.workspace_panes.browser.host, App::focus_browser_page))
                 .children(ext_popup)
+                .children(comment_overlay)
                 .children(modal);
             col()
                 .key("browser-viewport")
