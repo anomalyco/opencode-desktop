@@ -387,6 +387,11 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
                     if main_nav && att.host_to_wire.contains_key(&ev.tab_id) {
                         att.bump_generation(ev.tab_id);
                     }
+                    if ev.method == "Input.dragIntercepted"
+                        && let Some(data) = ev.params.get("data")
+                    {
+                        exec::ingest_drag_intercepted(att, ev.tab_id, data.clone());
+                    }
                     exec::profile::ingest_cdp_event(att, &ev);
                 }
             }
@@ -474,6 +479,9 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
             exec::poll_commands(att, app, now, &mut ref_counter, waker.clone(), tx);
         changed |= cmd_changed;
         if let Some(w) = cmd_wake {
+            earliest_wake = Some(earliest_wake.map_or(w, |cur| cur.min(w)));
+        }
+        if let Some(w) = exec::profile::poll_auto_stops(att, app, now) {
             earliest_wake = Some(earliest_wake.map_or(w, |cur| cur.min(w)));
         }
         // Sync tab inventory changes while attached & bootstrap OOPIF/context CDP tracking.

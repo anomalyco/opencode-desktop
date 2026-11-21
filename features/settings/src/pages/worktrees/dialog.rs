@@ -7,6 +7,7 @@ use opencode_kit::path;
 use opencode_ui::widgets::{self, DialogSize, Fit, dialog_window, sized};
 use rune::{Color, Cx, El, TextStyle, Tx, col, el, row, spacer, text};
 use rune_kit::ButtonVariant;
+use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::{Elevate as _, Pal, kit};
 
 use super::delete::{Event, Phase, Scope};
@@ -106,30 +107,30 @@ pub fn dialog<H: SettingsHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> Vec<El> 
     } else {
         delete
     };
-    let card = col()
-        .key("worktree-delete-card")
-        .role("dialog")
-        .label(title.clone())
-        .radius(6.0)
-        .fill(p.layer1)
-        .elevate(p.overlay)
-        .clip_soft(0.0)
-        .modal_tx(true, move |s: &mut H, tx: &mut Tx| cancel_confirm(s, attempt, tx))
+    let inner = col()
+        .w_full()
+        .clip_rounded(12.0)
         .child(
             row()
                 .key("worktree-delete-header")
                 .w_full()
                 .padding(16.0)
                 .items_start()
-                .child(col().grow(1.0).shrink().min_w(0.0).gap(4.0).child(text(title).font(TITLE).color(p.text).wrap().w_full()).child(lines))
+                .child(col().grow(1.0).shrink().min_w(0.0).gap(4.0).child(text(title.clone()).font(TITLE).color(p.text).wrap().w_full()).child(lines))
                 .child(close::<H>(p, attempt)),
         )
         .child(row().key("worktree-delete-footer").w_full().padding(16.0).gap(8.0).child(spacer()).child(cancel).children(again).child(delete));
+    let card = col()
+        .key("worktree-delete-card")
+        .role("dialog")
+        .label(title)
+        .radius(12.0)
+        .fill(p.layer1)
+        .elevate(p.overlay)
+        .modal_tx(true, move |s: &mut H, tx: &mut Tx| cancel_confirm(s, attempt, tx))
+        .child(inner);
     let card = sized(card, DialogSize::Normal, Fit::Content, dialog_window(cx, s.zoom()));
-    vec![
-        el().key("worktree-delete-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim),
-        el().key("worktree-delete-modal").absolute(0.0, 0.0).w_full().h_full().center().child(card).raise(),
-    ]
+    widgets::modal("worktree-delete", p, card, None)
 }
 
 fn close<H: SettingsHost + 'static>(p: &Pal, attempt: u64) -> El {
@@ -141,6 +142,7 @@ fn close<H: SettingsHost + 'static>(p: &Pal, attempt: u64) -> El {
         .mr(-2.0)
         .radius(4.0)
         .center()
+        .focus_default(p)
         .hover(p.hover)
         .press(p.pressed)
         .on_press_tx(move |s: &mut H, tx: &mut Tx| cancel_confirm(s, attempt, tx))

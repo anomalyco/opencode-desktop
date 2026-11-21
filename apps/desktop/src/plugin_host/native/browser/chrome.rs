@@ -133,8 +133,9 @@ pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
             if !sc.is_builtin_browser || sc.tool_sid.is_some() {
                 return Ok(());
             }
+            let shift = with_app("BrowserTab:ReloadFromClick", |app| Ok(app.workspace_panes.browser.shift_held))?;
             later(lua, &this, "BrowserTab:ReloadFromClick", move |s, id, tx| {
-                if tx.mods().shift {
+                if shift || tx.mods().shift {
                     s.workspace_panes.browser.host.reload_ignore_cache(id);
                 } else {
                     s.workspace_panes.browser.host.reload(id);

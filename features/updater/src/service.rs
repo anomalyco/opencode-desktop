@@ -216,7 +216,7 @@ impl UpdaterService {
     /// not already installing goes in on the way out on a thread of its own (`super::finish_quit`
     /// waits for it before the process exits).
     pub fn quitting(&mut self) {
-        if matches!(self.state, State::Ready { .. })
+        if matches!(self.state, State::Ready { ref refresh, .. } if !matches!(refresh, Some(machine::Refresh::Staging { .. })))
             && let Some(platform) = self.platform.get().filter(|p| p.installs_on_quit()).cloned()
         {
             super::install_on_quit(platform);

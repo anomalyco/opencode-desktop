@@ -84,14 +84,25 @@ impl Mac {
     /// keyed by the placed executable's `(dev, ino)` into `Updates/` after `swap` succeeds so the
     /// record survives even when `apply` runs after `storage::close()`.
     pub fn apply(&self) -> Result<(), String> {
+        self.apply_inner(false)
+    }
+
+    fn apply_inner(&self, on_quit: bool) -> Result<(), String> {
         let staged = self.staged.lock().ok().and_then(|mut s| s.take()).ok_or_else(|| "No staged update ready to install.".to_owned())?;
-        if let Err(e) = verify_bundle(&staged.app, &self.bundle.id, self.check_team.as_deref(), self.check_gatekeeper) {
+        // On quit, `spctl --assess` already passed during `stage()` and can stall online past
+        // `exit_deadline`, so verify bundle ID, `codesign --verify --strict --deep`, and signing
+        // team locally; also skip `engine::record_installed` because `storage::close()` has run
+        // (`sync_installed_receipt` promotes `installed-bundle.json` on next boot).
+        let check_gatekeeper = if on_quit { false } else { self.check_gatekeeper };
+        if let Err(e) = verify_bundle(&staged.app, &self.bundle.id, self.check_team.as_deref(), check_gatekeeper) {
             std::fs::remove_dir_all(&staged.dir).ok();
             return Err(e);
         }
         swap(&staged.app, &self.bundle.path)?;
         write_installed_receipt(&self.engine.facts.updates, &self.bundle.path.join(&self.exe_rel), &staged.version, &staged.sha256);
-        engine::record_installed(&staged.version, &staged.sha256);
+        if !on_quit {
+            engine::record_installed(&staged.version, &staged.sha256);
+        }
         std::fs::remove_dir_all(&staged.dir).ok();
         Ok(())
     }
@@ -168,7 +179,7 @@ impl Platform for Mac {
     }
 
     fn install_on_quit(&self) {
-        if let Err(e) = self.apply() {
+        if let Err(e) = self.apply_inner(true) {
             eprintln!("updater: couldn't install on quit: {e}");
         }
     }
@@ -358,7 +369,7 @@ fn write_installed_receipt(updates: &Path, placed_exe: &Path, version: &str, sha
     let tmp = updates.join(format!("installed-bundle.tmp-{}", std::process::id()));
     let Ok(json) = serde_json::to_vec(&InstalledBundle { version: version.to_owned(), sha256: sha256.to_owned(), dev, ino }) else { return };
     if std::fs::write(&tmp, json).is_ok() {
-        let _ = std::fs::rename(&tmp, updates.join(INSTALLED_RECEIPT));
+        std::fs::rename(&tmp, updates.join(INSTALLED_RECEIPT)).ok();
     } else {
         std::fs::remove_file(&tmp).ok();
     }

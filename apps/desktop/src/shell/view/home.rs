@@ -449,7 +449,10 @@ pub(crate) fn home_modifiers(s: &mut App, mods: rune::Mods, tx: &mut Tx) {
     // 1..9 shortcut numbers after holding Mod alone for 400 ms (#63089).
     let quote = crate::quote::editor::modifiers(s, mods, tx);
     #[cfg(not(target_arch = "wasm32"))]
-    let browser_comment = crate::surfaces::browser::comment::modifiers(s, mods, tx);
+    let browser_comment = {
+        s.workspace_panes.browser.shift_held = mods.shift;
+        crate::surfaces::browser::comment::modifiers(s, mods, tx)
+    };
     #[cfg(target_arch = "wasm32")]
     let browser_comment = false;
     let hints = crate::tab_hints::modifiers(s, mods, tx);
