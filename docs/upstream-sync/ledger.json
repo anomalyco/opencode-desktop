@@ -3803,7 +3803,7 @@
       "summary": "Keep the side panel '+' add trigger reachable in Tab order and place the settled open panel's review toggle in the panel strip's Tab order (and reveal hover-hidden triggers on focus-visible).",
       "size": "M",
       "status": "have it",
-      "status_evidence": "The '+' after the side strip's tabs is a Tab stop, and while the side region is open the review toggle sits in its first strip's reserved slot, so Tab reaches it after '+' (driven: prompt, add, agent, model, effort, submit, the strip's tabs, '+', Toggle review); open and closed look pixel-identical (PR #0)",
+      "status_evidence": "The '+' after the side strip's tabs is a Tab stop, and while the side region is open the review toggle sits in its first strip's reserved slot, so Tab reaches it after '+' (driven: prompt, add, agent, model, effort, submit, the strip's tabs, '+', Toggle review); open and closed look pixel-identical (PR #351)",
       "depends_on": "UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"
@@ -4117,7 +4117,7 @@
       "summary": "Preserve focus on a focused programmatic/non-tabbable panel container when surrounding page nodes change instead of rescuing focus away.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "Rune's rescue runs only when the focused element leaves or can no longer take focus; a focused tab_index(-1) region (Settings' page, the side panel) still takes it, so it keeps focus as its page changes around it (PR #0)",
+      "status_evidence": "Rune's rescue runs only when the focused element leaves or can no longer take focus; a focused tab_index(-1) region (Settings' page, the side panel) still takes it, so it keeps focus as its page changes around it (PR #351)",
       "depends_on": "UP-088 (#64909)",
       "risks": "none",
       "workstream": "WS-8"
