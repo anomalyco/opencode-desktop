@@ -22,6 +22,9 @@ pub struct OpenFind {
     pub(crate) indexing: Indexing,
     pub(crate) matching: Matching,
     pub(crate) target: Target,
+    /// Whether the next answer landing for the current query should scroll the active match into
+    /// view (`query.changed` seeks; `session.changed` settles without scrolling).
+    pub(crate) reveal_on_land: bool,
 }
 
 impl OpenFind {
@@ -37,6 +40,7 @@ impl OpenFind {
             indexing: Indexing::Idle,
             matching: Matching::Idle,
             target: Target::First,
+            reveal_on_land: false,
         }
     }
 }
@@ -112,6 +116,7 @@ pub fn transition(state: &mut State, event: Event<'_>) -> Effects<Effect> {
         }
         (State::Open(open), Event::QueryChanged) => {
             open.active = 0;
+            open.reveal_on_land = true;
             Effects::one(Effect::Reveal)
         }
         (State::Open(open), Event::Move { delta, count }) => {
@@ -119,12 +124,16 @@ pub fn transition(state: &mut State, event: Event<'_>) -> Effects<Effect> {
                 return Effects::none();
             }
             open.active = (open.active as i64 + i64::from(delta)).rem_euclid(count as i64) as usize;
+            open.reveal_on_land = false;
             Effects::one(Effect::Reveal)
         }
         (State::Open(open), Event::SessionChanged { session: next }) => {
             if open.session != next {
                 open.session = next.to_owned();
                 open.active = 0;
+                open.target = Target::First;
+                open.reveal_on_land = false;
+                open.matching = Matching::Idle;
                 let old = std::mem::take(&mut open.answer);
                 if !matches!(old, Answer::None) {
                     return Effects::one(Effect::RetireAnswer(RetiredAnswer(old)));
