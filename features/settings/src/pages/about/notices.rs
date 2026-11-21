@@ -490,7 +490,7 @@ fn clean_inline(s: &str) -> String {
             i += 1;
             continue;
         }
-        let ch = s[i..].chars().next().unwrap();
+        let Some(ch) = s[i..].chars().next() else { break };
         out.push(ch);
         i += ch.len_utf8();
     }
