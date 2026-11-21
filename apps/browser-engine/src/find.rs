@@ -1,5 +1,6 @@
 //! CEF `FindHandler` forwarding in-page search match updates to the host (`find-machine.ts`).
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
 
 use cef::rc::Rc as _;
@@ -8,15 +9,29 @@ use cef::{Browser, FindHandler, ImplFindHandler, Rect, WrapFindHandler, wrap_fin
 use crate::output::Output;
 use crate::wire::EngineMsg;
 
+pub(crate) struct FindState {
+    last_id: AtomicI32,
+    last_count: AtomicI32,
+    last_active: AtomicI32,
+}
+
+impl FindState {
+    pub(crate) fn new() -> Arc<Self> {
+        Arc::new(Self {
+            last_id: AtomicI32::new(-1),
+            last_count: AtomicI32::new(0),
+            last_active: AtomicI32::new(0),
+        })
+    }
+}
+
 wrap_find_handler! {
     pub struct TabFindHandler {
         tab_id: u64,
         out_tx: Output,
         // CEF passes `-1` for `count` or `active_match_ordinal` when unchanged from an earlier
         // incremental reply of the same search; keep the last non-negative values per session.
-        last_id: AtomicI32,
-        last_count: AtomicI32,
-        last_active: AtomicI32,
+        state: Arc<FindState>,
     }
 
     impl FindHandler {
@@ -29,21 +44,21 @@ wrap_find_handler! {
             active_match_ordinal: ::std::os::raw::c_int,
             final_update: ::std::os::raw::c_int,
         ) {
-            if self.last_id.swap(identifier, Ordering::Relaxed) != identifier {
-                self.last_count.store(0, Ordering::Relaxed);
-                self.last_active.store(0, Ordering::Relaxed);
+            if self.state.last_id.swap(identifier, Ordering::Relaxed) != identifier {
+                self.state.last_count.store(0, Ordering::Relaxed);
+                self.state.last_active.store(0, Ordering::Relaxed);
             }
             let resolved_count = if count >= 0 {
-                self.last_count.store(count, Ordering::Relaxed);
+                self.state.last_count.store(count, Ordering::Relaxed);
                 count
             } else {
-                self.last_count.load(Ordering::Relaxed)
+                self.state.last_count.load(Ordering::Relaxed)
             };
             let resolved_active = if active_match_ordinal >= 0 {
-                self.last_active.store(active_match_ordinal, Ordering::Relaxed);
+                self.state.last_active.store(active_match_ordinal, Ordering::Relaxed);
                 active_match_ordinal
             } else {
-                self.last_active.load(Ordering::Relaxed)
+                self.state.last_active.load(Ordering::Relaxed)
             };
             let count_u32 = u32::try_from(resolved_count).unwrap_or(0);
             let mut active_u32 = u32::try_from(resolved_active).unwrap_or(0);
