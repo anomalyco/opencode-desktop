@@ -240,6 +240,8 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
         .on_quit(|s, _| {
             let scheduler = s.kernel.scheduler.clone();
             scheduler.run_close(s);
+            // A link taken just before the quit is carried out once: typed in, or handed on.
+            crate::deep_links::quitting(s);
             s.save_on_quit();
         })
         .on_close(|s, _| {

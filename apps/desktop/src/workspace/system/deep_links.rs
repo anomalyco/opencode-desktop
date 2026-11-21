@@ -183,9 +183,7 @@ fn type_prompt(s: &mut App) -> bool {
         s.services.deep_links.prompt = None;
         return false;
     }
-    let crate::Route::Session { id, .. } = &*s.route else { return false };
-    let same = |a: &str, b: &str| a.trim_end_matches(['/', '\\']).eq_ignore_ascii_case(b.trim_end_matches(['/', '\\']));
-    if !s.session(id).is_some_and(|i| same(&i.directory, &dir)) {
+    if !shows_session_in(s, &dir) {
         return false;
     }
     s.services.deep_links.prompt = None;
@@ -194,6 +192,49 @@ fn type_prompt(s: &mut App) -> bool {
     }
     *s.composer = rune::TextEdit::new(prompt);
     true
+}
+
+/// The window shows a session in folder `dir`.
+fn shows_session_in(s: &App, dir: &str) -> bool {
+    let crate::Route::Session { id, .. } = &*s.route else { return false };
+    let same = |a: &str, b: &str| a.trim_end_matches(['/', '\\']).eq_ignore_ascii_case(b.trim_end_matches(['/', '\\']));
+    s.session(id).is_some_and(|i| same(&i.directory, dir))
+}
+
+/// The window quits (`on_quit`, before it saves): a link it took is carried out once. A
+/// `new-session` prompt whose session shows goes into its composer now, and is saved with it. A
+/// link still waiting for its server, or whose session isn't open yet, is handed on: the app starts
+/// again with it once this process lets go of its instance (`rune::hand_on`), reaching the copy a
+/// relaunch starts, or starting one. OpenCode Desktop loses such a link: its main process holds it
+/// for a window that never comes (`main/deep-links/machine.ts`), and a relaunch restarts it
+/// without its arguments (`app.relaunch()`).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn quitting(s: &mut App) {
+    let scheme = crate::launch::product().scheme().to_owned();
+    let mut links: Vec<String> = std::mem::take(&mut s.services.deep_links.waiting).iter().map(|q| link(&scheme, &q.dir, q.prompt.as_deref())).collect();
+    if let Some((dir, prompt, _)) = s.services.deep_links.prompt.take() {
+        if shows_session_in(s, &dir) && s.composer.text.is_empty() {
+            *s.composer = rune::TextEdit::new(prompt);
+        } else if s.composer.text != prompt {
+            links.push(link(&scheme, &dir, Some(&prompt)));
+        }
+    }
+    if !links.is_empty() {
+        rune::hand_on(links);
+    }
+}
+
+/// `quitting`: browsers hand the app no links to carry over.
+#[cfg(target_arch = "wasm32")]
+pub fn quitting(_: &mut App) {}
+
+/// The link that opens `dir` (with `prompt` typed into a new session) on the app's scheme.
+#[cfg(not(target_arch = "wasm32"))]
+fn link(scheme: &str, dir: &str, prompt: Option<&str>) -> String {
+    match prompt {
+        Some(prompt) => format!("{scheme}://new-session?directory={}&prompt={}", percent(dir), percent(prompt)),
+        None => format!("{scheme}://open-project?directory={}", percent(dir)),
+    }
 }
 
 /// The folder (and `new-session`'s prompt) a project link on the app's scheme `own` names:
@@ -256,6 +297,12 @@ fn console_return(url: &str, own: &str) -> Option<String> {
     }
     let id = query.split('&').find_map(|pair| pair.strip_prefix("window=")).map(unpercent)?;
     (!id.is_empty() && id.len() <= 256 && !id.chars().any(char::is_control)).then_some(id)
+}
+
+/// `s` as a query value: what isn't unreserved (or `/`) as `%XX`.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn percent(s: &str) -> String {
+    s.bytes().map(|b| if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~' | b'/') { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
 }
 
 /// A query value: `%XX` escapes and `+` for a space, as `URLSearchParams` reads it.
