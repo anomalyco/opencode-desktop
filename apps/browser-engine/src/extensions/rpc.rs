@@ -327,27 +327,35 @@ impl ExtensionHost {
             }
 
             "contextMenus.create" => {
-                if let Some(item) = args.first() {
-                    let item_bytes = item.to_string().len();
-                    let list = self.context_menus.entry(ext_id.to_owned()).or_default();
-                    let cur_bytes: usize = list.iter().map(|v| v.to_string().len()).sum();
-                    if list.len() < 256 && cur_bytes.saturating_add(item_bytes) <= 256 * 1024 {
-                        list.push(item.clone());
-                    }
+                if let Some(props) = args.first() {
+                    self.context_menus
+                        .lock()
+                        .unwrap()
+                        .create(ext_id, &ext.manifest.name, props)
+                        .map(|()| Value::Null)
+                } else {
+                    Err("Missing context menu properties.".into())
                 }
-                Ok(Value::Null)
             }
-            "contextMenus.update" => Ok(Value::Null),
+            "contextMenus.update" => {
+                if let (Some(id_val), Some(props)) = (args.first(), args.get(1)) {
+                    self.context_menus
+                        .lock()
+                        .unwrap()
+                        .update(ext_id, id_val, props)
+                        .map(|()| Value::Null)
+                } else {
+                    Err("Missing context menu item id or properties.".into())
+                }
+            }
             "contextMenus.remove" => {
-                if let Some(id_val) = args.first()
-                    && let Some(list) = self.context_menus.get_mut(ext_id)
-                {
-                    list.retain(|item| item.get("id") != Some(id_val));
+                if let Some(id_val) = args.first() {
+                    self.context_menus.lock().unwrap().remove(ext_id, id_val);
                 }
                 Ok(Value::Null)
             }
             "contextMenus.removeAll" => {
-                self.context_menus.remove(ext_id);
+                self.context_menus.lock().unwrap().clear_extension(ext_id);
                 Ok(Value::Null)
             }
 

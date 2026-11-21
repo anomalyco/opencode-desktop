@@ -33,6 +33,7 @@ use rune::{El, col, el, row, text};
 use serde_json::Value;
 
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::{HOVER_FADE, TOOL_CODE, UI, arrow, readable};
 
@@ -366,6 +367,9 @@ pub fn trigger<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, d: Display, t
             .role("button")
             .label(t.title.into_owned())
             .expanded(d.open())
+            .radius(4.0)
+            .cursor(rune::Cursor::Pointer)
+            .focus_default(p)
             .hover_group()
             // The arrow fades in under the pointer (`collapsible.css:26-29`).
             .hover_motion(HOVER_FADE, HOVER_FADE)

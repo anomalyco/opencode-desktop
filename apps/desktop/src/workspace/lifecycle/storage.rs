@@ -425,6 +425,16 @@ pub fn presented() {
     send(Event::Presented);
 }
 
+/// Joins stage B synchronously for non-realtime headless runs (which have no `on_ready` hook to
+/// call [`presented`]), so `with_storage` tasks (`start_later`) never strand until process exit.
+pub fn join_for_headless() {
+    presented();
+    let guard = lock();
+    READY
+        .wait_timeout_while(guard, Duration::from_secs(5), |g| matches!(g, Some(Phase::Joining { .. })))
+        .ok();
+}
+
 /// Window `waker` is woken once the storage is ready (at once when it is).
 pub fn on_ready(waker: Waker) {
     let ready = is_ready();

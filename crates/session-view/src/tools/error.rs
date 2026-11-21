@@ -6,6 +6,7 @@ use rune::{El, Tx, col, el, row, text};
 
 use super::{Call, directory, field, file_name, files_count, path};
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 use crate::style::{INSTANT, TOOL_CODE, UI, UI_MED, arrow, readable};
 
@@ -52,6 +53,10 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
         .min_w(0.0)
         .role("button")
         .label(opencode_i18n::t!("rune.tool.failed", tool = title))
+        .expanded(open)
+        .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(crate::disclosure::set::<S>(k.clone(), open, id.clone()))
         .child(words)
@@ -78,6 +83,7 @@ pub fn card_with<S: TimelineHost>(s: &S, p: &Pal, session: &str, c: &Call, defau
         .size(24.0, 24.0)
         .center()
         .radius(6.0)
+        .cursor(rune::Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)

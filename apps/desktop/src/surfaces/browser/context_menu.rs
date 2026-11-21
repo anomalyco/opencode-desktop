@@ -5,7 +5,10 @@
 use std::fs::OpenOptions;
 use std::io::Write as _;
 
-use browser_pane::{ContextMenuCommand, DownloadSaveRequest, PageContextMenu, PageDiagnostic};
+use browser_pane::{
+    ContextMenuCommand, DownloadSaveRequest, ExtensionMenuItem, ExtensionMenuItemKind,
+    PageContextMenu, PageDiagnostic,
+};
 use opencode_i18n::t;
 use rune::{FileDialogOptions, Tx};
 
@@ -108,6 +111,9 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
     let z = tab.view_zoom.max(0.01);
     let anchor = (ox + (info.x as f32) / z, oy + (info.y as f32) / z);
     let can_open_page = app.browser_tab_external_url(tab_id).is_some();
+    let allow_ext_menu = tab.preview.is_none()
+        && !tab.prompts.agent_driven
+        && matches!(tab.context, browser_pane::ContextKind::Default);
     let captured_opener = app.browser_context_for_opener(tab_id);
     let captured_sid = app.browser_tab_session(tab_id).map(str::to_owned);
     let captured_external_link_ok = info
@@ -204,6 +210,18 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
                 langs = langs.item(Item::new(format!("lang:{tag}"), tag.clone()).checked(checked).enabled(enabled));
             }
             menu = menu.submenu_enabled("languages", t!("rune.browser.menu.languages"), info.spellcheck, langs);
+        }
+    }
+
+    // 8. Extension context-menu items (`page-menu.ts:155`, `context-menus.ts:235-268`)
+    let mut ext_actions: Vec<(String, String)> = Vec::new();
+    if allow_ext_menu && !info.extensions.is_empty() {
+        menu = menu.separator();
+        for group in &info.extensions {
+            let sub = build_extension_submenu(&group.title, &group.ext_id, &group.items, &mut ext_actions, 0);
+            if !sub.is_empty() {
+                menu = menu.submenu(format!("ext-group:{}", group.ext_id), group.title.clone(), sub);
+            }
         }
     }
 
@@ -315,6 +333,11 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
                     && dictionaries.iter().any(|d| d == tag)
                 {
                     engine_cmd = Some(ContextMenuCommand::ToggleLanguage { value: tag.to_owned() });
+                } else if let Some(rest) = other.strip_prefix("ext:")
+                    && let Ok(idx) = rest.parse::<usize>()
+                    && let Some((ext_id, item_id)) = ext_actions.get(idx).cloned()
+                {
+                    engine_cmd = Some(ContextMenuCommand::ExtensionItem { ext_id, item_id });
                 }
             }
             None => {}
@@ -324,6 +347,42 @@ fn open_page_menu(app: &mut App, tab_id: u64, info: PageContextMenu, tx: &mut Tx
             .host
             .run_context_menu_action(tab_id, menu_id, engine_cmd);
     });
+}
+
+fn build_extension_submenu(
+    label: &str,
+    ext_id: &str,
+    items: &[ExtensionMenuItem],
+    actions: &mut Vec<(String, String)>,
+    depth: usize,
+) -> Menu {
+    let mut menu = Menu::new(label);
+    if depth >= 6 {
+        return menu;
+    }
+    for item in items {
+        if item.kind == ExtensionMenuItemKind::Separator {
+            menu = menu.separator();
+            continue;
+        }
+        if !item.children.is_empty() {
+            let child = build_extension_submenu(&item.title, ext_id, &item.children, actions, depth + 1);
+            if !child.is_empty() {
+                menu = menu.submenu(format!("ext-sub:{}:{}", ext_id, actions.len()), item.title.clone(), child);
+            }
+            continue;
+        }
+        let idx = actions.len();
+        actions.push((ext_id.to_owned(), item.id.clone()));
+        let mut entry = Item::new(format!("ext:{idx}"), item.title.clone()).enabled(item.enabled);
+        match item.kind {
+            ExtensionMenuItemKind::Checkbox => entry = entry.checked(item.checked),
+            ExtensionMenuItemKind::Radio => entry = entry.radio(item.checked),
+            ExtensionMenuItemKind::Normal | ExtensionMenuItemKind::Separator => {}
+        }
+        menu = menu.item(entry);
+    }
+    menu
 }
 
 fn log_diagnostics(app: &App, records: Vec<PageDiagnostic>) {

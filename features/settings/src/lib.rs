@@ -478,6 +478,8 @@ pub fn close_settings(host: &mut dyn SettingsHost) {
     host.set_settings_open(false);
     search::clear(host);
     host.settings_pages_mut().shortcuts.capture = None;
+    host.settings_pages_mut().models_reveal = pages::models::Reveal::Idle;
+    host.settings_pages_mut().console_expanded = false;
     host.settings_pages_mut().blur_fields();
     if was_open {
         host.on_overlay_closed(OVERLAY_ID);
@@ -534,7 +536,7 @@ pub fn settings_key(host: &mut dyn SettingsHost, ev: &KeyEvent, tx: &mut Tx) -> 
     if !host.settings_open() {
         return false;
     }
-    if pages::shortcuts::key(host, ev, tx) || search::key(host, ev, tx) {
+    if pages::shortcuts::key(host, ev, tx) || pages::filter_page_key(host, ev, tx) || search::key(host, ev, tx) {
         return true;
     }
     if ev.key == Key::Escape {
@@ -574,6 +576,7 @@ pub fn toggle_settings(host: &mut dyn SettingsHost, tx: &mut Tx) {
 pub fn poll(host: &mut dyn SettingsHost, now: f64, tx: &mut Tx) -> bool {
     let mut changed = false;
     changed |= search::poll(host, tx);
+    changed |= pages::models::poll(host, tx);
     pages::servers::unavailable::poll(host, tx);
     changed |= pages::worktrees::poll(host, tx);
     changed |= pages::project::poll(host, tx);
@@ -690,11 +693,10 @@ pub fn about(p: &Pal, words: &str) -> El {
 pub fn link<H: SettingsHost + 'static>(p: &Pal, key: &str, words: &str, url: &'static str) -> El {
     text(words.to_owned())
         .key(key.to_owned())
-        .role("link")
-        .label(words.to_owned())
         .font(BODY)
         .color(p.accent)
-        .on_press_tx(move |s: &mut H, tx: &mut Tx| open_external(s, url, tx))
+        .link(rune::Link::new(0..words.len(), url).role("link").label(words.to_owned()).hover(rune::LinkPaint::new().color(p.accent_hover)))
+        .on_link(|s: &mut H, href: &str, tx: &mut Tx| open_external(s, href, tx))
 }
 
 pub(crate) fn open_external(host: &mut dyn SettingsHost, url: &str, tx: &mut Tx) {

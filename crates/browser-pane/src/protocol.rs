@@ -926,6 +926,42 @@ pub struct AuthChallenge {
     pub scheme: String,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExtensionMenuItemKind {
+    #[default]
+    Normal,
+    Checkbox,
+    Radio,
+    Separator,
+}
+
+fn default_menu_enabled() -> bool {
+    true
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionMenuItem {
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub kind: ExtensionMenuItemKind,
+    #[serde(default)]
+    pub checked: bool,
+    #[serde(default = "default_menu_enabled")]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<ExtensionMenuItem>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtensionMenuGroup {
+    pub ext_id: String,
+    pub title: String,
+    pub items: Vec<ExtensionMenuItem>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PageContextMenu {
     pub id: u64,
@@ -968,6 +1004,8 @@ pub struct PageContextMenu {
     /// Offerable spellcheck BCP-47 dictionary tags (empty on macOS, as official).
     #[serde(default)]
     pub dictionaries: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extensions: Vec<ExtensionMenuGroup>,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1073,6 +1111,7 @@ pub enum ContextMenuCommand {
     AddToDictionary { word: String },
     ToggleSpellcheck,
     ToggleLanguage { value: String },
+    ExtensionItem { ext_id: String, item_id: String },
 }
 
 fn default_cookie_path() -> String {

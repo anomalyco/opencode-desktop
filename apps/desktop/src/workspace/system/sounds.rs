@@ -125,7 +125,7 @@ mod platform {
         let path = dir.join(format!("{id}.wav"));
         std::thread::spawn(move || {
             if !path.exists() {
-                let _ = std::fs::create_dir_all(&dir);
+                std::fs::create_dir_all(&dir).ok();
                 if std::fs::write(&path, wav).is_err() {
                     return;
                 }

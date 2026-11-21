@@ -588,7 +588,7 @@ pub fn version(app: &App) -> u64 {
         t.files.iter().for_each(|f| (&f.id, f.bytes, f.state as u8, &f.error).hash(&mut h));
     }
     app.workspace_panes.browser.host.focused_tab_id().hash(&mut h);
-    app.workspace_panes.browser.overlay.version_tag().hash(&mut h);
+    app.workspace_panes.browser.overlay.hash_state(&mut h);
     app.workspace_panes.browser.openers.unnamed_ids_sorted().hash(&mut h);
     {
         let reviews = app.workspace_panes.browser.active_app_reviews.borrow();

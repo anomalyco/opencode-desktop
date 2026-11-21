@@ -7,6 +7,7 @@ use opencode_kit::model::Pending;
 use rune::{Anim, Color, El, KeyEvent, Shadow, SpringPair, TextStyle, Transition, Tx, row, text};
 
 use crate::composer::ComposerHost;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 
 pub mod knobs;
@@ -145,7 +146,7 @@ pub fn button(p: &Pal, key: &str, label: &str, variant: Variant, hint: Option<&s
         Variant::Submit | Variant::Contrast => (p.v2.contrast_hover, p.v2.contrast_pressed),
         Variant::Ghost | Variant::GhostMuted | Variant::Neutral => (p.hover, p.pressed),
     };
-    b = if live { b.hover(hover).press(pressed) } else { b.opacity(dim).disabled(true).focusable(false) };
+    b = if live { b.cursor(rune::Cursor::Pointer).focus_default(p).hover(hover).press(pressed) } else { b.opacity(dim).disabled(true).focusable(false) };
     match variant {
         Variant::Ghost | Variant::GhostMuted => {}
         Variant::Neutral => b = b.box_shadow(Pal::ring_out(p.q.neutral_ring)).shadow(1.0, 1.5, p.q.neutral_shadow),

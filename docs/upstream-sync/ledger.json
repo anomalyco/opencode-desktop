@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 172,
   "status_counts": {
-    "have it": 139,
+    "have it": 140,
     "not applicable": 23,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 7
+    "missing": 6
   },
   "rows": [
     {
@@ -3921,12 +3921,12 @@
       ],
       "summary": "Expose official's narrow third-party plugin browser contract (attached, canOpen, open, openFile, experimental.{open,close}); #296 refuses Browser:OpenAsync for third-party plugins on modern/remote servers until this contract exists.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Known gap from #296 (95cb36a8): third-party plugins get narrower browser access than Official until Rune exposes Official's narrow contract from packages/plugin/src/gui/browser.ts:9-57.",
+      "status": "have it",
+      "status_evidence": "Host-provided narrow 'browser' contract (attached, canOpen, open, openFile, experimental.{open,close}) exposed per-consumer via Contracts:Use('browser') in apps/desktop/src/plugin_host/services/browser_contract.rs, matching official packages/plugin/src/gui/browser.ts:1-60; window halves only, while the built-in browser runs in a wide window, routed session on the window's server only; opaque per-VM handles bound to their window, revoked on reload/unload/window close/tab close and at the person's first input or navigation or an agent's touch; opens bounded at 4/s per VM and 16 live tabs per plugin; raw CDP/ReadFileAsync/SiteCookiesAsync remain blocked for third-party plugins.",
       "depends_on": "UP-095-TOOLS (#296)",
       "risks": "Must keep third-party plugins blocked from raw CDP, ReadFileAsync, SiteCookiesAsync, and oc-preview:// minting.",
       "workstream": "BROWSER-TOOLS",
-      "reviewed": "Tracked follow-up gap from #296 (confirmed 5th read + merge check)"
+      "reviewed": "Shipped as dedicated UP-095-3P-CONTRACT PR"
     },
     {
       "id": "UP-095-PROMPT-GATE",
@@ -4283,11 +4283,11 @@
       ],
       "summary": "Pruning remembered layout for old sessions no longer drops the side panel tabs of a session that is open.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "To check: features/panels per-session tab state pruning.",
+      "status": "have it",
+      "status_evidence": "Already so, by a different rule: rune-desktop never forgets a session's side panel state. features/restore/src/persist.rs window_keys saves every session's side state, the sessions with a tab open here as 'side' (read for the first frame) and all others as 'side.rest' (read after it); nothing prunes SideState.sessions by count. So an open session's side tabs can't be dropped when old sessions' layout is pruned, which is what #65328 fixed in Desktop's max-N prune.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "SCREENS-B"
+      "workstream": "WS-8"
     },
     {
       "id": "UP-150",

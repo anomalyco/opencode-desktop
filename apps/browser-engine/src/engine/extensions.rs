@@ -435,7 +435,9 @@ impl EngineManager {
         let context_menu = crate::menu::TabContextMenuHandler::new(
             u64::MAX,
             prompt_shared,
+            prompts.clone(),
             file_roots,
+            None,
             None,
             menu_state,
             null_out,
@@ -527,7 +529,12 @@ impl EngineManager {
         // Official has no raw DOM or accessibility access at all; with extensions active, a raw
         // caller could reach content scripts' closed shadow roots, so only typed calls may.
         let raw_dom = self.extensions.is_some() && (method.starts_with("DOM.") || method.starts_with("Accessibility."));
-        let checked = if raw_dom {
+        let reach = crate::cdp_ledger::grant_gated(t)
+            .then(|| t.cdp_ledger.lock().unwrap().reach(&method, None, None, &params));
+        let granted = reach.as_ref().is_some_and(|r| crate::cdp_ledger::granted_origin(t, &self.permissions, r).is_some());
+        let checked = if granted {
+            Err(crate::permissions::INHERITED_PERMISSION_MSG.to_owned())
+        } else if raw_dom {
             Err("DOM and accessibility DevTools calls are not permitted while browser extensions are active.".to_owned())
         } else {
             browser_policy::check_cdp(&method, &params, true)
@@ -560,6 +567,7 @@ impl EngineManager {
                 request_id,
                 max_bytes: crate::cdp_ledger::max_cdp_response_bytes(&method),
                 typed: None,
+                reach,
             },
         );
         let payload = json!({
@@ -932,6 +940,14 @@ impl EngineManager {
                 self.handle_msg(msg);
             }
         }
+    }
+
+    /// The refusal for an agent file upload or drop on a controlled tab where any frame's origin
+    /// holds an inherited grant: the input or drop target can be in any frame (READER-9 #411 C3).
+    pub(super) fn whole_tab_granted(&self, t: &ManagedTab) -> Option<&'static str> {
+        let reach = crate::frame_authority::Reach::WholeTab;
+        (crate::cdp_ledger::grant_gated(t) && crate::cdp_ledger::granted_origin(t, &self.permissions, &reach).is_some())
+            .then_some(crate::permissions::INHERITED_PERMISSION_MSG)
     }
 
     fn refuse_passkeys_unrestricted(&self, msg: &HostMsg) {

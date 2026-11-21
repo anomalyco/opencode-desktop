@@ -8,6 +8,7 @@ use rune::{El, TextStyle, Tx, col, row, text};
 use serde_json::Value;
 
 use crate::TimelineHost;
+use crate::focus::FocusExt;
 use crate::palette::Pal;
 
 /// What the host has of a run's diff.
@@ -58,12 +59,12 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, from: &str
     let overflow = count > LIMIT;
     if failed || overflow {
         let (session, from) = (session.to_owned(), from.to_owned());
-        let retry = failed.then(|| text(opencode_i18n::t!("ui.sessionTurn.diffs.retry")).key("turn-diff-retry").role("button").label_static(opencode_i18n::t!("ui.sessionTurn.diffs.retry")).font(ACTION).color(p.accent)
+        let retry = failed.then(|| text(opencode_i18n::t!("ui.sessionTurn.diffs.retry")).key("turn-diff-retry").role("button").label_static(opencode_i18n::t!("ui.sessionTurn.diffs.retry")).font(ACTION).color(p.accent).radius(4.0).cursor(rune::Cursor::Pointer).focus_default(p)
             .on_press_tx(move |s: &mut S, tx: &mut Tx| {
                 tx.instant();
                 s.retry_turn_diff(&session, &from);
             }));
-        let more = overflow.then(|| text(if all { opencode_i18n::t!("ui.sessionTurn.diffs.showLess") } else { opencode_i18n::t!("ui.sessionTurn.diffs.showAll") }).key("turn-diff-all").role("button").font(ACTION).color(p.accent)
+        let more = overflow.then(|| text(if all { opencode_i18n::t!("ui.sessionTurn.diffs.showLess") } else { opencode_i18n::t!("ui.sessionTurn.diffs.showAll") }).key("turn-diff-all").role("button").font(ACTION).color(p.accent).radius(4.0).cursor(rune::Cursor::Pointer).focus_default(p)
             .on_press_tx(move |s: &mut S, tx: &mut Tx| {
                 tx.instant();
                 crate::disclosure::toggle_expanded(s, &show_all);

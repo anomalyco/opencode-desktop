@@ -5,7 +5,6 @@ pub use opencode_feature_connect::*;
 use opencode_kernel::{CommandEntry, Feature, KernelBuilder, OverlayRegistration, Slot};
 use opencode_kit::integration::Integration;
 use rune::Tx;
-use rune::machine::Attempt;
 use serde_json::Value;
 use session_view::pickers::Model;
 
@@ -147,12 +146,12 @@ impl ConnectHost for App {
         self.composer_ext.pickers.selections.insert(scope, selection);
     }
 
-    fn next_picker_reads_generation(&mut self) -> Attempt {
-        self.jobs.picker_reads.next()
+    fn picker_reads(&self) -> &crate::connect::PickerReads {
+        &self.jobs.picker_reads
     }
 
-    fn current_picker_reads_generation(&self) -> Attempt {
-        self.jobs.picker_reads.current()
+    fn picker_reads_mut(&mut self) -> &mut crate::connect::PickerReads {
+        &mut self.jobs.picker_reads
     }
 
     fn before_dialog_open(&mut self) {

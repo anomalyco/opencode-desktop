@@ -1220,12 +1220,15 @@ impl BrowserHost {
         changed
     }
 
-    pub fn ime(&self, ime: &Ime) -> bool {
+    pub fn ime(&mut self, ime: &Ime) -> bool {
         let Some(tab_id) = self.popup_tab_id().filter(|_| self.popup_focused()).or(self.focused_tab) else {
             return false;
         };
         match ime {
             Ime::Commit(s) => {
+                if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+                    t.prompts.record_document_input();
+                }
                 self.send(HostMsg::Ime { tab_id, commit: Some(s.clone()), preedit: None });
                 true
             }
@@ -1254,6 +1257,15 @@ impl BrowserHost {
     pub(crate) fn forward_key(&mut self, tab_id: u64, ev: &KeyEvent, down: bool) -> bool {
         if self.tab(tab_id).is_some_and(|t| t.prompts.has_blocking_modal()) {
             return false;
+        }
+        if ev.key == Key::Escape
+            && !(ev.mods.ctrl || ev.mods.cmd || ev.mods.alt || ev.mods.shift)
+            && self.tab(tab_id).is_some_and(|t| t.inspecting)
+        {
+            if down {
+                self.toggle_inspect(tab_id);
+            }
+            return true;
         }
         if self.shell_shortcut.map_or_else(|| is_shell_shortcut(ev), |f| f(ev)) {
             return false;

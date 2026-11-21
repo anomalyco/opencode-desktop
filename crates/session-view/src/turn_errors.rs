@@ -305,7 +305,15 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
             let key = format!("ev-{}", n.id);
             let open = s.expanded().contains(&key);
             let events: Vec<_> = crate::activity::events::notice_event(n).into_iter().collect();
-            crate::activity::event_row::view(s, p, session_of(s), &events, open, crate::disclosure::set::<S>(key.clone(), open, String::new()))
+            crate::activity::event_row::view(
+                s,
+                p,
+                session_of(s),
+                &events,
+                open,
+                crate::disclosure::set::<S>(key.clone(), open, String::new()),
+                crate::disclosure::set::<S>(key.clone(), true, String::new()),
+            )
         }
         NoticeKind::Idle => col(),
         // Finished background Code Mode script (`timeline-next/row.tsx`, anomalyco/opencode#64741):

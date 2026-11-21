@@ -4,8 +4,11 @@
 
 use opencode_i18n::t;
 use opencode_kit::model::{ConsoleMcp, ConsoleMcpLinks, ConsoleWorkspace, SkillInfo, console_mcp_links, console_skill_link, console_workspace};
-use opencode_ui::palette::Pal;
-use rune::{El, Icon, Span, TextStyle, Tx, icon, row, text};
+use opencode_ui::focus::FocusExt;
+use opencode_ui::palette::{Pal, kit};
+use opencode_ui::widgets;
+use rune::{Cursor, El, Icon, Span, Tx, icon, row, text};
+use rune_kit::{ButtonVariant, ControlSize};
 
 use super::{BODY, NAME, NAME_REGULAR};
 use crate::host::SettingsHost;
@@ -16,8 +19,6 @@ pub(crate) static ARROW_UP_RIGHT: Icon = Icon {
     view: 16.0,
     body: r#"<path d="M11 9.56V5H6.44M11 5L5 11" stroke="currentColor"/>"#,
 };
-
-const ACTION: TextStyle = TextStyle::new(11.0, 440.0).lh(16.0).tracking(0.05);
 
 /// Loaded Console-managed MCP servers for one Extensions page.
 /// `None` = loading, `Some(Ok(_))` = ready (or unsupported on older servers), `Some(Err(()))` = failed.
@@ -88,8 +89,11 @@ pub fn console_name<H: SettingsHost + 'static>(p: &Pal, key: String, name: &str,
     let text_el = text(name.to_owned())
         .font(NAME)
         .color(ink)
+        .group_color(p.text)
         .spans(vec![Span::new(0, name.len()).underline(p.q.border_strong)])
         .truncate()
+        .help_when_truncated(name.to_owned())
+        .help_above()
         .shrink()
         .min_w(0.0);
     row()
@@ -101,10 +105,13 @@ pub fn console_name<H: SettingsHost + 'static>(p: &Pal, key: String, name: &str,
         .gap(2.0)
         .center_y()
         .radius(4.0)
+        .cursor(Cursor::Pointer)
+        .focus_default(p)
+        .hover_group()
         .hover(p.hover)
         .on_press_tx(move |s: &mut H, tx: &mut Tx| crate::open_external(s, &href, tx))
         .child(text_el)
-        .child(icon(&ARROW_UP_RIGHT, 16.0).color(p.icon_muted))
+        .child(icon(&ARROW_UP_RIGHT, 16.0).color(p.icon_muted).group_color(p.icon))
 }
 
 /// `.settings-mcp-source`: shown after a locally overridden MCP server, linking to Console's entry.
@@ -120,28 +127,24 @@ pub fn console_replaced<H: SettingsHost + 'static>(p: &Pal, key: String, name: &
         .gap(2.0)
         .center_y()
         .radius(4.0)
+        .cursor(Cursor::Pointer)
+        .focus_default(p)
+        .hover_group()
         .hover(p.hover)
         .on_press_tx(move |s: &mut H, tx: &mut Tx| crate::open_external(s, &href, tx))
-        .child(text(words).font(NAME_REGULAR).color(p.muted).truncate().shrink().min_w(0.0))
-        .child(icon(&ARROW_UP_RIGHT, 16.0).color(p.icon_muted))
+        .child(text(words).font(NAME_REGULAR).color(p.muted).group_color(p.text).truncate().shrink().min_w(0.0))
+        .child(icon(&ARROW_UP_RIGHT, 16.0).color(p.icon_muted).group_color(p.icon))
 }
 
 /// Small `ghost-muted` Connect button shown in a switch's place for Console MCPs needing connection.
 pub fn console_connect_button<H: SettingsHost + 'static>(p: &Pal, key: String, name: &str, href: String) -> El {
     let a11y = t!("settings.extensions.console.connect", name = name);
-    row()
-        .key(key)
-        .role("button")
-        .label(a11y)
-        .h(20.0)
-        .px(5.0)
-        .mr(-5.0)
-        .center()
-        .radius(4.0)
-        .hover(p.hover)
-        .press(p.pressed)
+    widgets::button(t!("common.connect"), ButtonVariant::GhostMuted)
+        .control_size(ControlSize::Regular)
         .on_press_tx(move |s: &mut H, tx: &mut Tx| crate::open_external(s, &href, tx))
-        .child(text(t!("common.connect")).font(ACTION).color(p.muted))
+        .build(kit(p))
+        .key(key)
+        .label(a11y)
 }
 
 /// Inline `ExtensionLoadFailed` row (`settings/extension-load.tsx`) with a Retry action.

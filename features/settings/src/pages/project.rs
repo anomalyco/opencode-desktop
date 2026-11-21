@@ -7,8 +7,9 @@
 
 use opencode_i18n::t;
 use opencode_kit::model::{Project, project_meta};
+use opencode_ui::focus::FocusExt;
 use opencode_ui::popup::{self, Item, Menu, MenuButton as _, PopupHost};
-use rune::{Color, Drag, El, Icon, Phase, TextEdit, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Color, Cursor, Drag, El, Icon, Phase, TextEdit, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use serde_json::{Value, json};
 use opencode_ui::palette::{Elevate as _, Pal, kit};
@@ -78,6 +79,9 @@ pub struct State {
     /// A Projects row being renamed in place, by folder, and its field.
     pub renaming: Option<String>,
     pub rename: TextEdit,
+    /// Whether the server reported `LocationNotFoundError` for the loaded project's folder
+    /// (`workspaces/location.tsx:63-77`, works on both local and remote servers).
+    pub missing: bool,
     pub extensions: super::project_extensions::State,
 }
 
@@ -98,6 +102,10 @@ pub fn load(s: &mut dyn SettingsHost, dir: &str, tab: Tab) {
         st.startup_h = None;
         st.sent = (shown, meta.start.clone());
         st.failed.clear();
+        st.missing = false;
+    }
+    if !dir.is_empty() {
+        s.spawn_job(SettingsJob::ActiveServer(SettingsRequest::CheckProjectLocation { dir: dir.to_owned() }));
     }
     match tab {
         Tab::Worktrees => {
@@ -172,18 +180,67 @@ fn avatar(s: &dyn SettingsHost, p: &Pal, x: &Project) -> El {
     tile(p, name.chars().next().map(String::from).as_deref().unwrap_or(""), variant(&x.icon.color), 32.0, 16.0)
 }
 
+/// `ProjectFolderMissing` (`project-folder-missing.tsx`, `project.css:105-140`): shown at the
+/// top of Project › General and Project › Extensions when the project's folder is gone on disk.
+pub fn folder_missing(p: &Pal, dir: &str) -> El {
+    let copy = col()
+        .grow(1.0)
+        .shrink()
+        .min_w(0.0)
+        .gap(2.0)
+        .child(text(t!("project.settings.folderMissing.title")).font(TITLE).color(p.text).wrap())
+        .child(text(dir.to_owned()).font(HINT_CODE).color(p.muted).wrap_anywhere())
+        .child(text(t!("project.settings.folderMissing.description")).font(COPY).color(p.muted).wrap());
+    row()
+        .key("project-settings-folder-missing")
+        .role("status")
+        .w_full()
+        .px(16.0)
+        .py(12.0)
+        .gap(8.0)
+        .items_start()
+        .radius(8.0)
+        .fill(p.layer1)
+        .box_shadow(Pal::ring_in(p.border_muted))
+        .child(icon(&ic::WARNING, 16.0).color(p.warning))
+        .child(copy)
+}
+
 fn general<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, x: &Project) -> El {
     let st = &s.settings_pages().project;
     let name = super::projects::name(x);
     let folder = super::projects::folder_name(&x.directory);
     let failed = |f: Field| st.failed.contains(&f);
+    let all_servers = super::servers::inventory::list(s);
+    let server_link = (all_servers.len() > 1).then(|| {
+        let server_name = super::servers::inventory::selected(s).name;
+        col()
+            .key("project-settings-server-link")
+            .role("button")
+            .label(server_name.clone())
+            .self_start()
+            .radius(4.0)
+            .cursor(Cursor::Pointer)
+            .focus_default(p)
+            .hover_group()
+            .on_press_tx(|s: &mut H, tx: &mut Tx| super::open_page(s, Page::Servers, tx))
+            .child(text(server_name).font(super::NAME_REGULAR).color(p.muted).group_color(p.text).truncate())
+            .child(el().pin(Some(0.0), None, Some(0.0), Some(0.0)).h(1.0).fill(p.text).group_opacity(0.0, 1.0))
+    });
+    let title_block = col()
+        .grow(1.0)
+        .shrink()
+        .min_w(0.0)
+        .gap(4.0)
+        .child(text(name).font(super::TITLE).color(p.text).truncate())
+        .children(server_link);
     let head = row()
         .key("settings-tab-header")
         .w_full()
-        .h(32.0)
+        .min_h(32.0)
         .gap(16.0)
         .center_y()
-        .child(row().grow(1.0).shrink().min_w(0.0).gap(12.0).center_y().child(avatar(s, p, x)).child(text(name).font(super::TITLE).color(p.text).truncate().shrink().min_w(0.0)))
+        .child(row().grow(1.0).shrink().min_w(0.0).gap(12.0).center_y().child(avatar(s, p, x)).child(title_block))
         .child(options(s, p, x, "settings-project-options", 28.0));
     let name_field = col()
         .items_end()
@@ -192,7 +249,7 @@ fn general<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, x: &Project) -
             rune_kit::TextInput::new(&st.name)
                 .placeholder(folder)
                 .label(t!("project.settings.name.title"))
-                .width(Some(195.0))
+                .width(if crate::rows_wrap() { None } else { Some(280.0) })
                 .spellcheck(s.settings().spellcheck)
                 .text_style(super::NAME_REGULAR)
                 .height(28.0)
@@ -215,13 +272,12 @@ fn general<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, x: &Project) -
     ));
     rows.push(("settings-project-startup", startup(s, p)));
     let card = list(p, "settings-project-list", super::rows(s, p, 20.0, rows));
-    let band = col().key("settings-tab-header-band").w_full().pt(48.0).fill(p.bg_base).sticky_top(0.0).child(head);
-    col()
-        .key("settings-project-page")
+    let body = col()
         .w_full()
-        .px(4.0)
-        .child(band)
-        .child(col().key("settings-project-page-body").w_full().pt(24.0).pb(80.0).child(card))
+        .gap(16.0)
+        .children(st.missing.then(|| folder_missing(p, &x.directory)))
+        .child(card);
+    page(p, "settings-project-page", head, body)
 }
 
 /// `ProjectOptions`: Add project when it isn't in use, Edit and Rename where `row` offers them,
@@ -233,6 +289,7 @@ pub fn options<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, x: &Projec
 fn build_options_menu(s: &dyn SettingsHost, used: bool, unread: bool, row_menu: bool) -> Menu {
     Menu::new(t!("rune.settings.project.menu"))
         .align(rune::Align::End)
+        .gap(4.0)
         .items((!used).then(|| Item::new("add", t!("home.project.add"))))
         .items(row_menu.then(|| Item::new("edit", t!("common.edit"))))
         .items(row_menu.then(|| Item::new("rename", t!("common.rename"))))
@@ -288,14 +345,19 @@ pub fn options_with<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, x: &P
     let used = s.used_projects().iter().any(|u| u.id == x.id);
     let unread = used && s.project_has_unread(x);
     let anchor = key.to_owned();
+    let open = s.popup().open_at(&anchor);
     row()
         .key(key.to_owned())
         .role("button")
         .label_static(t!("common.moreOptions"))
+        .expanded(open)
         .size(size, size)
         .center()
         .radius(if size > 24.0 { 6.0 } else { 4.0 })
-        .hover(p.hover)
+        .cursor(Cursor::Pointer)
+        .focus_default(p)
+        .fill(if open { p.pressed } else { Color::TRANSPARENT })
+        .hover(if open { p.pressed } else { p.hover })
         .press(p.pressed)
         .menu_button(anchor.clone(), move |s: &mut H, tx: &mut Tx| {
             let menu = build_options_menu(s, used, unread, row_menu);
@@ -331,6 +393,8 @@ fn icon_button<H: SettingsHost + 'static>(s: &H, p: &Pal, x: &Project) -> El {
         .size(32.0, 32.0)
         .radius(6.0)
         .clip_rounded(6.0)
+        .cursor(Cursor::Pointer)
+        .focus_default(p)
         .hover_group()
         .hover_motion(opencode_ui::style::HOVER_FADE, opencode_ui::style::HOVER_FADE)
         .on_press_tx(move |s: &mut H, tx: &mut Tx| {
@@ -357,7 +421,7 @@ fn pick_color(s: &mut dyn SettingsHost, id: &str, color_idx: usize, selected: bo
 
 fn colors<H: SettingsHost + 'static>(p: &Pal, x: &Project) -> El {
     let chosen = if !x.icon.color.is_empty() { variant(&x.icon.color) } else { 8 };
-    COLORS.iter().enumerate().fold(row().key("settings-project-color-list").gap(8.0).justify_end(), |r, (i, name)| {
+    COLORS.iter().enumerate().fold(row().key("settings-project-color-list").gap(8.0).justify_end().wrap(), |r, (i, name)| {
         let selected = i == chosen;
         let id = x.id.clone();
         let ring = |c: Color| [rune::Shadow { spread: 2.0, color: p.layer1, ..Default::default() }, rune::Shadow { spread: 4.0, color: c, ..Default::default() }];
@@ -368,11 +432,23 @@ fn colors<H: SettingsHost + 'static>(p: &Pal, x: &Project) -> El {
             .expanded(selected)
             .size(20.0, 20.0)
             .radius(6.0)
-            .on_press_tx(move |s: &mut H, tx: &mut Tx| pick_color(s, &id, i, selected, tx))
+            .cursor(Cursor::Pointer)
+            .focus_default(p)
+            .on_press_tx(move |s: &mut H, tx: &mut Tx| pick_color(s, &id, i, selected, tx));
+        // Selection is a neutral ring and focus the shared outline, so the two stay apart (`project.css`, opencode#64909);
+        // unselected swatches fade in the `border-strong` double ring on hover over 120 ms (`project.css:341-346`).
+        let swatch = if selected {
+            ring(p.v2.border_inverse).into_iter().rev().fold(swatch, El::box_shadow)
+        } else {
+            let hover_ring = ring(p.q.border_strong).into_iter().rev().fold(
+                el().key("hover-ring").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).radius(6.0).group_opacity(0.0, 1.0),
+                El::box_shadow,
+            );
+            swatch.hover_group().hover_motion(opencode_ui::style::HOVER_FADE, opencode_ui::style::HOVER_FADE).child(hover_ring)
+        };
+        let swatch = swatch
             .child(tile(p, "", i, 20.0, 11.0))
             .children(selected.then(|| row().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).center().child(icon(&ic::CHECK, 14.0).color(p.icon_contrast))));
-        // Selection is a neutral ring and focus the shared outline, so the two stay apart (`project.css`, opencode#64909).
-        let swatch = if selected { ring(p.v2.border_inverse).into_iter().rev().fold(swatch, El::box_shadow) } else { swatch };
         r.child(swatch)
     })
 }
@@ -469,6 +545,8 @@ fn startup<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
         let end = sentence[at..].find(|c: char| !(c == '$' || c == '_' || c.is_ascii_alphanumeric())).map_or(sentence.len(), |n| at + n);
         let (before, var, after) = (&sentence[..at], &sentence[at..end], &sentence[end..]);
         row()
+            .w_full()
+            .wrap()
             .center_y()
             .children((!before.is_empty()).then(|| text(before).font(COPY).color(p.muted)))
             .children((!var.is_empty()).then(|| row().px(4.0).radius(4.0).fill(p.layer2).child(text(var).font(HINT_CODE).color(p.text))))
@@ -484,7 +562,7 @@ fn startup<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
                 .w_full()
                 .gap(8.0)
                 .child(text(t!("dialog.project.edit.worktree.startup")).font(TITLE).color(p.text))
-                .child(text(t!("project.settings.worktree.startup.description")).font(COPY).color(p.muted)),
+                .child(text(t!("project.settings.worktree.startup.description")).font(COPY).color(p.muted).wrap()),
         )
         .child(field)
         .children(failed.then(|| save_failed::<H>(p, Field::Startup)))
@@ -506,6 +584,9 @@ fn save_failed<H: SettingsHost + 'static>(p: &Pal, field: Field) -> El {
                 .label_static(t!("common.retry"))
                 .font(FAILED)
                 .color(p.text)
+                .radius(4.0)
+                .cursor(Cursor::Pointer)
+                .focus_default(p)
                 .spans(vec![rune::Span::new(0, t!("common.retry").len()).underline(p.text)])
                 .on_press_tx(move |s: &mut H, tx: &mut Tx| save(s, field, tx)),
         )
