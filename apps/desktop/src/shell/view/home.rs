@@ -448,6 +448,7 @@ pub(crate) fn home_modifiers(s: &mut App, mods: rune::Mods, tx: &mut Tx) {
     // The quote comment editor shows its alternate send while Mod is held, and tab avatars show
     // 1..9 shortcut numbers after holding Mod alone for 400 ms (#63089).
     let quote = crate::quote::editor::modifiers(s, mods, tx);
+    let line_comment = crate::line_comments::modifiers(s, mods, tx);
     #[cfg(not(target_arch = "wasm32"))]
     let browser_comment = {
         s.workspace_panes.browser.shift_held = mods.shift;
@@ -457,7 +458,7 @@ pub(crate) fn home_modifiers(s: &mut App, mods: rune::Mods, tx: &mut Tx) {
     let browser_comment = false;
     let hints = crate::tab_hints::modifiers(s, mods, tx);
     if s.kernel.slots.get(&crate::home_search::HOME_SEARCH).alt_held == mods.alt {
-        if quote || browser_comment || hints {
+        if quote || line_comment || browser_comment || hints {
             return;
         }
         return tx.live_only();
