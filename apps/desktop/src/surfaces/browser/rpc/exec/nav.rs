@@ -14,6 +14,7 @@ use rune::time::Instant;
 use serde_json::{Value, json};
 
 use super::super::session::SessionAttachment;
+use super::settle;
 use super::target_url::parse_agent_url;
 use super::{ExecPhase, StepOutcome, check_page_guards};
 use crate::App;
@@ -28,8 +29,8 @@ pub(super) struct WaitLoadState {
     pub preview_path: Option<String>,
     pub close_on_fail: bool,
     pub saw_loading: bool,
-    /// Back/forward: the wait never ends at the load's end, only at the grace (see `settled`).
-    pub history: bool,
+    /// Back/forward: the page they started from, whose commit settles the wait.
+    pub history_from: Option<settle::HistoryFrom>,
     pub prev_rejected: u64,
     pub started_at: Instant,
     pub deadline: Instant,
@@ -164,7 +165,7 @@ fn start_tabs_open(
         preview_path: None,
         close_on_fail: true,
         saw_loading: app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.loading),
-        history: false,
+        history_from: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -300,7 +301,7 @@ fn start_navigate(
         preview_path: None,
         close_on_fail: false,
         saw_loading: app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.loading),
-        history: false,
+        history_from: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -328,6 +329,18 @@ fn start_history(
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     app.mark_browser_tab_unseen(host_id);
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
+    // The tab's history ends are not consulted: the engine refreshes them only when loading
+    // changes, so a click-made same-document entry could look absent (READER-12b, #696 F1). With
+    // no entry the back does nothing and the wait ends at the grace, as before.
+    let Some(url) = app.workspace_panes.browser.host.tab(host_id).map(|t| t.url.clone()) else {
+        return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
+    };
+    // Always a history wait, so a back/forward never ends at a load it happened to see (#706). With no
+    // frame tracker for the tab yet its counts start at zero: only events the tracker then counts, or
+    // the grace, end the wait.
+    let (contexts_cleared, frame_navigations) =
+        att.frames.get(&host_id).map_or((0, 0), |f| (f.main_contexts_cleared, f.main_frame_navigations));
+    let history_from = Some(settle::HistoryFrom { url, contexts_cleared, frame_navigations });
     if is_back {
         app.workspace_panes.browser.host.back(host_id);
     } else {
@@ -346,7 +359,7 @@ fn start_history(
         preview_path: None,
         close_on_fail: false,
         saw_loading: false,
-        history: true,
+        history_from,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -391,7 +404,7 @@ fn start_reload(
         preview_path: None,
         close_on_fail: false,
         saw_loading: false,
-        history: false,
+        history_from: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -486,7 +499,7 @@ fn start_preview(
         preview_path: Some(path.to_owned()),
         close_on_fail,
         saw_loading: false,
-        history: false,
+        history_from: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -536,7 +549,7 @@ fn start_navigate_path(
         preview_path: Some(path.to_owned()),
         close_on_fail: false,
         saw_loading: false,
-        history: false,
+        history_from: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -647,13 +660,22 @@ pub(super) fn step_wait_load(
         };
         return Some(Outcome::fail(failure_code::NAVIGATION_FAILED, msg));
     }
-    // A back/forward that ends when a poll saw its load end can return before the history
-    // change's DevTools events land; each bumps the tab's generation, so the agent's next command
-    // fails as `document_changed`. Those events came within the grace in every traced run.
-    let settled = (!tab.loading && ((st.saw_loading && !st.history) || now >= st.started_at + LOAD_SETTLE_GRACE))
-        || now >= st.deadline;
-    if !settled {
-        return None;
+    let frames = att.frames.get(&st.host_id).map(|f| settle::FramesNow {
+        contexts_cleared: f.main_contexts_cleared,
+        frame_navigations: f.main_frame_navigations,
+        main_context: f.main_frame_id.as_ref().is_some_and(|id| f.main_contexts.contains_key(id)),
+    });
+    let waiting = settle::Waiting {
+        history: st.history_from.as_ref(),
+        saw_loading: st.saw_loading,
+        elapsed: now.duration_since(st.started_at),
+        deadline: st.deadline.duration_since(st.started_at),
+    };
+    let extensions_active = app.workspace_panes.browser.host.extensions_active();
+    match settle::settle(&waiting, Some(settle::TabNow { url: &tab.url, loading: tab.loading }), frames, extensions_active, LOAD_SETTLE_GRACE) {
+        settle::Settle::Wait => return None,
+        settle::Settle::Closed => return Some(Outcome::fail(failure_code::NAVIGATION_FAILED, "Browser tab closed while loading.")),
+        settle::Settle::Done => {}
     }
     if let Some(err) = &tab.load_error {
         let msg = format!("Page failed to load ({err}).");
