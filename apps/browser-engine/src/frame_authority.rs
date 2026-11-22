@@ -846,14 +846,11 @@ impl EngineCdpLedger {
         let target = info.get("targetId").and_then(Value::as_str).unwrap_or("").to_owned();
         let url = info.get("url").and_then(Value::as_str).unwrap_or("");
         if ty != "iframe" {
-            // Extension workers are owned and resumed strictly by `ExtensionHost` after its
-            // `Fetch.enable` barrier confirms (READER-7 #592 R4 / #695-S2): detach only, never
-            // resume. Regular `http(s)://` web workers nested inside a web iframe under an
-            // extension iframe are not attached by `ExtensionHost` and resume normally.
-            let ext_worker = extension_origin(url)
-                || (parent.is_some_and(|p| self.extension_targets.contains_key(p))
-                    && !url.starts_with("http://")
-                    && !url.starts_with("https://"));
+            // Extension workers are owned and resumed strictly by `ExtensionHost` (`cdp.rs:808`,
+            // matching `extension_id_from_target_url(url)`): detach only, never resume. Non-extension
+            // `http(s)://`, `blob:https://`, and `data:` workers nested inside a web iframe under an
+            // extension iframe are not attached by `ExtensionHost` and resume normally (`#695-F1`).
+            let ext_worker = crate::extensions::manifest::extension_id_from_target_url(url).is_some();
             let detach = self.msg("Target.detachFromTarget", json!({ "sessionId": child }), None, None);
             if ext_worker {
                 obs.send.push(detach);
