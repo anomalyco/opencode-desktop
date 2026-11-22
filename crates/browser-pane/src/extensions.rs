@@ -318,9 +318,14 @@ impl BrowserHost {
 
     /// Sets the verified `--extension <id>:<sha256>:<dir>` list passed on future engine spawns.
     /// `has_filters` is true when at least one verified extension declares `declarativeNetRequest`.
-    pub fn set_startup_extensions(&mut self, specs: Vec<StartupExtensionSpec>, has_filters: bool) {
+    /// Returns `true` only when the startup spec list or filter flag actually changed (idempotent).
+    pub fn set_startup_extensions(&mut self, specs: Vec<StartupExtensionSpec>, has_filters: bool) -> bool {
+        if self.extensions.startup_specs == specs && self.extensions.startup_has_filters == has_filters {
+            return false;
+        }
         self.extensions.startup_specs = specs;
         self.extensions.startup_has_filters = has_filters;
+        true
     }
 
     #[cfg_attr(not(feature = "engine"), allow(dead_code))]
