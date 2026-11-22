@@ -74,7 +74,7 @@ fn cookie_sites(cookies: &[browser_pane::protocol::WireCookie]) -> Vec<String> {
         .filter(|h| !h.is_empty())
         .map(|h| if h.contains(':') && !h.starts_with('[') { format!("[{h}]") } else { h })
         .flat_map(|h| [format!("https://{h}"), format!("http://{h}")])
-        .filter(|s| url::Url::parse(s).is_ok_and(|u| u.host().is_some()))
+        .filter(|s| browser_policy::destination_origin(s).as_deref() == Some(s.as_str()))
         .collect();
     sites.sort();
     sites.dedup();
@@ -459,10 +459,14 @@ impl App {
         let checked = job.checking.as_ref().and_then(|slot| slot.lock().ok().and_then(|s| *s));
         let result = match done {
             Some(false) => false,
-            Some(true) => {
-                pane.cookies.clear = Some(job);
-                return false;
-            }
+            // No profile folder to read, or no worker to read it: not cleared, at once.
+            Some(true) => match checked {
+                Some(clean) => clean,
+                None => {
+                    pane.cookies.clear = Some(job);
+                    return false;
+                }
+            },
             None if job.checking.is_some() => match checked {
                 Some(clean) => clean,
                 None if Instant::now() >= job.deadline => false,
@@ -587,20 +591,22 @@ const PROBE_COOKIE_HOST: &str = "cookie-check.opencode.invalid";
 const PROBE_COOKIE_NAME: &str = "opencode_cookie_check";
 
 /// Whether no site keeps local storage in the shared profile after a clear: read up to three
-/// times, 1.5 s apart, as the storage service may still be writing its deletions; a store that
-/// cannot be read counts as not cleared.
+/// times, 1.5 s apart, as the storage service may still be writing its deletions or compacting
+/// (a torn copy); a store still unread after the third counts as not cleared.
 fn local_storage_cleared(profile: &std::path::Path) -> bool {
     let scratch = SnapshotScratch::new(SnapshotScratch::default_dir());
     for attempt in 0..3 {
         if attempt > 0 {
             std::thread::sleep(Duration::from_millis(1500));
         }
-        let r = browser_pane::cookies::local_storage::sites_with_local_storage(profile, &scratch);
-        eprintln!("LSCHECK {} {:?}", profile.display(), r);
-        match r {
+        // The reader may meet a file torn by the copy (Chromium compacting mid-read): a panic there is
+        // one failed attempt, never a worker that dies without an answer.
+        let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            browser_pane::cookies::local_storage::sites_with_local_storage(profile, &scratch)
+        }));
+        match read.unwrap_or(Err(browser_pane::cookies::ImportFailure::Read)) {
             Ok(sites) if sites.is_empty() => return true,
-            Ok(_) => {}
-            Err(_) => return false,
+            Ok(_) | Err(_) => {}
         }
     }
     false

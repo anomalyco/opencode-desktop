@@ -47,5 +47,6 @@ pub fn sites_with_local_storage(profile: &Path, scratch: &SnapshotScratch) -> Re
 fn item_site(key: &[u8]) -> Option<String> {
     let rest = key.strip_prefix(b"_")?;
     let end = rest.iter().position(|b| *b == 0)?;
-    String::from_utf8(rest[..end].to_vec()).ok()
+    // A key that is not UTF-8 still names data: it is reported (lossily), never skipped.
+    Some(String::from_utf8_lossy(&rest[..end]).into_owned())
 }
