@@ -22,6 +22,7 @@ pub use opencode_search::model_search as search;
 pub mod view;
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 pub use opencode_kit::model::{AttachmentInput, Model};
 use opencode_kit::model::ModelRef;
@@ -74,6 +75,47 @@ impl Kind {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Selection { pub model: ModelRef, pub agent: String }
 
+/// Picks by session ("draft" for a new one), each installed as its own edit: picking again
+/// starts a new one even when it revisits the same model and effort, so a send can release the
+/// edit it carried and leave a later pick, or the same pick again, alone.
+#[derive(Default)]
+pub struct Selections(HashMap<String, Arc<Selection>>);
+
+impl Selections {
+    pub fn insert(&mut self, scope: String, pick: Selection) {
+        self.0.insert(scope, Arc::new(pick));
+    }
+
+    pub fn get(&self, scope: &str) -> Option<&Selection> {
+        self.0.get(scope).map(Arc::as_ref)
+    }
+
+    pub fn remove(&mut self, scope: &str) {
+        self.0.remove(scope);
+    }
+
+    /// The edit a prompt carries, for its admission to release: only when the prompt names the
+    /// agent or model this session's pick holds.
+    pub fn submitted(&self, scope: &str, agent: Option<&str>, model: Option<&ModelRef>) -> Option<Arc<Selection>> {
+        let pick = self.0.get(scope)?;
+        ((agent.is_some() || model.is_some())
+            && agent.is_none_or(|a| a == pick.agent)
+            && model.is_none_or(|m| *m == pick.model))
+            .then(|| Arc::clone(pick))
+    }
+
+    /// The edit `edit` is still the one held: the server runs with it, so it goes and the
+    /// session follows changes made elsewhere. A later pick stays, even one that chose the same
+    /// model again.
+    pub fn admitted(&mut self, scope: &str, edit: &Arc<Selection>) -> bool {
+        if !self.0.get(scope).is_some_and(|held| Arc::ptr_eq(held, edit)) {
+            return false;
+        }
+        self.0.remove(scope);
+        true
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct Item {
     pub key: String,
@@ -121,7 +163,7 @@ pub struct Pickers {
     pub search: TextEdit,
     pub(crate) active: Highlight,
     /// Picks by session id ("draft" for a new session), until the server runs with them.
-    pub selections: HashMap<String, Selection>,
+    pub selections: Selections,
     /// The model each agent last had in a session, by session then agent, so switching back to
     /// an agent brings its model back (Desktop's `choices`).
     pub(crate) choices: HashMap<String, HashMap<String, ModelRef>>,
