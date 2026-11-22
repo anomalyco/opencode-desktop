@@ -444,6 +444,11 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
         // A window that started in its opener's copy was woken plainly until now.
         crate::windows::peer::set_waker(s, inbox_wake);
         s.list_unlisted_worktrees();
+        // Home's provider tip waits for the default location's integrations (`home::tip`), which
+        // are otherwise read only when Connect or Settings opens: with only the free models, read them now.
+        if !s.composer_ext.pickers.models.iter().any(|m| m.provider != "opencode") {
+            s.sync_catalogs(None);
+        }
         // The session open at last quit (see `restore`) subscribes like a click on its tab.
         if let Route::Session { id, server } = (*s.route).clone()
             && server == *crate::servers::runtime::active(s)
