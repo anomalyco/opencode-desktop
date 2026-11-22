@@ -201,12 +201,13 @@ def renderer_sandbox(platform, browser_pid, bin_path):
 
 def macos_processes(bin_path):
     """Processes running from the engine's app bundle (`-ww`: never cut the command line)."""
-    bundle = os.path.dirname(os.path.dirname(os.path.abspath(bin_path)))
+    # Both spellings: a temp folder under /var is /private/var once resolved.
+    bundles = {os.path.dirname(os.path.dirname(f(bin_path))) for f in (os.path.abspath, os.path.realpath)}
     out = subprocess.check_output(["ps", "-axww", "-o", "pid=,ppid=,command="], text=True)
     rows = []
     for ln in out.splitlines():
         parts = ln.strip().split(None, 2)
-        if len(parts) == 3 and bundle in parts[2]:
+        if len(parts) == 3 and any(b in parts[2] for b in bundles):
             rows.append((int(parts[0]), int(parts[1]), parts[2]))
     return rows
 
