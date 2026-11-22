@@ -1,15 +1,16 @@
 //! Checks the 32 MB heap cap on widget programs (`widgets-live.md`, Budgets): a step or a live run
 //! that holds more stops with "It used more than 32 MB of memory", a program error, and one that
-//! stays under it runs on. The repo has no automated tests (AGENTS.md), so this is a program to
+//! stays under it runs on, including 100,000 frames of `await widget.frame()` (which grew the heap
+//! until PsychoScript freed an async function's coroutine when it returns, rust e4cb862). The repo has no automated tests (AGENTS.md), so this is a program to
 //! run by hand: `cargo run -p opencode-widget --example heap_check` (exits non-zero on a failure).
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::print_stdout)]
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use opencode_widget::live::{Ended, Grants, Live, LiveProgram, Setup};
+use opencode_widget::live::{Ended, Grants, Live, LiveProgram, Post, Setup};
 use opencode_widget::runner::{Error, heap_exceeded};
-use opencode_widget::{Program, StepInput, fixtures};
+use opencode_widget::{Frame, Program, StepInput, fixtures};
 use serde_json::json;
 
 /// Keeps two distinct 10-million-character strings in its state: about 40 MB in the size model
@@ -53,6 +54,60 @@ async function main(data) {
 }
 "#;
 
+/// A game's loop: a frame, a little work on it, the next frame; a render every 1,000 frames.
+const LIVE_FRAMES: &str = r#"
+async function main(data) {
+  let n = 0
+  let x = 0
+  while (true) {
+    const frame = await widget.frame()
+    x = (x + frame.dt * 60) % 400
+    n++
+    if (n % 1000 === 0) widget.render(ui.text("frame " + n + " at " + Math.round(x)))
+  }
+}
+"#;
+
+const FRAMES: usize = 100_000;
+
+fn frame() -> Frame {
+    Frame { id: None, t: 0.0, dt: 1.0 / 60.0, width: 400.0, height: 300.0, scale: 2.0, pointer: None, dark: true, fullscreen: false, close: None }
+}
+
+/// A frame every 4.5 ms: about 222 a second, under the 240 posts a second a frame request counts
+/// toward (a vsync gives at most 120).
+const FRAME_GAP: Duration = Duration::from_micros(4500);
+
+/// Answers `live`'s frame requests, no faster than [`FRAME_GAP`], until it had `n` frames or it
+/// ended: the frames it had, how it ended, and the posts dropped on the way (none, at this pace).
+fn frames(live: &Live, n: usize, within: Duration) -> (usize, Option<Ended>, usize) {
+    let end = Instant::now() + within;
+    let (mut given, mut dropped, mut wanted) = (0, 0, false);
+    let mut next = Instant::now();
+    while given < n && Instant::now() < end {
+        for post in live.take() {
+            match post {
+                Post::Frame => wanted = true,
+                Post::Dropped(k) => dropped += k as usize,
+                _ => {}
+            }
+        }
+        if wanted && Instant::now() >= next {
+            live.frame(&frame());
+            (wanted, given) = (false, given + 1);
+            next += FRAME_GAP;
+            if given % 10_000 == 0 {
+                println!("     {given} frames");
+            }
+        }
+        if let Some(e) = live.ended() {
+            return (given, Some(e), dropped);
+        }
+        std::thread::sleep(Duration::from_micros(200));
+    }
+    (given, live.ended(), dropped)
+}
+
 fn program(source: &str) -> Program {
     Program::compile(&format!("{}\n{source}", fixtures::PRELUDE)).expect("compiles")
 }
@@ -94,4 +149,13 @@ fn main() {
     let steady = start(LIVE_STEADY);
     assert_eq!(ended(&steady, Duration::from_secs(2)), None, "a live run under the cap runs on");
     println!("ok   a live run under the cap runs on");
+
+    let looping = start(LIVE_FRAMES);
+    let t = Instant::now();
+    let (given, end, dropped) = frames(&looping, FRAMES, Duration::from_secs(900));
+    assert_eq!(end, None, "a frame loop stays under the cap: it ended after {given} frames");
+    assert_eq!((given, dropped), (FRAMES, 0), "a frame loop gets all its frames, none of its posts dropped");
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(looping.ended(), None, "a frame loop stays under the cap after its last frame");
+    println!("ok   {FRAMES} frames of await widget.frame() stay under the cap ({:.1} s)", t.elapsed().as_secs_f64());
 }

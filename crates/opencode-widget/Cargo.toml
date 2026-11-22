@@ -19,7 +19,7 @@ serde_json.workspace = true
 # The `rust` branch of anomalyco/psychoscript: the Rust implementation, at parity with the TypeScript
 # reference. Pure Rust (oxc, ICU4X), no platform dependencies, so it builds for iOS and Android too.
 url = { version = "2", optional = true }
-psychoscript = { git = "https://github.com/anomalyco/psychoscript", rev = "c42e030e4237b709276a02a3d39fd234aaae7411", optional = true }
+psychoscript = { git = "https://github.com/anomalyco/psychoscript", rev = "e4cb862575e47eb9b6c7924949ddcdc7ee1eb8d1", optional = true }
 
 [lints]
 workspace = true
