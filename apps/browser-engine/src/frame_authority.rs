@@ -829,11 +829,19 @@ impl EngineCdpLedger {
         let target = info.get("targetId").and_then(Value::as_str).unwrap_or("").to_owned();
         let url = info.get("url").and_then(Value::as_str).unwrap_or("");
         if ty != "iframe" {
-            // A worker opens no chooser and asks for no device: let it run and leave its session
+            // Extension workers are owned and resumed strictly by `ExtensionHost` after its
+            // `Fetch.enable` barrier confirms (READER-7 #592 R4): detach only, never resume.
+            let ext_worker = extension_origin(url)
+                || parent.is_some_and(|p| self.extension_targets.contains_key(p));
+            let detach = self.msg("Target.detachFromTarget", json!({ "sessionId": child }), None, None);
+            if ext_worker {
+                obs.send.push(detach);
+                return;
+            }
+            // A web worker opens no chooser and asks for no device: let it run and leave its session
             // (`child-targets.ts:22-29`). Its errors never matter.
             let worker = Some(Internal::Resume { session: child.to_owned(), worker: true });
             let resume = self.msg("Runtime.runIfWaitingForDebugger", json!({}), Some(child), worker);
-            let detach = self.msg("Target.detachFromTarget", json!({ "sessionId": child }), None, None);
             obs.send.extend([resume, detach]);
             return;
         }

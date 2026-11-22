@@ -102,6 +102,28 @@ impl EngineManager {
         }
     }
 
+    pub(super) fn on_tab_focus_extensions(&mut self, tab_id: u64) {
+        let (is_normal, is_popup) = self
+            .tabs
+            .get(&tab_id)
+            .map(|t| (!t.isolated && !t.is_popup, t.is_popup))
+            .unwrap_or((false, false));
+        if let Some(ext) = &mut self.extensions {
+            if is_normal {
+                ext.on_tab_focused(tab_id);
+            } else if !is_popup {
+                ext.on_window_blurred();
+            }
+        }
+    }
+
+    pub(super) fn on_tab_resize_extensions(&mut self, tab_id: u64, width_pt: f32, height_pt: f32) {
+        let is_normal = self.tabs.get(&tab_id).is_some_and(|t| !t.isolated && !t.is_popup);
+        if is_normal && let Some(ext) = &mut self.extensions {
+            ext.on_tab_resized(tab_id, width_pt.round() as i32, height_pt.round() as i32);
+        }
+    }
+
     pub(super) fn cmd_click_extension(&mut self, ext_id: &str) {
         let effects = self.extensions.as_mut().map(|e| e.click_extension(ext_id)).unwrap_or_default();
         self.run_ext_effects(effects);

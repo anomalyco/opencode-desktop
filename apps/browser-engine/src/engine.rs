@@ -308,7 +308,6 @@ impl EngineManager {
             }
             HostMsg::CloseTab { tab_id } => self.close_managed_tab(tab_id),
             HostMsg::FocusTab { tab_id } => {
-                let is_normal = self.tabs.get(&tab_id).is_some_and(|t| !t.isolated && !t.is_popup);
                 for (&id, t) in &mut self.tabs {
                     let active = id == tab_id;
                     let agent = t.prompts.agent_driven.load(Ordering::Relaxed);
@@ -329,9 +328,7 @@ impl EngineManager {
                         t.host.invalidate(PaintElementType::default());
                     }
                 }
-                if is_normal && let Some(ext) = &mut self.extensions {
-                    ext.on_tab_focused(tab_id);
-                }
+                self.on_tab_focus_extensions(tab_id);
             }
             HostMsg::Navigate { tab_id, url } => {
                 if let Some((is_preview, is_popup, snap_url, is_agent, isolated, ext_allowed, roots)) =
@@ -512,6 +509,7 @@ impl EngineManager {
                         t.host.notify_move_or_resize_started();
                         t.host.notify_screen_info_changed();
                         t.host.was_resized();
+                        self.on_tab_resize_extensions(tab_id, width_pt, height_pt);
                     }
                 }
             }
@@ -1366,9 +1364,8 @@ impl EngineManager {
             self.extensions.is_some(), self.events.clone(), self.out_tx.clone(),
         );
         let cdp_reg = host.add_dev_tools_message_observer(Some(&mut observer));
-        // Every tab is armed, as official arms every page (`chromium.ts:1391-1398`). The lock is
-        // released first: CEF may deliver the observer callback inside the send.
-        let mut arm = cdp_ledger.lock().unwrap().arm();
+        // Skip `cdp_ledger.arm()` on extension pages/popups (never agent-inspected; avoids racing `ExtensionHost`'s `Fetch.enable` pause, READER-7 R4).
+        let mut arm = if is_popup || is_allowed_ext_url.is_some() { Vec::new() } else { cdp_ledger.lock().unwrap().arm() };
         arm.extend(passkeys.attach_messages(None));
         arm.extend(media_gate.attach_messages(None));
         arm.extend(clipboard_gate.attach_messages(None));
