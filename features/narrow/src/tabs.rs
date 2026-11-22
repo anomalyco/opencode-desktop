@@ -8,6 +8,7 @@ use rune_theme_opencode::icons as ic;
 use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::{Pal, kit};
 use opencode_ui::style::{INSTANT, activity_ring, tab_busy_glyph};
+use opencode_ui::tab::TabExt;
 
 use crate::host::{NarrowHost, NarrowTab, NarrowTabStatus};
 use crate::machine::TabsEvent;
@@ -207,7 +208,7 @@ fn tab_row<H: NarrowHost + 'static>(s: &H, p: &Pal, t: &NarrowTab, current: Opti
         .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         // A middle click closes it, as the titlebar's tabs do (`TabNavItem`'s `auxclick`).
-        .on_middle_press(move |s: &mut H, tx: &mut Tx| close_tab(s, &middle, tx))
+        .closable_tab(move |s: &mut H, tx: &mut Tx| close_tab(s, &middle, tx))
         .on_press_tx(move |s: &mut H, tx: &mut Tx| pick_tab(s, &select, tx))
         .children(active.then(|| wash(p.pressed, 6.0)))
         .child(row().size(16.0, 16.0).center().child(lead))
