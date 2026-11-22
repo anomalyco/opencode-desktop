@@ -2011,6 +2011,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 name = "hex-client"
 version = "0.0.1"
 dependencies = [
+ "browser-policy",
  "serde_json",
  "ureq",
  "ureq-web",
@@ -3532,6 +3533,7 @@ dependencies = [
 name = "opencode-feature-dictation"
 version = "0.0.1"
 dependencies = [
+ "browser-policy",
  "hex-client",
  "notify",
  "opencode-i18n",
@@ -3655,6 +3657,7 @@ dependencies = [
 name = "opencode-feature-narrow"
 version = "0.0.1"
 dependencies = [
+ "browser-policy",
  "opencode-i18n",
  "opencode-kernel",
  "opencode-runtime",
@@ -3876,6 +3879,7 @@ dependencies = [
 name = "opencode-feature-tips"
 version = "0.0.1"
 dependencies = [
+ "browser-policy",
  "hex-client",
  "opencode-i18n",
  "opencode-kernel",

@@ -11,13 +11,8 @@
 #![cfg_attr(not(target_os = "windows"), forbid(unsafe_code))]
 
 pub mod drag;
-#[cfg(not(target_arch = "wasm32"))]
-mod harness;
 #[cfg(target_os = "windows")]
 pub mod windows;
-
-#[cfg(not(target_arch = "wasm32"))]
-pub use harness::admit_harness_log;
 
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -168,7 +163,7 @@ impl Launcher for Mac {
             if !APPS.iter().any(|a| a.open_with == b) {
                 return Err("Unknown external application".into());
             }
-            if harness::record("openIn", &[("path", &verified.path), ("app", b)]) {
+            if browser_policy::harness_log::record("openIn", &[("path", &verified.path), ("app", b)]) {
                 return Ok(());
             }
             if rune::is_headless() {
@@ -194,7 +189,7 @@ impl Launcher for Mac {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let verified = browser_policy::verify_local_path(path).map_err(|e| e.to_string())?;
-            if harness::record("reveal", &[("path", &verified.path)]) {
+            if browser_policy::harness_log::record("reveal", &[("path", &verified.path)]) {
                 return Ok(());
             }
             if rune::is_headless() {
@@ -539,7 +534,7 @@ pub fn open_external(tx: &mut Tx, url: &str) -> bool {
         return false;
     }
     #[cfg(not(target_arch = "wasm32"))]
-    if harness::record("openExternal", &[("url", trimmed)]) {
+    if browser_policy::harness_log::record("openExternal", &[("url", trimmed)]) {
         return true;
     }
     tx.open_url(trimmed).is_ok()
@@ -558,7 +553,7 @@ pub fn open_confirmed_app_url(tx: &mut Tx, url: &str, source: browser_policy::Ap
         return false;
     }
     #[cfg(not(target_arch = "wasm32"))]
-    if harness::record("openConfirmedApp", &[("url", trimmed)]) {
+    if browser_policy::harness_log::record("openConfirmedApp", &[("url", trimmed)]) {
         return true;
     }
     if trimmed.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("mailto:")) {

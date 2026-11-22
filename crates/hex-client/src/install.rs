@@ -50,6 +50,9 @@ pub fn app(_support: &Path) -> Option<PathBuf> {
 #[cfg(windows)]
 pub fn launch(support: &Path, show: bool) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
+    if recorded_launch(show) {
+        return Ok(());
+    }
     const DETACHED_PROCESS: u32 = 0x0000_0008;
     let exe = app(support).ok_or("Hex isn't installed")?;
     let mut cmd = std::process::Command::new(&exe);
@@ -68,6 +71,9 @@ pub fn launch(support: &Path, show: bool) -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 pub fn launch(_support: &Path, show: bool) -> Result<(), String> {
+    if recorded_launch(show) {
+        return Ok(());
+    }
     let mut cmd = std::process::Command::new("open");
     if !show {
         cmd.arg("-g");
@@ -76,20 +82,35 @@ pub fn launch(_support: &Path, show: bool) -> Result<(), String> {
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-pub fn launch(_support: &Path, _show: bool) -> Result<(), String> {
+pub fn launch(_support: &Path, show: bool) -> Result<(), String> {
+    if recorded_launch(show) {
+        return Ok(());
+    }
     std::process::Command::new("hex").arg("start").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().map(drop).map_err(|e| format!("Couldn't open Hex: {e}"))
+}
+
+/// A proof run that records external opens records Hex's start instead of making it.
+fn recorded_launch(show: bool) -> bool {
+    browser_policy::harness_log::record("launchApp", &[("app", "hex"), ("show", if show { "true" } else { "false" })])
 }
 
 /// Opens the system's microphone privacy page, where the app's access is turned on.
 #[cfg(windows)]
 pub fn open_mic_settings() {
+    if browser_policy::harness_log::record("openSettings", &[("url", "ms-settings:privacy-microphone")]) {
+        return;
+    }
     // `ms-settings:` links open through the shell; Explorer hands them to Settings.
     std::process::Command::new("explorer.exe").arg("ms-settings:privacy-microphone").spawn().ok();
 }
 
 #[cfg(target_os = "macos")]
 pub fn open_mic_settings() {
-    std::process::Command::new("open").arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone").spawn().ok();
+    const PAGE: &str = "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
+    if browser_policy::harness_log::record("openSettings", &[("url", PAGE)]) {
+        return;
+    }
+    std::process::Command::new("open").arg(PAGE).spawn().ok();
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
