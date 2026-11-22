@@ -533,11 +533,7 @@ pub fn open_external(tx: &mut Tx, url: &str) -> bool {
     if !browser_policy::is_safe_os_external_url(trimmed) {
         return false;
     }
-    #[cfg(not(target_arch = "wasm32"))]
-    if harness_log::record("openExternal", &[("url", trimmed)]) {
-        return true;
-    }
-    tx.open_url(trimmed).is_ok()
+    harness_log::open_url(tx, trimmed)
 }
 
 /// Launches a user-confirmed app-scheme URL (`slack:`, `figma:`, `obsidian:`, `mailto:`, etc.)
@@ -557,7 +553,7 @@ pub fn open_confirmed_app_url(tx: &mut Tx, url: &str, source: browser_policy::Ap
         return true;
     }
     if trimmed.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("mailto:")) {
-        return tx.open_url(trimmed).is_ok();
+        return harness_log::open_url(tx, trimmed);
     }
     if rune::is_headless() {
         return true;

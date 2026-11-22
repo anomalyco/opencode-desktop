@@ -45,10 +45,7 @@ fn press_settings(host: &mut dyn NarrowHost, tx: &mut Tx) {
 
 fn press_help(host: &mut dyn NarrowHost, tx: &mut Tx) {
     crate::tabs_drawer(host, TabsEvent::Close, tx);
-    const FEEDBACK: &str = "https://opencode.ai/desktop-feedback";
-    if !harness_log::record("openExternal", &[("url", FEEDBACK)]) {
-        drop(tx.open_url(FEEDBACK));
-    }
+    harness_log::open_url(tx, "https://opencode.ai/desktop-feedback");
 }
 
 fn pick_tab(host: &mut dyn NarrowHost, uid: &str, tx: &mut Tx) {

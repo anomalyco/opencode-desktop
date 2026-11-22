@@ -76,6 +76,13 @@ pub fn record(kind: &str, fields: &[(&str, &str)]) -> bool {
     true
 }
 
+/// Opens `url` in the system's browser or mail app (`Tx::open_url`), or records it instead when
+/// recording is on. Every external link in the app goes through here, so none can skip the record.
+#[allow(clippy::disallowed_methods)]
+pub fn open_url(tx: &mut rune::Tx, url: &str) -> bool {
+    record("openExternal", &[("url", url)]) || tx.open_url(url).is_ok()
+}
+
 /// Shows `path` in the file manager, or records it instead when recording is on. Every reveal in the
 /// app goes through here, so none can skip the record; the browser engine links
 /// `browser_policy::reveal_in_file_manager` itself, so the record cannot live there.

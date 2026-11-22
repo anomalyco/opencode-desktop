@@ -261,9 +261,7 @@ pub fn apply_fix(host: &mut dyn DictationHost, fix: Fix, tx: &mut Tx) {
     };
     match fix {
         Fix::Install => {
-            if !harness_log::record("openExternal", &[("url", hex_client::DOWNLOAD)]) {
-                drop(tx.open_url(hex_client::DOWNLOAD));
-            }
+            harness_log::open_url(tx, hex_client::DOWNLOAD);
         }
         Fix::OpenHex => {
             if let Err(why) = hex_client::launch(&support, true) {

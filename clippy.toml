@@ -2,4 +2,5 @@ disallowed-methods = [
   { path = "std::env::var", reason = "pass host paths/flags via opencode_platform::PlatformInfo / PlatformPaths or opencode_kernel::AppEnv instead of reading process env ad-hoc (or allow locally at the single startup/platform boundary)" },
   { path = "std::time::SystemTime::now", reason = "use opencode_kernel::AppEnv::now_ms() in feature/UI code or opencode_platform::wall_ms() for process wall time (honors --clock and fixture time, and stays wasm32-safe via rune::time)" },
   { path = "browser_policy::reveal_in_file_manager", reason = "use harness_log::reveal: in a proof run it records the reveal instead of opening the file manager (the engine links browser-policy, so the record cannot live in it)" },
+  { path = "rune::Tx::open_url", reason = "use harness_log::open_url: in a proof run it records the link instead of opening the person's browser" },
 ]

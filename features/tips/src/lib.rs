@@ -64,9 +64,7 @@ pub trait TipsHost: opencode_kernel::AppEnv {
     fn dismiss_toast(&mut self, id: u64);
     /// Opens the tip's install destination after the user presses its Install button.
     fn open_tip_target(&mut self, tip: Tip, tx: &mut Tx) {
-        if !harness_log::record("openExternal", &[("url", tip.url())]) {
-            drop(tx.open_url(tip.url()));
-        }
+        harness_log::open_url(tx, tip.url());
     }
 }
 
