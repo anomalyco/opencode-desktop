@@ -306,10 +306,12 @@ pub fn run_native() {
         .ok();
     opencode_kit::client::set_download_dir(dirs::downloads());
     // A harness run rooted in its own folders logs external opens and reveals instead of making
-    // them, in a window as well as headless.
+    // them, in a window as well as headless, to a log inside that root.
     #[cfg(not(target_arch = "wasm32"))]
-    if harness_writes() {
-        open_in::admit_harness_log();
+    if harness_writes()
+        && let Some(root) = std::env::var_os("RUNE_DIRS_ROOT").filter(|v| !v.is_empty())
+    {
+        open_in::admit_harness_log(root.into());
     }
     // Where the browser engine lives follows this app's data root (no I/O until a page opens).
     #[cfg(any(target_os = "macos", windows))]
