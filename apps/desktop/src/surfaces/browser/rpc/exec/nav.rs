@@ -686,12 +686,16 @@ pub(super) fn step_wait_load(
     // `Runtime.executionContextsCleared` and, unless the engine runs extensions (which keep
     // `Page.*` to themselves), the main frame's `Page.frameNavigated`, and no other bump. An entry
     // that sends none of them (same document, same address) settles at the grace, as before.
+    // The new document's main execution context must exist again too: clearing removes it, and
+    // an evaluate before it is created fails as `document_changed` (with extensions it came up to
+    // 8 ms after the clearing in 30 of 67 runs; without, never after the navigation, 0 of 68).
     let committed = st.history_from.as_ref().map(|from| {
         tab.url != from.url
             && att.frames.get(&st.host_id).is_some_and(|f| {
                 f.main_contexts_cleared > from.contexts_cleared
                     && (app.workspace_panes.browser.host.extensions_active()
                         || f.main_frame_navigations > from.frame_navigations)
+                    && f.main_frame_id.as_ref().is_some_and(|id| f.main_contexts.contains_key(id))
             })
     });
     let settled = (!tab.loading && (committed.unwrap_or(st.saw_loading) || now >= st.started_at + LOAD_SETTLE_GRACE))
