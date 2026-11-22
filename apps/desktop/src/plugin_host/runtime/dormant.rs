@@ -232,6 +232,10 @@ pub fn each_app_half<R>(mut f: impl FnMut(&str, &Contribs) -> Option<R>) -> Vec<
 
 /// Starts plugin `id` now, for `why`, if it's dormant; true when it was and runs now.
 pub fn wake(app: &mut App, id: &str, why: Why) -> bool {
+    #[cfg(debug_assertions)]
+    if id == "updater" && std::env::var_os("OPENCODE_RUNE_HOLD_UPDATER_DORMANT").is_some() {
+        return false;
+    }
     let Some(i) = app.plugins.find(id).filter(|&i| matches!(app.plugins.list[i].life, Life::Dormant)) else { return false };
     let started = rune::time::Instant::now();
     let asleep = app.plugins.dormant.asleep.remove(id).unwrap_or_default();
@@ -320,10 +324,11 @@ pub fn wake_settings(app: &mut App) -> bool {
     adopted || woke || retried
 }
 
-/// Retries bundled settings plugins that hit a transient startup watchdog timeout (at most twice
+/// Retries bundled settings plugins that hit a transient startup watchdog timeout (at most once
 /// per launch), so a CPU burst during boot never permanently drops a built-in Settings section.
+/// Temporary guard until WS-3's general `ws3/plugin-timeout-restart` replaces it.
 fn retry_timed_out_settings(app: &mut App) -> bool {
-    const MAX_RETRIES: u8 = 2;
+    const MAX_RETRIES: u8 = 1;
     let ids: Vec<(usize, String)> = app
         .plugins
         .list
@@ -331,6 +336,7 @@ fn retry_timed_out_settings(app: &mut App) -> bool {
         .enumerate()
         .filter(|(_, p)| {
             p.tier == Tier::Bundled
+                && !app.plugins.disabled.contains(&p.manifest.id)
                 && matches!(&p.life, Life::Errored { error, .. } if error.contains("watchdog"))
                 && super::sources::contributions(&p.manifest.id).iter().any(|k| matches!(*k, "Setting" | "SettingsPage"))
                 && app.plugins.dormant.watchdog_retries.get(&p.manifest.id).copied().unwrap_or(0) < MAX_RETRIES
