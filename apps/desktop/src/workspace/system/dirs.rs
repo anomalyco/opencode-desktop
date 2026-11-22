@@ -99,10 +99,15 @@ pub fn motion_log() -> Option<PathBuf> {
 }
 
 /// Where the updater downloads a release and keeps its records: the team bundle's caches on
-/// macOS (the folder it always had), the app's cache folder elsewhere.
+/// macOS (the folder it always had; stable's and beta's bundles their own), the app's cache folder
+/// elsewhere.
 pub fn updates() -> Option<PathBuf> {
     let app = app()?;
-    let cache = if cfg!(target_os = "macos") { app.sibling("anomaly.opencode-rune").cache().to_owned() } else { app.cache().to_owned() };
+    let bundle = match option_env!("OPENCODE_RUNE_BUILD_CHANNEL") {
+        Some(c @ ("stable" | "beta")) => format!("anomaly.opencode-rune.{c}"),
+        _ => "anomaly.opencode-rune".to_owned(),
+    };
+    let cache = if cfg!(target_os = "macos") { app.sibling(&bundle).cache().to_owned() } else { app.cache().to_owned() };
     Some(cache.join("Updates"))
 }
 
