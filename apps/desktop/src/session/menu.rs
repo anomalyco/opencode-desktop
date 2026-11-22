@@ -366,6 +366,22 @@ impl Feature<App> for SessionMenuFeature {
             .section("session")
             .when(|s| s.active_session_id().is_some()),
         );
+        // Archive session (`use-session-commands.tsx` `session.archive`, opencode#65428): the open
+        // root session not yet archived; its tab goes and the view moves on, as from its menu.
+        builder.add_command(
+            CommandEntry::<App>::from_key(
+                "session.archive",
+                opencode_i18n::key!("command.session.archive"),
+                crate::commands::order::ARCHIVE_SESSION,
+                |s, tx| {
+                    let Some(id) = s.open_root_session() else { return };
+                    tx.instant();
+                    App::archive_session(s, &id, tx);
+                },
+            )
+            .bind_id(Bind::Archive.id())
+            .when(|s| s.open_root_session().is_some_and(|id| s.sessions.iter().any(|i| i.id == id && i.archived.is_none()))),
+        );
         // Delete session (`message-timeline.tsx:268-277`): the open root session's confirmation.
         builder.add_command(
             CommandEntry::<App>::from_key(

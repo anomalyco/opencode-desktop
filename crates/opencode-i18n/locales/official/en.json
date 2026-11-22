@@ -52,6 +52,7 @@
   "command.provider.connect": "Connect an integration",
   "command.provider.connect.description": "Sign in to OpenCode Go, OpenCode Console, or another model provider",
   "command.review.toggle": "Toggle review",
+  "command.session.archive": "Archive session",
   "command.session.background": "Move to background",
   "command.session.branch.choose": "Choose base branch",
   "command.session.compact": "Compact session",

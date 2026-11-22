@@ -90,6 +90,7 @@ const TABLE: &[Entry] = &[
     cmd(Bind::SessionNext, Phase::AfterPlugins, true),
     cmd(Bind::UnseenPrev, Phase::AfterPlugins, true),
     cmd(Bind::UnseenNext, Phase::AfterPlugins, true),
+    cmd(Bind::Archive, Phase::AfterPlugins, true),
     direct(Bind::TabPrev, Phase::AfterPlugins, true, |s, tx| {
         s.select_adjacent(-1, tx);
         true
