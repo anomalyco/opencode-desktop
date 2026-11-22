@@ -7,3 +7,4 @@ pub(crate) mod project;
 pub(crate) mod raster_probe;
 pub(crate) mod session_menu;
 pub(crate) mod side;
+pub(crate) mod update_pill;
