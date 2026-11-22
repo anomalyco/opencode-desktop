@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use super::fetch;
 use super::link::{Link, Run};
 use super::Post;
-use crate::draw::DrawOutput;
+use crate::draw::{Arg, DrawOutput};
 use crate::node::Node;
 use crate::step::SendMessage;
 
@@ -64,19 +64,22 @@ fn post(link: &Link, args: Vec<HostValue>) -> HostResult {
     if link.lock().interrupt {
         return Err(HostValue::Interrupt);
     }
-    let message = args.first().and_then(HostValue::to_json).unwrap_or(Value::Null);
-    let post = match message["type"].as_str() {
-        Some("render") => Post::Render(Node::from_value(&message["node"]).map_err(|e| throw(format!("widget.render: {e}")))?),
+    // Read from the VM's value as from its JSON, without making it (`host_value`).
+    let message = args.first().unwrap_or(&HostValue::Null);
+    let field = |key: &str| message.field(key);
+    let json = |key: &str| field(key).and_then(HostValue::to_json).unwrap_or(Value::Null);
+    let post = match field("type").and_then(Arg::text).as_deref() {
+        Some("render") => Post::Render(Node::from_host(field("node").unwrap_or(&HostValue::Null)).map_err(|e| throw(format!("widget.render: {e}")))?),
         Some("draw") => {
-            let id = message["id"].as_str().ok_or_else(|| throw("widget.draw needs a canvas id".into()))?.to_owned();
-            let out = DrawOutput::from_value(&json!({ "commands": message["commands"] })).map_err(|e| throw(format!("widget.draw(\"{id}\"): {e}")))?;
+            let id = field("id").and_then(Arg::text).ok_or_else(|| throw("widget.draw needs a canvas id".into()))?.into_owned();
+            let out = DrawOutput::from_host(field("commands")).map_err(|e| throw(format!("widget.draw(\"{id}\"): {e}")))?;
             Post::Draw { id, commands: out.commands }
         }
         Some("frame") => Post::Frame,
-        Some("submit") => Post::Submit(message["value"].clone()),
+        Some("submit") => Post::Submit(json("value")),
         Some("dismiss") => Post::Dismiss,
-        Some("capture") => Post::Capture(message["value"].as_bool().unwrap_or(false)),
-        Some("send") => Post::Send(SendMessage { value: message["value"].clone(), wake: message["wake"].as_bool().unwrap_or(true) }),
+        Some("capture") => Post::Capture(field("value").and_then(Arg::flag).unwrap_or(false)),
+        Some("send") => Post::Send(SendMessage { value: json("value"), wake: field("wake").and_then(Arg::flag).unwrap_or(true) }),
         _ => return Ok(HostValue::Undefined),
     };
     link.post(post);

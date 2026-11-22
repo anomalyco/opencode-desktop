@@ -365,7 +365,19 @@ impl Node {
     /// Reads a view from a step's JSON: invalid when it doesn't parse, or a canvas has `values`
     /// without `wgsl` or more than 16 KB of it.
     pub fn from_value(v: &Value) -> Result<Node, String> {
-        let node = Node::deserialize(v).map_err(|e| format!("invalid view: {e}"))?;
+        Node::deserialize(v).map_err(|e| format!("invalid view: {e}")).and_then(Node::checked)
+    }
+
+    /// [`Node::from_value`] on the view the VM handed over (`widget.render`'s node), read as its
+    /// JSON would be, without making it.
+    #[cfg(feature = "runner")]
+    pub fn from_host(v: &psychoscript::HostValue) -> Result<Node, String> {
+        crate::host_value::read::<Node>(v).map_err(|e| format!("invalid view: {e}")).and_then(Node::checked)
+    }
+
+    /// A view as read, or why it's invalid all the same: a canvas with `values` but no `wgsl`, or
+    /// more than 16 KB of it.
+    fn checked(node: Node) -> Result<Node, String> {
         let mut bad = None;
         node.walk(&mut |n| {
             if let Node::Canvas { wgsl, values, .. } = n {
