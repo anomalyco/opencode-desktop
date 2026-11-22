@@ -18,6 +18,9 @@ const checks = [
   { name: "folder-shape", script: join(here, "folder-shape.mjs") },
   { name: "dialog-size", script: join(here, "dialog-size.mjs") },
   { name: "tables-check", script: join(here, "tables-check.mjs") },
+  { name: "plugin-props", script: join(here, "plugin-props.mjs") },
+  { name: "external-open", script: join(here, "external-open.mjs") },
+  { name: "engine-revision", script: join(here, "engine-revision.mjs") },
 ];
 
 const started = Date.now();

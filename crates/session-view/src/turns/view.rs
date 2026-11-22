@@ -279,7 +279,7 @@ fn step_item<S: TimelineHost>(s: &S, p: &Pal, cx: crate::tools::Ctx, group: &str
         Step::Tool { id, name, status, input, metadata, files, .. } => {
             let c = crate::tools::Call { id, name, status, input, metadata };
             let step = col().key(format!("step-{id}")).w_full().child(crate::tools::view(s, p, cx, &c));
-            step.children(crate::images::gallery(s, p, &format!("step-images-{id}"), files, false, None).map(|g| g.pl(22.0)))
+            step.children(crate::images::gallery(s, p, &format!("step-images-{id}"), files, false, 14.0 + 22.0, None).map(|g| g.pl(22.0)))
         }
         Step::Change { .. } => file_runs(s, p, cx, steps),
     }
@@ -331,7 +331,7 @@ pub fn calls<S: TimelineHost>(s: &S, p: &Pal, session: &str, kind: Calls, steps:
                 _ => &[],
             };
             col().key(format!("step-{}", first.id)).w_full().child(crate::tools::view(s, p, cx, first))
-                .children(crate::images::gallery(s, p, &format!("step-images-{}", first.id), files, false, None).map(|g| g.pl(22.0)))
+                .children(crate::images::gallery(s, p, &format!("step-images-{}", first.id), files, false, 22.0, None).map(|g| g.pl(22.0)))
         }
     }
 }

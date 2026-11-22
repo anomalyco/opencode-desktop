@@ -42,8 +42,19 @@ pub struct Queued {
 pub struct DeepLinks {
     /// Links whose server isn't connected yet, oldest first.
     waiting: Vec<Queued>,
-    /// A `new-session` link's folder and prompt, until the session it opened shows its composer.
-    prompt: Option<(String, String, f64)>,
+    /// A `new-session` link's prompt, until the session it opened shows its composer.
+    prompt: Option<Pending>,
+}
+
+/// A `new-session` link's prompt on its way to the session the link opens.
+#[derive(Clone, Debug, PartialEq)]
+struct Pending {
+    dir: String,
+    prompt: String,
+    /// When the link opened its project (`App::clock`).
+    at: f64,
+    /// The session on screen when it did: never the one the link opens, even in the same folder.
+    before: Option<String>,
 }
 
 pub enum DeepLinkEvent {
@@ -71,8 +82,17 @@ impl DeepLinks {
             }
             DeepLinkEvent::Ready { .. } => {}
         }
-        let (now, later): (Vec<_>, Vec<_>) = queue.into_iter().partition(|q| ready(&q.server));
-        for q in now {
+        // In order, and one `new-session` prompt at a time: while one waits for its session, the
+        // links behind it wait too, or the session the next one opens would take that prompt and
+        // the next prompt would replace it.
+        let mut held = self.prompt.is_some();
+        let mut later = Vec::new();
+        for q in queue {
+            if held || !ready(&q.server) {
+                later.push(q);
+                continue;
+            }
+            held = q.prompt.is_some();
             effects.push(DeepLinkEffect::Open { server: q.server, dir: q.dir, prompt: q.prompt });
         }
         self.waiting = later;
@@ -133,10 +153,14 @@ pub fn drain(s: &mut App, tx: &mut Tx) -> bool {
     if !s.services.deep_links.is_waiting() {
         return typed;
     }
+    // Links held behind a prompt open once it goes in, or when it lapses: wake for that.
+    if let Some(p) = &s.services.deep_links.prompt {
+        tx.wake_after(std::time::Duration::from_secs_f64((p.at + 30.0 - *s.clock).max(0.0) + 0.05));
+    }
     let ready = ready_servers(s);
-    let Some(server) = ready.first().cloned() else { return false };
+    let Some(server) = ready.first().cloned() else { return typed };
     let effects = s.services.deep_links.step(DeepLinkEvent::Ready { server }, |server| ready.iter().any(|r| r == server));
-    run(s, effects, tx)
+    typed | run(s, effects, tx)
 }
 
 fn run(s: &mut App, effects: Effects<DeepLinkEffect>, tx: &mut Tx) -> bool {
@@ -150,9 +174,14 @@ fn run(s: &mut App, effects: Effects<DeepLinkEffect>, tx: &mut Tx) -> bool {
                 s.close_settings();
                 // The project opens on its server, whichever the window shows.
                 crate::servers::runtime::switch(s, &opencode_kit::servers::ServerKey::new(&server));
+                // The session on screen on that server, which the link's prompt must not take.
+                let before = match &*s.route {
+                    crate::Route::Session { id, .. } => Some(id.clone()),
+                    _ => None,
+                };
                 s.open_project_dir(&dir, true, tx);
                 if let Some(prompt) = prompt {
-                    s.services.deep_links.prompt = Some((dir, prompt, *s.clock));
+                    s.services.deep_links.prompt = Some(Pending { dir, prompt, at: *s.clock, before });
                 }
                 changed = true;
             }
@@ -178,12 +207,16 @@ fn ready_servers(s: &mut App) -> Vec<ServerId> {
 /// session shows (the project opens through the server first). Dropped after 30 s, or when the
 /// composer already holds something.
 fn type_prompt(s: &mut App) -> bool {
-    let Some((dir, prompt, at)) = s.services.deep_links.prompt.clone() else { return false };
+    let Some(Pending { dir, prompt, at, before }) = s.services.deep_links.prompt.clone() else { return false };
     if *s.clock - at > 30.0 {
         s.services.deep_links.prompt = None;
         return false;
     }
-    if !shows_session_in(s, &dir) {
+    let crate::Route::Session { id, .. } = &*s.route else { return false };
+    // The session the link opened: in its folder, and not the one on screen when it did (a link
+    // for the folder of the session on screen opens a new one there).
+    let same = |a: &str, b: &str| a.trim_end_matches(['/', '\\']).eq_ignore_ascii_case(b.trim_end_matches(['/', '\\']));
+    if before.as_deref() == Some(id.as_str()) || !s.session(id).is_some_and(|i| same(&i.directory, &dir)) {
         return false;
     }
     s.services.deep_links.prompt = None;
@@ -192,52 +225,6 @@ fn type_prompt(s: &mut App) -> bool {
     }
     *s.composer = rune::TextEdit::new(prompt);
     true
-}
-
-/// The window shows a session in folder `dir`.
-fn shows_session_in(s: &App, dir: &str) -> bool {
-    let crate::Route::Session { id, .. } = &*s.route else { return false };
-    let same = |a: &str, b: &str| a.trim_end_matches(['/', '\\']).eq_ignore_ascii_case(b.trim_end_matches(['/', '\\']));
-    s.session(id).is_some_and(|i| same(&i.directory, dir))
-}
-
-/// The window quits (`on_quit`, before it saves): a link it took is carried out once. A
-/// `new-session` prompt whose session shows goes into its composer now, and is saved with it. A
-/// link still waiting for its server, or whose session isn't open yet, is handed on: the app starts
-/// again with it once this process lets go of its instance (`rune::hand_on`), reaching the copy a
-/// relaunch starts, or starting one. OpenCode Desktop loses such a link: its main process holds it
-/// for a window that never comes (`main/deep-links/machine.ts`), and a relaunch restarts it
-/// without its arguments (`app.relaunch()`).
-#[cfg(not(target_arch = "wasm32"))]
-pub fn quitting(s: &mut App) {
-    let scheme = crate::launch::product().scheme().to_owned();
-    let mut links: Vec<String> = std::mem::take(&mut s.services.deep_links.waiting).iter().map(|q| link(&scheme, &q.dir, q.prompt.as_deref())).collect();
-    if let Some((dir, prompt, _)) = s.services.deep_links.prompt.take() {
-        if shows_session_in(s, &dir) && s.composer.text.is_empty() {
-            *s.composer = rune::TextEdit::new(prompt);
-        } else if s.composer.text != prompt {
-            links.push(link(&scheme, &dir, Some(&prompt)));
-        }
-    }
-    if links.is_empty() {
-        return;
-    }
-    // With this process's own options, as a relaunch starts it (`Tx::relaunch`), less its links.
-    let own = format!("{scheme}://");
-    rune::hand_on(std::env::args_os().skip(1).map(|a| a.to_string_lossy().into_owned()).filter(|a| !a.to_ascii_lowercase().starts_with(&own)).chain(links).collect());
-}
-
-/// `quitting`: browsers hand the app no links to carry over.
-#[cfg(target_arch = "wasm32")]
-pub fn quitting(_: &mut App) {}
-
-/// The link that opens `dir` (with `prompt` typed into a new session) on the app's scheme.
-#[cfg(not(target_arch = "wasm32"))]
-fn link(scheme: &str, dir: &str, prompt: Option<&str>) -> String {
-    match prompt {
-        Some(prompt) => format!("{scheme}://new-session?directory={}&prompt={}", percent(dir), percent(prompt)),
-        None => format!("{scheme}://open-project?directory={}", percent(dir)),
-    }
 }
 
 /// The folder (and `new-session`'s prompt) a project link on the app's scheme `own` names:
@@ -300,12 +287,6 @@ fn console_return(url: &str, own: &str) -> Option<String> {
     }
     let id = query.split('&').find_map(|pair| pair.strip_prefix("window=")).map(unpercent)?;
     (!id.is_empty() && id.len() <= 256 && !id.chars().any(char::is_control)).then_some(id)
-}
-
-/// `s` as a query value: what isn't unreserved (or `/`) as `%XX`.
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn percent(s: &str) -> String {
-    s.bytes().map(|b| if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~' | b'/') { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
 }
 
 /// A query value: `%XX` escapes and `+` for a space, as `URLSearchParams` reads it.

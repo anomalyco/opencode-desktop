@@ -7,6 +7,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+harness-log = { path = "../../crates/harness-log" }
 hex-client = { path = "../../crates/hex-client" }
 notify = "8"
 opencode-i18n = { path = "../../crates/opencode-i18n" }

@@ -75,7 +75,8 @@ pub(super) fn action_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str, 
         .press(if pressed { Color::TRANSPARENT } else { p.pressed })
         .hover_motion(INSTANT, INSTANT)
         .child(icon(glyph, 16.0).color(ink).group_color(p.text))
-        .child(text(label).font(UI).color(ink).group_color(p.text).truncate_fade());
+        // `titlebar.tsx` SidebarAction: `text-[13px] leading-[var(--line-height-compact)]` (no negative tracking).
+        .child(text(label).font(TextStyle::new(13.0, 440.0).lh(16.0)).color(ink).group_color(p.text).truncate_fade());
     if pressed {
         r = r.fill(p.pressed);
     }

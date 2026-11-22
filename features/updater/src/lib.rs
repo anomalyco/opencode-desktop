@@ -36,7 +36,10 @@ mod linux;
 pub mod mac;
 pub mod machine;
 pub mod platform;
+pub mod policy;
 pub mod protocol;
+#[cfg(windows)]
+mod relaunch_args;
 pub mod service;
 #[cfg(windows)]
 mod windows;
@@ -67,6 +70,10 @@ pub struct UpdaterConfig {
     pub updates_dir: fn() -> Option<PathBuf>,
     /// Formats a raw OS/helper error string for user-facing failure toasts.
     pub plain_error: fn(&str) -> String,
+    /// Whether `RUNE_DIRS_ROOT` redirects all app folders into an isolated scratch root.
+    pub rooted: fn() -> bool,
+    /// Whether `--harness-writes` (under a scratch root) is active for this process.
+    pub harness_writes: fn() -> bool,
 }
 
 /// Host window hooks the updater drives on the UI thread.
@@ -153,8 +160,8 @@ enum Lifecycle {
 }
 
 enum LifecycleEvent {
-    StartRequested { headless: bool, holds_profile: Option<bool> },
-    ProfileDecided { headless: bool, holds_profile: bool },
+    StartRequested { allowed: bool, holds_profile: Option<bool> },
+    ProfileDecided { allowed: bool, holds_profile: bool },
     Attached { service: Rc<RefCell<UpdaterService>>, seen: u64 },
     RevisionSeen(u64),
     Closing,
@@ -170,11 +177,11 @@ fn step(state: &mut Lifecycle, event: LifecycleEvent) -> LifecycleEffect {
     match (std::mem::replace(state, Lifecycle::Idle), event) {
         (
             Lifecycle::Idle | Lifecycle::WaitingProfile,
-            LifecycleEvent::StartRequested { headless: false, holds_profile: Some(true) },
+            LifecycleEvent::StartRequested { allowed: true, holds_profile: Some(true) },
         ) => LifecycleEffect::Attach,
         (
             Lifecycle::Idle | Lifecycle::WaitingProfile,
-            LifecycleEvent::StartRequested { headless: false, holds_profile: None },
+            LifecycleEvent::StartRequested { allowed: true, holds_profile: None },
         ) => {
             *state = Lifecycle::WaitingProfile;
             LifecycleEffect::None
@@ -182,7 +189,7 @@ fn step(state: &mut Lifecycle, event: LifecycleEvent) -> LifecycleEffect {
         (Lifecycle::WaitingProfile, LifecycleEvent::StartRequested { holds_profile: Some(false), .. }) => {
             LifecycleEffect::None
         }
-        (Lifecycle::WaitingProfile, LifecycleEvent::ProfileDecided { headless: false, holds_profile: true }) => {
+        (Lifecycle::WaitingProfile, LifecycleEvent::ProfileDecided { allowed: true, holds_profile: true }) => {
             LifecycleEffect::Attach
         }
         (Lifecycle::WaitingProfile, LifecycleEvent::ProfileDecided { .. }) => LifecycleEffect::None,
@@ -294,14 +301,56 @@ pub fn shared_enabled() -> bool {
     })
 }
 
+/// The startup policy (`policy::decide`) for this process. Its inputs (argv, environment, the
+/// scratch root) are fixed for the life of the process, so it is decided once after
+/// [`configure`] and kept.
+pub fn start_decision() -> policy::Decision {
+    static DECISION: OnceLock<policy::Decision> = OnceLock::new();
+    let Some(cfg) = CONFIG.get() else { return decide_now(feed::env("RUNE_DIRS_ROOT").is_some(), false) };
+    *DECISION.get_or_init(|| decide_now((cfg.rooted)(), (cfg.harness_writes)()))
+}
+
+fn decide_now(rooted: bool, harness_writes: bool) -> policy::Decision {
+    policy::decide(policy::StartInputs { headless: rune::is_headless(), rooted, harness_writes, opt_in: feed::harness_opt_in() })
+}
+
+/// True when the updater is suppressed for this process (headless, or an isolated scratch-root /
+/// harness window without an explicit opt-in).
+pub fn is_suppressed() -> bool {
+    !start_decision().allowed()
+}
+
+/// The `error` an `UpdaterState` in phase `disabled` carries when the updater is off because this
+/// run is isolated (`RUNE_DIRS_ROOT`), so Settings can say so rather than blame a package manager.
+pub const ISOLATED: &str = "isolated";
+
+fn disabled_view() -> StateView {
+    let isolated = matches!(start_decision(), policy::Decision::HarnessWindowSuppressed | policy::Decision::ScratchRootSuppressed);
+    StateView { phase: "disabled", version: None, progress: None, error: isolated.then(|| ISOLATED.to_owned()) }
+}
+
+fn log_suppressed_once(decision: policy::Decision) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static LOGGED: AtomicBool = AtomicBool::new(false);
+    let reason = match decision {
+        policy::Decision::HarnessWindowSuppressed => "harness window (--harness-writes + RUNE_DIRS_ROOT)",
+        policy::Decision::ScratchRootSuppressed => "scratch root (RUNE_DIRS_ROOT)",
+        _ => return,
+    };
+    if !LOGGED.swap(true, Ordering::Relaxed) {
+        eprintln!("updater: off ({reason}; set OPENCODE_RUNE_ALLOW_HARNESS_UPDATES=1 or debug OPENCODE_RUNE_UPDATE_FEED to opt in)");
+    }
+}
+
 /// A start that waited for the storage's decision (`start_if_packaged`).
 pub fn poll_owed(s: &mut dyn UpdaterHost) {
     if !matches!(s.updater().state, Lifecycle::WaitingProfile) {
         return;
     }
     let Some(holds_profile) = opencode_storage::holds_profile() else { return };
+    let allowed = start_decision().allowed();
     if matches!(
-        step(&mut s.updater_mut().state, LifecycleEvent::ProfileDecided { headless: rune::is_headless(), holds_profile }),
+        step(&mut s.updater_mut().state, LifecycleEvent::ProfileDecided { allowed, holds_profile }),
         LifecycleEffect::Attach
     ) {
         attach_service(s);
@@ -312,8 +361,13 @@ pub fn poll_owed(s: &mut dyn UpdaterHost) {
 /// after the first frame; the service's worker finds out whether this build updates
 /// (`platform::make`) off the UI thread, so this only creates channels and starts the thread.
 pub fn start_if_packaged(s: &mut dyn UpdaterHost) {
-    let headless = rune::is_headless();
-    if headless || matches!(s.updater().state, Lifecycle::Running { .. }) {
+    let decision = start_decision();
+    let allowed = decision.allowed();
+    if !allowed {
+        log_suppressed_once(decision);
+        return;
+    }
+    if matches!(s.updater().state, Lifecycle::Running { .. }) {
         return;
     }
     // Only the copy that holds the profile checks, downloads and stages: a second copy of the app
@@ -327,7 +381,7 @@ pub fn start_if_packaged(s: &mut dyn UpdaterHost) {
         return;
     }
     if matches!(
-        step(&mut s.updater_mut().state, LifecycleEvent::StartRequested { headless, holds_profile }),
+        step(&mut s.updater_mut().state, LifecycleEvent::StartRequested { allowed, holds_profile }),
         LifecycleEffect::Attach
     ) {
         attach_service(s);
@@ -427,15 +481,11 @@ const NO_UPDATER: &str = "No updater runs in this build";
 
 /// Where the updater stands, as [`StateView`]; `None` while the service is still finding out
 /// (`View::Starting`) or when this copy never attached one (for example a secondary profile copy).
-/// Headless runs report `disabled` without starting the worker thread.
+/// Suppressed runs (headless, or isolated scratch-root / harness windows without opt-in) report
+/// `disabled` without starting the worker thread.
 pub fn state_view(s: &dyn UpdaterHost) -> Option<StateView> {
     let Some(service) = s.updater().service_ref() else {
-        return rune::is_headless().then_some(StateView {
-            phase: "disabled",
-            version: None,
-            progress: None,
-            error: None,
-        });
+        return is_suppressed().then(disabled_view);
     };
     let service = service.borrow();
     match service.snapshot().state {
@@ -470,8 +520,8 @@ fn view_state(view: &View, snapshot: &Snapshot) -> StateView {
 /// Checks for updates now and passes the resulting [`StateView`] to `done`.
 pub fn check_with(s: &dyn UpdaterHost, done: impl FnOnce(Option<StateView>) + 'static) {
     let Some(service) = s.updater().service_ref() else {
-        let view = if rune::is_headless() {
-            StateView { phase: "disabled", version: None, progress: None, error: None }
+        let view = if is_suppressed() {
+            disabled_view()
         } else {
             StateView { phase: "error", version: None, progress: None, error: Some(NO_UPDATER.into()) }
         };

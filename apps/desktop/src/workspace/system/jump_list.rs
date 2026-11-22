@@ -20,7 +20,6 @@ pub fn poll(_: &mut App) {}
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
     use super::*;
-    use crate::deep_links::percent;
 
     /// How many of each the list shows: Windows shows ten recent entries by default, all categories
     /// together.
@@ -84,6 +83,9 @@ mod native {
         list.category(opencode_i18n::t!("home.projects"), projects).category(opencode_i18n::t!("sidebar.project.recentSessions"), sessions)
     }
 
+    fn percent(s: &str) -> String {
+        s.bytes().map(|b| if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~' | b'/') { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
+    }
 }
 
 /// `poll`, in a live window: sends the list when it changed.

@@ -6,7 +6,6 @@
 use std::hash::{Hash, Hasher};
 
 use mlua::Function;
-use opencode_ui::focus::FocusExt;
 use rune::{El, Tx, col, el, row, text};
 use rune_luau::Data;
 use session_view::palette::Elevate as _;
@@ -15,7 +14,8 @@ use crate::App;
 use crate::palette::Pal;
 use crate::plugin_host::plugin::{Contrib, Contribs};
 use crate::plugin_host::services::{self, map};
-use crate::plugin_host::{Flyout, FlyoutEvent, OpenDialog, Overlay, commands, cx, dormant, epoch, icons, requests};
+use crate::plugin_host::{Flyout, FlyoutEvent, Life, OpenDialog, Overlay, commands, cx, dormant, epoch, icons, reload, requests};
+use crate::view::UI_MED;
 
 thread_local! {
     /// A render logged an error since [`render`] cleared it.
@@ -36,8 +36,14 @@ pub fn render(app: &App, p: &Pal, i: usize, surface: &str, f: &Function, props: 
     let Some(script) = plugin.script() else { return el() };
     let half = &plugin.half;
     let chrome = surface.starts_with("slot:");
-    if chrome && half.failed.borrow().contains(surface) {
-        return el();
+    let settings_page = surface.starts_with("page:");
+    if half.failed.borrow().contains(surface) {
+        if chrome {
+            return el();
+        }
+        if settings_page {
+            return page_error_card(p, &plugin.manifest.id, &plugin.manifest.name, None);
+        }
     }
     struct RestoreFailed(bool);
     impl Drop for RestoreFailed {
@@ -60,9 +66,12 @@ pub fn render(app: &App, p: &Pal, i: usize, surface: &str, f: &Function, props: 
     let (built, read) = cx::recording(|| cx::rendering_as(&id, || cx::enter(app, || script.render_fn::<App>(surface, version, p.dark, f, props))));
     let failed = FAILED.get();
     drop(restore_failed);
-    if chrome && failed {
+    if failed && (chrome || settings_page) {
         half.failed.borrow_mut().insert(surface.to_owned());
-        return el();
+        if chrome {
+            return el();
+        }
+        return page_error_card(p, &plugin.manifest.id, &plugin.manifest.name, None);
     }
     if script.metrics().renders > before {
         if let (Some(t0), Some(args_str)) = (t0, trace_args) {
@@ -173,105 +182,21 @@ pub fn slot_with(app: &App, p: &Pal, name: &str, session: &str, active: bool, co
     all.into_iter().map(|(_, el)| el).collect()
 }
 
-/// Desktop's default titlebar item icon: a download arrow (`titlebar-items.tsx`).
-static DOWNLOAD: rune::Icon = rune::Icon { name: "titlebar-download", view: 14.0, body: r#"<path d="M7 11V3M3.5 7.63128L7 11L10.5 7.63128" stroke="currentColor" fill="none"/>"# };
-
-/// `color-mix(in srgb, a n%, b)` for opaque `a` and `b`.
-fn mix_srgb(a: rune::Color, b: rune::Color, n: f32) -> rune::Color {
-    use rune::color::{srgb_decode, srgb_encode};
-    let m = |x: f32, y: f32| srgb_decode(srgb_encode(x) * n + srgb_encode(y) * (1.0 - n));
-    rune::Color { r: m(a.r, b.r), g: m(a.g, b.g), b: m(a.b, b.b), a: a.a * n + b.a * (1.0 - n) }
-}
-
-/// Titlebar items: each plugin's `show()` answer as Desktop's `TitlebarItemButton`
-/// (`titlebar-items.tsx`, `titlebar-items.css`): a round blue-tinted pill over `bg-deep` holding
-/// its icon, which grows on hover to show its label (11/16 at 530) as the label fades and slides
-/// in over 150 ms. In the titlebar it is 20 across with the label before the icon, 12 before the
-/// titlebar's end; in the sidebar's footer (`vertical`) 28 across with the label after it.
+/// Titlebar items: each plugin's `show()` answer as a [`titlebar_pill`](super::titlebar_pill),
+/// in the titlebar or, `vertical`, the sidebar's footer.
 fn titlebar_pills(app: &App, p: &Pal, vertical: bool) -> Vec<El> {
-    let ease = rune::Curve::tween(0.15, rune::Easing::cubic(0.0, 0.0, 0.58, 1.0));
     let found = each::<(), _>(app, |c| c.titlebar_items.iter().map(|t| (t.key, t.f("show").cloned(), t.f("run").cloned())).collect());
     want_asleep(app, &found, false);
-    let light_blue = (!p.dark).then(|| session_view::palette::token(false, "blue-700").unwrap_or(p.accent));
-    let icon_color = light_blue.unwrap_or(p.v2.icon_accent);
-    let label_color = light_blue.unwrap_or_else(|| session_view::palette::token(true, "text-text-accent").unwrap_or(p.accent));
-    let tint = if p.dark { p.v2.icon_accent } else { p.bg_accent };
-    let rest_fill = mix_srgb(tint, p.bg_deep, if p.dark { 0.20 } else { 0.10 });
-    let hover_fill = mix_srgb(tint, p.bg_deep, if p.dark { 0.25 } else { 0.14 });
-    let rtl = opencode_i18n::direction() == opencode_i18n::Direction::Rtl;
-    let closed_x = if vertical {
-        if rtl { 8.0 } else { -8.0 }
-    } else if rtl {
-        -8.0
-    } else {
-        8.0
-    };
     found
         .into_iter()
         .filter_map(|(i, (key, show, run))| {
             let script = app.plugins.list[i].script()?;
             let view: opencode_plugin_spec::TitlebarItemView = cx::enter(app, || script.eval_fn::<Data>(show.as_ref()?, ()).ok())?.decode().ok()?;
-            let busy = view.busy == Some(true);
-            let hovered = app.plugins.titlebar_hover == Some(key);
-            let open = hovered || app.plugins.titlebar_focus.as_deref() == Some(key);
-            let side = if vertical { 28.0 } else { 20.0 };
-            let glyph = if busy {
-                rune_kit::Loader::new().size(12.0).color(p.v2.icon_accent).build(crate::palette::kit(p))
-            } else {
-                let plugin = app.plugins.list[i].manifest.id.as_str();
-                let icon = view.icon.as_deref().map_or(&DOWNLOAD, |name| crate::plugin_host::icons::resolve(plugin, name));
-                rune::icon(icon, 14.0).color(icon_color)
-            };
-            let glyph = row().size(side, side).center().child(glyph);
-            let label = text(view.label.clone())
-                .font(rune::TextStyle::new(11.0, 530.0).lh(16.0))
-                .color(label_color)
-                .opacity(if open { 1.0 } else { 0.0 })
-                .opacity_motion(ease)
-                .offset(if open { 0.0 } else { closed_x }, 0.0)
-                .offset_motion(ease);
-            let label = if vertical { label.ml(1.0).mr(16.0) } else { label.ml(8.0).mr(1.0) };
-            let inner = if vertical { row().child(glyph).child(label) } else { row().justify_end().child(label).child(glyph) };
-            let mut button = inner
-                .key(format!("plugin-titlebar-{key}"))
-                .role("button")
-                .label(view.title.clone().unwrap_or_else(|| view.label.clone()))
-                .h(side)
-                .min_w(side)
-                .center_y()
-                .radius(side / 2.0)
-                .focus_inset(p)
-                .fill(if hovered { hover_fill } else { rest_fill })
-                .clip_rounded(side / 2.0)
-                .no_window_drag();
-            if !open {
-                button = button.w(side);
-            }
-            if busy {
-                button = button.layer_opacity(0.6).disabled(true);
-            } else if let Some(run) = run {
-                button = button.cursor(rune::Cursor::Pointer).on_press_tx(move |s: &mut App, tx: &mut Tx| commands::spawn(s, i, &run, (), tx));
-            }
-            let mut group = el()
-                .key(format!("plugin-titlebar-wrap-{key}"))
-                .h(side)
-                .min_w(side)
-                .radius(side / 2.0)
-                .fill(p.bg_deep)
-                .clip_rounded(side / 2.0)
-                .no_window_drag()
-                .on_hover_change(move |s: &mut App, inside: bool, tx: &mut Tx| {
-                    let now = inside.then_some(key);
-                    if s.plugins.titlebar_hover != now && (inside || s.plugins.titlebar_hover == Some(key)) {
-                        s.plugins.titlebar_hover = now;
-                        tx.instant();
-                    }
-                })
-                .child(button);
-            if !open {
-                group = group.w(side);
-            }
-            Some(group)
+            let plugin = app.plugins.list[i].manifest.id.as_str();
+            let icon = view.icon.as_deref().map_or(&super::titlebar_pill::DOWNLOAD, |name| crate::plugin_host::icons::resolve(plugin, name));
+            let pill = super::titlebar_pill::Pill { key, label: view.label, title: view.title, icon, busy: view.busy == Some(true) };
+            let press = run.map(|run| move |s: &mut App, tx: &mut Tx| commands::spawn(s, i, &run, (), tx));
+            Some(super::titlebar_pill::view(app, p, vertical, pill, press))
         })
         .collect()
 }
@@ -576,11 +501,28 @@ fn page_body(app: &App, p: &Pal, i: usize, spec: &opencode_plugin_spec::Settings
     render(app, p, i, &format!("page:{}", spec.id), f, map([("target", target.map_or(Data::Nil, Data::String))]))
 }
 
+/// Whether plugin `plugin_id` is currently running and contributing a live `SettingsPage` on host
+/// page `page` (such as `"updater"` on `"general"`).
+pub fn has_live_settings_section(app: &App, plugin_id: &str, page: &str) -> bool {
+    app.plugins.running().any(|(_, p)| {
+        p.manifest.id == plugin_id
+            && p.half.contribs.borrow().settings_pages.iter().any(|s| {
+                s.spec.page.map(|hp| hp.as_str()) == Some(page) && s.f("render").is_some()
+            })
+    })
+}
+
 /// The settings pages plugins add on host page `page` (`general`, `servers`), as sections of
 /// that page (`PluginSettingsSections`). A section draws its own title and list
 /// (`ui.settingsList`), as Desktop's do.
 pub fn settings_pages(app: &App, p: &Pal, page: &str) -> Vec<El> {
-    page_specs(app, Some(page)).into_iter().filter_map(|(i, key, spec, f)| Some(col().key(format!("plugin-page-{key}")).w_full().child(page_body(app, p, i, &spec, f.as_ref()?)))).collect()
+    let found = page_specs(app, Some(page));
+    let indices: Vec<(usize, ())> = found.iter().map(|(i, ..)| (*i, ())).collect();
+    want_asleep(app, &indices, true);
+    found
+        .into_iter()
+        .filter_map(|(i, key, spec, f)| Some(col().key(format!("plugin-page-{key}")).w_full().child(page_body(app, p, i, &spec, f.as_ref()?))))
+        .collect()
 }
 
 /// The plugins' own Settings pages, in order, by key, each with whether it belongs beside
@@ -613,10 +555,58 @@ pub fn settings_page_icon(app: &App, key: &str) -> Option<&'static rune::Icon> {
     own_page(app, key).and_then(|(i, _, spec, _)| Some(icons::resolve(&app.plugins.list[i].manifest.id, &spec.icon?)))
 }
 
+/// Error card with Reload shown when a plugin Settings page fails to render or its plugin errored.
+fn page_error_card(p: &Pal, id: &str, name: &str, why: Option<&str>) -> El {
+    let plugin_id = id.to_owned();
+    let title = format!("{name} settings failed to render");
+    let desc = why
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| "This settings page stopped after a script error. Reload the plugin to try again.".to_owned());
+    let btn = row()
+        .key(format!("plugin-page-reload-{id}"))
+        .role("button")
+        .label("Reload")
+        .h(28.0)
+        .px(10.0)
+        .center()
+        .radius(6.0)
+        .border(0.5, p.border)
+        .hover(p.hover)
+        .press(p.pressed)
+        .on_press_tx(move |app: &mut App, tx: &mut Tx| {
+            tx.instant();
+            if dormant::wake(app, &plugin_id, dormant::Why::Use) {
+                return;
+            }
+            if let Some(idx) = app.plugins.find(&plugin_id) {
+                app.plugins.list[idx].half.failed.borrow_mut().clear();
+                reload(app, idx, None);
+            }
+        })
+        .child(text("Reload").font(UI_MED).color(p.text));
+    crate::settings::settings_card(
+        p,
+        &format!("plugin-page-error-{id}"),
+        std::iter::once((format!("plugin-page-error-row-{id}"), title.as_str(), desc, btn)),
+    )
+}
+
 /// A plugin page: its title, description and what it draws.
 pub fn settings_page(app: &App, p: &Pal, key: &str) -> Option<(String, String, El)> {
     let (i, _, spec, f) = own_page(app, key)?;
-    let body = page_body(app, p, i, &spec, f.as_ref()?);
+    let body = match f.as_ref() {
+        Some(f) => page_body(app, p, i, &spec, f),
+        None => {
+            let plugin = &app.plugins.list[i];
+            if matches!(plugin.life, Life::Errored { .. }) {
+                page_error_card(p, &plugin.manifest.id, &plugin.manifest.name, plugin.life.why())
+            } else {
+                want_asleep(app, &[(i, ())], true);
+                return None;
+            }
+        }
+    };
     Some((spec.title.clone(), spec.description.clone().unwrap_or_default(), body))
 }
 

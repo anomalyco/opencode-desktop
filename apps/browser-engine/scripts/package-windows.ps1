@@ -91,11 +91,11 @@ if (-not (Test-Path (Join-Path $cefDir 'archive.json'))) {
   Remove-Item -Recurse -Force $unpack
 }
 
-# 2. The engine.
+# 2. The engine (client DLL exporting `RunWinMain`, launched by CEF's sandboxed `bootstrap.exe`).
 if (-not $SkipBuild) {
   Write-Host "Building opencode-browser-engine $Version ($($T.Triple))"
-  $cargoArgs = @('build', '--release', '--locked', '--manifest-path', (Join-Path $Engine 'Cargo.toml'), '--bins', '--target', $T.Triple, '--target-dir', $TargetDir)
-  # The C runtime linked in, as the app's, so the engine's executables need no Visual C++
+  $cargoArgs = @('build', '--release', '--locked', '--manifest-path', (Join-Path $Engine 'Cargo.toml'), '--lib', '--target', $T.Triple, '--target-dir', $TargetDir)
+  # The C runtime linked in, as the app's, so the engine's DLL needs no Visual C++
   # Redistributable. RUSTFLAGS replaces the repository's .cargo/config.toml flags, whose
   # profile-guided ones are the app's.
   $rustflags = $env:RUSTFLAGS
@@ -106,12 +106,14 @@ if (-not $SkipBuild) {
 $bin = Join-Path $TargetDir "$($T.Triple)\release"
 
 # 3. The folder: what a side-panel browser loads, biggest first so the app can check it while the
-#    rest arrives. Left out of CEF's distribution: its static-link sandbox launchers
-#    (bootstrap*.exe), the import library, SwiftShader and the Vulkan loader (without a GPU,
-#    Chromium draws in software and WebGL runs on WARP), the bundled d3dcompiler_47.dll (WebGL's
-#    shaders compile with the one Windows 10 and 11 ship), the gendered locale variants, and every
-#    locale the app has no language for (it starts the engine in its own). DXC (dxcompiler.dll)
-#    stays: WebGPU can't create a device without it.
+#    rest arrives. CEF's prebuilt `bootstrap.exe` (statically linked with `cef_sandbox`) is renamed
+#    to `opencode-browser-engine.exe` and patched to an 8 MiB stack reserve (#582, matching
+#    `chrome.exe` so V8 compiling large MV3 service workers never overflows the default 1 MiB stack);
+#    it loads our `opencode-browser-engine.dll` (`RunWinMain`) for both browser and sandboxed
+#    subprocesses. Left out of CEF's distribution: the console bootstrap (`bootstrapc.exe`), the
+#    import library, SwiftShader and the Vulkan loader (without a GPU, Chromium draws in software
+#    and WebGL runs on WARP), the bundled d3dcompiler_47.dll (Windows ships it), gendered locale
+#    variants, and unused locales. DXC (dxcompiler.dll) stays: WebGPU needs it.
 $files = @('libcef.dll', 'dxcompiler.dll', 'resources.pak', 'icudtl.dat', 'chrome_elf.dll', 'chrome_200_percent.pak', 'v8_context_snapshot.bin', 'chrome_100_percent.pak', 'CREDITS.html', 'LICENSE.txt')
 $appLocales = (Get-Content -Raw (Join-Path $Repo 'crates\opencode-i18n\locales\locales.json') | ConvertFrom-Json).locales.id
 # The app's language ids that Chromium names otherwise (browser-pane `chromium_locale`).
@@ -124,8 +126,42 @@ Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force (Join-Path $app 'locales') | Out-Null
 foreach ($f in $files) { Copy-Item (Join-Path $cefDir $f) $app }
 foreach ($l in $locales) { Copy-Item (Join-Path $cefDir "locales\$l.pak") (Join-Path $app 'locales') }
-Copy-Item (Join-Path $bin 'opencode-browser-engine.exe'), (Join-Path $bin 'opencode-browser-engine-helper.exe') $app
-$entries = @($files + @('opencode-browser-engine.exe', 'opencode-browser-engine-helper.exe') + ($locales | ForEach-Object { "locales/$_.pak" })) |
+$engineExe = Join-Path $app 'opencode-browser-engine.exe'
+$engineDll = Join-Path $app 'opencode-browser-engine.dll'
+Copy-Item (Join-Path $cefDir 'bootstrap.exe') $engineExe
+Copy-Item (Join-Path $bin 'opencode_browser_engine.dll') $engineDll
+
+# Patch `bootstrap.exe`'s PE stack reserve from 1 MiB to 8 MiB before signing (#582).
+$editbin = (Get-Command editbin.exe -ErrorAction SilentlyContinue).Source
+if (-not $editbin) {
+  $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+  if (Test-Path -LiteralPath $vswhere) {
+    $vs = (& $vswhere -latest -products * -property installationPath | Select-Object -First 1)
+    if ($vs) {
+      $cands = @(Get-ChildItem "$vs\VC\Tools\MSVC" -Recurse -Filter 'editbin.exe' -ErrorAction SilentlyContinue |
+        Sort-Object FullName -Descending | Select-Object -ExpandProperty FullName)
+      $hostPref = if ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [Runtime.InteropServices.Architecture]::Arm64) {
+        'Hostarm64\\arm64\\editbin\.exe$'
+      } else {
+        'Hostx64\\x64\\editbin\.exe$'
+      }
+      $editbin = ($cands | Where-Object { $_ -match $hostPref } | Select-Object -First 1)
+      if (-not $editbin) { $editbin = ($cands | Where-Object { $_ -match 'Hostx64\\x64\\editbin\.exe$' } | Select-Object -First 1) }
+      if (-not $editbin) { $editbin = ($cands | Select-Object -First 1) }
+    }
+  }
+}
+if (-not $editbin) { throw 'editbin.exe not found on PATH or in Visual Studio Build Tools.' }
+& $editbin /NOLOGO /STACK:8388608 $engineExe
+if ($LASTEXITCODE -ne 0) { throw "editbin /STACK:8388608 failed on $engineExe" }
+$peBytes = [IO.File]::ReadAllBytes($engineExe)
+$peOff = [BitConverter]::ToInt32($peBytes, 0x3C)
+$optMagic = [BitConverter]::ToUInt16($peBytes, $peOff + 24)
+if ($optMagic -ne 0x20B) { throw "Unexpected PE optional header magic 0x$($optMagic.ToString('x')) in $engineExe" }
+$stackReserve = [BitConverter]::ToUInt64($peBytes, $peOff + 24 + 72)
+if ($stackReserve -lt 8388608) { throw "Expected >= 8 MiB stack reserve on $engineExe, got $stackReserve" }
+
+$entries = @($files + @('opencode-browser-engine.exe', 'opencode-browser-engine.dll') + ($locales | ForEach-Object { "locales/$_.pak" })) |
   ForEach-Object { "OpenCode Browser Engine/$_" }
 if ($StageOnly) {
   Write-Host "staged $stage"
@@ -136,7 +172,7 @@ if ($StageOnly) {
   $stage = $ArchiveOnly
   New-Item -ItemType Directory -Force $Out | Out-Null
   $app = Join-Path $stage 'OpenCode Browser Engine'
-  $order = @('libcef.dll', 'dxcompiler.dll', 'resources.pak', 'icudtl.dat', 'chrome_elf.dll', 'chrome_200_percent.pak', 'v8_context_snapshot.bin', 'chrome_100_percent.pak', 'CREDITS.html', 'LICENSE.txt', 'opencode-browser-engine.exe', 'opencode-browser-engine-helper.exe')
+  $order = @('libcef.dll', 'dxcompiler.dll', 'resources.pak', 'icudtl.dat', 'chrome_elf.dll', 'chrome_200_percent.pak', 'v8_context_snapshot.bin', 'chrome_100_percent.pak', 'CREDITS.html', 'LICENSE.txt', 'opencode-browser-engine.exe', 'opencode-browser-engine.dll')
   $locales = @(Get-ChildItem (Join-Path $app 'locales') -Filter *.pak | ForEach-Object BaseName)
   $entries = @($order | Where-Object { Test-Path (Join-Path $app $_) }) + @(Get-ChildItem (Join-Path $app 'locales') -Filter *.pak | Sort-Object Name | ForEach-Object { "locales/$($_.Name)" }) |
     ForEach-Object { "OpenCode Browser Engine/$_" }

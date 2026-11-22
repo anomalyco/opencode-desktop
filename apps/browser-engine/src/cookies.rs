@@ -310,7 +310,7 @@ wrap_cookie_visitor! {
     }
 }
 
-fn visit_all<F>(mgr: &CookieManager, include_probe: bool, on_done: F)
+pub(crate) fn visit_all<F>(mgr: &CookieManager, include_probe: bool, on_done: F)
 where
     F: FnOnce(Vec<WireCookie>) + Send + 'static,
 {
@@ -351,7 +351,7 @@ wrap_completion_callback! {
     }
 }
 
-fn completion_cb<F: FnOnce() + Send + 'static>(cb: F) -> CompletionCallback {
+pub(crate) fn completion_cb<F: FnOnce() + Send + 'static>(cb: F) -> CompletionCallback {
     OnceCompletion::new(Arc::new(CompletionOnce {
         cb: Mutex::new(Some(Box::new(cb))),
     }))
@@ -718,53 +718,58 @@ impl CookieController {
     /// both the default profile and every active remote server partition (`profile/index.ts:509-524`).
     /// Note: open tabs also receive CDP `Storage.clearDataForOrigin` + `Network.clearBrowserCache`
     /// from `EngineManager` right beside this call.
-    pub fn clear_all(
-        &mut self,
-        contexts: &ContextPool,
-        request_id: u64,
-        out_tx: Output,
-    ) {
+    pub fn clear_all(&mut self, contexts: &ContextPool, done: Box<dyn FnOnce(bool) + Send>) {
         // End every mirror so a reconcile in flight writes nothing more and removes what it raced in;
         // the next reconcile starts a fresh one.
         for entry in self.mirrors.values() {
             entry.cancel.store(SIGNED_OUT, Ordering::Release);
         }
         self.mirrors.clear();
-        // Clear remote partitions first (flush + auth clear).
-        for (partition, ctx) in contexts.remote_partitions() {
-            let mut auth_cb = completion_cb(|| {});
-            ctx.clear_http_auth_credentials(Some(&mut auth_cb));
-            if let Some(mgr) = ctx.cookie_manager(None) {
-                // No new mirror starts on this partition until the wipe and its flush are done.
-                let guard = Draining(self.draining.entry(partition.clone()).or_default().clone()).start();
-                let mgr_f = mgr.clone();
-                let mut del_cb = delete_cookies_cb(move |_| {
-                    let mut flushed = completion_cb(move || drop(guard));
-                    let _ = mgr_f.flush_store(Some(&mut flushed));
-                });
-                let _ = mgr.delete_cookies(None, None, Some(&mut del_cb));
-            }
-        }
-        // Clear global default profile HTTP auth cache & cookies + flush.
-        if let Some(global_ctx) = cef::request_context_get_global_context() {
-            let mut auth_cb = completion_cb(|| {});
-            global_ctx.clear_http_auth_credentials(Some(&mut auth_cb));
-        }
+        let remotes = contexts.remote_partitions();
+        let global = cef::request_context_get_global_context();
         let Some(mgr) = cef::cookie_manager_get_global_manager(None) else {
-            let _ = out_tx.send(EngineMsg::ProfileActionDone { request_id, ok: false });
-            return;
+            return done(false);
         };
+        // `done` once every partition's sign-ins and cookies are gone and flushed: each remote's
+        // HTTP sign-ins and cookies, the shared profile's HTTP sign-ins and cookies.
+        let join = Join::new(2 * remotes.len() + 2, done);
+        for (partition, ctx) in remotes {
+            let auth = join.part();
+            let mut auth_cb = completion_cb(move || auth(true));
+            ctx.clear_http_auth_credentials(Some(&mut auth_cb));
+            let part = join.part();
+            let Some(mgr) = ctx.cookie_manager(None) else {
+                part(false);
+                continue;
+            };
+            // No new mirror starts on this partition until the wipe and its flush are done.
+            let guard = Draining(self.draining.entry(partition.clone()).or_default().clone()).start();
+            let mgr_f = mgr.clone();
+            let mut del_cb = delete_cookies_cb(move |deleted| {
+                let mut flushed = completion_cb(move || {
+                    drop(guard);
+                    part(deleted >= 0);
+                });
+                let _ = mgr_f.flush_store(Some(&mut flushed));
+            });
+            let _ = mgr.delete_cookies(None, None, Some(&mut del_cb));
+        }
+        let auth = join.part();
+        match global {
+            Some(global_ctx) => {
+                let mut auth_cb = completion_cb(move || auth(true));
+                global_ctx.clear_http_auth_credentials(Some(&mut auth_cb));
+            }
+            None => auth(false),
+        }
+        let part = join.part();
         let mgr_done = mgr.clone();
         let mut del_cb = delete_cookies_cb(move |deleted| {
-            let ok = deleted >= 0;
-            let mut flush = completion_cb(move || {
-                let _ = out_tx.send(EngineMsg::ProfileActionDone { request_id, ok });
-            });
+            let mut flush = completion_cb(move || part(deleted >= 0));
             let _ = mgr_done.flush_store(Some(&mut flush));
         });
         let _ = mgr.delete_cookies(None, None, Some(&mut del_cb));
     }
-
     /// Toggles two-way cookie sharing with remote server partitions (`profile/index.ts:643-647`).
     /// Turning sharing off stops mirroring AND removes shared cookies from every remote partition.
     pub fn set_share_sign_ins(&mut self, enabled: bool, contexts: &ContextPool) {
@@ -1077,5 +1082,39 @@ impl CookieController {
                 }
             });
         });
+    }
+}
+
+/// Runs `done` once, when the last of its parts ends, with whether every part succeeded. A part
+/// dropped without running counts as failed (`completion_cb`'s drop runs it).
+pub(crate) struct Join {
+    left: AtomicUsize,
+    ok: AtomicBool,
+    done: Mutex<Option<Box<dyn FnOnce(bool) + Send>>>,
+}
+
+impl Join {
+    pub(crate) fn new(parts: usize, done: Box<dyn FnOnce(bool) + Send>) -> Arc<Join> {
+        Arc::new(Join { left: AtomicUsize::new(parts), ok: AtomicBool::new(true), done: Mutex::new(Some(done)) })
+    }
+}
+
+pub(crate) trait JoinPart {
+    fn part(&self) -> Box<dyn FnOnce(bool) + Send>;
+}
+
+impl JoinPart for Arc<Join> {
+    fn part(&self) -> Box<dyn FnOnce(bool) + Send> {
+        let join = self.clone();
+        Box::new(move |ok| {
+            if !ok {
+                join.ok.store(false, Ordering::Release);
+            }
+            if join.left.fetch_sub(1, Ordering::AcqRel) == 1
+                && let Some(done) = join.done.lock().unwrap().take()
+            {
+                done(join.ok.load(Ordering::Acquire));
+            }
+        })
     }
 }

@@ -134,8 +134,8 @@ mod native {
         pub session_tabs: HashMap<String, Vec<u64>>,
         /// DevTools calls a plugin waits on, by the engine's request id.
         pub devtools: HashMap<u64, PendingDevtools>,
-        /// Settings > Browser's cookie-file import waiting on the engine (`cookie_import`).
-        pub cookie_import: Option<super::cookie_import::CookieImport>,
+        /// Settings > Browser's cookie import, Clear browsing data and cookie count (`cookie_import`).
+        pub cookies: super::cookie_import::CookieJobs,
         /// Each other browser's icon and the browsers' list for Settings > Browser, read off the UI thread (`app_icons`).
         pub app_icons: super::app_icons::AppIcons,
         /// Last observed Luau store version for `plugin.browser/rune.sitePermissions`.
@@ -686,7 +686,7 @@ mod native {
 
         /// Page `id`'s tab left its strip: the page closes and any preview server binding revokes.
         pub fn forget_browser_tab(&mut self, id: u64) {
-            self.workspace_panes.browser.closing_tabs.remove(&id);
+            self.forget_tab_marks(id);
             self.workspace_panes.browser.active_app_reviews.borrow_mut().remove(&id);
             self.workspace_panes.browser.openers.on_close(id);
             crate::plugin_host::services::browser_contract::revoke_tab(self, id);

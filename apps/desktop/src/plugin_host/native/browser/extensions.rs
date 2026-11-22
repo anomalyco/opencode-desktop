@@ -21,8 +21,8 @@ use rune_luau::{Completer, Data, Host};
 
 use super::{App, Dep, Vmx, cx, json_to_data, map, method, scope, with_app};
 use crate::surfaces::browser::extensions::{
-    BROWSER_EXTENSIONS, CHROME_STORE_VERSION, ExtInstallCore, failure_code_str, manager,
-    platform_dirs, run_cleanup_effects, sync_startup_specs,
+    BROWSER_EXTENSIONS, CHROME_STORE_VERSION, ExtInstallCore, cached_ext_list, failure_code_str,
+    invalidate_cache, manager, platform_dirs, run_cleanup_effects, schedule_startup_sync,
 };
 
 const RESTRICTED: &str =
@@ -123,32 +123,7 @@ pub(super) fn service_methods(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> m
         cx::read(Dep::Browser);
         let stored = decode_stored(lua, stored_val);
         let list: Vec<ProfileExtension> = with_app("Browser:ExtList", |app| {
-            let mut changed_ids = app
-                .kernel
-                .slots
-                .get(&BROWSER_EXTENSIONS)
-                .integrity_failed
-                .clone();
-            let Ok(mgr) = manager() else {
-                return Ok(Vec::new());
-            };
-            let verified = mgr.verify_enabled_for_startup(&stored);
-            for id in verified.changed_ids {
-                changed_ids.insert(id);
-            }
-            let stored_for_sync = stored.clone();
-            app.later(Box::new(move |s: &mut App, _: &mut Tx| {
-                let _ = sync_startup_specs(s, &stored_for_sync);
-            }));
-            let mut out: Vec<ProfileExtension> = stored
-                .iter()
-                .filter_map(|rec| {
-                    let is_changed = changed_ids.contains(&rec.id);
-                    mgr.describe(rec, is_changed, None)
-                })
-                .collect();
-            out.sort_by_key(|e| e.name.to_ascii_lowercase());
-            Ok(out)
+            Ok(cached_ext_list(app, &stored))
         })?;
         to_lua_json(lua, &list)
     })?;
@@ -225,14 +200,15 @@ pub(super) fn service_methods(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> m
                     if !enabled {
                         s.workspace_panes.browser.host.disable_extension_live(&ext_id);
                     }
-                    let _ = sync_startup_specs(s, &stored);
+                    let mut need_restart = false;
                     if enabled
                         && s.workspace_panes.browser.host.has_live_sidecar()
                         && s.workspace_panes.browser.host.engine_extensions()
                         && !s.workspace_panes.browser.host.reenable_extension_live(&ext_id)
                     {
-                        s.workspace_panes.browser.host.restart_engine_for_extensions();
+                        need_restart = true;
                     }
+                    schedule_startup_sync(s, stored, true, need_restart);
                 }));
                 Ok(())
             })?;
@@ -268,11 +244,14 @@ pub(super) fn service_methods(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> m
                     .get_mut(&BROWSER_EXTENSIONS)
                     .integrity_failed
                     .remove(&ext_id);
+                invalidate_cache(s);
                 if let Ok(mgr) = manager() {
-                    run_cleanup_effects(&mgr, &effects);
-                    mgr.remove_managed_dir(&rec);
+                    rune_luau::spawn_blocking(move || {
+                        run_cleanup_effects(&mgr, &effects);
+                        mgr.remove_managed_dir(&rec);
+                    });
                 }
-                let _ = sync_startup_specs(s, &stored);
+                schedule_startup_sync(s, stored, true, false);
             }));
             Ok(())
         })?;
@@ -287,13 +266,7 @@ pub(super) fn service_methods(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> m
         let stored = decode_stored(lua, stored_val);
         with_app("Browser:ExtSync", |app| {
             app.later(Box::new(move |s: &mut App, _: &mut Tx| {
-                let _ = sync_startup_specs(s, &stored);
-                if restart_if_live == Some(true)
-                    && s.workspace_panes.browser.host.has_live_sidecar()
-                    && s.workspace_panes.browser.host.engine_extensions()
-                {
-                    s.workspace_panes.browser.host.restart_engine_for_extensions();
-                }
+                schedule_startup_sync(s, stored, true, restart_if_live == Some(true));
             }));
             Ok(())
         })
@@ -304,13 +277,11 @@ pub(super) fn service_methods(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> m
         cx::read(Dep::Browser);
         let stored = decode_stored(lua, stored_val);
         let items: Vec<serde_json::Value> = with_app("Browser:ExtActions", |app| {
-            let Ok(mgr) = manager() else {
-                return Ok(Vec::new());
-            };
+            let profiles = cached_ext_list(app, &stored);
             let live = app.workspace_panes.browser.host.extension_actions().to_vec();
             let mut out = Vec::new();
             for rec in stored.iter().filter(|r| r.enabled) {
-                let Some(desc) = mgr.describe(rec, false, None) else { continue };
+                let Some(desc) = profiles.iter().find(|p| p.id == rec.id) else { continue };
                 let act = live.iter().find(|a| a.ext_id == rec.id);
                 let title = act.map(|a| a.title.as_str()).filter(|s| !s.is_empty()).unwrap_or(&desc.name);
                 let icon = act
@@ -547,6 +518,7 @@ fn approve_review(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()>
                 .get_mut(&BROWSER_EXTENSIONS)
                 .integrity_failed
                 .remove(&staged.record.id);
+            invalidate_cache(s);
             rune_luau::spawn_blocking(move || {
                 match mgr.approve_staged(staged, &token) {
                     Ok(swap) => {

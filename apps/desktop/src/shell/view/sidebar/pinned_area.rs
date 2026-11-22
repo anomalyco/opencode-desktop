@@ -228,6 +228,7 @@ fn vertical_session(s: &App, p: &Pal, r: &PinRef, nav_order: &[String], show_hin
         .hover(if d.active || marked { Color::TRANSPARENT } else { p.hover })
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| pins::open_pin(s, &pin_click, tx))
+        .non_closable_tab::<App>()
         .on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| open_pin_menu(s, &pin_ctx, press, tx))
         .child(el().size(16.0, 16.0).center().child(avatar))
         .child(title_el);
@@ -275,6 +276,7 @@ fn horizontal_session(s: &App, p: &Pal, r: &PinRef, nav_order: &[String], show_h
         .hover(if d.active || marked { Color::TRANSPARENT } else { p.hover })
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| pins::open_pin(s, &pin_click, tx))
+        .non_closable_tab::<App>()
         .on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| open_pin_menu(s, &pin_ctx, press, tx))
         .child(lead);
     if d.muted {

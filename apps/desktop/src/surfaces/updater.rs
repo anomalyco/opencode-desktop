@@ -106,6 +106,9 @@ pub fn check_with_dialog(s: &mut App) {
         use std::sync::atomic::Ordering;
         use opencode_feature_updater::dialog;
 
+        if opencode_feature_updater::is_suppressed() {
+            return;
+        }
         if CHECK_DIALOG_ACTIVE.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() {
             return;
         }
@@ -275,6 +278,8 @@ pub fn init() {
         },
         updates_dir: crate::dirs::updates,
         plain_error: crate::status_toast::plain,
+        rooted: crate::dirs::rooted,
+        harness_writes: crate::harness_writes,
     });
 }
 
@@ -305,7 +310,7 @@ impl Feature<App> for UpdaterFeature {
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.register_slot(&UPDATER);
         builder.schedule(crate::tick::stage::INGEST_LOCAL, "updater.poll", |s, _, tx| {
-            if PENDING_DIALOG_INSTALL.swap(false, std::sync::atomic::Ordering::AcqRel) {
+            if PENDING_DIALOG_INSTALL.swap(false, std::sync::atomic::Ordering::AcqRel) && !opencode_feature_updater::is_suppressed() {
                 let lang = opencode_i18n::locale().id();
                 let err_title = crate::plugin_host::sources::builtin_message("updater", lang, "dialog.checkFailed.title")
                     .unwrap_or("Update Error")
