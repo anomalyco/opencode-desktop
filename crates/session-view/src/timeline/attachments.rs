@@ -42,7 +42,7 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, id: &str) -> Option<El> {
         items = items.child(card(p, &r.name, type_label(&r.name)).key(format!("ref-{i}")).help(r.path.clone()));
     }
     for (i, f) in files.iter().enumerate() {
-        items = items.child(if f.is_image() { thumb(s, p, id, &files, i, f) } else { file_card::<S>(p, i, f) });
+        items = items.child(if f.is_image() { thumb(s, p, id, &files, i) } else { file_card::<S>(p, i, f) });
     }
     Some(row().w_full().justify_end().child(items))
 }
@@ -50,7 +50,8 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, id: &str) -> Option<El> {
 /// An image: its picture cropped to fill, with a 0.5 hairline over it, opening the viewer.
 /// Still loading it holds the same space; failed, the photo glyph in it, and a press
 /// asks again (`attachment-media-machine.ts`, `message-file.ts`).
-fn thumb<S: TimelineHost>(s: &S, p: &Pal, message: &str, files: &std::sync::Arc<[Attachment]>, i: usize, f: &Attachment) -> El {
+fn thumb<S: TimelineHost>(s: &S, p: &Pal, message: &str, files: &std::sync::Arc<[Attachment]>, i: usize) -> El {
+    let f = &files[i];
     let store = s.media_store();
     let key = format!("file-{i}");
     let image = store.image(f).filter(|img| img.error().is_none());
@@ -61,7 +62,7 @@ fn thumb<S: TimelineHost>(s: &S, p: &Pal, message: &str, files: &std::sync::Arc<
         Some(img) => {
             let thumb = tile.pixels_fit(img.pixels(), SurfaceFit::Fill).child(ring);
             let held = el().key(format!("{key}-held")).size(w, h);
-            opens(s, thumb, held, Ok(Strip::new(format!("user-attachments:{message}"), files.clone(), i)), f, img, Some(message))
+            opens(s, thumb, held, Strip::new(format!("user-attachments:{message}"), files.clone(), i), img, Some(message))
         }
         None if store.fetched(f) == Some(Fetched::Loading) => tile.child(ring),
         None => {

@@ -56,27 +56,33 @@ pub(crate) fn flight<S: TimelineHost>(s: &S) -> Spring {
 
 /// Opens the viewer on `v`, fitted, with focus on its close button (`image-preview.tsx:710-714`).
 pub(crate) fn open<S: TimelineHost>(s: &mut S, v: Viewing, tx: &mut Tx) {
+    show(s, v);
+    tx.focus(rune_kit::image_zoom::CLOSE_KEY, false);
+}
+
+/// Shows `v` in the viewer, fitted.
+fn show<S: TimelineHost>(s: &mut S, v: Viewing) {
     let store = s.media_store_mut();
     store.zoom.reset();
     store.viewing = Some(v);
-    tx.focus(rune_kit::image_zoom::CLOSE_KEY, false);
 }
 
 /// A thumbnail that opens the viewer; while the viewer shows it, an empty box of its size (keyed
 /// apart, so the thumbnail leaves the tree) holds its place, and the image flies out of it and
 /// back into it. Dragged past a few points, it goes out as its image's file instead.
 ///
-/// `strip`: the gallery it belongs to, which the viewer steps through with ← and →.
-pub fn opens<S: TimelineHost>(s: &S, thumb: El, held: El, strip: Result<Strip, String>, f: &Attachment, image: Image, message: Option<&str>) -> El {
-    let id = strip.as_ref().map_or_else(|id| id.clone(), Strip::id);
-    let strip = strip.ok();
+/// `strip`: the gallery it belongs to, which the viewer steps through with ← and → (a lone
+/// image is a strip of one).
+pub fn opens<S: TimelineHost>(s: &S, thumb: El, held: El, strip: Strip, image: Image, message: Option<&str>) -> El {
+    let id = strip.id();
     if s.media_store().viewing.as_ref().is_some_and(|v| v.id == id) {
         return held.key(HELD);
     }
+    let f = &strip.files[strip.at];
     let (name, dragged) = (f.name.clone(), Dragged::File(f.clone()));
     let thumb = super::menu::on_image::<S>(draggable::<S>(thumb, dragged.clone()), dragged.clone(), message);
     thumb.cursor(rune::Cursor::Pointer).matched(id.clone()).token_motion(flight(s)).on_press_tx(move |s: &mut S, tx: &mut Tx| {
-        open(s, Viewing { id: id.clone(), name: name.clone(), image: image.clone(), dragged: dragged.clone(), strip: strip.clone() }, tx);
+        open(s, Viewing { id: id.clone(), name: name.clone(), image: image.clone(), dragged: dragged.clone(), strip: Some(strip.clone()) }, tx);
     })
 }
 
@@ -100,21 +106,15 @@ fn viewing<S: TimelineHost>(s: &S, strip: Strip) -> Option<Viewing> {
 /// bare arrow, so none moves the timeline's focus behind it.
 fn arrow<S: TimelineHost>(s: &mut S, ev: &KeyEvent, _: &mut Tx) -> bool {
     let m = ev.mods;
-    let by: isize = match ev.key {
-        Key::Left => -1,
-        Key::Right => 1,
-        _ => return false,
-    };
-    if m.cmd || m.ctrl || m.alt || m.logo {
+    if m.cmd || m.ctrl || m.alt || m.logo || !matches!(ev.key, Key::Left | Key::Right) {
         return false;
     }
     let Some(strip) = s.media_store().viewing.as_ref().and_then(|v| v.strip.clone()) else { return true };
     // The nearest loaded picture that way: a file that isn't one, or failed, is passed over.
-    let next = (1..strip.files.len()).map(|n| strip.at as isize + by * n as isize).take_while(|&j| j >= 0 && (j as usize) < strip.files.len()).find_map(|j| viewing(s, Strip { at: j as usize, ..strip.clone() }));
+    let at = |j| viewing(s, Strip { at: j, ..strip.clone() });
+    let next = if ev.key == Key::Left { (0..strip.at).rev().find_map(at) } else { (strip.at + 1..strip.files.len()).find_map(at) };
     if let Some(v) = next {
-        let store = s.media_store_mut();
-        store.zoom.reset();
-        store.viewing = Some(v);
+        show(s, v);
     }
     true
 }

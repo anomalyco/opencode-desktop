@@ -525,7 +525,7 @@ pub fn gallery<S: TimelineHost>(s: &S, p: &Pal, key: &str, files: &[Attachment],
                 let held = el().key(format!("{k}-held")).size(w, h).absolute(x, y);
                 // The tile crops to its slot rather than letterboxing inside it.
                 let thumb = tile.box_shadow(Pal::ring_in(p.border_muted)).pixels_fit(img.pixels(), SurfaceFit::Fill).absolute(x, y);
-                opens(s, thumb, held, Ok(Strip::new(key, strip.clone(), i)), f, img, message)
+                opens(s, thumb, held, Strip::new(key, strip.clone(), i), img, message)
             }
             None => tile.absolute(x, y),
         });

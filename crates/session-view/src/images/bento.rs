@@ -17,7 +17,7 @@ pub type Tile = [f32; 4];
 pub fn tiles(sizes: &[(f32, f32)], width: f32) -> ((f32, f32), Vec<Tile>) {
     let aspect = |&(w, h): &(f32, f32)| (w / h.max(1.0)).clamp(0.4, 2.5);
     let aspects: Vec<f32> = sizes.iter().map(aspect).collect();
-    let b = Block { width: width.max(BASE), k: width.max(BASE) / BASE };
+    let b = Block { width: width.max(BASE) };
     match sizes {
         [] => ((0.0, 0.0), Vec::new()),
         [(w, h)] => ((*w, *h), vec![[0.0, 0.0, *w, *h]]),
@@ -51,16 +51,15 @@ fn rows(n: usize) -> Vec<(usize, usize)> {
     out
 }
 
-/// The block's width (never under `BASE`) and how far its heights scale from `BASE`'s.
+/// The block, never narrower than `BASE`.
 struct Block {
     width: f32,
-    k: f32,
 }
 
 impl Block {
     /// A height drawn for `BASE`, at this width.
     fn h(&self, at_base: f32) -> f32 {
-        (at_base * self.k).min(MAX_ROW.max(at_base))
+        (at_base * self.width / BASE).min(MAX_ROW)
     }
 
     /// One row the block's width, its tiles one height and as wide as their shapes ask, so a
@@ -69,7 +68,7 @@ impl Block {
         let room = self.width - GAP * (aspects.len() - 1) as f32;
         let sum: f32 = aspects.iter().sum();
         let ceiling = self.h(if aspects.len() == 2 { 240.0 } else { 170.0 });
-        let h = (room / sum).clamp(self.h(96.0).min(ceiling), ceiling).round();
+        let h = (room / sum).clamp(self.h(96.0), ceiling).round();
         let mut x = 0.0;
         for (i, a) in aspects.iter().enumerate() {
             let w = if i + 1 == aspects.len() { self.width - x } else { (room * a / sum).round() };
