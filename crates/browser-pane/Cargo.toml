@@ -11,7 +11,7 @@ default = []
 # Download, start and talk to the CEF engine over a Unix socket (AF_UNIX on Windows too). Without it,
 # the pane keeps its tab model and reports `EngineStatus::Unsupported`. The app turns it on for macOS,
 # Windows, and Linux.
-engine = ["dep:authenticode", "dep:libc", "dep:memchr", "dep:ring", "dep:rusqlite", "dep:security-framework", "dep:sha2", "dep:ureq", "dep:uds_windows", "dep:windows", "dep:zstd"]
+engine = ["dep:authenticode", "dep:libc", "dep:memchr", "dep:ring", "dep:rusqlite", "dep:rusty-leveldb", "dep:security-framework", "dep:sha2", "dep:ureq", "dep:uds_windows", "dep:windows", "dep:zstd"]
 # Harness builds: injected faults (`unpack.rs`), never in a release.
 faults = ["engine"]
 
@@ -34,6 +34,8 @@ zstd = { version = "0.13", default-features = false, optional = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ring = { version = "0.17", optional = true }
 rusqlite = { version = "0.41", default-features = false, features = ["bundled", "limits"], optional = true }
+# Reads a private copy of the engine profile's `Local Storage` LevelDB (Clear browsing data's check).
+rusty-leveldb = { version = "4.0.2", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = { version = "3.7", optional = true }

@@ -181,6 +181,55 @@ where
     result
 }
 
+/// Copies the regular, non-symlink files of `directory` (not its `LOCK`, not subdirectories) into
+/// a `0o700` private subdirectory of `scratch`, at most `max_bytes` in all, runs `read` on the copy,
+/// and deletes the copy unconditionally: a LevelDB folder read without touching the live one.
+pub fn snapshot_directory<T>(
+    directory: &Path,
+    scratch: &SnapshotScratch,
+    max_bytes: u64,
+    read: impl FnOnce(&Path) -> Result<T, ImportFailure>,
+) -> Result<T, ImportFailure> {
+    create_private_dir(&scratch.directory).map_err(|e| io_failure(&e))?;
+    sweep_snapshots(scratch);
+    let seq = NEXT_SNAP_ID.fetch_add(1, Ordering::Relaxed);
+    let dir = scratch.directory.join(format!("{PREFIX}{}-{seq}", std::process::id()));
+    if let Ok(mut live) = scratch.live.lock() {
+        live.insert(dir.clone());
+    }
+    struct Cleanup<'a> {
+        dir: PathBuf,
+        scratch: &'a SnapshotScratch,
+    }
+    impl Drop for Cleanup<'_> {
+        fn drop(&mut self) {
+            remove_dir_retry(&self.dir);
+            if let Ok(mut live) = self.scratch.live.lock() {
+                live.remove(&self.dir);
+            }
+        }
+    }
+    let _guard = Cleanup { dir: dir.clone(), scratch };
+    create_private_dir(&dir).map_err(|e| io_failure(&e))?;
+    let meta = fs::symlink_metadata(directory).map_err(|e| io_failure(&e))?;
+    if meta.file_type().is_symlink() || !meta.is_dir() {
+        return Err(ImportFailure::Read);
+    }
+    let mut left = max_bytes;
+    for entry in fs::read_dir(directory).map_err(|e| io_failure(&e))?.flatten() {
+        let name = entry.file_name();
+        let Ok(kind) = entry.file_type() else { continue };
+        if !kind.is_file() || name == "LOCK" {
+            continue;
+        }
+        // A live log may grow while it is copied: each copy is held to what the budget has left.
+        let copy = dir.join(&name);
+        copy_regular_bounded(&entry.path(), &copy, left)?;
+        left = left.saturating_sub(fs::metadata(&copy).map_or(left, |m| m.len()));
+    }
+    read(&dir)
+}
+
 /// Sweeps any stale non-symlink snapshot directories left behind by a crashed process.
 pub fn sweep_snapshots(scratch: &SnapshotScratch) {
     let Ok(entries) = fs::read_dir(&scratch.directory) else {
