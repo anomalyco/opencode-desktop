@@ -283,7 +283,7 @@ fn change_tree_key(s: &mut App, sid: &str, ev: &rune::KeyEvent, tx: &mut Tx) -> 
     if matches!(ev.key, rune::Key::PageUp | rune::Key::PageDown)
         && tx.focused().is_some_and(|k| k.starts_with("rt:"))
     {
-        tx.scroll_page("review-tree", if ev.key == rune::Key::PageDown { 1 } else { -1 });
+        crate::files::view::page_tree(tx, "review-tree", if ev.key == rune::Key::PageDown { 1 } else { -1 });
         return true;
     }
     let right = matches!(ev.key, rune::Key::Right);

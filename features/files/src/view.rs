@@ -9,7 +9,7 @@ use std::rc::Rc;
 use opencode_ui::keymap::Bind;
 use opencode_ui::panel_chrome as chrome;
 use opencode_ui::popup::{Item, Menu};
-use rune::{Anim, Color, Cursor, El, GrowthSpec, KeyEvent, PointerPress, TextEdit, Tx, col, el, icon, row, text};
+use rune::{Anim, Color, Cursor, El, GrowthSpec, KeyEvent, PointerPress, ScrollPos, TextEdit, Tx, col, el, icon, row, text};
 use rune_kit::diff::FileStatus;
 use rune_theme_opencode::icons as ic;
 use rune_theme_opencode::tree_icons;
@@ -258,7 +258,7 @@ fn tree_key(host: &mut dyn FilesHost, sid: &str, ev: &KeyEvent, tx: &mut Tx) -> 
     if matches!(ev.key, rune::Key::PageUp | rune::Key::PageDown)
         && tx.focused().is_some_and(|k| k.starts_with("ft:"))
     {
-        tx.scroll_page("files-tree", if ev.key == rune::Key::PageDown { 1 } else { -1 });
+        page_tree(tx, "files-tree", if ev.key == rune::Key::PageDown { 1 } else { -1 });
         return true;
     }
     let right = matches!(ev.key, rune::Key::Right);
@@ -393,10 +393,31 @@ pub fn filtered_files_view<H: FilesHost + 'static>(
 /// caller gives it: Desktop pads above the scroller (`[data-file-tree-virtualized-root]`'s
 /// `padding-block-start: 4px`), so the bar's track starts with the rows.
 pub fn tree_scroll<H: 'static>(p: &Pal, key: &str, rows: El) -> El {
+    let watched = key.to_owned();
+    let viewport = col()
+        .w_full()
+        .grow(1.0)
+        .min_h(0.0)
+        .on_scroll_offset(move |at: ScrollPos| TREE_SCROLLS.with_borrow_mut(|m| drop(m.insert(watched.clone(), [at.offset[1], at.viewport[1]]))));
     let scroll = opencode_ui::scroller::scroller(key)
         .bar(opencode_ui::scroller::Bar::Tree { fg: p.muted, bg: p.bg_base })
-        .build::<H>(p, col().w_full().grow(1.0).min_h(0.0), rows);
+        .build::<H>(p, viewport, rows);
     col().w_full().grow(1.0).min_h(0.0).child(scroll)
+}
+
+thread_local! {
+    /// Each tree scroller's last offset and viewport height, by key, for [`page_tree`].
+    static TREE_SCROLLS: std::cell::RefCell<HashMap<String, [f32; 2]>> = std::cell::RefCell::default();
+}
+
+/// Pages tree scroller `key` by `pages` as Chromium pages an `overflow: auto` box (Desktop's
+/// Pierre tree): 0.875 of its height per page (Blink `ScrollableArea::MinFractionToStepWhenPaging`;
+/// measured on Desktop: 534 of a 611 pt tree), not Rune's 0.9 `Tx::scroll_page`.
+pub fn page_tree(tx: &mut Tx, key: &str, pages: i32) {
+    match TREE_SCROLLS.with_borrow(|m| m.get(key).copied()) {
+        Some([offset, height]) => tx.scroll_to_y(key, (offset + pages as f32 * height * 0.875).max(0.0)),
+        None => tx.scroll_page(key, pages),
+    }
 }
 
 /// The change letter a `review.changes` kind (`add`, `del`, `mix`) ends a row with.
