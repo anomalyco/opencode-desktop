@@ -247,6 +247,10 @@ pub enum Node {
         /// With `wgsl`, up to 16 floats for `widget.values`.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         values: Vec<f64>,
+        /// It takes input (the prelude sets it with `onPointer`): only then does it send
+        /// `pointer` events, and in a stack take the taps over it. An id alone is for drawing.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        pointer: bool,
         /// In full screen it grows to share the remaining height (`height` is the minimum) unless
         /// `false`.
         #[serde(default, skip_serializing_if = "Option::is_none")]

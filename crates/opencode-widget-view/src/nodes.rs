@@ -45,11 +45,12 @@ pub(crate) fn node<S: 'static>(cx: &Cx<S>, n: &Node, path: &str) -> El {
         Node::Select { id, label, options, value, multiple } => controls::select(cx, id, label.as_deref(), options, value.as_ref(), *multiple),
         Node::Input { id, label, placeholder, multiline, .. } => controls::input(cx, id, label.as_deref(), placeholder.as_deref(), *multiline),
         Node::Divider => rune::rule(1.0, k.c.border_weak).w_full(),
-        Node::Canvas { id, height, width, alt, fill, wgsl: None, .. } => crate::canvas::view(cx, path, id.as_deref(), *height, *width, alt.as_deref(), placed.canvas_grows(*fill)),
+        // Only a canvas with `pointer: true` sends events; without it, its id is for drawing.
+        Node::Canvas { id, height, width, alt, fill, wgsl: None, pointer, .. } => crate::canvas::view(cx, path, id.as_deref().filter(|_| *pointer), *height, *width, alt.as_deref(), placed.canvas_grows(*fill)),
         // A GPU canvas: drawn by its WGSL, never by `draw`.
-        Node::Canvas { id, height, width, alt, fill, wgsl: Some(wgsl), values, poster, duration, .. } => {
+        Node::Canvas { id, height, width, alt, fill, wgsl: Some(wgsl), values, poster, duration, pointer, .. } => {
             let size = crate::shader::Size { height: *height, width: *width, fill: placed.canvas_grows(*fill) };
-            crate::shader::view(cx, path, id.as_deref(), size, wgsl, values, (n.fps(), *duration), alt.as_deref(), poster.as_deref())
+            crate::shader::view(cx, path, id.as_deref().filter(|_| *pointer), size, wgsl, values, (n.fps(), *duration), alt.as_deref(), poster.as_deref())
         }
         Node::Stack { children } => stack(cx, n, children, path),
         Node::Unknown => {
@@ -64,7 +65,8 @@ pub(crate) fn node<S: 'static>(cx: &Cx<S>, n: &Node, path: &str) -> El {
 /// A stack: its children layered in one grid cell, the first at the bottom, each in a slot the
 /// stack's size less its `inset`, where its `place` puts it (`fill`: all of the slot). As tall as
 /// its tallest child plus insets; in full screen it grows like a canvas when it holds one that
-/// does. Pointer input goes to the topmost child that takes it; the rest lets it through.
+/// does. Pointer input goes to the topmost child that takes it; the rest (text, markdown, a
+/// canvas without `pointer: true`) lets it through. Directions are physical: `left` stays left.
 fn stack<S: 'static>(cx: &Cx<S>, n: &Node, layers: &Layers, path: &str) -> El {
     let g = el().w_full().equal_columns(1);
     let g = if cx.look.fullscreen && crate::fills(n) { g.grow(1.0).min_h(0.0) } else { g };

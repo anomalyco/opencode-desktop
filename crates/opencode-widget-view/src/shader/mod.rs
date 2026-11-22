@@ -173,6 +173,7 @@ fn point(mark: u32, at: Option<([f32; 2], bool)>) {
     });
 }
 
+/// `id`: the id its pointer events carry, when it takes input (`pointer: true`).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, size: Size, wgsl: &str, values: &[f64], motion: (f64, Option<f64>), alt: Option<&str>, poster: Option<&str>) -> El {
     let k = cx.look.kit;
@@ -212,7 +213,7 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, size: S
         }
         local.set_size(&skey, [w, hgt]);
     });
-    // In a stack, a GPU canvas without an id takes no input: the pointer goes to the layer below.
+    // In a stack, a GPU canvas that takes no input lets the pointer through to the layer below.
     if cx.layered && id.is_none() {
         return b;
     }
@@ -256,7 +257,7 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, size: S
             return;
         }
         point(mark, Some(([d.x, d.y], d.phase != Phase::Up)));
-        // A shader with an id sends the pointer to the widget template as a canvas does: `move` only
+        // One that takes input sends the pointer to the widget template as a 2D canvas does: `move` only
         // while down, at most once a frame.
         let (Some(id), true) = (&id, live) else { return };
         let kind = match d.phase {

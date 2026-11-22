@@ -1,6 +1,7 @@
 //! A `canvas` node: its box (full width unless `width`), what its widget template drew in it, and
 //! what it hears: its size and whether it shows (which drive drawing, see [`state`]), and the
-//! pointer, which a canvas with an `id` sends to `update` (`move` at most once a frame).
+//! pointer, which a canvas that takes input (`pointer: true`) sends to its handler (`move` at
+//! most once a frame); any canvas sees it in `frame.pointer`.
 
 pub(crate) mod paint;
 pub mod state;
@@ -13,6 +14,7 @@ use crate::Cx;
 use state::{Event, Sight};
 
 #[allow(clippy::too_many_arguments)]
+/// `id`: the id its pointer events carry, when it takes input (`pointer: true`).
 pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, height: f64, width: Option<f64>, alt: Option<&str>, fill: bool) -> El {
     let k = cx.look.kit;
     let canvas = cx.local.canvas(path);
@@ -37,7 +39,7 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, height:
     b = b.on_layout(move |s: &mut S, rect| (lens)(s).canvas_laid(&key, rect));
     let (lens, key) = (hooks.local.clone(), path.to_owned());
     b = b.on_visible(move |s: &mut S, on, _tx: &mut Tx| (lens)(s).canvas_event(&key, Event::Seen(if on { Sight::Shown } else { Sight::Hidden })));
-    // In a stack, a canvas without an id takes no input: the pointer goes to the layer below.
+    // In a stack, a canvas that takes no input lets the pointer through to the layer below.
     if cx.layered && id.is_none() {
         return b;
     }
