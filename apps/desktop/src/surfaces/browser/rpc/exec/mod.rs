@@ -13,6 +13,7 @@ mod profile_analyze;
 pub(super) mod read;
 mod same_doc;
 mod settle;
+mod shot;
 pub(super) mod snapshot;
 mod target_url;
 
