@@ -153,10 +153,14 @@ pub fn drain(s: &mut App, tx: &mut Tx) -> bool {
     if !s.services.deep_links.is_waiting() {
         return typed;
     }
+    // Links held behind a prompt open once it goes in, or when it lapses: wake for that.
+    if let Some(p) = &s.services.deep_links.prompt {
+        tx.wake_after(std::time::Duration::from_secs_f64((p.at + 30.0 - *s.clock).max(0.0) + 0.05));
+    }
     let ready = ready_servers(s);
-    let Some(server) = ready.first().cloned() else { return false };
+    let Some(server) = ready.first().cloned() else { return typed };
     let effects = s.services.deep_links.step(DeepLinkEvent::Ready { server }, |server| ready.iter().any(|r| r == server));
-    run(s, effects, tx)
+    typed | run(s, effects, tx)
 }
 
 fn run(s: &mut App, effects: Effects<DeepLinkEffect>, tx: &mut Tx) -> bool {
@@ -168,12 +172,13 @@ fn run(s: &mut App, effects: Effects<DeepLinkEffect>, tx: &mut Tx) -> bool {
             DeepLinkEffect::Focus => {}
             DeepLinkEffect::Open { server, dir, prompt } => {
                 s.close_settings();
+                // The project opens on its server, whichever the window shows.
+                crate::servers::runtime::switch(s, &opencode_kit::servers::ServerKey::new(&server));
+                // The session on screen on that server, which the link's prompt must not take.
                 let before = match &*s.route {
                     crate::Route::Session { id, .. } => Some(id.clone()),
                     _ => None,
                 };
-                // The project opens on its server, whichever the window shows.
-                crate::servers::runtime::switch(s, &opencode_kit::servers::ServerKey::new(&server));
                 s.open_project_dir(&dir, true, tx);
                 if let Some(prompt) = prompt {
                     s.services.deep_links.prompt = Some(Pending { dir, prompt, at: *s.clock, before });
