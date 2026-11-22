@@ -19,8 +19,9 @@ use crate::draw::{Arg, DrawOutput};
 use crate::node::Node;
 use crate::step::SendMessage;
 
+/// An `Error` thrown at the program's `post` call, located there.
 fn throw(message: String) -> HostValue {
-    HostValue::Error(Box::new(HostError::new(message)))
+    HostError::located("Error", message)
 }
 
 /// The runtime of run `era` of `link`'s program, its globals bound to `link`, its heap capped at
@@ -116,7 +117,8 @@ impl<F: Future<Output = HostResult> + Unpin> Future for Checked<F> {
 /// `__host.post(message)`: checked and handed to the client (`widgets.md`, Native hosts). A
 /// render's view is made into its tree here, and `post` says whether it has handlers; a view that
 /// breaks Keys and depth ends the run at once (phase `view`). A draw's key names a canvas of the
-/// last render. A function anywhere but a view's handler props, or a bad view or draw, throws.
+/// last render: an unknown key throws. A function anywhere but a view's handler props throws. A
+/// render or draw that isn't valid ends the run (`widgets-live.md`).
 fn post(link: &Link, mut args: Vec<HostValue>) -> HostResult {
     if link.lock().interrupt {
         return Err(HostValue::Interrupt);
@@ -148,8 +150,10 @@ fn post(link: &Link, mut args: Vec<HostValue>) -> HostResult {
         let interactive = !tree.handlers.is_empty();
         // The canvases of the last view, read or not, rendered or dropped over the rate.
         link.lock().canvases = tree.canvases;
-        let node = Node::from_host(&tree.view).map_err(|e| throw(format!("widget.render: {e}")))?;
-        link.post(Post::Render(node));
+        match Node::from_host(&tree.view) {
+            Ok(node) => link.post(Post::Render(node)),
+            Err(e) => link.fail_post(format!("widget.render: {e}"))?,
+        }
         return Ok(HostValue::Bool(interactive));
     }
     let message = &message;
@@ -171,7 +175,13 @@ fn post(link: &Link, mut args: Vec<HostValue>) -> HostResult {
             };
             crate::tree::strict(message, POSTED)?;
             checked("post", &args, 1)?;
-            let out = DrawOutput::from_host(field("commands")).map_err(|e| throw(format!("widget.draw(\"{id}\"): {e}")))?;
+            let out = match DrawOutput::from_host(field("commands")) {
+                Ok(out) => out,
+                Err(e) => {
+                    link.fail_post(format!("widget.draw(\"{id}\"): {e}"))?;
+                    return Ok(HostValue::Undefined);
+                }
+            };
             Post::Draw { id, commands: out.commands }
         }
         Some("frame") => Post::Frame,

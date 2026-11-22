@@ -1,6 +1,7 @@
 //! Checks a live run as a native host (`widgets.md`, Native hosts): `widget.draw` by key reaches
 //! the canvas the last render gave that key, an unknown key or a GPU canvas's throws the spec's
-//! errors (which the program can catch, and which fail it when it doesn't), and `render` tells the
+//! errors, `Error`s located at the call (which the program can catch, and which fail it when it
+//! doesn't), a render or draw that isn't valid ends the run uncaught, and `render` tells the
 //! prelude whether the view has handlers (a run without any ends when `main` returns). A render
 //! breaking Keys and depth ends the run at once in phase `view`; a function anywhere but a view's
 //! handler props throws the runtime's `TypeError` from that call; a program built for another
@@ -23,7 +24,7 @@ async function main(data) {
   widget.draw("pad", ui.draw().rect(0, 0, 4, 4, "accent"))
   const seen = []
   for (const key of ["nope", "gpu"]) {
-    try { widget.draw(key, ui.draw()) } catch (e) { seen.push(e.message) }
+    try { widget.draw(key, ui.draw()) } catch (e) { seen.push(e.name + ": " + e.message) }
   }
   widget.render(ui.column([ui.text(seen.join(" | ")), ui.button("go", { onPress: () => {} })]))
 }
@@ -33,6 +34,21 @@ const UNCAUGHT: &str = r#"
 async function main(data) {
   widget.render(ui.text("no canvas"))
   widget.draw("nope", ui.draw())
+}
+"#;
+
+/// A render and a draw that aren't valid: each ends the run, uncaught, rendering nothing more.
+const INVALID_RENDER: &str = r#"
+async function main(data) {
+  try { widget.render(ui.column([ui.text("x"), "loose"])) } catch (e) { widget.render(ui.text("caught " + e.message)) }
+  await widget.sleep(1000)
+}
+"#;
+const INVALID_DRAW: &str = r#"
+async function main(data) {
+  widget.render(ui.column([ui.canvas({ key: "c", height: 10 }), ui.button("go", { onPress: () => {} })]))
+  try { widget.draw("c", [["rect", 0, 0, "wide", 4, {}]]) } catch (e) { widget.render(ui.text("caught " + e.message)) }
+  await widget.sleep(1000)
 }
 "#;
 
@@ -119,14 +135,28 @@ fn main() {
         Post::Render(Node::Column { children, .. }) => children.iter().find_map(|c| match c { Node::Text { text, .. } => Some(text.clone()), _ => None }),
         _ => None,
     });
-    let want = r#"No canvas with key "nope" in the rendered view | Canvas "gpu" is drawn by its wgsl; it takes no draw commands"#;
+    let want = r#"Error: No canvas with key "nope" in the rendered view | Error: Canvas "gpu" is drawn by its wgsl; it takes no draw commands"#;
     assert_eq!(text.as_deref(), Some(want), "the bad draws throw the spec's errors, which the program catches");
     println!("ok   a draw by key reaches its canvas; bad keys throw the spec's errors");
 
-    let (_, end) = posts(&start(UNCAUGHT), Duration::from_secs(2));
-    match end {
-        Some(Ended::Failed(m)) if m.contains("No canvas with key \"nope\" in the rendered view") => println!("ok   an uncaught bad draw fails the run: {m}"),
-        other => panic!("an uncaught bad draw should fail the run, got {other:?}"),
+    let live = start(UNCAUGHT);
+    let (_, end) = posts(&live, Duration::from_secs(2));
+    // Located at the prelude's `__host.post` call, as the TS host locates it.
+    let line = fixtures::PRELUDE.lines().position(|l| l.contains(": __host.post(message))")).map(|i| i as u32 + 1);
+    match (end, live.failed_at()) {
+        (Some(Ended::Failed(m)), Some((at, _))) if m.starts_with("Error: No canvas with key \"nope\" in the rendered view (line ") && Some(at) == line => {
+            println!("ok   an uncaught bad draw fails the run, located at the call (line {at}): {m}")
+        }
+        other => panic!("an uncaught bad draw should fail the run at line {line:?}, got {other:?}"),
+    }
+
+    for (name, source, want) in [("render", INVALID_RENDER, "widget.render: "), ("draw", INVALID_DRAW, "widget.draw(\"0/:c\"): ")] {
+        let (seen, end) = posts(&start(source), Duration::from_secs(2));
+        let caught = seen.iter().any(|p| matches!(p, Post::Render(Node::Text { text, .. }) if text.starts_with("caught")));
+        match end {
+            Some(Ended::Failed(m)) if m.starts_with(want) && !caught => println!("ok   an invalid {name} ends the run, uncaught: {m}"),
+            other => panic!("an invalid {name} should end the run uncaught, got {other:?} (caught: {caught})"),
+        }
     }
 
     let (_, end) = posts(&start(QUIET), Duration::from_secs(2));

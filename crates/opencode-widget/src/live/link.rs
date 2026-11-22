@@ -139,8 +139,9 @@ pub(super) struct St {
     /// Native: the last rendered view's canvases by `String(key)`, their ids and whether `wgsl`
     /// draws them (kept across a save, as the program's view is).
     pub canvases: HashMap<String, (String, bool)>,
-    /// A render's view broke Keys and depth: the run was interrupted to end with it.
-    pub view_failure: Option<String>,
+    /// A post broke the rules (a view of Keys and depth, an invalid render or draw): the run was
+    /// interrupted to end with it.
+    pub post_failure: Option<Ended>,
 }
 
 impl St {
@@ -208,7 +209,7 @@ impl Link {
             suspender: None,
             failed_at: None,
             canvases: HashMap::new(),
-            view_failure: None,
+            post_failure: None,
         };
         Arc::new_cyclic(|me| Link { st: Mutex::new(st), news: AtomicBool::new(false), program, data, setup, me: me.clone() })
     }
@@ -249,7 +250,7 @@ impl Link {
         st.interrupt = false;
         st.watch = Watch::fresh(now);
         st.suspender = None;
-        st.view_failure = None;
+        st.post_failure = None;
         let era = st.era;
         let spawned = std::thread::Builder::new().name("widget-live".into()).stack_size(STACK).spawn(move || run(link, era, snapshot));
         if let Err(e) = spawned {
@@ -282,7 +283,7 @@ impl Link {
         let run = std::mem::replace(&mut st.run, Run::Discarded);
         st.run = match (run, result) {
             _ if failure.is_some() => Run::Ended(Ended::Broke(failure.unwrap_or_default())),
-            _ if st.view_failure.is_some() => Run::Ended(Ended::View(st.view_failure.take().unwrap_or_default())),
+            _ if st.post_failure.is_some() => Run::Ended(st.post_failure.take().unwrap_or(Ended::Stopped)),
             (Run::Saving, Ok(RunOutcome::Suspended(s))) => Run::Saved(s.state),
             (Run::Discarding, _) => Run::Discarded,
             (Run::Killing { reason, .. }, _) => Run::Ended(Ended::Failed(reason)),
@@ -336,26 +337,27 @@ impl Link {
     /// A render's view broke Keys and depth: the run ends at once with it (phase `view`). What
     /// `post` returns to stop the run.
     pub fn fail_view(&self, message: String) -> HostValue {
-        self.lock().view_failure = Some(message);
+        self.lock().post_failure = Some(Ended::View(message));
         HostValue::Interrupt
+    }
+
+    /// The program posted an invalid render or draw (`message` says why): a program error that
+    /// ends the run at once (`widgets-live.md`), unless it's over the rate, where it's dropped
+    /// unread like any post, and `post` goes on (`Ok`).
+    pub fn fail_post(&self, message: String) -> Result<(), HostValue> {
+        let mut st = self.lock();
+        if !admit(&mut st, false) {
+            return Ok(());
+        }
+        st.post_failure = Some(Ended::Failed(message));
+        Err(HostValue::Interrupt)
     }
 
     pub fn post(&self, post: Post) {
         let mut st = self.lock();
-        let now = Instant::now();
-        if now.duration_since(st.window.0) >= Duration::from_secs(1) {
-            if st.dropped > 0 {
-                let n = std::mem::take(&mut st.dropped);
-                st.outbox.push(Post::Dropped(n));
-            }
-            st.window = (now, 0);
-        }
-        let last = matches!(post, Post::Submit(_) | Post::Dismiss);
-        if !last && st.window.1 >= MAX_POSTS {
-            st.dropped += 1;
+        if !admit(&mut st, matches!(post, Post::Submit(_) | Post::Dismiss)) {
             return;
         }
-        st.window.1 += 1;
         let was_empty = st.outbox.is_empty();
         // A view or a canvas drawn again before the client took the last one replaces it.
         let replaces = match (st.outbox.last(), &post) {
@@ -574,6 +576,26 @@ impl Link {
             }
         }
     }
+}
+
+/// Whether a post is let through the rate (at most [`MAX_POSTS`] a second; a `last` one, a submit
+/// or dismiss, always is), counting it; one over it is dropped, and the drops of a second are
+/// told the client when the next begins.
+fn admit(st: &mut St, last: bool) -> bool {
+    let now = Instant::now();
+    if now.duration_since(st.window.0) >= Duration::from_secs(1) {
+        if st.dropped > 0 {
+            let n = std::mem::take(&mut st.dropped);
+            st.outbox.push(Post::Dropped(n));
+        }
+        st.window = (now, 0);
+    }
+    if !last && st.window.1 >= MAX_POSTS {
+        st.dropped += 1;
+        return false;
+    }
+    st.window.1 += 1;
+    true
 }
 
 /// The program's thread: runs it (from `main` or a snapshot) until it ends or is suspended.
