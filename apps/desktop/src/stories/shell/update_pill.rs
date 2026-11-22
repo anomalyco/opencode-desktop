@@ -1,6 +1,6 @@
-//! Storybook stage for the Updater's pill (`Shell/Update pill`): the titlebar's 20 pt pill at
+//! Storybook stage for the Updater's pill (`Components/Update pill`): the titlebar's 20 pt pill at
 //! the end of a titlebar strip and the sidebar footer's 28 pt one, the pointer's to hover. H and
-//! T hover one, L leaves. `--playground 'Shell/Update pill' --script apps/desktop/scripts/update-pill.json`
+//! T hover one, L leaves. `--playground 'Components/Update pill' --script apps/desktop/scripts/update-pill.json`
 //! hovers each in turn.
 
 use rune::{El, Play, Tx, col, row};
@@ -13,6 +13,8 @@ use crate::stories::{Story, Trigger, replay, stage};
 const SIDE: &str = "story-update-side";
 const TOP: &str = "story-update-top";
 
+const KNOBS: &[rune_knobs::Group] = &[titlebar_pill::GROUP];
+
 const VARIANTS: &[(&str, usize)] = &[("Ready", 0), ("Installing", 1)];
 
 const KEYS: &[Trigger] = &[
@@ -24,17 +26,21 @@ const KEYS: &[Trigger] = &[
 
 fn enter(s: &mut App, key: &'static str, play: &mut Play<App>) {
     leave(s, play);
-    titlebar_pill::hover(s, key, true, play);
+    titlebar_pill::hover(s, key, true, busy(s), play);
 }
 
 fn leave(s: &mut App, play: &mut Play<App>) {
     if let Some(key) = s.plugins.titlebar_hover {
-        titlebar_pill::hover(s, key, false, play);
+        titlebar_pill::hover(s, key, false, busy(s), play);
     }
 }
 
+fn busy(s: &App) -> bool {
+    *s.fixture_run.variant == 1
+}
+
 fn pill(s: &App, p: &Pal, key: &'static str, vertical: bool) -> El {
-    let pill = Pill { key, label: "Update".into(), title: Some("Restart to update".into()), icon: &DOWNLOAD, busy: *s.fixture_run.variant == 1 };
+    let pill = Pill { key, label: "Update".into(), title: Some("Restart to update".into()), icon: &DOWNLOAD, busy: busy(s) };
     titlebar_pill::view(s, p, vertical, pill, Some(|_: &mut App, _: &mut Tx| {}))
 }
 
@@ -46,5 +52,5 @@ fn view(s: &App, p: &Pal) -> El {
 }
 
 rune_register::register!(crate::stories::STORY_LIST: Story = [
-    Story { path: "Shell/Update pill", scene: |s| stage(s, view), knobs: &[], keys: KEYS, variants: VARIANTS },
+    Story { path: "Components/Update pill", scene: |s| stage(s, view), knobs: KNOBS, keys: KEYS, variants: VARIANTS },
 ]);
