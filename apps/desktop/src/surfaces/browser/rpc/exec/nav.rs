@@ -14,6 +14,8 @@ use rune::time::Instant;
 use serde_json::{Value, json};
 
 use super::super::session::SessionAttachment;
+use super::same_doc::SameDocProbe;
+use super::settle;
 use super::target_url::parse_agent_url;
 use super::{ExecPhase, StepOutcome, check_page_guards};
 use crate::App;
@@ -28,6 +30,10 @@ pub(super) struct WaitLoadState {
     pub preview_path: Option<String>,
     pub close_on_fail: bool,
     pub saw_loading: bool,
+    /// Back/forward: the page they started from, whose commit settles the wait.
+    pub history_from: Option<settle::HistoryFrom>,
+    /// Back/forward while extensions run: the page's own answer for a same-document entry.
+    pub same_doc: Option<SameDocProbe>,
     pub prev_rejected: u64,
     pub started_at: Instant,
     pub deadline: Instant,
@@ -162,6 +168,8 @@ fn start_tabs_open(
         preview_path: None,
         close_on_fail: true,
         saw_loading: app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.loading),
+        history_from: None,
+        same_doc: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -297,6 +305,8 @@ fn start_navigate(
         preview_path: None,
         close_on_fail: false,
         saw_loading: app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.loading),
+        history_from: None,
+        same_doc: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -324,6 +334,24 @@ fn start_history(
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     app.mark_browser_tab_unseen(host_id);
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
+    // The tab's history ends are not consulted: the engine refreshes them only when loading
+    // changes, so a click-made same-document entry could look absent (READER-12b, #696 F1). With
+    // no entry the back does nothing and the wait ends at the grace, as before.
+    let Some(url) = app.workspace_panes.browser.host.tab(host_id).map(|t| t.url.clone()) else {
+        return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
+    };
+    // Always a history wait, so a back/forward never ends at a load it happened to see (#706). With no
+    // frame tracker for the tab yet its counts start at zero: only events the tracker then counts, or
+    // the grace, end the wait.
+    let (contexts_cleared, frame_navigations, same_document) = att.frames.get(&host_id).map_or((0, 0, 0), |f| {
+        (f.main_contexts_cleared, f.main_frame_navigations, f.main_same_document_navigations)
+    });
+    let history_from = Some(settle::HistoryFrom { url, contexts_cleared, frame_navigations, same_document });
+    let main_context = att.frames.get(&host_id).and_then(|f| {
+        let (cid, sid) = f.main_contexts.get(f.main_frame_id.as_ref()?)?;
+        sid.is_none().then_some(*cid)
+    });
+    let same_doc = SameDocProbe::start(main_context, app.workspace_panes.browser.host.extensions_active());
     if is_back {
         app.workspace_panes.browser.host.back(host_id);
     } else {
@@ -342,6 +370,8 @@ fn start_history(
         preview_path: None,
         close_on_fail: false,
         saw_loading: false,
+        history_from,
+        same_doc,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -386,6 +416,8 @@ fn start_reload(
         preview_path: None,
         close_on_fail: false,
         saw_loading: false,
+        history_from: None,
+        same_doc: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -480,6 +512,8 @@ fn start_preview(
         preview_path: Some(path.to_owned()),
         close_on_fail,
         saw_loading: false,
+        history_from: None,
+        same_doc: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -529,6 +563,8 @@ fn start_navigate_path(
         preview_path: Some(path.to_owned()),
         close_on_fail: false,
         saw_loading: false,
+        history_from: None,
+        same_doc: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -588,6 +624,10 @@ pub(super) fn step_wait_load(
             browser_pane::prompts::agent_passkey_refusal_message((!site.is_empty()).then_some(site.as_str())),
         ));
     }
+    if let (Some(probe), Some(from)) = (st.same_doc.as_mut(), st.history_from.as_ref()) {
+        let url = app.workspace_panes.browser.host.tab(st.host_id).map(|t| t.url.clone()).unwrap_or_default();
+        probe.step(app, st.host_id, &url, &from.url);
+    }
     let Some(tab) = app.workspace_panes.browser.host.tab(st.host_id) else {
         return Some(Outcome::fail(
             failure_code::NAVIGATION_FAILED,
@@ -639,10 +679,24 @@ pub(super) fn step_wait_load(
         };
         return Some(Outcome::fail(failure_code::NAVIGATION_FAILED, msg));
     }
-    let settled = (!tab.loading && (st.saw_loading || now >= st.started_at + LOAD_SETTLE_GRACE))
-        || now >= st.deadline;
-    if !settled {
-        return None;
+    let frames = att.frames.get(&st.host_id).map(|f| settle::FramesNow {
+        contexts_cleared: f.main_contexts_cleared,
+        frame_navigations: f.main_frame_navigations,
+        // The page's own answer stands in for the event extensions keep (`same_doc`).
+        same_document: f.main_same_document_navigations + u64::from(st.same_doc.as_ref().is_some_and(|p| p.confirmed)),
+        main_context: f.main_frame_id.as_ref().is_some_and(|id| f.main_contexts.contains_key(id)),
+    });
+    let waiting = settle::Waiting {
+        history: st.history_from.as_ref(),
+        saw_loading: st.saw_loading,
+        elapsed: now.duration_since(st.started_at),
+        deadline: st.deadline.duration_since(st.started_at),
+    };
+    let extensions_active = app.workspace_panes.browser.host.extensions_active();
+    match settle::settle(&waiting, Some(settle::TabNow { url: &tab.url, loading: tab.loading }), frames, extensions_active, LOAD_SETTLE_GRACE) {
+        settle::Settle::Wait => return None,
+        settle::Settle::Closed => return Some(Outcome::fail(failure_code::NAVIGATION_FAILED, "Browser tab closed while loading.")),
+        settle::Settle::Done => {}
     }
     if let Some(err) = &tab.load_error {
         let msg = format!("Page failed to load ({err}).");

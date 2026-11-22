@@ -279,7 +279,17 @@ impl App {
         }
     }
 
+    /// The tab left its strip: it is no longer closing, nor a page-opened tab a later download
+    /// could close (READER-12, #581 follow-up b).
+    pub(super) fn forget_tab_marks(&mut self, id: u64) {
+        self.workspace_panes.browser.closing_tabs.remove(&id);
+        self.workspace_panes.browser.page_opened_tabs.remove(&id);
+    }
+
     pub(crate) fn note_browser_addressed(&mut self, id: u64) {
+        // The person addressed this tab: it is theirs now, so a download it starts never closes it
+        // as a page-opened download-only tab (READER-12, #581 follow-up b).
+        self.workspace_panes.browser.page_opened_tabs.remove(&id);
         let blank = self
             .workspace_panes
             .browser

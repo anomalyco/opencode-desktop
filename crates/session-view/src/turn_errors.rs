@@ -317,8 +317,10 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
         }
         NoticeKind::Idle => col(),
         // Finished background Code Mode script (`timeline-next/row.tsx`, anomalyco/opencode#64741):
-        // "Script finished · cm_…" (or failed / cancelled) in its outcome's ink (`p.cancelled`
-        // maps to `yellow-900` in light and `state-fg-warning` in dark, matching `outcomeNoticeColor`).
+        // "Script finished" (or failed / cancelled) in its outcome's ink (`p.cancelled` maps to
+        // `yellow-900` in light and `state-fg-warning` in dark, matching `outcomeNoticeColor`),
+        // then the script's first line as the activity list names it. Official shows the job's
+        // `cm_…` id there, which tells a reader nothing; the id stays out of the row.
         NoticeKind::Job { id, script: Some(outcome), .. } => {
             use opencode_kit::model::Outcome;
             let (label, m, ink) = match outcome {
@@ -326,10 +328,13 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
                 Outcome::Cancelled => (opencode_i18n::t!("ui.sessionTimeline.notice.cancelled", actor = "Script"), Mark::Stopped, p.cancelled),
                 Outcome::Completed => (opencode_i18n::t!("ui.sessionTimeline.notice.finished", actor = "Script"), Mark::Completed, p.v2.text_code_accent),
             };
-            let words = if id.is_empty() { label.clone() } else { format!("{label} · {id}") };
-            let mut kids = vec![text(label).key("label").font(UI_MED).color(ink).shrink()];
-            if !id.is_empty() {
-                kids.push(faint("value", format!("· {id}")));
+            let command = script_line(s, id);
+            let words = command.as_ref().map_or_else(|| label.clone(), |c| format!("{label} {c}"));
+            // The label keeps its width; a long command gives way, cut by its fade.
+            let mut kids = vec![text(label).key("label").font(UI_MED).color(ink)];
+            if let Some(c) = command {
+                let c = text(c).key("command").dir(rune::Direction::Ltr).font(crate::style::TOOL_CODE.lh(16.0)).color(p.text).truncate_fade();
+                kids.push(readable(p, c).shrink().min_w(0.0));
             }
             line(m, &words, kids)
         }
@@ -361,6 +366,27 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
             crate::compaction::divider_of(s, p, words, run)
         }
     }
+}
+
+/// The first non-blank line of the `execute` call that started script job `id`, on one line, as
+/// the activity list names a running script (`subagents::jobs::scripts`). The notice carries only
+/// the job's id and output; the call that went to the background holds the code, `metadata.jobID`.
+fn script_line<S: TimelineHost>(s: &S, id: &str) -> Option<String> {
+    use opencode_kit::model::{Message, Part};
+    if id.is_empty() {
+        return None;
+    }
+    s.with_transcript(session_of(s), |t| {
+        t.messages.iter().rev().filter_map(|m| match m {
+            Message::Assistant(a) => Some(a),
+            _ => None,
+        }).flat_map(|a| a.parts.iter().rev()).find_map(|p| match p {
+            Part::Tool { name, input, metadata, .. } if name == "execute" && metadata["jobID"].as_str() == Some(id) => {
+                input["code"].as_str()?.lines().map(str::trim).find(|l| !l.is_empty()).map(crate::tools::plain::one_line)
+            }
+            _ => None,
+        })
+    }).flatten()
 }
 
 /// The session a notice row draws in: the open one.

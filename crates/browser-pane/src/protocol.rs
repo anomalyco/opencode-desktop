@@ -412,8 +412,11 @@ pub enum HostMsg {
     ProfileProbeCookies {
         request_id: u64,
     },
+    /// `sites`: origins the engine checks after the clear (an older engine ignores them).
     ClearProfileData {
         request_id: u64,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        sites: Vec<String>,
     },
     SetShareSignIns {
         enabled: bool,

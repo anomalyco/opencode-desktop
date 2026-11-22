@@ -31,6 +31,12 @@ return plugin.defineWindow(function(ctx)
     local seen = Store:Value("seen", {} :: Seen) :: StoreValue<Seen>
     local changed = ctx:CreateSignal()
 
+    -- Guard against imported or manually edited `null` / non-table store values so setup and
+    -- Settings › Updates never throw `attempt to index nil`.
+    local function asTable(value: any): { [string]: any }
+        return if type(value) == "table" then value else {}
+    end
+
     local windowState = machine.initial
     local dispatchWindow: (event: machine.Event) -> ()
 
@@ -84,7 +90,7 @@ return plugin.defineWindow(function(ctx)
         local state = Updater:CheckAsync()
         checking:Dismiss()
         if state.phase == "disabled" then
-            Toast:Show({ title = I18n:T("action.unavailable"), description = I18n:T("check.unavailable") })
+            Toast:Show({ title = I18n:T("action.unavailable"), description = I18n:T(if state.error == "isolated" then "check.isolated" else "check.unavailable") })
         elseif state.phase == "installed" then
             installed(state.version or "", true)
         elseif state.phase == "up-to-date" then
@@ -164,7 +170,7 @@ return plugin.defineWindow(function(ctx)
         render = function(v)
             local state = Updater:State()
             local current = action(state, windowState)
-            local enabled = releaseNotes:Get().enabled ~= false
+            local enabled = asTable(releaseNotes:Get()).enabled ~= false
             return v:Memo("updates", `{current.label}:{current.description or ""}:{current.run or ""}:{enabled}:{changed:Version()}:{I18n:Locale().id}`, function()
                 return view.section(I18n, v, {
                     releaseNotes = enabled,
@@ -255,11 +261,11 @@ return plugin.defineWindow(function(ctx)
     })
 
     -- What's New after an update (`whats-new-machine.ts`).
-    local previous = seen:Get()
+    local previous = asTable(seen:Get())
     local whatsState, startEffects = whatsnew.init({
         version = App.Version,
-        previousVersion = previous.version,
-        enabled = releaseNotes:Get().enabled ~= false,
+        previousVersion = if type(previous.version) == "string" then previous.version else nil,
+        enabled = asTable(releaseNotes:Get()).enabled ~= false,
     })
     local timer: thread? = nil
     local dispatchWhatsNew: (event: whatsnew.Event) -> ()
@@ -304,7 +310,7 @@ return plugin.defineWindow(function(ctx)
     end
     -- Turning release notes off while the notes load means they never open.
     releaseNotes.Changed:Connect(function()
-        if whatsState.status == "loading" and releaseNotes:Get().enabled == false then
+        if whatsState.status == "loading" and asTable(releaseNotes:Get()).enabled == false then
             dispatchWhatsNew({ type = "disabled" })
         end
     end)

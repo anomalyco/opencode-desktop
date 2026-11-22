@@ -9,7 +9,7 @@ use std::rc::Rc;
 use opencode_ui::keymap::Bind;
 use opencode_ui::panel_chrome as chrome;
 use opencode_ui::popup::{Item, Menu};
-use rune::{Anim, Color, Cursor, El, GrowthSpec, KeyEvent, PointerPress, TextEdit, Tx, col, el, icon, row, text};
+use rune::{Anim, Color, Cursor, El, GrowthSpec, KeyEvent, PointerPress, ScrollPos, TextEdit, Tx, col, el, icon, row, text};
 use rune_kit::diff::FileStatus;
 use rune_theme_opencode::icons as ic;
 use rune_theme_opencode::tree_icons;
@@ -240,7 +240,7 @@ pub fn workspace_tree_view<H: FilesHost + 'static>(
         );
     // Desktop's Pierre tree scrolls itself, with its own bar (`--trees-fg` muted on `bg-base`,
     // `gui-plugins/src/file/pierre-tree.tsx:36-38`).
-    tree_scroll::<H>(p, "files-tree", list)
+    tree_scroll::<H>(p, "files-tree", session_id, list)
 }
 
 enum TreeAction {
@@ -249,10 +249,20 @@ enum TreeAction {
 }
 
 /// Right on a closed folder opens it and on an open one steps into its first child; Left on an
-/// open folder closes it and elsewhere steps out to the parent folder.
+/// open folder closes it and elsewhere steps out to the parent folder; PageUp and PageDown scroll
+/// the tree viewport without leaking to the session timeline (`pierre-tree.tsx` overflow scroll).
 fn tree_key(host: &mut dyn FilesHost, sid: &str, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    if ev.mods != rune::Mods::default() {
+        return false;
+    }
+    if matches!(ev.key, rune::Key::PageUp | rune::Key::PageDown)
+        && tx.focused().is_some_and(|k| k.starts_with("ft:"))
+    {
+        page_tree(tx, "files-tree", sid, if ev.key == rune::Key::PageDown { 1 } else { -1 });
+        return true;
+    }
     let right = matches!(ev.key, rune::Key::Right);
-    if !(right || matches!(ev.key, rune::Key::Left)) || ev.mods != rune::Mods::default() {
+    if !(right || matches!(ev.key, rune::Key::Left)) {
         return false;
     }
     let Some(id) = tx.focused().and_then(|k| k.strip_prefix("ft:")).map(str::to_owned) else {
@@ -336,7 +346,8 @@ pub fn filtered_files_view<H: FilesHost + 'static>(
                 let (click_p, dbl_p) = (path.clone(), path.clone());
                 let t = tree_icons::file(name);
                 // `file-tree-v2-row` (`packages/gui-plugins/src/file/list.tsx:201-206`): 28 tall,
-                // 8 in, 6 apart, 6 round; folder muted, filename base ink, both `.text-12-medium`.
+                // 8 in, 6 apart, 6 round; folder muted, filename `text-text-base` (v1 `--text-base`,
+                // `#6f6f6f` / `#a0a0a0`, selected or not), both `.text-12-medium`.
                 let label = row()
                     .grow(1.0)
                     .min_w(0.0)
@@ -345,7 +356,7 @@ pub fn filtered_files_view<H: FilesHost + 'static>(
                     .child(
                         text(name.to_owned())
                             .font(LIST_LABEL)
-                            .color(pal.text)
+                            .color(pal.v1_text_base)
                             .shrink()
                             .min_w(0.0)
                             .truncate_fade(),
@@ -381,12 +392,49 @@ pub fn filtered_files_view<H: FilesHost + 'static>(
 
 /// A Pierre tree's scroller keyed `key` with the tree's bar, in a box that takes the padding a
 /// caller gives it: Desktop pads above the scroller (`[data-file-tree-virtualized-root]`'s
-/// `padding-block-start: 4px`), so the bar's track starts with the rows.
-pub fn tree_scroll<H: 'static>(p: &Pal, key: &str, rows: El) -> El {
+/// `padding-block-start: 4px`), so the bar's track starts with the rows. `sid` is the session
+/// whose tree it is: [`page_tree`] reads where that tree's scroller is.
+pub fn tree_scroll<H: 'static>(p: &Pal, key: &str, sid: &str, rows: El) -> El {
+    let watched = scroll_slot(key, sid);
+    let viewport = col()
+        .w_full()
+        .grow(1.0)
+        .min_h(0.0)
+        .on_scroll_offset(move |at: ScrollPos| TREE_SCROLLS.with_borrow_mut(|m| drop(m.insert(watched.clone(), [at.offset[1], at.viewport[1], at.max[1]]))));
     let scroll = opencode_ui::scroller::scroller(key)
         .bar(opencode_ui::scroller::Bar::Tree { fg: p.muted, bg: p.bg_base })
-        .build::<H>(p, col().w_full().grow(1.0).min_h(0.0), rows);
+        .build::<H>(p, viewport, rows);
     col().w_full().grow(1.0).min_h(0.0).child(scroll)
+}
+
+thread_local! {
+    /// Each tree scroller's last offset, viewport height and end, by key and session, for
+    /// [`page_tree`].
+    static TREE_SCROLLS: std::cell::RefCell<HashMap<String, [f32; 3]>> = std::cell::RefCell::default();
+}
+
+fn scroll_slot(key: &str, sid: &str) -> String {
+    format!("{key}\0{sid}")
+}
+
+/// Pages session `sid`'s tree scroller `key` by `pages` as Chromium pages an `overflow: auto` box
+/// (Desktop's Pierre tree): 0.875 of its height per page, cut to whole points (Blink
+/// `ScrollableArea::PageStep` with `MinFractionToStepWhenPaging`; measured on Desktop: 534 of a
+/// 611 pt tree), not Rune's 0.9 `Tx::scroll_page`. The stored offset moves with the page at once,
+/// so a second page before the scroller reports again starts from the first one's end.
+pub fn page_tree(tx: &mut Tx, key: &str, sid: &str, pages: i32) {
+    let slot = scroll_slot(key, sid);
+    let target = TREE_SCROLLS.with_borrow_mut(|m| {
+        let at = m.get_mut(&slot)?;
+        let [offset, height, end] = *at;
+        let to = (offset + pages as f32 * (height * 0.875).trunc().max(1.0)).clamp(0.0, end.max(0.0));
+        at[0] = to;
+        Some(to)
+    });
+    match target {
+        Some(y) => tx.scroll_to_y(key, y),
+        None => tx.scroll_page(key, pages),
+    }
 }
 
 /// The change letter a `review.changes` kind (`add`, `del`, `mix`) ends a row with.

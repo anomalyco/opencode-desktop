@@ -369,6 +369,29 @@ pub fn is_valid_ext_id(id: &str) -> bool {
     id.len() == 32 && id.bytes().all(|b| (b'a'..=b'p').contains(&b))
 }
 
+/// Chromium's built-in PDF viewer component extension ID (`review-rd274.md` N4).
+pub const PDF_EXTENSION_ID: &str = "mhjfbmdgcfjbbpaeojofohoefgiehjai";
+
+/// Returns `true` when `url` targets Chromium's built-in PDF viewer component extension
+/// (directly or wrapped in `blob:`/`filesystem:`, case-insensitive).
+pub fn is_pdf_extension_url(url: &str) -> bool {
+    let mut s = url.trim();
+    loop {
+        if s.len() >= 5 && s.as_bytes()[..5].eq_ignore_ascii_case(b"blob:") {
+            s = s[5..].trim_start();
+        } else if s.len() >= 11 && s.as_bytes()[..11].eq_ignore_ascii_case(b"filesystem:") {
+            s = s[11..].trim_start();
+        } else {
+            break;
+        }
+    }
+    if s.len() < 19 || !s.as_bytes()[..19].eq_ignore_ascii_case(b"chrome-extension://") {
+        return false;
+    }
+    let host = s[19..].split(['/', '\\', '?', '#']).next().unwrap_or("");
+    host.eq_ignore_ascii_case(PDF_EXTENSION_ID)
+}
+
 pub fn extension_id_from_url(url: &str) -> Option<&str> {
     let trimmed = url.trim();
     if trimmed.len() < 19 || !trimmed.as_bytes()[..19].eq_ignore_ascii_case(b"chrome-extension://") {

@@ -50,6 +50,8 @@ pub struct Dormant {
     pub catch_up: BTreeMap<String, Vec<(String, serde_json::Value)>>,
     /// Wake requests queued by views of this window since the last poll.
     asked: std::cell::RefCell<Vec<(String, Wait)>>,
+    /// Count of settings-open retries for bundled settings plugins killed by a startup watchdog.
+    watchdog_retries: BTreeMap<String, u8>,
 }
 
 impl Dormant {
@@ -228,8 +230,26 @@ pub fn each_app_half<R>(mut f: impl FnMut(&str, &Contribs) -> Option<R>) -> Vec<
     })
 }
 
+/// Debug-only scratch-root hold used to keep `updater` dormant while proving the Settings fallback.
+fn debug_held(id: &str) -> bool {
+    #[cfg(debug_assertions)]
+    {
+        id == "updater"
+            && std::env::var_os("OPENCODE_RUNE_HOLD_UPDATER_DORMANT").is_some()
+            && std::env::var_os("RUNE_DIRS_ROOT").is_some()
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = id;
+        false
+    }
+}
+
 /// Starts plugin `id` now, for `why`, if it's dormant; true when it was and runs now.
 pub fn wake(app: &mut App, id: &str, why: Why) -> bool {
+    if debug_held(id) {
+        return false;
+    }
     let Some(i) = app.plugins.find(id).filter(|&i| matches!(app.plugins.list[i].life, Life::Dormant)) else { return false };
     let started = rune::time::Instant::now();
     let asleep = app.plugins.dormant.asleep.remove(id).unwrap_or_default();
@@ -307,13 +327,47 @@ pub fn wake_kind(app: &mut App, kind: &str, fns: &[&str]) -> bool {
     adopted || woke
 }
 
-/// Settings is opening: adopts any queued built-ins contributing commands or settings surfaces
-/// and wakes dormant ones so Settings › Shortcuts and plugin pages are complete immediately.
+/// Settings is opening: adopts any queued built-ins contributing commands or settings surfaces,
+/// wakes dormant ones, and retries any bundled settings plugin killed by a startup watchdog so
+/// Settings › Preferences, Shortcuts and plugin pages are complete immediately.
 pub fn wake_settings(app: &mut App) -> bool {
     super::boot::doze_owed(app);
     let adopted = super::boot::adopt_later_kinds(app, &["Command", "Setting", "SettingsPage"]);
     let woke = wake_owners(app, |c| !c.settings.is_empty() || !c.settings_pages.is_empty());
-    adopted || woke
+    let retried = retry_timed_out_settings(app);
+    adopted || woke || retried
+}
+
+/// Retries bundled settings plugins that hit a transient startup watchdog timeout (at most once
+/// per launch), so a CPU burst during boot never permanently drops a built-in Settings section.
+/// It runs beside the general restart (`lifecycle::restart_later`, one restart 2 s after a timed-out
+/// start): this one comes later, when Settings opens, which still matters where the watchdog's
+/// budget is wall time (Windows on ARM, web).
+fn retry_timed_out_settings(app: &mut App) -> bool {
+    const MAX_RETRIES: u8 = 1;
+    let ids: Vec<(usize, String)> = app
+        .plugins
+        .list
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| {
+            p.tier == Tier::Bundled
+                && !app.plugins.disabled.contains(&p.manifest.id)
+                && matches!(&p.life, Life::Errored { error, .. } if error.contains("watchdog"))
+                && super::sources::contributions(&p.manifest.id).iter().any(|k| matches!(*k, "Setting" | "SettingsPage"))
+                && app.plugins.dormant.watchdog_retries.get(&p.manifest.id).copied().unwrap_or(0) < MAX_RETRIES
+        })
+        .map(|(i, p)| (i, p.manifest.id.clone()))
+        .collect();
+    let mut any = false;
+    for (i, id) in ids {
+        let n = app.plugins.dormant.watchdog_retries.entry(id.clone()).or_insert(0);
+        *n += 1;
+        eprintln!("plugins: retrying {id} on Settings open after startup watchdog (attempt {n}/{MAX_RETRIES})");
+        drive(app, i, LifeEvent::Load);
+        any = true;
+    }
+    any
 }
 
 /// Whether dormant plugin `id`'s recorded contribution `key` of `kind` handed over function `name`.
@@ -465,17 +519,17 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         }
     }
     if tx.input_waiting() {
-        if app.plugins.dormant.asleep.values().any(|a| a.wait == Wait::Next) {
+        if app.plugins.dormant.asleep.iter().any(|(id, a)| a.wait == Wait::Next && !debug_held(id)) {
             tx.wake_after(Duration::ZERO);
-        } else if app.plugins.dormant.asleep.values().any(|a| a.wait == Wait::Idle) {
+        } else if app.plugins.dormant.asleep.iter().any(|(id, a)| a.wait == Wait::Idle && !debug_held(id)) {
             tx.wake_after(crate::idle::AFTER);
         }
         return false;
     }
-    let due = |wait: Wait| app.plugins.dormant.asleep.iter().find(|(_, a)| a.wait == wait).map(|(id, _)| id.clone());
+    let due = |wait: Wait| app.plugins.dormant.asleep.iter().find(|(id, a)| a.wait == wait && !debug_held(id)).map(|(id, _)| id.clone());
     if let Some(id) = due(Wait::Next) {
         wake(app, &id, Why::Near);
-        if app.plugins.dormant.asleep.values().any(|a| a.wait > Wait::FirstUse) {
+        if app.plugins.dormant.asleep.iter().any(|(id, a)| a.wait > Wait::FirstUse && !debug_held(id)) {
             tx.wake_after(Duration::ZERO);
         }
         return true;
@@ -493,7 +547,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         return false;
     }
     wake(app, &id, Why::Idle);
-    if app.plugins.dormant.asleep.values().any(|a| a.wait > Wait::FirstUse) {
+    if app.plugins.dormant.asleep.iter().any(|(id, a)| a.wait > Wait::FirstUse && !debug_held(id)) {
         tx.wake_after(Duration::ZERO);
     }
     true

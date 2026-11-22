@@ -152,6 +152,9 @@ impl App {
             // as a steer does.
             let queue_first = mode == SubmitMode::QueueFirst && self.busy(&id);
             let queue = queue_first || ((alternate != (self.settings.follow_up == crate::settings::FollowUp::Queue)) && self.busy(&id));
+            if !queue {
+                self.note_pick(&local, &prompt);
+            }
             self.echo_mentions(&local);
             opencode_kit::mention::set_user_path_attachments(&local, prompt.attachments.clone());
             self.admit_with(&id, prompt, if queue { Delivery::Queue } else { Delivery::Steer }, queue_first);
@@ -179,6 +182,8 @@ impl App {
         let local = match &*self.source {
             Source::Live { .. } => {
                 let local = prompt.id.clone().unwrap_or_default();
+                // It runs now, so the server applies its switch before it has the prompt.
+                self.note_pick(&local, &prompt);
                 let sent = crate::send_failed::Sent::new(&id, &local, crate::prompt_history::Entry::of(&self.composer), self.composer_ext.attach.files.clone(), prompt.attachments.clone(), false).with_prompt(&prompt);
                 let staged = self.session(&id).and_then(|i| i.revert.as_ref()).is_some();
                 let journal = matches!(*self.source, Source::Live {allow_send:true,..}) && self.fixture_run.stage.is_none();

@@ -311,6 +311,12 @@ pub(crate) fn is_http_url(url: &str) -> bool {
 }
 
 impl BrowserHost {
+    /// Whether the running engine was started with extensions (`--extension`): it then keeps its
+    /// pages' `Page.*` DevTools events to itself (the engine's `cdp_ledger`).
+    pub fn extensions_active(&self) -> bool {
+        !self.extensions.launched_ext_ids.is_empty()
+    }
+
     /// Whether the connected engine advertises MV3 extension support (`Ready.extensions`).
     pub fn engine_extensions(&self) -> bool {
         self.caps.extensions()
@@ -318,9 +324,14 @@ impl BrowserHost {
 
     /// Sets the verified `--extension <id>:<sha256>:<dir>` list passed on future engine spawns.
     /// `has_filters` is true when at least one verified extension declares `declarativeNetRequest`.
-    pub fn set_startup_extensions(&mut self, specs: Vec<StartupExtensionSpec>, has_filters: bool) {
+    /// Returns `true` only when the startup spec list or filter flag actually changed (idempotent).
+    pub fn set_startup_extensions(&mut self, specs: Vec<StartupExtensionSpec>, has_filters: bool) -> bool {
+        if self.extensions.startup_specs == specs && self.extensions.startup_has_filters == has_filters {
+            return false;
+        }
         self.extensions.startup_specs = specs;
         self.extensions.startup_has_filters = has_filters;
+        true
     }
 
     #[cfg_attr(not(feature = "engine"), allow(dead_code))]

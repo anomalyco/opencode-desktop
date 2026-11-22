@@ -6,4 +6,5 @@ pub(crate) mod nodes;
 mod office_nodes;
 pub mod panels;
 pub mod surfaces;
+pub mod titlebar_pill;
 pub(crate) mod view;

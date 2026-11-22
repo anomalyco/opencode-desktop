@@ -15,7 +15,13 @@
 //! A debug build keeps its own folders, `rune-opencode.debug` in place of `rune-opencode`, unless
 //! `RUNE_DIRS_ROOT` places them: a development or harness run never reads or writes the profile a
 //! release build keeps, as OpenCode Desktop's unpackaged runs keep `ai.opencode.desktop.dev`
-//! apart from the release's (`packages/desktop/src/main/constants.ts`, `APP_ID`).
+//! apart from the release's (`packages/desktop/src/main/constants.ts`, `APP_ID`). A pull
+//! request's build (`anomaly.opencode-rune.pr.<N>`) keeps `rune-opencode.pr-<N>`, as each of
+//! OpenCode Desktop's channels has its own `userData`: installing, running or uninstalling one
+//! never touches another's profile (a `RUNE_DIRS_ROOT` run, apart already, keeps `rune-opencode`
+//! under its root). Stable and beta builds keep `rune-opencode.stable` and `rune-opencode.beta`
+//! (apps of their own beside dev's, as OpenCode Desktop's Dev, Beta and production apps are);
+//! dev keeps `rune-opencode`. The browser engine's folder stays shared.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -32,9 +38,32 @@ pub(crate) fn app() -> Option<&'static AppDirs> {
     static DIRS: OnceLock<Option<AppDirs>> = OnceLock::new();
     DIRS.get_or_init(|| {
         let dirs = AppDirs::new(APP_ID)?;
-        if cfg!(debug_assertions) && !dirs.is_rooted() { AppDirs::new(DEBUG_APP_ID) } else { Some(dirs) }
+        // A `RUNE_DIRS_ROOT` run is apart already, and the harness seeds `rune-opencode` there.
+        if dirs.is_rooted() {
+            return Some(dirs);
+        }
+        AppDirs::new(if cfg!(debug_assertions) { DEBUG_APP_ID } else { release_id() })
     })
     .as_ref()
+}
+
+/// A release build's folders' name: `rune-opencode`, or a pull request's build's own
+/// `rune-opencode.pr-<N>` (its bundle id, `anomaly.opencode-rune.pr.<N>`, is set at build time).
+fn release_id() -> &'static str {
+    static ID: OnceLock<String> = OnceLock::new();
+    ID.get_or_init(pr_id)
+}
+
+fn pr_id() -> String {
+    match option_env!("OPENCODE_RUNE_BUNDLE_ID").and_then(|id| id.strip_prefix("anomaly.opencode-rune.pr.")) {
+        Some(n) if !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) => format!("{APP_ID}.pr-{n}"),
+        // Stable and beta are apps of their own beside dev's (`win_install::side_by_side`), each
+        // with its own `userData` as OpenCode Desktop's channels have; dev keeps `rune-opencode`.
+        _ => match option_env!("OPENCODE_RUNE_BUILD_CHANNEL") {
+            Some(c @ ("stable" | "beta")) => format!("{APP_ID}.{c}"),
+            _ => APP_ID.to_owned(),
+        },
+    }
 }
 
 /// Whether `RUNE_DIRS_ROOT` put every folder this app writes under one scratch root.
@@ -70,10 +99,15 @@ pub fn motion_log() -> Option<PathBuf> {
 }
 
 /// Where the updater downloads a release and keeps its records: the team bundle's caches on
-/// macOS (the folder it always had), the app's cache folder elsewhere.
+/// macOS (the folder it always had; stable's and beta's bundles their own), the app's cache folder
+/// elsewhere.
 pub fn updates() -> Option<PathBuf> {
     let app = app()?;
-    let cache = if cfg!(target_os = "macos") { app.sibling("anomaly.opencode-rune").cache().to_owned() } else { app.cache().to_owned() };
+    let bundle = match option_env!("OPENCODE_RUNE_BUILD_CHANNEL") {
+        Some(c @ ("stable" | "beta")) => format!("anomaly.opencode-rune.{c}"),
+        _ => "anomaly.opencode-rune".to_owned(),
+    };
+    let cache = if cfg!(target_os = "macos") { app.sibling(&bundle).cache().to_owned() } else { app.cache().to_owned() };
     Some(cache.join("Updates"))
 }
 

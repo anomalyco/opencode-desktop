@@ -191,14 +191,13 @@ function site.render(env: Env, view: View, url: string): ui.Node
     end
     local kind = connection(url)
     local isWeb = site.isWeb(url)
-    local headerIcon: IconName = if isWeb then "outline-globe" else "folder"
 
-    -- View 1: status-first connection overview + "Site settings >" drill-in (web pages only;
-    -- isolated workspace/artifact previews have no cookies, site data, or site permissions).
-    if not state.detailed or not isWeb then
+    -- View 1: status-first connection overview + "Site settings >" drill-in on all pages (including
+    -- workspace/preview tabs so Agent and Remote server info stay reachable, matching `panel.tsx:1926-1953`).
+    if not state.detailed then
         local items: { ui.Node } = {
             ui.row({ key = "browser-site-host", w = "full", px = 12, py = 4, gap = 8, align = "start" }, {
-                ui.row({ w = 16, h = 20, center = true }, { ui.icon(headerIcon, { size = 16, color = "icon-weak" }) }),
+                ui.row({ w = 16, h = 20, center = true }, { ui.icon("outline-globe", { size = 16, color = "icon-weak" }) }),
                 ui.text(shownHost, { dir = "ltr", size = 13, weight = "regular", lineHeight = 20, tracking = -0.04, color = "text-chrome", truncate = true, noWrap = true, grow = 1, shrink = true, minW = 0 }),
             }),
             separator(),
@@ -207,40 +206,38 @@ function site.render(env: Env, view: View, url: string): ui.Node
         if c then
             table.insert(items, row(c.icon, env.I18n:T(c.title), env.I18n:T(c.description), nil))
         end
-        if isWeb then
-            table.insert(items, ui.row({ w = "full", px = 4 }, {
-                ui.row({
-                    key = "browser-site-settings",
-                    role = "button",
-                    label = env.I18n:T("site.settings"),
-                    w = "full",
-                    px = 8,
-                    py = 4,
-                    gap = 8,
-                    radius = 4,
-                    align = "center",
-                    hover = "surface-hover",
-                    press = "surface-press",
-                    hoverTransition = "instant",
-                    onPress = view:Handler(function()
-                        env.dispatch({ type = "details", shown = true })
-                    end),
-                }, {
-                    ui.row({ w = 16, h = 20, center = true }, { ui.icon("outline-sliders", { size = 16, color = "icon-weak" }) }),
-                    ui.text(env.I18n:T("site.settings"), BODY :: any, { grow = 1, shrink = true, minW = 0 }),
-                    ui.icon("chevron-right", { size = 14, color = "icon-weak" }),
-                }),
-            }))
-        end
+        table.insert(items, ui.row({ w = "full", px = 4 }, {
+            ui.row({
+                key = "browser-site-settings",
+                role = "button",
+                label = env.I18n:T("site.settings"),
+                w = "full",
+                px = 8,
+                py = 4,
+                gap = 8,
+                radius = 4,
+                align = "center",
+                hover = "surface-hover",
+                press = "surface-press",
+                hoverTransition = "instant",
+                onPress = view:Handler(function()
+                    env.dispatch({ type = "details", shown = true })
+                end),
+            }, {
+                ui.row({ w = 16, h = 20, center = true }, { ui.icon("outline-sliders", { size = 16, color = "icon-weak" }) }),
+                ui.text(env.I18n:T("site.settings"), BODY :: any, { grow = 1, shrink = true, minW = 0 }),
+                ui.row({ w = 16, h = 20, center = true }, { ui.icon("outline-chevron-right", { size = 16, color = "icon-weak" }) }),
+            }),
+        }))
+        -- Leaving this view from a control in it puts focus on Back (`panel.tsx:1814-1816`).
         return ui.col({
             key = "browser-site-card",
             w = 261,
             py = 4,
-            gap = 2,
             radius = 8,
             fill = "surface-1",
             shadow = "floating",
-        }, items)
+        }, { ui.frame({ key = "browser-site-overview", w = "full", gap = 2, focusReturn = "browser-site-back" }, items) })
     end
 
     -- View 2: "Site settings" — Cookies, Saved files (when engine supports cache clear), Permissions, Agent, Network.
@@ -307,15 +304,15 @@ function site.render(env: Env, view: View, url: string): ui.Node
     if remote and remote ~= "" then
         table.insert(items, row("server", env.I18n:T("site.network", { server = remote }), nil, nil))
     end
+    -- Leaving this view from a control in it puts focus on the "Site settings" row (`panel.tsx:1814-1816`).
     return ui.col({
         key = "browser-site-card",
         w = 261,
         py = 4,
-        gap = 2,
         radius = 8,
         fill = "surface-1",
         shadow = "floating",
-    }, items)
+    }, { ui.frame({ key = "browser-site-details", w = "full", gap = 2, focusReturn = "browser-site-settings" }, items) })
 end
 
 return site

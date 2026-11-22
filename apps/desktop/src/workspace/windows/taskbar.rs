@@ -54,7 +54,8 @@ impl Summary {
 
     fn shown(self) -> rune::Taskbar {
         let n = self.count();
-        let description = if n == 1 { "1 session needs you".to_owned() } else { format!("{n} sessions need you") };
+        // Official's `notification.taskbar.badge` (`desktop-app.tsx:301`), in the app's language.
+        let description = opencode_i18n::plural!("notification.taskbar.badge", n);
         rune::Taskbar::new().progress(self.progress()).badge(n, description)
     }
 }

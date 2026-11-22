@@ -3,20 +3,26 @@
 //! uninstaller, as it is its own update helper, so an update never leaves a stale one behind.
 //!
 //! ```text
-//! opencode-desktop.exe --uninstall [--quiet] [--delete-data] [--log <file>]
+//! opencode-desktop.exe --uninstall [--quiet] [--delete-data] [--plan] [--log <file>]
 //! %TEMP%\opencode-rune-uninstall-<pid>.exe --uninstall-cleanup --wait <pid> --root <install>
 //!     [--caches] [--delete-data] [--log <file>]
 //! ```
 //!
-//! Without `--quiet` it asks first, with "Also delete my settings, tabs and drafts" unticked:
+//! Without `--quiet` it asks first, with "Also delete my settings, tabs, drafts and caches" unticked:
 //! like OpenCode Desktop's uninstaller it keeps them unless asked. It closes the copies running
 //! from the install, removes the shortcuts, the uninstall entry, the URL schemes and the
 //! notification identity, then copies itself to the temp folder and starts the copy, which
 //! waits for this process to exit and deletes the install folder, the updater's folders beside
-//! it, the app's caches and logs (and with `--delete-data` its settings and browser profile),
+//! it, and with `--delete-data` the app's caches, logs, settings and browser profile,
 //! then itself. Only the folder the uninstall entry names is ever deleted, never the browser
-//! engine every app with a browser pane shares, and while another build of the app is installed
-//! (another channel, a pull request's) its settings and caches, which every build shares, stay.
+//! engine every app with a browser pane shares, and while another build that keeps its settings
+//! in the same folders is installed (another release channel; a pull request's build keeps its
+//! own, `rune-opencode.pr-<N>`) they stay. `--plan` prints what would go and does nothing.
+//!
+//! What it deletes is checked first: the install folder must hold the app and be none of the
+//! user's own folders; the updater's folders beside it are allow-listed by name; a data folder
+//! must lie in the folder Windows names for it, with no junction or link on the way; and the data
+//! stays while any copy of the app holds it (an unpacked copy runs outside the install folder).
 // The confirmation is a Win32 task dialog; each block says what it relies on.
 #![allow(unsafe_code)]
 
@@ -46,6 +52,7 @@ pub fn run_if_asked() {
 #[derive(Default)]
 struct Args {
     quiet: bool,
+    plan: bool,
     caches: bool,
     delete_data: bool,
     wait: u32,
@@ -60,6 +67,7 @@ impl Args {
         while let Some(flag) = it.next() {
             match flag.as_str() {
                 "--quiet" => a.quiet = true,
+                "--plan" => a.plan = true,
                 "--caches" => a.caches = true,
                 "--delete-data" => a.delete_data = true,
                 "--wait" => a.wait = it.next().and_then(|p| p.parse().ok()).unwrap_or(0),
@@ -91,10 +99,19 @@ fn uninstall(a: &Args) -> i32 {
         }
         return 1;
     }
-    // Every build of the app (another channel, a pull request's) keeps its settings and caches
-    // in the same folders, so they stay while another is installed.
-    let others = win_install::other_installs(&p);
-    let delete_data = if a.quiet {
+    // The uninstall entry is the user's to write: what it names must still be an install folder.
+    if let Err(why) = check_root(&root) {
+        a.log(&format!("{} can't be uninstalled from ({why}); nothing removed", root.display()));
+        if !a.quiet {
+            dialog::error(&p, &format!("{} can't be uninstalled from {}: {why}.", p.name(), root.display()));
+        }
+        return 1;
+    }
+    // Builds that keep their settings in this build's folders (another release channel; a pull
+    // request's build keeps its own) keep them while another is installed.
+    let ours = crate::dirs::app().map(|d| d.id().to_owned()).unwrap_or_default();
+    let others: Vec<String> = win_install::other_installs(&p).into_iter().filter(|id| folder_of(id) == ours).collect();
+    let delete_data = if a.quiet || a.plan {
         a.delete_data && others.is_empty()
     } else {
         match dialog::confirm(&p, others.is_empty()) {
@@ -104,6 +121,25 @@ fn uninstall(a: &Args) -> i32 {
     };
     if !others.is_empty() {
         a.log(&format!("keeps the settings and caches, which {} also uses", others.join(", ")));
+    }
+    // `--plan`: what the cleanup would delete, one path a line, and nothing done.
+    if a.plan {
+        let plan = plan(&root, delete_data, delete_data);
+        for path in plan.delete.iter().chain(&plan.files) {
+            println!("delete {}", path.display());
+        }
+        for why in &plan.kept {
+            println!("keep {why}");
+        }
+        return 0;
+    }
+    let exe = root.join(win_install::EXE);
+    if delete_data && let Err(why) = data_free(&exe) {
+        a.log(&format!("{why}; nothing removed"));
+        if !a.quiet {
+            dialog::error(&p, &format!("{why}. Close it and try again, or uninstall without deleting your settings."));
+        }
+        return 1;
     }
     a.log(&format!("uninstalling {} {} from {}{}", p.name(), p.version(), root.display(), if delete_data { ", with its data" } else { "" }));
     if !win_install::close_running(&root, CLOSE_GRACE) {
@@ -118,7 +154,10 @@ fn uninstall(a: &Args) -> i32 {
         a.log(&line);
     }
     a.log(&format!("unregistered in {} µs", started.elapsed().as_micros()));
-    match start_cleanup(&root, others.is_empty(), delete_data, a.log.as_deref()) {
+    // The caches and logs are every copy's, an unpacked one's too, which no uninstall entry
+    // names: they go only with the user's data, as OpenCode Desktop's uninstaller keeps its app
+    // data unless asked (`deleteAppDataOnUninstall: false`).
+    match start_cleanup(&root, delete_data, delete_data, a.log.as_deref()) {
         Ok(pid) => a.log(&format!("cleanup (pid {pid}) removes the files once this process exits")),
         Err(e) => {
             a.log(&format!("couldn't start the cleanup: {e}"));
@@ -149,75 +188,211 @@ fn start_cleanup(root: &Path, caches: bool, delete_data: bool, log: Option<&Path
 }
 
 fn cleanup(a: &Args) -> i32 {
-    if a.root.as_os_str().is_empty() {
+    // Anyone can start this with any `--root`: it must be an install folder of the app.
+    if let Err(why) = check_root(&a.root) {
+        a.log(&format!("{} isn't an install folder ({why}); nothing removed", a.root.display()));
         return 2;
     }
     wait_for_exit(a.wait);
+    let plan = plan(&a.root, a.caches, a.delete_data);
+    for why in &plan.kept {
+        a.log(&format!("kept the app's data: {why}"));
+    }
     let mut ok = true;
-    let mut remove = |dir: &Path| {
+    for dir in &plan.delete {
         if !dir.exists() {
-            return;
+            continue;
         }
         let gone = win_install::remove_dir(dir);
         a.log(&format!("{} {}", if gone { "removed" } else { "couldn't remove" }, dir.display()));
         ok &= gone;
-    };
-    remove(&a.root);
-    for dir in updater_folders(&a.root) {
-        remove(&dir);
     }
-    let app = crate::dirs::app();
-    // The browser engine's folder is shared by every app with a browser pane: only this
-    // install's socket, and with its data its browser profile, are its own.
-    let engine = crate::dirs::engine();
-    let exe = a.root.join(win_install::EXE);
-    if let Some(engine) = &engine {
-        std::fs::remove_file(engine.cache().join(browser_pane::installer::socket_name_for(&exe, 0))).ok();
-    }
-    // Caches, logs and the updater's downloads: `%LOCALAPPDATA%\rune-opencode` (separate folders
-    // under `RUNE_DIRS_ROOT`).
-    if let Some(app) = app.filter(|_| a.caches) {
-        remove(app.cache());
-        remove(app.logs());
-        remove(app.state());
-    }
-    if let Some(app) = app.filter(|_| a.delete_data) {
-        remove(app.data());
-        remove(app.config());
-    }
-    if let Some(engine) = engine.as_ref().filter(|_| a.delete_data) {
-        remove(&browser_pane::profile::profile_dir_for(engine.state(), &exe));
+    for file in &plan.files {
+        std::fs::remove_file(file).ok();
     }
     a.log(if ok { "uninstalled" } else { "uninstalled; some files stay until they're free" });
     delete_self();
     i32::from(!ok)
 }
 
-/// The updater's staged and previous versions beside the install (`updater::windows`).
+/// What an uninstall deletes: folders, each removed whole, and single files.
+#[derive(Default)]
+struct Plan {
+    delete: Vec<PathBuf>,
+    files: Vec<PathBuf>,
+    /// Why data the flags asked for stays.
+    kept: Vec<String>,
+}
+
+/// The install folder, the updater's folders beside it and this install's browser socket; with
+/// `caches` the app's caches and logs, with `delete_data` its settings and this install's browser
+/// profile, unless a running copy holds them or a folder isn't where Windows says it is.
+fn plan(root: &Path, caches: bool, delete_data: bool) -> Plan {
+    let exe = root.join(win_install::EXE);
+    let mut plan = Plan { delete: std::iter::once(root.to_owned()).chain(updater_folders(root)).collect(), ..Plan::default() };
+    // The browser engine's folder is shared by every app with a browser pane: only this
+    // install's socket, and with its data its browser profile, are its own.
+    if let Some(engine) = crate::dirs::engine() {
+        plan.files.push(engine.cache().join(browser_pane::installer::socket_name_for(&exe, 0)));
+    }
+    if caches || delete_data {
+        match data_free(&exe).and_then(|()| data_targets(caches, delete_data, &exe)) {
+            Ok(targets) => plan.delete.extend(targets),
+            Err(why) => plan.kept.push(why),
+        }
+    }
+    plan
+}
+
+/// The data folders the flags ask for, each checked: inside the folder Windows names for it
+/// (`SHGetKnownFolderPath`, so no environment variable steers a delete; a `RUNE_DIRS_ROOT` run's
+/// own root instead), with no junction or link on the way down to it. A folder inside another
+/// that goes too goes with it (`%LOCALAPPDATA%\rune-opencode` holds `Cache` and `Logs`).
+fn data_targets(caches: bool, delete_data: bool, exe: &Path) -> Result<Vec<PathBuf>, String> {
+    let app = crate::dirs::app().ok_or("the app's folders aren't known")?;
+    let rooted = app.is_rooted();
+    // A scratch run's root is the one the environment sets; the user's folders are the shell's.
+    #[allow(clippy::disallowed_methods)]
+    let root = rooted.then(|| std::env::var_os("RUNE_DIRS_ROOT").map(PathBuf::from)).flatten();
+    let (local, roaming) = match &root {
+        Some(root) => (root.clone(), root.clone()),
+        None => (win_install::local_app_data().ok_or("no local app data folder")?, win_install::roaming_app_data().ok_or("no roaming app data folder")?),
+    };
+    let mut targets: Vec<(PathBuf, &Path)> = Vec::new();
+    if caches {
+        targets.extend([app.state(), app.cache(), app.logs()].map(|t| (t.to_owned(), local.as_path())));
+    }
+    if delete_data {
+        targets.extend([app.data(), app.config()].map(|t| (t.to_owned(), roaming.as_path())));
+        if let Some(engine) = crate::dirs::engine() {
+            targets.push((browser_pane::profile::profile_dir_for(engine.state(), exe), local.as_path()));
+        }
+    }
+    for (target, base) in &targets {
+        check_tree(target, base)?;
+    }
+    let all: Vec<PathBuf> = targets.into_iter().map(|(t, _)| t).collect();
+    let mut outer: Vec<PathBuf> = all.iter().filter(|t| !all.iter().any(|o| !same(o, t) && inside(t, o).is_some())).cloned().collect();
+    outer.dedup_by(|a, b| same(a, b));
+    Ok(outer)
+}
+
+/// `target` lies inside `base`, and nothing between them, `target` included, is a junction or a
+/// link: Windows follows one in the middle of a path, so a delete would land outside.
+fn check_tree(target: &Path, base: &Path) -> Result<(), String> {
+    let rest = inside(target, base).filter(|r| r.components().next().is_some()).ok_or_else(|| format!("{} isn't inside {}", target.display(), base.display()))?;
+    let mut at = base.to_owned();
+    for part in rest.components() {
+        at.push(part);
+        if is_link(&at) {
+            return Err(format!("{} is a junction or link", at.display()));
+        }
+    }
+    Ok(())
+}
+
+/// What follows `base` in `path`, compared without regard to case; none when it isn't inside.
+fn inside(path: &Path, base: &Path) -> Option<PathBuf> {
+    let lower = |p: &Path| p.components().map(|c| c.as_os_str().to_string_lossy().to_lowercase()).collect::<Vec<_>>();
+    let (p, b) = (lower(path), lower(base));
+    (p.len() >= b.len() && p[..b.len()] == b[..]).then(|| path.components().skip(b.len()).collect())
+}
+
+/// Refuses while a copy of the app holds this build's profile (its lease, `opencode.sqlite-boot`,
+/// `opencode_storage`'s) or this install's browser profile (the engine's `engine.lock`): the
+/// files nobody holds would go and the held ones stay, leaving half a profile under a copy that
+/// still writes it. `close_running` closes only the copies inside the install folder.
+fn data_free(exe: &Path) -> Result<(), String> {
+    let held = |file: PathBuf| std::fs::File::open(&file).is_ok_and(|f| f.try_lock().is_err());
+    let name = crate::launch::product().name().to_owned();
+    if crate::dirs::data().is_some_and(|d| held(d.join("opencode.sqlite-boot"))) {
+        return Err(format!("a running copy of {name} uses its settings"));
+    }
+    if crate::dirs::engine().is_some_and(|e| held(browser_pane::profile::profile_dir_for(e.state(), exe).join("engine.lock"))) {
+        return Err(format!("{name}'s browser is still running"));
+    }
+    Ok(())
+}
+
+/// The data folder an installed build keeps (`dirs::app`), from its id: a pull request's build,
+/// stable and beta their own, dev (and a local build) `rune-opencode`; every build
+/// `rune-opencode` under this run's `RUNE_DIRS_ROOT`.
+fn folder_of(id: &str) -> String {
+    if crate::dirs::rooted() {
+        return "rune-opencode".to_owned();
+    }
+    match id.strip_prefix("anomaly.opencode-rune.") {
+        Some(own @ ("stable" | "beta")) => format!("rune-opencode.{own}"),
+        Some(own) => own.strip_prefix("pr.").map_or_else(|| "rune-opencode".to_owned(), |n| format!("rune-opencode.pr-{n}")),
+        None => "rune-opencode".to_owned(),
+    }
+}
+
+/// Refuses `root` unless it can be an install folder: absolute and below a drive's top, not one
+/// of the user's own folders (nor holding one), not a junction or link, and holding the app.
+fn check_root(root: &Path) -> Result<(), String> {
+    if !root.is_absolute() || root.file_name().is_none() || root.parent().and_then(Path::parent).is_none() {
+        return Err("a drive or a folder at a drive's top".into());
+    }
+    if win_install::protected_folders().iter().any(|k| inside(k, root).is_some()) {
+        return Err("it is, or holds, one of the user's own folders".into());
+    }
+    if is_link(root) {
+        return Err("it is a junction or link".into());
+    }
+    if !root.join(win_install::EXE).is_file() {
+        return Err(format!("it has no {}", win_install::EXE));
+    }
+    Ok(())
+}
+
+/// A junction, a symbolic link or another reparse point.
+fn is_link(path: &Path) -> bool {
+    use std::os::windows::fs::MetadataExt as _;
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.file_attributes() & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT != 0)
+}
+
+/// The updater's and the setup's folders beside the install (`updater::windows::beside`,
+/// `apps/installer`): `.<name>.old-*`, `.staging-*`, `.ready-*`, `.setup-*` and `.staged`, and no
+/// other sibling.
 fn updater_folders(root: &Path) -> Vec<PathBuf> {
-    let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let Some(name) = root.file_name().map(|n| n.to_string_lossy().into_owned()) else { return Vec::new() };
     let Some(parent) = root.parent() else { return Vec::new() };
+    let ours = |file: &str| {
+        file.strip_prefix(&format!(".{name}.")).is_some_and(|rest| rest == "staged" || ["old-", "staging-", "ready-", "setup-"].iter().any(|p| rest.starts_with(p)))
+    };
     std::fs::read_dir(parent)
         .into_iter()
         .flatten()
         .flatten()
-        .filter(|e| e.file_name().to_string_lossy().starts_with(&format!(".{name}.")))
+        .filter(|e| ours(&e.file_name().to_string_lossy()) && !is_link(&e.path()))
         .map(|e| e.path())
         .collect()
 }
 
-/// The temp copy deletes itself once it has exited.
+/// The temp copy deletes itself once it has exited. Its path reaches `cmd.exe` through the
+/// environment, read with delayed expansion after the line is parsed, so no character in the
+/// temp folder's name can run a command.
 fn delete_self() {
     let Ok(exe) = std::env::current_exe() else { return };
-    let script = format!("ping -n 3 127.0.0.1 >nul & del /f /q \"{}\"", exe.display());
-    let system = std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
-    Command::new(system.join("System32").join("cmd.exe"))
-        .args(["/d", "/c"])
-        .raw_arg(&script)
-        .current_dir(std::env::temp_dir())
+    let Some(system) = system_folder() else { return };
+    Command::new(system.join("cmd.exe"))
+        .args(["/d", "/v:on", "/c"])
+        .raw_arg("ping -n 3 127.0.0.1 >nul & del /f /q \"!OPENCODE_UNINSTALL_SELF!\"")
+        .env("OPENCODE_UNINSTALL_SELF", &exe)
+        .current_dir(&system)
         .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW)
         .spawn()
         .ok();
+}
+
+/// `System32`, where Windows says it is.
+fn system_folder() -> Option<PathBuf> {
+    use std::os::windows::ffi::OsStringExt as _;
+    let mut buf = [0u16; 260];
+    // SAFETY: writes at most `buf.len()` characters into `buf` and returns how many.
+    let n = unsafe { windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW(buf.as_mut_ptr(), buf.len() as u32) } as usize;
+    (n > 0 && n < buf.len()).then(|| PathBuf::from(std::ffi::OsString::from_wide(&buf[..n])))
 }
 
 fn wait_for_exit(pid: u32) {
@@ -265,11 +440,11 @@ mod dialog {
         let title = wide(&format!("Uninstall {}", p.name()));
         let instruction = wide(&format!("Uninstall {}?", p.name()));
         let content = wide(if own_data {
-            "This removes the app, its Start menu and desktop shortcuts, and its caches. Your OpenCode sessions stay on the server."
+            "This removes the app and its Start menu and desktop shortcuts. Your OpenCode sessions stay on the server."
         } else {
             "This removes the app and its Start menu and desktop shortcuts. Its settings stay for the other OpenCode (Rune) installed, and your OpenCode sessions stay on the server."
         });
-        let verification = wide("Also delete my settings, tabs and drafts");
+        let verification = wide("Also delete my settings, tabs, drafts and caches");
         let label = wide("Uninstall");
         let buttons = [TASKDIALOG_BUTTON { nButtonID: UNINSTALL, pszButtonText: label.as_ptr() }];
         // SAFETY: the module handle of this executable, whose icon resource 1 the dialog shows.

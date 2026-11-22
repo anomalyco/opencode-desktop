@@ -335,7 +335,7 @@ fn set_optional_int_pref(ctx: &RequestContext, name: &str, value: i32) -> bool {
 /// context. A pref this build registers but will not take, and does not already hold, fails the
 /// whole call, so the caller refuses the context instead of running with the service on (N9).
 pub fn lock_chrome_services(ctx: &RequestContext) -> bool {
-    const OFF: [&str; 22] = [
+    const OFF: [&str; 23] = [
         // N1 Safe Browsing.
         "safebrowsing.enabled",
         "safebrowsing.enhanced",
@@ -344,6 +344,9 @@ pub fn lock_chrome_services(ctx: &RequestContext) -> bool {
         "signin.allowed",
         "credentials_enable_service",
         "credentials_enable_autosignin",
+        // The leak check sends a hash of each submitted sign-in to `passwordsleakcheck-pa.googleapis.com`;
+        // in Chromium 156 only this pref turns it off (`PasswordLeakDetection` is no longer a feature).
+        "profile.password_manager_leak_detection",
         "autofill.profile_enabled",
         "autofill.credit_card_enabled",
         "autofill.enabled",
@@ -369,6 +372,10 @@ pub fn lock_chrome_services(ctx: &RequestContext) -> bool {
     for name in OFF {
         ok &= set_optional_bool_pref(ctx, name, false);
     }
+    // N4 built-in PDF viewer: official Electron never renders PDFs inline (`chromium.ts:352-364,959`);
+    // `plugins.always_open_pdf_externally` is verified present in CEF 156 `libcef.dll` and routes
+    // top-level PDFs through our `DownloadHandler` (Save dialog / agent staging) with 0 PDFium load.
+    ok &= set_optional_bool_pref(ctx, "plugins.always_open_pdf_externally", true);
     // 2 == NETWORK_PREDICTION_NEVER.
     ok &= set_optional_int_pref(ctx, "net.network_prediction_options", 2);
     // The content settings, as their default-scope prefs (`Default` also gets them directly).
@@ -507,9 +514,12 @@ wrap_request_context_handler! {
     impl RequestContextHandler {
         fn on_request_context_initialized(&self, request_context: Option<&mut RequestContext>) {
             let proxy = self.proxy.lock().unwrap().clone();
-            let applied = request_context
-                .as_deref()
-                .is_some_and(|ctx| apply_context_prefs(ctx, proxy.as_ref(), self.require_proxy));
+            // Preview and artifact contexts (the ones with a resource filter) never print: nobody
+            // need be watching them, and a native print dialog stops the whole engine (#662).
+            let applied = request_context.as_deref().is_some_and(|ctx| {
+                apply_context_prefs(ctx, proxy.as_ref(), self.require_proxy)
+                    && (self.resource_filter.is_none() || set_and_verify_bool_pref(ctx, "printing.enabled", false))
+            });
             if applied
                 && let Some(ctx) = request_context.as_deref()
             {

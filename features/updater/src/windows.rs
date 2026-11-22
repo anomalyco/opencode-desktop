@@ -76,7 +76,7 @@ pub struct Windows {
     trust: Trust,
     staged: Mutex<Option<Staged>>,
     /// The arguments to start the new version with.
-    args: Vec<String>,
+    args: Vec<std::ffi::OsString>,
 }
 
 /// The updater for the install `exe` runs from: on with the release feed in a build that
@@ -97,7 +97,7 @@ pub fn platform(exe: &Path, version: &str, build_channel: &str, updates: PathBuf
     sweep(&root, &updates);
     let _ = receipt::at(&root);
     let facts = Facts { version: version.to_owned(), channel: feed::feed_channel(build_channel), service, updates };
-    let args = std::env::args().skip(1).collect();
+    let args = rune::tooling::without_relaunch_drops(std::env::args_os().skip(1).collect());
     Some(Windows { engine: Engine::new(facts), version: version.to_owned(), root, trust, staged: Mutex::new(None), args })
 }
 

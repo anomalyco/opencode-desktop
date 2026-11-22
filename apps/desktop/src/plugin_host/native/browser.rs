@@ -221,7 +221,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     let raw: Function = vmx.asyncs.raw_get("Browser.OpenAsync")?;
     let open: Function = lua.load("local raw = ... return function(self, spec) local id = raw(spec) return if id then self:Get(id) else nil end").set_name("=Browser:OpenAsync").call(raw)?;
     t.raw_set("OpenAsync", open)?;
-    lazy_signals(lua, vmx, t, "Browser", &["Changed", "Picked", "SiteBack", "AddressSelectionChanged"])
+    lazy_signals(lua, vmx, t, "Browser", &["Changed", "Picked", "SiteBack", "AddressSelectionChanged", "ImportSite"])
 }
 
 /// The host's async functions: `Browser:OpenAsync` and `BrowserTab`'s async methods.
@@ -418,7 +418,19 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
     )?;
     m.raw_set(
         "Refusal",
-        lua.create_function(|lua, this: Table| read_tab(lua, &this, "BrowserTab:Refusal", |app, id| Ok(app.workspace_panes.browser.host.tab(id).and_then(|t| t.refusal.clone()))))?,
+        lua.create_function(|lua, this: Table| {
+            read_tab(lua, &this, "BrowserTab:Refusal", |app, id| {
+                // The engine and the address check know no workspace roots (files open as previews),
+                // so a session that offers its workspace gets the workspace wording here.
+                Ok(app.workspace_panes.browser.host.tab(id).and_then(|t| t.refusal.clone()).map(|code| {
+                    if code == "browser.address.web" && app.browser_offers_workspace(app.browser_tab_session(id)) {
+                        "browser.address.workspace".to_owned()
+                    } else {
+                        code
+                    }
+                }))
+            })
+        })?,
     )?;
     m.raw_set(
         "Rejected",
@@ -580,6 +592,7 @@ pub fn version(app: &App) -> u64 {
     app.workspace_panes.browser.host.engine_preview().hash(&mut h);
     app.workspace_panes.browser.app_icons.finished().hash(&mut h);
     app.workspace_panes.browser.app_icons.sources.generation().hash(&mut h);
+    app.workspace_panes.browser.cookies.counted().hash(&mut h);
     for t in app.workspace_panes.browser.host.tabs() {
         if let Some(d) = &t.device { (&d.preset, d.width, d.height, d.scale.map(f32::to_bits)).hash(&mut h); }
         (t.id, &t.url, &t.title, t.loading, t.can_go_back, t.can_go_forward, t.zoom.to_bits(), t.inspecting, &t.load_error, &t.favicon, &t.refusal, t.rejected).hash(&mut h);
@@ -676,6 +689,8 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     }
     changed |= crate::surfaces::browser::prompts::poll(app, tx, now) | crate::surfaces::browser::context_menu::poll(app, tx) | crate::surfaces::browser::comment::poll(app, tx) | crate::surfaces::browser::extensions::poll_popup_focus(app, tx);
     if let Some(next) = app.workspace_panes.browser.devtools.values().map(|p| p.deadline).min() { tx.wake_after(next.saturating_duration_since(now).max(Duration::from_millis(25))); }
+    // A cookie import or Clear browsing data fails at its deadline even when nothing else wakes the app.
+    if let Some(next) = app.cookie_jobs_deadline() { tx.wake_after(next.saturating_duration_since(now).max(Duration::from_millis(25))); }
     let picks: Vec<_> = if app.workspace_panes.browser.host.has_picked() { app.workspace_panes.browser.host.drain_picked_elements().collect() } else { Vec::new() };
     for pick in picks {
         app.open_browser_element_comment(pick.clone());

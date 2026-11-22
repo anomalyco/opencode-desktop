@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 /// revision (`156.0.26.1`). Bump it when the app needs an engine built from newer engine code (a
 /// protocol change); a release of a newer CEF with the same revision is an update for every app
 /// that accepts it.
-pub const ENGINE_REVISION: u32 = 8;
+pub const ENGINE_REVISION: u32 = 11;
 #[cfg(not(any(windows, target_os = "linux")))]
 pub const ENGINE_BUNDLE_NAME: &str = "OpenCode Browser Engine.app";
 #[cfg(not(any(windows, target_os = "linux")))]
@@ -377,14 +377,38 @@ pub fn installed() -> Option<Installed> {
         .into_iter()
         .filter(|v| {
             let dir = root.join(v.to_string());
-            v.accepted()
-                && !is_reparse_or_symlink(&dir)
-                && !is_reparse_or_symlink(&dir.join(ENGINE_BUNDLE_NAME))
-                && crate::source::accepts_install(&dir)
-                && bin_in(&dir).is_file()
+            v.accepted() && is_complete(&dir) && crate::source::accepts_install(&dir)
         })
         .max()
         .map(|version| Installed { version: Some(version), bin: bin_in(&root.join(version.to_string())) })
+}
+
+/// True when `version_dir` is a non-link directory holding every platform entry binary required
+/// for a complete install (`#617` half-installed recovery + Windows `bootstrap.exe` + client DLL).
+#[cfg(feature = "engine")]
+pub(crate) fn is_complete(version_dir: &Path) -> bool {
+    if is_reparse_or_symlink(version_dir) || is_reparse_or_symlink(&version_dir.join(ENGINE_BUNDLE_NAME)) {
+        return false;
+    }
+    let bin = bin_in(version_dir);
+    if is_reparse_or_symlink(&bin) || !bin.is_file() {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        let dll = bin.with_file_name("opencode-browser-engine.dll");
+        if is_reparse_or_symlink(&dll) || !dll.is_file() {
+            return false;
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let helper = bin.with_file_name("opencode-browser-engine-helper");
+        if is_reparse_or_symlink(&helper) || !helper.is_file() {
+            return false;
+        }
+    }
+    true
 }
 
 /// The versions with a folder in `root`, accepted by this build or not.
@@ -558,10 +582,29 @@ fn short_socket_dir() -> PathBuf {
     base.join("opencode-browser")
 }
 
-/// Windows: the user's own temporary folder.
+/// Windows: the user's own temporary folder, or when its path is too long (a long user folder name,
+/// or a short one in a script whose UTF-8 bytes add up: Cyrillic, CJK), the same folder by its 8.3
+/// name where the volume keeps them. Without it such a user had no browser at all: "Couldn't create
+/// the browser socket directory."
 #[cfg(all(feature = "engine", windows))]
+#[allow(unsafe_code)]
 fn short_socket_dir() -> PathBuf {
-    std::env::temp_dir().join("opencode-browser")
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    // `\s-<16 hex>.sock` inside `opencode-browser`.
+    const LEAF: usize = 24;
+    let tmp = std::env::temp_dir();
+    let candidate = tmp.join("opencode-browser");
+    if candidate.as_os_str().len() + LEAF <= SOCKET_PATH_MAX {
+        return candidate;
+    }
+    let wide: Vec<u16> = tmp.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut buf = [0u16; 1024];
+    // SAFETY: `wide` is a NUL-terminated path that outlives the call; the call writes at most
+    // `buf.len()` units, NUL included, and returns the length written without it (0 on failure, or
+    // the size it needs when `buf` is too small).
+    let n = unsafe { windows::Win32::Storage::FileSystem::GetShortPathNameW(windows::core::PCWSTR(wide.as_ptr()), Some(&mut buf)) } as usize;
+    let base = if n > 0 && n < buf.len() { PathBuf::from(std::ffi::OsString::from_wide(&buf[..n])) } else { tmp };
+    base.join("opencode-browser")
 }
 
 /// The engine chmods its socket's parent. On Linux, only pass an override in an already private

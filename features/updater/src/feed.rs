@@ -8,6 +8,7 @@
 //! | `OPENCODE_RUNE_UPDATE_CHANNEL` | all | The feed channel (`dev`, `stable`). |
 //! | `OPENCODE_RUNE_UPDATE_INITIAL_DELAY_MS` | all | How long after launch the first check waits (10 s). |
 //! | `OPENCODE_RUNE_AUTO_INSTALL_ON_READY` | all (macOS) | `1`: install as soon as an update is ready. |
+//! | `OPENCODE_RUNE_ALLOW_HARNESS_UPDATES` | all | `1`: opt in to running the updater in an isolated `RUNE_DIRS_ROOT` / `--harness-writes` window (needed on signed release/dev builds, where `OPENCODE_RUNE_UPDATE_FEED` is ignored). Has no effect on normal or headless runs, and never weakens feed URL or signature checks. |
 //! | `OPENCODE_RUNE_SKIP_GATEKEEPER` | debug (macOS) | `1`, with a loopback feed and an unsigned running bundle: skip the signing team and Gatekeeper checks. Ignored in release builds. |
 
 use std::time::Duration;
@@ -75,6 +76,20 @@ pub fn debug_release_url() -> Option<String> {
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn debug_skip_gatekeeper() -> bool {
     cfg!(debug_assertions) && env("OPENCODE_RUNE_SKIP_GATEKEEPER").as_deref() == Some("1")
+}
+
+/// Whether an isolated scratch-root / harness window explicitly opted in to running the updater.
+pub fn harness_opt_in() -> bool {
+    let update_feed = env("OPENCODE_RUNE_UPDATE_FEED");
+    let release_url = env("OPENCODE_RUNE_RELEASE_URL");
+    let allow = env("OPENCODE_RUNE_ALLOW_HARNESS_UPDATES");
+    super::policy::opt_in_active(
+        cfg!(debug_assertions),
+        cfg!(any(target_os = "macos", target_os = "linux")),
+        update_feed.as_deref(),
+        release_url.as_deref(),
+        allow.as_deref(),
+    )
 }
 
 /// A variable's trimmed value, when set and not empty.

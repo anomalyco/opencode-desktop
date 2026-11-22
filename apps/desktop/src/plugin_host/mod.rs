@@ -60,9 +60,9 @@ pub use servers::{
 };
 pub use sources::{Origin, Tier};
 pub use surfaces::{
-    dialog_card, dialog_view_in, file_viewer, pill_views, popover_view, settings_page, settings_page_actions,
-    settings_page_icon, settings_page_ids, settings_page_key, settings_page_title, settings_pages, sidebar_items, slot,
-    slot_with, titlebar_items,
+    dialog_card, dialog_view_in, file_viewer, has_live_settings_section, pill_views, popover_view, settings_page,
+    settings_page_actions, settings_page_icon, settings_page_ids, settings_page_key, settings_page_title,
+    settings_pages, sidebar_items, slot, slot_with, titlebar_items,
 };
 pub use trust::dialog as trust_dialog;
 pub use ui::view::settings_section;
@@ -92,6 +92,7 @@ pub fn surfaces_version(app: &App) -> u64 {
     epoch().hash(&mut h);
     crate::updater::revision(app).hash(&mut h);
     app.plugins.titlebar_hover.hash(&mut h);
+    app.plugins.titlebar_drops.hash(&mut h);
     app.plugins.titlebar_focus.hash(&mut h);
     for p in app.plugins.list.iter() {
         p.half.surface_version(p.script()).hash(&mut h);
@@ -175,6 +176,8 @@ pub struct PluginHost {
     boot: runtime::boot::Boot,
     /// The built-ins waiting for their first use, and their records.
     pub dormant: dormant::Dormant,
+    /// Plugins whose start ran out of time, waiting for their one restart.
+    pub(crate) restarts: runtime::lifecycle::Restarts,
     /// Per-plugin model-picker row annotations (`Models:SetBadges`), keyed by plugin id and tagged
     /// with the VM id that set them so reload/stop drops stale entries.
     pub(crate) model_badges: BTreeMap<String, (u64, ModelBadgeMap)>,
@@ -182,6 +185,8 @@ pub struct PluginHost {
     pub dialog: Option<OpenDialog>,
     /// The titlebar item the pointer is over, whose pill opens to show its label.
     pub titlebar_hover: Option<&'static str>,
+    /// How many times each titlebar item's arrow has dropped in, which keys the arrow it shows.
+    pub titlebar_drops: BTreeMap<&'static str, u32>,
     /// The titlebar item holding keyboard focus, whose pill opens to show its label (`focus-within`).
     pub titlebar_focus: Option<String>,
     /// The window lost the system's focus (`ctx.FocusChanged`); a new window has it.
@@ -282,6 +287,16 @@ impl PluginHost {
     /// override, or dev plugin shadowing a built-in ID).
     pub fn is_builtin_plugin(&self, id: &str) -> bool {
         self.list.iter().any(|p| p.half.is_builtin(id) && p.running())
+    }
+
+    /// Whether the user explicitly disabled plugin `id`.
+    pub fn is_disabled(&self, id: &str) -> bool {
+        self.disabled.contains(id)
+    }
+
+    /// Whether plugin `id` is still queued in deferred post-first-frame boot (`boot.later`).
+    pub fn is_deferred(&self, id: &str) -> bool {
+        self.boot.later().iter().any(|f| f.manifest.id == id)
     }
 
     /// Whether plugin `id` is running, dormant (ready to wake on first use), or a bundled
@@ -552,6 +567,27 @@ pub fn popover_key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
     requests::close_popover(app, tx);
     true
+}
+
+/// The pane's passkey notice asks the bundled browser plugin for its import dialog on the page's
+/// `site`: chosen already when `choose` (a tab of the person's), and `tab` loads again once cookies
+/// came in (official `panel.tsx:603-618`).
+pub fn browser_import_site(app: &mut App, site: Option<String>, choose: bool, tab: u64, tx: &mut Tx) {
+    let payload = rune_luau::Data::Map(std::collections::BTreeMap::from([
+        ("site".to_owned(), site.map_or(rune_luau::Data::Nil, rune_luau::Data::String)),
+        ("choose".to_owned(), rune_luau::Data::Bool(choose)),
+        ("tab".to_owned(), rune_luau::Data::String(tab.to_string())),
+    ]));
+    let mut fired = false;
+    for i in 0..app.plugins.list.len() {
+        if app.plugins.list[i].half.is_builtin("browser") {
+            fired |= runtime::lifecycle::fire_named(app, i, "Browser.ImportSite", payload.clone());
+        }
+    }
+    tx.instant();
+    if fired {
+        requests::carry_out(app, tx);
+    }
 }
 
 /// Esc closes the open plugin dialog, telling its plugin (yielding when another overlay sits above it).

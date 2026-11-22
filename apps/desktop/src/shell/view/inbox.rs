@@ -206,7 +206,8 @@ impl Line {
                 })
             }
             // `px-1.5 py-2`, a block whose words wrap at the sidebar's width (`inbox.tsx:421`).
-            Line::Empty => col().key("inbox-empty").w_full().px(6.0).py(8.0).child(text(t!("sidebar.inbox.empty")).font(LINE).color(p.faint).wrap().w_full()),
+            // `inbox.tsx`: `text-[13px] leading-4 text-v2-text-text-faint` (no negative tracking).
+            Line::Empty => col().key("inbox-empty").w_full().px(6.0).py(8.0).child(text(t!("sidebar.inbox.empty")).font(TextStyle::new(13.0, 440.0).lh(16.0)).color(p.faint).wrap().w_full()),
             Line::Archived => el().key("inbox-archived").w_full().pt(12.0).child(
                 ghost_button(p, "inbox-archived-button", t!("sidebar.inbox.section.archived")).on_press_tx(|s: &mut App, tx: &mut Tx| {
                     s.close_settings();

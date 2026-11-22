@@ -132,8 +132,10 @@ pub(super) fn project_row(s: &App, p: &Pal, server: &ServerKey, proj: &model::Pr
             crate::servers::runtime::switch(s, &new_server);
             s.new_session_in(&new_dir, tx);
         }));
+    let failed = s.kernel.slots.get(&crate::projects::HOME_STATE).servers.iter().any(|v| v.key == server && v.failed());
     // The nav button: hovered itself, its label goes to the text colour; the pointer on the
-    // actions leaves it muted while the row keeps its hover surface.
+    // actions leaves it muted while the row keeps its hover surface. Unreachable servers dim and
+    // disable selection (`home/projects/view.tsx`: `disabled={serverUnreachable()}` `disabled:opacity-60`).
     let nav = row()
         .key("nav")
         .role("button")
@@ -146,16 +148,19 @@ pub(super) fn project_row(s: &App, p: &Pal, server: &ServerKey, proj: &model::Pr
         .gap(8.0)
         .center_y()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .hover_group()
-        .on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        .child(crate::icons::badge(s, p, Some(proj), &proj.name))
+        .child(text(proj.name.clone()).key("label").font(HOME).color(if active { p.text } else { p.muted }).group_color(p.text).grow(1.0).shrink().truncate().align(text_left()));
+    let nav = if failed {
+        nav.opacity(0.6).disabled(true).cursor(rune::Cursor::Default)
+    } else {
+        nav.cursor(rune::Cursor::Pointer).on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             crate::projects::home::toggle(s, &server, &dir);
             s.project_state.home_menu_open = false;
         })
-        .child(crate::icons::badge(s, p, Some(proj), &proj.name))
-        .child(text(proj.name.clone()).key("label").font(HOME).color(if active { p.text } else { p.muted }).group_color(p.text).grow(1.0).shrink().truncate().align(text_left()));
+    };
     let mut r = row()
         .key(format!("hp-{}", proj.id))
         .w(width)
