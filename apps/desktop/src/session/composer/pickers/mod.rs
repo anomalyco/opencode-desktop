@@ -110,9 +110,13 @@ impl App {
     }
 
     /// After `apply_selected`, in each window: a pick it now runs with is forgotten, so the
-    /// session follows changes made elsewhere.
+    /// session follows changes made elsewhere. A picker records the agent a session leaves
+    /// unnamed, so both sides compare through the same default.
     pub fn selected_landed(&mut self, sid: &str, confirmed: &Selection) {
-        if self.composer_ext.pickers.selections.get(sid) == Some(confirmed) { self.composer_ext.pickers.selections.remove(sid); }
+        let pickers = &self.composer_ext.pickers;
+        let agent = pickers.effective_agent(&confirmed.agent);
+        let landed = pickers.selections.get(sid).is_some_and(|held| held.agent == agent && held.model == confirmed.model);
+        if landed { self.composer_ext.pickers.selections.remove(sid); }
     }
 
     /// The fixture's server: a prompt that switches the session says so in its stream, before

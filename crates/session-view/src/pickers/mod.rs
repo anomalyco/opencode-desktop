@@ -161,6 +161,18 @@ fn wall_ms() -> i64 {
 }
 
 impl Pickers {
+    /// A session need not name its agent, so a pick and the server's confirmation compare
+    /// through the same default.
+    pub fn effective_agent<'a>(&'a self, agent: &'a str) -> &'a str {
+        if !agent.is_empty() {
+            return agent;
+        }
+        if self.agents.iter().any(|a| a == "build") {
+            return "build";
+        }
+        self.agents.first().map_or("build", String::as_str)
+    }
+
     pub(crate) fn manage_search_mut(&mut self) -> &mut TextEdit {
         match &mut self.manage {
             Some(m) => &mut m.search,
