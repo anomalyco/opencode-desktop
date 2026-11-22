@@ -582,10 +582,29 @@ fn short_socket_dir() -> PathBuf {
     base.join("opencode-browser")
 }
 
-/// Windows: the user's own temporary folder.
+/// Windows: the user's own temporary folder, or when its path is too long (a long user folder name,
+/// or a short one in a script whose UTF-8 bytes add up: Cyrillic, CJK), the same folder by its 8.3
+/// name where the volume keeps them. Without it such a user had no browser at all: "Couldn't create
+/// the browser socket directory."
 #[cfg(all(feature = "engine", windows))]
+#[allow(unsafe_code)]
 fn short_socket_dir() -> PathBuf {
-    std::env::temp_dir().join("opencode-browser")
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    // `\s-<16 hex>.sock` inside `opencode-browser`.
+    const LEAF: usize = 24;
+    let tmp = std::env::temp_dir();
+    let candidate = tmp.join("opencode-browser");
+    if candidate.as_os_str().len() + LEAF <= SOCKET_PATH_MAX {
+        return candidate;
+    }
+    let wide: Vec<u16> = tmp.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut buf = [0u16; 1024];
+    // SAFETY: `wide` is a NUL-terminated path that outlives the call; the call writes at most
+    // `buf.len()` units, NUL included, and returns the length written without it (0 on failure, or
+    // the size it needs when `buf` is too small).
+    let n = unsafe { windows::Win32::Storage::FileSystem::GetShortPathNameW(windows::core::PCWSTR(wide.as_ptr()), Some(&mut buf)) } as usize;
+    let base = if n > 0 && n < buf.len() { PathBuf::from(std::ffi::OsString::from_wide(&buf[..n])) } else { tmp };
+    base.join("opencode-browser")
 }
 
 /// The engine chmods its socket's parent. On Linux, only pass an override in an already private
