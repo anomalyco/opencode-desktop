@@ -344,12 +344,7 @@ pub fn run_native() {
         .on_ready(move |_| {
             storage::presented();
             let wake = launch::inbox_waker(handle.clone());
-            let browser = launch::browser_waker(handle.clone());
-            handle.update_if(move |s, tx| {
-                s.launch.inbox_wake = Some(wake);
-                s.workspace_panes.browser.host.set_message_waker(browser);
-                launch::ready(s, tx)
-            });
+            handle.update_if(move |s, tx| { s.launch.inbox_wake = Some(wake); launch::ready(s, tx) });
         })
         .on_frame_encoded(move |f| {
             encoded.encoded(f);

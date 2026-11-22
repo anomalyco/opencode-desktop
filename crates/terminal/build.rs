@@ -10,11 +10,14 @@
 //!    source tarball (or `GHOSTTY_SOURCE_DIR`), builds static `ReleaseFast` archive, and publishes
 //!    it atomically into the cache.
 
-use std::io::Read;
-use std::process::Command;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 include!("build_support.rs");
+
+const ZIG_VERSION_TIMEOUT: Duration = Duration::from_secs(15);
+const AROCC_FETCH_TIMEOUT: Duration = Duration::from_secs(45);
+const TAR_EXTRACT_TIMEOUT: Duration = Duration::from_secs(120);
+const ZIG_BUILD_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// Ends the build script with the whole message: a failure names its cause (zig's stderr), not one line of it.
 fn fail(msg: &str) -> ! {
@@ -156,14 +159,14 @@ fn build_cold(cache_root: &Path, host: &str, target: &str, dest: &Path) -> Resul
             )
         })?;
         let tarball = work_dir.join("libghostty-vt-source.tar.gz");
-        let bytes = download_bytes(GHOSTTY_TARBALL_URL)?;
-        verify_sha256("libghostty-vt-source.tar.gz", GHOSTTY_TARBALL_URL, GHOSTTY_TARBALL_SHA256, &bytes)?;
-        fs::write(&tarball, &bytes).map_err(|e| {
-            format!(
-                "terminal build: failed to write `{}` ({e})",
-                tarball.display()
-            )
-        })?;
+        let policy = FetchPolicy::for_archive(GHOSTTY_TARBALL_MAX_BYTES);
+        fetch_verified_archive(
+            "libghostty-vt-source.tar.gz",
+            GHOSTTY_TARBALL_URL,
+            GHOSTTY_TARBALL_SHA256,
+            &tarball,
+            &policy,
+        )?;
         let src_dir = work_dir.join("src");
         fs::create_dir_all(&src_dir).map_err(|e| format!("terminal build: mkdir src failed ({e})"))?;
         extract_tar(&tarball, &src_dir, true)?;
@@ -224,12 +227,11 @@ fn build_from_source(
             cmd.arg("--system").arg(sys_dir);
         }
 
-        let output = cmd.output().map_err(|e| {
-            format!(
-                "terminal build: failed to spawn `{}` ({e})",
-                zig.display()
-            )
-        })?;
+        let output = run_command_with_timeout(
+            &mut cmd,
+            ZIG_BUILD_TIMEOUT,
+            "`zig build -Demit-lib-vt=true`",
+        )?;
         if !output.status.success() {
             // zig's last lines, not its last one: on 18 Nov the last one was the caret under the error.
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -269,14 +271,13 @@ fn prefetch_arocc(zig: &Path, global_cache: &Path) {
     if packages.join(AROCC_HASH).exists() || packages.join(format!("{AROCC_HASH}.tar.gz")).exists() {
         return;
     }
-    let note = match Command::new(zig)
-        .arg("fetch")
+    let mut cmd = Command::new(zig);
+    cmd.arg("fetch")
         .arg(AROCC_GITHUB)
         .env("ZIG_GLOBAL_CACHE_DIR", global_cache)
-        .current_dir(global_cache)
-        .output()
-    {
-        Err(e) => format!("could not start `zig fetch` ({e})"),
+        .current_dir(global_cache);
+    let note = match run_command_with_timeout(&mut cmd, AROCC_FETCH_TIMEOUT, "`zig fetch`") {
+        Err(e) => e,
         Ok(out) if !out.status.success() => {
             let stderr = String::from_utf8_lossy(&out.stderr);
             let last = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string();
@@ -314,6 +315,9 @@ fn publish_atomic(built: &Path, dest: &Path) -> Result<(), String> {
             tmp.display()
         )
     })?;
+    if cfg!(windows) && dest.exists() {
+        fs::remove_file(dest).ok();
+    }
     fs::rename(&tmp, dest).map_err(|e| {
         fs::remove_file(&tmp).ok();
         format!(
@@ -359,12 +363,10 @@ fn resolve_or_bootstrap_zig(cache_root: &Path, host: &str) -> Result<PathBuf, St
     let res = (|| {
         fs::create_dir_all(&stage)
             .map_err(|e| format!("terminal build: mkdir zig stage failed ({e})"))?;
-        let bytes = download_bytes(dist.url)?;
-        verify_sha256("zig-0.17.0", dist.url, dist.sha256, &bytes)?;
         // `.tar.xz` on macOS and Linux, `.zip` on Windows; `tar` (bsdtar on Windows) reads both.
         let archive = stage.join(dist.url.rsplit('/').next().unwrap_or("zig-archive"));
-        fs::write(&archive, &bytes)
-            .map_err(|e| format!("terminal build: write zig archive failed ({e})"))?;
+        let policy = FetchPolicy::for_archive(ZIG_ARCHIVE_MAX_BYTES);
+        fetch_verified_archive("zig-0.17.0", dist.url, dist.sha256, &archive, &policy)?;
         let unpacked = stage.join("unpacked");
         fs::create_dir_all(&unpacked)
             .map_err(|e| format!("terminal build: mkdir zig unpacked failed ({e})"))?;
@@ -398,10 +400,10 @@ fn resolve_or_bootstrap_zig(cache_root: &Path, host: &str) -> Result<PathBuf, St
 }
 
 fn zig_version_of(bin: &Path) -> Result<String, String> {
-    let out = Command::new(bin)
-        .arg("version")
-        .output()
-        .map_err(|e| format!("terminal build: failed to run `{} version` ({e})", bin.display()))?;
+    let mut cmd = Command::new(bin);
+    cmd.arg("version");
+    let label = format!("`{} version`", bin.display());
+    let out = run_command_with_timeout(&mut cmd, ZIG_VERSION_TIMEOUT, &label)?;
     if !out.status.success() {
         return Err(format!(
             "terminal build: `{} version` exited with {}",
@@ -412,38 +414,14 @@ fn zig_version_of(bin: &Path) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
 }
 
-fn download_bytes(url: &str) -> Result<Vec<u8>, String> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(300)))
-        .http_status_as_error(true)
-        .build()
-        .into();
-    let mut resp = agent
-        .get(url)
-        .call()
-        .map_err(|e| format!("terminal build: failed to download {url} ({e})"))?;
-    let mut bytes = Vec::new();
-    resp.body_mut()
-        .with_config()
-        .limit(128 << 20)
-        .reader()
-        .read_to_end(&mut bytes)
-        .map_err(|e| format!("terminal build: failed reading {url} ({e})"))?;
-    Ok(bytes)
-}
-
 fn extract_tar(archive: &Path, dest: &Path, strip_first: bool) -> Result<(), String> {
     let mut cmd = Command::new(tar_program());
     cmd.arg("-xf").arg(archive).arg("-C").arg(dest);
     if strip_first {
         cmd.arg("--strip-components=1");
     }
-    let out = cmd.output().map_err(|e| {
-        format!(
-            "terminal build: failed to invoke `tar` on `{}` ({e})",
-            archive.display()
-        )
-    })?;
+    let label = format!("`tar` on `{}`", archive.display());
+    let out = run_command_with_timeout(&mut cmd, TAR_EXTRACT_TIMEOUT, &label)?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         let line = stderr.lines().next().unwrap_or("tar extraction failed").trim();

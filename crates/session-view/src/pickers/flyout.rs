@@ -67,6 +67,9 @@ pub fn active_option_key<S: PickerHost>(s: &S) -> Option<String> {
 pub fn view<S: PickerHost>(s: &S, p: &Pal) -> Option<El> {
     let pk = s.pickers();
     let flyout = pk.hover.flyout_model().filter(|_| pk.open() == Some(Kind::Model))?;
+    if !s.picker_items().iter().any(|it| it.key == flyout) {
+        return None;
+    }
     let model = pk.models.iter().find(|m| m.key == flyout)?;
     let keyed = active_option_key(s);
     let lit = keyed.as_deref().or_else(|| pk.hover.lit());
