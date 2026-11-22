@@ -1,5 +1,5 @@
 //! `App`-independent contract `ui.*` host node builders over `opencode-ui` and `rune-kit`:
-//! `frame`, `divider`, `icon`, `loader`, `metric`, `keybind`, `button`, `iconButton`, `radio`,
+//! `frame`, `divider`, `icon`, `loader`, `metric`, `keybind`, `button`, `iconButton`, `radio`, `checkbox`,
 //! `serverIndicator`, `dialogHeader`, `progressCircle`, and `segmented`.
 
 use std::cell::RefCell;
@@ -57,6 +57,7 @@ pub fn base_nodes(
         HostNode::new("button", button),
         HostNode::new("iconButton", move |a| icon_button(a, command_chord)),
         HostNode::new("radio", radio),
+        HostNode::new("checkbox", checkbox),
         HostNode::new("loader", |a| Ok(Loader::new().size(a.number("size").unwrap_or(16.0) as f32).build(kit(&p(a))))),
         HostNode::new("serverIndicator", server_indicator),
         HostNode::new("progressCircle", progress_circle),
@@ -261,6 +262,49 @@ fn radio(a: &mut NodeArgs) -> Result<El, String> {
     };
     let r = radio_widget(kit(&pal), a.string("text").unwrap_or_default(), a.string("description").unwrap_or_default(), checked, a.flag("disabled"), tone, a.number("lineHeight").unwrap_or(20.0) as f32);
     Ok(if a.flag("disabled") { r } else { a.on_press_with(r, "onChange", vec![("checked", Data::Bool(true))]) })
+}
+
+fn checkbox(a: &mut NodeArgs) -> Result<El, String> {
+    let pal = p(a);
+    let checked = a.flag("checked");
+    let disabled = a.flag("disabled");
+    let layer = a.string("surface") == Some("layer-1");
+    let c = checkbox_widget(kit(&pal), a.string("text").unwrap_or_default(), a.string("description").unwrap_or_default(), checked, disabled, layer);
+    Ok(if disabled { c } else { a.on_press_with(c, "onChange", vec![("checked", Data::Bool(!checked))]) })
+}
+
+/// A `checkbox-v2` (`checkbox-compact.css`, Desktop's `Checkbox appearance="compact"`): the 16 pt
+/// box 2 down in its 16 × 20 stack, radius 4, on `bg-base` (`layer-1` on that surface) with a
+/// 0.5 hairline, ticked the accent with its 20% white sheen and the 1 pt check; the 13/440 label on
+/// a 20 line, 8 after it, and the 11/440 description 6 under it. Disabled, the row is half opacity.
+fn checkbox_widget(k: &rune_kit::Kit, label: &str, description: &str, checked: bool, disabled: bool, layer: bool) -> El {
+    let c = &k.c;
+    let base = if layer { c.layer_01 } else { c.bg_base };
+    let hairline = Shadow { spread: 0.5, color: c.border_strong, inset: true, ..Shadow::default() };
+    let mut control = el().key("control").size(16.0, 16.0).absolute(0.0, 2.0).center().radius(4.0).box_shadow(hairline);
+    control = if checked {
+        control.fill(c.bg_accent).gradient(k.light_on(0.2, c.bg_accent), k.light(0.0))
+    } else {
+        control.fill(base)
+    };
+    if !disabled {
+        control = control.hover(if checked { over(k.on(c.contrast_hover, c.bg_accent), c.bg_accent) } else { over(c.hover, base) });
+    }
+    control = control.child(rune_icon(&rune_theme_opencode::icons::CHECK, 16.0).key("check").color(c.icon_contrast).opacity(if checked { 1.0 } else { 0.0 }));
+    let mut words = col().key("text").gap(6.0).grow(1.0).shrink().min_w(0.0).child(text(label.to_owned()).key("label").font(TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04)).color(c.text_base));
+    if !description.is_empty() {
+        words = words.child(text(description.to_owned()).key("description").font(TextStyle::new(11.0, 440.0).lh(16.0).tracking(0.05)).color(c.text_muted));
+    }
+    let r = row()
+        .role("checkbox")
+        .label(label.to_owned())
+        .checked(checked)
+        .gap(8.0)
+        .items_start()
+        .disabled(disabled)
+        .child(el().key("stack").size(16.0, 20.0).child(control).a11y_hidden())
+        .child(words.a11y_hidden());
+    if disabled { r.layer_opacity(0.5) } else { r }
 }
 
 /// `top` over `bottom`, as CSS layers paint.

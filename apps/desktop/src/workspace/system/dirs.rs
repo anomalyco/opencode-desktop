@@ -15,7 +15,11 @@
 //! A debug build keeps its own folders, `rune-opencode.debug` in place of `rune-opencode`, unless
 //! `RUNE_DIRS_ROOT` places them: a development or harness run never reads or writes the profile a
 //! release build keeps, as OpenCode Desktop's unpackaged runs keep `ai.opencode.desktop.dev`
-//! apart from the release's (`packages/desktop/src/main/constants.ts`, `APP_ID`).
+//! apart from the release's (`packages/desktop/src/main/constants.ts`, `APP_ID`). A pull
+//! request's build (`anomaly.opencode-rune.pr.<N>`) keeps `rune-opencode.pr-<N>`, as each of
+//! OpenCode Desktop's channels has its own `userData`: installing, running or uninstalling one
+//! never touches another's profile (a `RUNE_DIRS_ROOT` run, apart already, keeps `rune-opencode`
+//! under its root). The browser engine's folder stays shared.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -32,9 +36,27 @@ pub(crate) fn app() -> Option<&'static AppDirs> {
     static DIRS: OnceLock<Option<AppDirs>> = OnceLock::new();
     DIRS.get_or_init(|| {
         let dirs = AppDirs::new(APP_ID)?;
-        if cfg!(debug_assertions) && !dirs.is_rooted() { AppDirs::new(DEBUG_APP_ID) } else { Some(dirs) }
+        // A `RUNE_DIRS_ROOT` run is apart already, and the harness seeds `rune-opencode` there.
+        if dirs.is_rooted() {
+            return Some(dirs);
+        }
+        AppDirs::new(if cfg!(debug_assertions) { DEBUG_APP_ID } else { release_id() })
     })
     .as_ref()
+}
+
+/// A release build's folders' name: `rune-opencode`, or a pull request's build's own
+/// `rune-opencode.pr-<N>` (its bundle id, `anomaly.opencode-rune.pr.<N>`, is set at build time).
+fn release_id() -> &'static str {
+    static ID: OnceLock<String> = OnceLock::new();
+    ID.get_or_init(pr_id)
+}
+
+fn pr_id() -> String {
+    match option_env!("OPENCODE_RUNE_BUNDLE_ID").and_then(|id| id.strip_prefix("anomaly.opencode-rune.pr.")) {
+        Some(n) if !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) => format!("{APP_ID}.pr-{n}"),
+        _ => APP_ID.to_owned(),
+    }
 }
 
 /// Whether `RUNE_DIRS_ROOT` put every folder this app writes under one scratch root.

@@ -14,7 +14,7 @@ use crate::{Find, FindHost};
 impl Find {
     pub(crate) fn results(&self) -> Option<&Results> {
         match &self.open()?.answer {
-            Answer::None => None,
+            Answer::None | Answer::Waiting { .. } => None,
             Answer::Partial { results, .. } | Answer::Complete { results, .. } => Some(results),
         }
     }
@@ -23,7 +23,7 @@ impl Find {
     pub(crate) fn answered(&self) -> Option<&str> {
         match &self.open()?.answer {
             Answer::None => None,
-            Answer::Partial { query, .. } | Answer::Complete { query, .. } => Some(query),
+            Answer::Waiting { query, .. } | Answer::Partial { query, .. } | Answer::Complete { query, .. } => Some(query),
         }
     }
 
@@ -132,12 +132,13 @@ pub fn seek_active(s: &mut dyn FindHost, tx: &mut Tx) {
     // `<ScrollView>` (`virtualizer.tsx:1182-1190`), so `root.querySelector("[data-session-title]")`
     // returns null (`inset = 0`).
     tx.scroll_center_in_instant(&scroll_key, &row_key);
-    tx.scroll_center_in_instant(&scroll_key, ACTIVE_KEY);
     if let (Some([_, top, _, _]), Some([_, page_y, _, page_h])) = (s.timeline_view_rect(), s.timeline_page_rect()) {
-        // `scroll_key_to` places the top of Rune's highlight *line box*. Blink instead places
-        // the text range, already inset by half the leading. Centre the line, not an 18 pt
-        // glyph box with its top mistaken for the line's (3–4 device pixels low at 1.875x).
-        let line = if row_key.starts_with("u-") { session_view::style::BUBBLE } else { session_view::style::MD };
-        tx.scroll_key_to(ACTIVE_KEY, (page_y + page_h - top - line.line_px()) / 2.0 + 1.0);
+        // Official `search-controller.ts:303-308` places the active text range's vertical midpoint
+        // (`Range::getBoundingClientRect()`) at the centre of the full scroll viewport
+        // (`page_y + page_h - top`, running behind the composer with `inset = 0`), and Chromium
+        // snaps `scrollTo({ top })` to whole device pixels (`round(top * dpr) / dpr`).
+        tx.scroll_key_center_at(ACTIVE_KEY, (page_y + page_h - top) * 0.5);
+    } else {
+        tx.scroll_center_in_instant(&scroll_key, ACTIVE_KEY);
     }
 }

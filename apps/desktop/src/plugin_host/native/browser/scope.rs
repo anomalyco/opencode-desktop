@@ -69,6 +69,7 @@ impl TabScope {
                 | "BrowserTab:SetZoom"
                 | "BrowserTab:Find"
                 | "BrowserTab:StopFinding"
+                | "BrowserTab:Focus"
                 | "BrowserTab:SetViewport"
         )
     }

@@ -267,7 +267,7 @@ function indicator.label(env: Env, view: View, props: PanelTabLabelProps): ui.No
             ring(percent, true),
             ui.text(
                 env.I18n:T("tab.title"),
-                { size = 13, weight = "regular", lineHeight = 20, color = "text-muted", noWrap = true }
+                { size = 13, weight = "regular", lineHeight = 16, tracking = -0.04, tabular = true, color = "text-muted", noWrap = true }
             ),
         })
     end)

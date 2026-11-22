@@ -26,6 +26,7 @@ pub(crate) const ORDER: &[&str] = &[
     "Home/No server",
     "Components/Odometer",
     "Components/Toast",
+    "Components/Update pill",
     "Header/Session header",
     "Header/Ticking",
     "Header/Title change",

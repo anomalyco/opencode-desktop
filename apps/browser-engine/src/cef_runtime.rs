@@ -14,6 +14,8 @@ use crate::profile::Profile;
 
 pub struct CefRuntime {
     profile: Profile,
+    stub_root: Option<std::path::PathBuf>,
+    stub_lock: Option<std::fs::File>,
     #[cfg(target_os = "macos")]
     _loader: cef::library_loader::LibraryLoader,
 }
@@ -27,9 +29,21 @@ impl CefRuntime {
         adapter_luid: Option<(i32, u32)>,
         locale: Option<&str>,
         ext_dirs: &[std::path::PathBuf],
+        stub_root: Option<std::path::PathBuf>,
+        stub_lock: Option<std::fs::File>,
         io_pipes: Option<String>,
         pump: Sender<crate::Event>,
+        windows_sandbox_info: *mut std::ffi::c_void,
+        main_args_override: Option<cef::MainArgs>,
     ) -> Self {
+        #[cfg(windows)]
+        assert!(
+            !windows_sandbox_info.is_null(),
+            "Windows browser engine requires sandbox_info from CEF bootstrap.exe (RunWinMain)"
+        );
+        #[cfg(not(windows))]
+        let _ = (windows_sandbox_info, main_args_override);
+
         #[cfg(target_os = "macos")]
         crate::mac_app::ensure_ns_application();
 
@@ -55,17 +69,17 @@ impl CefRuntime {
         #[cfg(unix)]
         let main_args = cef::MainArgs { argc: 1, argv: argv.as_ptr() as *mut *mut _ };
         #[cfg(windows)]
-        let main_args = cef::args::Args::new().as_main_args().clone();
+        let main_args = main_args_override.unwrap_or_else(|| cef::args::Args::new().as_main_args().clone());
 
-        // macOS finds its helper apps by bundle convention; elsewhere CEF would start this
-        // executable again for its renderer and GPU processes, so point it at the helper.
-        #[cfg(not(target_os = "macos"))]
+        // Windows sandbox requires browser and subprocesses to share one executable (`bootstrap.exe`);
+        // macOS finds its helper apps by bundle convention; Linux uses `opencode-browser-engine-helper`.
+        #[cfg(target_os = "linux")]
         let browser_subprocess_path = std::env::current_exe()
             .ok()
             .map(|exe| exe.with_file_name(format!("opencode-browser-engine-helper{}", std::env::consts::EXE_SUFFIX)))
             .map(|helper| CefString::from(helper.to_string_lossy().as_ref()))
             .unwrap_or_default();
-        #[cfg(target_os = "macos")]
+        #[cfg(not(target_os = "linux"))]
         let browser_subprocess_path = CefString::default();
 
         let ext_except = (!ext_dirs.is_empty()).then(|| {
@@ -85,7 +99,8 @@ impl CefRuntime {
             browser_subprocess_path,
             windowless_rendering_enabled: 1,
             external_message_pump: 1,
-            no_sandbox: 1,
+            // Linux keeps revision 8's unsandboxed setup until a sandboxed Linux engine has run live.
+            no_sandbox: if cfg!(target_os = "linux") { 1 } else { 0 },
             root_cache_path: CefString::from(profile.root.to_string_lossy().as_ref()),
             cache_path: CefString::from(profile.cache.to_string_lossy().as_ref()),
             persist_session_cookies: 1,
@@ -107,14 +122,28 @@ impl CefRuntime {
             keychain_account_name: CefString::from("OpenCode Browser"),
             ..Default::default()
         };
+        #[cfg(windows)]
+        let ok = cef::initialize(Some(&main_args), Some(&settings), Some(&mut app), windows_sandbox_info.cast());
+        #[cfg(not(windows))]
         let ok = cef::initialize(Some(&main_args), Some(&settings), Some(&mut app), std::ptr::null_mut());
         assert_eq!(ok, 1, "cef::initialize failed");
+        // A stated platform state for this revision, written once where anyone looks.
+        #[cfg(target_os = "linux")]
+        {
+            use std::io::Write as _;
+            eprintln!("browser engine: sandbox: off on Linux in this revision");
+            if let Ok(mut log) = std::fs::OpenOptions::new().create(true).append(true).open(profile.root.join("debug.log")) {
+                let _ = writeln!(log, "browser engine: sandbox: off on Linux in this revision");
+            }
+        }
         if let Some(global) = cef::request_context_get_global_context() {
             crate::preview::handler::ban_file_scheme(&global);
         }
 
         Self {
             profile,
+            stub_root,
+            stub_lock,
             #[cfg(target_os = "macos")]
             _loader: loader,
         }
@@ -133,6 +162,12 @@ impl CefRuntime {
 impl Drop for CefRuntime {
     fn drop(&mut self) {
         cef::shutdown();
+        // Release the lock and remove `<stub_root>` (including `_rt/<ext_id>-<seq>` mirrors)
+        // strictly AFTER `cef::shutdown()` so Windows has closed every Chromium handle inside it.
+        drop(self.stub_lock.take());
+        if let Some(root) = self.stub_root.take() {
+            crate::extensions::integrity::cleanup_stub_root(&root);
+        }
         // The pages' downloads and staged agent uploads end with the engine.
         crate::downloads::remove_owned(&self.profile.root);
         crate::downloads::remove_owned_isolated(&self.profile.isolated_downloads_base, std::process::id());
@@ -174,6 +209,9 @@ wrap_app! {
                     "disable-extensions-except",
                     "disable-extensions",
                     "disable-web-security",
+                    "single-process",
+                    "in-process-gpu",
+                    "gpu-launcher",
                     "allow-file-access-from-files",
                     "user-data-dir",
                     "disable-site-isolation-trials",
@@ -189,6 +227,32 @@ wrap_app! {
                     "renderer-cmd-prefix",
                     "utility-cmd-prefix",
                     "force-webrtc-ip-handling-policy",
+                    "extensions-on-chrome-urls",
+                    // Would turn back on what `DISABLED_NET_FEATURES` and the component-updater
+                    // source below turn off (READER-7 #624-S1).
+                    "component-updater",
+                    "enable-features",
+                    "force-fieldtrials",
+                    "force-fieldtrial-params",
+                    "variations-server-url",
+                ] {
+                    cmd.remove_switch(Some(&sw.into()));
+                }
+                // Linux leaves these alone, as revision 8 did: with `no_sandbox` set, CEF itself puts
+                // `--no-sandbox` and `--browser-subprocess-path` (the helper) here before this runs.
+                #[cfg(not(target_os = "linux"))]
+                for sw in [
+                    "no-sandbox",
+                    "no-sandbox-and-elevated",
+                    "disable-gpu-sandbox",
+                    "disable-seccomp-filter-sandbox",
+                    "disable-namespace-sandbox",
+                    "disable-setuid-sandbox",
+                    "no-zygote",
+                    "browser-subprocess-path",
+                    "allow-no-sandbox-job",
+                    "disable-win32k-lockdown",
+                    "disable-renderer-code-integrity",
                 ] {
                     cmd.remove_switch(Some(&sw.into()));
                 }
@@ -239,6 +303,30 @@ wrap_app! {
             // background fetches, which cost network, disk and CPU while nothing is open.
             cmd.append_switch(Some(&"disable-component-update".into()));
             cmd.append_switch(Some(&"disable-background-networking".into()));
+            // Chrome services official's Electron does not contain (READER-7, `review-rd274.md`):
+            // Safe Browsing (N1), sync (N3), the testing field-trial config and variations seed
+            // that turn experimental features on at every boot of a non-official build (N6b).
+            // The component updater still asked `update.googleapis.com` for the on-device model
+            // manifest (`ceofaddefefcbblgcgnibnonglccbfja`) and fetched it from `edgedl.me.gvt1.com`
+            // despite `--disable-component-update` (Playwright #42910): its update source is moved
+            // to a closed loopback port, so it never leaves the machine.
+            cmd.append_switch_with_value(
+                Some(&"component-updater".into()),
+                Some(&"url-source=http://127.0.0.1:9/".into()),
+            );
+            for sw in [
+                "disable-client-side-phishing-detection",
+                "safebrowsing-disable-auto-update",
+                "safebrowsing-disable-download-protection",
+                "disable-sync",
+                "disable-field-trial-config",
+                "disable-variations-seed-fetch",
+                // N4: belt-and-suspenders alongside `plugins.always_open_pdf_externally = true`
+                // (`context.rs`; Chromium 156 removed `--disable-pdf-extension`, keeping the pref primary).
+                "disable-pdf-extension",
+            ] {
+                cmd.append_switch(Some(&sw.into()));
+            }
             // Disable Cast/DIAL discovery (UDP 5353/1900), mDNS local-IP responder (UDP 5353),
             // and `ConnectionAllowlists` (Spotify CEF 156.0.26 ships with `dcheck_always_on`,
             // where `services/network/network_context.cc:3616` hits `DCHECK(matcher.has_value())`
@@ -252,7 +340,15 @@ wrap_app! {
             // runtime still sent each visited page's form signatures to
             // `content-autofill.googleapis.com`, polled `clients2.google.com/time`, and fetched
             // `www.google.com/async/folae` (NetLog, 21 Nov); Electron (official) makes none of these.
-            const DISABLED_NET_FEATURES: [&str; 8] = [
+            // The rest: services the full Chrome runtime brings that official's Electron does not
+            // contain at all (READER-7's non-extension audit, `notes/review-rd274.md`), so ours is
+            // off as theirs is: Safe Browsing lookups (N1), FedCM's delegation and multi-IdP
+            // extras (N2), password manager and account storage (N3), the Privacy Sandbox APIs and
+            // fenced frames (N6a), payments (N7), Translate and on-device language/model services
+            // (N11). FedCM itself stays: with its content setting blocked
+            // (`permissions::CHROME_SERVICE_SETTINGS`) a page gets `NetworkError` before any
+            // identity-provider fetch, as on official, where Electron has no FedCM delegate.
+            const DISABLED_NET_FEATURES: [&str; 30] = [
                 "MediaRouter",
                 "DialMediaRouteProvider",
                 "CastMediaRouteProvider",
@@ -261,6 +357,28 @@ wrap_app! {
                 "AutofillServerCommunication",
                 "NetworkTimeServiceQuerying",
                 "AimEnabled",
+                "SafeBrowsingHashPrefixRealTimeLookups",
+                "ExtensionTelemetry",
+                "PasswordLeakDetection",
+                "AutofillEnableAccountWalletStorage",
+                "BrowsingTopics",
+                "Fledge",
+                "AdInterestGroupAPI",
+                "ConversionMeasurement",
+                "SharedStorageAPI",
+                "PrivateStateTokens",
+                "WebPayments",
+                "ServiceWorkerPaymentApps",
+                "TranslationAPI",
+                "LanguageDetectionAPI",
+                "OptimizationHints",
+                "OptimizationHintsFetching",
+                "OnDeviceModelService",
+                "OptimizationGuideModelExecution",
+                "Translate",
+                "FencedFrames",
+                "FedCmDelegation",
+                "FedCmMultipleIdentityProviders",
             ];
             let existing = CefString::from(&cmd.switch_value(Some(&"disable-features".into()))).to_string();
             cmd.remove_switch(Some(&"disable-features".into()));

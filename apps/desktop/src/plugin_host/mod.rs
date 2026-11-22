@@ -60,9 +60,9 @@ pub use servers::{
 };
 pub use sources::{Origin, Tier};
 pub use surfaces::{
-    dialog_card, dialog_view_in, file_viewer, pill_views, popover_view, settings_page, settings_page_actions,
-    settings_page_icon, settings_page_ids, settings_page_key, settings_page_title, settings_pages, sidebar_items, slot,
-    slot_with, titlebar_items,
+    dialog_card, dialog_view_in, file_viewer, has_live_settings_section, pill_views, popover_view, settings_page,
+    settings_page_actions, settings_page_icon, settings_page_ids, settings_page_key, settings_page_title,
+    settings_pages, sidebar_items, slot, slot_with, titlebar_items,
 };
 pub use trust::dialog as trust_dialog;
 pub use ui::view::settings_section;
@@ -92,6 +92,7 @@ pub fn surfaces_version(app: &App) -> u64 {
     epoch().hash(&mut h);
     crate::updater::revision(app).hash(&mut h);
     app.plugins.titlebar_hover.hash(&mut h);
+    app.plugins.titlebar_drops.hash(&mut h);
     app.plugins.titlebar_focus.hash(&mut h);
     for p in app.plugins.list.iter() {
         p.half.surface_version(p.script()).hash(&mut h);
@@ -182,6 +183,8 @@ pub struct PluginHost {
     pub dialog: Option<OpenDialog>,
     /// The titlebar item the pointer is over, whose pill opens to show its label.
     pub titlebar_hover: Option<&'static str>,
+    /// How many times each titlebar item's arrow has dropped in, which keys the arrow it shows.
+    pub titlebar_drops: BTreeMap<&'static str, u32>,
     /// The titlebar item holding keyboard focus, whose pill opens to show its label (`focus-within`).
     pub titlebar_focus: Option<String>,
     /// The window lost the system's focus (`ctx.FocusChanged`); a new window has it.
@@ -282,6 +285,16 @@ impl PluginHost {
     /// override, or dev plugin shadowing a built-in ID).
     pub fn is_builtin_plugin(&self, id: &str) -> bool {
         self.list.iter().any(|p| p.half.is_builtin(id) && p.running())
+    }
+
+    /// Whether the user explicitly disabled plugin `id`.
+    pub fn is_disabled(&self, id: &str) -> bool {
+        self.disabled.contains(id)
+    }
+
+    /// Whether plugin `id` is still queued in deferred post-first-frame boot (`boot.later`).
+    pub fn is_deferred(&self, id: &str) -> bool {
+        self.boot.later().iter().any(|f| f.manifest.id == id)
     }
 
     /// Whether plugin `id` is running, dormant (ready to wake on first use), or a bundled

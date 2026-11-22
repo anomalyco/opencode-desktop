@@ -200,6 +200,7 @@ fn apply_context_prefs(
     for pref in crate::permissions::DEVICE_GUARD_PREFS {
         ok &= set_optional_int_pref(ctx, pref, 2);
     }
+    ok &= lock_chrome_services(ctx);
     ok
 }
 
@@ -230,50 +231,78 @@ fn set_and_verify_proxy_pref(ctx: &RequestContext, cfg: &RemoteProxyConfig) -> b
 }
 
 fn set_and_verify_string_pref(ctx: &RequestContext, name: &str, value: &str) -> bool {
-    let key = CefString::from(name);
-    if ctx.has_preference(Some(&key)) == 0 || ctx.can_set_preference(Some(&key)) == 0 {
-        return false;
-    }
-    let Some(mut val) = cef::value_create() else { return false };
-    val.set_string(Some(&CefString::from(value)));
-    let mut err = CefString::from(" ");
-    if ctx.set_preference(Some(&key), Some(&mut val), Some(&mut err)) == 0 {
-        return false;
-    }
-    ctx.preference(Some(&key))
-        .is_some_and(|v| CefString::from(&v.string()).to_string() == value)
+    set_and_verify_pref(
+        ctx,
+        name,
+        |v| {
+            v.set_string(Some(&CefString::from(value)));
+        },
+        |v| CefString::from(&v.string()).to_string() == value,
+    )
 }
 
 fn set_and_verify_bool_pref(ctx: &RequestContext, name: &str, value: bool) -> bool {
-    let key = CefString::from(name);
-    if ctx.has_preference(Some(&key)) == 0 || ctx.can_set_preference(Some(&key)) == 0 {
-        return false;
-    }
-    let Some(mut val) = cef::value_create() else { return false };
-    val.set_bool(i32::from(value));
-    let mut err = CefString::from(" ");
-    if ctx.set_preference(Some(&key), Some(&mut val), Some(&mut err)) == 0 {
-        return false;
-    }
-    ctx.preference(Some(&key))
-        .is_some_and(|v| (v.bool() != 0) == value)
+    set_and_verify_pref(
+        ctx,
+        name,
+        |v| {
+            v.set_bool(i32::from(value));
+        },
+        |v| (v.bool() != 0) == value,
+    )
 }
 
 fn set_and_verify_int_pref(ctx: &RequestContext, name: &str, value: i32) -> bool {
-    let key = CefString::from(name);
-    if ctx.has_preference(Some(&key)) == 0 || ctx.can_set_preference(Some(&key)) == 0 {
-        return false;
-    }
-    let Some(mut val) = cef::value_create() else { return false };
-    val.set_int(value);
-    let mut err = CefString::from(" ");
-    if ctx.set_preference(Some(&key), Some(&mut val), Some(&mut err)) == 0 {
-        return false;
-    }
-    ctx.preference(Some(&key))
-        .is_some_and(|v| v.int() == value)
+    set_and_verify_pref(
+        ctx,
+        name,
+        |v| {
+            v.set_int(value);
+        },
+        |v| v.int() == value,
+    )
 }
 
+/// Sets `name` and reads it back. A pref that cannot be set (a company policy, or one Chromium
+/// keeps read-only on an off-the-record context) passes only if it already holds the value: an
+/// admin who turned the service off must not lose the pane (READER-7 #624-B1). Every refusal names
+/// the pref in the engine log.
+fn set_and_verify_pref(
+    ctx: &RequestContext,
+    name: &str,
+    write: impl Fn(&mut cef::Value),
+    holds: impl Fn(&cef::Value) -> bool,
+) -> bool {
+    let key = CefString::from(name);
+    let current = || ctx.preference(Some(&key)).is_some_and(|v| holds(&v));
+    if ctx.has_preference(Some(&key)) == 0 {
+        return refuse_pref(name, "is not registered");
+    }
+    if !pref_settable(ctx, &key, name) {
+        return current() || refuse_pref(name, "is read-only at another value");
+    }
+    let Some(mut val) = cef::value_create() else { return refuse_pref(name, "has no value to write") };
+    write(&mut val);
+    let mut err = CefString::from(" ");
+    if ctx.set_preference(Some(&key), Some(&mut val), Some(&mut err)) == 0 {
+        return refuse_pref(name, &format!("could not be set ({err})"));
+    }
+    current() || refuse_pref(name, "did not keep the value")
+}
+
+fn pref_settable(ctx: &RequestContext, key: &CefString, name: &str) -> bool {
+    // Debug builds only: stands in for a policy-locked pref in the policy proof.
+    #[cfg(debug_assertions)]
+    if std::env::var("OPENCODE_BROWSER_DEBUG_READONLY_PREFS").is_ok_and(|v| v.split(',').any(|n| n == name)) {
+        return false;
+    }
+    ctx.can_set_preference(Some(key)) != 0
+}
+
+fn refuse_pref(name: &str, why: &str) -> bool {
+    eprintln!("engine-prefs: pref {name} {why}; refusing the request context");
+    false
+}
 fn set_optional_string_pref(ctx: &RequestContext, name: &str, value: &str) -> bool {
     let key = CefString::from(name);
     if ctx.has_preference(Some(&key)) == 0 {
@@ -292,10 +321,68 @@ fn set_optional_bool_pref(ctx: &RequestContext, name: &str, value: bool) -> bool
 
 fn set_optional_int_pref(ctx: &RequestContext, name: &str, value: i32) -> bool {
     let key = CefString::from(name);
-    if ctx.has_preference(Some(&key)) == 0 || ctx.can_set_preference(Some(&key)) == 0 {
+    // Absent from this build: nothing to set. Present, not settable and not already at the
+    // value: fails (READER-7 N9, #624-B1).
+    if ctx.has_preference(Some(&key)) == 0 {
         return true;
     }
     set_and_verify_int_pref(ctx, name, value)
+}
+
+/// Turns off, on `ctx`, the Chrome services official's Electron does not contain (READER-7's
+/// non-extension audit, `notes/review-rd274.md`), as prefs and content-setting locks; the
+/// switches and feature flags are in `cef_runtime.rs`. Applied to `Default` and every isolated
+/// context. A pref this build registers but will not take, and does not already hold, fails the
+/// whole call, so the caller refuses the context instead of running with the service on (N9).
+pub fn lock_chrome_services(ctx: &RequestContext) -> bool {
+    const OFF: [&str; 23] = [
+        // N1 Safe Browsing.
+        "safebrowsing.enabled",
+        "safebrowsing.enhanced",
+        "safebrowsing.scout_reporting_enabled",
+        // N3 sign-in, password manager, local autofill.
+        "signin.allowed",
+        "credentials_enable_service",
+        "credentials_enable_autosignin",
+        // The leak check sends a hash of each submitted sign-in to `passwordsleakcheck-pa.googleapis.com`;
+        // in Chromium 156 only this pref turns it off (`PasswordLeakDetection` is no longer a feature).
+        "profile.password_manager_leak_detection",
+        "autofill.profile_enabled",
+        "autofill.credit_card_enabled",
+        "autofill.enabled",
+        "signin.allowed_on_next_startup",
+        // N7 payments.
+        "payments.can_make_payment_enabled",
+        // N6a Privacy Sandbox.
+        "privacy_sandbox.m1.topics_enabled",
+        "privacy_sandbox.m1.fledge_enabled",
+        "privacy_sandbox.m1.ad_measurement_enabled",
+        "privacy_sandbox.apis_enabled",
+        // N11 Translate and the spelling service (spellcheck stays on, with local dictionaries).
+        "translate.enabled",
+        "spellcheck.use_spelling_service",
+        // N14 the rest of Google's per-page lookups.
+        "alternate_error_pages.enabled",
+        "search.suggest_enabled",
+        "url_keyed_anonymized_data_collection.enabled",
+        "domain_reliability.allowed_by_policy",
+        "dns_prefetching.enabled",
+    ];
+    let mut ok = true;
+    for name in OFF {
+        ok &= set_optional_bool_pref(ctx, name, false);
+    }
+    // N4 built-in PDF viewer: official Electron never renders PDFs inline (`chromium.ts:352-364,959`);
+    // `plugins.always_open_pdf_externally` is verified present in CEF 156 `libcef.dll` and routes
+    // top-level PDFs through our `DownloadHandler` (Save dialog / agent staging) with 0 PDFium load.
+    ok &= set_optional_bool_pref(ctx, "plugins.always_open_pdf_externally", true);
+    // 2 == NETWORK_PREDICTION_NEVER.
+    ok &= set_optional_int_pref(ctx, "net.network_prediction_options", 2);
+    // The content settings, as their default-scope prefs (`Default` also gets them directly).
+    for pref in crate::permissions::chrome_service_setting_prefs() {
+        ok &= set_optional_int_pref(ctx, &pref, 2);
+    }
+    ok
 }
 
 /// Outcome produced once a deferred context finishes `on_request_context_initialized`.
@@ -427,9 +514,12 @@ wrap_request_context_handler! {
     impl RequestContextHandler {
         fn on_request_context_initialized(&self, request_context: Option<&mut RequestContext>) {
             let proxy = self.proxy.lock().unwrap().clone();
-            let applied = request_context
-                .as_deref()
-                .is_some_and(|ctx| apply_context_prefs(ctx, proxy.as_ref(), self.require_proxy));
+            // Preview and artifact contexts (the ones with a resource filter) never print: nobody
+            // need be watching them, and a native print dialog stops the whole engine (#662).
+            let applied = request_context.as_deref().is_some_and(|ctx| {
+                apply_context_prefs(ctx, proxy.as_ref(), self.require_proxy)
+                    && (self.resource_filter.is_none() || set_and_verify_bool_pref(ctx, "printing.enabled", false))
+            });
             if applied
                 && let Some(ctx) = request_context.as_deref()
             {
@@ -695,17 +785,16 @@ pub fn lockdown_global_native_messaging() {
     let _ = set_optional_bool_pref(&ctx, "native_messaging.user_level_hosts", false);
 }
 
-/// Post-load fail-closed verification (`review-rd274.md` Round-3 §1a + 1Password/sandbox gate):
+/// Post-load fail-closed verification (`review-rd274.md` Round-3 §1a + deny-by-default lockdown):
 /// reads back Chromium's persisted `extensions.settings.<loaded_id>` after `Extensions.loadUnpacked`
 /// succeeds and requires ALL THREE:
 /// 1. `creation_flags` is present AND bit `1 << 2` (`0x4`, `Extension::ALLOW_FILE_ACCESS`) is `0`,
 /// 2. `newAllowFileAccess` is present AND `false`,
-/// 3. Neither `active_permissions.api` nor `granted_permissions.api` contains any entry in
-///    [`crate::extensions::manifest::STRIPPED_NATIVE_PERMS`] (`nativeMessaging`, `downloads`,
-///    `downloads.open`, `downloads.ui`, `management`).
+/// 3. DENY BY DEFAULT: every entry in BOTH `active_permissions.api` and `granted_permissions.api`
+///    is strictly on [`crate::extensions::manifest::ALLOWED_CHROMIUM_PERMS`].
 ///
 /// Catches any path-normalization drift or manifest-stripping failure immediately so the caller
-/// uninstalls the extension instead of failing open.
+/// uninstalls the extension before a single line of SW JS runs.
 pub fn verify_extension_file_access_disabled(loaded_id: &str) -> bool {
     const EXTENSION_ALLOW_FILE_ACCESS: i32 = 1 << 2;
     let Some(ctx) = cef::request_context_get_global_context() else {
@@ -740,19 +829,25 @@ pub fn verify_extension_file_access_disabled(loaded_id: &str) -> bool {
     if ext_dict.bool(Some(&allow_key)) != 0 {
         return false;
     }
-    // Fail closed if Chromium's own C++ ExtensionPrefs granted any stripped native API permission.
+    // Fail closed (deny-by-default) if Chromium's own C++ ExtensionPrefs granted ANY native API
+    // permission outside our exact `ALLOWED_CHROMIUM_PERMS` allow-list OR any `manifest_permissions`
+    // (READER-7 C-S1: e.g. `chrome_settings_overrides`, `automation`, `sockets`).
     for perm_bucket in ["active_permissions", "granted_permissions"] {
         let Some(bucket) = ext_dict.dictionary(Some(&CefString::from(perm_bucket))) else {
             continue;
         };
-        let Some(api_list) = bucket.list(Some(&CefString::from("api"))) else {
-            continue;
-        };
-        for i in 0..api_list.size() {
-            let api_name = CefString::from(&api_list.string(i)).to_string();
-            if crate::extensions::manifest::STRIPPED_NATIVE_PERMS.contains(&api_name.as_str()) {
-                return false;
+        if let Some(api_list) = bucket.list(Some(&CefString::from("api"))) {
+            for i in 0..api_list.size() {
+                let api_name = CefString::from(&api_list.string(i)).to_string();
+                if !crate::extensions::manifest::is_allowed_chromium_perm(&api_name) {
+                    return false;
+                }
             }
+        }
+        if let Some(mf_list) = bucket.list(Some(&CefString::from("manifest_permissions")))
+            && mf_list.size() > 0
+        {
+            return false;
         }
     }
     true

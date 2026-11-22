@@ -285,8 +285,9 @@ pub fn compare_versions(a: &str, b: &str) -> Option<Ordering> {
     Some(pa.cmp(&pb))
 }
 
-/// Permissions supported natively in CEF 156 or via our extension host shim (`compatibility.ts:10-34`
-/// plus native MV3 `webRequest` in CEF 156).
+/// Permissions supported natively in CEF 156 or via our extension host shim (`compatibility.ts:14-33`
+/// minus `management`, `proxy`, `declarativeNetRequestFeedback`, and MV3 `webRequest*`, which are
+/// stripped in C++ so extensions can never observe `Default` agent tabs or bypass Rune guards).
 const SUPPORTED_PERMS: &[&str] = &[
     "activeTab",
     "alarms",
@@ -296,7 +297,6 @@ const SUPPORTED_PERMS: &[&str] = &[
     "contextMenus",
     "cookies",
     "declarativeNetRequest",
-    "declarativeNetRequestFeedback",
     "declarativeNetRequestWithHostAccess",
     "idle",
     "notifications",
@@ -308,8 +308,6 @@ const SUPPORTED_PERMS: &[&str] = &[
     "tabs",
     "unlimitedStorage",
     "webNavigation",
-    "webRequest",
-    "webRequestBlocking",
 ];
 
 const STARTUP_FATAL_PERMS: &[&str] = &[
@@ -402,7 +400,7 @@ fn permission_feature(perm: &str) -> Option<ExtensionFeature> {
         return None;
     }
     Some(match perm {
-        "webRequestAuthProvider" | "proxy" => ExtensionFeature::Network,
+        "webRequest" | "webRequestBlocking" | "webRequestAuthProvider" | "proxy" => ExtensionFeature::Network,
         "nativeMessaging" => ExtensionFeature::Native,
         "identity" | "identity.email" => ExtensionFeature::Signin,
         "sidePanel" => ExtensionFeature::SidePanel,
@@ -415,7 +413,8 @@ fn permission_feature(perm: &str) -> Option<ExtensionFeature> {
         | "favicon"
         | "downloads"
         | "downloads.open"
-        | "downloads.ui" => ExtensionFeature::BrowserData,
+        | "downloads.ui"
+        | "downloads.shelf" => ExtensionFeature::BrowserData,
         "management" => ExtensionFeature::Management,
         "privacy" | "fontSettings" | "contentSettings" | "browsingData" => ExtensionFeature::Settings,
         "userScripts" => ExtensionFeature::UserScripts,

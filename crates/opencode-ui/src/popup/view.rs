@@ -143,7 +143,8 @@ fn build<S: PopupHost + 'static>(
                     .active(active == Some(n))
                     .checked(i.checked)
                     .danger(i.danger)
-                    .disabled(!i.enabled);
+                    .disabled(!i.enabled)
+                    .medium(i.medium);
                 let ink = if i.danger { p.danger } else { p.text };
                 // Menu items draw Desktop's `<Icon>` at its default `size="normal"` (16 pt, `icon.tsx:59`).
                 let o = match i.glyph {
@@ -210,9 +211,9 @@ fn build<S: PopupHost + 'static>(
                 // In the location card the rows' own 2 pt gaps are that room (rows 33 apart across
                 // it), and the line is `border-base` scaled to a hairline in its 1 pt box.
                 let line = if menu.card {
-                    // The transformed CSS rule covers half of its snapped row. Drawing a
-                    // half-height fill snaps it back to a whole, full-strength device row.
-                    el().key(format!("popup-sep-{n}")).h(1.0).mx(-MENU.inset).fill(p.border.alpha(p.border.a * 0.5))
+                    // `session-identity-header.css:19-25` (`4d4a95a3239c`): `width: calc(100% + 4px);
+                    // margin: 0 -2px; background: var(--v2-border-border-base); transform: scaleY(0.5);`
+                    rune::hairline(p.border).key(format!("popup-sep-{n}")).mx(-MENU.inset)
                 } else {
                     col().key(format!("popup-sep-{n}")).py(2.0).mx(-MENU.inset).child(el().key("line").h(1.0).w_full().fill(p.border_muted))
                 };
@@ -236,6 +237,7 @@ fn build<S: PopupHost + 'static>(
                     .role("menuitem")
                     .active(sub.enabled && (active == Some(n) || open == Some(n)))
                     .disabled(!sub.enabled)
+                    .middle_split(sub.split_at)
                     .trailing(icon(&CHEVRON, 16.0).key("chevron").color(p.icon_muted).mirror_in_rtl());
                 let o = match sub.glyph.and_then(Glyph::mono) {
                     Some(g) => o.lead(icon(g, 16.0).color(p.icon_muted)),

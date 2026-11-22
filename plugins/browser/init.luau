@@ -283,13 +283,17 @@ return plugin.defineWindow(function(ctx)
 
     -- Puts page `tab`'s address in the field and the keyboard there, the whole address selected.
     local function edit(tab: BrowserTab)
+        local already = state.edit.status == "editing" and state.edit.tab == tab.Id
         local nextState, effects = address.step(state, { type = "focused", tab = tab.Id, epoch = epoch(tab) })
         state = nextState
         local e = state.edit
-        if e.status == "editing" then
+        if not already and e.status == "editing" then
             setEditorText(e.text)
         end
         editor:Focus()
+        if already then
+            editor:SelectAll()
+        end
         run(effects)
         refresh()
     end
@@ -368,7 +372,8 @@ return plugin.defineWindow(function(ctx)
         end
     end)
 
-    -- Find in page state management (`find.luau`, ready for WS-1 Phase 1c engine `FindHandler`).
+    -- Find in page state management (`find.luau`, matching `page-find.ts`).
+    local findSeq = 0
     local function getFind(tabId: string): find.State
         return findStates[tabId] or find.initial()
     end
@@ -388,7 +393,9 @@ return plugin.defineWindow(function(ctx)
     end
 
     local function openFind(tab: BrowserTab)
-        local next = find.step(getFind(tab.Id), { type = "open" })
+        local cur = getFind(tab.Id)
+        local wasOpen = cur.status ~= "closed"
+        local next = find.step(cur, { type = "open" })
         findStates[tab.Id] = next
         activeFindTab = tab.Id
         if findEditor:Text() ~= next.query then
@@ -396,20 +403,50 @@ return plugin.defineWindow(function(ctx)
         end
         findEditor:Focus()
         findEditor:SelectAll()
-        if next.query ~= "" then
-            runFind(tab, next.query, true, false)
+        if not wasOpen and next.query ~= "" then
+            findSeq += 1
+            -- CEF's `Find` forwards `findNext` to Chromium's `FindTabHelper::StartFinding(..., find_match)`,
+            -- so `true` selects match #1 on a fresh search and advances on repeats.
+            runFind(tab, next.query, true, true)
         end
         refresh()
     end
 
-    local function closeFind(tab: BrowserTab)
+    local function closeFind(tab: BrowserTab, restoreFocus: boolean?)
+        findSeq += 1
         findStates[tab.Id] = find.step(getFind(tab.Id), { type = "close" })
         if activeFindTab == tab.Id then
             activeFindTab = nil
         end
         stopFind(tab)
         findEditor:Blur()
+        if restoreFocus ~= false then
+            local tAny = tab :: any
+            if type(tAny.Focus) == "function" then
+                tAny:Focus()
+            end
+        end
         refresh()
+    end
+
+    local function stepFind(tab: BrowserTab, forward: boolean)
+        findSeq += 1
+        local cur = getFind(tab.Id)
+        if cur.query == "" then
+            return
+        end
+        if cur.status == "closed" then
+            local opened = find.step(cur, { type = "open" })
+            findStates[tab.Id] = opened
+            activeFindTab = tab.Id
+            if findEditor:Text() ~= opened.query then
+                findEditor:SetText(opened.query)
+            end
+            findEditor:Focus()
+            findEditor:SelectAll()
+            refresh()
+        end
+        runFind(tab, cur.query, forward, true)
     end
 
     findEditor.Changed:Connect(function(value: string)
@@ -421,13 +458,24 @@ return plugin.defineWindow(function(ctx)
         if cur.status == "closed" or cur.query == value then
             return
         end
+        findSeq += 1
+        local seq = findSeq
         findStates[tabId] = find.step(cur, { type = "query", query = value })
         local tab = Browser:Get(tabId)
         if tab then
             if value == "" then
                 stopFind(tab)
             else
-                runFind(tab, value, true, false)
+                task.delay(0.12, function()
+                    if findSeq ~= seq or activeFindTab ~= tabId then
+                        return
+                    end
+                    local live = Browser:Get(tabId)
+                    local st = getFind(tabId)
+                    if live and st.status ~= "closed" and st.query == value then
+                        runFind(live, value, true, true)
+                    end
+                end)
             end
         end
         refresh()
@@ -438,9 +486,8 @@ return plugin.defineWindow(function(ctx)
             return
         end
         local tab = Browser:Get(tabId)
-        local cur = getFind(tabId)
-        if tab and cur.query ~= "" then
-            runFind(tab, cur.query, true, true)
+        if tab then
+            stepFind(tab, true)
         end
     end)
     findEditor.KeyPressed:Connect(function(key: string)
@@ -452,12 +499,9 @@ return plugin.defineWindow(function(ctx)
             return
         end
         if key == "Escape" then
-            closeFind(tab)
+            closeFind(tab, true)
         elseif key == "Shift+Enter" then
-            local cur = getFind(activeFindTab)
-            if cur.query ~= "" then
-                runFind(tab, cur.query, false, true)
-            end
+            stepFind(tab, false)
         end
     end)
 
@@ -516,10 +560,7 @@ return plugin.defineWindow(function(ctx)
         local navigated = prev ~= nil and url ~= prevUrl
         syncRefusal(tab, navigated)
         if navigated and findStates[id] ~= nil and findStates[id].status ~= "closed" then
-            findStates[id] = find.step(findStates[id], { type = "close" })
-            if activeFindTab == id then
-                activeFindTab = nil
-            end
+            closeFind(tab, false)
         end
         -- Mark unseen activity dot when an existing background tab navigates while another tab is selected.
         local selected = Browser:Selected(nil)
@@ -860,17 +901,11 @@ return plugin.defineWindow(function(ctx)
             Popover:Close()
             openFind(tab)
         elseif what == "find.next" then
-            local cur = getFind(tab.Id)
-            if cur.query ~= "" then
-                runFind(tab, cur.query, true, true)
-            end
+            stepFind(tab, true)
         elseif what == "find.previous" then
-            local cur = getFind(tab.Id)
-            if cur.query ~= "" then
-                runFind(tab, cur.query, false, true)
-            end
+            stepFind(tab, false)
         elseif what == "find.close" then
-            closeFind(tab)
+            closeFind(tab, true)
         elseif what == "refusal.action" then
             local notice = arg :: refusal.Notice?
             if notice and notice.target then
@@ -1061,7 +1096,7 @@ return plugin.defineWindow(function(ctx)
             local tAny = tab :: any
             if v.query ~= "" and type(tAny.FindResult) == "function" then
                 local res = tAny:FindResult()
-                if type(res) == "table" and type(res.active) == "number" and type(res.total) == "number" then
+                if type(res) == "table" and (res.query == nil or res.query == v.query) and type(res.active) == "number" and type(res.total) == "number" then
                     return { query = v.query, result = { active = res.active, total = res.total } }
                 end
             end
@@ -1517,12 +1552,20 @@ return plugin.defineWindow(function(ctx)
     local importDialogHandle: Contribution? = nil
     local extDialogHandle: Contribution? = nil
     local clearNoticeText: string? = nil
+    local clearing = false
+    local settingsDrawnAt: number? = nil
+    local clearNoticeDrawn = false
     -- Browsers are listed only when asked (never at startup), by the host off the UI thread, again once a
     -- listing is a few seconds old, so a visit sees browsers installed since the last one.
     local importSources: { settings.ImportBrowser } = {}
     -- The profile the import dialog is for, what its last import said, and each row's last outcome.
-    local importTarget: { browser: string, profile: string, label: string }? = nil
+    local importTarget: { browser: string, name: string, profile: string, label: string }? = nil
     local importFailure: settings.ImportMessage? = nil
+    -- What the dialog brings, both until unticked; each opening starts from both (`site-chooser.tsx:80-81`).
+    local importBoxes: settings.ImportBoxes = { signins = true, history = true }
+    local importRunning = false
+    -- Set below, once the outcome text it needs is defined.
+    local runDialogImport: () -> () = function() end
     local importResults: { [string]: settings.ImportMessage } = {}
     local importIcons: { [string]: ImageId | false } = {}
     local extDialogState: extensions.DialogState = {
@@ -1850,8 +1893,28 @@ return plugin.defineWindow(function(ctx)
         end,
     })
 
+    -- `main.ts:303-320` `clear`: the sign-out runs first (every cookie and the sites' stored data, in
+    -- the engine) and is whole whatever the history store does; the history goes either way.
     local function runClearBrowsingData()
+        if clearing then
+            return
+        end
+        clearing = true
+        clearNoticeText = nil
+        refreshSettings()
         local bAny = Browser :: any
+        local profOk = true
+        if type(bAny.ClearProfileDataAsync) == "function" then
+            local ok, res = pcall(function()
+                return bAny:ClearProfileDataAsync()
+            end)
+            profOk = ok and res == true
+        else
+            local prof = profileContract:Get()
+            if type(prof) == "table" and type(prof.clearData) == "function" then
+                profOk = pcall(prof.clearData)
+            end
+        end
         local histOk = true
         if type(bAny.HistoryClear) == "function" then
             histOk = bAny:HistoryClear() == true
@@ -1860,20 +1923,13 @@ return plugin.defineWindow(function(ctx)
         if keeper then
             keeper.clear()
         end
-        local prof = profileContract:Get()
-        local profOk = true
-        if type(prof) == "table" and type(prof.clearData) == "function" then
-            profOk = pcall(prof.clearData)
-        end
+        clearing = false
         if not profOk then
             clearNoticeText = I18n:T("settings.failed.clear")
-            Toast:Error(clearNoticeText :: string)
         elseif not histOk then
             clearNoticeText = I18n:T("settings.cleared.history")
-            Toast:Info(clearNoticeText :: string)
         else
             clearNoticeText = I18n:T("settings.cleared")
-            Toast:Info(clearNoticeText :: string)
         end
         refreshSettings()
         refresh()
@@ -1900,31 +1956,15 @@ return plugin.defineWindow(function(ctx)
             if target == nil then
                 return nil
             end
-            return settings.renderImportDialog(I18n, view, target.label, importFailure, function()
-                local bAny = Browser :: any
-                local res = if type(bAny.HistoryImportProfileAsync) == "function"
-                    then bAny:HistoryImportProfileAsync(target.browser, target.profile)
-                    elseif type(bAny.HistoryImportProfile) == "function"
-                    then bAny:HistoryImportProfile(target.browser, target.profile)
-                    else nil
-                local imported = if type(res) == "table" and type(res.imported) == "number" then res.imported else nil
-                if imported ~= nil and imported > 0 then
-                    -- `site-chooser.tsx:164-176`: a clean import closes the dialog; its row says so.
-                    importResults[`{target.browser}\n{target.profile}`] = {
-                        text = I18n:T("signins.imported.history.only.from", { browser = target.label }),
-                        error = false,
-                        live = true,
-                    }
-                    Dialog:Close()
-                elseif imported ~= nil then
-                    importFailure = { text = I18n:T("signins.imported.none.from", { browser = target.label }), error = false, live = true }
-                else
-                    importFailure = { text = I18n:T("signins.failed.read"), error = true, live = true }
-                end
+            return settings.renderImportDialog(I18n, view, target.label, importFailure, importBoxes, importRunning, function(which: string, on: boolean)
+                importBoxes = if which == "signins"
+                    then { signins = on, history = importBoxes.history }
+                    else { signins = importBoxes.signins, history = on }
                 if importDialogHandle then
                     importDialogHandle:Refresh()
                 end
-                refreshSettings()
+            end, function()
+                runDialogImport()
             end, function()
                 Dialog:Close()
             end)
@@ -1959,6 +1999,19 @@ return plugin.defineWindow(function(ctx)
         clearNotice = function(): string?
             return clearNoticeText
         end,
+        cookieCount = function(): number?
+            local bAny = Browser :: any
+            if type(bAny.CookieCount) ~= "function" then
+                return nil
+            end
+            local ok, count = pcall(function()
+                return bAny:CookieCount()
+            end)
+            return if ok and type(count) == "number" then count else nil
+        end,
+        clearing = function(): boolean
+            return clearing
+        end,
         requestClearBrowsingData = function()
             Dialog:Open("clear-data")
         end,
@@ -1975,10 +2028,12 @@ return plugin.defineWindow(function(ctx)
                             -- `choices.tsx` `choiceLabel`: the profile's name only for a browser with several.
                             importTarget = {
                                 browser = browserId,
+                                name = browser.name,
                                 profile = profileId,
                                 label = if #browser.profiles > 1 then `{browser.name} · {prof.name}` else browser.name,
                             }
                             importFailure = nil
+                            importBoxes = { signins = true, history = true }
                             Dialog:Open("import-history")
                             return
                         end
@@ -2134,6 +2189,70 @@ return plugin.defineWindow(function(ctx)
         return { text = I18n:T("signins.imported.none.from", { browser = browser }), error = true }, false
     end
 
+    -- The dialog's Import (`site-chooser.tsx:238-254`): the ticked parts, sign-ins then history, as one
+    -- job. A clean import closes the dialog and its row says so; a partial or failed one stays open
+    -- and says why (`:164-198`). Cookies that came in end the pane's offer (`jobs.ts:114-115`).
+    runDialogImport = function()
+        local target = importTarget
+        if target == nil or importRunning or not (importBoxes.signins or importBoxes.history) then
+            return
+        end
+        local boxes = importBoxes
+        importRunning = true
+        importFailure = nil
+        if importDialogHandle then
+            importDialogHandle:Refresh()
+        end
+        local bAny = Browser :: any
+        local res: any = { imported = 0, failed = 0, protected = 0 }
+        if boxes.signins then
+            local ok, out = pcall(function()
+                return bAny:ImportSignInsAsync(target.browser, target.profile)
+            end)
+            res = if ok and type(out) == "table" then out else nil
+        end
+        -- `main.ts:285-296`: history comes only after sign-ins that did not fail, and never fails the
+        -- import: history that cannot be read is no pages.
+        local pages = 0
+        local signedIn = res ~= nil and type(res.error) ~= "string"
+        if boxes.history and signedIn then
+            local historyImport = if type(bAny.HistoryImportProfileAsync) == "function" then "HistoryImportProfileAsync"
+                elseif type(bAny.HistoryImportProfile) == "function" then "HistoryImportProfile"
+                else nil
+            if historyImport ~= nil then
+                local hok, hres = pcall(function()
+                    return bAny[historyImport](bAny, target.browser, target.profile)
+                end)
+                if hok and type(hres) == "table" and type(hres.imported) == "number" then
+                    pages = hres.imported
+                end
+            end
+        end
+        importRunning = false
+        local message = describeBrowserImport({ sourceId = target.browser, sourceName = target.name, profileId = target.profile, label = target.label }, res, pages)
+        local cookies = if res and type(res.imported) == "number" then res.imported else 0
+        local loss = res ~= nil and ((tonumber(res.failed) or 0) > 0 or (tonumber(res.protected) or 0) > 0)
+        local clean = signedIn and not loss and (cookies > 0 or pages > 0)
+        if cookies > 0 and not preferences().welcomed then
+            updatePreferences({ welcomed = true })
+        end
+        -- The dialog may have closed while it ran; the row still says how it went.
+        local open = importTarget == target
+        if clean or not open then
+            importResults[`{target.browser}\n{target.profile}`] = { text = message.text, error = message.error, live = true }
+        end
+        if clean and open then
+            Dialog:Close()
+        elseif open then
+            importFailure = { text = message.text, error = message.error, live = true }
+            if importDialogHandle then
+                importDialogHandle:Refresh()
+            end
+        end
+        refresh()
+        refreshSettings()
+    end
+
     local function closeSignInConfirmation()
         signInConfirmed = nil
         signInMessage = nil
@@ -2154,11 +2273,12 @@ return plugin.defineWindow(function(ctx)
             return bAny:ImportSignInsAsync(choice.sourceId, choice.profileId)
         end)
         local pages = 0
-        -- The history read runs off the UI thread (`HistoryImportProfileAsync`) where the host has it.
+        -- The history read runs off the UI thread (`HistoryImportProfileAsync`) where the host has it,
+        -- and only after sign-ins that did not fail (`main.ts:285-296`).
         local historyImport = if type(bAny.HistoryImportProfileAsync) == "function" then "HistoryImportProfileAsync"
             elseif type(bAny.HistoryImportProfile) == "function" then "HistoryImportProfile"
             else nil
-        if historyImport ~= nil then
+        if historyImport ~= nil and ok and type(res) == "table" and type(res.error) ~= "string" then
             local hok, hres = pcall(function()
                 return bAny[historyImport](bAny, choice.sourceId, choice.profileId)
             end)
@@ -2241,6 +2361,16 @@ return plugin.defineWindow(function(ctx)
         title = I18n:T("settings.title"),
         entries = settings.entries(I18n, settingsCapabilities()),
         render = function(view, props)
+            -- Official's jobs live with the page (`settings.tsx:54`): a visit after leaving it shows
+            -- the count again, not the last clear's outcome. A page has no "left" signal, so a render
+            -- two seconds or more after the last one counts as a new visit (`os.time`: reading
+            -- `System:Now` would draw the page again on every tick).
+            local now = os.time()
+            if clearNoticeDrawn and settingsDrawnAt ~= nil and now - settingsDrawnAt >= 2 and not clearing then
+                clearNoticeText = nil
+            end
+            settingsDrawnAt = now
+            clearNoticeDrawn = clearNoticeText ~= nil
             return settingsPage.render(view, props)
         end,
     })

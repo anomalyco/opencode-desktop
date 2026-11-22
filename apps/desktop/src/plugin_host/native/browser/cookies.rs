@@ -37,6 +37,20 @@ pub(super) fn service_methods(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> m
             Ok(())
         })
     })?;
+    // `settings.tsx:266` `settings.cookies.count`: the profile's cookies while the engine runs, else nil
+    // (`cookie_import` reads them again once the count is a few seconds old or the store changed).
+    method(lua, t, "CookieCount", |lua, ()| {
+        require_settings_caller(lua, "Browser:CookieCount")?;
+        cx::read(Dep::Browser);
+        with_app("Browser:CookieCount", |app| Ok(app.browser_cookie_count()))
+    })?;
+    // `Browser:ClearProfileDataAsync()`: every cookie and the open sites' stored data (`cookie_import`).
+    let raw: Function = vmx.asyncs.raw_get("Browser.ClearProfileDataAsync")?;
+    let call: Function = lua
+        .load("local raw = ... return function(self) return raw() end")
+        .set_name("=Browser:ClearProfileDataAsync")
+        .call(raw)?;
+    t.raw_set("ClearProfileDataAsync", call)?;
     // `Browser:ImportCookieFileAsync(title)`: the app shows the picker itself (`cookie_import`).
     let raw: Function = vmx.asyncs.raw_get("Browser.ImportCookieFileAsync")?;
     let call: Function = lua
@@ -56,7 +70,16 @@ pub(super) fn service_methods(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> m
 
 pub(super) fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
     t.raw_set("Browser.ImportCookieFileAsync", host.async_function("Browser:ImportCookieFileAsync", import_cookie_file)?)?;
-    t.raw_set("Browser.ImportSignInsAsync", host.async_function("Browser:ImportSignInsAsync", import_sign_ins)?)
+    t.raw_set("Browser.ImportSignInsAsync", host.async_function("Browser:ImportSignInsAsync", import_sign_ins)?)?;
+    t.raw_set("Browser.ClearProfileDataAsync", host.async_function("Browser:ClearProfileDataAsync", clear_profile_data)?)
+}
+
+fn clear_profile_data(lua: &Lua, _: MultiValue, done: Completer) -> mlua::Result<()> {
+    require_settings_caller(lua, "Browser:ClearProfileDataAsync")?;
+    with_app("Browser:ClearProfileDataAsync", |app| {
+        app.later(Box::new(move |s: &mut App, _: &mut Tx| s.start_profile_clear(done)));
+        Ok(())
+    })
 }
 
 fn import_cookie_file(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {

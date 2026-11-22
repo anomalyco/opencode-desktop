@@ -18,40 +18,129 @@ const MAX_MESSAGES_BYTES: u64 = 1024 * 1024;
 const MAX_LIST_ITEMS: usize = 256;
 const MAX_ITEM_CHARS: usize = 256;
 
-/// Native Chromium permissions stripped from the staged `manifest.json` handed to Chromium so
-/// Chromium's C++ `Extension::permissions_data()` never grants them (`nativeMessaging`,
-/// `downloads`, `downloads.open`, `downloads.ui`, `management`), while our verified Rust manifest
-/// preserves them for truthful official `stubs.ts` / `permissions.*` replies.
-pub const STRIPPED_NATIVE_PERMS: &[&str] = &[
-    "nativeMessaging",
-    "downloads",
-    "downloads.open",
-    "downloads.ui",
-    "management",
+/// Single deny-by-default allow-list of Chromium C++ API permissions permitted to reach
+/// Chromium's `Extension::permissions_data()` (`compatibility.ts:14-33` + `policy.ts:93-95`,
+/// excluding APIs implemented or stubbed by our own Rust host and excluding `proxy`,
+/// `webRequest*` — which observes all `Default` agent-tab traffic/tabIds in CEF 156 unlike
+/// Electron 44 MV3 SW — and `declarativeNetRequestFeedback`, whose `onRuleMatchedDebug` leaks
+/// agent-tab URLs/tabIds under `Extensions.loadUnpacked`).
+///
+/// DENY BY DEFAULT: every non-host-pattern permission outside this exact 16-item list is
+/// stripped from Chromium's staged manifest (both required and optional), refused at
+/// `permissions.request`, and asserted absent in Chromium's `ExtensionPrefs` post-load.
+pub const ALLOWED_CHROMIUM_PERMS: &[&str] = &[
+    "activeTab",
+    "alarms",
+    "background",
+    "clipboardRead",
+    "clipboardWrite",
+    "cookies",
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess",
+    "idle",
+    "offscreen",
+    "power",
+    "scripting",
+    "storage",
+    "system.display",
+    "tabs",
+    "unlimitedStorage",
 ];
+
+/// Permissions implemented safely by our own extension host (stripped from Chromium C++ so child
+/// frames / native Chromium APIs can never bypass our host, while still reported as supported).
+pub const SHIMMED_SUPPORTED_PERMS: &[&str] = &[
+    "contextMenus",
+    "notifications",
+    "webNavigation",
+];
+
+/// Returns `true` iff `perm` is on the deny-by-default Chromium C++ API allow-list.
+pub fn is_allowed_chromium_perm(perm: &str) -> bool {
+    ALLOWED_CHROMIUM_PERMS.contains(&perm.trim())
+}
+
+/// Returns `true` iff `perm` is supported in this browser (either native Chromium allow-listed or
+/// implemented by our own extension host shim).
+pub fn is_supported_permission(perm: &str) -> bool {
+    let p = perm.trim();
+    ALLOWED_CHROMIUM_PERMS.contains(&p) || SHIMMED_SUPPORTED_PERMS.contains(&p)
+}
 
 /// Native Chromium permissions still refused at load because they can bypass the extension host
 /// boundary outside our C++ permission-stripping sandbox (`debugger` attaches CDP to any tab;
-/// `proxy` MITMs all traffic). Checked on required `permissions` only.
+/// `proxy` MITMs all traffic). Checked on required `permissions` only (and stripped from
+/// `optional_permissions` by deny-by-default).
 pub const DISALLOWED_REQUIRED_PERMS: &[&str] = &[
     "debugger",
     "proxy",
 ];
 
-/// Removes every entry in [`STRIPPED_NATIVE_PERMS`] from both `"permissions"` and
-/// `"optional_permissions"` of already-verified `manifest.json` bytes. Returns `(stripped_any,
-/// sanitized_bytes)` or `None` on malformed JSON.
-pub fn strip_native_perms_from_manifest(bytes: &[u8]) -> Option<(bool, Vec<u8>)> {
+/// Disallowed top-level manifest keys stripped from Chromium's staged `manifest.json` so an
+/// extension cannot mutate `Default/Preferences` or activate native Chrome features via
+/// `manifest_permissions` without declaring an entry in `"permissions"` (READER-7 C-S1).
+const STRIPPED_MANIFEST_KEYS: &[&str] = &[
+    "chrome_settings_overrides",
+    "chrome_url_overrides",
+    "tts_engine",
+    "devtools_page",
+    "side_panel",
+    "omnibox",
+    "oauth2",
+    "file_browser_handlers",
+    "file_system_provider_capabilities",
+    "input_components",
+    "automation",
+    "sockets",
+    "bluetooth",
+    "usb_printers",
+    "trial_tokens",
+];
+
+/// Deny-by-default manifest sanitizer for Chromium:
+/// - In `"permissions"`: retains ONLY entries in [`ALLOWED_CHROMIUM_PERMS`] after `.trim()`
+///   (MV3 host permissions live strictly in `"host_permissions"`, never in `"permissions"`).
+/// - In `"optional_permissions"` and `"optional_host_permissions"`: strips ALL entries so Chromium
+///   C++ can never grant any optional permission or host permission at runtime.
+/// - Removes disallowed top-level manifest keys ([`STRIPPED_MANIFEST_KEYS`]) that grant
+///   `manifest_permissions` or mutate `Default/Preferences`.
+/// - Strips `_favicon*` entries from `web_accessible_resources[*].resources` (since `"favicon"` is
+///   stripped from `"permissions"`, Chromium refuses to load extensions like Vimium otherwise).
+///
+/// Returns `(stripped_any, sanitized_bytes)` or `None` on malformed JSON.
+pub fn strip_disallowed_perms_from_manifest(bytes: &[u8]) -> Option<(bool, Vec<u8>)> {
     let text = std::str::from_utf8(bytes).ok()?;
     let mut val: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()?;
     let obj = val.as_object_mut()?;
     let mut changed = false;
-    for field in ["permissions", "optional_permissions"] {
-        if let Some(arr) = obj.get_mut(field).and_then(Value::as_array_mut) {
-            let before = arr.len();
-            arr.retain(|v| !v.as_str().is_some_and(|p| STRIPPED_NATIVE_PERMS.contains(&p)));
-            if arr.len() != before {
-                changed = true;
+    if let Some(arr) = obj.get_mut("permissions").and_then(Value::as_array_mut) {
+        let before = arr.len();
+        arr.retain(|v| v.as_str().is_some_and(is_allowed_chromium_perm));
+        if arr.len() != before {
+            changed = true;
+        }
+    }
+    for opt_field in ["optional_permissions", "optional_host_permissions"] {
+        if let Some(arr) = obj.get_mut(opt_field).and_then(Value::as_array_mut)
+            && !arr.is_empty()
+        {
+            arr.clear();
+            changed = true;
+        }
+    }
+    for key in STRIPPED_MANIFEST_KEYS {
+        if obj.remove(*key).is_some() {
+            changed = true;
+        }
+    }
+    if let Some(war) = obj.get_mut("web_accessible_resources").and_then(Value::as_array_mut) {
+        for entry in war.iter_mut() {
+            if let Some(res) = entry.get_mut("resources").and_then(Value::as_array_mut) {
+                let before = res.len();
+                res.retain(|v| !v.as_str().is_some_and(|s| s.trim().starts_with("_favicon")));
+                if res.len() != before {
+                    changed = true;
+                }
             }
         }
     }
@@ -278,6 +367,29 @@ pub fn extension_page_url(id: &str, file: &str) -> Option<String> {
 
 pub fn is_valid_ext_id(id: &str) -> bool {
     id.len() == 32 && id.bytes().all(|b| (b'a'..=b'p').contains(&b))
+}
+
+/// Chromium's built-in PDF viewer component extension ID (`review-rd274.md` N4).
+pub const PDF_EXTENSION_ID: &str = "mhjfbmdgcfjbbpaeojofohoefgiehjai";
+
+/// Returns `true` when `url` targets Chromium's built-in PDF viewer component extension
+/// (directly or wrapped in `blob:`/`filesystem:`, case-insensitive).
+pub fn is_pdf_extension_url(url: &str) -> bool {
+    let mut s = url.trim();
+    loop {
+        if s.len() >= 5 && s.as_bytes()[..5].eq_ignore_ascii_case(b"blob:") {
+            s = s[5..].trim_start();
+        } else if s.len() >= 11 && s.as_bytes()[..11].eq_ignore_ascii_case(b"filesystem:") {
+            s = s[11..].trim_start();
+        } else {
+            break;
+        }
+    }
+    if s.len() < 19 || !s.as_bytes()[..19].eq_ignore_ascii_case(b"chrome-extension://") {
+        return false;
+    }
+    let host = s[19..].split(['/', '\\', '?', '#']).next().unwrap_or("");
+    host.eq_ignore_ascii_case(PDF_EXTENSION_ID)
 }
 
 pub fn extension_id_from_url(url: &str) -> Option<&str> {

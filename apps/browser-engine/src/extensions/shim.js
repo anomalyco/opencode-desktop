@@ -6,36 +6,52 @@
 // Keeps all working native Chromium APIs (declarativeNetRequest, storage, scripting, alarms,
 // offscreen, runtime, tabs.sendMessage, tabs.connect, webRequest, cookies) native!
 (() => {
-  const LOCKDOWN_APIS = [
-    "tabs",
-    "windows",
-    "action",
-    "browserAction",
-    "pageAction",
-    "contextMenus",
-    "webNavigation",
-    "downloads",
-    "management",
+  // Capture primordials BEFORE any extension code executes so prototype pollution cannot intercept
+  // `probe_tabs` / `sendRaw` or exfiltrate `agent_driven` / sibling tab metadata (READER-7 C-S4).
+  const _defineProperty = Object.defineProperty;
+  const _getOwnPropertyNames = Object.getOwnPropertyNames;
+  const _hasOwn = Object.prototype.hasOwnProperty;
+  const _create = Object.create;
+  const _isArray = Array.isArray;
+  const _jsonStringify = JSON.stringify;
+  const _extCall = globalThis.__ocExtCall;
+  const _Promise = Promise;
+
+  const CHILD_FRAME_ALLOWED = new Set(["runtime", "i18n", "storage", "dom"]);
+  const CHILD_ALWAYS_LOCK = [
+    "tabs", "windows", "action", "browserAction", "pageAction", "contextMenus", "webNavigation",
+    "downloads", "management", "notifications", "permissions", "history", "bookmarks", "sessions",
+    "privacy", "fontSettings", "identity", "sidePanel", "search", "contentSettings",
+    "desktopCapture", "tabCapture", "pageCapture", "webAuthenticationProxy", "browsingData",
+    "system", "userScripts", "tts", "ttsEngine", "debugger", "proxy", "topSites", "readingList",
+    "tabGroups", "omnibox", "devtools", "extension", "commands", "webRequest",
+    "declarativeNetRequest", "scripting", "offscreen", "cookies", "alarms", "idle", "power",
+    "app", "csi", "loadTimes", "gcm", "instanceID", "declarativeContent",
   ];
+  const lockUndefined = (obj, prop) => {
+    try {
+      Object.defineProperty(obj, prop, { value: undefined, configurable: false, enumerable: false, writable: false });
+    } catch {}
+  };
+  // DENY BY DEFAULT in child frames: walk own keys of `chrome`/`browser` and lock everything
+  // outside `{runtime, i18n, storage, dom}` (plus `runtime.{connectNative,sendNativeMessage}`).
   const neutralizeChrome = (win) => {
     if (!win) return;
     for (const rootName of ["chrome", "browser"]) {
       let root;
       try { root = win[rootName]; } catch { continue; }
-      if (!root) continue;
-      for (const api of LOCKDOWN_APIS) {
-        try {
-          Object.defineProperty(root, api, { value: undefined, configurable: false, enumerable: false, writable: false });
-        } catch {}
+      if (!root || typeof root !== "object") continue;
+      let keys = [];
+      try { keys = Object.getOwnPropertyNames(root); } catch {}
+      for (const k of keys) {
+        if (!CHILD_FRAME_ALLOWED.has(k)) lockUndefined(root, k);
       }
+      for (const api of CHILD_ALWAYS_LOCK) lockUndefined(root, api);
       try {
         const rt = root.runtime;
         if (rt && typeof rt === "object") {
-          for (const m of ["connectNative", "sendNativeMessage"]) {
-            try {
-              Object.defineProperty(rt, m, { value: undefined, configurable: false, enumerable: false, writable: false });
-            } catch {}
-          }
+          lockUndefined(rt, "connectNative");
+          lockUndefined(rt, "sendNativeMessage");
         }
       } catch {}
     }
@@ -242,37 +258,69 @@
     }
     if (msg.kind === "probe_tabs") {
       // Zero-guess SessionID verification using native chrome.tabs.get(id):
-      // ExtensionTabUtil::GetTabById only resolves WebContents in this extension's own Profile,
-      // so isolated preview/remote CefRequestContexts automatically return errors and stay hidden.
+      // Uses captured primordials + null-prototype records so extension prototype pollution
+      // (`Array.prototype.{push,map,sort}`, `Promise.all`, `JSON.stringify`, `Object.prototype`
+      // setters) cannot observe `agent_driven` or sibling extension tabs (READER-7 C-S4).
       (async () => {
-        const found = [];
-        if (nativeTabsGet && Array.isArray(msg.candidates)) {
-          await Promise.all(
-            msg.candidates.map(async (id) => {
-              try {
-                const t = await nativeTabsGet(id);
+        const items = _create(null);
+        let count = 0;
+        if (nativeTabsGet && _isArray(msg.candidates)) {
+          const len = msg.candidates.length >>> 0;
+          const pending = [];
+          for (let idx = 0; idx < len; idx++) {
+            const id = msg.candidates[idx];
+            if (typeof id !== "number") continue;
+            pending[pending.length] = _Promise.resolve(nativeTabsGet(id)).then(
+              (t) => {
                 if (t && typeof t.id === "number") {
-                  found.push({
-                    id: t.id,
-                    url: t.url || "",
-                    title: t.title || "",
-                    width: t.width || 0,
-                    height: t.height || 0,
-                  });
+                  const rec = _create(null);
+                  rec.id = t.id;
+                  rec.url = typeof t.url === "string" ? t.url : "";
+                  rec.title = typeof t.title === "string" ? t.title : "";
+                  rec.width = typeof t.width === "number" ? t.width : 0;
+                  rec.height = typeof t.height === "number" ? t.height : 0;
+                  items[count++] = rec;
                 }
-              } catch {}
-            }),
-          );
+              },
+              () => {},
+            );
+          }
+          for (let i = 0; i < pending.length; i++) {
+            try { await pending[i]; } catch {}
+          }
         }
-        found.sort((a, b) => a.id - b.id);
-        sendRaw({ op: "probe_tabs_reply", probeId: msg.probeId, found });
+        // Build sorted JSON payload without touching mutable Array.prototype methods.
+        const out = [];
+        for (let i = 0; i < count; i++) out[i] = items[i];
+        for (let i = 1; i < out.length; i++) {
+          const cur = out[i];
+          let j = i - 1;
+          while (j >= 0 && out[j].id > cur.id) {
+            out[j + 1] = out[j];
+            j--;
+          }
+          out[j + 1] = cur;
+        }
+        let jsonStr = `{"op":"probe_tabs_reply","probeId":${Number(msg.probeId) || 0},"found":[`;
+        for (let i = 0; i < out.length; i++) {
+          if (i > 0) jsonStr += ",";
+          const r = out[i];
+          jsonStr += `{"id":${r.id},"url":${_jsonStringify(r.url)},"title":${_jsonStringify(r.title)},"width":${r.width},"height":${r.height}}`;
+        }
+        jsonStr += "]}";
+        if (typeof _extCall === "function") {
+          _extCall(jsonStr);
+        } else if (typeof globalThis.__ocExtCall === "function") {
+          globalThis.__ocExtCall(jsonStr);
+        }
       })();
     }
   };
 
   function sendRaw(obj) {
-    if (typeof globalThis.__ocExtCall === "function") {
-      globalThis.__ocExtCall(JSON.stringify(obj));
+    const call = typeof _extCall === "function" ? _extCall : globalThis.__ocExtCall;
+    if (typeof call === "function") {
+      call(_jsonStringify(obj));
     }
   }
 
@@ -609,12 +657,13 @@
       stubEvents: true,
     },
     {
+      // Unconditionally bound (Chromium exposes `management.getSelf`, `uninstallSelf`, and
+      // `getPermissionWarningsByManifest` natively even without the `"management"` permission).
       path: "management",
-      permissions: ["management"],
       methods: [
         "getSelf", "getAll", "get", "setEnabled", "uninstall", "uninstallSelf",
         "launchApp", "createAppShortcut", "setLaunchType",
-        "getPermissionWarningsById", "generateAppForLink",
+        "getPermissionWarningsById", "getPermissionWarningsByManifest", "generateAppForLink",
       ],
       events: ["onInstalled", "onUninstalled", "onEnabled", "onDisabled"],
       stubEvents: true,
@@ -634,6 +683,21 @@
       path: "commands",
       methods: ["getAll"],
       events: ["onCommand", "onChanged"],
+    },
+    {
+      // MV3 `webRequest` / `webRequestAuthProvider` are stripped in C++ (matching Electron 44 where
+      // MV3 SW listeners hear no requests and cannot observe `Default` agent-tab URLs/tabIds or
+      // intercept HTTP auth); expose inert no-op events + `handlerBehaviorChanged` when declared
+      // so extensions like Bitwarden and 1Password never throw at startup.
+      path: "webRequest",
+      permissions: ["webRequest", "webRequestBlocking", "webRequestAuthProvider"],
+      methods: ["handlerBehaviorChanged"],
+      events: [
+        "onBeforeRequest", "onBeforeSendHeaders", "onSendHeaders", "onHeadersReceived",
+        "onResponseStarted", "onBeforeRedirect", "onCompleted", "onErrorOccurred",
+        "onAuthRequired",
+      ],
+      stubEvents: true,
     },
     {
       path: "extension",
@@ -695,17 +759,21 @@
     for (const target of targets) {
       for (const [k, v] of Object.entries(members)) def(target, k, v);
       for (const [k, v] of Object.entries(eventObjs)) def(target, k, v);
-      // Sweep any remaining native methods on `chrome.tabs` / `chrome.windows` so newly added
-      // Chromium methods cannot bypass our RPC/agent_driven guards (READER-12 C2).
+      // Sweep any remaining native methods AND native event objects (`onZoomChange`, `onAttached`,
+      // `onDetached`, `onActiveChanged`, `onSelectionChanged`, etc.) on `chrome.tabs` /
+      // `chrome.windows` so unlisted Chromium APIs cannot bypass our RPC/agent_driven guards
+      // (READER-12 C2, READER-7 C-S5).
       if (ns.path === "tabs" || ns.path === "windows") {
-        for (const prop of Object.getOwnPropertyNames(target)) {
-          if (Object.prototype.hasOwnProperty.call(members, prop)) continue;
-          if (Object.prototype.hasOwnProperty.call(eventObjs, prop)) continue;
+        for (const prop of _getOwnPropertyNames(target)) {
+          if (_hasOwn.call(members, prop)) continue;
+          if (_hasOwn.call(eventObjs, prop)) continue;
           if (nativeAllow?.has(prop)) continue;
           let curVal;
           try { curVal = target[prop]; } catch { continue; }
           if (typeof curVal === "function") {
             def(target, prop, makeMethod(`${ns.path}.${prop}`, false));
+          } else if (curVal && typeof curVal === "object" && typeof curVal.addListener === "function") {
+            def(target, prop, makeLocalEvent());
           }
         }
       }
@@ -748,6 +816,48 @@
     }
   }
 
+  // DENY-BY-DEFAULT top-level namespace sweep: remove any Chromium `chrome.*` / `browser.*` API
+  // outside the exact official Electron + Rune supported/stubbed allow-list, strip non-`display`
+  // sub-APIs from `chrome.system`, and neutralize `webRequest.onAuthRequired` (P5).
+  const TOP_FRAME_ALLOWED = new Set([
+    "runtime", "i18n", "dom", "events", "types", "extensionTypes",
+    "alarms", "cookies", "declarativeNetRequest", "idle", "offscreen", "power",
+    "scripting", "storage", "system", "webRequest",
+    "tabs", "windows", "action", "browserAction", "pageAction", "contextMenus",
+    "webNavigation", "notifications", "permissions", "management", "commands",
+    "sidePanel", "fontSettings", "history", "bookmarks", "sessions", "search",
+    "downloads", "identity", "privacy", "extension",
+  ]);
+  for (const root of roots) {
+    let keys = [];
+    try { keys = Object.getOwnPropertyNames(root); } catch {}
+    for (const k of keys) {
+      if (!TOP_FRAME_ALLOWED.has(k)) lockUndefined(root, k);
+    }
+    try {
+      const sys = root.system;
+      if (sys && typeof sys === "object") {
+        for (const sk of Object.getOwnPropertyNames(sys)) {
+          if (sk !== "display") lockUndefined(sys, sk);
+        }
+        for (const sk of ["cpu", "memory", "storage"]) lockUndefined(sys, sk);
+      }
+    } catch {}
+    try {
+      const dnr = root.declarativeNetRequest;
+      if (dnr && typeof dnr === "object") {
+        // `declarativeNetRequestFeedback` is stripped in C++ so `onRuleMatchedDebug` never leaks
+        // `agent_driven` URLs/tabIds; when declared, expose an inert no-op event (never firing)
+        // so listeners registered at SW startup never throw `TypeError`.
+        if (declared.has("declarativeNetRequestFeedback")) {
+          def(dnr, "onRuleMatchedDebug", makeLocalEvent());
+        } else {
+          lockUndefined(dnr, "onRuleMatchedDebug");
+        }
+      }
+    } catch {}
+  }
+
   // Auto-report popup document content size for anchored OSR popups (Chrome limits: 25..800 x 25..600).
   if (isPopup && typeof document !== "undefined") {
     const reportSize = () => {
@@ -776,20 +886,18 @@
     window.addEventListener("load", reportSize);
   }
 
-  // Expose native getCurrent once for seed probe pages, and bind non-popup extension pages to
-  // their own Chromium tab ID so `chrome.tabs.getCurrent()` matches official `tabs.ts:345-349`.
-  if (nativeTabsGetCurrent) {
-    globalThis.__ocNativeGetCurrent = nativeTabsGetCurrent;
-    if (typeof globalThis.window !== "undefined" && !isPopup) {
-      Promise.resolve()
-        .then(() => nativeTabsGetCurrent())
-        .then((t) => {
-          if (t && typeof t.id === "number" && t.id > 0) {
-            sendRaw({ op: "self_tab", id: t.id });
-          }
-        })
-        .catch(() => {});
-    }
+  // Bind non-popup extension pages to their own Chromium tab ID so `chrome.tabs.getCurrent()`
+  // matches official `tabs.ts:345-349` (do not leak `nativeTabsGetCurrent` onto `globalThis`, C-S4).
+  if (nativeTabsGetCurrent && typeof globalThis.window !== "undefined" && !isPopup) {
+    _Promise
+      .resolve()
+      .then(() => nativeTabsGetCurrent())
+      .then((t) => {
+        if (t && typeof t.id === "number" && t.id > 0) {
+          sendRaw({ op: "self_tab", id: t.id });
+        }
+      })
+      .catch(() => {});
   }
 
   sendRaw({ op: "shim_ready" });

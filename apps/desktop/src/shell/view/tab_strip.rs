@@ -67,7 +67,7 @@ fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Opt
         .map(|(t, uid)| {
             let target = target(s, t);
             let menus = s.kernel.slots.get(&crate::session_menu::MENUS);
-            let keep = menus.on.as_ref() == Some(&target) || menus.renames(&target);
+            let keep = menus.on.as_ref() == Some(&target) || menus.renames(&target) || s.previewed_tab() == Some(uid.as_str());
             TabSlot { id: uid.as_str().into(), pinned: false, two_line: false, keep }
         })
         .collect();
@@ -173,7 +173,6 @@ fn item<'a>(
     }
     let switching = s.switching_layout();
     let spring = s.switch_spring();
-    let vertical = s.tab_layout().has_sidebar();
     // The routed session's, Settings open over it or not: Interface layout switches there.
     let active = !draft && matches!(&*s.route, Route::Session { id: r, server } if *server == t.server && s.root_of(r) == t.id);
     let bell = muted.then(|| super::sidebar::pins::muted_mark(p));
@@ -181,13 +180,6 @@ fn item<'a>(
         let slot = if let Some(bell_el) = bell { super::sidebar::pins::marked_slot(slot, bell_el, mark) } else { slot };
         // The arrows open the tab they reach as they pass it; its menu on a right-click.
         let slot = slot.on_key(move |s: &mut App, ev, _: &mut Tx| s.prefetch_navigation(&nav_ids, index, ev));
-        // Down the side tabs, the preview card follows the pointer's height.
-        let slot = if vertical {
-            let id = id.clone();
-            slot.on_pointer_move_local(move |s: &mut App, p: rune::PointerEvent, tx: &mut Tx| s.preview_pointer(&id, p.y, p.window_y, tx))
-        } else {
-            slot
-        };
         // A layout switch flies the tab between the titlebar and the sidebar on GLIDE.
         let slot = if switching { slot.motion(GLIDE) } else { slot };
         // The active tab is the session's place in every layout: it flies into its Inbox card,

@@ -608,12 +608,14 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
     // Its edges fade only while rows are under them, and never over a stuck group header. Under
     // a session header the top one is Desktop's `session-header-fade`: a 16 pt linear ramp of
     // the page's colour under the header's bottom edge, whole as soon as rows go under it; the
-    // bottom one is Desktop's 20 px smoothstep viewport mask (`packages/app/src/index.css:96-106`).
+    // bottom one is Desktop's 20 px 4-stop piecewise-linear viewport mask (`packages/app/src/index.css:96-107`:
+    // 0 -> 0.16 @ 5px -> 0.50 @ 10px -> 0.84 @ 15px -> 1.0 @ 20px).
     // Without a session header (narrow windows, `virtualizer.tsx:1182-1208`), official has only
     // the bottom 20 px fade (`end_only`) and never fades rows under the narrow location bar.
+    let bottom_fade = rune::ScrollFade::strength(20.0).stops(&[(0.25, 0.16), (0.5, 0.5), (0.75, 0.84)]);
     let fade = match header {
-        Some(_) => rune::ScrollFade::strength(16.0).linear().full_at(0.01).below_sticky().with_end(rune::ScrollFade::strength(20.0)),
-        None => rune::ScrollFade::strength(20.0).end_only(),
+        Some(_) => rune::ScrollFade::strength(16.0).linear().full_at(0.01).below_sticky().with_end(bottom_fade),
+        None => bottom_fade.end_only(),
     };
     let mut scroll = marks.view(col())
         .key(format!("scroll-{id}"))
