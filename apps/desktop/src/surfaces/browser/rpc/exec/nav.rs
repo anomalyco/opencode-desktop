@@ -28,9 +28,19 @@ pub(super) struct WaitLoadState {
     pub preview_path: Option<String>,
     pub close_on_fail: bool,
     pub saw_loading: bool,
+    /// Back/forward: the page they started from, whose commit settles the wait.
+    pub history_from: Option<HistoryFrom>,
     pub prev_rejected: u64,
     pub started_at: Instant,
     pub deadline: Instant,
+}
+
+/// Where a back/forward started: the tab's address and the frame tracker's counts of the main
+/// frame's commits then (`TabFrameState`).
+pub(super) struct HistoryFrom {
+    pub url: String,
+    pub contexts_cleared: u64,
+    pub frame_navigations: u64,
 }
 
 /// Dispatches navigation and tab-lifecycle actions. Returns `None` if the action belongs to
@@ -162,6 +172,7 @@ fn start_tabs_open(
         preview_path: None,
         close_on_fail: true,
         saw_loading: app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.loading),
+        history_from: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -297,6 +308,7 @@ fn start_navigate(
         preview_path: None,
         close_on_fail: false,
         saw_loading: app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.loading),
+        history_from: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -324,6 +336,28 @@ fn start_history(
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     app.mark_browser_tab_unseen(host_id);
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
+    let Some((url, can_go)) = app
+        .workspace_panes
+        .browser
+        .host
+        .tab(host_id)
+        .map(|t| (t.url.clone(), if is_back { t.can_go_back } else { t.can_go_forward }))
+    else {
+        return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
+    };
+    // No entry that way: nothing to go to, the tab as it is (official `chromium.ts:1728-1733`).
+    if !can_go && !app.use_mock_browser() {
+        let _ = att.sync_tabs(app);
+        let Some(tab) = att.wire_tab(app, host_id) else {
+            return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
+        };
+        return StepOutcome::Done(Outcome::ok(serde_json::to_value(tab).unwrap_or(Value::Null), Vec::new()));
+    }
+    let history_from = att.frames.get(&host_id).map(|f| HistoryFrom {
+        url,
+        contexts_cleared: f.main_contexts_cleared,
+        frame_navigations: f.main_frame_navigations,
+    });
     if is_back {
         app.workspace_panes.browser.host.back(host_id);
     } else {
@@ -342,6 +376,7 @@ fn start_history(
         preview_path: None,
         close_on_fail: false,
         saw_loading: false,
+        history_from,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -386,6 +421,7 @@ fn start_reload(
         preview_path: None,
         close_on_fail: false,
         saw_loading: false,
+        history_from: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -480,6 +516,7 @@ fn start_preview(
         preview_path: Some(path.to_owned()),
         close_on_fail,
         saw_loading: false,
+        history_from: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -529,6 +566,7 @@ fn start_navigate_path(
         preview_path: Some(path.to_owned()),
         close_on_fail: false,
         saw_loading: false,
+        history_from: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -639,7 +677,24 @@ pub(super) fn step_wait_load(
         };
         return Some(Outcome::fail(failure_code::NAVIGATION_FAILED, msg));
     }
-    let settled = (!tab.loading && (st.saw_loading || now >= st.started_at + LOAD_SETTLE_GRACE))
+    // Back/forward settle on their commit, not on loading: a page the back/forward cache restores
+    // may never report loading, and its commit's DevTools events can come after its address. Each
+    // bumps the tab's generation as it is applied, and the result goes out after the state taken
+    // when it returns: one applied later lets the agent's next command be authorized against the
+    // old generation and fail as `document_changed`. Measured on every new document (back,
+    // forward, four configurations, 20 runs each): its address, the main frame's
+    // `Runtime.executionContextsCleared` and, unless the engine runs extensions (which keep
+    // `Page.*` to themselves), the main frame's `Page.frameNavigated`, and no other bump. An entry
+    // that sends none of them (same document, same address) settles at the grace, as before.
+    let committed = st.history_from.as_ref().map(|from| {
+        tab.url != from.url
+            && att.frames.get(&st.host_id).is_some_and(|f| {
+                f.main_contexts_cleared > from.contexts_cleared
+                    && (app.workspace_panes.browser.host.extensions_active()
+                        || f.main_frame_navigations > from.frame_navigations)
+            })
+    });
+    let settled = (!tab.loading && (committed.unwrap_or(st.saw_loading) || now >= st.started_at + LOAD_SETTLE_GRACE))
         || now >= st.deadline;
     if !settled {
         return None;
