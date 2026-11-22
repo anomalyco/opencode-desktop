@@ -340,7 +340,9 @@ pub fn wake_settings(app: &mut App) -> bool {
 
 /// Retries bundled settings plugins that hit a transient startup watchdog timeout (at most once
 /// per launch), so a CPU burst during boot never permanently drops a built-in Settings section.
-/// Temporary guard until WS-3's general `ws3/plugin-timeout-restart` replaces it.
+/// It runs beside the general restart (`lifecycle::restart_later`, one restart 2 s after a timed-out
+/// start): this one comes later, when Settings opens, which still matters where the watchdog's
+/// budget is wall time (Windows on ARM, web).
 fn retry_timed_out_settings(app: &mut App) -> bool {
     const MAX_RETRIES: u8 = 1;
     let ids: Vec<(usize, String)> = app

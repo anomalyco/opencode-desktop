@@ -1,30 +1,29 @@
 {
-  "generated_at": "2026-11-22",
+  "generated_at": "2026-11-23",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "4d4a95a3239c14ceb4aaa8d6b955b0cdd6f1908c",
+  "upstream_head": "a946e848e6e45a1cd6b9e329fb2fedfb4eb519aa",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "91f0b3dfd09b198ccf399997f0580dac74280a7a",
-  "post_1114_commit_count": 426,
-  "post_1114_in_ledger": 164,
-  "post_1114_skipped": 262,
+  "rune_desktop_head": "1f8b88f7b8f382d8daa5feabf0f77ff4130badef",
+  "post_1114_commit_count": 467,
+  "post_1114_in_ledger": 170,
+  "post_1114_skipped": 297,
   "post_1114_skipped_breakdown": {
-    "test-only": 21,
-    "ci-bench-deps": 15,
-    "docs-site-data": 39,
-    "tui-only": 11,
+    "test-only": 23,
+    "ci-bench-deps": 17,
+    "docs-site-data": 48,
+    "tui-only": 19,
     "cli-acp-only": 8,
-    "server-core-ai-codemode-internal": 168
+    "server-core-ai-codemode-internal": 182
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 185,
+  "total_ledger_rows": 191,
   "status_counts": {
-    "have it": 154,
-    "not applicable": 23,
+    "have it": 164,
+    "not applicable": 24,
     "differs on purpose": 1,
-    "partly": 3,
-    "missing": 4
+    "partly": 2
   },
   "rows": [
     {
@@ -3433,8 +3432,8 @@
       ],
       "summary": "Sync both permissions and forms across running descendants and any child session with cached requests on open, inactive tab poll, inbox settle, and reconnect.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Verified on dev: apps/desktop/src/session/meta/status.rs read_open_requests() only fetches running descendants (skipping idle children with stale cached requests), and poll() for inactive tabs/Inbox only fetches the root session id.",
+      "status": "have it",
+      "status_evidence": "rune-desktop #413 (f427f17928): permissions and forms recovered across running descendants and any child session with cached requests, on open, inactive-tab poll, inbox settle and reconnect.",
       "depends_on": "none",
       "risks": "Must still avoid booting cold idle subagent locations that have no running work or cached requests.",
       "workstream": "BROWSER-UI"
@@ -4003,8 +4002,8 @@
       ],
       "summary": "Allow sending inline browser, file, and review comments straight to the active session with Mod+Enter.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Audit line/browser/review comment editors and composer submission in features/annotations, features/files, features/review, and plugins/browser for Mod+Enter direct send.",
+      "status": "have it",
+      "status_evidence": "rune-desktop #481 (779cdc3000): browser, file and review comments send with Mod+Enter through Enter's Send/Steer/Queue delivery, disabled on child sessions; other attached line comments are kept.",
       "depends_on": "UP-095-UI",
       "risks": "Touches browser, file, and review comment flows + plugin host APIs.",
       "workstream": "BROWSER-UI"
@@ -4334,8 +4333,8 @@
       ],
       "summary": "Sharing sign-ins with a remote server's pages copies cookies off the main thread, in batches, so the app doesn't stall.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "\"Share sign-ins with remote servers\" is not built yet (follows WS-1's #286; see UP-120).",
+      "status": "have it",
+      "status_evidence": "Share sign-ins with remote servers (#353, #286, #486, #523): the two-way mirror runs in the browser engine process (apps/browser-engine/src/cookies.rs, CEF's asynchronous cookie visitor and set callbacks, writes in batches tracked by Draining), so the app's UI thread never waits on a copy. Not measured with a large cookie store.",
       "depends_on": "#286 (OS cookie encryption, CefCookieManager), UP-120 follow-ups",
       "risks": "none",
       "workstream": "WS-1"
@@ -4403,8 +4402,8 @@
       ],
       "summary": "A count badge on the taskbar button for sessions that need you.",
       "size": "S",
-      "status": "partly",
-      "status_evidence": "Count and badge match official (taskbar_summary, the same summary as the progress state). Left: the badge description is English-only (apps/desktop/src/workspace/windows/taskbar.rs Summary::shown); official uses notification.taskbar.badge (plural, localized). Arrives with the next crates/opencode-i18n/sync.ts run, then plural!(...).",
+      "status": "have it",
+      "status_evidence": "Count and badge match official (taskbar_summary); rune-desktop #748 (1f8b88f7b8) renders the description from notification.taskbar.badge, plural and localized (apps/desktop/src/workspace/windows/taskbar.rs Summary::shown).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"
@@ -4630,10 +4629,149 @@
       ],
       "summary": "A session command \"Archive session\" (mod+shift+s), for root sessions not yet archived: archives on the server, refreshes Home/inbox lists and removes the tab (the view moves to the next open session); a failure toasts.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "No session.archive command or mod+shift+s binding in apps/desktop or features (archiving exists from the session menu only).",
+      "status": "have it",
+      "status_evidence": "rune-desktop #740 (a4bdc387a4): session.archive (Mod+Shift+S, Settings > Shortcuts row) archives the open root session not yet archived through the session menu's archive_session: lists update, its tab closes, Undo toast kept.",
       "depends_on": "none",
       "risks": "mod+shift+s must not collide with an existing binding.",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-165",
+      "window": "post-1120",
+      "pr": 65458,
+      "sha": "55b127bff4",
+      "title": "fix(desktop): remember the first window as focused when it opens focused",
+      "merged": "2026-11-21",
+      "packages": [
+        "desktop"
+      ],
+      "main_files": [
+        "packages/desktop/src/main/windows/index.ts"
+      ],
+      "summary": "The first window is created and shown focused before it is registered, so its focus event had already passed: register() now records it as the last-focused window when win.isFocused().",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "apps/desktop/src/workspace/windows/mod.rs register() calls focused(id) right after pushing the window into OPEN, so the first window is the most recently focused from the start; on_focus (windows/open.rs) stamps it again on every later focus. Difference: ours stamps every registered window, also one restored in the background, where official stamps only a window that is focused at registration; the next real focus event corrects the order.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-166",
+      "window": "post-1120",
+      "pr": 65466,
+      "sha": "8bf0903016",
+      "title": "feat: connect OpenCode Go through the OpenCode connection",
+      "merged": "2026-11-21",
+      "packages": [
+        "app",
+        "core",
+        "cli",
+        "tui"
+      ],
+      "main_files": [
+        "packages/app/src/providers/connect/dialog.tsx",
+        "packages/app/src/providers/models/unpaid.tsx",
+        "packages/app/src/session/composer/free-limit-panel.tsx",
+        "packages/app/src/session/usage-exceeded-dialogs.tsx",
+        "packages/app/src/runtime/i18n/en.ts"
+      ],
+      "summary": "OpenCode Go is reached through the OpenCode connection: the connect picker lists opencode-go only for someone who already saved a Go key (a credential connection); the unpaid model picker drops it from the featured providers and its tagline; the free-limit panel's Subscribe and the usage-exceeded dialog open the OpenCode connect flow instead of Go's; provider.connect.opencode.name becomes \"OpenCode\" (was \"OpenCode Console\").",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "rune-desktop #724 (1bc37630): features/connect/src/view.rs lists opencode-go only with a credential connection and drops OpenCode's note; features/connect/src/unpaid.rs features opencode, openai, anthropic, google, github-copilot with the note on OpenCode only; free_limit.rs Subscribe opens connect for opencode. The provider.connect.opencode.name 'OpenCode' label arrives with the next crates/opencode-i18n sync.",
+      "depends_on": "none",
+      "risks": "Hiding Go must keep it for people who already saved a Go key (credential connection), as official does.",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-167",
+      "window": "post-1120",
+      "pr": 65506,
+      "sha": "342839461a",
+      "title": "feat(app): start voice with the newest GPT-Live model the server lists",
+      "merged": "2026-11-21",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/voice/transport.ts"
+      ],
+      "summary": "A voice call starts the newest available GPT-Live model the server lists, and fails as unavailable when none is available.",
+      "size": "XS",
+      "status": "not applicable",
+      "status_evidence": "Official voice calls are an experiment (experiment.voiceCalls, packages/app/src/voice since #58249 'experimental voice calls through Console'); rune-desktop has no voice-call surface, only Hex dictation (apps/desktop/src/session/composer/dictation.rs). Whether to carry the experiment is a separate decision, not this change.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "none"
+    },
+    {
+      "id": "UP-168",
+      "window": "post-1120",
+      "pr": 65460,
+      "sha": "066336864f",
+      "title": "fix(session-ui): show the folder a search or listing ran in, not its parent",
+      "merged": "2026-11-21",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/tools/tool-renderer.tsx",
+        "packages/session-ui/src/timeline-next/tools/explore.tsx",
+        "packages/session-ui/src/timeline-next/tools/context-group.tsx"
+      ],
+      "summary": "List, Glob and Grep rows (and the context group's search trigger) show the folder the tool ran in, relative to the project (/ for the project itself), instead of that folder's parent (new displayFolder).",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "crates/session-view/src/tools/mod.rs directory() already shows the searched folder relative to the session's directory, / for its root, used by tools/lists.rs search(); it was a deliberate difference (ours.md section 5.8) that official matches since 066336864f (displayFolder in packages/session-ui/src/tools/tool-renderer.tsx), so the ours.md entry is retired (23 Nov).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-169",
+      "window": "post-1120",
+      "pr": 65541,
+      "sha": "ee5fe34e13",
+      "title": "feat(data): add new models section and yesterday leaderboard",
+      "merged": "2026-11-22",
+      "packages": [
+        "data",
+        "ui"
+      ],
+      "main_files": [
+        "packages/ui/src/components/provider-icons/sprite.svg",
+        "packages/ui/src/components/provider-icons/types.ts"
+      ],
+      "summary": "Desktop-facing part only: two new provider marks, thinkingmachines and tencent, in @opencode/ui's provider icon set (the rest is the data site).",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "rune#1375 (1ef6fc20) adds tencent and thinkingmachines to rune-theme-opencode provider_icons::named; rune-desktop #734 (7ce2a07d) pins it.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-170",
+      "window": "post-1120",
+      "pr": 65624,
+      "sha": "a946e848e6",
+      "title": "fix(desktop): isolate local Windows AppUserModelID from installed channels",
+      "merged": "2026-11-22",
+      "packages": [
+        "desktop"
+      ],
+      "main_files": [
+        "packages/desktop/src/main/identity.ts",
+        "packages/desktop/src/main/constants.ts",
+        "packages/desktop/src/main/lifecycle/environment.ts"
+      ],
+      "summary": "An unpackaged (local) run gets its own AppUserModelID, ai.opencode.desktop.local, instead of the installed dev channel's, so its taskbar button and toasts never merge with an installed copy; a start-menu Electron.lnk that claims the installed dev AUMID for a dev Electron is recognised as colliding.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "crates/win-install/src/product.rs Product::from_build: a local build (no channel or `local`) takes id anomaly.opencode-rune.dev and scheme opencode-rune-dev, while every release build (release.yml sets OPENCODE_RUNE_BUILD_CHANNEL, no OPENCODE_RUNE_BUNDLE_ID) takes anomaly.opencode-rune; harness runs take a scratch id (Product::with_id). Ours has no Electron shortcut to repair.",
+      "depends_on": "none",
+      "risks": "none",
       "workstream": "WS-8"
     }
   ],

@@ -13,6 +13,30 @@ pub const OPENCODE_SCHEME: &str = "opencode";
 /// The id every build's own id starts with (`anomaly.opencode-rune.dev`, `….pr.12`).
 const FAMILY: &str = "anomaly.opencode-rune";
 
+/// The release channel `channel` names when it is an app of its own beside dev's: `stable` or
+/// `beta`, as OpenCode Desktop ships Dev, Beta and its production app side by side, each under
+/// its own name, AppUserModelID, scheme, install folder and data folder
+/// (`electron-builder.config.ts`). Dev keeps the family's own identity, so every dev install
+/// updates in place.
+pub fn side_by_side(channel: Option<&str>) -> Option<&'static str> {
+    match channel {
+        Some("stable") => Some("stable"),
+        Some("beta") => Some("beta"),
+        _ => None,
+    }
+}
+
+/// The name a build of `channel` shows when its title isn't set: `OpenCode (Rune)` for dev and
+/// local builds, with the channel after it for stable and beta, so their Start menu entries,
+/// install folders and Apps & features entries differ from dev's.
+pub fn default_name(channel: Option<&str>) -> &'static str {
+    match side_by_side(channel) {
+        Some("stable") => "OpenCode (Rune) Stable",
+        Some(_) => "OpenCode (Rune) Beta",
+        None => "OpenCode (Rune)",
+    }
+}
+
 /// One build's identity: its name, its AppUserModelID and its own URL scheme, from the same
 /// environment variables the release workflows set for every artifact of a build.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,16 +51,22 @@ impl Product {
     /// The build's identity from its compile-time environment (`OPENCODE_RUNE_WINDOW_TITLE`,
     /// `OPENCODE_RUNE_BUNDLE_ID`, `OPENCODE_RUNE_BUILD_CHANNEL`, `OPENCODE_RUNE_URL_SCHEME`). A
     /// local build (no channel, or `local`) has its own id and scheme, so it never takes a
-    /// release's notifications, links or taskbar button.
+    /// release's notifications, links or taskbar button. Stable and beta have their own
+    /// ([`side_by_side`]); dev keeps the family's.
     pub fn from_build(title: Option<&str>, bundle_id: Option<&str>, channel: Option<&str>, scheme: Option<&str>, version: &str) -> Product {
         fn set(v: Option<&str>) -> Option<&str> {
             v.filter(|v| !v.is_empty())
         }
         let local = set(channel).is_none_or(|c| c == "local");
+        let own = |dev: &str, sep: char| match (local, side_by_side(channel)) {
+            (true, _) => format!("{dev}{sep}dev"),
+            (false, Some(c)) => format!("{dev}{sep}{c}"),
+            (false, None) => dev.to_owned(),
+        };
         Product {
-            name: set(title).unwrap_or("OpenCode (Rune)").to_owned(),
-            id: set(bundle_id).unwrap_or(if local { "anomaly.opencode-rune.dev" } else { "anomaly.opencode-rune" }).to_owned(),
-            scheme: set(scheme).unwrap_or(if local { "opencode-rune-dev" } else { "opencode-rune" }).to_ascii_lowercase(),
+            name: set(title).unwrap_or(default_name(channel)).to_owned(),
+            id: set(bundle_id).map_or_else(|| own(FAMILY, '.'), str::to_owned),
+            scheme: set(scheme).map_or_else(|| own("opencode-rune", '-'), str::to_owned).to_ascii_lowercase(),
             version: version.to_owned(),
         }
     }

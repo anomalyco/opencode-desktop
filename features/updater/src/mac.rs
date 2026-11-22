@@ -19,12 +19,14 @@ use super::engine::{self, Engine, Facts};
 use super::feed;
 use super::platform::Platform;
 
-/// Team release bundle ID installed from the release feed.
+/// Team release bundle ID installed from the release feed (the dev channel's).
 pub const TEAM_BUNDLE_ID: &str = "anomaly.opencode-rune";
 
-/// Only bundles the team release feed manages update (never local dev builds).
+/// Only bundles the team release feed manages update (never local dev builds): dev's, and stable's
+/// and beta's own (`win_install::side_by_side`), apps of their own beside dev's as OpenCode
+/// Desktop's channels are. A staged update must carry the running bundle's own id (`verify_bundle`).
 pub fn is_updatable_bundle_id(bundle_id: &str) -> bool {
-    bundle_id == TEAM_BUNDLE_ID
+    bundle_id.strip_prefix(TEAM_BUNDLE_ID).is_some_and(|rest| matches!(rest, "" | ".stable" | ".beta"))
 }
 const EXPECTED_SIGNING_TEAM: &str = "5NZ4Q7NXJ4";
 

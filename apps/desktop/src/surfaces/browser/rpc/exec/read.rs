@@ -14,7 +14,7 @@ use super::target_url::parse_agent_url;
 use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards, send_rpc_cdp, send_rpc_cdp_in_frame};
 use crate::App;
 
-const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(120);
+const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(50); // official waitFor (cdp.ts:95)
 /// Hard cap on serialized JSON returned by `browser.evaluate` (`chromium.ts:1552`).
 const MAX_EVAL_JSON_CHARS: usize = 512_000;
 
@@ -384,7 +384,7 @@ fn eval_target_outcome(err: EvalTargetError) -> Outcome {
     }
 }
 
-fn send_eval_cdp(
+pub(super) fn send_eval_cdp(
     app: &mut App,
     host_id: u64,
     expr: &str,

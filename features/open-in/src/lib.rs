@@ -3,7 +3,7 @@
 //! `desktop/src/main/files`).
 //!
 //! Each platform lists Desktop's apps for it (macOS's editors and terminals; on Windows VS Code,
-//! Cursor, Zed, PowerShell, and beyond Desktop's Windows Terminal and PowerShell 7, then Sublime
+//! Cursor, Zed, PowerShell, Windows Terminal, and beyond Desktop's PowerShell 7, then Sublime
 //! Text), only those installed (checked once, off the UI thread), with the file manager first
 //! (Finder, File Explorer). The choice is kept across launches and defaults to the file manager,
 //! as Desktop's does. Nothing shows unless the server shares this machine's files.
@@ -64,8 +64,8 @@ pub const APPS: &[OpenApp] = &[
     app("cursor", opencode_i18n::key!("plugin.file.open.app.cursor"), "cursor", "cursor"),
     app("zed", opencode_i18n::key!("plugin.file.open.app.zed"), "zed", "zed"),
     app("powershell", opencode_i18n::key!("plugin.file.open.app.powershell"), "powershell", "powershell"),
-    // Not Desktop's: what Windows developers open now (Windows Terminal, PowerShell 7).
-    app("windows-terminal", opencode_i18n::key!("rune.openIn.windowsTerminal"), "windows-terminal", "wt"),
+    app("windows-terminal", opencode_i18n::key!("plugin.file.open.app.windowsTerminal"), "windows-terminal", "wt"),
+    // Not Desktop's: PowerShell 7, what Windows developers open now.
     app("pwsh", opencode_i18n::key!("rune.openIn.powershell7"), "powershell", "pwsh"),
     app("sublime-text", opencode_i18n::key!("plugin.file.open.app.sublimeText"), "sublime-text", "Sublime Text"),
 ];
@@ -163,6 +163,9 @@ impl Launcher for Mac {
             if !APPS.iter().any(|a| a.open_with == b) {
                 return Err("Unknown external application".into());
             }
+            if harness_log::record("openIn", &[("path", &verified.path), ("app", b)]) {
+                return Ok(());
+            }
             if rune::is_headless() {
                 return Ok(());
             }
@@ -186,13 +189,13 @@ impl Launcher for Mac {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let verified = browser_policy::verify_local_path(path).map_err(|e| e.to_string())?;
-            if log_harness_reveal(&verified.path) {
+            if harness_log::record("reveal", &[("path", &verified.path)]) {
                 return Ok(());
             }
             if rune::is_headless() {
                 return Ok(());
             }
-            browser_policy::reveal_in_file_manager(&verified.path).map(|_| ()).map_err(|e| e.to_string())
+            harness_log::reveal(&verified.path).map(|_| ()).map_err(|e| e.to_string())
         }
         #[cfg(target_arch = "wasm32")]
         {
@@ -490,40 +493,6 @@ impl OpenIn {
     }
 }
 
-/// Whether `HARNESS_OPEN_EXTERNAL_LOG` may intercept external opens and reveals: only in debug
-/// builds or headless driver runs (`--snap`, `--script`, `--tree`, …), never in a normal windowed
-/// release launch.
-#[cfg(not(target_arch = "wasm32"))]
-fn allow_harness_log() -> bool {
-    cfg!(debug_assertions) || rune::is_headless()
-}
-
-/// Logs a safe reveal to `HARNESS_OPEN_EXTERNAL_LOG` during debug or headless proofs without
-/// spawning a real OS file manager window.
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn log_harness_reveal(path: &str) -> bool {
-    if !allow_harness_log() {
-        return false;
-    }
-    let Some(log) = std::env::var_os("HARNESS_OPEN_EXTERNAL_LOG").filter(|v| !v.is_empty()) else {
-        return false;
-    };
-    use std::io::Write as _;
-    let log_path = Path::new(&log);
-    if let Some(parent) = log_path.parent() {
-        drop(std::fs::create_dir_all(parent));
-    }
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
-        let entry = json!({
-            "pid": std::process::id(),
-            "kind": "reveal",
-            "path": path,
-        });
-        drop(writeln!(f, "{entry}"));
-    }
-    true
-}
-
 /// One app choice for an "Open in" menu or picker.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct MenuOption {
@@ -564,26 +533,7 @@ pub fn open_external(tx: &mut Tx, url: &str) -> bool {
     if !browser_policy::is_safe_os_external_url(trimmed) {
         return false;
     }
-    #[cfg(not(target_arch = "wasm32"))]
-    if allow_harness_log()
-        && let Some(log) = std::env::var_os("HARNESS_OPEN_EXTERNAL_LOG").filter(|v| !v.is_empty())
-    {
-        use std::io::Write as _;
-        let path = Path::new(&log);
-        if let Some(parent) = path.parent() {
-            drop(std::fs::create_dir_all(parent));
-        }
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-            let entry = json!({
-                "pid": std::process::id(),
-                "kind": "openExternal",
-                "url": trimmed,
-            });
-            drop(writeln!(f, "{entry}"));
-        }
-        return true;
-    }
-    tx.open_url(trimmed).is_ok()
+    harness_log::open_url(tx, trimmed)
 }
 
 /// Launches a user-confirmed app-scheme URL (`slack:`, `figma:`, `obsidian:`, `mailto:`, etc.)
@@ -599,17 +549,11 @@ pub fn open_confirmed_app_url(tx: &mut Tx, url: &str, source: browser_policy::Ap
         return false;
     }
     #[cfg(not(target_arch = "wasm32"))]
-    if allow_harness_log() && let Some(log) = std::env::var_os("HARNESS_OPEN_EXTERNAL_LOG").filter(|v| !v.is_empty()) {
-        use std::io::Write as _;
-        let path = Path::new(&log);
-        if let Some(parent) = path.parent() { drop(std::fs::create_dir_all(parent)); }
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-            drop(writeln!(f, "{}", json!({ "pid": std::process::id(), "kind": "openConfirmedApp", "url": trimmed })));
-        }
+    if harness_log::record("openConfirmedApp", &[("url", trimmed)]) {
         return true;
     }
     if trimmed.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("mailto:")) {
-        return tx.open_url(trimmed).is_ok();
+        return harness_log::open_url(tx, trimmed);
     }
     if rune::is_headless() {
         return true;

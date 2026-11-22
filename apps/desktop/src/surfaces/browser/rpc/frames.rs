@@ -46,6 +46,14 @@ pub(super) struct TabFrameState {
     overflow_targets: HashSet<Option<String>>,
     /// Fail-closed flag (`!overflow_targets.is_empty()` or live overflow during event ingestion).
     pub frame_cap_exceeded: bool,
+    /// Top-level `Runtime.executionContextsCleared` and main-frame `Page.frameNavigated` events seen:
+    /// a back/forward waits for the commit's own events (`exec::nav`), each of which bumps the
+    /// tab's generation when it lands.
+    pub main_contexts_cleared: u64,
+    pub main_frame_navigations: u64,
+    /// Main-frame `Page.navigatedWithinDocument` events seen: a same-document back/forward's own
+    /// commit, which bumps nothing but the address.
+    pub main_same_document_navigations: u64,
 }
 
 impl TabFrameState {
@@ -209,6 +217,7 @@ impl TabFrameState {
                     let name = frame.get("name").and_then(Value::as_str).unwrap_or("");
                     if parent.is_none() && session_id.is_none() {
                         eff.main_navigated = true;
+                        self.main_frame_navigations += 1;
                         self.overflow_targets.remove(&None);
                         self.frame_cap_exceeded = !self.overflow_targets.is_empty();
                         self.main_frame_id = Some(fid.to_owned());
@@ -249,6 +258,9 @@ impl TabFrameState {
                     params.get("frameId").and_then(Value::as_str),
                     params.get("url").and_then(Value::as_str),
                 ) {
+                    if session_id.is_none() && self.main_frame_id.as_deref() == Some(fid) {
+                        self.main_same_document_navigations += 1;
+                    }
                     self.record_frame_url(fid, url, session_id);
                 }
             }
@@ -303,6 +315,9 @@ impl TabFrameState {
                 }
             }
             "Runtime.executionContextsCleared" => {
+                if session_id.is_none() {
+                    self.main_contexts_cleared += 1;
+                }
                 if session_id.is_none() && self.main_frame_id.is_some() {
                     eff.main_navigated = true;
                     self.main_loader_id = None;

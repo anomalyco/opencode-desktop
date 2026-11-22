@@ -484,9 +484,7 @@ pub fn session_relative<'a, S: TimelineHost>(s: &S, session: &str, path: &'a str
 }
 
 /// The directory a search ran in, relative to the session's, as its subtitle shows it; `"/"` for
-/// the session's own root directory (`context-group.tsx:419` `displayDirectory(input.path ?? "/")`).
-/// Desktop shows a subdirectory's parent (`getDirectory("src") == "/"`), which names the wrong
-/// folder; this keeps the searched subdirectory (`ours.md` §5.8).
+/// the session's own root directory (`displayFolder`, `tool-renderer.tsx`, `#65460`).
 pub fn directory<S: TimelineHost>(s: &S, session: &str, path: &str) -> Option<String> {
     let rel = session_relative(s, session, path);
     Some(if rel.is_empty() { "/".to_owned() } else { rel.to_owned() })

@@ -176,6 +176,8 @@ pub struct PluginHost {
     boot: runtime::boot::Boot,
     /// The built-ins waiting for their first use, and their records.
     pub dormant: dormant::Dormant,
+    /// Plugins whose start ran out of time, waiting for their one restart.
+    pub(crate) restarts: runtime::lifecycle::Restarts,
     /// Per-plugin model-picker row annotations (`Models:SetBadges`), keyed by plugin id and tagged
     /// with the VM id that set them so reload/stop drops stale entries.
     pub(crate) model_badges: BTreeMap<String, (u64, ModelBadgeMap)>,
@@ -565,6 +567,27 @@ pub fn popover_key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
     requests::close_popover(app, tx);
     true
+}
+
+/// The pane's passkey notice asks the bundled browser plugin for its import dialog on the page's
+/// `site`: chosen already when `choose` (a tab of the person's), and `tab` loads again once cookies
+/// came in (official `panel.tsx:603-618`).
+pub fn browser_import_site(app: &mut App, site: Option<String>, choose: bool, tab: u64, tx: &mut Tx) {
+    let payload = rune_luau::Data::Map(std::collections::BTreeMap::from([
+        ("site".to_owned(), site.map_or(rune_luau::Data::Nil, rune_luau::Data::String)),
+        ("choose".to_owned(), rune_luau::Data::Bool(choose)),
+        ("tab".to_owned(), rune_luau::Data::String(tab.to_string())),
+    ]));
+    let mut fired = false;
+    for i in 0..app.plugins.list.len() {
+        if app.plugins.list[i].half.is_builtin("browser") {
+            fired |= runtime::lifecycle::fire_named(app, i, "Browser.ImportSite", payload.clone());
+        }
+    }
+    tx.instant();
+    if fired {
+        requests::carry_out(app, tx);
+    }
 }
 
 /// Esc closes the open plugin dialog, telling its plugin (yielding when another overlay sits above it).

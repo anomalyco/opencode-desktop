@@ -68,7 +68,18 @@ pub enum Fit {
 pub enum TextDrag {
     #[default]
     Idle,
-    Selecting { anchor: (u16, u16) },
+    /// `anchor` is (column, row from the top of the scrollback), so it stays on its text while
+    /// the view scrolls under the drag.
+    Selecting { anchor: (u16, u32) },
     /// A Shift+press moving the selection's end.
     Extending,
+}
+
+/// A held drag at or past the text's top or bottom edge scrolling the terminal: `dir` -1 up, 1
+/// down; the next step is due at `due` on the window's clock; `block` keeps an Alt drag a block.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EdgeScroll {
+    pub dir: i8,
+    pub due: f64,
+    pub block: bool,
 }

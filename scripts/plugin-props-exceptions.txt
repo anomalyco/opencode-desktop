@@ -1,0 +1,2 @@
+# Props built-in plugins pass that the plugin contract doesn't give that node: `path node prop`.
+# scripts/guardrails/plugin-props.mjs fails on any other, and on a line here that no longer occurs.

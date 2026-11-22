@@ -11,6 +11,9 @@ mod point;
 pub(super) mod profile;
 mod profile_analyze;
 pub(super) mod read;
+mod same_doc;
+mod settle;
+mod shot;
 pub(super) mod snapshot;
 mod target_url;
 
@@ -75,10 +78,13 @@ impl ExecPhase {
     pub fn next_wake(&self) -> Option<Instant> {
         match self {
             Self::WaitLoad(s) => {
-                if s.saw_loading {
+                // A back/forward also waits for its commit's events, at most until the grace. Past
+                // the grace only the load ends the wait, and the load's own messages wake the poll.
+                let grace = s.started_at + Duration::from_millis(1_200);
+                if (s.saw_loading && s.history_from.is_none()) || Instant::now() >= grace {
                     Some(s.deadline)
                 } else {
-                    Some((s.started_at + Duration::from_millis(1_200)).min(s.deadline))
+                    Some(grace.min(s.deadline))
                 }
             }
             Self::Wait(s) => Some(s.next_poll.min(s.deadline)),
@@ -506,9 +512,12 @@ fn finish_and_reply(
     if !att.attach.is_request_in_flight(connection_id, &request_id) {
         return;
     }
+    // The tabs as the command left them go first, but only when they changed: an unchanged state is
+    // one more request to the server before every result (official sends state on change too).
     let (state, hash) = att.sync_tabs(app);
-    let _ = att.attach.step(AttachEvent::StateChanged { hash }, now);
-    att.enqueue_state(connection_id, state, hash);
+    if !att.attach.step(AttachEvent::StateChanged { hash }, now).is_empty() {
+        att.enqueue_state(connection_id, state, hash);
+    }
     att.enqueue_result(connection_id, request_id.clone(), outcome);
     let _ = att.attach.step(AttachEvent::CommandFinished { request_id }, now);
 }
