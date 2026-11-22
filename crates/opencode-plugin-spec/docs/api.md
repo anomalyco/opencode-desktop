@@ -1776,6 +1776,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `variant` | `FieldVariant?` | The look. Defaults to `default`. |
 | `icon` | `IconName?` | An icon in the box before the text, as Desktop's `TextInput` `leadingIcon`: a search field's magnifying glass. The `default` variant only. Since 1.7. |
 | `clearable` | `boolean?` | A Clear button at the box's end that empties the field, as Desktop's `TextInput` `showClearButton`: set it while the field has text. The `default` variant only. Since 1.7. |
+| `focusDown` | `string?` | The key of the element Down moves the keyboard to from this field, or that element's first focusable control: a list under its search field, as official's site chooser does. The `default` variant only. Since 1.7. |
 | `keys` | `{ string }?` | Keys the field hands to its editor's `KeyPressed` instead of handling them: any of `ArrowUp`, `ArrowDown` and `Escape`. |
 | `onSubmit` | `UiHandler?` | Runs on Enter with the text in `event.text`. |
 
