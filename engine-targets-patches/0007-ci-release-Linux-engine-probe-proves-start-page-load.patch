@@ -1,4 +1,4 @@
-From 37d970bd274eceea3a0420611f156aa7d1acf46d Mon Sep 17 00:00:00 2001
+From 16c8c9374059efb67076f42491920c92a1e8ff6b Mon Sep 17 00:00:00 2001
 From: LukeParkerDev <10430890+Hona@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 13:52:14 +1000
 Subject: [PATCH] ci(release): Linux engine probe proves start + page load,
@@ -10,12 +10,12 @@ Subject: [PATCH] ci(release): Linux engine probe proves start + page load,
 - Renderer sandbox state is printed; it fails the check only with --require-sandbox, which macOS passes. Linux reports only until the Linux sandbox returns.
 - The Linux engine archive is uploaded even when the probe fails.
 ---
- .../opencode-rune-verify-engine-sandbox.py    | 215 ++++++++++++++----
+ .../opencode-rune-verify-engine-sandbox.py    | 216 ++++++++++++++----
  .github/workflows/release.yml                 |  11 +-
- 2 files changed, 172 insertions(+), 54 deletions(-)
+ 2 files changed, 173 insertions(+), 54 deletions(-)
 
 diff --git a/.github/release/opencode-rune-verify-engine-sandbox.py b/.github/release/opencode-rune-verify-engine-sandbox.py
-index b2442784a..add0bf628 100644
+index b2442784a..8e3dae56d 100644
 --- a/.github/release/opencode-rune-verify-engine-sandbox.py
 +++ b/.github/release/opencode-rune-verify-engine-sandbox.py
 @@ -1,14 +1,18 @@
@@ -136,7 +136,7 @@ index b2442784a..add0bf628 100644
                  browser_pid = int(msg.get("pid", proc.pid))
                  send({
                      "type": "open_tab",
-@@ -108,56 +135,144 @@ def main() -> int:
+@@ -108,56 +135,145 @@ def main() -> int:
                  })
              elif kind == "tab_update" and msg.get("tab", {}).get("title") == "SandboxProbeOK":
                  title_ok = True
@@ -241,12 +241,13 @@ index b2442784a..add0bf628 100644
 +
 +def macos_processes(bin_path):
 +    """Processes running from the engine's app bundle (`-ww`: never cut the command line)."""
-+    bundle = os.path.dirname(os.path.dirname(os.path.abspath(bin_path)))
++    # Both spellings: a temp folder under /var is /private/var once resolved.
++    bundles = {os.path.dirname(os.path.dirname(f(bin_path))) for f in (os.path.abspath, os.path.realpath)}
 +    out = subprocess.check_output(["ps", "-axww", "-o", "pid=,ppid=,command="], text=True)
 +    rows = []
 +    for ln in out.splitlines():
 +        parts = ln.strip().split(None, 2)
-+        if len(parts) == 3 and bundle in parts[2]:
++        if len(parts) == 3 and any(b in parts[2] for b in bundles):
 +            rows.append((int(parts[0]), int(parts[1]), parts[2]))
 +    return rows
 +

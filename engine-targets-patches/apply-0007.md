@@ -7,7 +7,7 @@ Changes under `.github/`:
   - **Stderr:** the engine's stderr goes to a file, and stdout is drained after `listening`, so the engine can never block on a full pipe.
   - **Failure report:** on any failure the script prints the exit code, the stderr tail, the process tree (`Seccomp` and `NoNewPrivs` for each process) and the tail of Chromium's `debug.log`.
   - **Linux renderers:** they are found as children of a zygote process. Zygote-forked renderers keep `--type=zygote` in `/proc/<pid>/cmdline`, so the old line 138 never matched.
-  - **macOS renderers:** they are found by the probe's own app-bundle path (`ps -axww`), not by parent pid. In the same run, `verify-engine-macos (x64, macos-26-intel)` (job `137082687621`) loaded the page and still failed at line 123 with `no macOS renderer subprocess found`. That is a second release blocker on `b0eb52c004`. The arm64 job passed. This change is not run on a Mac: no macOS device was used. If the renderer is truly missing, the failure report now prints every process running from the bundle, with `ppid` and `--type`.
+  - **macOS renderers:** they are found by the probe's own app-bundle path (`ps -axww`; both the `abspath` and `realpath` spellings, because `/var/folders/...` resolves to `/private/var/...`), not by parent pid. In the same run, `verify-engine-macos (x64, macos-26-intel)` (job `137082687621`) loaded the page and still failed at line 123 with `no macOS renderer subprocess found`. That is a second release blocker on `b0eb52c004`. The arm64 job passed. This change is not run on a Mac: no macOS device was used. If the renderer is truly missing, the failure report now prints every process running from the bundle, with `ppid` and `--type`.
   - **Required on both platforms:** `listening`, `ready`, and the test page loaded.
   - **Sandbox state:** printed for every renderer. It fails the check only with the new `--require-sandbox` flag.
 - `.github/workflows/release.yml`:
@@ -33,7 +33,7 @@ git diff --stat origin/dev..HEAD && git rev-parse HEAD:.github
 git push -u origin ci/engine-probe-report
 ```
 
-- **Patch SHA-256:** `b49b9e2b2f1943d1bbacfb957bf23e6957b9c1346fa494584f6a669dd788cbdb` (`18204` B)
-- **Expected diffstat:** `2 files changed, 172 insertions(+), 54 deletions(-)`
-- **Expected `HEAD:.github` (on `b0eb52c004`):** `f0f671cd11d53c181e49db588cf33649f2e7c53e`
+- **Patch SHA-256:** `31da28942d9d4a8c0662e6c6e7446f62776e96c12135738dc97bca1dc9652429` (`18334` B)
+- **Expected diffstat:** `2 files changed, 173 insertions(+), 54 deletions(-)`
+- **Expected `HEAD:.github` (on `b0eb52c004`):** `3a39a1ed5f4b85f92175b0e3eb63f637b777a42e`
 - **Numbering:** the orchestrator's note calls this "0005". `0005` and `0006` were already taken on this branch, so it is `0007`. The follow-up that adds `--require-sandbox` to the Linux call will be the next free number.
