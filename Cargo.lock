@@ -4264,6 +4264,7 @@ version = "0.0.1"
 dependencies = [
  "base64 0.22.1",
  "psychoscript",
+ "ryu-js",
  "serde",
  "serde_json",
  "url",
@@ -4998,7 +4999,7 @@ dependencies = [
 [[package]]
 name = "psychoscript"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/psychoscript?rev=e4cb862575e47eb9b6c7924949ddcdc7ee1eb8d1#e4cb862575e47eb9b6c7924949ddcdc7ee1eb8d1"
+source = "git+https://github.com/anomalyco/psychoscript?rev=c630d875eeb3c11823324f6c55a63bacceb5f098#c630d875eeb3c11823324f6c55a63bacceb5f098"
 dependencies = [
  "icu_calendar",
  "icu_collator",

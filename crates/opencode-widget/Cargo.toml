@@ -10,7 +10,7 @@ publish = false
 default = ["runner"]
 # The step runner over the Rust PsychoScript (`Program`, `step_json`). Off, the crate is the contract's
 # types and the lifecycle machine alone: what a renderer needs, without the interpreter.
-runner = ["dep:psychoscript", "dep:url", "dep:base64"]
+runner = ["dep:psychoscript", "dep:url", "dep:base64", "dep:ryu-js"]
 
 [dependencies]
 base64 = { workspace = true, optional = true }
@@ -19,7 +19,9 @@ serde_json.workspace = true
 # The `rust` branch of anomalyco/psychoscript: the Rust implementation, at parity with the TypeScript
 # reference. Pure Rust (oxc, ICU4X), no platform dependencies, so it builds for iOS and Android too.
 url = { version = "2", optional = true }
-psychoscript = { git = "https://github.com/anomalyco/psychoscript", rev = "e4cb862575e47eb9b6c7924949ddcdc7ee1eb8d1", optional = true }
+# `String(number)` as ECMAScript writes it, for a view key's path segment (widgets.md, Native hosts).
+ryu-js = { version = "1", optional = true }
+psychoscript = { git = "https://github.com/anomalyco/psychoscript", rev = "c630d875eeb3c11823324f6c55a63bacceb5f098", optional = true }
 
 [lints]
 workspace = true

@@ -17,7 +17,7 @@ const NULL: &HostValue = &HostValue::Null;
 
 /// What JSON leaves out of an object and writes as `null` in an array.
 fn skipped(v: &HostValue) -> bool {
-    matches!(v, HostValue::Undefined | HostValue::Function(_) | HostValue::Durable(_) | HostValue::Namespace(_) | HostValue::Interrupt)
+    matches!(v, HostValue::Undefined | HostValue::Function(_) | HostValue::FunctionMarker | HostValue::Durable(_) | HostValue::Namespace(_) | HostValue::Interrupt)
 }
 
 /// A number as JSON has it: an integer, a float, or (not finite) `null`.
