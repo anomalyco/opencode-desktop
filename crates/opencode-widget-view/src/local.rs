@@ -107,8 +107,6 @@ pub struct Local {
     version: u64,
     /// The widget is on screen (a live program runs only while it is).
     shown: bool,
-    /// Builds of the widget's frame: one that stops counting sits in a window that doesn't draw.
-    builds: std::cell::Cell<u64>,
     /// When each shader last sent a pointer `move`, by path.
     moved: HashMap<String, f64>,
     /// Each shader's logical size, by path, once laid out.
@@ -249,15 +247,6 @@ impl Local {
             }
             self.version += 1;
         }
-    }
-
-    /// The widget's frame was built (drawn).
-    pub fn built(&self) {
-        self.builds.set(self.builds.get() + 1);
-    }
-
-    pub fn builds(&self) -> u64 {
-        self.builds.get()
     }
 
     /// Catches up with a new view from a step: inputs not being typed in take the view's value,

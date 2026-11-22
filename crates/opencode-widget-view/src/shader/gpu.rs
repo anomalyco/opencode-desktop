@@ -184,9 +184,6 @@ impl ShaderGpu {
             }
         }
         self.animating = false;
-        if !self.on_screen.is_empty() {
-            super::PAINTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        }
         if self.on_screen.is_empty() {
             if self.gpu.as_ref().is_some_and(|g| !g.slots.is_empty()) {
                 self.gpu = None;

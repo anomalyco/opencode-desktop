@@ -58,15 +58,6 @@ struct Registry {
     next: u16,
 }
 
-/// Frames drawn with a GPU canvas on screen: a window whose widget animates only its shader draws
-/// without building again, and this still says it draws.
-pub(crate) static PAINTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-/// How many frames were drawn with a GPU canvas on screen.
-pub fn painted() -> u64 {
-    PAINTED.load(std::sync::atomic::Ordering::Relaxed)
-}
-
 thread_local! {
     static REGISTRY: RefCell<Registry> = RefCell::default();
     static CHANGED: Cell<bool> = const { Cell::new(false) };

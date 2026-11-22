@@ -1,8 +1,8 @@
 //! Live widgets (`specs/v2/widgets-live.md`) in this window: each running program's thread
 //! ([`opencode_widget::live::Live`]), what it posts taken every frame, display frames delivered
 //! from the window's frame clock when it asks for one and shows, and its pause while it doesn't:
-//! scrolled out of view, its session not shown, or its window not drawing (covered or minimized:
-//! a frame asked for and nothing drawn for 250 ms).
+//! scrolled out of view, its session not shown, or its window not on screen (hidden, minimized or
+//! covered: [`Tx::window_visible`], whose every change wakes `poll`).
 
 use opencode_widget::{Event, Response, WidgetEvent};
 use rune::Tx;
@@ -11,8 +11,6 @@ use crate::{WidgetTemplate, WidgetsHost, advance, engine};
 
 /// The window draws at most this often; a live program gets no more frames.
 const FRAME_S: f64 = 1.0 / 60.0;
-/// A frame asked for and nothing drawn this long: the window isn't drawing.
-const STALL_S: f64 = 0.25;
 
 /// One widget's running program, as this window drives it.
 #[derive(Default)]
@@ -23,8 +21,6 @@ pub struct Run {
     frame_wanted: bool,
     /// The clock of the last frame it got.
     last_frame: Option<f64>,
-    /// The widget's builds, and the frames drawn with a shader on screen, when it got that frame.
-    built_at: (u64, u64),
 }
 
 impl Run {
@@ -107,9 +103,7 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
     use engine::{Ended, Post};
     let Some(e) = host.widgets_mut().entries.get_mut(id) else { return false };
     let Some(live) = e.run.live.as_ref() else { return false };
-    let drawn = (e.local.builds(), opencode_widget_view::shader::painted());
-    let stalled = e.run.frame_wanted && e.run.last_frame.is_some_and(|t| now - t > STALL_S) && drawn == e.run.built_at;
-    let on = visible && !stalled;
+    let on = visible && tx.window_visible();
     if on && live.paused() {
         live.resume();
     } else if !on && !live.paused() {
@@ -236,15 +230,5 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
     live.frame(&frame);
     e.run.frame_wanted = false;
     e.run.last_frame = Some(now);
-    e.run.built_at = (e.local.builds(), opencode_widget_view::shader::painted());
-    // Looks again after a stall's time, to pause a window that stopped drawing. A widget with a
-    // shader shows it draws by the shader's frames; another builds again, which a window that
-    // draws does at once.
-    tx.wake_at(now + STALL_S + 0.01);
-    let shaded = e.machine.view().is_some_and(|v| {
-        let mut any = false;
-        v.walk(&mut |n| any |= matches!(n, opencode_widget::Node::Canvas { wgsl: Some(_), .. }));
-        any
-    });
-    changed || !shaded
+    changed
 }

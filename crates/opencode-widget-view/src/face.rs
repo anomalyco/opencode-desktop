@@ -121,7 +121,6 @@ fn status(k: &Kit, glyph: &'static rune::Icon, tint: rune::Color, words: &str, d
 /// `buttons` are what Try again (or Restart) and the expand button do.
 pub fn frame<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, face: Face<'_>, title: &str, buttons: Buttons<S>) -> El {
     let Buttons { retry, expand, failure } = buttons;
-    local.built();
     let k = look.kit;
     let c = &k.c;
     let body: Vec<El> = match face {
@@ -302,7 +301,6 @@ pub fn placeholder(look: &Look, title: &str) -> El {
 /// the mouse's back button close it as the button does (the host takes the keys).
 #[allow(clippy::too_many_arguments)]
 pub fn screen<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, face: Face<'_>, title: &str, height: f32, close: Action<S>) -> El {
-    local.built();
     let k = look.kit;
     let c = &k.c;
     let live = matches!(face, Face::Live { live: true, .. });
