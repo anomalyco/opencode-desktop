@@ -165,12 +165,36 @@ pub fn project_meta(id: &str) -> ProjectMeta {
     meta_store().lock().unwrap_or_else(PoisonError::into_inner).get(id).cloned().unwrap_or_default()
 }
 
+fn vcs_store() -> &'static Mutex<HashMap<String, bool>> {
+    static STORE: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
+    STORE.get_or_init(Default::default)
+}
+
+/// Whether the project the server lists at `directory`, or the nearest one holding it, is under
+/// version control (`vcs` set, any provider): how Desktop's Review decides "no-vcs"
+/// (`gui-plugins/src/review/model.ts:231`). `/api/vcs` can't tell: until the server's first read
+/// of the repository it answers `{ branch: {} }`, no provider and no branch. `None` when no listed
+/// project holds `directory`.
+pub fn directory_vcs(directory: &str) -> Option<bool> {
+    vcs_store()
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .filter(|(root, _)| crate::path::contains(root, directory))
+        .max_by_key(|(root, _)| crate::path::trim(root).len())
+        .map(|(_, vcs)| *vcs)
+}
+
 /// Parses one `Project.Info` object from `/api/project` or a `project.updated` event.
 pub fn parse_project(p: &Value) -> Option<Project> {
     let dir = p["canonical"].as_str().or_else(|| p["worktree"].as_str()).unwrap_or("").to_owned();
     if dir.is_empty() {
         return None;
     }
+    vcs_store()
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(dir.clone(), p["vcs"].as_str().is_some_and(|v| !v.is_empty()));
     let id = str_of(&p["id"]);
     let fallback = Some(crate::path::basename(&dir)).filter(|n| !n.is_empty()).unwrap_or(&dir);
     let name = p["name"].as_str().map(str::trim).filter(|n| !n.is_empty()).unwrap_or(fallback).to_owned();

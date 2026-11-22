@@ -460,7 +460,11 @@ pub fn fetch_live_vcs(server: &Server, directory: &str) -> Option<FetchedVcs> {
     let provider = vcs_val["data"]["provider"]
         .as_str()
         .or_else(|| vcs_val["provider"].as_str());
-    let lacks_provider = provider.is_none() && branch_current.is_none();
+    // Before the server's first read of the repository `/api/vcs` has neither: the project list
+    // says whether the folder has version control (Desktop's `!project.vcs`).
+    let lacks_provider = provider.is_none()
+        && branch_current.is_none()
+        && opencode_kit::project::directory_vcs(directory) != Some(true);
     Some(FetchedVcs { branch_current, branch_default, lacks_provider })
 }
 
