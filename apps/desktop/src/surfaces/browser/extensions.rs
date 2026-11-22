@@ -14,13 +14,17 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, UNIX_EPOCH};
 
 use browser_extensions::manager::{ExtensionManager, StagedInstall};
 use browser_extensions::manifest::read_manifest;
 use browser_extensions::review::{InstallEffect, InstallEvent, InstallMachine};
 use browser_extensions::sources::PlatformDirs;
-use browser_extensions::{InstallFailure, StoredExtension};
+use browser_extensions::{
+    CompatibilityLevel, ExtensionCompatibility, ExtensionSource, InstallFailure, ProfileExtension,
+    StoredExtension,
+};
 use browser_pane::StartupExtensionSpec;
 use opencode_kernel::Slot;
 use rune::time::Instant;
@@ -29,6 +33,95 @@ use crate::App;
 
 /// Chrome version token advertised when requesting CRX3 updates from the Chrome Web Store / Edge Add-ons.
 pub const CHROME_STORE_VERSION: &str = "156.0.0.0";
+
+/// How long a worker-verified extension list snapshot stays fresh before the next Settings visit
+/// triggers a non-blocking background directory-stamp check.
+const EXT_VERIFY_FRESH: Duration = Duration::from_secs(5);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct StoredFingerprint {
+    id: String,
+    version: Option<String>,
+    enabled: bool,
+    directory: String,
+    digest: Option<String>,
+    source: ExtensionSource,
+    name: Option<String>,
+}
+
+fn stored_fingerprint(stored: &[StoredExtension]) -> Vec<StoredFingerprint> {
+    stored
+        .iter()
+        .map(|r| StoredFingerprint {
+            id: r.id.clone(),
+            version: r.version.clone(),
+            enabled: r.enabled,
+            directory: r.directory.clone(),
+            digest: r.digest.clone(),
+            source: r.source,
+            name: r.name.clone(),
+        })
+        .collect()
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct DirStamp {
+    dir_mtime_ns: Option<u128>,
+    manifest_mtime_ns: Option<u128>,
+    manifest_len: Option<u64>,
+}
+
+fn mtime_ns(path: &Path) -> Option<u128> {
+    std::fs::symlink_metadata(path)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos())
+}
+
+fn dir_stamp(dir: &Path) -> DirStamp {
+    let manifest = dir.join("manifest.json");
+    let manifest_meta = std::fs::symlink_metadata(&manifest).ok();
+    DirStamp {
+        dir_mtime_ns: mtime_ns(dir),
+        manifest_mtime_ns: manifest_meta
+            .as_ref()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_nanos()),
+        manifest_len: manifest_meta.map(|m| m.len()),
+    }
+}
+
+struct VerifyRequest {
+    stored: Vec<StoredExtension>,
+    engine_failed: HashSet<String>,
+    force_rehash: bool,
+    restart_if_live: bool,
+}
+
+struct PendingApply {
+    specs: Vec<StartupExtensionSpec>,
+    has_filters: bool,
+    profiles_changed: bool,
+    restart_if_live: bool,
+}
+
+#[derive(Default)]
+struct ExtCacheInner {
+    stored_fp: Vec<StoredFingerprint>,
+    dir_stamps: Vec<(String, DirStamp)>,
+    changed_ids: HashSet<String>,
+    specs: Vec<StartupExtensionSpec>,
+    has_filters: bool,
+    profiles: Vec<ProfileExtension>,
+    verified_at: Option<Instant>,
+    swept_staging: bool,
+    in_flight: bool,
+    dirty: bool,
+    queued: Option<VerifyRequest>,
+    pending_apply: Option<PendingApply>,
+}
 
 /// Synchronized install/review state shared safely between the UI thread and blocking worker threads.
 pub struct ExtInstallCore {
@@ -72,7 +165,7 @@ impl ExtInstallCore {
 pub struct BrowserExtensionsRuntime {
     pub core: Arc<Mutex<ExtInstallCore>>,
     pub integrity_failed: HashSet<String>,
-    swept_staging: bool,
+    cache: Arc<Mutex<ExtCacheInner>>,
 }
 
 pub static BROWSER_EXTENSIONS: Slot<BrowserExtensionsRuntime> = Slot::new();
@@ -90,18 +183,6 @@ pub fn manager() -> Result<ExtensionManager, String> {
             .map_err(|e| format!("Could not prepare application data directory: {e}"))?;
     }
     ExtensionManager::in_user_data(&user_data)
-}
-
-/// Ensures leftover `.staging-*` directories from earlier crashes are swept once per window.
-pub fn sweep_staging_once(app: &mut App) {
-    let rt = app.kernel.slots.get_mut(&BROWSER_EXTENSIONS);
-    if rt.swept_staging {
-        return;
-    }
-    rt.swept_staging = true;
-    if let Ok(mgr) = manager() {
-        mgr.sweep_staging();
-    }
 }
 
 /// Platform directories for explicit user-triggered "From your browsers" Chromium extension discovery.
@@ -124,44 +205,244 @@ pub fn platform_dirs() -> PlatformDirs {
     }
 }
 
-/// Re-verifies every enabled [`StoredExtension`] on disk and pushes verified
-/// `--extension <id>:<sha256>:<dir>` specs into [`browser_pane::BrowserHost`].
-/// Returns IDs whose on-disk integrity failed verification (including any engine integrity alerts).
-pub fn sync_startup_specs(app: &mut App, stored: &[StoredExtension]) -> HashSet<String> {
-    sweep_staging_once(app);
-    let mut changed: HashSet<String> = app
-        .kernel
-        .slots
-        .get(&BROWSER_EXTENSIONS)
-        .integrity_failed
-        .clone();
-    let Ok(mgr) = manager() else {
-        app.workspace_panes.browser.host.set_startup_extensions(Vec::new(), false);
-        return changed;
+fn fallback_profile(rec: &StoredExtension, changed: bool) -> ProfileExtension {
+    ProfileExtension {
+        id: rec.id.clone(),
+        name: rec.name.clone().unwrap_or_else(|| rec.id.clone()),
+        version: rec.version.clone().unwrap_or_default(),
+        enabled: rec.enabled && !changed && rec.digest.is_some(),
+        source: rec.source,
+        icon: None,
+        popup: None,
+        options: None,
+        error: None,
+        changed: changed || rec.digest.is_none(),
+        compatibility: ExtensionCompatibility {
+            level: CompatibilityLevel::Partial,
+            cause: None,
+            missing: Vec::new(),
+        },
+        access: Vec::new(),
+    }
+}
+
+/// Marks the in-memory extension UI cache dirty so the next read or sync triggers a fresh
+/// background worker pass. Never touches disk on the UI thread.
+pub fn invalidate_cache(app: &App) {
+    let cache = &app.kernel.slots.get(&BROWSER_EXTENSIONS).cache;
+    let mut inner = cache.lock().unwrap_or_else(PoisonError::into_inner);
+    inner.dirty = true;
+}
+
+/// Non-blocking UI-thread read for `Browser:ExtList` and `Browser:ExtActions` inside `render()`.
+///
+/// Security invariant: this cache is strictly for Settings/toolbar display and non-blocking spec
+/// preparation. The real integrity gate always runs inside `opencode-browser-engine` before every
+/// `Extensions.loadUnpacked` (both startup in `extensions/integrity.rs` and runtime reload in
+/// `extensions/mod.rs::reload_extension`), which independently re-hashes every file against the
+/// approved SHA-256 and reports `EngineMsg::ExtensionIntegrityFailed` on mismatch.
+pub fn cached_ext_list(app: &App, stored: &[StoredExtension]) -> Vec<ProfileExtension> {
+    let rt = app.kernel.slots.get(&BROWSER_EXTENSIONS);
+    let fp = stored_fingerprint(stored);
+    let engine_failed = rt.integrity_failed.clone();
+
+    let (should_spawn, mut out) = {
+        let inner = rt.cache.lock().unwrap_or_else(PoisonError::into_inner);
+        let stale = inner.verified_at.is_none_or(|at| at.elapsed() >= EXT_VERIFY_FRESH);
+        let need_worker = inner.dirty || inner.stored_fp != fp || stale;
+
+        let mut list: Vec<ProfileExtension> = stored
+            .iter()
+            .map(|rec| {
+                let eng_bad = engine_failed.contains(&rec.id);
+                let cache_bad = inner.changed_ids.contains(&rec.id);
+                let is_changed = eng_bad || cache_bad;
+                let cached_match = inner
+                    .stored_fp
+                    .iter()
+                    .find(|f| f.id == rec.id && f.directory == rec.directory && f.digest == rec.digest)
+                    .and_then(|_| inner.profiles.iter().find(|p| p.id == rec.id));
+                match cached_match {
+                    Some(prof) => {
+                        let mut p = prof.clone();
+                        p.changed = is_changed || rec.digest.is_none();
+                        p.enabled = rec.enabled && !p.changed && p.error.is_none();
+                        p
+                    }
+                    None => fallback_profile(rec, is_changed),
+                }
+            })
+            .collect();
+        list.sort_by_key(|e| e.name.to_ascii_lowercase());
+        (need_worker, list)
     };
-    let verified = mgr.verify_enabled_for_startup(stored);
-    for id in verified.changed_ids {
-        changed.insert(id);
+
+    if should_spawn {
+        schedule_startup_sync(app, stored.to_vec(), false, false);
     }
-    let mut specs: Vec<StartupExtensionSpec> = Vec::with_capacity(verified.specs.len());
-    let mut has_filters = false;
-    for spec in verified.specs {
-        if changed.contains(&spec.id) {
-            continue;
+    // Keep stable sort even if fallback names matched IDs.
+    out.sort_by_key(|e| e.name.to_ascii_lowercase());
+    out
+}
+
+/// Schedules off-thread SHA-256 verification + manifest/icon description for `stored`.
+/// Never performs filesystem hashing on the UI thread and serializes at most one worker thread per
+/// window; the worker wakes the UI via `app.waker` only when verified specs or rows change.
+pub fn schedule_startup_sync(
+    app: &App,
+    stored: Vec<StoredExtension>,
+    force_rehash: bool,
+    restart_if_live: bool,
+) {
+    let Ok(mgr) = manager() else {
+        return;
+    };
+    let rt = app.kernel.slots.get(&BROWSER_EXTENSIONS);
+    let cache = rt.cache.clone();
+    let req = VerifyRequest {
+        stored,
+        engine_failed: rt.integrity_failed.clone(),
+        force_rehash,
+        restart_if_live,
+    };
+    {
+        let mut inner = cache.lock().unwrap_or_else(PoisonError::into_inner);
+        if inner.in_flight {
+            let merged_force = force_rehash || inner.queued.as_ref().is_some_and(|q| q.force_rehash);
+            let merged_restart = restart_if_live || inner.queued.as_ref().is_some_and(|q| q.restart_if_live);
+            inner.queued = Some(VerifyRequest {
+                stored: req.stored,
+                engine_failed: req.engine_failed,
+                force_rehash: merged_force,
+                restart_if_live: merged_restart,
+            });
+            return;
         }
-        if !has_filters
-            && let Some(manifest) = read_manifest(Path::new(&spec.dir))
-            && manifest
-                .permissions
+        inner.in_flight = true;
+    }
+    let waker = (*app.waker).clone();
+    let worker_cache = cache.clone();
+    let spawned = std::thread::Builder::new()
+        .name("browser-ext-verify".into())
+        .spawn(move || run_verify_worker(worker_cache, mgr, req, waker));
+    if spawned.is_err() {
+        let mut inner = cache.lock().unwrap_or_else(PoisonError::into_inner);
+        inner.in_flight = false;
+    }
+}
+
+fn run_verify_worker(
+    cache: Arc<Mutex<ExtCacheInner>>,
+    mgr: ExtensionManager,
+    mut req: VerifyRequest,
+    waker: Option<rune::Waker>,
+) {
+    loop {
+        let (swept, prev_fp, prev_stamps, had_verified) = {
+            let inner = cache.lock().unwrap_or_else(PoisonError::into_inner);
+            (
+                inner.swept_staging,
+                inner.stored_fp.clone(),
+                inner.dir_stamps.clone(),
+                inner.verified_at.is_some(),
+            )
+        };
+        if !swept {
+            mgr.sweep_staging();
+        }
+        let fp = stored_fingerprint(&req.stored);
+        let stamps: Vec<(String, DirStamp)> = req
+            .stored
+            .iter()
+            .map(|r| (r.id.clone(), dir_stamp(Path::new(&r.directory))))
+            .collect();
+
+        let stamp_unchanged = had_verified && !req.force_rehash && prev_fp == fp && prev_stamps == stamps;
+        let should_wake = if stamp_unchanged {
+            let mut inner = cache.lock().unwrap_or_else(PoisonError::into_inner);
+            inner.swept_staging = true;
+            inner.verified_at = Some(Instant::now());
+            inner.dirty = false;
+            false
+        } else {
+            let verified = mgr.verify_enabled_for_startup(&req.stored);
+            let mut changed_ids = req.engine_failed.clone();
+            for id in verified.changed_ids {
+                changed_ids.insert(id);
+            }
+            let mut specs: Vec<StartupExtensionSpec> = Vec::with_capacity(verified.specs.len());
+            let mut has_filters = false;
+            for spec in verified.specs {
+                if changed_ids.contains(&spec.id) {
+                    continue;
+                }
+                if !has_filters
+                    && let Some(manifest) = read_manifest(Path::new(&spec.dir))
+                    && manifest
+                        .permissions
+                        .iter()
+                        .any(|p| p == "declarativeNetRequest" || p == "declarativeNetRequestWithHostAccess")
+                {
+                    has_filters = true;
+                }
+                specs.push(StartupExtensionSpec::from(spec));
+            }
+            let mut profiles: Vec<ProfileExtension> = req
+                .stored
                 .iter()
-                .any(|p| p == "declarativeNetRequest" || p == "declarativeNetRequestWithHostAccess")
-        {
-            has_filters = true;
+                .filter_map(|rec| {
+                    let is_changed = changed_ids.contains(&rec.id);
+                    mgr.describe(rec, is_changed, None)
+                })
+                .collect();
+            profiles.sort_by_key(|e| e.name.to_ascii_lowercase());
+
+            let mut inner = cache.lock().unwrap_or_else(PoisonError::into_inner);
+            let profiles_changed = !had_verified || inner.profiles != profiles || inner.changed_ids != changed_ids;
+            let specs_changed = !had_verified || inner.specs != specs || inner.has_filters != has_filters;
+            inner.swept_staging = true;
+            inner.stored_fp = fp;
+            inner.dir_stamps = stamps;
+            inner.changed_ids = changed_ids;
+            inner.specs = specs.clone();
+            inner.has_filters = has_filters;
+            inner.profiles = profiles;
+            inner.verified_at = Some(Instant::now());
+            inner.dirty = false;
+            if profiles_changed || specs_changed || req.restart_if_live {
+                let prev_restart = inner.pending_apply.as_ref().is_some_and(|p| p.restart_if_live);
+                let prev_prof = inner.pending_apply.as_ref().is_some_and(|p| p.profiles_changed);
+                inner.pending_apply = Some(PendingApply {
+                    specs,
+                    has_filters,
+                    profiles_changed: profiles_changed || prev_prof,
+                    restart_if_live: req.restart_if_live || prev_restart,
+                });
+                true
+            } else {
+                false
+            }
+        };
+
+        if should_wake && let Some(w) = &waker {
+            w();
         }
-        specs.push(StartupExtensionSpec::from(spec));
+
+        let next = {
+            let mut inner = cache.lock().unwrap_or_else(PoisonError::into_inner);
+            match inner.queued.take() {
+                Some(q) => Some(q),
+                None => {
+                    inner.in_flight = false;
+                    None
+                }
+            }
+        };
+        let Some(next_req) = next else {
+            break;
+        };
+        req = next_req;
     }
-    app.workspace_panes.browser.host.set_startup_extensions(specs, has_filters);
-    changed
 }
 
 /// Maps crate [`InstallFailure`] values to stable i18n catalog codes (never raw Rust strings).
@@ -185,15 +466,38 @@ pub fn run_cleanup_effects(mgr: &ExtensionManager, effects: &[InstallEffect]) {
     }
 }
 
-/// Drains engine extension events (integrity failures, extension-opened tabs, focus requests).
+/// Drains worker verification updates and engine extension events (integrity failures,
+/// extension-opened tabs, focus requests). Returns `true` only when visible state or startup specs
+/// actually changed (no spurious `Dep::Browser` invalidation).
 pub fn poll(app: &mut App) -> bool {
+    let mut changed = false;
+    let pending = {
+        let cache = &app.kernel.slots.get(&BROWSER_EXTENSIONS).cache;
+        let mut inner = cache.lock().unwrap_or_else(PoisonError::into_inner);
+        inner.pending_apply.take()
+    };
+    if let Some(apply) = pending {
+        let specs_changed = app
+            .workspace_panes
+            .browser
+            .host
+            .set_startup_extensions(apply.specs, apply.has_filters);
+        if apply.restart_if_live
+            && specs_changed
+            && app.workspace_panes.browser.host.has_live_sidecar()
+            && app.workspace_panes.browser.host.engine_extensions()
+        {
+            app.workspace_panes.browser.host.restart_engine_for_extensions();
+        }
+        changed |= specs_changed || apply.profiles_changed;
+    }
+
     // Every tick, not only when another extension event arrived: the engine starts with
     // notifications off until told, and the Settings and engine-down clears can't wait.
     poll_extension_notifications(app);
     if !app.workspace_panes.browser.host.has_extension_events() {
-        return false;
+        return changed;
     }
-    let mut changed = false;
 
     let integrity_ids: Vec<String> = app
         .workspace_panes
@@ -206,6 +510,7 @@ pub fn poll(app: &mut App) -> bool {
         for id in integrity_ids {
             rt.integrity_failed.insert(id);
         }
+        rt.cache.lock().unwrap_or_else(PoisonError::into_inner).dirty = true;
         changed = true;
     }
 

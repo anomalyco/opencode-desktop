@@ -15,7 +15,8 @@ use crate::App;
 use crate::palette::Pal;
 use crate::plugin_host::plugin::{Contrib, Contribs};
 use crate::plugin_host::services::{self, map};
-use crate::plugin_host::{Flyout, FlyoutEvent, OpenDialog, Overlay, commands, cx, dormant, epoch, icons, requests};
+use crate::plugin_host::{Flyout, FlyoutEvent, Life, OpenDialog, Overlay, commands, cx, dormant, epoch, icons, reload, requests};
+use crate::view::UI_MED;
 
 thread_local! {
     /// A render logged an error since [`render`] cleared it.
@@ -36,8 +37,14 @@ pub fn render(app: &App, p: &Pal, i: usize, surface: &str, f: &Function, props: 
     let Some(script) = plugin.script() else { return el() };
     let half = &plugin.half;
     let chrome = surface.starts_with("slot:");
-    if chrome && half.failed.borrow().contains(surface) {
-        return el();
+    let settings_page = surface.starts_with("page:");
+    if half.failed.borrow().contains(surface) {
+        if chrome {
+            return el();
+        }
+        if settings_page {
+            return page_error_card(p, &plugin.manifest.id, &plugin.manifest.name, None);
+        }
     }
     struct RestoreFailed(bool);
     impl Drop for RestoreFailed {
@@ -60,9 +67,12 @@ pub fn render(app: &App, p: &Pal, i: usize, surface: &str, f: &Function, props: 
     let (built, read) = cx::recording(|| cx::rendering_as(&id, || cx::enter(app, || script.render_fn::<App>(surface, version, p.dark, f, props))));
     let failed = FAILED.get();
     drop(restore_failed);
-    if chrome && failed {
+    if failed && (chrome || settings_page) {
         half.failed.borrow_mut().insert(surface.to_owned());
-        return el();
+        if chrome {
+            return el();
+        }
+        return page_error_card(p, &plugin.manifest.id, &plugin.manifest.name, None);
     }
     if script.metrics().renders > before {
         if let (Some(t0), Some(args_str)) = (t0, trace_args) {
@@ -613,10 +623,57 @@ pub fn settings_page_icon(app: &App, key: &str) -> Option<&'static rune::Icon> {
     own_page(app, key).and_then(|(i, _, spec, _)| Some(icons::resolve(&app.plugins.list[i].manifest.id, &spec.icon?)))
 }
 
+/// Error card with Reload shown when a plugin Settings page fails to render or its plugin errored.
+fn page_error_card(p: &Pal, id: &str, name: &str, why: Option<&str>) -> El {
+    let plugin_id = id.to_owned();
+    let title = format!("{name} settings failed to render");
+    let desc = why
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| "This settings page stopped after a script error. Reload the plugin to try again.".to_owned());
+    let btn = row()
+        .key(format!("plugin-page-reload-{id}"))
+        .role("button")
+        .label("Reload")
+        .h(28.0)
+        .px(10.0)
+        .center()
+        .radius(6.0)
+        .border(0.5, p.border)
+        .hover(p.hover)
+        .press(p.pressed)
+        .on_press_tx(move |app: &mut App, tx: &mut Tx| {
+            tx.instant();
+            if dormant::wake(app, &plugin_id, dormant::Why::Use) {
+                return;
+            }
+            if let Some(idx) = app.plugins.find(&plugin_id) {
+                app.plugins.list[idx].half.failed.borrow_mut().clear();
+                reload(app, idx, None);
+            }
+        })
+        .child(text("Reload").font(UI_MED).color(p.text));
+    crate::settings::settings_card(
+        p,
+        &format!("plugin-page-error-{id}"),
+        std::iter::once((format!("plugin-page-error-row-{id}"), title.as_str(), desc, btn)),
+    )
+}
+
 /// A plugin page: its title, description and what it draws.
 pub fn settings_page(app: &App, p: &Pal, key: &str) -> Option<(String, String, El)> {
     let (i, _, spec, f) = own_page(app, key)?;
-    let body = page_body(app, p, i, &spec, f.as_ref()?);
+    let body = match f.as_ref() {
+        Some(f) => page_body(app, p, i, &spec, f),
+        None => {
+            let plugin = &app.plugins.list[i];
+            if matches!(plugin.life, Life::Errored { .. }) {
+                page_error_card(p, &plugin.manifest.id, &plugin.manifest.name, plugin.life.why())
+            } else {
+                return None;
+            }
+        }
+    };
     Some((spec.title.clone(), spec.description.clone().unwrap_or_default(), body))
 }
 
