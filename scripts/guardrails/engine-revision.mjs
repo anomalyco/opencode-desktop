@@ -7,15 +7,14 @@
 //   - inputs changed, ENGINE_REVISION unchanged  -> fail
 //   - ENGINE_REVISION changed, inputs unchanged  -> fail
 //   - both changed, or neither                   -> pass (after a bump, refresh the record with --write)
-// The inputs are DERIVED, so the list cannot go stale: apps/browser-engine itself, every crate it reaches
-// through `path = "..."` dependencies (followed through their own Cargo.toml), and every file pulled in
-// by a `#[path = "..."]` attribute under apps/browser-engine/src. Files are hashed as git blobs of the
-// working tree (`git hash-object`), so line-ending settings do not matter and uncommitted edits count.
+// The inputs are DERIVED, so the list cannot go stale (see inputs() for the walk). Files are hashed as git
+// blobs of the working tree (`git hash-object`), so line-ending settings do not matter and uncommitted edits count.
 //
-// Fails loudly on what it cannot read: a `path` key in a dependencies table it cannot parse, a `#[path]`
-// or `include*!` whose target is not a literal (OUT_DIR excepted) or does not exist: each an error with file
-// and line. A literal target is FOLLOWED and becomes an input (that is how crates/browser-pane/src/device.rs,
-// outside the crate folders, is derived from apps/browser-engine/src/wire.rs).
+// Fails loudly on what it cannot read, with file and line: a `path` key in a table it does not understand or
+// with a value it cannot parse, a `#[path]` / `include*!` target that is not a literal (an OUT_DIR include is
+// allowed unless it contains `..`) or does not exist, and a `mod x;` without `#[path]` in a file followed from
+// outside the crate folders. A literal target is FOLLOWED and becomes an input (that is how
+// crates/browser-pane/src/device.rs, outside the crate folders, is derived from apps/browser-engine/src/wire.rs).
 //
 // Deliberately NOT inputs: rust-toolchain.toml, the root .cargo/config.toml (Windows crt-static flags) and the
 // release workflow's engine jobs: they change how the engine is built, not what the app expects of it; the
@@ -46,74 +45,158 @@ function revision() {
   return Number(m[1]);
 }
 
-// Crate folders reached from apps/browser-engine through `path = "..."` dependencies (not dev- or build-dependencies).
-function crateFolders() {
-  const seen = new Set();
-  const todo = [ENGINE];
+// Every input, walked to a fixed point from apps/browser-engine:
+//   - a crate folder (whole) for every path in a manifest's [dependencies] / [build-dependencies] (also
+//     target-specific, inline or [deps.name] table form), [workspace.dependencies], [patch.*] and [replace];
+//     [dev-dependencies], [[test]], [[bench]] and [[example]] are skipped (they do not shape the engine);
+//   - a file for every [lib] / [[bin]] `path`, [package] `build`, `#[path]`, `#[cfg_attr(.., path = ..)]`,
+//     `include!`, `include_str!` and `include_bytes!` target; a followed Rust file is scanned in turn.
+// A followed file outside the crate folders may not declare `mod x;` without its own `#[path]`: where that
+// module lives is not derivable here, so it is an error.
+function inputs() {
+  const folders = new Set();
+  const files = new Set();
+  const mods = [];
+  const todo = [{ crate: ENGINE }];
   while (todo.length) {
-    const dir = todo.pop();
-    if (seen.has(dir)) continue;
-    seen.add(dir);
-    let section = "";
-    for (const line of read(`${dir}/Cargo.toml`).split(/\r?\n/)) {
-      const head = line.match(/^\s*\[([^\]]+)\]/);
-      if (head) { section = head[1].trim(); continue; }
-      if (!/(^|\.)dependencies(\.|$)/.test(section) || /dev-dependencies|build-dependencies/.test(section)) continue;
-      // `name = { path = "..." }` in a [*dependencies] table, or `path = "..."` inside a [*dependencies.name] table.
-      const inline = line.match(/^\s*[A-Za-z0-9_-]+\s*=\s*\{[^}]*\bpath\s*=\s*"([^"]+)"/);
-      const table = /\.dependencies\.[^.]+$|^dependencies\.[^.]+$/.test(section) ? line.match(/^\s*path\s*=\s*"([^"]+)"/) : null;
-      const hit = inline ?? table;
-      if (hit) todo.push(norm(posix.join(dir, hit[1])));
-      // Fail closed: a `path` key this reader does not understand must not be skipped silently.
-      else if (/\bpath\s*=/.test(line)) throw new Error(`engine-revision: cannot read the path dependency in ${dir}/Cargo.toml [${section}]: ${line.trim()}`);
+    const next = todo.pop();
+    if (next.crate) {
+      if (folders.has(next.crate)) continue;
+      if (!existsSync(join(root, next.crate, "Cargo.toml"))) throw new Error(`engine-revision: ${next.from}: points at ${next.crate}, which has no Cargo.toml`);
+      folders.add(next.crate);
+      todo.push(...manifest(next.crate));
+      for (const f of tracked([next.crate]).filter((f) => f.endsWith(".rs"))) {
+        const r = rust(f);
+        todo.push(...r.targets);
+        mods.push(...r.mods);
+      }
+      continue;
     }
+    if (files.has(next.file)) continue;
+    files.add(next.file);
+    if (!next.rust) continue;
+    const r = rust(next.file);
+    todo.push(...r.targets);
+    mods.push(...r.mods);
   }
-  return [...seen].sort();
+  const inFolder = (f) => [...folders].some((d) => f === d || f.startsWith(`${d}/`));
+  const orphan = mods.find((m) => !inFolder(m.file));
+  if (orphan) throw new Error(`engine-revision: ${orphan.at}: \`mod ${orphan.name};\` in a file followed from outside the crate folders: give it a #[path] so its file can be followed`);
+  const sorted = [...folders].sort();
+  const extra = [...files].filter((f) => !inFolder(f)).sort();
+  const listed = [...new Set(tracked([...sorted, ...extra]).filter((f) => existsSync(join(root, f))))].sort();
+  const blobs = listed.length
+    ? execFileSync("git", ["hash-object", "--stdin-paths"], { cwd: root, input: listed.join("\n") + "\n", encoding: "utf8", maxBuffer: 1 << 26 }).trim().split(/\r?\n/)
+    : [];
+  return { sources: [...sorted, ...extra], files: new Map(listed.map((f, i) => [f, blobs[i]])) };
 }
 
-// Files the crates' Rust sources pull in from elsewhere: `#[path = "..."]` and `include!` / `include_str!` /
-// `include_bytes!` with a literal path (relative to the file). A non-literal include fails closed unless it
-// reads OUT_DIR (a build script's output, whose inputs are already in the crate folder).
-function pathFiles(folders) {
+function tracked(paths) {
+  return execFileSync("git", ["ls-files", "-z", "--", ...paths], { cwd: root, encoding: "utf8", maxBuffer: 1 << 26 }).split("\0").filter(Boolean);
+}
+
+const STR = String.raw`(?:"([^"]+)"|'([^']+)')`;
+const DEPS = /^(dependencies|build-dependencies|build_dependencies)$/;
+
+// The path-bearing keys of one Cargo.toml, as crate or file targets. A `path` key in a table this reader does
+// not understand, or a value it cannot read, is an error with file and line, never skipped.
+function manifest(dir) {
+  const file = `${dir}/Cargo.toml`;
   const out = [];
-  const walk = (dir) => {
-    for (const e of readdirSync(join(root, dir), { withFileTypes: true })) {
-      const rel = `${dir}/${e.name}`;
-      if (e.isDirectory()) { if (e.name !== "target" && e.name !== "node_modules") walk(rel); continue; }
-      if (!e.name.endsWith(".rs")) continue;
-      const src = read(rel);
-      const at = (i) => `${rel}:${src.slice(0, i).split("\n").length}`;
-      const follow = (target, i, what) => {
-        const f = norm(posix.join(dir, target));
-        if (!existsSync(join(root, f))) throw new Error(`engine-revision: ${at(i)}: ${what} points at ${f}, which does not exist`);
-        out.push(f);
-      };
-      for (const m of src.matchAll(/#\[path\s*=\s*([^\]]*)\]/g)) {
-        const lit = m[1].trim().match(/^"([^"]+)"$/);
-        if (!lit) throw new Error(`engine-revision: ${at(m.index)}: cannot read ${m[0]}`);
-        follow(lit[1], m.index, "#[path]");
-      }
-      for (const m of src.matchAll(/\binclude(?:_str|_bytes)?!\s*\(\s*([^)]*)\)/g)) {
-        const lit = m[1].trim().match(/^"([^"]+)"$/);
-        if (lit) follow(lit[1], m.index, m[0].slice(0, m[0].indexOf("!") + 1));
-        else if (!/env!\s*\(\s*"OUT_DIR"/.test(m[1])) throw new Error(`engine-revision: ${at(m.index)}: cannot follow a non-literal ${m[0]}`);
-      }
+  let kind = "other";
+  read(file).split(/\r?\n/).forEach((line, n) => {
+    const at = `${file}:${n + 1}`;
+    const head = line.match(/^\s*(\[\[?)\s*([^\]]+?)\s*\]\]?\s*(#.*)?$/);
+    if (head) {
+      const segs = (head[2].match(/"[^"]*"|'[^']*'|[^.\s]+/g) ?? []).map((s) => s.replace(/^["']|["']$/g, ""));
+      const s = segs[0] === "target" ? segs.slice(2) : segs;
+      const array = head[1] === "[[";
+      const table = (k) => (DEPS.test(s[0]) && s.length === k) || (s[0] === "workspace" && s[1] === "dependencies" && s.length === k + 1) || (s[0] === "patch" && s.length === k + 1) || (s[0] === "replace" && s.length === k);
+      kind = /^dev[-_]dependencies$/.test(s[0]) || (array && ["test", "bench", "example"].includes(s[0])) ? "skip"
+        : table(1) ? "inline"
+        : table(2) ? "table"
+        : s.length === 1 && (s[0] === "lib" || (array && s[0] === "bin")) ? "target"
+        : s.length === 1 && s[0] === "package" ? "package"
+        : "other";
+      return;
     }
-  };
-  for (const d of folders) walk(d);
+    if (kind === "skip" || /^\s*#/.test(line)) return;
+    const val = (re) => { const m = line.match(re); return m ? norm(posix.join(dir, m[1] ?? m[2])) : null; };
+    const key = String.raw`(?:"[^"]*"|'[^']*'|[A-Za-z0-9_-]+)`;
+    const crate = kind === "inline" ? val(new RegExp(String.raw`^\s*${key}\s*=\s*\{[^}]*\bpath\s*=\s*${STR}`)) ?? val(new RegExp(String.raw`^\s*${key}\.path\s*=\s*${STR}`))
+      : kind === "table" ? val(new RegExp(String.raw`^\s*path\s*=\s*${STR}`))
+      : null;
+    if (crate) return out.push({ crate, from: at });
+    const target = kind === "target" ? val(new RegExp(String.raw`^\s*path\s*=\s*${STR}`))
+      : kind === "package" ? val(new RegExp(String.raw`^\s*build\s*=\s*${STR}`))
+      : null;
+    if (target) return out.push({ file: must(target, at, "a manifest path"), rust: true });
+    if (kind === "package" && /^\s*build\s*=/.test(line) && !/^\s*build\s*=\s*(true|false)\s*(#.*)?$/.test(line)) throw new Error(`engine-revision: ${at}: cannot read ${line.trim()}`);
+    if (/\bpath\s*=/.test(line)) throw new Error(`engine-revision: ${at}: cannot read the path in ${line.trim()}`);
+  });
   return out;
 }
 
-function inputs() {
-  const folders = crateFolders();
-  const extra = [...new Set(pathFiles(folders))].filter((f) => !folders.some((d) => f === d || f.startsWith(`${d}/`)));
-  const listed = execFileSync("git", ["ls-files", "-z", "--", ...folders, ...extra], { cwd: root, encoding: "utf8", maxBuffer: 1 << 26 })
-    .split("\0").filter(Boolean).filter((f) => existsSync(join(root, f)));
-  const files = [...new Set(listed)].sort();
-  const blobs = files.length
-    ? execFileSync("git", ["hash-object", "--stdin-paths"], { cwd: root, input: files.join("\n") + "\n", encoding: "utf8", maxBuffer: 1 << 26 }).trim().split(/\r?\n/)
-    : [];
-  return { sources: [...folders, ...extra], files: new Map(files.map((f, i) => [f, blobs[i]])) };
+// What one Rust file pulls in: `#[path]`, `#[cfg_attr(.., path = ..)]` and `include*!` targets (literal paths,
+// relative to the file; an `include*!(concat!(env!("OUT_DIR"), ..))` is a build output and allowed unless it
+// climbs out with `..`), and its `mod x;` lines without a path attribute.
+function rust(file) {
+  const src = read(file);
+  const dir = posix.dirname(file);
+  const at = (i) => `${file}:${src.slice(0, i).split("\n").length}`;
+  const targets = [];
+  const lit = (text, i, what) => {
+    const m = text.trim().match(/^"([^"]+)"$/);
+    if (!m) throw new Error(`engine-revision: ${at(i)}: cannot follow a non-literal ${what}`);
+    return must(norm(posix.join(dir, m[1])), at(i), what);
+  };
+  for (const m of src.matchAll(/#\[\s*path\s*=\s*([^\]]*)\]/g)) targets.push({ file: lit(m[1], m.index, m[0]), rust: true });
+  for (const m of src.matchAll(/#\[\s*cfg_attr\s*\(/g)) {
+    const body = args(src, m.index + m[0].length - 1, at(m.index));
+    for (const p of body.matchAll(/\bpath\s*=\s*([^,]*)/g)) targets.push({ file: lit(p[1], m.index, `#[cfg_attr(.., ${p[0].trim()})]`), rust: true });
+  }
+  for (const m of src.matchAll(/\binclude(_str|_bytes)?!\s*([(\[{])/g)) {
+    const body = args(src, m.index + m[0].length - 1, at(m.index));
+    const what = `${m[0].replace(/\s*[(\[{]$/, "")}(${body.trim()})`;
+    if (/env!\s*\(\s*"OUT_DIR"\s*\)/.test(body)) {
+      if (body.includes("..")) throw new Error(`engine-revision: ${at(m.index)}: ${what} climbs out of OUT_DIR`);
+      continue;
+    }
+    targets.push({ file: lit(body, m.index, what), rust: !m[1] });
+  }
+  const lines = src.split("\n");
+  const mods = lines.flatMap((line, n) => {
+    const m = line.match(/^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z_]\w*)\s*;/);
+    if (!m) return [];
+    const attrs = [];
+    for (let k = n - 1; k >= 0 && /^\s*(#\[|\/\/)/.test(lines[k]); k--) attrs.push(lines[k]);
+    return attrs.some((a) => /\bpath\s*=/.test(a)) ? [] : [{ file, name: m[1], at: `${file}:${n + 1}` }];
+  });
+  return { targets, mods };
+}
+
+function must(f, at, what) {
+  if (!existsSync(join(root, f))) throw new Error(`engine-revision: ${at}: ${what} points at ${f}, which does not exist`);
+  return f;
+}
+
+// The text between a macro's or attribute's opening bracket at `open` and its matching close.
+function args(src, open, at) {
+  const close = { "(": ")", "[": "]", "{": "}" };
+  const stack = [];
+  for (let i = open; i < src.length; i++) {
+    const c = src[i];
+    if (c === '"') {
+      for (i++; i < src.length && src[i] !== '"'; i++) if (src[i] === "\\") i++;
+      continue;
+    }
+    if (Object.hasOwn(close, c)) stack.push(close[c]);
+    else if (c === stack.at(-1)) {
+      stack.pop();
+      if (!stack.length) return src.slice(open + 1, i);
+    }
+  }
+  throw new Error(`engine-revision: ${at}: cannot find the end of this macro's arguments`);
 }
 
 function readRecord() {
