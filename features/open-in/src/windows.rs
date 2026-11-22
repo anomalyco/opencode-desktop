@@ -45,6 +45,9 @@ impl Launcher for Win {
                 if !verified.is_dir || browser_policy::is_clsid_folder_name(&clean) {
                     return self.reveal(&clean);
                 }
+                if crate::harness::record("openIn", &[("path", &clean)]) {
+                    return Ok(());
+                }
                 if rune::is_headless() {
                     return Ok(());
                 }
@@ -52,6 +55,9 @@ impl Launcher for Win {
             }
             Some(app) => {
                 let exe = resolve(app, |k| std::env::var_os(k)).ok_or_else(|| format!("{app} isn't installed"))?;
+                if crate::harness::record("openIn", &[("path", &clean), ("app", app)]) {
+                    return Ok(());
+                }
                 if is_powershell(&exe) {
                     if rune::is_headless() {
                         return Ok(());
@@ -78,7 +84,7 @@ impl Launcher for Win {
 
     fn reveal(&self, path: &str) -> Result<(), String> {
         let verified = browser_policy::verify_local_path(path).map_err(|e| e.to_string())?;
-        if crate::harness::record("reveal", "path", &verified.path) {
+        if crate::harness::record("reveal", &[("path", &verified.path)]) {
             return Ok(());
         }
         if rune::is_headless() {
