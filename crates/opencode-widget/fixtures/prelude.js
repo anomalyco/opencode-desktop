@@ -12,6 +12,7 @@ const ui = (() => {
     row: container("row"),
     carousel: container("carousel"),
     card: container("card"),
+    stack: container("stack"),
     text: (text, props) => ({ ...props, type: "text", text: String(text) }),
     markdown: (text) => ({ type: "markdown", text: String(text) }),
     image: (src, props) => ({ ...props, type: "image", src }),
@@ -27,7 +28,6 @@ const ui = (() => {
     input: (value, props) => ({ ...props, type: "input", value: value ?? "" }),
     divider: () => ({ type: "divider" }),
     canvas: (props) => ({ ...props, type: "canvas" }),
-    shader: (wgsl, props) => ({ ...props, type: "shader", wgsl }),
     draw: () => new __WidgetDraw(),
   }
 })()
@@ -43,7 +43,6 @@ const __WIDGET_CONTROLS = {
   input: { event: "change", handler: "onChange", always: true },
   carousel: { event: "change", handler: "onChange" },
   canvas: { event: "pointer", handler: "onPointer", keyed: true },
-  shader: { event: "pointer", handler: "onPointer", keyed: true },
 }
 
 // Turns a view as widget templates build it into the tree clients get: children flattened, handler functions and `key`s
@@ -63,7 +62,8 @@ function __widget_tree(root) {
       if (typeof handler === "function" || control.always || keyed) {
         out.id = path
         if (typeof handler === "function") handlers[path] = { event: control.event, handler, node: out }
-        if (keyed && canvases[String(key)] === undefined) canvases[String(key)] = path
+        if (keyed && canvases[String(key)] === undefined)
+          canvases[String(key)] = { id: path, wgsl: typeof node.wgsl === "string" }
       }
     }
     if (children === undefined) return out
@@ -407,9 +407,10 @@ const widget = (() => {
       pump()
     },
     draw: (key, commands) => {
-      const id = live.canvases[String(key)]
-      if (id === undefined) throw new Error('No canvas with key "' + key + '" in the rendered view')
-      post({ type: "draw", id, commands: commands instanceof __WidgetDraw ? commands.commands : commands })
+      const canvas = live.canvases[String(key)]
+      if (canvas === undefined) throw new Error('No canvas with key "' + key + '" in the rendered view')
+      if (canvas.wgsl) throw new Error('Canvas "' + key + '" is drawn by its wgsl; it takes no draw commands')
+      post({ type: "draw", id: canvas.id, commands: commands instanceof __WidgetDraw ? commands.commands : commands })
     },
     frame: async () => {
       request()
