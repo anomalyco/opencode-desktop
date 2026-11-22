@@ -15,7 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 include!("build_support.rs");
 
 const ZIG_VERSION_TIMEOUT: Duration = Duration::from_secs(15);
-const AROCC_FETCH_TIMEOUT: Duration = Duration::from_secs(600);
+const AROCC_FETCH_TIMEOUT: Duration = Duration::from_secs(45);
 const TAR_EXTRACT_TIMEOUT: Duration = Duration::from_secs(120);
 const ZIG_BUILD_TIMEOUT: Duration = Duration::from_secs(600);
 
