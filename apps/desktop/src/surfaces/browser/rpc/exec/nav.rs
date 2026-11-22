@@ -30,18 +30,10 @@ pub(super) struct WaitLoadState {
     pub close_on_fail: bool,
     pub saw_loading: bool,
     /// Back/forward: the page they started from, whose commit settles the wait.
-    pub history_from: Option<HistoryFrom>,
+    pub history_from: Option<settle::HistoryFrom>,
     pub prev_rejected: u64,
     pub started_at: Instant,
     pub deadline: Instant,
-}
-
-/// Where a back/forward started: the tab's address and the frame tracker's counts of the main
-/// frame's commits then (`TabFrameState`).
-pub(super) struct HistoryFrom {
-    pub url: String,
-    pub contexts_cleared: u64,
-    pub frame_navigations: u64,
 }
 
 /// Dispatches navigation and tab-lifecycle actions. Returns `None` if the action belongs to
@@ -348,7 +340,7 @@ fn start_history(
     // the grace, end the wait.
     let (contexts_cleared, frame_navigations) =
         att.frames.get(&host_id).map_or((0, 0), |f| (f.main_contexts_cleared, f.main_frame_navigations));
-    let history_from = Some(HistoryFrom { url, contexts_cleared, frame_navigations });
+    let history_from = Some(settle::HistoryFrom { url, contexts_cleared, frame_navigations });
     if is_back {
         app.workspace_panes.browser.host.back(host_id);
     } else {
@@ -673,9 +665,14 @@ pub(super) fn step_wait_load(
         frame_navigations: f.main_frame_navigations,
         main_context: f.main_frame_id.as_ref().is_some_and(|id| f.main_contexts.contains_key(id)),
     });
-    let waiting = settle::Waiting { history: st.history_from.as_ref(), saw_loading: st.saw_loading, started_at: st.started_at, deadline: st.deadline };
+    let waiting = settle::Waiting {
+        history: st.history_from.as_ref(),
+        saw_loading: st.saw_loading,
+        elapsed: now.duration_since(st.started_at),
+        deadline: st.deadline.duration_since(st.started_at),
+    };
     let extensions_active = app.workspace_panes.browser.host.extensions_active();
-    match settle::settle(&waiting, Some(settle::TabNow { url: &tab.url, loading: tab.loading }), frames, extensions_active, now, LOAD_SETTLE_GRACE) {
+    match settle::settle(&waiting, Some(settle::TabNow { url: &tab.url, loading: tab.loading }), frames, extensions_active, LOAD_SETTLE_GRACE) {
         settle::Settle::Wait => return None,
         settle::Settle::Closed => return Some(Outcome::fail(failure_code::NAVIGATION_FAILED, "Browser tab closed while loading.")),
         settle::Settle::Done => {}
