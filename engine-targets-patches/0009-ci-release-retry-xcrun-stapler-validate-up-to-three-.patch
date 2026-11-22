@@ -1,0 +1,61 @@
+From e017d7c612fc9c261618cd2d2084acc12012d6c4 Mon Sep 17 00:00:00 2001
+From: LukeParkerDev <10430890+Hona@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 17:52:41 +1000
+Subject: [PATCH] ci(release): retry xcrun stapler validate up to three times
+ in the macOS verify steps
+
+---
+ .github/workflows/release.yml | 24 +++++++++++++++++++++---
+ 1 file changed, 21 insertions(+), 3 deletions(-)
+
+diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
+index 935ed3df2..babbaabf3 100644
+--- a/.github/workflows/release.yml
++++ b/.github/workflows/release.yml
+@@ -592,14 +592,23 @@ jobs:
+           stem="$RUNNER_TEMP/in/sign-opencode-rune-macos-${{ matrix.arch }}/OpenCode-Rune-$OPENCODE_RUNE_VERSION-macos-${{ matrix.arch }}"
+           dmg="$stem.dmg"
+           zip="$stem.zip"
+-          xcrun stapler validate "$dmg"
++          # stapler validate asks Apple's CloudKit for the ticket; one failed lookup must not stop a publish.
++          stapler_validate() {
++            for attempt in 1 2 3; do
++              xcrun stapler validate "$1" && return 0
++              [ "$attempt" -lt 3 ] && { echo "::warning::stapler validate failed for $1 (attempt $attempt of 3); retrying in 30 s"; sleep 30; }
++            done
++            echo "::error::stapler validate failed 3 times for $1" >&2
++            return 1
++          }
++          stapler_validate "$dmg"
+           spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
+           check=$(mktemp -d)
+           hdiutil attach -quiet -nobrowse -readonly -mountpoint "$check/dmg" "$dmg"
+           /usr/bin/ditto -x -k "$zip" "$check/update"
+           apps/desktop/scripts/validate-app.sh "$check/dmg/OpenCode (Rune).app" "$OPENCODE_RUNE_VERSION" "$OPENCODE_RUNE_BUILD_CHANNEL"
+           apps/desktop/scripts/validate-app.sh "$check/update/OpenCode (Rune).app" "$OPENCODE_RUNE_VERSION" "$OPENCODE_RUNE_BUILD_CHANNEL"
+-          xcrun stapler validate "$check/update/OpenCode (Rune).app"
++          stapler_validate "$check/update/OpenCode (Rune).app"
+           codesign --verify --deep --strict -R="$(cat apps/desktop/update-requirement.txt)" "$check/update/OpenCode (Rune).app"
+           spctl --assess --type execute --verbose=2 "$check/dmg/OpenCode (Rune).app"
+           diff -qr "$check/dmg/OpenCode (Rune).app" "$check/update/OpenCode (Rune).app"
+@@ -1045,7 +1054,16 @@ jobs:
+           [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$ENGINE_VERSION" ] || {
+             echo "::error::$app is not version $ENGINE_VERSION." >&2; exit 1;
+           }
+-          xcrun stapler validate "$app"
++          # stapler validate asks Apple's CloudKit for the ticket; one failed lookup must not stop a publish.
++          stapler_validate() {
++            for attempt in 1 2 3; do
++              xcrun stapler validate "$1" && return 0
++              [ "$attempt" -lt 3 ] && { echo "::warning::stapler validate failed for $1 (attempt $attempt of 3); retrying in 30 s"; sleep 30; }
++            done
++            echo "::error::stapler validate failed 3 times for $1" >&2
++            return 1
++          }
++          stapler_validate "$app"
+           spctl --assess --type execute --verbose=2 "$app"
+           codesign --verify --deep --strict -R="anchor apple generic and certificate leaf[subject.OU] = \"$SEER_TEAM_ID\" and notarized" "$app"
+           [ -f "$app/Contents/Frameworks/Chromium Embedded Framework.framework/Libraries/libcef_sandbox.dylib" ] || {
+-- 
+2.56.0.windows.4
+
