@@ -97,7 +97,7 @@ pub fn platform(exe: &Path, version: &str, build_channel: &str, updates: PathBuf
     sweep(&root, &updates);
     let _ = receipt::at(&root);
     let facts = Facts { version: version.to_owned(), channel: feed::feed_channel(build_channel), service, updates };
-    let args = std::env::args().skip(1).collect();
+    let args = crate::relaunch_args::forwarded(std::env::args().skip(1));
     Some(Windows { engine: Engine::new(facts), version: version.to_owned(), root, trust, staged: Mutex::new(None), args })
 }
 

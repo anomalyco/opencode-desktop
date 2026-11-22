@@ -1,30 +1,30 @@
 {
-  "generated_at": "2026-11-22",
+  "generated_at": "2026-11-23",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "4d4a95a3239c14ceb4aaa8d6b955b0cdd6f1908c",
+  "upstream_head": "d9dacaf52592dcdaaac3cf52f175d8ae8e541a26",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "91f0b3dfd09b198ccf399997f0580dac74280a7a",
-  "post_1114_commit_count": 426,
-  "post_1114_in_ledger": 164,
-  "post_1114_skipped": 262,
+  "rune_desktop_head": "8fd50ce8559711d6514c51886f53e78dc6ac9779",
+  "post_1114_commit_count": 459,
+  "post_1114_in_ledger": 169,
+  "post_1114_skipped": 290,
   "post_1114_skipped_breakdown": {
-    "test-only": 21,
-    "ci-bench-deps": 15,
-    "docs-site-data": 39,
-    "tui-only": 11,
+    "test-only": 23,
+    "ci-bench-deps": 17,
+    "docs-site-data": 47,
+    "tui-only": 16,
     "cli-acp-only": 8,
-    "server-core-ai-codemode-internal": 168
+    "server-core-ai-codemode-internal": 179
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 185,
+  "total_ledger_rows": 190,
   "status_counts": {
-    "have it": 154,
-    "not applicable": 23,
+    "have it": 156,
+    "not applicable": 24,
     "differs on purpose": 1,
     "partly": 3,
-    "missing": 4
+    "missing": 6
   },
   "rows": [
     {
@@ -4634,6 +4634,122 @@
       "status_evidence": "No session.archive command or mod+shift+s binding in apps/desktop or features (archiving exists from the session menu only).",
       "depends_on": "none",
       "risks": "mod+shift+s must not collide with an existing binding.",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-165",
+      "window": "post-1120",
+      "pr": 65458,
+      "sha": "55b127bff4",
+      "title": "fix(desktop): remember the first window as focused when it opens focused",
+      "merged": "2026-11-21",
+      "packages": [
+        "desktop"
+      ],
+      "main_files": [
+        "packages/desktop/src/main/windows/index.ts"
+      ],
+      "summary": "The first window is created and shown focused before it is registered, so its focus event had already passed: register() now records it as the last-focused window when win.isFocused().",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "apps/desktop/src/workspace/windows/mod.rs register() calls focused(id) right after pushing the window into OPEN, so the first window is the most recently focused from the start; on_focus (windows/open.rs) stamps it again on every later focus. Difference: ours stamps every registered window, also one restored in the background, where official stamps only a window that is focused at registration; the next real focus event corrects the order.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-166",
+      "window": "post-1120",
+      "pr": 65466,
+      "sha": "8bf0903016",
+      "title": "feat: connect OpenCode Go through the OpenCode connection",
+      "merged": "2026-11-21",
+      "packages": [
+        "app",
+        "core",
+        "cli",
+        "tui"
+      ],
+      "main_files": [
+        "packages/app/src/providers/connect/dialog.tsx",
+        "packages/app/src/providers/models/unpaid.tsx",
+        "packages/app/src/session/composer/free-limit-panel.tsx",
+        "packages/app/src/session/usage-exceeded-dialogs.tsx",
+        "packages/app/src/runtime/i18n/en.ts"
+      ],
+      "summary": "OpenCode Go is reached through the OpenCode connection: the connect picker lists opencode-go only for someone who already saved a Go key (a credential connection); the unpaid model picker drops it from the featured providers and its tagline; the free-limit panel's Subscribe and the usage-exceeded dialog open the OpenCode connect flow instead of Go's; provider.connect.opencode.name becomes \"OpenCode\" (was \"OpenCode Console\").",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "features/connect/src/view.rs POPULAR and features/connect/src/unpaid.rs still list opencode-go with its tagline unconditionally; apps/desktop/src/session/composer/free_limit.rs:220 opens connect for \"opencode-go\"; crates/opencode-i18n still has provider.connect.opencode.name = \"OpenCode Console\" (arrives with the next sync.ts run).",
+      "depends_on": "none",
+      "risks": "Hiding Go must keep it for people who already saved a Go key (credential connection), as official does.",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-167",
+      "window": "post-1120",
+      "pr": 65506,
+      "sha": "342839461a",
+      "title": "feat(app): start voice with the newest GPT-Live model the server lists",
+      "merged": "2026-11-21",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/voice/transport.ts"
+      ],
+      "summary": "A voice call starts the newest available GPT-Live model the server lists, and fails as unavailable when none is available.",
+      "size": "XS",
+      "status": "not applicable",
+      "status_evidence": "Official voice calls are an experiment (experiment.voiceCalls, packages/app/src/voice since #58249 'experimental voice calls through Console'); rune-desktop has no voice-call surface, only Hex dictation (apps/desktop/src/session/composer/dictation.rs). Whether to carry the experiment is a separate decision, not this change.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "none"
+    },
+    {
+      "id": "UP-168",
+      "window": "post-1120",
+      "pr": 65460,
+      "sha": "066336864f",
+      "title": "fix(session-ui): show the folder a search or listing ran in, not its parent",
+      "merged": "2026-11-21",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/tools/tool-renderer.tsx",
+        "packages/session-ui/src/timeline-next/tools/explore.tsx",
+        "packages/session-ui/src/timeline-next/tools/context-group.tsx"
+      ],
+      "summary": "List, Glob and Grep rows (and the context group's search trigger) show the folder the tool ran in, relative to the project (/ for the project itself), instead of that folder's parent (new displayFolder).",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "crates/session-view/src/tools/mod.rs directory() already shows the searched folder relative to the session's directory, / for its root, used by tools/lists.rs search(); it was a deliberate difference (ours.md section 5.8) that official matches since 066336864f (displayFolder in packages/session-ui/src/tools/tool-renderer.tsx), so the ours.md entry is retired (23 Nov).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-169",
+      "window": "post-1120",
+      "pr": 65541,
+      "sha": "ee5fe34e13",
+      "title": "feat(data): add new models section and yesterday leaderboard",
+      "merged": "2026-11-22",
+      "packages": [
+        "data",
+        "ui"
+      ],
+      "main_files": [
+        "packages/ui/src/components/provider-icons/sprite.svg",
+        "packages/ui/src/components/provider-icons/types.ts"
+      ],
+      "summary": "Desktop-facing part only: two new provider marks, thinkingmachines and tencent, in @opencode/ui's provider icon set (the rest is the data site).",
+      "size": "XS",
+      "status": "missing",
+      "status_evidence": "Rune themes/opencode/src/provider_icons.rs (generated by tools/provider-icons.py from @opencode/ui's provider marks) has no thinkingmachines or tencent entry; opencode-ui widgets.rs provider_mark() and features/connect ui.rs then draw Desktop's custom provider mark for them. Needs a Rune regeneration PR and a pin bump.",
+      "depends_on": "none",
+      "risks": "none",
       "workstream": "WS-8"
     }
   ],

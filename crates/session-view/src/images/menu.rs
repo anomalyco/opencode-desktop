@@ -141,7 +141,7 @@ pub fn reveal_with_system(path: &Path) -> bool {
     if rune::is_headless() {
         return false;
     }
-    match browser_policy::reveal_in_file_manager(&path.to_string_lossy()) {
+    match harness_log::reveal(&path.to_string_lossy()) {
         Ok(_) => true,
         Err(e) => {
             eprintln!("reveal {}: {e}", path.display());

@@ -201,7 +201,9 @@ pub fn key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
 }
 
 /// "Move to background ⌃B" beside Working once the open run's latest blocking call has run a
-/// moment ([`Hint`]), as Desktop shows it in the same lane, fading in and out as Desktop's does. Desktop's small ghost-faint
+/// moment ([`Hint`]), fading in and out as Desktop's does. The lane's row places it, 8 after
+/// Working's words and centred on them, or at its start while a thought stands in for them
+/// (`session_view::timeline::parts::status_row`). Desktop's small ghost-faint
 /// `Button` (`message-timeline.tsx:57-68`, `button.css:6-26,46-50,304-322`): 24 tall, 9 a side,
 /// 4 corners, 6 between its words and keys, 13 px at 530 in `text-faint`, `overlay-hover` under
 /// the pointer and `overlay-pressed` held, with no fade; its keys the neutral `Keybind`.
@@ -210,15 +212,10 @@ pub fn hint(s: &App, p: &Pal, session: &str, busy: bool) -> Option<El> {
     if !busy || shown != session || blocking(s, session).last() != Some(part) {
         return None;
     }
-    // The status line's words, which start the column, then the lane's gap (`StatusLane`); the
-    // lane's start while the thought the model is writing stands in for them.
-    let x = if session_view::working::thinking(s, session) { 0.0 } else { crate::working::width(session_view::working::status(s, session)) + 8.0 };
-    let y = crate::working::LANE_PAD + (crate::working::H - HINT_H) / 2.0;
     let hint = row()
         .key("background-hint")
         .role("button")
         .label(hint_label())
-        .absolute(x, y)
         .h(HINT_H)
         .px(9.0)
         .gap(6.0)

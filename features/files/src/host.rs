@@ -178,7 +178,7 @@ pub trait FilesHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
 
     /// Opens an external web or app URL (`https:`, `mailto:`, etc.).
     fn open_external(&mut self, url: &str, tx: &mut Tx) {
-        drop(tx.open_url(url));
+        harness_log::open_url(tx, url);
     }
     /// Routes a web or app-scheme link clicked in chat or a rendered file through browser URL
     /// policy and `Settings > Browser` (`Open links in OpenCode`).

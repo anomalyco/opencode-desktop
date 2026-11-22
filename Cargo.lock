@@ -1944,6 +1944,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "harness-log"
+version = "0.0.1"
+dependencies = [
+ "browser-policy",
+ "rune",
+ "serde_json",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2011,6 +2020,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 name = "hex-client"
 version = "0.0.1"
 dependencies = [
+ "harness-log",
  "serde_json",
  "ureq",
  "ureq-web",
@@ -3401,6 +3411,7 @@ dependencies = [
  "crc32fast",
  "flate2",
  "getrandom 0.3.4",
+ "harness-log",
  "hex-client",
  "image",
  "js-sys",
@@ -3518,6 +3529,7 @@ dependencies = [
 name = "opencode-feature-connect"
 version = "0.0.1"
 dependencies = [
+ "harness-log",
  "opencode-i18n",
  "opencode-kernel",
  "opencode-kit",
@@ -3532,6 +3544,7 @@ dependencies = [
 name = "opencode-feature-dictation"
 version = "0.0.1"
 dependencies = [
+ "harness-log",
  "hex-client",
  "notify",
  "opencode-i18n",
@@ -3562,6 +3575,7 @@ name = "opencode-feature-files"
 version = "0.0.1"
 dependencies = [
  "browser-policy",
+ "harness-log",
  "opencode-code-view",
  "opencode-i18n",
  "opencode-kernel",
@@ -3628,6 +3642,7 @@ dependencies = [
 name = "opencode-feature-mcp"
 version = "0.0.1"
 dependencies = [
+ "harness-log",
  "opencode-i18n",
  "opencode-kernel",
  "opencode-kit",
@@ -3655,6 +3670,7 @@ dependencies = [
 name = "opencode-feature-narrow"
 version = "0.0.1"
 dependencies = [
+ "harness-log",
  "opencode-i18n",
  "opencode-kernel",
  "opencode-runtime",
@@ -3685,6 +3701,7 @@ version = "0.0.1"
 dependencies = [
  "browser-policy",
  "bytemuck",
+ "harness-log",
  "office-preview",
  "opencode-kernel",
  "opencode-ui",
@@ -3700,6 +3717,7 @@ name = "opencode-feature-open-in"
 version = "0.0.1"
 dependencies = [
  "browser-policy",
+ "harness-log",
  "opencode-i18n",
  "opencode-kernel",
  "opencode-kit",
@@ -3791,6 +3809,7 @@ dependencies = [
 name = "opencode-feature-settings"
 version = "0.0.1"
 dependencies = [
+ "harness-log",
  "opencode-i18n",
  "opencode-kernel",
  "opencode-kit",
@@ -3876,6 +3895,7 @@ dependencies = [
 name = "opencode-feature-tips"
 version = "0.0.1"
 dependencies = [
+ "harness-log",
  "hex-client",
  "opencode-i18n",
  "opencode-kernel",
@@ -3891,6 +3911,7 @@ version = "0.0.1"
 dependencies = [
  "authenticode",
  "browser-policy",
+ "harness-log",
  "opencode-i18n",
  "opencode-kernel",
  "opencode-platform",
@@ -3978,8 +3999,8 @@ name = "opencode-plugin-runtime"
 version = "0.0.1"
 dependencies = [
  "base64 0.22.1",
- "browser-policy",
  "getrandom 0.3.4",
+ "harness-log",
  "libc",
  "mlua",
  "notify",
@@ -5684,6 +5705,7 @@ name = "session-view"
 version = "0.0.1"
 dependencies = [
  "browser-policy",
+ "harness-log",
  "image",
  "opencode-i18n",
  "opencode-kit",
