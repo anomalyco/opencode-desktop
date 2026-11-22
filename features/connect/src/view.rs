@@ -29,13 +29,9 @@ const GROUP: TextStyle = TextStyle::new(12.0, 440.0).lh(18.0).tracking(0.05);
 /// Unlike the TUI, Go comes before Console (`providers/connect/dialog.tsx`, `#64927`).
 const POPULAR: [&str; 6] = ["opencode-go", "opencode", "openai", "github-copilot", "anthropic", "google"];
 
-/// Muted note beside OpenCode Go and OpenCode Console while unconnected (`providerNote`, `#64927`).
+/// Muted note beside OpenCode Go while unconnected (`providerNote`, `#65466`).
 fn provider_note(id: &str) -> Option<&'static str> {
-    match id {
-        "opencode-go" => Some(opencode_i18n::t!("dialog.provider.opencodeGo.tagline")),
-        "opencode" => Some(opencode_i18n::t!("dialog.provider.opencode.note")),
-        _ => None,
-    }
+    (id == "opencode-go").then(|| opencode_i18n::t!("dialog.provider.opencodeGo.tagline"))
 }
 
 pub struct Row {
@@ -55,6 +51,8 @@ pub fn groups(host: &dyn ConnectHost) -> Vec<(&'static str, Vec<Row>)> {
     let rows: Vec<Row> = list
         .iter()
         .filter(|i| i.source.as_deref() != Some("mcp"))
+        // OpenCode Go connects through OpenCode: listed only for someone who saved a Go key (`#65466`).
+        .filter(|i| i.id != "opencode-go" || i.connections.iter().any(|c| c.credential))
         .filter(|i| fold.contains(&format!("{} {}", i.id, i.name), &query))
         .map(|i| Row {
             id: i.id.clone(),
