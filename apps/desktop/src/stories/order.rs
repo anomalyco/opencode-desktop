@@ -59,6 +59,7 @@ pub(crate) const ORDER: &[&str] = &[
     "Timeline/Steered subagent",
     "Timeline/Subagent starting",
     "Timeline/Images",
+    "Timeline/Image gallery",
     "Timeline/Jump to latest",
     "Timeline/Fade into composer",
     "Timeline/Scroll bar",
