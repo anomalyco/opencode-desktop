@@ -2,12 +2,12 @@
   "generated_at": "2026-11-23",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "a946e848e6e45a1cd6b9e329fb2fedfb4eb519aa",
+  "upstream_head": "030e8d75d34b6167981f9c71964c4a4dbfeea2bc",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "1f8b88f7b8f382d8daa5feabf0f77ff4130badef",
-  "post_1114_commit_count": 467,
-  "post_1114_in_ledger": 170,
+  "rune_desktop_head": "c3fc7a0c09e5b471620508981f984bb8c942fa78",
+  "post_1114_commit_count": 468,
+  "post_1114_in_ledger": 171,
   "post_1114_skipped": 297,
   "post_1114_skipped_breakdown": {
     "test-only": 23,
@@ -18,9 +18,9 @@
     "server-core-ai-codemode-internal": 182
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 191,
+  "total_ledger_rows": 192,
   "status_counts": {
-    "have it": 164,
+    "have it": 165,
     "not applicable": 24,
     "differs on purpose": 1,
     "partly": 2
@@ -4770,6 +4770,27 @@
       "size": "S",
       "status": "have it",
       "status_evidence": "crates/win-install/src/product.rs Product::from_build: a local build (no channel or `local`) takes id anomaly.opencode-rune.dev and scheme opencode-rune-dev, while every release build (release.yml sets OPENCODE_RUNE_BUILD_CHANNEL, no OPENCODE_RUNE_BUNDLE_ID) takes anomaly.opencode-rune; harness runs take a scratch id (Product::with_id). Ours has no Electron shortcut to repair.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-171",
+      "window": "post-1120",
+      "pr": 65525,
+      "sha": "030e8d75d3",
+      "title": "fix(app): list drafts in the inbox sidebar",
+      "merged": "2026-11-22",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/titlebar/inbox.tsx"
+      ],
+      "summary": "The inbox gets a Drafts group: the open draft and every other draft tab still holding something, newest first, each opening its draft, with Discard draft in its context menu.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "rune-desktop #769 (c3fc7a0c09): apps/desktop/src/shell/view/inbox.rs draft_ids / draft_card, Drafts header above the groups, Discard draft closes the tab. Lists drafts with words; official also lists drafts holding only attachments or context items.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"
