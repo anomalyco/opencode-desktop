@@ -125,7 +125,7 @@ pub trait McpHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback + open
     }
     /// Opens `url` in the system browser.
     fn open_external(&mut self, url: &str, tx: &mut Tx) {
-        drop(tx.open_url(url));
+        harness_log::open_url(tx, url);
     }
     /// Schedules an off-thread server request, timer, or next-poll deferred reply.
     fn spawn_job(&mut self, job: McpJob);

@@ -368,7 +368,7 @@ pub trait ConnectHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback + 
     }
     /// Opens `url` in the system browser; returns `true` when launch succeeded.
     fn open_external(&mut self, url: &str, tx: &mut Tx) -> bool {
-        tx.open_url(url).is_ok()
+        harness_log::open_url(tx, url)
     }
     /// Schedules an off-thread server request, timer, or next-poll deferred reply.
     fn spawn_job(&mut self, job: ConnectJob);

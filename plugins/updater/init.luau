@@ -90,7 +90,7 @@ return plugin.defineWindow(function(ctx)
         local state = Updater:CheckAsync()
         checking:Dismiss()
         if state.phase == "disabled" then
-            Toast:Show({ title = I18n:T("action.unavailable"), description = I18n:T("check.unavailable") })
+            Toast:Show({ title = I18n:T("action.unavailable"), description = I18n:T(if state.error == "isolated" then "check.isolated" else "check.unavailable") })
         elseif state.phase == "installed" then
             installed(state.version or "", true)
         elseif state.phase == "up-to-date" then

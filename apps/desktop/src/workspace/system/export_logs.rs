@@ -137,6 +137,9 @@ fn arch() -> &'static str {
 
 /// Shows `file` selected in the system's file manager (`shell.showItemInFolder`).
 fn reveal(file: &Path) {
+    if harness_log::record("reveal", &[("path", &file.to_string_lossy())]) {
+        return;
+    }
     if crate::headless() || crate::dirs::rooted() {
         eprintln!("export logs: wrote {}", file.display());
         return;

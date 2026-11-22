@@ -79,7 +79,7 @@ pub fn run(app: &mut dyn OfficeHost, effect: UiEffect, tx: &mut Tx) {
             if app.is_live() {
                 let trimmed = url.trim();
                 if browser_policy::is_safe_os_external_url(trimmed) {
-                    tx.open_url(trimmed).ok();
+                    harness_log::open_url(tx, trimmed);
                 } else if browser_policy::classify_app_link(trimmed, browser_policy::AppSchemeSource::Conversation).is_some() {
                     tx.copy(trimmed.to_owned());
                     app.toast_say("Copied".to_owned(), String::new());
