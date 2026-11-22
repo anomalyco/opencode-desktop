@@ -349,8 +349,5 @@ pub(crate) fn reveal(dir: &str) -> Result<(), String> {
     if !verified.is_dir || browser_policy::is_macos_bundle(&verified.path) {
         return Err("Path is not a local folder".into());
     }
-    if harness_log::record("reveal", &[("path", &verified.path)]) {
-        return Ok(());
-    }
-    browser_policy::reveal_in_file_manager(&verified.path).map(|_| ()).map_err(|e| e.to_string())
+    harness_log::reveal(&verified.path).map(|_| ()).map_err(|e| e.to_string())
 }

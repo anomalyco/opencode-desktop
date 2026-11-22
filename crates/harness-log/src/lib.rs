@@ -76,6 +76,18 @@ pub fn record(kind: &str, fields: &[(&str, &str)]) -> bool {
     true
 }
 
+/// Shows `path` in the file manager, or records it instead when recording is on. Every reveal in the
+/// app goes through here, so none can skip the record; the browser engine links
+/// `browser_policy::reveal_in_file_manager` itself, so the record cannot live there.
+#[allow(clippy::disallowed_methods)]
+pub fn reveal(path: &str) -> Result<browser_policy::VerifiedLocalPath, browser_policy::LocalPathError> {
+    let verified = browser_policy::verify_local_path(path)?;
+    if record("reveal", &[("path", &verified.path)]) {
+        return Ok(verified);
+    }
+    browser_policy::reveal_in_file_manager(&verified.path)
+}
+
 fn say_no_log() {
     if !SAID_NO_LOG.swap(true, Ordering::Relaxed) {
         eprintln!("harness open log: recording is on but has no safe log path inside the run's root; external opens are dropped");

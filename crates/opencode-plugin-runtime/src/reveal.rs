@@ -1,6 +1,6 @@
 //! `Desktop:Reveal` and a toast's Reveal: a path in the system's file manager.
 //!
-//! Delegates to `browser_policy::reveal_in_file_manager` so every reveal runs pure string
+//! Delegates to `harness_log::reveal` (`browser_policy::reveal_in_file_manager`) so every reveal runs pure string
 //! checks, `QueryDosDeviceW` (`subst`-to-UNC) / `DRIVE_FIXED` / `MNT_LOCAL` verification, and a
 //! component-wise no-reparse-point walk BEFORE touching disk, and never spawns bare `explorer.exe`
 //! or `/usr/bin/open <path>`.
@@ -17,10 +17,7 @@ pub fn reveal(path: &str) {
         if rune::is_headless() || path.is_empty() {
             return;
         }
-        if browser_policy::verify_local_path(path).is_ok_and(|v| harness_log::record("reveal", &[("path", &v.path)])) {
-            return;
-        }
-        if let Err(e) = browser_policy::reveal_in_file_manager(path) {
+        if let Err(e) = harness_log::reveal(path) {
             crate::tasks::log(format!("reveal {path}: {e}"));
         }
     }

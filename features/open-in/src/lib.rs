@@ -195,7 +195,7 @@ impl Launcher for Mac {
             if rune::is_headless() {
                 return Ok(());
             }
-            browser_policy::reveal_in_file_manager(&verified.path).map(|_| ()).map_err(|e| e.to_string())
+            harness_log::reveal(&verified.path).map(|_| ()).map_err(|e| e.to_string())
         }
         #[cfg(target_arch = "wasm32")]
         {
