@@ -353,11 +353,11 @@ fn start_history(
         };
         return StepOutcome::Done(Outcome::ok(serde_json::to_value(tab).unwrap_or(Value::Null), Vec::new()));
     }
-    let history_from = att.frames.get(&host_id).map(|f| HistoryFrom {
-        url,
-        contexts_cleared: f.main_contexts_cleared,
-        frame_navigations: f.main_frame_navigations,
-    });
+    // Always a history wait, so a back/forward never ends at a load it happened to see (#706): with
+    // no frame tracker for the tab yet, its counts start at zero and it waits for the grace.
+    let (contexts_cleared, frame_navigations) =
+        att.frames.get(&host_id).map_or((0, 0), |f| (f.main_contexts_cleared, f.main_frame_navigations));
+    let history_from = Some(HistoryFrom { url, contexts_cleared, frame_navigations });
     if is_back {
         app.workspace_panes.browser.host.back(host_id);
     } else {
