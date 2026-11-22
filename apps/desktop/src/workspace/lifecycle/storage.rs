@@ -703,7 +703,8 @@ pub fn plugin_record(id: &str, record: PluginRecord, done: opencode_storage::Don
 pub fn load_state(names: Vec<String>, done: Box<dyn FnOnce() + Send>) {
     #[cfg(feature = "storage-delay")]
     let done: Box<dyn FnOnce() + Send> = {
-        let ms = std::env::var("RUNE_STORAGE_DELAY_MS").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
+        // Scratch profiles only (RUNE_DIRS_ROOT): never a real one.
+        let ms = std::env::var_os("RUNE_DIRS_ROOT").and_then(|_| std::env::var("RUNE_STORAGE_DELAY_MS").ok()).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
         let what = names.join(",");
         Box::new(move || {
             if ms > 0 {
