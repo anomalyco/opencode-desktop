@@ -169,7 +169,7 @@ pub fn context_menus<H: PanelsHost + 'static>(host: &H, p: &Pal) -> Option<El> {
                         p,
                         "side-tab-menu-open-out",
                         None,
-                        opencode_i18n::t!("plugin.browser.external.menu"),
+                        opencode_i18n::t!("plugin.browser.menu.openPage"),
                         "",
                         url.is_some(),
                         move |s: &mut H, tx: &mut Tx| on_tab_menu_open_out(s, id, tx),
