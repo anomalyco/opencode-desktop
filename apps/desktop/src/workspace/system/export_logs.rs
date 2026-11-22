@@ -137,7 +137,7 @@ fn arch() -> &'static str {
 
 /// Shows `file` selected in the system's file manager (`shell.showItemInFolder`).
 fn reveal(file: &Path) {
-    if browser_policy::harness_log::record("reveal", &[("path", &file.to_string_lossy())]) {
+    if harness_log::record("reveal", &[("path", &file.to_string_lossy())]) {
         return;
     }
     if crate::headless() || crate::dirs::rooted() {

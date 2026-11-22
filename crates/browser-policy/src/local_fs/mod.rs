@@ -195,13 +195,8 @@ pub fn is_macos_bundle(verified_path: &str) -> bool {
 ///   (never launches bundles or symlinks).
 /// - **Linux:** verifies with [`verify_local_path`], then runs `xdg-open` on the directory (or
 ///   parent directory for a file; never executes `.desktop` files).
-///
-/// A proof run that records external opens ([`crate::harness_log`]) records it instead.
 pub fn reveal_in_file_manager(raw: &str) -> Result<VerifiedLocalPath, LocalPathError> {
     let verified = verify_local_path(raw)?;
-    if crate::harness_log::record("reveal", &[("path", &verified.path)]) {
-        return Ok(verified);
-    }
     #[cfg(windows)]
     {
         if windows::shell_select(&verified.path) {

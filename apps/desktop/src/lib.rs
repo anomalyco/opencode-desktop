@@ -308,7 +308,7 @@ pub fn run_native() {
     // With `HARNESS_OPEN_EXTERNAL_LOG` set, a debug build or a headless run records every external
     // open instead of making it; a window does so only in a harness run rooted in its own folders,
     // to a log inside that root.
-    browser_policy::harness_log::configure(
+    harness_log::configure(
         cfg!(debug_assertions) || headless(),
         harness_writes()
             .then(|| std::env::var_os("RUNE_DIRS_ROOT"))

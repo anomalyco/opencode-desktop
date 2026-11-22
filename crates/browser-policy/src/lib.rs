@@ -18,7 +18,6 @@
 
 mod app_links;
 mod download;
-pub mod harness_log;
 mod local_fs;
 mod local_path;
 mod osc8_display;

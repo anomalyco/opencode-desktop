@@ -134,7 +134,7 @@ impl Platform for Linux {
         if !feed::allowed_update_url(trimmed) || !browser_policy::is_safe_os_external_url(trimmed) {
             return Err("Refusing unsafe update URL".into());
         }
-        if browser_policy::harness_log::record("openExternal", &[("url", trimmed)]) {
+        if harness_log::record("openExternal", &[("url", trimmed)]) {
             return Ok(());
         }
         let opener = ["/usr/bin/xdg-open", "/bin/xdg-open"].into_iter().find(|p| Path::new(p).is_file()).unwrap_or("xdg-open");

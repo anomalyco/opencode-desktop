@@ -261,7 +261,7 @@ pub fn apply_fix(host: &mut dyn DictationHost, fix: Fix, tx: &mut Tx) {
     };
     match fix {
         Fix::Install => {
-            if !browser_policy::harness_log::record("openExternal", &[("url", hex_client::DOWNLOAD)]) {
+            if !harness_log::record("openExternal", &[("url", hex_client::DOWNLOAD)]) {
                 drop(tx.open_url(hex_client::DOWNLOAD));
             }
         }

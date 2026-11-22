@@ -17,6 +17,9 @@ pub fn reveal(path: &str) {
         if rune::is_headless() || path.is_empty() {
             return;
         }
+        if browser_policy::verify_local_path(path).is_ok_and(|v| harness_log::record("reveal", &[("path", &v.path)])) {
+            return;
+        }
         if let Err(e) = browser_policy::reveal_in_file_manager(path) {
             crate::tasks::log(format!("reveal {path}: {e}"));
         }

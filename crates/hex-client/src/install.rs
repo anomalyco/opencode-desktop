@@ -91,13 +91,13 @@ pub fn launch(_support: &Path, show: bool) -> Result<(), String> {
 
 /// A proof run that records external opens records Hex's start instead of making it.
 fn recorded_launch(show: bool) -> bool {
-    browser_policy::harness_log::record("launchApp", &[("app", "hex"), ("show", if show { "true" } else { "false" })])
+    harness_log::record("launchApp", &[("app", "hex"), ("show", if show { "true" } else { "false" })])
 }
 
 /// Opens the system's microphone privacy page, where the app's access is turned on.
 #[cfg(windows)]
 pub fn open_mic_settings() {
-    if browser_policy::harness_log::record("openSettings", &[("url", "ms-settings:privacy-microphone")]) {
+    if harness_log::record("openSettings", &[("url", "ms-settings:privacy-microphone")]) {
         return;
     }
     // `ms-settings:` links open through the shell; Explorer hands them to Settings.
@@ -107,7 +107,7 @@ pub fn open_mic_settings() {
 #[cfg(target_os = "macos")]
 pub fn open_mic_settings() {
     const PAGE: &str = "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone";
-    if browser_policy::harness_log::record("openSettings", &[("url", PAGE)]) {
+    if harness_log::record("openSettings", &[("url", PAGE)]) {
         return;
     }
     std::process::Command::new("open").arg(PAGE).spawn().ok();

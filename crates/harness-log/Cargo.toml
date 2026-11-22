@@ -1,0 +1,12 @@
+[package]
+name = "harness-log"
+version = "0.0.1"
+description = "A proof run's record of external opens (HARNESS_OPEN_EXTERNAL_LOG): app side only, the browser engine does not link it"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true
