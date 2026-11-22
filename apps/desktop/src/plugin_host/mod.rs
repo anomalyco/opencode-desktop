@@ -176,6 +176,8 @@ pub struct PluginHost {
     boot: runtime::boot::Boot,
     /// The built-ins waiting for their first use, and their records.
     pub dormant: dormant::Dormant,
+    /// Plugins whose start ran out of time, waiting for their one restart.
+    pub(crate) restarts: runtime::lifecycle::Restarts,
     /// Per-plugin model-picker row annotations (`Models:SetBadges`), keyed by plugin id and tagged
     /// with the VM id that set them so reload/stop drops stale entries.
     pub(crate) model_badges: BTreeMap<String, (u64, ModelBadgeMap)>,

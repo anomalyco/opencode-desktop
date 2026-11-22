@@ -109,63 +109,64 @@ fn start_loaded(app: &mut App, i: usize) {
     };
     drive(app, i, event);
     if timed_out {
-        restart_later(app, &id);
+        restart_later(app, &id, vm);
     }
     if app.plugins.list[i].running() {
         dormant::note_started(app, i);
     }
 }
 
-/// How long a plugin whose start ran out of time shows its error card before it starts again.
-const RESTART_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
+/// How long a plugin whose start ran out of time shows its error card before it starts again, in s.
+const RESTART_AFTER: f64 = 2.0;
 /// Restarts a plugin gets after its start ran out of time, per window: one, as official waits once
 /// on a renderer that stopped answering before it asks; a start that times out again stays on its
 /// error card with Reload (official's Relaunch).
 const RESTARTS: u32 = 1;
 
-thread_local! {
-    /// Plugins whose start ran out of time, with when they start again; and how many restarts each had.
-    static RESTART: std::cell::RefCell<(Vec<(String, rune::time::Instant)>, std::collections::HashMap<String, u32>)> = Default::default();
+/// The window's plugins whose start ran out of time: each restart still to come (the plugin, when
+/// it is due on `app.clock`, and the VM whose start timed out), and how many each plugin had.
+#[derive(Default)]
+pub struct Restarts {
+    due: Vec<(String, f64, Option<u64>)>,
+    count: std::collections::BTreeMap<String, u32>,
 }
 
-/// Plugin `id`'s start ran past the watchdog: it starts again in [`RESTART_AFTER`], up to
-/// [`RESTARTS`] time; meanwhile its surfaces show the error card and the console says so.
-fn restart_later(app: &App, id: &str) {
-    let again = RESTART.with_borrow_mut(|(due, count)| {
-        let n = count.entry(id.to_owned()).or_insert(0);
-        if *n >= RESTARTS {
-            return false;
-        }
-        *n += 1;
-        due.push((id.to_owned(), rune::time::now() + RESTART_AFTER));
-        true
-    });
-    if again {
-        console::push(id, rune_luau::LogLevel::Warn, "its start ran out of time; starting it again");
-        // A frame soon, whose poll sets the wake for the restart.
-        if let Some(w) = app.plugins.waker.clone() {
-            w();
-        }
+/// Plugin `id`'s start, in VM `vm`, ran past the watchdog: it starts again in [`RESTART_AFTER`],
+/// up to [`RESTARTS`] time; meanwhile its surfaces show the error card and the console says so.
+fn restart_later(app: &mut App, id: &str, vm: Option<u64>) {
+    let at = *app.clock + RESTART_AFTER;
+    let restarts = &mut app.plugins.restarts;
+    let n = restarts.count.entry(id.to_owned()).or_insert(0);
+    if *n >= RESTARTS {
+        return;
+    }
+    *n += 1;
+    restarts.due.push((id.to_owned(), at, vm));
+    console::push(id, rune_luau::LogLevel::Warn, "its start ran out of time; starting it again");
+    // A frame soon, whose poll sets the wake for the restart.
+    if let Some(w) = app.plugins.waker.clone() {
+        w();
     }
 }
 
-/// Starts again the plugins whose restart came due ([`restart_later`]); asks for a frame at the next.
+/// Starts again the plugins whose restart came due ([`restart_later`]); wakes at the next one.
 fn poll_restarts(app: &mut App, tx: &mut Tx) -> bool {
-    let now = rune::time::now();
-    let (due, next) = RESTART.with_borrow_mut(|(list, _)| {
-        let due: Vec<String> = list.iter().filter(|(_, at)| *at <= now).map(|(id, _)| id.clone()).collect();
-        list.retain(|(_, at)| *at > now);
-        (due, list.iter().map(|(_, at)| *at).min())
-    });
-    if let Some(at) = next {
-        tx.wake_after(at.saturating_duration_since(now));
+    let now = *app.clock;
+    let (due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut app.plugins.restarts.due).into_iter().partition(|(_, at, _)| *at <= now);
+    if let Some(next) = later.iter().map(|(_, at, _)| *at).min_by(f64::total_cmp) {
+        tx.wake_at(next);
     }
+    app.plugins.restarts.due = later;
     let mut changed = false;
-    for id in due {
-        if let Some(i) = app.plugins.find(&id).filter(|&i| matches!(app.plugins.list[i].life, Life::Errored { .. })) {
-            drive(app, i, LifeEvent::Load);
-            changed = true;
+    for (id, _, vm) in due {
+        // Only the start that timed out: a plugin reloaded, removed or failed some other way since is left alone.
+        let Some(i) = app.plugins.find(&id) else { continue };
+        let p = &app.plugins.list[i];
+        if !matches!(p.life, Life::Errored { .. }) || p.script().and_then(Script::vm_id) != vm {
+            continue;
         }
+        drive(app, i, LifeEvent::Load);
+        changed = true;
     }
     changed
 }
