@@ -6,6 +6,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use opencode_plugin_spec::NodeKind;
 use opencode_ui::palette::{Pal, kit, pal, token};
 use opencode_ui::{keymap, odometer, widgets};
 use rune::{Chord, Color, Cursor, Direction, El, Icon, Shadow, Spring, TextStyle, col, el, icon as rune_icon, row, text};
@@ -49,20 +50,32 @@ pub fn base_nodes(
     catalog_chord: fn(&str) -> Option<Chord>,
 ) -> Vec<HostNode> {
     vec![
-        HostNode::new("frame", frame),
-        HostNode::new("divider", divider),
-        HostNode::new("icon", icon),
-        HostNode::new("metric", metric),
-        HostNode::new("keybind", move |a| keybind(a, catalog_chord)),
-        HostNode::new("button", button),
-        HostNode::new("iconButton", move |a| icon_button(a, command_chord)),
-        HostNode::new("radio", radio),
-        HostNode::new("checkbox", checkbox),
-        HostNode::new("loader", |a| Ok(Loader::new().size(a.number("size").unwrap_or(16.0) as f32).build(kit(&p(a))))),
-        HostNode::new("serverIndicator", server_indicator),
-        HostNode::new("progressCircle", progress_circle),
-        HostNode::new("segmented", segmented),
+        node("frame", frame),
+        node("divider", divider),
+        node("icon", icon),
+        node("metric", metric),
+        node("keybind", move |a| keybind(a, catalog_chord)),
+        node("button", button),
+        node("iconButton", move |a| icon_button(a, command_chord)),
+        node("radio", radio),
+        node("checkbox", checkbox),
+        node("loader", |a| Ok(Loader::new().size(a.number("size").unwrap_or(16.0) as f32).build(kit(&p(a))))),
+        node("serverIndicator", server_indicator),
+        node("progressCircle", progress_circle),
+        node("segmented", segmented),
     ]
+}
+
+/// Contract node `name`, built by `build`, with the contract's props for it listed
+/// (`HostNode::props`): a prop a script passes that is neither one of them, nor read by `build`,
+/// nor a standard prop is an error in debug builds and a warning in release, instead of being
+/// dropped without a word.
+pub fn node(name: &'static str, build: impl Fn(&mut NodeArgs) -> Result<El, String> + 'static) -> HostNode {
+    let host = HostNode::new(name, build);
+    match NodeKind::parse(name) {
+        Some(kind) => host.props(move |key| kind.props().get(key).is_some()),
+        None => host,
+    }
 }
 
 fn p(a: &NodeArgs) -> Pal {
