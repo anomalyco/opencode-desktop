@@ -8,7 +8,7 @@ mod preview_scheme;
 use cef::args::Args;
 use cef::rc::Rc as _;
 use cef::{
-    App, Browser, CefString, DictionaryValue, Frame, ImplApp, ImplBrowser, ImplFrame,
+    App, Browser, CefString, DictionaryValue, Frame, ImplApp, ImplBrowser, ImplDictionaryValue, ImplFrame,
     ImplListValue, ImplProcessMessage, ImplRenderProcessHandler, ImplV8Context, ImplV8Value,
     ProcessId, ProcessMessage, RenderProcessHandler, SchemeRegistrar, V8Context, WrapApp,
     WrapRenderProcessHandler, sys, wrap_app, wrap_render_process_handler,
@@ -126,6 +126,30 @@ fn lockdown_extension_child_frame(
     let _ = ctx.exit();
 }
 
+/// Browsers the engine created print-gated (agent-driven or preview at birth: `extra_info`'s
+/// `opencode.print_gated`). Every frame's context in them gets `PRINT_LOCK_JS` before any page
+/// script, so `window.print()` can never open the native dialog that stops the whole engine (#662).
+static PRINT_GATED: std::sync::Mutex<Vec<i32>> = std::sync::Mutex::new(Vec::new());
+
+const PRINT_LOCK_JS: &str = r#"(function(){
+  var p = globalThis.print;
+  if (typeof p !== "function") return;
+  Object.defineProperty(globalThis, "print", {
+    value: new Proxy(p, { apply: function() { return undefined; } }),
+    writable: false, configurable: false, enumerable: true
+  });
+})();"#;
+
+fn lock_print(browser: Option<&Browser>, context: Option<&V8Context>) {
+    let (Some(browser), Some(ctx)) = (browser, context) else { return };
+    if !PRINT_GATED.lock().unwrap().contains(&browser.identifier()) || ctx.enter() == 0 {
+        return;
+    }
+    let (mut retval, mut exception) = (None, None);
+    let _ = ctx.eval(Some(&CefString::from(PRINT_LOCK_JS)), Some(&CefString::from("opencode-print-lock.js")), 1, Some(&mut retval), Some(&mut exception));
+    let _ = ctx.exit();
+}
+
 fn send_renderer_pid(frame: Option<Frame>) {
     let Some(frame) = frame else { return };
     if frame.is_main() == 0 {
@@ -144,8 +168,19 @@ wrap_render_process_handler! {
     struct HelperRenderProcessHandler;
 
     impl RenderProcessHandler {
-        fn on_browser_created(&self, browser: Option<&mut Browser>, _extra_info: Option<&mut DictionaryValue>) {
+        fn on_browser_created(&self, browser: Option<&mut Browser>, extra_info: Option<&mut DictionaryValue>) {
+            let gated = extra_info.is_some_and(|d| d.bool(Some(&CefString::from("opencode.print_gated"))) != 0);
+            if let Some(b) = browser.as_deref().filter(|_| gated) {
+                PRINT_GATED.lock().unwrap().push(b.identifier());
+            }
             send_renderer_pid(browser.and_then(|b| b.main_frame()));
+        }
+
+        fn on_browser_destroyed(&self, browser: Option<&mut Browser>) {
+            if let Some(b) = browser {
+                let id = b.identifier();
+                PRINT_GATED.lock().unwrap().retain(|g| *g != id);
+            }
         }
 
         fn on_context_created(
@@ -155,6 +190,7 @@ wrap_render_process_handler! {
             context: Option<&mut V8Context>,
         ) {
             send_renderer_pid(frame.as_deref().cloned());
+            lock_print(browser.as_deref(), context.as_deref());
             lockdown_extension_child_frame(browser.as_deref(), frame.as_deref(), context.as_deref());
         }
 

@@ -403,6 +403,7 @@ fn tab_row(s: &App, p: &Pal, g: &Group, t: &crate::tabs::Tab, tab_index: usize, 
         .child(session_view::style::hover_reveal(close_btn));
 
     let press_uid = uid.clone();
+    let middle_uid = uid.clone();
     let dbl_target = target.clone();
     let hover_uid = uid.clone();
     let anchor_key = format!("tg-tab-{uid}");
@@ -440,6 +441,7 @@ fn tab_row(s: &App, p: &Pal, g: &Group, t: &crate::tabs::Tab, tab_index: usize, 
             s.kernel.slots.untracked(&tg::LAYOUT).rects.borrow_mut().insert(layout_key.clone(), r);
         })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| tg::tab_press(s, &press_uid, tx))
+        .closable_tab(move |s: &mut App, tx: &mut Tx| s.close_tab(&middle_uid, tx))
         .on_double_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             s.begin_rename(&dbl_target);

@@ -27,7 +27,7 @@ $ExpectedPE = @(
   'chrome_elf.dll',
   'dxcompiler.dll',
   'libcef.dll',
-  'opencode-browser-engine-helper.exe',
+  'opencode-browser-engine.dll',
   'opencode-browser-engine.exe'
 )
 $AllowedNonPE = @(
@@ -51,7 +51,7 @@ $ArchiveOrder = @(
   'CREDITS.html',
   'LICENSE.txt',
   'opencode-browser-engine.exe',
-  'opencode-browser-engine-helper.exe'
+  'opencode-browser-engine.dll'
 )
 
 function Assert-CleanBundle([string]$StageRoot) {
@@ -89,6 +89,17 @@ function Assert-CleanBundle([string]$StageRoot) {
   $expectedSorted = @($ExpectedPE | Sort-Object)
   if (($sortedPE -join "`n") -ne ($expectedSorted -join "`n")) {
     throw "PE allowlist mismatch in ${app}. Expected: [$($expectedSorted -join ', ')]. Found: [$($sortedPE -join ', ')]."
+  }
+  $exePath = Join-Path $app 'opencode-browser-engine.exe'
+  $peBytes = [IO.File]::ReadAllBytes($exePath)
+  $peOff = [BitConverter]::ToInt32($peBytes, 0x3C)
+  $optMagic = [BitConverter]::ToUInt16($peBytes, $peOff + 24)
+  if ($optMagic -ne 0x20B) {
+    throw "Unexpected PE optional header magic 0x$($optMagic.ToString('x')) in $exePath."
+  }
+  $stackReserve = [BitConverter]::ToUInt64($peBytes, $peOff + 24 + 72)
+  if ($stackReserve -lt 8388608) {
+    throw "$exePath has SizeOfStackReserve=$stackReserve (< 8 MiB required for MV3 workers, #582)."
   }
   return $app
 }
