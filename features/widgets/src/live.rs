@@ -193,6 +193,10 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
                 crate::client_error(host, id, "main", &m);
                 Some(m)
             }
+            Ended::View(m) => {
+                crate::report(host, id, "view", &m, None, 0);
+                Some(m)
+            }
             Ended::Returned | Ended::Stopped => None,
         };
         stop(host, id);

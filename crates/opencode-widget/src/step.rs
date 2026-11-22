@@ -210,6 +210,27 @@ impl StepOutput {
         StepOutput::deserialize(v).map_err(|e| format!("invalid step output: {e}"))
     }
 
+    /// A native step's output: the run's result (`{ state, submit?, dismiss?, send? }`) and the
+    /// view it emitted.
+    pub fn from_parts(rest: Value, view: Node) -> Result<StepOutput, String> {
+        #[derive(Deserialize)]
+        struct Rest {
+            #[serde(default)]
+            state: Value,
+            #[serde(default, deserialize_with = "present")]
+            submit: Option<Value>,
+            #[serde(default)]
+            dismiss: bool,
+            #[serde(default)]
+            send: Option<SendMessage>,
+        }
+        if !rest.is_object() {
+            return Err(format!("a step must return an object with state and view, got {}", kind(&rest)));
+        }
+        let Rest { state, submit, dismiss, send } = Rest::deserialize(rest).map_err(|e| format!("invalid step output: {e}"))?;
+        Ok(StepOutput { state, view, submit, dismiss, send })
+    }
+
     /// What the user answered this step with, when it ends the widget.
     pub fn response(&self) -> Option<Response> {
         match (&self.submit, self.dismiss) {

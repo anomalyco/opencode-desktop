@@ -1,7 +1,10 @@
 //! Checks a live run as a native host (`widgets.md`, Native hosts): `widget.draw` by key reaches
 //! the canvas the last render gave that key, an unknown key or a GPU canvas's throws the spec's
 //! errors (which the program can catch, and which fail it when it doesn't), and `render` tells the
-//! prelude whether the view has handlers (a run without any ends when `main` returns). The repo
+//! prelude whether the view has handlers (a run without any ends when `main` returns). A render
+//! breaking Keys and depth ends the run at once in phase `view`; a function anywhere but a view's
+//! handler props throws the runtime's `TypeError` from that call; a program built for another
+//! protocol (`widgets.md`, Protocol) isn't run, step or live. The repo
 //! has no automated tests (AGENTS.md), so this is a program to run by hand:
 //! `cargo run -p opencode-widget --example live_native_check` (exits non-zero on a failure).
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::print_stdout)]
@@ -47,8 +50,49 @@ async function main(data) {
 }
 "#;
 
+/// Renders a view with a key of another type, after catching nothing.
+const BAD_KEY: &str = r#"
+async function main(data) {
+  try { widget.render(ui.column([ui.text("x", { key: { a: 1 } })])) } catch (e) { widget.render(ui.text("caught " + e.message)) }
+  await widget.sleep(1000)
+}
+"#;
+
+/// Renders a view of 120 levels: too deep to cross, so the prelude posts its failure.
+const DEEP: &str = r#"
+async function main(data) {
+  let node = ui.text("leaf")
+  for (let i = 0; i < 120; i++) node = ui.column([node])
+  widget.render(node)
+  await widget.sleep(1000)
+}
+"#;
+
+/// Puts functions where none may go, catching each error, then shows what each threw.
+const FUNCTIONS: &str = r#"
+async function main(data) {
+  const seen = []
+  const tries = [
+    () => widget.render(ui.column([ui.text("x", { extra: () => 1 })])),
+    () => widget.send({ f: () => 1 }),
+    () => __host.post({ type: "frame" }, () => 1),
+    () => widget.sleep(() => 1),
+    () => widget.fetch("https://a.test", { headers: { h: () => 1 } }),
+  ]
+  for (const t of tries) {
+    // The prelude's fetch hands its errors on as `{ kind, message }`.
+    try { await t() } catch (e) { seen.push((e.name ?? e.kind) + ": " + e.message) }
+  }
+  widget.render(ui.column([ui.text(seen.join(" | ")), ui.button("go", { onPress: () => {} })]))
+}
+"#;
+
 fn start(source: &str) -> Live {
-    let program = Arc::new(LiveProgram::compile(&format!("{}\n{source}", fixtures::PRELUDE)).expect("compiles"));
+    start_program(&format!("{}\n{source}", fixtures::PRELUDE))
+}
+
+fn start_program(program: &str) -> Live {
+    let program = Arc::new(LiveProgram::compile(program).expect("compiles"));
     Live::start(program, json!({}), Setup { grants: Grants::default(), transport: None, allow_local_network: false, notify: Arc::new(|| {}) })
 }
 
@@ -101,4 +145,37 @@ fn main() {
     let (seen, _) = posts(&live, Duration::from_millis(600));
     assert!(seen.iter().any(|p| matches!(p, Post::Render(Node::Text { text, .. }) if text == "pressed")), "its handler runs on a press: {seen:?}");
     println!("ok   a view with a handler keeps the run, and its handler runs by its id");
+
+    for (name, source, want) in [("a key of another type", BAD_KEY, opencode_widget::tree::KEY), ("a view of 120 levels", DEEP, opencode_widget::tree::DEEP)] {
+        let (seen, end) = posts(&start(source), Duration::from_secs(2));
+        assert_eq!(end, Some(Ended::View(want.into())), "{name} ends the run in phase view");
+        assert!(!seen.iter().any(|p| matches!(p, Post::Render(_))), "{name}: nothing rendered, nothing caught: {seen:?}");
+        println!("ok   {name} ends the run at once, in phase view: {want}");
+    }
+
+    let (seen, _) = posts(&start(FUNCTIONS), Duration::from_millis(800));
+    let text = seen.iter().rev().find_map(|p| match p {
+        Post::Render(Node::Column { children, .. }) => children.iter().find_map(|c| match c { Node::Text { text, .. } => Some(text.clone()), _ => None }),
+        _ => None,
+    });
+    let want = ["post", "post", "post", "sleep", "fetch"]
+        .iter()
+        .zip([1, 1, 2, 1, 1])
+        .map(|(name, n)| format!("{}: Argument {n} to __host.{name} contains a function, which cannot be passed to the host.", if *name == "fetch" { "Network" } else { "TypeError" }))
+        .collect::<Vec<_>>()
+        .join(" | ");
+    assert_eq!(text.as_deref(), Some(want.as_str()), "a function where none may go throws the runtime's TypeError");
+    println!("ok   a function where none may go throws the runtime's TypeError, naming the argument");
+
+    let body = "\nasync function main(data) { widget.render(ui.text(\"never\")) }";
+    let older = fixtures::PRELUDE.replacen("const __widget_protocol = 2\n", "", 1);
+    let newer = fixtures::PRELUDE.replacen("const __widget_protocol = 2", "const __widget_protocol = 3", 1);
+    let (seen, end) = posts(&start_program(&format!("{older}{body}")), Duration::from_millis(500));
+    assert_eq!((seen.len(), end), (0, Some(Ended::Failed(opencode_widget::runner::OLDER.into()))), "an older protocol is a program error");
+    let (seen, end) = posts(&start_program(&format!("{newer}{body}")), Duration::from_millis(500));
+    assert_eq!((seen.len(), end), (0, Some(Ended::Broke(opencode_widget::runner::NEWER.into()))), "a newer protocol is this client's");
+    let step = |prelude: &str| opencode_widget::Program::compile(&format!("{prelude}\nfunction view() {{ return ui.text(\"x\") }}")).unwrap().step(&opencode_widget::StepInput::Init { data: json!(null) });
+    assert_eq!(step(&older), Err(opencode_widget::Error::Older));
+    assert_eq!(step(&newer), Err(opencode_widget::Error::Newer));
+    println!("ok   programs of another protocol aren't run, step or live: older a program error, newer this client's");
 }

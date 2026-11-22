@@ -40,32 +40,33 @@ pub const MAX_POSTS: u32 = 240;
 /// How long a paused program keeps its thread before it is saved to a snapshot.
 pub const SAVE_AFTER: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// What runs a live program after the widget template's: as a native host (`widgets.md`, Native
-/// hosts) when its prelude has native mode, else with the prelude building the trees.
-const TAIL: &str = "\nreturn await __widget_live(__input())";
-const NATIVE_TAIL: &str = "\nreturn await __widget_live(__input(), true)";
+/// What runs a live program after the widget template's, as a native host (`widgets.md`, Native
+/// hosts): this client builds its views' trees and maps its draws' keys.
+const TAIL: &str = "\nreturn await __widget_live(__input(), true)";
 
 /// A live widget template's program, compiled once per `name@version`.
 pub struct LiveProgram {
-    compiled: Compiled,
-    /// Run as a native host: this client builds its views' trees and maps its draws' keys.
-    pub(super) native: bool,
+    /// `Err`: refused for its protocol, never compiled; a run of it ends at once so.
+    pub(super) compiled: Result<Compiled, Ended>,
 }
 
 impl fmt::Debug for LiveProgram {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LiveProgram").field("bytes", &self.compiled.code().len()).finish()
+        f.debug_struct("LiveProgram").field("bytes", &self.compiled.as_ref().map_or(0, |c| c.code().len())).finish()
     }
 }
 
 impl LiveProgram {
-    /// Compiles `program` (the server's `prelude + "\n" + source`) with the live entry.
+    /// Compiles `program` (the server's `prelude + "\n" + source`) with the live entry. One built
+    /// for another protocol isn't compiled: its run ends at once, an older one's as a program error
+    /// (phase `main`), a newer one's as this client's.
     pub fn compile(program: &str) -> Result<LiveProgram, Error> {
-        // A server's older prelude ignores the native flag and builds the trees itself: it runs so.
-        let native = program.contains("function __widget_find(");
-        let tail = if native { NATIVE_TAIL } else { TAIL };
-        let compiled = Runtime::make().compile(&format!("{program}{tail}")).map_err(|d| Error::Compile(d.message_lossy()))?;
-        Ok(LiveProgram { compiled, native })
+        let compiled = match crate::runner::refused(program) {
+            Some(Error::Newer) => Err(Ended::Broke(crate::runner::NEWER.into())),
+            Some(e) => Err(Ended::Failed(e.to_string())),
+            None => Ok(Runtime::make().compile(&format!("{program}{TAIL}")).map_err(|d| Error::Compile(d.message_lossy()))?),
+        };
+        Ok(LiveProgram { compiled })
     }
 }
 
@@ -96,9 +97,11 @@ pub enum Ended {
     Returned,
     /// It threw, or broke a budget: the message to show. A program error.
     Failed(String),
-    /// This client couldn't keep it running (no thread, a snapshot that didn't restore): a client
-    /// error, shown but never reported.
+    /// This client couldn't keep it running (no thread, a snapshot that didn't restore, a program
+    /// for a newer protocol): a client error, shown but never reported.
     Broke(String),
+    /// A render's view broke Keys and depth (`widgets.md`): a program error in phase `view`.
+    View(String),
     /// The client stopped it.
     Stopped,
 }

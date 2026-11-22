@@ -1,14 +1,18 @@
-//! Runs a widget template's program on the Rust PsychoScript: compiled once per program (a widget template's
-//! `name@version`) as `<program>\nreturn __widget_step(__input())`, with `__input` the only host
-//! global, and run once per step under a 250 ms budget; a canvas's draw steps run on the same
-//! compiled program under the 8 ms / 2,000-command draw budget.
+//! Runs a widget template's program on the Rust PsychoScript as a native host (`widgets.md`, Native
+//! hosts, protocol 2): compiled once per program (a widget template's `name@version`) as
+//! `<program>\nreturn __widget_native_step(__input())`, with `__input` and `__widget_emit` the host
+//! globals and functions crossing as markers, and run once per step under a 250 ms budget. The
+//! prelude emits the view as built, which is made into the tree clients get here
+//! ([`crate::tree`]); the run's result is the rest of the step output. A canvas's draw steps run on
+//! the same compiled program under the 8 ms / 2,000-command draw budget. A program built for
+//! another protocol is refused without running anything.
 
 use std::collections::hash_map::DefaultHasher;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use psychoscript::{Compiled, DiagnosticKind, HostFunction, HostValue, Limits, Runtime};
+use psychoscript::{Compiled, DiagnosticKind, HostFunction, HostValue, Limits, Runtime, Translate, TranslateFunctions};
 use serde_json::Value;
 
 use crate::draw::{Command, DRAW_TIMEOUT_MS, DrawOutput, Frame};
@@ -28,7 +32,32 @@ pub fn heap_exceeded() -> String {
 }
 
 /// What runs a step after the widget template's program.
-const TAIL: &str = "\nreturn __widget_step(__input())";
+const TAIL: &str = "\nreturn __widget_native_step(__input())";
+
+/// The prelude<->host contract this host implements (`widgets.md`, Protocol).
+pub const PROTOCOL: u64 = 2;
+/// Why a program built for another contract is refused: a program error for an older one, a
+/// client error for a newer one.
+pub const OLDER: &str = "This widget was built with an older widget runtime; ask the agent to post it again";
+pub const NEWER: &str = "This widget needs a newer version of this app";
+
+/// The contract `program` was built for: its first line's `const __widget_protocol = N`, or 1.
+pub fn protocol(program: &str) -> u64 {
+    let line = program.split('\n').next().unwrap_or("");
+    match line.strip_prefix("const __widget_protocol = ") {
+        Some(n) if !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => n.parse().unwrap_or(u64::MAX),
+        _ => 1,
+    }
+}
+
+/// Why `program`'s protocol isn't run here, if it isn't.
+pub(crate) fn refused(program: &str) -> Option<Error> {
+    match protocol(program) {
+        PROTOCOL => None,
+        p if p < PROTOCOL => Some(Error::Older),
+        _ => Some(Error::Newer),
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -44,6 +73,10 @@ pub enum Error {
     Output(String),
     /// The input given to [`step_json`] isn't a step input.
     Input(String),
+    /// Built for an older protocol: a program error ([`OLDER`]).
+    Older,
+    /// Built for a newer protocol: a client error ([`NEWER`]), never reported.
+    Newer,
 }
 
 impl fmt::Display for Error {
@@ -54,6 +87,8 @@ impl fmt::Display for Error {
             Error::Script { message, .. } => f.write_str(message),
             Error::Timeout => write!(f, "the widget took longer than {STEP_TIMEOUT_MS} ms to respond"),
             Error::Output(m) | Error::Input(m) | Error::Budget(m) => f.write_str(m),
+            Error::Older => f.write_str(OLDER),
+            Error::Newer => f.write_str(NEWER),
         }
     }
 }
@@ -89,16 +124,19 @@ pub struct Program {
     runtime: Runtime,
     /// The same program under the draw budget.
     drawing: Runtime,
-    compiled: Compiled,
+    /// `Err`: refused for its protocol, never compiled.
+    compiled: Result<Compiled, Box<Error>>,
     /// What `__input()` returns to the step running now (once: the step's tail reads it once).
     input: Arc<Mutex<HostValue>>,
+    /// What the step running now emitted.
+    emitted: Arc<Mutex<Emitted>>,
     /// Held across a step, so concurrent steps don't read each other's input.
     running: Mutex<()>,
 }
 
 impl fmt::Debug for Program {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Program").field("bytes", &self.compiled.code().len()).finish()
+        f.debug_struct("Program").field("bytes", &self.compiled.as_ref().map_or(0, |c| c.code().len())).finish()
     }
 }
 
@@ -111,20 +149,27 @@ impl Program {
     /// [`Program::compile`] with a step budget of `timeout_ms` (at least 1, at most the contract's).
     pub fn compile_with(program: &str, timeout_ms: u64) -> Result<Program, Error> {
         let input: Arc<Mutex<HostValue>> = Arc::new(Mutex::new(HostValue::Null));
+        let emitted: Arc<Mutex<Emitted>> = Arc::default();
         let make = |timeout_ms: u64| {
-            let reads = input.clone();
+            let (reads, out) = (input.clone(), emitted.clone());
             Runtime::make()
+                .translate(Translate { functions: TranslateFunctions::Mark, ..Default::default() })
                 .globals(move |_run| {
-                    let reads = reads.clone();
-                    [("__input", HostFunction::new(move |_args, _call| std::mem::take(&mut *reads.lock().unwrap_or_else(PoisonError::into_inner))))]
+                    let (reads, out) = (reads.clone(), out.clone());
+                    [
+                        ("__input", HostFunction::new(move |_args, _call| std::mem::take(&mut *reads.lock().unwrap_or_else(PoisonError::into_inner)))),
+                        ("__widget_emit", HostFunction::new(move |args: Vec<HostValue>, _call| emit(&out, args))),
+                    ]
                 })
                 .limits(Limits { timeout_ms: Some(timeout_ms), max_heap_bytes: Some(MAX_HEAP_BYTES), ..Default::default() })
         };
         let runtime = make(timeout_ms.clamp(1, STEP_TIMEOUT_MS));
         let drawing = make(DRAW_TIMEOUT_MS.min(timeout_ms.max(1)));
-        let code = format!("{program}{TAIL}");
-        let compiled = runtime.compile(&code).map_err(|d| Error::Compile(d.message_lossy()))?;
-        Ok(Program { runtime, drawing, compiled, input, running: Mutex::new(()) })
+        let compiled = match refused(program) {
+            Some(e) => Err(Box::new(e)),
+            None => Ok(runtime.compile(&format!("{program}{TAIL}")).map_err(|d| Error::Compile(d.message_lossy()))?),
+        };
+        Ok(Program { runtime, drawing, compiled, input, emitted, running: Mutex::new(()) })
     }
 
     /// Runs one step: `init` or an event.
@@ -133,7 +178,8 @@ impl Program {
             return Err(Error::Input("a draw step returns commands: run it with Program::draw".into()));
         }
         let input = serde_json::to_value(input).map_err(|e| Error::Input(e.to_string()))?;
-        StepOutput::from_value(self.step_value(input)?).map_err(Error::Output)
+        let (rest, view) = self.run(&self.runtime, HostValue::from_json(&input))?;
+        output(rest, view)
     }
 
     /// Runs one step on a widget's `data` as converted once ([`Data`]): `init` or an event.
@@ -145,7 +191,8 @@ impl Program {
                 input("event", data, vec![("state", HostValue::from_json(state)), ("event", HostValue::from_json(&event))])
             }
         };
-        StepOutput::from_value(self.run(&self.runtime, input)?).map_err(Error::Output)
+        let (rest, view) = self.run(&self.runtime, input)?;
+        output(rest, view)
     }
 
     /// Draws a canvas's frame: the widget template's `draw(state, data, frame)`, under the 8 ms budget,
@@ -162,27 +209,74 @@ impl Program {
     }
 
     fn drawn(&self, input: HostValue) -> Result<Vec<Command>, Error> {
-        let out = self.run(&self.drawing, input)?;
+        let (out, _) = self.run(&self.drawing, input)?;
         DrawOutput::from_value(&out).map(|d| d.commands).map_err(|e| if e.contains("over the budget") { Error::Budget(e) } else { Error::Output(e) })
     }
 
-    /// Runs one step on a raw input, returning the program's raw value unchecked.
+    /// Runs one step on a raw input, returning its output unchecked: the run's result, with the
+    /// emitted view's tree as `view` (a draw's `{ commands }` as it is).
     pub fn step_value(&self, input: Value) -> Result<Value, Error> {
-        self.run(&self.runtime, HostValue::from_json(&input))
+        let (mut rest, view) = self.run(&self.runtime, HostValue::from_json(&input))?;
+        if let (Value::Object(m), Some(view)) = (&mut rest, view) {
+            m.insert("view".into(), view.to_json().unwrap_or(Value::Null));
+        }
+        Ok(rest)
     }
 
-    fn run(&self, runtime: &Runtime, input: HostValue) -> Result<Value, Error> {
+    /// Runs one step: the run's result as JSON (functions left out), and the view it emitted, as
+    /// the tree clients get. A view that broke Keys and depth fails it (phase `view`), before the
+    /// run's own failure.
+    fn run(&self, runtime: &Runtime, input: HostValue) -> Result<(Value, Option<HostValue>), Error> {
+        let compiled = self.compiled.as_ref().map_err(|e| (**e).clone())?;
         let _running = self.running.lock().unwrap_or_else(PoisonError::into_inner);
         *self.input.lock().unwrap_or_else(PoisonError::into_inner) = input;
-        let outcome = runtime.execute(&self.compiled);
+        *self.emitted.lock().unwrap_or_else(PoisonError::into_inner) = Emitted::default();
+        let outcome = runtime.execute(compiled);
         *self.input.lock().unwrap_or_else(PoisonError::into_inner) = HostValue::Null;
-        outcome.json().map_err(|d| match d.kind {
+        let Emitted { view, failure } = std::mem::take(&mut *self.emitted.lock().unwrap_or_else(PoisonError::into_inner));
+        if let Some(failure) = failure {
+            return Err(Error::Output(failure));
+        }
+        let rest = outcome.json().map_err(|d| match d.kind {
             DiagnosticKind::TimeoutExceeded => Error::Timeout,
             DiagnosticKind::MemoryLimitExceeded => Error::Script { message: heap_exceeded(), location: None },
             DiagnosticKind::ParseError | DiagnosticKind::UnsupportedSyntax if d.location.is_none() => Error::Compile(d.message_lossy()),
             _ => Error::Script { message: d.message_lossy(), location: d.location },
-        })
+        })?;
+        Ok((rest, view))
     }
+}
+
+/// What a step emitted: its view's tree, or why its view failed (phase `view`).
+#[derive(Default)]
+struct Emitted {
+    view: Option<HostValue>,
+    failure: Option<String>,
+}
+
+/// `__widget_emit(view, failure?)`: the view as built, made into its tree; a string `failure` (a
+/// view too deep to cross) or a view that breaks Keys and depth fails the step after the run. A
+/// function where none may go throws, from this call.
+fn emit(out: &Mutex<Emitted>, mut args: Vec<HostValue>) -> Result<HostValue, HostValue> {
+    let mut out = out.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(HostValue::String(failure)) = args.get(1) {
+        out.failure = Some(failure.to_string_lossy().into_owned());
+        return Ok(HostValue::Undefined);
+    }
+    let view = if args.is_empty() { HostValue::Undefined } else { args.swap_remove(0) };
+    match crate::tree::build(view, "Argument 1 to __widget_emit") {
+        Ok(tree) => out.view = Some(tree.view),
+        Err(crate::tree::Fail::View(m)) => out.failure = Some(m),
+        Err(crate::tree::Fail::Thrown(e)) => return Err(e),
+    }
+    Ok(HostValue::Undefined)
+}
+
+/// A step's output from its run's result and its emitted view.
+fn output(rest: Value, view: Option<HostValue>) -> Result<StepOutput, Error> {
+    let view = view.ok_or_else(|| Error::Output("The step gave no view".into()))?;
+    let view = crate::host_value::read::<crate::Node>(&view).map_err(|e| Error::Output(format!("invalid step output: {e}")))?;
+    StepOutput::from_parts(rest, view).map_err(Error::Output)
 }
 
 /// Programs [`step_json`] compiled lately, by a hash of their text: a few widget templates are live at once.

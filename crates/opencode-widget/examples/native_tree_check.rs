@@ -1,33 +1,28 @@
-//! Checks the native tree building (`opencode_widget::tree`, `widgets.md` Native hosts) against
-//! the wire conformance fixtures (opencode `packages/widget/test/fixtures/wire/*.json`): each
-//! fixture's `built` view (functions as `"$function"`, read as markers) and its real native step
-//! (`prelude + source` on `input`, PsychoScript marking functions) must give the fixture's `view`
-//! as the same JSON text, its `handlers` and its `canvases`, and read as the same `Node`. Views the
-//! fixtures don't hold (odd keys and children) must build as the prelude builds them. The repo has
-//! no automated tests (AGENTS.md), so this is a program to run by hand:
-//! `cargo run -p opencode-widget --example native_tree_check -- <fixtures/wire dir>` (exits
-//! non-zero on a difference).
+//! Checks Rune as a native host (`widgets.md`, Native hosts, protocol 2) against the wire
+//! conformance fixtures (`fixtures/wire/*.json`, copied from opencode `packages/widget/test/fixtures/wire`):
+//! - the real step (`Program`, as Rune runs it) on each fixture's `prelude + source` and `input`
+//!   gives its `view` as the same JSON text and its `result`, or exactly its `error` (`view: true`:
+//!   a program error in phase `view`; `view: false`: the step's run failure);
+//! - the walk alone (`tree::build`) on its `built` view gives the same view or failure;
+//! - the walk on the view a real native step emits gives its `handlers` and `canvases`.
+//!
+//! Where the only difference is the ` (line N, col M)` the TS host adds to a function error, it's
+//! listed as a known gap (the Rust PsychoScript gives host-thrown errors no location), not a pass.
+//! The repo has no automated tests (AGENTS.md), so this is a program to run by hand:
+//! `cargo run -p opencode-widget --example native_tree_check` (exits non-zero on a difference).
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::print_stdout)]
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use opencode_widget::{Node, fixtures, tree};
+use opencode_widget::runner::Error;
+use opencode_widget::tree::{self, Fail};
+use opencode_widget::{Program, fixtures};
 use psychoscript::{HostFunction, HostValue, Runtime, Translate, TranslateFunctions};
 use serde_json::Value;
 
-/// Views the fixtures don't hold, built by the prelude's own tree building and natively; the two
-/// must give the same JSON (or both fail).
-const EXTRA: &[&str] = &[
-    r#"ui.row([ui.button("a", { key: NaN }), ui.button("b", { key: Infinity }), ui.button("c", { key: -Infinity }), ui.button("d", { key: true }), ui.button("e", { key: false }), ui.button("f", { key: ["x", 1, null] })])"#,
-    r#"ui.column([Infinity, -Infinity, NaN, 0, -0, "", false, null, undefined, "s", 3, true])"#,
-    r#"ui.column([ui.text("d", { when: new Date(0) }), new Map(), [[ui.button("deep")]]])"#,
-    r#"ui.column({ key: 1e21 }, [ui.canvas({ key: "c", height: 1, wgsl: "x" }), ui.canvas({ key: "c", height: 2, onPointer: () => 1 })])"#,
-    r#"ui.column([ui.button("bad", { key: "\uD800" })])"#,
-    r#"ui.column({ key: "\uD800" }, [])"#,
-];
-
-/// What `code` hands `__widget_emit`, with `__input()` returning `input`, functions marked.
+/// What `code` hands `__widget_emit` (its first argument), `__input()` returning `input`,
+/// functions marked.
 fn emitted(code: &str, input: HostValue) -> Result<HostValue, String> {
     let out: Arc<Mutex<Option<HostValue>>> = Arc::default();
     let seen = out.clone();
@@ -36,21 +31,31 @@ fn emitted(code: &str, input: HostValue) -> Result<HostValue, String> {
         [
             ("__input", HostFunction::new(move |_args: Vec<HostValue>, _call| Ok(input.clone()))),
             ("__widget_emit", HostFunction::new(move |args: Vec<HostValue>, _call| {
-                *seen.lock().unwrap() = args.into_iter().next();
+                let mut seen = seen.lock().unwrap();
+                if seen.is_none() {
+                    *seen = args.into_iter().next();
+                }
                 Ok(HostValue::Undefined)
             })),
         ]
     });
     runtime.execute(code).json().map_err(|d| d.message_lossy())?;
-    Ok(out.lock().unwrap().take().expect("the program emitted a value"))
+    Ok(out.lock().unwrap().take().unwrap_or_default())
 }
 
 /// `built` from the fixture's text, as the VM's `JSON.parse` reads its numbers, with each
-/// `"$function"` the marker a function crosses as.
-fn marked(text: &str) -> HostValue {
+/// `"$function"` the marker a function crosses as and `"$NaN"`, `"$Infinity"`, `"$-Infinity"` those
+/// numbers.
+fn built(text: &str) -> HostValue {
     fn mark(v: HostValue) -> HostValue {
         match v {
-            HostValue::String(s) if s.as_str() == Some("$function") => HostValue::FunctionMarker,
+            HostValue::String(s) => match s.as_str() {
+                Some("$function") => HostValue::FunctionMarker,
+                Some("$NaN") => HostValue::Number(f64::NAN),
+                Some("$Infinity") => HostValue::Number(f64::INFINITY),
+                Some("$-Infinity") => HostValue::Number(f64::NEG_INFINITY),
+                _ => HostValue::String(s),
+            },
             HostValue::Array(items) => HostValue::Array(items.into_iter().map(|i| i.map(mark)).collect()),
             HostValue::Object(fields) => HostValue::Object(fields.into_iter().map(|(k, v)| (k, mark(v))).collect()),
             v => v,
@@ -59,90 +64,150 @@ fn marked(text: &str) -> HostValue {
     mark(emitted("__widget_emit(JSON.parse(__input()).built)", HostValue::String(text.into())).expect("parses"))
 }
 
-/// The view the fixture's program builds in native mode, as `__widget_emit` hands it over.
-fn native(source: &str, input: &Value) -> Result<HostValue, String> {
-    let code = format!("{}\n{source}\n__widget_emit(__widget_step(__input(), true))", fixtures::PRELUDE);
-    match emitted(&code, HostValue::from_json(input))? {
-        HostValue::Object(fields) => Ok(fields.into_iter().find(|(k, _)| k.as_str() == Some("view")).map(|(_, v)| v).unwrap_or_default()),
-        _ => Err("the step output isn't an object".into()),
+/// JSON values alike, numbers by value (the fixtures' numbers are JavaScript's).
+fn same(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Number(x), Value::Number(y)) => x.as_f64() == y.as_f64(),
+        (Value::Array(x), Value::Array(y)) => x.len() == y.len() && x.iter().zip(y).all(|(a, b)| same(a, b)),
+        (Value::Object(x), Value::Object(y)) => x.len() == y.len() && x.iter().zip(y).all(|((ka, a), (kb, b))| ka == kb && same(a, b)),
+        _ => a == b,
     }
 }
 
-/// What differs between `tree` and the fixture `f`, if anything.
-fn differences(f: &Value, tree: &tree::Tree) -> Vec<String> {
-    let mut out = Vec::new();
-    let view = tree.view.to_json().unwrap_or_default();
-    let (got, want) = (serde_json::to_string(&view).unwrap(), serde_json::to_string(&f["view"]).unwrap());
-    if got != want {
-        out.push(format!("view\n    got  {got}\n    want {want}"));
-    }
-    let handlers: BTreeMap<String, String> = tree.handlers.iter().map(|(k, v)| (k.clone(), (*v).to_owned())).collect();
-    let want: BTreeMap<String, String> = serde_json::from_value(f["handlers"].clone()).unwrap();
-    if handlers != want {
-        out.push(format!("handlers\n    got  {handlers:?}\n    want {want:?}"));
-    }
-    let canvases: BTreeMap<String, String> = tree.canvases.iter().map(|(k, (id, _))| (k.clone(), id.clone())).collect();
-    let want: BTreeMap<String, String> = serde_json::from_value(f["canvases"].clone()).unwrap();
-    if canvases != want {
-        out.push(format!("canvases\n    got  {canvases:?}\n    want {want:?}"));
-    }
-    let (read, json) = (format!("{:?}", Node::from_host(&tree.view)), format!("{:?}", Node::from_value(&f["view"])));
-    if read != json {
-        out.push(format!("node\n    got  {read}\n    want {json}"));
-    }
-    out
+/// Whether `got` is `want` but for the ` (line N, col M)` `want` ends with.
+fn but_location(got: &str, want: &str) -> bool {
+    want.rsplit_once(" (line ").is_some_and(|(head, tail)| head == got && tail.ends_with(')') && tail.contains(", col "))
 }
 
-/// The view of `expr` as the prelude builds it, and as built natively then walked here, as JSON.
-fn both(expr: &str) -> (Result<String, String>, Result<String, String>) {
-    let source = format!("function view(state, data) {{ return {expr} }}");
-    let input = serde_json::json!({ "phase": "init", "data": null });
-    let prelude = {
-        let code = format!("{}\n{source}\nreturn __widget_step(__input())", fixtures::PRELUDE);
-        let input = HostValue::from_json(&input);
-        let runtime = Runtime::make().globals(move |_run| {
-            let input = input.clone();
-            [("__input", HostFunction::new(move |_args: Vec<HostValue>, _call| Ok(input.clone())))]
-        });
-        runtime.execute(code.as_str()).json().map(|v| v["view"].to_string()).map_err(|d| d.message_lossy())
-    };
-    let walked = native(&source, &input).and_then(tree::build).map(|t| t.view.to_json().unwrap_or_default().to_string());
-    (prelude, walked)
+enum Verdict {
+    Ok,
+    Gap(String),
+    Fail(String),
 }
+
+/// The expected error against the one we got.
+fn error(want: &Value, view: bool, got: &str) -> Verdict {
+    let message = want["message"].as_str().unwrap();
+    match (want["view"].as_bool() == Some(view), got == message) {
+        (true, true) => Verdict::Ok,
+        (true, false) if but_location(got, message) => Verdict::Gap(format!("{got:?}\n    want {message:?}")),
+        _ => Verdict::Fail(format!("error (view: {view}) {got:?}\n    want (view: {}) {message:?}", want["view"])),
+    }
+}
+
+/// The real step, as Rune runs it.
+fn step(f: &Value) -> Verdict {
+    let program = Program::compile(&format!("{}\n{}", fixtures::PRELUDE, f["source"].as_str().unwrap())).expect("compiles");
+    match (program.step_value(f["input"].clone()), f.get("error")) {
+        (Err(Error::Output(m)), Some(want)) => error(want, true, &m),
+        (Err(e), Some(want)) => error(want, false, &e.to_string()),
+        (Err(e), None) => Verdict::Fail(format!("failed: {e:?}")),
+        (Ok(v), Some(want)) => Verdict::Fail(format!("ran: {v}\n    want error {want}")),
+        (Ok(mut v), None) => {
+            let view = v.as_object_mut().and_then(|m| m.shift_remove("view")).unwrap_or_default();
+            let (got, want) = (serde_json::to_string(&view).unwrap(), serde_json::to_string(&f["view"]).unwrap());
+            if got != want {
+                return Verdict::Fail(format!("view\n    got  {got}\n    want {want}"));
+            }
+            if !same(&v, &f["result"]) {
+                return Verdict::Fail(format!("result\n    got  {v}\n    want {}", f["result"]));
+            }
+            // And the step reads as the fixture's view reads (a bare string child fails both).
+            let read = program.step(&serde_json::from_value(f["input"].clone()).unwrap()).map(|o| o.view).map_err(|e| e.to_string());
+            let want = opencode_widget::Node::from_value(&f["view"]).map_err(|e| format!("invalid step output: {}", e.trim_start_matches("invalid view: ")));
+            if read != want {
+                return Verdict::Fail(format!("step output\n    got  {read:?}\n    want {want:?}"));
+            }
+            Verdict::Ok
+        }
+    }
+}
+
+/// The walk alone, on `view` (the fixture's `built`, or a real step's emitted view).
+fn walk(f: &Value, view: HostValue, tables: bool) -> Verdict {
+    // A failure of the run's result (a typed array in the state) isn't the view's.
+    let expected = f.get("error").filter(|e| e["view"] == true || e["message"].as_str().is_some_and(|m| m.contains("contains a function")));
+    if expected.is_none() && f.get("error").is_some() {
+        return match tree::build(view, "Argument 1 to __widget_emit") {
+            Ok(_) => Verdict::Ok,
+            Err(e) => Verdict::Fail(format!("failed: {e:?}")),
+        };
+    }
+    match (tree::build(view, "Argument 1 to __widget_emit"), expected) {
+        (Err(Fail::View(m)), Some(want)) => error(want, true, &m),
+        (Err(Fail::Thrown(HostValue::Error(e))), Some(want)) => error(want, false, &format!("{}: {}", e.name.to_string_lossy(), e.message.to_string_lossy())),
+        (Err(e), _) => Verdict::Fail(format!("failed: {e:?}")),
+        (Ok(t), Some(want)) => Verdict::Fail(format!("built: {:?}\n    want error {want}", t.view.to_json())),
+        (Ok(t), None) => {
+            let (got, want) = (serde_json::to_string(&t.view.to_json().unwrap_or_default()).unwrap(), serde_json::to_string(&f["view"]).unwrap());
+            if got != want {
+                return Verdict::Fail(format!("view\n    got  {got}\n    want {want}"));
+            }
+            if tables {
+                let handlers: BTreeMap<String, String> = t.handlers.iter().map(|(k, v)| (k.clone(), (*v).to_owned())).collect();
+                let want: BTreeMap<String, String> = serde_json::from_value(f["handlers"].clone()).unwrap();
+                if handlers != want {
+                    return Verdict::Fail(format!("handlers\n    got  {handlers:?}\n    want {want:?}"));
+                }
+                let canvases: BTreeMap<String, String> = t.canvases.iter().map(|(k, (id, _))| (k.clone(), id.clone())).collect();
+                let want: BTreeMap<String, String> = serde_json::from_value(f["canvases"].clone()).unwrap();
+                if canvases != want {
+                    return Verdict::Fail(format!("canvases\n    got  {canvases:?}\n    want {want:?}"));
+                }
+            }
+            Verdict::Ok
+        }
+    }
+}
+
+/// Keys `encodeURIComponent` can't encode, which the fixtures don't hold: the step fails with the
+/// prelude's `URIError`, not as a view.
+const SURROGATES: &[&str] = &[r#"ui.column([ui.button("bad", { key: "\uD800" })])"#, r#"ui.column({ key: "\uD800" }, [])"#];
 
 fn main() {
-    let dir = std::env::args().nth(1).expect("the fixtures/wire directory");
-    let mut files: Vec<_> = std::fs::read_dir(&dir).expect("reads the directory").map(|e| e.unwrap().path()).filter(|p| p.extension().is_some_and(|e| e == "json")).collect();
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/wire");
+    let mut files: Vec<_> = std::fs::read_dir(dir).expect("reads the fixtures").map(|e| e.unwrap().path()).filter(|p| p.extension().is_some_and(|e| e == "json")).collect();
     files.sort();
-    let mut bad = 0;
+    let (mut bad, mut gaps) = (0, 0);
     for path in &files {
         let text = std::fs::read_to_string(path).unwrap();
         let f: Value = serde_json::from_str(&text).unwrap();
         let name = f["name"].as_str().unwrap_or("?").to_owned();
-        let built = marked(&text);
-        let native = native(f["source"].as_str().unwrap(), &f["input"]).expect("the native step runs");
-        for (how, view) in [("built", built), ("native", native)] {
-            let d = match tree::build(view) {
-                Ok(t) => differences(&f, &t),
-                Err(e) => vec![format!("error: {e}")],
-            };
-            if !d.is_empty() {
-                bad += 1;
-                println!("FAIL {name} ({how}):\n  {}", d.join("\n  "));
+        let source = format!("{}\n{}\n__widget_native_step(__input())", fixtures::PRELUDE, f["source"].as_str().unwrap());
+        let real = emitted(&source, HostValue::from_json(&f["input"]));
+        let mut checks = vec![("step", step(&f))];
+        // A view too deep to cross has no `built`: the prelude emits its failure instead.
+        if f.get("built").is_some() {
+            checks.push(("built", walk(&f, built(&text), true)));
+        }
+        if f.get("error").is_none() {
+            checks.push(("emitted", walk(&f, real.expect("the step runs"), true)));
+        }
+        for (how, verdict) in checks {
+            match verdict {
+                Verdict::Ok => {}
+                Verdict::Gap(d) => {
+                    gaps += 1;
+                    println!("GAP  {name} ({how}): no location\n    got  {d}");
+                }
+                Verdict::Fail(d) => {
+                    bad += 1;
+                    println!("FAIL {name} ({how}): {d}");
+                }
             }
         }
     }
-    println!("{} fixtures, built and native: {}", files.len(), if bad == 0 { "all identical".to_owned() } else { format!("{bad} differ") });
-    for expr in EXTRA {
-        match both(expr) {
-            (Ok(a), Ok(b)) if a == b => println!("ok   {expr}"),
-            (Err(a), Err(b)) => println!("ok   both fail: {expr}\n       prelude: {a}\n       native:  {b}"),
-            (a, b) => {
+    for expr in SURROGATES {
+        let program = Program::compile(&format!("{}\nfunction view(state, data) {{ return {expr} }}", fixtures::PRELUDE)).expect("compiles");
+        match program.step_value(serde_json::json!({ "phase": "init", "data": null })) {
+            Err(Error::Script { message, .. }) if message.starts_with("URIError: encodeURIComponent received malformed URI data") => println!("ok   {expr}: {message}"),
+            other => {
                 bad += 1;
-                println!("FAIL {expr}\n    prelude {a:?}\n    native  {b:?}");
+                println!("FAIL {expr}: {other:?}");
             }
         }
     }
+    println!("{} fixtures: {} differ, {gaps} differ only by the location of a function error", files.len(), bad);
     if bad > 0 {
         std::process::exit(1);
     }

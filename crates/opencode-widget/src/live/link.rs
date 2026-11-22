@@ -26,7 +26,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::task::Waker;
 use std::time::{Duration, Instant};
 
-use psychoscript::{DiagnosticKind, HostResult, Interrupted, ProgramOptions, RunOutcome, Snapshot, Suspender};
+use psychoscript::{DiagnosticKind, HostResult, HostValue, Interrupted, ProgramOptions, RunOutcome, Snapshot, Suspender};
 use serde_json::{Value, json};
 
 use super::fetch::Rate;
@@ -139,6 +139,8 @@ pub(super) struct St {
     /// Native: the last rendered view's canvases by `String(key)`, their ids and whether `wgsl`
     /// draws them (kept across a save, as the program's view is).
     pub canvases: HashMap<String, (String, bool)>,
+    /// A render's view broke Keys and depth: the run was interrupted to end with it.
+    pub view_failure: Option<String>,
 }
 
 impl St {
@@ -206,6 +208,7 @@ impl Link {
             suspender: None,
             failed_at: None,
             canvases: HashMap::new(),
+            view_failure: None,
         };
         Arc::new_cyclic(|me| Link { st: Mutex::new(st), news: AtomicBool::new(false), program, data, setup, me: me.clone() })
     }
@@ -228,6 +231,11 @@ impl Link {
     /// A thread for the run: from `main`, or from `snapshot`.
     fn spawn(&self, st: &mut St, snapshot: Option<Snapshot>) {
         let Some(link) = self.me.upgrade() else { return };
+        // Built for another protocol: it never runs.
+        if let Err(end) = &self.program.compiled {
+            st.run = Run::Ended(end.clone());
+            return;
+        }
         let now = Instant::now();
         if snapshot.is_none() {
             // `main` again: its clock and its timers start over.
@@ -241,6 +249,7 @@ impl Link {
         st.interrupt = false;
         st.watch = Watch::fresh(now);
         st.suspender = None;
+        st.view_failure = None;
         let era = st.era;
         let spawned = std::thread::Builder::new().name("widget-live".into()).stack_size(STACK).spawn(move || run(link, era, snapshot));
         if let Err(e) = spawned {
@@ -273,6 +282,7 @@ impl Link {
         let run = std::mem::replace(&mut st.run, Run::Discarded);
         st.run = match (run, result) {
             _ if failure.is_some() => Run::Ended(Ended::Broke(failure.unwrap_or_default())),
+            _ if st.view_failure.is_some() => Run::Ended(Ended::View(st.view_failure.take().unwrap_or_default())),
             (Run::Saving, Ok(RunOutcome::Suspended(s))) => Run::Saved(s.state),
             (Run::Discarding, _) => Run::Discarded,
             (Run::Killing { reason, .. }, _) => Run::Ended(Ended::Failed(reason)),
@@ -323,6 +333,13 @@ impl Link {
     }
 
     /// The program posted `post` (on its thread).
+    /// A render's view broke Keys and depth: the run ends at once with it (phase `view`). What
+    /// `post` returns to stop the run.
+    pub fn fail_view(&self, message: String) -> HostValue {
+        self.lock().view_failure = Some(message);
+        HostValue::Interrupt
+    }
+
     pub fn post(&self, post: Post) {
         let mut st = self.lock();
         let now = Instant::now();
@@ -570,7 +587,10 @@ fn run(link: Arc<Link>, era: u64, snapshot: Option<Snapshot>) {
                 return;
             }
         },
-        None => runtime.program(&link.program.compiled, &ProgramOptions::new()),
+        None => match &link.program.compiled {
+            Ok(compiled) => runtime.program(compiled, &ProgramOptions::new()),
+            Err(_) => return,
+        },
     };
     {
         let mut st = link.lock();

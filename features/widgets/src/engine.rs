@@ -87,8 +87,9 @@ fn failure(e: opencode_widget::Error) -> Failure {
         opencode_widget::Error::Script { location, .. } => *location,
         _ => None,
     };
-    // Only an input this client built wrong is its own error; the rest is the program's.
-    let program = !matches!(e, opencode_widget::Error::Input(_));
+    // Only an input this client built wrong, or a program for a newer protocol, is its own error;
+    // the rest is the program's.
+    let program = !matches!(e, opencode_widget::Error::Input(_) | opencode_widget::Error::Newer);
     Failure { view: matches!(e, opencode_widget::Error::Output(_)), message: e.to_string(), location, program }
 }
 

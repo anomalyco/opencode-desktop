@@ -27,33 +27,46 @@ fn throw(message: String) -> HostValue {
 /// [`crate::runner::MAX_HEAP_BYTES`] (a saved run keeps the cap).
 pub(super) fn runtime(link: &Arc<Link>, era: u64) -> Runtime {
     let link = link.clone();
-    // Native: a function in a post (a handler) crosses as a marker.
-    let functions = if link.program.native { TranslateFunctions::Mark } else { TranslateFunctions::Error };
-    Runtime::make().limits(Limits { max_heap_bytes: Some(crate::runner::MAX_HEAP_BYTES), ..Default::default() }).translate(Translate { functions, ..Default::default() }).globals(move |_run| {
+    // A function in a post's view (a handler) crosses as a marker; anywhere else it fails the call.
+    let translate = Translate { functions: TranslateFunctions::Mark, ..Default::default() };
+    Runtime::make().limits(Limits { max_heap_bytes: Some(crate::runner::MAX_HEAP_BYTES), ..Default::default() }).translate(translate).globals(move |_run| {
         let input = json!({ "data": link.data });
         let (l1, l2, l3, l4, l5) = (link.clone(), link.clone(), link.clone(), link.clone(), link.clone());
         let host = HostValue::object([
             ("post", HostValue::Function(HostFunction::new(move |args: Vec<HostValue>, _call: &Call| post(&l1, args)))),
-            ("now", HostValue::Function(HostFunction::new(move |_args: Vec<HostValue>, _call: &Call| -> HostResult { Ok(HostValue::Number(l2.now_ms())) }))),
-            ("receive", HostValue::Function(HostFunction::new_async(move |_args, _call| Receive { link: l3.clone(), era, ticket: None, polls: 0 }).idempotent())),
+            (
+                "now",
+                HostValue::Function(HostFunction::new(move |args: Vec<HostValue>, _call: &Call| -> HostResult {
+                    checked("now", &args, 0)?;
+                    Ok(HostValue::Number(l2.now_ms()))
+                })),
+            ),
+            (
+                "receive",
+                HostValue::Function(
+                    HostFunction::new_async(move |args: Vec<HostValue>, _call| Checked::new(checked("receive", &args, 0), || Receive { link: l3.clone(), era, ticket: None, polls: 0 })).idempotent(),
+                ),
+            ),
             (
                 "sleep",
                 HostValue::Function(
                     HostFunction::new_async(move |args: Vec<HostValue>, call: Call| {
                         let ms = args.first().and_then(HostValue::as_f64).filter(|m| m.is_finite()).unwrap_or(0.0).max(0.0);
-                        Sleep { link: l4.clone(), era, key: call.key(), ms, polls: 0 }
+                        Checked::new(checked("sleep", &args, 0), || Sleep { link: l4.clone(), era, key: call.key(), ms, polls: 0 })
                     })
                     .idempotent(),
                 ),
             ),
             (
                 "fetch",
-                HostValue::Function(HostFunction::new_async(move |args: Vec<HostValue>, _call: Call| Fetch {
-                    link: l5.clone(),
-                    era,
-                    request: Some(args.first().and_then(HostValue::to_json).unwrap_or(Value::Null)),
-                    id: 0,
-                    polls: 0,
+                HostValue::Function(HostFunction::new_async(move |args: Vec<HostValue>, _call: Call| {
+                    Checked::new(checked("fetch", &args, 0), || Fetch {
+                        link: l5.clone(),
+                        era,
+                        request: Some(args.first().and_then(HostValue::to_json).unwrap_or(Value::Null)),
+                        id: 0,
+                        polls: 0,
+                    })
                 })),
             ),
         ]);
@@ -61,21 +74,76 @@ pub(super) fn runtime(link: &Arc<Link>, era: u64) -> Runtime {
     })
 }
 
-/// `__host.post(message)`: checked and handed to the client; a bad view or draw throws. A native
-/// host builds a render's tree (and says whether it has handlers) and finds a draw's canvas by key.
+/// What `post` throws for a function in its arguments.
+const POSTED: &str = "Argument 1 to __host.post";
+
+/// Fails with the runtime's `TypeError` when an argument of `__host.<name>`, from `from` on, holds a
+/// function (`widgets.md`, Native hosts: functions where none may go).
+fn checked(name: &str, args: &[HostValue], from: usize) -> Result<(), HostValue> {
+    for (i, arg) in args.iter().enumerate().skip(from) {
+        crate::tree::strict(arg, &format!("Argument {} to __host.{name}", i + 1))?;
+    }
+    Ok(())
+}
+
+/// An async host call's future, or what its arguments throw before it starts.
+enum Checked<F> {
+    Thrown(Option<HostValue>),
+    Go(F),
+}
+
+impl<F> Checked<F> {
+    fn new(args: Result<(), HostValue>, go: impl FnOnce() -> F) -> Self {
+        match args {
+            Ok(()) => Checked::Go(go()),
+            Err(e) => Checked::Thrown(Some(e)),
+        }
+    }
+}
+
+impl<F: Future<Output = HostResult> + Unpin> Future for Checked<F> {
+    type Output = HostResult;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<HostResult> {
+        match self.get_mut() {
+            Checked::Thrown(e) => Poll::Ready(Err(e.take().unwrap_or(HostValue::Undefined))),
+            Checked::Go(f) => Pin::new(f).poll(cx),
+        }
+    }
+}
+
+/// `__host.post(message)`: checked and handed to the client (`widgets.md`, Native hosts). A
+/// render's view is made into its tree here, and `post` says whether it has handlers; a view that
+/// breaks Keys and depth ends the run at once (phase `view`). A draw's key names a canvas of the
+/// last render. A function anywhere but a view's handler props, or a bad view or draw, throws.
 fn post(link: &Link, mut args: Vec<HostValue>) -> HostResult {
     if link.lock().interrupt {
         return Err(HostValue::Interrupt);
     }
     // Read from the VM's value as from its JSON, without making it (`host_value`).
-    let mut message = if args.is_empty() { HostValue::Null } else { args.swap_remove(0) };
-    let native = link.program.native;
-    if native && message.field("type").and_then(Arg::text).as_deref() == Some("render") {
-        let node = match &mut message {
-            HostValue::Object(fields) => fields.iter_mut().find(|(k, _)| k.as_str() == Some("node")).map(|(_, v)| std::mem::take(v)).unwrap_or_default(),
+    let mut message = if args.is_empty() { HostValue::Null } else { std::mem::take(&mut args[0]) };
+    if message.field("type").and_then(Arg::text).as_deref() == Some("render") {
+        let mut take = |name: &str| match &mut message {
+            HostValue::Object(fields) => fields.iter_mut().find(|(k, _)| k.as_str() == Some(name)).map(|(_, v)| std::mem::take(v)).unwrap_or_default(),
             _ => HostValue::Undefined,
         };
-        let tree = crate::tree::build(node).map_err(throw)?;
+        let (node, failure) = (take("node"), take("failure"));
+        let built = match failure {
+            HostValue::String(f) => Err(f.to_string_lossy().into_owned()),
+            _ => match crate::tree::build(node, POSTED) {
+                Ok(tree) => {
+                    crate::tree::strict(&message, POSTED)?;
+                    Ok(tree)
+                }
+                Err(crate::tree::Fail::View(m)) => Err(m),
+                Err(crate::tree::Fail::Thrown(e)) => return Err(e),
+            },
+        };
+        checked("post", &args, 1)?;
+        let tree = match built {
+            Ok(tree) => tree,
+            Err(m) => return Err(link.fail_view(m)),
+        };
         let interactive = !tree.handlers.is_empty();
         // The canvases of the last view, read or not, rendered or dropped over the rate.
         link.lock().canvases = tree.canvases;
@@ -86,19 +154,22 @@ fn post(link: &Link, mut args: Vec<HostValue>) -> HostResult {
     let message = &message;
     let field = |key: &str| message.field(key);
     let json = |key: &str| field(key).and_then(HostValue::to_json).unwrap_or(Value::Null);
-    let post = match field("type").and_then(Arg::text).as_deref() {
-        Some("render") => Post::Render(Node::from_host(field("node").unwrap_or(&HostValue::Null)).map_err(|e| throw(format!("widget.render: {e}")))?),
+    let ty = field("type").and_then(Arg::text);
+    // A draw's key is looked up first: its errors come before a function in it.
+    if ty.as_deref() != Some("draw") {
+        crate::tree::strict(message, POSTED)?;
+        checked("post", &args, 1)?;
+    }
+    let post = match ty.as_deref() {
         Some("draw") => {
-            let id = if native {
-                let key = field("key").and_then(Arg::text).unwrap_or_default();
-                match link.lock().canvases.get(key.as_ref()) {
-                    None => return Err(throw(format!("No canvas with key \"{key}\" in the rendered view"))),
-                    Some((_, true)) => return Err(throw(format!("Canvas \"{key}\" is drawn by its wgsl; it takes no draw commands"))),
-                    Some((id, false)) => id.clone(),
-                }
-            } else {
-                field("id").and_then(Arg::text).ok_or_else(|| throw("widget.draw needs a canvas id".into()))?.into_owned()
+            let key = field("key").and_then(Arg::text).unwrap_or_default();
+            let id = match link.lock().canvases.get(key.as_ref()) {
+                None => return Err(throw(format!("No canvas with key \"{key}\" in the rendered view"))),
+                Some((_, true)) => return Err(throw(format!("Canvas \"{key}\" is drawn by its wgsl; it takes no draw commands"))),
+                Some((id, false)) => id.clone(),
             };
+            crate::tree::strict(message, POSTED)?;
+            checked("post", &args, 1)?;
             let out = DrawOutput::from_host(field("commands")).map_err(|e| throw(format!("widget.draw(\"{id}\"): {e}")))?;
             Post::Draw { id, commands: out.commands }
         }
