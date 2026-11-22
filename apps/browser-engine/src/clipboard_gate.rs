@@ -20,6 +20,8 @@
 //!   (`https:` or loopback) work as in Chrome; cross-origin frames and insecure origins are refused.
 //! - Extension pages and popups: allowed iff the extension declared `"clipboardWrite"` in its
 //!   manifest (and the tab is non-isolated, non-preview, non-agent-driven).
+//! - The same script makes `window.print()` a no-op on blocked web pages (agent-driven and preview
+//!   tabs; extension pages excepted): see the `print` block in `clipboard_gate_script`.
 //! - Clipboard reads remain separately gated by `TabPermissionHandler::on_show_permission_prompt`
 //!   (`CEF_PERMISSION_TYPE_CLIPBOARD` -> `PermissionKind::ClipboardRead`) and inherited-grant checks.
 
@@ -224,6 +226,27 @@ pub fn clipboard_gate_script(
       }},
       true,
     ])
+  }}
+
+  // Print (WS-1): on the same tabs a page's `print()` does nothing, in every frame this script
+  // reaches (new documents and `about:blank` child frames alike). Its native dialog stops the whole
+  // engine until a person closes it, and on these tabs nobody may be there. `print` is an own
+  // property of each window (no prototype copy to recover), redefined non-writable and
+  // non-configurable before page JS runs. Extension pages keep printing. The browser's own print
+  // command is refused in the engine (`tab_client::TabCommandHandler`).
+  const origPrint = globalThis.print
+  if (typeof origPrint === "function") {{
+    define(globalThis, "print", {{
+      value: new ProxyCtor(origPrint, {{
+        apply(target, self, args) {{
+          if (blocked && !isExtPage) return undefined
+          return apply(target, self, args)
+        }},
+      }}),
+      writable: false,
+      configurable: false,
+      enumerable: true,
+    }})
   }}
 
   const permProto = globalThis.Permissions && Permissions.prototype

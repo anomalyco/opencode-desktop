@@ -1148,7 +1148,7 @@ impl EngineManager {
             (),
         );
         let prompts = Arc::new(crate::prompts::TabPrompts::default());
-        prompts.agent_driven.store(agent_driven, Ordering::Release);
+        prompts.open_as(agent_driven, preview_grant.is_some());
         *prompts.proxy.lock().unwrap() = proxy_cfg;
         let favicon = Arc::new(crate::favicon::TabFavicon::default());
         let diagnostics = Arc::new(crate::diagnostics::TabDiagnostics::default());

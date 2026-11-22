@@ -1255,6 +1255,9 @@ pub(super) fn sync_file_choosers(t: &ManagedTab) {
 /// clipboard writes on an agent-driven tab.
 pub(super) fn sync_clipboard_gate(t: &ManagedTab) {
     let blocked = t.preview.is_some() || t.prompts.agent_driven.load(Ordering::Acquire);
+    if blocked {
+        t.prompts.print_gated.store(true, Ordering::Release);
+    }
     for raw in t.clipboard_gate.set_blocked_messages(blocked) {
         t.host.send_dev_tools_message(Some(raw.as_bytes()));
     }
