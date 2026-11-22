@@ -323,7 +323,16 @@ impl SettingsHost for App {
     }
 
     fn plugin_sections_for_page(&self, p: &Pal, page_id: &str) -> Vec<El> {
-        crate::plugin_host::settings_pages(self, p, page_id)
+        let mut sections = crate::plugin_host::settings_pages(self, p, page_id);
+        if page_id == "general" && !crate::plugin_host::has_live_settings_section(self, "updater", "general") {
+            let no_plugins = crate::flag("--no-plugins");
+            let disabled = self.plugins.is_disabled("updater");
+            log_updater_fallback(self, no_plugins, disabled);
+            if !no_plugins && !disabled {
+                sections.push(updates_fallback_section(self, p));
+            }
+        }
+        sections
     }
 
     fn plugin_extensions_section(&self, p: &Pal) -> Option<El> {
@@ -640,4 +649,116 @@ impl SettingsHost for App {
             }
         }
     }
+}
+
+fn updater_phase(app: &App) -> Option<&'static str> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        opencode_feature_updater::state_view(app).map(|v| v.phase)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = app;
+        None
+    }
+}
+
+/// Logs one deduplicated line whenever Preferences falls back from the Updater plugin so any
+/// future occurrence names every gating state in the app's own log.
+fn log_updater_fallback(app: &App, no_plugins: bool, disabled: bool) {
+    thread_local! {
+        static LAST: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+    }
+    let found = app.plugins.find("updater");
+    let life = found.map(|i| app.plugins.list[i].life.label()).unwrap_or("absent");
+    let why = found.and_then(|i| app.plugins.list[i].life.why()).unwrap_or("");
+    let in_later = app.plugins.is_deferred("updater");
+    let storage_ready = crate::storage::is_ready();
+    let stores_ready = crate::plugin_host::stores::answers_for("updater");
+    let phase = updater_phase(app).unwrap_or("none");
+    let key = format!(
+        "no_plugins={no_plugins} disabled={disabled} life={life} why={why:?} in_later={in_later} storage_ready={storage_ready} stores_ready={stores_ready} updater_phase={phase}"
+    );
+    LAST.with_borrow_mut(|last| {
+        if *last != key {
+            *last = key.clone();
+            eprintln!("settings: updater section omitted by plugin_host ({key})");
+        }
+    });
+}
+
+fn updater_msg(key: &str, fallback: &str) -> String {
+    let lang = opencode_i18n::locale().id();
+    crate::plugin_host::sources::builtin_message("updater", lang, key)
+        .unwrap_or(fallback)
+        .to_owned()
+}
+
+fn release_notes_enabled() -> bool {
+    crate::plugin_host::stores::text("updater", "plugin.updater", "releaseNotes")
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|v| v.get("enabled")?.as_bool())
+        .unwrap_or(true)
+}
+
+/// Native resting-state Updates section (`packages/gui-plugins/src/updater/section.tsx` +
+/// `action.ts`) shown on Settings › Preferences whenever the bundled Updater plugin has not yet
+/// started (first launch while storage loads, dormant wake-up turn, or transient startup error),
+/// so Settings never omits Updates when official shows it.
+fn updates_fallback_section(app: &App, p: &Pal) -> El {
+    let phase = updater_phase(app);
+    let (label_key, label_fallback, desc_key, desc_fallback, run) = match phase {
+        None => ("action.checkNow", "Check now", "check.description", "Manually check for updates and install if available", None),
+        Some("checking") => ("action.checking", "Checking…", "check.description", "Manually check for updates and install if available", None),
+        Some("downloading") => ("action.downloading", "Downloading…", "check.description", "Manually check for updates and install if available", None),
+        Some("ready") => ("action.installRestart", "Install and restart", "check.description", "Manually check for updates and install if available", Some("install")),
+        Some("download-required") => ("action.download", "Download OpenCode", "check.description", "Manually check for updates and install if available", Some("install")),
+        Some("installing") => ("action.installing", "Installing…", "check.description", "Manually check for updates and install if available", None),
+        Some("disabled") => ("action.unavailable", "Unavailable", "check.unavailable", "Updates are unavailable in this build", None),
+        Some(_) => ("action.checkNow", "Check now", "check.description", "Manually check for updates and install if available", Some("check")),
+    };
+    let notes_on = release_notes_enabled();
+    let notes_title = updater_msg("releaseNotes.title", "Release notes");
+    let notes_desc = updater_msg("releaseNotes.description", "Show What's New popups after updates");
+    let check_title = updater_msg("check.title", "Check for updates");
+    let check_desc = updater_msg(desc_key, desc_fallback);
+    let btn_label = updater_msg(label_key, label_fallback);
+    let section_title = updater_msg("section.title", "Updates");
+
+    let notes_control = crate::settings::switch(p, "release-notes-switch", notes_on).on_press(move |s: &mut App| {
+        let next = !notes_on;
+        crate::plugin_host::stores::set("plugin.updater", "releaseNotes", format!("{{\"enabled\":{next}}}"));
+        crate::plugin_host::services::store::store_changed("updater", "releaseNotes");
+        rune::Tracked::touch(&s.plugins);
+    });
+    let mut btn = opencode_ui::widgets::button(btn_label, rune_kit::ButtonVariant::Neutral).disabled(run.is_none());
+    if let Some(action) = run {
+        btn = btn.on_press_tx(move |s: &mut App, tx: &mut Tx| {
+            if crate::plugin_host::ensure_plugin_running(s, "updater") && action == "check" {
+                crate::plugin_host::run_command(s, "updater.check", tx);
+                return;
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            match action {
+                "check" => opencode_feature_updater::check_with(s, |_| {}),
+                "install" => opencode_feature_updater::install_with(s, |_| {}),
+                _ => {}
+            }
+        });
+    }
+    let check_control = btn.build(opencode_ui::palette::kit(p)).key("check-updates-button");
+
+    let notes_row = crate::settings::setting(p, "settings-release-notes", &notes_title, &notes_desc, notes_control);
+    let check_row = crate::settings::setting(p, "settings-check-updates", &check_title, &check_desc, check_control);
+    let lit_notes = crate::settings::search::reveal_of(app, "settings-release-notes");
+    let lit_check = crate::settings::search::reveal_of(app, "settings-check-updates");
+    let rows = vec![
+        crate::settings::pages::revealed(p, lit_notes, 20.0, notes_row),
+        crate::settings::pages::revealed(p, lit_check, 20.0, check_row),
+    ];
+    let card = crate::settings::list(p, "settings-updates", rows);
+    rune::col()
+        .key("plugin-page-updater.updates")
+        .w_full()
+        .child(crate::settings::pages::section(p, &format!("plugin-section-{section_title}"), Some(&section_title), card))
 }
