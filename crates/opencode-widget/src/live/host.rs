@@ -76,6 +76,9 @@ pub(super) fn runtime(link: &Arc<Link>, era: u64) -> Runtime {
     })
 }
 
+/// Why a draw post without a string `key` ends the run (`widgets-live.md`).
+const DRAW_KEY: &str = "A draw post needs a string key";
+
 /// What `post` throws for a function in its arguments.
 const POSTED: &str = "Argument 1 to __host.post";
 
@@ -118,7 +121,8 @@ impl<F: Future<Output = HostResult> + Unpin> Future for Checked<F> {
 /// render's view is made into its tree here, and `post` says whether it has handlers; a view that
 /// breaks Keys and depth ends the run at once (phase `view`). A draw's key names a canvas of the
 /// last render: an unknown key throws. A function anywhere but a view's handler props throws. A
-/// render or draw that isn't valid ends the run (`widgets-live.md`).
+/// render or draw that isn't valid (a draw without a string key too) ends the run
+/// (`widgets-live.md`). Renders and draws, checked here at once, reach the client at the post rate.
 fn post(link: &Link, mut args: Vec<HostValue>) -> HostResult {
     if link.lock().interrupt {
         return Err(HostValue::Interrupt);
@@ -148,11 +152,11 @@ fn post(link: &Link, mut args: Vec<HostValue>) -> HostResult {
             Err(m) => return Err(link.fail_view(m)),
         };
         let interactive = !tree.handlers.is_empty();
-        // The canvases of the last view, read or not, rendered or dropped over the rate.
+        // The canvases of the last view, read or not, rendered at once or waiting for the rate.
         link.lock().canvases = tree.canvases;
         match Node::from_host(&tree.view) {
-            Ok(node) => link.post(Post::Render(node)),
-            Err(e) => link.fail_post(format!("widget.render: {e}"))?,
+            Ok(node) => link.counted(Post::Render(node), None),
+            Err(e) => return Err(link.fail_post(format!("widget.render: {e}"))),
         }
         return Ok(HostValue::Bool(interactive));
     }
@@ -167,22 +171,26 @@ fn post(link: &Link, mut args: Vec<HostValue>) -> HostResult {
     }
     let post = match ty.as_deref() {
         Some("draw") => {
-            let key = field("key").and_then(Arg::text).unwrap_or_default();
-            let id = match link.lock().canvases.get(key.as_ref()) {
+            let key = match field("key") {
+                Some(k @ HostValue::String(_)) => k.text().unwrap_or_default().into_owned(),
+                _ => {
+                    checked("post", &args, 1)?;
+                    return Err(link.fail_post(DRAW_KEY.into()));
+                }
+            };
+            let id = match link.lock().canvases.get(&key) {
                 None => return Err(throw(format!("No canvas with key \"{key}\" in the rendered view"))),
                 Some((_, true)) => return Err(throw(format!("Canvas \"{key}\" is drawn by its wgsl; it takes no draw commands"))),
                 Some((id, false)) => id.clone(),
             };
-            crate::tree::strict(message, POSTED)?;
+            // The client gets its commands under the canvas's id; nothing else of it crosses.
+            crate::tree::strict(field("commands").unwrap_or(&HostValue::Undefined), POSTED)?;
             checked("post", &args, 1)?;
-            let out = match DrawOutput::from_host(field("commands")) {
-                Ok(out) => out,
-                Err(e) => {
-                    link.fail_post(format!("widget.draw(\"{id}\"): {e}"))?;
-                    return Ok(HostValue::Undefined);
-                }
-            };
-            Post::Draw { id, commands: out.commands }
+            match DrawOutput::from_host(field("commands")) {
+                Ok(out) => link.counted(Post::Draw { id, commands: out.commands }, Some(key)),
+                Err(e) => return Err(link.fail_post(format!("widget.draw(\"{id}\"): {e}"))),
+            }
+            return Ok(HostValue::Undefined);
         }
         Some("frame") => Post::Frame,
         Some("submit") => Post::Submit(json("value")),

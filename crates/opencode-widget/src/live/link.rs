@@ -30,7 +30,7 @@ use psychoscript::{DiagnosticKind, HostResult, HostValue, Interrupted, ProgramOp
 use serde_json::{Value, json};
 
 use super::fetch::Rate;
-use super::{Ended, LiveProgram, MAX_POSTS, Post, SAVE_AFTER, SLICE_MS, Setup};
+use super::{BURST, Ended, LiveProgram, Post, SAVE_AFTER, SLICE_MS, Setup};
 
 /// How long after its last rest a possibly busy run is kicked.
 const KICK_AFTER: Duration = Duration::from_millis(10);
@@ -129,9 +129,11 @@ pub(super) struct St {
     pub fetch_ids: u64,
     pub rate: Rate,
     pub outbox: Vec<Post>,
-    /// Posts in the current second, from when.
-    pub window: (Instant, u32),
-    pub dropped: u32,
+    /// The post rate's bucket: its tokens, as of when (wall time: a pause doesn't stop it).
+    pub bucket: (f64, Instant),
+    /// `render` and `draw` posts waiting for a token, oldest first, each with its canvas key (a
+    /// draw's) to coalesce by.
+    pub waiting: VecDeque<(Option<String>, Post)>,
     pub watch: Watch,
     pub suspender: Option<Suspender>,
     /// Where in the program it threw, when it ended so (1-based line and column).
@@ -161,6 +163,40 @@ impl St {
         d.as_secs_f64() * 1000.0
     }
 
+    /// The bucket refilled up to `now`, at `per_second`.
+    fn refill(&mut self, now: Instant, per_second: f64) {
+        let (tokens, at) = self.bucket;
+        self.bucket = ((tokens + now.saturating_duration_since(at).as_secs_f64() * per_second).min(BURST), now);
+    }
+
+    /// Whether the bucket has a token (fractional tokens: within 1e-9 of one counts).
+    fn token(&self) -> bool {
+        self.bucket.0 >= 1.0 - 1e-9
+    }
+
+    /// `post` goes to the client; whether it's the first waiting there (the client is to hear).
+    fn out(&mut self, post: Post) -> bool {
+        let was_empty = self.outbox.is_empty();
+        // A view or a canvas drawn again before the client took the last one replaces it.
+        let replaces = match (self.outbox.last(), &post) {
+            (Some(Post::Render(_)), Post::Render(_)) => true,
+            (Some(Post::Draw { id: a, .. }), Post::Draw { id: b, .. }) => a == b,
+            _ => false,
+        };
+        if replaces {
+            self.outbox.pop();
+        }
+        self.outbox.push(post);
+        was_empty
+    }
+
+    /// Every post waiting for the rate goes to the client at once, in order.
+    fn release(&mut self) {
+        for (_, post) in std::mem::take(&mut self.waiting) {
+            self.out(post);
+        }
+    }
+
     /// Wakes every future (to see the interrupt, or a pause end).
     fn wake_all(&mut self) {
         for (_, w) in &self.waiters {
@@ -179,11 +215,13 @@ pub(super) struct Link {
     pub program: Arc<LiveProgram>,
     pub data: Value,
     pub setup: Setup,
+    /// The post rate, tokens a second.
+    per_second: f64,
     me: Weak<Link>,
 }
 
 impl Link {
-    pub fn new(program: Arc<LiveProgram>, data: Value, setup: Setup) -> Arc<Link> {
+    pub fn new(program: Arc<LiveProgram>, data: Value, setup: Setup, per_second: f64) -> Arc<Link> {
         let now = Instant::now();
         let st = St {
             run: Run::Discarded,
@@ -203,15 +241,15 @@ impl Link {
             fetch_ids: 0,
             rate: Rate::default(),
             outbox: Vec::new(),
-            window: (now, 0),
-            dropped: 0,
+            bucket: (BURST, now),
+            waiting: VecDeque::new(),
             watch: Watch::fresh(now),
             suspender: None,
             failed_at: None,
             canvases: HashMap::new(),
             post_failure: None,
         };
-        Arc::new_cyclic(|me| Link { st: Mutex::new(st), news: AtomicBool::new(false), program, data, setup, me: me.clone() })
+        Arc::new_cyclic(|me| Link { st: Mutex::new(st), news: AtomicBool::new(false), program, data, setup, per_second, me: me.clone() })
     }
 
     pub fn lock(&self) -> MutexGuard<'_, St> {
@@ -290,6 +328,13 @@ impl Link {
             (Run::Stopping, _) => Run::Ended(Ended::Stopped),
             (_, result) => Run::Ended(ended(result)),
         };
+        // The last view is never lost: what waits for the rate goes out before the end, unless the
+        // client stopped the run.
+        match &st.run {
+            Run::Ended(Ended::Stopped) => st.waiting.clear(),
+            Run::Ended(_) => st.release(),
+            _ => {}
+        }
         st.failed_at = at;
         st.suspender = None;
         st.waiters.clear();
@@ -342,37 +387,81 @@ impl Link {
     }
 
     /// The program posted an invalid render or draw (`message` says why): a program error that
-    /// ends the run at once (`widgets-live.md`), unless it's over the rate, where it's dropped
-    /// unread like any post, and `post` goes on (`Ok`).
-    pub fn fail_post(&self, message: String) -> Result<(), HostValue> {
-        let mut st = self.lock();
-        if !admit(&mut st, false) {
-            return Ok(());
-        }
-        st.post_failure = Some(Ended::Failed(message));
-        Err(HostValue::Interrupt)
+    /// ends the run at once (`widgets-live.md`). What `post` throws to stop the run.
+    pub fn fail_post(&self, message: String) -> HostValue {
+        self.lock().post_failure = Some(Ended::Failed(message));
+        HostValue::Interrupt
     }
 
+    /// The program posted `post`, not counted toward the post rate: it goes to the client at once,
+    /// ahead of what waits for the rate. A `submit` or `dismiss` lets what waits go first; a frame
+    /// request while one waits for the client changes nothing.
     pub fn post(&self, post: Post) {
         let mut st = self.lock();
-        if !admit(&mut st, matches!(post, Post::Submit(_) | Post::Dismiss)) {
-            return;
+        let first = st.outbox.is_empty();
+        match post {
+            Post::Frame if st.outbox.contains(&Post::Frame) => return,
+            Post::Submit(_) | Post::Dismiss => st.release(),
+            _ => {}
         }
-        let was_empty = st.outbox.is_empty();
-        // A view or a canvas drawn again before the client took the last one replaces it.
-        let replaces = match (st.outbox.last(), &post) {
-            (Some(Post::Render(_)), Post::Render(_)) => true,
-            (Some(Post::Draw { id: a, .. }), Post::Draw { id: b, .. }) => a == b,
-            _ => false,
-        };
-        if replaces {
-            st.outbox.pop();
-        }
-        st.outbox.push(post);
+        st.out(post);
         drop(st);
-        if was_empty {
+        if first {
             self.signal();
         }
+    }
+
+    /// The program posted a render (no `key`) or canvas `key`'s draw, counted toward the post rate
+    /// (`widgets-live.md`, Post rate): with nothing waiting and a token, it takes the token and
+    /// goes to the client at once. Otherwise it waits, in place of the waiting render or the
+    /// waiting draw of its canvas, or last; the clock lets the waiting posts out as tokens come.
+    pub fn counted(&self, post: Post, key: Option<String>) {
+        let mut st = self.lock();
+        st.refill(Instant::now(), self.per_second);
+        if st.waiting.is_empty() && st.token() {
+            st.bucket.0 -= 1.0;
+            let first = st.out(post);
+            drop(st);
+            if first {
+                self.signal();
+            }
+            return;
+        }
+        let render = matches!(post, Post::Render(_));
+        let same = st.waiting.iter_mut().find(|(k, p)| if render { matches!(p, Post::Render(_)) } else { matches!(p, Post::Draw { .. }) && *k == key });
+        match same {
+            Some(waiting) => *waiting = (key, post),
+            None => {
+                let first = st.waiting.is_empty();
+                st.waiting.push_back((key, post));
+                drop(st);
+                if first {
+                    clock().poke();
+                }
+            }
+        }
+    }
+
+    /// The clock's look at `now` for the post rate: waiting posts go to the client, in order, one
+    /// per token. When the next one's token comes.
+    fn release_due(&self, now: Instant) -> Option<Instant> {
+        let mut st = self.lock();
+        if st.waiting.is_empty() {
+            return None;
+        }
+        st.refill(now, self.per_second);
+        let mut first = false;
+        while st.token() {
+            let Some((_, post)) = st.waiting.pop_front() else { break };
+            st.bucket.0 -= 1.0;
+            first |= st.out(post);
+        }
+        let next = (!st.waiting.is_empty()).then(|| now + Duration::from_secs_f64((1.0 - st.bucket.0).max(0.0) / self.per_second));
+        drop(st);
+        if first {
+            self.signal();
+        }
+        next
     }
 
     pub fn take(&self) -> Vec<Post> {
@@ -451,7 +540,10 @@ impl Link {
         let mut st = self.lock();
         match st.run {
             Run::Ended(_) | Run::Stopping => return,
-            Run::Saved(_) | Run::Discarded => st.run = Run::Ended(Ended::Stopped),
+            Run::Saved(_) | Run::Discarded => {
+                st.run = Run::Ended(Ended::Stopped);
+                st.waiting.clear();
+            }
             Run::Killing { .. } => {}
             _ => st.run = Run::Stopping,
         }
@@ -578,26 +670,6 @@ impl Link {
     }
 }
 
-/// Whether a post is let through the rate (at most [`MAX_POSTS`] a second; a `last` one, a submit
-/// or dismiss, always is), counting it; one over it is dropped, and the drops of a second are
-/// told the client when the next begins.
-fn admit(st: &mut St, last: bool) -> bool {
-    let now = Instant::now();
-    if now.duration_since(st.window.0) >= Duration::from_secs(1) {
-        if st.dropped > 0 {
-            let n = std::mem::take(&mut st.dropped);
-            st.outbox.push(Post::Dropped(n));
-        }
-        st.window = (now, 0);
-    }
-    if !last && st.window.1 >= MAX_POSTS {
-        st.dropped += 1;
-        return false;
-    }
-    st.window.1 += 1;
-    true
-}
-
 /// The program's thread: runs it (from `main` or a snapshot) until it ends or is suspended.
 fn run(link: Arc<Link>, era: u64, snapshot: Option<Snapshot>) {
     let runtime = super::host::runtime(&link, era);
@@ -629,7 +701,8 @@ fn run(link: Arc<Link>, era: u64, snapshot: Option<Snapshot>) {
     link.finished(era, result, None);
 }
 
-/// The one thread that keeps every live program's time: timers, saves, the 50 ms rule.
+/// The one thread that keeps every live program's time: timers, saves, the 50 ms rule, the post
+/// rate.
 struct Clock {
     m: Mutex<(Vec<Weak<Link>>, bool)>,
     cv: Condvar,
@@ -675,7 +748,7 @@ impl Clock {
             let now = Instant::now();
             let mut next: Option<Instant> = None;
             for l in &links {
-                if let Some(at) = l.tick(now) {
+                for at in [l.release_due(now), l.tick(now)].into_iter().flatten() {
                     next = Some(next.map_or(at, |n| n.min(at)));
                 }
             }

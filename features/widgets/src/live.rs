@@ -115,9 +115,11 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
     } else if !on && !live.paused() {
         live.pause();
     }
-    let posts = if live.news() { live.take() } else { Vec::new() };
+    // How it ended first: the posts it made before its end (those that waited for the post rate
+    // too) are all there by then.
     let ended = live.ended();
     let failed_at = live.failed_at();
+    let posts = if live.news() || ended.is_some() { live.take() } else { Vec::new() };
     let mut changed = false;
     for post in posts {
         let event = match post {
@@ -157,11 +159,6 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
             Post::Submit(value) => Event::Answered(Response::Submit(value)),
             Post::Dismiss => Event::Answered(Response::Dismiss),
             Post::Send(message) => Event::Sending(message),
-            // Over the post rate: the program's error.
-            Post::Dropped(n) => {
-                crate::report(host, id, "main", &format!("dropped {n} posts over 240 a second"), None, 0);
-                continue;
-            }
             Post::Capture(on) => {
                 if let Some(e) = host.widgets_mut().entries.get_mut(id) {
                     e.capture_wanted = on;

@@ -74,24 +74,17 @@ fn frame() -> Frame {
     Frame { id: None, t: 0.0, dt: 1.0 / 60.0, width: 400.0, height: 300.0, scale: 2.0, pointer: None, dark: true, fullscreen: false, close: None }
 }
 
-/// A frame every 4.5 ms: about 222 a second, under the 240 posts a second a frame request counts
-/// toward (a vsync gives at most 120).
+/// A frame every 4.5 ms: about 222 a second (a vsync gives at most 120).
 const FRAME_GAP: Duration = Duration::from_micros(4500);
 
 /// Answers `live`'s frame requests, no faster than [`FRAME_GAP`], until it had `n` frames or it
-/// ended: the frames it had, how it ended, and the posts dropped on the way (none, at this pace).
-fn frames(live: &Live, n: usize, within: Duration) -> (usize, Option<Ended>, usize) {
+/// ended: the frames it had, and how it ended.
+fn frames(live: &Live, n: usize, within: Duration) -> (usize, Option<Ended>) {
     let end = Instant::now() + within;
-    let (mut given, mut dropped, mut wanted) = (0, 0, false);
+    let (mut given, mut wanted) = (0, false);
     let mut next = Instant::now();
     while given < n && Instant::now() < end {
-        for post in live.take() {
-            match post {
-                Post::Frame => wanted = true,
-                Post::Dropped(k) => dropped += k as usize,
-                _ => {}
-            }
-        }
+        wanted |= live.take().contains(&Post::Frame);
         if wanted && Instant::now() >= next {
             live.frame(&frame());
             (wanted, given) = (false, given + 1);
@@ -101,11 +94,11 @@ fn frames(live: &Live, n: usize, within: Duration) -> (usize, Option<Ended>, usi
             }
         }
         if let Some(e) = live.ended() {
-            return (given, Some(e), dropped);
+            return (given, Some(e));
         }
         std::thread::sleep(Duration::from_micros(200));
     }
-    (given, live.ended(), dropped)
+    (given, live.ended())
 }
 
 fn program(source: &str) -> Program {
@@ -152,9 +145,9 @@ fn main() {
 
     let looping = start(LIVE_FRAMES);
     let t = Instant::now();
-    let (given, end, dropped) = frames(&looping, FRAMES, Duration::from_secs(900));
+    let (given, end) = frames(&looping, FRAMES, Duration::from_secs(900));
     assert_eq!(end, None, "a frame loop stays under the cap: it ended after {given} frames");
-    assert_eq!((given, dropped), (FRAMES, 0), "a frame loop gets all its frames, none of its posts dropped");
+    assert_eq!(given, FRAMES, "a frame loop gets all its frames");
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(looping.ended(), None, "a frame loop stays under the cap after its last frame");
     println!("ok   {FRAMES} frames of await widget.frame() stay under the cap ({:.1} s)", t.elapsed().as_secs_f64());

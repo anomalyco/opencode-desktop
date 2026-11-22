@@ -11,8 +11,8 @@
 //! again from `main` when it couldn't be saved.
 //!
 //! Budgets: a program that runs 50 ms without awaiting is stopped with an error (watched from
-//! outside the run, [`link`]); a `draw` over 2,000 commands throws; posts over 240 a second are
-//! dropped (submit and dismiss never are).
+//! outside the run, [`link`]); a `draw` over 2,000 commands ends the run. `render` and `draw` posts
+//! over the post rate wait and coalesce ([`POSTS_PER_SECOND`], `widgets-live.md`, Post rate).
 
 pub mod fetch;
 mod host;
@@ -35,8 +35,11 @@ use link::Link;
 
 /// The longest a program may run without awaiting.
 pub const SLICE_MS: u64 = 50;
-/// Posts a second past which they are dropped.
-pub const MAX_POSTS: u32 = 240;
+/// The post rate (`widgets-live.md`, Post rate): a run's `render` and `draw` posts take a token of
+/// a bucket of [`BURST`], refilled at this many a second; past it they wait, and coalesce.
+pub const POSTS_PER_SECOND: f64 = 240.0;
+/// The post rate's bucket: the most tokens it holds, and starts with.
+pub const BURST: f64 = 8.0;
 /// How long a paused program keeps its thread before it is saved to a snapshot.
 pub const SAVE_AFTER: std::time::Duration = std::time::Duration::from_secs(30);
 
@@ -88,8 +91,6 @@ pub enum Post {
     Submit(Value),
     Dismiss,
     Send(SendMessage),
-    /// Posts were dropped over the rate (`count` since the last warning).
-    Dropped(u32),
     /// Pointer capture asked for (`widget.capturePointer()`) or given back.
     Capture(bool),
     /// Something the program asked of the host failed (`phase`: `fetch`), for the agent to hear.
@@ -134,7 +135,13 @@ pub struct Setup {
 impl Live {
     /// Starts `program` on `data` on a thread of its own.
     pub fn start(program: Arc<LiveProgram>, data: Value, setup: Setup) -> Live {
-        let link = Link::new(program, data, setup);
+        Live::start_rated(program, data, setup, POSTS_PER_SECOND)
+    }
+
+    /// [`Live::start`] at a post rate of `per_second` (as the TS host's `postsPerSecond`), to watch
+    /// the rate at a pace that's easy to see.
+    pub fn start_rated(program: Arc<LiveProgram>, data: Value, setup: Setup, per_second: f64) -> Live {
+        let link = Link::new(program, data, setup, per_second);
         link.start();
         Live { link }
     }
