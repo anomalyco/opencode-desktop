@@ -169,8 +169,8 @@ impl RowSpec {
                         let reveal = crate::line_reveal::reveal(k);
                         let line = (reveal, k.get(&crate::line_reveal::LINE_GROW).to_bits(), crate::line_reveal::feather(k).to_bits(), s.line_hold().shown(&a.id, *part), s.line_hold().paced(&a.id, *part));
                         // A code block's Copy shows its tick, its wrapping follows Settings and any
-                        // per-block toggle, and display math follows async completion; rows without
-                        // fences read none of these.
+                        // per-block toggle, and math (display and inline) follows async completion;
+                        // rows without fences read none of these.
                         let has_fence = body.contains("```") || body.contains("~~~");
                         let copied = has_fence.then(|| crate::copied::current(s));
                         let wrap = has_fence.then(|| {
@@ -192,9 +192,10 @@ impl RowSpec {
                                 .unwrap_or_default();
                             (default, overrides)
                         });
-                        // Display math: the row's own version, which moves only when an equation it
-                        // drew while that was still rendering finishes (`rune_kit::math::collect`).
-                        let has_math = rune_kit::math::may_have_math_fence(body);
+                        // Display or inline math: the row's own version, which moves only when an
+                        // equation it drew while that was still rendering finishes
+                        // (`rune_kit::math::collect`).
+                        let has_math = rune_kit::math::may_have_math(body);
                         if has_math && let Some(m) = s.math_client() {
                             m.hold();
                         }
@@ -334,7 +335,7 @@ impl RowSpec {
                     }),
                     _ => None,
                 });
-                files.and_then(|f| crate::images::gallery(s, p, &format!("tool-images-{tool}"), f, false, None)).unwrap_or_else(col).pt(8.0)
+                files.and_then(|f| crate::images::gallery(s, p, &format!("tool-images-{tool}"), f, false, 0.0, None)).unwrap_or_else(col).pt(8.0)
             }
             RowContent::TurnText { message, part, live, pt } => match &t.messages[*message] {
                 Message::Assistant(a) => match &a.parts[*part] {
