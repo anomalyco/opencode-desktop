@@ -695,7 +695,6 @@ function settings.renderImportDialog(
                 key = "settings-import-start",
                 text = i18n:T("signins.action"),
                 variant = "contrast",
-                autofocus = true,
                 disabled = not canImport,
                 loading = busy,
                 onPress = view:Handler(function()
