@@ -490,12 +490,24 @@ impl OpenIn {
     }
 }
 
-/// Whether `HARNESS_OPEN_EXTERNAL_LOG` may intercept external opens and reveals: only in debug
-/// builds or headless driver runs (`--snap`, `--script`, `--tree`, …), never in a normal windowed
-/// release launch.
+/// Set by [`admit_harness_log`].
+#[cfg(not(target_arch = "wasm32"))]
+static HARNESS_LOG_ADMITTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Lets `HARNESS_OPEN_EXTERNAL_LOG` take external opens and reveals in a windowed release run
+/// too, so a proof that drives a real window never opens the person's browser or file manager.
+/// The app calls it only for a harness run that roots every folder it writes (`--harness-writes`).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn admit_harness_log() {
+    HARNESS_LOG_ADMITTED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether `HARNESS_OPEN_EXTERNAL_LOG` may intercept external opens and reveals: in debug builds,
+/// headless driver runs (`--snap`, `--script`, `--tree`, …) and harness runs [`admit_harness_log`]
+/// admitted, never in a normal windowed release launch.
 #[cfg(not(target_arch = "wasm32"))]
 fn allow_harness_log() -> bool {
-    cfg!(debug_assertions) || rune::is_headless()
+    cfg!(debug_assertions) || rune::is_headless() || HARNESS_LOG_ADMITTED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Logs a safe reveal to `HARNESS_OPEN_EXTERNAL_LOG` during debug or headless proofs without
