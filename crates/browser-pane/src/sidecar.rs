@@ -210,7 +210,10 @@ impl BrowserHost {
             shared: self.shared.clone(),
             inbox_tx: self.inbox_tx.clone(),
             surfaces: self.surfaces.clone(),
-            waker: self.message_waker.clone().or_else(|| self.waker.clone()),
+            // The window's waker: an engine message read the turn it arrives (#640's message waker)
+            // let back/forward return before the history commit's DevTools events landed, so the
+            // agent's next command failed document_changed. Read at the next frame, they land together.
+            waker: self.waker.clone(),
             sock: sock.clone(),
             opens: self.pending_open_msgs(),
             extension_args,

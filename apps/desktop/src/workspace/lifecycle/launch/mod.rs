@@ -337,10 +337,11 @@ pub fn inbox_waker(handle: rune::AppHandle<App>) -> rune::Waker {
     })
 }
 
-/// What the browser engine's messages wake: a quiet poll that reads them and steps the agent's
-/// browser commands waiting on them, in the turn they arrive. Woken like any other thread, a
-/// shown window would poll only in its next frame, so each DevTools round trip of a command
-/// waited a frame (17-45 ms on blade); a frame now follows only when the pane changed.
+/// A quiet poll that reads the browser engine's messages and steps the agent's browser commands,
+/// with a frame only when the pane changed: a fetched command starts the turn it arrives, not at
+/// the next frame (about 13 ms on blade). The engine's own messages wake the window instead
+/// (`browser_pane` `sidecar`): read the turn they arrived, back/forward returned before their
+/// history commit's DevTools events landed.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn browser_waker(handle: rune::AppHandle<App>) -> rune::Waker {
     use std::sync::{
