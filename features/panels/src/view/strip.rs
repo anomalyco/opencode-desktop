@@ -8,6 +8,7 @@ use rune_theme_opencode::icons as ic;
 use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::Pal;
 use opencode_ui::style::{UI, UI_SMALL};
+use opencode_ui::tab::TabExt;
 
 use crate::drag::{choose_side_new_tab, side_new_tab_gesture, side_tab_gesture};
 use crate::host::PanelsHost;
@@ -252,7 +253,7 @@ fn new_tab_trigger<H: PanelsHost + 'static>(
             move |s: &mut H, tx: &mut Tx| on_dismiss_new_tab(s, &close_nid, tx),
         ))
         // A middle click closes it, as its × does (`side-region.tsx`'s `onMiddleClick`).
-        .on_middle_press(move |s: &mut H, tx: &mut Tx| on_dismiss_new_tab(s, &middle_nid, tx))
+        .closable_tab(move |s: &mut H, tx: &mut Tx| on_dismiss_new_tab(s, &middle_nid, tx))
 }
 
 /// How wide a strip's tabs are, given each one's content width and the room they share (the
@@ -361,7 +362,7 @@ fn tab_trigger<H: PanelsHost + 'static>(
     // A middle click closes a tab that can close, on its release over the tab
     // (`panel-trigger.tsx`'s `onMiddleClick`, Desktop's `auxclick`).
     if entry.tab.can_close() {
-        pill = pill.on_middle_press(move |s: &mut H, tx: &mut Tx| close_side_tab(s, &middle_key, tx));
+        pill = pill.closable_tab(move |s: &mut H, tx: &mut Tx| close_side_tab(s, &middle_key, tx));
     }
     let (draggable, shown) = (!entry.tab.pinned && entry.tab.draggable, active && focused);
     pill = pill.on_drag(move |s: &mut H, d: &mut Drag, tx: &mut Tx| {

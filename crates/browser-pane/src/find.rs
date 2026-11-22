@@ -342,13 +342,16 @@ impl crate::BrowserHost {
             self.remote_proxies.insert(sid.to_owned(), cfg.clone());
         } else {
             self.remote_proxies.remove(sid);
+            self.site_permissions.clear_session(sid);
         }
         for t in &mut self.tabs {
             if let crate::protocol::ContextKind::RemoteServer { server_id: id, proxy: cur } = &mut t.context
                 && id.trim() == sid
             {
                 *cur = proxy.clone();
-                if proxy.is_some() && t.refusal.as_deref() == Some("browser.proxy.required") {
+                if proxy.is_none() {
+                    t.prompts.visit_permissions.clear();
+                } else if t.refusal.as_deref() == Some("browser.proxy.required") {
                     t.refusal = None;
                 }
             }
@@ -615,6 +618,14 @@ impl crate::BrowserHost {
         if let crate::protocol::ContextKind::RemoteServer { server_id, .. } = &context {
             let sid = server_id.trim();
             self.remote_proxies.remove(sid);
+            self.site_permissions.clear_session(sid);
+            for t in &mut self.tabs {
+                if let crate::protocol::ContextKind::RemoteServer { server_id: id, .. } = &t.context
+                    && id.trim() == sid
+                {
+                    t.prompts.visit_permissions.clear();
+                }
+            }
         }
         if !context.is_default() {
             self.send(crate::protocol::HostMsg::DropContext { context });

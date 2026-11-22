@@ -199,10 +199,8 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
             crate::storage::presented();
             // Stream batches wake the window for a quiet poll, which draws only what they change.
             let wake = crate::launch::inbox_waker(ready.clone());
-            let browser = crate::launch::browser_waker(ready.clone());
             ready.update_if(move |s, tx| {
                 s.launch.inbox_wake = Some(wake);
-                s.workspace_panes.browser.host.set_message_waker(browser);
                 crate::launch::ready(s, tx)
             })
         })
@@ -240,11 +238,13 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
         // Quitting (File > Quit, the Quit command) installs a ready update on the way out too, as
         // closing the last window does; the second call of the two does nothing.
         .on_quit(|s, _| {
+            s.plugins.restarts.cancel_all();
             let scheduler = s.kernel.scheduler.clone();
             scheduler.run_close(s);
             s.save_on_quit();
         })
         .on_close(|s, _| {
+            s.plugins.restarts.cancel_all();
             let scheduler = s.kernel.scheduler.clone();
             scheduler.run_close(s);
             s.save_on_close();

@@ -45,6 +45,7 @@ use self::manifest::{
 use self::pipe::{CdpPipe, PipeInbound};
 
 pub(super) const WINDOW_ID: i32 = 1;
+pub(super) const WINDOW_ID_NONE: i32 = -1;
 pub(super) const WINDOW_ID_CURRENT: i32 = -2;
 const SHIM_TEMPLATE: &str = include_str!("shim.js");
 
@@ -176,9 +177,20 @@ pub(super) struct AttachedSession {
     pub pause_started: Option<Instant>,
     pub pending_shim_eval_id: Option<i64>,
     pub was_paused: bool,
-    /// Becomes `true` strictly when Chromium replies with no error to this session's `Fetch.enable`
-    /// barrier command. Stays `false` forever if `Fetch.enable` errors or never replies, so
-    /// duplicate SW attaches can never bypass a fail-closed hold.
+    /// True when this `FileGuardOnly` session is an extension `iframe` (so crash-reload re-applies
+    /// `Page.enable` + `IFRAME_LOCKDOWN_JS`, READER-7 #592 R2).
+    pub is_iframe: bool,
+    /// Set to `true` if ANY pre-resume setup command replies with an error; forces fail-closed
+    /// hold even if `Fetch.enable` succeeds (READER-7 #592 R1).
+    pub setup_failed: bool,
+    /// Number of pre-resume setup commands still awaiting Chromium's reply for this session.
+    pub setup_pending: u8,
+    /// Set to `Some(send_resume)` once `Fetch.enable` replies cleanly; consumed when
+    /// `setup_pending == 0 && !setup_failed`.
+    pub resume_when_ready: Option<bool>,
+    /// Becomes `true` strictly when `Fetch.enable` AND every pre-resume setup command reply with
+    /// no error. Stays `false` forever if any setup command or `Fetch.enable` errors or never
+    /// replies, so duplicate SW attaches can never bypass a fail-closed hold.
     pub fetch_confirmed: bool,
     pub shimmed: bool,
 }
@@ -305,6 +317,9 @@ pub struct ExtensionHost {
     pub(super) pending_stub_cleanup: HashMap<i64, String>,
     pub(super) pending_uninstall_cmd: HashMap<i64, String>,
     pub(super) pending_reload_cmd: HashMap<i64, String>,
+    /// Pre-resume setup CDP command IDs mapped to their session ID so any setup error marks
+    /// `sess.setup_failed = true` and blocks resume when `Fetch.enable` replies (READER-7 R1).
+    pub(super) pending_setup_cmds: HashMap<i64, String>,
     /// Tracks `Fetch.enable` command IDs waiting for Chromium's reply (`UpdateSubresourceLoaderFactories`
     /// completed) before sending `Runtime.runIfWaitingForDebugger` (`review-rd274.md` Round-2 §1c).
     /// Value is `(session_id, send_resume_when_confirmed)`.
@@ -326,6 +341,10 @@ pub struct ExtensionHost {
     pub(super) notification_rates: HashMap<String, RateWindow>,
     pub(super) notifications: HashMap<String, Vec<String>>,
     pub(super) notifications_enabled: bool,
+    pub(super) window_created: bool,
+    pub(super) window_focused: bool,
+    pub(super) window_width: i32,
+    pub(super) window_height: i32,
     pub metrics: ShimMetrics,
 }
 
@@ -379,6 +398,7 @@ impl ExtensionHost {
             pending_stub_cleanup: HashMap::new(),
             pending_uninstall_cmd: HashMap::new(),
             pending_reload_cmd: HashMap::new(),
+            pending_setup_cmds: HashMap::new(),
             pending_fetch_resume: HashMap::new(),
             pending_loaded_resume: Vec::new(),
             deferred_dup_sw_detaches: HashMap::new(),
@@ -392,6 +412,10 @@ impl ExtensionHost {
             // Off until the app says Settings > Notifications allows them, so `getPermissionLevel`
             // never answers "granted" in the moment before `SetNotificationsEnabled` arrives.
             notifications_enabled: false,
+            window_created: false,
+            window_focused: false,
+            window_width: 1280,
+            window_height: 800,
             metrics: ShimMetrics::default(),
         }
     }
@@ -750,13 +774,15 @@ impl ExtensionHost {
                 .iter_mut()
                 .filter_map(|(ext_id, map)| map.remove(&engine_tab_id).map(|cid| (ext_id.clone(), cid)))
                 .collect();
+            let closing = self.visible_tabs().next().is_none();
             for (ext_id, cid) in removed {
                 self.emit_event(
                     "tabs.onRemoved",
-                    vec![json!(cid), json!({ "windowId": WINDOW_ID, "isWindowClosing": false })],
+                    vec![json!(cid), json!({ "windowId": WINDOW_ID, "isWindowClosing": closing })],
                     Some(&ext_id),
                 );
             }
+            self.maybe_emit_window_removed();
         }
     }
 
@@ -767,8 +793,10 @@ impl ExtensionHost {
         width: i32,
         height: i32,
         active: bool,
+        agent_driven: bool,
     ) -> Vec<ExtEffect> {
-        if active {
+        let visible_active = active && !agent_driven;
+        if visible_active {
             for t in &mut self.tabs {
                 t.active = false;
             }
@@ -778,13 +806,31 @@ impl ExtensionHost {
             url: url.to_owned(),
             title: String::new(),
             loading: true,
-            active,
-            agent_driven: false,
+            active: visible_active,
+            agent_driven,
             width,
             height,
             muted: false,
             audible: false,
         });
+        if !agent_driven {
+            if !self.window_created {
+                if width > 0 && height > 0 {
+                    self.window_width = width;
+                    self.window_height = height;
+                }
+                self.window_created = true;
+                if active {
+                    self.window_focused = true;
+                }
+                self.emit_window_event("windows.onCreated");
+                if active {
+                    self.emit_event("windows.onFocusChanged", vec![json!(WINDOW_ID)], None);
+                }
+            } else if active {
+                self.emit_window_focus(true);
+            }
+        }
         let effects = self.maybe_start_seed_probe();
         self.trigger_tab_id_probes_all();
         effects
@@ -800,25 +846,34 @@ impl ExtensionHost {
                 .filter_map(|(ext_id, map)| map.remove(&engine_tab_id).map(|cid| (ext_id.clone(), cid)))
                 .collect();
             if !tab.agent_driven {
+                let closing = self.visible_tabs().next().is_none();
                 for (ext_id, cid) in removed {
                     self.emit_event(
                         "tabs.onRemoved",
-                        vec![json!(cid), json!({ "windowId": WINDOW_ID, "isWindowClosing": false })],
+                        vec![json!(cid), json!({ "windowId": WINDOW_ID, "isWindowClosing": closing })],
                         Some(&ext_id),
                     );
                 }
+                self.maybe_emit_window_removed();
             }
         }
     }
 
     pub fn on_tab_focused(&mut self, engine_tab_id: u64) {
         let mut newly_active_visible = false;
+        let mut has_visible = false;
         for t in &mut self.tabs {
             let is_this = t.engine_tab_id == engine_tab_id;
             if is_this && !t.active && !t.agent_driven {
                 newly_active_visible = true;
             }
+            if is_this && !t.agent_driven {
+                has_visible = true;
+            }
             t.active = is_this;
+        }
+        if has_visible && self.window_created {
+            self.emit_window_focus(true);
         }
         if newly_active_visible {
             let pairs: Vec<(String, i32)> = self
@@ -834,6 +889,64 @@ impl ExtensionHost {
                     Some(&ext_id),
                 );
             }
+        }
+    }
+
+    pub fn on_window_blurred(&mut self) {
+        if self.window_created {
+            self.emit_window_focus(false);
+        }
+    }
+
+    pub fn on_tab_resized(&mut self, engine_tab_id: u64, width: i32, height: i32) {
+        if width <= 0 || height <= 0 {
+            return;
+        }
+        let Some(tab) = self.tabs.iter_mut().find(|t| t.engine_tab_id == engine_tab_id) else {
+            return;
+        };
+        tab.width = width;
+        tab.height = height;
+        if tab.active && !tab.agent_driven && (self.window_width != width || self.window_height != height) {
+            self.window_width = width;
+            self.window_height = height;
+            if self.window_created {
+                self.emit_window_event("windows.onBoundsChanged");
+            }
+        }
+    }
+
+    fn maybe_emit_window_removed(&mut self) {
+        if self.window_created && self.visible_tabs().next().is_none() {
+            self.emit_window_focus(false);
+            self.window_created = false;
+            self.emit_event("windows.onRemoved", vec![json!(WINDOW_ID)], None);
+        }
+    }
+
+    fn emit_window_focus(&mut self, focused: bool) {
+        if self.window_focused == focused {
+            return;
+        }
+        self.window_focused = focused;
+        let id = if focused { WINDOW_ID } else { WINDOW_ID_NONE };
+        self.emit_event("windows.onFocusChanged", vec![json!(id)], None);
+    }
+
+    fn emit_window_event(&mut self, event: &str) {
+        let subscribed: Vec<(String, ExtensionManifest)> = self
+            .subscribers
+            .get(event)
+            .map(|by_ext| {
+                by_ext
+                    .keys()
+                    .filter_map(|eid| self.extensions.get(eid).map(|e| (eid.clone(), e.manifest.clone())))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for (ext_id, manifest) in subscribed {
+            let win = self.window_json(&ext_id, &manifest, false);
+            self.emit_event(event, vec![win], Some(&ext_id));
         }
     }
 

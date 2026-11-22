@@ -104,6 +104,11 @@ const MAX_HELD_MEDIA_GATES: usize = 16;
 #[derive(Default)]
 pub struct TabPrompts {
     pub agent_driven: AtomicBool,
+    /// Born agent-driven or preview, or agent-driven since: a page's `window.print()` and the
+    /// browser's print command do nothing here, for the life of the tab (`clipboard_gate` has the
+    /// page side). Their native dialog stops the whole engine until a person closes it, and on these
+    /// tabs nobody may be there.
+    pub print_gated: AtomicBool,
     /// One pop-up per input event, as Chromium's blocker allows per user activation (it is off:
     /// `--disable-popup-blocking`). Set only by the person's click/key; the agent's `Input.*` clears
     /// it, so a page cannot open a tab off the agent's input (official `window-open.ts:78-80,106`).
@@ -150,6 +155,12 @@ fn media_bits(kinds: &[PermissionKind]) -> u32 {
 }
 
 impl TabPrompts {
+    /// The tab's driver as it opens; a preview or agent-driven tab is print-gated from birth.
+    pub fn open_as(&self, agent_driven: bool, preview: bool) {
+        self.agent_driven.store(agent_driven, Ordering::Release);
+        self.print_gated.store(agent_driven || preview, Ordering::Release);
+    }
+
     /// Holds a gated `getUserMedia` for the bar and asks the app (`EngineMsg::PermissionRequest`).
     /// Returns the deny answer instead once the tab already holds `MAX_HELD_MEDIA_GATES`, so a
     /// page's loop cannot flood the app with requests.

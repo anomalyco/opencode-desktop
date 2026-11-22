@@ -169,8 +169,8 @@ impl RowSpec {
                         let reveal = crate::line_reveal::reveal(k);
                         let line = (reveal, k.get(&crate::line_reveal::LINE_GROW).to_bits(), crate::line_reveal::feather(k).to_bits(), s.line_hold().shown(&a.id, *part), s.line_hold().paced(&a.id, *part));
                         // A code block's Copy shows its tick, its wrapping follows Settings and any
-                        // per-block toggle, and display math follows async completion; rows without
-                        // fences read none of these.
+                        // per-block toggle, and math (display and inline) follows async completion;
+                        // rows without fences read none of these.
                         let has_fence = body.contains("```") || body.contains("~~~");
                         let copied = has_fence.then(|| crate::copied::current(s));
                         let wrap = has_fence.then(|| {
@@ -192,9 +192,10 @@ impl RowSpec {
                                 .unwrap_or_default();
                             (default, overrides)
                         });
-                        // Display math: the row's own version, which moves only when an equation it
-                        // drew while that was still rendering finishes (`rune_kit::math::collect`).
-                        let has_math = rune_kit::math::may_have_math_fence(body);
+                        // Display or inline math: the row's own version, which moves only when an
+                        // equation it drew while that was still rendering finishes
+                        // (`rune_kit::math::collect`).
+                        let has_math = rune_kit::math::may_have_math(body);
                         if has_math && let Some(m) = s.math_client() {
                             m.hold();
                         }
@@ -334,7 +335,7 @@ impl RowSpec {
                     }),
                     _ => None,
                 });
-                files.and_then(|f| crate::images::gallery(s, p, &format!("tool-images-{tool}"), f, false, None)).unwrap_or_else(col).pt(8.0)
+                files.and_then(|f| crate::images::gallery(s, p, &format!("tool-images-{tool}"), f, false, 0.0, None)).unwrap_or_else(col).pt(8.0)
             }
             RowContent::TurnText { message, part, live, pt } => match &t.messages[*message] {
                 Message::Assistant(a) => match &a.parts[*part] {
@@ -608,12 +609,14 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
     // Its edges fade only while rows are under them, and never over a stuck group header. Under
     // a session header the top one is Desktop's `session-header-fade`: a 16 pt linear ramp of
     // the page's colour under the header's bottom edge, whole as soon as rows go under it; the
-    // bottom one is Desktop's 20 px smoothstep viewport mask (`packages/app/src/index.css:96-106`).
+    // bottom one is Desktop's 20 px 4-stop piecewise-linear viewport mask (`packages/app/src/index.css:96-107`:
+    // 0 -> 0.16 @ 5px -> 0.50 @ 10px -> 0.84 @ 15px -> 1.0 @ 20px).
     // Without a session header (narrow windows, `virtualizer.tsx:1182-1208`), official has only
     // the bottom 20 px fade (`end_only`) and never fades rows under the narrow location bar.
+    let bottom_fade = rune::ScrollFade::strength(20.0).stops(&[(0.25, 0.16), (0.5, 0.5), (0.75, 0.84)]);
     let fade = match header {
-        Some(_) => rune::ScrollFade::strength(16.0).linear().full_at(0.01).below_sticky().with_end(rune::ScrollFade::strength(20.0)),
-        None => rune::ScrollFade::strength(20.0).end_only(),
+        Some(_) => rune::ScrollFade::strength(16.0).linear().full_at(0.01).below_sticky().with_end(bottom_fade),
+        None => bottom_fade.end_only(),
     };
     let mut scroll = marks.view(col())
         .key(format!("scroll-{id}"))

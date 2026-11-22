@@ -22,15 +22,32 @@ static NEXT_SNAP_ID: AtomicU64 = AtomicU64::new(1);
 /// Private scratch root where temporary SQLite copies live only for the duration of one read.
 pub struct SnapshotScratch {
     pub directory: PathBuf,
-    live: Mutex<HashSet<PathBuf>>,
 }
+
+/// Every copy this process has in use, whichever `SnapshotScratch` made it: a sweep by one reader
+/// never removes another's.
+static LIVE: Mutex<Option<HashSet<PathBuf>>> = Mutex::new(None);
+
+fn live_insert(dir: &Path) {
+    if let Ok(mut live) = LIVE.lock() {
+        live.get_or_insert_with(HashSet::new).insert(dir.to_owned());
+    }
+}
+
+fn live_remove(dir: &Path) {
+    if let Ok(mut live) = LIVE.lock()
+        && let Some(set) = live.as_mut()
+    {
+        set.remove(dir);
+    }
+}
+
+/// Another process's copy is swept only once it is this old (its process may still be reading it).
+const FOREIGN_SNAPSHOT_AGE: Duration = Duration::from_secs(600);
 
 impl SnapshotScratch {
     pub fn new(directory: PathBuf) -> Self {
-        Self {
-            directory,
-            live: Mutex::new(HashSet::new()),
-        }
+        Self { directory }
     }
 
     /// Default scratch directory inside the app's own private state dir (never shared `/tmp`).
@@ -138,26 +155,8 @@ where
     let dir = scratch
         .directory
         .join(format!("{PREFIX}{}-{seq}", std::process::id()));
-    if let Ok(mut live) = scratch.live.lock() {
-        live.insert(dir.clone());
-    }
-
-    struct Cleanup<'a> {
-        dir: PathBuf,
-        scratch: &'a SnapshotScratch,
-    }
-    impl Drop for Cleanup<'_> {
-        fn drop(&mut self) {
-            remove_dir_retry(&self.dir);
-            if let Ok(mut live) = self.scratch.live.lock() {
-                live.remove(&self.dir);
-            }
-        }
-    }
-    let _guard = Cleanup {
-        dir: dir.clone(),
-        scratch,
-    };
+    live_insert(&dir);
+    let _guard = Cleanup(dir.clone());
 
     create_private_dir(&dir).map_err(|e| io_failure(&e))?;
     let base_name = file.file_name().ok_or(ImportFailure::Read)?;
@@ -181,30 +180,92 @@ where
     result
 }
 
+/// Copies the regular, non-symlink files of `directory` (not its `LOCK`, not subdirectories) into
+/// a `0o700` private subdirectory of `scratch`, at most `max_bytes` in all, runs `read` on the copy,
+/// and deletes the copy unconditionally: a LevelDB folder read without touching the live one.
+pub fn snapshot_directory<T>(
+    directory: &Path,
+    scratch: &SnapshotScratch,
+    max_bytes: u64,
+    read: impl FnOnce(&Path) -> Result<T, ImportFailure>,
+) -> Result<T, ImportFailure> {
+    create_private_dir(&scratch.directory).map_err(|e| io_failure(&e))?;
+    sweep_snapshots(scratch);
+    let seq = NEXT_SNAP_ID.fetch_add(1, Ordering::Relaxed);
+    let dir = scratch.directory.join(format!("{PREFIX}{}-{seq}", std::process::id()));
+    live_insert(&dir);
+    let _guard = Cleanup(dir.clone());
+    create_private_dir(&dir).map_err(|e| io_failure(&e))?;
+    let meta = fs::symlink_metadata(directory).map_err(|e| io_failure(&e))?;
+    if meta.file_type().is_symlink() || !meta.is_dir() {
+        return Err(ImportFailure::Read);
+    }
+    // The folder is copied file by file while its owner may still write it: a log flushed and
+    // deleted mid-copy leaves a copy that reads as empty, and rusty-leveldb does not notice a
+    // missing log. So the folder's files and sizes are listed before and after each copy, and a
+    // copy is read only when nothing changed in between; three changed copies fail.
+    for _ in 0..3 {
+        let before = listing(directory)?;
+        let mut left = max_bytes;
+        for (name, _) in &before {
+            // A live log may grow while it is copied: each copy is held to what the budget has left.
+            let copy = dir.join(name);
+            copy_regular_bounded(&directory.join(name), &copy, left)?;
+            left = left.saturating_sub(fs::metadata(&copy).map_or(left, |m| m.len()));
+        }
+        if listing(directory)? == before {
+            return read(&dir);
+        }
+        for (name, _) in &before {
+            fs::remove_file(dir.join(name)).ok();
+        }
+    }
+    Err(ImportFailure::Read)
+}
+
+/// The regular files of `directory` other than `LOCK`, with their sizes, by name.
+fn listing(directory: &Path) -> Result<Vec<(std::ffi::OsString, u64)>, ImportFailure> {
+    let mut files: Vec<(std::ffi::OsString, u64)> = fs::read_dir(directory)
+        .map_err(|e| io_failure(&e))?
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()) && !entry.file_name().eq_ignore_ascii_case("LOCK"))
+        .map(|entry| (entry.file_name(), entry.metadata().map_or(0, |m| m.len())))
+        .collect();
+    files.sort();
+    Ok(files)
+}
+
 /// Sweeps any stale non-symlink snapshot directories left behind by a crashed process.
 pub fn sweep_snapshots(scratch: &SnapshotScratch) {
     let Ok(entries) = fs::read_dir(&scratch.directory) else {
         return;
     };
-    let live: HashSet<PathBuf> = scratch
-        .live
-        .lock()
-        .map(|g| g.clone())
-        .unwrap_or_default();
+    let live: HashSet<PathBuf> = LIVE.lock().ok().and_then(|g| g.clone()).unwrap_or_default();
+    let ours = format!("{PREFIX}{}-", std::process::id());
     for entry in entries.flatten() {
         let path = entry.path();
-        let is_ours = entry
-            .file_name()
-            .to_str()
-            .is_some_and(|n| n.starts_with(PREFIX));
-        let real_dir = fs::symlink_metadata(&path)
-            .is_ok_and(|m| !m.file_type().is_symlink() && m.is_dir());
-        if is_ours && real_dir && !live.contains(&path) {
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else { continue };
+        let meta = fs::symlink_metadata(&path);
+        let real_dir = meta.as_ref().is_ok_and(|m| !m.file_type().is_symlink() && m.is_dir());
+        if !name.starts_with(PREFIX) || !real_dir || live.contains(&path) {
+            continue;
+        }
+        let old = meta.ok().and_then(|m| m.modified().ok()).and_then(|t| t.elapsed().ok()).is_some_and(|age| age >= FOREIGN_SNAPSHOT_AGE);
+        if name.starts_with(&ours) || old {
             remove_dir_retry(&path);
         }
     }
 }
 
+/// Removes a snapshot copy and forgets it once its read is over.
+struct Cleanup(PathBuf);
+
+impl Drop for Cleanup {
+    fn drop(&mut self) {
+        remove_dir_retry(&self.0);
+        live_remove(&self.0);
+    }
+}
 /// Checks whether the short-lived `PROBE_COOKIE` actually reached Chromium's SQLite cookie DB on
 /// disk under `cache_dir` (`profile/probe.ts`).
 ///

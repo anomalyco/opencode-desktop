@@ -675,7 +675,7 @@ fn apply_batch_effects(
     }
     let (worker_tx, waker) = {
         let st = app.kernel.slots.get(&BROWSER_RPC);
-        (st.worker_tx.clone(), app.workspace_panes.browser.host.message_waker().or_else(|| st.waker.clone()))
+        (st.worker_tx.clone(), st.waker.clone())
     };
     let mut sessions = std::mem::take(&mut app.kernel.slots.get_mut(&BROWSER_RPC).sessions);
     for (key, effects) in batch {

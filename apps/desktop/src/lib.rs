@@ -305,6 +305,18 @@ pub fn run_native() {
         })
         .ok();
     opencode_kit::client::set_download_dir(dirs::downloads());
+    // With `HARNESS_OPEN_EXTERNAL_LOG` set, a debug build or a headless run records every external
+    // open instead of making it; a window does so only in a harness run rooted in its own folders,
+    // to a log inside that root.
+    harness_log::configure(
+        cfg!(debug_assertions) || headless(),
+        harness_writes()
+            .then(|| std::env::var_os("RUNE_DIRS_ROOT"))
+            .flatten()
+            .filter(|v| !v.is_empty())
+            .map(std::path::PathBuf::from)
+            .as_deref(),
+    );
     // Where the browser engine lives follows this app's data root (no I/O until a page opens).
     #[cfg(any(target_os = "macos", windows))]
     if let Some(engine) = dirs::engine() {
@@ -344,12 +356,7 @@ pub fn run_native() {
         .on_ready(move |_| {
             storage::presented();
             let wake = launch::inbox_waker(handle.clone());
-            let browser = launch::browser_waker(handle.clone());
-            handle.update_if(move |s, tx| {
-                s.launch.inbox_wake = Some(wake);
-                s.workspace_panes.browser.host.set_message_waker(browser);
-                launch::ready(s, tx)
-            });
+            handle.update_if(move |s, tx| { s.launch.inbox_wake = Some(wake); launch::ready(s, tx) });
         })
         .on_frame_encoded(move |f| {
             encoded.encoded(f);

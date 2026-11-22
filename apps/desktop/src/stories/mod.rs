@@ -681,9 +681,7 @@ fn images_open(s: &mut App, tx: &mut Play<App>) {
 /// Opens the first picture of the story's prompt, as a press on its thumbnail does.
 fn view_image(s: &mut App, tx: &mut Play<App>) {
     let id = format!("{ARRIVED}img");
-    if let Some(f) = opencode_kit::model::user_files(&id).first() {
-        crate::attachments::view_image(s, &format!("user-attachments:{id}"), 0, f, tx);
-    }
+    crate::attachments::view_image(s, &format!("user-attachments:{id}"), &opencode_kit::model::user_files(&id), 0, tx);
 }
 
 /// The timeline glides up past a screen, Jump to latest shows, and takes it back down.

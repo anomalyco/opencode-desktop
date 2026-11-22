@@ -10,10 +10,10 @@
 //!   the lit row its effort, "Default ›", whose flyout ([`super::flyout`]) opens beside it.
 
 use opencode_kit::model::capitalize;
-use rune::{El, Span, Spring, Transition, Tx, col, el, icon, rich, row, text};
+use rune::{El, Icon, Span, Spring, Transition, Tx, col, el, icon, rich, row, text};
 use rune_theme_opencode::icons as ic;
 
-use super::{Item, Kind, ModelAction, PickerHost, flyout, hover};
+use super::{FAVORITES, Item, Kind, ModelAction, PickerHost, flyout, hover};
 use crate::palette::{Elevate as _, Pal};
 use crate::popover::{self as pop, LIST};
 use crate::style::UI;
@@ -26,6 +26,22 @@ const SIZE: crate::dialog::DialogSize = crate::dialog::DialogSize::Large;
 const EMPTY_H: f32 = 120.0;
 /// `model-dialog-variant`: the lit row's effort is at most 120 wide.
 const VARIANT_W: f32 = 120.0;
+/// The favorite star after a model's name: smaller than the 16 pt slot, so it sits at the
+/// name's cap height rather than over it.
+const STAR: f32 = 12.0;
+
+static STAR_FILLED: Icon = Icon {
+    name: "star-filled",
+    view: 16.0,
+    body: r#"<path d="M8 2.25L9.85 6L13.98 6.6L10.99 9.52L11.69 13.63L8 11.69L4.31 13.63L5.01 9.52L2.02 6.6L6.15 6Z" fill="currentColor" stroke="currentColor" stroke-linejoin="round"/>"#,
+};
+
+/// A favorite model's star, where it isn't already under Favorites (a search lists each model
+/// under its provider). Desktop's dialog shows no mark here, so a search can't tell which of a
+/// model's providers is the favorite without opening its flyout; this mark is Rune's addition.
+pub(super) fn favorite_star(p: &Pal) -> El {
+    icon(&STAR_FILLED, STAR).key("favorite").color(p.icon_muted)
+}
 
 /// The scrim, the dialog and the lit model's flyout, while the model picker is open.
 pub fn layer<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
@@ -120,8 +136,10 @@ fn model_row<S: PickerHost>(s: &S, p: &Pal, item: &Item, lit: bool, selected: bo
         Some(r) => rich(item.label.clone(), vec![Span::new(r.start, r.end).color(p.accent)]),
         None => text(item.label.clone()),
     };
+    let starred = item.group != FAVORITES && s.pickers().prefs.is_favorite(&key);
     let words = row().key("name").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y()
         .child(name.key("label").font(UI).color(p.text).shrink().truncate())
+        .children(starred.then(|| favorite_star(p)))
         .children((!item.note.is_empty()).then(|| text(item.note.clone()).key("note").font(UI).color(p.faint).shrink().truncate()))
         .children(item.free.then(|| pop::badge(p, opencode_i18n::t!("model.tag.free"))))
         .children(item.latest.then(|| pop::badge(p, opencode_i18n::t!("model.tag.latest"))));
@@ -138,6 +156,9 @@ fn model_row<S: PickerHost>(s: &S, p: &Pal, item: &Item, lit: bool, selected: bo
     // `Role::ListBoxOption` is a leaf in Rune's accessibility tree, so include budget, provider
     // note, tags, and current effort in the row's accessible description.
     let mut desc_parts: Vec<&str> = Vec::new();
+    if starred {
+        desc_parts.push(opencode_i18n::t!("rune.model.favorited"));
+    }
     if !item.note.is_empty() {
         desc_parts.push(&item.note);
     }
