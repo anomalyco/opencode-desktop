@@ -99,7 +99,8 @@ impl CefRuntime {
             browser_subprocess_path,
             windowless_rendering_enabled: 1,
             external_message_pump: 1,
-            no_sandbox: 0,
+            // Linux keeps revision 8's unsandboxed setup until a sandboxed Linux engine has run live.
+            no_sandbox: if cfg!(target_os = "linux") { 1 } else { 0 },
             root_cache_path: CefString::from(profile.root.to_string_lossy().as_ref()),
             cache_path: CefString::from(profile.cache.to_string_lossy().as_ref()),
             persist_session_cookies: 1,
@@ -199,20 +200,6 @@ wrap_app! {
                     "disable-extensions-except",
                     "disable-extensions",
                     "disable-web-security",
-                    "no-sandbox",
-                    "no-sandbox-and-elevated",
-                    "disable-gpu-sandbox",
-                    "disable-seccomp-filter-sandbox",
-                    "disable-namespace-sandbox",
-                    "disable-setuid-sandbox",
-                    "single-process",
-                    "in-process-gpu",
-                    "no-zygote",
-                    "gpu-launcher",
-                    "browser-subprocess-path",
-                    "allow-no-sandbox-job",
-                    "disable-win32k-lockdown",
-                    "disable-renderer-code-integrity",
                     "allow-file-access-from-files",
                     "user-data-dir",
                     "disable-site-isolation-trials",
@@ -236,6 +223,27 @@ wrap_app! {
                     "force-fieldtrials",
                     "force-fieldtrial-params",
                     "variations-server-url",
+                ] {
+                    cmd.remove_switch(Some(&sw.into()));
+                }
+                // Linux leaves these alone, as revision 8 did: with `no_sandbox` set, CEF itself puts
+                // `--no-sandbox` and `--browser-subprocess-path` (the helper) here before this runs.
+                #[cfg(not(target_os = "linux"))]
+                for sw in [
+                    "no-sandbox",
+                    "no-sandbox-and-elevated",
+                    "disable-gpu-sandbox",
+                    "disable-seccomp-filter-sandbox",
+                    "disable-namespace-sandbox",
+                    "disable-setuid-sandbox",
+                    "single-process",
+                    "in-process-gpu",
+                    "no-zygote",
+                    "gpu-launcher",
+                    "browser-subprocess-path",
+                    "allow-no-sandbox-job",
+                    "disable-win32k-lockdown",
+                    "disable-renderer-code-integrity",
                 ] {
                     cmd.remove_switch(Some(&sw.into()));
                 }
