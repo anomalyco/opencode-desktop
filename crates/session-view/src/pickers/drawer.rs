@@ -106,26 +106,31 @@ fn provider<S: PickerHost>(s: &S, p: &Pal, items: &[Item], selected: &str) -> El
         col().key("card").w_full().radius(8.0).fill(p.layer1).box_shadow(Pal::ring_in(p.border_muted)),
         |card, (i, item)| {
             let pick = item.key.clone();
+            let starred = s.pickers().prefs.is_favorite(&item.key);
             let corners = [if i == 0 { 8.0 } else { 0.0 }, if i == 0 { 8.0 } else { 0.0 }, if i + 1 == n { 8.0 } else { 0.0 }, if i + 1 == n { 8.0 } else { 0.0 }];
-            card.child(
-                row()
-                    .key(format!("option-{}", item.key))
-                    .role("option")
-                    .label(item.label.clone())
-                    .w_full()
-                    .h(48.0)
-                    .px(12.0)
-                    .gap(16.0)
-                    .center_y()
-                    .corners(corners)
-                    .cursor(rune::Cursor::Pointer)
-                    .hover(p.hover)
-                    .hover_motion(INSTANT, INSTANT)
-                    .on_press_tx(move |s: &mut S, tx: &mut Tx| s.choose_picker_tx(&pick, tx))
-                    .child(text(item.label.clone()).font(ROW).color(p.text).truncate().grow(1.0).shrink().min_w(0.0))
-                    .children((item.key == selected).then(|| icon(&ic::CHECK, 14.0).color(p.icon))),
-            )
-            .children((i + 1 < n).then(|| el().w_full().h(0.5).mx(12.0).fill(p.border)))
+            let mut opt = row()
+                .key(format!("option-{}", item.key))
+                .role("option")
+                .label(item.label.clone())
+                .w_full()
+                .h(48.0)
+                .px(12.0)
+                .gap(16.0)
+                .center_y()
+                .corners(corners)
+                .cursor(rune::Cursor::Pointer)
+                .hover(p.hover)
+                .hover_motion(INSTANT, INSTANT)
+                .on_press_tx(move |s: &mut S, tx: &mut Tx| s.choose_picker_tx(&pick, tx))
+                .child(row().key("name").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y()
+                    .child(text(item.label.clone()).font(ROW).color(p.text).truncate().shrink().min_w(0.0))
+                    // The drawer leaves Favorites out, so every favorite shows its star here.
+                    .children(starred.then(|| super::dialog::favorite_star(p))))
+                .children((item.key == selected).then(|| icon(&ic::CHECK, 14.0).color(p.icon)));
+            if starred {
+                opt = opt.description_static(opencode_i18n::t!("rune.model.favorited"));
+            }
+            card.child(opt).children((i + 1 < n).then(|| el().w_full().h(0.5).mx(12.0).fill(p.border)))
         },
     );
     col().key(format!("provider-{}", first.group)).w_full().gap(12.0).pb(12.0).child(header).child(card)
