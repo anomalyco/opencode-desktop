@@ -207,6 +207,26 @@ fn main() {
             }
         }
     }
+    // A draw step emits its commands, read as JSON reads them: a function in a paint is left out,
+    // a non-finite coordinate fails as an invalid draw.
+    let draw = |commands: &str| {
+        let program = Program::compile(&format!("{}\nfunction view() {{ return ui.canvas({{ key: \"c\", height: 10 }}) }}\nfunction draw() {{ return {commands} }}", fixtures::PRELUDE)).expect("compiles");
+        let frame = opencode_widget::Frame { id: Some("0".into()), width: 10.0, height: 10.0, scale: 2.0, ..Default::default() };
+        program.draw(&Value::Null, &Value::Null, &frame).map_err(|e| e.to_string())
+    };
+    for (commands, want) in [
+        (r##"[["rect", 0, 0, 4, 4, { fill: "#fff", f: () => 1 }]]"##, Ok(r##"[["rect",0.0,0.0,4.0,4.0,{"fill":"#ffffffff"}]]"##.to_owned())),
+        (r##"[["rect", 0, 0, Infinity, 4, { fill: "#fff" }]]"##, Err(r#"draw command 0: "rect" argument 3 must be a finite number, got null"#.to_owned())),
+        ("undefined", Ok("[]".to_owned())),
+    ] {
+        let got = draw(commands).map(|c| serde_json::to_string(&c.iter().map(opencode_widget::Command::to_value).collect::<Vec<_>>()).unwrap());
+        if got == want {
+            println!("ok   draw {commands}: {got:?}");
+        } else {
+            bad += 1;
+            println!("FAIL draw {commands}\n    got  {got:?}\n    want {want:?}");
+        }
+    }
     println!("{} fixtures: {} differ, {gaps} differ only by the location of a function error", files.len(), bad);
     if bad > 0 {
         std::process::exit(1);

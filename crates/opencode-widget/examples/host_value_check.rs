@@ -99,7 +99,7 @@ draw(Array.from({ length: 2001 }, () => ["save"]))
 /// A widget template's view and draw on its example data, each read as above.
 const BUILTIN: &str = r##"
 const state = typeof init === "function" ? init(DATA) ?? {} : {}
-view(__widget_tree(view(state, DATA)).view)
+built(view(state, DATA))
 if (typeof draw === "function") {
   for (const width of [320, 640]) {
     const frame = { key: null, t: 5, dt: 0.016, width, height: 240, scale: 2, pointer: { x: 10, y: 10, down: false }, dark: true, fullscreen: false, close: null }
@@ -114,6 +114,8 @@ if (typeof draw === "function") {
 #[derive(Clone)]
 enum Seen {
     View(HostValue),
+    /// A view as the program built it, which the host makes into its tree first.
+    Built(HostValue),
     Draw(Option<HostValue>),
 }
 
@@ -121,10 +123,15 @@ enum Seen {
 /// values it handed over.
 fn run(code: &str) -> Vec<Seen> {
     let seen: Arc<Mutex<Vec<Seen>>> = Arc::default();
-    let (views, draws) = (seen.clone(), seen.clone());
-    let runtime = Runtime::make().globals(move |_run| {
-        let (views, draws) = (views.clone(), draws.clone());
+    let (views, draws, builts) = (seen.clone(), seen.clone(), seen.clone());
+    let translate = psychoscript::Translate { functions: psychoscript::TranslateFunctions::Mark, ..Default::default() };
+    let runtime = Runtime::make().translate(translate).globals(move |_run| {
+        let (views, draws, builts) = (views.clone(), draws.clone(), builts.clone());
         [
+            ("__built", HostFunction::new(move |args: Vec<HostValue>, _call| {
+                builts.lock().unwrap().push(Seen::Built(args.into_iter().next().unwrap_or(HostValue::Undefined)));
+                Ok(HostValue::Undefined)
+            })),
             ("__view", HostFunction::new(move |args: Vec<HostValue>, _call| {
                 views.lock().unwrap().push(Seen::View(args.into_iter().next().unwrap_or(HostValue::Undefined)));
                 Ok(HostValue::Undefined)
@@ -146,8 +153,17 @@ fn run(code: &str) -> Vec<Seen> {
 fn compare(name: &str, seen: &[Seen]) -> (usize, Vec<String>) {
     let mut bad = Vec::new();
     for (i, s) in seen.iter().enumerate() {
+        let built;
+        let s = match s {
+            Seen::Built(v) => {
+                built = Seen::View(opencode_widget::tree::build(v.clone(), "Argument 1 to __built").expect("a built-in's view builds").view);
+                &built
+            }
+            s => s,
+        };
         let (direct, json) = match s {
             Seen::View(v) => (format!("{:?}", Node::from_host(v)), format!("{:?}", Node::from_value(&v.to_json().unwrap_or_default()))),
+            Seen::Built(_) => unreachable!("made into a view above"),
             Seen::Draw(v) => {
                 let json = v.as_ref().and_then(HostValue::to_json);
                 (format!("{:?}", DrawOutput::from_host(v.as_ref())), format!("{:?}", DrawOutput::from_value(&serde_json::json!({ "commands": json }))))
@@ -179,7 +195,7 @@ fn main() {
             "{}\n{}\nconst DATA = {data};\nconst __v = __view; const draw$ = __draw;\n{}",
             fixtures::PRELUDE,
             fixtures::source(name).expect("a built-in"),
-            BUILTIN.replace("view(__widget_tree", "__v(__widget_tree")
+            BUILTIN.replace("built(view(", "__built(view(")
         );
         let seen = run(&code);
         let (n, b) = compare(name, &seen);

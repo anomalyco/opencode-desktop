@@ -4,8 +4,8 @@
 //! globals and functions crossing as markers, and run once per step under a 250 ms budget. The
 //! prelude emits the view as built, which is made into the tree clients get here
 //! ([`crate::tree`]); the run's result is the rest of the step output. A canvas's draw steps run on
-//! the same compiled program under the 8 ms / 2,000-command draw budget. A program built for
-//! another protocol is refused without running anything.
+//! the same compiled program under the 8 ms / 2,000-command draw budget, and emit their commands.
+//! A program built for another protocol is refused without running anything.
 
 use std::collections::hash_map::DefaultHasher;
 use std::fmt;
@@ -155,7 +155,7 @@ impl Program {
     pub fn compile_with(program: &str, timeout_ms: u64) -> Result<Program, Error> {
         let input: Arc<Mutex<HostValue>> = Arc::new(Mutex::new(HostValue::Null));
         let emitted: Arc<Mutex<Emitted>> = Arc::default();
-        let make = |timeout_ms: u64| {
+        let make = |timeout_ms: u64, draws: bool| {
             let (reads, out) = (input.clone(), emitted.clone());
             Runtime::make()
                 .translate(Translate { functions: TranslateFunctions::Mark, ..Default::default() })
@@ -163,18 +163,24 @@ impl Program {
                     let (reads, out) = (reads.clone(), out.clone());
                     [
                         ("__input", HostFunction::new(move |_args, _call| std::mem::take(&mut *reads.lock().unwrap_or_else(PoisonError::into_inner)))),
-                        ("__widget_emit", HostFunction::new(move |args: Vec<HostValue>, _call| emit(&out, args))),
+                        ("__widget_emit", HostFunction::new(move |args: Vec<HostValue>, _call| emit(&out, args, draws))),
                     ]
                 })
                 .limits(Limits { timeout_ms: Some(timeout_ms), max_heap_bytes: Some(MAX_HEAP_BYTES), max_value_depth: Some(MAX_VALUE_DEPTH), ..Default::default() })
         };
-        let runtime = make(timeout_ms.clamp(1, STEP_TIMEOUT_MS));
-        let drawing = make(DRAW_TIMEOUT_MS.min(timeout_ms.max(1)));
+        let runtime = make(timeout_ms.clamp(1, STEP_TIMEOUT_MS), false);
+        let drawing = make(DRAW_TIMEOUT_MS.min(timeout_ms.max(1)), true);
         let compiled = match refused(program) {
             Some(e) => Err(Box::new(e)),
             None => Ok(runtime.compile(&format!("{program}{TAIL}")).map_err(|d| Error::Compile(d.message_lossy()))?),
         };
         Ok(Program { runtime, drawing, compiled, input, emitted, running: Mutex::new(()) })
+    }
+
+    /// Whether it's refused for its protocol (`widgets.md`, Protocol): no step of it runs, and no
+    /// retry could.
+    pub fn refused(&self) -> bool {
+        self.compiled.is_err()
     }
 
     /// Runs one step: `init` or an event.
@@ -214,13 +220,17 @@ impl Program {
     }
 
     fn drawn(&self, input: HostValue) -> Result<Vec<Command>, Error> {
-        let (out, _) = self.run(&self.drawing, input)?;
-        DrawOutput::from_value(&out).map(|d| d.commands).map_err(|e| if e.contains("over the budget") { Error::Budget(e) } else { Error::Output(e) })
+        let (_, commands) = self.run(&self.drawing, input)?;
+        DrawOutput::from_host(commands.as_ref()).map(|d| d.commands).map_err(|e| if e.contains("over the budget") { Error::Budget(e) } else { Error::Output(e) })
     }
 
     /// Runs one step on a raw input, returning its output unchecked: the run's result, with the
-    /// emitted view's tree as `view` (a draw's `{ commands }` as it is).
+    /// emitted view's tree as `view`; a draw's emitted commands as `{ commands }`.
     pub fn step_value(&self, input: Value) -> Result<Value, Error> {
+        if input["phase"] == "draw" {
+            let (_, commands) = self.run(&self.drawing, HostValue::from_json(&input))?;
+            return Ok(serde_json::json!({ "commands": commands.and_then(|c| c.to_json()) }));
+        }
         let (mut rest, view) = self.run(&self.runtime, HostValue::from_json(&input))?;
         if let (Value::Object(m), Some(view)) = (&mut rest, view) {
             m.insert("view".into(), view.to_json().unwrap_or(Value::Null));
@@ -252,7 +262,8 @@ impl Program {
     }
 }
 
-/// What a step emitted: its view's tree, or why its view failed (phase `view`).
+/// What a step emitted: its view's tree (a draw: its commands), or why its view failed (phase
+/// `view`).
 #[derive(Default)]
 struct Emitted {
     view: Option<HostValue>,
@@ -261,9 +272,14 @@ struct Emitted {
 
 /// `__widget_emit(view, failure?)`: the view as built, made into its tree; a string `failure` (a
 /// view too deep to cross) or a view that breaks Keys and depth fails the step after the run. A
-/// function where none may go throws, from this call.
-fn emit(out: &Mutex<Emitted>, mut args: Vec<HostValue>) -> Result<HostValue, HostValue> {
+/// function where none may go throws, from this call. A draw step's (`draws`) emits its commands,
+/// kept as they are: they're read as JSON reads them, functions left out.
+fn emit(out: &Mutex<Emitted>, mut args: Vec<HostValue>, draws: bool) -> Result<HostValue, HostValue> {
     let mut out = out.lock().unwrap_or_else(PoisonError::into_inner);
+    if draws {
+        out.view = Some(if args.is_empty() { HostValue::Undefined } else { args.swap_remove(0) });
+        return Ok(HostValue::Undefined);
+    }
     if let Some(HostValue::String(failure)) = args.get(1) {
         out.failure = Some(failure.to_string_lossy().into_owned());
         return Ok(HostValue::Undefined);
