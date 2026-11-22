@@ -411,11 +411,12 @@ thread_local! {
 }
 
 /// Pages tree scroller `key` by `pages` as Chromium pages an `overflow: auto` box (Desktop's
-/// Pierre tree): 0.875 of its height per page (Blink `ScrollableArea::MinFractionToStepWhenPaging`;
-/// measured on Desktop: 534 of a 611 pt tree), not Rune's 0.9 `Tx::scroll_page`.
+/// Pierre tree): 0.875 of its height per page, cut to whole points (Blink `ScrollableArea::PageStep`
+/// with `MinFractionToStepWhenPaging`; measured on Desktop: 534 of a 611 pt tree), not Rune's 0.9
+/// `Tx::scroll_page`.
 pub fn page_tree(tx: &mut Tx, key: &str, pages: i32) {
     match TREE_SCROLLS.with_borrow(|m| m.get(key).copied()) {
-        Some([offset, height]) => tx.scroll_to_y(key, (offset + pages as f32 * height * 0.875).max(0.0)),
+        Some([offset, height]) => tx.scroll_to_y(key, (offset + pages as f32 * (height * 0.875).trunc().max(1.0)).max(0.0)),
         None => tx.scroll_page(key, pages),
     }
 }
