@@ -114,7 +114,6 @@ mod disk {
         out
     }
 
-    #[cfg(feature = "office")]
     pub(super) fn message(plugin_id: &str, lang: &str, key: &str) -> Option<&'static str> {
         use std::collections::HashMap;
         use std::sync::Mutex;
@@ -272,7 +271,6 @@ pub fn builtin_ids() -> impl Iterator<Item = &'static str> {
 }
 
 /// Message `key` of built-in `plugin_id` in `lang`, falling back to English.
-#[cfg(feature = "office")]
 pub fn builtin_message(plugin_id: &str, lang: &str, key: &str) -> Option<&'static str> {
     #[cfg(disk_builtins)]
     {

@@ -336,9 +336,11 @@ impl RestoreHost for App {
     fn open_restored_settings(&mut self, tab: &str) {
         self.set_settings_open(true);
         self.kernel.slots.get_mut(&crate::settings::SETTINGS_PAGES).page = crate::settings::pages::Page::parse(tab);
+        crate::plugin_host::dormant::wake_settings(self);
     }
 
     fn reopen_settings_page(&mut self, tx: &mut Tx) {
+        crate::plugin_host::dormant::wake_settings(self);
         let page = std::mem::take(&mut self.kernel.slots.get_mut(&crate::settings::SETTINGS_PAGES).page);
         self.open_settings_page(page, tx);
     }

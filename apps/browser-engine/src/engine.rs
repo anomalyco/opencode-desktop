@@ -1148,7 +1148,7 @@ impl EngineManager {
             (),
         );
         let prompts = Arc::new(crate::prompts::TabPrompts::default());
-        prompts.agent_driven.store(agent_driven, Ordering::Release);
+        prompts.open_as(agent_driven, preview_grant.is_some());
         *prompts.proxy.lock().unwrap() = proxy_cfg;
         let favicon = Arc::new(crate::favicon::TabFavicon::default());
         let diagnostics = Arc::new(crate::diagnostics::TabDiagnostics::default());
@@ -1301,7 +1301,7 @@ impl EngineManager {
             Some(&mut client),
             Some(&CefString::from(initial_url.as_str())),
             Some(&browser_settings),
-            None,
+            crate::tab_client::print_gate_info(agent_driven || is_preview).as_mut(),
             req_ctx.as_mut(),
         ) else {
             self.release_preview(tab_id, preview_grant.as_ref());

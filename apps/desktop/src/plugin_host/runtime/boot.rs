@@ -160,7 +160,7 @@ fn start_later(app: &mut App) {
             adopt_later_kinds(app, &["Command"]);
         }
         if app.settings_open() {
-            adopt_later_kinds(app, &["Command", "Setting", "SettingsPage"]);
+            dormant::wake_settings(app);
         }
         if let Some(sid) = app.active_session_id().map(str::to_owned) {
             let tab_plugins: Vec<String> = app
@@ -362,6 +362,9 @@ pub fn doze_owed(app: &mut App) {
     }
     rune::marks::mark("plugins.doze");
     settle_later(app);
+    if app.settings_open() {
+        dormant::wake_settings(app);
+    }
     rune::marks::mark("plugins.dozed");
 }
 
