@@ -27,7 +27,8 @@ use serde_json::Value;
 fn emitted(code: &str, input: HostValue) -> Result<HostValue, String> {
     let out: Arc<Mutex<Option<HostValue>>> = Arc::default();
     let seen = out.clone();
-    let runtime = Runtime::make().translate(Translate { functions: TranslateFunctions::Mark, ..Default::default() }).globals(move |_run| {
+    let limits = psychoscript::Limits { max_value_depth: Some(opencode_widget::runner::MAX_VALUE_DEPTH), ..Default::default() };
+    let runtime = Runtime::make().limits(limits).translate(Translate { functions: TranslateFunctions::Mark, ..Default::default() }).globals(move |_run| {
         let (seen, input) = (seen.clone(), input.clone());
         [
             ("__input", HostFunction::new(move |_args: Vec<HostValue>, _call| Ok(input.clone()))),
@@ -176,7 +177,10 @@ fn main() {
     let (mut bad, mut gaps) = (0, 0);
     for path in &files {
         let text = std::fs::read_to_string(path).unwrap();
-        let f: Value = serde_json::from_str(&text).unwrap();
+        // Views of 100 levels nest deeper than serde_json reads by default.
+        let mut de = serde_json::Deserializer::from_str(&text);
+        de.disable_recursion_limit();
+        let f = <Value as serde::Deserialize>::deserialize(&mut de).unwrap();
         let name = f["name"].as_str().unwrap_or("?").to_owned();
         let source = format!("{}\n{}\n__widget_native_step(__input())", fixtures::PRELUDE, f["source"].as_str().unwrap());
         let real = emitted(&source, HostValue::from_json(&f["input"]));

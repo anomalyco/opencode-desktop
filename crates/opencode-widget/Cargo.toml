@@ -23,5 +23,9 @@ url = { version = "2", optional = true }
 ryu-js = { version = "1", optional = true }
 psychoscript = { git = "https://github.com/anomalyco/psychoscript", rev = "d735926e420166e03283199e4d94ee1b81c7a303", optional = true }
 
+[dev-dependencies]
+# The check programs read wire fixtures of 100-level views, deeper than serde_json reads by default.
+serde_json = { workspace = true, features = ["unbounded_depth"] }
+
 [lints]
 workspace = true
