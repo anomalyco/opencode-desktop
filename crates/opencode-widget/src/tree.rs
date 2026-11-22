@@ -48,9 +48,10 @@ fn control(t: &str) -> Option<(&'static str, &'static str, bool, bool)> {
 }
 
 /// The runtime's error for a function in a host call's argument named `label`
-/// (`Argument 1 to __host.post`), as it throws one without `functions: "mark"`.
+/// (`Argument 1 to __host.post`), as it throws one without `functions: "mark"`: a `TypeError`
+/// located at the call.
 pub fn carried(label: &str) -> HostValue {
-    HostValue::Error(Box::new(HostError::named("TypeError", format!("{label} contains a function, which cannot be passed to the host."))))
+    HostError::located("TypeError", format!("{label} contains a function, which cannot be passed to the host."))
 }
 
 /// Fails with [`carried`] when `v` holds a function marker anywhere.
@@ -104,8 +105,8 @@ fn segment(key: &HostValue) -> Result<String, Fail> {
         HostValue::String(s) => match s.as_str() {
             Some(s) => s.to_owned(),
             None => {
-                let e = HostError::named("URIError", "encodeURIComponent received malformed URI data: String contained an illegal UTF-16 sequence.");
-                return Err(Fail::Thrown(HostValue::Error(Box::new(e))));
+                let e = HostError::located("URIError", "encodeURIComponent received malformed URI data: String contained an illegal UTF-16 sequence.");
+                return Err(Fail::Thrown(e));
             }
         },
         HostValue::Number(n) => ryu_js::Buffer::new().format(*n).to_owned(),

@@ -6,8 +6,9 @@
 //! - the walk alone (`tree::build`) on its `built` view gives the same view or failure;
 //! - the walk on the view a real native step emits gives its `handlers` and `canvases`.
 //!
-//! Where the only difference is the ` (line N, col M)` the TS host adds to a function error, it's
-//! listed as a known gap (the Rust PsychoScript gives host-thrown errors no location), not a pass.
+//! A function error from the real step must carry the call's ` (line N, col M)`; the walk alone,
+//! with no call, gives the same message without it. Any other difference in location is listed
+//! as a gap, not a pass.
 //! The repo has no automated tests (AGENTS.md), so this is a program to run by hand:
 //! `cargo run -p opencode-widget --example native_tree_check` (exits non-zero on a difference).
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::print_stdout)]
@@ -135,7 +136,11 @@ fn walk(f: &Value, view: HostValue, tables: bool) -> Verdict {
     }
     match (tree::build(view, "Argument 1 to __widget_emit"), expected) {
         (Err(Fail::View(m)), Some(want)) => error(want, true, &m),
-        (Err(Fail::Thrown(HostValue::Error(e))), Some(want)) => error(want, false, &format!("{}: {}", e.name.to_string_lossy(), e.message.to_string_lossy())),
+        // The walk alone has no call to locate its error at: the message without ` (line N, col M)`.
+        (Err(Fail::Thrown(HostValue::Located(e))), Some(want)) => match error(want, false, &format!("{}: {}", e.name.to_string_lossy(), e.message.to_string_lossy())) {
+            Verdict::Gap(_) => Verdict::Ok,
+            v => v,
+        },
         (Err(e), _) => Verdict::Fail(format!("failed: {e:?}")),
         (Ok(t), Some(want)) => Verdict::Fail(format!("built: {:?}\n    want error {want}", t.view.to_json())),
         (Ok(t), None) => {
