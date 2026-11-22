@@ -338,9 +338,10 @@ fn start_history(
     // Always a history wait, so a back/forward never ends at a load it happened to see (#706). With no
     // frame tracker for the tab yet its counts start at zero: only events the tracker then counts, or
     // the grace, end the wait.
-    let (contexts_cleared, frame_navigations) =
-        att.frames.get(&host_id).map_or((0, 0), |f| (f.main_contexts_cleared, f.main_frame_navigations));
-    let history_from = Some(settle::HistoryFrom { url, contexts_cleared, frame_navigations });
+    let (contexts_cleared, frame_navigations, same_document) = att.frames.get(&host_id).map_or((0, 0, 0), |f| {
+        (f.main_contexts_cleared, f.main_frame_navigations, f.main_same_document_navigations)
+    });
+    let history_from = Some(settle::HistoryFrom { url, contexts_cleared, frame_navigations, same_document });
     if is_back {
         app.workspace_panes.browser.host.back(host_id);
     } else {
@@ -663,6 +664,7 @@ pub(super) fn step_wait_load(
     let frames = att.frames.get(&st.host_id).map(|f| settle::FramesNow {
         contexts_cleared: f.main_contexts_cleared,
         frame_navigations: f.main_frame_navigations,
+        same_document: f.main_same_document_navigations,
         main_context: f.main_frame_id.as_ref().is_some_and(|id| f.main_contexts.contains_key(id)),
     });
     let waiting = settle::Waiting {
