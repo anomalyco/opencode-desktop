@@ -109,7 +109,7 @@ fn start_loaded(app: &mut App, i: usize) {
     };
     drive(app, i, event);
     if timed_out {
-        restart_later(app, &id, vm);
+        restart_later(app, &id);
     }
     if app.plugins.list[i].running() {
         dormant::note_started(app, i);
@@ -123,17 +123,18 @@ const RESTART_AFTER: f64 = 2.0;
 /// error card with Reload (official's Relaunch).
 const RESTARTS: u32 = 1;
 
-/// The window's plugins whose start ran out of time: each restart still to come (the plugin, when
-/// it is due on `app.clock`, and the VM whose start timed out), and how many each plugin had.
+/// The window's plugins whose start ran out of time: each restart still to come (the plugin, and
+/// when it is due on `app.clock`), and how many each plugin had. Leaving the error card any other
+/// way (Reload, disable, trust) stops its script, which drops the plugin's pending restart.
 #[derive(Default)]
 pub struct Restarts {
-    due: Vec<(String, f64, Option<u64>)>,
+    due: Vec<(String, f64)>,
     count: std::collections::BTreeMap<String, u32>,
 }
 
-/// Plugin `id`'s start, in VM `vm`, ran past the watchdog: it starts again in [`RESTART_AFTER`],
-/// up to [`RESTARTS`] time; meanwhile its surfaces show the error card and the console says so.
-fn restart_later(app: &mut App, id: &str, vm: Option<u64>) {
+/// Plugin `id`'s start ran past the watchdog: it starts again in [`RESTART_AFTER`], up to
+/// [`RESTARTS`] time; meanwhile its surfaces show the error card and the console says so.
+fn restart_later(app: &mut App, id: &str) {
     let at = *app.clock + RESTART_AFTER;
     let restarts = &mut app.plugins.restarts;
     let n = restarts.count.entry(id.to_owned()).or_insert(0);
@@ -141,7 +142,7 @@ fn restart_later(app: &mut App, id: &str, vm: Option<u64>) {
         return;
     }
     *n += 1;
-    restarts.due.push((id.to_owned(), at, vm));
+    restarts.due.push((id.to_owned(), at));
     console::push(id, rune_luau::LogLevel::Warn, "its start ran out of time; starting it again");
     // A frame soon, whose poll sets the wake for the restart.
     if let Some(w) = app.plugins.waker.clone() {
@@ -152,19 +153,14 @@ fn restart_later(app: &mut App, id: &str, vm: Option<u64>) {
 /// Starts again the plugins whose restart came due ([`restart_later`]); wakes at the next one.
 fn poll_restarts(app: &mut App, tx: &mut Tx) -> bool {
     let now = *app.clock;
-    let (due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut app.plugins.restarts.due).into_iter().partition(|(_, at, _)| *at <= now);
-    if let Some(next) = later.iter().map(|(_, at, _)| *at).min_by(f64::total_cmp) {
+    let (due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut app.plugins.restarts.due).into_iter().partition(|(_, at)| *at <= now);
+    if let Some(next) = later.iter().map(|(_, at)| *at).min_by(f64::total_cmp) {
         tx.wake_at(next);
     }
     app.plugins.restarts.due = later;
     let mut changed = false;
-    for (id, _, vm) in due {
-        // Only the start that timed out: a plugin reloaded, removed or failed some other way since is left alone.
-        let Some(i) = app.plugins.find(&id) else { continue };
-        let p = &app.plugins.list[i];
-        if !matches!(p.life, Life::Errored { .. }) || p.script().and_then(Script::vm_id) != vm {
-            continue;
-        }
+    for (id, _) in due {
+        let Some(i) = app.plugins.find(&id).filter(|&i| matches!(app.plugins.list[i].life, Life::Errored { .. })) else { continue };
         drive(app, i, LifeEvent::Load);
         changed = true;
     }
@@ -174,6 +170,9 @@ fn poll_restarts(app: &mut App, tx: &mut Tx) -> bool {
 /// [`LifeEffect::Stop`]: fires `Disposing` in `script`, then withdraws what plugin `i`
 /// contributed and reaps its processes; the script goes with this call.
 fn stop(app: &mut App, i: usize, script: Script) {
+    // Off its error card some other way first (Reload, disable, trust): no restart comes after.
+    let id = app.plugins.list[i].manifest.id.clone();
+    app.plugins.restarts.due.retain(|(k, _)| *k != id);
     let half = app.plugins.list[i].half.clone();
     if let Some(vm) = script.vm_id() {
         let fire = half.fire.borrow().get(&vm).cloned();
