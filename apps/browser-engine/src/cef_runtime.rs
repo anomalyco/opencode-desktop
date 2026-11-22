@@ -33,7 +33,17 @@ impl CefRuntime {
         stub_lock: Option<std::fs::File>,
         io_pipes: Option<String>,
         pump: Sender<crate::Event>,
+        windows_sandbox_info: *mut std::ffi::c_void,
+        main_args_override: Option<cef::MainArgs>,
     ) -> Self {
+        #[cfg(windows)]
+        assert!(
+            !windows_sandbox_info.is_null(),
+            "Windows browser engine requires sandbox_info from CEF bootstrap.exe (RunWinMain)"
+        );
+        #[cfg(not(windows))]
+        let _ = (windows_sandbox_info, main_args_override);
+
         #[cfg(target_os = "macos")]
         crate::mac_app::ensure_ns_application();
 
@@ -59,17 +69,17 @@ impl CefRuntime {
         #[cfg(unix)]
         let main_args = cef::MainArgs { argc: 1, argv: argv.as_ptr() as *mut *mut _ };
         #[cfg(windows)]
-        let main_args = cef::args::Args::new().as_main_args().clone();
+        let main_args = main_args_override.unwrap_or_else(|| cef::args::Args::new().as_main_args().clone());
 
-        // macOS finds its helper apps by bundle convention; elsewhere CEF would start this
-        // executable again for its renderer and GPU processes, so point it at the helper.
-        #[cfg(not(target_os = "macos"))]
+        // Windows sandbox requires browser and subprocesses to share one executable (`bootstrap.exe`);
+        // macOS finds its helper apps by bundle convention; Linux uses `opencode-browser-engine-helper`.
+        #[cfg(target_os = "linux")]
         let browser_subprocess_path = std::env::current_exe()
             .ok()
             .map(|exe| exe.with_file_name(format!("opencode-browser-engine-helper{}", std::env::consts::EXE_SUFFIX)))
             .map(|helper| CefString::from(helper.to_string_lossy().as_ref()))
             .unwrap_or_default();
-        #[cfg(target_os = "macos")]
+        #[cfg(not(target_os = "linux"))]
         let browser_subprocess_path = CefString::default();
 
         let ext_except = (!ext_dirs.is_empty()).then(|| {
@@ -89,7 +99,7 @@ impl CefRuntime {
             browser_subprocess_path,
             windowless_rendering_enabled: 1,
             external_message_pump: 1,
-            no_sandbox: 1,
+            no_sandbox: 0,
             root_cache_path: CefString::from(profile.root.to_string_lossy().as_ref()),
             cache_path: CefString::from(profile.cache.to_string_lossy().as_ref()),
             persist_session_cookies: 1,
@@ -111,6 +121,9 @@ impl CefRuntime {
             keychain_account_name: CefString::from("OpenCode Browser"),
             ..Default::default()
         };
+        #[cfg(windows)]
+        let ok = cef::initialize(Some(&main_args), Some(&settings), Some(&mut app), windows_sandbox_info.cast());
+        #[cfg(not(windows))]
         let ok = cef::initialize(Some(&main_args), Some(&settings), Some(&mut app), std::ptr::null_mut());
         assert_eq!(ok, 1, "cef::initialize failed");
         if let Some(global) = cef::request_context_get_global_context() {
@@ -186,6 +199,20 @@ wrap_app! {
                     "disable-extensions-except",
                     "disable-extensions",
                     "disable-web-security",
+                    "no-sandbox",
+                    "no-sandbox-and-elevated",
+                    "disable-gpu-sandbox",
+                    "disable-seccomp-filter-sandbox",
+                    "disable-namespace-sandbox",
+                    "disable-setuid-sandbox",
+                    "single-process",
+                    "in-process-gpu",
+                    "no-zygote",
+                    "gpu-launcher",
+                    "browser-subprocess-path",
+                    "allow-no-sandbox-job",
+                    "disable-win32k-lockdown",
+                    "disable-renderer-code-integrity",
                     "allow-file-access-from-files",
                     "user-data-dir",
                     "disable-site-isolation-trials",

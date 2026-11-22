@@ -359,7 +359,7 @@ fn strip(
         let (id, server, count) = (info.id.clone(), here.clone(), sessions.len());
         item.decorate(move |slot, _| {
             let slot = if muted { super::pins::marked_slot(slot, super::pins::muted_mark(p), raw_mark) } else { slot };
-            slot.on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| {
+            slot.non_closable_tab::<App>().on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| {
                 open_menu(s, &server, &id, pinned.then_some((index, count)), consolidated, press, tx)
             })
         })
