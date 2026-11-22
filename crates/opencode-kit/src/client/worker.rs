@@ -291,7 +291,7 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
         let server = server.clone();
         let inbox_tx = inbox_tx.clone();
         let wake = wake.clone();
-        if let Err(e) = rune::task::serve("opencode-write", write_rx, move |w| {
+        let handle = move |w| {
                     #[cfg(not(target_arch = "wasm32"))]
                     let (mut gate, w) = match w {
                         Write::Gated { gate, write } => (Some(gate), *write),
@@ -457,8 +457,21 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                     }
                     wake();
                     ControlFlow::Continue(())
-            })
-        {
+        };
+        // Like packages/app/src/composer/submit.ts's inTurn: order one session's writes,
+        // not unrelated sessions. Queues borrow workers only while they have work; a slow
+        // HTTP request or durability gate holds its own lane, never the dispatcher.
+        let mut lanes = std::collections::HashMap::new();
+        if let Err(e) = rune::task::serve("opencode-write", write_rx, move |w| {
+            let key = w.session().map(str::to_owned);
+            let lane = lanes.entry(key).or_insert_with(|| rune::task::queue("opencode-write-session", handle.clone()));
+            if let Err(error) = lane.send(w) {
+                // No worker available: retain the write and its receipt, even if this
+                // dispatcher must temporarily do the blocking work itself.
+                return handle(error.0);
+            }
+            ControlFlow::Continue(())
+        }) {
             eprintln!("opencode-kit: couldn't spawn opencode-write thread: {e}");
         }
     }

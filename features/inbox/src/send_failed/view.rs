@@ -33,9 +33,9 @@ fn footer_spec(host: &dyn SendFailedHost, id: &str) -> Option<FooterSpec> {
             // Past `SLOW_SEND` it says why the wait goes on: the server hasn't answered yet.
             Phase::Sending { then: None, slow: super::SlowSend::Slow, .. } => opencode_i18n::t!("rune.send.slow").into(),
             Phase::Sending { then: None, .. } => "Sending…".into(),
-            Phase::Waiting { why } if why == "waiting for connection" => "Not sent · waiting for connection".into(),
-            Phase::Waiting { why } if !why.is_empty() => format!("Not sent · {why} · retrying"),
-            Phase::Waiting { .. } => "Not sent · waiting to send".to_owned(),
+            Phase::Waiting { why } if why == "waiting for connection" => "Waiting for connection…".into(),
+            Phase::Waiting { why } if !why.is_empty() => format!("Retrying · {why}"),
+            Phase::Waiting { .. } => "Waiting to send…".to_owned(),
             Phase::Unconfirmed { why, .. } if why.is_empty() => "Checking delivery…".into(),
             Phase::Unconfirmed { why, .. } => format!("Checking delivery · {why}"),
             Phase::Failed { why, .. } => format!("Not sent · {why}"),
