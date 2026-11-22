@@ -810,6 +810,8 @@ siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: b
             placeholder = i18n:T("sites.search"),
             icon = "magnifying-glass",
             clearable = searching,
+            -- Down goes on to the list, once it shows sites (`site-chooser.tsx:423-428`).
+            focusDown = if chooser.status == nil and #chooser.shown > 0 then "settings-import-sites" else nil,
             size = "large",
             grow = 1,
             shrink = true,

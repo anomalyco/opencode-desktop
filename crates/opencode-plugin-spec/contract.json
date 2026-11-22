@@ -689,6 +689,7 @@
       { "name": "variant", "type": "FieldVariant?", "doc": "The look. Defaults to `default`." },
       { "name": "icon", "type": "IconName?", "since": "1.7", "doc": "An icon in the box before the text, as Desktop's `TextInput` `leadingIcon`: a search field's magnifying glass. The `default` variant only." },
       { "name": "clearable", "type": "boolean?", "since": "1.7", "doc": "A Clear button at the box's end that empties the field, as Desktop's `TextInput` `showClearButton`: set it while the field has text. The `default` variant only." },
+      { "name": "focusDown", "type": "string?", "since": "1.7", "doc": "The key of the element Down moves the keyboard to from this field, or that element's first focusable control: a list under its search field, as official's site chooser does. The `default` variant only." },
       { "name": "keys", "type": "{ string }?", "doc": "Keys the field hands to its editor's `KeyPressed` instead of handling them: any of `ArrowUp`, `ArrowDown` and `Escape`." },
       { "name": "onSubmit", "type": "UiHandler?", "doc": "Runs on Enter with the text in `event.text`." }
     ] },

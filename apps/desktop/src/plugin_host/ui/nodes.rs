@@ -121,12 +121,25 @@ fn field(a: &mut NodeArgs) -> Result<El, String> {
             });
         }
         let handed = handed_keys(a);
-        if !handed.is_empty() {
+        let focus_down = a.string("focusDown").map(str::to_owned);
+        if !handed.is_empty() || focus_down.is_some() {
             let key_plugin = plugin.clone();
             input = input.on_key(move |app: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
                 // Keys during IME composition belong to the candidate window.
                 if super::editors::is_composing(app, &key_plugin, index) {
                     return false;
+                }
+                // Down leaves the field for the list under it, as official's site search does
+                // (`site-chooser.tsx:423-428`); the field gives up its focus so the request wins.
+                if let Some(target) = focus_down.as_deref()
+                    && ev.key == rune::Key::Down
+                    && ev.mods == rune::Mods::default()
+                {
+                    tx.instant();
+                    super::editors::get_mut(app, &key_plugin, index).focused = false;
+                    tx.focus(target, true);
+                    bump();
+                    return true;
                 }
                 let Some(&(_, _, name)) = handed.iter().find(|(key, shift, _)| {
                     ev.key == *key && ev.mods.shift == *shift && !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt
