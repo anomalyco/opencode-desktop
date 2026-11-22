@@ -142,7 +142,7 @@ pub fn sync<S: TimelineHost>(s: &mut S) -> bool {
 /// The label alone on the text column, as Desktop's Working is. Hidden, it is drawn still: its
 /// loops would keep waking frames.
 pub fn row<S: TimelineHost>(s: &S, p: &Pal, session: &str, live: bool) -> El {
-    rune::row().h(16.0).center_y().child(label(s, p, session, live && !s.reduced_motion()))
+    rune::row().h(LINE).center_y().child(label(s, p, session, live && !s.reduced_motion()))
 }
 
 /// Desktop's Working lane under a turn (`h-9 pt-3`): its row is the bottom 24 of 36.
@@ -152,6 +152,11 @@ pub const LANE_PAD: f32 = 12.0;
 pub const LANE_TEXT_TOP: f32 = 10.0;
 pub const H: f32 = 24.0;
 pub const LANE: f32 = LANE_PAD + H;
+/// The status line's height (`--line-height-compact`).
+pub const LINE: f32 = 16.0;
+/// The lane's row (`timeline-status-lane`: flex, centred, 8 apart): the status line and what
+/// sits beside it, the background hint's 24 pt button centred on the line and reaching 4 past it.
+pub const ROW_TOP: f32 = LANE_TEXT_TOP - (H - LINE) / 2.0;
 
 /// Desktop's reply Copy in that lane (`text-part-copy-wrapper`): a 20 pt square holding a 14 pt
 /// glyph in its middle, 8 pt under the reply's last line, pulled 2 pt toward the text edge when

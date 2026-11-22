@@ -441,6 +441,8 @@ pub trait TimelineHost: Sized + 'static {
     fn pending_steer_label(&self, item: &InboxItem) -> String {
         item.text.clone()
     }
+    /// What sits beside the status line in a turn's lane, 8 after its words and centred on it
+    /// (OpenCode (Rune)'s "Move to background" hint).
     fn turn_tail_extra(&self, _p: &palette::Pal, _session: &str, _busy: bool) -> Option<El> {
         None
     }
