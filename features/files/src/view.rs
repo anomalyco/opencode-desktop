@@ -346,7 +346,8 @@ pub fn filtered_files_view<H: FilesHost + 'static>(
                 let (click_p, dbl_p) = (path.clone(), path.clone());
                 let t = tree_icons::file(name);
                 // `file-tree-v2-row` (`packages/gui-plugins/src/file/list.tsx:201-206`): 28 tall,
-                // 8 in, 6 apart, 6 round; folder muted, filename base ink, both `.text-12-medium`.
+                // 8 in, 6 apart, 6 round; folder muted, filename `text-text-base` (v1 `--text-base`,
+                // `#6f6f6f` / `#a0a0a0`, selected or not), both `.text-12-medium`.
                 let label = row()
                     .grow(1.0)
                     .min_w(0.0)
@@ -355,7 +356,7 @@ pub fn filtered_files_view<H: FilesHost + 'static>(
                     .child(
                         text(name.to_owned())
                             .font(LIST_LABEL)
-                            .color(pal.text)
+                            .color(pal.v1_text_base)
                             .shrink()
                             .min_w(0.0)
                             .truncate_fade(),
