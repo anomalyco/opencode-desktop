@@ -237,6 +237,9 @@ fn recorded<S: 'static>(look: &Look, f: Recorded<S>) -> El {
 /// right edge, all of it visible (`widgets-fullscreen.md`, Chrome).
 pub const CLOSE: f32 = 32.0;
 pub const CLOSE_INSET: f32 = 8.0;
+/// Full screen, the root sits `PAD` in from every edge of the window (canvases too); the button
+/// keeps its place on screen, over the padded root's top-right corner.
+pub const PAD: f32 = 16.0;
 
 /// The close button's area `[x, y, w, h]` over a full-screen widget laid out at `screen`
 /// (`[x, y, w, h]`), in the same coordinates.
@@ -294,8 +297,8 @@ pub fn placeholder(look: &Look, title: &str) -> El {
         .child(row().key("elsewhere").gap(8.0).items_center().child(icon(&EXPAND, 13.0).color(c.icon_muted).a11y_hidden()).child(text(look.words.elsewhere.clone()).font(k.ty.small.lh(16.0)).color(c.text_muted)))
 }
 
-/// A widget full screen: its view fills the window, `height` points tall (scrolling when
-/// taller), the close button floating over its top-right corner ([`close_area`]). Esc, back and
+/// A widget full screen: its view fills the window less [`PAD`] each side, `height` points tall
+/// (scrolling when taller), the close button floating over its top-right corner ([`close_area`]). Esc, back and
 /// the mouse's back button close it as the button does (the host takes the keys).
 #[allow(clippy::too_many_arguments)]
 pub fn screen<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, face: Face<'_>, title: &str, height: f32, close: Action<S>) -> El {
@@ -353,7 +356,7 @@ pub fn screen<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, 
                 .h_full()
                 .min_h(0.0)
                 .scroll(rune::ScrollSpec { stick_bottom: false })
-                .child(col().key("body").w_full().min_h(height.max(0.0)).gap(12.0).children(content)),
+                .child(col().key("body").w_full().min_h(height.max(0.0)).padding(PAD).gap(12.0).children(content)),
         )
         .child(close.pin(None, Some(CLOSE_INSET), Some(CLOSE_INSET), None))
 }

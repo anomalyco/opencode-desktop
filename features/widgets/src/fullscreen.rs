@@ -16,7 +16,8 @@
 //! The widget hears `{ id: "", type: "fullscreen", value, close }` on entering and leaving (its
 //! `onFullscreen`, or a live program's `widget.on("fullscreen")`), and again with the new `close`
 //! when the window's size changes; `close` is the close button's area in the root's coordinates
-//! (the root fills the window). Its frames and pointer values say `fullscreen` and `close`.
+//! (the root sits 16 px in from the window's edges). Its frames and pointer values say
+//! `fullscreen` and `close`.
 
 use opencode_widget::{Rect, WidgetEvent};
 use rune::Tx;
@@ -126,8 +127,10 @@ fn tell(host: &mut dyn WidgetsHost, id: &str, on: bool) {
     if !on {
         crate::input::release(host);
     }
-    // In the root's coordinates: the root fills the screen.
-    let close = area.map(|[x, y, w, h]| Rect { x: f64::from(x - rect[0]), y: f64::from(y - rect[1]), width: f64::from(w), height: f64::from(h) });
+    // In the root's coordinates: the root sits `PAD` in from the screen's edges, so the area
+    // reaches past its top and right (`{ x: W - 24, y: -8, 32, 32 }`).
+    let pad = opencode_widget_view::PAD;
+    let close = area.map(|[x, y, w, h]| Rect { x: f64::from(x - rect[0] - pad), y: f64::from(y - rect[1] - pad), width: f64::from(w), height: f64::from(h) });
     crate::input::tell(host, id, WidgetEvent::fullscreen(on, close));
 }
 

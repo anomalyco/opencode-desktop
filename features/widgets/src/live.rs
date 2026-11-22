@@ -213,9 +213,9 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
     // Before its first render it has no canvas yet: its first frame says so (no size).
     let (canvas, size, pointer, close) = match e.machine.view().and_then(|v| e.local.live_canvas(v)) {
         Some(c) => match c.size {
-            Some(size) => (c.id, size, c.pointer, c.close),
-            // Its canvas isn't laid out yet: the frame waits for its size.
-            None => return changed,
+            Some(size) if size[0] > 0.0 && size[1] > 0.0 => (c.id, size, c.pointer, c.close),
+            // Its canvas isn't laid out yet (or has no area): the frame waits for its size.
+            _ => return changed,
         },
         None => (None, [0.0, 0.0], None, None),
     };

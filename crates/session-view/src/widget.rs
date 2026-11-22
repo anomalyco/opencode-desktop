@@ -75,7 +75,7 @@ pub enum Place<S> {
 pub fn frame<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, label: &str, face: Face<'_>, local: &Local, hooks: Option<&Hooks<S>>, place: Place<S>, chip: Option<&str>) -> El {
     let fullscreen = matches!(place, Place::Screen { .. });
     let width = match &place {
-        Place::Screen { size, .. } => size[0].max(200.0),
+        Place::Screen { size, .. } => (size[0] - 2.0 * opencode_widget_view::PAD).max(200.0),
         _ => crate::style::content_w(),
     };
     let store = s.media_store().markdown.clone();

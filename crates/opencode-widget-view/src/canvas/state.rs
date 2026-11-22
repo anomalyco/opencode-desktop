@@ -146,10 +146,10 @@ impl Canvas {
         }
     }
 
-    /// The frame to draw at clock `now`, when the canvas wants one: it shows, has a size, and is
-    /// due or animating with its next frame due.
+    /// The frame to draw at clock `now`, when the canvas wants one: it shows, has an area (a
+    /// layout passing through zero draws nothing), and is due or animating with its next frame due.
     pub fn due(&self, now: f64, motion: Motion, id: Option<&str>, scale: f64, dark: bool) -> Option<Frame> {
-        let size = self.size.filter(|_| self.sight == Sight::Shown)?;
+        let size = self.size.filter(|s| self.sight == Sight::Shown && s[0] > 0.0 && s[1] > 0.0)?;
         let wants = match &self.phase {
             Phase::Due { .. } => true,
             Phase::Animating { .. } => motion.fps > 0.0 && now >= self.last + 1.0 / motion.fps - 0.002,
@@ -173,7 +173,7 @@ impl Canvas {
     pub fn next(&self, motion: Motion) -> Option<f64> {
         match &self.phase {
             Phase::Animating { .. } if self.sight == Sight::Shown && motion.fps > 0.0 => Some(self.last + 1.0 / motion.fps),
-            Phase::Due { .. } if self.sight == Sight::Shown && self.size.is_some() => Some(self.last),
+            Phase::Due { .. } if self.sight == Sight::Shown && self.size.is_some_and(|s| s[0] > 0.0 && s[1] > 0.0) => Some(self.last),
             _ => None,
         }
     }
