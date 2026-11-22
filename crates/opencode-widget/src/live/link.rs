@@ -26,7 +26,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::task::Waker;
 use std::time::{Duration, Instant};
 
-use psychoscript::{HostResult, Interrupted, ProgramOptions, RunOutcome, Snapshot, Suspender};
+use psychoscript::{DiagnosticKind, HostResult, Interrupted, ProgramOptions, RunOutcome, Snapshot, Suspender};
 use serde_json::{Value, json};
 
 use super::fetch::Rate;
@@ -255,6 +255,8 @@ impl Link {
         let mut ended = |result: Result<RunOutcome, Interrupted>| match result {
             Ok(RunOutcome::Done(o)) => match o.json() {
                 Ok(_) => Ended::Returned,
+                // Over the heap cap: a program error, where it happened is no line of its own.
+                Err(d) if d.kind == DiagnosticKind::MemoryLimitExceeded => Ended::Failed(crate::runner::heap_exceeded()),
                 Err(d) => {
                     at = d.location;
                     Ended::Failed(d.message_lossy())

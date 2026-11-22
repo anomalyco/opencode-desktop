@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Instant;
 
-use psychoscript::{Call, HostError, HostFunction, HostResult, HostValue, Runtime};
+use psychoscript::{Call, HostError, HostFunction, HostResult, HostValue, Limits, Runtime};
 use serde_json::{Value, json};
 
 use super::fetch;
@@ -23,10 +23,11 @@ fn throw(message: String) -> HostValue {
     HostValue::Error(Box::new(HostError::new(message)))
 }
 
-/// The runtime of run `era` of `link`'s program, its globals bound to `link`.
+/// The runtime of run `era` of `link`'s program, its globals bound to `link`, its heap capped at
+/// [`crate::runner::MAX_HEAP_BYTES`] (a saved run keeps the cap).
 pub(super) fn runtime(link: &Arc<Link>, era: u64) -> Runtime {
     let link = link.clone();
-    Runtime::make().globals(move |_run| {
+    Runtime::make().limits(Limits { max_heap_bytes: Some(crate::runner::MAX_HEAP_BYTES), ..Default::default() }).globals(move |_run| {
         let input = json!({ "data": link.data });
         let (l1, l2, l3, l4, l5) = (link.clone(), link.clone(), link.clone(), link.clone(), link.clone());
         let host = HostValue::object([

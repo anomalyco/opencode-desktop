@@ -4998,7 +4998,7 @@ dependencies = [
 [[package]]
 name = "psychoscript"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/psychoscript?rev=ddc33be36258659456062e13700e8683863dec6d#ddc33be36258659456062e13700e8683863dec6d"
+source = "git+https://github.com/anomalyco/psychoscript?rev=c42e030e4237b709276a02a3d39fd234aaae7411#c42e030e4237b709276a02a3d39fd234aaae7411"
 dependencies = [
  "icu_calendar",
  "icu_collator",

@@ -17,6 +17,16 @@ use crate::step::{Step, StepInput, StepOutput};
 /// The contract's step budget; a client may use less.
 pub const STEP_TIMEOUT_MS: u64 = 250;
 
+/// The heap a program may hold, steps and live runs alike (`widgets-live.md`, Budgets: "capped
+/// by the host, default 32 MB", as iOS and Android cap it), in PsychoScript's size model of what
+/// it can still reach, not the process's memory. Over it is a program error.
+pub const MAX_HEAP_BYTES: u64 = 32 * 1024 * 1024;
+
+/// What a program that went over [`MAX_HEAP_BYTES`] shows and reports, in the mobile clients' words.
+pub fn heap_exceeded() -> String {
+    format!("It used more than {} MB of memory", MAX_HEAP_BYTES >> 20)
+}
+
 /// What runs a step after the widget template's program.
 const TAIL: &str = "\nreturn __widget_step(__input())";
 
@@ -108,7 +118,7 @@ impl Program {
                     let reads = reads.clone();
                     [("__input", HostFunction::new(move |_args, _call| std::mem::take(&mut *reads.lock().unwrap_or_else(PoisonError::into_inner))))]
                 })
-                .limits(Limits { timeout_ms: Some(timeout_ms), ..Default::default() })
+                .limits(Limits { timeout_ms: Some(timeout_ms), max_heap_bytes: Some(MAX_HEAP_BYTES), ..Default::default() })
         };
         let runtime = make(timeout_ms.clamp(1, STEP_TIMEOUT_MS));
         let drawing = make(DRAW_TIMEOUT_MS.min(timeout_ms.max(1)));
@@ -168,6 +178,7 @@ impl Program {
         *self.input.lock().unwrap_or_else(PoisonError::into_inner) = HostValue::Null;
         outcome.json().map_err(|d| match d.kind {
             DiagnosticKind::TimeoutExceeded => Error::Timeout,
+            DiagnosticKind::MemoryLimitExceeded => Error::Script { message: heap_exceeded(), location: None },
             DiagnosticKind::ParseError | DiagnosticKind::UnsupportedSyntax if d.location.is_none() => Error::Compile(d.message_lossy()),
             _ => Error::Script { message: d.message_lossy(), location: d.location },
         })
