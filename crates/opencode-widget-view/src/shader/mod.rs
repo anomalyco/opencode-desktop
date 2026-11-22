@@ -1,8 +1,9 @@
-//! A `shader` node: an effect slot in Rune's painter stream that [`gpu::ShaderGpu`] paints, in
-//! the host's compositor, with the node's WGSL. The view and the GPU side meet in a registry of
-//! slots (one per shader on screen, by widget and path): the view writes each slot's source,
-//! `values`, `fps` and pointer; the GPU side writes back a compile error or a freeze, which the
-//! view shows as the `poster` (or `alt`) with the error under it.
+//! A GPU canvas (a `canvas` node with `wgsl`): an effect slot in Rune's painter stream that
+//! [`gpu::ShaderGpu`] paints, in the host's compositor, with the node's WGSL. The view and the
+//! GPU side meet in a registry of slots (one per GPU canvas on screen, by widget and path): the
+//! view writes each slot's source, `values`, `fps`, `duration` and pointer; the GPU side writes
+//! back a compile error or a freeze, which the view shows as the `poster` (or `alt`) with the
+//! error under it. It never renders at a zero width or height.
 
 pub mod gpu;
 
@@ -11,7 +12,6 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use opencode_widget::shader::DEFAULT_FPS;
 use rune::{Drag, El, Phase, SurfaceFit, Tx, el, text};
 
 use crate::Cx;
@@ -19,7 +19,7 @@ use crate::Cx;
 /// Effect marks this crate owns: the top 16 bits, `WS`.
 const TAG: u32 = 0x5753 << 16;
 
-/// Whether effect mark `mark` is a shader widget's.
+/// Whether effect mark `mark` is a GPU canvas's.
 pub fn is_mark(mark: u32) -> bool {
     mark & 0xFFFF_0000 == TAG
 }
@@ -36,7 +36,7 @@ pub enum Status {
     Frozen,
 }
 
-/// One shader on screen, as the view last built it.
+/// One GPU canvas on screen, as the view last built it.
 #[derive(Clone, Debug)]
 pub struct Slot {
     pub wgsl: Rc<str>,
@@ -44,6 +44,8 @@ pub struct Slot {
     pub source: u64,
     pub values: [f32; 16],
     pub fps: f64,
+    /// Seconds: it animates at `fps` until it drew a frame this old, then only on `values`.
+    pub duration: Option<f64>,
     /// Logical pixels from the slot's top-left, and whether it's pressed.
     pub pointer: Option<([f32; 2], bool)>,
     pub status: Status,
@@ -56,11 +58,11 @@ struct Registry {
     next: u16,
 }
 
-/// Frames drawn with a shader on screen: a window whose widget animates only its shader draws
+/// Frames drawn with a GPU canvas on screen: a window whose widget animates only its shader draws
 /// without building again, and this still says it draws.
 pub(crate) static PAINTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// How many frames were drawn with a shader on screen.
+/// How many frames were drawn with a GPU canvas on screen.
 pub fn painted() -> u64 {
     PAINTED.load(std::sync::atomic::Ordering::Relaxed)
 }
@@ -115,8 +117,9 @@ pub fn retain(keep: impl Fn(u32) -> bool) {
     });
 }
 
-/// Slot `key`'s mark, the slot written with this build's source, values and fps; its status.
-fn show(key: &str, wgsl: &str, values: &[f64], fps: f64) -> (u32, Status) {
+/// Slot `key`'s mark, the slot written with this build's source, values, fps and duration; its
+/// status.
+fn show(key: &str, wgsl: &str, values: &[f64], fps: f64, duration: Option<f64>) -> (u32, Status) {
     REGISTRY.with_borrow_mut(|r| {
         let mark = match r.marks.get(key) {
             Some(m) => *m,
@@ -132,17 +135,18 @@ fn show(key: &str, wgsl: &str, values: &[f64], fps: f64) -> (u32, Status) {
         let source = h.finish();
         let mut v = opencode_widget::shader::Uniforms::default();
         v.set_values(values);
-        let slot = r.slots.entry(mark).or_insert_with(|| Slot { wgsl: Rc::from(wgsl), source, values: v.values, fps, pointer: None, status: Status::Running });
+        let slot = r.slots.entry(mark).or_insert_with(|| Slot { wgsl: Rc::from(wgsl), source, values: v.values, fps, duration, pointer: None, status: Status::Running });
         if slot.source != source {
-            *slot = Slot { wgsl: Rc::from(wgsl), source, values: v.values, fps, pointer: slot.pointer, status: Status::Running };
+            *slot = Slot { wgsl: Rc::from(wgsl), source, values: v.values, fps, duration, pointer: slot.pointer, status: Status::Running };
         }
         slot.values = v.values;
         slot.fps = fps;
+        slot.duration = duration;
         (mark, slot.status.clone())
     })
 }
 
-/// A live program re-rendered with only shader `values` changed: slot `key` (its widget's scope
+/// A live program re-rendered with only GPU canvas `values` changed: slot `key` (its widget's scope
 /// and the node's path) takes them now, without a build. Whether it had such a slot.
 pub fn set_values(key: &str, values: &[f64]) -> bool {
     REGISTRY.with_borrow_mut(|r| {
@@ -154,7 +158,7 @@ pub fn set_values(key: &str, values: &[f64]) -> bool {
     })
 }
 
-/// A shader node's box: `height` (its least, when it fills full screen) and `width`.
+/// A GPU canvas's box: `height` (its least, when it fills), `width`, and whether it fills.
 pub(crate) struct Size {
     pub height: f64,
     pub width: Option<f64>,
@@ -170,11 +174,11 @@ fn point(mark: u32, at: Option<([f32; 2], bool)>) {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, size: Size, wgsl: &str, values: &[f64], fps: Option<f64>, alt: Option<&str>, poster: Option<&str>) -> El {
+pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, size: Size, wgsl: &str, values: &[f64], motion: (f64, Option<f64>), alt: Option<&str>, poster: Option<&str>) -> El {
     let k = cx.look.kit;
-    let fps = fps.unwrap_or(DEFAULT_FPS).clamp(0.0, opencode_widget::draw::MAX_FPS);
+    let (fps, duration) = motion;
     let key = format!("{}/{path}", cx.look.scope);
-    let (mark, status) = show(&key, wgsl, values, fps);
+    let (mark, status) = show(&key, wgsl, values, fps, duration.filter(|d| d.is_finite() && *d >= 0.0));
     let Size { height, width, fill } = size;
     let b = if fill { el().min_h(height as f32).grow(1.0) } else { el().h(height as f32) };
     let mut b = b.radius(crate::nodes::RADIUS).clip_rounded(crate::nodes::RADIUS).role("img").label(alt.unwrap_or("").to_owned());
@@ -199,7 +203,7 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, size: S
     let (sized, skey) = (hooks.local.clone(), key.clone());
     // Only where it sits moved (a scroll), or only the pointer the GPU reads: the view needn't
     // build again.
-    b.on_layout_tx(move |s: &mut S, [x, y, w, hgt], tx: &mut Tx| {
+    let b = b.on_layout_tx(move |s: &mut S, [x, y, w, hgt], tx: &mut Tx| {
         let local = (sized)(s);
         local.set_origin(&skey, [x, y]);
         if local.size(&skey) == Some([w, hgt]) {
@@ -207,8 +211,12 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, size: S
             return;
         }
         local.set_size(&skey, [w, hgt]);
-    })
-    .on_pointer_move_local(move |s: &mut S, p, tx: &mut Tx| {
+    });
+    // In a stack, a GPU canvas without an id takes no input: the pointer goes to the layer below.
+    if cx.layered && id.is_none() {
+        return b;
+    }
+    b.on_pointer_move_local(move |s: &mut S, p, tx: &mut Tx| {
         if crate::captured(&h, s, sid.as_deref(), opencode_widget::PointerKind::Move, [p.x, p.y], tx) {
             return;
         }

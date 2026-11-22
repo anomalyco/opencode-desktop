@@ -1,5 +1,5 @@
-//! A `shader` node's WGSL as every client runs it (the contract's "Shader"): the standard
-//! `Widget` uniform header, the widget template's source defining `fn shade(frag: vec2f) -> vec4f`, and
+//! A GPU canvas's WGSL (a `canvas` with `wgsl`) as every client runs it (the contract's "GPU
+//! canvases"): the standard `Widget` uniform header, the widget template's source defining `fn shade(frag: vec2f) -> vec4f`, and
 //! the fragment entry point, plus the uniform block's byte layout. Shared by the Rune renderer and
 //! the mobile bindings (which translate the same module with naga).
 

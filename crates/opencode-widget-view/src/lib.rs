@@ -37,7 +37,7 @@ pub(crate) fn button(tx: &Tx) -> u8 {
     }
 }
 
-/// A canvas or shader heard the pointer at `at`: with the pointer captured it goes to the host
+/// A canvas (2D or GPU) heard the pointer at `at`: with the pointer captured it goes to the host
 /// as captured input (true), and a press takes focus first.
 pub(crate) fn captured<S: 'static>(hooks: &Hooks<S>, s: &mut S, id: Option<&str>, kind: opencode_widget::PointerKind, at: [f32; 2], tx: &mut Tx) -> bool {
     let Some(input) = hooks.input.clone() else { return false };
@@ -71,7 +71,7 @@ pub struct Look<'a> {
     pub scope: &'a str,
     /// The capabilities granted to it, in a line ("Network: api.github.com"), when it has any.
     pub chip: Option<&'a str>,
-    /// It fills the window (full screen): its root fills it, and a `fill` canvas or shader takes
+    /// It fills the window (full screen): its root fills it, and a `fill` canvas takes
     /// the height left.
     pub fullscreen: bool,
 }
@@ -156,9 +156,30 @@ pub(crate) struct Cx<'a, S> {
     pub hooks: Option<&'a Hooks<S>>,
     /// The view takes input (never without hooks).
     pub live: bool,
+    /// Inside a stack: what doesn't take input (text, a canvas without an id…) lets the pointer
+    /// through to the layer below.
+    pub layered: bool,
+    /// A stack's child: whether it fills its area (`place: "fill"`); `None` elsewhere.
+    pub fill: Option<bool>,
 }
 
-impl<S> Cx<'_, S> {
+impl<'a, S> Cx<'a, S> {
+    /// The context for a child of a stack, filling its area or not.
+    pub fn layer(&self, fill: bool) -> Cx<'a, S> {
+        Cx { look: self.look, local: self.local, hooks: self.hooks, live: self.live, layered: true, fill: Some(fill) }
+    }
+
+    /// The context for the nodes inside this one: a stack's child placement stops there.
+    pub fn inner(&self) -> Cx<'a, S> {
+        Cx { look: self.look, local: self.local, hooks: self.hooks, live: self.live, layered: self.layered, fill: None }
+    }
+
+    /// Whether a canvas grows to take the height it's given: a stack child that fills, else in
+    /// full screen unless `fill: false`.
+    pub fn canvas_grows(&self, fill: Option<bool>) -> bool {
+        self.fill.unwrap_or(self.look.fullscreen && grows(fill))
+    }
+
     /// The hooks, when the view takes input.
     pub fn act(&self) -> Option<Hooks<S>> {
         self.hooks.filter(|_| self.live).cloned()
@@ -185,15 +206,16 @@ pub fn appearance() -> (f32, bool) {
     APPEARANCE.get()
 }
 
-/// Whether a canvas or shader `fill` grows in full screen: by default, unless `fill: false`.
+/// Whether a canvas with `fill` grows in full screen: by default, unless `fill: false`.
 pub(crate) fn grows(fill: Option<bool>) -> bool {
     fill != Some(false)
 }
 
-/// Whether node `n` holds a canvas or shader that grows into the height left in full screen.
+/// Whether node `n` holds a canvas that grows into the height left in full screen (a stack
+/// does with one, unless all of its canvases are `fill: false`).
 pub(crate) fn fills(n: &Node) -> bool {
     let mut any = false;
-    n.walk(&mut |n| any |= matches!(n, Node::Canvas { fill, .. } | Node::Shader { fill, .. } if grows(*fill)));
+    n.walk(&mut |n| any |= matches!(n, Node::Canvas { fill, .. } if grows(*fill)));
     any
 }
 
@@ -201,6 +223,6 @@ pub(crate) fn fills(n: &Node) -> bool {
 /// Without `hooks` nothing in it responds, carousels included.
 pub fn view<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, node: &Node, live: bool) -> El {
     APPEARANCE.set((look.scale, look.dark));
-    let cx = Cx { look, local, hooks, live: live && hooks.is_some() };
+    let cx = Cx { look, local, hooks, live: live && hooks.is_some(), layered: false, fill: None };
     nodes::node(&cx, node, "w")
 }

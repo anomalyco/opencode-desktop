@@ -204,8 +204,9 @@ impl ShaderGpu {
         let clock = f.rt.clock;
         let slow_frame = f.dt * 1000.0 > SLOW_FRAME_MS;
         for &(m, rect, scale) in on_screen {
-            let Some((source, fps, values, pointer, failed)) = with_slot(m, |s| (s.source, s.fps, s.values, s.pointer, !matches!(s.status, Status::Running))) else { continue };
-            if failed {
+            let Some((source, fps, duration, values, pointer, failed)) = with_slot(m, |s| (s.source, s.fps, s.duration, s.values, s.pointer, !matches!(s.status, Status::Running))) else { continue };
+            // Never at a zero width or height (in layout, or entering full screen): it waits.
+            if failed || rect[2].round() < 1.0 || rect[3].round() < 1.0 {
                 continue;
             }
             let pipeline = match gpu.pipelines.get(&source) {
@@ -248,14 +249,19 @@ impl ShaderGpu {
                         set_status(m, Status::Frozen);
                         (false, Phase::Frozen)
                     } else {
-                        let due = if fps > 0.0 { clock - last >= 1.0 / fps - 0.002 } else { drawn != values };
+                        // With `duration`, it animates until it drew a frame that old.
+                        let animating = fps > 0.0 && duration.is_none_or(|d| last - start < d);
+                        let due = if animating { clock - last >= 1.0 / fps - 0.002 } else { drawn != values };
                         let render = due || resized;
                         (render, Phase::Running { start, last: if render { clock } else { last }, values, slow })
                     }
                 }
             };
             slot.phase = next;
-            if fps > 0.0 && matches!(next, Phase::Running { .. }) {
+            if let Phase::Running { start, last, .. } = next
+                && fps > 0.0
+                && duration.is_none_or(|d| last - start < d)
+            {
                 self.animating = true;
             }
             if !render {

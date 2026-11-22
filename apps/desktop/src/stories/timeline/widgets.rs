@@ -43,6 +43,7 @@ pub const VARIANTS: &[(&str, usize)] = &[
     ("Keyboard and pointer, full screen", 22),
     ("Treemap, full screen", 23),
     ("Heatmap, full screen", 24),
+    ("Stack HUD", 25),
 ];
 pub const KEYS: &[Trigger] = &[
     replay(open),
@@ -93,7 +94,7 @@ async function main(data) {
     widget.render(
       ui.column({ gap: 1 }, [
         ui.text("Shader paddle", { style: "title" }),
-        ui.shader(WGSL, { key: "court", height: 220, values: [x, frame.t, 0, 0], alt: "A paddle and a ball", onPointer }),
+        ui.canvas({ wgsl: WGSL, key: "court", height: 220, values: [x, frame.t, 0, 0], alt: "A paddle and a ball", onPointer }),
         ui.text(data.clock ? "t = " + frame.t.toFixed(2) : "Drag on the court to move the paddle.", { style: "caption", tone: "muted" }),
       ]),
     )
@@ -159,7 +160,7 @@ const FAILING_SOURCE: &str = r##"async function main(data) {
   widget.render(
     ui.column({ gap: 1 }, [
       ui.text("Neon gate", { style: "title" }),
-      ui.shader("fn shade(frag: vec2f) -> vec4f { let uv = frag / widget.resolution; return vec4f(uv.x * 0.3, 0.1, 0.4 + 0.3 * uv.y, 1.0); }", { height: 160, alt: "A gate" }),
+      ui.canvas({ wgsl: "fn shade(frag: vec2f) -> vec4f { let uv = frag / widget.resolution; return vec4f(uv.x * 0.3, 0.1, 0.4 + 0.3 * uv.y, 1.0); }", height: 160, alt: "A gate" }),
       ui.text("Steer with the pointer.", { style: "caption", tone: "muted" }),
     ]),
   )
@@ -169,7 +170,7 @@ const FAILING_SOURCE: &str = r##"async function main(data) {
 }
 "##;
 
-/// A shader and a canvas that count the pointer events their widget template hears, for a drag
+/// A GPU canvas and a 2D canvas that count the pointer events their widget template hears, for a drag
 /// inline and full screen.
 const DRAG: &str = "story-drag";
 const DRAG_SOURCE: &str = r##"async function main(data) {
@@ -192,9 +193,9 @@ function show(s) {
   widget.render(
     ui.column({ gap: 1 }, [
       ui.text("Drag", { style: "title" }),
-      ui.shader("fn shade(frag: vec2f) -> vec4f { let uv = frag / widget.resolution; return vec4f(0.15 + 0.5 * uv.x, 0.2, 0.5 - 0.3 * uv.y, 1.0); }", { key: "orb", height: 160, fill: false, alt: "A shader to drag on", onPointer: s.onOrb }),
+      ui.canvas({ wgsl: "fn shade(frag: vec2f) -> vec4f { let uv = frag / widget.resolution; return vec4f(0.15 + 0.5 * uv.x, 0.2, 0.5 - 0.3 * uv.y, 1.0); }", key: "orb", height: 160, fill: false, alt: "A shader to drag on", onPointer: s.onOrb }),
       ui.canvas({ key: "pad", height: 100, fill: false, alt: "A canvas to drag on", onPointer: s.onPad }),
-      ui.text(line("shader", s.orb), { style: "body" }),
+      ui.text(line("GPU canvas", s.orb), { style: "body" }),
       ui.text(line("canvas", s.pad), { style: "body" }),
     ]),
   )
@@ -202,6 +203,46 @@ function show(s) {
   g.rrect(0, 0, 2000, 100, 0, "surface")
   g.circle(s.pad.x, 50, 10, "accent")
   widget.draw("pad", g)
+}
+"##;
+
+/// A stack: a GPU canvas filling it, a text HUD top-left and a Reset button bottom-right. The
+/// button takes its taps; taps anywhere else, the HUD's text included, reach the canvas, which
+/// rings where they landed and counts them.
+const HUD: &str = "story-hud";
+const HUD_SOURCE: &str = r##"const WGSL = `fn shade(frag: vec2f) -> vec4f {
+  let uv = frag / widget.resolution;
+  let t = widget.time;
+  var c = vec3f(0.03 + 0.18 * uv.x, 0.06 + 0.08 * sin(t * 0.8 + uv.y * 4.0) + 0.06, 0.16 + 0.3 * uv.y);
+  let grid = step(0.97, fract(frag.x / (24.0 * widget.scale))) + step(0.97, fract(frag.y / (24.0 * widget.scale)));
+  c = c + vec3f(0.05, 0.12, 0.16) * min(grid, 1.0);
+  let tap = widget.values[0].xy * widget.scale;
+  let d = distance(frag, tap);
+  let r = (8.0 + 30.0 * fract(t * 0.6)) * widget.scale;
+  let ring = (1.0 - smoothstep(0.0, 2.5 * widget.scale, abs(d - r))) * widget.values[0].z;
+  let dot = (1.0 - smoothstep(4.0 * widget.scale, 6.0 * widget.scale, d)) * widget.values[0].z;
+  c = c + vec3f(0.35, 0.85, 1.0) * max(ring, dot);
+  return vec4f(c, 1.0);
+}`
+
+function init(data) {
+  return { taps: 0, x: 0, y: 0 }
+}
+
+function view(state, data) {
+  return ui.stack([
+    ui.canvas({ key: "field", wgsl: WGSL, height: 260, values: [state.x, state.y, state.taps > 0 ? 1 : 0, 0], place: "fill", alt: "A signal field that rings where it's tapped", onPointer: tap }),
+    ui.column({ gap: 0, place: "top-left", inset: 12 }, [
+      ui.text("Signal field", { style: "title" }),
+      ui.text(state.taps === 0 ? "Tap the field" : state.taps + (state.taps === 1 ? " tap" : " taps") + " · last at " + Math.round(state.x) + ", " + Math.round(state.y), { style: "caption" }),
+    ]),
+    ui.button("Reset", { place: "bottom-right", inset: 12, onPress: (state) => init(data), disabled: state.taps === 0 }),
+  ])
+}
+
+function tap(state, p) {
+  if (p.kind !== "up") return state
+  return { taps: state.taps + 1, x: p.x, y: p.y }
 }
 "##;
 
@@ -274,6 +315,7 @@ fn widget_template(v: usize) -> &'static str {
         20 | 21 => DRAG,
         23 => "treemap",
         24 => "heatmap",
+        25 => HUD,
         _ => "suggestions",
     }
 }
@@ -342,6 +384,7 @@ fn data(v: usize) -> (&'static str, Value) {
         20 | 21 => ("Drag", json!({})),
         23 => ("Treemap", fixtures::example("treemap").unwrap_or_default()),
         24 => ("Heatmap", fixtures::example("heatmap").unwrap_or_default()),
+        25 => ("Signal field", json!({})),
         16 => ("Delete the branch", json!({ "title": "Delete feature/reconnect-backoff?", "message": "The branch is merged into `main`." })),
         _ => ("Pick a hero image", json!({
             "title": "Which hero image should the landing page use?",
@@ -380,7 +423,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     preload(s, BROKEN, &version(BROKEN), &broken, "step", &Value::Null);
     // A shader whose WGSL doesn't compile: its alt, with the compiler's message.
     let shader = format!(
-        "{}\nfunction view(state, data) {{\n  return ui.column({{ gap: 2 }}, [ui.text(\"A broken shader\", {{ style: \"title\" }}), ui.shader(\"fn shade(frag: vec2f) -> vec4f {{ return vec4f(glow, 0.0, 0.0, 1.0); }}\", {{ height: 120, alt: \"A red glow\" }})])\n}}",
+        "{}\nfunction view(state, data) {{\n  return ui.column({{ gap: 2 }}, [ui.text(\"A broken shader\", {{ style: \"title\" }}), ui.canvas({{ wgsl: \"fn shade(frag: vec2f) -> vec4f {{ return vec4f(glow, 0.0, 0.0, 1.0); }}\", height: 120, alt: \"A red glow\" }})])\n}}",
         fixtures::PRELUDE
     );
     preload(s, BROKEN_SHADER, &version(BROKEN_SHADER), &shader, "step", &Value::Null);
@@ -391,6 +434,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     preload(s, RUNAWAY, &version(RUNAWAY), &runaway, "live", &json!({ "https": { "hosts": ["api.coingecko.com"] } }));
     preload(s, SHADER_GAME, &version(SHADER_GAME), &format!("{}\n{SHADER_GAME_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);
     preload(s, INPUT, &version(INPUT), &format!("{}\n{INPUT_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);
+    preload(s, HUD, &version(HUD), &format!("{}\n{HUD_SOURCE}", fixtures::PRELUDE), "step", &Value::Null);
     preload(s, DRAG, &version(DRAG), &format!("{}\n{DRAG_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);
     preload(s, FAILING, &version(FAILING), &format!("{}\n{FAILING_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);
     preload(s, FULLSCREEN, &version(FULLSCREEN), &format!("{}\n{FULLSCREEN_SOURCE}", fixtures::PRELUDE), "step", &Value::Null);

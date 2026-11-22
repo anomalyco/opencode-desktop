@@ -94,7 +94,7 @@ fn hooks<H: WidgetsHost + 'static>(key: &str) -> Hooks<H> {
 }
 
 /// Whether widget `e` offers full screen now: it's open here, its view says so (its root's
-/// `fullscreen`, else it is live or draws a canvas or shader), and it shows a view.
+/// `fullscreen`, else it is live or draws a canvas), and it shows a view.
 fn offers(e: &Entry) -> bool {
     if !e.machine.open_here() {
         return false;

@@ -37,6 +37,10 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, height:
     b = b.on_layout(move |s: &mut S, rect| (lens)(s).canvas_laid(&key, rect));
     let (lens, key) = (hooks.local.clone(), path.to_owned());
     b = b.on_visible(move |s: &mut S, on, _tx: &mut Tx| (lens)(s).canvas_event(&key, Event::Seen(if on { Sight::Shown } else { Sight::Hidden })));
+    // In a stack, a canvas without an id takes no input: the pointer goes to the layer below.
+    if cx.layered && id.is_none() {
+        return b;
+    }
     // Hover tells `draw` where the pointer is; it isn't an event.
     let (lens, key, h, cid, live) = (hooks.local.clone(), path.to_owned(), hooks.clone(), id.map(str::to_owned), cx.live);
     b = b.on_pointer_move_local(move |s: &mut S, p, tx: &mut Tx| {

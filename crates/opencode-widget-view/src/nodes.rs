@@ -1,7 +1,7 @@
 //! Layout and content nodes: column, row, text, markdown, image, card, divider; the controls
 //! and the carousel live in their own modules.
 
-use opencode_widget::{Align, Node, TextStyle, Tone, WidgetEvent};
+use opencode_widget::{Align, Layers, Node, Place, TextStyle, Tone, WidgetEvent};
 use rune::{Color, El, SurfaceFit, Tx, col, el, icon, row, text};
 use rune_kit::Kit;
 
@@ -15,6 +15,9 @@ pub(crate) const RADIUS: f32 = 10.0;
 
 pub(crate) fn node<S: 'static>(cx: &Cx<S>, n: &Node, path: &str) -> El {
     let k = cx.look.kit;
+    // A stack child's placement reaches only the node itself.
+    let placed = cx;
+    let cx = &cx.inner();
     let e = match n {
         Node::Column { children, gap: g, align, .. } => {
             let c = col().w_full().gap(gap(*g));
@@ -29,7 +32,9 @@ pub(crate) fn node<S: 'static>(cx: &Cx<S>, n: &Node, path: &str) -> El {
             c.children(kids(cx, children, path, Share::No))
         }
         Node::Row { children, gap: g, align, wrap, .. } => row_node(cx, children, *g, *align, *wrap, path),
-        Node::Text { text: t, style, tone } => text_node(k, t, *style, *tone),
+        Node::Text { text: t, style, tone } => text_node(k, t, *style, *tone, !cx.layered),
+        // Its links and selectable text would keep a stack's pointer from the layer below.
+        Node::Markdown { text: t } if cx.layered => col().w_full().child((cx.look.markdown)(t)).inert(),
         Node::Markdown { text: t } => col().w_full().child((cx.look.markdown)(t)),
         Node::Image { src, alt, aspect } => image(cx, src, alt.as_deref(), *aspect),
         Node::Carousel { id, children, .. } => carousel::view(cx, id.as_deref(), children, path),
@@ -40,11 +45,13 @@ pub(crate) fn node<S: 'static>(cx: &Cx<S>, n: &Node, path: &str) -> El {
         Node::Select { id, label, options, value, multiple } => controls::select(cx, id, label.as_deref(), options, value.as_ref(), *multiple),
         Node::Input { id, label, placeholder, multiline, .. } => controls::input(cx, id, label.as_deref(), placeholder.as_deref(), *multiline),
         Node::Divider => rune::rule(1.0, k.c.border_weak).w_full(),
-        Node::Canvas { id, height, width, alt, fill, .. } => crate::canvas::view(cx, path, id.as_deref(), *height, *width, alt.as_deref(), cx.look.fullscreen && crate::grows(*fill)),
-        Node::Shader { id, height, width, wgsl, values, fps, alt, poster, fill, .. } => {
-            let size = crate::shader::Size { height: *height, width: *width, fill: cx.look.fullscreen && crate::grows(*fill) };
-            crate::shader::view(cx, path, id.as_deref(), size, wgsl, values, *fps, alt.as_deref(), poster.as_deref())
+        Node::Canvas { id, height, width, alt, fill, wgsl: None, .. } => crate::canvas::view(cx, path, id.as_deref(), *height, *width, alt.as_deref(), placed.canvas_grows(*fill)),
+        // A GPU canvas: drawn by its WGSL, never by `draw`.
+        Node::Canvas { id, height, width, alt, fill, wgsl: Some(wgsl), values, poster, duration, .. } => {
+            let size = crate::shader::Size { height: *height, width: *width, fill: placed.canvas_grows(*fill) };
+            crate::shader::view(cx, path, id.as_deref(), size, wgsl, values, (n.fps(), *duration), alt.as_deref(), poster.as_deref())
         }
+        Node::Stack { children } => stack(cx, n, children, path),
         Node::Unknown => {
             #[cfg(debug_assertions)]
             eprintln!("widget: a node of a type this client doesn't know was drawn as nothing ({path})");
@@ -52,6 +59,36 @@ pub(crate) fn node<S: 'static>(cx: &Cx<S>, n: &Node, path: &str) -> El {
         }
     };
     e.key(path.to_owned())
+}
+
+/// A stack: its children layered in one grid cell, the first at the bottom, each in a slot the
+/// stack's size less its `inset`, where its `place` puts it (`fill`: all of the slot). As tall as
+/// its tallest child plus insets; in full screen it grows like a canvas when it holds one that
+/// does. Pointer input goes to the topmost child that takes it; the rest lets it through.
+fn stack<S: 'static>(cx: &Cx<S>, n: &Node, layers: &Layers, path: &str) -> El {
+    let g = el().w_full().equal_columns(1);
+    let g = if cx.look.fullscreen && crate::fills(n) { g.grow(1.0).min_h(0.0) } else { g };
+    g.children(layers.nodes.iter().zip(&layers.layers).enumerate().map(|(i, (child, layer))| {
+        let fill = layer.place == Place::Fill;
+        let path = format!("{path}.{i}");
+        let e = node(&cx.layer(fill), child, &path);
+        let i = layer.inset;
+        let slot = col().key(format!("layer-{path}")).grid_cell(0).min_w(0.0).min_h(0.0).pt(i.top as f32).pr(i.right as f32).pb(i.bottom as f32).pl(i.left as f32);
+        if fill {
+            return slot.items_stretch().child(e.grow(1.0));
+        }
+        let slot = match layer.place {
+            Place::TopLeft | Place::Top | Place::TopRight | Place::Fill => slot.justify_start(),
+            Place::Left | Place::Center | Place::Right => slot.justify_center(),
+            Place::BottomLeft | Place::Bottom | Place::BottomRight => slot.justify_end(),
+        };
+        let slot = match layer.place {
+            Place::TopLeft | Place::Left | Place::BottomLeft | Place::Fill => slot.items_start(),
+            Place::Top | Place::Center | Place::Bottom => slot.items_center(),
+            Place::TopRight | Place::Right | Place::BottomRight => slot.items_end(),
+        };
+        slot.child(e)
+    }))
 }
 
 /// How cards in a row take its width.
@@ -118,7 +155,8 @@ pub(crate) fn tone(k: &Kit, t: Tone) -> Color {
     }
 }
 
-fn text_node(k: &Kit, t: &str, style: TextStyle, t_tone: Tone) -> El {
+/// A text node; `selectable` unless it sits in a stack, where the pointer goes through it.
+fn text_node(k: &Kit, t: &str, style: TextStyle, t_tone: Tone, selectable: bool) -> El {
     let font = match style {
         TextStyle::Title => {
             let mut f = k.ty.body_medium;
@@ -135,7 +173,7 @@ fn text_node(k: &Kit, t: &str, style: TextStyle, t_tone: Tone) -> El {
         (TextStyle::Caption, Tone::Default) => k.c.text_muted,
         _ => tone(k, t_tone),
     };
-    let e = text(t.to_owned()).font(font).color(color).wrap().selectable(true);
+    let e = text(t.to_owned()).font(font).color(color).wrap().selectable(selectable);
     // It shrinks and wraps in a row, and a column stretches it.
     let e = if style == TextStyle::Title { e.role("heading").level(3) } else { e };
     e.shrink().min_w(0.0)

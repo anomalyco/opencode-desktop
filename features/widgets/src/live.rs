@@ -122,11 +122,11 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
     for post in posts {
         let event = match post {
             Post::Render(node) => {
-                // Only shader values moved (a shader game's frame): the slots take them, and the
-                // widget doesn't build again.
-                // A still shader (`fps: 0`) draws only on a build, so it builds.
+                // Only GPU canvas values moved (a shader game's frame): the slots take them, and
+                // the widget doesn't build again.
+                // A still GPU canvas (`fps: 0`) draws only on a build, so it builds.
                 let mut still = false;
-                node.walk(&mut |n| still |= matches!(n, opencode_widget::Node::Shader { fps: Some(f), .. } if *f <= 0.0));
+                node.walk(&mut |n| still |= matches!(n, opencode_widget::Node::Canvas { wgsl: Some(_), .. }) && n.fps() <= 0.0);
                 let quiet = if still { None } else { host.widgets().entries.get(id).and_then(|e| e.machine.view()).and_then(|v| v.values_only(&node)) };
                 match quiet {
                     Some(moved) => {
@@ -242,7 +242,7 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
     tx.wake_at(now + STALL_S + 0.01);
     let shaded = e.machine.view().is_some_and(|v| {
         let mut any = false;
-        v.walk(&mut |n| any |= matches!(n, opencode_widget::Node::Shader { .. }));
+        v.walk(&mut |n| any |= matches!(n, opencode_widget::Node::Canvas { wgsl: Some(_), .. }));
         any
     });
     changed || !shaded

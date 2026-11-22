@@ -12,7 +12,7 @@ pub const DRAW_TIMEOUT_MS: u64 = 8;
 pub const MAX_COMMANDS: usize = 2_000;
 /// Frames a canvas may overrun its budget in a row before it stops animating.
 pub const OVERRUNS_TO_FREEZE: u32 = 3;
-/// The highest `fps` a canvas or shader runs at.
+/// The highest `fps` a canvas runs at, 2D or GPU.
 pub const MAX_FPS: f64 = 60.0;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]

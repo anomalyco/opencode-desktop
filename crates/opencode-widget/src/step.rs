@@ -102,7 +102,7 @@ impl WidgetEvent {
         WidgetEvent { id: id.into(), kind: EventKind::Pointer, value: Some(json!({ "kind": if down { "down" } else { "up" }, "button": button })), close: None }
     }
 
-    /// The pointer moving over a canvas or shader with no button held (desktop's hover), at
+    /// The pointer moving over a canvas with no button held (desktop's hover), at
     /// (`x`, `y`) in its `width` × `height`.
     pub fn hover(id: impl Into<String>, x: f64, y: f64, width: f64, height: f64, close: Option<Rect>) -> WidgetEvent {
         let mut value = json!({ "kind": "move", "x": x, "y": y, "down": false, "width": width, "height": height });

@@ -497,7 +497,8 @@ fn step_wheel(dx: f32) -> (Wheel, bool, Option<bool>) {
 fn canvases(view: &Node) -> Vec<(String, Option<String>, Motion)> {
     let mut out = Vec::new();
     walk(view, "w", &mut |path, n| {
-        if let Node::Canvas { id, fps, duration, .. } = n {
+        // A GPU canvas is drawn by its shader, never by `draw`.
+        if let Node::Canvas { id, fps, duration, wgsl: None, .. } = n {
             out.push((path.to_owned(), id.clone(), Motion::new(*fps, *duration)));
         }
     });

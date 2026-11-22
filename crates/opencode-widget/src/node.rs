@@ -98,7 +98,7 @@ pub enum Node {
         #[serde(default)]
         align: Align,
         /// On the root: offer full screen (`true`), never (`false`); absent, offered for live
-        /// widgets and views with a canvas or shader (`widgets-fullscreen.md`).
+        /// widgets and views with a canvas (`widgets-fullscreen.md`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fullscreen: Option<bool>,
         /// On the root: `"pointer"` asks for pointer capture, granted on the next click
@@ -117,7 +117,7 @@ pub enum Node {
         #[serde(default)]
         wrap: bool,
         /// On the root: offer full screen (`true`), never (`false`); absent, offered for live
-        /// widgets and views with a canvas or shader (`widgets-fullscreen.md`).
+        /// widgets and views with a canvas (`widgets-fullscreen.md`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fullscreen: Option<bool>,
         /// On the root: `"pointer"` asks for pointer capture, granted on the next click
@@ -151,7 +151,7 @@ pub enum Node {
         #[serde(default)]
         children: Vec<Node>,
         /// On the root: offer full screen (`true`), never (`false`); absent, offered for live
-        /// widgets and views with a canvas or shader (`widgets-fullscreen.md`).
+        /// widgets and views with a canvas (`widgets-fullscreen.md`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fullscreen: Option<bool>,
         /// On the root: `"pointer"` asks for pointer capture, granted on the next click
@@ -167,7 +167,7 @@ pub enum Node {
         #[serde(default)]
         children: Vec<Node>,
         /// On the root: offer full screen (`true`), never (`false`); absent, offered for live
-        /// widgets and views with a canvas or shader (`widgets-fullscreen.md`).
+        /// widgets and views with a canvas (`widgets-fullscreen.md`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fullscreen: Option<bool>,
         /// On the root: `"pointer"` asks for pointer capture, granted on the next click
@@ -221,14 +221,16 @@ pub enum Node {
         multiline: bool,
     },
     Divider,
-    /// Drawn every frame by the widget template's `draw` (see [`crate::draw`]); full width unless `width`.
+    /// A drawing surface, full width unless `width`, drawn one way, never both: in 2D by the
+    /// widget template's `draw` (see [`crate::draw`]), or, with `wgsl`, on the GPU by that
+    /// fragment shader (see [`crate::shader`]).
     Canvas {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         height: f64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         width: Option<f64>,
-        /// 0 (draw on change only) when absent, at most 60.
+        /// At most 60; when absent, 0 (draw on change only) in 2D, 60 on the GPU ([`Node::fps`]).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fps: Option<f64>,
         /// Seconds: animates only until it drew a frame with `t >= duration`, then on changes.
@@ -236,12 +238,21 @@ pub enum Node {
         duration: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         alt: Option<String>,
+        /// An image src shown where it can't be drawn (a shader that fails to compile).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        poster: Option<String>,
+        /// A GPU canvas: WGSL defining `fn shade(frag: vec2f) -> vec4f`, at most 16 KB.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        wgsl: Option<String>,
+        /// With `wgsl`, up to 16 floats for `widget.values`.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        values: Vec<f64>,
         /// In full screen it grows to share the remaining height (`height` is the minimum) unless
         /// `false`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fill: Option<bool>,
         /// On the root: offer full screen (`true`), never (`false`); absent, offered for live
-        /// widgets and views with a canvas or shader (`widgets-fullscreen.md`).
+        /// widgets and views with a canvas (`widgets-fullscreen.md`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fullscreen: Option<bool>,
         /// On the root: `"pointer"` asks for pointer capture, granted on the next click
@@ -249,35 +260,11 @@ pub enum Node {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         capture: Option<String>,
     },
-    /// A WGSL fragment shader (see [`crate::shader`]); full width unless `width`.
-    Shader {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-        height: f64,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        width: Option<f64>,
-        wgsl: String,
-        /// Up to 16 floats for `widget.values`.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        values: Vec<f64>,
-        /// 60 when absent.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        fps: Option<f64>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        alt: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        poster: Option<String>,
-        /// In full screen, grows to take the remaining height (`height` is the minimum).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        fill: Option<bool>,
-        /// On the root: offer full screen (`true`), never (`false`); absent, offered for live
-        /// widgets and views with a canvas or shader (`widgets-fullscreen.md`).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        fullscreen: Option<bool>,
-        /// On the root: `"pointer"` asks for pointer capture, granted on the next click
-        /// (`widgets-input.md`).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        capture: Option<String>,
+    /// Children layered in order, the last on top, each where its [`Layer`] puts it
+    /// (`widgets.md`, Stack).
+    Stack {
+        #[serde(default)]
+        children: Layers,
     },
     /// A node type this client doesn't know: drawn as nothing (with a warning in development).
     #[serde(other)]
@@ -285,14 +272,14 @@ pub enum Node {
 }
 
 impl Node {
-    /// Whether `other` is this view with only its shaders' `values` changed: the shaders at those
-    /// paths (as renderers key them, `w`, `w.0`, `w.0.1`…) and their new values, when it is.
+    /// Whether `other` is this view with only its GPU canvases' `values` changed: the canvases at
+    /// those paths (as renderers key them, `w`, `w.0`, `w.0.1`…) and their new values, when it is.
     pub fn values_only(&self, other: &Node) -> Option<Vec<(String, Vec<f64>)>> {
         fn walk(a: &Node, b: &Node, path: &str, out: &mut Vec<(String, Vec<f64>)>) -> bool {
             match (a, b) {
-                (Node::Shader { values: va, .. }, Node::Shader { values: vb, .. }) => {
+                (Node::Canvas { wgsl: Some(_), values: va, .. }, Node::Canvas { wgsl: Some(_), values: vb, .. }) => {
                     let mut bare = b.clone();
-                    if let Node::Shader { values, .. } = &mut bare {
+                    if let Node::Canvas { values, .. } = &mut bare {
                         values.clone_from(va);
                     }
                     if &bare != a {
@@ -311,7 +298,7 @@ impl Node {
                     if ka.is_empty() {
                         return a == b;
                     }
-                    // The node itself, without its children, must match too.
+                    // The node itself, without its children, must match too (a stack's layers).
                     if !same_shell(a, b) {
                         return false;
                     }
@@ -326,21 +313,21 @@ impl Node {
     /// Whether this view, as the root, asks for pointer capture (`capture: "pointer"`).
     pub fn wants_capture(&self) -> bool {
         match self {
-            Node::Column { capture, .. } | Node::Row { capture, .. } | Node::Carousel { capture, .. } | Node::Card { capture, .. } | Node::Canvas { capture, .. } | Node::Shader { capture, .. } => capture.as_deref() == Some("pointer"),
+            Node::Column { capture, .. } | Node::Row { capture, .. } | Node::Carousel { capture, .. } | Node::Card { capture, .. } | Node::Canvas { capture, .. } => capture.as_deref() == Some("pointer"),
             _ => false,
         }
     }
 
     /// Whether this view, as the root, offers full screen: its `fullscreen` prop, else for a
-    /// live widget or a view with a canvas or shader.
+    /// live widget or a view with a canvas (a stack's included).
     pub fn offers_fullscreen(&self, live: bool) -> bool {
         let own = match self {
-            Node::Column { fullscreen, .. } | Node::Row { fullscreen, .. } | Node::Carousel { fullscreen, .. } | Node::Card { fullscreen, .. } | Node::Canvas { fullscreen, .. } | Node::Shader { fullscreen, .. } => *fullscreen,
+            Node::Column { fullscreen, .. } | Node::Row { fullscreen, .. } | Node::Carousel { fullscreen, .. } | Node::Card { fullscreen, .. } | Node::Canvas { fullscreen, .. } => *fullscreen,
             _ => None,
         };
         own.unwrap_or_else(|| {
             let mut drawn = false;
-            self.walk(&mut |n| drawn |= matches!(n, Node::Canvas { .. } | Node::Shader { .. }));
+            self.walk(&mut |n| drawn |= matches!(n, Node::Canvas { .. }));
             live || drawn
         })
     }
@@ -349,7 +336,16 @@ impl Node {
     pub fn children(&self) -> &[Node] {
         match self {
             Node::Column { children, .. } | Node::Row { children, .. } | Node::Carousel { children, .. } | Node::Card { children, .. } => children,
+            Node::Stack { children } => &children.nodes,
             _ => &[],
+        }
+    }
+
+    /// A canvas's frames per second: its `fps`, else 60 on the GPU and 0 in 2D; at most 60.
+    pub fn fps(&self) -> f64 {
+        match self {
+            Node::Canvas { fps, wgsl, .. } => fps.unwrap_or(if wgsl.is_some() { crate::shader::DEFAULT_FPS } else { 0.0 }).clamp(0.0, crate::draw::MAX_FPS),
+            _ => 0.0,
         }
     }
 
@@ -357,14 +353,30 @@ impl Node {
     pub fn id(&self) -> Option<&str> {
         match self {
             Node::Button { id, .. } | Node::Checkbox { id, .. } | Node::Slider { id, .. } | Node::Select { id, .. } | Node::Input { id, .. } => Some(id),
-            Node::Carousel { id, .. } | Node::Card { id, .. } | Node::Canvas { id, .. } | Node::Shader { id, .. } => id.as_deref(),
+            Node::Carousel { id, .. } | Node::Card { id, .. } | Node::Canvas { id, .. } => id.as_deref(),
             _ => None,
         }
     }
 
-    /// Reads a view from a step's JSON.
+    /// Reads a view from a step's JSON: invalid when it doesn't parse, or a canvas has `values`
+    /// without `wgsl` or more than 16 KB of it.
     pub fn from_value(v: &Value) -> Result<Node, String> {
-        Node::deserialize(v).map_err(|e| format!("invalid view: {e}"))
+        let node = Node::deserialize(v).map_err(|e| format!("invalid view: {e}"))?;
+        let mut bad = None;
+        node.walk(&mut |n| {
+            if let Node::Canvas { wgsl, values, .. } = n {
+                if wgsl.is_none() && !values.is_empty() {
+                    bad.get_or_insert("a canvas's `values` need `wgsl`".to_owned());
+                }
+                if let Some(w) = wgsl.as_ref().filter(|w| w.len() > crate::shader::MAX_SOURCE) {
+                    bad.get_or_insert(format!("a canvas's wgsl is {} bytes, over the limit of {}", w.len(), crate::shader::MAX_SOURCE));
+                }
+            }
+        });
+        match bad {
+            Some(why) => Err(format!("invalid view: {why}")),
+            None => Ok(node),
+        }
     }
 
     /// Calls `f` on this node and every node under it, depth first.
@@ -382,7 +394,7 @@ impl Node {
             Node::Text { text, .. } | Node::Markdown { text } => out.push(text.clone()),
             Node::Button { label, .. } | Node::Checkbox { label, .. } => out.push(label.clone()),
             Node::Slider { label: Some(label), .. } | Node::Select { label: Some(label), .. } | Node::Input { label: Some(label), .. } => out.push(label.clone()),
-            Node::Image { alt: Some(alt), .. } | Node::Canvas { alt: Some(alt), .. } | Node::Shader { alt: Some(alt), .. } => out.push(alt.clone()),
+            Node::Image { alt: Some(alt), .. } | Node::Canvas { alt: Some(alt), .. } => out.push(alt.clone()),
             _ => {}
         });
         out.join("\n")
@@ -395,9 +407,113 @@ fn same_shell(a: &Node, b: &Node) -> bool {
         let mut n = n.clone();
         match &mut n {
             Node::Column { children, .. } | Node::Row { children, .. } | Node::Carousel { children, .. } | Node::Card { children, .. } => children.clear(),
+            Node::Stack { children } => children.nodes.clear(),
             _ => {}
         }
         n
     };
     strip(a) == strip(b)
+}
+
+/// Where a child of a `stack` sits in its area (`widgets.md`, Stack).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Place {
+    #[default]
+    TopLeft,
+    Top,
+    TopRight,
+    Left,
+    Center,
+    Right,
+    BottomLeft,
+    Bottom,
+    BottomRight,
+    /// The whole area: a canvas draws at its size.
+    Fill,
+}
+
+/// Space between a stack's edges and a child, in logical pixels: one number, or per side.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+pub struct Inset {
+    pub top: f64,
+    pub right: f64,
+    pub bottom: f64,
+    pub left: f64,
+}
+
+impl<'de> Deserialize<'de> for Inset {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Wire {
+            All(f64),
+            Sides {
+                #[serde(default)]
+                top: f64,
+                #[serde(default)]
+                right: f64,
+                #[serde(default)]
+                bottom: f64,
+                #[serde(default)]
+                left: f64,
+            },
+        }
+        let i = match Wire::deserialize(d)? {
+            Wire::All(v) => Inset { top: v, right: v, bottom: v, left: v },
+            Wire::Sides { top, right, bottom, left } => Inset { top, right, bottom, left },
+        };
+        if [i.top, i.right, i.bottom, i.left].iter().all(|v| v.is_finite() && *v >= 0.0) {
+            Ok(i)
+        } else {
+            Err(serde::de::Error::custom("an inset is a finite number of logical pixels, at least 0"))
+        }
+    }
+}
+
+/// How a node sits as a child of a stack: any node may carry `place` and `inset`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Layer {
+    #[serde(default)]
+    pub place: Place,
+    #[serde(default)]
+    pub inset: Inset,
+}
+
+/// A stack's children, bottom first, and how each sits (`place`, `inset` on the child itself).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Layers {
+    pub nodes: Vec<Node>,
+    pub layers: Vec<Layer>,
+}
+
+impl<'de> Deserialize<'de> for Layers {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let raw = Vec::<Value>::deserialize(d)?;
+        let mut out = Layers::default();
+        for v in raw {
+            out.layers.push(Layer::deserialize(&v).map_err(serde::de::Error::custom)?);
+            out.nodes.push(Node::deserialize(&v).map_err(serde::de::Error::custom)?);
+        }
+        Ok(out)
+    }
+}
+
+impl Serialize for Layers {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let mut out = Vec::with_capacity(self.nodes.len());
+        for (n, l) in self.nodes.iter().zip(&self.layers) {
+            let mut v = serde_json::to_value(n).map_err(serde::ser::Error::custom)?;
+            if let Some(m) = v.as_object_mut() {
+                if l.place != Place::default() {
+                    m.insert("place".into(), serde_json::to_value(l.place).map_err(serde::ser::Error::custom)?);
+                }
+                if l.inset != Inset::default() {
+                    m.insert("inset".into(), serde_json::to_value(l.inset).map_err(serde::ser::Error::custom)?);
+                }
+            }
+            out.push(v);
+        }
+        out.serialize(s)
+    }
 }
