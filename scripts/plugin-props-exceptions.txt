@@ -1,7 +1,2 @@
 # Props built-in plugins pass that the plugin contract doesn't give that node: `path node prop`.
 # scripts/guardrails/plugin-props.mjs fails on any other, and on a line here that no longer occurs.
-#
-# Applied today: Rune standard props the contract doesn't list for that node yet (add them to
-# contract.json, then remove these lines).
-plugins/browser/device.luau flyoutRow radius
-plugins/debug/console.luau col stickBottom

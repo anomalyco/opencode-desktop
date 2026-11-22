@@ -554,6 +554,7 @@
       { "name": "clip", "type": "boolean?", "doc": "Clips children to the box." },
       { "name": "scrollY", "type": "boolean?", "doc": "Scrolls vertical overflow." },
       { "name": "scrollX", "type": "boolean?", "doc": "Scrolls horizontal overflow." },
+      { "name": "stickBottom", "type": "boolean?", "doc": "With `scrollY`: stays scrolled to the bottom as content grows, as a log or a chat does, until the reader scrolls up." },
       { "name": "focusable", "type": "boolean?", "doc": "Takes keyboard focus." },
       { "name": "disabled", "type": "boolean?", "doc": "Takes no presses." },
       { "name": "onPress", "type": "UiHandler?", "doc": "Runs on a press." },
@@ -732,7 +733,8 @@
       { "name": "popover", "type": "string", "doc": "The id of this plugin's popover the row opens." },
       { "name": "props", "type": "{ [string]: any }?", "doc": "Passed to the nested popover's render as `props.data`." },
       { "name": "alert", "type": "boolean?", "doc": "Shows a danger dot before the detail: something in the nested list failed." },
-      { "name": "side", "type": "Side?", "doc": "The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`." }
+      { "name": "side", "type": "Side?", "doc": "The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`." },
+      { "name": "radius", "type": "number?", "doc": "Corner radius of the row's hover and open fill. Defaults to 4." }
     ] },
     { "name": "UiDialogHeaderProps", "kind": "record", "extends": ["UiLayoutProps"], "official": "DialogHeader", "doc": "`ui.dialogHeader` props: the app's dialog header (`DialogHeader` with a `DialogTitleGroup`), 16 in from the frame, with its close button.", "fields": [
       { "name": "title", "type": "string", "doc": "The dialog's title: 15 pt, wrapping anywhere unless `wrapTitle` is false." },

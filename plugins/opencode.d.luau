@@ -561,6 +561,8 @@ export type UiBoxProps = {
     scrollY: boolean?,
     --- Scrolls horizontal overflow.
     scrollX: boolean?,
+    --- With `scrollY`: stays scrolled to the bottom as content grows, as a log or a chat does, until the reader scrolls up.
+    stickBottom: boolean?,
     --- Takes keyboard focus.
     focusable: boolean?,
     --- Takes no presses.
@@ -683,6 +685,8 @@ export type UiFrameProps = {
     scrollY: boolean?,
     --- Scrolls horizontal overflow.
     scrollX: boolean?,
+    --- With `scrollY`: stays scrolled to the bottom as content grows, as a log or a chat does, until the reader scrolls up.
+    stickBottom: boolean?,
     --- Takes keyboard focus.
     focusable: boolean?,
     --- Takes no presses.
@@ -2341,6 +2345,8 @@ export type UiFlyoutRowProps = {
     alert: boolean?,
     --- The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`.
     side: Side?,
+    --- Corner radius of the row's hover and open fill. Defaults to 4.
+    radius: number?,
 }
 
 --- `ui.dialogHeader` props: the app's dialog header (`DialogHeader` with a `DialogTitleGroup`), 16 in from the frame, with its close button. Desktop's plugin API calls it `DialogHeader`.

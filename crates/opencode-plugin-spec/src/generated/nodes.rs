@@ -184,6 +184,7 @@ pub static UI_BOX_PROPS: PropsSpec = PropsSpec::new("UiBoxProps", Some(&UI_LAYOU
     PropSpec::new("clip", PropType::Bool, false),
     PropSpec::new("scrollY", PropType::Bool, false),
     PropSpec::new("scrollX", PropType::Bool, false),
+    PropSpec::new("stickBottom", PropType::Bool, false),
     PropSpec::new("focusable", PropType::Bool, false),
     PropSpec::new("disabled", PropType::Bool, false),
     PropSpec::new("onPress", PropType::Handler, false),
@@ -301,6 +302,7 @@ pub static UI_FLYOUT_ROW_PROPS: PropsSpec = PropsSpec::new("UiFlyoutRowProps", S
     PropSpec::new("props", PropType::Map, false),
     PropSpec::new("alert", PropType::Bool, false),
     PropSpec::new("side", PropType::Enum("Side"), false),
+    PropSpec::new("radius", PropType::Number, false),
 ]);
 
 /// `UiFrameProps`.
