@@ -73,12 +73,66 @@ function close(code, open) {
   return code.length;
 }
 
+// The index just past the `end` that closes the `function` at `at`: counts `function`, `do`,
+// `repeat` and statement `if` (+1) against `end` and `until` (-1). An `if` right after `=`, `(`,
+// `,`, `{`, `[`, `return`, an operator or `and`/`or`/`not` is an if-expression: it has no `end`.
+function skipFunction(code, at) {
+  let depth = 0;
+  const word = /[A-Za-z_][A-Za-z0-9_]*/g;
+  word.lastIndex = at;
+  let m;
+  while ((m = word.exec(code)) !== null) {
+    const w = m[0];
+    if (/[A-Za-z0-9_.:]/.test(code[m.index - 1] ?? "")) continue;
+    if (w === "function" || w === "do" || w === "repeat") depth++;
+    else if (w === "if") {
+      const before = code.slice(Math.max(0, m.index - 12), m.index).replace(/\s+$/, "");
+      if (!/(?:[=(,{[+\-*/%^<>~#]|\.\.|\breturn|\band|\bor|\bnot)$/.test(before)) depth++;
+    } else if (w === "end" || w === "until") {
+      depth--;
+      if (depth === 0) return m.index + w.length;
+    }
+  }
+  return code.length;
+}
+
+// The top-level arguments of the call whose `(` is at `open`: [start, end) of each.
+function args(code, open) {
+  const out = [];
+  let depth = 0;
+  let start = open + 1;
+  for (let i = open; i < code.length; i++) {
+    const c = code[i];
+    if (c === "f" && code.startsWith("function", i) && !/[A-Za-z0-9_.:]/.test(code[i - 1] ?? "") && !/[A-Za-z0-9_]/.test(code[i + 8] ?? "")) {
+      i = skipFunction(code, i) - 1;
+      continue;
+    }
+    if (c === "{" || c === "(" || c === "[") depth++;
+    else if (c === "}" || c === ")" || c === "]") {
+      depth--;
+      if (depth === 0) {
+        out.push([start, i]);
+        return out;
+      }
+    } else if (c === "," && depth === 1) {
+      out.push([start, i]);
+      start = i + 1;
+    }
+  }
+  return out;
+}
+
 // The keys at the top level of the table literal spanning [open, end): `name =` (not `==`).
+// A `function ... end` value is skipped whole, so its own `local a, b = ...` reads as no key.
 function keys(code, open, end) {
   const out = [];
   let depth = 0;
   for (let i = open; i < end; i++) {
     const c = code[i];
+    if (c === "f" && code.startsWith("function", i) && !/[A-Za-z0-9_.:]/.test(code[i - 1] ?? "") && !/[A-Za-z0-9_]/.test(code[i + 8] ?? "")) {
+      i = skipFunction(code, i) - 1;
+      continue;
+    }
     if (c === "{" || c === "(" || c === "[") depth++;
     else if (c === "}" || c === ")" || c === "]") depth--;
     else if (depth === 1 && /[A-Za-z_]/.test(c) && !/[A-Za-z0-9_.:]/.test(code[i - 1] ?? "")) {
@@ -92,6 +146,8 @@ function keys(code, open, end) {
 }
 
 const misses = [];
+let calls = 0;
+let tables = 0;
 for (const file of gitLsFiles(root, "plugins/**/*.luau")) {
   const src = readFileSync(join(root, file), "utf8");
   const code = blank(src);
@@ -100,19 +156,18 @@ for (const file of gitLsFiles(root, "plugins/**/*.luau")) {
     const node = m[1];
     const known = allowed.get(node);
     if (!known) continue;
-    let i = m.index + m[0].length;
-    for (let arg = 0; arg < 2; arg++) {
+    // Every argument that is a table literal with keys: props, a style, or props over a style
+    // (`ui.text(s, STYLE, { ... })`); a children array has no keys.
+    for (const [a, b] of args(code, m.index + m[0].length - 1).slice(0, 3)) {
+      let i = a;
       while (/\s/.test(code[i] ?? "")) i++;
-      if (code[i] !== "{") break;
-      const end = close(code, i);
-      const found = keys(code, i, end);
-      if (arg === 1 && found.length === 0) break;
+      if (code[i] !== "{") continue;
+      const found = keys(code, i, close(code, i));
+      if (found.length) tables++;
       for (const k of found) if (!known.has(k.key)) misses.push({ file, line: line(k.at), node, prop: k.key });
-      i = end;
-      while (/\s/.test(code[i] ?? "")) i++;
-      if (code[i] !== ",") break;
-      i++;
+      if (b < i) break;
     }
+    calls++;
   }
 }
 
@@ -129,5 +184,5 @@ const errors = [
 ];
 if (process.argv.includes("--list")) for (const x of misses) console.log(`${x.file}:${x.line} ui.${x.node} ${x.prop}`);
 for (const e of errors) console.error(`  ERROR  ${e}`);
-console.log(`plugin props: ${misses.length} unknown prop use(s), ${listed.length} listed, ${errors.length} error(s)`);
+console.log(`plugin props: ${calls} ui calls, ${tables} props tables checked; ${misses.length} unknown prop use(s), ${listed.length} listed, ${errors.length} error(s)`);
 process.exit(errors.length ? 1 : 0);
