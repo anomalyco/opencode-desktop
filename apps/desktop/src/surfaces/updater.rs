@@ -310,7 +310,7 @@ impl Feature<App> for UpdaterFeature {
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.register_slot(&UPDATER);
         builder.schedule(crate::tick::stage::INGEST_LOCAL, "updater.poll", |s, _, tx| {
-            if !opencode_feature_updater::is_suppressed() && PENDING_DIALOG_INSTALL.swap(false, std::sync::atomic::Ordering::AcqRel) {
+            if PENDING_DIALOG_INSTALL.swap(false, std::sync::atomic::Ordering::AcqRel) && !opencode_feature_updater::is_suppressed() {
                 let lang = opencode_i18n::locale().id();
                 let err_title = crate::plugin_host::sources::builtin_message("updater", lang, "dialog.checkFailed.title")
                     .unwrap_or("Update Error")

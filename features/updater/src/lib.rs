@@ -299,13 +299,16 @@ pub fn shared_enabled() -> bool {
     })
 }
 
-/// Evaluates the pure startup policy (`policy::decide`) for this process.
+/// The startup policy (`policy::decide`) for this process. Its inputs (argv, environment, the
+/// scratch root) are fixed for the life of the process, so it is decided once after
+/// [`configure`] and kept.
 pub fn start_decision() -> policy::Decision {
-    let rooted = match CONFIG.get() {
-        Some(cfg) => (cfg.rooted)(),
-        None => feed::env("RUNE_DIRS_ROOT").is_some(),
-    };
-    let harness_writes = CONFIG.get().is_some_and(|cfg| (cfg.harness_writes)());
+    static DECISION: OnceLock<policy::Decision> = OnceLock::new();
+    let Some(cfg) = CONFIG.get() else { return decide_now(feed::env("RUNE_DIRS_ROOT").is_some(), false) };
+    *DECISION.get_or_init(|| decide_now((cfg.rooted)(), (cfg.harness_writes)()))
+}
+
+fn decide_now(rooted: bool, harness_writes: bool) -> policy::Decision {
     policy::decide(policy::StartInputs { headless: rune::is_headless(), rooted, harness_writes, opt_in: feed::harness_opt_in() })
 }
 
@@ -313,6 +316,15 @@ pub fn start_decision() -> policy::Decision {
 /// harness window without an explicit opt-in).
 pub fn is_suppressed() -> bool {
     !start_decision().allowed()
+}
+
+/// The `error` an `UpdaterState` in phase `disabled` carries when the updater is off because this
+/// run is isolated (`RUNE_DIRS_ROOT`), so Settings can say so rather than blame a package manager.
+pub const ISOLATED: &str = "isolated";
+
+fn disabled_view() -> StateView {
+    let isolated = matches!(start_decision(), policy::Decision::HarnessWindowSuppressed | policy::Decision::ScratchRootSuppressed);
+    StateView { phase: "disabled", version: None, progress: None, error: isolated.then(|| ISOLATED.to_owned()) }
 }
 
 fn log_suppressed_once(decision: policy::Decision) {
@@ -471,12 +483,7 @@ const NO_UPDATER: &str = "No updater runs in this build";
 /// `disabled` without starting the worker thread.
 pub fn state_view(s: &dyn UpdaterHost) -> Option<StateView> {
     let Some(service) = s.updater().service_ref() else {
-        return is_suppressed().then_some(StateView {
-            phase: "disabled",
-            version: None,
-            progress: None,
-            error: None,
-        });
+        return is_suppressed().then(disabled_view);
     };
     let service = service.borrow();
     match service.snapshot().state {
@@ -512,7 +519,7 @@ fn view_state(view: &View, snapshot: &Snapshot) -> StateView {
 pub fn check_with(s: &dyn UpdaterHost, done: impl FnOnce(Option<StateView>) + 'static) {
     let Some(service) = s.updater().service_ref() else {
         let view = if is_suppressed() {
-            StateView { phase: "disabled", version: None, progress: None, error: None }
+            disabled_view()
         } else {
             StateView { phase: "error", version: None, progress: None, error: Some(NO_UPDATER.into()) }
         };
