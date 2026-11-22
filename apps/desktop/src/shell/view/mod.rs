@@ -10,6 +10,7 @@ use rune::{
 
 use rune_theme_opencode::icons as ic;
 use opencode_ui::focus::FocusExt;
+use opencode_ui::tab::TabExt;
 use opencode_kit::model::{self, SessionInfo, Transcript};
 use crate::palette::{Elevate as _, Pal, pal};
 use crate::{App, Route, TabStatus};
