@@ -1625,16 +1625,23 @@ return plugin.defineWindow(function(ctx)
         end
         siteLoading[key] = true
         siteFailures[key] = nil
+        -- The read belongs to this opening of the dialog: closing or reopening it replaces the three
+        -- tables, so a read still running from before lands in the old ones and never fills the new
+        -- dialog (official aborts it: `site-chooser.tsx:101-108`).
+        local lists, failures, loading = siteLists, siteFailures, siteLoading
         task.spawn(function()
             local ok, res = pcall(function()
                 return bAny:ListSourceSitesAsync(target.browser, target.profile)
             end)
-            siteLoading[key] = nil
+            loading[key] = nil
+            if lists ~= siteLists then
+                return
+            end
             if ok and type(res) == "table" and type(res.sites) == "table" then
-                siteLists[key] = res.sites
+                lists[key] = res.sites
             else
                 -- A thrown read is `listed.error`: "Couldn't read the sites in this browser."
-                siteFailures[key] = if ok and type(res) == "table" and type(res.error) == "string" then res.error else "thrown"
+                failures[key] = if ok and type(res) == "table" and type(res.error) == "string" then res.error else "thrown"
             end
             siteChoice.version += 1
             refreshImportDialog()
@@ -2190,6 +2197,7 @@ return plugin.defineWindow(function(ctx)
         importFailure = nil
         siteLists = {}
         siteFailures = {}
+        siteLoading = {}
         siteChoice = { revealed = false, custom = false, profile = "", chosen = {}, query = "", version = siteChoice.version + 1 }
         if siteSearch:Text() ~= "" then
             siteSearch:SetText("")
@@ -2230,6 +2238,7 @@ return plugin.defineWindow(function(ctx)
                         -- Each opening starts from every site and reads the lists again.
                         siteLists = {}
                         siteFailures = {}
+                        siteLoading = {}
                         siteChoice = { revealed = reveal, custom = false, profile = "", chosen = {}, query = "", version = siteChoice.version + 1 }
                         if siteSearch:Text() ~= "" then
                             siteSearch:SetText("")
