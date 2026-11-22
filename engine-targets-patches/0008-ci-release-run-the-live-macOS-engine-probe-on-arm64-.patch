@@ -1,0 +1,37 @@
+From b9b9ce0128dff5aa1ede9433d3f66753c89bc6e0 Mon Sep 17 00:00:00 2001
+From: LukeParkerDev <10430890+Hona@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 14:31:51 +1000
+Subject: [PATCH] ci(release): run the live macOS engine probe on arm64 only;
+ macos-26-intel has no usable GPU
+
+Run 44984335877, verify-engine-macos (x64) job 137094165304: the signed engine loaded the probe page, then ANGLE's EGL display failed in the GPU process three times (exit 5) and Chromium ended the browser ('GPU process isn't usable. Goodbye.'). The macOS bundle has no SwiftShader fallback (package-release.sh, since #172/#222), so a runner without Metal cannot keep the engine alive; real Intel Macs have Metal. x64 keeps notarization, codesign, arch, version and libcef_sandbox.dylib checks.
+---
+ .github/workflows/release.yml | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
+index 7612ac23d..935ed3df2 100644
+--- a/.github/workflows/release.yml
++++ b/.github/workflows/release.yml
+@@ -1052,8 +1052,16 @@ jobs:
+             echo "::error::Missing libcef_sandbox.dylib in $app." >&2; exit 1;
+           }
+           codesign -dv "$app" 2>&1 | grep -E '^(Identifier|TeamIdentifier|Authority=Developer)' >> "$GITHUB_STEP_SUMMARY"
+-          python3 .github/release/opencode-rune-verify-engine-sandbox.py macos "$app/Contents/MacOS/opencode-browser-engine" --require-sandbox
+-          echo "macOS ${{ matrix.arch }} signed browser engine: sandbox verified (libcef_sandbox.dylib + sandbox_check=1)." >> "$GITHUB_STEP_SUMMARY"
++          # macos-26-intel has no usable GPU (ANGLE's EGL display fails in the GPU process) and the macOS
++          # bundle carries no SwiftShader (package-release.sh), so Chromium ends the engine ("GPU process
++          # isn't usable") right after the page loads. The live probe runs where a GPU exists (arm64);
++          # x64 keeps every static check above, including libcef_sandbox.dylib.
++          if [ "${{ matrix.arch }}" = arm64 ]; then
++            python3 .github/release/opencode-rune-verify-engine-sandbox.py macos "$app/Contents/MacOS/opencode-browser-engine" --require-sandbox
++            echo "macOS ${{ matrix.arch }} signed browser engine: sandbox verified (libcef_sandbox.dylib + sandbox_check=1)." >> "$GITHUB_STEP_SUMMARY"
++          else
++            echo "macOS ${{ matrix.arch }} signed browser engine: static checks only (libcef_sandbox.dylib present); live sandbox probe runs on arm64, this runner has no usable GPU." >> "$GITHUB_STEP_SUMMARY"
++          fi
+ 
+   # ---- Publish browser engine: release environment; OIDC only ----------------
+   # One atomic publish replacing opencode-rune/browser-engine/stable with all six targets.
+-- 
+2.56.0.windows.4
+
