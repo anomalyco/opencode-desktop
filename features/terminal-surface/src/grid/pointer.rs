@@ -41,6 +41,10 @@ impl ViewportInput {
     }
 }
 
+fn primary_link_mod(mods: rune::Mods) -> bool {
+    if cfg!(target_os = "macos") { mods.cmd } else { mods.ctrl }
+}
+
 fn handle_key(host: &mut dyn TerminalSurfaceHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if side_ops::terminal_focus(host).is_none() {
         ops::focus_terminal_surface(host);
@@ -86,8 +90,17 @@ fn handle_drag(host: &mut dyn TerminalSurfaceHost, input: &ViewportInput, d: &mu
             return;
         }
         match d.phase {
-            // Shift+press moves the end of the selection there, and dragging keeps moving it.
-            Phase::Down if mods.shift && d.clicks == 1 && t.session.selected_text().is_some() => {
+            // Shift+press (without Ctrl/⌘/Alt) moves the end of the selection there, and dragging
+            // keeps moving it; on a link it clears the selection and the release opens the link,
+            // as Desktop's click handler does whatever is selected (`terminal.tsx:312-340`).
+            Phase::Down
+                if mods.shift
+                    && !primary_link_mod(mods)
+                    && !mods.alt
+                    && d.clicks == 1
+                    && t.session.selected_text().is_some()
+                    && !links::is_url_at(&t.session.peek(), col, row) =>
+            {
                 t.drag = TextDrag::Extending;
                 t.session.select(SelectionOp::Extend(GridPoint::Viewport { col, row }));
             }
@@ -111,11 +124,13 @@ fn handle_drag(host: &mut dyn TerminalSurfaceHost, input: &ViewportInput, d: &mu
                 }
             }
             Phase::Up => {
+                let extending = t.drag == TextDrag::Extending;
                 t.drag = TextDrag::Idle;
-                // Ctrl+click (⌘-click on macOS) follows a link: the cell's OSC 8 target, else
-                // an address or a file reference in the line under the pointer.
-                let follow = if cfg!(target_os = "macos") { mods.cmd } else { mods.ctrl };
-                if d.clicks == 1 && d.dx.hypot(d.dy) <= 3.0 && follow {
+                // Ctrl+click (⌘-click on macOS) or Shift+click follows a link: the cell's OSC 8
+                // target, else an address (or a file reference with Ctrl/⌘) under the pointer.
+                // Shift routes web links to the system browser (`terminal-key-event.ts:44,51`).
+                let follow = !mods.alt && (primary_link_mod(mods) || mods.shift);
+                if !extending && d.clicks == 1 && d.dx.hypot(d.dy) <= 3.0 && follow {
                     follow_link = true;
                 }
             }
@@ -217,9 +232,10 @@ fn handle_pointer_move(host: &mut dyn TerminalSurfaceHost, input: &ViewportInput
         tx.live_only();
         return;
     }
-    let follow = if cfg!(target_os = "macos") { mods.cmd } else { mods.ctrl };
-    let next = HoverLink::at(col, row, follow);
     let snap = t.session.peek();
+    let follow = !mods.alt
+        && (primary_link_mod(mods) || (mods.shift && links::is_url_at(&snap, col, row)));
+    let next = HoverLink::at(col, row, follow);
     let now = links::span(&snap, col, row);
     let (was, was_follow) = match t.hover {
         HoverLink::None => (Vec::new(), None),
