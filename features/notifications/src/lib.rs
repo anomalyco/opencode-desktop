@@ -621,7 +621,8 @@ fn settle_once(product: win_install::Product) {
             return;
         };
         let found = win_install::settle_identity(&product, &root);
-        // The registered install keeps its scheme pointed at itself; another copy writes nothing.
+        // The registered install keeps its scheme pointed at itself; another copy, the exe renamed
+        // or a scratch `RUNE_DIRS_ROOT` run writes nothing (`repair_scheme` checks each).
         if let Some(done) = win_install::repair_scheme(&product, &root) {
             eprintln!("notifications: {done}");
         }

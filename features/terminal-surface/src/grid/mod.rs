@@ -1,6 +1,7 @@
 //! High-throughput Rune terminal grid renderer (`120 fps`, per-row `RowId` `memo` + `GlyphCache`,
 //! box-drawing vector shapes, selection, interactive scrollback scrollbar, and phase-locked cursor).
 
+mod cell;
 mod pointer;
 mod rows;
 
@@ -16,7 +17,7 @@ use opencode_ui::palette::Pal;
 use opencode_ui::style::{UI, UI_SMALL};
 use terminal::{CursorShape, TerminalSnapshot};
 
-use self::pointer::{ViewportInput, attach_viewport_handlers, render_quote_bar, render_scrollbar};
+use self::pointer::{ViewportInput, attach_text_drag, attach_viewport_handlers, render_quote_bar, render_scrollbar};
 use self::rows::{build_rows, cell_fg_color};
 use crate::mount::TextDrag;
 use crate::{HoverLink, TERM_FONT, TERM_SIZE, TerminalSurfaceHost, TerminalTab, find, input, links};
@@ -319,7 +320,19 @@ fn render_viewport<H: TerminalSurfaceHost + 'static>(
 
     let cols = snap.screen_rows.first().map_or(fit_cols, |r| r.cells.len() as u16);
     let rows = build_rows(s.terminal(), &tab.id, snap, p, style, style_key, cell_w, cell_h, scale, slot_rows);
-    let mut canvas_layer = build_canvas_layer(s, p, tab, snap, style, rows, &hovered, cols, cell_w, cell_h, clip_w, avail_h, grid_h, focused);
+    let input = ViewportInput {
+        ws_key: ws_key.to_owned(),
+        tab_id: tab.id.clone(),
+        cell_w,
+        cell_h,
+        cols_cap: snap.cols.max(1),
+        rows_cap: snap.rows.max(1),
+        reports: snap.mouse_tracking,
+        origin: (PAD_X, PAD_Y),
+    };
+    let text_input = ViewportInput { origin: (0.0, 0.0), ..input.clone() };
+    let text_drag = |text: El| attach_text_drag::<H>(text, text_input);
+    let mut canvas_layer = build_canvas_layer(s, p, tab, snap, style, rows, &hovered, cols, cell_w, cell_h, clip_w, avail_h, grid_h, focused, text_drag);
 
     // Quote: a settled selection offers to go into the composer, under its last line (above
     // when that's the screen's bottom), as Desktop's `TerminalQuote` does.
@@ -347,18 +360,7 @@ fn render_viewport<H: TerminalSurfaceHost + 'static>(
         .pb(PAD_Y)
         .cursor(if follows { Cursor::Pointer } else { Cursor::Text })
         .pointer_buttons([PointerButton::Middle]);
-    let outer = attach_viewport_handlers::<H>(
-        outer,
-        ViewportInput {
-            ws_key: ws_key.to_owned(),
-            tab_id: tab.id.clone(),
-            cell_w,
-            cell_h,
-            cols_cap: snap.cols.max(1),
-            rows_cap: snap.rows.max(1),
-            reports: snap.mouse_tracking,
-        },
-    );
+    let outer = attach_viewport_handlers::<H>(outer, input);
 
     let scrollbar = if snap.scrollbar.total > snap.scrollbar.len && snap.scrollbar.total > 0 {
         render_scrollbar::<H>(p, ws_key, &tab.id, &snap.scrollbar, body_h)
@@ -389,6 +391,7 @@ fn build_canvas_layer(
     avail_h: f32,
     grid_h: f32,
     focused: bool,
+    text_drag: impl FnOnce(El) -> El,
 ) -> El {
     // The screen is the Tab stop and the name, so a reader lands on its text and its caret (not
     // on a pane that repeats the whole screen); the viewport around it owns the keys.
@@ -408,6 +411,7 @@ fn build_canvas_layer(
             }
         ))
         .description_static(opencode_i18n::t!("rune.a11y.terminal.leave"));
+    let rows_col = text_drag(rows_col);
     let rows_col = if snap.cursor.visible && snap.cursor.in_viewport {
         rows_col.grid_caret(snap.cursor.col, snap.cursor.row)
     } else {
