@@ -1,13 +1,13 @@
 //! The storybook's Timeline › Image gallery story: a tool returns six pictures of mixed shapes
 //! (wide, tall, square, a panorama), larger than the window as screenshots are, in the timeline's
 //! bento block. R plays it: the first picture opens in the viewer, → steps through them all and
-//! one past the last, ← steps back, and Escape closes it. O opens the first, N and P step, and the
-//! variants set the column narrow or wide.
+//! one past the last, ← steps back, ⌘ + zooms in, and Escape fits it then closes it. O opens the
+//! first, N and P step, Z zooms in, and the variants set the column narrow or wide.
 
 use std::sync::{Arc, OnceLock};
 
 use opencode_kit::model::{Assistant, Attachment, Message, Part, ToolStatus};
-use rune::{El, Key, Play};
+use rune::{El, Key, KeyEvent, Mods, Play};
 use serde_json::json;
 
 use crate::App;
@@ -21,6 +21,7 @@ const KEYS: &[Trigger] = &[
     Trigger { key: 'o', label: "Open the first picture", run: view_first },
     Trigger { key: 'n', label: "Next picture (→)", run: |_, tx| tx.press(Key::Right) },
     Trigger { key: 'p', label: "Previous picture (←)", run: |_, tx| tx.press(Key::Left) },
+    Trigger { key: 'z', label: "Zoom in (⌘ +)", run: zoom_in },
     Trigger { key: 'e', label: "Escape", run: |_, tx| tx.press(Key::Escape) },
 ];
 
@@ -95,7 +96,13 @@ fn open(s: &mut App, tx: &mut Play<App>) {
         tx.after(at, |_, tx| tx.press(Key::Right));
     }
     tx.after(7.0, |_, tx| tx.press(Key::Left));
-    tx.after(7.8, |_, tx| tx.press(Key::Escape));
+    tx.after(7.8, zoom_in);
+    tx.after(8.6, |_, tx| tx.press(Key::Escape));
+    tx.after(9.4, |_, tx| tx.press(Key::Escape));
+}
+
+fn zoom_in(_: &mut App, tx: &mut Play<App>) {
+    tx.press(KeyEvent { key: Key::Command('='), mods: Mods { cmd: true, ..Mods::default() } });
 }
 
 fn view_first(s: &mut App, tx: &mut Play<App>) {

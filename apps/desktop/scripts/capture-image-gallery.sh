@@ -18,7 +18,10 @@ for theme in dark light; do
   shot viewer-step3 Comfortable 4.4 $theme
   shot viewer-last Comfortable 6.9 $theme
   shot viewer-back Comfortable 7.6 $theme
+  shot viewer-zoomed Comfortable 8.4 $theme
+  shot viewer-fitted Comfortable 9.2 $theme
+  shot viewer-closed Comfortable 10.2 $theme
 done
 "$BIN" --playground 'Timeline/Image gallery' --variant Comfortable --size 1440x900 --scale 1 --theme dark --at 2.0 --snap "$OUT/tree.png" --tree "$OUT/viewer-open-tree.json" >"$OUT/tree.log" 2>&1 || echo "FAILED tree"
-"$BIN" --playground 'Timeline/Image gallery' --variant Comfortable --size 1440x900 --scale 1 --theme dark --duration 8.6 --fps 30 --video "$OUT/steps-dark.mp4" >"$OUT/video.log" 2>&1 || echo "FAILED video"
+"$BIN" --playground 'Timeline/Image gallery' --variant Comfortable --size 1440x900 --scale 1 --theme dark --duration 10.2 --fps 30 --video "$OUT/steps-dark.mp4" >"$OUT/video.log" 2>&1 || echo "FAILED video"
 ls -la "$OUT"
