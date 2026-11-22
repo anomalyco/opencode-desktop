@@ -23,6 +23,11 @@
 // new revision is built. Not caught: permission-mode changes and symlinks (hashes are of contents), and a
 // hand edit of the recorded hashes (visible only in a diff of engine-inputs.txt).
 //
+// KNOWN LIMIT: a build.rs that reads files with std::fs (or a proc macro that does) at build time: those files
+// are inputs only if they sit inside a crate folder. Today the engine's build.rs reads only environment
+// variables and its own manifest inside apps/browser-engine. Also: a comment containing `path =` directly
+// above a bare `mod x;` hides that line from the bare-mod check.
+//
 //   node scripts/guardrails/engine-revision.mjs            check
 //   node scripts/guardrails/engine-revision.mjs --write    refresh the record (after an ENGINE_REVISION bump)
 //   node scripts/guardrails/engine-revision.mjs --list     print the derived input paths
@@ -96,45 +101,100 @@ function tracked(paths) {
 }
 
 const STR = String.raw`(?:"([^"]+)"|'([^']+)')`;
+const KEY = String.raw`("[^"]*"|'[^']*'|[A-Za-z0-9_-]+)`;
 const DEPS = /^(dependencies|build-dependencies|build_dependencies)$/;
+const unquote = (s) => s.replace(/^["']|["']$/g, "");
+const manifestOf = (dir) => (dir === "." ? "Cargo.toml" : `${dir}/Cargo.toml`);
 
 // The path-bearing keys of one Cargo.toml, as crate or file targets. A `path` key in a table this reader does
-// not understand, or a value it cannot read, is an error with file and line, never skipped.
+// not understand, or a value it cannot read, is an error with file and line, never skipped. A dependency
+// inherited with `workspace = true` is resolved through the crate's workspace root (see inherited()).
 function manifest(dir) {
-  const file = `${dir}/Cargo.toml`;
+  const rows = toml(manifestOf(dir));
   const out = [];
-  let kind = "other";
-  read(file).split(/\r?\n/).forEach((line, n) => {
-    const at = `${file}:${n + 1}`;
-    const head = line.match(/^\s*(\[\[?)\s*([^\]]+?)\s*\]\]?\s*(#.*)?$/);
-    if (head) {
-      const segs = (head[2].match(/"[^"]*"|'[^']*'|[^.\s]+/g) ?? []).map((s) => s.replace(/^["']|["']$/g, ""));
-      const s = segs[0] === "target" ? segs.slice(2) : segs;
-      const array = head[1] === "[[";
-      const table = (k) => (DEPS.test(s[0]) && s.length === k) || (s[0] === "workspace" && s[1] === "dependencies" && s.length === k + 1) || (s[0] === "patch" && s.length === k + 1) || (s[0] === "replace" && s.length === k);
-      kind = /^dev[-_]dependencies$/.test(s[0]) || (array && ["test", "bench", "example"].includes(s[0])) ? "skip"
-        : table(1) ? "inline"
-        : table(2) ? "table"
-        : s.length === 1 && (s[0] === "lib" || (array && s[0] === "bin")) ? "target"
-        : s.length === 1 && s[0] === "package" ? "package"
-        : "other";
-      return;
+  for (const r of rows) {
+    const s = r.s[0] === "target" ? r.s.slice(2) : r.s;
+    const line = r.line;
+    if (/^dev[-_]dependencies$/.test(s[0]) || (r.array && ["test", "bench", "example"].includes(s[0]))) continue;
+    const table = (k) => (DEPS.test(s[0]) && s.length === k) || (s[0] === "workspace" && s[1] === "dependencies" && s.length === k + 1) || (s[0] === "patch" && s.length === k + 1) || (s[0] === "replace" && s.length === k);
+    const kind = table(1) ? "inline"
+      : table(2) ? "table"
+      : s.length === 1 && (s[0] === "lib" || (r.array && s[0] === "bin")) ? "target"
+      : s.length === 1 && s[0] === "package" ? "package"
+      : "other";
+    if (DEPS.test(s[0])) {
+      const name = s.length === 2
+        ? (/^\s*workspace\s*=\s*true\s*(#.*)?$/.test(line) ? s[1] : null)
+        : (line.match(new RegExp(String.raw`^\s*${KEY}\s*=\s*\{[^}]*\bworkspace\s*=\s*true\b`)) ?? line.match(new RegExp(String.raw`^\s*${KEY}\.workspace\s*=\s*true\s*(#.*)?$`)))?.[1];
+      if (name) {
+        const crate = inherited(dir, rows, unquote(name), r.at);
+        if (crate) out.push({ crate, from: r.at });
+        continue;
+      }
+      if (/\bworkspace\s*=/.test(line)) throw new Error(`engine-revision: ${r.at}: cannot read the workspace inheritance in ${line.trim()}`);
     }
-    if (kind === "skip" || /^\s*#/.test(line)) return;
     const val = (re) => { const m = line.match(re); return m ? norm(posix.join(dir, m[1] ?? m[2])) : null; };
-    const key = String.raw`(?:"[^"]*"|'[^']*'|[A-Za-z0-9_-]+)`;
-    const crate = kind === "inline" ? val(new RegExp(String.raw`^\s*${key}\s*=\s*\{[^}]*\bpath\s*=\s*${STR}`)) ?? val(new RegExp(String.raw`^\s*${key}\.path\s*=\s*${STR}`))
+    const crate = kind === "inline" ? val(new RegExp(String.raw`^\s*${KEY.replace("(", "(?:")}\s*=\s*\{[^}]*\bpath\s*=\s*${STR}`)) ?? val(new RegExp(String.raw`^\s*${KEY.replace("(", "(?:")}\.path\s*=\s*${STR}`))
       : kind === "table" ? val(new RegExp(String.raw`^\s*path\s*=\s*${STR}`))
       : null;
-    if (crate) return out.push({ crate, from: at });
+    if (crate) { out.push({ crate, from: r.at }); continue; }
     const target = kind === "target" ? val(new RegExp(String.raw`^\s*path\s*=\s*${STR}`))
       : kind === "package" ? val(new RegExp(String.raw`^\s*build\s*=\s*${STR}`))
       : null;
-    if (target) return out.push({ file: must(target, at, "a manifest path"), rust: true });
-    if (kind === "package" && /^\s*build\s*=/.test(line) && !/^\s*build\s*=\s*(true|false)\s*(#.*)?$/.test(line)) throw new Error(`engine-revision: ${at}: cannot read ${line.trim()}`);
-    if (/\bpath\s*=/.test(line)) throw new Error(`engine-revision: ${at}: cannot read the path in ${line.trim()}`);
-  });
+    if (target) { out.push({ file: must(target, r.at, "a manifest path"), rust: true }); continue; }
+    if (kind === "package" && /^\s*build\s*=/.test(line) && !/^\s*build\s*=\s*(true|false)\s*(#.*)?$/.test(line)) throw new Error(`engine-revision: ${r.at}: cannot read ${line.trim()}`);
+    if (/\bpath\s*=/.test(line)) throw new Error(`engine-revision: ${r.at}: cannot read the path in ${line.trim()}`);
+  }
   return out;
+}
+
+// `x.workspace = true` in a member crate takes x from its WORKSPACE ROOT's [workspace.dependencies], even when
+// the engine (its own workspace) is what is being built. Returns x's crate folder there, or null when x is not a
+// path dependency; a root or an entry that cannot be found is an error.
+function inherited(dir, rows, name, at) {
+  const ws = workspaceRoot(dir, rows, at);
+  const deps = new Map();
+  for (const r of toml(manifestOf(ws)).filter((r) => r.s[0] === "workspace" && r.s[1] === "dependencies")) {
+    const key = r.s.length === 3 ? r.s[2] : unquote(r.line.match(new RegExp(String.raw`^\s*${KEY}\s*[=.]`))?.[1] ?? "");
+    if (!key) continue;
+    const p = r.line.match(new RegExp(String.raw`(?:^\s*|\{[^}]*\b|^\s*${KEY.replace("(", "(?:")}\.)path\s*=\s*${STR}`));
+    if (!p && /\bpath\s*=/.test(r.line)) throw new Error(`engine-revision: ${r.at}: cannot read the path in ${r.line.trim()}`);
+    if (p) deps.set(key, norm(posix.join(ws, p[1] ?? p[2])));
+    else if (!deps.has(key)) deps.set(key, null);
+  }
+  if (!deps.has(name)) throw new Error(`engine-revision: ${at}: ${name} is inherited from ${manifestOf(ws)}, which has no [workspace.dependencies] entry for it`);
+  return deps.get(name);
+}
+
+// The crate's workspace root: [package] workspace = "..." if set, else the nearest folder at or above it whose
+// Cargo.toml has a [workspace] table.
+function workspaceRoot(dir, rows, at) {
+  const set = rows.find((r) => r.s.length === 1 && r.s[0] === "package" && /^\s*workspace\s*=/.test(r.line));
+  if (set) {
+    const m = set.line.match(new RegExp(String.raw`^\s*workspace\s*=\s*${STR}`));
+    if (!m) throw new Error(`engine-revision: ${set.at}: cannot read ${set.line.trim()}`);
+    return norm(posix.join(dir, m[1] ?? m[2])) || ".";
+  }
+  for (let d = dir; ; d = posix.dirname(d)) {
+    if (existsSync(join(root, manifestOf(d))) && /^\s*\[\s*workspace\s*\]/m.test(read(manifestOf(d)))) return d;
+    if (d === ".") throw new Error(`engine-revision: ${at}: inherits a workspace dependency, but no workspace root was found above ${dir}`);
+  }
+}
+
+// A Cargo.toml as rows: each non-blank, non-comment line with its table path (segments, unquoted) and file:line.
+function toml(file) {
+  let s = [];
+  let array = false;
+  return read(file).split(/\r?\n/).flatMap((line, n) => {
+    const head = line.match(/^\s*(\[\[?)\s*([^\]]+?)\s*\]\]?\s*(#.*)?$/);
+    if (head) {
+      s = (head[2].match(/"[^"]*"|'[^']*'|[^.\s]+/g) ?? []).map(unquote);
+      array = head[1] === "[[";
+      return [];
+    }
+    if (/^\s*(#|$)/.test(line)) return [];
+    return [{ at: `${file}:${n + 1}`, line, s, array }];
+  });
 }
 
 // What one Rust file pulls in: `#[path]`, `#[cfg_attr(.., path = ..)]` and `include*!` targets (literal paths,
