@@ -16,8 +16,8 @@ use std::time::Duration;
 
 use browser_pane::cookies::database::SnapshotScratch;
 use browser_pane::cookies::format::prepare_for_import;
-use browser_pane::cookies::sources::read_source_cookies;
-use browser_pane::cookies::{CookieRead, ImportFailure, ProfileEvent, read_cookie_file};
+use browser_pane::cookies::sources::{list_source_sites, read_source_cookies};
+use browser_pane::cookies::{CookieRead, ImportFailure, ProfileEvent, SiteList, SiteListOrder, read_cookie_file};
 use browser_pane::protocol::WireCookie;
 use rune::time::Instant;
 use rune::{FileDialogOptions, Tx};
@@ -271,6 +271,43 @@ impl App {
             failed: 0,
             deadline: Instant::now() + ANSWER_TIMEOUT,
         });
+    }
+
+    /// The sites browser `source`'s profile `profile` has cookies for, one per registrable domain
+    /// (`profile/index.ts` `sites`, `sources.ts::readSourceHosts`): `#286`'s `list_source_sites` reads
+    /// the cookies' hosts alone on a worker thread, so no OS key store is asked. `done` gets `sites`
+    /// (`{ site, cookies }`, most recently used first, else by name) and `order`, or `error` as a
+    /// browser import's.
+    pub(crate) fn start_source_sites(&mut self, source: String, profile: String, done: Completer) {
+        let slot = Arc::new(Mutex::new(Some(done)));
+        let filled = slot.clone();
+        let spawned = std::thread::Builder::new().name("browser-source-sites".into()).spawn(move || {
+            let scratch = SnapshotScratch::new(SnapshotScratch::default_dir());
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
+            let data = match list_source_sites(&source, &profile, &scratch, now) {
+                SiteList::Listed { sites, order } => map([
+                    (
+                        "sites",
+                        Data::List(
+                            sites
+                                .into_iter()
+                                .map(|s| map([("site", Data::String(s.site)), ("cookies", Data::Number(f64::from(s.cookies)))]))
+                                .collect(),
+                        ),
+                    ),
+                    ("order", Data::String(if order == SiteListOrder::Recent { "recent" } else { "name" }.into())),
+                ]),
+                SiteList::Failed { reason } => failure(browser_reason(reason)),
+            };
+            if let Some(done) = filled.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                done.complete(data);
+            }
+        });
+        if spawned.is_err()
+            && let Some(done) = slot.lock().unwrap_or_else(|e| e.into_inner()).take()
+        {
+            done.complete(failure("read"));
+        }
     }
 
     /// The profile's cookie count for Settings > Browser, `None` while the engine is idle or before
