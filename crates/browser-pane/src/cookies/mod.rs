@@ -19,6 +19,8 @@ pub mod host;
 #[cfg(feature = "engine")]
 pub mod icons;
 #[cfg(feature = "engine")]
+pub mod local_storage;
+#[cfg(feature = "engine")]
 pub mod safari;
 pub mod sites;
 #[cfg(feature = "engine")]

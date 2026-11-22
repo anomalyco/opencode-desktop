@@ -85,6 +85,7 @@ pub(super) fn is_supported_event(name: &str) -> bool {
             | "windows.onCreated"
             | "windows.onRemoved"
             | "windows.onFocusChanged"
+            | "windows.onBoundsChanged"
             | "action.onClicked"
             | "webNavigation.onBeforeNavigate"
             | "webNavigation.onCommitted"
@@ -1091,11 +1092,11 @@ impl ExtensionHost {
     pub(super) fn window_json(&self, ext_id: &str, manifest: &ExtensionManifest, populate: bool) -> Value {
         let mut obj = json!({
             "id": WINDOW_ID,
-            "focused": true,
+            "focused": self.window_focused,
             "top": 0,
             "left": 0,
-            "width": 1280,
-            "height": 800,
+            "width": self.window_width,
+            "height": self.window_height,
             "incognito": false,
             "type": "normal",
             "state": "normal",

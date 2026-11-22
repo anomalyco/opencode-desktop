@@ -140,14 +140,36 @@ impl crate::BrowserHost {
         let scope = PermissionScope::from_context(&t.context);
         let origin = item.request.origin;
         let kinds = item.request.kinds;
+        if decision == PermissionDecision::Dismiss {
+            // "Not now" (`x`) or Escape keeps nothing in kept/session/visit decisions so the site
+            // can ask again (`prompts.tsx:468`, `page-prompts.ts:498-506`).
+            for req_id in ids {
+                self.send(HostMsg::AnswerPermission {
+                    tab_id,
+                    id: req_id,
+                    allow: false,
+                    dismiss: true,
+                    persist: false,
+                });
+            }
+            return true;
+        }
         let allow = matches!(decision, PermissionDecision::AllowOnce | PermissionDecision::AllowAlways);
-        let can_keep = !item.agent_driven
-            && !matches!(scope, PermissionScope::VisitOnly)
+        let trustworthy = super::trustworthy_origin(&origin)
+            && !origin.to_ascii_lowercase().starts_with("oc-preview:");
+        let can_keep_profile = !item.agent_driven
+            && matches!(scope, PermissionScope::Profile)
             && t.preview.is_none()
-            && crate::policy::destination_origin(&origin).is_some();
-        let permanent_block = matches!(decision, PermissionDecision::BlockAlways) && can_keep;
-        // Agent-driven and isolated/preview tabs never persist permissions into global `sitePermissions`,
-        // and an allow on an agent-driven tab applies only once (`page-prompts.ts:503`).
+            && trustworthy;
+        let can_keep_session = !item.agent_driven
+            && matches!(scope, PermissionScope::Session(_))
+            && t.preview.is_none()
+            && trustworthy;
+        let can_keep = can_keep_profile || can_keep_session;
+        let permanent_block = matches!(decision, PermissionDecision::BlockAlways) && can_keep_profile;
+        // Agent-driven and preview tabs never persist permissions; remote-server decisions stay in
+        // RAM until app quit (`PermissionScope::Session`); an allow on an agent-driven tab applies
+        // only once (`page-prompts.ts:498-506`).
         if !(item.agent_driven && allow) {
             match decision {
                 PermissionDecision::AllowAlways if can_keep => {
@@ -170,12 +192,13 @@ impl crate::BrowserHost {
                         t.prompts.visit_permissions.insert((origin.clone(), kind), SiteSetting::Block);
                     }
                 }
+                PermissionDecision::Dismiss => {}
             }
         }
         // Use `CEF_PERMISSION_RESULT_DISMISS` for non-permanent denies (`BlockOnce`, agent tabs,
-        // visit-only contexts) so Chromium does not permanently block the origin.
+        // visit-only and RAM-only session contexts) so Chromium does not permanently block on disk.
         let dismiss = !allow && !permanent_block;
-        let persist = can_keep
+        let persist = can_keep_profile
             && matches!(decision, PermissionDecision::AllowAlways | PermissionDecision::BlockAlways);
         for req_id in ids {
             self.send(HostMsg::AnswerPermission { tab_id, id: req_id, allow, dismiss, persist });

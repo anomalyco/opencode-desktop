@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 /// revision (`156.0.26.1`). Bump it when the app needs an engine built from newer engine code (a
 /// protocol change); a release of a newer CEF with the same revision is an update for every app
 /// that accepts it.
-pub const ENGINE_REVISION: u32 = 8;
+pub const ENGINE_REVISION: u32 = 10;
 #[cfg(not(any(windows, target_os = "linux")))]
 pub const ENGINE_BUNDLE_NAME: &str = "OpenCode Browser Engine.app";
 #[cfg(not(any(windows, target_os = "linux")))]
@@ -377,14 +377,38 @@ pub fn installed() -> Option<Installed> {
         .into_iter()
         .filter(|v| {
             let dir = root.join(v.to_string());
-            v.accepted()
-                && !is_reparse_or_symlink(&dir)
-                && !is_reparse_or_symlink(&dir.join(ENGINE_BUNDLE_NAME))
-                && crate::source::accepts_install(&dir)
-                && bin_in(&dir).is_file()
+            v.accepted() && is_complete(&dir) && crate::source::accepts_install(&dir)
         })
         .max()
         .map(|version| Installed { version: Some(version), bin: bin_in(&root.join(version.to_string())) })
+}
+
+/// True when `version_dir` is a non-link directory holding every platform entry binary required
+/// for a complete install (`#617` half-installed recovery + Windows `bootstrap.exe` + client DLL).
+#[cfg(feature = "engine")]
+pub(crate) fn is_complete(version_dir: &Path) -> bool {
+    if is_reparse_or_symlink(version_dir) || is_reparse_or_symlink(&version_dir.join(ENGINE_BUNDLE_NAME)) {
+        return false;
+    }
+    let bin = bin_in(version_dir);
+    if is_reparse_or_symlink(&bin) || !bin.is_file() {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        let dll = bin.with_file_name("opencode-browser-engine.dll");
+        if is_reparse_or_symlink(&dll) || !dll.is_file() {
+            return false;
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let helper = bin.with_file_name("opencode-browser-engine-helper");
+        if is_reparse_or_symlink(&helper) || !helper.is_file() {
+            return false;
+        }
+    }
+    true
 }
 
 /// The versions with a folder in `root`, accepted by this build or not.

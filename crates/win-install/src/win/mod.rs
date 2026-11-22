@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::{EXE, Product};
 
-mod folders;
+pub(crate) mod folders;
 mod process;
 mod registry;
 mod scheme;
