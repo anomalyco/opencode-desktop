@@ -129,7 +129,17 @@ fn frame(a: &mut NodeArgs) -> Result<El, String> {
         out = a.on_press(out, "onPress");
     }
     out = a.on_hover(out, "onHover");
-    Ok(out)
+    Ok(focus(a, out))
+}
+
+/// `autofocus` (`El::autofocus`: the control a dialog focuses as it opens) and `focusReturn`
+/// (`El::focus_return`: where focus goes when this leaves while it has focus).
+fn focus(a: &NodeArgs, el: El) -> El {
+    let el = if a.flag("autofocus") { el.autofocus() } else { el };
+    match a.string("focusReturn") {
+        Some(key) => el.focus_return(key),
+        None => el,
+    }
 }
 
 /// A 1 px rule laid out as Chromium lays out a 1px CSS border: one device pixel at 1x, 1.25x and
@@ -228,7 +238,7 @@ fn button(a: &mut NodeArgs) -> Result<El, String> {
         let spinner = Loader::new().size(16.0).build(k);
         b = b.label_with(move |_, _| spinner);
     }
-    let el = b.build(k);
+    let el = focus(a, b.build(k));
     Ok(if disabled || loading { el } else { a.on_press(el, "onPress") })
 }
 
@@ -248,6 +258,7 @@ fn icon_button(a: &mut NodeArgs, command_chord: fn(&str) -> Option<Chord>) -> Re
     if let Some(chord) = a.string("keybind").and_then(command_chord) {
         b = b.help_keys(keymap::caps(chord));
     }
+    let b = focus(a, b);
     Ok(if a.flag("disabled") { b.layer_opacity(0.5) } else { a.on_press(b, "onPress") })
 }
 

@@ -1,7 +1,7 @@
 // Every prop a built-in plugin passes to a `ui.<node>(...)` call must be one the contract gives that
 // node (crates/opencode-plugin-spec/contract.json: the node's props type, with what it extends). A
 // prop the host doesn't know is ignored at run time, so a typo or a wished-for prop (`autofocus` on
-// a button, #664) silently does nothing.
+// a button before the contract gave it, #664) silently does nothing.
 // Checks the props table literals of `ui.<node>(` calls in tracked `plugins/**/*.luau`: the first
 // argument, and the second when it has keys (the `(style, props, children)` form). Known misses are
 // listed, one `path node prop` per line, in scripts/plugin-props-exceptions.txt: a ratchet; a listed
