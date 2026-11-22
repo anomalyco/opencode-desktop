@@ -702,7 +702,7 @@ impl EngineManager {
                     && let Some(t) = self.tabs.get(&tab_id)
                     && !t.is_popup
                     && t.snap.lock().unwrap().document == 0
-                    && t.browser.can_go_back() == 0
+                    && t.browser.can_go_back() == 0 && !t.prompts.agent_owns_dialogs()
                 {
                     let _ = self.out_tx.send(EngineMsg::DownloadOnlyTab { tab_id });
                 }
