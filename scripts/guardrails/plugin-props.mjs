@@ -1,7 +1,7 @@
 // Every prop a built-in plugin passes to a `ui.<node>(...)` call must be one the contract gives that
 // node (crates/opencode-plugin-spec/contract.json: the node's props type, with what it extends). A
 // prop the host doesn't know is ignored at run time, so a typo or a wished-for prop (`autofocus` on
-// a button, #664) silently does nothing.
+// a button before the contract gave it, #664) silently does nothing.
 // Checks the props table literals of `ui.<node>(` calls in tracked `plugins/**/*.luau`: the first
 // argument, and the second when it has keys (the `(style, props, children)` form). Known misses are
 // listed, one `path node prop` per line, in scripts/plugin-props-exceptions.txt: a ratchet; a listed
@@ -184,5 +184,7 @@ const errors = [
 ];
 if (process.argv.includes("--list")) for (const x of misses) console.log(`${x.file}:${x.line} ui.${x.node} ${x.prop}`);
 for (const e of errors) console.error(`  ERROR  ${e}`);
-console.log(`plugin props: ${calls} ui calls, ${tables} props tables checked; ${misses.length} unknown prop use(s), ${listed.length} listed, ${errors.length} error(s)`);
+// A listed line is `path node prop` with no line number, so one line covers every use of that prop on that node in the file.
+const covered = misses.filter((x) => listed.includes(id(x))).length;
+console.log(`plugin props: ${calls} ui calls, ${tables} props tables checked; ${misses.length} unknown prop use(s): ${covered} covered by ${listed.length} listed line(s), ${misses.length - covered} not listed; ${errors.length} error(s)`);
 process.exit(errors.length ? 1 : 0);

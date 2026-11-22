@@ -1,11 +1,6 @@
 # Props built-in plugins pass that the plugin contract doesn't give that node: `path node prop`.
 # scripts/guardrails/plugin-props.mjs fails on any other, and on a line here that no longer occurs.
 #
-# Ignored by the host today: `autofocus` is no node's prop (#664's Back focus does nothing; the
-# focus property it needs is a contract and host change, owner: BROWSER-UI's proposal).
-plugins/browser/settings.luau button autofocus
-plugins/browser/site.luau iconButton autofocus
-#
 # Applied today: Rune standard props the contract doesn't list for that node yet (add them to
 # contract.json, then remove these lines).
 plugins/browser/device.luau flyoutRow radius
