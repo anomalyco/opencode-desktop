@@ -12,6 +12,18 @@
 // by a `#[path = "..."]` attribute under apps/browser-engine/src. Files are hashed as git blobs of the
 // working tree (`git hash-object`), so line-ending settings do not matter and uncommitted edits count.
 //
+// Fails loudly on what it cannot read: a `path` key in a dependencies table it cannot parse, a `#[path]`
+// or `include*!` whose target is not a literal (OUT_DIR excepted) or does not exist: each an error with file
+// and line. A literal target is FOLLOWED and becomes an input (that is how crates/browser-pane/src/device.rs,
+// outside the crate folders, is derived from apps/browser-engine/src/wire.rs).
+//
+// Deliberately NOT inputs: rust-toolchain.toml, the root .cargo/config.toml (Windows crt-static flags) and the
+// release workflow's engine jobs: they change how the engine is built, not what the app expects of it; the
+// ROOT Cargo.lock (the engine is its own workspace: root Cargo.toml excludes it). The engine workspace's OWN
+// apps/browser-engine/Cargo.lock IS an input: the published engine does not carry a dependency change until a
+// new revision is built. Not caught: permission-mode changes and symlinks (hashes are of contents), and a
+// hand edit of the recorded hashes (visible only in a diff of engine-inputs.txt).
+//
 //   node scripts/guardrails/engine-revision.mjs            check
 //   node scripts/guardrails/engine-revision.mjs --write    refresh the record (after an ENGINE_REVISION bump)
 //   node scripts/guardrails/engine-revision.mjs --list     print the derived input paths
@@ -45,33 +57,56 @@ function crateFolders() {
     let section = "";
     for (const line of read(`${dir}/Cargo.toml`).split(/\r?\n/)) {
       const head = line.match(/^\s*\[([^\]]+)\]/);
-      if (head) section = head[1];
-      const dep = line.match(/^\s*[A-Za-z0-9_-]+\s*=\s*\{[^}]*\bpath\s*=\s*"([^"]+)"/);
-      if (dep && !/dev-dependencies|build-dependencies/.test(section)) todo.push(norm(posix.join(dir, dep[1])));
+      if (head) { section = head[1].trim(); continue; }
+      if (!/(^|\.)dependencies(\.|$)/.test(section) || /dev-dependencies|build-dependencies/.test(section)) continue;
+      // `name = { path = "..." }` in a [*dependencies] table, or `path = "..."` inside a [*dependencies.name] table.
+      const inline = line.match(/^\s*[A-Za-z0-9_-]+\s*=\s*\{[^}]*\bpath\s*=\s*"([^"]+)"/);
+      const table = /\.dependencies\.[^.]+$|^dependencies\.[^.]+$/.test(section) ? line.match(/^\s*path\s*=\s*"([^"]+)"/) : null;
+      const hit = inline ?? table;
+      if (hit) todo.push(norm(posix.join(dir, hit[1])));
+      // Fail closed: a `path` key this reader does not understand must not be skipped silently.
+      else if (/\bpath\s*=/.test(line)) throw new Error(`engine-revision: cannot read the path dependency in ${dir}/Cargo.toml [${section}]: ${line.trim()}`);
     }
   }
   return [...seen].sort();
 }
 
-// Files outside the crate folders that apps/browser-engine/src pulls in with `#[path = "..."]`.
-function pathFiles() {
+// Files the crates' Rust sources pull in from elsewhere: `#[path = "..."]` and `include!` / `include_str!` /
+// `include_bytes!` with a literal path (relative to the file). A non-literal include fails closed unless it
+// reads OUT_DIR (a build script's output, whose inputs are already in the crate folder).
+function pathFiles(folders) {
   const out = [];
   const walk = (dir) => {
     for (const e of readdirSync(join(root, dir), { withFileTypes: true })) {
       const rel = `${dir}/${e.name}`;
-      if (e.isDirectory()) walk(rel);
-      else if (e.name.endsWith(".rs")) {
-        for (const m of read(rel).matchAll(/#\[path\s*=\s*"([^"]+)"\]/g)) out.push(norm(posix.join(dir, m[1])));
+      if (e.isDirectory()) { if (e.name !== "target" && e.name !== "node_modules") walk(rel); continue; }
+      if (!e.name.endsWith(".rs")) continue;
+      const src = read(rel);
+      const at = (i) => `${rel}:${src.slice(0, i).split("\n").length}`;
+      const follow = (target, i, what) => {
+        const f = norm(posix.join(dir, target));
+        if (!existsSync(join(root, f))) throw new Error(`engine-revision: ${at(i)}: ${what} points at ${f}, which does not exist`);
+        out.push(f);
+      };
+      for (const m of src.matchAll(/#\[path\s*=\s*([^\]]*)\]/g)) {
+        const lit = m[1].trim().match(/^"([^"]+)"$/);
+        if (!lit) throw new Error(`engine-revision: ${at(m.index)}: cannot read ${m[0]}`);
+        follow(lit[1], m.index, "#[path]");
+      }
+      for (const m of src.matchAll(/\binclude(?:_str|_bytes)?!\s*\(\s*([^)]*)\)/g)) {
+        const lit = m[1].trim().match(/^"([^"]+)"$/);
+        if (lit) follow(lit[1], m.index, m[0].slice(0, m[0].indexOf("!") + 1));
+        else if (!/env!\s*\(\s*"OUT_DIR"/.test(m[1])) throw new Error(`engine-revision: ${at(m.index)}: cannot follow a non-literal ${m[0]}`);
       }
     }
   };
-  walk(`${ENGINE}/src`);
+  for (const d of folders) walk(d);
   return out;
 }
 
 function inputs() {
   const folders = crateFolders();
-  const extra = pathFiles().filter((f) => !folders.some((d) => f === d || f.startsWith(`${d}/`)));
+  const extra = [...new Set(pathFiles(folders))].filter((f) => !folders.some((d) => f === d || f.startsWith(`${d}/`)));
   const listed = execFileSync("git", ["ls-files", "-z", "--", ...folders, ...extra], { cwd: root, encoding: "utf8", maxBuffer: 1 << 26 })
     .split("\0").filter(Boolean).filter((f) => existsSync(join(root, f)));
   const files = [...new Set(listed)].sort();
@@ -105,8 +140,14 @@ function writeRecord(rev, cur, sameRevisionReason) {
   writeFileSync(join(root, RECORD), lines.join("\n") + "\n");
 }
 
-const rev = revision();
-const cur = inputs();
+let rev, cur;
+try {
+  rev = revision();
+  cur = inputs();
+} catch (e) {
+  console.error(e instanceof Error ? e.message : String(e));
+  process.exit(1);
+}
 if (process.argv.includes("--list")) {
   for (const s of cur.sources) console.log(s);
   process.exit(0);
@@ -118,6 +159,10 @@ if (process.argv.includes("--write")) {
   const i = process.argv.indexOf("--same-revision");
   const reason = i >= 0 ? (process.argv[i + 1] ?? "").trim() : "";
   const differs = old && [...new Set([...old.files.keys(), ...cur.files.keys()])].some((f) => old.files.get(f) !== cur.files.get(f));
+  if (old && old.revision !== rev && !differs) {
+    console.error(`engine-revision: refusing --write: ENGINE_REVISION moved ${old.revision} -> ${rev} but none of the engine's inputs changed; undo the bump, or make the engine change it is for`);
+    process.exit(1);
+  }
   if (old && old.revision === rev && differs && !reason) {
     console.error(`engine-revision: refusing --write: the inputs changed but ENGINE_REVISION is still ${rev}; bump it first, or pass --same-revision "<why the engine's bytes may stay the same>"`);
     process.exit(1);
