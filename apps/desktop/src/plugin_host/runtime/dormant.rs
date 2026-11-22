@@ -230,10 +230,24 @@ pub fn each_app_half<R>(mut f: impl FnMut(&str, &Contribs) -> Option<R>) -> Vec<
     })
 }
 
+/// Debug-only scratch-root hold used to keep `updater` dormant while proving the Settings fallback.
+fn debug_held(id: &str) -> bool {
+    #[cfg(debug_assertions)]
+    {
+        id == "updater"
+            && std::env::var_os("OPENCODE_RUNE_HOLD_UPDATER_DORMANT").is_some()
+            && std::env::var_os("RUNE_DIRS_ROOT").is_some()
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = id;
+        false
+    }
+}
+
 /// Starts plugin `id` now, for `why`, if it's dormant; true when it was and runs now.
 pub fn wake(app: &mut App, id: &str, why: Why) -> bool {
-    #[cfg(debug_assertions)]
-    if id == "updater" && std::env::var_os("OPENCODE_RUNE_HOLD_UPDATER_DORMANT").is_some() {
+    if debug_held(id) {
         return false;
     }
     let Some(i) = app.plugins.find(id).filter(|&i| matches!(app.plugins.list[i].life, Life::Dormant)) else { return false };
@@ -503,17 +517,17 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         }
     }
     if tx.input_waiting() {
-        if app.plugins.dormant.asleep.values().any(|a| a.wait == Wait::Next) {
+        if app.plugins.dormant.asleep.iter().any(|(id, a)| a.wait == Wait::Next && !debug_held(id)) {
             tx.wake_after(Duration::ZERO);
-        } else if app.plugins.dormant.asleep.values().any(|a| a.wait == Wait::Idle) {
+        } else if app.plugins.dormant.asleep.iter().any(|(id, a)| a.wait == Wait::Idle && !debug_held(id)) {
             tx.wake_after(crate::idle::AFTER);
         }
         return false;
     }
-    let due = |wait: Wait| app.plugins.dormant.asleep.iter().find(|(_, a)| a.wait == wait).map(|(id, _)| id.clone());
+    let due = |wait: Wait| app.plugins.dormant.asleep.iter().find(|(id, a)| a.wait == wait && !debug_held(id)).map(|(id, _)| id.clone());
     if let Some(id) = due(Wait::Next) {
         wake(app, &id, Why::Near);
-        if app.plugins.dormant.asleep.values().any(|a| a.wait > Wait::FirstUse) {
+        if app.plugins.dormant.asleep.iter().any(|(id, a)| a.wait > Wait::FirstUse && !debug_held(id)) {
             tx.wake_after(Duration::ZERO);
         }
         return true;
@@ -531,7 +545,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         return false;
     }
     wake(app, &id, Why::Idle);
-    if app.plugins.dormant.asleep.values().any(|a| a.wait > Wait::FirstUse) {
+    if app.plugins.dormant.asleep.iter().any(|(id, a)| a.wait > Wait::FirstUse && !debug_held(id)) {
         tx.wake_after(Duration::ZERO);
     }
     true

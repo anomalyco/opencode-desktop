@@ -155,11 +155,24 @@ fn run_action(s: &mut App, tx: &mut Tx, action: &'static str) {
                             msg("action.unavailable", "Updates unavailable"),
                             msg("check.unavailable", "This build is updated outside OpenCode, for example by your package manager."),
                         ),
-                        "up-to-date" => crate::status_toast::succeed(
-                            app,
-                            msg("toast.latest.title", "You're up to date"),
-                            msg("toast.latest.description", "You're running the latest version of OpenCode."),
-                        ),
+                        "up-to-date" => {
+                            let ver = crate::updater::display_version(app);
+                            let desc = msg("toast.latest.description", "You're running the latest version of OpenCode.")
+                                .replace("{{version}}", &ver);
+                            crate::status_toast::succeed(app, msg("toast.latest.title", "You're up to date"), desc);
+                        }
+                        "ready" => {
+                            let ver = view.version.as_deref().unwrap_or_default();
+                            let desc = msg("dialog.ready.message", "Update {{version}} downloaded. Restart now?")
+                                .replace("{{version}}", ver);
+                            crate::status_toast::say(app, msg("dialog.ready.title", "Update Ready"), desc);
+                        }
+                        "download-required" => {
+                            let ver = view.version.as_deref().unwrap_or_default();
+                            let desc = msg("dialog.available.message", "OpenCode {{version}} is available to download.")
+                                .replace("{{version}}", ver);
+                            crate::status_toast::say(app, msg("dialog.available.title", "Update Available"), desc);
+                        }
                         "installed" => {
                             let ver = view.version.as_deref().unwrap_or_default();
                             let desc = msg(
