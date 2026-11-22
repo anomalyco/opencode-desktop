@@ -162,7 +162,7 @@ fn build_cold(cache_root: &Path, host: &str, target: &str, dest: &Path) -> Resul
         let policy = FetchPolicy::for_archive(GHOSTTY_TARBALL_MAX_BYTES);
         fetch_verified_archive(
             "libghostty-vt-source.tar.gz",
-            GHOSTTY_TARBALL_URL,
+            &[GHOSTTY_TARBALL_URL.to_owned()],
             GHOSTTY_TARBALL_SHA256,
             &tarball,
             &policy,
@@ -365,8 +365,8 @@ fn resolve_or_bootstrap_zig(cache_root: &Path, host: &str) -> Result<PathBuf, St
             .map_err(|e| format!("terminal build: mkdir zig stage failed ({e})"))?;
         // `.tar.xz` on macOS and Linux, `.zip` on Windows; `tar` (bsdtar on Windows) reads both.
         let archive = stage.join(dist.url.rsplit('/').next().unwrap_or("zig-archive"));
-        let policy = FetchPolicy::for_archive(ZIG_ARCHIVE_MAX_BYTES);
-        fetch_verified_archive("zig-0.17.0", dist.url, dist.sha256, &archive, &policy)?;
+        let policy = FetchPolicy::for_zig(ZIG_ARCHIVE_MAX_BYTES);
+        fetch_verified_archive("zig-0.17.0", &zig_sources(&dist), dist.sha256, &archive, &policy)?;
         let unpacked = stage.join("unpacked");
         fs::create_dir_all(&unpacked)
             .map_err(|e| format!("terminal build: mkdir zig unpacked failed ({e})"))?;
