@@ -558,7 +558,9 @@ fn location(s: &App, p: &Pal, ses: &SessionInfo, labels_w: f32, show: bool, inst
 pub(super) fn avatar(s: &App, p: &Pal, project: Option<&model::Project>, name: &str, open: bool, unread: bool) -> El {
     crate::icons::session_avatar(s, p, project, name, open, unread).key("avatar")
 }
-const SERVE_CMD: &str = "opencode serve --port 4096";
+/// `--service` writes the server's address and password to `service.json`, where the app finds them;
+/// a plain `opencode serve` (2.x) makes up a password the app can't know, and shows Signed out.
+const SERVE_CMD: &str = "opencode serve --service";
 
 fn no_server_home(s: &App, p: &Pal) -> El {
     let addr = match (&s.launch.story_addr, &*s.source) {

@@ -44,7 +44,7 @@ No Electron, no DOM, no Chromium at startup. Download the latest `dev` build and
 
 <sub>Set <code>chmod +x</code> on Linux AppImage files. macOS and Windows <code>dev</code> builds auto-update in the background. Want to test a pull request alongside <code>dev</code>? See <a href="docs/trying-opencode-rune.md">docs/trying-opencode-rune.md</a>. Release channels and signing: <a href="docs/releasing.md">docs/releasing.md</a>.</sub>
 
-Start a local OpenCode server (`opencode serve --port 4096` or open **OpenCode Desktop**), then launch **OpenCode (Rune)**. It discovers `http://127.0.0.1:4096` or `~/.config/opencode/service.json` automatically (`--server <url>` or `OPENCODE_SERVER_URL` overrides it) and never starts a server on its own.
+Start a local OpenCode server (`opencode serve --service` or open **OpenCode Desktop**), then launch **OpenCode (Rune)**. It discovers `http://127.0.0.1:4096` or `~/.config/opencode/service.json` automatically (`--server <url>` or `OPENCODE_SERVER_URL` overrides it) and never starts a server on its own.
 
 ## What's inside
 
@@ -66,7 +66,7 @@ Start a local OpenCode server (`opencode serve --port 4096` or open **OpenCode D
 
 ## Run from source
 
-Start an OpenCode server locally (`opencode serve --port 4096` or **OpenCode Desktop**), then run:
+Start an OpenCode server locally (`opencode serve --service` or **OpenCode Desktop**), then run:
 
 ```sh
 cargo run -p opencode-desktop -- --live
