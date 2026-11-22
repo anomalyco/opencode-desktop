@@ -119,6 +119,7 @@ struct ExtCacheInner {
     swept_staging: bool,
     in_flight: bool,
     dirty: bool,
+    dirty_gen: u64,
     queued: Option<VerifyRequest>,
     pending_apply: Option<PendingApply>,
 }
@@ -232,6 +233,7 @@ pub fn invalidate_cache(app: &App) {
     let cache = &app.kernel.slots.get(&BROWSER_EXTENSIONS).cache;
     let mut inner = cache.lock().unwrap_or_else(PoisonError::into_inner);
     inner.dirty = true;
+    inner.dirty_gen = inner.dirty_gen.wrapping_add(1);
 }
 
 /// Non-blocking UI-thread read for `Browser:ExtList` and `Browser:ExtActions` inside `render()`.
@@ -338,13 +340,14 @@ fn run_verify_worker(
     waker: Option<rune::Waker>,
 ) {
     loop {
-        let (swept, prev_fp, prev_stamps, had_verified) = {
+        let (swept, prev_fp, prev_stamps, had_verified, started_gen) = {
             let inner = cache.lock().unwrap_or_else(PoisonError::into_inner);
             (
                 inner.swept_staging,
                 inner.stored_fp.clone(),
                 inner.dir_stamps.clone(),
                 inner.verified_at.is_some(),
+                inner.dirty_gen,
             )
         };
         if !swept {
@@ -357,12 +360,15 @@ fn run_verify_worker(
             .map(|r| (r.id.clone(), dir_stamp(Path::new(&r.directory))))
             .collect();
 
-        let stamp_unchanged = had_verified && !req.force_rehash && prev_fp == fp && prev_stamps == stamps;
+        let stamp_unchanged =
+            had_verified && !req.force_rehash && !req.restart_if_live && prev_fp == fp && prev_stamps == stamps;
         let should_wake = if stamp_unchanged {
             let mut inner = cache.lock().unwrap_or_else(PoisonError::into_inner);
             inner.swept_staging = true;
             inner.verified_at = Some(Instant::now());
-            inner.dirty = false;
+            if inner.dirty_gen == started_gen {
+                inner.dirty = false;
+            }
             false
         } else {
             let verified = mgr.verify_enabled_for_startup(&req.stored);
@@ -408,7 +414,9 @@ fn run_verify_worker(
             inner.has_filters = has_filters;
             inner.profiles = profiles;
             inner.verified_at = Some(Instant::now());
-            inner.dirty = false;
+            if inner.dirty_gen == started_gen {
+                inner.dirty = false;
+            }
             if profiles_changed || specs_changed || req.restart_if_live {
                 let prev_restart = inner.pending_apply.as_ref().is_some_and(|p| p.restart_if_live);
                 let prev_prof = inner.pending_apply.as_ref().is_some_and(|p| p.profiles_changed);
@@ -477,13 +485,19 @@ pub fn poll(app: &mut App) -> bool {
         inner.pending_apply.take()
     };
     if let Some(apply) = pending {
+        let failed = app.kernel.slots.get(&BROWSER_EXTENSIONS).integrity_failed.clone();
+        let specs: Vec<_> = apply
+            .specs
+            .into_iter()
+            .filter(|s| !failed.contains(&s.id))
+            .collect();
+        let has_filters = apply.has_filters && !specs.is_empty();
         let specs_changed = app
             .workspace_panes
             .browser
             .host
-            .set_startup_extensions(apply.specs, apply.has_filters);
+            .set_startup_extensions(specs, has_filters);
         if apply.restart_if_live
-            && specs_changed
             && app.workspace_panes.browser.host.has_live_sidecar()
             && app.workspace_panes.browser.host.engine_extensions()
         {
@@ -510,7 +524,9 @@ pub fn poll(app: &mut App) -> bool {
         for id in integrity_ids {
             rt.integrity_failed.insert(id);
         }
-        rt.cache.lock().unwrap_or_else(PoisonError::into_inner).dirty = true;
+        let mut inner = rt.cache.lock().unwrap_or_else(PoisonError::into_inner);
+        inner.dirty = true;
+        inner.dirty_gen = inner.dirty_gen.wrapping_add(1);
         changed = true;
     }
 
