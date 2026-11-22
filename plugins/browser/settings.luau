@@ -762,7 +762,6 @@ function settings.renderImportDialog(
         key = "settings-import-start",
         text = action,
         variant = "contrast",
-        autofocus = true,
         disabled = not canImport,
         loading = busy,
         onPress = view:Handler(function()

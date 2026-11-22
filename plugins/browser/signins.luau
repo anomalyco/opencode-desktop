@@ -31,6 +31,8 @@ export type Env = {
     message: () -> Message?,
     confirmed: () -> { choice: Choice?, text: string }?,
     run: (choice: Choice) -> (),
+    -- Opens the import dialog for this profile with its sites listed (`import-prompt.tsx:90-93`).
+    choose: (choice: Choice) -> (),
     decline: () -> (),
     more: () -> (),
     close: () -> (),
@@ -125,8 +127,8 @@ local function confirmation(env: Env, view: View, variant: string, done: { choic
     })
 end
 
--- `import-prompt.tsx:186-261`: the browser used last, Import, the other browsers and more in a
--- menu, and Not now.
+-- `import-prompt.tsx:186-261`: the browser used last, Import, the other browsers, Choose sites to
+-- import and more in a menu, and Not now.
 local function bar(env: Env, view: View, choices: { Choice }): ui.Node
     local first = choices[1]
     local message = env.message()
@@ -167,9 +169,12 @@ local function bar(env: Env, view: View, choices: { Choice }): ui.Node
                     if #choices > 1 then
                         table.insert(items, { kind = "separator" })
                     end
+                    table.insert(items, { id = "choose", title = env.I18n:T("signins.choose"), enabled = not blocked })
                     table.insert(items, { id = "more", title = env.I18n:T("signins.more") })
                     local picked = env.Menu:OpenAsync({ anchorKey = menuKey, items = items, label = env.I18n:T("signins.other"), align = "end", width = 220 })
-                    if picked == "more" then
+                    if picked == "choose" then
+                        env.choose(first)
+                    elseif picked == "more" then
                         env.more()
                     elseif picked ~= nil then
                         local index = tonumber(string.match(picked, "^choice%-(%d+)$"))
@@ -185,8 +190,8 @@ local function bar(env: Env, view: View, choices: { Choice }): ui.Node
     })
 end
 
--- `import-prompt.tsx:138-184`: every browser profile as a row with its own Import, then Not now
--- and More import options.
+-- `import-prompt.tsx:138-184`: every browser profile as a row with its own Import, then Choose
+-- sites to import (for the browser used last), Not now and More import options.
 local function card(env: Env, view: View, choices: { Choice }): ui.Node
     local blocked = env.blocked()
     local rows: { ui.Node } = {}
@@ -219,6 +224,16 @@ local function card(env: Env, view: View, choices: { Choice }): ui.Node
         table.insert(items, messageText(message, { lineHeight = 20 }))
     end
     table.insert(items, ui.row({ gap = 4, align = "center" }, {
+        ui.button({
+            key = "browser-signins-choose",
+            text = env.I18n:T("signins.choose"),
+            size = "small",
+            variant = "ghost",
+            disabled = blocked,
+            onPress = view:Handler(function()
+                env.choose(choices[1])
+            end),
+        }),
         ui.button({
             key = "browser-signins-decline",
             text = env.I18n:T("signins.dismiss"),

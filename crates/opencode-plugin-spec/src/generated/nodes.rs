@@ -217,6 +217,8 @@ pub static UI_BUTTON_PROPS: PropsSpec = PropsSpec::new("UiButtonProps", Some(&UI
     PropSpec::new("pressed", PropType::Bool, false),
     PropSpec::new("onPress", PropType::Handler, false),
     PropSpec::new("menuTrigger", PropType::Bool, false),
+    PropSpec::new("autofocus", PropType::Bool, false),
+    PropSpec::new("focusReturn", PropType::String, false),
 ]);
 
 /// `UiCheckboxProps`.
@@ -307,6 +309,7 @@ pub static UI_FLYOUT_ROW_PROPS: PropsSpec = PropsSpec::new("UiFlyoutRowProps", S
 pub static UI_FRAME_PROPS: PropsSpec = PropsSpec::new("UiFrameProps", Some(&UI_BOX_PROPS), &[
     PropSpec::new("direction", PropType::Enum("UiDirection"), false),
     PropSpec::new("borderSides", PropType::List("number"), false),
+    PropSpec::new("focusReturn", PropType::String, false),
 ]);
 
 /// `UiGenUiProps`.
@@ -326,6 +329,8 @@ pub static UI_ICON_BUTTON_PROPS: PropsSpec = PropsSpec::new("UiIconButtonProps",
     PropSpec::new("keybind", PropType::String, false),
     PropSpec::new("onPress", PropType::Handler, false),
     PropSpec::new("menuTrigger", PropType::Bool, false),
+    PropSpec::new("autofocus", PropType::Bool, false),
+    PropSpec::new("focusReturn", PropType::String, false),
 ]);
 
 /// `UiIconProps`.
