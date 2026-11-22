@@ -157,6 +157,13 @@ fn workspace(app: &App, p: &Pal, a: &NodeArgs, sid: &str, kinds: Rc<HashMap<Stri
         return col().key("files-tree-loading").w_full().grow(1.0).px(10.0).pt(8.0).child(text(opencode_i18n::t!("ui.sessionReview.image.loading")).font(UI_SMALL).color(p.muted));
     }
     if filter.is_empty() {
+        // Probe installed external apps off-thread as soon as the tree mounts, matching
+        // Desktop's `PierreFileTree` (`pierre-tree.tsx:162` -> `open-in-app.tsx:86-89`), so
+        // the first right-click already lists VS Code, PowerShell, etc.
+        #[cfg(not(target_arch = "wasm32"))]
+        if app.can_open_in() {
+            let _ = app.kernel.slots.get(&crate::open_in::OPEN_IN).options();
+        }
         let tree_hash = {
             use std::hash::{DefaultHasher, Hash, Hasher};
             let mut expanded_xor = 0u64;
@@ -213,6 +220,10 @@ fn picked(row: El, pick: &Option<Press>, path: &str) -> El {
 }
 
 fn change_tree(app: &App, p: &Pal, sid: &str, kinds: Rc<HashMap<String, String>>, selected: Option<String>, pick: Option<Press>) -> El {
+    #[cfg(not(target_arch = "wasm32"))]
+    if app.can_open_in() {
+        let _ = app.kernel.slots.get(&crate::open_in::OPEN_IN).options();
+    }
     let count = app.kernel.slots.get(&crate::review::REVIEW).sessions.get(sid).map_or(0, |r| r.tree.visible_len());
     let (sid_keys, sid_rows) = (sid.to_owned(), sid.to_owned());
     let pal = *p;
@@ -298,6 +309,16 @@ fn filtered(app: &App, p: &Pal, sid: &str, query: &str, _kinds: Rc<HashMap<Strin
     if found.is_empty() {
         return col().key("review-filter-empty").w_full().grow(1.0).px(10.0).pt(8.0).child(text(opencode_i18n::t!("rune.files.noMatches")).font(UI_SMALL).color(p.muted));
     }
+    let effective_highlight = highlighted
+        .or_else(|| {
+            app.kernel
+                .slots
+                .get(&crate::review::REVIEW)
+                .sessions
+                .get(sid)
+                .and_then(|sr| sr.highlighted_filter_path.clone())
+        })
+        .filter(|h| found.iter().any(|p| p == h));
     let keys = found.clone();
     let sid_rows = sid.to_owned();
     let pal = *p;
@@ -308,7 +329,8 @@ fn filtered(app: &App, p: &Pal, sid: &str, query: &str, _kinds: Rc<HashMap<Strin
         move |s: &App, i| {
             let path = &found[i];
             let meta = s.kernel.slots.get(&crate::review::REVIEW).sessions.get(&sid_rows).and_then(|sr| sr.meta.iter().find(|m| &m.path == path));
-            let on = selected.as_deref() == Some(path.as_str()) || highlighted.as_deref().map_or(i == 0, |h| h == path);
+            let is_highlighted = effective_highlight.as_deref().map_or(i == 0, |h| h == path);
+            let on = selected.as_deref() == Some(path.as_str()) || is_highlighted;
             let (dir, name) = (Some(opencode_kit::path::parent(path)).filter(|d| !d.is_empty()), opencode_kit::path::basename(path));
             let t = tree_icons::file(name);
             let mut r = row()
@@ -323,6 +345,7 @@ fn filtered(app: &App, p: &Pal, sid: &str, query: &str, _kinds: Rc<HashMap<Strin
                 .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT)
                 .cursor(Cursor::Pointer)
                 .role("option")
+                .checked(is_highlighted)
                 .child(icon(t.icon(), 16.0).color(if on { t.color(pal.dark) } else { pal.icon_muted }))
                 .child(text(name.to_owned()).font(UI_SMALL).color(pal.text).shrink().min_w(0.0).truncate_fade());
             r = match dir {

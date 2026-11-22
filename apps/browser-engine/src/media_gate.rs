@@ -109,7 +109,7 @@ impl TabMediaGate {
     }
 
     fn build_cdp(&self, method: &str, params: Value, session_id: Option<&str>) -> String {
-        let id = MEDIA_GATE_ID_BASE + self.next_id.fetch_add(1, Ordering::Relaxed).rem_euclid(40_000_000);
+        let id = MEDIA_GATE_ID_BASE + self.next_id.fetch_add(1, Ordering::Relaxed).rem_euclid(25_000_000);
         let mut payload = json!({ "id": id, "method": method, "params": params });
         if let Some(sid) = session_id {
             payload["sessionId"] = Value::String(sid.to_owned());

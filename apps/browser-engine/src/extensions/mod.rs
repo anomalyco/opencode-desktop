@@ -495,6 +495,11 @@ impl ExtensionHost {
         }
     }
 
+    /// How many extensions are installed (Clear browsing data keeps their service workers).
+    pub fn installed_count(&self) -> usize {
+        self.extensions.len()
+    }
+
     pub fn filters_ready(&self) -> bool {
         self.filters_ready_emitted
     }
@@ -507,6 +512,18 @@ impl ExtensionHost {
         self.extensions
             .keys()
             .filter_map(|id| self.action_snapshot(id))
+            .collect()
+    }
+
+    pub fn has_clipboard_write(&self, ext_id: &str) -> bool {
+        self.extensions.get(ext_id).is_some_and(|e| e.manifest.has_permission("clipboardWrite"))
+    }
+
+    pub fn clipboard_write_ext_ids(&self) -> std::collections::HashSet<String> {
+        self.extensions
+            .iter()
+            .filter(|(_, e)| e.manifest.has_permission("clipboardWrite"))
+            .map(|(id, _)| id.clone())
             .collect()
     }
 
