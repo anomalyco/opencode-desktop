@@ -16,18 +16,18 @@ pub fn all() -> Vec<HostNode> {
         |command| cx::with_app(|app| app.catalog().into_iter().find(|c| c.id == command).and_then(|c| c.chord)).flatten(),
     );
     all.extend([
-        HostNode::new("image", services::images::node),
-        HostNode::new("video", services::images::video_node),
-        HostNode::new("shimmer", shimmer),
-        HostNode::new("switch", switch),
-        HostNode::new("field", field),
-        HostNode::new("pill", pill),
-        HostNode::new("settingsRow", settings_row),
-        HostNode::new("settingsList", settings_list),
-        HostNode::new("flyoutRow", flyout_row),
-        HostNode::new("dialogHeader", dialog_header),
-        HostNode::new("markdown", markdown),
-        HostNode::new("genUi", gen_ui),
+        ui_nodes::node("image", services::images::node),
+        ui_nodes::node("video", services::images::video_node),
+        ui_nodes::node("shimmer", shimmer),
+        ui_nodes::node("switch", switch),
+        ui_nodes::node("field", field),
+        ui_nodes::node("pill", pill),
+        ui_nodes::node("settingsRow", settings_row),
+        ui_nodes::node("settingsList", settings_list),
+        ui_nodes::node("flyoutRow", flyout_row),
+        ui_nodes::node("dialogHeader", dialog_header),
+        ui_nodes::node("markdown", markdown),
+        ui_nodes::node("genUi", gen_ui),
     ]);
     all.extend(native::nodes());
     #[cfg(feature = "office")]
