@@ -38,8 +38,6 @@ pub mod machine;
 pub mod platform;
 pub mod policy;
 pub mod protocol;
-#[cfg(windows)]
-mod relaunch_args;
 pub mod service;
 #[cfg(windows)]
 mod windows;
