@@ -30,8 +30,9 @@ pub(super) struct WaitLoadState {
     pub saw_loading: bool,
     /// Back/forward: the page as it was before (URL, document, history ends). A history entry
     /// restored from the back/forward cache commits without ever reporting loading, so its
-    /// commit (any of these changing) settles the wait instead of LOAD_SETTLE_GRACE.
-    pub history_from: Option<(String, u64, bool, bool)>,
+    /// commit (any of these changing) settles the wait instead of LOAD_SETTLE_GRACE. Last, the tab's
+    /// generation then (`generation_of`), which the commit's DevTools events bump.
+    pub history_from: Option<(String, u64, bool, bool, u64)>,
     pub prev_rejected: u64,
     pub started_at: Instant,
     pub deadline: Instant,
@@ -330,14 +331,15 @@ fn start_history(
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     app.mark_browser_tab_unseen(host_id);
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
+    let generation = att.generation_of(host_id);
     let history_from = app
         .workspace_panes
         .browser
         .host
         .tab(host_id)
-        .map(|t| (t.url.clone(), t.prompts.document, t.can_go_back, t.can_go_forward));
+        .map(|t| (t.url.clone(), t.prompts.document, t.can_go_back, t.can_go_forward, generation));
     // No entry that way: nothing to go to, the tab as it is (official `chromium.ts:1728-1733`).
-    if history_from.as_ref().is_some_and(|(_, _, back, forward)| if is_back { !back } else { !forward }) {
+    if history_from.as_ref().is_some_and(|(_, _, back, forward, _)| if is_back { !back } else { !forward }) {
         let _ = att.sync_tabs(app);
         let Some(tab) = att.wire_tab(app, host_id) else {
             return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
@@ -646,7 +648,7 @@ pub(super) fn step_wait_load(
         ));
     }
     if tab.loading
-        || st.history_from.as_ref().is_some_and(|(url, document, back, forward)| {
+        || st.history_from.as_ref().is_some_and(|(url, document, back, forward, _)| {
             (url, *document, *back, *forward) != (&tab.url, tab.prompts.document, tab.can_go_back, tab.can_go_forward)
         })
     {
@@ -667,18 +669,20 @@ pub(super) fn step_wait_load(
         };
         return Some(Outcome::fail(failure_code::NAVIGATION_FAILED, msg));
     }
-    // A history entry's DevTools navigation events can come after its address: until the frame
-    // tracker has the new document, an agent's next call would be authorized against the old one
-    // and fail as `document_changed` when they land.
-    // An engine running extensions sends no `Page.*` events, so none can land late either. The
-    // grace still ends any wait on the tracker.
-    let frames_caught_up = app.workspace_panes.browser.host.extensions_active()
-        || st.history_from.as_ref().is_none_or(|(old_url, ..)| {
-            *old_url == tab.url
-                || att.frames.get(&st.host_id).is_none_or(|f| {
-                    f.main_frame_id.as_ref().and_then(|id| f.frame_urls.get(id)).is_none_or(|u| u != old_url)
-                })
-        });
+    // A history entry's DevTools navigation events can come after its address: until they land, an
+    // agent's next call would be authorized against the old document and fail as `document_changed`.
+    // Every commit of a new document clears the main frame's execution contexts, which bumps the
+    // tab's generation, with or without extensions (an engine running extensions drops `Page.*`
+    // events, not `Runtime.*`). Without extensions the frame tracker's main URL follows the commit
+    // too (`Page.frameNavigated`, after the contexts clear; `navigatedWithinDocument` for a
+    // same-document entry, which clears nothing). The grace still ends any wait.
+    let frames_caught_up = st.history_from.as_ref().is_none_or(|(old_url, .., generation)| {
+        att.generation_of(st.host_id) > *generation
+            || (!app.workspace_panes.browser.host.extensions_active()
+                && att.frames.get(&st.host_id).is_some_and(|f| {
+                    f.main_frame_id.as_ref().and_then(|id| f.frame_urls.get(id)).is_some_and(|u| u != old_url)
+                }))
+    });
     let settled = (!tab.loading && ((st.saw_loading && frames_caught_up) || now >= st.started_at + LOAD_SETTLE_GRACE))
         || now >= st.deadline;
     if !settled {
