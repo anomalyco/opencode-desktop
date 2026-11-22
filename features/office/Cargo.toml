@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 browser-policy = { path = "../../crates/browser-policy" }
+harness-log = { path = "../../crates/harness-log" }
 bytemuck = { version = "1", features = ["derive"] }
 office-preview = { path = "../../crates/office-preview" }
 opencode-kernel = { path = "../../crates/opencode-kernel" }

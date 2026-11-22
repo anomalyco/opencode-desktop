@@ -37,6 +37,7 @@ members = [
     "crates/browser-extensions",
     "crates/browser-pane",
     "crates/browser-policy",
+    "crates/harness-log",
     "crates/hex-client",
     "crates/office-preview",
     "crates/opencode-code-view",
