@@ -23,7 +23,7 @@ pub mod resources;
 #[cfg(target_os = "windows")]
 mod win;
 
-pub use product::{EXE, HOMEPAGE, OPENCODE_SCHEME, PUBLISHER, Product};
+pub use product::{EXE, HOMEPAGE, OPENCODE_SCHEME, PUBLISHER, Product, default_name, side_by_side};
 #[cfg(target_os = "windows")]
 pub use win::{Identity, close_running, default_root, installed_root, other_installs, refresh, register, remove_dir, repair_scheme, running_under, settle_identity, unregister};
 #[cfg(target_os = "windows")]

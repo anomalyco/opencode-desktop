@@ -67,7 +67,12 @@ pub fn print_version_if_asked() {
 
 /// Window title (`"OpenCode (Rune)"` on `main`, `"OpenCode (Rune) · <branch>"` on PR builds).
 pub fn window_title() -> &'static str {
-    option_env!("OPENCODE_RUNE_WINDOW_TITLE").unwrap_or("OpenCode (Rune)")
+    // Stable and beta builds name themselves after their channel (`win_install::default_name`).
+    #[cfg(not(target_arch = "wasm32"))]
+    let fallback = win_install::default_name(option_env!("OPENCODE_RUNE_BUILD_CHANNEL"));
+    #[cfg(target_arch = "wasm32")]
+    let fallback = "OpenCode (Rune)";
+    option_env!("OPENCODE_RUNE_WINDOW_TITLE").unwrap_or(fallback)
 }
 
 /// The build's identity: its name, its app id (the Windows AppUserModelID, the uninstall
