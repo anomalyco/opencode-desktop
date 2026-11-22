@@ -462,19 +462,19 @@ end
 -- The new tab page: Open a page and what it's for, top-aligned; or the newest visits.
 local function home(env: Env, view: View, tab: BrowserTab, width: number): ui.Node
     local visits = env.visits()
-    -- `panel.tsx:1474-1477`: the sign-in offer heads the new tab page while it offers.
+    -- `panel.tsx:1474-1477`: the sign-in offer heads the new tab page while it offers. With no offer the page holds
+    -- nothing above the prompt: a `ui.spacer` stand-in is flexible space and pushed the prompt to the pane's bottom.
     local offer = if env.signIns then env.signIns(view, tab, "card") else nil
+    local items: { ui.Node } = if offer then { offer } else {}
     if #visits == 0 then
-        return ui.col({ key = "browser-home", dir = "auto", w = "full", grow = 1, minH = 0, scrollY = true, align = "center" }, {
-            offer or ui.spacer({ w = 0, h = 0 } :: any),
-            ui.col({ w = "full", maxW = 360, px = 24, pt = 80, gap = 16, align = "center" }, {
-                ui.icon("outline-globe", { size = 20, color = "icon-weak" }),
-                ui.col({ w = "full", gap = 8, align = "center" }, {
-                    ui.text(env.I18n:T("home.title"), { size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", textAlign = "center" }),
-                    ui.text(env.I18n:T("home.description"), { size = 13, weight = "regular", lineHeight = 16, color = "text-muted", textAlign = "center", wrap = true }),
-                }),
+        table.insert(items, ui.col({ key = "browser-home-prompt", w = "full", maxW = 360, px = 24, pt = 80, gap = 16, align = "center" }, {
+            ui.icon("outline-globe", { size = 20, color = "icon-weak" }),
+            ui.col({ w = "full", gap = 8, align = "center" }, {
+                ui.text(env.I18n:T("home.title"), { size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", textAlign = "center" }),
+                ui.text(env.I18n:T("home.description"), { size = 13, weight = "regular", lineHeight = 16, color = "text-muted", textAlign = "center", wrap = true }),
             }),
-        })
+        }))
+        return ui.col({ key = "browser-home", dir = "auto", w = "full", grow = 1, minH = 0, scrollY = true, align = "center" }, items)
     end
     local listW = math.min(608, width) - 48
     local rows: { ui.Node } = {}
@@ -486,13 +486,11 @@ local function home(env: Env, view: View, tab: BrowserTab, width: number): ui.No
             env.act("go", tab, visit.url)
         end))
     end
-    return ui.col({ key = "browser-home", dir = "auto", w = "full", grow = 1, minH = 0, scrollY = true, align = "center" }, {
-        offer or ui.spacer({ w = 0, h = 0 } :: any),
-        ui.col({ w = "full", maxW = 608, px = 24, pt = 48, pb = 40, gap = 16 }, {
-            ui.text(env.I18n:T("home.recent"), { size = 13, weight = "regular", lineHeight = 16, color = "text-muted" }),
-            ui.col({ w = "full", gap = 8 }, rows),
-        }),
-    })
+    table.insert(items, ui.col({ key = "browser-home-recent", w = "full", maxW = 608, px = 24, pt = 48, pb = 40, gap = 16 }, {
+        ui.text(env.I18n:T("home.recent"), { size = 13, weight = "regular", lineHeight = 16, color = "text-muted" }),
+        ui.col({ w = "full", gap = 8 }, rows),
+    }))
+    return ui.col({ key = "browser-home", dir = "auto", w = "full", grow = 1, minH = 0, scrollY = true, align = "center" }, items)
 end
 
 -- Plain-language failed-load error page (`failure.ts`, `failure-view.tsx`, `story-browser-load-failed-dark.png`).

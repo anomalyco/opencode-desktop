@@ -11,6 +11,7 @@ mod point;
 pub(super) mod profile;
 mod profile_analyze;
 pub(super) mod read;
+mod settle;
 pub(super) mod snapshot;
 mod target_url;
 
@@ -75,10 +76,10 @@ impl ExecPhase {
     pub fn next_wake(&self) -> Option<Instant> {
         match self {
             Self::WaitLoad(s) => {
-                // A back/forward settles only at the grace, so it wakes there even after a load; past
-                // the grace only the load's end settles it, and the load's own messages wake the poll.
+                // A back/forward also waits for its commit's events, at most until the grace. Past
+                // the grace only the load ends the wait, and the load's own messages wake the poll.
                 let grace = s.started_at + Duration::from_millis(1_200);
-                if (s.saw_loading && !s.history) || Instant::now() >= grace {
+                if (s.saw_loading && s.history_from.is_none()) || Instant::now() >= grace {
                     Some(s.deadline)
                 } else {
                     Some(grace.min(s.deadline))
