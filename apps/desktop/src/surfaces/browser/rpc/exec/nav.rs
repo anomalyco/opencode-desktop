@@ -336,23 +336,12 @@ fn start_history(
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     app.mark_browser_tab_unseen(host_id);
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
-    let Some((url, can_go)) = app
-        .workspace_panes
-        .browser
-        .host
-        .tab(host_id)
-        .map(|t| (t.url.clone(), if is_back { t.can_go_back } else { t.can_go_forward }))
-    else {
+    // The tab's history ends are not consulted: the engine refreshes them only when loading
+    // changes, so a click-made same-document entry could look absent (READER-12b, #696 F1). With
+    // no entry the back does nothing and the wait ends at the grace, as before.
+    let Some(url) = app.workspace_panes.browser.host.tab(host_id).map(|t| t.url.clone()) else {
         return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
     };
-    // No entry that way: nothing to go to, the tab as it is (official `chromium.ts:1728-1733`).
-    if !can_go && !app.use_mock_browser() {
-        let _ = att.sync_tabs(app);
-        let Some(tab) = att.wire_tab(app, host_id) else {
-            return StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable."));
-        };
-        return StepOutcome::Done(Outcome::ok(serde_json::to_value(tab).unwrap_or(Value::Null), Vec::new()));
-    }
     // Always a history wait, so a back/forward never ends at a load it happened to see (#706): with
     // no frame tracker for the tab yet, its counts start at zero and it waits for the grace.
     let (contexts_cleared, frame_navigations) =
@@ -693,7 +682,9 @@ pub(super) fn step_wait_load(
         tab.url != from.url
             && att.frames.get(&st.host_id).is_some_and(|f| {
                 f.main_contexts_cleared > from.contexts_cleared
-                    && (app.workspace_panes.browser.host.extensions_active()
+                    // A tab whose main-frame navigations have reached the app before gets this one
+                    // too, whatever the app believes about extensions (READER-12b, #696 F2).
+                    && ((app.workspace_panes.browser.host.extensions_active() && from.frame_navigations == 0)
                         || f.main_frame_navigations > from.frame_navigations)
                     && f.main_frame_id.as_ref().is_some_and(|id| f.main_contexts.contains_key(id))
             })
