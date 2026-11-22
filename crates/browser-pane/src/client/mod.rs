@@ -12,7 +12,7 @@ use serde_json::Value;
 use crate::address::resolve_address;
 use crate::frame::{self, TabSurface};
 use crate::installer::EngineStatus;
-use crate::keys::{is_shell_shortcut, named_key_str, page_zoom_dir};
+use crate::keys::{held_for_page, is_shell_shortcut, named_key_str, page_zoom_dir};
 #[cfg(all(feature = "engine", target_os = "macos"))]
 use crate::mach_pipe::MachReceiver;
 #[cfg(feature = "engine")]
@@ -978,6 +978,9 @@ impl BrowserHost {
         }
         if down && !cfg!(target_os = "macos") && ev.mods.ctrl && !ev.mods.alt && !ev.mods.cmd && ev.key == Key::Function(5) {
             self.reload_ignore_cache(tab_id);
+            return true;
+        }
+        if held_for_page(ev) {
             return true;
         }
         let (text, named) = match &ev.key {

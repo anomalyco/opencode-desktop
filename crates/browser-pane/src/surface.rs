@@ -208,7 +208,9 @@ impl BrowserHost {
             .on_key(move |s: &mut S, ev: &KeyEvent, _tx| {
                 let host = access(s);
                 let handled = host.forward_key(tab_id, ev, true);
+                // A chord held back from both the app and the page is no input to the document.
                 if handled
+                    && !crate::keys::held_for_page(ev)
                     && let Some(t) = host.tabs.iter_mut().find(|t| t.id == tab_id)
                 {
                     t.prompts.record_document_input();

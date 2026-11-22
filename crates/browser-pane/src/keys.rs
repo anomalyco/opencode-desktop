@@ -38,6 +38,20 @@ pub(crate) fn is_shell_shortcut(ev: &KeyEvent) -> bool {
     }
 }
 
+/// A modifier chord or function key that official leaves with a focused page (`keys.ts`
+/// `pageShortcut` forwards only the shell's own): it must not reach the app (Ctrl+P is not the
+/// command palette there, Ctrl+U not the composer's attach). It isn't sent to the page either
+/// yet: the engine would run Chrome's own command for many of them (print, save page, view
+/// source, DevTools), which official doesn't have.
+pub(crate) fn held_for_page(ev: &KeyEvent) -> bool {
+    match ev.key {
+        Key::Command(_) => true,
+        // Alt+F4 still closes the window.
+        Key::Function(_) => !ev.mods.alt,
+        _ => false,
+    }
+}
+
 pub(crate) fn named_key_str(key: &Key) -> Option<&'static str> {
     match key {
         Key::Enter => Some("Enter"),
