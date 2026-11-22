@@ -143,30 +143,6 @@ fn close<S: TimelineHost>(s: &mut S, _: &mut Tx) {
     s.media_store_mut().viewing = None;
 }
 
-fn leave<S: TimelineHost>(s: &mut S, unclipped: bool, tx: &mut Tx) {
-    if unclipped {
-        tx.unclipped_flights();
-    }
-    close(s, tx)
-}
-
-/// The preview's own keys, as rune-kit's `ImageZoom::key` reads them: ⌘ + (or =), ⌘ − (or _),
-/// ⌘ 0 and 0 fit, and Escape fits a zoomed image, else closes.
-fn zoom_key<S: TimelineHost>(s: &mut S, ev: &KeyEvent, unclipped: bool, tx: &mut Tx) -> bool {
-    let m = ev.mods;
-    let z = zoom(s);
-    match &ev.key {
-        Key::Escape if z.owns_escape() => z.fit(tx),
-        Key::Escape => leave(s, unclipped, tx),
-        Key::Text(t) if t == "0" && !m.cmd && !m.ctrl && !m.alt && !m.logo => z.fit(tx),
-        Key::Command('=' | '+') if !m.alt => z.zoom_in(tx),
-        Key::Command('-' | '_') if !m.alt => z.zoom_out(tx),
-        Key::Command('0') if !m.alt => z.fit(tx),
-        _ => return false,
-    }
-    true
-}
-
 /// Whether the image's place shows whole in the timeline. Then it flies home over the header
 /// and composer, as it flew out; a place scrolled under them takes it home inside the
 /// timeline's clip, so it slides under the edge instead of landing unseen.
@@ -213,13 +189,17 @@ pub fn viewer<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
         )
         .format_level(|n| opencode_i18n::percent(f64::from(n) / 100.0))
         .controls_transition(Transition::opacity().springs(fade))
-        .on_close(move |s: &mut S, tx: &mut Tx| leave(s, unclipped, tx))
+        .on_close(move |s: &mut S, tx: &mut Tx| {
+            if unclipped {
+                tx.unclipped_flights();
+            }
+            close(s, tx)
+        })
+        // Arrows step the gallery; every other key goes on to the preview's own zoom keys.
+        .on_key(arrow::<S>)
         .build(&store.zoom, crate::palette::kit(p), window, cx.is_reduced_motion())
         .role("dialog")
-        .label(v.name.clone())
-        // The preview is a modal, so a handler around it never hears its keys: this takes the
-        // place of the preview's own (rune-kit's `ImageZoom::key` is private), arrows first.
-        .on_key(move |s: &mut S, ev: &KeyEvent, tx: &mut Tx| arrow(s, ev, tx) || zoom_key(s, ev, unclipped, tx));
+        .label(v.name.clone());
     vec![scrim, preview]
 }
 
