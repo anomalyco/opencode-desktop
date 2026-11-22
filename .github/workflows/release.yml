@@ -769,9 +769,23 @@ jobs:
           sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build binutils bzip2 curl jq zstd libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2t64
       - name: Rust toolchain
         run: rustup toolchain install
-      - name: Package Linux ${{ matrix.arch }} browser engine
+      - id: package-linux
+        name: Package Linux ${{ matrix.arch }} browser engine
         run: bash apps/browser-engine/scripts/package-linux.sh --arch "${{ matrix.arch }}" "$RUNNER_TEMP/engine"
+      - name: Verify Linux ${{ matrix.arch }} browser engine starts and loads a page (when userns available)
+        run: |
+          if ! unshare -Ur true 2>/dev/null; then
+            echo "Linux unprivileged user namespaces are restricted on this runner; skipping live sandbox probe." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          probe=$(mktemp -d)
+          trap 'rm -rf "$probe"' EXIT
+          tar --zstd -xf "$RUNNER_TEMP/engine/OpenCode-Browser-Engine-$ENGINE_VERSION-linux-${{ matrix.arch }}.tar.zst" -C "$probe"
+          python3 .github/release/opencode-rune-verify-engine-sandbox.py linux "$probe/OpenCode Browser Engine/opencode-browser-engine"
+          echo "Linux ${{ matrix.arch }} browser engine: starts and loads a page (renderer sandbox state reported, not required)." >> "$GITHUB_STEP_SUMMARY"
+      # Upload even when the probe fails, so a failing engine can be fetched and run elsewhere.
       - id: upload
+        if: ${{ always() && steps.package-linux.outcome == 'success' }}
         uses: ./.github/release/upload
         with:
           name: build-engine-linux-${{ matrix.arch }}
@@ -974,14 +988,26 @@ jobs:
             New-Item -ItemType Directory -Force -Path $dest | Out-Null
             & "$env:SystemRoot\System32\tar.exe" -xf $archive -C $dest
             if ($LASTEXITCODE -ne 0) { throw "Could not unpack $name." }
-            foreach ($bin in 'opencode-browser-engine.exe', 'opencode-browser-engine-helper.exe', 'libcef.dll', 'chrome_elf.dll', 'dxcompiler.dll') {
+            foreach ($bin in 'opencode-browser-engine.exe', 'opencode-browser-engine.dll', 'libcef.dll', 'chrome_elf.dll', 'dxcompiler.dll') {
               if (-not (Test-Path -LiteralPath (Join-Path $dest "OpenCode Browser Engine/$bin"))) {
                 throw "$name lacks OpenCode Browser Engine/$bin."
               }
             }
+            $exePath = Join-Path $dest 'OpenCode Browser Engine/opencode-browser-engine.exe'
+            $peBytes = [IO.File]::ReadAllBytes($exePath)
+            $peOff = [BitConverter]::ToInt32($peBytes, 0x3C)
+            $stackReserve = [BitConverter]::ToUInt64($peBytes, $peOff + 24 + 72)
+            if ($stackReserve -lt 8388608) {
+              throw "$name opencode-browser-engine.exe has SizeOfStackReserve=$stackReserve (< 8 MiB)."
+            }
           }
           .github/release/opencode-rune-verify-windows.ps1 -Folders $unpacked -Publisher $publisher
           "Windows browser engines ($env:ENGINE_VERSION, x64 + arm64): signed by $publisher." >> $env:GITHUB_STEP_SUMMARY
+      - name: Verify signed Windows x64 browser engine sandbox
+        shell: pwsh
+        run: |
+          .github/release/opencode-rune-verify-engine-windows-sandbox.ps1 -EngineDir "$env:RUNNER_TEMP/verify-engine/x64/OpenCode Browser Engine"
+          "Windows x64 signed browser engine: sandbox verified (CheckDllCodeSigning + Untrusted 0x0000 renderer token)." >> $env:GITHUB_STEP_SUMMARY
 
   verify-engine-macos:
     needs: [plan, sign-engine-macos]
@@ -1022,7 +1048,20 @@ jobs:
           xcrun stapler validate "$app"
           spctl --assess --type execute --verbose=2 "$app"
           codesign --verify --deep --strict -R="anchor apple generic and certificate leaf[subject.OU] = \"$SEER_TEAM_ID\" and notarized" "$app"
+          [ -f "$app/Contents/Frameworks/Chromium Embedded Framework.framework/Libraries/libcef_sandbox.dylib" ] || {
+            echo "::error::Missing libcef_sandbox.dylib in $app." >&2; exit 1;
+          }
           codesign -dv "$app" 2>&1 | grep -E '^(Identifier|TeamIdentifier|Authority=Developer)' >> "$GITHUB_STEP_SUMMARY"
+          # macos-26-intel has no usable GPU (ANGLE's EGL display fails in the GPU process) and the macOS
+          # bundle carries no SwiftShader (package-release.sh), so Chromium ends the engine ("GPU process
+          # isn't usable") right after the page loads. The live probe runs where a GPU exists (arm64);
+          # x64 keeps every static check above, including libcef_sandbox.dylib.
+          if [ "${{ matrix.arch }}" = arm64 ]; then
+            python3 .github/release/opencode-rune-verify-engine-sandbox.py macos "$app/Contents/MacOS/opencode-browser-engine" --require-sandbox
+            echo "macOS ${{ matrix.arch }} signed browser engine: sandbox verified (libcef_sandbox.dylib + sandbox_check=1)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "macOS ${{ matrix.arch }} signed browser engine: static checks only (libcef_sandbox.dylib present); live sandbox probe runs on arm64, this runner has no usable GPU." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   # ---- Publish browser engine: release environment; OIDC only ----------------
   # One atomic publish replacing opencode-rune/browser-engine/stable with all six targets.
