@@ -82,8 +82,7 @@ pub trait PickerHost: ComposerHost {
     fn durable(&self) -> Selection {
         let pk = self.pickers();
         let info = self.picker_running();
-        let agent = info.as_ref().map(|i| i.agent.clone()).filter(|a| !a.is_empty())
-            .unwrap_or_else(|| if pk.agents.iter().any(|a| a == "build") || pk.agents.is_empty() { "build".into() } else { pk.agents[0].clone() });
+        let agent = pk.effective_agent(info.as_ref().map_or("", |i| i.agent.as_str())).to_owned();
         let model = info.map(|i| i.model).filter(|m| !m.id.is_empty())
             .or_else(|| pk.agent_models.get(&agent).cloned())
             .or_else(|| self.picker_fallback_model())
