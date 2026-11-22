@@ -1301,7 +1301,7 @@ impl EngineManager {
             Some(&mut client),
             Some(&CefString::from(initial_url.as_str())),
             Some(&browser_settings),
-            None,
+            crate::tab_client::print_gate_info(agent_driven || is_preview).as_mut(),
             req_ctx.as_mut(),
         ) else {
             self.release_preview(tab_id, preview_grant.as_ref());

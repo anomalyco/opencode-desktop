@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use cef::rc::Rc as _;
 use cef::{
-    Browser, CefString, Client, CommandHandler, ContextMenuHandler, DialogHandler, DisplayHandler, DownloadHandler,
+    Browser, CefString, Client, CommandHandler, ContextMenuHandler, DictionaryValue, ImplDictionaryValue, DialogHandler, DisplayHandler, DownloadHandler,
     FindHandler, Frame, FrameHandler, ImplBrowser, ImplClient, ImplFrame, ImplFrameHandler,
     ImplCommandHandler, ImplListValue, ImplProcessMessage, JsdialogHandler, LifeSpanHandler, LoadHandler,
     PermissionHandler, ProcessId, ProcessMessage, RenderHandler, RequestHandler, WrapClient,
@@ -76,6 +76,15 @@ wrap_frame_handler! {
             }
         }
     }
+}
+
+/// `extra_info` for a new browser: born print-gated, every frame's context locks `window.print`
+/// in the renderer before any page script (`opencode_browser_engine_helper::lock_print`), which
+/// no CDP-attached script can race (#662-B1).
+pub fn print_gate_info(gated: bool) -> Option<DictionaryValue> {
+    let dict = cef::dictionary_value_create().filter(|_| gated)?;
+    dict.set_bool(Some(&CefString::from("opencode.print_gated")), 1);
+    Some(dict)
 }
 
 /// `IDC_PRINT` and `IDC_BASIC_PRINT` (`cef_command_ids.h`): the browser's own print command.

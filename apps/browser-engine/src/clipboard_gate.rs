@@ -233,9 +233,12 @@ pub fn clipboard_gate_script(
   // engine until a person closes it, and on these tabs nobody may be there. `print` is an own
   // property of each window (no prototype copy to recover), redefined non-writable and
   // non-configurable before page JS runs. Extension pages keep printing. The browser's own print
-  // command is refused in the engine (`tab_client::TabCommandHandler`).
+  // command is refused in the engine (`tab_client::TabCommandHandler`). Tabs born gated were locked
+  // already in the renderer (`opencode_browser_engine_helper::lock_print`, no longer configurable):
+  // this covers a tab that becomes gated later.
   const origPrint = globalThis.print
-  if (typeof origPrint === "function") {{
+  const printDesc = Object.getOwnPropertyDescriptor(globalThis, "print")
+  if (typeof origPrint === "function" && printDesc && printDesc.configurable) {{
     define(globalThis, "print", {{
       value: new ProxyCtor(origPrint, {{
         apply(target, self, args) {{
