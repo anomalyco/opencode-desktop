@@ -1567,6 +1567,7 @@ Also takes every field of [`UiBoxProps`](#uiboxprops).
 |---|---|---|
 | `direction` | `UiDirection?` | Stack direction: `"col"` (default), `"row"` or `"box"`. |
 | `borderSides` | `{ number }?` | Per-side border widths in points: `{ top, right, bottom, left }`. Overrides `borderWidth`. |
+| `focusReturn` | `string?` | The key of the element that takes focus when this frame leaves while focus is on it or inside it: one view of a popover handing focus to the control that leads back to it. That element, or its first focusable child; nothing happens when none shows. |
 
 ### UiTextProps
 
@@ -1686,6 +1687,8 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `pressed` | `boolean?` | A toggle button's pressed state. |
 | `onPress` | `UiHandler?` | Runs on a press. |
 | `menuTrigger` | `boolean?` | Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1. |
+| `autofocus` | `boolean?` | Takes focus as the dialog it is in opens, as HTML's `autofocus` in a dialog: a confirmation's Cancel, say. Without one the dialog focuses its first text field or Tab stop. |
+| `focusReturn` | `string?` | The key of the element that takes focus when this one leaves while it has focus, as a page's `element.focus()` after a view changes: a drill-in's Back hands focus to the row that opened it. That element, or its first focusable child; nothing happens when none shows. |
 
 ### UiIconButtonProps
 
@@ -1704,6 +1707,8 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `keybind` | `string?` | A published command id whose shortcut its tooltip shows after the `help` text, as keycaps. |
 | `onPress` | `UiHandler?` | Runs on a press. |
 | `menuTrigger` | `boolean?` | Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1. |
+| `autofocus` | `boolean?` | Takes focus as the dialog it is in opens, as HTML's `autofocus` in a dialog: a confirmation's Cancel, say. Without one the dialog focuses its first text field or Tab stop. |
+| `focusReturn` | `string?` | The key of the element that takes focus when this one leaves while it has focus, as a page's `element.focus()` after a view changes: a drill-in's Back hands focus to the row that opened it. That element, or its first focusable child; nothing happens when none shows. |
 
 ### UiSwitchProps
 

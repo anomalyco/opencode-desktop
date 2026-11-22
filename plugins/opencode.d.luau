@@ -709,6 +709,8 @@ export type UiFrameProps = {
     direction: UiDirection?,
     --- Per-side border widths in points: `{ top, right, bottom, left }`. Overrides `borderWidth`.
     borderSides: { number }?,
+    --- The key of the element that takes focus when this frame leaves while focus is on it or inside it: one view of a popover handing focus to the control that leads back to it. That element, or its first focusable child; nothing happens when none shows.
+    focusReturn: string?,
 }
 
 --- Text styling: `ui.text` and `ui.shimmer`.
@@ -1337,6 +1339,10 @@ export type UiButtonProps = {
     onPress: UiHandler?,
     --- Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1.
     menuTrigger: boolean?,
+    --- Takes focus as the dialog it is in opens, as HTML's `autofocus` in a dialog: a confirmation's Cancel, say. Without one the dialog focuses its first text field or Tab stop.
+    autofocus: boolean?,
+    --- The key of the element that takes focus when this one leaves while it has focus, as a page's `element.focus()` after a view changes: a drill-in's Back hands focus to the row that opened it. That element, or its first focusable child; nothing happens when none shows.
+    focusReturn: string?,
 }
 
 --- `ui.iconButton` props: a square button with an icon. Give it a `label`.
@@ -1421,6 +1427,10 @@ export type UiIconButtonProps = {
     onPress: UiHandler?,
     --- Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1.
     menuTrigger: boolean?,
+    --- Takes focus as the dialog it is in opens, as HTML's `autofocus` in a dialog: a confirmation's Cancel, say. Without one the dialog focuses its first text field or Tab stop.
+    autofocus: boolean?,
+    --- The key of the element that takes focus when this one leaves while it has focus, as a page's `element.focus()` after a view changes: a drill-in's Back hands focus to the row that opened it. That element, or its first focusable child; nothing happens when none shows.
+    focusReturn: string?,
 }
 
 --- `ui.switch` props: the app's own switch.
