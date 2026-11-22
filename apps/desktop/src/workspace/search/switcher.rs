@@ -58,6 +58,10 @@ impl SwitcherHost for App {
         App::project_for_session(self, session)
     }
 
+    fn listed_projects(&self) -> (Vec<&Project>, Vec<&Project>) {
+        (App::used_projects(self), App::other_projects(self))
+    }
+
     fn sessions_version(&self) -> (u32, u64) {
         (
             rune::Tracked::id(&self.sessions),
@@ -146,12 +150,14 @@ impl SwitcherHost for App {
                     .iter()
                     .map(|i| (i.id.clone(), (s.recent_page.active_ms(i), i.idle.unwrap_or(0))))
                     .collect();
-                (conn, known, indexed, (*s.projects).clone())
+                let used: Vec<Project> = s.used_projects().into_iter().cloned().collect();
+                let other: Vec<Project> = s.other_projects().into_iter().cloned().collect();
+                (conn, known, indexed, (*s.projects).clone(), used, other)
             };
-            let Some((Some(conn), known, indexed, projects)) = crate::servers::runtime::with_server(self, &key, read) else {
+            let Some((Some(conn), known, indexed, projects, used, other)) = crate::servers::runtime::with_server(self, &key, read) else {
                 continue;
             };
-            out.push(RemoteSeed { server: key, tag, conn, known, indexed, projects });
+            out.push(RemoteSeed { server: key, tag, conn, known, indexed, projects, used, other });
         }
         out
     }
@@ -283,6 +289,16 @@ impl SwitcherHost for App {
         App::open_inbox_session(self, id, tx);
     }
 
+    fn open_project(&mut self, server: &ServerKey, directory: &str, tx: &mut Tx) {
+        crate::servers::runtime::switch(self, server);
+        if let Some(id) = self.project_at(directory).map(|p| p.id.clone()) {
+            self.touch_project(&id);
+            self.sort_projects();
+        }
+        crate::projects::ProjectsHost::open_draft_in(self, server, directory, tx);
+        ProjectSwitcherHost::auto_focus_composer(self, tx);
+    }
+
     fn handle_shortcut(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
         self.shortcut(ev, tx)
     }
@@ -330,6 +346,15 @@ impl App {
 
     pub fn open_command_search(&mut self, tx: &mut Tx) {
         open_command_search(self, tx);
+    }
+
+    /// ⌘O: Quick Open, except in the draft's project picker, whose Add project row keeps it
+    /// (the window's shortcuts run before the picker's keys).
+    pub fn open_quick_open(&mut self, tx: &mut Tx) {
+        if self.pickers().open() == Some(crate::pickers::Kind::Project) {
+            return self.picker_choose_project(crate::pickers::ADD_PROJECT_KEY, tx);
+        }
+        open_quick_open(self, tx);
     }
 
     pub fn open_file_search(&mut self, tx: &mut Tx) {
@@ -423,6 +448,16 @@ impl Feature<App> for SwitcherFeature {
                 |s, tx| s.open_session_search(tx),
             )
             .bind_id(Bind::SessionSearch.id()),
+        );
+        // `quick.open` (`titlebar.tsx`): the session search with recent projects ahead.
+        builder.add_command(
+            CommandEntry::<App>::from_key(
+                "quick.open",
+                opencode_i18n::key!("command.quickOpen"),
+                crate::commands::order::QUICK_OPEN,
+                |s, tx| s.open_quick_open(tx),
+            )
+            .bind_id(Bind::QuickOpen.id()),
         );
         builder.add_command(
             CommandEntry::<App>::from_key(

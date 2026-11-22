@@ -113,8 +113,7 @@ const TABLE: &[Entry] = &[
         s.new_session(tx);
         true
     }),
-    #[cfg(not(target_arch = "wasm32"))]
-    cmd(Bind::OpenProject, Phase::AfterPlugins, true),
+    cmd(Bind::QuickOpen, Phase::AfterPlugins, true),
     cmd(Bind::SelectProject, Phase::AfterPlugins, true),
     direct(Bind::TabClose, Phase::AfterPlugins, true, |s, tx| {
         s.close_tab_key(tx);

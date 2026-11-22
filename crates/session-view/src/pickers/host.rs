@@ -474,6 +474,8 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
                 }
                 s.flyout_event(hover::machine::Event::Highlight { id: &key, option: Some(0) }, tx);
             }
+            // Add project (`project.open`, which Desktop binds while its location dialog shows).
+            None if open == Kind::Project && crate::keymap::Bind::OpenProject.matches_tx(ev, tx) => s.picker_choose_project(ADD_PROJECT_KEY, tx),
             None => return open != Kind::Model,
         }
         return true;

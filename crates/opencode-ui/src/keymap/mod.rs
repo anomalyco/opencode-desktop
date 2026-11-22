@@ -38,6 +38,7 @@ pub enum Bind {
     Palette,
     CommandSearch,
     SessionSearch,
+    QuickOpen,
     Settings,
     Home,
     Sidebar,
@@ -174,13 +175,17 @@ fn table() -> Vec<Binding> {
         row(Palette, "command.palette", key!("command.palette"), General, on("mod+k, mod+shift+p")),
         row(CommandSearch, "commands.search", key!("command.commands.search"), General, on("none")),
         row(SessionSearch, "sessions.search", key!("command.session.search"), General, on("mod+shift+f")),
+        // `quickOpenCommand` (`titlebar.tsx`): recent projects and sessions.
+        row(QuickOpen, "quick.open", key!("command.quickOpen"), General, on("mod+o")),
         row(Settings, "settings.open", key!("command.settings.open"), General, on("mod+comma")),
         // `titlebar.tsx`: Windows keeps Ctrl+B for Move to background.
         row(Home, "home.toggle", key!("home.title"), General, on("mod+b").on(Windows, "alt+home")),
         row(Sidebar, "sidebar.toggle", key!("command.sidebar.toggle"), General, on("mod+shift+b")),
         // ⌥⌘B is Ctrl+Alt+B off macOS, the Browser's launcher; there only `review.toggle`'s chord.
         row(SideToggle, "review.toggle", key!("command.review.toggle"), Session, on("mod+alt+b, mod+shift+r").on(Windows, "mod+shift+r").on(Linux, "mod+shift+r")),
-        row(OpenProject, "project.open", key!("command.project.open"), General, view(base::Bind::OpenProject)),
+        // ⌘O opens Quick Open; Open project keeps it inside the project dialog and picker, where
+        // Desktop registers `project.open` while its location dialog is mounted.
+        scoped(OpenProject, "project.open", key!("command.project.open"), General, view(base::Bind::OpenProject)),
         row(SelectProject, "project.select", key!("session.new.project.search"), General, on("mod+shift+o")),
         // The app menu's View items: Desktop's Settings has no row for them.
         unlisted(ZoomIn, "view.zoomIn", key!("desktop.menu.zoomIn"), General, view(base::Bind::ZoomIn)),
