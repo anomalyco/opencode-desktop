@@ -30,15 +30,19 @@ pub(super) struct ViewportInput {
     pub cols_cap: u16,
     pub rows_cap: u16,
     pub reports: bool,
+    /// Where the text starts in the handling element: the viewport's padding, or zero on the
+    /// screen text itself.
+    pub origin: (f32, f32),
 }
 
 impl ViewportInput {
     fn cell(&self, x: f32, y: f32) -> (f32, f32, u16, u16) {
-        let (lx, ly) = ((x - PAD_X).max(0.0), (y - PAD_Y).max(0.0));
-        let col = ((lx / self.cell_w).floor() as u16).min(self.cols_cap.saturating_sub(1));
-        let row = ((ly / self.cell_h).floor() as u16).min(self.rows_cap.saturating_sub(1));
-        (lx, ly, col, row)
+        super::cell::cell_at(x, y, self.origin, (self.cell_w, self.cell_h), (self.cols_cap, self.rows_cap))
     }
+}
+
+fn primary_link_mod(mods: rune::Mods) -> bool {
+    if cfg!(target_os = "macos") { mods.cmd } else { mods.ctrl }
 }
 
 fn handle_key(host: &mut dyn TerminalSurfaceHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
@@ -86,8 +90,17 @@ fn handle_drag(host: &mut dyn TerminalSurfaceHost, input: &ViewportInput, d: &mu
             return;
         }
         match d.phase {
-            // Shift+press moves the end of the selection there, and dragging keeps moving it.
-            Phase::Down if mods.shift && d.clicks == 1 && t.session.selected_text().is_some() => {
+            // Shift+press (without Ctrl/⌘/Alt) moves the end of the selection there, and dragging
+            // keeps moving it; on a link it clears the selection and the release opens the link,
+            // as Desktop's click handler does whatever is selected (`terminal.tsx:312-340`).
+            Phase::Down
+                if mods.shift
+                    && !primary_link_mod(mods)
+                    && !mods.alt
+                    && d.clicks == 1
+                    && t.session.selected_text().is_some()
+                    && !links::is_url_at(&t.session.peek(), col, row) =>
+            {
                 t.drag = TextDrag::Extending;
                 t.session.select(SelectionOp::Extend(GridPoint::Viewport { col, row }));
             }
@@ -111,11 +124,13 @@ fn handle_drag(host: &mut dyn TerminalSurfaceHost, input: &ViewportInput, d: &mu
                 }
             }
             Phase::Up => {
+                let extending = t.drag == TextDrag::Extending;
                 t.drag = TextDrag::Idle;
-                // Ctrl+click (⌘-click on macOS) follows a link: the cell's OSC 8 target, else
-                // an address or a file reference in the line under the pointer.
-                let follow = if cfg!(target_os = "macos") { mods.cmd } else { mods.ctrl };
-                if d.clicks == 1 && d.dx.hypot(d.dy) <= 3.0 && follow {
+                // Ctrl+click (⌘-click on macOS) or Shift+click follows a link: the cell's OSC 8
+                // target, else an address (or a file reference with Ctrl/⌘) under the pointer.
+                // Shift routes web links to the system browser (`terminal-key-event.ts:44,51`).
+                let follow = !mods.alt && (primary_link_mod(mods) || mods.shift);
+                if !extending && d.clicks == 1 && d.dx.hypot(d.dy) <= 3.0 && follow {
                     follow_link = true;
                 }
             }
@@ -217,9 +232,10 @@ fn handle_pointer_move(host: &mut dyn TerminalSurfaceHost, input: &ViewportInput
         tx.live_only();
         return;
     }
-    let follow = if cfg!(target_os = "macos") { mods.cmd } else { mods.ctrl };
-    let next = HoverLink::at(col, row, follow);
     let snap = t.session.peek();
+    let follow = !mods.alt
+        && (primary_link_mod(mods) || (mods.shift && links::is_url_at(&snap, col, row)));
+    let next = HoverLink::at(col, row, follow);
     let now = links::span(&snap, col, row);
     let (was, was_follow) = match t.hover {
         HoverLink::None => (Vec::new(), None),
@@ -294,6 +310,14 @@ pub(super) fn attach_viewport_handlers<H: TerminalSurfaceHost + 'static>(outer: 
         .on_secondary_press_local(move |app: &mut H, p: PointerEvent, tx: &mut Tx| handle_secondary_press(app, &menu_in, p, tx))
         .on_pointer_move_local(move |app: &mut H, p: PointerEvent, tx: &mut Tx| handle_pointer_move(app, &move_in, p, tx))
         .on_hover_change(move |app: &mut H, inside: bool, _tx: &mut Tx| handle_hover_change(app, &wk_leave, &tid_leave, inside))
+}
+
+/// The screen text's own drag: it is a focusable element (the terminal's Tab stop), and a press
+/// goes to the topmost focusable element under it, so the viewport's `on_drag` never hears a
+/// press that starts on the text. Selecting, a double-click's word, Shift+click and Ctrl+click on
+/// a link start here; the viewport keeps its own for presses in its padding.
+pub(super) fn attach_text_drag<H: TerminalSurfaceHost + 'static>(text: El, input: ViewportInput) -> El {
+    text.on_drag(move |app: &mut H, d: &mut Drag, tx: &mut Tx| handle_drag(app, &input, d, tx))
 }
 
 pub(super) fn render_scrollbar<H: TerminalSurfaceHost + 'static>(

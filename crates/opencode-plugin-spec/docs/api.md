@@ -1,4 +1,4 @@
-# OpenCode plugin API reference (contract 1.6)
+# OpenCode plugin API reference (contract 1.7)
 
 > Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit. For a walkthrough, read [Writing a plugin](writing-a-plugin.md).
 
@@ -6,7 +6,7 @@ Contents: [Versioning](#versioning) · [Modules and globals](#modules-and-global
 
 ## Versioning
 
-Contract versions are `MAJOR.MINOR`. This is contract `1.6`.
+Contract versions are `MAJOR.MINOR`. This is contract `1.7`.
 
 - A plugin names the contract it targets in plugin.toml: `contract = "1.0"`.
 - Minor versions (1.1, 1.2, …) only add: new optional properties on `ui.*` nodes and specs, new semantic tokens (each with a 1.0 fallback token), new services, methods, signals, contribution kinds and enum values. A plugin that targets 1.0 runs unchanged on every 1.x host.
@@ -1567,6 +1567,7 @@ Also takes every field of [`UiBoxProps`](#uiboxprops).
 |---|---|---|
 | `direction` | `UiDirection?` | Stack direction: `"col"` (default), `"row"` or `"box"`. |
 | `borderSides` | `{ number }?` | Per-side border widths in points: `{ top, right, bottom, left }`. Overrides `borderWidth`. |
+| `focusReturn` | `string?` | The key of the element that takes focus when this frame leaves while focus is on it or inside it: one view of a popover handing focus to the control that leads back to it. That element, or its first focusable child; nothing happens when none shows. Since 1.7. |
 
 ### UiTextProps
 
@@ -1686,6 +1687,8 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `pressed` | `boolean?` | A toggle button's pressed state. |
 | `onPress` | `UiHandler?` | Runs on a press. |
 | `menuTrigger` | `boolean?` | Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1. |
+| `autofocus` | `boolean?` | Takes focus as the dialog it is in opens, as HTML's `autofocus` in a dialog: a confirmation's Cancel, say. Without one the dialog focuses its first text field or Tab stop. Since 1.7. |
+| `focusReturn` | `string?` | The key of the element that takes focus when this one leaves while it has focus, as a page's `element.focus()` after a view changes: a drill-in's Back hands focus to the row that opened it. That element, or its first focusable child; nothing happens when none shows. Since 1.7. |
 
 ### UiIconButtonProps
 
@@ -1704,6 +1707,8 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `keybind` | `string?` | A published command id whose shortcut its tooltip shows after the `help` text, as keycaps. |
 | `onPress` | `UiHandler?` | Runs on a press. |
 | `menuTrigger` | `boolean?` | Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1. |
+| `autofocus` | `boolean?` | Takes focus as the dialog it is in opens, as HTML's `autofocus` in a dialog: a confirmation's Cancel, say. Without one the dialog focuses its first text field or Tab stop. Since 1.7. |
+| `focusReturn` | `string?` | The key of the element that takes focus when this one leaves while it has focus, as a page's `element.focus()` after a view changes: a drill-in's Back hands focus to the row that opened it. That element, or its first focusable child; nothing happens when none shows. Since 1.7. |
 
 ### UiSwitchProps
 

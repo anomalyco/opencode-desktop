@@ -216,12 +216,18 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
     if let Some(queued) = tab.prompts.permission.active() {
         let req_id = queued.request.id;
         let agent = queued.agent_driven;
-        // RemoteServer, Private, Artifact, Preview, and agent-driven tabs are strictly visit-only
-        // (never offer "Always allow" / "Never allow").
-        let can_remember = !agent
-            && tab.preview.is_none()
-            && tab.context.is_default()
+        let trustworthy = browser_pane::prompts::trustworthy_origin(&queued.request.origin)
             && !queued.request.origin.to_ascii_lowercase().starts_with("oc-preview:");
+        // Official `site-permissions.ts:116-120` & `prompts.tsx:522-555`:
+        // - `Default` profile (non-agent, non-preview, trustworthy): persistent "Never allow" / "Always allow"
+        // - `RemoteServer` (non-agent, non-preview, trustworthy): RAM-only "Block" / "Allow until you quit OpenCode"
+        // - Agent, Preview, Artifact, Private, untrustworthy: visit-only "Block" / "Allow this time"
+        let keep_profile = !agent && tab.preview.is_none() && tab.context.is_default() && trustworthy;
+        let keep_session = !agent
+            && tab.preview.is_none()
+            && matches!(tab.context, browser_pane::ContextKind::RemoteServer { .. })
+            && trustworthy;
+        let can_remember = keep_profile || keep_session;
         let waiting = tab.prompts.permission.waiting_count();
         let sentence = permission_sentence(&queued.request.origin, &queued.request.kinds);
 
@@ -256,66 +262,23 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
         #[allow(deprecated)]
         let mut actions = row().gap(4.0).center_y();
         if can_remember {
-            #[allow(deprecated)]
-            let never = crate::widgets::button(t!("rune.browser.prompt.never"), ButtonVariant::Ghost)
-                .size(rune_kit::ButtonSize::Small)
-                .on_press(move |app: &mut App| {
-                    if app.workspace_panes.browser.host.tab(tab_id).is_some_and(|t| t.prompts.permission.armed()) {
-                        app.workspace_panes.browser.host.answer_permission(tab_id, req_id, PermissionDecision::BlockAlways);
-                    }
-                })
-                .build(k)
-                .key("browser-perm-never");
-            #[allow(deprecated)]
-            let once = crate::widgets::button(t!("rune.browser.prompt.allowOnce"), ButtonVariant::Neutral)
-                .size(rune_kit::ButtonSize::Small)
-                .on_press(move |app: &mut App| {
-                    if app.workspace_panes.browser.host.tab(tab_id).is_some_and(|t| t.prompts.permission.armed()) {
-                        app.workspace_panes.browser.host.answer_permission(tab_id, req_id, PermissionDecision::AllowOnce);
-                    }
-                })
-                .build(k)
-                .key("browser-perm-allow-once");
-            #[allow(deprecated)]
-            let always = crate::widgets::button(t!("rune.browser.prompt.allowAlways"), ButtonVariant::Contrast)
-                .size(rune_kit::ButtonSize::Small)
-                .on_press(move |app: &mut App| {
-                    if app.workspace_panes.browser.host.tab(tab_id).is_some_and(|t| t.prompts.permission.armed()) {
-                        app.workspace_panes.browser.host.answer_permission(tab_id, req_id, PermissionDecision::AllowAlways);
-                    }
-                })
-                .build(k)
-                .key("browser-perm-allow-always");
-            actions = actions.child(never).child(once).child(always);
+            let (deny_label, deny_key, rem_label, rem_key) = if keep_profile {
+                (t!("rune.browser.prompt.never"), "browser-perm-never", t!("rune.browser.prompt.allowAlways"), "browser-perm-allow-always")
+            } else {
+                (t!("rune.browser.prompt.block"), "browser-perm-block", t!("rune.browser.prompt.allowSession"), "browser-perm-allow-session")
+            };
+            actions = actions
+                .child(perm_btn(k, deny_label, ButtonVariant::Ghost, deny_key, tab_id, req_id, PermissionDecision::BlockAlways))
+                .child(perm_btn(k, t!("rune.browser.prompt.allowOnce"), ButtonVariant::Neutral, "browser-perm-allow-once", tab_id, req_id, PermissionDecision::AllowOnce))
+                .child(perm_btn(k, rem_label, ButtonVariant::Contrast, rem_key, tab_id, req_id, PermissionDecision::AllowAlways));
         } else {
-            #[allow(deprecated)]
-            let block = crate::widgets::button(t!("rune.browser.prompt.block"), ButtonVariant::Ghost)
-                .size(rune_kit::ButtonSize::Small)
-                .on_press(move |app: &mut App| {
-                    if app.workspace_panes.browser.host.tab(tab_id).is_some_and(|t| t.prompts.permission.armed()) {
-                        app.workspace_panes.browser.host.answer_permission(tab_id, req_id, PermissionDecision::BlockOnce);
-                    }
-                })
-                .build(k)
-                .key("browser-perm-block");
-            #[allow(deprecated)]
-            let once = crate::widgets::button(t!("rune.browser.prompt.allowOnce"), ButtonVariant::Contrast)
-                .size(rune_kit::ButtonSize::Small)
-                .on_press(move |app: &mut App| {
-                    if app.workspace_panes.browser.host.tab(tab_id).is_some_and(|t| t.prompts.permission.armed()) {
-                        app.workspace_panes.browser.host.answer_permission(tab_id, req_id, PermissionDecision::AllowOnce);
-                    }
-                })
-                .build(k)
-                .key("browser-perm-allow-once");
-            actions = actions.child(block).child(once);
+            actions = actions
+                .child(perm_btn(k, t!("rune.browser.prompt.block"), ButtonVariant::Ghost, "browser-perm-block", tab_id, req_id, PermissionDecision::BlockOnce))
+                .child(perm_btn(k, t!("rune.browser.prompt.allowOnce"), ButtonVariant::Contrast, "browser-perm-allow-once", tab_id, req_id, PermissionDecision::AllowOnce));
         }
-        // Official's dismiss is `IconButton size="large"` (28 pt, `prompts.tsx:557-563`).
+        // Official's dismiss is `IconButton size="large"` (28 pt, `prompts.tsx:557-563`) and keeps nothing.
         let close_btn = sized_dismiss_btn(p, "browser-perm-dismiss", t!("rune.browser.prompt.dismiss"), 28.0, 6.0, move |app: &mut App| {
-            app.workspace_panes
-                .browser
-                .host
-                .answer_permission(tab_id, req_id, PermissionDecision::BlockOnce);
+            app.workspace_panes.browser.host.answer_permission(tab_id, req_id, PermissionDecision::Dismiss);
         });
         actions = actions.child(close_btn);
 
@@ -586,6 +549,27 @@ pub fn view_modal(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
     }
 
     None
+}
+
+#[allow(deprecated)]
+fn perm_btn(
+    k: &rune_kit::Kit,
+    label: &str,
+    variant: ButtonVariant,
+    key: &'static str,
+    tab_id: u64,
+    req_id: u64,
+    decision: PermissionDecision,
+) -> El {
+    crate::widgets::button(label, variant)
+        .size(rune_kit::ButtonSize::Small)
+        .on_press(move |app: &mut App| {
+            if app.workspace_panes.browser.host.tab(tab_id).is_some_and(|t| t.prompts.permission.armed()) {
+                app.workspace_panes.browser.host.answer_permission(tab_id, req_id, decision);
+            }
+        })
+        .build(k)
+        .key(key)
 }
 
 fn dismiss_icon_btn(p: &Pal, key: &'static str, label: &'static str, on_press: impl Fn(&mut App) + 'static) -> El {

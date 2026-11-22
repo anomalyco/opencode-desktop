@@ -35,7 +35,7 @@ pub fn open_external(tx: &mut Tx, url: &str) -> bool {
     if !browser_policy::is_safe_os_external_url(trimmed) {
         return false;
     }
-    tx.open_url(trimmed).is_ok()
+    harness_log::open_url(tx, trimmed)
 }
 
 #[cfg(target_arch = "wasm32")]

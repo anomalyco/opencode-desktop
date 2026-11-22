@@ -26,6 +26,23 @@ install -Dm755 "$bin" "$root/usr/bin/opencode-rune"
 install -Dm644 "$(dirname "$0")/../assets/icon/icon-1024.png" "$root/usr/$icon"
 install -Dm644 "$repo_root/LICENSE" "$root/usr/$doc/LICENSE"
 install -Dm644 "$repo_root/THIRD_PARTY_NOTICES.md" "$root/usr/$doc/THIRD_PARTY_NOTICES.md"
+# Ubuntu 24.04+ restricts unprivileged user namespaces (`kernel.apparmor_restrict_unprivileged_userns=1`).
+# Ship an AppArmor 4.0 profile (loaded in postinst only when apparmor_parser supports abi/4.0,
+# matching official Electron's .deb template) so Chromium's Linux sandbox works without --no-sandbox.
+apparmor_src=share/opencode-rune/apparmor-profile
+mkdir -p "$root/usr/share/opencode-rune"
+cat > "$root/usr/$apparmor_src" <<'EOF'
+abi <abi/4.0>,
+include <tunables/global>
+
+profile opencode-rune-browser-engine "@{HOME}/.local/state/co.anomaly.opencode/browser-engine/[0-9]*/OpenCode Browser Engine/opencode-browser-engine{,-helper}" flags=(unconfined) {
+  userns,
+
+  # Site-specific additions and overrides. See local/README for details.
+  include if exists <local/opencode-rune-browser-engine>
+}
+EOF
+chmod 0644 "$root/usr/$apparmor_src"
 mkdir -p "$root/usr/share/applications"
 cat > "$root/usr/$desktop" <<'EOF'
 [Desktop Entry]
@@ -75,6 +92,25 @@ cp -a "$root/usr" "%{buildroot}/"
 /usr/$desktop
 /usr/$doc/LICENSE
 /usr/$doc/THIRD_PARTY_NOTICES.md
+/usr/$apparmor_src
+
+%post
+if command -v apparmor_status >/dev/null 2>&1 && apparmor_status --enabled >/dev/null 2>&1; then
+  if command -v apparmor_parser >/dev/null 2>&1 && apparmor_parser --skip-kernel-load --debug /usr/$apparmor_src >/dev/null 2>&1; then
+    install -Dm644 /usr/$apparmor_src /etc/apparmor.d/opencode-rune-browser-engine || true
+    if ! { [ -x /usr/bin/ischroot ] && /usr/bin/ischroot; }; then
+      apparmor_parser --replace --write-cache --skip-read-cache /etc/apparmor.d/opencode-rune-browser-engine || true
+    fi
+  fi
+fi
+
+%postun
+if [ "\$1" = "0" ] && [ -f /etc/apparmor.d/opencode-rune-browser-engine ]; then
+  if command -v apparmor_parser >/dev/null 2>&1 && ! { [ -x /usr/bin/ischroot ] && /usr/bin/ischroot; }; then
+    apparmor_parser --remove /etc/apparmor.d/opencode-rune-browser-engine >/dev/null 2>&1 || true
+  fi
+  rm -f /etc/apparmor.d/opencode-rune-browser-engine
+fi
 EOF
 rpmbuild -bb --define "_topdir $work/rpm" --define 'debug_package %{nil}' "$work/app.spec"
 cp "$work/rpm/RPMS/$machine/"*.rpm "$stem.rpm"
@@ -89,6 +125,36 @@ Maintainer: Anomaly <support@opencode.ai>
 Depends: libc6, libgcc-s1, libstdc++6, libasound2, libfontconfig1, libxkbcommon0, libwayland-client0, libx11-6
 Description: OpenCode (Rune) native desktop client
 EOF
+cat > "$root/DEBIAN/postinst" <<'EOF'
+#!/bin/sh
+set -e
+if [ "${1:-}" = "configure" ]; then
+  if command -v apparmor_status >/dev/null 2>&1 && apparmor_status --enabled >/dev/null 2>&1; then
+    SRC=/usr/share/opencode-rune/apparmor-profile
+    DST=/etc/apparmor.d/opencode-rune-browser-engine
+    if command -v apparmor_parser >/dev/null 2>&1 && apparmor_parser --skip-kernel-load --debug "$SRC" >/dev/null 2>&1; then
+      install -Dm644 "$SRC" "$DST"
+      if ! { [ -x /usr/bin/ischroot ] && /usr/bin/ischroot; }; then
+        apparmor_parser --replace --write-cache --skip-read-cache "$DST" || true
+      fi
+    fi
+  fi
+fi
+EOF
+cat > "$root/DEBIAN/postrm" <<'EOF'
+#!/bin/sh
+set -e
+if [ "${1:-}" = "remove" ] || [ "${1:-}" = "purge" ]; then
+  DST=/etc/apparmor.d/opencode-rune-browser-engine
+  if [ -f "$DST" ]; then
+    if command -v apparmor_parser >/dev/null 2>&1 && ! { [ -x /usr/bin/ischroot ] && /usr/bin/ischroot; }; then
+      apparmor_parser --remove "$DST" >/dev/null 2>&1 || true
+    fi
+    rm -f "$DST"
+  fi
+fi
+EOF
+chmod 0755 "$root/DEBIAN/postinst" "$root/DEBIAN/postrm"
 dpkg-deb --root-owner-group --build "$root" "$stem.deb"
 dpkg-deb --extract "$stem.deb" "$work/installed"
 [[ $("$work/installed/usr/bin/opencode-rune" --version) == "$expected" ]]

@@ -297,17 +297,20 @@ pub fn option_tx<S: 'static>(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut S,
     let ink = if o.danger { p.danger } else { p.text };
     let font = if o.medium { UI_MED } else { UI };
     let words = if let Some(at) = o.middle_split.filter(|&at| at > 0 && at < o.label.len() && o.label.is_char_boundary(at)) {
-        // `session-identity-header.tsx:404-407`: `<bdi dir="ltr" class="flex min-w-0">` holding
+        // `session-identity-header.tsx:404-407` (`4d4a95a3239c`): `<bdi dir="ltr" class="flex min-w-0">` holding
         // `<span class="min-w-0 truncate">{parent}</span><span class="max-w-full shrink-0 truncate">{last}</span>`.
+        // `El::truncate()` sets `flex_shrink = 1.0`, so leave `tail` un-shrunk (`flex_shrink = 0.0`, single line)
+        // inside a clipped `split` row so `head` absorbs truncation first while `tail` stays whole.
         let (head, tail) = o.label.split_at(at);
         let split = row()
             .key("label")
             .dir(rune::Direction::Ltr)
             .shrink()
             .min_w(0.0)
+            .clip_soft(0.0)
             .center_y()
             .child(text(head.to_owned()).key("head").font(font).color(ink).shrink().min_w(0.0).truncate())
-            .child(text(tail.to_owned()).key("tail").font(font).color(ink).truncate());
+            .child(text(tail.to_owned()).key("tail").font(font).color(ink));
         row().key("words").grow(1.0).shrink().min_w(0.0).gap(look.gap).center_y().child(split).children(o.after)
     } else {
         let label = match o.mark.filter(|r| r.end <= o.label.len() && o.label.is_char_boundary(r.start) && o.label.is_char_boundary(r.end)) {

@@ -527,7 +527,7 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, 
         .hover_group_shared(REPLY_HOVER)
         .hover_group_focus()
         .hover_motion(INSTANT, INSTANT)
-        .child(crate::working::row(s, p, session, working).key("working").absolute(0.0, crate::working::LANE_TEXT_TOP).opacity(if working { 1.0 } else { 0.0 }).opacity_motion(INSTANT));
+        .child(status_row(s, p, session, working, busy));
     if interrupted {
         // A stopped turn's footer runs to the reply's end edge, "Model · 3s · Interrupted"
         // after Copy (`text-part-copy-wrapper[data-interrupted]`, `message-part.css:652-655`).
@@ -539,7 +539,7 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, 
                 tail = tail.child(meta(items)).child(crate::style::hover_reveal(text("\u{00b7}").key("sep-interrupted").font(META).color(p.faint)));
             }
         }
-        return lane.child(tail.child(interrupted_label(p))).children(s.turn_tail_extra(p, session, busy));
+        return lane.child(tail.child(interrupted_label(p)));
     }
     let (x, y) = match &sources {
         Some(c) => (chip_width(c) + 8.0, 16.0),
@@ -552,7 +552,17 @@ pub fn turn_actions<S: TimelineHost>(s: &S, p: &Pal, busy: bool, _asking: bool, 
     let button = button.absolute(x, y);
     lane.child(button)
         .children((!items.is_empty()).then(|| meta(items).absolute(x + COPY + 4.0, y)))
-        .children(s.turn_tail_extra(p, session, busy))
+}
+
+/// The lane's row, as official's `StatusLane` lays it out: Working's words, then what the host
+/// puts beside them (the background hint), 8 apart and centred on the 16 pt line, which sits
+/// at `LANE_TEXT_TOP` either way. Hidden, Working leaves the row's flow but keeps its place,
+/// so the hint starts the lane while a thought stands in for the words.
+fn status_row<S: TimelineHost>(s: &S, p: &Pal, session: &str, working: bool, busy: bool) -> El {
+    use crate::working::{H, LINE, ROW_TOP};
+    let words = crate::working::row(s, p, session, working).key("working").opacity(if working { 1.0 } else { 0.0 }).opacity_motion(INSTANT);
+    let words = if working { words } else { words.absolute(0.0, (H - LINE) / 2.0) };
+    row().key("status").absolute(0.0, ROW_TOP).h(H).gap(8.0).center_y().child(words).children(s.turn_tail_extra(p, session, busy))
 }
 
 /// Whether a Markdown reply ends with a fenced code block (`pre` inside `[data-component="markdown-code"]`

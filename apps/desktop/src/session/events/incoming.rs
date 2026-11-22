@@ -46,6 +46,7 @@ pub(crate) fn poll(s: &mut App, tx: &mut Tx) -> bool {
         };
     }
     s.poll_recent_reload(tx);
+    changed |= s.settle_picks();
     changed
 }
 
