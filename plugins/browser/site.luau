@@ -229,15 +229,15 @@ function site.render(env: Env, view: View, url: string): ui.Node
                 ui.row({ w = 16, h = 20, center = true }, { ui.icon("outline-chevron-right", { size = 16, color = "icon-weak" }) }),
             }),
         }))
+        -- Leaving this view from a control in it puts focus on Back (`panel.tsx:1814-1816`).
         return ui.col({
             key = "browser-site-card",
             w = 261,
             py = 4,
-            gap = 2,
             radius = 8,
             fill = "surface-1",
             shadow = "floating",
-        }, items)
+        }, { ui.frame({ key = "browser-site-overview", w = "full", gap = 2, focusReturn = "browser-site-back" }, items) })
     end
 
     -- View 2: "Site settings" — Cookies, Saved files (when engine supports cache clear), Permissions, Agent, Network.
@@ -250,7 +250,6 @@ function site.render(env: Env, view: View, url: string): ui.Node
                     variant = "ghost-muted",
                     size = "small",
                     label = env.I18n:T("site.back"),
-                    autofocus = true,
                     onPress = view:Handler(function()
                         env.dispatch({ type = "details", shown = false })
                     end),
@@ -305,15 +304,15 @@ function site.render(env: Env, view: View, url: string): ui.Node
     if remote and remote ~= "" then
         table.insert(items, row("server", env.I18n:T("site.network", { server = remote }), nil, nil))
     end
+    -- Leaving this view from a control in it puts focus on the "Site settings" row (`panel.tsx:1814-1816`).
     return ui.col({
         key = "browser-site-card",
         w = 261,
         py = 4,
-        gap = 2,
         radius = 8,
         fill = "surface-1",
         shadow = "floating",
-    }, items)
+    }, { ui.frame({ key = "browser-site-details", w = "full", gap = 2, focusReturn = "browser-site-settings" }, items) })
 end
 
 return site

@@ -498,6 +498,7 @@ pub fn ensure_terminal_workspace_hydrated(host: &mut dyn TerminalSurfaceHost, ws
                 backend: TabBackend::Stream(handle),
                 scroll_px_accum: 0.0,
                 drag: mount::TextDrag::Idle,
+                edge_scroll: None,
                 mount: mount::Mount::Live { connection: 0 },
                 fit: Cell::new(mount::Fit::Unmeasured),
                 preedit: None,

@@ -1,6 +1,6 @@
 {
   "$comment": "The OpenCode plugin contract: the single source of truth for plugin types, the plugin.toml schema, the selene std, the API docs and the host's Rust decoders. Edit this file, then run `cargo run -p opencode-plugin-spec -- --write`. Type strings use Luau syntax; `integer` is a whole number (Luau `number`).",
-  "contract": "1.6",
+  "contract": "1.7",
   "versioning": {
     "format": "MAJOR.MINOR",
     "rules": [
@@ -554,6 +554,7 @@
       { "name": "clip", "type": "boolean?", "doc": "Clips children to the box." },
       { "name": "scrollY", "type": "boolean?", "doc": "Scrolls vertical overflow." },
       { "name": "scrollX", "type": "boolean?", "doc": "Scrolls horizontal overflow." },
+      { "name": "stickBottom", "type": "boolean?", "doc": "With `scrollY`: stays scrolled to the bottom as content grows, as a log or a chat does, until the reader scrolls up." },
       { "name": "focusable", "type": "boolean?", "doc": "Takes keyboard focus." },
       { "name": "disabled", "type": "boolean?", "doc": "Takes no presses." },
       { "name": "onPress", "type": "UiHandler?", "doc": "Runs on a press." },
@@ -568,7 +569,9 @@
     ] },
     { "name": "UiFrameProps", "kind": "record", "extends": ["UiBoxProps"], "doc": "`ui.frame` props: a layout container whose border takes layout space snapped to device pixels (`box-sizing: border-box`).", "fields": [
       { "name": "direction", "type": "UiDirection?", "doc": "Stack direction: `\"col\"` (default), `\"row\"` or `\"box\"`." },
-      { "name": "borderSides", "type": "{ number }?", "doc": "Per-side border widths in points: `{ top, right, bottom, left }`. Overrides `borderWidth`." }
+      { "name": "borderSides", "type": "{ number }?", "doc": "Per-side border widths in points: `{ top, right, bottom, left }`. Overrides `borderWidth`." },
+      { "name": "focusReturn", "type": "string?", "since": "1.7", "doc": "The key of the element that takes focus when this frame leaves while focus is on it or inside it: one view of a popover handing focus to the control that leads back to it. That element, or its first focusable child; nothing happens when none shows." },
+      { "name": "focusGroup", "type": "boolean?", "since": "1.7", "doc": "One Tab stop for the focusable controls inside, which the arrow keys move between, as a roving `tabindex` does: Up and Down with `role` `list`, `listbox`, `menu` or `tree`, Left and Right as well otherwise. Home and End go to the ends; a `list` or `tree` stops at its ends, the others wrap. In a `list`, `listbox`, `menu`, `tree` or `tablist`, typing moves to the first control whose label starts with it. Space presses the focused control, and in a list Return does too." }
     ] },
     { "name": "UiTextProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "Text styling: `ui.text` and `ui.shimmer`.", "fields": [
       { "name": "size", "type": "number?", "doc": "Font size in points. Defaults to 13." },
@@ -633,7 +636,9 @@
       { "name": "loading", "type": "boolean?", "doc": "Shows the app's loader and takes no presses." },
       { "name": "pressed", "type": "boolean?", "doc": "A toggle button's pressed state." },
       { "name": "onPress", "type": "UiHandler?", "doc": "Runs on a press." },
-      { "name": "menuTrigger", "type": "boolean?", "doc": "Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1." }
+      { "name": "menuTrigger", "type": "boolean?", "doc": "Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1." },
+      { "name": "autofocus", "type": "boolean?", "since": "1.7", "doc": "Takes focus as the dialog it is in opens, as HTML's `autofocus` in a dialog: a confirmation's Cancel, say. Without one the dialog focuses its first text field or Tab stop." },
+      { "name": "focusReturn", "type": "string?", "since": "1.7", "doc": "The key of the element that takes focus when this one leaves while it has focus, as a page's `element.focus()` after a view changes: a drill-in's Back hands focus to the row that opened it. That element, or its first focusable child; nothing happens when none shows." }
     ] },
     { "name": "UiIconButtonProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.iconButton` props: a square button with an icon. Give it a `label`.", "fields": [
       { "name": "icon", "type": "IconName", "doc": "The icon." },
@@ -644,7 +649,9 @@
       { "name": "color", "type": "Color?", "doc": "The icon's color, instead of the variant's." },
       { "name": "keybind", "type": "string?", "doc": "A published command id whose shortcut its tooltip shows after the `help` text, as keycaps." },
       { "name": "onPress", "type": "UiHandler?", "doc": "Runs on a press." },
-      { "name": "menuTrigger", "type": "boolean?", "doc": "Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1." }
+      { "name": "menuTrigger", "type": "boolean?", "doc": "Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1." },
+      { "name": "autofocus", "type": "boolean?", "since": "1.7", "doc": "Takes focus as the dialog it is in opens, as HTML's `autofocus` in a dialog: a confirmation's Cancel, say. Without one the dialog focuses its first text field or Tab stop." },
+      { "name": "focusReturn", "type": "string?", "since": "1.7", "doc": "The key of the element that takes focus when this one leaves while it has focus, as a page's `element.focus()` after a view changes: a drill-in's Back hands focus to the row that opened it. That element, or its first focusable child; nothing happens when none shows." }
     ] },
     { "name": "UiSwitchProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.switch` props: the app's own switch.", "fields": [
       { "name": "checked", "type": "boolean", "doc": "On." },
@@ -678,6 +685,8 @@
       { "name": "readOnly", "type": "boolean?", "doc": "Takes no typing but looks as usual, such as while what was typed is sent." },
       { "name": "multiline", "type": "boolean?", "doc": "Grows to more lines. Enter inserts a line break; Mod+Enter submits." },
       { "name": "variant", "type": "FieldVariant?", "doc": "The look. Defaults to `default`." },
+      { "name": "icon", "type": "IconName?", "since": "1.7", "doc": "An icon in the box before the text, as Desktop's `TextInput` `leadingIcon`: a search field's magnifying glass. The `default` variant only." },
+      { "name": "clearable", "type": "boolean?", "since": "1.7", "doc": "A Clear button at the box's end that empties the field, as Desktop's `TextInput` `showClearButton`: set it while the field has text. The `default` variant only." },
       { "name": "keys", "type": "{ string }?", "doc": "Keys the field hands to its editor's `KeyPressed` instead of handling them: any of `ArrowUp`, `ArrowDown` and `Escape`." },
       { "name": "onSubmit", "type": "UiHandler?", "doc": "Runs on Enter with the text in `event.text`." }
     ] },
@@ -727,7 +736,8 @@
       { "name": "popover", "type": "string", "doc": "The id of this plugin's popover the row opens." },
       { "name": "props", "type": "{ [string]: any }?", "doc": "Passed to the nested popover's render as `props.data`." },
       { "name": "alert", "type": "boolean?", "doc": "Shows a danger dot before the detail: something in the nested list failed." },
-      { "name": "side", "type": "Side?", "doc": "The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`." }
+      { "name": "side", "type": "Side?", "doc": "The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`." },
+      { "name": "radius", "type": "number?", "doc": "Corner radius of the row's hover and open fill. Defaults to 4." }
     ] },
     { "name": "UiDialogHeaderProps", "kind": "record", "extends": ["UiLayoutProps"], "official": "DialogHeader", "doc": "`ui.dialogHeader` props: the app's dialog header (`DialogHeader` with a `DialogTitleGroup`), 16 in from the frame, with its close button.", "fields": [
       { "name": "title", "type": "string", "doc": "The dialog's title: 15 pt, wrapping anywhere unless `wrapTitle` is false." },

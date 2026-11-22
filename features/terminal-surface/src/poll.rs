@@ -77,6 +77,7 @@ fn attach_terminal(host: &mut dyn TerminalSurfaceHost, srv: Server, wk: &str, id
         tab.session = session;
         tab.fit = Cell::new(mount::Fit::Unmeasured);
         tab.drag = mount::TextDrag::Idle;
+        tab.edge_scroll = None;
     }
 }
 

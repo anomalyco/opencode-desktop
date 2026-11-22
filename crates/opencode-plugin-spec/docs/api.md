@@ -1,4 +1,4 @@
-# OpenCode plugin API reference (contract 1.6)
+# OpenCode plugin API reference (contract 1.7)
 
 > Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit. For a walkthrough, read [Writing a plugin](writing-a-plugin.md).
 
@@ -6,7 +6,7 @@ Contents: [Versioning](#versioning) · [Modules and globals](#modules-and-global
 
 ## Versioning
 
-Contract versions are `MAJOR.MINOR`. This is contract `1.6`.
+Contract versions are `MAJOR.MINOR`. This is contract `1.7`.
 
 - A plugin names the contract it targets in plugin.toml: `contract = "1.0"`.
 - Minor versions (1.1, 1.2, …) only add: new optional properties on `ui.*` nodes and specs, new semantic tokens (each with a 1.0 fallback token), new services, methods, signals, contribution kinds and enum values. A plugin that targets 1.0 runs unchanged on every 1.x host.
@@ -1545,6 +1545,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `clip` | `boolean?` | Clips children to the box. |
 | `scrollY` | `boolean?` | Scrolls vertical overflow. |
 | `scrollX` | `boolean?` | Scrolls horizontal overflow. |
+| `stickBottom` | `boolean?` | With `scrollY`: stays scrolled to the bottom as content grows, as a log or a chat does, until the reader scrolls up. |
 | `focusable` | `boolean?` | Takes keyboard focus. |
 | `disabled` | `boolean?` | Takes no presses. |
 | `onPress` | `UiHandler?` | Runs on a press. |
@@ -1567,6 +1568,8 @@ Also takes every field of [`UiBoxProps`](#uiboxprops).
 |---|---|---|
 | `direction` | `UiDirection?` | Stack direction: `"col"` (default), `"row"` or `"box"`. |
 | `borderSides` | `{ number }?` | Per-side border widths in points: `{ top, right, bottom, left }`. Overrides `borderWidth`. |
+| `focusReturn` | `string?` | The key of the element that takes focus when this frame leaves while focus is on it or inside it: one view of a popover handing focus to the control that leads back to it. That element, or its first focusable child; nothing happens when none shows. Since 1.7. |
+| `focusGroup` | `boolean?` | One Tab stop for the focusable controls inside, which the arrow keys move between, as a roving `tabindex` does: Up and Down with `role` `list`, `listbox`, `menu` or `tree`, Left and Right as well otherwise. Home and End go to the ends; a `list` or `tree` stops at its ends, the others wrap. In a `list`, `listbox`, `menu`, `tree` or `tablist`, typing moves to the first control whose label starts with it. Space presses the focused control, and in a list Return does too. Since 1.7. |
 
 ### UiTextProps
 
@@ -1686,6 +1689,8 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `pressed` | `boolean?` | A toggle button's pressed state. |
 | `onPress` | `UiHandler?` | Runs on a press. |
 | `menuTrigger` | `boolean?` | Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1. |
+| `autofocus` | `boolean?` | Takes focus as the dialog it is in opens, as HTML's `autofocus` in a dialog: a confirmation's Cancel, say. Without one the dialog focuses its first text field or Tab stop. Since 1.7. |
+| `focusReturn` | `string?` | The key of the element that takes focus when this one leaves while it has focus, as a page's `element.focus()` after a view changes: a drill-in's Back hands focus to the row that opened it. That element, or its first focusable child; nothing happens when none shows. Since 1.7. |
 
 ### UiIconButtonProps
 
@@ -1704,6 +1709,8 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `keybind` | `string?` | A published command id whose shortcut its tooltip shows after the `help` text, as keycaps. |
 | `onPress` | `UiHandler?` | Runs on a press. |
 | `menuTrigger` | `boolean?` | Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1. |
+| `autofocus` | `boolean?` | Takes focus as the dialog it is in opens, as HTML's `autofocus` in a dialog: a confirmation's Cancel, say. Without one the dialog focuses its first text field or Tab stop. Since 1.7. |
+| `focusReturn` | `string?` | The key of the element that takes focus when this one leaves while it has focus, as a page's `element.focus()` after a view changes: a drill-in's Back hands focus to the row that opened it. That element, or its first focusable child; nothing happens when none shows. Since 1.7. |
 
 ### UiSwitchProps
 
@@ -1765,6 +1772,8 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `readOnly` | `boolean?` | Takes no typing but looks as usual, such as while what was typed is sent. |
 | `multiline` | `boolean?` | Grows to more lines. Enter inserts a line break; Mod+Enter submits. |
 | `variant` | `FieldVariant?` | The look. Defaults to `default`. |
+| `icon` | `IconName?` | An icon in the box before the text, as Desktop's `TextInput` `leadingIcon`: a search field's magnifying glass. The `default` variant only. Since 1.7. |
+| `clearable` | `boolean?` | A Clear button at the box's end that empties the field, as Desktop's `TextInput` `showClearButton`: set it while the field has text. The `default` variant only. Since 1.7. |
 | `keys` | `{ string }?` | Keys the field hands to its editor's `KeyPressed` instead of handling them: any of `ArrowUp`, `ArrowDown` and `Escape`. |
 | `onSubmit` | `UiHandler?` | Runs on Enter with the text in `event.text`. |
 
@@ -1876,6 +1885,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `props` | `{ [string]: any }?` | Passed to the nested popover's render as `props.data`. |
 | `alert` | `boolean?` | Shows a danger dot before the detail: something in the nested list failed. |
 | `side` | `Side?` | The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`. |
+| `radius` | `number?` | Corner radius of the row's hover and open fill. Defaults to 4. |
 
 ### UiDialogHeaderProps
 

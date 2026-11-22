@@ -6,6 +6,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use opencode_plugin_spec::NodeKind;
 use opencode_ui::palette::{Pal, kit, pal, token};
 use opencode_ui::{keymap, odometer, widgets};
 use rune::{Chord, Color, Cursor, Direction, El, Icon, Shadow, Spring, TextStyle, col, el, icon as rune_icon, row, text};
@@ -49,20 +50,32 @@ pub fn base_nodes(
     catalog_chord: fn(&str) -> Option<Chord>,
 ) -> Vec<HostNode> {
     vec![
-        HostNode::new("frame", frame),
-        HostNode::new("divider", divider),
-        HostNode::new("icon", icon),
-        HostNode::new("metric", metric),
-        HostNode::new("keybind", move |a| keybind(a, catalog_chord)),
-        HostNode::new("button", button),
-        HostNode::new("iconButton", move |a| icon_button(a, command_chord)),
-        HostNode::new("radio", radio),
-        HostNode::new("checkbox", checkbox),
-        HostNode::new("loader", |a| Ok(Loader::new().size(a.number("size").unwrap_or(16.0) as f32).build(kit(&p(a))))),
-        HostNode::new("serverIndicator", server_indicator),
-        HostNode::new("progressCircle", progress_circle),
-        HostNode::new("segmented", segmented),
+        node("frame", frame),
+        node("divider", divider),
+        node("icon", icon),
+        node("metric", metric),
+        node("keybind", move |a| keybind(a, catalog_chord)),
+        node("button", button),
+        node("iconButton", move |a| icon_button(a, command_chord)),
+        node("radio", radio),
+        node("checkbox", checkbox),
+        node("loader", |a| Ok(Loader::new().size(a.number("size").unwrap_or(16.0) as f32).build(kit(&p(a))))),
+        node("serverIndicator", server_indicator),
+        node("progressCircle", progress_circle),
+        node("segmented", segmented),
     ]
+}
+
+/// Contract node `name`, built by `build`, with the contract's props for it listed
+/// (`HostNode::props`): a prop a script passes that is neither one of them, nor read by `build`,
+/// nor a standard prop is an error in debug builds and a warning in release, instead of being
+/// dropped without a word.
+pub fn node(name: &'static str, build: impl Fn(&mut NodeArgs) -> Result<El, String> + 'static) -> HostNode {
+    let host = HostNode::new(name, build);
+    match NodeKind::parse(name) {
+        Some(kind) => host.props(move |key| kind.props().get(key).is_some()),
+        None => host,
+    }
 }
 
 fn p(a: &NodeArgs) -> Pal {
@@ -129,7 +142,20 @@ fn frame(a: &mut NodeArgs) -> Result<El, String> {
         out = a.on_press(out, "onPress");
     }
     out = a.on_hover(out, "onHover");
-    Ok(out)
+    if a.flag("focusGroup") {
+        out = out.focus_group();
+    }
+    Ok(focus(a, out))
+}
+
+/// `autofocus` (`El::autofocus`: the control a dialog focuses as it opens) and `focusReturn`
+/// (`El::focus_return`: where focus goes when this leaves while it has focus).
+fn focus(a: &NodeArgs, el: El) -> El {
+    let el = if a.flag("autofocus") { el.autofocus() } else { el };
+    match a.string("focusReturn") {
+        Some(key) => el.focus_return(key),
+        None => el,
+    }
 }
 
 /// A 1 px rule laid out as Chromium lays out a 1px CSS border: one device pixel at 1x, 1.25x and
@@ -228,7 +254,7 @@ fn button(a: &mut NodeArgs) -> Result<El, String> {
         let spinner = Loader::new().size(16.0).build(k);
         b = b.label_with(move |_, _| spinner);
     }
-    let el = b.build(k);
+    let el = focus(a, b.build(k));
     Ok(if disabled || loading { el } else { a.on_press(el, "onPress") })
 }
 
@@ -248,6 +274,7 @@ fn icon_button(a: &mut NodeArgs, command_chord: fn(&str) -> Option<Chord>) -> Re
     if let Some(chord) = a.string("keybind").and_then(command_chord) {
         b = b.help_keys(keymap::caps(chord));
     }
+    let b = focus(a, b);
     Ok(if a.flag("disabled") { b.layer_opacity(0.5) } else { a.on_press(b, "onPress") })
 }
 

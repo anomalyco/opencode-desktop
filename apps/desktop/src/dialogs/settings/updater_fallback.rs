@@ -81,6 +81,29 @@ fn release_notes_enabled() -> bool {
         .unwrap_or(true)
 }
 
+/// Why updates are off: the isolated-run text when the updater said so (`ISOLATED`), else the
+/// package-manager text `action.ts` shows.
+fn disabled_description(error: Option<&str>) -> String {
+    #[cfg(not(target_arch = "wasm32"))]
+    if error == Some(opencode_feature_updater::ISOLATED) {
+        return msg("check.isolated", "Updates are off in this isolated run (RUNE_DIRS_ROOT).");
+    }
+    let _ = error;
+    msg("check.unavailable", "This build is updated outside OpenCode, for example by your package manager.")
+}
+
+fn updater_error(app: &App) -> Option<String> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        opencode_feature_updater::state_view(app).and_then(|v| v.error)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = app;
+        None
+    }
+}
+
 fn view(app: &App, p: &Pal) -> El {
     let phase = updater_phase(app);
     let (label_key, label_fallback, desc_key, desc_fallback, run) = match phase {
@@ -103,7 +126,7 @@ fn view(app: &App, p: &Pal) -> El {
     let notes_title = msg("releaseNotes.title", "Release notes");
     let notes_desc = msg("releaseNotes.description", "Show What's New popups after updates");
     let check_title = msg("check.title", "Check for updates");
-    let check_desc = msg(desc_key, desc_fallback);
+    let check_desc = if phase == Some("disabled") { disabled_description(updater_error(app).as_deref()) } else { msg(desc_key, desc_fallback) };
     let btn_label = msg(label_key, label_fallback);
     let section_title = msg("section.title", "Updates");
 
@@ -150,11 +173,7 @@ fn run_action(s: &mut App, tx: &mut Tx, action: &'static str) {
                     tx.instant();
                     let Some(view) = view else { return };
                     match view.phase {
-                        "disabled" => crate::status_toast::say(
-                            app,
-                            msg("action.unavailable", "Updates unavailable"),
-                            msg("check.unavailable", "This build is updated outside OpenCode, for example by your package manager."),
-                        ),
+                        "disabled" => crate::status_toast::say(app, msg("action.unavailable", "Updates unavailable"), disabled_description(view.error.as_deref())),
                         "up-to-date" => {
                             let ver = crate::updater::display_version(app);
                             let desc = msg("toast.latest.description", "You're running the latest version of OpenCode.")
