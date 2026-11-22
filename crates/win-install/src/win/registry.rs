@@ -74,18 +74,12 @@ pub fn write_scheme(scheme: &str, name: &str, exe: &Path) -> Result<(), String> 
     Ok(())
 }
 
-/// Whether `scheme` is registered as `write_scheme` writes it for `exe`: a URL protocol whose
-/// command is exactly `"<exe>" "%1"` (the path compared without regard to case). A damaged key
-/// (no `URL Protocol`, no `"%1"`, an unquoted path, another argument, other spacing) is written again.
-pub fn scheme_starts(scheme: &str, exe: &Path) -> bool {
-    let Ok(key) = CURRENT_USER.open(format!(r"Software\Classes\{scheme}")) else { return false };
-    if key.get_string("URL Protocol").is_err() {
-        return false;
-    }
-    let Ok(command) = key.open(r"shell\open\command").and_then(|k| k.get_string("")) else { return false };
-    let Some(rest) = command.strip_prefix('"') else { return false };
-    let Some((program, args)) = rest.split_once('"') else { return false };
-    super::same_path(Path::new(program), exe) && args == " \"%1\""
+/// `scheme`'s command (`shell\open\command`) when it's registered as a URL protocol; `None` for a
+/// missing key or one without `URL Protocol`, which `repair_scheme` writes again.
+pub fn scheme_command(scheme: &str) -> Option<String> {
+    let key = CURRENT_USER.open(format!(r"Software\Classes\{scheme}")).ok()?;
+    key.get_string("URL Protocol").ok()?;
+    key.open(r"shell\open\command").and_then(|k| k.get_string("")).ok()
 }
 
 /// Removes `scheme` when it still starts a program in `root`; another app's (OpenCode Desktop

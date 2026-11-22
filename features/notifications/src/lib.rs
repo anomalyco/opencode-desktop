@@ -621,15 +621,9 @@ fn settle_once(product: win_install::Product) {
             return;
         };
         let found = win_install::settle_identity(&product, &root);
-        // The registered install keeps its scheme pointed at itself; another copy writes nothing:
-        // nor does the installed exe renamed, or run with a scratch `RUNE_DIRS_ROOT`.
-        #[allow(clippy::disallowed_methods)]
-        let scratch = std::env::var_os("RUNE_DIRS_ROOT").is_some();
-        let named = std::env::current_exe().ok().and_then(|exe| exe.file_name().map(|n| n.eq_ignore_ascii_case(win_install::EXE))).unwrap_or(false);
-        if named
-            && !scratch
-            && let Some(done) = win_install::repair_scheme(&product, &root)
-        {
+        // The registered install keeps its scheme pointed at itself; another copy, the exe renamed
+        // or a scratch `RUNE_DIRS_ROOT` run writes nothing (`repair_scheme` checks each).
+        if let Some(done) = win_install::repair_scheme(&product, &root) {
             eprintln!("notifications: {done}");
         }
         if found == win_install::Identity::Installed
