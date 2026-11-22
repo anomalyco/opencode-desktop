@@ -171,6 +171,21 @@ fn loaded(boot_done: bool) {
     }
 }
 
+/// Proof builds only: `RUNE_STORAGE_DELAY_MS` holds a lazy namespace load's reply on the storage
+/// thread that long, on scratch profiles (`RUNE_DIRS_ROOT`) only.
+#[cfg(feature = "storage-delay")]
+pub fn delayed(names: &[String], done: Box<dyn FnOnce() + Send>) -> Box<dyn FnOnce() + Send> {
+    let ms = std::env::var_os("RUNE_DIRS_ROOT").and_then(|_| std::env::var("RUNE_STORAGE_DELAY_MS").ok()).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
+    let what = names.join(",");
+    Box::new(move || {
+        if ms > 0 {
+            eprintln!("storage-delay: holding the reply for {what} {ms} ms");
+            std::thread::sleep(std::time::Duration::from_millis(ms));
+        }
+        done()
+    })
+}
+
 /// Reads namespace `ns` now, waiting for the storage thread (a value nothing in memory holds,
 /// asked for by a running plugin): a rare path, bounded.
 fn load_now(ns: &str) {

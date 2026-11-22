@@ -702,18 +702,7 @@ pub fn plugin_record(id: &str, record: PluginRecord, done: opencode_storage::Don
 /// there once they're in (at once when they are).
 pub fn load_state(names: Vec<String>, done: Box<dyn FnOnce() + Send>) {
     #[cfg(feature = "storage-delay")]
-    let done: Box<dyn FnOnce() + Send> = {
-        // Scratch profiles only (RUNE_DIRS_ROOT): never a real one.
-        let ms = std::env::var_os("RUNE_DIRS_ROOT").and_then(|_| std::env::var("RUNE_STORAGE_DELAY_MS").ok()).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
-        let what = names.join(",");
-        Box::new(move || {
-            if ms > 0 {
-                eprintln!("storage-delay: holding the reply for {what} {ms} ms");
-                std::thread::sleep(std::time::Duration::from_millis(ms));
-            }
-            done()
-        })
-    };
+    let done = crate::plugin_host::bridge::stores::delayed(&names, done);
     with_storage(move |s| {
         let names: Vec<&str> = names.iter().map(String::as_str).collect();
         s.state().load(&names, Some(done));
