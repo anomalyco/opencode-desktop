@@ -275,6 +275,8 @@ pub static UI_FIELD_PROPS: PropsSpec = PropsSpec::new("UiFieldProps", Some(&UI_L
     PropSpec::new("readOnly", PropType::Bool, false),
     PropSpec::new("multiline", PropType::Bool, false),
     PropSpec::new("variant", PropType::Enum("FieldVariant"), false),
+    PropSpec::new("icon", PropType::String, false),
+    PropSpec::new("clearable", PropType::Bool, false),
     PropSpec::new("keys", PropType::List("string"), false),
     PropSpec::new("onSubmit", PropType::Handler, false),
 ]);

@@ -1749,6 +1749,10 @@ export type UiFieldProps = {
     multiline: boolean?,
     --- The look. Defaults to `default`.
     variant: FieldVariant?,
+    --- An icon in the box before the text, as Desktop's `TextInput` `leadingIcon`: a search field's magnifying glass. The `default` variant only.
+    icon: IconName?,
+    --- A Clear button at the box's end that empties the field, as Desktop's `TextInput` `showClearButton`: set it while the field has text. The `default` variant only.
+    clearable: boolean?,
     --- Keys the field hands to its editor's `KeyPressed` instead of handling them: any of `ArrowUp`, `ArrowDown` and `Escape`.
     keys: { string }?,
     --- Runs on Enter with the text in `event.text`.
