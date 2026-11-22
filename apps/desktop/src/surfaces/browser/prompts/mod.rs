@@ -43,6 +43,8 @@ pub struct PromptUiState {
     pub auth_target: Option<(u64, u64)>,
     pub auth_user: TextEdit,
     pub auth_pass: TextEdit,
+    /// `(tab_id, request_id)` for the active site permission bar (`prompts.tsx:467` focus handoff).
+    pub perm_target: Option<(u64, u64)>,
 }
 
 pub static BROWSER_PROMPTS: Slot<PromptUiState> = Slot::new();
@@ -87,6 +89,20 @@ pub(super) fn is_modal_key(key: Option<&str>) -> bool {
                 | AUTH_PASS_KEY
                 | AUTH_CANCEL_KEY
                 | AUTH_SUBMIT_KEY
+        )
+    )
+}
+
+fn is_perm_key(key: Option<&str>) -> bool {
+    matches!(
+        key,
+        Some(
+            "browser-perm-never"
+                | "browser-perm-block"
+                | "browser-perm-allow-once"
+                | "browser-perm-allow-always"
+                | "browser-perm-allow-session"
+                | "browser-perm-dismiss"
         )
     )
 }
@@ -163,13 +179,23 @@ pub fn sync_ui(s: &mut App, tx: &mut Tx) {
         let c = t.prompts.auth.active()?;
         Some((id, c.challenge.id, t.prompts.agent_driven))
     });
+    let perm_now = tab_id.and_then(|id| {
+        let t = s.workspace_panes.browser.host.tab(id)?;
+        let q = t.prompts.permission.active()?;
+        let trustworthy = browser_pane::prompts::trustworthy_origin(&q.request.origin)
+            && !q.request.origin.to_ascii_lowercase().starts_with("oc-preview:");
+        let keep_profile = !q.agent_driven && t.preview.is_none() && t.context.is_default() && trustworthy;
+        Some((id, q.request.id, q.agent_driven, keep_profile))
+    });
     let in_browser = s.focused_browser_pane(false).is_some()
         || is_modal_key(tx.focused())
+        || is_perm_key(tx.focused())
         || tx.focused() == Some("browser-surface");
     let user_elsewhere = s.composer.focused || (tx.focused().is_some() && !in_browser);
     let mut focus_target: Option<&'static str> = None;
     let mut restore_surface = false;
     let has_dialog = dialog_now.is_some();
+    let has_auth = auth_now.is_some();
 
     let ui = s.kernel.slots.get_mut(&BROWSER_PROMPTS);
     match dialog_now {
@@ -224,6 +250,23 @@ pub fn sync_ui(s: &mut App, tx: &mut Tx) {
             }
         }
     }
+    match perm_now {
+        Some((tid, pid, agent, keep_profile)) => {
+            if ui.perm_target != Some((tid, pid)) {
+                ui.perm_target = Some((tid, pid));
+                // Match `prompts.tsx:467` & `page-prompts.ts:213` (`bar = page && !agent`): never
+                // pull keyboard focus on an agent-driven tab, and only focus the first (deny) button.
+                if !agent && !has_dialog && !has_auth && (in_browser || !user_elsewhere) {
+                    focus_target = Some(if keep_profile { "browser-perm-never" } else { "browser-perm-block" });
+                }
+            }
+        }
+        None => {
+            if ui.perm_target.take().is_some() && is_perm_key(tx.focused()) && !has_dialog && !has_auth {
+                restore_surface = true;
+            }
+        }
+    }
     if let Some(target) = focus_target {
         tx.focus(target, true);
     } else if restore_surface {
@@ -255,6 +298,6 @@ fn dismiss_bar(s: &mut App, _ev: &KeyEvent, _tx: &mut Tx) {
         s.workspace_panes
             .browser
             .host
-            .answer_permission(id, req_id, PermissionDecision::BlockOnce);
+            .answer_permission(id, req_id, PermissionDecision::Dismiss);
     }
 }

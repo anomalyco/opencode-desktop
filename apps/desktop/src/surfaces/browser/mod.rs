@@ -686,7 +686,7 @@ mod native {
 
         /// Page `id`'s tab left its strip: the page closes and any preview server binding revokes.
         pub fn forget_browser_tab(&mut self, id: u64) {
-            self.workspace_panes.browser.closing_tabs.remove(&id);
+            self.forget_tab_marks(id);
             self.workspace_panes.browser.active_app_reviews.borrow_mut().remove(&id);
             self.workspace_panes.browser.openers.on_close(id);
             crate::plugin_host::services::browser_contract::revoke_tab(self, id);

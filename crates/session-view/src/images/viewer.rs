@@ -1,4 +1,6 @@
-use rune::{Cx, El, Image, Spring, SpringPair, SurfaceFit, Transition, Tx, el};
+use std::sync::Arc;
+
+use rune::{Cx, El, Image, Key, KeyEvent, Spring, SpringPair, SurfaceFit, Transition, Tx, el};
 use rune_kit::{ImageZoom, Preview};
 
 use opencode_kit::model::Attachment;
@@ -20,6 +22,27 @@ pub struct Viewing {
     pub(crate) image: Image,
     /// What the open image's right-click menu acts on.
     pub(crate) dragged: Dragged,
+    /// The gallery it was opened from, which ← and → step through.
+    pub(crate) strip: Option<Strip>,
+}
+
+/// A gallery's files, keyed as [`super::gallery`] keys them, and which of them is open.
+#[derive(Clone)]
+pub struct Strip {
+    pub(crate) key: String,
+    pub(crate) files: Arc<[Attachment]>,
+    pub(crate) at: usize,
+}
+
+impl Strip {
+    pub fn new(key: impl Into<String>, files: Arc<[Attachment]>, at: usize) -> Strip {
+        Strip { key: key.into(), files, at }
+    }
+
+    /// The open image's shared-element id.
+    fn id(&self) -> String {
+        super::gallery_id(&self.key, self.at)
+    }
 }
 
 /// The key of the empty box that holds the viewed image's place: one shows at a time.
@@ -33,31 +56,66 @@ pub(crate) fn flight<S: TimelineHost>(s: &S) -> Spring {
 
 /// Opens the viewer on `v`, fitted, with focus on its close button (`image-preview.tsx:710-714`).
 pub(crate) fn open<S: TimelineHost>(s: &mut S, v: Viewing, tx: &mut Tx) {
+    show(s, v);
+    tx.focus(rune_kit::image_zoom::CLOSE_KEY, false);
+}
+
+/// Shows `v` in the viewer, fitted.
+fn show<S: TimelineHost>(s: &mut S, v: Viewing) {
     let store = s.media_store_mut();
     store.zoom.reset();
     store.viewing = Some(v);
-    tx.focus(rune_kit::image_zoom::CLOSE_KEY, false);
 }
 
 /// A thumbnail that opens the viewer; while the viewer shows it, an empty box of its size (keyed
 /// apart, so the thumbnail leaves the tree) holds its place, and the image flies out of it and
 /// back into it. Dragged past a few points, it goes out as its image's file instead.
-pub fn opens<S: TimelineHost>(s: &S, thumb: El, held: El, id: String, f: &Attachment, image: Image, message: Option<&str>) -> El {
+///
+/// `strip`: the gallery it belongs to, which the viewer steps through with ← and → (a lone
+/// image is a strip of one).
+pub fn opens<S: TimelineHost>(s: &S, thumb: El, held: El, strip: Strip, image: Image, message: Option<&str>) -> El {
+    let id = strip.id();
     if s.media_store().viewing.as_ref().is_some_and(|v| v.id == id) {
         return held.key(HELD);
     }
+    let f = &strip.files[strip.at];
     let (name, dragged) = (f.name.clone(), Dragged::File(f.clone()));
     let thumb = super::menu::on_image::<S>(draggable::<S>(thumb, dragged.clone()), dragged.clone(), message);
     thumb.cursor(rune::Cursor::Pointer).matched(id.clone()).token_motion(flight(s)).on_press_tx(move |s: &mut S, tx: &mut Tx| {
-        open(s, Viewing { id: id.clone(), name: name.clone(), image: image.clone(), dragged: dragged.clone() }, tx);
+        open(s, Viewing { id: id.clone(), name: name.clone(), image: image.clone(), dragged: dragged.clone(), strip: Some(strip.clone()) }, tx);
     })
 }
 
-/// Opens the viewer on `f`, the `index`th image of the gallery keyed `key`, as pressing its
-/// thumbnail does (the storybook's images story). False while its image isn't loaded.
-pub fn view_image<S: TimelineHost>(s: &mut S, key: &str, index: usize, f: &Attachment, tx: &mut Tx) -> bool {
-    let Some(image) = s.media_store().image(f) else { return false };
-    open(s, Viewing { id: super::gallery_id(key, index), name: f.name.clone(), image, dragged: Dragged::File(f.clone()) }, tx);
+/// Opens the viewer on the `index`th of `files`, the gallery keyed `key`, as pressing its
+/// thumbnail does (the storybook's images stories). False while its image isn't loaded.
+pub fn view_image<S: TimelineHost>(s: &mut S, key: &str, files: &[Attachment], index: usize, tx: &mut Tx) -> bool {
+    let Some(v) = viewing(s, Strip::new(key, files.into(), index)) else { return false };
+    open(s, v, tx);
+    true
+}
+
+/// The viewer on the strip's open image, when it's loaded.
+fn viewing<S: TimelineHost>(s: &S, strip: Strip) -> Option<Viewing> {
+    let f = strip.files.get(strip.at)?;
+    let image = s.media_store().image(f).filter(|img| img.error().is_none())?;
+    Some(Viewing { id: strip.id(), name: f.name.clone(), image, dragged: Dragged::File(f.clone()), strip: Some(strip) })
+}
+
+/// ← and →: the gallery's previous or next picture, fitted, stopping at either end (Desktop's
+/// preview shows one image and has no stepping, `image-preview.tsx`). The viewer takes every
+/// bare arrow, so none moves the timeline's focus behind it.
+fn arrow<S: TimelineHost>(s: &mut S, ev: &KeyEvent, _: &mut Tx) -> bool {
+    let m = ev.mods;
+    if m.cmd || m.ctrl || m.alt || m.logo || !matches!(ev.key, Key::Left | Key::Right) {
+        return false;
+    }
+    let Some(strip) = s.media_store().viewing.as_ref().and_then(|v| v.strip.clone()) else { return true };
+    // The nearest loaded picture that way: a file that isn't one, or failed, is passed over.
+    let at = |j| viewing(s, Strip { at: j, ..strip.clone() });
+    let next = if ev.key == Key::Left { (0..strip.at).rev().find_map(at) } else { (strip.at + 1..strip.files.len()).find_map(at) };
+    if let Some(v) = next {
+        show(s, v);
+    }
     true
 }
 
@@ -101,7 +159,11 @@ fn zoom<S: TimelineHost>(s: &mut S) -> &mut ImageZoom {
 /// The open viewer, over the whole window: a scrim, and the preview.
 pub fn viewer<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
     let Some(v) = &s.media_store().viewing else { return Vec::new() };
-    let window = cx.layout_size("window").unwrap_or([1280.0, 820.0]);
+    // The preview fills the overlay layer it's drawn in, so it fits the image to its own box. The
+    // shell's `window` row is shorter under a plugin's bottom bar, and a story's stage has none
+    // (the image then fitted a made-up 1280 × 820 and ran off the stage). Before the preview
+    // has a box of its own, the `zoomed` layer it sits in stands in.
+    let window = cx.layout_size(rune_kit::image_zoom::KEY).or_else(|| cx.layout_size("zoomed")).or_else(|| cx.layout_size("window")).unwrap_or([1280.0, 820.0]);
     let fade = SpringPair::new(Spring::new(0.15, 0.0), Spring::new(0.12, 0.0));
     let scrim = el().key("image-viewer-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::opacity().springs(fade));
     let natural = v.image.size().map_or([1.0, 1.0], |[w, h]| [w as f32, h as f32]);
@@ -133,6 +195,8 @@ pub fn viewer<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
             }
             close(s, tx)
         })
+        // Arrows step the gallery; every other key goes on to the preview's own zoom keys.
+        .on_key(arrow::<S>)
         .build(&store.zoom, crate::palette::kit(p), window, cx.is_reduced_motion())
         .role("dialog")
         .label(v.name.clone());
