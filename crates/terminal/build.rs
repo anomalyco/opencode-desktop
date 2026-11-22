@@ -5,14 +5,13 @@
 //! 2. Warm machine cache (`$GHOSTTY_VT_CACHE_DIR`, else `~/.cache/seer/ghostty-vt/<key>/libghostty-vt.a`,
 //!    or `%LOCALAPPDATA%\seer\ghostty-vt\<key>\ghostty-vt-static.lib` on Windows):
 //!    links immediately with zero downloads and zero Zig invocations.
-//! 3. Cold miss under exclusive `<cache>/.build.lock`: resolves Zig `0.17.x` (`ZIG`, `PATH`, or
-//!    SHA256-verified official Zig `0.17.0` archive), fetches SHA256-verified Ghostty `v1.4.0`
-//!    source tarball (or `GHOSTTY_SOURCE_DIR`), builds static `ReleaseFast` archive, and publishes
-//!    it atomically into the cache.
+//! 3. Cold miss under exclusive `<cache>/.build.lock`: resolves Zig `0.17.x` (`ZIG`, `PATH`,
+//!    warm unpacked cache, SHA256-verified `ZIG_ARCHIVE` / `<cache>/archives/<name>`, or
+//!    SHA256-verified download from `ziglang.org` with retries, resume, and randomized community
+//!    mirrors), fetches SHA256-verified Ghostty `v1.4.0` source tarball (or `GHOSTTY_SOURCE_DIR`),
+//!    builds static `ReleaseFast` archive, and publishes it atomically into the cache.
 
-use std::io::Read;
 use std::process::Command;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 include!("build_support.rs");
 
@@ -43,8 +42,18 @@ fn main() {
         "GHOSTTY_SOURCE_DIR",
         "GHOSTTY_ZIG_SYSTEM_DIR",
         "ZIG",
+        "ZIG_ARCHIVE",
     ] {
         println!("cargo:rerun-if-env-changed={var}");
+    }
+    if is_debug_profile() {
+        for var in [
+            "ZIG_TEST_PRIMARY_URL",
+            "ZIG_TEST_MIRRORS",
+            "ZIG_TEST_TIMEOUT_MS",
+        ] {
+            println!("cargo:rerun-if-env-changed={var}");
+        }
     }
 
     let target = cargo_env("TARGET");
@@ -156,14 +165,7 @@ fn build_cold(cache_root: &Path, host: &str, target: &str, dest: &Path) -> Resul
             )
         })?;
         let tarball = work_dir.join("libghostty-vt-source.tar.gz");
-        let bytes = download_bytes(GHOSTTY_TARBALL_URL)?;
-        verify_sha256("libghostty-vt-source.tar.gz", GHOSTTY_TARBALL_URL, GHOSTTY_TARBALL_SHA256, &bytes)?;
-        fs::write(&tarball, &bytes).map_err(|e| {
-            format!(
-                "terminal build: failed to write `{}` ({e})",
-                tarball.display()
-            )
-        })?;
+        obtain_ghostty_tarball(cache_root, &tarball)?;
         let src_dir = work_dir.join("src");
         fs::create_dir_all(&src_dir).map_err(|e| format!("terminal build: mkdir src failed ({e})"))?;
         extract_tar(&tarball, &src_dir, true)?;
@@ -171,6 +173,44 @@ fn build_cold(cache_root: &Path, host: &str, target: &str, dest: &Path) -> Resul
     })();
     fs::remove_dir_all(&work_dir).ok();
     result
+}
+
+/// Fetches Ghostty's pinned `libghostty-vt-source.tar.gz` from `tip.files.ghostty.org` (no public
+/// mirror exists for this release tarball) with retries, backoff, Range resume, and SHA-256 check.
+fn obtain_ghostty_tarball(cache_root: &Path, dest: &Path) -> Result<(), String> {
+    let cached_name = format!("libghostty-vt-source-{}.tar.gz", &GHOSTTY_COMMIT[..12]);
+    let cached = cache_root.join("archives").join(&cached_name);
+    if cached.is_file() {
+        match verify_file_sha256("libghostty-vt-source.tar.gz", &cached.display().to_string(), GHOSTTY_TARBALL_SHA256, &cached) {
+            Ok(()) => {
+                fs::copy(&cached, dest).map_err(|e| {
+                    format!(
+                        "terminal build: copy cached Ghostty tarball `{}` failed ({e})",
+                        cached.display()
+                    )
+                })?;
+                return Ok(());
+            }
+            Err(err) => {
+                println!("cargo:warning={err}; removing corrupt cached Ghostty archive and re-fetching");
+                fs::remove_file(&cached).ok();
+            }
+        }
+    }
+    let primary = [FetchSource {
+        url: GHOSTTY_TARBALL_URL.to_owned(),
+        max_attempts: 4,
+    }];
+    let policy = FetchPolicy::for_archive(GHOSTTY_TARBALL_MAX_BYTES, Duration::from_secs(360), false);
+    fetch_verified_archive(
+        "libghostty-vt-source.tar.gz",
+        Some(GHOSTTY_TARBALL_SHA256),
+        dest,
+        &primary,
+        |_| Vec::new(),
+        &policy,
+    )?;
+    Ok(())
 }
 
 fn build_from_source(
@@ -256,41 +296,91 @@ fn build_from_source(
     result
 }
 
-// A second source, not a replacement, for the one package Ghostty's build fetches from codeberg.org: `arocc`, named
-// by `translate_c`'s build.zig.zon. On 18 Nov codeberg.org left DNS (registrar hold) and every cold build failed.
-// `zig fetch` stores the GitHub copy at the same commit under the hash zig computes from its contents; `zig build`
-// takes it only if that is the pinned hash, so a changed copy is never used and zig tries Codeberg as before.
-// Remove once Ghostty's build no longer names Codeberg, or once every package comes through GHOSTTY_ZIG_SYSTEM_DIR.
-const AROCC_GITHUB: &str = "git+https://github.com/Vexu/arocc#d0c8c4d9c55daa7ef6e40cf0f630a5b5e900989b";
-const AROCC_HASH: &str = "aro-0.0.0-JSD1QtuBNwCASyBtNF3pqTl_W3oAJQGEVyFAtrBSE_Pa";
-
+// Prefetches the one package Ghostty's `translate_c` dependency names on codeberg.org (`arocc`).
+// Tries the GitHub commit tarball via resilient HTTP (retries, backoff, Range resume) first,
+// extracts with `--strip-components=1` and validates its unpacked content hash via
+// `zig fetch <local-dir>` == `AROCC_HASH`, then falls back to retrying
+// `zig fetch git+https://github.com/Vexu/arocc#<commit>`. If all attempts fail, logs every
+// failure and lets `zig build` attempt Codeberg as before.
 fn prefetch_arocc(zig: &Path, global_cache: &Path) {
     let packages = global_cache.join("p");
     if packages.join(AROCC_HASH).exists() || packages.join(format!("{AROCC_HASH}.tar.gz")).exists() {
         return;
     }
-    let note = match Command::new(zig)
+
+    let mut notes: Vec<String> = Vec::new();
+    let arocc_stage = global_cache.join(format!(".arocc-stage-{}", unique_suffix()));
+    let tarball = arocc_stage.join("arocc.tar.gz");
+    let arocc_src = arocc_stage.join("src");
+    let primary = [FetchSource {
+        url: AROCC_TARBALL_URL.to_owned(),
+        max_attempts: 4,
+    }];
+    let policy = FetchPolicy::for_archive(AROCC_TARBALL_MAX_BYTES, Duration::from_secs(90), false);
+    let tarball_attempt = (|| -> Result<(), String> {
+        fs::create_dir_all(&arocc_src)
+            .map_err(|e| format!("mkdir arocc stage failed ({e})"))?;
+        fetch_verified_archive("arocc tarball", None, &tarball, &primary, |_| Vec::new(), &policy)?;
+        // Strip the GitHub top-level dir first: Zig 0.17's `zig fetch <local.tar.gz>` hashes
+        // stripped entries but archives the unstripped directory into `p/<hash>.tar.gz`.
+        extract_tar(&tarball, &arocc_src, true)?;
+        let src_arg = arocc_src.to_string_lossy().into_owned();
+        zig_fetch_checked(zig, global_cache, &src_arg)
+    })();
+    fs::remove_dir_all(&arocc_stage).ok();
+    match tarball_attempt {
+        Ok(()) => return,
+        Err(e) => notes.push(format!("{AROCC_TARBALL_URL}: {e}")),
+    }
+
+    for attempt in 1..=3 {
+        match zig_fetch_checked(zig, global_cache, AROCC_GITHUB) {
+            Ok(()) => return,
+            Err(e) => {
+                notes.push(format!("{AROCC_GITHUB} (attempt {attempt}/3): {e}"));
+                if attempt < 3 {
+                    std::thread::sleep(Duration::from_secs(1u64 << (attempt - 1)));
+                }
+            }
+        }
+    }
+
+    println!(
+        "cargo:warning=terminal build: arocc prefetch failed ({}); zig build will try codeberg.org as before",
+        notes.join("; ")
+    );
+}
+
+fn zig_fetch_checked(zig: &Path, global_cache: &Path, source: &str) -> Result<(), String> {
+    let out = Command::new(zig)
         .arg("fetch")
-        .arg(AROCC_GITHUB)
+        .arg(source)
         .env("ZIG_GLOBAL_CACHE_DIR", global_cache)
         .current_dir(global_cache)
         .output()
-    {
-        Err(e) => format!("could not start `zig fetch` ({e})"),
-        Ok(out) if !out.status.success() => {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            let last = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string();
-            format!("`zig fetch` failed ({}): {last}", out.status)
-        }
-        Ok(out) => {
-            let hash = String::from_utf8_lossy(&out.stdout).lines().last().unwrap_or("").trim().to_string();
-            if hash == AROCC_HASH {
-                return;
-            }
-            format!("its hash is `{hash}`, not the pinned `{AROCC_HASH}`")
-        }
-    };
-    println!("cargo:warning=terminal build: arocc from GitHub ({AROCC_GITHUB}): {note}; zig build fetches it from codeberg.org as before");
+        .map_err(|e| format!("could not start `zig fetch` ({e})"))?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let last = stderr
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        return Err(format!("`zig fetch` failed ({}): {last}", out.status));
+    }
+    let hash = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .last()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if hash == AROCC_HASH {
+        Ok(())
+    } else {
+        Err(format!("computed hash `{hash}` != pinned `{AROCC_HASH}`"))
+    }
 }
 
 fn publish_atomic(built: &Path, dest: &Path) -> Result<(), String> {
@@ -314,6 +404,9 @@ fn publish_atomic(built: &Path, dest: &Path) -> Result<(), String> {
             tmp.display()
         )
     })?;
+    if cfg!(windows) && dest.exists() {
+        fs::remove_file(dest).ok();
+    }
     fs::rename(&tmp, dest).map_err(|e| {
         fs::remove_file(&tmp).ok();
         format!(
@@ -359,15 +452,11 @@ fn resolve_or_bootstrap_zig(cache_root: &Path, host: &str) -> Result<PathBuf, St
     let res = (|| {
         fs::create_dir_all(&stage)
             .map_err(|e| format!("terminal build: mkdir zig stage failed ({e})"))?;
-        let bytes = download_bytes(dist.url)?;
-        verify_sha256("zig-0.17.0", dist.url, dist.sha256, &bytes)?;
-        // `.tar.xz` on macOS and Linux, `.zip` on Windows; `tar` (bsdtar on Windows) reads both.
-        let archive = stage.join(dist.url.rsplit('/').next().unwrap_or("zig-archive"));
-        fs::write(&archive, &bytes)
-            .map_err(|e| format!("terminal build: write zig archive failed ({e})"))?;
+        let archive = obtain_zig_archive(cache_root, &stage, dist)?;
         let unpacked = stage.join("unpacked");
         fs::create_dir_all(&unpacked)
             .map_err(|e| format!("terminal build: mkdir zig unpacked failed ({e})"))?;
+        // `.tar.xz` on macOS and Linux, `.zip` on Windows; `tar` (bsdtar on Windows) reads both.
         extract_tar(&archive, &unpacked, true)?;
         let staged_zig = unpacked.join(&zig_exe);
         let ver = zig_version_of(&staged_zig)?;
@@ -397,6 +486,56 @@ fn resolve_or_bootstrap_zig(cache_root: &Path, host: &str) -> Result<PathBuf, St
     Ok(zig_bin)
 }
 
+/// Locates or downloads a SHA-256-verified Zig 0.17.0 archive:
+/// 1. Explicit `ZIG_ARCHIVE=/path/to/archive` (hard error if missing or SHA-256 mismatch).
+/// 2. Pre-cached `<cache_root>/archives/<filename>` or `<cache_root>/<filename>` (corrupt file is
+///    refused with a SHA-256 warning, deleted, and re-fetched).
+/// 3. Network download: primary `ziglang.org` (4 attempts, backoff + Range resume), then randomized
+///    Zig community mirrors (up to 6 mirrors, 2 attempts each), bounded at <= 360 s total.
+fn obtain_zig_archive(cache_root: &Path, stage: &Path, dist: &ZigDist) -> Result<PathBuf, String> {
+    if let Some(raw) = std::env::var_os("ZIG_ARCHIVE").filter(|s| !s.is_empty()) {
+        let path = PathBuf::from(&raw);
+        if !path.is_file() {
+            return Err(format!(
+                "terminal build: ZIG_ARCHIVE does not exist at `{}`",
+                path.display()
+            ));
+        }
+        verify_file_sha256("ZIG_ARCHIVE", &path.display().to_string(), dist.sha256, &path)?;
+        return Ok(path);
+    }
+
+    for cached in [
+        cache_root.join("archives").join(dist.filename),
+        cache_root.join(dist.filename),
+    ] {
+        if cached.is_file() {
+            match verify_file_sha256(dist.filename, &cached.display().to_string(), dist.sha256, &cached) {
+                Ok(()) => return Ok(cached),
+                Err(err) => {
+                    println!(
+                        "cargo:warning={err}; removing corrupt cached Zig archive and re-fetching"
+                    );
+                    fs::remove_file(&cached).ok();
+                }
+            }
+        }
+    }
+
+    let archive = stage.join(dist.filename);
+    let primary = build_zig_sources(dist)?;
+    let policy = FetchPolicy::for_archive(ZIG_ARCHIVE_MAX_BYTES, Duration::from_secs(360), true);
+    fetch_verified_archive(
+        dist.filename,
+        Some(dist.sha256),
+        &archive,
+        &primary,
+        |remaining| build_zig_mirror_sources(dist, 6, remaining),
+        &policy,
+    )?;
+    Ok(archive)
+}
+
 fn zig_version_of(bin: &Path) -> Result<String, String> {
     let out = Command::new(bin)
         .arg("version")
@@ -410,26 +549,6 @@ fn zig_version_of(bin: &Path) -> Result<String, String> {
         ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
-}
-
-fn download_bytes(url: &str) -> Result<Vec<u8>, String> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(300)))
-        .http_status_as_error(true)
-        .build()
-        .into();
-    let mut resp = agent
-        .get(url)
-        .call()
-        .map_err(|e| format!("terminal build: failed to download {url} ({e})"))?;
-    let mut bytes = Vec::new();
-    resp.body_mut()
-        .with_config()
-        .limit(128 << 20)
-        .reader()
-        .read_to_end(&mut bytes)
-        .map_err(|e| format!("terminal build: failed reading {url} ({e})"))?;
-    Ok(bytes)
 }
 
 fn extract_tar(archive: &Path, dest: &Path, strip_first: bool) -> Result<(), String> {
@@ -531,11 +650,6 @@ fn zig_target(target: &str) -> Result<&'static str, String> {
     }
 }
 
-// Build script has no config::now() or injected clock; wall time disambiguates scratch paths across runs.
-#[allow(clippy::disallowed_methods)]
 fn unique_suffix() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos());
-    format!("{}-{nanos}", std::process::id())
+    format!("{}-{}", std::process::id(), wall_nanos())
 }
