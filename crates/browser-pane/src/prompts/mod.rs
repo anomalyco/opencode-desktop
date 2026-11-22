@@ -279,7 +279,7 @@ impl PermissionGate {
             let kept_val = kept.get_scoped(scope, &request.origin, kind);
             let visit_val = visit.get(&(request.origin.clone(), kind)).copied();
             if kept_val == Some(SiteSetting::Block) {
-                return Some((false, false, is_profile));
+                return Some((false, !is_profile, is_profile));
             }
             if visit_val == Some(SiteSetting::Block) {
                 return Some((false, true, false));

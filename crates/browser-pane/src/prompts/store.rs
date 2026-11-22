@@ -103,25 +103,31 @@ pub struct SiteDecision {
 }
 
 /// Whether `origin` is a secure context eligible for site permissions (`site-permissions.ts:57-65`):
-/// `https:`, `oc-preview:`, or loopback `http:` (`localhost`, `*.localhost`, `127.*`, `[::1]`).
+/// `https:`, `oc-preview:`, or loopback `http:` (`localhost`, `<label>.localhost`, `127.*`, `[::1]`).
+/// Rejects userinfo (`@`), bare `".localhost"`, and non-loopback `http:` origins.
 pub fn trustworthy_origin(origin: &str) -> bool {
     let trimmed = origin.trim();
     let Some((scheme, rest)) = trimmed.split_once("://") else { return false };
-    if scheme.eq_ignore_ascii_case("https") || scheme.eq_ignore_ascii_case("oc-preview") {
-        return !rest.is_empty();
+    if scheme.eq_ignore_ascii_case("oc-preview") {
+        let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+        return !host.is_empty() && !host.contains('@');
     }
-    if !scheme.eq_ignore_ascii_case("http") {
+    let Some(norm) = crate::policy::destination_origin(trimmed) else { return false };
+    let Some((norm_scheme, norm_rest)) = norm.split_once("://") else { return false };
+    if norm_scheme.eq_ignore_ascii_case("https") {
+        return true;
+    }
+    if !norm_scheme.eq_ignore_ascii_case("http") {
         return false;
     }
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    let host = if authority.starts_with('[') {
-        authority.split_once(']').map_or(authority, |(h, _)| &authority[..=h.len()])
+    let host = if norm_rest.starts_with('[') {
+        norm_rest.split_once(']').map_or(norm_rest, |(h, _)| &norm_rest[..=h.len()])
     } else {
-        authority.split(':').next().unwrap_or(authority)
+        norm_rest.split(':').next().unwrap_or(norm_rest)
     };
     let lower = host.to_ascii_lowercase();
     lower == "localhost"
-        || lower.ends_with(".localhost")
+        || (lower.ends_with(".localhost") && lower.len() > ".localhost".len() && !lower.starts_with('.'))
         || lower == "[::1]"
         || is_ipv4_loopback(&lower)
 }

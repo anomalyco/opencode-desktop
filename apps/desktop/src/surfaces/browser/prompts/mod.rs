@@ -254,9 +254,9 @@ pub fn sync_ui(s: &mut App, tx: &mut Tx) {
         Some((tid, pid, agent, keep_profile)) => {
             if ui.perm_target != Some((tid, pid)) {
                 ui.perm_target = Some((tid, pid));
-                // Match `prompts.tsx:467`: focus the first (deny) button when the permission bar
-                // appears so Escape dismisses cleanly and a held Enter/Space can never auto-allow.
-                if !has_dialog && !has_auth && (in_browser || (!agent && !user_elsewhere)) {
+                // Match `prompts.tsx:467` & `page-prompts.ts:213` (`bar = page && !agent`): never
+                // pull keyboard focus on an agent-driven tab, and only focus the first (deny) button.
+                if !agent && !has_dialog && !has_auth && (in_browser || !user_elsewhere) {
                     focus_target = Some(if keep_profile { "browser-perm-never" } else { "browser-perm-block" });
                 }
             }
