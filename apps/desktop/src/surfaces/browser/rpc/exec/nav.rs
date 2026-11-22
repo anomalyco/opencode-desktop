@@ -28,6 +28,8 @@ pub(super) struct WaitLoadState {
     pub preview_path: Option<String>,
     pub close_on_fail: bool,
     pub saw_loading: bool,
+    /// Back/forward: the wait never ends at the load's end, only at the grace (see `settled`).
+    pub history: bool,
     pub prev_rejected: u64,
     pub started_at: Instant,
     pub deadline: Instant,
@@ -162,6 +164,7 @@ fn start_tabs_open(
         preview_path: None,
         close_on_fail: true,
         saw_loading: app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.loading),
+        history: false,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -297,6 +300,7 @@ fn start_navigate(
         preview_path: None,
         close_on_fail: false,
         saw_loading: app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.loading),
+        history: false,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -342,6 +346,7 @@ fn start_history(
         preview_path: None,
         close_on_fail: false,
         saw_loading: false,
+        history: true,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -386,6 +391,7 @@ fn start_reload(
         preview_path: None,
         close_on_fail: false,
         saw_loading: false,
+        history: false,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -480,6 +486,7 @@ fn start_preview(
         preview_path: Some(path.to_owned()),
         close_on_fail,
         saw_loading: false,
+        history: false,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -529,6 +536,7 @@ fn start_navigate_path(
         preview_path: Some(path.to_owned()),
         close_on_fail: false,
         saw_loading: false,
+        history: false,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -639,7 +647,10 @@ pub(super) fn step_wait_load(
         };
         return Some(Outcome::fail(failure_code::NAVIGATION_FAILED, msg));
     }
-    let settled = (!tab.loading && (st.saw_loading || now >= st.started_at + LOAD_SETTLE_GRACE))
+    // A back/forward that ends when a poll saw its load end can return before the history
+    // change's DevTools events land; each bumps the tab's generation, so the agent's next command
+    // fails as `document_changed`. Those events came within the grace in every traced run.
+    let settled = (!tab.loading && ((st.saw_loading && !st.history) || now >= st.started_at + LOAD_SETTLE_GRACE))
         || now >= st.deadline;
     if !settled {
         return None;
