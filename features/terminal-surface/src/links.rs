@@ -77,6 +77,17 @@ pub fn at(snap: &TerminalSnapshot, col: u16, row: u16) -> Option<Target> {
     file(&word, &rest)
 }
 
+/// Whether (`col`, `row`) sits on an OSC 8 hyperlink or a plain web/file URL (the links
+/// Shift+click opens without Ctrl/⌘, matching Official `terminal-key-event.ts:44-56`).
+pub fn is_url_at(snap: &TerminalSnapshot, col: u16, row: u16) -> bool {
+    let linked = snap
+        .screen_rows
+        .get(usize::from(row))
+        .and_then(|r| r.cells.get(usize::from(col)))
+        .is_some_and(|c| c.flags.contains(CellFlags::HYPERLINK));
+    linked || matches!(at(snap, col, row), Some(Target::Url(_)))
+}
+
 /// The cells of the link under (`col`, `row`), a run per row (row, first column, the column past
 /// its last): the cell's OSC 8 run, else the address or file reference [`at`] reads there. Empty
 /// off a link.
@@ -250,10 +261,11 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// Ctrl+click (⌘-click) at (`col`, `row`) of terminal `tid`: opens the cell's OSC 8 link (with
-/// confirmation when the target differs from the visible text or uses a non-web scheme), else
-/// what [`at`] finds. Plain web URLs route through [`TerminalSurfaceHost::open_web_link`] so
-/// browser URL policy & `Settings > Browser` always decide.
+/// Ctrl+click (⌘-click) or Shift+click at (`col`, `row`) of terminal `tid`: opens the cell's OSC 8
+/// link (with confirmation when the target differs from the visible text or uses a non-web scheme),
+/// else what [`at`] finds (plain URLs for Shift+click; URLs and file references for Ctrl/⌘-click).
+/// Plain web URLs route through [`TerminalSurfaceHost::open_web_link`] with `shift` so Shift+click
+/// opens in the system browser (`terminal-key-event.ts:51`) and Ctrl/⌘-click obeys browser policy.
 pub fn follow(host: &mut dyn TerminalSurfaceHost, wk: &str, tid: &str, col: u16, row: u16, tx: &mut Tx) {
     let Some((osc8, osc8_visible, plain, folder)) = crate::ops::terminal_tab_mut(host, wk, tid).map(|t| {
         let snap = t.session.snapshot();
@@ -288,7 +300,10 @@ pub fn follow(host: &mut dyn TerminalSurfaceHost, wk: &str, tid: &str, col: u16,
         return;
     };
     let sid = wk.split_once('\0').map_or("", |(_, s)| s).to_owned();
-    let shift = tx.mods().shift;
+    let mods = tx.mods();
+    let primary = if cfg!(target_os = "macos") { mods.cmd } else { mods.ctrl };
+    let shift = mods.shift;
+    let shift_only = shift && !primary;
     if let Some(url) = osc8 {
         let visible = osc8_visible.unwrap_or_default();
         if browser_policy::is_http_with_credentials(&url) {
@@ -322,6 +337,7 @@ pub fn follow(host: &mut dyn TerminalSurfaceHost, wk: &str, tid: &str, col: u16,
             return;
         }
         Target::Url(url) => url,
+        Target::File { .. } if shift_only => return,
         Target::File { path, line } => {
             let path = path.replace('\\', "/");
             let abs = if opencode_kit::path::is_absolute(&path) || folder.is_empty() {
