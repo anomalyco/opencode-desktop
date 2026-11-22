@@ -50,6 +50,8 @@ pub struct Dormant {
     pub catch_up: BTreeMap<String, Vec<(String, serde_json::Value)>>,
     /// Wake requests queued by views of this window since the last poll.
     asked: std::cell::RefCell<Vec<(String, Wait)>>,
+    /// Count of settings-open retries for bundled settings plugins killed by a startup watchdog.
+    watchdog_retries: BTreeMap<String, u8>,
 }
 
 impl Dormant {
@@ -326,15 +328,46 @@ pub fn wake_kind(app: &mut App, kind: &str, fns: &[&str]) -> bool {
 }
 
 /// Settings is opening: adopts any queued built-ins contributing commands or settings surfaces,
-/// and wakes dormant ones, so Settings > Preferences, Shortcuts and plugin pages are complete
-/// immediately. (A settings plugin whose start ran out of time gets the general restart in
-/// `lifecycle::restart_later`.)
+/// wakes dormant ones, and retries any bundled settings plugin killed by a startup watchdog so
+/// Settings › Preferences, Shortcuts and plugin pages are complete immediately.
 pub fn wake_settings(app: &mut App) -> bool {
     super::boot::doze_owed(app);
     let adopted = super::boot::adopt_later_kinds(app, &["Command", "Setting", "SettingsPage"]);
     let woke = wake_owners(app, |c| !c.settings.is_empty() || !c.settings_pages.is_empty());
-    adopted || woke
+    let retried = retry_timed_out_settings(app);
+    adopted || woke || retried
 }
+
+/// Retries bundled settings plugins that hit a transient startup watchdog timeout (at most once
+/// per launch), so a CPU burst during boot never permanently drops a built-in Settings section.
+/// Temporary guard until WS-3's general `ws3/plugin-timeout-restart` replaces it.
+fn retry_timed_out_settings(app: &mut App) -> bool {
+    const MAX_RETRIES: u8 = 1;
+    let ids: Vec<(usize, String)> = app
+        .plugins
+        .list
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| {
+            p.tier == Tier::Bundled
+                && !app.plugins.disabled.contains(&p.manifest.id)
+                && matches!(&p.life, Life::Errored { error, .. } if error.contains("watchdog"))
+                && super::sources::contributions(&p.manifest.id).iter().any(|k| matches!(*k, "Setting" | "SettingsPage"))
+                && app.plugins.dormant.watchdog_retries.get(&p.manifest.id).copied().unwrap_or(0) < MAX_RETRIES
+        })
+        .map(|(i, p)| (i, p.manifest.id.clone()))
+        .collect();
+    let mut any = false;
+    for (i, id) in ids {
+        let n = app.plugins.dormant.watchdog_retries.entry(id.clone()).or_insert(0);
+        *n += 1;
+        eprintln!("plugins: retrying {id} on Settings open after startup watchdog (attempt {n}/{MAX_RETRIES})");
+        drive(app, i, LifeEvent::Load);
+        any = true;
+    }
+    any
+}
+
 /// Whether dormant plugin `id`'s recorded contribution `key` of `kind` handed over function `name`.
 pub fn recorded_fn(app: &App, id: &str, kind: &str, key: &str, name: &str) -> bool {
     app.plugins.dormant.asleep.get(id).and_then(|a| a.record.window.get(kind)).is_some_and(|es| es.iter().any(|e| e.key == key && e.fns.iter().any(|f| f == name)))

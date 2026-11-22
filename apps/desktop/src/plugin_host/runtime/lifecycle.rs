@@ -118,9 +118,9 @@ fn start_loaded(app: &mut App, i: usize) {
 
 /// How long a plugin whose start ran out of time shows its error card before it starts again, in s.
 const RESTART_AFTER: f64 = 2.0;
-/// Restarts a plugin gets after its start ran out of time, per window: one, as official waits once
-/// on a renderer that stopped answering before it asks; a start that times out again stays on its
-/// error card with Reload (official's Relaunch).
+/// Restarts a plugin gets after its start ran out of time, per window, never reset: one. It repairs
+/// a false positive of our own watchdog (a busy machine at boot); official has no such watchdog and
+/// restarts nothing by itself. A start that times out again stays on its error card with Reload.
 const RESTARTS: u32 = 1;
 
 /// The window's plugins whose start ran out of time: each restart still to come (the plugin, and
@@ -130,6 +130,13 @@ const RESTARTS: u32 = 1;
 pub struct Restarts {
     due: Vec<(String, f64)>,
     count: std::collections::BTreeMap<String, u32>,
+}
+
+impl Restarts {
+    /// The window is closing or the app is quitting: no plugin starts again on the way out.
+    pub fn cancel_all(&mut self) {
+        self.due.clear();
+    }
 }
 
 /// Plugin `id`'s start ran past the watchdog: it starts again in [`RESTART_AFTER`], up to
@@ -150,21 +157,20 @@ fn restart_later(app: &mut App, id: &str) {
     }
 }
 
-/// Starts again the plugins whose restart came due ([`restart_later`]); wakes at the next one.
+/// Starts again one plugin whose restart came due ([`restart_later`]) and wakes for the next. One a
+/// frame: plugins that timed out together in a busy boot don't all start again in one frame.
 fn poll_restarts(app: &mut App, tx: &mut Tx) -> bool {
     let now = *app.clock;
-    let (due, later): (Vec<_>, Vec<_>) = std::mem::take(&mut app.plugins.restarts.due).into_iter().partition(|(_, at)| *at <= now);
-    if let Some(next) = later.iter().map(|(_, at)| *at).min_by(f64::total_cmp) {
-        tx.wake_at(next);
+    let restarts = &mut app.plugins.restarts;
+    let id = restarts.due.iter().position(|(_, at)| *at <= now).map(|k| restarts.due.remove(k).0);
+    if let Some(next) = restarts.due.iter().map(|(_, at)| *at).min_by(f64::total_cmp) {
+        tx.wake_at(next.max(now));
     }
-    app.plugins.restarts.due = later;
-    let mut changed = false;
-    for (id, _) in due {
-        let Some(i) = app.plugins.find(&id).filter(|&i| matches!(app.plugins.list[i].life, Life::Errored { .. })) else { continue };
-        drive(app, i, LifeEvent::Load);
-        changed = true;
-    }
-    changed
+    let Some(i) = id.and_then(|id| app.plugins.find(&id)).filter(|&i| matches!(app.plugins.list[i].life, Life::Errored { .. })) else {
+        return false;
+    };
+    drive(app, i, LifeEvent::Load);
+    true
 }
 
 /// [`LifeEffect::Stop`]: fires `Disposing` in `script`, then withdraws what plugin `i`
