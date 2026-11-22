@@ -200,19 +200,39 @@ pub fn snapshot_directory<T>(
     if meta.file_type().is_symlink() || !meta.is_dir() {
         return Err(ImportFailure::Read);
     }
-    let mut left = max_bytes;
-    for entry in fs::read_dir(directory).map_err(|e| io_failure(&e))?.flatten() {
-        let name = entry.file_name();
-        let Ok(kind) = entry.file_type() else { continue };
-        if !kind.is_file() || name.eq_ignore_ascii_case("LOCK") {
-            continue;
+    // The folder is copied file by file while its owner may still write it: a log flushed and
+    // deleted mid-copy leaves a copy that reads as empty, and rusty-leveldb does not notice a
+    // missing log. So the folder's files and sizes are listed before and after each copy, and a
+    // copy is read only when nothing changed in between; three changed copies fail.
+    for _ in 0..3 {
+        let before = listing(directory)?;
+        let mut left = max_bytes;
+        for (name, _) in &before {
+            // A live log may grow while it is copied: each copy is held to what the budget has left.
+            let copy = dir.join(name);
+            copy_regular_bounded(&directory.join(name), &copy, left)?;
+            left = left.saturating_sub(fs::metadata(&copy).map_or(left, |m| m.len()));
         }
-        // A live log may grow while it is copied: each copy is held to what the budget has left.
-        let copy = dir.join(&name);
-        copy_regular_bounded(&entry.path(), &copy, left)?;
-        left = left.saturating_sub(fs::metadata(&copy).map_or(left, |m| m.len()));
+        if listing(directory)? == before {
+            return read(&dir);
+        }
+        for (name, _) in &before {
+            fs::remove_file(dir.join(name)).ok();
+        }
     }
-    read(&dir)
+    Err(ImportFailure::Read)
+}
+
+/// The regular files of `directory` other than `LOCK`, with their sizes, by name.
+fn listing(directory: &Path) -> Result<Vec<(std::ffi::OsString, u64)>, ImportFailure> {
+    let mut files: Vec<(std::ffi::OsString, u64)> = fs::read_dir(directory)
+        .map_err(|e| io_failure(&e))?
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()) && !entry.file_name().eq_ignore_ascii_case("LOCK"))
+        .map(|entry| (entry.file_name(), entry.metadata().map_or(0, |m| m.len())))
+        .collect();
+    files.sort();
+    Ok(files)
 }
 
 /// Sweeps any stale non-symlink snapshot directories left behind by a crashed process.
