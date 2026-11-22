@@ -127,6 +127,15 @@ impl CefRuntime {
         #[cfg(not(windows))]
         let ok = cef::initialize(Some(&main_args), Some(&settings), Some(&mut app), std::ptr::null_mut());
         assert_eq!(ok, 1, "cef::initialize failed");
+        // A stated platform state for this revision, written once where anyone looks.
+        #[cfg(target_os = "linux")]
+        {
+            use std::io::Write as _;
+            eprintln!("browser engine: sandbox: off on Linux in this revision");
+            if let Ok(mut log) = std::fs::OpenOptions::new().create(true).append(true).open(profile.root.join("debug.log")) {
+                let _ = writeln!(log, "browser engine: sandbox: off on Linux in this revision");
+            }
+        }
         if let Some(global) = cef::request_context_get_global_context() {
             crate::preview::handler::ban_file_scheme(&global);
         }
@@ -200,6 +209,9 @@ wrap_app! {
                     "disable-extensions-except",
                     "disable-extensions",
                     "disable-web-security",
+                    "single-process",
+                    "in-process-gpu",
+                    "gpu-launcher",
                     "allow-file-access-from-files",
                     "user-data-dir",
                     "disable-site-isolation-trials",
@@ -236,10 +248,7 @@ wrap_app! {
                     "disable-seccomp-filter-sandbox",
                     "disable-namespace-sandbox",
                     "disable-setuid-sandbox",
-                    "single-process",
-                    "in-process-gpu",
                     "no-zygote",
-                    "gpu-launcher",
                     "browser-subprocess-path",
                     "allow-no-sandbox-job",
                     "disable-win32k-lockdown",
