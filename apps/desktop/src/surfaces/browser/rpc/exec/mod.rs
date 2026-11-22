@@ -211,6 +211,7 @@ pub(super) fn verify_authorized_state(
             .resolve_tab(app, wire_id)
             .map_err(|msg| Outcome::fail(failure_code::OPERATION_FAILED, msg))?;
         if att.generation_of(host_id) != want_gen {
+            browser_pane::rpc_trace::t("doc.changed.gen", format_args!("{host_id} want {want_gen} now {}", att.generation_of(host_id)));
             return Err(Outcome::fail(
                 failure_code::DOCUMENT_CHANGED,
                 "The tab navigated or changed documents after authorization. Refresh state and retry.",
@@ -223,6 +224,7 @@ pub(super) fn verify_authorized_state(
         expected_res.sort();
         expected_res.dedup();
         if actual.key != want_target.key || actual.resources != expected_res {
+            browser_pane::rpc_trace::t("doc.changed.target", "");
             return Err(Outcome::fail(
                 failure_code::DOCUMENT_CHANGED,
                 "The page or its frames changed after authorization. Retry so permissions can re-check the current URLs.",

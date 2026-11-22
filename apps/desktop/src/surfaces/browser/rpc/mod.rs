@@ -374,6 +374,9 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
         {
             let st = app.kernel.slots.get_mut(&BROWSER_RPC);
             for ev in events {
+                if ev.session_id.is_none() && (ev.method.starts_with("Page.") || ev.method.starts_with("Runtime.executionContext")) {
+                    browser_pane::rpc_trace::t("app.ev", format_args!("{} {} {}", ev.tab_id, ev.method, ev.params.get("frame").and_then(|f| f.get("url")).or_else(|| ev.params.get("url")).and_then(|u| u.as_str()).unwrap_or("")));
+                }
                 for att in st.sessions.values_mut() {
                     if let Some(diag) = att.diagnostics.get_mut(&ev.tab_id) {
                         diag.ingest_cdp_event(&ev.method, &ev.params, ev.session_id.as_deref());

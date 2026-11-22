@@ -379,7 +379,10 @@ pub(super) fn try_start(
 
 fn eval_target_outcome(err: EvalTargetError) -> Outcome {
     match err {
-        EvalTargetError::DocumentChanged(msg) => Outcome::fail(failure_code::DOCUMENT_CHANGED, msg),
+        EvalTargetError::DocumentChanged(msg) => {
+            browser_pane::rpc_trace::t("doc.changed.eval", &msg);
+            Outcome::fail(failure_code::DOCUMENT_CHANGED, msg)
+        }
         EvalTargetError::Failed(msg) => Outcome::fail(failure_code::OPERATION_FAILED, msg),
     }
 }

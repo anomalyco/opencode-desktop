@@ -769,6 +769,14 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                 if let EngineMsg::CdpResponse { request_id, .. } = &msg {
                     crate::rpc_trace::t("cdp.wire", request_id);
                 }
+                if let EngineMsg::CdpEvent { tab_id, method, session_id: None, .. } = &msg
+                    && (method.starts_with("Page.") || method.starts_with("Runtime.executionContext"))
+                {
+                    crate::rpc_trace::t("wire.ev", format_args!("{tab_id} {method}"));
+                }
+                if let EngineMsg::TabUpdate { tab } = &msg {
+                    crate::rpc_trace::t("wire.tab", format_args!("{} url={} loading={}", tab.tab_id, tab.url, tab.loading));
+                }
                 link.inbox_tx.send(msg).ok();
                 link.wake();
             }

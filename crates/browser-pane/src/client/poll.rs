@@ -166,6 +166,7 @@ impl BrowserHost {
                     changed = true;
                 }
                 EngineMsg::TabUpdate { tab } => {
+                    crate::rpc_trace::t("tab.update", format_args!("{} url={} loading={} back={} fwd={} err={:?}", tab.tab_id, tab.url, tab.loading, tab.can_go_back, tab.can_go_forward, tab.load_error));
                     changed |= self.upsert_tab(tab);
                 }
                 EngineMsg::TabClosed { tab_id } => {

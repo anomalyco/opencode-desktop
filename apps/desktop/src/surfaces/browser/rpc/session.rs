@@ -258,6 +258,7 @@ impl SessionAttachment {
     pub fn bump_generation(&mut self, host_id: u64) {
         let entry = self.generations.entry(host_id).or_insert(1);
         *entry = entry.saturating_add(1);
+        browser_pane::rpc_trace::t("gen.bump", format_args!("{host_id} -> {}", *entry));
         if let Some(r) = self.refs.get_mut(&host_id) {
             r.clear_on_nav();
         }
@@ -332,6 +333,7 @@ impl SessionAttachment {
             if let Some(resp) = app.workspace_panes.browser.host.take_cdp_response(req_id) {
                 match resp {
                     Ok(val) => {
+                        browser_pane::rpc_trace::t("app.frametree", format_args!("{host_id} {sid:?}"));
                         if self.frames.entry(host_id).or_default().ingest_frame_tree(&val, sid.as_deref()) {
                             self.bump_generation(host_id);
                         }
@@ -490,6 +492,7 @@ impl SessionAttachment {
                 .get(host_id)
                 .is_some_and(|prev| prev != &tab.url && !tab.url.is_empty());
             if url_changed {
+                browser_pane::rpc_trace::t("sync.url", format_args!("{host_id} {}", tab.url));
                 self.bump_generation(*host_id);
                 self.record_recording_url(*host_id, &tab.url);
             }

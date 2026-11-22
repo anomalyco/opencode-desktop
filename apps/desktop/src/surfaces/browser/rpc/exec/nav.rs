@@ -324,6 +324,7 @@ fn start_history(
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     app.mark_browser_tab_unseen(host_id);
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
+    browser_pane::rpc_trace::t("nav.start", format_args!("{host_id} {}", if is_back { "back" } else { "forward" }));
     if is_back {
         app.workspace_panes.browser.host.back(host_id);
     } else {
@@ -644,6 +645,7 @@ pub(super) fn step_wait_load(
     if !settled {
         return None;
     }
+    browser_pane::rpc_trace::t("nav.settled", format_args!("{} loading={} saw={} after={:?}", st.host_id, tab.loading, st.saw_loading, now.duration_since(st.started_at)));
     if let Some(err) = &tab.load_error {
         let msg = format!("Page failed to load ({err}).");
         if st.close_on_fail {
