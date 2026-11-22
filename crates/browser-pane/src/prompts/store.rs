@@ -157,7 +157,10 @@ impl PermissionScope {
     pub fn from_context(context: &ContextKind) -> Self {
         match context {
             ContextKind::Default => Self::Profile,
-            ContextKind::RemoteServer { server_id, .. } => Self::Session(server_id.clone()),
+            ContextKind::RemoteServer { server_id, .. } => {
+                let sid = server_id.trim();
+                if sid.is_empty() { Self::VisitOnly } else { Self::Session(sid.to_owned()) }
+            }
             ContextKind::Preview { .. }
             | ContextKind::Artifact { .. }
             | ContextKind::Private => Self::VisitOnly,
@@ -292,6 +295,15 @@ impl SitePermissions {
                 self.session_decisions.insert((server_id.clone(), origin, permission), setting);
             }
             PermissionScope::VisitOnly => {}
+        }
+    }
+
+    /// Drops all RAM-only session permission grants/denials for `server_id` (called when that
+    /// remote server disconnects or its isolated context is dropped).
+    pub fn clear_session(&mut self, server_id: &str) {
+        let sid = server_id.trim();
+        if !sid.is_empty() {
+            self.session_decisions.retain(|(k, _, _), _| k != sid);
         }
     }
 

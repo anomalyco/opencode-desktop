@@ -342,6 +342,7 @@ impl crate::BrowserHost {
             self.remote_proxies.insert(sid.to_owned(), cfg.clone());
         } else {
             self.remote_proxies.remove(sid);
+            self.site_permissions.clear_session(sid);
         }
         for t in &mut self.tabs {
             if let crate::protocol::ContextKind::RemoteServer { server_id: id, proxy: cur } = &mut t.context
@@ -615,6 +616,7 @@ impl crate::BrowserHost {
         if let crate::protocol::ContextKind::RemoteServer { server_id, .. } = &context {
             let sid = server_id.trim();
             self.remote_proxies.remove(sid);
+            self.site_permissions.clear_session(sid);
         }
         if !context.is_default() {
             self.send(crate::protocol::HostMsg::DropContext { context });
