@@ -72,6 +72,16 @@ pub(super) fn service_methods(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> m
         .set_name("=Browser:ListSourceSitesAsync")
         .call(raw)?;
     t.raw_set("ListSourceSitesAsync", call)?;
+    // `Browser:EndPasskeyNotice(tabId)`: the import a page's passkey notice opened brought cookies,
+    // so the notice goes (`panel.tsx:611-614` `answerNotice(..., true)`).
+    method(lua, t, "EndPasskeyNotice", |lua, id: String| {
+        require_settings_caller(lua, "Browser:EndPasskeyNotice")?;
+        let Ok(id) = id.parse::<u64>() else { return Ok(()) };
+        with_app("Browser:EndPasskeyNotice", |app| {
+            app.later(Box::new(move |s: &mut App, _: &mut Tx| s.workspace_panes.browser.host.dismiss_blocked_guard_notice(id)));
+            Ok(())
+        })
+    })?;
     Ok(())
 }
 

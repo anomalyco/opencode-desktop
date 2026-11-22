@@ -323,6 +323,7 @@
   "sites.loading": "Reading the sites in {{browser}}…",
   "sites.empty": "This profile has no sites to import.",
   "sites.unmatched": "No site matches your search.",
+  "sites.missing": "No sign-in for {{site}} was found in {{browser}}.",
   "sites.failed": "Couldn't read the sites in this browser.",
   "import.some.one": "Import {{number}} site",
   "import.some.other": "Import {{number}} sites",
