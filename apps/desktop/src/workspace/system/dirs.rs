@@ -19,7 +19,9 @@
 //! request's build (`anomaly.opencode-rune.pr.<N>`) keeps `rune-opencode.pr-<N>`, as each of
 //! OpenCode Desktop's channels has its own `userData`: installing, running or uninstalling one
 //! never touches another's profile (a `RUNE_DIRS_ROOT` run, apart already, keeps `rune-opencode`
-//! under its root). The browser engine's folder stays shared.
+//! under its root). Stable and beta builds keep `rune-opencode.stable` and `rune-opencode.beta`
+//! (apps of their own beside dev's, as OpenCode Desktop's Dev, Beta and production apps are);
+//! dev keeps `rune-opencode`. The browser engine's folder stays shared.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -55,7 +57,12 @@ fn release_id() -> &'static str {
 fn pr_id() -> String {
     match option_env!("OPENCODE_RUNE_BUNDLE_ID").and_then(|id| id.strip_prefix("anomaly.opencode-rune.pr.")) {
         Some(n) if !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) => format!("{APP_ID}.pr-{n}"),
-        _ => APP_ID.to_owned(),
+        // Stable and beta are apps of their own beside dev's (`win_install::side_by_side`), each
+        // with its own `userData` as OpenCode Desktop's channels have; dev keeps `rune-opencode`.
+        _ => match option_env!("OPENCODE_RUNE_BUILD_CHANNEL") {
+            Some(c @ ("stable" | "beta")) => format!("{APP_ID}.{c}"),
+            _ => APP_ID.to_owned(),
+        },
     }
 }
 
