@@ -675,7 +675,7 @@ export type SiteChooser = {
 -- `site-chooser.tsx:20` `ROW_HEIGHT`.
 local SITE_ROW = 32
 -- Set below the import dialog, which draws it.
-local siteList: (i18n: I18nService, view: View, chooser: SiteChooser, busy: boolean) -> ui.Node
+local siteList: (i18n: I18nService, view: View, chooser: SiteChooser, busy: boolean, onImport: () -> ()) -> ui.Node
 
 -- "Import from <browser>" (`site-chooser.tsx:328-384`): what comes over, as two boxes, "Sign-ins" and
 -- "Browsing history", then Cancel and Import. Import needs at least one box; while it runs the boxes
@@ -721,7 +721,11 @@ function settings.renderImportDialog(
             box("history", i18n:T("import.history"), boxes.history),
         }
     if chooser and chooser.revealed then
-        table.insert(body, siteList(i18n, view, chooser, busy))
+        table.insert(body, siteList(i18n, view, chooser, busy, function()
+            if canImport then
+                onImport()
+            end
+        end))
     end
     if message ~= nil then
         table.insert(body, ui.text(message.text, MUTED, {
@@ -796,7 +800,7 @@ end
 -- The sites under the boxes (`site-chooser.tsx:385-565`): the search and, with several browser
 -- profiles, the profile; the count with Select all / none for the sites shown; then the list, one
 -- row per site with its box, or in its place what is going on (loading, failed, empty, unmatched).
-siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: boolean): ui.Node
+siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: boolean, onImport: () -> ()): ui.Node
     local searching = chooser.query ~= ""
     local top: { ui.Node } = {
         ui.field({
@@ -917,12 +921,16 @@ siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: b
         } :: { any })
         -- One Tab stop, as official's listbox (`site-chooser.tsx:295-324`): Up and Down move between the
         -- sites' boxes and stop at the ends, Home and End go to the ends, a typed name moves to its site,
-        -- and Space ticks or unticks the focused one.
+        -- Space ticks or unticks the focused one, and Return imports.
         else ui.frame({
             key = "settings-import-sites",
             role = "list",
             label = i18n:T("sites.list"),
             focusGroup = true,
+            keys = { "Enter" },
+            onKey = view:Handler(function()
+                onImport()
+            end),
             w = "full",
             grow = 1,
             minH = 0,

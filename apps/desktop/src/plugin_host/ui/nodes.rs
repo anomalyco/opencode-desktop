@@ -11,7 +11,7 @@ use crate::palette::{Pal, kit, pal};
 use crate::plugin_host::{FlyoutEvent, bump, cx, flyout, input_changed, key_pressed, native, requests, services, submitted};
 
 pub fn all() -> Vec<HostNode> {
-    let mut all = ui_nodes::base_nodes(
+    let mut all = ui_nodes::base_nodes::<App>(
         |id| cx::with_app(|app| crate::keymap::command_chord(app, id)).flatten(),
         |command| cx::with_app(|app| app.catalog().into_iter().find(|c| c.id == command).and_then(|c| c.chord)).flatten(),
     );

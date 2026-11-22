@@ -717,6 +717,10 @@ export type UiFrameProps = {
     focusReturn: string?,
     --- One Tab stop for the focusable controls inside, which the arrow keys move between, as a roving `tabindex` does: Up and Down with `role` `list`, `listbox`, `menu` or `tree`, Left and Right as well otherwise. Home and End go to the ends; a `list` or `tree` stops at its ends, the others wrap. In a `list`, `listbox`, `menu`, `tree` or `tablist`, typing moves to the first control whose label starts with it. Space presses the focused control, and in a list Return does too.
     focusGroup: boolean?,
+    --- Keys `onKey` takes while focus is on the frame or inside it, outside a text field, pressed with no modifier: any of `Enter`, `Escape`, `ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`, `Home`, `End`, `PageUp`, `PageDown`, `Delete` and `Backspace`. A key it takes does nothing else there: Return in a `focusGroup` list then no longer presses the focused control.
+    keys: { string }?,
+    --- Runs as a key `keys` names is pressed, with its name in `event.keyName`.
+    onKey: UiHandler?,
 }
 
 --- Text styling: `ui.text` and `ui.shimmer`.

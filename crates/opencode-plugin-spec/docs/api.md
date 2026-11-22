@@ -1570,6 +1570,8 @@ Also takes every field of [`UiBoxProps`](#uiboxprops).
 | `borderSides` | `{ number }?` | Per-side border widths in points: `{ top, right, bottom, left }`. Overrides `borderWidth`. |
 | `focusReturn` | `string?` | The key of the element that takes focus when this frame leaves while focus is on it or inside it: one view of a popover handing focus to the control that leads back to it. That element, or its first focusable child; nothing happens when none shows. Since 1.7. |
 | `focusGroup` | `boolean?` | One Tab stop for the focusable controls inside, which the arrow keys move between, as a roving `tabindex` does: Up and Down with `role` `list`, `listbox`, `menu` or `tree`, Left and Right as well otherwise. Home and End go to the ends; a `list` or `tree` stops at its ends, the others wrap. In a `list`, `listbox`, `menu`, `tree` or `tablist`, typing moves to the first control whose label starts with it. Space presses the focused control, and in a list Return does too. Since 1.7. |
+| `keys` | `{ string }?` | Keys `onKey` takes while focus is on the frame or inside it, outside a text field, pressed with no modifier: any of `Enter`, `Escape`, `ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`, `Home`, `End`, `PageUp`, `PageDown`, `Delete` and `Backspace`. A key it takes does nothing else there: Return in a `focusGroup` list then no longer presses the focused control. Since 1.7. |
+| `onKey` | `UiHandler?` | Runs as a key `keys` names is pressed, with its name in `event.keyName`. Since 1.7. |
 
 ### UiTextProps
 
