@@ -1,4 +1,4 @@
--- OpenCode plugin contract 1.6: global types for luau-lsp.
+-- OpenCode plugin contract 1.7: global types for luau-lsp.
 -- Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit.
 -- Load it with `luau-lsp analyze --definitions=@opencode=plugins/opencode.d.luau`.
 
