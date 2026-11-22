@@ -8,7 +8,7 @@ use rune_theme_opencode::icons as ic;
 
 use super::ComposerHost;
 use crate::focus::FocusExt;
-use crate::images::{Fetched, identity, opens};
+use crate::images::{Fetched, Strip, identity, opens};
 use crate::palette::Pal;
 use crate::user_parts::{CARD_SUBTITLE, CARD_TITLE};
 
@@ -155,7 +155,7 @@ pub fn chips<S: ComposerHost>(s: &S, p: &Pal) -> Option<El> {
                             .box_shadow(Pal::ring_in(p.border)),
                     );
                 let held = el().key("held").size(THUMB.0, THUMB.1);
-                (THUMB.0, opens(s, thumb, held, format!("composer:{id}"), f, img, None))
+                (THUMB.0, opens(s, thumb, held, Strip::new(format!("composer:{id}"), std::sync::Arc::from([f.clone()]), 0), img, None))
             }
             None if f.is_image() && store.fetched(f) == Some(Fetched::Loading) => (THUMB.0, el().size(THUMB.0, THUMB.1)),
             None => (160.0, card(p, &f.name, type_label(&f.name)).help(f.name.clone()).help_above()),

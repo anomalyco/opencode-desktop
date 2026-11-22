@@ -16,8 +16,8 @@ use std::time::Duration;
 
 use browser_pane::cookies::database::SnapshotScratch;
 use browser_pane::cookies::format::prepare_for_import;
-use browser_pane::cookies::sources::read_source_cookies;
-use browser_pane::cookies::{CookieRead, ImportFailure, ProfileEvent, read_cookie_file};
+use browser_pane::cookies::sources::{list_source_sites, read_source_cookies};
+use browser_pane::cookies::{CookieRead, ImportFailure, ProfileEvent, SiteList, SiteListOrder, read_cookie_file};
 use browser_pane::protocol::WireCookie;
 use rune::time::Instant;
 use rune::{FileDialogOptions, Tx};
@@ -60,16 +60,21 @@ struct ClearJob {
     listed: Option<u64>,
     sites: Option<Vec<String>>,
     asked: Option<u64>,
+    /// The engine's clear went; the local-storage check (`local_storage`) runs on a worker.
+    checking: Option<Arc<Mutex<Option<bool>>>>,
     deadline: Instant,
 }
 
-/// The origins a site's cookies belong to: `http://` and `https://` of each host, once each.
+/// The origins a site's cookies belong to: `http://` and `https://` of each host (an IPv6 host
+/// in brackets), once each; a host that makes no origin is left out.
 fn cookie_sites(cookies: &[browser_pane::protocol::WireCookie]) -> Vec<String> {
     let mut sites: Vec<String> = cookies
         .iter()
         .map(|c| c.host.trim_start_matches('.').to_ascii_lowercase())
         .filter(|h| !h.is_empty())
+        .map(|h| if h.contains(':') && !h.starts_with('[') { format!("[{h}]") } else { h })
         .flat_map(|h| [format!("https://{h}"), format!("http://{h}")])
+        .filter(|s| browser_policy::destination_origin(s).as_deref() == Some(s.as_str()))
         .collect();
     sites.sort();
     sites.dedup();
@@ -273,6 +278,43 @@ impl App {
         });
     }
 
+    /// The sites browser `source`'s profile `profile` has cookies for, one per registrable domain
+    /// (`profile/index.ts` `sites`, `sources.ts::readSourceHosts`): `#286`'s `list_source_sites` reads
+    /// the cookies' hosts alone on a worker thread, so no OS key store is asked. `done` gets `sites`
+    /// (`{ site, cookies }`, most recently used first, else by name) and `order`, or `error` as a
+    /// browser import's.
+    pub(crate) fn start_source_sites(&mut self, source: String, profile: String, done: Completer) {
+        let slot = Arc::new(Mutex::new(Some(done)));
+        let filled = slot.clone();
+        let spawned = std::thread::Builder::new().name("browser-source-sites".into()).spawn(move || {
+            let scratch = SnapshotScratch::new(SnapshotScratch::default_dir());
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
+            let data = match list_source_sites(&source, &profile, &scratch, now) {
+                SiteList::Listed { sites, order } => map([
+                    (
+                        "sites",
+                        Data::List(
+                            sites
+                                .into_iter()
+                                .map(|s| map([("site", Data::String(s.site)), ("cookies", Data::Number(f64::from(s.cookies)))]))
+                                .collect(),
+                        ),
+                    ),
+                    ("order", Data::String(if order == SiteListOrder::Recent { "recent" } else { "name" }.into())),
+                ]),
+                SiteList::Failed { reason } => failure(browser_reason(reason)),
+            };
+            if let Some(done) = filled.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                done.complete(data);
+            }
+        });
+        if spawned.is_err()
+            && let Some(done) = slot.lock().unwrap_or_else(|e| e.into_inner()).take()
+        {
+            done.complete(failure("read"));
+        }
+    }
+
     /// The profile's cookie count for Settings > Browser, `None` while the engine is idle or before
     /// the first read lands. Asks the engine again (on the next turn) when the count is old.
     pub(crate) fn browser_cookie_count(&self) -> Option<usize> {
@@ -350,7 +392,7 @@ impl App {
             self.workspace_panes.browser.host.prepare(ANSWER_TIMEOUT);
         }
         self.workspace_panes.browser.cookies.clear =
-            Some(ClearJob { done, listed: None, sites: None, asked: None, deadline: Instant::now() + ANSWER_TIMEOUT });
+            Some(ClearJob { done, listed: None, sites: None, asked: None, checking: None, deadline: Instant::now() + ANSWER_TIMEOUT });
     }
 
     /// When no engine can run the clear: `Some(true)` if the profile was never made on disk,
@@ -434,10 +476,56 @@ impl App {
                 .into_iter()
                 .find_map(|ev| if let ProfileEvent::ActionDone { ok, .. } = ev { Some(ok) } else { None })
         });
+        // DevTools reports no size for local storage: the engine's check cannot see a site that
+        // kept only that, so the profile's own local-storage store is read before "Cleared".
+        if done == Some(true) {
+            let slot = Arc::new(Mutex::new(None));
+            match host.engine_profile_dir() {
+                Some(profile) => {
+                    let filled = slot.clone();
+                    let waker = (*self.waker).clone();
+                    let spawned = std::thread::Builder::new().name("browser-clear-check".into()).spawn(move || {
+                        let clean = local_storage_cleared(&profile);
+                        if let Ok(mut s) = filled.lock() {
+                            *s = Some(clean);
+                        }
+                        if let Some(w) = &waker {
+                            w();
+                        }
+                    });
+                    if spawned.is_err() {
+                        *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(false);
+                    }
+                }
+                None => *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(false),
+            }
+            job.checking = Some(slot);
+            job.deadline = Instant::now() + ANSWER_TIMEOUT;
+        }
+        let checked = job.checking.as_ref().and_then(|slot| slot.lock().ok().and_then(|s| *s));
         let result = match done {
-            Some(ok) => ok,
+            Some(false) => false,
+            // No profile folder to read, or no worker to read it: not cleared, at once.
+            Some(true) => match checked {
+                Some(clean) => clean,
+                None => {
+                    pane.cookies.clear = Some(job);
+                    return false;
+                }
+            },
+            None if job.checking.is_some() => match checked {
+                Some(clean) => clean,
+                None if Instant::now() >= job.deadline => false,
+                None => {
+                    pane.cookies.clear = Some(job);
+                    return false;
+                }
+            },
             None if job.asked.is_none() && host.engine_caps_known() && !host.engine_cookies() => false,
-            None if matches!(host.status(), browser_pane::EngineStatus::NotInstalled | browser_pane::EngineStatus::Failed(_)) => false,
+            // No engine after all: done when the profile was never made on disk, as on a first click.
+            None if matches!(host.status(), browser_pane::EngineStatus::NotInstalled | browser_pane::EngineStatus::Failed(_)) => {
+                host.engine_profile_dir().is_none_or(|p| !p.join("Default").exists())
+            }
             None if ((job.asked.is_some() || job.listed.is_some()) && !host.has_live_sidecar()) || Instant::now() >= job.deadline => false,
             None => {
                 pane.cookies.clear = Some(job);
@@ -535,8 +623,8 @@ fn read_disk_count(profile: &std::path::Path) -> Option<usize> {
     let scratch = SnapshotScratch::new(SnapshotScratch::default_dir());
     browser_pane::cookies::database::snapshot_database(&file, &scratch, |conn| {
         conn.query_row(
-            &format!("SELECT COUNT(*) FROM cookies WHERE NOT (trim(host_key, '.') = ?1 AND name = ?2) AND (has_expires = 0 OR expires_utc > {now})"),
-            [PROBE_COOKIE_HOST, PROBE_COOKIE_NAME],
+            "SELECT COUNT(*) FROM cookies WHERE NOT (trim(host_key, '.') = ?1 AND name = ?2) AND (has_expires = 0 OR expires_utc > CAST(?3 AS INTEGER))",
+            [PROBE_COOKIE_HOST, PROBE_COOKIE_NAME, now.to_string().as_str()],
             |r| r.get::<_, i64>(0),
         )
     })
@@ -547,3 +635,25 @@ fn read_disk_count(profile: &std::path::Path) -> Option<usize> {
 /// The engine's persistence probe cookie (`apps/browser-engine/src/cookies.rs`), never counted.
 const PROBE_COOKIE_HOST: &str = "cookie-check.opencode.invalid";
 const PROBE_COOKIE_NAME: &str = "opencode_cookie_check";
+
+/// Whether no site keeps local storage in the shared profile after a clear: read up to three
+/// times, 1.5 s apart, as the storage service may still be writing its deletions or compacting
+/// (a torn copy); a store still unread after the third counts as not cleared.
+fn local_storage_cleared(profile: &std::path::Path) -> bool {
+    let scratch = SnapshotScratch::new(SnapshotScratch::default_dir());
+    for attempt in 0..3 {
+        if attempt > 0 {
+            std::thread::sleep(Duration::from_millis(1500));
+        }
+        // The reader may meet a file torn by the copy (Chromium compacting mid-read): a panic there is
+        // one failed attempt, never a worker that dies without an answer.
+        let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            browser_pane::cookies::local_storage::sites_with_local_storage(profile, &scratch)
+        }));
+        match read.unwrap_or(Err(browser_pane::cookies::ImportFailure::Read)) {
+            Ok(sites) if sites.is_empty() => return true,
+            Ok(_) | Err(_) => {}
+        }
+    }
+    false
+}

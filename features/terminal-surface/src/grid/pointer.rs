@@ -30,14 +30,14 @@ pub(super) struct ViewportInput {
     pub cols_cap: u16,
     pub rows_cap: u16,
     pub reports: bool,
+    /// Where the text starts in the handling element: the viewport's padding, or zero on the
+    /// screen text itself.
+    pub origin: (f32, f32),
 }
 
 impl ViewportInput {
     fn cell(&self, x: f32, y: f32) -> (f32, f32, u16, u16) {
-        let (lx, ly) = ((x - PAD_X).max(0.0), (y - PAD_Y).max(0.0));
-        let col = ((lx / self.cell_w).floor() as u16).min(self.cols_cap.saturating_sub(1));
-        let row = ((ly / self.cell_h).floor() as u16).min(self.rows_cap.saturating_sub(1));
-        (lx, ly, col, row)
+        super::cell::cell_at(x, y, self.origin, (self.cell_w, self.cell_h), (self.cols_cap, self.rows_cap))
     }
 }
 
@@ -310,6 +310,14 @@ pub(super) fn attach_viewport_handlers<H: TerminalSurfaceHost + 'static>(outer: 
         .on_secondary_press_local(move |app: &mut H, p: PointerEvent, tx: &mut Tx| handle_secondary_press(app, &menu_in, p, tx))
         .on_pointer_move_local(move |app: &mut H, p: PointerEvent, tx: &mut Tx| handle_pointer_move(app, &move_in, p, tx))
         .on_hover_change(move |app: &mut H, inside: bool, _tx: &mut Tx| handle_hover_change(app, &wk_leave, &tid_leave, inside))
+}
+
+/// The screen text's own drag: it is a focusable element (the terminal's Tab stop), and a press
+/// goes to the topmost focusable element under it, so the viewport's `on_drag` never hears a
+/// press that starts on the text. Selecting, a double-click's word, Shift+click and Ctrl+click on
+/// a link start here; the viewport keeps its own for presses in its padding.
+pub(super) fn attach_text_drag<H: TerminalSurfaceHost + 'static>(text: El, input: ViewportInput) -> El {
+    text.on_drag(move |app: &mut H, d: &mut Drag, tx: &mut Tx| handle_drag(app, &input, d, tx))
 }
 
 pub(super) fn render_scrollbar<H: TerminalSurfaceHost + 'static>(

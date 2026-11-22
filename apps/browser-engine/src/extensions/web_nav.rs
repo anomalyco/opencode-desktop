@@ -266,6 +266,9 @@ impl WebNavTracker {
         let mut out = Vec::new();
         if let Some(tab) = self.tabs.get(&engine_tab_id) {
             let main_url = if tab.main.url.is_empty() { tab_url } else { &tab.main.url };
+            if is_private_url(main_url) || is_extension_scheme(main_url) {
+                return Vec::new();
+            }
             out.push(json!({
                 "url": main_url,
                 "errorOccurred": tab.main.error_occurred,

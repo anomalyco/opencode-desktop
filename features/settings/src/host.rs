@@ -556,7 +556,7 @@ pub trait SettingsHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback +
         let _ = tx;
     }
     fn open_external(&mut self, url: &str, tx: &mut Tx) {
-        drop(tx.open_url(url));
+        harness_log::open_url(tx, url);
     }
     fn toast_failed_wire(&mut self, title: String, err: &WireError) {
         self.toast_fail(title, err.to_string());

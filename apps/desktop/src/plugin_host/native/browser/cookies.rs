@@ -65,12 +65,20 @@ pub(super) fn service_methods(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> m
         .set_name("=Browser:ImportSignInsAsync")
         .call(raw)?;
     t.raw_set("ImportSignInsAsync", call)?;
+    // `Browser:ListSourceSitesAsync(source, profile)`: the sites the import dialog's "Choose sites" lists.
+    let raw: Function = vmx.asyncs.raw_get("Browser.ListSourceSitesAsync")?;
+    let call: Function = lua
+        .load("local raw = ... return function(self, source, profile) return raw(source, profile) end")
+        .set_name("=Browser:ListSourceSitesAsync")
+        .call(raw)?;
+    t.raw_set("ListSourceSitesAsync", call)?;
     Ok(())
 }
 
 pub(super) fn asyncs(host: &Host<'_>, t: &Table) -> mlua::Result<()> {
     t.raw_set("Browser.ImportCookieFileAsync", host.async_function("Browser:ImportCookieFileAsync", import_cookie_file)?)?;
     t.raw_set("Browser.ImportSignInsAsync", host.async_function("Browser:ImportSignInsAsync", import_sign_ins)?)?;
+    t.raw_set("Browser.ListSourceSitesAsync", host.async_function("Browser:ListSourceSitesAsync", list_source_sites)?)?;
     t.raw_set("Browser.ClearProfileDataAsync", host.async_function("Browser:ClearProfileDataAsync", clear_profile_data)?)
 }
 
@@ -96,6 +104,15 @@ fn import_sign_ins(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()
     require_settings_caller(lua, "Browser:ImportSignInsAsync")?;
     with_app("Browser:ImportSignInsAsync", |app| {
         app.later(Box::new(move |s: &mut App, _: &mut Tx| s.start_browser_import(source, profile, sites, done)));
+        Ok(())
+    })
+}
+
+fn list_source_sites(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
+    let (source, profile): (String, String) = mlua::FromLuaMulti::from_lua_multi(a, lua)?;
+    require_settings_caller(lua, "Browser:ListSourceSitesAsync")?;
+    with_app("Browser:ListSourceSitesAsync", |app| {
+        app.later(Box::new(move |s: &mut App, _: &mut Tx| s.start_source_sites(source, profile, done)));
         Ok(())
     })
 }
