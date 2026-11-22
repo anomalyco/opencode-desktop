@@ -229,6 +229,13 @@ wrap_app! {
                     "utility-cmd-prefix",
                     "force-webrtc-ip-handling-policy",
                     "extensions-on-chrome-urls",
+                    // Would turn back on what `DISABLED_NET_FEATURES` and the component-updater
+                    // source below turn off (READER-7 #624-S1).
+                    "component-updater",
+                    "enable-features",
+                    "force-fieldtrials",
+                    "force-fieldtrial-params",
+                    "variations-server-url",
                 ] {
                     cmd.remove_switch(Some(&sw.into()));
                 }
@@ -279,6 +286,30 @@ wrap_app! {
             // background fetches, which cost network, disk and CPU while nothing is open.
             cmd.append_switch(Some(&"disable-component-update".into()));
             cmd.append_switch(Some(&"disable-background-networking".into()));
+            // Chrome services official's Electron does not contain (READER-7, `review-rd274.md`):
+            // Safe Browsing (N1), sync (N3), the testing field-trial config and variations seed
+            // that turn experimental features on at every boot of a non-official build (N6b).
+            // The component updater still asked `update.googleapis.com` for the on-device model
+            // manifest (`ceofaddefefcbblgcgnibnonglccbfja`) and fetched it from `edgedl.me.gvt1.com`
+            // despite `--disable-component-update` (Playwright #42910): its update source is moved
+            // to a closed loopback port, so it never leaves the machine.
+            cmd.append_switch_with_value(
+                Some(&"component-updater".into()),
+                Some(&"url-source=http://127.0.0.1:9/".into()),
+            );
+            for sw in [
+                "disable-client-side-phishing-detection",
+                "safebrowsing-disable-auto-update",
+                "safebrowsing-disable-download-protection",
+                "disable-sync",
+                "disable-field-trial-config",
+                "disable-variations-seed-fetch",
+                // N4: belt-and-suspenders alongside `plugins.always_open_pdf_externally = true`
+                // (`context.rs`; Chromium 156 removed `--disable-pdf-extension`, keeping the pref primary).
+                "disable-pdf-extension",
+            ] {
+                cmd.append_switch(Some(&sw.into()));
+            }
             // Disable Cast/DIAL discovery (UDP 5353/1900), mDNS local-IP responder (UDP 5353),
             // and `ConnectionAllowlists` (Spotify CEF 156.0.26 ships with `dcheck_always_on`,
             // where `services/network/network_context.cc:3616` hits `DCHECK(matcher.has_value())`
@@ -292,7 +323,15 @@ wrap_app! {
             // runtime still sent each visited page's form signatures to
             // `content-autofill.googleapis.com`, polled `clients2.google.com/time`, and fetched
             // `www.google.com/async/folae` (NetLog, 21 Nov); Electron (official) makes none of these.
-            const DISABLED_NET_FEATURES: [&str; 8] = [
+            // The rest: services the full Chrome runtime brings that official's Electron does not
+            // contain at all (READER-7's non-extension audit, `notes/review-rd274.md`), so ours is
+            // off as theirs is: Safe Browsing lookups (N1), FedCM's delegation and multi-IdP
+            // extras (N2), password manager and account storage (N3), the Privacy Sandbox APIs and
+            // fenced frames (N6a), payments (N7), Translate and on-device language/model services
+            // (N11). FedCM itself stays: with its content setting blocked
+            // (`permissions::CHROME_SERVICE_SETTINGS`) a page gets `NetworkError` before any
+            // identity-provider fetch, as on official, where Electron has no FedCM delegate.
+            const DISABLED_NET_FEATURES: [&str; 30] = [
                 "MediaRouter",
                 "DialMediaRouteProvider",
                 "CastMediaRouteProvider",
@@ -301,6 +340,28 @@ wrap_app! {
                 "AutofillServerCommunication",
                 "NetworkTimeServiceQuerying",
                 "AimEnabled",
+                "SafeBrowsingHashPrefixRealTimeLookups",
+                "ExtensionTelemetry",
+                "PasswordLeakDetection",
+                "AutofillEnableAccountWalletStorage",
+                "BrowsingTopics",
+                "Fledge",
+                "AdInterestGroupAPI",
+                "ConversionMeasurement",
+                "SharedStorageAPI",
+                "PrivateStateTokens",
+                "WebPayments",
+                "ServiceWorkerPaymentApps",
+                "TranslationAPI",
+                "LanguageDetectionAPI",
+                "OptimizationHints",
+                "OptimizationHintsFetching",
+                "OnDeviceModelService",
+                "OptimizationGuideModelExecution",
+                "Translate",
+                "FencedFrames",
+                "FedCmDelegation",
+                "FedCmMultipleIdentityProviders",
             ];
             let existing = CefString::from(&cmd.switch_value(Some(&"disable-features".into()))).to_string();
             cmd.remove_switch(Some(&"disable-features".into()));

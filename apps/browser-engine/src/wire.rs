@@ -227,7 +227,13 @@ pub enum HostMsg {
     ProfileProbeCookies { request_id: u64 },
     /// "Sign out everywhere": deletes all cookies, HTTP auth credentials, cert exceptions, and
     /// site storage/caches across the default profile and every active remote server partition.
-    ClearProfileData { request_id: u64 },
+    /// `sites`: origins the clear is checked against afterwards (every site the profile had cookies
+    /// for); older apps send none, and only the cookies are checked.
+    ClearProfileData {
+        request_id: u64,
+        #[serde(default)]
+        sites: Vec<String>,
+    },
     /// Toggles two-way cookie mirroring between the default profile and remote server partitions.
     SetShareSignIns { enabled: bool },
     /// Explicitly reconciles a remote server partition's cookies with the default profile.
