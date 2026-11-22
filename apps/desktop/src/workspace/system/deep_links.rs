@@ -115,7 +115,9 @@ pub fn open(s: &mut App, url: &str, tx: &mut Tx) {
     }
     match (project(url, crate::launch::product().scheme()), server_of(s)) {
         (Some((dir, prompt)), Some(server)) => {
-            let ready = ready_servers(s);
+            // While a `new-session` prompt waits for its session, later links wait behind it: the
+            // session the next link opens would take it, and its own prompt would replace it.
+            let ready = if s.services.deep_links.prompt.is_some() { Vec::new() } else { ready_servers(s) };
             let effects = s.services.deep_links.step(DeepLinkEvent::Received(Queued { server, dir, prompt }), |server| ready.iter().any(|r| r == server));
             run(s, effects, tx);
         }
@@ -133,8 +135,16 @@ pub fn drain(s: &mut App, tx: &mut Tx) -> bool {
     if !s.services.deep_links.is_waiting() {
         return typed;
     }
+    if s.services.deep_links.prompt.is_some() {
+        return typed;
+    }
+    // The prompt that held them back just went in: the links behind it open on the next turn.
+    if typed {
+        tx.wake_after(std::time::Duration::ZERO);
+        return true;
+    }
     let ready = ready_servers(s);
-    let Some(server) = ready.first().cloned() else { return false };
+    let Some(server) = ready.first().cloned() else { return typed };
     let effects = s.services.deep_links.step(DeepLinkEvent::Ready { server }, |server| ready.iter().any(|r| r == server));
     run(s, effects, tx)
 }
