@@ -13,16 +13,19 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::json;
 
+use path::{real_root, safe_log};
 pub use path::{Recording, recording};
 
-/// What [`configure`] was given, kept only when recording is on.
-struct Config {
-    env: OsString,
-    anywhere: bool,
-    root: Option<PathBuf>,
+/// Where lines go once recording is on.
+enum Target {
+    /// A debug build or a headless run: the path as given.
+    Anywhere(PathBuf),
+    /// A harness window: the given path checked against the root's real path, resolved once at
+    /// launch (`None` when it could not be: every line is dropped).
+    Rooted { env: OsString, root: Option<PathBuf> },
 }
 
-static CONFIG: OnceLock<Config> = OnceLock::new();
+static TARGET: OnceLock<Target> = OnceLock::new();
 static SAID_NO_LOG: AtomicBool = AtomicBool::new(false);
 
 /// Turns recording on for this process, once at launch, when the run asks for it
@@ -38,18 +41,24 @@ pub fn configure(anywhere: bool, root: Option<&Path>) {
     if log.is_none() {
         say_no_log();
     }
-    drop(CONFIG.set(Config { env, anywhere, root: root.map(Path::to_path_buf) }));
+    let target = if anywhere { Target::Anywhere(PathBuf::from(env)) } else { Target::Rooted { env, root: root.and_then(real_root) } };
+    drop(TARGET.set(target));
 }
 
 /// Appends `{pid, kind, <fields>}` to the log and returns true, or returns false when recording
 /// is off and the caller makes the real open. Once on, it stays on: the log's place is checked
-/// again at every write, so a link made inside the root after launch cannot carry a line out of
-/// it, and with no safe place left the line is dropped and still nothing opens.
+/// again at every write against the root resolved at launch, so a link made inside the root, or
+/// the root itself replaced by one, cannot carry a line out of it; with no safe place left the line
+/// is dropped and still nothing opens.
 pub fn record(kind: &str, fields: &[(&str, &str)]) -> bool {
-    let Some(config) = CONFIG.get() else {
+    let Some(target) = TARGET.get() else {
         return false;
     };
-    let Recording::On { log: Some(log) } = recording(Some(&config.env), config.anywhere, config.root.as_deref()) else {
+    let log = match target {
+        Target::Anywhere(log) => Some(log.clone()),
+        Target::Rooted { env, root } => root.as_deref().and_then(|root| safe_log(Path::new(env), root)),
+    };
+    let Some(log) = log else {
         say_no_log();
         return true;
     };

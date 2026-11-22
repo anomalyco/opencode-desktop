@@ -14,14 +14,13 @@ pub enum Recording {
     On { log: Option<PathBuf> },
 }
 
-/// Recording for `HARNESS_OPEN_EXTERNAL_LOG` = `env`:
+/// Recording for `HARNESS_OPEN_EXTERNAL_LOG` = `env`, decided once at launch:
 /// - `env` unset: off.
 /// - `anywhere` (a debug build or a headless driver run): the log is `env` as given; empty is off.
 /// - Otherwise the run asked only when the app also passed `root`, the folder a `--harness-writes`
 ///   run roots every write under; without it: off. Asked means on, failing closed: the log is
-///   `env` when its real location (junctions and links followed) lies inside the root's real
-///   path, else `<root>/open-external.jsonl` checked the same way, else no log at all (a root that
-///   is not absolute or cannot be resolved included).
+///   [`safe_log`] inside the root's real path ([`real_root`]), or no log at all when there is
+///   none (a root that is not absolute or cannot be resolved included).
 pub fn recording(env: Option<&OsStr>, anywhere: bool, root: Option<&Path>) -> Recording {
     let Some(env) = env else {
         return Recording::Off;
@@ -35,15 +34,20 @@ pub fn recording(env: Option<&OsStr>, anywhere: bool, root: Option<&Path>) -> Re
     let Some(root) = root else {
         return Recording::Off;
     };
-    Recording::On { log: safe_log(Path::new(env), root) }
+    Recording::On { log: real_root(root).and_then(|root| safe_log(Path::new(env), &root)) }
 }
 
-/// `log`, or else `<root>/open-external.jsonl`, at its real location when that lies inside the
-/// real `root`; `None` when neither does or `root` cannot be resolved.
-fn safe_log(log: &Path, root: &Path) -> Option<PathBuf> {
-    let root = std::fs::canonicalize(Some(root).filter(|r| r.is_absolute())?).ok()?;
+/// `root`'s real path (junctions and links followed), resolved once when recording is configured
+/// and kept: a root replaced by a link later is not followed.
+pub fn real_root(root: &Path) -> Option<PathBuf> {
+    std::fs::canonicalize(Some(root).filter(|r| r.is_absolute())?).ok()
+}
+
+/// `log` when its real location lies inside `root` (a real path from [`real_root`], not resolved
+/// again), else `<root>/open-external.jsonl` checked the same way, else `None`.
+pub fn safe_log(log: &Path, root: &Path) -> Option<PathBuf> {
     let lexical = log.is_absolute() && !log.components().any(|c| c == Component::ParentDir);
-    lexical.then(|| real_inside(log, &root)).flatten().or_else(|| real_inside(&root.join("open-external.jsonl"), &root))
+    lexical.then(|| real_inside(log, root)).flatten().or_else(|| real_inside(&root.join("open-external.jsonl"), root))
 }
 
 /// `path` at its real location when that lies inside `root` (already real): the nearest part of
