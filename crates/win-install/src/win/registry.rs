@@ -76,16 +76,16 @@ pub fn write_scheme(scheme: &str, name: &str, exe: &Path) -> Result<(), String> 
 
 /// Whether `scheme` is registered as `write_scheme` writes it for `exe`: a URL protocol whose
 /// command is exactly `"<exe>" "%1"` (the path compared without regard to case). A damaged key
-/// (no `URL Protocol`, no `"%1"`, an unquoted path, another argument) is written again.
+/// (no `URL Protocol`, no `"%1"`, an unquoted path, another argument, other spacing) is written again.
 pub fn scheme_starts(scheme: &str, exe: &Path) -> bool {
     let Ok(key) = CURRENT_USER.open(format!(r"Software\Classes\{scheme}")) else { return false };
     if key.get_string("URL Protocol").is_err() {
         return false;
     }
     let Ok(command) = key.open(r"shell\open\command").and_then(|k| k.get_string("")) else { return false };
-    let Some(rest) = command.trim().strip_prefix('"') else { return false };
+    let Some(rest) = command.strip_prefix('"') else { return false };
     let Some((program, args)) = rest.split_once('"') else { return false };
-    super::same_path(Path::new(program), exe) && args.trim() == "\"%1\""
+    super::same_path(Path::new(program), exe) && args == " \"%1\""
 }
 
 /// Removes `scheme` when it still starts a program in `root`; another app's (OpenCode Desktop
