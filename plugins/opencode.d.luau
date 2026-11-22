@@ -1,4 +1,4 @@
--- OpenCode plugin contract 1.6: global types for luau-lsp.
+-- OpenCode plugin contract 1.7: global types for luau-lsp.
 -- Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit.
 -- Load it with `luau-lsp analyze --definitions=@opencode=plugins/opencode.d.luau`.
 
@@ -561,6 +561,8 @@ export type UiBoxProps = {
     scrollY: boolean?,
     --- Scrolls horizontal overflow.
     scrollX: boolean?,
+    --- With `scrollY`: stays scrolled to the bottom as content grows, as a log or a chat does, until the reader scrolls up.
+    stickBottom: boolean?,
     --- Takes keyboard focus.
     focusable: boolean?,
     --- Takes no presses.
@@ -683,6 +685,8 @@ export type UiFrameProps = {
     scrollY: boolean?,
     --- Scrolls horizontal overflow.
     scrollX: boolean?,
+    --- With `scrollY`: stays scrolled to the bottom as content grows, as a log or a chat does, until the reader scrolls up.
+    stickBottom: boolean?,
     --- Takes keyboard focus.
     focusable: boolean?,
     --- Takes no presses.
@@ -709,6 +713,8 @@ export type UiFrameProps = {
     direction: UiDirection?,
     --- Per-side border widths in points: `{ top, right, bottom, left }`. Overrides `borderWidth`.
     borderSides: { number }?,
+    --- The key of the element that takes focus when this frame leaves while focus is on it or inside it: one view of a popover handing focus to the control that leads back to it. That element, or its first focusable child; nothing happens when none shows.
+    focusReturn: string?,
 }
 
 --- Text styling: `ui.text` and `ui.shimmer`.
@@ -1337,6 +1343,10 @@ export type UiButtonProps = {
     onPress: UiHandler?,
     --- Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1.
     menuTrigger: boolean?,
+    --- Takes focus as the dialog it is in opens, as HTML's `autofocus` in a dialog: a confirmation's Cancel, say. Without one the dialog focuses its first text field or Tab stop.
+    autofocus: boolean?,
+    --- The key of the element that takes focus when this one leaves while it has focus, as a page's `element.focus()` after a view changes: a drill-in's Back hands focus to the row that opened it. That element, or its first focusable child; nothing happens when none shows.
+    focusReturn: string?,
 }
 
 --- `ui.iconButton` props: a square button with an icon. Give it a `label`.
@@ -1421,6 +1431,10 @@ export type UiIconButtonProps = {
     onPress: UiHandler?,
     --- Its `onPress` opens a menu, as Kobalte's `Menu.Trigger` does: a mouse runs it as the button goes down. A key, a screen reader's Invoke or a tap run it on the click. Contract 1.1.
     menuTrigger: boolean?,
+    --- Takes focus as the dialog it is in opens, as HTML's `autofocus` in a dialog: a confirmation's Cancel, say. Without one the dialog focuses its first text field or Tab stop.
+    autofocus: boolean?,
+    --- The key of the element that takes focus when this one leaves while it has focus, as a page's `element.focus()` after a view changes: a drill-in's Back hands focus to the row that opened it. That element, or its first focusable child; nothing happens when none shows.
+    focusReturn: string?,
 }
 
 --- `ui.switch` props: the app's own switch.
@@ -1735,6 +1749,10 @@ export type UiFieldProps = {
     multiline: boolean?,
     --- The look. Defaults to `default`.
     variant: FieldVariant?,
+    --- An icon in the box before the text, as Desktop's `TextInput` `leadingIcon`: a search field's magnifying glass. The `default` variant only.
+    icon: IconName?,
+    --- A Clear button at the box's end that empties the field, as Desktop's `TextInput` `showClearButton`: set it while the field has text. The `default` variant only.
+    clearable: boolean?,
     --- Keys the field hands to its editor's `KeyPressed` instead of handling them: any of `ArrowUp`, `ArrowDown` and `Escape`.
     keys: { string }?,
     --- Runs on Enter with the text in `event.text`.
@@ -2331,6 +2349,8 @@ export type UiFlyoutRowProps = {
     alert: boolean?,
     --- The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`.
     side: Side?,
+    --- Corner radius of the row's hover and open fill. Defaults to 4.
+    radius: number?,
 }
 
 --- `ui.dialogHeader` props: the app's dialog header (`DialogHeader` with a `DialogTitleGroup`), 16 in from the frame, with its close button. Desktop's plugin API calls it `DialogHeader`.

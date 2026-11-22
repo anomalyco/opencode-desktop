@@ -14,8 +14,8 @@ use terminal::{
     SelectionOp,
 };
 
-use super::{PAD_X, PAD_Y, SCROLLBAR_W};
-use crate::mount::TextDrag;
+use super::{PAD_X, PAD_Y, SCROLLBAR_W, edge};
+use crate::mount::{EdgeScroll, TextDrag};
 use crate::{HoverLink, TerminalSurfaceHost, links, menu, ops, side_ops};
 
 const INSTANT: Anim = Anim::INSTANT;
@@ -39,6 +39,10 @@ impl ViewportInput {
     fn cell(&self, x: f32, y: f32) -> (f32, f32, u16, u16) {
         super::cell::cell_at(x, y, self.origin, (self.cell_w, self.cell_h), (self.cols_cap, self.rows_cap))
     }
+}
+
+fn primary_link_mod(mods: rune::Mods) -> bool {
+    if cfg!(target_os = "macos") { mods.cmd } else { mods.ctrl }
 }
 
 fn handle_key(host: &mut dyn TerminalSurfaceHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
@@ -85,17 +89,29 @@ fn handle_drag(host: &mut dyn TerminalSurfaceHost, input: &ViewportInput, d: &mu
         if button != PointerButton::Primary {
             return;
         }
+        let mut held = false;
         match d.phase {
-            // Shift+press moves the end of the selection there, and dragging keeps moving it.
-            Phase::Down if mods.shift && d.clicks == 1 && t.session.selected_text().is_some() => {
+            // Shift+press (without Ctrl/⌘/Alt) moves the end of the selection there, and dragging
+            // keeps moving it; on a link it clears the selection and the release opens the link,
+            // as Desktop's click handler does whatever is selected (`terminal.tsx:312-340`).
+            Phase::Down
+                if mods.shift
+                    && !primary_link_mod(mods)
+                    && !mods.alt
+                    && d.clicks == 1
+                    && t.session.selected_text().is_some()
+                    && !links::is_url_at(&t.session.peek(), col, row) =>
+            {
                 t.drag = TextDrag::Extending;
                 t.session.select(SelectionOp::Extend(GridPoint::Viewport { col, row }));
             }
             Phase::Move if t.drag == TextDrag::Extending => {
                 t.session.select(SelectionOp::Extend(GridPoint::Viewport { col, row }));
+                held = true;
             }
             Phase::Down => {
-                t.drag = TextDrag::Selecting { anchor: (col, row) };
+                let top = t.session.peek().scrollbar.offset as u32;
+                t.drag = TextDrag::Selecting { anchor: (col, top + u32::from(row)) };
                 match d.clicks {
                     2 => t.session.select(SelectionOp::Word(GridPoint::Viewport { col, row })),
                     3.. => t.session.select(SelectionOp::Line(GridPoint::Viewport { col, row })),
@@ -104,26 +120,88 @@ fn handle_drag(host: &mut dyn TerminalSurfaceHost, input: &ViewportInput, d: &mu
             }
             Phase::Move => {
                 if (d.dx.hypot(d.dy)) > 3.0
-                    && let TextDrag::Selecting { anchor: start } = t.drag
+                    && let TextDrag::Selecting { anchor } = t.drag
                 {
                     // Alt drags a block, as in Windows Terminal, iTerm2 and Ghostty.
-                    t.session.select_range_viewport(start, (col, row), mods.alt);
+                    t.session.select(SelectionOp::Range {
+                        start: GridPoint::Screen { col: anchor.0, row: anchor.1 },
+                        end: GridPoint::Viewport { col, row },
+                        rectangular: mods.alt,
+                    });
+                    held = true;
                 }
             }
             Phase::Up => {
+                let extending = t.drag == TextDrag::Extending;
                 t.drag = TextDrag::Idle;
-                // Ctrl+click (⌘-click on macOS) follows a link: the cell's OSC 8 target, else
-                // an address or a file reference in the line under the pointer.
-                let follow = if cfg!(target_os = "macos") { mods.cmd } else { mods.ctrl };
-                if d.clicks == 1 && d.dx.hypot(d.dy) <= 3.0 && follow {
+                t.edge_scroll = None;
+                // Ctrl+click (⌘-click on macOS) or Shift+click follows a link: the cell's OSC 8
+                // target, else an address (or a file reference with Ctrl/⌘) under the pointer.
+                // Shift routes web links to the system browser (`terminal-key-event.ts:44,51`).
+                let follow = !mods.alt && (primary_link_mod(mods) || mods.shift);
+                if !extending && d.clicks == 1 && d.dx.hypot(d.dy) <= 3.0 && follow {
                     follow_link = true;
                 }
             }
+        }
+        // A drag held at or past the text's top or bottom edge scrolls the terminal
+        // ([`poll_edge_scroll`]) until it moves back inside or lets go.
+        if held {
+            let dir = edge::edge_dir(d.y - input.origin.1, f32::from(input.rows_cap) * input.cell_h);
+            t.edge_scroll = match t.edge_scroll {
+                _ if dir == 0 => None,
+                Some(e) if e.dir == dir => Some(e),
+                _ => {
+                    let due = tx.clock() + edge::STEP_SECS;
+                    tx.wake_at(due);
+                    Some(EdgeScroll { dir, due, block: mods.alt })
+                }
+            };
         }
     }
     if follow_link {
         links::follow(host, &input.ws_key, &input.tab_id, col, row, tx);
     }
+}
+
+/// Steps every terminal's due edge scroll: [`edge::LINES`] toward the edge, then the selection's
+/// end to the edge row's far cell (the top row's first, the bottom row's last), as ghostty-web's
+/// auto-scroll interval does (`selection-manager.ts:797-829`). The session runs the scroll before
+/// the selection, so the edge row is the one the scroll brought into view.
+pub(crate) fn poll_edge_scroll(host: &mut dyn TerminalSurfaceHost, tx: &mut Tx) -> bool {
+    let now = tx.clock();
+    let mut stepped = false;
+    for ws in host.terminal_mut().workspaces.values_mut() {
+        for t in &mut ws.tabs {
+            let Some(mut e) = t.edge_scroll else { continue };
+            if t.drag == TextDrag::Idle {
+                t.edge_scroll = None;
+                continue;
+            }
+            if now >= e.due {
+                let snap = t.session.peek();
+                let end = if e.dir < 0 {
+                    GridPoint::Viewport { col: 0, row: 0 }
+                } else {
+                    GridPoint::Viewport { col: snap.cols.saturating_sub(1), row: snap.rows.saturating_sub(1) }
+                };
+                t.session.scroll(ScrollOp::Delta(isize::from(e.dir) * edge::LINES));
+                match t.drag {
+                    TextDrag::Selecting { anchor } => t.session.select(SelectionOp::Range {
+                        start: GridPoint::Screen { col: anchor.0, row: anchor.1 },
+                        end,
+                        rectangular: e.block,
+                    }),
+                    _ => t.session.select(SelectionOp::Extend(end)),
+                }
+                e.due = now + edge::STEP_SECS;
+                t.edge_scroll = Some(e);
+                stepped = true;
+            }
+            tx.wake_at(e.due);
+        }
+    }
+    stepped
 }
 
 fn handle_wheel(host: &mut dyn TerminalSurfaceHost, input: &ViewportInput, ev: WheelEvent, tx: &mut Tx) -> bool {
@@ -217,9 +295,10 @@ fn handle_pointer_move(host: &mut dyn TerminalSurfaceHost, input: &ViewportInput
         tx.live_only();
         return;
     }
-    let follow = if cfg!(target_os = "macos") { mods.cmd } else { mods.ctrl };
-    let next = HoverLink::at(col, row, follow);
     let snap = t.session.peek();
+    let follow = !mods.alt
+        && (primary_link_mod(mods) || (mods.shift && links::is_url_at(&snap, col, row)));
+    let next = HoverLink::at(col, row, follow);
     let now = links::span(&snap, col, row);
     let (was, was_follow) = match t.hover {
         HoverLink::None => (Vec::new(), None),

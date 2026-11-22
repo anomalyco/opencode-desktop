@@ -51,6 +51,9 @@ pub(super) struct TabFrameState {
     /// tab's generation when it lands.
     pub main_contexts_cleared: u64,
     pub main_frame_navigations: u64,
+    /// Main-frame `Page.navigatedWithinDocument` events seen: a same-document back/forward's own
+    /// commit, which bumps nothing but the address.
+    pub main_same_document_navigations: u64,
 }
 
 impl TabFrameState {
@@ -255,6 +258,9 @@ impl TabFrameState {
                     params.get("frameId").and_then(Value::as_str),
                     params.get("url").and_then(Value::as_str),
                 ) {
+                    if session_id.is_none() && self.main_frame_id.as_deref() == Some(fid) {
+                        self.main_same_document_navigations += 1;
+                    }
                     self.record_frame_url(fid, url, session_id);
                 }
             }

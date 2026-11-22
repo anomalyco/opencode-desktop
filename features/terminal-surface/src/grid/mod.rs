@@ -2,6 +2,7 @@
 //! box-drawing vector shapes, selection, interactive scrollback scrollbar, and phase-locked cursor).
 
 mod cell;
+mod edge;
 mod pointer;
 mod rows;
 
@@ -17,6 +18,7 @@ use opencode_ui::palette::Pal;
 use opencode_ui::style::{UI, UI_SMALL};
 use terminal::{CursorShape, TerminalSnapshot};
 
+pub(crate) use self::pointer::poll_edge_scroll;
 use self::pointer::{ViewportInput, attach_text_drag, attach_viewport_handlers, render_quote_bar, render_scrollbar};
 use self::rows::{build_rows, cell_fg_color};
 use crate::mount::TextDrag;

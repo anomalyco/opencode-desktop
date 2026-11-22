@@ -291,6 +291,7 @@
   "signins.bar": "Bring your sign-ins and history from {{browser}}",
   "signins.other": "Import from another browser",
   "signins.more": "More import options",
+  "signins.choose": "Choose sites to import",
   "signins.dismiss": "Not now",
   "signins.imported.from": "Imported sign-ins from {{browser}}",
   "signins.imported.history.from": "Imported sign-ins and history from {{browser}}",

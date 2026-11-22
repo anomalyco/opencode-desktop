@@ -78,6 +78,7 @@ pub enum Bind {
     FindPrev,
     Background,
     Rename,
+    ArchiveSession,
     Model,
     Agent,
     AgentBack,
@@ -222,6 +223,8 @@ fn table() -> Vec<Binding> {
         unlisted(FindPrev, "session.find.previous", key!("ui.fileSearch.previousMatch"), Session, on("mod+shift+g")),
         scoped(Background, "session.background", key!("command.session.background"), Session, on("ctrl+b")),
         scoped(Rename, "session.rename", key!("command.session.rename"), Session, on("ctrl+r")),
+        // `use-session-commands.tsx` `session.archive` (opencode#65428).
+        row(ArchiveSession, "session.archive", key!("command.session.archive"), Session, on("mod+shift+s")),
         row(Model, "model.choose", key!("command.model.choose"), Models, view(base::Bind::Model)),
         row(Agent, "agent.cycle", key!("command.agent.cycle"), Models, view(base::Bind::Agent)),
         row(AgentBack, "agent.cycle.reverse", key!("command.agent.cycle.reverse"), Models, view(base::Bind::AgentBack)),

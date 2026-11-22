@@ -460,6 +460,20 @@ pub fn token(s: &App) -> u64 {
     s.store.token
 }
 
+/// The window's server's stream events of type `ty` only, woken by `wake` (`EventHub::subscribe_to`),
+/// with that server's base: None before the window joins one.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn subscribe_to(s: &App, ty: &'static str, wake: rune::Waker) -> Option<(String, Receiver<Incoming>)> {
+    let hub = &s.store.peer.as_ref()?.stream.hub;
+    Some((hub.base().to_owned(), hub.subscribe_to(ty, wake)))
+}
+
+/// The base of the window's server's stream, once it joined one.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn base(s: &App) -> Option<&str> {
+    Some(s.store.peer.as_ref()?.stream.hub.base())
+}
+
 /// Whether the window holds a peer (it joined, or was adopted into one).
 pub fn joined(s: &App) -> bool {
     s.store.peer.is_some()
