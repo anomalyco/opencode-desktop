@@ -59,8 +59,14 @@ pub fn trigger(s: &App, p: &Pal, project: Option<&opencode_kit::model::Project>,
             t = t.child(text(w.to_owned()).key("location-worktree").font(LABEL).color(ink).group_color(p.text).single_line().dir(rune::Direction::Auto));
         }
     }
-    // `session-identity-header.tsx:234`: `data-[expanded]:bg-v2-overlay-simple-overlay-hover`.
-    if open { t.fill(p.hover) } else { t.help(label).hover(p.hover).press(p.pressed) }
+    // `session-identity-header.tsx:229,234`: `data-[expanded]:bg-v2-overlay-simple-overlay-hover`,
+    // and the location tooltip opens only when the trigger is collapsed (`collapse() > 0`).
+    if open {
+        t.fill(p.hover)
+    } else {
+        let t = if collapse > 0 { t.help(label) } else { t };
+        t.hover(p.hover).press(p.pressed)
+    }
 }
 
 /// The worktree a session in `dir` runs in, by its folder's name: one of the project's sandboxes
