@@ -142,7 +142,7 @@ fn start(a: &Args, log: &dyn Fn(&str)) {
     let exe = a.root.join(&a.exe);
     let cwd = if a.cwd.is_dir() { &a.cwd } else { &a.root };
     // Stripped again here: the app that handed these over may predate the strip.
-    match Command::new(&exe).args(crate::relaunch_args::forwarded(a.rest.iter().cloned())).current_dir(cwd).creation_flags(DETACHED_PROCESS).spawn() {
+    match Command::new(&exe).args(rune::tooling::without_relaunch_drops(a.rest.iter().map(std::ffi::OsString::from).collect())).current_dir(cwd).creation_flags(DETACHED_PROCESS).spawn() {
         Ok(child) => log(&format!("started {} (pid {})", exe.display(), child.id())),
         Err(e) => log(&format!("couldn't start {}: {e}", exe.display())),
     }
