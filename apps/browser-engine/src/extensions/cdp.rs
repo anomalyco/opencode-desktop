@@ -159,8 +159,12 @@ impl ExtensionHost {
                 {
                     sess.shimmed = false;
                     sess.pending_shim_eval_id = None;
+                    sess.setup_failed = false;
+                    sess.setup_pending = 0;
+                    sess.resume_when_ready = None;
                     sess.fetch_confirmed = false;
                     self.execution_contexts.retain(|(s, _), _| s != &sid);
+                    self.pending_setup_cmds.retain(|_, s| s != &sid);
                     self.pending_fetch_resume.retain(|_, (s, _)| s != &sid);
                     self.pending_loaded_resume.retain(|(s, _)| s != &sid);
                     self.remove_session_subscribers(&sid);
@@ -168,17 +172,21 @@ impl ExtensionHost {
             }
             "Inspector.targetReloadedAfterCrash" => {
                 if let Some(sid) = session_id
-                    && let Some(kind) = self.sessions.get_mut(&sid).map(|sess| {
+                    && let Some((kind, is_iframe)) = self.sessions.get_mut(&sid).map(|sess| {
                         sess.attach_started = Instant::now();
                         sess.pause_started = None;
                         sess.pending_shim_eval_id = None;
                         sess.was_paused = true;
+                        sess.setup_failed = false;
+                        sess.setup_pending = 0;
+                        sess.resume_when_ready = None;
                         sess.fetch_confirmed = false;
                         sess.shimmed = false;
-                        sess.kind
+                        (sess.kind, sess.is_iframe)
                     })
                 {
                     self.execution_contexts.retain(|(s, _), _| s != &sid);
+                    self.pending_setup_cmds.retain(|_, s| s != &sid);
                     self.pending_fetch_resume.retain(|_, (s, _)| s != &sid);
                     self.pending_loaded_resume.retain(|(s, _)| s != &sid);
                     self.remove_session_subscribers(&sid);
@@ -186,36 +194,47 @@ impl ExtensionHost {
                     self.pending_fetch_resume.insert(fetch_id, (sid.clone(), true));
                     let batch = match kind {
                         SessionKind::ServiceWorker => vec![
-                            json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
-                            auto_attach_cmd(self.alloc_id(), &sid),
-                            json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.addBinding", "params": { "name": "__ocExtCall" } }),
-                            json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Debugger.enable", "params": {} }),
-                            json!({ "id": self.alloc_id(), "sessionId": sid, "method": "EventBreakpoints.setInstrumentationBreakpoint", "params": { "eventName": "scriptFirstStatement" } }),
+                            json!({ "id": self.alloc_setup_id(&sid), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
+                            auto_attach_cmd(self.alloc_setup_id(&sid), &sid),
+                            json!({ "id": self.alloc_setup_id(&sid), "sessionId": sid, "method": "Runtime.addBinding", "params": { "name": "__ocExtCall" } }),
+                            json!({ "id": self.alloc_setup_id(&sid), "sessionId": sid, "method": "Debugger.enable", "params": {} }),
+                            json!({ "id": self.alloc_setup_id(&sid), "sessionId": sid, "method": "EventBreakpoints.setInstrumentationBreakpoint", "params": { "eventName": "scriptFirstStatement" } }),
                             fetch_enable_cmd(fetch_id, &sid),
                         ],
-                        SessionKind::FileGuardOnly => vec![
-                            auto_attach_cmd(self.alloc_id(), &sid),
-                            fetch_enable_cmd(fetch_id, &sid),
-                        ],
+                        SessionKind::FileGuardOnly => {
+                            let mut cmds = vec![auto_attach_cmd(self.alloc_setup_id(&sid), &sid)];
+                            if is_iframe {
+                                // Re-apply iframe API lockdown on crash reload (READER-7 #592 R2).
+                                cmds.push(json!({ "id": self.alloc_setup_id(&sid), "sessionId": sid, "method": "Page.enable", "params": {} }));
+                                cmds.push(json!({
+                                    "id": self.alloc_setup_id(&sid),
+                                    "sessionId": sid,
+                                    "method": "Page.addScriptToEvaluateOnNewDocument",
+                                    "params": { "source": IFRAME_LOCKDOWN_JS }
+                                }));
+                            }
+                            cmds.push(fetch_enable_cmd(fetch_id, &sid));
+                            cmds
+                        }
                         SessionKind::ExtensionPage | SessionKind::PopupPage | SessionKind::SeedProbe => {
                             let mut cmds = vec![
-                                json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
-                                json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Page.enable", "params": {} }),
-                                auto_attach_cmd(self.alloc_id(), &sid),
+                                json!({ "id": self.alloc_setup_id(&sid), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
+                                json!({ "id": self.alloc_setup_id(&sid), "sessionId": sid, "method": "Page.enable", "params": {} }),
+                                auto_attach_cmd(self.alloc_setup_id(&sid), &sid),
                             ];
                             if kind != SessionKind::SeedProbe {
                                 let ext_id = self.sessions.get(&sid).map(|s| s.ext_id.clone()).unwrap_or_default();
                                 let perms = self.extensions.get(&ext_id).map(|e| e.manifest.permissions.as_slice()).unwrap_or(&[]);
                                 let code = shim_source(kind == SessionKind::PopupPage, perms);
-                                cmds.push(json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.addBinding", "params": { "name": "__ocExtCall" } }));
-                                cmds.push(json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Page.addScriptToEvaluateOnNewDocument", "params": { "source": code } }));
+                                cmds.push(json!({ "id": self.alloc_setup_id(&sid), "sessionId": sid, "method": "Runtime.addBinding", "params": { "name": "__ocExtCall" } }));
+                                cmds.push(json!({ "id": self.alloc_setup_id(&sid), "sessionId": sid, "method": "Page.addScriptToEvaluateOnNewDocument", "params": { "source": code } }));
                             }
                             cmds.push(fetch_enable_cmd(fetch_id, &sid));
                             cmds
                         }
                     };
-                    // `Runtime.runIfWaitingForDebugger` is deferred until Chromium replies to
-                    // `fetch_id` so `UpdateSubresourceLoaderFactories` completes before JS runs.
+                    // `Runtime.runIfWaitingForDebugger` is deferred until BOTH `fetch_id` AND every
+                    // setup command in `batch` reply cleanly (READER-7 #592 R1).
                     self.pipe.send_batch(&batch);
                 }
             }
@@ -387,6 +406,7 @@ impl ExtensionHost {
             !list.is_empty()
         });
         self.execution_contexts.retain(|(s, _), _| s != sid);
+        self.pending_setup_cmds.retain(|_, s| s != sid);
         self.pending_fetch_resume.retain(|_, (s, _)| s != sid);
         self.pending_loaded_resume.retain(|(s, _)| s != sid);
         self.failed_probe_sessions.remove(sid);
@@ -412,26 +432,61 @@ impl ExtensionHost {
         });
     }
 
+    fn alloc_setup_id(&mut self, sid: &str) -> i64 {
+        let id = self.alloc_id();
+        self.pending_setup_cmds.insert(id, sid.to_owned());
+        if let Some(sess) = self.sessions.get_mut(sid) {
+            sess.setup_pending = sess.setup_pending.saturating_add(1);
+        }
+        id
+    }
+
+    fn try_complete_session_setup(&mut self, sid: &str) {
+        let ready = self.sessions.get_mut(sid).and_then(|sess| {
+            if sess.setup_failed || sess.setup_pending > 0 {
+                return None;
+            }
+            let should_resume = sess.resume_when_ready.take()?;
+            sess.fetch_confirmed = true;
+            Some((sess.ext_id.clone(), should_resume))
+        });
+        if let Some((ext_id, should_resume)) = ready {
+            if self.extensions.get(&ext_id).is_some_and(|e| e.loaded) {
+                self.resume_confirmed_session(sid, should_resume);
+            } else if !self.pending_loaded_resume.iter().any(|(s, _)| s == sid) {
+                self.pending_loaded_resume.push((sid.to_owned(), should_resume));
+            }
+        }
+    }
+
     fn handle_cdp_reply(&mut self, id: i64, msg: &Value) -> Vec<ExtEffect> {
         let mut effects = Vec::new();
-        if let Some((sid, should_resume)) = self.pending_fetch_resume.remove(&id) {
-            // Fail closed if `Fetch.enable` returned an error: NEVER resume an unguarded target
-            // (`review-rd274.md` Round-3 §1), and keep `fetch_confirmed = false` so neither this
-            // session nor any queued or future duplicate SW attach can ever unpause the worker.
-            // Also hold resume until `ext.loaded == true` (after post-load
-            // `verify_extension_file_access_disabled` passes; READER-7 F2).
-            if msg.get("error").is_none()
-                && let Some(ext_id) = self.sessions.get_mut(&sid).map(|sess| {
-                    sess.fetch_confirmed = true;
-                    sess.ext_id.clone()
-                })
-            {
-                if self.extensions.get(&ext_id).is_some_and(|e| e.loaded) {
-                    self.resume_confirmed_session(&sid, should_resume);
-                } else if !self.pending_loaded_resume.iter().any(|(s, _)| s == &sid) {
-                    self.pending_loaded_resume.push((sid, should_resume));
+        if let Some(sid) = self.pending_setup_cmds.remove(&id) {
+            if let Some(sess) = self.sessions.get_mut(&sid) {
+                sess.setup_pending = sess.setup_pending.saturating_sub(1);
+                if msg.get("error").is_some() {
+                    sess.setup_failed = true;
+                    sess.resume_when_ready = None;
                 }
             }
+            self.try_complete_session_setup(&sid);
+            return effects;
+        }
+        if let Some((sid, should_resume)) = self.pending_fetch_resume.remove(&id) {
+            // Fail closed if `Fetch.enable` OR any earlier setup command returned an error:
+            // NEVER resume an unguarded target (`review-rd274.md` Round-3 §1, #592 R1), and
+            // hold resume until `ext.loaded == true` (READER-7 F2).
+            if msg.get("error").is_some() {
+                if let Some(sess) = self.sessions.get_mut(&sid) {
+                    sess.setup_failed = true;
+                    sess.resume_when_ready = None;
+                }
+            } else if let Some(sess) = self.sessions.get_mut(&sid)
+                && !sess.setup_failed
+            {
+                sess.resume_when_ready = Some(should_resume);
+            }
+            self.try_complete_session_setup(&sid);
             return effects;
         }
         if let Some(bad_id) = self.pending_stub_cleanup.remove(&id) {
@@ -757,6 +812,10 @@ impl ExtensionHost {
                     pause_started: None,
                     pending_shim_eval_id: None,
                     was_paused: waiting,
+                    is_iframe: false,
+                    setup_failed: false,
+                    setup_pending: 0,
+                    resume_when_ready: None,
                     fetch_confirmed: false,
                     shimmed: false,
                 },
@@ -764,18 +823,17 @@ impl ExtensionHost {
             if waiting {
                 let fetch_id = self.alloc_id();
                 self.pending_fetch_resume.insert(fetch_id, (sid.to_owned(), true));
-                // Put `Fetch.enable` LAST in the batch so `Debugger.enable` and
-                // `EventBreakpoints.setInstrumentationBreakpoint` are guaranteed processed by
-                // Chromium BEFORE `fetch_id` confirms and sends `Runtime.runIfWaitingForDebugger`.
+                // Track every pre-resume setup command + `Fetch.enable` so resume fires strictly
+                // after all confirm cleanly (fail-closed on any setup error, READER-7 #592 R1).
                 let batch = vec![
-                    json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
-                    auto_attach_cmd(self.alloc_id(), sid),
-                    json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.addBinding", "params": { "name": "__ocExtCall" } }),
-                    json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Debugger.enable", "params": {} }),
-                    json!({ "id": self.alloc_id(), "sessionId": sid, "method": "EventBreakpoints.setInstrumentationBreakpoint", "params": { "eventName": "scriptFirstStatement" } }),
+                    json!({ "id": self.alloc_setup_id(sid), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
+                    auto_attach_cmd(self.alloc_setup_id(sid), sid),
+                    json!({ "id": self.alloc_setup_id(sid), "sessionId": sid, "method": "Runtime.addBinding", "params": { "name": "__ocExtCall" } }),
+                    json!({ "id": self.alloc_setup_id(sid), "sessionId": sid, "method": "Debugger.enable", "params": {} }),
+                    json!({ "id": self.alloc_setup_id(sid), "sessionId": sid, "method": "EventBreakpoints.setInstrumentationBreakpoint", "params": { "eventName": "scriptFirstStatement" } }),
                     fetch_enable_cmd(fetch_id, sid),
                 ];
-                // Resume happens strictly in `handle_cdp_reply` after `fetch_id` confirms.
+                // Resume happens strictly in `handle_cdp_reply` after all setup commands + `fetch_id` confirm.
                 self.pipe.send_batch(&batch);
             } else {
                 let fetch_id = self.alloc_id();
@@ -788,10 +846,10 @@ impl ExtensionHost {
                 let perms = self.extensions.get(&ext_id).map(|e| e.manifest.permissions.as_slice()).unwrap_or(&[]);
                 let code = shim_source(false, perms);
                 let batch = vec![
-                    json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
-                    auto_attach_cmd(self.alloc_id(), sid),
+                    json!({ "id": self.alloc_setup_id(sid), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
+                    auto_attach_cmd(self.alloc_setup_id(sid), sid),
                     fetch_enable_cmd(fetch_id, sid),
-                    json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.addBinding", "params": { "name": "__ocExtCall" } }),
+                    json!({ "id": self.alloc_setup_id(sid), "sessionId": sid, "method": "Runtime.addBinding", "params": { "name": "__ocExtCall" } }),
                     json!({ "id": eval_id, "sessionId": sid, "method": "Runtime.evaluate", "params": { "expression": code, "returnByValue": true } }),
                 ];
                 self.pipe.send_batch(&batch);
@@ -822,21 +880,23 @@ impl ExtensionHost {
                     pause_started: None,
                     pending_shim_eval_id: None,
                     was_paused: false,
+                    is_iframe: ttype == "iframe",
+                    setup_failed: false,
+                    setup_pending: 0,
+                    resume_when_ready: None,
                     fetch_confirmed: false,
                     shimmed: false,
                 },
             );
             let fetch_id = self.alloc_id();
-            if waiting {
-                self.pending_fetch_resume.insert(fetch_id, (sid.to_owned(), true));
-            }
-            let mut batch = vec![auto_attach_cmd(self.alloc_id(), sid)];
+            self.pending_fetch_resume.insert(fetch_id, (sid.to_owned(), waiting));
+            let mut batch = vec![auto_attach_cmd(self.alloc_setup_id(sid), sid)];
             if ttype == "iframe" {
                 // Neutralize native `chrome.tabs`/`windows`/etc. inside extension iframes while
                 // keeping `chrome.runtime` native (never installs `__ocExtCall`, READER-12 C2).
-                batch.push(json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Page.enable", "params": {} }));
+                batch.push(json!({ "id": self.alloc_setup_id(sid), "sessionId": sid, "method": "Page.enable", "params": {} }));
                 batch.push(json!({
-                    "id": self.alloc_id(),
+                    "id": self.alloc_setup_id(sid),
                     "sessionId": sid,
                     "method": "Page.addScriptToEvaluateOnNewDocument",
                     "params": { "source": IFRAME_LOCKDOWN_JS }
@@ -895,24 +955,26 @@ impl ExtensionHost {
                     pause_started: None,
                     pending_shim_eval_id: None,
                     was_paused: false,
+                    is_iframe: false,
+                    setup_failed: false,
+                    setup_pending: 0,
+                    resume_when_ready: None,
                     fetch_confirmed: false,
                     shimmed: false,
                 },
             );
             let fetch_id = self.alloc_id();
-            if waiting {
-                self.pending_fetch_resume.insert(fetch_id, (sid.to_owned(), true));
-            }
+            self.pending_fetch_resume.insert(fetch_id, (sid.to_owned(), waiting));
             let mut batch = vec![
-                json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
-                json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Page.enable", "params": {} }),
-                auto_attach_cmd(self.alloc_id(), sid),
+                json!({ "id": self.alloc_setup_id(sid), "sessionId": sid, "method": "Runtime.enable", "params": {} }),
+                json!({ "id": self.alloc_setup_id(sid), "sessionId": sid, "method": "Page.enable", "params": {} }),
+                auto_attach_cmd(self.alloc_setup_id(sid), sid),
             ];
             if kind != SessionKind::SeedProbe {
                 let perms = self.extensions.get(&ext_id).map(|e| e.manifest.permissions.as_slice()).unwrap_or(&[]);
                 let code = shim_source(kind == SessionKind::PopupPage, perms);
-                batch.push(json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Runtime.addBinding", "params": { "name": "__ocExtCall" } }));
-                batch.push(json!({ "id": self.alloc_id(), "sessionId": sid, "method": "Page.addScriptToEvaluateOnNewDocument", "params": { "source": code } }));
+                batch.push(json!({ "id": self.alloc_setup_id(sid), "sessionId": sid, "method": "Runtime.addBinding", "params": { "name": "__ocExtCall" } }));
+                batch.push(json!({ "id": self.alloc_setup_id(sid), "sessionId": sid, "method": "Page.addScriptToEvaluateOnNewDocument", "params": { "source": code } }));
                 if let Some(s) = self.sessions.get_mut(sid) {
                     self.metrics.page_boots += 1;
                     push_bounded(
@@ -922,7 +984,7 @@ impl ExtensionHost {
                 }
             }
             batch.push(fetch_enable_cmd(fetch_id, sid));
-            // Resume happens strictly in `handle_cdp_reply` after `fetch_id` confirms.
+            // Resume happens strictly in `handle_cdp_reply` after all setup commands + `fetch_id` confirm.
             self.pipe.send_batch(&batch);
             return effects;
         }
