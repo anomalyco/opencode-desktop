@@ -225,7 +225,7 @@ fn main() {
     };
     for (commands, want) in [
         (r##"[["rect", 0, 0, 4, 4, { fill: "#fff", f: () => 1 }]]"##, Ok(r##"[["rect",0.0,0.0,4.0,4.0,{"fill":"#ffffffff"}]]"##.to_owned())),
-        (r##"[["rect", 0, 0, Infinity, 4, { fill: "#fff" }]]"##, Err(r#"draw command 0: "rect" argument 3 must be a finite number, got null"#.to_owned())),
+        (r##"[["rect", 0, 0, Infinity, 4, { fill: "#fff" }]]"##, Err(r#"draw command 0: "rect" argument 3 must be a finite number"#.to_owned())),
         ("undefined", Ok("[]".to_owned())),
     ] {
         let got = draw(commands).map(|c| serde_json::to_string(&c.iter().map(opencode_widget::Command::to_value).collect::<Vec<_>>()).unwrap());

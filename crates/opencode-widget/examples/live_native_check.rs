@@ -150,7 +150,7 @@ fn main() {
         other => panic!("an uncaught bad draw should fail the run at line {line:?}, got {other:?}"),
     }
 
-    for (name, source, want) in [("render", INVALID_RENDER, "widget.render: "), ("draw", INVALID_DRAW, "widget.draw(\"0/:c\"): ")] {
+    for (name, source, want) in [("render", INVALID_RENDER, "widget.render: "), ("draw", INVALID_DRAW, "draw command 0: ")] {
         let (seen, end) = posts(&start(source), Duration::from_secs(2));
         let caught = seen.iter().any(|p| matches!(p, Post::Render(Node::Text { text, .. }) if text.starts_with("caught")));
         match end {

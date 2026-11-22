@@ -336,15 +336,6 @@ impl Arg for HostValue {
             _ => None,
         }
     }
-    fn uint(&self) -> Option<u64> {
-        match self {
-            HostValue::Number(n) => match num(*n) {
-                Num::Int(i) if i >= 0 => Some(i as u64),
-                _ => None,
-            },
-            _ => None,
-        }
-    }
     fn text(&self) -> Option<Cow<'_, str>> {
         match self {
             HostValue::String(s) => Some(s.to_string_lossy()),
@@ -380,8 +371,5 @@ impl Arg for HostValue {
     }
     fn is_object(&self) -> bool {
         matches!(self, HostValue::Object(_))
-    }
-    fn show(&self) -> String {
-        self.to_json().unwrap_or(Value::Null).to_string()
     }
 }

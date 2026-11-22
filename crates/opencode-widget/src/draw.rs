@@ -226,8 +226,6 @@ pub enum Command {
 pub(crate) trait Arg {
     /// A number (`Value::as_f64`).
     fn number(&self) -> Option<f64>;
-    /// A non-negative integer (`Value::as_u64`).
-    fn uint(&self) -> Option<u64>;
     fn text(&self) -> Option<Cow<'_, str>>;
     fn flag(&self) -> Option<bool>;
     fn is_null(&self) -> bool;
@@ -238,16 +236,11 @@ pub(crate) trait Arg {
     /// An object's member.
     fn field(&self, key: &str) -> Option<&Self>;
     fn is_object(&self) -> bool;
-    /// As JSON text, for messages.
-    fn show(&self) -> String;
 }
 
 impl Arg for Value {
     fn number(&self) -> Option<f64> {
         self.as_f64()
-    }
-    fn uint(&self) -> Option<u64> {
-        self.as_u64()
     }
     fn text(&self) -> Option<Cow<'_, str>> {
         self.as_str().map(Cow::Borrowed)
@@ -270,26 +263,24 @@ impl Arg for Value {
     fn is_object(&self) -> bool {
         Value::is_object(self)
     }
-    fn show(&self) -> String {
-        self.to_string()
-    }
 }
 
 fn num<A: Arg>(v: &A, what: &str) -> Result<f32, String> {
     match v.number() {
         Some(n) if n.is_finite() => Ok(n as f32),
-        _ => Err(format!("{what} must be a finite number, got {}", v.show())),
+        _ => Err(format!("{what} must be a finite number")),
     }
 }
 
 fn color<A: Arg>(v: &A) -> Result<Color, String> {
-    v.text().as_deref().and_then(Color::parse).ok_or_else(|| format!("not a color: {}", v.show()))
+    v.text().as_deref().and_then(Color::parse).ok_or_else(|| "not a color".to_owned())
 }
 
 fn items<A: Arg>(a: &A) -> impl Iterator<Item = &A> {
     (0..a.len().unwrap_or(0)).filter_map(|i| a.at(i))
 }
 
+/// A gradient: `linear` and `radial` both checked when given (linear wins), then `stops`.
 fn gradient<A: Arg>(v: &A) -> Result<Gradient, String> {
     let coords = |key: &str, n: usize| -> Result<Option<Vec<f32>>, String> {
         let Some(a) = v.field(key) else { return Ok(None) };
@@ -307,113 +298,145 @@ fn gradient<A: Arg>(v: &A) -> Result<Gradient, String> {
     let stops = items(stops)
         .map(|s| match (s.len(), s.at(0), s.at(1)) {
             (Some(2), Some(o), Some(c)) => Ok((num(o, "a stop's offset")?.clamp(0.0, 1.0), color(c)?)),
-            _ => Err(format!("a stop is [offset, color], got {}", s.show())),
+            _ => Err("a stop is [offset, color]".to_owned()),
         })
         .collect::<Result<Vec<_>, String>>()?;
     Ok(Gradient { shape, stops })
 }
 
+/// A paint's fields, in the spec's order: `fill`, `stroke`, `width`, `cap`. An absent (or
+/// undefined) field takes its default; `null` is a value, and wrong.
 fn paint<A: Arg>(v: &A) -> Result<Paint, String> {
     if !v.is_object() {
-        return Err(format!("a paint is an object, got {}", v.show()));
+        return Err("a paint is an object".into());
     }
-    let fill = match v.field("fill") {
-        None => None,
-        Some(f) if f.is_null() => None,
-        Some(g) if g.is_object() => Some(Fill::Gradient(gradient(g)?)),
-        Some(c) => Some(Fill::Color(color(c)?)),
+    let fill = v.field("fill").map(|f| if f.is_object() { gradient(f).map(Fill::Gradient) } else { color(f).map(Fill::Color) }).transpose()?;
+    let stroke = v.field("stroke").map(color).transpose()?;
+    let width = v.field("width").map(|w| num(w, "a stroke's width").map(|w| w.max(0.0))).transpose()?.unwrap_or(1.0);
+    let cap = match v.field("cap").map(|c| c.text()) {
+        None => Cap::Butt,
+        Some(c) => match c.as_deref() {
+            Some("butt") => Cap::Butt,
+            Some("round") => Cap::Round,
+            _ => return Err(r#"a stroke's cap must be "butt" or "round""#.into()),
+        },
     };
-    let stroke = match v.field("stroke") {
-        None => None,
-        Some(s) if s.is_null() => None,
-        Some(c) => Some(color(c)?),
-    };
-    let width = match v.field("width") {
-        None => 1.0,
-        Some(w) if w.is_null() => 1.0,
-        Some(w) => num(w, "a stroke's width")?.max(0.0),
-    };
-    let cap = if v.field("cap").and_then(Arg::text).as_deref() == Some("round") { Cap::Round } else { Cap::Butt };
     Ok(Paint { fill, stroke, width, cap })
 }
 
 fn segment<A: Arg>(v: &A) -> Result<Segment, String> {
-    if v.len().is_none() {
-        return Err(format!("a path segment is an array, got {}", v.show()));
+    let Some(len) = v.len() else { return Err("a path segment is an array".into()) };
+    let verb = v.at(0).and_then(Arg::text).unwrap_or_default();
+    let count = match verb.as_ref() {
+        "M" | "L" => 2,
+        "Q" => 4,
+        "C" => 6,
+        "Z" => 0,
+        _ => return Err("unknown path segment".into()),
+    };
+    if len != count + 1 {
+        return Err(format!("a \"{verb}\" path segment takes {count} coordinates"));
     }
-    let n = |i: usize| v.at(i).ok_or("a path segment is short").and_then(|x| num(x, "a path coordinate").map_err(|_| "a path coordinate isn't a number"));
-    let n = |i| n(i).map_err(str::to_owned);
-    Ok(match v.at(0).and_then(Arg::text).as_deref() {
-        Some("M") => Segment::M(n(1)?, n(2)?),
-        Some("L") => Segment::L(n(1)?, n(2)?),
-        Some("Q") => Segment::Q(n(1)?, n(2)?, n(3)?, n(4)?),
-        Some("C") => Segment::C(n(1)?, n(2)?, n(3)?, n(4)?, n(5)?, n(6)?),
-        Some("Z") => Segment::Z,
-        _ => return Err(format!("unknown path segment {}", v.show())),
+    let n = |i: usize| v.at(i).map_or_else(|| Err("a path coordinate must be a finite number".to_owned()), |x| num(x, "a path coordinate"));
+    Ok(match verb.as_ref() {
+        "M" => Segment::M(n(1)?, n(2)?),
+        "L" => Segment::L(n(1)?, n(2)?),
+        "Q" => Segment::Q(n(1)?, n(2)?, n(3)?, n(4)?),
+        "C" => Segment::C(n(1)?, n(2)?, n(3)?, n(4)?, n(5)?, n(6)?),
+        _ => Segment::Z,
     })
 }
 
+/// A text's style: left off, undefined or `null` is `{}`. Its fields, in the spec's order: `size`,
+/// `weight`, `align`, `color`, `mono`.
 fn text_options<A: Arg>(v: Option<&A>) -> Result<TextOptions, String> {
-    let m = v.filter(|v| v.is_object());
-    let get = |k: &str| m.and_then(|m| m.field(k)).filter(|v| !v.is_null());
+    let style = v.filter(|v| !v.is_null());
+    if style.is_some_and(|s| !s.is_object()) {
+        return Err("a text style is an object".into());
+    }
+    let get = |k: &str| style.and_then(|s| s.field(k));
     Ok(TextOptions {
         size: get("size").map(|s| num(s, "a text size")).transpose()?.unwrap_or(13.0).clamp(1.0, 512.0),
-        weight: get("weight").and_then(Arg::uint).map_or(400, |w| (w.clamp(100, 900) / 100 * 100) as u16),
-        align: match get("align").and_then(Arg::text).as_deref() {
-            Some("center") => TextAlign::Center,
-            Some("right") => TextAlign::Right,
-            _ => TextAlign::Left,
+        weight: match get("weight").map(Arg::number) {
+            None => 400,
+            Some(Some(w)) if [400.0, 500.0, 600.0, 700.0].contains(&w) => w as u16,
+            Some(_) => return Err("a text weight must be 400, 500, 600 or 700".into()),
+        },
+        align: match get("align").map(|a| a.text()) {
+            None => TextAlign::Left,
+            Some(a) => match a.as_deref() {
+                Some("left") => TextAlign::Left,
+                Some("center") => TextAlign::Center,
+                Some("right") => TextAlign::Right,
+                _ => return Err(r#"a text align must be "left", "center" or "right""#.into()),
+            },
         },
         color: get("color").map(color).transpose()?,
-        mono: get("mono").and_then(Arg::flag).unwrap_or(false),
+        mono: get("mono").map(|m| m.flag().ok_or("a text mono must be true or false")).transpose()?.unwrap_or(false),
     })
 }
 
-/// One compact command, from a `Value` or (feature `runner`) a `HostValue`.
+/// One compact command, from a `Value` or (feature `runner`) a `HostValue`, checked as the spec's
+/// Draw command checks say: its name, its length (too many, then too few), then its arguments in
+/// order.
 pub(crate) fn command<A: Arg>(a: &A) -> Result<Command, String> {
-    if a.len().is_none() {
-        return Err(format!("a command is an array, got {}", a.show()));
-    }
+    let Some(len) = a.len() else { return Err("a command is an array".into()) };
     let op = a.at(0).and_then(Arg::text).ok_or("a command starts with its name")?;
+    // Its arguments after the name, and how many of them may be left off (a text's style).
+    let (count, optional) = match op.as_ref() {
+        "save" | "restore" => (0, 0),
+        "rotate" | "alpha" => (1, 0),
+        "translate" | "scale" | "path" => (2, 0),
+        "circle" => (4, 0),
+        "text" => (4, 1),
+        "rect" | "line" | "image" => (5, 0),
+        "rrect" => (6, 0),
+        _ => return Err(format!("unknown draw command \"{op}\"")),
+    };
+    if len > count + 1 {
+        return Err(format!("\"{op}\" has more than {count} arguments"));
+    }
+    if len < count + 1 - optional {
+        return Err(format!("\"{op}\" is missing argument {len}"));
+    }
     let at = |i: usize| a.at(i).ok_or_else(|| format!("\"{op}\" is missing argument {i}"));
     let n = |i: usize| at(i).and_then(|v| num(v, &format!("\"{op}\" argument {i}")));
     let p = |i: usize| at(i).and_then(paint);
     Ok(match op.as_ref() {
-            "save" => Command::Save,
-            "restore" => Command::Restore,
-            "translate" => Command::Translate(n(1)?, n(2)?),
-            "rotate" => Command::Rotate(n(1)?),
-            "scale" => Command::Scale(n(1)?, n(2)?),
-            "alpha" => Command::Alpha(n(1)?.clamp(0.0, 1.0)),
-            "rect" => Command::Rect { x: n(1)?, y: n(2)?, w: n(3)?, h: n(4)?, paint: p(5)? },
-            "rrect" => Command::RRect { x: n(1)?, y: n(2)?, w: n(3)?, h: n(4)?, r: n(5)?, paint: p(6)? },
-            "circle" => Command::Circle { cx: n(1)?, cy: n(2)?, r: n(3)?, paint: p(4)? },
-            "line" => Command::Line { x1: n(1)?, y1: n(2)?, x2: n(3)?, y2: n(4)?, paint: p(5)? },
-            "path" => Command::Path {
-                segments: {
-                    let s = at(1)?;
-                    if s.len().is_none() {
-                        return Err("\"path\" takes a list of segments".into());
-                    }
-                    items(s).map(segment).collect::<Result<_, _>>()?
-                },
-                paint: p(2)?,
+        "save" => Command::Save,
+        "restore" => Command::Restore,
+        "translate" => Command::Translate(n(1)?, n(2)?),
+        "rotate" => Command::Rotate(n(1)?),
+        "scale" => Command::Scale(n(1)?, n(2)?),
+        "alpha" => Command::Alpha(n(1)?.clamp(0.0, 1.0)),
+        "rect" => Command::Rect { x: n(1)?, y: n(2)?, w: n(3)?, h: n(4)?, paint: p(5)? },
+        "rrect" => Command::RRect { x: n(1)?, y: n(2)?, w: n(3)?, h: n(4)?, r: n(5)?, paint: p(6)? },
+        "circle" => Command::Circle { cx: n(1)?, cy: n(2)?, r: n(3)?, paint: p(4)? },
+        "line" => Command::Line { x1: n(1)?, y1: n(2)?, x2: n(3)?, y2: n(4)?, paint: p(5)? },
+        "path" => Command::Path {
+            segments: {
+                let s = at(1)?;
+                if s.len().is_none() {
+                    return Err("\"path\" takes a list of segments".into());
+                }
+                items(s).map(segment).collect::<Result<_, _>>()?
             },
-            "text" => Command::Text {
-                x: n(1)?,
-                y: n(2)?,
-                text: at(3)?.text().map_or_else(|| a.at(3).map(Arg::show).unwrap_or_default(), Cow::into_owned),
-                style: text_options(a.at(4))?,
-            },
-            "image" => Command::Image {
-                src: at(1)?.text().ok_or("\"image\" takes a src")?.into_owned(),
-                x: n(2)?,
-                y: n(3)?,
-                w: n(4)?,
-                h: n(5)?,
-            },
-            _ => return Err(format!("unknown draw command \"{op}\"")),
-        })
+            paint: p(2)?,
+        },
+        "text" => Command::Text {
+            x: n(1)?,
+            y: n(2)?,
+            text: at(3)?.text().ok_or("\"text\" argument 3 must be a string")?.into_owned(),
+            style: text_options(a.at(4))?,
+        },
+        _ => Command::Image {
+            src: at(1)?.text().ok_or("\"image\" takes a src")?.into_owned(),
+            x: n(2)?,
+            y: n(3)?,
+            w: n(4)?,
+            h: n(5)?,
+        },
+    })
 }
 
 impl Command {
@@ -539,7 +562,7 @@ impl DrawOutput {
 
 /// A draw's commands, held to the budget, from a `Value` or (feature `runner`) a `HostValue`.
 fn commands<A: Arg>(list: Option<&A>) -> Result<Vec<Command>, String> {
-    let list = list.filter(|l| l.len().is_some()).ok_or("a draw step must return { commands }")?;
+    let list = list.filter(|l| l.len().is_some()).ok_or("draw commands must be a list")?;
     let n = list.len().unwrap_or(0);
     if n > MAX_COMMANDS {
         return Err(format!("{n} draw commands is over the budget of {MAX_COMMANDS} per frame"));

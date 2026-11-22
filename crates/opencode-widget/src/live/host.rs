@@ -188,7 +188,7 @@ fn post(link: &Link, mut args: Vec<HostValue>) -> HostResult {
             checked("post", &args, 1)?;
             match DrawOutput::from_host(field("commands")) {
                 Ok(out) => link.counted(Post::Draw { id, commands: out.commands }, Some(key)),
-                Err(e) => return Err(link.fail_post(format!("widget.draw(\"{id}\"): {e}"))),
+                Err(e) => return Err(link.fail_post(e)),
             }
             return Ok(HostValue::Undefined);
         }
