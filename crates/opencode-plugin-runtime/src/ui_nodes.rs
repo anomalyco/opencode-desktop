@@ -142,6 +142,9 @@ fn frame(a: &mut NodeArgs) -> Result<El, String> {
         out = a.on_press(out, "onPress");
     }
     out = a.on_hover(out, "onHover");
+    if a.flag("focusGroup") {
+        out = out.focus_group();
+    }
     Ok(focus(a, out))
 }
 

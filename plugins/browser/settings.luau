@@ -904,10 +904,19 @@ siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: b
                 })
                 else nil,
         } :: { any })
-        else ui.virtualList({
+        -- One Tab stop, as official's listbox (`site-chooser.tsx:295-324`): Up and Down move between the
+        -- sites' boxes and stop at the ends, Home and End go to the ends, a typed name moves to its site,
+        -- and Space ticks or unticks the focused one.
+        else ui.frame({
             key = "settings-import-sites",
             role = "list",
             label = i18n:T("sites.list"),
+            focusGroup = true,
+            w = "full",
+            grow = 1,
+            minH = 0,
+        }, { ui.virtualList({
+            key = "settings-import-sites-rows",
             w = "full",
             grow = 1,
             minH = 0,
@@ -944,7 +953,7 @@ siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: b
                     ui.text(site, { size = 13, weight = "regular", lineHeight = 20, color = "text-base", truncate = true, shrink = true, minW = 0, grow = 1, dir = "ltr" }),
                 })
             end,
-        })
+        }) })
     return ui.col({ key = "settings-import-sites-area", w = "full", grow = 1, minH = 0, gap = 12, pt = 8, pb = 4 }, {
         ui.row({ key = "settings-import-sites-top", w = "full", gap = 8, align = "center" }, top),
         ui.col({ key = "settings-import-sites-body", w = "full", grow = 1, minH = 0, gap = 0 }, {
