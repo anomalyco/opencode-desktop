@@ -19,6 +19,7 @@ const checks = [
   { name: "dialog-size", script: join(here, "dialog-size.mjs") },
   { name: "tables-check", script: join(here, "tables-check.mjs") },
   { name: "plugin-props", script: join(here, "plugin-props.mjs") },
+  { name: "engine-revision", script: join(here, "engine-revision.mjs") },
 ];
 
 const started = Date.now();
