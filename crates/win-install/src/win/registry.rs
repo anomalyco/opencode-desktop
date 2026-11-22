@@ -74,11 +74,12 @@ pub fn write_scheme(scheme: &str, name: &str, exe: &Path) -> Result<(), String> 
     Ok(())
 }
 
-/// Whether `scheme` starts `exe`.
-pub fn scheme_starts(scheme: &str, exe: &Path) -> bool {
-    let Ok(command) = CURRENT_USER.open(format!(r"Software\Classes\{scheme}\shell\open\command")).and_then(|k| k.get_string("")) else { return false };
-    let program = command.trim_start().trim_start_matches('"').split('"').next().unwrap_or_default().trim().to_owned();
-    super::same_path(Path::new(&program), exe)
+/// `scheme`'s command (`shell\open\command`) when it's registered as a URL protocol; `None` for a
+/// missing key or one without `URL Protocol`, which `repair_scheme` writes again.
+pub fn scheme_command(scheme: &str) -> Option<String> {
+    let key = CURRENT_USER.open(format!(r"Software\Classes\{scheme}")).ok()?;
+    key.get_string("URL Protocol").ok()?;
+    key.open(r"shell\open\command").and_then(|k| k.get_string("")).ok()
 }
 
 /// Removes `scheme` when it still starts a program in `root`; another app's (OpenCode Desktop
