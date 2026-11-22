@@ -234,25 +234,31 @@ pub fn frame_guard(url: &str, is_main_frame: bool, roots: &[String]) -> Option<R
     if is_main_frame {
         return refusal_raw(trimmed, roots);
     }
-    // On sub-frames, reject credentialed `http(s):` URLs and internal browser/source schemes
-    // (`chrome:`, `devtools:`, `chrome-untrusted:`, `view-source:`) while preserving `about:`,
-    // `data:`, `blob:`, credential-free `http(s):`, and extension frames (gated separately).
-    if let Some((scheme, rest)) = split_scheme_slash_slash(trimmed) {
-        if scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https") {
-            let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
-            if authority.contains('@') {
-                return Some(Refusal::Credentials);
-            }
-        } else if scheme.eq_ignore_ascii_case("chrome")
-            || scheme.eq_ignore_ascii_case("devtools")
-            || scheme.eq_ignore_ascii_case("chrome-untrusted")
-        {
-            return Some(Refusal::Web);
-        }
-    } else if trimmed.len() >= 12 && trimmed.as_bytes()[..12].eq_ignore_ascii_case(b"view-source:") {
-        return Some(Refusal::Web);
+    // Strict subframe allowlist matching official `chromium.ts:954-992` (READER-7 N8b):
+    // allow ONLY credential-free `http(s):`, `about:srcdoc`, `data:`, and `blob:` wrapping
+    // credential-free `http(s):` or opaque `null/`. (`about:blank` handled above; `file:` /
+    // `oc-preview:` / nested wrappers rejected above by `has_banned_scheme`; `chrome-extension:`
+    // subframes are gated separately by `TabExtPolicy` in `handlers.rs`.)
+    if allowed_destination(trimmed, roots) || trimmed.eq_ignore_ascii_case("about:srcdoc") {
+        return None;
     }
-    None
+    if is_http_with_credentials(trimmed) {
+        return Some(Refusal::Credentials);
+    }
+    if trimmed.len() >= 5 && trimmed.as_bytes()[..5].eq_ignore_ascii_case(b"data:") {
+        return None;
+    }
+    if trimmed.len() >= 5 && trimmed.as_bytes()[..5].eq_ignore_ascii_case(b"blob:") {
+        let inner = trimmed[5..].trim_start();
+        let opaque_null = inner.len() >= 5 && inner.as_bytes()[..5].eq_ignore_ascii_case(b"null/");
+        if opaque_null || destination_origin(inner).is_some() {
+            return None;
+        }
+        if is_http_with_credentials(inner) {
+            return Some(Refusal::Credentials);
+        }
+    }
+    Some(Refusal::Web)
 }
 
 /// Sub-resource & download guard: bans raw `file:` and `oc-preview:` (including nested prefixes)

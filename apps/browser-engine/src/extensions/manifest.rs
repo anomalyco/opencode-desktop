@@ -392,6 +392,16 @@ pub fn is_pdf_extension_url(url: &str) -> bool {
     host.eq_ignore_ascii_case(PDF_EXTENSION_ID)
 }
 
+/// Returns the 32-char extension ID from `chrome-extension://<id>/...`, unwrapping repeated
+/// `blob:` prefixes (used for subframe and redirect checks matching `chromium.ts:960-964`).
+pub fn extension_id_from_url_or_blob(url: &str) -> Option<&str> {
+    let mut s = url.trim();
+    while s.len() >= 5 && s.as_bytes()[..5].eq_ignore_ascii_case(b"blob:") {
+        s = s[5..].trim_start();
+    }
+    extension_id_from_url(s)
+}
+
 pub fn extension_id_from_url(url: &str) -> Option<&str> {
     let trimmed = url.trim();
     if trimmed.len() < 19 || !trimmed.as_bytes()[..19].eq_ignore_ascii_case(b"chrome-extension://") {

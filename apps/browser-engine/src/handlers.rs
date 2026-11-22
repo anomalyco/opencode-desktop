@@ -686,6 +686,7 @@ wrap_load_handler! {
 wrap_resource_request_handler! {
     pub struct TabResourceRequestHandler {
         file_roots: Arc<Mutex<Vec<String>>>,
+        ext_policy: TabExtPolicy,
         context_ready: Arc<AtomicBool>,
         prompts: Arc<crate::prompts::TabPrompts>,
         is_main_navigation: bool,
@@ -743,17 +744,34 @@ wrap_resource_request_handler! {
             let roots = self.file_roots.lock().unwrap().clone();
             if !browser_policy::subresource_allowed(&target, &roots) {
                 *new_url = CefString::from("");
-            } else if self.is_main_navigation {
-                self.prompts.set_pending_top_url(Some(target));
-            } else if self.is_subframe_navigation
-                && crate::extensions::manifest::is_extension_scheme(&target)
-                && let Some(f) = frame
-            {
-                // Track strictly sub-frame navigations (`is_navigation && !is_main`), never
-                // ordinary `<script>`/`<img>` subresource redirects inside web iframes
-                // (`review-rd274.md` Round-4 §4).
-                let fid = CefString::from(&f.identifier()).to_string();
-                self.prompts.mark_pending_ext_subframe(fid);
+                return;
+            }
+            if self.is_main_navigation || self.is_subframe_navigation {
+                let is_agent = self.prompts.agent_driven.load(Ordering::Relaxed);
+                if crate::extensions::manifest::is_extension_scheme(&target) {
+                    if !self.ext_policy.allows_extension_frame(&target, self.is_main_navigation, is_agent) {
+                        *new_url = CefString::from("");
+                        return;
+                    }
+                    if self.is_main_navigation {
+                        self.prompts.set_pending_top_url(Some(target));
+                    } else if let Some(f) = frame {
+                        let fid = CefString::from(&f.identifier()).to_string();
+                        self.prompts.mark_pending_ext_subframe(fid);
+                    }
+                    return;
+                }
+                if self.is_main_navigation && self.ext_policy.popup_ext_id.is_some() {
+                    *new_url = CefString::from("");
+                    return;
+                }
+                if browser_policy::frame_guard(&target, self.is_main_navigation, &roots).is_some() {
+                    *new_url = CefString::from("");
+                    return;
+                }
+                if self.is_main_navigation {
+                    self.prompts.set_pending_top_url(Some(target));
+                }
             }
         }
 
@@ -778,6 +796,28 @@ pub struct TabExtPolicy {
     pub allowed_ext_ids: Arc<Mutex<Vec<String>>>,
     pub popup_ext_id: Option<String>,
     pub isolated: bool,
+}
+
+impl TabExtPolicy {
+    /// Whether `url` is an allowed extension frame URL (`chrome-extension://`, plus `blob:` in
+    /// subframes) for a non-isolated, non-agent tab (`chromium.ts:960-964`, READER-7 N8b).
+    pub fn allows_extension_frame(&self, url: &str, is_main: bool, is_agent: bool) -> bool {
+        if self.isolated || is_agent || crate::extensions::manifest::is_pdf_extension_url(url) {
+            return false;
+        }
+        let id = if is_main {
+            crate::extensions::manifest::extension_id_from_url(url)
+        } else {
+            crate::extensions::manifest::extension_id_from_url_or_blob(url)
+        };
+        let Some(ext_id) = id else { return false };
+        if let Some(own_id) = &self.popup_ext_id
+            && ext_id != own_id
+        {
+            return false;
+        }
+        self.allowed_ext_ids.lock().unwrap().iter().any(|allowed| allowed == ext_id)
+    }
 }
 
 wrap_request_handler! {
@@ -915,6 +955,22 @@ wrap_request_handler! {
                 && self.ext_policy.allowed_ext_ids.lock().unwrap().iter().any(|id| id == ext_id)
             {
                 self.prompts.set_pending_top_url(Some(url));
+                return 0;
+            }
+            if !is_main && crate::extensions::manifest::is_extension_scheme(&url) {
+                if !self.ext_policy.allows_extension_frame(&url, false, is_agent) {
+                    return 1;
+                }
+                if let Some(fid) = sub_frame_id {
+                    self.prompts.mark_pending_ext_subframe(fid);
+                }
+                emit_web_nav(
+                    &self.events,
+                    self.tab_id,
+                    frame.as_deref(),
+                    url,
+                    crate::extensions::web_nav::WebNavKind::BeforeNavigate,
+                );
                 return 0;
             }
             let roots = self.file_roots.lock().unwrap().clone();
@@ -1188,6 +1244,7 @@ wrap_request_handler! {
             let is_subframe_navigation = is_navigation != 0 && !is_main;
             Some(TabResourceRequestHandler::new(
                 self.file_roots.clone(),
+                self.ext_policy.clone(),
                 self.context_ready.clone(),
                 self.prompts.clone(),
                 is_main_navigation,
