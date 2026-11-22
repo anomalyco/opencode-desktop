@@ -78,7 +78,7 @@ impl Launcher for Win {
 
     fn reveal(&self, path: &str) -> Result<(), String> {
         let verified = browser_policy::verify_local_path(path).map_err(|e| e.to_string())?;
-        if crate::log_harness_reveal(&verified.path) {
+        if crate::harness::record("reveal", "path", &verified.path) {
             return Ok(());
         }
         if rune::is_headless() {

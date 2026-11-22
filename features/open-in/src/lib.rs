@@ -11,8 +11,13 @@
 #![cfg_attr(not(target_os = "windows"), forbid(unsafe_code))]
 
 pub mod drag;
+#[cfg(not(target_arch = "wasm32"))]
+mod harness;
 #[cfg(target_os = "windows")]
 pub mod windows;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use harness::admit_harness_log;
 
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -186,7 +191,7 @@ impl Launcher for Mac {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let verified = browser_policy::verify_local_path(path).map_err(|e| e.to_string())?;
-            if log_harness_reveal(&verified.path) {
+            if harness::record("reveal", "path", &verified.path) {
                 return Ok(());
             }
             if rune::is_headless() {
@@ -490,58 +495,6 @@ impl OpenIn {
     }
 }
 
-/// Set by [`admit_harness_log`]: the run's own root, the only place its log may be.
-#[cfg(not(target_arch = "wasm32"))]
-static HARNESS_LOG_ROOT: OnceLock<std::path::PathBuf> = OnceLock::new();
-
-/// Lets `HARNESS_OPEN_EXTERNAL_LOG` take external opens and reveals in a windowed release run
-/// too, so a proof that drives a real window never opens the person's browser or file manager.
-/// The app calls it only for a harness run that roots every folder it writes under `root`
-/// (`--harness-writes` with `RUNE_DIRS_ROOT`); the log must then lie inside `root`.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn admit_harness_log(root: std::path::PathBuf) {
-    drop(HARNESS_LOG_ROOT.set(root));
-}
-
-/// Where `HARNESS_OPEN_EXTERNAL_LOG` takes external opens and reveals instead of making them: in
-/// debug builds and headless driver runs (`--snap`, `--script`, `--tree`, …) wherever it says; in a
-/// window only after [`admit_harness_log`], and only inside that run's root: a path outside it
-/// (relative, with `..`, or elsewhere) becomes `<root>/open-external.jsonl`, so the run still opens
-/// nothing and writes nowhere else. Never in a normal windowed release launch.
-#[cfg(not(target_arch = "wasm32"))]
-fn harness_log() -> Option<std::path::PathBuf> {
-    let log = std::path::PathBuf::from(std::env::var_os("HARNESS_OPEN_EXTERNAL_LOG").filter(|v| !v.is_empty())?);
-    if cfg!(debug_assertions) || rune::is_headless() {
-        return Some(log);
-    }
-    let root = HARNESS_LOG_ROOT.get()?;
-    let inside = log.is_absolute() && !log.components().any(|c| matches!(c, std::path::Component::ParentDir)) && log.starts_with(root);
-    Some(if inside { log } else { root.join("open-external.jsonl") })
-}
-
-/// Logs a safe reveal to `HARNESS_OPEN_EXTERNAL_LOG` during debug or headless proofs without
-/// spawning a real OS file manager window.
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn log_harness_reveal(path: &str) -> bool {
-    let Some(log) = harness_log() else {
-        return false;
-    };
-    use std::io::Write as _;
-    let log_path = Path::new(&log);
-    if let Some(parent) = log_path.parent() {
-        drop(std::fs::create_dir_all(parent));
-    }
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
-        let entry = json!({
-            "pid": std::process::id(),
-            "kind": "reveal",
-            "path": path,
-        });
-        drop(writeln!(f, "{entry}"));
-    }
-    true
-}
-
 /// One app choice for an "Open in" menu or picker.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct MenuOption {
@@ -583,20 +536,7 @@ pub fn open_external(tx: &mut Tx, url: &str) -> bool {
         return false;
     }
     #[cfg(not(target_arch = "wasm32"))]
-    if let Some(log) = harness_log() {
-        use std::io::Write as _;
-        let path = Path::new(&log);
-        if let Some(parent) = path.parent() {
-            drop(std::fs::create_dir_all(parent));
-        }
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-            let entry = json!({
-                "pid": std::process::id(),
-                "kind": "openExternal",
-                "url": trimmed,
-            });
-            drop(writeln!(f, "{entry}"));
-        }
+    if harness::record("openExternal", "url", trimmed) {
         return true;
     }
     tx.open_url(trimmed).is_ok()
@@ -615,13 +555,7 @@ pub fn open_confirmed_app_url(tx: &mut Tx, url: &str, source: browser_policy::Ap
         return false;
     }
     #[cfg(not(target_arch = "wasm32"))]
-    if let Some(log) = harness_log() {
-        use std::io::Write as _;
-        let path = Path::new(&log);
-        if let Some(parent) = path.parent() { drop(std::fs::create_dir_all(parent)); }
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-            drop(writeln!(f, "{}", json!({ "pid": std::process::id(), "kind": "openConfirmedApp", "url": trimmed })));
-        }
+    if harness::record("openConfirmedApp", "url", trimmed) {
         return true;
     }
     if trimmed.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("mailto:")) {
