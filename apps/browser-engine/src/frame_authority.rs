@@ -5,6 +5,7 @@
 //! 2167-2198`, `policy.ts:216-336`, `diagnostics.ts:103-134` (opencode `b9a60d9d`).
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::{Arc, Mutex};
 
 use browser_policy::extension_origin;
 use serde_json::{Value, json};
@@ -134,6 +135,9 @@ pub struct EngineCdpLedger {
     /// The app has spoken CDP to this tab; events are forwarded only from then on.
     pub app_attached: bool,
     pub revision: u64,
+    /// Mirror of `ExtensionHost`'s registered extension IDs (`self.extensions.keys()`), used so
+    /// `on_attached` detaches-without-resuming ONLY workers owned by `ExtensionHost` (`#695-F1`).
+    registered_ext_ids: Arc<Mutex<HashSet<String>>>,
     /// Bumped only on security-relevant frame-tree transitions (main-frame commit, extension target/
     /// frame/context change, overflow, or `Unprepared`) so unrelated background ad/analytics
     /// subframes reloading do not cause false `InputGuard` refusals.
@@ -141,6 +145,9 @@ pub struct EngineCdpLedger {
 }
 
 impl EngineCdpLedger {
+    pub fn with_registered_exts(registered_ext_ids: Arc<Mutex<HashSet<String>>>) -> Self {
+        Self { registered_ext_ids, ..Self::default() }
+    }
     /// Messages that arm a tab: auto-attach with every child paused at start, `Page` and `Runtime`
     /// on the root session, and the frame tree (`chromium.ts:1391-1398`, `child-targets.ts:8-19`).
     pub fn arm(&mut self) -> Vec<String> {
@@ -846,11 +853,12 @@ impl EngineCdpLedger {
         let target = info.get("targetId").and_then(Value::as_str).unwrap_or("").to_owned();
         let url = info.get("url").and_then(Value::as_str).unwrap_or("");
         if ty != "iframe" {
-            // Extension workers are owned and resumed strictly by `ExtensionHost` (`cdp.rs:808`,
-            // matching `extension_id_from_target_url(url)`): detach only, never resume. Non-extension
-            // `http(s)://`, `blob:https://`, and `data:` workers nested inside a web iframe under an
-            // extension iframe are not attached by `ExtensionHost` and resume normally (`#695-F1`).
-            let ext_worker = crate::extensions::manifest::extension_id_from_target_url(url).is_some();
+            // Extension workers are owned and resumed strictly by `ExtensionHost` (`cdp.rs:808-809`:
+            // `extension_id_from_target_url(url)` + registered in `ExtensionHost`): detach only, never
+            // resume. Web (`http(s)://`, `blob:https://`, `data:`) and unowned component workers are
+            // not attached by `ExtensionHost` and resume normally (`#695-F1`).
+            let ext_worker = crate::extensions::manifest::extension_id_from_target_url(url)
+                .is_some_and(|id| self.registered_ext_ids.lock().unwrap().contains(id));
             let detach = self.msg("Target.detachFromTarget", json!({ "sessionId": child }), None, None);
             if ext_worker {
                 obs.send.push(detach);

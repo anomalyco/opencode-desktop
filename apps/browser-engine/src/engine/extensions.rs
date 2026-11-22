@@ -46,6 +46,8 @@ impl EngineManager {
     fn refresh_ext_clipboard_write_ids(&self) {
         let next = self.extensions.as_ref().map(|e| e.clipboard_write_ext_ids()).unwrap_or_default();
         *self.ext_clipboard_write_ids.lock().unwrap() = next;
+        let reg = self.extensions.as_ref().map(|e| e.registered_ext_ids()).unwrap_or_default();
+        *self.registered_ext_ids.lock().unwrap() = reg;
     }
 
     fn push_ext_clipboard_write_for_tabs(&self, ext_id: &str, allowed: bool) {
@@ -305,6 +307,7 @@ impl EngineManager {
                         self.rejected_exts.push(ext_id.clone());
                     }
                     self.ext_clipboard_write_ids.lock().unwrap().remove(&ext_id);
+                    self.registered_ext_ids.lock().unwrap().remove(&ext_id);
                     self.push_ext_clipboard_write_for_tabs(&ext_id, false);
                     let _ = self.out_tx.send(EngineMsg::ExtensionIntegrityFailed { ext_id });
                 }
@@ -317,6 +320,7 @@ impl EngineManager {
                 ExtEffect::ExtensionUninstalled { ext_id, ok, error } => {
                     if ok {
                         self.ext_clipboard_write_ids.lock().unwrap().remove(&ext_id);
+                        self.registered_ext_ids.lock().unwrap().remove(&ext_id);
                         let prefix = format!("chrome-extension://{ext_id}/");
                         let stale_popups: Vec<u64> = self
                             .tabs
@@ -343,6 +347,7 @@ impl EngineManager {
                 }
                 ExtEffect::ExtensionReloaded { ext_id, ok, error } => {
                     if ok {
+                        self.registered_ext_ids.lock().unwrap().insert(ext_id.clone());
                         let has_cw = self.extensions.as_ref().is_some_and(|e| e.has_clipboard_write(&ext_id));
                         {
                             let mut set = self.ext_clipboard_write_ids.lock().unwrap();
