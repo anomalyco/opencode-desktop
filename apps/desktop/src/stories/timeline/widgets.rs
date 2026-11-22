@@ -44,6 +44,8 @@ pub const VARIANTS: &[(&str, usize)] = &[
     ("Treemap, full screen", 23),
     ("Heatmap, full screen", 24),
     ("Stack HUD", 25),
+    ("Older widget runtime", 26),
+    ("Newer widget runtime (live)", 27),
 ];
 pub const KEYS: &[Trigger] = &[
     replay(open),
@@ -246,6 +248,11 @@ function tap(state, p) {
 }
 "##;
 
+/// Programs built for another protocol (`widgets.md`, Protocol): refused without running, with no
+/// Try again or Restart. The older one has no protocol line (protocol 1); the newer one says 3.
+const OLDER: &str = "story-older";
+const NEWER: &str = "story-newer";
+
 /// A canvas that fills the screen in full screen, and a layout that changes when it goes there;
 /// it outlines the close button's area its frame reports, and its title says the one its
 /// `onFullscreen` heard.
@@ -316,6 +323,8 @@ fn widget_template(v: usize) -> &'static str {
         23 => "treemap",
         24 => "heatmap",
         25 => HUD,
+        26 => OLDER,
+        27 => NEWER,
         _ => "suggestions",
     }
 }
@@ -385,6 +394,8 @@ fn data(v: usize) -> (&'static str, Value) {
         23 => ("Treemap", fixtures::example("treemap").unwrap_or_default()),
         24 => ("Heatmap", fixtures::example("heatmap").unwrap_or_default()),
         25 => ("Signal field", json!({})),
+        26 => ("Release checklist", json!({})),
+        27 => ("Orbit", json!({})),
         16 => ("Delete the branch", json!({ "title": "Delete feature/reconnect-backoff?", "message": "The branch is merged into `main`." })),
         _ => ("Pick a hero image", json!({
             "title": "Which hero image should the landing page use?",
@@ -434,6 +445,10 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     preload(s, RUNAWAY, &version(RUNAWAY), &runaway, "live", &json!({ "https": { "hosts": ["api.coingecko.com"] } }));
     preload(s, SHADER_GAME, &version(SHADER_GAME), &format!("{}\n{SHADER_GAME_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);
     preload(s, INPUT, &version(INPUT), &format!("{}\n{INPUT_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);
+    let older = fixtures::PRELUDE.replacen("const __widget_protocol = 2\n", "", 1);
+    preload(s, OLDER, &version(OLDER), &format!("{older}\nfunction view(state, data) {{ return ui.text(\"never shown\") }}"), "step", &Value::Null);
+    let newer = fixtures::PRELUDE.replacen("const __widget_protocol = 2", "const __widget_protocol = 3", 1);
+    preload(s, NEWER, &version(NEWER), &format!("{newer}\nasync function main(data) {{ widget.render(ui.text(\"never shown\")) }}"), "live", &Value::Null);
     preload(s, HUD, &version(HUD), &format!("{}\n{HUD_SOURCE}", fixtures::PRELUDE), "step", &Value::Null);
     preload(s, DRAG, &version(DRAG), &format!("{}\n{DRAG_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);
     preload(s, FAILING, &version(FAILING), &format!("{}\n{FAILING_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);

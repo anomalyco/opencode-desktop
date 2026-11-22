@@ -57,6 +57,12 @@ impl fmt::Debug for LiveProgram {
 }
 
 impl LiveProgram {
+    /// Whether it's refused for its protocol (`widgets.md`, Protocol): no run of it starts, and no
+    /// restart could.
+    pub fn refused(&self) -> bool {
+        self.compiled.is_err()
+    }
+
     /// Compiles `program` (the server's `prelude + "\n" + source`) with the live entry. One built
     /// for another protocol isn't compiled: its run ends at once, an older one's as a program error
     /// (phase `main`), a newer one's as this client's.

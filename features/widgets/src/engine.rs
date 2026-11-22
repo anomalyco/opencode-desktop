@@ -23,9 +23,20 @@ pub struct Compiled {
     pub offset: u32,
 }
 
+impl Compiled {
+    /// Built for a protocol this client doesn't run: it never runs, so it offers no Try again or
+    /// Restart (`widgets.md`, Protocol).
+    pub fn refused(&self) -> bool {
+        match &self.kind {
+            Kind::Step(p) => p.refused(),
+            Kind::Live { program, .. } => program.refused(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum Kind {
-    Step(Program),
+    Step(Box<Program>),
     /// A live program, with the capabilities granted to it.
     Live { program: std::sync::Arc<LiveProgram>, grants: Grants },
 }
@@ -76,7 +87,7 @@ pub fn compile_as(program: &str, mode: &str, grants: Grants, offset: u32) -> Res
         let program = LiveProgram::compile(program).map_err(|e| LoadError::Program(e.to_string()))?;
         Kind::Live { program: std::sync::Arc::new(program), grants }
     } else {
-        Kind::Step(compile(program).map_err(LoadError::Program)?)
+        Kind::Step(Box::new(compile(program).map_err(LoadError::Program)?))
     };
     Ok(Compiled { kind, offset })
 }

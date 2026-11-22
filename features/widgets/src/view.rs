@@ -60,7 +60,9 @@ pub fn view<H: WidgetsHost + TimelineHost>(s: &H, p: &Pal, session: &str, messag
         }) as opencode_widget_view::Action<H>
     });
     let failure = recorded::<H>(s, e, session, &key);
-    let buttons = Buttons { retry: Some(retry), expand, failure };
+    // A program of another protocol can't run: nothing to try again or restart.
+    let refused = matches!(s.widgets().widget_templates.get(&e.widget_template), Some(WidgetTemplate::Ready(c)) if c.refused());
+    let buttons = Buttons { retry: (!refused).then_some(retry), expand, failure };
     Some(session_view::widget::frame(s, p, session, &key, &e.label, e.machine.face(), &e.local, Some(&hooks::<H>(&key)), Place::Inline(buttons), chip(s, e).as_deref()))
 }
 
