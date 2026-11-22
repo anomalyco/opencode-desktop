@@ -75,11 +75,13 @@ impl ExecPhase {
     pub fn next_wake(&self) -> Option<Instant> {
         match self {
             Self::WaitLoad(s) => {
-                // A back/forward settles only at the grace, so it wakes there even after a load.
-                if s.saw_loading && !s.history {
+                // A back/forward settles only at the grace, so it wakes there even after a load; past
+                // the grace only the load's end settles it, and the load's own messages wake the poll.
+                let grace = s.started_at + Duration::from_millis(1_200);
+                if (s.saw_loading && !s.history) || Instant::now() >= grace {
                     Some(s.deadline)
                 } else {
-                    Some((s.started_at + Duration::from_millis(1_200)).min(s.deadline))
+                    Some(grace.min(s.deadline))
                 }
             }
             Self::Wait(s) => Some(s.next_poll.min(s.deadline)),
