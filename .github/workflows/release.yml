@@ -1052,8 +1052,16 @@ jobs:
             echo "::error::Missing libcef_sandbox.dylib in $app." >&2; exit 1;
           }
           codesign -dv "$app" 2>&1 | grep -E '^(Identifier|TeamIdentifier|Authority=Developer)' >> "$GITHUB_STEP_SUMMARY"
-          python3 .github/release/opencode-rune-verify-engine-sandbox.py macos "$app/Contents/MacOS/opencode-browser-engine" --require-sandbox
-          echo "macOS ${{ matrix.arch }} signed browser engine: sandbox verified (libcef_sandbox.dylib + sandbox_check=1)." >> "$GITHUB_STEP_SUMMARY"
+          # macos-26-intel has no usable GPU (ANGLE's EGL display fails in the GPU process) and the macOS
+          # bundle carries no SwiftShader (package-release.sh), so Chromium ends the engine ("GPU process
+          # isn't usable") right after the page loads. The live probe runs where a GPU exists (arm64);
+          # x64 keeps every static check above, including libcef_sandbox.dylib.
+          if [ "${{ matrix.arch }}" = arm64 ]; then
+            python3 .github/release/opencode-rune-verify-engine-sandbox.py macos "$app/Contents/MacOS/opencode-browser-engine" --require-sandbox
+            echo "macOS ${{ matrix.arch }} signed browser engine: sandbox verified (libcef_sandbox.dylib + sandbox_check=1)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "macOS ${{ matrix.arch }} signed browser engine: static checks only (libcef_sandbox.dylib present); live sandbox probe runs on arm64, this runner has no usable GPU." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   # ---- Publish browser engine: release environment; OIDC only ----------------
   # One atomic publish replacing opencode-rune/browser-engine/stable with all six targets.
