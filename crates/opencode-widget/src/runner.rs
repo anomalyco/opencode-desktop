@@ -26,6 +26,11 @@ pub const STEP_TIMEOUT_MS: u64 = 250;
 /// it can still reach, not the process's memory. Over it is a program error.
 pub const MAX_HEAP_BYTES: u64 = 32 * 1024 * 1024;
 
+/// How deep a value may nest where it crosses to or from a widget program (`widgets.md`, Native
+/// hosts): the deepest value of a view of 100 levels, 1 + 2 × 99 + 3, which a live render's
+/// `{ type: "render", node }` reaches (PsychoScript's default is 32).
+pub const MAX_VALUE_DEPTH: usize = 202;
+
 /// What a program that went over [`MAX_HEAP_BYTES`] shows and reports, in the mobile clients' words.
 pub fn heap_exceeded() -> String {
     format!("It used more than {} MB of memory", MAX_HEAP_BYTES >> 20)
@@ -161,7 +166,7 @@ impl Program {
                         ("__widget_emit", HostFunction::new(move |args: Vec<HostValue>, _call| emit(&out, args))),
                     ]
                 })
-                .limits(Limits { timeout_ms: Some(timeout_ms), max_heap_bytes: Some(MAX_HEAP_BYTES), ..Default::default() })
+                .limits(Limits { timeout_ms: Some(timeout_ms), max_heap_bytes: Some(MAX_HEAP_BYTES), max_value_depth: Some(MAX_VALUE_DEPTH), ..Default::default() })
         };
         let runtime = make(timeout_ms.clamp(1, STEP_TIMEOUT_MS));
         let drawing = make(DRAW_TIMEOUT_MS.min(timeout_ms.max(1)));
