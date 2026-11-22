@@ -4724,7 +4724,7 @@
       "summary": "List, Glob and Grep rows (and the context group's search trigger) show the folder the tool ran in, relative to the project (/ for the project itself), instead of that folder's parent (new displayFolder).",
       "size": "XS",
       "status": "have it",
-      "status_evidence": "crates/session-view/src/tools/mod.rs directory() already shows the searched folder relative to the session's directory, / for its root, used by tools/lists.rs search(); it was a deliberate difference (ours.md section 5.8) that official now matches, so that difference can be retired.",
+      "status_evidence": "crates/session-view/src/tools/mod.rs directory() already shows the searched folder relative to the session's directory, / for its root, used by tools/lists.rs search(); it was a deliberate difference (ours.md section 5.8) that official matches since 066336864f (displayFolder in packages/session-ui/src/tools/tool-renderer.tsx), so the ours.md entry is retired (23 Nov).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"
