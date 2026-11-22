@@ -307,7 +307,7 @@ pub fn option_tx<S: 'static>(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut S,
             .dir(rune::Direction::Ltr)
             .shrink()
             .min_w(0.0)
-            .clip()
+            .clip_soft(0.0)
             .center_y()
             .child(text(head.to_owned()).key("head").font(font).color(ink).shrink().min_w(0.0).truncate())
             .child(text(tail.to_owned()).key("tail").font(font).color(ink));
