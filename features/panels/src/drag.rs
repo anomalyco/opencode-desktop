@@ -339,10 +339,10 @@ pub fn note_zones(host: &dyn PanelsHost) {
 pub fn layer(host: &dyn PanelsHost, p: &Pal) -> Option<El> {
     let PaneDragState::Dragging { title, at, target, .. } = &host.side().pane_drag.state else { return None };
     let accent = p.v2.icon_accent;
-    let mut layer = el().key("pane-drag-layer").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).inert();
+    let mut layer = el().key("pane-drag-layer").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).inert().raise();
     if let Some(t) = target {
         let [x, y, w, h] = t.rect;
-        let mark = el().key(if t.strip { "pane-drop-indicator" } else { "pane-drop-zone" }).absolute(x, y).size(w, h);
+        let mark = el().key(if t.strip { "pane-drop-indicator" } else { "pane-drop-zone" }).absolute(x, y).unmirrored().size(w, h);
         let mark = if t.strip {
             mark.radius(w.min(h) / 2.0).fill(accent)
         } else {
@@ -353,6 +353,7 @@ pub fn layer(host: &dyn PanelsHost, p: &Pal) -> Option<El> {
     let chip = el()
         .key("pane-drag-title")
         .absolute(at[0] + 12.0, at[1] + 12.0)
+        .unmirrored()
         .max_w(240.0)
         .h(28.0)
         .px(10.0)

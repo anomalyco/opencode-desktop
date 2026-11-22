@@ -104,8 +104,8 @@ pub fn view<H: ProjectSwitcherHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> [El
         .build::<H>(p, col().role("listbox").w_full().h(scroll_h), list);
     let dialog = build_dialog_card(p, placeholder, w, head_h + scroll_h, search, scroll).modal(true, |s: &mut H| super::close(s, true));
     let y = size.top(win_h);
-    let scrim = el().key("project-switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none());
-    [scrim, dialog.absolute((win_w - w) / 2.0, y)]
+    let scrim = el().key("project-switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none()).raise();
+    [scrim, dialog.absolute((win_w - w) / 2.0, y).raise()]
 }
 
 fn step_meta(mode: &StepMode) -> (&'static str, Option<&'static str>) {

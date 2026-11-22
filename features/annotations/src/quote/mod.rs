@@ -563,6 +563,7 @@ pub fn toolbar<H: QuoteHost + 'static>(s: &H, p: &Pal, cx: &mut Cx<H>) -> Option
     Some(
         bar_with::<H>(p, placed.truncated, |s: &mut H, tx: &mut Tx| add(s, !tx.mods().alt, tx))
             .absolute(placed.x, placed.y)
+            .unmirrored()
             .opacity(placed.opacity),
     )
 }

@@ -609,6 +609,7 @@ pub fn picker<H: NewWorktreeHost + 'static>(s: &H, p: &Pal) -> Option<[El; 2]> {
         .child(opencode_ui::scroller::scroller("branch-picker-scroll").bar(opencode_ui::scroller::Bar::MenuScroll).build::<H>(p, col().w_full().h(list_h.min(224.0)), list));
     let scrim = el()
         .key("branch-picker-scrim").absolute(0.0, 0.0).w_full().h_full().transition(Transition::none())
-        .on_background_press_tx(|s: &mut H, tx: &mut Tx| close_branch_picker_outside(s, tx));
-    Some([scrim, surface.anchored_fit(TRIGGER.to_owned(), Side::Bottom, Align::Start, 4.0)])
+        .on_background_press_tx(|s: &mut H, tx: &mut Tx| close_branch_picker_outside(s, tx))
+        .raise();
+    Some([scrim, surface.anchored_fit(TRIGGER.to_owned(), Side::Bottom, Align::Start, 4.0).anchored_round().raise()])
 }

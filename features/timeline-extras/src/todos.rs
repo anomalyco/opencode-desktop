@@ -56,6 +56,10 @@ pub trait TodosHost: opencode_kernel::AppEnv {
     fn todo_chip(&self, p: &Pal, key: &str, label: String, open: bool) -> El {
         default_chip(self.knobs(), p, key, label, open)
     }
+    /// Logical alignment of the composer pill lane (`composerLanePlacement`, `composer-lane.tsx:22-24`).
+    fn lane_align(&self) -> rune::Align {
+        rune::Align::Start
+    }
 }
 
 type PlanCache = Option<((String, u64, Option<String>), Vec<Todo>)>;
@@ -309,7 +313,7 @@ pub fn panel<H: TodosHost + 'static>(host: &H, p: &Pal, id: &str) -> Option<El> 
     // own, and changes at once; only a finishing todo's fill springs, on its own curves.
     let viewport = col().transition(rune::Transition::none()).w_full().max_h(MAX_H).scroll_edge_fade(12.0).scroll_margin(PAD).motion(rune::Spring::NONE);
     let rows = session_view::scroller::scroller("todo-scroll").bar(session_view::scroller::Bar::MenuScroll).build::<H>(p, viewport, content.list);
-    Some(build_panel_frame(host.knobs(), p, content.width, content.label, rows).on_press(|_: &mut H| {}))
+    Some(build_panel_frame(host.knobs(), p, content.width, content.label, host.lane_align(), rows).on_press(|_: &mut H| {}))
 }
 
 struct PanelContent {
@@ -345,10 +349,19 @@ fn build_panel_content(host: &dyn TodosHost, p: &Pal, id: &str) -> Option<PanelC
     Some(PanelContent { list, width: panel_width(&todos), label: label(&todos) })
 }
 
-fn build_panel_frame(knobs: &Knobs, p: &Pal, width: f32, label: String, rows: El) -> El {
-    col().key("todo-panel").role("dialog").label(label).above("todo-pill", 8.0).w(width).radius(10.0)
-        .fill(p.layer1).elevate(p.floating).clip_soft(0.0)
-        .transition(session_view::popover::motion::transition(knobs, rune::Side::Top, rune::Align::Start))
+fn build_panel_frame(knobs: &Knobs, p: &Pal, width: f32, label: String, align: rune::Align, rows: El) -> El {
+    col()
+        .key("todo-panel")
+        .role("dialog")
+        .label(label)
+        .anchored_fit("todo-pill", rune::Side::Top, align, 8.0)
+        .anchored_round()
+        .w(width)
+        .radius(10.0)
+        .fill(p.layer1)
+        .elevate(p.floating)
+        .clip_soft(0.0)
+        .transition(session_view::popover::motion::transition(knobs, rune::Side::Top, align))
         .child(rows)
 }
 

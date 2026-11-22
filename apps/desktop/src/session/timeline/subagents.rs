@@ -56,6 +56,10 @@ impl SubagentsHost for App {
         self.settings.background_activity != crate::settings::BackgroundActivity::Off
     }
 
+    fn lane_align(&self) -> rune::Align {
+        self.composer_lane_align()
+    }
+
     fn composer_is_empty(&self) -> bool {
         self.composer.text.trim().is_empty() && !self.composer_ext.attach.any() && !self.kernel.slots.get(&crate::quote::QUOTE).any()
     }

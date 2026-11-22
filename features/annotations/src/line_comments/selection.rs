@@ -171,5 +171,5 @@ pub fn toolbar<H: LineCommentsHost + 'static>(s: &H, p: &Pal, cx: &mut Cx<H>) ->
         dispatch(s, Event::Add, tx);
     });
     let bar = toolbar_shell(p, button);
-    Some(if measured { bar.absolute(x, y) } else { bar.absolute(0.0, 0.0).opacity(0.0) })
+    Some(if measured { bar.absolute(x, y).unmirrored() } else { bar.absolute(0.0, 0.0).unmirrored().opacity(0.0) })
 }

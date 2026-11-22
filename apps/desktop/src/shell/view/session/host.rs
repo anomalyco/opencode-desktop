@@ -12,6 +12,20 @@ use crate::{
 };
 use crate::app::CODE_WRAP;
 
+impl App {
+    /// Logical alignment for the composer pill lane and its popovers (`useComposerLaneAlignment`,
+    /// `composer-lane.tsx:11-24`): `Left`/`Right` are physical sides, so in RTL they map to
+    /// `End`/`Start` (and Rune's `mirror_anchor` swaps `Start`/`End` back to physical).
+    pub(crate) fn composer_lane_align(&self) -> rune::Align {
+        let rtl = opencode_i18n::direction() == opencode_i18n::Direction::Rtl;
+        match self.settings.background_activity {
+            settings::BackgroundActivity::Center => rune::Align::Center,
+            settings::BackgroundActivity::Right => if rtl { rune::Align::Start } else { rune::Align::End },
+            settings::BackgroundActivity::Left | settings::BackgroundActivity::Off => if rtl { rune::Align::End } else { rune::Align::Start },
+        }
+    }
+}
+
 impl session_view::TimelineHost for App {
     fn knobs(&self) -> &rune_knobs::Knobs {
         &self.diag.knobs
@@ -77,10 +91,10 @@ impl session_view::TimelineHost for App {
         self.turn_diffs.retry(session, from);
     }
     fn lane_align(&self) -> session_view::jump::Align {
-        match self.settings.background_activity {
-            settings::BackgroundActivity::Center => session_view::jump::Align::Center,
-            settings::BackgroundActivity::Right => session_view::jump::Align::End,
-            settings::BackgroundActivity::Left | settings::BackgroundActivity::Off => session_view::jump::Align::Start,
+        match self.composer_lane_align() {
+            rune::Align::Start => session_view::jump::Align::Start,
+            rune::Align::Center => session_view::jump::Align::Center,
+            rune::Align::End => session_view::jump::Align::End,
         }
     }
     fn content_width(&self) -> f32 {

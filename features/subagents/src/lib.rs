@@ -81,6 +81,10 @@ pub trait SubagentsHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback 
     fn background_activity_enabled(&self) -> bool {
         true
     }
+    /// Logical alignment of the composer pill lane (`composerLanePlacement`, `composer-lane.tsx:22-24`).
+    fn lane_align(&self) -> rune::Align {
+        rune::Align::Start
+    }
     /// Whether the composer has no text, attachments, or quotes (used for Esc-to-parent on a
     /// subagent's page).
     fn composer_is_empty(&self) -> bool {
@@ -375,7 +379,7 @@ pub fn panel<H: SubagentsHost + 'static>(host: &H, p: &Pal, id: &str) -> Option<
     let rows = session_view::scroller::scroller("activity-scroll")
         .bar(session_view::scroller::Bar::MenuScroll)
         .build::<H>(p, col().w_full().h(layout.h).scroll_edge_fade(12.0).scroll_margin(PANEL_PAD).instant_changes(), list);
-    Some(build_panel_frame(host.knobs(), p, layout.natural, layout.label, rows).on_press(|_: &mut H| {}))
+    Some(build_panel_frame(host.knobs(), p, layout.natural, layout.label, host.lane_align(), rows).on_press(|_: &mut H| {}))
 }
 
 struct PanelLayout {
@@ -443,18 +447,19 @@ fn build_subagent_row_shell(p: &Pal, it: &Running, name: String, agent_w: f32, e
         .child(end_el)
 }
 
-fn build_panel_frame(knobs: &Knobs, p: &Pal, natural: f32, label: String, rows: El) -> El {
+fn build_panel_frame(knobs: &Knobs, p: &Pal, natural: f32, label: String, align: rune::Align, rows: El) -> El {
     col()
         .key("activity-panel")
         .role("menu")
         .label(label)
-        .above("activity-chip", 8.0)
+        .anchored_fit("activity-chip", rune::Side::Top, align, 8.0)
+        .anchored_round()
         .w(natural.clamp(240.0, 360.0).ceil())
         .radius(10.0)
         .fill(p.layer1)
         .elevate(p.floating)
         .clip_soft(0.0)
-        .transition(session_view::popover::motion::transition(knobs, rune::Side::Top, rune::Align::Start))
+        .transition(session_view::popover::motion::transition(knobs, rune::Side::Top, align))
         .child(rows)
 }
 

@@ -48,13 +48,13 @@ pub fn view<S: PopupHost + 'static>(s: &S, p: &Pal) -> Vec<El> {
             }
         }
     }
-    let scrim = scrim::<S>();
+    let scrim = scrim::<S>().raise();
     let (anchor, point, align, side) = match &shown.anchor {
         PopupAnchor::Key(key) => (key.clone(), None, shown.menu.align, shown.menu.side),
-        &PopupAnchor::Point(x, y) if shown.menu.pointer_trigger => ("popup-point".to_owned(), Some(el().key("popup-point").absolute(x, y).size(1.0, 1.0)), Align::Start, Side::Bottom),
+        &PopupAnchor::Point(x, y) if shown.menu.pointer_trigger => ("popup-point".to_owned(), Some(el().key("popup-point").absolute(x, y).unmirrored().size(1.0, 1.0)), Align::Start, Side::Bottom),
         // Kobalte's context menu opens `right-start` of the pointer, 2 off it and shifted 2 down
         // (`gutter: 2, shift: 2`, `context-menu-root.tsx`).
-        &PopupAnchor::Point(x, y) => ("popup-point".to_owned(), Some(el().key("popup-point").absolute(x, y + 2.0).size(0.0, 0.0)), Align::Start, Side::Right),
+        &PopupAnchor::Point(x, y) => ("popup-point".to_owned(), Some(el().key("popup-point").absolute(x, y + 2.0).unmirrored().size(0.0, 0.0)), Align::Start, Side::Right),
     };
     let at_point = point.is_some();
     let gap = if at_point { GAP } else { shown.menu.gap.unwrap_or(4.0) };
@@ -63,10 +63,10 @@ pub fn view<S: PopupHost + 'static>(s: &S, p: &Pal) -> Vec<El> {
     if shown.menu.look == Look::Standard {
         let hair = s.hairline();
         let first = shown.subs.first().copied();
-        layer.push(popover::place(s.knobs(), standard::root::<S>(p, &shown.menu, shown.active, first, hair), &anchor, side, align, gap));
+        layer.push(popover::place(s.knobs(), standard::root::<S>(p, &shown.menu, shown.active, first, hair), &anchor, side, align, gap).raise());
         let sub = first.and_then(|o| Some((o, shown.menu.entries.get(o.at)?)));
         if let Some((o, Entry::Sub(sub))) = sub {
-            layer.push(popover::place(s.knobs(), standard::sub::<S>(p, &sub.menu, o.active, hair), &row_key(&sub.id), Side::Right, Align::Start, 0.0));
+            layer.push(popover::place(s.knobs(), standard::sub::<S>(p, &sub.menu, o.active, hair), &row_key(&sub.id), Side::Right, Align::Start, 0.0).raise());
         }
         return layer;
     }
@@ -86,15 +86,22 @@ pub fn view<S: PopupHost + 'static>(s: &S, p: &Pal) -> Vec<El> {
     // A right-click menu is at least Desktop's context-menu width; one from a control hugs its rows.
     let menu = drawn(s, p, listed, active, shown.subs.first().map(|o| o.at), search_placeholder);
     let menu = if at_point { menu.min_w(CONTEXT_MIN_W.max(shown.menu.min_w)) } else { menu };
-    let menu = if shown.menu.card && !at_point { menu.offset(-4.0, 0.0).offset_motion(rune::Anim::INSTANT) } else { menu };
-    layer.push(popover::place(s.knobs(), menu, &anchor, side, align, gap));
+    let menu = if shown.menu.card && !at_point {
+        // Kobalte `shift={-4}` (`session-identity-header.tsx:224`) shifts outward from the aligned
+        // edge (`alignmentAxis: -4`), which is `-4` in LTR and `+4` in RTL.
+        let dx = if opencode_i18n::direction() == opencode_i18n::Direction::Rtl { 4.0 } else { -4.0 };
+        menu.offset(dx, 0.0).offset_motion(rune::Anim::INSTANT)
+    } else {
+        menu
+    };
+    layer.push(popover::place(s.knobs(), menu, &anchor, side, align, gap).raise());
     // Each open submenu beside its row, 4 off it (`Menu.Sub gutter={4}`) unless it says.
     let mut parent = listed;
     for (k, o) in shown.subs.iter().enumerate() {
         let Some(Entry::Sub(sub)) = parent.entries.get(o.at) else { break };
         let open = shown.subs.get(k + 1).map(|o| o.at);
         let gap = sub.menu.gap.unwrap_or(4.0);
-        layer.push(popover::place(s.knobs(), build(Some(s), p, &sub.menu, o.active, open, k + 1, None), &row_key(&sub.id), Side::Right, Align::Start, gap));
+        layer.push(popover::place(s.knobs(), build(Some(s), p, &sub.menu, o.active, open, k + 1, None), &row_key(&sub.id), Side::Right, Align::Start, gap).raise());
         parent = &sub.menu;
     }
     layer

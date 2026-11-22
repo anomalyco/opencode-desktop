@@ -130,9 +130,23 @@ pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
                     |app: &mut App| &mut app.workspace_panes.browser.host,
                 )
                 .map(|surface| {
+                    // Align the extension popup's end edge (right in LTR, left in RTL) with the
+                    // Extensions toolbar button (`browser-extensions`) and top edge with the page
+                    // area (`packages/gui-plugins/src/browser/panel.tsx:186-204`, `popup.ts:24-47`).
+                    let rtl = opencode_i18n::direction() == opencode_i18n::Direction::Rtl;
+                    let page = rune::memo::layout("browser-page-stack");
+                    let btn = rune::memo::layout("browser-extensions");
+                    let card_w = rune::memo::layout_size("browser-ext-popup-card").map_or(0.0, |[w, _]| w);
+                    let end_inset = match (page, btn) {
+                        (Some(page), Some(btn)) => {
+                            let raw = if rtl { btn[0] - page[0] } else { (page[0] + page[2]) - (btn[0] + btn[2]) };
+                            raw.round().clamp(0.0, (page[2] - card_w).max(0.0))
+                        }
+                        _ => 8.0,
+                    };
                     let card = el()
                         .key("browser-ext-popup-card")
-                        .pin(Some(4.0), Some(8.0), None, None)
+                        .pin(None, Some(0.0), Some(end_inset), None)
                         .radius(8.0)
                         .fill(p.bg_base)
                         .border(1.0, p.border)

@@ -90,7 +90,7 @@ pub fn panel<H: SubagentsHost + 'static>(host: &H, p: &Pal) -> Option<El> {
     let (header, output_box, output_inner) = build_panel_sections(host, p, sh, phase, read, back, status);
     // `session-activity-shell-output`: a plain `overflow-y: auto` box's bar (`activity-chips.css:207-212`).
     let output = session_view::scroller::scroller("shell-output").stick_bottom().build::<H>(p, output_box, output_inner);
-    Some(build_panel_frame(host.knobs(), p, header, output).on_press(|_: &mut H| {}))
+    Some(build_panel_frame(host.knobs(), p, host.lane_align(), header, output).on_press(|_: &mut H| {}))
 }
 
 fn select_shell(host: &mut dyn SubagentsHost, shell: Shell, tx: &mut Tx) {
@@ -260,19 +260,20 @@ fn build_panel_sections(host: &dyn SubagentsHost, p: &Pal, sh: &Shell, phase: Ph
     (header, output_box, output_inner)
 }
 
-fn build_panel_frame(knobs: &Knobs, p: &Pal, header: El, output: El) -> El {
+fn build_panel_frame(knobs: &Knobs, p: &Pal, align: rune::Align, header: El, output: El) -> El {
     col()
         .key("activity-panel")
         .role("menu")
         .label_static(opencode_i18n::t!("session.activity.section.shells"))
-        .above("activity-chip", 8.0)
+        .anchored_fit("activity-chip", rune::Side::Top, align, 8.0)
+        .anchored_round()
         .w(WIDE)
         .padding(PANEL_PAD)
         .radius(10.0)
         .fill(p.layer1)
         .elevate(p.floating)
         .clip_soft(0.0)
-        .transition(session_view::popover::motion::transition(knobs, rune::Side::Top, rune::Align::Start))
+        .transition(session_view::popover::motion::transition(knobs, rune::Side::Top, align))
         .child(header)
         .child(output)
 }

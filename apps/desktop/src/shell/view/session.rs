@@ -139,6 +139,7 @@ fn timeline_ring(p: &Pal, shown: &str) -> Option<El> {
     Some(
         el().key("timeline-ring")
             .pin(Some(r[0] - page[0]), Some(r[1] - page[1]), None, None)
+            .unmirrored()
             .size(r[2], r[3])
             .radius(10.0)
             .focus_ring_for(key, opencode_ui::focus::WIDTH, opencode_ui::focus::INSET, opencode_ui::focus::color(p)),

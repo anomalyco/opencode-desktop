@@ -59,6 +59,10 @@ impl TodosHost for App {
     fn todo_chip(&self, p: &Pal, key: &str, label: String, open: bool) -> El {
         crate::subagents::chip(self, p, key, label, open)
     }
+
+    fn lane_align(&self) -> rune::Align {
+        self.composer_lane_align()
+    }
 }
 
 impl App {

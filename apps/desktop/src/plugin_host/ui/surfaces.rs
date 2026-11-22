@@ -355,7 +355,8 @@ pub fn popover_view(app: &App, p: &Pal) -> Vec<El> {
     let half = &app.plugins.list[i].half;
     let scrim = crate::popover::scrim::<App>("plugin-popover-scrim", requests::close_popover)
         .press_focuses_below()
-        .on_secondary_press(|s: &mut App, _: rune::PointerPress, tx: &mut Tx| requests::close_popover(s, tx));
+        .on_secondary_press(|s: &mut App, _: rune::PointerPress, tx: &mut Tx| requests::close_popover(s, tx))
+        .raise();
     let scrim = if crate::popup::PRESS_ON_DOWN { scrim.press_on_down() } else { scrim };
     if let Overlay::PillMenu { anchor, .. } = &app.plugins.overlay {
         let pill = half.contribs.borrow().composer_pills.iter().find(|c| c.spec.id == *id).map(|c| (c.key, c.f("renderMenu").cloned(), c.f("show").cloned()));
@@ -378,14 +379,15 @@ pub fn popover_view(app: &App, p: &Pal) -> Vec<El> {
             .elevate(p.floating)
             .on_press(|_: &mut App| {})
             .child(content);
-        return vec![scrim, crate::popover::place(&app.diag.knobs, card, anchor, rune::Side::Top, rune::Align::Start, 8.0)];
+        let align = app.composer_lane_align();
+        return vec![scrim, crate::popover::place(&app.diag.knobs, card, anchor, rune::Side::Top, align, 8.0).raise()];
     }
     let Overlay::Popover { anchor, side, align, gap, flyout, .. } = &app.plugins.overlay else { return Vec::new() };
     let found = half.contribs.borrow().popovers.iter().find(|c| c.spec.id == *id).map(|c| (c.key, c.f("render").cloned()));
     let Some((key, Some(f))) = found else { return Vec::new() };
     let content = render(app, p, i, &format!("popover:{id}"), &f, map([("data", data.clone())]));
     let content = col().key(format!("plugin-popover-{key}")).on_press(|_: &mut App| {}).child(content);
-    let mut out = vec![scrim, crate::popover::place(&app.diag.knobs, content, anchor, *side, *align, *gap)];
+    let mut out = vec![scrim, crate::popover::place(&app.diag.knobs, content, anchor, *side, *align, *gap).raise()];
     out.extend(flyout_view(app, p, i, flyout));
     out
 }
@@ -416,7 +418,15 @@ fn flyout_view(app: &App, p: &Pal, i: usize, flyout: &Flyout) -> Option<El> {
             requests::step_flyout(s, None, FlyoutEvent::Settled, tx);
         })
         .child(content);
-    Some(col().key(format!("plugin-flyout-{key}")).anchored(list.row.clone(), list.side, rune::Align::Start, 2.0).on_press(|_: &mut App| {}).child(body))
+    Some(
+        col()
+            .key(format!("plugin-flyout-{key}"))
+            .anchored_fit(list.row.clone(), list.side, rune::Align::Start, 2.0)
+            .anchored_round()
+            .raise()
+            .on_press(|_: &mut App| {})
+            .child(body),
+    )
 }
 
 /// The open plugin dialog's card sized for `win`, without its modal scrim or focus trap (for

@@ -566,6 +566,7 @@ pub fn view<H: QuoteHost + 'static>(s: &H, p: &Pal, cx: &mut Cx<H>) -> Option<El
         .key("quote-comment")
         // Placed by its live offset, which glides when it changes side.
         .absolute(0.0, 0.0)
+        .unmirrored()
         .live_offset(place::AT.with(|at| at.smooth(place::spring(s.knobs()))))
         .on_drawn_layout_tx(|s: &mut H, _, tx: &mut Tx| on_rested(s, tx))
         .w(layout.width)
@@ -582,7 +583,7 @@ pub fn view<H: QuoteHost + 'static>(s: &H, p: &Pal, cx: &mut Cx<H>) -> Option<El
         .keeps_text_selection()
         .on_press(|_: &mut H| {})
         .child(body);
-    let layer = el().key("quote-comment-band").absolute(layout.band[0], layout.band[1]);
+    let layer = el().key("quote-comment-band").absolute(layout.band[0], layout.band[1]).unmirrored();
     let layer = if layout.place == Place::Card {
         layer.w_full().h_full()
     } else {

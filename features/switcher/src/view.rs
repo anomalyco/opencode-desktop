@@ -107,8 +107,8 @@ pub fn view<H: SwitcherHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> [El; 2] {
     let [win_w, win_h] = cx.layout_size("window").or_else(|| cx.layout_size("zoomed")).unwrap_or([1280.0, 820.0]);
     let size = DialogSize::Large;
     let w = size.width(win_w);
-    let scrim = el().key("switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none());
-    [scrim, dialog(s, p, w, size.height(win_h)).absolute((win_w - w) / 2.0, size.top(win_h))]
+    let scrim = el().key("switcher-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::none()).raise();
+    [scrim, dialog(s, p, w, size.height(win_h)).absolute((win_w - w) / 2.0, size.top(win_h)).raise()]
 }
 
 /// The dialog itself, `w` wide and as tall as its rows up to `max_h`.
