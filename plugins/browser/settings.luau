@@ -749,7 +749,7 @@ function settings.renderImportDialog(
     end
     local action = if chooser == nil or chooser.everything
         then i18n:T("signins.action")
-        else i18n:T(if chooser.chosen == 1 then "import.some.one" else "import.some.other", { number = chooser.chosen })
+        else i18n:T(if chooser.chosen == 1 then "import.some.one" else "import.some.other", { number = i18n:Number(chooser.chosen) })
     table.insert(footer, ui.button({
         key = "settings-import-cancel",
         text = i18n:T("common.cancel"),
@@ -849,14 +849,14 @@ siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: b
     end
     local shown = chooser.shown
     local count = if searching
-        then i18n:T("sites.selected.shown", { shown = #shown, selected = chooser.chosen })
-        else i18n:T("sites.selected", { selected = chooser.chosen, total = chooser.total })
+        then i18n:T("sites.selected.shown", { shown = i18n:Number(#shown), selected = i18n:Number(chooser.chosen) })
+        else i18n:T("sites.selected", { selected = i18n:Number(chooser.chosen), total = i18n:Number(chooser.total) })
     -- The count alone is announced, so Select all and Select none say what they did.
     local counts = ui.row({ key = "settings-import-counts", w = "full", h = 28, gap = 4, align = "center", opacity = if chooser.ready then 1 else 0 }, {
         ui.text(count, { key = "settings-import-count", size = 13, weight = "regular", lineHeight = 20, color = "text-muted", truncate = true, shrink = true, minW = 0, grow = 1, role = "status" }),
         ui.button({
             key = "settings-import-all",
-            text = if searching then i18n:T("sites.all.shown", { count = #shown }) else i18n:T("sites.all"),
+            text = if searching then i18n:T("sites.all.shown", { count = i18n:Number(#shown) }) else i18n:T("sites.all"),
             size = "small",
             variant = "ghost",
             disabled = not chooser.ready or chooser.shownChosen == #shown,
@@ -866,7 +866,7 @@ siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: b
         }),
         ui.button({
             key = "settings-import-none",
-            text = if searching then i18n:T("sites.none.shown", { count = #shown }) else i18n:T("sites.none"),
+            text = if searching then i18n:T("sites.none.shown", { count = i18n:Number(#shown) }) else i18n:T("sites.none"),
             size = "small",
             variant = "ghost",
             disabled = not chooser.ready or chooser.shownChosen == 0,
