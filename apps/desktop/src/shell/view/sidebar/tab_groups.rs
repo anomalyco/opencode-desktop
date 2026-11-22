@@ -403,9 +403,11 @@ fn tab_row(s: &App, p: &Pal, g: &Group, t: &crate::tabs::Tab, tab_index: usize, 
         .child(session_view::style::hover_reveal(close_btn));
 
     let press_uid = uid.clone();
+    let middle_uid = uid.clone();
     let dbl_target = target.clone();
     let hover_uid = uid.clone();
-    let move_uid = uid.clone();
+    let anchor_key = format!("tg-tab-{uid}");
+    let hover_anchor = anchor_key.clone();
     let layout_key = format!("tab:{tkey}");
     let drag_tkey = tkey.clone();
     let drag_uid = uid.clone();
@@ -417,7 +419,7 @@ fn tab_row(s: &App, p: &Pal, g: &Group, t: &crate::tabs::Tab, tab_index: usize, 
     let dragging = drag_st.dragging_tab(&tkey);
 
     let mut slot = row()
-        .key(format!("tg-tab-{uid}"))
+        .key(anchor_key)
         .role("tab")
         .label(face.title.clone())
         .focus_selected(active)
@@ -439,6 +441,7 @@ fn tab_row(s: &App, p: &Pal, g: &Group, t: &crate::tabs::Tab, tab_index: usize, 
             s.kernel.slots.untracked(&tg::LAYOUT).rects.borrow_mut().insert(layout_key.clone(), r);
         })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| tg::tab_press(s, &press_uid, tx))
+        .closable_tab(move |s: &mut App, tx: &mut Tx| s.close_tab(&middle_uid, tx))
         .on_double_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             s.begin_rename(&dbl_target);
@@ -447,9 +450,8 @@ fn tab_row(s: &App, p: &Pal, g: &Group, t: &crate::tabs::Tab, tab_index: usize, 
             if inside {
                 s.prefetch_session(&hover_uid);
             }
-            s.preview_hover(&hover_uid, inside, tx);
+            s.preview_hover_at(&hover_uid, &hover_anchor, inside, tx);
         })
-        .on_pointer_move_local(move |s: &mut App, pt: rune::PointerEvent, tx: &mut Tx| s.preview_pointer(&move_uid, pt.y, pt.window_y, tx))
         .on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| {
             tab_drag(s, &drag_tkey, &drag_uid, tab_index, drag_gk.clone(), drag_mid.clone(), d, tx);
         })

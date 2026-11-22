@@ -1552,6 +1552,9 @@ return plugin.defineWindow(function(ctx)
     local importDialogHandle: Contribution? = nil
     local extDialogHandle: Contribution? = nil
     local clearNoticeText: string? = nil
+    local clearing = false
+    local settingsDrawnAt: number? = nil
+    local clearNoticeDrawn = false
     -- Browsers are listed only when asked (never at startup), by the host off the UI thread, again once a
     -- listing is a few seconds old, so a visit sees browsers installed since the last one.
     local importSources: { settings.ImportBrowser } = {}
@@ -1890,8 +1893,28 @@ return plugin.defineWindow(function(ctx)
         end,
     })
 
+    -- `main.ts:303-320` `clear`: the sign-out runs first (every cookie and the sites' stored data, in
+    -- the engine) and is whole whatever the history store does; the history goes either way.
     local function runClearBrowsingData()
+        if clearing then
+            return
+        end
+        clearing = true
+        clearNoticeText = nil
+        refreshSettings()
         local bAny = Browser :: any
+        local profOk = true
+        if type(bAny.ClearProfileDataAsync) == "function" then
+            local ok, res = pcall(function()
+                return bAny:ClearProfileDataAsync()
+            end)
+            profOk = ok and res == true
+        else
+            local prof = profileContract:Get()
+            if type(prof) == "table" and type(prof.clearData) == "function" then
+                profOk = pcall(prof.clearData)
+            end
+        end
         local histOk = true
         if type(bAny.HistoryClear) == "function" then
             histOk = bAny:HistoryClear() == true
@@ -1900,20 +1923,13 @@ return plugin.defineWindow(function(ctx)
         if keeper then
             keeper.clear()
         end
-        local prof = profileContract:Get()
-        local profOk = true
-        if type(prof) == "table" and type(prof.clearData) == "function" then
-            profOk = pcall(prof.clearData)
-        end
+        clearing = false
         if not profOk then
             clearNoticeText = I18n:T("settings.failed.clear")
-            Toast:Error(clearNoticeText :: string)
         elseif not histOk then
             clearNoticeText = I18n:T("settings.cleared.history")
-            Toast:Info(clearNoticeText :: string)
         else
             clearNoticeText = I18n:T("settings.cleared")
-            Toast:Info(clearNoticeText :: string)
         end
         refreshSettings()
         refresh()
@@ -1982,6 +1998,19 @@ return plugin.defineWindow(function(ctx)
         end,
         clearNotice = function(): string?
             return clearNoticeText
+        end,
+        cookieCount = function(): number?
+            local bAny = Browser :: any
+            if type(bAny.CookieCount) ~= "function" then
+                return nil
+            end
+            local ok, count = pcall(function()
+                return bAny:CookieCount()
+            end)
+            return if ok and type(count) == "number" then count else nil
+        end,
+        clearing = function(): boolean
+            return clearing
         end,
         requestClearBrowsingData = function()
             Dialog:Open("clear-data")
@@ -2332,6 +2361,16 @@ return plugin.defineWindow(function(ctx)
         title = I18n:T("settings.title"),
         entries = settings.entries(I18n, settingsCapabilities()),
         render = function(view, props)
+            -- Official's jobs live with the page (`settings.tsx:54`): a visit after leaving it shows
+            -- the count again, not the last clear's outcome. A page has no "left" signal, so a render
+            -- two seconds or more after the last one counts as a new visit (`os.time`: reading
+            -- `System:Now` would draw the page again on every tick).
+            local now = os.time()
+            if clearNoticeDrawn and settingsDrawnAt ~= nil and now - settingsDrawnAt >= 2 and not clearing then
+                clearNoticeText = nil
+            end
+            settingsDrawnAt = now
+            clearNoticeDrawn = clearNoticeText ~= nil
             return settingsPage.render(view, props)
         end,
     })

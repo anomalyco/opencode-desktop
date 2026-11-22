@@ -3,6 +3,7 @@
 pub use opencode_feature_settings::*;
 
 mod feature;
+mod updater_fallback;
 mod stories;
 
 pub use feature::SettingsFeature;
@@ -323,7 +324,11 @@ impl SettingsHost for App {
     }
 
     fn plugin_sections_for_page(&self, p: &Pal, page_id: &str) -> Vec<El> {
-        crate::plugin_host::settings_pages(self, p, page_id)
+        let mut sections = crate::plugin_host::settings_pages(self, p, page_id);
+        if page_id == "general" {
+            updater_fallback::maybe_push(self, p, &mut sections);
+        }
+        sections
     }
 
     fn plugin_extensions_section(&self, p: &Pal) -> Option<El> {

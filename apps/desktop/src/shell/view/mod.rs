@@ -10,6 +10,7 @@ use rune::{
 
 use rune_theme_opencode::icons as ic;
 use opencode_ui::focus::FocusExt;
+use opencode_ui::tab::TabExt;
 use opencode_kit::model::{self, SessionInfo, Transcript};
 use crate::palette::{Elevate as _, Pal, pal};
 use crate::{App, Route, TabStatus};
@@ -143,6 +144,7 @@ pub fn app(s: &App, cx: &mut Cx<App>) -> El {
                 #[cfg(not(target_arch = "wasm32"))]
                 s.workspace_panes.browser.host.close_extension_popup();
                 s.clear_app_link_reviews();
+                s.clear_preview(tx);
                 crate::tab_hints::window_left(s, tx);
             }
             if focused { crate::launch::network_available(s, tx); }
