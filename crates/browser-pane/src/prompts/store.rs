@@ -102,13 +102,54 @@ pub struct SiteDecision {
     pub setting: SiteSetting,
 }
 
+/// Whether `origin` is a secure context eligible for site permissions (`site-permissions.ts:57-65`):
+/// `https:`, `oc-preview:`, or loopback `http:` (`localhost`, `*.localhost`, `127.*`, `[::1]`).
+pub fn trustworthy_origin(origin: &str) -> bool {
+    let trimmed = origin.trim();
+    let Some((scheme, rest)) = trimmed.split_once("://") else { return false };
+    if scheme.eq_ignore_ascii_case("https") || scheme.eq_ignore_ascii_case("oc-preview") {
+        return !rest.is_empty();
+    }
+    if !scheme.eq_ignore_ascii_case("http") {
+        return false;
+    }
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host = if authority.starts_with('[') {
+        authority.split_once(']').map_or(authority, |(h, _)| &authority[..=h.len()])
+    } else {
+        authority.split(':').next().unwrap_or(authority)
+    };
+    let lower = host.to_ascii_lowercase();
+    lower == "localhost"
+        || lower.ends_with(".localhost")
+        || lower == "[::1]"
+        || is_ipv4_loopback(&lower)
+}
+
+fn is_ipv4_loopback(host: &str) -> bool {
+    let mut parts = host.split('.');
+    if parts.next() != Some("127") {
+        return false;
+    }
+    let mut count = 1;
+    for part in parts {
+        count += 1;
+        if count > 4 || part.is_empty() || part.len() > 3 || part.parse::<u8>().is_err() {
+            return false;
+        }
+    }
+    count == 4
+}
+
 /// Partition scope for site permission decisions (`site-permissions.ts` `DecisionScope`):
 /// - `Profile`: persistent decisions for `ContextKind::Default` (`plugin.browser/rune.sitePermissions`).
-/// - `VisitOnly`: `RemoteServer`, `Preview`, `Artifact`, and `Private` tabs never read or persist
-///   kept decisions (per-visit only).
+/// - `Session(server_id)`: in-memory decisions for one `ContextKind::RemoteServer` kept until app quit,
+///   never persisted to disk and never crossing into `Profile` or other remote servers.
+/// - `VisitOnly`: `Preview`, `Artifact`, and `Private` tabs never read or persist kept decisions.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PermissionScope {
     Profile,
+    Session(String),
     VisitOnly,
 }
 
@@ -116,8 +157,8 @@ impl PermissionScope {
     pub fn from_context(context: &ContextKind) -> Self {
         match context {
             ContextKind::Default => Self::Profile,
-            ContextKind::RemoteServer { .. }
-            | ContextKind::Preview { .. }
+            ContextKind::RemoteServer { server_id, .. } => Self::Session(server_id.clone()),
+            ContextKind::Preview { .. }
             | ContextKind::Artifact { .. }
             | ContextKind::Private => Self::VisitOnly,
         }
@@ -134,6 +175,7 @@ pub struct PermissionStore {
 #[derive(Default)]
 pub struct SitePermissions {
     decisions: Vec<SiteDecision>,
+    session_decisions: std::collections::HashMap<(String, String, PermissionKind), SiteSetting>,
     pending_resets: Vec<(String, PermissionKind)>,
     store: Option<PermissionStore>,
 }
@@ -145,6 +187,7 @@ impl SitePermissions {
             .unwrap_or_default();
         Self {
             decisions,
+            session_decisions: std::collections::HashMap::new(),
             pending_resets: Vec::new(),
             store: Some(store),
         }
@@ -191,7 +234,8 @@ impl SitePermissions {
             .map(|d| d.setting)
     }
 
-    /// Looks up a decision strictly inside `scope` (`Profile` only; `VisitOnly` never inherits).
+    /// Looks up a decision strictly inside `scope` (`Profile` persisted, `Session` in-RAM per remote
+    /// server, `VisitOnly` never inherits).
     pub fn get_scoped(
         &self,
         scope: &PermissionScope,
@@ -200,12 +244,16 @@ impl SitePermissions {
     ) -> Option<SiteSetting> {
         match scope {
             PermissionScope::Profile => self.get(origin, permission),
+            PermissionScope::Session(server_id) => self
+                .session_decisions
+                .get(&(server_id.clone(), origin.to_owned(), permission))
+                .copied(),
             PermissionScope::VisitOnly => None,
         }
     }
 
     pub fn set(&mut self, origin: String, permission: PermissionKind, setting: SiteSetting) {
-        if origin.is_empty() || origin.to_ascii_lowercase().starts_with("oc-preview:") {
+        if origin.is_empty() || origin.to_ascii_lowercase().starts_with("oc-preview:") || !trustworthy_origin(&origin) {
             return;
         }
         if let Some(existing) = self
@@ -226,7 +274,8 @@ impl SitePermissions {
         self.flush();
     }
 
-    /// Records a decision strictly inside `scope`: `Profile` persists to disk; `VisitOnly` is ignored.
+    /// Records a decision strictly inside `scope`: `Profile` persists to disk; `Session(server_id)`
+    /// stays in RAM until app quit; `VisitOnly` is ignored.
     pub fn set_scoped(
         &mut self,
         scope: &PermissionScope,
@@ -234,11 +283,15 @@ impl SitePermissions {
         permission: PermissionKind,
         setting: SiteSetting,
     ) {
-        if origin.is_empty() || origin.to_ascii_lowercase().starts_with("oc-preview:") {
+        if origin.is_empty() || origin.to_ascii_lowercase().starts_with("oc-preview:") || !trustworthy_origin(&origin) {
             return;
         }
-        if matches!(scope, PermissionScope::Profile) {
-            self.set(origin, permission, setting);
+        match scope {
+            PermissionScope::Profile => self.set(origin, permission, setting),
+            PermissionScope::Session(server_id) => {
+                self.session_decisions.insert((server_id.clone(), origin, permission), setting);
+            }
+            PermissionScope::VisitOnly => {}
         }
     }
 

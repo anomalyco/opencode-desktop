@@ -83,6 +83,7 @@
   "rune.browser.menu.spellcheck": "Check spelling",
   "rune.browser.prompt.allowAlways": "Always allow",
   "rune.browser.prompt.allowOnce": "Allow this time",
+  "rune.browser.prompt.allowSession": "Allow until you quit OpenCode",
   "rune.browser.prompt.auth.failed": "The site did not accept that user name and password.",
   "rune.browser.prompt.auth.password": "Password",
   "rune.browser.prompt.auth.realm": "The site says: “{{realm}}”",

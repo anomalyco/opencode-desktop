@@ -23,6 +23,7 @@ pub use store::{
     ACTIVATION_DELAY_MS, AGENT_PERMISSION_TIMEOUT_MS, InputGuard, MAX_SIGN_IN_ATTEMPTS,
     PROMPT_TEXT_MAX, PermissionScope, PermissionStore, REALM_TEXT_MAX, REPEAT_DIALOG_MS,
     SiteDecision, SitePermissions, SiteSetting, sanitize_prompt_text, sanitize_single_line_prompt,
+    trustworthy_origin,
 };
 
 use crate::protocol::{AuthChallenge, DialogKind, PageDialog, PermissionKind, PermissionPrompt};
@@ -175,6 +176,9 @@ pub enum PermissionDecision {
     AllowAlways,
     BlockOnce,
     BlockAlways,
+    /// Dismissed via "Not now" (`x`) or Escape: denies this request without recording anything in
+    /// visit or kept decisions so the site can ask again (`prompts.tsx:468`, `page-prompts.ts:498`).
+    Dismiss,
 }
 
 /// One queued site permission prompt; concurrent requests with the same `(origin, kinds, agent)`
@@ -262,7 +266,10 @@ impl PermissionGate {
         visit: &HashMap<(String, PermissionKind), SiteSetting>,
         now: Instant,
     ) -> Option<(bool, bool, bool)> {
-        if request.kinds.is_empty() || request.origin != request.top_origin {
+        if request.kinds.is_empty()
+            || request.origin != request.top_origin
+            || !store::trustworthy_origin(&request.origin)
+        {
             return Some((false, true, false));
         }
         let is_profile = matches!(scope, PermissionScope::Profile);
