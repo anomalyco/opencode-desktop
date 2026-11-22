@@ -467,7 +467,7 @@ local function home(env: Env, view: View, tab: BrowserTab, width: number): ui.No
     local offer = if env.signIns then env.signIns(view, tab, "card") else nil
     local items: { ui.Node } = if offer then { offer } else {}
     if #visits == 0 then
-        table.insert(items, ui.col({ w = "full", maxW = 360, px = 24, pt = 80, gap = 16, align = "center" }, {
+        table.insert(items, ui.col({ key = "browser-home-prompt", w = "full", maxW = 360, px = 24, pt = 80, gap = 16, align = "center" }, {
             ui.icon("outline-globe", { size = 20, color = "icon-weak" }),
             ui.col({ w = "full", gap = 8, align = "center" }, {
                 ui.text(env.I18n:T("home.title"), { size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", textAlign = "center" }),
@@ -486,7 +486,7 @@ local function home(env: Env, view: View, tab: BrowserTab, width: number): ui.No
             env.act("go", tab, visit.url)
         end))
     end
-    table.insert(items, ui.col({ w = "full", maxW = 608, px = 24, pt = 48, pb = 40, gap = 16 }, {
+    table.insert(items, ui.col({ key = "browser-home-recent", w = "full", maxW = 608, px = 24, pt = 48, pb = 40, gap = 16 }, {
         ui.text(env.I18n:T("home.recent"), { size = 13, weight = "regular", lineHeight = 16, color = "text-muted" }),
         ui.col({ w = "full", gap = 8 }, rows),
     }))
