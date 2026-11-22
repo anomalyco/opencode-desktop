@@ -503,6 +503,10 @@ fn on_dismiss_new_tab(host: &mut dyn PanelsHost, nid: &str, tx: &mut Tx) {
 fn on_open_new_tab(host: &mut dyn PanelsHost, pane: SessionPane, tx: &mut Tx) {
     tx.instant();
     open_side_new_tab(host, pane);
+    // A press on `+` is a press inside the region: in Desktop the button takes the focus, so the
+    // region is `data-focused` and its new tab shows in the selected ink (`tabs.css:578-584`).
+    host.side_mut().focus.press();
+    host.set_composer_focused(false);
 }
 
 fn on_open_add_menu(host: &mut dyn PanelsHost, pane: SessionPane, ev: PointerPress, tx: &mut Tx) {
