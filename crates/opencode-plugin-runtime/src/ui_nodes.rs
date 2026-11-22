@@ -45,12 +45,12 @@ pub fn named_icon(name: &str) -> &'static Icon {
 /// The `App`-independent contract UI nodes. `command_chord` resolves a command id's active
 /// shortcut (for `ui.iconButton`'s tooltip); `catalog_chord` resolves a command's default chord
 /// from the host catalog when no user override exists (for `ui.keybind`).
-pub fn base_nodes(
+pub fn base_nodes<S: 'static>(
     command_chord: fn(&str) -> Option<Chord>,
     catalog_chord: fn(&str) -> Option<Chord>,
 ) -> Vec<HostNode> {
     vec![
-        node("frame", frame),
+        node("frame", frame::<S>),
         node("divider", divider),
         node("icon", icon),
         node("metric", metric),
@@ -117,7 +117,7 @@ pub fn dir(a: &NodeArgs) -> Option<Direction> {
 /// A layout container whose border takes room in layout (`El::border_layout`), snapped to whole
 /// device pixels at every scale the way CSS `box-sizing: border-box` does. Standard `UiBoxProps`
 /// apply automatically via `rune-luau`'s host-node prop pass.
-fn frame(a: &mut NodeArgs) -> Result<El, String> {
+fn frame<S: 'static>(a: &mut NodeArgs) -> Result<El, String> {
     let mut out = match a.string("direction") {
         Some("row") => row(),
         Some("box") => el(),
@@ -145,6 +145,7 @@ fn frame(a: &mut NodeArgs) -> Result<El, String> {
     if a.flag("focusGroup") {
         out = out.focus_group();
     }
+    out = key_handler::<S>(a, out);
     Ok(focus(a, out))
 }
 
@@ -156,6 +157,44 @@ fn focus(a: &NodeArgs, el: El) -> El {
         Some(key) => el.focus_return(key),
         None => el,
     }
+}
+
+/// `keys` and `onKey`: a key `keys` names, pressed with no modifier while focus is on the frame or
+/// inside it (not in a text field, whose keys stay its own), runs `onKey` with its name in
+/// `event.keyName` instead of doing what it does there: Return in a list that imports rather than
+/// ticks the focused row.
+fn key_handler<S: 'static>(a: &NodeArgs, el: El) -> El {
+    let Some(press) = a.press_later("onKey") else { return el };
+    let Some(Data::List(names)) = a.data("keys") else { return el };
+    let keys: Vec<(rune::Key, &'static str)> = names
+        .iter()
+        .filter_map(|name| match name.as_str()? {
+            "Enter" => Some((rune::Key::Enter, "Enter")),
+            "Escape" => Some((rune::Key::Escape, "Escape")),
+            "ArrowUp" => Some((rune::Key::Up, "ArrowUp")),
+            "ArrowDown" => Some((rune::Key::Down, "ArrowDown")),
+            "ArrowLeft" => Some((rune::Key::Left, "ArrowLeft")),
+            "ArrowRight" => Some((rune::Key::Right, "ArrowRight")),
+            "Home" => Some((rune::Key::Home, "Home")),
+            "End" => Some((rune::Key::End, "End")),
+            "PageUp" => Some((rune::Key::PageUp, "PageUp")),
+            "PageDown" => Some((rune::Key::PageDown, "PageDown")),
+            "Delete" => Some((rune::Key::Delete, "Delete")),
+            "Backspace" => Some((rune::Key::Backspace, "Backspace")),
+            _ => None,
+        })
+        .collect();
+    if keys.is_empty() {
+        return el;
+    }
+    el.on_key(move |s: &mut S, ev: &rune::KeyEvent, tx: &mut rune::Tx| {
+        if ev.mods != rune::Mods::default() {
+            return false;
+        }
+        let Some(&(_, name)) = keys.iter().find(|(key, _)| ev.key == *key) else { return false };
+        press.run(s, tx, vec![("keyName", Data::String(name.to_owned()))]);
+        true
+    })
 }
 
 /// A 1 px rule laid out as Chromium lays out a 1px CSS border: one device pixel at 1x, 1.25x and

@@ -313,6 +313,8 @@ pub static UI_FRAME_PROPS: PropsSpec = PropsSpec::new("UiFrameProps", Some(&UI_B
     PropSpec::new("borderSides", PropType::List("number"), false),
     PropSpec::new("focusReturn", PropType::String, false),
     PropSpec::new("focusGroup", PropType::Bool, false),
+    PropSpec::new("keys", PropType::List("string"), false),
+    PropSpec::new("onKey", PropType::Handler, false),
 ]);
 
 /// `UiGenUiProps`.
