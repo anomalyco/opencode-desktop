@@ -136,6 +136,9 @@ pub(super) struct St {
     pub suspender: Option<Suspender>,
     /// Where in the program it threw, when it ended so (1-based line and column).
     pub failed_at: Option<(u32, u32)>,
+    /// Native: the last rendered view's canvases by `String(key)`, their ids and whether `wgsl`
+    /// draws them (kept across a save, as the program's view is).
+    pub canvases: HashMap<String, (String, bool)>,
 }
 
 impl St {
@@ -202,6 +205,7 @@ impl Link {
             watch: Watch::fresh(now),
             suspender: None,
             failed_at: None,
+            canvases: HashMap::new(),
         };
         Arc::new_cyclic(|me| Link { st: Mutex::new(st), news: AtomicBool::new(false), program, data, setup, me: me.clone() })
     }
@@ -230,6 +234,7 @@ impl Link {
             st.started = now;
             st.paused_total = Duration::ZERO;
             st.dues.clear();
+            st.canvases.clear();
         }
         st.era += 1;
         st.run = Run::Alive;

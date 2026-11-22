@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Instant;
 
-use psychoscript::{Call, HostError, HostFunction, HostResult, HostValue, Limits, Runtime};
+use psychoscript::{Call, HostError, HostFunction, HostResult, HostValue, Limits, Runtime, Translate, TranslateFunctions};
 use serde_json::{Value, json};
 
 use super::fetch;
@@ -27,7 +27,9 @@ fn throw(message: String) -> HostValue {
 /// [`crate::runner::MAX_HEAP_BYTES`] (a saved run keeps the cap).
 pub(super) fn runtime(link: &Arc<Link>, era: u64) -> Runtime {
     let link = link.clone();
-    Runtime::make().limits(Limits { max_heap_bytes: Some(crate::runner::MAX_HEAP_BYTES), ..Default::default() }).globals(move |_run| {
+    // Native: a function in a post (a handler) crosses as a marker.
+    let functions = if link.program.native { TranslateFunctions::Mark } else { TranslateFunctions::Error };
+    Runtime::make().limits(Limits { max_heap_bytes: Some(crate::runner::MAX_HEAP_BYTES), ..Default::default() }).translate(Translate { functions, ..Default::default() }).globals(move |_run| {
         let input = json!({ "data": link.data });
         let (l1, l2, l3, l4, l5) = (link.clone(), link.clone(), link.clone(), link.clone(), link.clone());
         let host = HostValue::object([
@@ -59,19 +61,44 @@ pub(super) fn runtime(link: &Arc<Link>, era: u64) -> Runtime {
     })
 }
 
-/// `__host.post(message)`: checked and handed to the client; a bad view or draw throws.
-fn post(link: &Link, args: Vec<HostValue>) -> HostResult {
+/// `__host.post(message)`: checked and handed to the client; a bad view or draw throws. A native
+/// host builds a render's tree (and says whether it has handlers) and finds a draw's canvas by key.
+fn post(link: &Link, mut args: Vec<HostValue>) -> HostResult {
     if link.lock().interrupt {
         return Err(HostValue::Interrupt);
     }
     // Read from the VM's value as from its JSON, without making it (`host_value`).
-    let message = args.first().unwrap_or(&HostValue::Null);
+    let mut message = if args.is_empty() { HostValue::Null } else { args.swap_remove(0) };
+    let native = link.program.native;
+    if native && message.field("type").and_then(Arg::text).as_deref() == Some("render") {
+        let node = match &mut message {
+            HostValue::Object(fields) => fields.iter_mut().find(|(k, _)| k.as_str() == Some("node")).map(|(_, v)| std::mem::take(v)).unwrap_or_default(),
+            _ => HostValue::Undefined,
+        };
+        let tree = crate::tree::build(node).map_err(throw)?;
+        let interactive = !tree.handlers.is_empty();
+        // The canvases of the last view, read or not, rendered or dropped over the rate.
+        link.lock().canvases = tree.canvases;
+        let node = Node::from_host(&tree.view).map_err(|e| throw(format!("widget.render: {e}")))?;
+        link.post(Post::Render(node));
+        return Ok(HostValue::Bool(interactive));
+    }
+    let message = &message;
     let field = |key: &str| message.field(key);
     let json = |key: &str| field(key).and_then(HostValue::to_json).unwrap_or(Value::Null);
     let post = match field("type").and_then(Arg::text).as_deref() {
         Some("render") => Post::Render(Node::from_host(field("node").unwrap_or(&HostValue::Null)).map_err(|e| throw(format!("widget.render: {e}")))?),
         Some("draw") => {
-            let id = field("id").and_then(Arg::text).ok_or_else(|| throw("widget.draw needs a canvas id".into()))?.into_owned();
+            let id = if native {
+                let key = field("key").and_then(Arg::text).unwrap_or_default();
+                match link.lock().canvases.get(key.as_ref()) {
+                    None => return Err(throw(format!("No canvas with key \"{key}\" in the rendered view"))),
+                    Some((_, true)) => return Err(throw(format!("Canvas \"{key}\" is drawn by its wgsl; it takes no draw commands"))),
+                    Some((id, false)) => id.clone(),
+                }
+            } else {
+                field("id").and_then(Arg::text).ok_or_else(|| throw("widget.draw needs a canvas id".into()))?.into_owned()
+            };
             let out = DrawOutput::from_host(field("commands")).map_err(|e| throw(format!("widget.draw(\"{id}\"): {e}")))?;
             Post::Draw { id, commands: out.commands }
         }

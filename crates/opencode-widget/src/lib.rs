@@ -29,6 +29,8 @@ pub mod live;
 pub mod runner;
 pub mod shader;
 pub mod step;
+#[cfg(feature = "runner")]
+pub mod tree;
 
 pub use machine::{Closed, Effect, Event, Face, Mode, Phase, RespondError, Status, Widget};
 pub use node::{Align, ButtonVariant, Inset, Layer, Layers, Node, Place, SelectOption, SelectValue, TextStyle, Tone};

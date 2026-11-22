@@ -40,12 +40,16 @@ pub const MAX_POSTS: u32 = 240;
 /// How long a paused program keeps its thread before it is saved to a snapshot.
 pub const SAVE_AFTER: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// What runs a live program after the widget template's.
+/// What runs a live program after the widget template's: as a native host (`widgets.md`, Native
+/// hosts) when its prelude has native mode, else with the prelude building the trees.
 const TAIL: &str = "\nreturn await __widget_live(__input())";
+const NATIVE_TAIL: &str = "\nreturn await __widget_live(__input(), true)";
 
 /// A live widget template's program, compiled once per `name@version`.
 pub struct LiveProgram {
     compiled: Compiled,
+    /// Run as a native host: this client builds its views' trees and maps its draws' keys.
+    pub(super) native: bool,
 }
 
 impl fmt::Debug for LiveProgram {
@@ -57,8 +61,11 @@ impl fmt::Debug for LiveProgram {
 impl LiveProgram {
     /// Compiles `program` (the server's `prelude + "\n" + source`) with the live entry.
     pub fn compile(program: &str) -> Result<LiveProgram, Error> {
-        let compiled = Runtime::make().compile(&format!("{program}{TAIL}")).map_err(|d| Error::Compile(d.message_lossy()))?;
-        Ok(LiveProgram { compiled })
+        // A server's older prelude ignores the native flag and builds the trees itself: it runs so.
+        let native = program.contains("function __widget_find(");
+        let tail = if native { NATIVE_TAIL } else { TAIL };
+        let compiled = Runtime::make().compile(&format!("{program}{tail}")).map_err(|d| Error::Compile(d.message_lossy()))?;
+        Ok(LiveProgram { compiled, native })
     }
 }
 
