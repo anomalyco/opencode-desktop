@@ -148,6 +148,14 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
         return;
     }
     crate::prompts::scrub_chromium_preferences_for_older_engine(profile, &link.profile_permissions);
+    #[cfg(windows)]
+    if let Some(dir) = engine.bin.parent() {
+        if let Err(e) = crate::unpack::grant_sandbox_rx(dir) {
+            return link.set(EngineStatus::Failed(
+                Fault::Launch(format!("sandbox permissions: {e}")).into(),
+            ));
+        }
+    }
     let mut child = match engine_command(&engine.bin, sock, profile, &link.extension_args).spawn() {
         Ok(child) => child,
         Err(e) => {

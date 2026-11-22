@@ -576,11 +576,28 @@ fn page_body(app: &App, p: &Pal, i: usize, spec: &opencode_plugin_spec::Settings
     render(app, p, i, &format!("page:{}", spec.id), f, map([("target", target.map_or(Data::Nil, Data::String))]))
 }
 
+/// Whether plugin `plugin_id` is currently running and contributing a live `SettingsPage` on host
+/// page `page` (such as `"updater"` on `"general"`).
+pub fn has_live_settings_section(app: &App, plugin_id: &str, page: &str) -> bool {
+    app.plugins.running().any(|(_, p)| {
+        p.manifest.id == plugin_id
+            && p.half.contribs.borrow().settings_pages.iter().any(|s| {
+                s.spec.page.map(|hp| hp.as_str()) == Some(page) && s.f("render").is_some()
+            })
+    })
+}
+
 /// The settings pages plugins add on host page `page` (`general`, `servers`), as sections of
 /// that page (`PluginSettingsSections`). A section draws its own title and list
 /// (`ui.settingsList`), as Desktop's do.
 pub fn settings_pages(app: &App, p: &Pal, page: &str) -> Vec<El> {
-    page_specs(app, Some(page)).into_iter().filter_map(|(i, key, spec, f)| Some(col().key(format!("plugin-page-{key}")).w_full().child(page_body(app, p, i, &spec, f.as_ref()?)))).collect()
+    let found = page_specs(app, Some(page));
+    let indices: Vec<(usize, ())> = found.iter().map(|(i, ..)| (*i, ())).collect();
+    want_asleep(app, &indices, true);
+    found
+        .into_iter()
+        .filter_map(|(i, key, spec, f)| Some(col().key(format!("plugin-page-{key}")).w_full().child(page_body(app, p, i, &spec, f.as_ref()?))))
+        .collect()
 }
 
 /// The plugins' own Settings pages, in order, by key, each with whether it belongs beside
@@ -616,7 +633,11 @@ pub fn settings_page_icon(app: &App, key: &str) -> Option<&'static rune::Icon> {
 /// A plugin page: its title, description and what it draws.
 pub fn settings_page(app: &App, p: &Pal, key: &str) -> Option<(String, String, El)> {
     let (i, _, spec, f) = own_page(app, key)?;
-    let body = page_body(app, p, i, &spec, f.as_ref()?);
+    let Some(f) = f else {
+        want_asleep(app, &[(i, ())], true);
+        return None;
+    };
+    let body = page_body(app, p, i, &spec, &f);
     Some((spec.title.clone(), spec.description.clone().unwrap_or_default(), body))
 }
 
