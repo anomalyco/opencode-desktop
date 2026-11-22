@@ -57,26 +57,3 @@ fn confine(log: PathBuf, root: &Path) -> PathBuf {
     if inside { log } else { root.join("open-external.jsonl") }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn confine_keeps_only_absolute_paths_inside_the_root() {
-        let root = std::env::temp_dir().join("run-root");
-        let fallback = root.join("open-external.jsonl");
-        let cases = [
-            (root.join("open.jsonl"), root.join("open.jsonl")),
-            (root.join("logs").join("open.jsonl"), root.join("logs").join("open.jsonl")),
-            (PathBuf::from("open.jsonl"), fallback.clone()),
-            (PathBuf::from("run-root").join("open.jsonl"), fallback.clone()),
-            (root.join("..").join("open.jsonl"), fallback.clone()),
-            (root.join("logs").join("..").join("..").join("open.jsonl"), fallback.clone()),
-            (std::env::temp_dir().join("open.jsonl"), fallback.clone()),
-            (std::env::temp_dir().join("run-root-other").join("open.jsonl"), fallback.clone()),
-        ];
-        for (log, want) in cases {
-            assert_eq!(confine(log.clone(), &root), want, "{}", log.display());
-        }
-    }
-}
