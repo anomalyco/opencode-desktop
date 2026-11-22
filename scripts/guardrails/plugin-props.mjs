@@ -184,5 +184,7 @@ const errors = [
 ];
 if (process.argv.includes("--list")) for (const x of misses) console.log(`${x.file}:${x.line} ui.${x.node} ${x.prop}`);
 for (const e of errors) console.error(`  ERROR  ${e}`);
-console.log(`plugin props: ${calls} ui calls, ${tables} props tables checked; ${misses.length} unknown prop use(s), ${listed.length} listed, ${errors.length} error(s)`);
+// A listed line is `path node prop` with no line number, so one line covers every use of that prop on that node in the file.
+const covered = misses.filter((x) => listed.includes(id(x))).length;
+console.log(`plugin props: ${calls} ui calls, ${tables} props tables checked; ${misses.length} unknown prop use(s): ${covered} covered by ${listed.length} listed line(s), ${misses.length - covered} not listed; ${errors.length} error(s)`);
 process.exit(errors.length ? 1 : 0);
