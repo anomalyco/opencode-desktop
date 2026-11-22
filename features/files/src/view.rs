@@ -240,7 +240,7 @@ pub fn workspace_tree_view<H: FilesHost + 'static>(
         );
     // Desktop's Pierre tree scrolls itself, with its own bar (`--trees-fg` muted on `bg-base`,
     // `gui-plugins/src/file/pierre-tree.tsx:36-38`).
-    tree_scroll::<H>(p, "files-tree", list)
+    tree_scroll::<H>(p, "files-tree", session_id, list)
 }
 
 enum TreeAction {
@@ -258,7 +258,7 @@ fn tree_key(host: &mut dyn FilesHost, sid: &str, ev: &KeyEvent, tx: &mut Tx) -> 
     if matches!(ev.key, rune::Key::PageUp | rune::Key::PageDown)
         && tx.focused().is_some_and(|k| k.starts_with("ft:"))
     {
-        page_tree(tx, "files-tree", if ev.key == rune::Key::PageDown { 1 } else { -1 });
+        page_tree(tx, "files-tree", sid, if ev.key == rune::Key::PageDown { 1 } else { -1 });
         return true;
     }
     let right = matches!(ev.key, rune::Key::Right);
@@ -391,14 +391,15 @@ pub fn filtered_files_view<H: FilesHost + 'static>(
 
 /// A Pierre tree's scroller keyed `key` with the tree's bar, in a box that takes the padding a
 /// caller gives it: Desktop pads above the scroller (`[data-file-tree-virtualized-root]`'s
-/// `padding-block-start: 4px`), so the bar's track starts with the rows.
-pub fn tree_scroll<H: 'static>(p: &Pal, key: &str, rows: El) -> El {
-    let watched = key.to_owned();
+/// `padding-block-start: 4px`), so the bar's track starts with the rows. `sid` is the session
+/// whose tree it is: [`page_tree`] reads where that tree's scroller is.
+pub fn tree_scroll<H: 'static>(p: &Pal, key: &str, sid: &str, rows: El) -> El {
+    let watched = scroll_slot(key, sid);
     let viewport = col()
         .w_full()
         .grow(1.0)
         .min_h(0.0)
-        .on_scroll_offset(move |at: ScrollPos| TREE_SCROLLS.with_borrow_mut(|m| drop(m.insert(watched.clone(), [at.offset[1], at.viewport[1]]))));
+        .on_scroll_offset(move |at: ScrollPos| TREE_SCROLLS.with_borrow_mut(|m| drop(m.insert(watched.clone(), [at.offset[1], at.viewport[1], at.max[1]]))));
     let scroll = opencode_ui::scroller::scroller(key)
         .bar(opencode_ui::scroller::Bar::Tree { fg: p.muted, bg: p.bg_base })
         .build::<H>(p, viewport, rows);
@@ -406,17 +407,31 @@ pub fn tree_scroll<H: 'static>(p: &Pal, key: &str, rows: El) -> El {
 }
 
 thread_local! {
-    /// Each tree scroller's last offset and viewport height, by key, for [`page_tree`].
-    static TREE_SCROLLS: std::cell::RefCell<HashMap<String, [f32; 2]>> = std::cell::RefCell::default();
+    /// Each tree scroller's last offset, viewport height and end, by key and session, for
+    /// [`page_tree`].
+    static TREE_SCROLLS: std::cell::RefCell<HashMap<String, [f32; 3]>> = std::cell::RefCell::default();
 }
 
-/// Pages tree scroller `key` by `pages` as Chromium pages an `overflow: auto` box (Desktop's
-/// Pierre tree): 0.875 of its height per page, cut to whole points (Blink `ScrollableArea::PageStep`
-/// with `MinFractionToStepWhenPaging`; measured on Desktop: 534 of a 611 pt tree), not Rune's 0.9
-/// `Tx::scroll_page`.
-pub fn page_tree(tx: &mut Tx, key: &str, pages: i32) {
-    match TREE_SCROLLS.with_borrow(|m| m.get(key).copied()) {
-        Some([offset, height]) => tx.scroll_to_y(key, (offset + pages as f32 * (height * 0.875).trunc().max(1.0)).max(0.0)),
+fn scroll_slot(key: &str, sid: &str) -> String {
+    format!("{key}\0{sid}")
+}
+
+/// Pages session `sid`'s tree scroller `key` by `pages` as Chromium pages an `overflow: auto` box
+/// (Desktop's Pierre tree): 0.875 of its height per page, cut to whole points (Blink
+/// `ScrollableArea::PageStep` with `MinFractionToStepWhenPaging`; measured on Desktop: 534 of a
+/// 611 pt tree), not Rune's 0.9 `Tx::scroll_page`. The stored offset moves with the page at once,
+/// so a second page before the scroller reports again starts from the first one's end.
+pub fn page_tree(tx: &mut Tx, key: &str, sid: &str, pages: i32) {
+    let slot = scroll_slot(key, sid);
+    let target = TREE_SCROLLS.with_borrow_mut(|m| {
+        let at = m.get_mut(&slot)?;
+        let [offset, height, end] = *at;
+        let to = (offset + pages as f32 * (height * 0.875).trunc().max(1.0)).clamp(0.0, end.max(0.0));
+        at[0] = to;
+        Some(to)
+    });
+    match target {
+        Some(y) => tx.scroll_to_y(key, y),
         None => tx.scroll_page(key, pages),
     }
 }

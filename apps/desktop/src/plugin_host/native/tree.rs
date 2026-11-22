@@ -274,7 +274,7 @@ fn change_tree(app: &App, p: &Pal, sid: &str, kinds: Rc<HashMap<String, String>>
         );
     // Desktop's Pierre tree scrolls itself, with its own bar (`session-review-v2.css:213-220`;
     // `--trees-fg` muted on `bg-base`, `gui-plugins/src/file/pierre-tree.tsx:36-38`).
-    crate::files::view::tree_scroll::<App>(p, "review-tree", list)
+    crate::files::view::tree_scroll::<App>(p, "review-tree", sid, list)
 }
 
 /// The change tree's Right, Left, PageUp and PageDown, as the Files tree's (`files::view::tree_key`).
@@ -283,7 +283,7 @@ fn change_tree_key(s: &mut App, sid: &str, ev: &rune::KeyEvent, tx: &mut Tx) -> 
     if matches!(ev.key, rune::Key::PageUp | rune::Key::PageDown)
         && tx.focused().is_some_and(|k| k.starts_with("rt:"))
     {
-        crate::files::view::page_tree(tx, "review-tree", if ev.key == rune::Key::PageDown { 1 } else { -1 });
+        crate::files::view::page_tree(tx, "review-tree", sid, if ev.key == rune::Key::PageDown { 1 } else { -1 });
         return true;
     }
     let right = matches!(ev.key, rune::Key::Right);
@@ -366,7 +366,7 @@ fn filtered(app: &App, p: &Pal, sid: &str, query: &str, _kinds: Rc<HashMap<Strin
         },
     );
     // The filter's rows in the same Pierre tree as the folders, with its bar.
-    crate::files::view::tree_scroll::<App>(p, "review-filter-scroll", list)
+    crate::files::view::tree_scroll::<App>(p, "review-filter-scroll", sid, list)
 }
 
 fn counts(p: &Pal, adds: u32, dels: u32) -> El {
