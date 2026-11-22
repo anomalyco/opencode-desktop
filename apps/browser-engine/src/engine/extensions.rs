@@ -143,6 +143,7 @@ impl EngineManager {
 
     pub(super) fn cmd_reload_extension(&mut self, ext_id: &str) {
         let effects = self.extensions.as_mut().map(|e| e.reload_extension(ext_id)).unwrap_or_default();
+        self.refresh_ext_clipboard_write_ids();
         self.run_ext_effects(effects);
     }
 
@@ -358,6 +359,10 @@ impl EngineManager {
                             }
                         }
                         self.push_ext_clipboard_write_for_tabs(&ext_id, has_cw);
+                    } else {
+                        self.registered_ext_ids.lock().unwrap().remove(&ext_id);
+                        self.ext_clipboard_write_ids.lock().unwrap().remove(&ext_id);
+                        self.push_ext_clipboard_write_for_tabs(&ext_id, false);
                     }
                     let _ = self.out_tx.send(EngineMsg::ExtensionReloaded { ext_id, ok, error });
                 }

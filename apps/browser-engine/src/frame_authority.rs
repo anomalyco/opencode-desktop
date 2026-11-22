@@ -853,12 +853,17 @@ impl EngineCdpLedger {
         let target = info.get("targetId").and_then(Value::as_str).unwrap_or("").to_owned();
         let url = info.get("url").and_then(Value::as_str).unwrap_or("");
         if ty != "iframe" {
-            // Extension workers are owned and resumed strictly by `ExtensionHost` (`cdp.rs:808-809`:
-            // `extension_id_from_target_url(url)` + registered in `ExtensionHost`): detach only, never
-            // resume. Web (`http(s)://`, `blob:https://`, `data:`) and unowned component workers are
-            // not attached by `ExtensionHost` and resume normally (`#695-F1`).
-            let ext_worker = crate::extensions::manifest::extension_id_from_target_url(url)
-                .is_some_and(|id| self.registered_ext_ids.lock().unwrap().contains(id));
+            // Extension workers/targets owned by `ExtensionHost` (`cdp.rs:766-768, 865-867`:
+            // `extension_id_from_target_url(url)` + registered in `ExtensionHost`): detach only,
+            // never resume. Web (`http(s)://`, `blob:https://`, `data:`), unowned component
+            // workers, and non-owned target types (e.g. `worklet`) resume normally (`#695-F1`).
+            let ext_owned_ty = matches!(
+                ty,
+                "worker" | "shared_worker" | "service_worker" | "page" | "other" | "background_page"
+            );
+            let ext_worker = ext_owned_ty
+                && crate::extensions::manifest::extension_id_from_target_url(url)
+                    .is_some_and(|id| self.registered_ext_ids.lock().unwrap().contains(id));
             let detach = self.msg("Target.detachFromTarget", json!({ "sessionId": child }), None, None);
             if ext_worker {
                 obs.send.push(detach);
