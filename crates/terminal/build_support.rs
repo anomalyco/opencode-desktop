@@ -65,6 +65,49 @@ pub fn zig_dist_for_host(host: &str) -> Result<ZigDist, String> {
     }
 }
 
+// Zig's community mirrors, copied from https://ziglang.org/download/community-mirrors.txt on 22 Nov 2026.
+// A mirror serves `<mirror>/<archive name>`. Every byte is checked against the pinned SHA-256 above,
+// so a mirror can slow a build down but cannot change what it builds with.
+pub const ZIG_COMMUNITY_MIRRORS: &[&str] = &[
+    "https://pkg.hexops.org/zig",
+    "https://zigmirror.hryx.net/zig",
+    "https://zig.linus.dev/zig",
+    "https://zig.squirl.dev",
+    "https://zig.mirror.mschae23.de/zig",
+    "https://ziglang.freetls.fastly.net",
+    "https://zig.tilok.dev",
+    "https://zig-mirror.tsimnet.eu/zig",
+    "https://zig.karearl.com/zig",
+    "https://pkg.earth/zig",
+    "https://fs.liujiacai.net/zigbuilds",
+    "https://zigmirror.com",
+    "https://zig.chainsafe.dev",
+    "https://zig.savalione.com",
+    "https://zig.bcr.ist",
+    "https://zig.vortan.dev/zig",
+    "https://pkg.alexrp.com/zig",
+];
+
+/// The official URL first, then every community mirror in a random order (so builds spread their load).
+pub fn zig_sources(dist: &ZigDist) -> Vec<String> {
+    use std::hash::{BuildHasher, Hasher};
+    let name = dist.url.rsplit('/').next().unwrap_or_default();
+    let mut mirrors: Vec<String> = ZIG_COMMUNITY_MIRRORS
+        .iter()
+        .map(|m| format!("{m}/{name}"))
+        .collect();
+    let mut state = std::collections::hash_map::RandomState::new().build_hasher().finish() | 1;
+    for i in (1..mirrors.len()).rev() {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        mirrors.swap(i, (state % (i as u64 + 1)) as usize);
+    }
+    let mut sources = vec![dist.url.to_owned()];
+    sources.extend(mirrors);
+    sources
+}
+
 pub struct FetchPolicy {
     pub max_attempts: usize,
     pub total_budget: Duration,
@@ -89,6 +132,16 @@ impl FetchPolicy {
             base_backoff: Duration::from_secs(1),
             max_backoff: Duration::from_secs(8),
             max_bytes,
+        }
+    }
+
+    /// The Zig toolchain (about 50 MB for macOS and Linux, 100 MB for Windows): each attempt moves to the next
+    /// source and resumes the same partial file, so a slow official server costs one attempt, not the build.
+    pub fn for_zig(max_bytes: u64) -> Self {
+        Self {
+            max_attempts: 10,
+            total_budget: Duration::from_secs(900),
+            ..Self::for_archive(max_bytes)
         }
     }
 }
@@ -305,12 +358,13 @@ fn run_single_attempt(
     AttemptOutcome::Done
 }
 
-/// Downloads `url` over HTTPS-only with per-stage timeouts, retries with exponential backoff,
+/// Downloads one archive over HTTPS-only with per-stage timeouts, retries with exponential backoff,
 /// Range 206 resume on truncated/dropped transfers, whole-file SHA-256 verification before
-/// atomic rename into `dest_path`, and a strict total wall-clock budget.
+/// atomic rename into `dest_path`, and a strict total wall-clock budget. Each attempt uses the next
+/// of `urls` (all serve the same bytes); a source that fails for good is dropped from the rotation.
 pub fn fetch_verified_archive(
     label: &str,
-    url: &str,
+    urls: &[String],
     expected_sha256: &str,
     dest_path: &Path,
     policy: &FetchPolicy,
@@ -330,13 +384,21 @@ pub fn fetch_verified_archive(
     let mut failures: Vec<String> = Vec::new();
     let mut budget_exhausted = false;
     let max_attempts = policy.max_attempts.max(1);
+    let mut live: Vec<&str> = urls.iter().map(String::as_str).collect();
+    let mut next = 0usize;
 
     for attempt in 1..=max_attempts {
+        if live.is_empty() {
+            break;
+        }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             budget_exhausted = true;
             break;
         }
+        let index = next % live.len();
+        let url = live[index];
+        next = index + 1;
         match run_single_attempt(
             label,
             url,
@@ -360,7 +422,8 @@ pub fn fetch_verified_archive(
             }
             AttemptOutcome::Fail(reason) => {
                 failures.push(format!("- {url} (attempt {attempt}/{max_attempts}): {reason}"));
-                break;
+                live.remove(index);
+                next = index;
             }
             AttemptOutcome::Retry(reason) => {
                 failures.push(format!("- {url} (attempt {attempt}/{max_attempts}): {reason}"));
