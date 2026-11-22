@@ -3,7 +3,7 @@
 //! `desktop/src/main/files`).
 //!
 //! Each platform lists Desktop's apps for it (macOS's editors and terminals; on Windows VS Code,
-//! Cursor, Zed, PowerShell, and beyond Desktop's Windows Terminal and PowerShell 7, then Sublime
+//! Cursor, Zed, PowerShell, Windows Terminal, and beyond Desktop's PowerShell 7, then Sublime
 //! Text), only those installed (checked once, off the UI thread), with the file manager first
 //! (Finder, File Explorer). The choice is kept across launches and defaults to the file manager,
 //! as Desktop's does. Nothing shows unless the server shares this machine's files.
@@ -64,8 +64,8 @@ pub const APPS: &[OpenApp] = &[
     app("cursor", opencode_i18n::key!("plugin.file.open.app.cursor"), "cursor", "cursor"),
     app("zed", opencode_i18n::key!("plugin.file.open.app.zed"), "zed", "zed"),
     app("powershell", opencode_i18n::key!("plugin.file.open.app.powershell"), "powershell", "powershell"),
-    // Not Desktop's: what Windows developers open now (Windows Terminal, PowerShell 7).
-    app("windows-terminal", opencode_i18n::key!("rune.openIn.windowsTerminal"), "windows-terminal", "wt"),
+    app("windows-terminal", opencode_i18n::key!("plugin.file.open.app.windowsTerminal"), "windows-terminal", "wt"),
+    // Not Desktop's: PowerShell 7, what Windows developers open now.
     app("pwsh", opencode_i18n::key!("rune.openIn.powershell7"), "powershell", "pwsh"),
     app("sublime-text", opencode_i18n::key!("plugin.file.open.app.sublimeText"), "sublime-text", "Sublime Text"),
 ];
