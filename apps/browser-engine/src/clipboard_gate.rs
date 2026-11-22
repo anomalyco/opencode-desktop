@@ -323,6 +323,11 @@ pub struct TabClipboardGate {
     secret: String,
     next_id: AtomicI32,
     state: Mutex<ContextState>,
+    /// The first URL of a tab born agent-driven: it opens on `about:blank` and loads this only
+    /// once the root session's gate script is confirmed, so the first document cannot keep a
+    /// `Clipboard.prototype.writeText` reference from before the wrap (#643 first-load race).
+    first_load: Mutex<Option<String>>,
+    root_armed: AtomicBool,
 }
 
 impl TabClipboardGate {
@@ -349,7 +354,38 @@ impl TabClipboardGate {
             secret: crate::passkeys::random_token(),
             next_id: AtomicI32::new(0),
             state: Mutex::new(ContextState::default()),
+            first_load: Mutex::new(None),
+            root_armed: AtomicBool::new(false),
         }
+    }
+
+    /// Holds `url` until the root session's gate script is confirmed (see `first_load`).
+    pub fn hold_first_load(&self, url: String) {
+        *self.first_load.lock().unwrap() = Some(url);
+    }
+
+    /// A navigation while the first load is still held replaces it and waits for the same
+    /// confirmation (`true`: the caller must not load). Otherwise any held URL is dropped and the
+    /// caller loads as usual (`false`).
+    pub fn replace_held_first_load(&self, url: &str) -> bool {
+        let mut held = self.first_load.lock().unwrap();
+        if held.is_none() {
+            return false;
+        }
+        if self.root_armed.load(Ordering::Acquire) {
+            *held = None;
+            return false;
+        }
+        *held = Some(url.to_owned());
+        true
+    }
+
+    /// The held first URL, once, after the root session's gate script is confirmed.
+    pub fn take_first_load(&self) -> Option<String> {
+        if !self.root_armed.load(Ordering::Acquire) {
+            return None;
+        }
+        self.first_load.lock().unwrap().take()
     }
 
     pub fn ext_has_clipboard_write(&self, ext_id: &str) -> bool {
@@ -538,6 +574,9 @@ impl TabClipboardGate {
         }
         let replaced = st.script_ids.insert(sid.clone(), ident);
         drop(st);
+        if sid.is_empty() {
+            self.root_armed.store(true, Ordering::Release);
+        }
         replaced.map(|old| {
             let sess = (!sid.is_empty()).then_some(sid.as_str());
             self.remove_script_msg(sess, &old)
