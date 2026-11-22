@@ -75,7 +75,8 @@ impl ExecPhase {
     pub fn next_wake(&self) -> Option<Instant> {
         match self {
             Self::WaitLoad(s) => {
-                if s.saw_loading {
+                // A back/forward settles only at the grace, so it wakes there even after a load.
+                if s.saw_loading && !s.history {
                     Some(s.deadline)
                 } else {
                     Some((s.started_at + Duration::from_millis(1_200)).min(s.deadline))
