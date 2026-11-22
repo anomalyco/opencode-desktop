@@ -771,6 +771,17 @@ jobs:
         run: rustup toolchain install
       - name: Package Linux ${{ matrix.arch }} browser engine
         run: bash apps/browser-engine/scripts/package-linux.sh --arch "${{ matrix.arch }}" "$RUNNER_TEMP/engine"
+      - name: Verify Linux ${{ matrix.arch }} browser engine sandbox (when userns available)
+        run: |
+          if ! unshare -Ur true 2>/dev/null; then
+            echo "Linux unprivileged user namespaces are restricted on this runner; skipping live sandbox probe." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          probe=$(mktemp -d)
+          trap 'rm -rf "$probe"' EXIT
+          tar --zstd -xf "$RUNNER_TEMP/engine/OpenCode-Browser-Engine-$ENGINE_VERSION-linux-${{ matrix.arch }}.tar.zst" -C "$probe"
+          python3 .github/release/opencode-rune-verify-engine-sandbox.py linux "$probe/OpenCode Browser Engine/opencode-browser-engine"
+          echo "Linux ${{ matrix.arch }} browser engine: sandbox verified (userns + Seccomp=2 + NoNewPrivs=1)." >> "$GITHUB_STEP_SUMMARY"
       - id: upload
         uses: ./.github/release/upload
         with:
@@ -974,14 +985,26 @@ jobs:
             New-Item -ItemType Directory -Force -Path $dest | Out-Null
             & "$env:SystemRoot\System32\tar.exe" -xf $archive -C $dest
             if ($LASTEXITCODE -ne 0) { throw "Could not unpack $name." }
-            foreach ($bin in 'opencode-browser-engine.exe', 'opencode-browser-engine-helper.exe', 'libcef.dll', 'chrome_elf.dll', 'dxcompiler.dll') {
+            foreach ($bin in 'opencode-browser-engine.exe', 'opencode-browser-engine.dll', 'libcef.dll', 'chrome_elf.dll', 'dxcompiler.dll') {
               if (-not (Test-Path -LiteralPath (Join-Path $dest "OpenCode Browser Engine/$bin"))) {
                 throw "$name lacks OpenCode Browser Engine/$bin."
               }
             }
+            $exePath = Join-Path $dest 'OpenCode Browser Engine/opencode-browser-engine.exe'
+            $peBytes = [IO.File]::ReadAllBytes($exePath)
+            $peOff = [BitConverter]::ToInt32($peBytes, 0x3C)
+            $stackReserve = [BitConverter]::ToUInt64($peBytes, $peOff + 24 + 72)
+            if ($stackReserve -lt 8388608) {
+              throw "$name opencode-browser-engine.exe has SizeOfStackReserve=$stackReserve (< 8 MiB)."
+            }
           }
           .github/release/opencode-rune-verify-windows.ps1 -Folders $unpacked -Publisher $publisher
           "Windows browser engines ($env:ENGINE_VERSION, x64 + arm64): signed by $publisher." >> $env:GITHUB_STEP_SUMMARY
+      - name: Verify signed Windows x64 browser engine sandbox
+        shell: pwsh
+        run: |
+          .github/release/opencode-rune-verify-engine-windows-sandbox.ps1 -EngineDir "$env:RUNNER_TEMP/verify-engine/x64/OpenCode Browser Engine"
+          "Windows x64 signed browser engine: sandbox verified (CheckDllCodeSigning + Untrusted 0x0000 renderer token)." >> $env:GITHUB_STEP_SUMMARY
 
   verify-engine-macos:
     needs: [plan, sign-engine-macos]
@@ -1022,7 +1045,12 @@ jobs:
           xcrun stapler validate "$app"
           spctl --assess --type execute --verbose=2 "$app"
           codesign --verify --deep --strict -R="anchor apple generic and certificate leaf[subject.OU] = \"$SEER_TEAM_ID\" and notarized" "$app"
+          [ -f "$app/Contents/Frameworks/Chromium Embedded Framework.framework/Libraries/libcef_sandbox.dylib" ] || {
+            echo "::error::Missing libcef_sandbox.dylib in $app." >&2; exit 1;
+          }
           codesign -dv "$app" 2>&1 | grep -E '^(Identifier|TeamIdentifier|Authority=Developer)' >> "$GITHUB_STEP_SUMMARY"
+          python3 .github/release/opencode-rune-verify-engine-sandbox.py macos "$app/Contents/MacOS/opencode-browser-engine"
+          echo "macOS ${{ matrix.arch }} signed browser engine: sandbox verified (libcef_sandbox.dylib + sandbox_check=1)." >> "$GITHUB_STEP_SUMMARY"
 
   # ---- Publish browser engine: release environment; OIDC only ----------------
   # One atomic publish replacing opencode-rune/browser-engine/stable with all six targets.

@@ -66,6 +66,10 @@ export type Env = {
     setSitePermission: (origin: string, permission: string, setting: "allow" | "block") -> (),
     removeSitePermission: (origin: string, permission: string) -> (),
     clearNotice: () -> string?,
+    -- The profile's cookie count while the engine runs (`Browser:CookieCount`), else nil.
+    cookieCount: () -> number?,
+    -- Clear browsing data is running.
+    clearing: () -> boolean,
     requestClearBrowsingData: () -> (),
     importSources: () -> { ImportBrowser },
     importMessage: (browserId: string, profileId: string) -> ImportMessage?,
@@ -556,10 +560,11 @@ function settings.create(env: Env, refresh: () -> ())
                 ui.col({ w = "full", gap = 4 }, notes),
             }))
 
-            -- 4d. Browser data section (`settings-browser-cookies`, UP-117 #65124 confirm before clearing).
-            -- Official's cookie count ("N cookies. Sign-ins are shared across sessions") needs the
-            -- engine's profile cookie list, which WS-1's #286 adds; until then only the clear outcome shows.
+            -- 4d. Browser data section (`settings-browser-cookies`, UP-117 #65124 confirm before clearing):
+            -- how the last clear went, else the cookie count (`settings.tsx:259-268`).
+            local count = env.cookieCount()
             local dataDesc = env.clearNotice()
+                or (if count == nil then nil else i18n:T(if count == 1 then "settings.cookies.count.one" else "settings.cookies.count.other", { count = count }))
             table.insert(sections, ui.settingsList({ key = "settings-browser-data-section", title = i18n:T("settings.data.title") }, {
                 ui.settingsRow(
                     {
@@ -572,7 +577,11 @@ function settings.create(env: Env, refresh: () -> ())
                         text = i18n:T("settings.cookies.clear"),
                         size = "small",
                         variant = "danger",
+                        loading = env.clearing(),
                         onPress = view:Handler(function()
+                            if env.clearing() then
+                                return
+                            end
                             env.requestClearBrowsingData()
                         end),
                     })
