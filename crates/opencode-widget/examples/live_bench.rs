@@ -1,7 +1,8 @@
 //! Runs a live widget template against a fake 60 Hz client and times its turns: from a frame delivered
 //! to its next frame request. For widget templates that run frames on their own (not ones waiting on a
 //! title screen). `cargo run --release -p opencode-widget --example live_bench --
-//! <widget template.js> ['<data json>'] [frames]`.
+//! <widget template.js> ['<data json>'] [frames] [--prelude-tree]`. With `--prelude-tree` the
+//! prelude builds the views' trees (as with a server's older prelude) instead of this host.
 #![allow(clippy::print_stdout, clippy::expect_used, clippy::unwrap_used)]
 
 use std::sync::Arc;
@@ -11,11 +12,14 @@ use opencode_widget::live::{Grants, Live, LiveProgram, Post, Setup};
 use opencode_widget::{Frame, fixtures};
 
 fn main() {
-    let mut args = std::env::args().skip(1);
+    let prelude_tree = std::env::args().any(|a| a == "--prelude-tree");
+    let mut args = std::env::args().skip(1).filter(|a| a != "--prelude-tree");
     let source = std::fs::read_to_string(args.next().expect("a widget template source path")).expect("reads the source");
     let data = args.next().map_or(serde_json::json!({}), |d| serde_json::from_str(&d).expect("data is JSON"));
     let frames: u32 = args.next().map_or(900, |n| n.parse().expect("a frame count"));
-    let program = Arc::new(LiveProgram::compile(&format!("{}\n{source}", fixtures::PRELUDE)).expect("compiles"));
+    // Hidden from the native check (`LiveProgram::compile`), the same prelude builds the trees.
+    let prelude = if prelude_tree { fixtures::PRELUDE.replace("function __widget_find(", "function __widget_find (") } else { fixtures::PRELUDE.to_owned() };
+    let program = Arc::new(LiveProgram::compile(&format!("{prelude}\n{source}")).expect("compiles"));
     let setup = Setup { grants: Grants::default(), transport: None, allow_local_network: false, notify: Arc::new(|| {}) };
     let live = Live::start(program, data, setup);
     let frame = Frame { id: None, t: 0.0, dt: 1.0 / 60.0, width: 1200.0, height: 800.0, scale: 2.0, pointer: None, dark: true, fullscreen: false, close: None };
