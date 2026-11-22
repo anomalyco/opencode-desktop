@@ -7,7 +7,8 @@ use std::path::PathBuf;
 
 use windows::Win32::System::Com::CoTaskMemFree;
 use windows::Win32::UI::Shell::{
-    FOLDERID_Desktop, FOLDERID_Profile, FOLDERID_Programs, FOLDERID_RoamingAppData, FOLDERID_UserProgramFiles, KF_FLAG_DEFAULT,
+    FOLDERID_Desktop, FOLDERID_Documents, FOLDERID_Downloads, FOLDERID_LocalAppData, FOLDERID_Profile, FOLDERID_ProgramFiles, FOLDERID_Programs,
+    FOLDERID_RoamingAppData, FOLDERID_UserProgramFiles, FOLDERID_Windows, KF_FLAG_DEFAULT,
     SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify, SHGetKnownFolderPath,
 };
 use windows::core::GUID;
@@ -45,6 +46,36 @@ pub fn profile() -> Option<PathBuf> {
 /// Where the taskbar keeps its pinned shortcuts.
 pub fn taskbar_pins() -> Option<PathBuf> {
     Some(known(&FOLDERID_RoamingAppData)?.join(r"Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar"))
+}
+
+/// `%LOCALAPPDATA%`, where Windows says it is (no environment variable steers it).
+pub fn local_app_data() -> Option<PathBuf> {
+    known(&FOLDERID_LocalAppData)
+}
+
+/// `%APPDATA%`, where Windows says it is.
+pub fn roaming_app_data() -> Option<PathBuf> {
+    known(&FOLDERID_RoamingAppData)
+}
+
+/// The user's folders an uninstall must never delete as a whole: the profile, the app data
+/// roots, the program folders, Windows, the Desktop, Documents, Downloads and the Start menu.
+pub fn protected_folders() -> Vec<PathBuf> {
+    [
+        &FOLDERID_Profile,
+        &FOLDERID_LocalAppData,
+        &FOLDERID_RoamingAppData,
+        &FOLDERID_UserProgramFiles,
+        &FOLDERID_ProgramFiles,
+        &FOLDERID_Windows,
+        &FOLDERID_Desktop,
+        &FOLDERID_Documents,
+        &FOLDERID_Downloads,
+        &FOLDERID_Programs,
+    ]
+    .into_iter()
+    .filter_map(known)
+    .collect()
 }
 
 /// Tells Explorer the URL schemes changed, so it stops using what it cached.

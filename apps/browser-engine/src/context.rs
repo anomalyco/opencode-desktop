@@ -335,7 +335,7 @@ fn set_optional_int_pref(ctx: &RequestContext, name: &str, value: i32) -> bool {
 /// context. A pref this build registers but will not take, and does not already hold, fails the
 /// whole call, so the caller refuses the context instead of running with the service on (N9).
 pub fn lock_chrome_services(ctx: &RequestContext) -> bool {
-    const OFF: [&str; 22] = [
+    const OFF: [&str; 23] = [
         // N1 Safe Browsing.
         "safebrowsing.enabled",
         "safebrowsing.enhanced",
@@ -344,6 +344,9 @@ pub fn lock_chrome_services(ctx: &RequestContext) -> bool {
         "signin.allowed",
         "credentials_enable_service",
         "credentials_enable_autosignin",
+        // The leak check sends a hash of each submitted sign-in to `passwordsleakcheck-pa.googleapis.com`;
+        // in Chromium 156 only this pref turns it off (`PasswordLeakDetection` is no longer a feature).
+        "profile.password_manager_leak_detection",
         "autofill.profile_enabled",
         "autofill.credit_card_enabled",
         "autofill.enabled",

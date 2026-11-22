@@ -60,9 +60,9 @@ pub use servers::{
 };
 pub use sources::{Origin, Tier};
 pub use surfaces::{
-    dialog_card, dialog_view_in, file_viewer, pill_views, popover_view, settings_page, settings_page_actions,
-    settings_page_icon, settings_page_ids, settings_page_key, settings_page_title, settings_pages, sidebar_items, slot,
-    slot_with, titlebar_items,
+    dialog_card, dialog_view_in, file_viewer, has_live_settings_section, pill_views, popover_view, settings_page,
+    settings_page_actions, settings_page_icon, settings_page_ids, settings_page_key, settings_page_title,
+    settings_pages, sidebar_items, slot, slot_with, titlebar_items,
 };
 pub use trust::dialog as trust_dialog;
 pub use ui::view::settings_section;
@@ -282,6 +282,16 @@ impl PluginHost {
     /// override, or dev plugin shadowing a built-in ID).
     pub fn is_builtin_plugin(&self, id: &str) -> bool {
         self.list.iter().any(|p| p.half.is_builtin(id) && p.running())
+    }
+
+    /// Whether the user explicitly disabled plugin `id`.
+    pub fn is_disabled(&self, id: &str) -> bool {
+        self.disabled.contains(id)
+    }
+
+    /// Whether plugin `id` is still queued in deferred post-first-frame boot (`boot.later`).
+    pub fn is_deferred(&self, id: &str) -> bool {
+        self.boot.later().iter().any(|f| f.manifest.id == id)
     }
 
     /// Whether plugin `id` is running, dormant (ready to wake on first use), or a bundled

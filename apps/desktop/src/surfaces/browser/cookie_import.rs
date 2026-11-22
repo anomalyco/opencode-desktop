@@ -125,6 +125,14 @@ pub struct CookieImport {
     deadline: Instant,
 }
 
+/// Whether an engine with the profile cookie store runs now. `engine_cookies()` alone is what the
+/// last engine said and stays true after the last tab closes and the engine is shut down
+/// (`BrowserHost::shutdown_sidecar` keeps `caps`): a clear, an import or the count would then
+/// skip starting it and wait on an engine that is gone.
+fn engine_up(host: &browser_pane::BrowserHost) -> bool {
+    host.engine_cookies() && host.has_live_sidecar() && host.status() == browser_pane::EngineStatus::Ready
+}
+
 fn failure(reason: &str) -> Data {
     map([("error", Data::String(reason.into()))])
 }
@@ -204,7 +212,7 @@ impl App {
             }
             let start = !s.use_mock_browser() && !s.browser_unsupported();
             let pane = &mut s.workspace_panes.browser;
-            if !pane.host.engine_cookies() && start {
+            if !engine_up(&pane.host) && start {
                 pane.host.prepare(ANSWER_TIMEOUT);
             }
             pane.cookies.import = Some(CookieImport {
@@ -249,7 +257,7 @@ impl App {
         }
         let start = !self.use_mock_browser() && !self.browser_unsupported();
         let pane = &mut self.workspace_panes.browser;
-        if !pane.host.engine_cookies() && start {
+        if !engine_up(&pane.host) && start {
             pane.host.prepare(ANSWER_TIMEOUT);
         }
         pane.cookies.import = Some(CookieImport {
@@ -271,7 +279,7 @@ impl App {
         let jobs = &self.workspace_panes.browser.cookies;
         let host = &self.workspace_panes.browser.host;
         let old = jobs.count.stale || jobs.count.read_at.is_none_or(|at| at.elapsed() >= COUNT_FRESH);
-        if old && jobs.count.asked.is_none() && host.engine_cookies() {
+        if old && jobs.count.asked.is_none() && engine_up(host) {
             self.later(Box::new(|s: &mut App, _: &mut Tx| {
                 let pane = &mut s.workspace_panes.browser;
                 if pane.cookies.count.asked.is_none() {
@@ -280,7 +288,7 @@ impl App {
                 }
             }));
         }
-        if host.engine_cookies() {
+        if engine_up(host) {
             return jobs.count.value;
         }
         self.disk_cookie_count()
@@ -335,7 +343,7 @@ impl App {
             return done.complete(Data::Bool(false));
         }
         let pane = &mut self.workspace_panes.browser;
-        if !pane.host.engine_cookies() {
+        if !engine_up(&pane.host) {
             if let Some(cleared) = self.clear_without_engine() {
                 return done.complete(Data::Bool(cleared));
             }
@@ -365,7 +373,7 @@ impl App {
     pub(crate) fn pump_cookie_import(&mut self) -> bool {
         let imported = self.pump_import();
         let cleared = self.pump_clear();
-        let running = self.workspace_panes.browser.host.engine_cookies();
+        let running = engine_up(&self.workspace_panes.browser.host);
         let count = &mut self.workspace_panes.browser.cookies.count;
         if imported || cleared {
             count.stale = true;
@@ -405,7 +413,7 @@ impl App {
         let Some(mut job) = pane.cookies.clear.take() else { return false };
         let host = &mut pane.host;
         // The sites the profile has cookies for, so the engine can check none keeps stored data.
-        if job.sites.is_none() && job.listed.is_none() && host.engine_cookies() {
+        if job.sites.is_none() && job.listed.is_none() && engine_up(host) {
             job.listed = host.request_profile_cookies(None);
         }
         if let Some(listed) = job.listed {
@@ -416,6 +424,7 @@ impl App {
             }
         }
         if job.asked.is_none()
+            && engine_up(host)
             && let Some(sites) = job.sites.clone()
         {
             job.asked = host.clear_profile_data(sites);
@@ -470,7 +479,7 @@ impl App {
             }
         }
         let Reading::Ready(read) = &job.read else { return false };
-        if !job.sent && host.engine_cookies() {
+        if !job.sent && engine_up(host) {
             while let Some(batch) = job.batches.pop() {
                 match host.import_profile_cookies(None, batch) {
                     Some(id) => {
