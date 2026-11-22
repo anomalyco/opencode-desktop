@@ -185,7 +185,14 @@ pub(crate) fn handle_typed_cdp_call(
         Ok(Dispatch::ReEnable) => {
             let disable = t.cdp_ledger.lock().unwrap().runtime_disable(session_id.as_deref());
             t.host.send_dev_tools_message(Some(disable.as_bytes()));
-            for binding in [t.passkeys.binding_msg(session_id.as_deref()), t.media_gate.binding_msg(session_id.as_deref())] {
+            for binding in [
+                Some(t.passkeys.binding_msg(session_id.as_deref())),
+                Some(t.media_gate.binding_msg(session_id.as_deref())),
+                t.clipboard_gate.binding_msg(session_id.as_deref()),
+            ]
+            .into_iter()
+            .flatten()
+            {
                 t.host.send_dev_tools_message(Some(binding.as_bytes()));
             }
             Post::None
@@ -438,6 +445,8 @@ wrap_dev_tools_message_observer! {
         cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
         passkeys: Arc<crate::passkeys::TabPasskeyGate>,
         media_gate: Arc<crate::media_gate::TabMediaGate>,
+        clipboard_gate: Arc<crate::clipboard_gate::TabClipboardGate>,
+        allowed_ext_ids: Arc<Mutex<Vec<String>>>,
         context_ready: Arc<std::sync::atomic::AtomicBool>,
         prompt_shared: crate::prompts::PromptShared,
         input_guard: Arc<Mutex<crate::input_guard::InputGuard>>,
@@ -464,7 +473,17 @@ wrap_dev_tools_message_observer! {
                 self.send_all(browser.as_deref(), send.unwrap_or_default());
                 return;
             }
+            if message_id >= crate::extensions::sw_wake::SW_WAKE_ID_BASE {
+                return;
+            }
             if message_id >= crate::passkeys::PASSKEY_ID_BASE {
+                if message_id >= crate::clipboard_gate::CLIPBOARD_GATE_ID_BASE {
+                    let body = result.and_then(|b| serde_json::from_slice::<Value>(b).ok());
+                    if let Some(rm) = self.clipboard_gate.on_reply(message_id, success != 0, body.as_ref()) {
+                        self.send_all(browser.as_deref(), vec![rm]);
+                    }
+                    return;
+                }
                 if self.passkeys.on_reply(message_id, success != 0) {
                     let _ = self.out_tx.send(EngineMsg::Refused {
                         tab_id: self.tab_id,
@@ -693,6 +712,15 @@ wrap_dev_tools_message_observer! {
                     self.send_all(browser.as_deref(), send.unwrap_or_default());
                     return 1;
                 }
+                if msg_id >= crate::extensions::sw_wake::SW_WAKE_ID_BASE {
+                    return 1;
+                }
+                if msg_id >= crate::clipboard_gate::CLIPBOARD_GATE_ID_BASE {
+                    if let Some(rm) = self.clipboard_gate.on_reply(msg_id, ok, Some(&payload)) {
+                        self.send_all(browser.as_deref(), vec![rm]);
+                    }
+                    return 1;
+                }
                 if msg_id >= crate::passkeys::PASSKEY_ID_BASE {
                     return 1;
                 }
@@ -789,6 +817,7 @@ wrap_dev_tools_message_observer! {
                 let resume = obs.send.pop();
                 obs.send.extend(self.passkeys.attach_messages(Some(child_sid)));
                 obs.send.extend(self.media_gate.attach_messages(Some(child_sid)));
+                obs.send.extend(self.clipboard_gate.attach_messages(Some(child_sid)));
                 if self.is_preview || self.prompts.agent_owns_dialogs() {
                     obs.send.push(self.passkeys.file_chooser_intercept_msg(true, Some(child_sid)));
                 }
@@ -814,8 +843,13 @@ wrap_dev_tools_message_observer! {
                     obs.send.push(deny);
                 }
             }
+            let (cb_consumed, cb_sync, cb_ask) = self.clipboard_gate.observe_event(&method, &params, session_id.as_deref());
+            obs.send.extend(cb_sync);
+            if let Some(ask) = cb_ask {
+                obs.send.push(self.answer_clipboard_ask(browser.as_deref(), ask));
+            }
             self.send_all(browser.as_deref(), obs.send);
-            if pk_consumed || mg_consumed || !app_attached {
+            if pk_consumed || mg_consumed || cb_consumed || !app_attached {
                 return 1;
             }
             for (frame_id, sid) in obs.excluded {
@@ -842,6 +876,7 @@ wrap_dev_tools_message_observer! {
             // reach the app through pruned `Page.getFrameTree` replies), and pop-up/navigation
             // requests are never forwarded.
             if !obs.forward
+                || method.starts_with("ServiceWorker.")
                 || (self.extensions_active && method.starts_with("Page."))
                 || matches!(method.as_str(), "Page.frameRequestedNavigation" | "Page.windowOpen")
                 || whole_tab
@@ -930,6 +965,46 @@ impl TabCdpObserver {
             is_media: true,
         };
         self.prompts.hold_media_gate(self.tab_id, prompt, ask.allow_msg, ask.deny_msg, &self.out_tx)
+    }
+
+    /// Authoritative browser-process verdict for `navigator.clipboard.write{Text}` matching
+    /// official `site-permissions.ts:152-157`, `page-prompts.ts:453,468`, and
+    /// `policy.ts:95,111,132-135` (READER-7 N5).
+    fn answer_clipboard_ask(&self, browser: Option<&Browser>, ask: crate::clipboard_gate::ClipboardAsk) -> String {
+        // Gate on `agent_driven` itself (NOT `agent_owns_dialogs()`): official keeps clipboard
+        // writes refused even after human takeover (`control === "reclaimed"`, `policy.ts:132-135`).
+        if self.is_preview
+            || self.prompts.agent_driven.load(std::sync::atomic::Ordering::Acquire)
+            || !self.context_ready.load(std::sync::atomic::Ordering::Acquire)
+        {
+            return ask.deny_msg;
+        }
+        let live = browser
+            .and_then(cef::ImplBrowser::main_frame)
+            .map(|f| cef::CefString::from(&cef::ImplFrame::url(&f)).to_string());
+        let top_raw = live
+            .filter(|u| !u.trim().is_empty())
+            .or_else(|| Some(self.snap.lock().unwrap().url.clone()))
+            .unwrap_or_default();
+        let req_raw = ask.origin.as_deref().unwrap_or("");
+        if crate::extensions::manifest::is_extension_scheme(req_raw) {
+            let req_id = crate::extensions::manifest::extension_id_from_url(req_raw);
+            let top_id = crate::extensions::manifest::extension_id_from_url(&top_raw);
+            let allowed = !self.isolated
+                && req_id.is_some()
+                && req_id == top_id
+                && req_id.is_some_and(|id| {
+                    self.clipboard_gate.ext_has_clipboard_write(id)
+                        && self.allowed_ext_ids.lock().unwrap().iter().any(|a| a == id)
+                });
+            return if allowed { ask.allow_msg } else { ask.deny_msg };
+        }
+        let top = crate::prompts::origin_of(&top_raw);
+        let origin = crate::prompts::origin_of(req_raw);
+        let allowed = origin.is_some()
+            && origin == top
+            && origin.as_deref().is_some_and(crate::prompts::is_secure_origin);
+        if allowed { ask.allow_msg } else { ask.deny_msg }
     }
 
     fn surface(&self, browser: Option<&Browser>) -> crate::engine::Surface {

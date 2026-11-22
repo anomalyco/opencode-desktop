@@ -726,6 +726,9 @@ wrap_resource_request_handler! {
                     ReturnValue::CANCEL
                 };
             }
+            if crate::extensions::manifest::is_pdf_extension_url(&url) {
+                return ReturnValue::CANCEL;
+            }
             let roots = self.file_roots.lock().unwrap().clone();
             if browser_policy::subresource_allowed(&url, &roots) {
                 ReturnValue::CONTINUE
@@ -748,6 +751,10 @@ wrap_resource_request_handler! {
                 return;
             }
             let target = new_url.to_string();
+            if crate::extensions::manifest::is_pdf_extension_url(&target) {
+                *new_url = CefString::from("");
+                return;
+            }
             let roots = self.file_roots.lock().unwrap().clone();
             if !browser_policy::subresource_allowed(&target, &roots) {
                 *new_url = CefString::from("");
@@ -875,6 +882,14 @@ wrap_request_handler! {
                 return i32::from(!grant.allows_subframe_navigation(&url));
             }
             let is_agent = self.prompts.agent_driven.load(Ordering::Relaxed);
+            // Unconditionally block Chromium's built-in PDF viewer component extension across all tabs (N4).
+            if crate::extensions::manifest::is_pdf_extension_url(&url) {
+                let _ = self.out_tx.send(EngineMsg::Refused {
+                    tab_id: self.tab_id,
+                    reason: browser_policy::Refusal::Blocked.code().to_owned(),
+                });
+                return 1;
+            }
             // Block extension-origin URLs (`chrome-extension:`, `blob:chrome-extension:`, ...) in
             // EVERY frame (main AND sub-frames) on isolated tabs and agent-driven tabs (`review-rd274.md` §1).
             if (self.ext_policy.isolated || is_agent)
@@ -979,6 +994,13 @@ wrap_request_handler! {
                 return 1;
             }
             let is_agent = self.prompts.agent_driven.load(Ordering::Relaxed);
+            if crate::extensions::manifest::is_pdf_extension_url(&url) {
+                let _ = self.out_tx.send(EngineMsg::Refused {
+                    tab_id: self.tab_id,
+                    reason: browser_policy::Refusal::Blocked.code().to_owned(),
+                });
+                return 1;
+            }
             if (self.ext_policy.isolated || is_agent)
                 && crate::extensions::manifest::is_extension_scheme(&url)
             {

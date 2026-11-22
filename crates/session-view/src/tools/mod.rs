@@ -438,14 +438,44 @@ pub fn file_name(path: &str) -> &str {
 }
 
 /// `path` inside the session's `directory`, relative to it, as Desktop's `relativizeProjectPath`.
+/// On Windows paths, compares drive letters case-insensitively and treats `/` and `\` as equal
+/// separators so e.g. `c:\repo` matches `C:\repo`.
 pub fn relative<'a>(path: &'a str, directory: Option<&str>) -> &'a str {
     let Some(dir) = directory.filter(|d| !d.is_empty() && *d != "/" && *d != "\\") else { return path };
-    if path == dir {
-        return "";
+    let win = is_windows_path(dir);
+    let dir = dir.trim_end_matches(['/', '\\']);
+    let rest = if win { strip_windows_prefix(path, dir) } else { path.strip_prefix(dir) };
+    match rest {
+        Some("") => "",
+        Some(r) => r.strip_prefix('/').or_else(|| win.then(|| r.strip_prefix('\\')).flatten()).unwrap_or(path),
+        None => path,
     }
-    let sep = if dir.contains('\\') { '\\' } else { '/' };
-    let dir = dir.trim_end_matches(sep);
-    path.strip_prefix(dir).and_then(|r| r.strip_prefix(sep)).unwrap_or(path)
+}
+
+fn is_windows_path(s: &str) -> bool {
+    let b = s.as_bytes();
+    (b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':') || s.contains('\\')
+}
+
+fn strip_windows_prefix<'a>(path: &'a str, dir: &str) -> Option<&'a str> {
+    let (pb, db) = (path.as_bytes(), dir.as_bytes());
+    if pb.len() < db.len() || !path.is_char_boundary(db.len()) {
+        return None;
+    }
+    let drive = db.len() >= 2 && db[0].is_ascii_alphabetic() && db[1] == b':';
+    for (i, (&p, &d)) in pb.iter().zip(db.iter()).enumerate() {
+        let eq = if i == 0 && drive {
+            p.eq_ignore_ascii_case(&d)
+        } else if d == b'\\' || d == b'/' {
+            p == b'\\' || p == b'/'
+        } else {
+            p == d
+        };
+        if !eq {
+            return None;
+        }
+    }
+    Some(&path[db.len()..])
 }
 
 /// `path` relative to session `session`'s directory.

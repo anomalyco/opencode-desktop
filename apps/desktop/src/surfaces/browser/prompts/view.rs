@@ -660,6 +660,8 @@ fn modal_frame(
         .key(key)
         .role("alertdialog")
         .focusable(true)
+        // The card holds focus for its keys but draws no ring (`prompts.tsx:198` `outline: none`).
+        .no_focus_ring()
         .label(title)
         .w_full()
         .max_w(480.0) // dialog-size: ok (in-pane browser prompt card matching upstream #63002 prompts.tsx width: min(100%, 480px))

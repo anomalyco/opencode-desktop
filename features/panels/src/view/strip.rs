@@ -26,6 +26,10 @@ const TAB_MIN_W: f32 = 72.0;
 /// A tab's words: Desktop's trigger sets `font-variant-numeric: tabular-nums` (`tabs.css:554`),
 /// whose `tnum` in Inter changes letters' advances too (`New tab` 50.797 against 50.891).
 pub const TAB_UI: TextStyle = UI.features("\"tnum\"");
+/// File tab filename (`packages/gui-plugins/src/file/label.tsx:14`, `packages/ui/src/styles/theme.css:9,13,19`,
+/// `packages/ui/src/navigation/tabs/tabs.css:556,561`): `13px`, `font-medium` (`--font-weight-medium: 530`),
+/// `leading-[calc(var(--font-size-base)*1.5)]` (`14px * 1.5 = 21px`), `tracking-normal` (`0`), inheriting `tnum`.
+const FILE_TAB_UI: TextStyle = TextStyle::new(13.0, 530.0).lh(21.0).features("\"tnum\"");
 const TAB_SMALL: TextStyle = UI_SMALL.features("\"tnum\"");
 
 /// What a closable tab takes after its label: the wrapper's 8 pt gap, the 20 pt close button and
@@ -275,12 +279,14 @@ fn strip_widths(naturals: &[f32], room: f32) -> Vec<f32> {
 /// end, or 10 without one. A panel's own label (`lead`) is taken as the icon and the title it shows; a
 /// terminal's or browser's title stops at 160 (`TerminalTabLabel`, `browser/renderer.tsx` `max-w-40`).
 fn tab_natural(entry: &ResolvedEntry, lead: bool) -> f32 {
-    let title = rune::text::measure(&entry.tab.title, &[], TAB_UI, None).0.ceil();
+    let style = if !lead && entry.tab.file.is_some() { FILE_TAB_UI } else { TAB_UI };
+    let title = rune::text::measure(&entry.tab.title, &[], style, None).0.ceil();
     let body = match (lead, entry.tab.icon) {
         (true, _) if matches!(entry.plugin, TERMINAL_PLUGIN | "browser") => 22.0 + title.min(160.0),
         // `packages/gui-plugins/src/context/renderer.tsx:23`: `gap-2` (8 pt) between 16 pt ring and title.
         (true, _) if entry.plugin == "context" => 24.0 + title,
         (true, _) => 22.0 + title,
+        (false, Some(glyph)) if entry.tab.file.is_some() => tab_icon_size(entry, glyph) + 8.0 + title,
         (false, Some(glyph)) => tab_icon_size(entry, glyph) + 6.0 + title,
         (false, None) => title,
     };
@@ -289,8 +295,9 @@ fn tab_natural(entry: &ResolvedEntry, lead: bool) -> f32 {
         .badge
         .as_ref()
         .map_or(0.0, |b| 6.0 + rune::text::measure(b, &[], TAB_SMALL, None).0);
+    let start = if !lead && entry.tab.file.is_some() { 8.0 } else { 10.0 };
     let end = if entry.tab.can_close() { CLOSE_END } else { 10.0 };
-    10.0 + body + badge + end
+    start + body + badge + end
 }
 
 /// A tab icon's size: Review (`review/renderer.tsx:188`), Files (`file/renderer.tsx:457`),
@@ -330,13 +337,14 @@ fn tab_trigger<H: PanelsHost + 'static>(
         p.muted
     };
 
+    let is_file = lead.is_none() && entry.tab.file.is_some();
     let mut pill = row()
         .key(format!("side-tab-{id}"))
         .role("tab")
         .label(entry.tab.title.clone())
         .h(28.0)
         .w(width)
-        .pl(10.0)
+        .pl(if is_file { 8.0 } else { 10.0 })
         .pr(if entry.tab.can_close() { 4.0 } else { 10.0 })
         .gap(6.0)
         .center_y()
@@ -362,32 +370,39 @@ fn tab_trigger<H: PanelsHost + 'static>(
 
     if let Some(label) = lead {
         pill = pill.child(label.shrink().min_w(0.0));
+    } else if entry.tab.file.is_some() {
+        // `packages/gui-plugins/src/file/label.tsx:8-20`: `<div class="flex items-center gap-x-2 min-w-0">`
+        // with 16 pt file icon (`tab-fileicon-color` / `-mono`) and `font-medium` `tracking-normal` label.
+        let mut visual = row().gap(8.0).center_y().shrink().min_w(0.0);
+        if let Some(glyph) = entry.tab.icon {
+            let badge = icon(glyph, 16.0).key("icon").color(label_color);
+            visual = visual.child(if active {
+                badge
+            } else {
+                el().key("icon")
+                    .size(16.0, 16.0)
+                    .child(badge.key("icon-color").absolute(0.0, 0.0).group_opacity(0.0, 1.0))
+                    .child(
+                        icon(glyph, 16.0)
+                            .key("icon-mono")
+                            .absolute(0.0, 0.0)
+                            .icon_one_color()
+                            .color(label_color)
+                            .group_opacity(1.0, 0.0),
+                    )
+            });
+        }
+        visual = visual.child(
+            text(entry.tab.title.clone())
+                .font(FILE_TAB_UI)
+                .color(label_color)
+                .truncate_fade()
+                .shrink(),
+        );
+        pill = pill.child(visual);
     } else {
-        match entry.tab.icon {
-            // A file's badge in its own colours while selected or under the pointer, else in
-            // the label's one colour (`FileVisual`'s `tab-fileicon-color` and `-mono`, `tabs.css`).
-            Some(glyph) if entry.tab.file.is_some() => {
-                let badge = icon(glyph, 16.0).key("icon").color(label_color);
-                pill = pill.child(if active {
-                    badge
-                } else {
-                    el().key("icon")
-                        .size(16.0, 16.0)
-                        .child(badge.key("icon-color").absolute(0.0, 0.0).group_opacity(0.0, 1.0))
-                        .child(
-                            icon(glyph, 16.0)
-                                .key("icon-mono")
-                                .absolute(0.0, 0.0)
-                                .icon_one_color()
-                                .color(label_color)
-                                .group_opacity(1.0, 0.0),
-                        )
-                });
-            }
-            Some(glyph) => {
-                pill = pill.child(icon(glyph, tab_icon_size(entry, glyph)).color(if active { p.icon } else { p.icon_muted }));
-            }
-            None => {}
+        if let Some(glyph) = entry.tab.icon {
+            pill = pill.child(icon(glyph, tab_icon_size(entry, glyph)).color(if active { p.icon } else { p.icon_muted }));
         }
         pill = pill.child(
             text(entry.tab.title.clone())

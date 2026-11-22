@@ -2,28 +2,28 @@
   "generated_at": "2026-11-22",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "2ae1910140804547378da9a266cddf0708aaaf58",
+  "upstream_head": "4d4a95a3239c14ceb4aaa8d6b955b0cdd6f1908c",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "75ef00171349d10afde5c12b16a48134325f61fa",
-  "post_1114_commit_count": 419,
-  "post_1114_in_ledger": 162,
-  "post_1114_skipped": 257,
+  "rune_desktop_head": "91f0b3dfd09b198ccf399997f0580dac74280a7a",
+  "post_1114_commit_count": 426,
+  "post_1114_in_ledger": 164,
+  "post_1114_skipped": 262,
   "post_1114_skipped_breakdown": {
     "test-only": 21,
     "ci-bench-deps": 15,
-    "docs-site-data": 38,
+    "docs-site-data": 39,
     "tui-only": 11,
     "cli-acp-only": 8,
-    "server-core-ai-codemode-internal": 164
+    "server-core-ai-codemode-internal": 168
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 183,
+  "total_ledger_rows": 185,
   "status_counts": {
-    "have it": 153,
+    "have it": 154,
     "not applicable": 23,
     "differs on purpose": 1,
-    "partly": 2,
+    "partly": 3,
     "missing": 4
   },
   "rows": [
@@ -4403,8 +4403,8 @@
       ],
       "summary": "A count badge on the taskbar button for sessions that need you.",
       "size": "S",
-      "status": "have it",
-      "status_evidence": "Ported to official FROM rune-desktop by WINDOWS-UPSTREAM; apps/desktop/src/workspace/windows/taskbar.rs: badge = waiting + ended-unread tabs (Rune Taskbar overlay icon).",
+      "status": "partly",
+      "status_evidence": "Count and badge match official (taskbar_summary, the same summary as the progress state). Left: the badge description is English-only (apps/desktop/src/workspace/windows/taskbar.rs Summary::shown); official uses notification.taskbar.badge (plural, localized). Arrives with the next crates/opencode-i18n/sync.ts run, then plural!(...).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"
@@ -4587,11 +4587,54 @@
       ],
       "summary": "A file's diff in an edit/patch row shows 420 px, fading out under a 32 px 'Show more' / 'Show less' toggle (chevron turns); closing keeps the toggle where it was pressed.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "crates/session-view has no diff fold: a tall file diff in a tool row shows whole.",
+      "status": "have it",
+      "status_evidence": "PR #642: crates/session-view/src/tools/files.rs fold(): a file change taller than 420 px (rows x 24, unwrapped) shows 396 px fading out over 48 px under a 32 px Show more / Show less toggle (ui.common.showMore/showLess, 13 px medium, muted, chevron turns), lying over the last 8 px; closing holds the toggle. Driven (Timeline/Open tool step on a fixture copy with a 43-line edit): folded 396 + toggle at +388, open 1128 with the toggle under it, closed back to 396. Height is estimated from rows, so wrapped lines fold later than official (which measures).",
       "depends_on": "none",
       "risks": "Timeline row heights change: the virtualizer's measured heights and the 'toggle stays put on close' scroll correction.",
-      "workstream": "WS-3"
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-163",
+      "window": "post-1120",
+      "pr": 65421,
+      "sha": "375f654e6d",
+      "title": "fix(desktop): close the oldest Windows toast when the cap evicts it",
+      "merged": "2026-11-21",
+      "packages": [
+        "desktop"
+      ],
+      "main_files": [
+        "packages/desktop/src/main/notifications/index.ts"
+      ],
+      "summary": "When the toast cap evicts the oldest notification, its Windows toast is taken out of Action Center too, not only forgotten.",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "features/notifications/src/lib.rs post(): at CAP the oldest shown notification is popped and sink.remove(&oldest) takes its toast back before the new one posts.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-164",
+      "window": "post-1120",
+      "pr": 65428,
+      "sha": "889ab114b6",
+      "title": "feat(app): archive the open session with Ctrl+Shift+S",
+      "merged": "2026-11-22",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/session/commands/use-session-commands.tsx",
+        "packages/app/src/runtime/i18n/en.ts"
+      ],
+      "summary": "A session command \"Archive session\" (mod+shift+s), for root sessions not yet archived: archives on the server, refreshes Home/inbox lists and removes the tab (the view moves to the next open session); a failure toasts.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "No session.archive command or mod+shift+s binding in apps/desktop or features (archiving exists from the session menu only).",
+      "depends_on": "none",
+      "risks": "mod+shift+s must not collide with an existing binding.",
+      "workstream": "WS-8"
     }
   ],
   "browser_security_review": {

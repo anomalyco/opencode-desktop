@@ -43,7 +43,12 @@ pub(super) fn methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
     m.raw_set(
         "SetViewport",
         lua.create_function(|lua, (this, viewport): (Table, Option<Table>)| {
-            if !matches!(crate::updater::build_channel(), "local" | "dev") {
+            // The channels the browser plugin offers the device toolbar in (`App.Channel` local or
+            // dev, which an unnamed channel such as a PR build's maps to).
+            if !matches!(
+                crate::plugin_host::services::app::channel(),
+                opencode_plugin_spec::Channel::Local | opencode_plugin_spec::Channel::Dev
+            ) {
                 return Err(mlua::Error::runtime(
                     "device previews require a development build",
                 ));
