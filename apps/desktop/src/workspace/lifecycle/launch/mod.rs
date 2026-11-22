@@ -337,31 +337,6 @@ pub fn inbox_waker(handle: rune::AppHandle<App>) -> rune::Waker {
     })
 }
 
-/// A quiet poll that reads the browser engine's messages and steps the agent's browser commands,
-/// with a frame only when the pane changed: a fetched command starts the turn it arrives, not at
-/// the next frame (about 13 ms on blade). The engine's own messages wake the window instead
-/// (`browser_pane` `sidecar`): read the turn they arrived, back/forward returned before their
-/// history commit's DevTools events landed.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn browser_waker(handle: rune::AppHandle<App>) -> rune::Waker {
-    use std::sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    };
-    let pending = Arc::new(AtomicBool::new(false));
-    Arc::new(move || {
-        if pending.swap(true, Ordering::AcqRel) {
-            return;
-        }
-        let pending = pending.clone();
-        handle.update_if(move |s, tx| {
-            pending.store(false, Ordering::Release);
-            let changed = s.poll_browser();
-            crate::surfaces::browser::rpc::poll(s, tx) | changed
-        });
-    })
-}
-
 /// `on_ready`, after the first frame: starts the probe, Beta tab read and first server reads once.
 pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     if s.live() {
