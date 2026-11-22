@@ -42,8 +42,19 @@ pub struct Queued {
 pub struct DeepLinks {
     /// Links whose server isn't connected yet, oldest first.
     waiting: Vec<Queued>,
-    /// A `new-session` link's folder and prompt, until the session it opened shows its composer.
-    prompt: Option<(String, String, f64)>,
+    /// A `new-session` link's prompt, until the session it opened shows its composer.
+    prompt: Option<Pending>,
+}
+
+/// A `new-session` link's prompt on its way to the session the link opens.
+#[derive(Clone, Debug, PartialEq)]
+struct Pending {
+    dir: String,
+    prompt: String,
+    /// When the link opened its project (`App::clock`).
+    at: f64,
+    /// The session on screen when it did: never the one the link opens, even in the same folder.
+    before: Option<String>,
 }
 
 pub enum DeepLinkEvent {
@@ -71,8 +82,17 @@ impl DeepLinks {
             }
             DeepLinkEvent::Ready { .. } => {}
         }
-        let (now, later): (Vec<_>, Vec<_>) = queue.into_iter().partition(|q| ready(&q.server));
-        for q in now {
+        // In order, and one `new-session` prompt at a time: while one waits for its session, the
+        // links behind it wait too, or the session the next one opens would take that prompt and
+        // the next prompt would replace it.
+        let mut held = self.prompt.is_some();
+        let mut later = Vec::new();
+        for q in queue {
+            if held || !ready(&q.server) {
+                later.push(q);
+                continue;
+            }
+            held = q.prompt.is_some();
             effects.push(DeepLinkEffect::Open { server: q.server, dir: q.dir, prompt: q.prompt });
         }
         self.waiting = later;
@@ -148,11 +168,15 @@ fn run(s: &mut App, effects: Effects<DeepLinkEffect>, tx: &mut Tx) -> bool {
             DeepLinkEffect::Focus => {}
             DeepLinkEffect::Open { server, dir, prompt } => {
                 s.close_settings();
+                let before = match &*s.route {
+                    crate::Route::Session { id, .. } => Some(id.clone()),
+                    _ => None,
+                };
                 // The project opens on its server, whichever the window shows.
                 crate::servers::runtime::switch(s, &opencode_kit::servers::ServerKey::new(&server));
                 s.open_project_dir(&dir, true, tx);
                 if let Some(prompt) = prompt {
-                    s.services.deep_links.prompt = Some((dir, prompt, *s.clock));
+                    s.services.deep_links.prompt = Some(Pending { dir, prompt, at: *s.clock, before });
                 }
                 changed = true;
             }
@@ -178,14 +202,16 @@ fn ready_servers(s: &mut App) -> Vec<ServerId> {
 /// session shows (the project opens through the server first). Dropped after 30 s, or when the
 /// composer already holds something.
 fn type_prompt(s: &mut App) -> bool {
-    let Some((dir, prompt, at)) = s.services.deep_links.prompt.clone() else { return false };
+    let Some(Pending { dir, prompt, at, before }) = s.services.deep_links.prompt.clone() else { return false };
     if *s.clock - at > 30.0 {
         s.services.deep_links.prompt = None;
         return false;
     }
     let crate::Route::Session { id, .. } = &*s.route else { return false };
+    // The session the link opened: in its folder, and not the one on screen when it did (a link
+    // for the folder of the session on screen opens a new one there).
     let same = |a: &str, b: &str| a.trim_end_matches(['/', '\\']).eq_ignore_ascii_case(b.trim_end_matches(['/', '\\']));
-    if !s.session(id).is_some_and(|i| same(&i.directory, &dir)) {
+    if before.as_deref() == Some(id.as_str()) || !s.session(id).is_some_and(|i| same(&i.directory, &dir)) {
         return false;
     }
     s.services.deep_links.prompt = None;
