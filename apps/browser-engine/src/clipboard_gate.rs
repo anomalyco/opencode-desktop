@@ -311,6 +311,14 @@ struct ContextState {
     pending_adds: HashMap<i32, (String, u64)>,
 }
 
+/// The URL a new tab must hold until its gate script is in place (#643 first-load race, READER-7 22 Nov): a tab born
+/// agent-driven opens on `about:blank` and `TabClipboardGate::take_first_load` loads it once the root script is
+/// confirmed, so its first document never runs before the wrap. Not for tabs whose context already defers the first
+/// load, extension URLs, or `about:blank` itself.
+pub fn first_load_hold(agent_driven: bool, context_defers: bool, extension_url: bool, url: &str) -> Option<String> {
+    (agent_driven && !context_defers && !extension_url && !url.trim().eq_ignore_ascii_case("about:blank")).then(|| url.to_owned())
+}
+
 pub struct TabClipboardGate {
     pass_through_popup: bool,
     is_preview: bool,

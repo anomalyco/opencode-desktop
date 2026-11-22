@@ -388,9 +388,7 @@ impl EngineManager {
                             Ok(true) => {
                                 if let Some(t) = self.tabs.get(&tab_id) {
                                     t.deferred_initial.store(false, Ordering::Release);
-                                    if !t.clipboard_gate.replace_held_first_load(&url)
-                                        && let Some(frame) = t.browser.main_frame()
-                                    {
+                                    if !t.clipboard_gate.replace_held_first_load(&url) && let Some(frame) = t.browser.main_frame() {
                                         t.prompts.set_pending_top_url(Some(url.clone()));
                                         frame.load_url(Some(&CefString::from(url.as_str())));
                                     }
@@ -972,8 +970,7 @@ impl EngineManager {
         };
         let mut preview_grant: Option<Arc<PreviewGrant>> = None;
         let mut refused_reason: Option<String> = None;
-        let mut refused_inherited_url: Option<String> = None;
-        let mut first_load_url: Option<String> = None;
+        let (mut refused_inherited_url, mut first_load_url): (Option<String>, Option<String>) = (None, None);
         let mut req_ctx: Option<RequestContext>;
         let context_ready;
         let deferred_initial;
@@ -1096,19 +1093,9 @@ impl EngineManager {
             context_ready = resolved_ctx.ready;
             deferred_initial = resolved_ctx.deferred_initial;
             tab_generation = resolved_ctx.generation;
-            // A tab born agent-driven opens on `about:blank`; the clipboard gate loads its URL once
-            // the root gate script is confirmed (`TabClipboardGate::take_first_load`), so the first
-            // document never runs before the wrap (#643 first-load race, READER-7 22 Nov).
-            let hold_first = agent_driven
-                && !resolved_ctx.defer_initial_load
-                && is_allowed_ext_url.is_none()
-                && !target_url.trim().eq_ignore_ascii_case("about:blank");
-            if hold_first {
-                first_load_url = Some(target_url.to_owned());
-            }
-            let init = if resolved_ctx.defer_initial_load || hold_first { "about:blank" } else { target_url };
-            let display = if hold_first { target_url } else { init };
-            (init.to_owned(), display.to_owned(), isolated, allow_ext, is_popup_valid)
+            first_load_url = crate::clipboard_gate::first_load_hold(agent_driven, resolved_ctx.defer_initial_load, is_allowed_ext_url.is_some(), target_url);
+            let init = if resolved_ctx.defer_initial_load || first_load_url.is_some() { "about:blank" } else { target_url };
+            (init.to_owned(), first_load_url.as_deref().unwrap_or(init).to_owned(), isolated, allow_ext, is_popup_valid)
         };
         let is_preview = preview_grant.is_some();
         let file_roots = Arc::new(Mutex::new(if is_preview { Vec::new() } else { file_roots }));
@@ -1368,9 +1355,7 @@ impl EngineManager {
         let media_gate = Arc::new(crate::media_gate::TabMediaGate::new());
         let ext_cw = is_allowed_ext_url.as_deref().is_some_and(|id| self.ext_clipboard_write_ids.lock().unwrap().contains(id));
         let clipboard_gate = Arc::new(crate::clipboard_gate::TabClipboardGate::new(is_popup, is_preview, agent_driven, ext_cw, self.ext_clipboard_write_ids.clone()));
-        if let Some(url) = first_load_url {
-            clipboard_gate.hold_first_load(url);
-        }
+        if let Some(url) = first_load_url { clipboard_gate.hold_first_load(url); }
         let internal_picked = Arc::new(Mutex::new(Vec::new()));
         let pending_clears = Arc::new(Mutex::new(Vec::new()));
         let mut observer = TabCdpObserver::new(
