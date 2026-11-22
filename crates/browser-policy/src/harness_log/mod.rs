@@ -9,10 +9,11 @@ use std::ffi::OsString;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::json;
 
-pub use path::log_path;
+pub use path::{Recording, recording};
 
 /// What [`configure`] was given, kept only when recording is on.
 struct Config {
@@ -22,28 +23,34 @@ struct Config {
 }
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
+static SAID_NO_LOG: AtomicBool = AtomicBool::new(false);
 
-/// Turns recording on for this process, once at launch, when `HARNESS_OPEN_EXTERNAL_LOG` is set:
-/// `anywhere` for a debug build or a headless driver run, else only inside `root`, the folder a
-/// `--harness-writes` run roots every write under ([`log_path`]).
+/// Turns recording on for this process, once at launch, when the run asks for it
+/// (`HARNESS_OPEN_EXTERNAL_LOG` set): `anywhere` for a debug build or a headless driver run, else
+/// only with `root`, the folder a `--harness-writes` run roots every write under ([`recording`]).
 pub fn configure(anywhere: bool, root: Option<&Path>) {
     let Some(env) = std::env::var_os("HARNESS_OPEN_EXTERNAL_LOG") else {
         return;
     };
-    if log_path(Some(&env), anywhere, root).is_some() {
-        drop(CONFIG.set(Config { env, anywhere, root: root.map(Path::to_path_buf) }));
+    let Recording::On { log } = recording(Some(&env), anywhere, root) else {
+        return;
+    };
+    if log.is_none() {
+        say_no_log();
     }
+    drop(CONFIG.set(Config { env, anywhere, root: root.map(Path::to_path_buf) }));
 }
 
 /// Appends `{pid, kind, <fields>}` to the log and returns true, or returns false when recording
-/// is off and the caller makes the real open. The log's place is checked again at every write, so
-/// a link made inside the root after launch cannot carry a line out of it; if no place inside the
-/// root is left, the line is dropped and still nothing opens.
+/// is off and the caller makes the real open. Once on, it stays on: the log's place is checked
+/// again at every write, so a link made inside the root after launch cannot carry a line out of
+/// it, and with no safe place left the line is dropped and still nothing opens.
 pub fn record(kind: &str, fields: &[(&str, &str)]) -> bool {
     let Some(config) = CONFIG.get() else {
         return false;
     };
-    let Some(log) = log_path(Some(&config.env), config.anywhere, config.root.as_deref()) else {
+    let Recording::On { log: Some(log) } = recording(Some(&config.env), config.anywhere, config.root.as_deref()) else {
+        say_no_log();
         return true;
     };
     if let Some(parent) = log.parent() {
@@ -58,4 +65,10 @@ pub fn record(kind: &str, fields: &[(&str, &str)]) -> bool {
         drop(f.write_all(format!("{entry}\n").as_bytes()));
     }
     true
+}
+
+fn say_no_log() {
+    if !SAID_NO_LOG.swap(true, Ordering::Relaxed) {
+        eprintln!("harness open log: recording is on but has no safe log path inside the run's root; external opens are dropped");
+    }
 }
