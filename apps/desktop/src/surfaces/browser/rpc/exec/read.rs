@@ -384,7 +384,7 @@ fn eval_target_outcome(err: EvalTargetError) -> Outcome {
     }
 }
 
-fn send_eval_cdp(
+pub(super) fn send_eval_cdp(
     app: &mut App,
     host_id: u64,
     expr: &str,

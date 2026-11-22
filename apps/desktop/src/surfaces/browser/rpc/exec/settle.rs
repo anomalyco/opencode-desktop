@@ -12,9 +12,10 @@
 //! again too: clearing removes it, and an evaluate before it is created fails as
 //! `document_changed`. A same-document entry (pushState, anchor) bumps only its address, and ends
 //! once that moved and the main frame's `Page.navigatedWithinDocument` arrived, with no new
-//! document begun: official returns it as soon as the tab stops loading. An entry that sends none
-//! of them (same address, no entry that way, or a same-document one while extensions keep `Page.*`)
-//! settles at the grace, and a load the wait happened to see never ends a back/forward early.
+//! document begun: official returns it as soon as the tab stops loading (while extensions keep
+//! `Page.*`, the page's own main context stands in for that event: `same_doc`). An entry that
+//! sends none of them (same address, no entry that way) settles at the grace, and a load the wait
+//! happened to see never ends a back/forward early.
 
 use std::time::Duration;
 
