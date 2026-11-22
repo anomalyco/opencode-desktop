@@ -81,11 +81,11 @@ impl FetchPolicy {
     pub fn for_archive(max_bytes: u64) -> Self {
         Self {
             max_attempts: 5,
-            total_budget: Duration::from_secs(180),
+            total_budget: Duration::from_secs(480),
             connect_timeout: Duration::from_secs(10),
             recv_response_timeout: Duration::from_secs(20),
             per_read_timeout: Duration::from_secs(20),
-            per_attempt_timeout: Duration::from_secs(45),
+            per_attempt_timeout: Duration::from_secs(150),
             base_backoff: Duration::from_secs(1),
             max_backoff: Duration::from_secs(8),
             max_bytes,
