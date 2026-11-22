@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use cef::rc::Rc as _;
 use cef::{
-    Browser, CefString, Client, ContextMenuHandler, DialogHandler, DisplayHandler, DownloadHandler,
+    Browser, CefString, Client, CommandHandler, ContextMenuHandler, DictionaryValue, ImplDictionaryValue, DialogHandler, DisplayHandler, DownloadHandler,
     FindHandler, Frame, FrameHandler, ImplBrowser, ImplClient, ImplFrame, ImplFrameHandler,
-    ImplListValue, ImplProcessMessage, JsdialogHandler, LifeSpanHandler, LoadHandler,
+    ImplCommandHandler, ImplListValue, ImplProcessMessage, JsdialogHandler, LifeSpanHandler, LoadHandler,
     PermissionHandler, ProcessId, ProcessMessage, RenderHandler, RequestHandler, WrapClient,
-    WrapFrameHandler, sys, wrap_client, wrap_frame_handler,
+    WindowOpenDisposition, WrapCommandHandler, WrapFrameHandler, sys, wrap_client, wrap_command_handler,
+    wrap_frame_handler,
 };
 
 pub(crate) fn ping_renderer_pid(frame: &Frame) {
@@ -77,6 +78,37 @@ wrap_frame_handler! {
     }
 }
 
+/// `extra_info` for a new browser: born print-gated, every frame's context locks `window.print`
+/// in the renderer before any page script (`opencode_browser_engine_helper::lock_print`), which
+/// no CDP-attached script can race (#662-B1).
+pub fn print_gate_info(gated: bool) -> Option<DictionaryValue> {
+    let dict = cef::dictionary_value_create().filter(|_| gated)?;
+    dict.set_bool(Some(&CefString::from("opencode.print_gated")), 1);
+    Some(dict)
+}
+
+/// `IDC_PRINT` and `IDC_BASIC_PRINT` (`cef_command_ids.h`): the browser's own print command.
+const PRINT_COMMANDS: [i32; 2] = [35003, 35007];
+
+// Refuses the browser's print command (Ctrl+P, Ctrl+Shift+P) on tabs where nobody may be watching
+// (`TabPrompts::print_gated`): its native dialog would stop the whole engine.
+wrap_command_handler! {
+    pub struct TabCommandHandler {
+        prompts: Arc<crate::prompts::TabPrompts>,
+    }
+
+    impl CommandHandler {
+        fn on_chrome_command(
+            &self,
+            _browser: Option<&mut Browser>,
+            command_id: ::std::os::raw::c_int,
+            _disposition: WindowOpenDisposition,
+        ) -> ::std::os::raw::c_int {
+            i32::from(PRINT_COMMANDS.contains(&command_id) && self.prompts.print_gated.load(std::sync::atomic::Ordering::Acquire))
+        }
+    }
+}
+
 wrap_client! {
     pub struct SidecarTabClient {
         render: RenderHandler,
@@ -130,6 +162,9 @@ wrap_client! {
         }
         fn frame_handler(&self) -> Option<FrameHandler> {
             Some(self.frame_handler.clone())
+        }
+        fn command_handler(&self) -> Option<CommandHandler> {
+            Some(TabCommandHandler::new(self.prompts.clone()))
         }
         fn on_process_message_received(
             &self,

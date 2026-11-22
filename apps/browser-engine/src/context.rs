@@ -511,9 +511,12 @@ wrap_request_context_handler! {
     impl RequestContextHandler {
         fn on_request_context_initialized(&self, request_context: Option<&mut RequestContext>) {
             let proxy = self.proxy.lock().unwrap().clone();
-            let applied = request_context
-                .as_deref()
-                .is_some_and(|ctx| apply_context_prefs(ctx, proxy.as_ref(), self.require_proxy));
+            // Preview and artifact contexts (the ones with a resource filter) never print: nobody
+            // need be watching them, and a native print dialog stops the whole engine (#662).
+            let applied = request_context.as_deref().is_some_and(|ctx| {
+                apply_context_prefs(ctx, proxy.as_ref(), self.require_proxy)
+                    && (self.resource_filter.is_none() || set_and_verify_bool_pref(ctx, "printing.enabled", false))
+            });
             if applied
                 && let Some(ctx) = request_context.as_deref()
             {
