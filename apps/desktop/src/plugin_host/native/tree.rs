@@ -277,10 +277,17 @@ fn change_tree(app: &App, p: &Pal, sid: &str, kinds: Rc<HashMap<String, String>>
     crate::files::view::tree_scroll::<App>(p, "review-tree", list)
 }
 
-/// The change tree's Right and Left, as the Files tree's (`files::view::tree_key`).
+/// The change tree's Right, Left, PageUp and PageDown, as the Files tree's (`files::view::tree_key`).
 fn change_tree_key(s: &mut App, sid: &str, ev: &rune::KeyEvent, tx: &mut Tx) -> bool {
+    if ev.mods != rune::Mods::default() { return false; }
+    if matches!(ev.key, rune::Key::PageUp | rune::Key::PageDown)
+        && tx.focused().is_some_and(|k| k.starts_with("rt:"))
+    {
+        tx.scroll_page("review-tree", if ev.key == rune::Key::PageDown { 1 } else { -1 });
+        return true;
+    }
     let right = matches!(ev.key, rune::Key::Right);
-    if !(right || matches!(ev.key, rune::Key::Left)) || ev.mods != rune::Mods::default() { return false; }
+    if !(right || matches!(ev.key, rune::Key::Left)) { return false; }
     let Some(id) = tx.focused().and_then(|k| k.strip_prefix("rt:")).map(str::to_owned) else { return false };
     let Some(sr) = s.kernel.slots.get(&crate::review::REVIEW).sessions.get(sid) else { return false };
     let dir = sr.tree.get(&id).is_some_and(|n| n.dir);

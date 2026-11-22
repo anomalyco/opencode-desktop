@@ -249,10 +249,20 @@ enum TreeAction {
 }
 
 /// Right on a closed folder opens it and on an open one steps into its first child; Left on an
-/// open folder closes it and elsewhere steps out to the parent folder.
+/// open folder closes it and elsewhere steps out to the parent folder; PageUp and PageDown scroll
+/// the tree viewport without leaking to the session timeline (`pierre-tree.tsx` overflow scroll).
 fn tree_key(host: &mut dyn FilesHost, sid: &str, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    if ev.mods != rune::Mods::default() {
+        return false;
+    }
+    if matches!(ev.key, rune::Key::PageUp | rune::Key::PageDown)
+        && tx.focused().is_some_and(|k| k.starts_with("ft:"))
+    {
+        tx.scroll_page("files-tree", if ev.key == rune::Key::PageDown { 1 } else { -1 });
+        return true;
+    }
     let right = matches!(ev.key, rune::Key::Right);
-    if !(right || matches!(ev.key, rune::Key::Left)) || ev.mods != rune::Mods::default() {
+    if !(right || matches!(ev.key, rune::Key::Left)) {
         return false;
     }
     let Some(id) = tx.focused().and_then(|k| k.strip_prefix("ft:")).map(str::to_owned) else {
