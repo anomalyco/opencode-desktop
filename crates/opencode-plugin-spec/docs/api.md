@@ -1545,6 +1545,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `clip` | `boolean?` | Clips children to the box. |
 | `scrollY` | `boolean?` | Scrolls vertical overflow. |
 | `scrollX` | `boolean?` | Scrolls horizontal overflow. |
+| `stickBottom` | `boolean?` | With `scrollY`: stays scrolled to the bottom as content grows, as a log or a chat does, until the reader scrolls up. |
 | `focusable` | `boolean?` | Takes keyboard focus. |
 | `disabled` | `boolean?` | Takes no presses. |
 | `onPress` | `UiHandler?` | Runs on a press. |
@@ -1876,6 +1877,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `props` | `{ [string]: any }?` | Passed to the nested popover's render as `props.data`. |
 | `alert` | `boolean?` | Shows a danger dot before the detail: something in the nested list failed. |
 | `side` | `Side?` | The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`. |
+| `radius` | `number?` | Corner radius of the row's hover and open fill. Defaults to 4. |
 
 ### UiDialogHeaderProps
 

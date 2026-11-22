@@ -5,8 +5,3 @@
 # focus property it needs is a contract and host change, owner: BROWSER-UI's proposal).
 plugins/browser/settings.luau button autofocus
 plugins/browser/site.luau iconButton autofocus
-#
-# Applied today: Rune standard props the contract doesn't list for that node yet (add them to
-# contract.json, then remove these lines).
-plugins/browser/device.luau flyoutRow radius
-plugins/debug/console.luau col stickBottom
