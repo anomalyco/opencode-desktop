@@ -80,12 +80,15 @@ pub fn view_bars(s: &App, p: &Pal, tab_id: u64) -> Vec<El> {
             #[allow(deprecated)]
             let import_btn = crate::widgets::button(t!("rune.browser.prompt.passkey.import"), ButtonVariant::Neutral)
                 .size(rune_kit::ButtonSize::Small)
-                .on_press(move |app: &mut App| {
-                    if !app.workspace_panes.browser.host.tab(tab_id).is_some_and(|t| t.prompts.blocked_guard_armed()) {
+                // The import opens on the page's site, chosen already only in a tab of the person's;
+                // the notice stays until an import brings cookies (`panel.tsx:603-618`).
+                .on_press_tx(move |app: &mut App, tx: &mut Tx| {
+                    let Some(tab) = app.workspace_panes.browser.host.tab(tab_id).filter(|t| t.prompts.blocked_guard_armed()) else {
                         return;
-                    }
-                    app.workspace_panes.browser.host.dismiss_blocked_guard_notice(tab_id);
-                    app.open_settings_at(crate::settings::pages::Page::Plugin("browser.browser".to_owned()));
+                    };
+                    let site = page_site(&tab.url);
+                    let choose = !tab.prompts.agent_driven;
+                    crate::plugin_host::browser_import_site(app, site, choose, tab_id, tx);
                 })
                 .build(k)
                 .key("browser-passkey-import");
@@ -708,6 +711,19 @@ fn short_host(url: &str) -> String {
     } else {
         clean
     }
+}
+
+/// The site (registrable domain) of the page at `url`, which the passkey notice's import opens on
+/// (`model.ts:899-905` `notice.site`): `github.com` for `https://gist.github.com:8443/x`.
+fn page_site(url: &str) -> Option<String> {
+    let origin = browser_pane::destination_origin(url)?;
+    let authority = origin.split_once("://")?.1;
+    // A port ends the authority; an IPv6 literal's own colons sit inside its brackets.
+    let host = match authority.rsplit_once(':') {
+        Some((host, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => host,
+        _ => authority,
+    };
+    browser_pane::cookies::sites::cookie_site(host)
 }
 
 fn prompt_site(origin: &str, top_url: &str) -> String {

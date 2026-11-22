@@ -1565,6 +1565,10 @@ return plugin.defineWindow(function(ctx)
     local importOffer: { tab: BrowserTab? }? = nil
     -- An import of the offer's runs on when its dialog is closed, and the offer waits for it.
     local offerImporting = false
+    -- Set while the dialog was opened by a page's passkey notice (`site-chooser.tsx:35-39`): the page's
+    -- site, chosen already only in a tab of the person's; the tab, which loads again once cookies came
+    -- in; and whether the dialog still moves on through the profiles for one that lists the site.
+    local importSite: { name: string?, choose: boolean, tab: string, seeking: boolean }? = nil
     local importFailure: settings.ImportMessage? = nil
     -- What the dialog brings, both until unticked; each opening starts from both (`site-chooser.tsx:80-81`).
     local importBoxes: settings.ImportBoxes = { signins = true, history = true }
@@ -1616,6 +1620,9 @@ return plugin.defineWindow(function(ctx)
         return `{target.browser}\n{target.profile}`
     end
 
+    -- Set below: the passkey dialog's move to the next profile once a profile's list came in.
+    local seekSite: (target: { browser: string, profile: string }, list: { settings.ProfileSite }?) -> () = function() end
+
     -- Reads the profile's sites off the UI thread, once while the dialog is open (`site-chooser.tsx:99-112`).
     local function readSites(target: { browser: string, profile: string })
         local key = profileKey(target)
@@ -1643,9 +1650,54 @@ return plugin.defineWindow(function(ctx)
                 -- A thrown read is `listed.error`: "Couldn't read the sites in this browser."
                 failures[key] = if ok and type(res) == "table" and type(res.error) == "string" then res.error else "thrown"
             end
+            if importSite ~= nil and importSite.seeking and importTarget ~= nil and profileKey(importTarget) == key then
+                seekSite(target, lists[key])
+            end
             siteChoice.version += 1
             refreshImportDialog()
         end)
+    end
+
+    -- Moves the dialog to another browser profile, as its profile menu does.
+    local function setImportTarget(choice: signins.Choice)
+        importTarget = { browser = choice.sourceId, name = choice.sourceName, profile = choice.profileId, label = choice.label }
+    end
+
+    -- Opened for a site, the dialog moves on to the next browser profile until one lists exactly that
+    -- site, and back to the first if none does; there the site is chosen already where the person
+    -- asked (`site-chooser.tsx:205-217`, `site-search.ts` `exactSite`).
+    seekSite = function(target: { browser: string, profile: string }, list: { settings.ProfileSite }?)
+        local site = importSite
+        if site == nil or site.name == nil then
+            return
+        end
+        local name = site.name :: string
+        for _, item in list or {} do
+            if item.site == name then
+                site.seeking = false
+                siteChoice.custom = true
+                siteChoice.profile = profileKey(target)
+                siteChoice.chosen = if site.choose then { [name] = true } else {}
+                return
+            end
+        end
+        local choices = signins.choices(importSources)
+        local at = 0
+        for i, choice in choices do
+            if choice.sourceId == target.browser and choice.profileId == target.profile then
+                at = i
+            end
+        end
+        local nextChoice = choices[at + 1]
+        if nextChoice == nil then
+            site.seeking = false
+            if choices[1] ~= nil then
+                setImportTarget(choices[1])
+            end
+            return
+        end
+        setImportTarget(nextChoice)
+        readSites(importTarget :: any)
     end
 
     -- `site-search.ts` `matchSites`: a part of a site's name, or the host of a pasted address, which also
@@ -1681,9 +1733,11 @@ return plugin.defineWindow(function(ctx)
         local key = profileKey(target)
         local list = siteLists[key]
         local all = list or {}
-        local custom = siteChoice.custom and siteChoice.profile == key
+        -- Changed, the choice is one profile's: under another profile nothing is chosen until the person
+        -- chooses there (`site-chooser.tsx:90-94`).
+        local custom = siteChoice.custom
         local function isChosen(site: string): boolean
-            return not custom or siteChoice.chosen[site] == true
+            return not custom or (siteChoice.profile == key and siteChoice.chosen[site] == true)
         end
         local chosen = 0
         for _, item in all do
@@ -1699,8 +1753,23 @@ return plugin.defineWindow(function(ctx)
             end
         end
         local failure = siteFailures[key]
+        -- Searched for the passkey page's site, which this profile has no cookies for: the list says so,
+        -- and chooses nothing (`site-chooser.tsx:132-138`).
+        local missing: string? = nil
+        local siteName = if importSite ~= nil then importSite.name else nil
+        if siteName ~= nil and list ~= nil and string.lower(string.match(siteChoice.query, "^%s*(.-)%s*$") or "") == siteName then
+            local exact = false
+            for _, item in all do
+                exact = exact or item.site == siteName
+            end
+            if not exact then
+                missing = I18n:T("sites.missing", { site = siteName, browser = target.name })
+            end
+        end
         local status: { text: string, error: boolean, loading: boolean?, retry: boolean? }? = nil
-        if failure == "thrown" then
+        if importSite ~= nil and importSite.seeking then
+            status = { text = I18n:T("sites.loading", { browser = target.name }), error = false, loading = true }
+        elseif failure == "thrown" then
             status = { text = I18n:T("sites.failed"), error = true, retry = true }
         elseif failure == "locked" then
             status = { text = I18n:T("signins.failed.locked.named", { browser = target.name }), error = true, retry = true }
@@ -1712,7 +1781,7 @@ return plugin.defineWindow(function(ctx)
         elseif #all == 0 then
             status = { text = I18n:T("sites.empty"), error = false }
         elseif #shown == 0 then
-            status = { text = I18n:T("sites.unmatched"), error = false }
+            status = { text = missing or I18n:T("sites.unmatched"), error = false }
         end
         local choices = signins.choices(importSources)
         local profiles: { { value: string, label: string } }? = nil
@@ -1788,10 +1857,16 @@ return plugin.defineWindow(function(ctx)
                 readSites(target)
                 refreshImportDialog()
             end,
+            single = importSite ~= nil,
+            missing = missing,
             onProfile = function(value: string)
                 for _, choice in choices do
                     if `{choice.sourceId}\n{choice.profileId}` == value then
                         importTarget = { browser = choice.sourceId, name = choice.sourceName, profile = choice.profileId, label = choice.label }
+                        -- The person's pick ends the passkey dialog's own search through the profiles.
+                        if importSite ~= nil then
+                            importSite.seeking = false
+                        end
                         siteChoice.custom = false
                         siteChoice.version += 1
                         readSites(importTarget :: any)
@@ -2194,6 +2269,7 @@ return plugin.defineWindow(function(ctx)
     local function dismissImport()
         importTarget = nil
         importOffer = nil
+        importSite = nil
         importFailure = nil
         siteLists = {}
         siteFailures = {}
@@ -2233,6 +2309,7 @@ return plugin.defineWindow(function(ctx)
                             label = if #browser.profiles > 1 then `{browser.name} · {prof.name}` else browser.name,
                         }
                         importOffer = offer
+                        importSite = nil
                         importFailure = nil
                         importBoxes = { signins = true, history = true }
                         -- Each opening starts from every site and reads the lists again.
@@ -2250,6 +2327,42 @@ return plugin.defineWindow(function(ctx)
                 end
             end
         end
+    end
+
+    -- A page's passkey notice (`panel.tsx:603-618`, `SiteChooserDialog`): the dialog opens on the first
+    -- browser profile with the list shown and searched for the page's site, and moves on to the first
+    -- profile that lists exactly that site; it brings that site's sign-in only. Without another
+    -- browser, Settings > Browser says so.
+    local function openImportSite(name: string?, choose: boolean, tab: string)
+        local choices = signins.choices(listImportSources())
+        local first = choices[1]
+        if first == nil then
+            Layout:OpenSettings("browser")
+            return
+        end
+        setImportTarget(first)
+        importOffer = nil
+        importSite = { name = name, choose = choose, tab = tab, seeking = name ~= nil }
+        importFailure = nil
+        importBoxes = { signins = true, history = false }
+        siteLists = {}
+        siteFailures = {}
+        siteLoading = {}
+        -- Nothing is chosen until the site is found where the person asked.
+        siteChoice = { revealed = true, custom = name ~= nil, profile = profileKey(importTarget :: any), chosen = {}, query = name or "", version = siteChoice.version + 1 }
+        if siteSearch:Text() ~= (name or "") then
+            siteSearch:SetText(name or "")
+        end
+        readSites(importTarget :: any)
+        Dialog:Open("import-sites")
+    end
+    local importSiteSignal = (Browser :: any).ImportSite
+    if importSiteSignal ~= nil then
+        importSiteSignal:Connect(function(request: any)
+            if type(request) == "table" and type(request.tab) == "string" then
+                openImportSite(if type(request.site) == "string" then request.site else nil, request.choose == true, request.tab)
+            end
+        end)
     end
 
     local settingsPage = settings.create({
@@ -2483,11 +2596,13 @@ return plugin.defineWindow(function(ctx)
     -- and says why (`:164-198`). Cookies that came in end the pane's offer (`jobs.ts:114-115`).
     runDialogImport = function()
         local target = importTarget
-        if target == nil or importRunning or not (importBoxes.signins or importBoxes.history) then
+        local site = importSite
+        if target == nil or importRunning or not (site ~= nil or importBoxes.signins or importBoxes.history) then
             return
         end
         local offer = importOffer
-        local boxes = importBoxes
+        -- Opened for a page's site, the import is that site's sign-in and no history (`site-chooser.tsx:247-249`).
+        local boxes = if site ~= nil then { signins = true, history = false } else importBoxes
         -- Every site unless the person changed the choice; then the ticked ones, in the list's order.
         local chooser = siteChooserFor(target, false)
         if chooser and not chooser.canImport then
@@ -2546,6 +2661,18 @@ return plugin.defineWindow(function(ctx)
         local clean = signedIn and not loss and (cookies > 0 or pages > 0)
         if offer then
             signInOutcome(choice, message, confirmed, cookies, offer.tab)
+        elseif site ~= nil and cookies > 0 then
+            -- The passkey notice goes and its page loads again, now signed in (`panel.tsx:609-615`).
+            pcall(function()
+                bAny:EndPasskeyNotice(site.tab)
+            end)
+            local tab = Browser:Get(site.tab)
+            if tab ~= nil and tab:Url() ~= "" and tab:Url() ~= "about:blank" then
+                tab:Reload()
+            end
+            if not preferences().welcomed then
+                updatePreferences({ welcomed = true })
+            end
         elseif cookies > 0 and not preferences().welcomed then
             updatePreferences({ welcomed = true })
         end

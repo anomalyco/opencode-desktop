@@ -664,6 +664,12 @@ export type SiteChooser = {
     onClearShown: () -> (),
     onRetry: () -> (),
     onProfile: (value: string) -> (),
+    -- Opened for one site's sign-in, from a page's passkey notice: no boxes, and sign-ins only
+    -- (`site-chooser.tsx:352`, `:247-249`).
+    single: boolean,
+    -- Searched for that site, which this profile has no cookies for: what the count line says while
+    -- sites that only contain its name show (`site-chooser.tsx:132-138`, `:457-468`).
+    missing: string?,
 }
 
 -- `site-chooser.tsx:20` `ROW_HEIGHT`.
@@ -704,13 +710,16 @@ function settings.renderImportDialog(
             }),
         })
     end
-    local canImport = (boxes.signins or boxes.history) and not busy and (chooser == nil or chooser.canImport)
+    local single = chooser ~= nil and chooser.single
+    local canImport = (single or boxes.signins or boxes.history) and not busy and (chooser == nil or chooser.canImport)
     -- The body: the boxes, the sites once revealed, then how the last import went
     -- (`site-chooser.tsx:566-576`, 13 on a 20 line).
-    local body: { ui.Node } = {
-        box("signins", i18n:T("import.signins"), boxes.signins),
-        box("history", i18n:T("import.history"), boxes.history),
-    }
+    local body: { ui.Node } = if single
+        then {}
+        else {
+            box("signins", i18n:T("import.signins"), boxes.signins),
+            box("history", i18n:T("import.history"), boxes.history),
+        }
     if chooser and chooser.revealed then
         table.insert(body, siteList(i18n, view, chooser, busy))
     end
@@ -850,7 +859,9 @@ siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: b
         }))
     end
     local shown = chooser.shown
-    local count = if searching
+    local count = if chooser.missing ~= nil and #shown > 0
+        then chooser.missing
+        elseif searching
         then i18n:T("sites.selected.shown", { shown = i18n:Number(#shown), selected = i18n:Number(chooser.chosen) })
         else i18n:T("sites.selected", { selected = i18n:Number(chooser.chosen), total = i18n:Number(chooser.total) })
     -- The count alone is announced, so Select all and Select none say what they did.
@@ -954,7 +965,7 @@ siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: b
                 })
             end,
         }) })
-    return ui.col({ key = "settings-import-sites-area", w = "full", grow = 1, minH = 0, gap = 12, pt = 8, pb = 4 }, {
+    return ui.col({ key = "settings-import-sites-area", w = "full", grow = 1, minH = 0, gap = 12, pt = if chooser.single then 4 else 8, pb = 4 }, {
         ui.row({ key = "settings-import-sites-top", w = "full", gap = 8, align = "center" }, top),
         ui.col({ key = "settings-import-sites-body", w = "full", grow = 1, minH = 0, gap = 0 }, {
             counts,
