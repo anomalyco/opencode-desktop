@@ -1364,8 +1364,8 @@ impl EngineManager {
             self.extensions.is_some(), self.events.clone(), self.out_tx.clone(),
         );
         let cdp_reg = host.add_dev_tools_message_observer(Some(&mut observer));
-        // Skip `cdp_ledger.arm()` on extension pages/popups (never agent-inspected; avoids racing `ExtensionHost`'s `Fetch.enable` pause, READER-7 R4).
-        let mut arm = if is_popup || is_allowed_ext_url.is_some() { Vec::new() } else { cdp_ledger.lock().unwrap().arm() };
+        // Extension tabs/popups use `arm_extension_tab` (`ExtensionDeferred`, #695-B1) so gates keep `Page`/`Runtime` while `Target.setAutoAttach` waits for any web commit.
+        let mut arm = if is_popup || is_allowed_ext_url.is_some() { cdp_ledger.lock().unwrap().arm_extension_tab() } else { cdp_ledger.lock().unwrap().arm() };
         arm.extend(passkeys.attach_messages(None));
         arm.extend(media_gate.attach_messages(None));
         arm.extend(clipboard_gate.attach_messages(None));

@@ -1183,17 +1183,14 @@ impl EngineManager {
             .extensions
             .as_mut()
             .map(|ext| {
-                let fx = ext.on_tab_opened(
+                ext.on_tab_opened(
                     tab_id,
                     initial_url,
                     width_pt.round() as i32,
                     height_pt.round() as i32,
                     focused,
-                );
-                if agent_driven {
-                    ext.set_tab_agent_driven(tab_id, true);
-                }
-                fx
+                    agent_driven,
+                )
             })
             .unwrap_or_default();
         self.run_ext_effects(effects);

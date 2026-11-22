@@ -72,6 +72,10 @@ enum Internal {
 enum ArmState {
     #[default]
     Armed,
+    /// Extension page or popup: `Page.enable` + `Runtime.enable` active for per-tab gates
+    /// (`media_gate`, `clipboard_gate`), without `Target.setAutoAttach` (owned by `ExtensionHost`).
+    /// Transitions to `Armed` via `self.arm()` if the root frame later commits a non-extension URL.
+    ExtensionDeferred,
     Unprepared,
 }
 
@@ -148,6 +152,19 @@ impl EngineCdpLedger {
             self.msg("Page.enable", json!({}), None, None),
             self.msg("Runtime.enable", json!({}), None, None),
             self.msg("Page.getFrameTree", json!({}), None, tree),
+        ]
+    }
+
+    /// Arms an extension page or popup with ONLY `Page.enable` and `Runtime.enable` (no
+    /// `Target.setAutoAttach`, so `TabCdpObserver` never races `ExtensionHost`'s `Fetch.enable`
+    /// pause while `media_gate` / `clipboard_gate` still observe root contexts and navigations;
+    /// READER-7 `#695-B1`). Stays fail-closed (`ExtensionDeferred`) until a non-extension commit
+    /// promotes it via `self.arm()`.
+    pub fn arm_extension_tab(&mut self) -> Vec<String> {
+        self.state = ArmState::ExtensionDeferred;
+        vec![
+            self.msg("Page.enable", json!({}), None, None),
+            self.msg("Runtime.enable", json!({}), None, None),
         ]
     }
 
@@ -289,7 +306,7 @@ impl EngineCdpLedger {
     }
 
     pub fn is_unprepared(&self) -> bool {
-        self.state == ArmState::Unprepared
+        self.state != ArmState::Armed
     }
 
     pub fn session_for_frame(&self, frame_id: &str) -> Option<String> {
@@ -321,7 +338,7 @@ impl EngineCdpLedger {
     /// `(url, origin)` satisfies `input_document` (catching `about:blank`/`about:srcdoc` inheriting
     /// a `chrome-extension://` origin; READER-12 #444 Blocker #4).
     pub fn main_frame_input_ok(&self) -> bool {
-        if self.state == ArmState::Unprepared || self.overflow {
+        if self.state != ArmState::Armed || self.overflow {
             return false;
         }
         let Some(mf) = self.main_frame.as_deref() else {
@@ -427,7 +444,7 @@ impl EngineCdpLedger {
         frame_id: Option<&str>,
     ) -> Result<Dispatch, String> {
         self.app_attached = true;
-        if self.state == ArmState::Unprepared {
+        if self.state != ArmState::Armed {
             return Err(UNPREPARED.into());
         }
         if let Some(s) = session
@@ -830,9 +847,13 @@ impl EngineCdpLedger {
         let url = info.get("url").and_then(Value::as_str).unwrap_or("");
         if ty != "iframe" {
             // Extension workers are owned and resumed strictly by `ExtensionHost` after its
-            // `Fetch.enable` barrier confirms (READER-7 #592 R4): detach only, never resume.
+            // `Fetch.enable` barrier confirms (READER-7 #592 R4 / #695-S2): detach only, never
+            // resume. Regular `http(s)://` web workers nested inside a web iframe under an
+            // extension iframe are not attached by `ExtensionHost` and resume normally.
             let ext_worker = extension_origin(url)
-                || parent.is_some_and(|p| self.extension_targets.contains_key(p));
+                || (parent.is_some_and(|p| self.extension_targets.contains_key(p))
+                    && !url.starts_with("http://")
+                    && !url.starts_with("https://"));
             let detach = self.msg("Target.detachFromTarget", json!({ "sessionId": child }), None, None);
             if ext_worker {
                 obs.send.push(detach);
@@ -889,6 +910,7 @@ impl EngineCdpLedger {
         let Some(id) = frame.get("id").and_then(Value::as_str) else { return false };
         let parent = frame.get("parentId").and_then(Value::as_str).map(str::to_owned);
         self.revision += 1;
+        let url = frame.get("url").and_then(Value::as_str).filter(|u| !u.is_empty()).map(str::to_owned);
         if session.is_none() && parent.is_none() {
             // The main frame committed: a fresh document, so drop stale root-owned frames and
             // root-owned extension contexts; re-arm if needed, refetch tree if the first fetch failed.
@@ -897,14 +919,15 @@ impl EngineCdpLedger {
             self.frames.retain(|_, f| f.session.is_some());
             self.overflow = false;
             self.main_frame = Some(id.to_owned());
-            if self.state == ArmState::Unprepared {
+            let promote_ext = self.state == ArmState::ExtensionDeferred
+                && url.as_deref().is_some_and(|u| u != "about:blank" && !extension_origin(u));
+            if self.state == ArmState::Unprepared || promote_ext {
                 obs.send.extend(self.arm());
             } else if std::mem::take(&mut self.tree_retry) {
                 let tree = Some(Internal::Tree { session: None });
                 obs.send.push(self.msg("Page.getFrameTree", json!({}), None, tree));
             }
         }
-        let url = frame.get("url").and_then(Value::as_str).filter(|u| !u.is_empty()).map(str::to_owned);
         let origin = frame.get("securityOrigin").and_then(Value::as_str).unwrap_or("").to_owned();
         // A document with its own origin replaces the last one's context origin; a blank or
         // `srcdoc` document keeps it until its own context reports (`on_context`).

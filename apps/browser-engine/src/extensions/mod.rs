@@ -774,10 +774,11 @@ impl ExtensionHost {
                 .iter_mut()
                 .filter_map(|(ext_id, map)| map.remove(&engine_tab_id).map(|cid| (ext_id.clone(), cid)))
                 .collect();
+            let closing = self.visible_tabs().next().is_none();
             for (ext_id, cid) in removed {
                 self.emit_event(
                     "tabs.onRemoved",
-                    vec![json!(cid), json!({ "windowId": WINDOW_ID, "isWindowClosing": false })],
+                    vec![json!(cid), json!({ "windowId": WINDOW_ID, "isWindowClosing": closing })],
                     Some(&ext_id),
                 );
             }
@@ -792,8 +793,10 @@ impl ExtensionHost {
         width: i32,
         height: i32,
         active: bool,
+        agent_driven: bool,
     ) -> Vec<ExtEffect> {
-        if active {
+        let visible_active = active && !agent_driven;
+        if visible_active {
             for t in &mut self.tabs {
                 t.active = false;
             }
@@ -803,28 +806,30 @@ impl ExtensionHost {
             url: url.to_owned(),
             title: String::new(),
             loading: true,
-            active,
-            agent_driven: false,
+            active: visible_active,
+            agent_driven,
             width,
             height,
             muted: false,
             audible: false,
         });
-        if !self.window_created {
-            if width > 0 && height > 0 {
-                self.window_width = width;
-                self.window_height = height;
+        if !agent_driven {
+            if !self.window_created {
+                if width > 0 && height > 0 {
+                    self.window_width = width;
+                    self.window_height = height;
+                }
+                self.window_created = true;
+                if active {
+                    self.window_focused = true;
+                }
+                self.emit_window_event("windows.onCreated");
+                if active {
+                    self.emit_event("windows.onFocusChanged", vec![json!(WINDOW_ID)], None);
+                }
+            } else if active {
+                self.emit_window_focus(true);
             }
-            self.window_created = true;
-            if active {
-                self.window_focused = true;
-            }
-            self.emit_window_event("windows.onCreated");
-            if active {
-                self.emit_event("windows.onFocusChanged", vec![json!(WINDOW_ID)], None);
-            }
-        } else if active {
-            self.emit_window_focus(true);
         }
         let effects = self.maybe_start_seed_probe();
         self.trigger_tab_id_probes_all();
