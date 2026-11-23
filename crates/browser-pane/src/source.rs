@@ -127,6 +127,11 @@ pub(crate) fn configured() -> bool {
     TARGET != "unsupported" && !source.trim().is_empty() && !trust.trim().is_empty()
 }
 
+/// Whether the source is on this machine (a development build's stand-in, or a `file:` index).
+pub(crate) fn local() -> bool {
+    is_local(inputs().0.trim())
+}
+
 /// Whether this build has a valid trust rule for an installed engine.
 pub(crate) fn has_trust() -> bool {
     TARGET != "unsupported" && parse_trust(&inputs().1).is_some()

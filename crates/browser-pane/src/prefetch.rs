@@ -1,14 +1,26 @@
-//! The one engine download job: started by a page that waits for the engine, or once a run after
-//! the first page opens to fetch a newer release, and never twice. Nothing starts it before a
-//! page opens. An update runs at low priority, throttled, waits while the OS reports a metered
-//! connection or battery power, and retries with backoff; when a page waits (`hurry`) the
-//! download goes on at full speed and normal priority. It reads the source's index, then streams the archive into place: the bytes
-//! land in a partial file that a later try resumes, unpack as they arrive, and the folder moves
-//! into place only once the archive's hash and the trust rule pass.
+//! The one engine download job of the process, shared by every window's host: started quietly
+//! once a launch is over and finds no engine this build accepts (`Mode::Launch`), by a page that
+//! waits for the engine (`Mode::Urgent`), or once a run after the first page opens to fetch a
+//! newer release (`Mode::Update`), and never twice. A page that opens while it runs joins it and
+//! shows where it is.
+//!
+//! A launch's fetch runs on a background-priority thread and says nothing to the windows: it
+//! waits while the OS reports a metered connection or its battery saver, leaves the disk some
+//! room, waits for the network when the source is out of reach, and stops for the run when a try
+//! can't help (no room, bytes that don't check out twice). An update also runs throttled and
+//! waits on battery power. When a page waits the job goes on at full speed and normal priority,
+//! and what it does shows in the pane.
+//!
+//! The job reads the source's index, then streams the archive into place: the bytes land in a
+//! partial file that a later try (or a later run) resumes, unpack as they arrive, and the folder
+//! moves into place only once the archive's hash and the trust rule pass. The partial file is
+//! locked while it downloads, so a second copy of the app never downloads it too: it follows the
+//! first one's progress instead.
 
+use std::cell::Cell;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::Duration;
 use rune::time::Instant;
 
@@ -22,30 +34,44 @@ use crate::source::{self, Release};
 use crate::trust::Verifier;
 use crate::unpack;
 
-/// The background download's bandwidth: 2 MB/s, about a minute for the whole engine.
+/// An update's bandwidth: 2 MB/s, about a minute for the whole engine.
 const BACKGROUND_RATE: u64 = 2_000_000;
-/// How often a running background download asks the OS whether to pause.
+/// How often a running quiet download asks the OS whether to pause.
 const PAUSE_CHECK: Duration = Duration::from_secs(5);
 /// How often a paused download asks again.
 const PAUSED_RECHECK: Duration = Duration::from_secs(60);
-/// An update's tries before it waits for the next run.
+/// A quiet job's tries at a source that answers with errors before it waits for the next run.
 const MAX_ATTEMPTS: u32 = 6;
-/// The background progress wakes the UI at most this often (the pane, when open, every 256 KB).
-const QUIET_WAKE: Duration = Duration::from_secs(2);
+/// What a launch's fetch leaves free on the disk beyond what the engine needs: 1 GiB. A page
+/// that waits installs with less.
+const LAUNCH_HEADROOM: u64 = 1 << 30;
+/// How long a running app waits between two reads of an index that publishes nothing for it.
+const PROBE_RECHECK: Duration = Duration::from_secs(60 * 60);
+/// How often a page that waits reads the progress of another app's download.
+const FOLLOW_EVERY: Duration = Duration::from_millis(500);
+/// How often a quiet job looks whether another app's download ended.
+const BUSY_RECHECK: Duration = Duration::from_secs(5);
+/// How long another app's download may show no new byte before this job stops following it.
+const FOLLOW_STALLED: Duration = Duration::from_secs(90);
 
 static STAGING_SEQ: AtomicU64 = AtomicU64::new(1);
 
 /// What a job is for, which sets its pace and what it reports.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Mode {
-    /// A page waits for the engine: full speed, normal priority, no pausing, one try.
+    /// A page waits for the engine: full speed, normal priority, no pausing, one try, and every
+    /// step shows in the pane.
     Urgent,
-    /// An engine runs; a newer release installs beside it for its next start, at background
-    /// pace, without touching the engine's status.
+    /// The app is up and no engine this build accepts is installed: full speed on a
+    /// background-priority thread, quiet (no status, no wake), retried for as long as the
+    /// network is the reason.
+    Launch,
+    /// An engine runs; a newer release installs beside it for its next start, throttled, without
+    /// touching the engine's status.
     Update,
 }
 
-/// The job's state (one per `BrowserHost`).
+/// The job's state (one per process).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum State {
     Idle,
@@ -55,7 +81,8 @@ enum State {
 #[derive(Clone, Copy, Debug)]
 enum Event {
     Start(Mode),
-    Hurry,
+    /// The source lists no engine for this build: the job stays, quietly, to read it again.
+    Unlisted,
     Finished,
 }
 
@@ -70,110 +97,276 @@ fn step(state: State, event: Event) -> (State, Option<Effect>) {
     match (state, event) {
         (State::Idle, Event::Start(mode)) => (State::Running(mode), Some(Effect::Spawn(mode))),
         (State::Idle, _) => (State::Idle, None),
-        (State::Running(_), Event::Start(Mode::Urgent) | Event::Hurry) => (State::Running(Mode::Urgent), Some(Effect::Nudge)),
+        (State::Running(_), Event::Start(Mode::Urgent)) => (State::Running(Mode::Urgent), Some(Effect::Nudge)),
+        (State::Running(_), Event::Unlisted) => (State::Running(Mode::Launch), None),
         (_, Event::Finished) => (State::Idle, None),
         (other, _) => (other, None),
     }
 }
 
+/// A host whose page waits for the job: it hears every status.
+struct Watcher {
+    shared: Arc<Mutex<SharedEngine>>,
+    waker: Option<Waker>,
+}
+
+struct Ctl {
+    run: State,
+    watchers: Vec<Watcher>,
+    /// Every host that asked this run (a window that closed drops out): they hear whether the
+    /// source publishes an engine, and that a quiet job installed one.
+    hosts: Vec<(Weak<Mutex<SharedEngine>>, Option<Waker>)>,
+    /// Where the job is: what a page that joins now shows.
+    shown: EngineStatus,
+    /// Counts the network's changes: a wait for the network ends at the next one.
+    kicks: u64,
+    /// A launch asked: a source that publishes nothing is read again every hour.
+    launched: bool,
+}
+
+impl Ctl {
+    /// Steps every live host with `event`; the wakers of those it changed.
+    fn each_host(&mut self, event: impl Fn() -> EngineEvent) -> Vec<Waker> {
+        self.hosts.retain(|(host, _)| host.strong_count() > 0);
+        self.hosts
+            .iter()
+            .filter_map(|(host, waker)| {
+                let host = host.upgrade()?;
+                tell(&host, waker.as_ref(), event())
+            })
+            .collect()
+    }
+
+    /// Gives every waiting page `status` and lets them go; the wakers of those it changed.
+    fn release_watchers(&mut self, status: &EngineStatus) -> Vec<Waker> {
+        std::mem::take(&mut self.watchers)
+            .iter()
+            .filter_map(|w| tell(&w.shared, w.waker.as_ref(), EngineEvent::InstallStatus(status.clone())))
+            .collect()
+    }
+}
+
 pub(crate) struct Prefetch {
-    state: Mutex<State>,
-    /// Wakes the job's waits early (it hurries, or it's cancelled).
+    ctl: Mutex<Ctl>,
+    /// Wakes the job's waits early (a page waits now, the network changed).
     nudge: Condvar,
 }
 
 impl Default for Prefetch {
     fn default() -> Self {
-        Self { state: Mutex::new(State::Idle), nudge: Condvar::new() }
+        let ctl = Ctl { run: State::Idle, watchers: Vec::new(), hosts: Vec::new(), shown: EngineStatus::NotInstalled, kicks: 0, launched: false };
+        Self { ctl: Mutex::new(ctl), nudge: Condvar::new() }
     }
 }
 
 impl Prefetch {
-    /// Starts a job for `mode`, or makes a running one hurry when a page waits. Without a source,
-    /// a page waiting hears the browser isn't available, and nothing else starts.
-    pub(crate) fn start(self: &Arc<Self>, mode: Mode, shared: Arc<Mutex<SharedEngine>>, waker: Option<Waker>) {
+    /// The process's job: every window's host starts and joins the same one.
+    pub(crate) fn global() -> Arc<Self> {
+        static JOB: OnceLock<Arc<Prefetch>> = OnceLock::new();
+        JOB.get_or_init(Arc::default).clone()
+    }
+
+    fn lock(&self) -> MutexGuard<'_, Ctl> {
+        self.ctl.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Starts a job for `mode`, or when one runs and a page waits, joins it: the job goes on at
+    /// full speed and the page shows where it is. Without a source, a page waiting hears the
+    /// browser isn't available, and nothing else starts.
+    pub(crate) fn start(self: &Arc<Self>, mode: Mode, shared: &Arc<Mutex<SharedEngine>>, waker: Option<Waker>) {
         if !source::configured() {
             if mode == Mode::Urgent {
-                set(&shared, waker.as_ref(), EngineStatus::Failed(Fault::NotPublished.into()));
+                set(shared, waker.as_ref(), EngineStatus::Failed(Fault::NotPublished.into()));
             }
             return;
         }
         let Some(root) = installer::try_engines_root() else {
             if mode == Mode::Urgent {
-                set(&shared, waker.as_ref(), EngineStatus::Failed(Fault::Dirs(installer::NO_DIRS).into()));
+                set(shared, waker.as_ref(), EngineStatus::Failed(Fault::Dirs(installer::NO_DIRS).into()));
             }
             return;
         };
-        let effect = self.event(Event::Start(mode));
-        if effect == Some(Effect::Spawn(mode)) {
-            let job = Job { ctl: self.clone(), shared, waker };
-            if std::thread::Builder::new().name("opencode-browser-install".into()).spawn(move || job.run(&root)).is_err() {
-                self.event(Event::Finished);
+        let mut ctl = self.lock();
+        ctl.hosts.retain(|(host, _)| host.strong_count() > 0);
+        if !ctl.hosts.iter().any(|(host, _)| std::ptr::eq(host.as_ptr(), Arc::as_ptr(shared))) {
+            ctl.hosts.push((Arc::downgrade(shared), waker.clone()));
+        }
+        ctl.launched |= mode == Mode::Launch;
+        let (next, effect) = step(ctl.run, Event::Start(mode));
+        ctl.run = next;
+        let mut wake = None;
+        if mode == Mode::Urgent {
+            if !ctl.watchers.iter().any(|w| Arc::ptr_eq(&w.shared, shared)) {
+                ctl.watchers.push(Watcher { shared: shared.clone(), waker: waker.clone() });
+            }
+            // The download it joins shows at once, where it is.
+            if effect == Some(Effect::Nudge) && matches!(ctl.shown, EngineStatus::Downloading { .. } | EngineStatus::Verifying) {
+                wake = tell(shared, waker.as_ref(), EngineEvent::InstallStatus(ctl.shown.clone()));
             }
         }
-    }
-
-    /// Makes a running job go on at full speed: someone waits for it now.
-    pub(crate) fn hurry(&self) {
-        self.event(Event::Hurry);
-    }
-
-
-    fn event(&self, event: Event) -> Option<Effect> {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        let (next, effect) = step(*state, event);
-        *state = next;
-        if effect == Some(Effect::Nudge) {
-            self.nudge.notify_all();
+        drop(ctl);
+        match effect {
+            Some(Effect::Spawn(_)) => {
+                let job = Job { ctl: self.clone() };
+                if std::thread::Builder::new().name("opencode-browser-install".into()).spawn(move || job.run(&root)).is_err() {
+                    self.end(EngineStatus::Failed(Fault::Launch("no thread to download it on".to_owned()).into()));
+                }
+            }
+            Some(Effect::Nudge) => self.nudge.notify_all(),
+            None => {}
         }
-        effect
+        if let Some(wake) = wake {
+            wake();
+        }
     }
 
-    fn state(&self) -> State {
-        *self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    /// The network changed: a job that waits for it tries again now.
+    pub(crate) fn network_changed(&self) {
+        let mut ctl = self.lock();
+        if ctl.run == State::Idle {
+            return;
+        }
+        ctl.kicks = ctl.kicks.wrapping_add(1);
+        drop(ctl);
+        self.nudge.notify_all();
     }
 
-    /// Waits `for_`, or until the job hurries or stops.
-    fn wait(&self, for_: Duration) {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        self.nudge.wait_timeout_while(state, for_, |s| matches!(s, State::Running(Mode::Update))).ok();
+    fn mode(&self) -> Option<Mode> {
+        match self.lock().run {
+            State::Running(mode) => Some(mode),
+            State::Idle => None,
+        }
+    }
+
+    /// Whether a source that publishes nothing is watched (a launch asked this run).
+    fn watches_source(&self) -> bool {
+        self.lock().launched
+    }
+
+    /// Where the job is now: the pages that wait hear it, and a quiet job keeps it for a page
+    /// that joins.
+    fn report(&self, next: EngineStatus) {
+        let mut ctl = self.lock();
+        if ctl.run != State::Running(Mode::Urgent) {
+            ctl.shown = next;
+            return;
+        }
+        let wakes: Vec<Waker> = ctl.watchers.iter().filter_map(|w| tell(&w.shared, w.waker.as_ref(), EngineEvent::InstallStatus(next.clone()))).collect();
+        ctl.shown = next;
+        drop(ctl);
+        wake_all(wakes);
+    }
+
+    /// Where a quiet job is (paused, waiting for its next try): never shown as it is, since a
+    /// page that joins makes the job go on at once.
+    fn note(&self, next: EngineStatus) {
+        self.lock().shown = next;
+    }
+
+    /// Waits `for_`, or until a page waits or the job stops; with `network`, also until the
+    /// network changes.
+    fn wait(&self, for_: Duration, network: bool) {
+        let ctl = self.lock();
+        let kicks = ctl.kicks;
+        self.nudge
+            .wait_timeout_while(ctl, for_, |c| matches!(c.run, State::Running(Mode::Launch | Mode::Update)) && !(network && c.kicks != kicks))
+            .ok();
+    }
+
+    /// The source lists no engine this build accepts: the pages that wait hear it and stop
+    /// waiting, every window's host hears it (the browser hides), and the job stays to read the
+    /// source again.
+    fn unlisted(&self) {
+        let mut ctl = self.lock();
+        let failed = EngineStatus::Failed(Fault::NotPublished.into());
+        let mut wakes = ctl.release_watchers(&failed);
+        wakes.extend(ctl.each_host(|| EngineEvent::ProbeNotPublished));
+        ctl.shown = failed;
+        ctl.run = step(ctl.run, Event::Unlisted).0;
+        drop(ctl);
+        wake_all(wakes);
+    }
+
+    /// The source lists an engine again.
+    fn listed(&self) {
+        let wakes = self.lock().each_host(|| EngineEvent::ProbePublished);
+        wake_all(wakes);
+    }
+
+    /// The job ends with `last` (installed, or why a page's download failed): every page that
+    /// waits hears it, one that joined since the job last reported too.
+    fn end(&self, last: EngineStatus) {
+        let mut ctl = self.lock();
+        let mut wakes = ctl.release_watchers(&last);
+        if last == EngineStatus::Installed {
+            wakes.extend(ctl.each_host(|| EngineEvent::Fetched));
+        }
+        ctl.shown = last;
+        ctl.run = step(ctl.run, Event::Finished).0;
+        drop(ctl);
+        wake_all(wakes);
+    }
+
+    /// A quiet job stops for this run. False when a page joined meanwhile: the job goes on for it.
+    fn give_up(&self) -> bool {
+        let mut ctl = self.lock();
+        if !ctl.watchers.is_empty() {
+            return false;
+        }
+        ctl.run = step(ctl.run, Event::Finished).0;
+        true
     }
 }
 
 struct Job {
     ctl: Arc<Prefetch>,
-    shared: Arc<Mutex<SharedEngine>>,
-    waker: Option<Waker>,
 }
 
 impl Job {
     fn run(self, root: &Path) {
         let mut attempts = 0;
-        // The index check and the OS's pause answer come at normal priority (they're small, and a
-        // busy machine would starve them for minutes); the download's first read sets its pace.
-        let mut low = false;
+        // A launch's fetch runs at background priority throughout. An update's index check and
+        // pause answer come at normal priority (they're small, and a busy machine would starve
+        // them for minutes); its download sets its pace.
+        let low = Cell::new(false);
+        let mut unlisted = false;
         loop {
-            let mode = match self.ctl.state() {
-                State::Running(mode) => mode,
-                State::Idle => {
-                    self.report(EngineStatus::NotInstalled);
-                    break;
-                }
-            };
+            let Some(mode) = self.ctl.mode() else { break };
+            self.pace_thread(mode, false, &low);
+            let installed = installer::installed();
+            // A launch that finds its engine asks the source nothing: a newer release of the same
+            // revision is the update's to find, once a page runs.
+            if mode == Mode::Launch && installed.is_some() {
+                rune::marks::mark("browser.engine.probe.installed");
+                self.ctl.end(EngineStatus::Installed);
+                break;
+            }
             if mode != Mode::Urgent
-                && let Some(reason) = background::pause_reason()
+                && let Some(reason) = background::pause_reason(mode == Mode::Update)
             {
                 log(&format!("browser engine: background download waits ({})", reason.describe()));
-                self.report(EngineStatus::Paused(reason));
-                self.ctl.wait(PAUSED_RECHECK);
+                self.ctl.note(EngineStatus::Paused(reason));
+                self.ctl.wait(PAUSED_RECHECK, true);
                 continue;
             }
-            let installed = installer::installed();
+            rune::marks::mark("browser.engine.probe.index");
             let release = match source::latest() {
                 // A page waits and the source is out of reach, but an engine is here: use it.
                 Err(_) if installed.is_some() && mode != Mode::Update => {
-                    self.report(EngineStatus::Installed);
+                    self.ctl.end(EngineStatus::Installed);
                     break;
+                }
+                // Nothing published for this build (a stale copy, or a revision it rejects): the
+                // index is read again every hour, so a running app finds an engine published
+                // meanwhile.
+                Err(Fault::NotPublished) if self.ctl.watches_source() => {
+                    rune::marks::mark("browser.engine.probe.not_published");
+                    if !std::mem::replace(&mut unlisted, true) {
+                        log(&format!("browser engine: {}", Fault::NotPublished));
+                    }
+                    self.ctl.unlisted();
+                    self.ctl.wait(PROBE_RECHECK, false);
+                    continue;
                 }
                 Err(err) => {
                     if self.failed(err, &mut attempts) {
@@ -184,24 +377,31 @@ impl Job {
                 Ok(release) => release,
             };
             rune::marks::mark("browser.engine.index");
+            if std::mem::take(&mut unlisted) {
+                self.ctl.listed();
+            }
             // Up to date, or another app sharing the engine folder installed it meanwhile.
             if installed.as_ref().is_some_and(|i| i.version.is_none_or(|v| v >= release.version)) {
                 if mode == Mode::Update {
                     log(&format!("browser engine: {} is current", release.version));
                 }
-                self.report(EngineStatus::Installed);
+                self.ctl.end(EngineStatus::Installed);
                 break;
             }
-            if mode == Mode::Update {
-                log(&format!("browser engine: downloading {} for the next start", release.version));
+            match mode {
+                Mode::Update => log(&format!("browser engine: downloading {} for the next start", release.version)),
+                Mode::Launch => log(&format!("browser engine: downloading {} in the background", release.version)),
+                Mode::Urgent => {}
             }
+            let partial = root.join(format!(".{}-{}.part", release.version, &release.sha256[..16]));
             let started = Instant::now();
-            let err = match self.install(root, &release, &mut low) {
+            let err = match self.install(root, &release, &partial, &low) {
                 Ok(()) => {
                     rune::marks::mark("browser.engine.installed");
                     log(&format!("browser engine {} installed in {} µs", release.version, started.elapsed().as_micros()));
                     installer::remove_old(root, release.version);
-                    self.report(EngineStatus::Installed);
+                    installer::sweep_partials(root);
+                    self.ctl.end(EngineStatus::Installed);
                     if mode == Mode::Update
                         && let Some(engine) = installer::installed()
                     {
@@ -210,54 +410,100 @@ impl Job {
                     break;
                 }
                 Err(Cut::Stopped) => continue,
+                // Another app downloads it into the same file: never twice.
+                Err(Cut::Failed(Fault::Busy)) if self.follow(&partial, &release) => continue,
                 Err(Cut::Failed(err) | Cut::Rejected(err)) => err,
             };
+            // Another app finished the same install while this try ran (and took the partial
+            // file with it): the engine is there, whatever this try tripped on.
+            if installer::installed().is_some_and(|i| i.version.is_some_and(|v| v >= release.version)) {
+                self.ctl.end(EngineStatus::Installed);
+                break;
+            }
             if self.failed(err, &mut attempts) {
                 break;
             }
         }
-        self.ctl.event(Event::Finished);
-        self.wake();
     }
 
-    /// A try failed: true when the job gives up (a page waits, or it has tried enough), else it
-    /// waits out its backoff.
+    /// A try failed: true when the job ended (a page waits and hears why, or a quiet job has
+    /// nothing more to try this run), else it waited out its backoff.
     fn failed(&self, err: Fault, attempts: &mut u32) -> bool {
         log(&format!("browser engine: {err}"));
         *attempts += 1;
-        if self.urgent() || *attempts >= MAX_ATTEMPTS {
-            self.report(EngineStatus::Failed(err.into()));
+        let Some(mode) = self.ctl.mode() else { return true };
+        if mode == Mode::Urgent {
+            self.ctl.end(EngineStatus::Failed(err.into()));
             return true;
         }
-        let backoff = Duration::from_secs(15 << (*attempts).min(6)).min(Duration::from_secs(15 * 60));
-        self.report(EngineStatus::Failed(Failure::retrying(err, Instant::now() + backoff)));
-        self.ctl.wait(backoff);
+        let Some(backoff) = retry_after(&err, *attempts, mode) else {
+            log("browser engine: the background download stops for this run");
+            return self.ctl.give_up();
+        };
+        let network = network_fault(&err);
+        self.ctl.note(EngineStatus::Failed(Failure::retrying(err, Instant::now() + backoff)));
+        self.ctl.wait(backoff, network);
         false
+    }
+
+    /// Another app holds the partial file: a second copy of this app, or another build beside it,
+    /// downloads the same archive. This job doesn't download it again. A page that waits shows
+    /// that download's progress, read from the file's size, until the other app lets go of the
+    /// file: it finished (the next try finds the engine, or the whole archive to check), or it
+    /// quit (the next try goes on from what it left).
+    ///
+    /// False when the file hasn't grown for `FOLLOW_STALLED` and is still held (a holder that
+    /// hangs, or a disk whose files can't be locked at all): the try failed as `Fault::Busy`.
+    fn follow(&self, partial: &Path, release: &Release) -> bool {
+        log("browser engine: another app is downloading it; following that download");
+        let mut grew = (Instant::now(), 0);
+        loop {
+            let Some(mode) = self.ctl.mode() else { return true };
+            let have = std::fs::metadata(partial).map_or(0, |m| m.len()).min(release.size);
+            self.ctl.report(EngineStatus::Downloading { downloaded_bytes: have, total_bytes: Some(release.size) });
+            if unlocked(partial) {
+                return true;
+            }
+            if have != grew.1 {
+                grew = (Instant::now(), have);
+            } else if grew.0.elapsed() >= FOLLOW_STALLED {
+                return false;
+            }
+            if mode == Mode::Urgent {
+                std::thread::sleep(FOLLOW_EVERY);
+            } else {
+                self.ctl.wait(BUSY_RECHECK, false);
+            }
+        }
     }
 
     /// One try: the rest of the archive, unpacked as it arrives into a staging folder, checked,
     /// and moved into place as `<root>\<version>`.
-    fn install(&self, root: &Path, release: &Release, low: &mut bool) -> Result<(), Cut> {
+    fn install(&self, root: &Path, release: &Release, partial: &Path, low: &Cell<bool>) -> Result<(), Cut> {
         std::fs::create_dir_all(root).map_err(|e| Cut::Failed(err_write(&e)))?;
         installer::sweep_unpacking(root);
-        let partial = root.join(format!(".{}-{}.part", release.version, &release.sha256[..16]));
+        let dest = root.join(release.version.to_string());
+        // Another app installed it since this job looked.
+        if installer::is_complete(&dest) && source::accepts_install(&dest) {
+            return Ok(());
+        }
         // Before a byte comes: the rest of the archive and what it unpacks to (under three times
-        // its size) must fit.
-        let have = std::fs::metadata(&partial).map_or(0, |m| m.len()).min(release.size);
+        // its size) must fit, and a launch's fetch leaves room beside it.
+        let have = std::fs::metadata(partial).map_or(0, |m| m.len()).min(release.size);
         let need = (release.size - have).saturating_add(release.size.saturating_mul(3));
-        if let Some(free) = background::free_space(root).filter(|&free| free < need) {
+        let headroom = if self.ctl.mode() == Some(Mode::Launch) { LAUNCH_HEADROOM } else { 0 };
+        if let Some(free) = background::free_space(root).filter(|&free| free < need.saturating_add(headroom)) {
             return Err(Cut::Failed(Fault::NoSpace { need, free }));
         }
         let staging = root.join(format!(".{}.staging-{}-{}", release.version, std::process::id(), STAGING_SEQ.fetch_add(1, Ordering::Relaxed)));
         std::fs::remove_dir_all(&staging).ok();
         std::fs::create_dir_all(&staging).map_err(|e| Cut::Failed(err_write(&e)))?;
-        let result = self.fetch_into(release, &partial, &staging, low);
+        let result = self.fetch_into(release, partial, &staging, low);
         if matches!(result, Err(Cut::Rejected(_))) {
             // Bytes that don't check out never resume: the next try starts over.
-            std::fs::remove_file(&partial).ok();
+            std::fs::remove_file(partial).ok();
         }
         let done = result.and_then(|()| {
-            let dest = root.join(release.version.to_string());
             // A half-installed folder (missing executable/DLL or unaccepted trust marker), or a
             // stray file at `dest`, makes way for this verified install — never following links/junctions.
             if std::fs::symlink_metadata(&dest).is_ok()
@@ -276,49 +522,38 @@ impl Job {
             }
         });
         if done.is_ok() {
-            std::fs::remove_file(&partial).ok();
+            std::fs::remove_file(partial).ok();
         }
         std::fs::remove_dir_all(&staging).ok();
         done
     }
 
-    fn fetch_into(&self, release: &Release, partial: &Path, staging: &Path, low: &mut bool) -> Result<(), Cut> {
-        let update = self.ctl.state() == State::Running(Mode::Update);
-        let mut last_wake = Instant::now();
+    fn fetch_into(&self, release: &Release, partial: &Path, staging: &Path, low: &Cell<bool>) -> Result<(), Cut> {
         let mut progress = |downloaded_bytes: u64, total: u64| {
-            if update {
-                return;
-            }
-            self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::InstallStatus(
-                EngineStatus::Downloading { downloaded_bytes, total_bytes: Some(total) },
-            ));
-            if self.urgent() || last_wake.elapsed() >= QUIET_WAKE || downloaded_bytes == total {
-                last_wake = Instant::now();
-                self.wake();
-            }
+            self.ctl.report(EngineStatus::Downloading { downloaded_bytes, total_bytes: Some(total) });
         };
         let mut checked = Instant::now();
         let mut pace = || {
-            let urgent = match self.ctl.state() {
-                State::Idle => return Pace::Stop,
-                State::Running(mode) => mode == Mode::Urgent,
-            };
-            if *low == urgent {
-                *low = !urgent;
-                background::set_background_priority(*low);
-            }
-            if urgent {
+            let Some(mode) = self.ctl.mode() else { return Pace::Stop };
+            self.pace_thread(mode, true, low);
+            if mode == Mode::Urgent {
                 return Pace::Full;
             }
             if checked.elapsed() >= PAUSE_CHECK {
                 checked = Instant::now();
-                if background::pause_reason().is_some() {
+                if background::pause_reason(mode == Mode::Update).is_some() {
                     return Pace::Stop;
                 }
             }
-            Pace::Limit(BACKGROUND_RATE)
+            if mode == Mode::Update { Pace::Limit(BACKGROUND_RATE) } else { Pace::Full }
         };
         let verifier = Verifier::new(&release.trust);
+        // Each unpacked file: a page that began to wait meanwhile gets a normal-priority thread
+        // for the rest.
+        let mut unpacked = |file: &Path| {
+            self.keep_pace(low);
+            verifier.file(file);
+        };
         let tar_zst = release.url.split('?').next().is_some_and(|u| u.ends_with(".tar.zst"));
         #[cfg(not(target_os = "macos"))]
         if !tar_zst {
@@ -330,7 +565,7 @@ impl Job {
         // every try.
         let stream_unpack = tar_zst && body.resumed_at() == 0;
         let streamed = if stream_unpack {
-            unpack::tar_zst(&mut body, staging, &mut |file| verifier.file(file)).map_err(unpack::UnpackError::cut)
+            unpack::tar_zst(&mut body, staging, &mut unpacked).map_err(unpack::UnpackError::cut)
         } else {
             std::io::copy(&mut body, &mut std::io::sink()).map(|_| ()).map_err(|_| Cut::Failed(Fault::Interrupted { have: 0, total: release.size }))
         };
@@ -340,20 +575,20 @@ impl Job {
         let sha256 = body.finish()?;
 
         rune::marks::mark("browser.engine.downloaded");
-        if !update {
-            self.report(EngineStatus::Verifying);
-        }
+        self.ctl.report(EngineStatus::Verifying);
         if sha256 != release.sha256 {
             return Err(Cut::Rejected(Fault::Corrupt));
         }
+        self.keep_pace(low);
         if tar_zst && !stream_unpack {
             let mut archive = std::io::BufReader::new(std::fs::File::open(partial).map_err(|e| Cut::Failed(err_write(&e)))?);
-            unpack::tar_zst(&mut archive, staging, &mut |file| verifier.file(file)).map_err(unpack::UnpackError::cut)?;
+            unpack::tar_zst(&mut archive, staging, &mut unpacked).map_err(unpack::UnpackError::cut)?;
         }
         #[cfg(target_os = "macos")]
         if !tar_zst {
             unzip(partial, staging)?;
         }
+        self.keep_pace(low);
         verifier.finish(&staging.join(ENGINE_BUNDLE_NAME)).map_err(Cut::Rejected)?;
         rune::marks::mark("browser.engine.verified");
         if !installer::bin_in(staging).is_file() {
@@ -383,21 +618,56 @@ impl Job {
         Ok(())
     }
 
-    fn urgent(&self) -> bool {
-        self.ctl.state() == State::Running(Mode::Urgent)
-    }
-
-    /// Sets the engine's status, unless this job is an update (an engine runs).
-    fn report(&self, next: EngineStatus) {
-        if self.ctl.state() != State::Running(Mode::Update) {
-            set(&self.shared, self.waker.as_ref(), next);
+    /// The thread's priority for `mode`: normal when a page waits, background for a launch's
+    /// fetch throughout, and for an update while it downloads and unpacks (`working`).
+    fn pace_thread(&self, mode: Mode, working: bool, low: &Cell<bool>) {
+        let want = match mode {
+            Mode::Urgent => false,
+            Mode::Launch => true,
+            Mode::Update => working,
+        };
+        if low.replace(want) != want {
+            background::set_background_priority(want);
         }
     }
 
-    fn wake(&self) {
-        if let Some(w) = &self.waker {
-            w();
+    /// `pace_thread` for the job's mode now, while it downloads, unpacks or checks.
+    fn keep_pace(&self, low: &Cell<bool>) {
+        if let Some(mode) = self.ctl.mode() {
+            self.pace_thread(mode, true, low);
         }
+    }
+}
+
+/// How long a quiet job waits before its next try after `fault`; `None` when it stops for this
+/// run (a page that opens tries again itself, and shows why if it fails too).
+fn retry_after(fault: &Fault, attempts: u32, mode: Mode) -> Option<Duration> {
+    let backoff = Duration::from_secs(15 << attempts.min(6)).min(Duration::from_secs(15 * 60));
+    let more = attempts < MAX_ATTEMPTS;
+    match fault {
+        // Out of reach, or cut short: another try costs nothing (a cut download resumes), so a
+        // launch's fetch waits for the network as long as it takes. A development build's
+        // loopback stand-in that isn't running is left alone after a few tries.
+        Fault::Unreachable { .. } | Fault::Interrupted { .. } => (more || (mode == Mode::Launch && !source::local())).then_some(backoff),
+        Fault::Server { .. } | Fault::Blocked { .. } | Fault::Unexpected { .. } => more.then_some(backoff),
+        // Bytes that didn't check out are gone: one more download, then it's a page's to try.
+        Fault::Corrupt | Fault::Untrusted(_) => (attempts < 2).then_some(backoff),
+        // No room, no memory, a folder that can't be written, nothing published: another try
+        // changes nothing.
+        _ => None,
+    }
+}
+
+/// Whether `fault` is the network's, so a change of network is worth a try at once.
+fn network_fault(fault: &Fault) -> bool {
+    matches!(fault, Fault::Unreachable { .. } | Fault::Interrupted { .. } | Fault::Server { .. } | Fault::Blocked { .. } | Fault::Unexpected { .. })
+}
+
+/// Whether no app holds the partial file's lock (or the file is gone).
+fn unlocked(partial: &Path) -> bool {
+    match std::fs::OpenOptions::new().read(true).write(true).open(partial) {
+        Ok(file) => file.try_lock().is_ok(),
+        Err(err) => err.kind() == std::io::ErrorKind::NotFound,
     }
 }
 
@@ -408,11 +678,20 @@ fn unzip(archive: &Path, staging: &Path) -> Result<(), Cut> {
     if ok { Ok(()) } else { Err(Cut::Rejected(Fault::Corrupt)) }
 }
 
+/// Steps `shared` with `event`; its window's waker when the step asks for a wake.
+fn tell(shared: &Mutex<SharedEngine>, waker: Option<&Waker>, event: EngineEvent) -> Option<Waker> {
+    matches!(shared.lock().unwrap_or_else(PoisonError::into_inner).step(event), EngineEffect::Wake).then(|| waker.cloned()).flatten()
+}
+
+fn wake_all(wakes: Vec<Waker>) {
+    for wake in wakes {
+        wake();
+    }
+}
+
 fn set(shared: &Mutex<SharedEngine>, waker: Option<&Waker>, next: EngineStatus) {
-    if matches!(shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::InstallStatus(next)), EngineEffect::Wake)
-        && let Some(w) = waker
-    {
-        w();
+    if let Some(wake) = tell(shared, waker, EngineEvent::InstallStatus(next)) {
+        wake();
     }
 }
 

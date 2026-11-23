@@ -193,16 +193,18 @@ impl std::fmt::Display for Fault {
 ///                                     (Retry starts it again; a late answer takes it back)
 /// ```
 ///
-/// `Downloading` is the download a page waits for (full speed, one try). An update downloads
-/// beside the running engine, once a run after its first page opens, and never shows here. Nothing
-/// of this runs before a page opens: no request, timer or thread.
+/// `Downloading` is the download a page waits for (full speed, one try). A launch that finds no
+/// engine this build accepts downloads it quietly once the app is up (`BrowserHost::fetch_in_background`),
+/// and an update downloads beside the running engine, once a run after its first page opens:
+/// neither shows here, until a page opens and joins it. Nothing of this runs before the app has
+/// drawn and takes input: no request, timer or thread.
 #[derive(Clone, Debug, PartialEq)]
 pub enum EngineStatus {
     /// This build has no engine for its platform (it is built without the `engine` feature, or
     /// for a platform without a Unix-socket engine), so the pane never downloads or starts one.
     Unsupported,
-    /// Not looked for yet: a launch touches nothing of the engine (its files, its socket, its
-    /// source) until a page opens (or BrowserHost::prepare starts it), which then finds out.
+    /// Not looked for by this host yet: a page that opens (or BrowserHost::prepare) finds out.
+    /// The launch's quiet fetch leaves it so: what it installs is found when a page looks.
     Unchecked,
 
     NotInstalled,
@@ -263,6 +265,8 @@ pub enum PauseReason {
     Metered,
     /// The computer runs on its battery.
     OnBattery,
+    /// The computer saves energy (Windows' battery saver, macOS's Low Power Mode).
+    BatterySaver,
 }
 
 impl PauseReason {
@@ -270,6 +274,7 @@ impl PauseReason {
         match self {
             Self::Metered => "Paused on a metered connection",
             Self::OnBattery => "Paused on battery power",
+            Self::BatterySaver => "Paused while the computer saves energy",
         }
     }
 }
@@ -499,6 +504,30 @@ pub(crate) fn sweep_unpacking(root: &Path) {
             if !is_reparse_or_symlink(&path) {
                 std::fs::remove_dir_all(path).ok();
             }
+        }
+    }
+}
+
+/// Removes the partial downloads nobody holds: an earlier version's, left when the app was
+/// updated before its engine arrived, each up to an archive's size. The one a download writes is
+/// locked (`download::Body`), also by another app or an older build beside this one, and stays.
+#[cfg(feature = "engine")]
+pub(crate) fn sweep_partials(root: &Path) {
+    let Ok(entries) = std::fs::read_dir(root) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        // `.<version>-<16 hex of the archive's hash>.part`
+        let ours = name.to_str().and_then(|name| name.strip_prefix('.')?.strip_suffix(".part")?.rsplit_once('-')).is_some_and(|(version, hash)| {
+            Version::parse(version).is_some() && hash.len() == 16 && hash.bytes().all(|b| b.is_ascii_hexdigit())
+        });
+        let path = entry.path();
+        if !ours || is_reparse_or_symlink(&path) {
+            continue;
+        }
+        let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&path) else { continue };
+        // Removed while the lock is held, so no download starts on it in between.
+        if file.try_lock().is_ok() {
+            std::fs::remove_file(&path).ok();
         }
     }
 }
