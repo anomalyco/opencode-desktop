@@ -250,6 +250,9 @@ mod native {
             self.workspace_panes.browser.overlay.set_waker(waker.clone());
             self.workspace_panes.browser.host.set_waker(waker);
             self.workspace_panes.browser.host.set_shell_shortcut(claims_app_shortcut);
+            // Closing the last tab leaves the engine up (it quits on its own after a minute with no tabs), so a page opened
+            // again soon skips the engine's start: seconds on Windows.
+            self.workspace_panes.browser.host.set_keep_engine(true);
             // The levels live in the app's state (`plugin.browser`, Desktop's browser plugin namespace),
             // in memory once the storage is up; a change goes behind like any other.
             if self.persists() {
