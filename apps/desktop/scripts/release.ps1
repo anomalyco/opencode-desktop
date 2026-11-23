@@ -71,7 +71,13 @@ if (Test-Path $profdata) {
 }
 try {
     if (Test-Path $profdata) {
-        [Environment]::SetEnvironmentVariable($name, (@($before, "-Cprofile-use=$profdata", '-Cllvm-args=-no-pgo-warn-mismatch') | Where-Object { $_ }) -join ' ')
+        $flags = @("-Cprofile-use=$profdata", '-Cllvm-args=-no-pgo-warn-mismatch')
+        # TRIAL (branch pgo/try-lld-order, never merge): the functions a launch runs first in the file. MSVC's
+        # link.exe orders only external functions (/ORDER leaves Rust's internal ones where they were), so the
+        # toolchain's own lld-link links the exe and takes the order file made from the launch counts.
+        $order = Join-Path $root "apps/desktop/pgo/$triple.order"
+        if (Test-Path $order) { $flags += @('-Clinker=rust-lld', '-Clinker-flavor=lld-link', "-Clink-arg=/order:@$order", '-Clink-arg=/ignore:4037') }
+        [Environment]::SetEnvironmentVariable($name, (@($before) + $flags | Where-Object { $_ }) -join ' ')
     }
     $parts = $Cargo -split ' '
     $targetArgs = @('--target', $triple)
