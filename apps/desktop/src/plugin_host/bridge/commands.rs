@@ -332,7 +332,9 @@ pub fn hover_menu_item(app: &mut App, key: &str, target: &str, tx: &mut Tx) {
 
 /// Opens `href` with the first Luau link handler whose `match` takes it, highest priority first.
 pub fn open_link(app: &mut App, href: &str, tx: &mut Tx) -> bool {
-    // Every handler's `match` is asked: the dormant ones start first.
+    // Every handler's `match` is asked: the dormant ones start first, and the ones a launch
+    // without their record still has queued behind its first frame.
+    crate::plugin_host::runtime::boot::adopt_later_kinds(app, &["LinkHandler"]);
     dormant::wake_owners(app, |c| !c.link_handlers.is_empty());
     let mut handlers: Vec<(usize, i64, Function, Function)> = app
         .plugins

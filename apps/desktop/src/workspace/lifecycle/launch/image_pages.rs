@@ -17,6 +17,14 @@
 //! exe in memory (most launches) nothing is asked for: the call would take the locks the
 //! launch's own page faults need.
 //!
+//! Then, with a list, the thread reads one byte of each listed page. A page in memory is still
+//! not in the process: the first thread to touch it takes a soft fault that maps it in, and a
+//! warm launch's main thread spent 8.2 of its 35.7 ms to the first frame inside those faults
+//! (strobe stacks of six launches, `KiPageFault`; 3.5 ms of it image pages). Taken on this
+//! thread, the launch's own threads find the page mapped (on a machine with four processors or
+//! more: with fewer, the reads would run in the launch's own time). `OPENCODE_RUNE_IMAGE_PAGES_TOUCH=off`
+//! leaves the pages untouched, `=2` reads them on two threads (a bench's arms).
+//!
 //! Once the launch has settled the same thread reads which of the exe's pages the process
 //! holds (`QueryWorkingSetEx`) and, when the list lacks enough of them, writes the two joined.
 //! The list names the exe by its link time stamp and image size, so a new build never uses an
@@ -88,7 +96,12 @@ pub fn ask() {
         Some("listed") => Mode::Listed,
         _ => Mode::Auto,
     };
-    std::thread::Builder::new().name("image-pages".into()).spawn(move || run(mode)).ok();
+    let threads = match std::env::var_os("OPENCODE_RUNE_IMAGE_PAGES_TOUCH").as_deref().and_then(|v| v.to_str()) {
+        Some("off") => 0,
+        Some("2") => 2,
+        _ => 1,
+    };
+    std::thread::Builder::new().name("image-pages".into()).spawn(move || run(mode, threads)).ok();
 }
 
 /// The update helper: asks for the whole code and constants of its own image, which is the new
@@ -109,7 +122,7 @@ pub fn warm() {
         .ok();
 }
 
-fn run(mode: Mode) {
+fn run(mode: Mode, threads: usize) {
     let Some(image) = image() else { return };
     let path = crate::dirs::cache().map(|dir| dir.join("launch-pages.bin"));
     let listed = path.as_deref().and_then(|p| std::fs::read(p).ok()).and_then(|bytes| decode(&bytes, &image));
@@ -125,6 +138,12 @@ fn run(mode: Mode) {
         } else {
             rune::marks::mark("image.pages.present");
         }
+    }
+    // With fewer than four processors the reads would take the launch's own time.
+    let room = std::thread::available_parallelism().is_ok_and(|n| n.get() >= 4);
+    if let (Some(runs), true) = (&listed, threads > 0 && room && mode != Mode::All) {
+        touch(&image, runs, threads);
+        rune::marks::mark("image.pages.touched");
     }
     // The rest waits for the launch and must not compete with it.
     // SAFETY: the pseudo-handle of this thread.
@@ -231,6 +250,37 @@ fn prefetch(image: &Image, runs: &[(u32, u32)]) {
     // and the array outlives the call. A failure (an OS without the call's support for images)
     // leaves the launch as it was.
     unsafe { PrefetchVirtualMemory(GetCurrentProcess(), ranges.len(), ranges.as_mut_ptr(), 0) };
+}
+
+/// Reads one byte of each of `runs`' pages that lies in the code or constants, on this thread and
+/// `threads - 1` more. A page in memory still costs the thread that first touches it a soft
+/// fault, which maps it into the process for every thread: taken here, the launch's own threads
+/// find the page mapped.
+fn touch(image: &Image, runs: &[(u32, u32)], threads: usize) {
+    let pages: Vec<u32> = runs
+        .iter()
+        .flat_map(|&(first, pages)| first..first + pages)
+        .filter(|&page| image.sections.iter().any(|&(first, pages)| page >= first && page - first < pages))
+        .collect();
+    let base = image.base;
+    let read = move |pages: &[u32]| {
+        for &page in pages {
+            // SAFETY: a page of this process's own code or constants (inside one of the image's
+            // `.text` / `.rdata` sections, checked above), which stay mapped and readable for
+            // the life of the process.
+            std::hint::black_box(unsafe { std::ptr::read_volatile((base + page as usize * PAGE) as *const u8) });
+        }
+    };
+    std::thread::scope(|scope| {
+        let mut parts = pages.chunks(pages.len().div_ceil(threads).max(1));
+        let first = parts.next();
+        for part in parts {
+            scope.spawn(move || read(part));
+        }
+        if let Some(part) = first {
+            read(part);
+        }
+    });
 }
 
 /// The pages of the image's code and constants this process holds now.
