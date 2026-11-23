@@ -2,7 +2,8 @@
 //! `widgets-gpu.md`) as their driver does, on a real GPU: each fixture's program as a live run with
 //! `gpu: { available, format: "rgba8unorm" }`, its canvas sizes first, then while it asks for frames
 //! (at most 10) each frame's inputs, the frame, and the inputs after it; stopped when it settles
-//! without asking. Its batches (ops, bytes, whether they rode a frame request), its GPU errors (the
+//! without asking. Its batches (ops, bytes, whether they rode a frame request; not compared for a
+//! fixture whose batches are too big to record, `"batches": "from-source"`), its GPU errors (the
 //! host checks' exact messages and the canvases they stopped) and how it ended must be the
 //! fixture's. Replay runs on the device too, so valid fixtures must replay without an error.
 //! The repo has no automated tests (AGENTS.md), so this is a program to run by hand:
@@ -149,7 +150,11 @@ fn main() {
         let started = Instant::now();
         let r = run(&f, &batches);
         let mut why = Vec::new();
-        if let Some(want) = f.get("batches").and_then(Value::as_array) {
+        let recorded = f["batches"].as_array();
+        if !(recorded.is_some() || f["batches"].is_null() || f["batches"] == "from-source") {
+            why.push(format!("batches {}, want a list or \"from-source\"", f["batches"]));
+        }
+        if let Some(want) = recorded {
             if r.batches.len() != want.len() {
                 why.push(format!("{} batches, want {}", r.batches.len(), want.len()));
             }
@@ -167,7 +172,8 @@ fn main() {
             why.push(format!("ended {}, want {}", r.end, f["end"]));
         }
         if why.is_empty() {
-            println!("ok   {name} ({} batches, {} errors, {}; {} ms)", r.batches.len(), r.errors.len(), r.end, started.elapsed().as_millis());
+            let from = if f["batches"] == "from-source" { ", from source" } else { "" };
+            println!("ok   {name} ({} batches{from}, {} errors, {}; {} ms)", r.batches.len(), r.errors.len(), r.end, started.elapsed().as_millis());
         } else {
             bad += 1;
             println!("FAIL {name}\n    {}", why.join("\n    "));
