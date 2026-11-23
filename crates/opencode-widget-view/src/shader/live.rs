@@ -79,8 +79,12 @@ fn widget_gpu_format(backend: wgpu::Backend) -> wgpu::TextureFormat {
 #[derive(Clone, Copy)]
 pub struct MetalShare {
     pub stock: fn(usize) -> Option<Device>,
-    pub raw_texture: fn(&wgpu::Texture) -> Option<objc2::rc::Retained<objc2::runtime::ProtocolObject<dyn objc2_metal::MTLTexture>>>,
+    pub raw_texture: fn(&wgpu::Texture) -> Option<RawTexture>,
 }
+
+/// A texture's `MTLTexture`.
+#[cfg(target_os = "macos")]
+pub type RawTexture = objc2::rc::Retained<objc2::runtime::ProtocolObject<dyn objc2_metal::MTLTexture>>;
 
 #[cfg(target_os = "macos")]
 static SHARE: std::sync::OnceLock<MetalShare> = std::sync::OnceLock::new();
@@ -89,7 +93,8 @@ static SHARE: std::sync::OnceLock<MetalShare> = std::sync::OnceLock::new();
 /// their placeholder.
 #[cfg(target_os = "macos")]
 pub fn share_metal(share: MetalShare) {
-    let _ = SHARE.set(share);
+    // Set once, at startup.
+    SHARE.get_or_init(|| share);
 }
 
 impl Live {

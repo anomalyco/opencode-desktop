@@ -85,7 +85,7 @@ mod mac {
 
     /// One frame of the replay: canvas `c` cleared red (even) or blue (odd).
     fn frame(i: u32) -> Vec<Arg> {
-        let color = if i % 2 == 0 { [1, 0, 0, 1] } else { [0, 0, 1, 1] };
+        let color = if i.is_multiple_of(2) { [1, 0, 0, 1] } else { [0, 0, 1, 1] };
         ops(json!([
             ["pass", { "colorAttachments": [{ "view": 2, "resolveTarget": null, "clearValue": color, "loadOp": "clear", "storeOp": "store" }], "depthStencilAttachment": null }],
             ["end"],
