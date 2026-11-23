@@ -22,7 +22,7 @@ pub use boot::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use boot::{
-    apply_app_icon, attach_console, instance_id, print_version_if_asked, product, write_profile,
+    apply_app_icon, attach_console, head_start, instance_id, print_version_if_asked, product, write_profile,
 };
 
 use std::sync::mpsc::{Receiver, TryRecvError};

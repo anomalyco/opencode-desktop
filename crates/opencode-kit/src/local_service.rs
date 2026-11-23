@@ -125,11 +125,9 @@ fn page_password(base: &str) -> Option<String> {
     PAGE_PASSWORDS.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(b, _)| b == base).map(|(_, p)| p.clone())
 }
 
+/// Whether `server`, which accepts connections, answers as OpenCode's server.
 #[cfg(not(target_arch = "wasm32"))]
-fn probe_usable(server: &Server) -> bool {
-    if !server.reachable() {
-        return false;
-    }
+fn answers(server: &Server) -> bool {
     server.get_json("/api/info", None, std::time::Duration::from_millis(500)).is_ok()
 }
 
@@ -145,37 +143,42 @@ fn candidate_for_service(svc: &LocalService, media_refs: bool) -> Server {
     candidate
 }
 
+/// The server and whether it accepts connections (none when it wasn't tried). `registered_up`:
+/// what a caller that has just tried the registered service's address found, so it isn't tried again.
 #[cfg(not(target_arch = "wasm32"))]
-fn discover_with_service(default: &Server, explicit_env_url: bool, svc: Option<LocalService>) -> Server {
+fn discover_with_service(default: &Server, explicit_env_url: bool, svc: Option<LocalService>, registered_up: Option<bool>) -> (Server, Option<bool>) {
     if explicit_env_url {
-        return default.clone();
+        return (default.clone(), None);
     }
     // Official Desktop resolves its own server from `<state>/opencode/service.json`
     // (`packages/desktop/src/main/service/background-service.ts:48-86,130-153`,
     // `packages/client/src/service-probe.ts:39-90`), never preferring an unauthenticated or 401
     // server on `:4096` ahead of a registered service that answers with its credentials.
     let reg = svc.as_ref().map(|s| candidate_for_service(s, default.media_refs));
+    // Each address is tried once. Where nothing listens a try costs its whole 250 ms on Windows
+    // (`Server::reachable`), and each address was tried twice here and once more by the caller:
+    // a launch with no server running learned so after three of them (790 ms).
+    let reg_up = reg.as_ref().is_some_and(|candidate| registered_up.unwrap_or_else(|| candidate.reachable()));
     if let Some(candidate) = &reg
-        && probe_usable(candidate)
+        && reg_up
+        && answers(candidate)
     {
-        return candidate.clone();
+        return (candidate.clone(), Some(true));
     }
     let mut fallback = Server::new(DEFAULT_SERVER);
     if default.media_refs {
         fallback = fallback.with_media_refs();
     }
-    if probe_usable(&fallback) {
-        return fallback;
+    let fallback_up = fallback.reachable();
+    if fallback_up && answers(&fallback) {
+        return (fallback, Some(true));
     }
-    if let Some(candidate) = &reg
-        && candidate.reachable()
-    {
-        return candidate.clone();
+    match reg {
+        Some(candidate) if reg_up => (candidate, Some(true)),
+        _ if fallback_up => (fallback, Some(true)),
+        Some(candidate) => (candidate, Some(false)),
+        None => (fallback, Some(false)),
     }
-    if fallback.reachable() {
-        return fallback;
-    }
-    reg.unwrap_or(fallback)
 }
 
 /// The background service `service.json` registers, as a server to talk to, with nothing asked
@@ -198,16 +201,24 @@ pub fn registered(default: &Server) -> Option<Server> {
 /// `http://127.0.0.1:4096` (with `OPENCODE_SERVER_PASSWORD` if set) only when no registration
 /// answers, and re-reads `service.json` even if an earlier probe moved to another port.
 pub fn discover_local_server(default: &Server) -> Server {
+    discover_local_reach(default, None).0
+}
+
+/// [`discover_local_server`], with whether the server it names accepts connections when finding
+/// it tried that (the caller needn't try again). `registered_up`: what a caller that has just
+/// tried the registered service's address found ([`registered`]).
+pub fn discover_local_reach(default: &Server, registered_up: Option<bool>) -> (Server, Option<bool>) {
     #[cfg(target_arch = "wasm32")]
     {
-        return default.clone();
+        let _ = registered_up;
+        return (default.clone(), None);
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
         // Public standalone discovery API; opencode-kit has no app config.rs layer.
         #[allow(clippy::disallowed_methods)]
         let explicit_env_url = std::env::var("OPENCODE_SERVER_URL").ok().is_some_and(|v| !v.trim().is_empty());
-        discover_with_service(default, explicit_env_url, read_local_service())
+        discover_with_service(default, explicit_env_url, read_local_service(), registered_up)
     }
 }
 

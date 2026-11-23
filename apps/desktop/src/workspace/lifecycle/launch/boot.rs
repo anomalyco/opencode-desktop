@@ -226,8 +226,8 @@ pub struct Ready {
     /// Nothing accepted a connection at the address, and the reach watcher tries it from now on
     /// (`Server::watch_reach`): the launch waits for it rather than trying on a timer.
     pub refused: bool,
-    /// The restored session's newest page, read beside the first reads: its path and answer,
-    /// for the session's reader to take up when the window connects (`Pages::live`).
+    /// The restored session's newest page, asked for beside the first reads, for the session's
+    /// reader to take up when the window connects (`Pages::live`).
     pub page: Option<session_pages::Early>,
 }
 
@@ -236,19 +236,52 @@ fn newest_page(id: &str) -> String {
     format!("/api/session/{id}/message?limit={}&order=desc", session_pages::LATEST)
 }
 
-/// The first reads and, beside them, the restored session's newest page (`page`, its path).
-fn first_and_page(server: &Server, page: Option<&str>) -> (Result<First, String>, Option<session_pages::Early>) {
-    // A page's reads were all asked for as it started (`start_first_reads`); its session's page waits for its reader.
+/// Asks `server` for the restored session's newest page (`page`, its path) without waiting for
+/// it. A page's reader asks for its own (`start_first_reads` asked for the rest as it started).
+fn ask_page(server: &Server, page: Option<String>) -> Option<session_pages::Early> {
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = page;
-        (First::fetch(server), None)
+        let _ = (server, page);
+        None
     }
     #[cfg(not(target_arch = "wasm32"))]
-    std::thread::scope(|scope| {
-        let read = page.map(|path| scope.spawn(move || server.read(path).ok().map(|value| session_pages::Early { path: path.to_owned(), value, read: Instant::now() })));
-        (First::fetch(server), read.and_then(|task| task.join().ok().flatten()))
-    })
+    page.and_then(|path| session_pages::Early::ask(server, path))
+}
+
+/// What the head start found: the registered service's address and its first reads, or none
+/// when no service is registered or nothing accepts connections at its address.
+#[cfg(not(target_arch = "wasm32"))]
+type Head = Option<(String, Result<First, String>)>;
+
+#[cfg(not(target_arch = "wasm32"))]
+static HEAD: std::sync::Mutex<Option<Receiver<Head>>> = std::sync::Mutex::new(None);
+
+/// From the top of `main`, for a window that will find its server through `service.json`: the
+/// registered service is asked for the first reads now, on a thread, while the app's state
+/// loads, its plugins start and its window is made (about 19 ms of a warm launch). The launch's
+/// first probe takes the answers up (`spawn_probe_waking`); nothing here needs the app's state.
+/// The service's answers to them are the proof that it is OpenCode's: `/api/info` isn't asked
+/// first, which was a round trip of its own.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn head_start() {
+    // As `App::load` decides a live window, and `spawn_probe_waking` that it discovers its server.
+    if crate::arg("--server").is_some() || crate::arg("--fixture").is_some() || crate::demo::requested() {
+        return;
+    }
+    let (out, rx) = std::sync::mpsc::channel();
+    let work = move || {
+        let default = Server::new(&opencode_kit::client::default_server());
+        let found = opencode_kit::local_service::registered(&default).filter(Server::reachable).map(|candidate| {
+            rune::marks::mark("reads.head.asked");
+            let first = First::fetch(&candidate);
+            rune::marks::mark("reads.head.in");
+            (candidate.base.clone(), first)
+        });
+        out.send(found).ok();
+    };
+    if std::thread::Builder::new().name("opencode-first-head".into()).spawn(work).is_ok() {
+        *HEAD.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(rx);
+    }
 }
 
 /// When the probe's thread found the server taking connections, set once from that thread.
@@ -266,14 +299,16 @@ pub const FIRST_PATIENCE: Duration = Duration::from_millis(1500);
 pub const GRACE: Duration = Duration::from_secs(5);
 
 /// The server `server` stands for (`service.json` when `discover`), probed until it answers or
-/// `grace` runs out; true when it answered.
-fn probe(server: &Server, discover: bool, grace: Duration) -> (Server, bool) {
+/// `grace` runs out; true when it answered. `registered_up`: what the caller has just found at
+/// the registered service's address, for the first try.
+fn probe(server: &Server, discover: bool, grace: Duration, mut registered_up: Option<bool>) -> (Server, bool) {
     let start = Instant::now();
     let mut pause = Duration::from_millis(250);
     loop {
-        let actual = if discover { opencode_kit::local_service::discover_local_server(server) } else { server.clone() };
         let tried = Instant::now();
-        if actual.reachable() {
+        // Finding the server tried its address: it isn't tried again here.
+        let (actual, up) = if discover { opencode_kit::local_service::discover_local_reach(server, registered_up.take()) } else { (server.clone(), None) };
+        if up.unwrap_or_else(|| actual.reachable()) {
             return (actual, true);
         }
         let left = grace.saturating_sub(start.elapsed());
@@ -328,29 +363,35 @@ pub(super) fn spawn_probe_waking(s: &App, beta_tabs: bool, fallback_fixture: boo
         Route::Session { id, server } if server == crate::servers::runtime::active(s) && own => Some(newest_page(id)),
         _ => None,
     };
+    // The launch's first probe takes up what `head_start` asked for from the top of `main`.
+    #[cfg(not(target_arch = "wasm32"))]
+    let head = if discover_local { HEAD.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() } else { None };
     let work = move || {
-        // The registered service is read from at once: its answers to the first reads say it is
-        // OpenCode's, where asking `/api/info` first was a round trip of its own before them.
-        // One that fails them is found the long way below, as before.
+        // What the head start found at the registered service's address, for the probe below.
         #[cfg(not(target_arch = "wasm32"))]
-        if discover_local
-            && let Some(candidate) = opencode_kit::local_service::registered(&server).filter(Server::reachable)
-        {
-            took.set(Instant::now()).ok();
-            if let Some(w) = &wake {
-                w();
-            }
-            let (first, early) = first_and_page(&candidate, page.as_deref());
-            if first.is_ok() {
+        let mut registered_up = None;
+        #[cfg(target_arch = "wasm32")]
+        let registered_up = None;
+        // The registered service's answers to the first reads say it is OpenCode's. One that
+        // fails them, or isn't there, is found the long way below, as every later probe is.
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(found) = head.and_then(|head| head.recv().ok()) {
+            registered_up = Some(found.is_some());
+            let candidate = opencode_kit::local_service::registered(&server);
+            if let (Some((base, first @ Ok(_))), Some(candidate)) = (found, candidate)
+                && base == candidate.base
+            {
+                took.set(Instant::now()).ok();
+                let page = ask_page(&candidate, page);
                 let beta_tabs = beta_tabs.then(crate::tabs::from_beta).flatten();
-                out.send(Ready { server: Some(candidate), beta_tabs, first: Some(first), refused: false, page: early }).ok();
+                out.send(Ready { server: Some(candidate), beta_tabs, first: Some(first), refused: false, page }).ok();
                 if let Some(w) = wake {
                     w();
                 }
                 return;
             }
         }
-        let (actual, reached) = probe(&server, discover_local, grace);
+        let (actual, reached) = probe(&server, discover_local, grace, registered_up);
         let ready = if !reached {
             if fallback {
                 Ready { server: None, beta_tabs: None, first: None, refused: false, page: None }
@@ -371,7 +412,8 @@ pub(super) fn spawn_probe_waking(s: &App, beta_tabs: bool, fallback_fixture: boo
                 w();
             }
             let beta_tabs = beta_tabs.then(crate::tabs::from_beta).flatten();
-            let (first, page) = first_and_page(&actual, page.as_deref());
+            let page = ask_page(&actual, page);
+            let first = First::fetch(&actual);
             Ready { server: Some(actual), beta_tabs, first: Some(first), refused: false, page }
         };
         out.send(ready).ok();
