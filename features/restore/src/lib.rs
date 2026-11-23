@@ -57,6 +57,17 @@ use state::Written;
 
 /// The app-wide keys Desktop keeps the sidebar's and the inbox's state in.
 pub const GLOBAL: &str = "opencode.global.dat";
+
+/// The shown session while its transcript is only the boot record's preview: the first frame
+/// draws it, and the server's first page of it ends it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ColdTranscript {
+    pub id: String,
+    /// The session has messages before the preview's first: the timeline lays the preview out as
+    /// it will stand once they land above it (at its end, with the gap a prompt has under a turn),
+    /// so nothing moves when they do.
+    pub older: bool,
+}
 /// Minimum sidebar width restored from global layout (`sidebar.rs`).
 pub const SIDEBAR_MIN: f32 = 136.0;
 /// Maximum sidebar width restored from global layout (`sidebar.rs`).
@@ -152,7 +163,8 @@ pub fn restore_ui(host: &mut dyn RestoreHost, doc: &WindowDoc, server: &str) {
                     && !host.has_transcript(id)
                     && preview::take_boot_preview(host, on, id)
                 {
-                    host.set_cold_transcript(Some(id.clone()));
+                    let older = preview::older(host, id);
+                    host.set_cold_transcript(Some(ColdTranscript { id: id.clone(), older }));
                 }
                 host.set_route(route);
             }
