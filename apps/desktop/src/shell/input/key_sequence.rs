@@ -146,7 +146,8 @@ pub(crate) fn view(s: &App, p: &Pal) -> Option<El> {
         .min_w(240.0)
         .padding(12.0)
         .gap(8.0)
-        .radius(12.0)
+        // ounded-xl is 10px in Desktop's theme (measured on the card: border-radius 10px).
+        .radius(10.0)
         .fill(p.bg_base)
         .elevate(p.floating)
         .child(keymap::chips(p, held.iter().flat_map(|c| keymap::caps(*c)).collect()))
