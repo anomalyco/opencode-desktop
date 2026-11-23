@@ -65,6 +65,9 @@ fn resting(s: &App) -> bool {
 
 fn key(s: &mut App, ev: &KeyEvent, editing: bool, tx: &mut Tx) -> bool {
     // A modifier going down is no stroke, and a fired command's stand-in key is none either.
+    // Desktop's keymap takes the modifier's own keydown for a key that continues nothing, so there
+    // Ctrl+K Ctrl+C runs only with Ctrl held from the first key to the last. That is a bug there
+    // (opencode#65734, draft fix opencode#65735), not copied: letting the modifier go is fine here.
     if matches!(ev.key, Key::Modifier { .. }) {
         return false;
     }
