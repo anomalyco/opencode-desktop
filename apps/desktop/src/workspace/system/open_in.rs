@@ -354,6 +354,7 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
                 open_current(s, &rel_main, false, false);
             })
             .child(mark);
+        let main = opencode_ui::focus::split_half(main, p, 6.0, false);
         let open = s.popup.open_at(&chevron_key);
         let menu_anchor = chevron_key.clone();
         let chev = el()
@@ -384,6 +385,7 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
             })
             .child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon));
         let chev = if open { chev } else { chev.help(opencode_i18n::t!("plugin.file.open.menu")) };
+        let chev = opencode_ui::focus::split_half(chev, p, 6.0, true);
         Some(
             row()
                 .key(key)

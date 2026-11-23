@@ -27,6 +27,15 @@ pub fn color(p: &Pal) -> Color {
     p.v2.border_focus
 }
 
+/// One half of a split button: it rounds its own outer corners and keeps the ring inside its
+/// edge, so the ring follows them where the group's clip would cut an outside ring
+/// (`split-button.css`, opencode#65783). `trailing` is the menu trigger's half.
+pub fn split_half(half: El, p: &Pal, radius: f32, trailing: bool) -> El {
+    let rtl = opencode_i18n::direction() == opencode_i18n::Direction::Rtl;
+    let corners = if trailing == rtl { [radius, 0.0, 0.0, radius] } else { [0.0, radius, radius, 0.0] };
+    half.corners(corners).focus_inset(p)
+}
+
 /// The shared ring on an element, as one call in its builder chain.
 pub trait FocusExt {
     /// The ring 2 points outside the element.
