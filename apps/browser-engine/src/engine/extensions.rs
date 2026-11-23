@@ -25,6 +25,24 @@ const MAX_PENDING_EXT_OPENS: usize = 16;
 const MAX_UNMANAGED_EXT_TABS: usize = 16;
 
 impl EngineManager {
+    /// A toast's click or close: a page's own (`page:<tab>`, `notification_gate.rs`) goes back to
+    /// its page, and a click brings its tab forward; an extension's goes to the extension host.
+    pub(super) fn notification_event(&mut self, ext_id: &str, notif_id: &str, clicked: bool, by_user: bool) {
+        let Some(tab_id) = ext_id.strip_prefix("page:").and_then(|id| id.parse::<u64>().ok()) else {
+            if let Some(ext) = &mut self.extensions {
+                let effects = ext.on_notification_event(ext_id, notif_id, clicked, by_user);
+                self.run_ext_effects(effects);
+            }
+            return;
+        };
+        let Some(t) = self.tabs.get(&tab_id) else { return };
+        let Some(msg) = t.notification_gate.event_msg(notif_id, clicked) else { return };
+        t.host.send_dev_tools_message(Some(msg.as_bytes()));
+        if clicked {
+            let _ = self.out_tx.send(EngineMsg::ExtensionFocusTab { tab_id });
+        }
+    }
+
     pub fn shutdown_extensions(&mut self) {
         if let Some(probe) = self.seed_probe.take() {
             probe.close_browser(1);
@@ -715,6 +733,7 @@ impl EngineManager {
             for binding in [
                 Some(t.passkeys.binding_msg(None)),
                 Some(t.media_gate.binding_msg(None)),
+                Some(t.notification_gate.binding_msg(None)),
                 t.clipboard_gate.binding_msg(None),
             ]
             .into_iter()

@@ -43,6 +43,7 @@ pub(crate) struct ManagedTab {
     pub(crate) cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
     pub(crate) passkeys: Arc<crate::passkeys::TabPasskeyGate>,
     pub(crate) media_gate: Arc<crate::media_gate::TabMediaGate>,
+    pub(crate) notification_gate: Arc<crate::notification_gate::TabNotificationGate>,
     pub(crate) clipboard_gate: Arc<crate::clipboard_gate::TabClipboardGate>,
     pub(crate) input_guard: Arc<Mutex<crate::input_guard::InputGuard>>,
     pub(crate) emulation_scale: Arc<std::sync::atomic::AtomicU32>,
@@ -894,12 +895,7 @@ impl EngineManager {
             HostMsg::PreviewResponseEnd { req_id, ok } => {
                 self.previews.deliver_end(req_id, ok);
             }
-            HostMsg::ExtensionNotificationEvent { ext_id, notif_id, clicked, by_user } => {
-                if let Some(ext) = &mut self.extensions {
-                    let effects = ext.on_notification_event(&ext_id, &notif_id, clicked, by_user);
-                    self.run_ext_effects(effects);
-                }
-            }
+            HostMsg::ExtensionNotificationEvent { ext_id, notif_id, clicked, by_user } => self.notification_event(&ext_id, &notif_id, clicked, by_user),
             HostMsg::SetNotificationsEnabled { enabled } => {
                 if let Some(ext) = &mut self.extensions {
                     ext.set_notifications_enabled(enabled);
@@ -1355,6 +1351,7 @@ impl EngineManager {
         let cdp_ledger = Arc::new(Mutex::new(crate::cdp_ledger::EngineCdpLedger::with_registered_exts(self.registered_ext_ids.clone())));
         let passkeys = Arc::new(crate::passkeys::TabPasskeyGate::new(tab_id, agent_driven));
         let media_gate = Arc::new(crate::media_gate::TabMediaGate::new());
+        let notification_gate = Arc::new(crate::notification_gate::TabNotificationGate::new());
         let ext_cw = is_allowed_ext_url.as_deref().is_some_and(|id| self.ext_clipboard_write_ids.lock().unwrap().contains(id));
         let clipboard_gate = Arc::new(crate::clipboard_gate::TabClipboardGate::new(is_popup, is_preview, agent_driven, ext_cw, self.ext_clipboard_write_ids.clone(), first_load_url));
         let internal_picked = Arc::new(Mutex::new(Vec::new()));
@@ -1362,7 +1359,7 @@ impl EngineManager {
         let mut observer = TabCdpObserver::new(
             tab_id, is_popup, isolated, is_preview, preview_grant.clone(), snap.clone(), cdp_id_map.clone(),
             internal_picked.clone(), pending_clears.clone(), cdp_ledger.clone(), passkeys.clone(),
-            media_gate.clone(), clipboard_gate.clone(), allowed_ext_ids.clone(), context_ready, self.prompt_shared.clone(), input_guard.clone(), emulation_scale.clone(),
+            media_gate.clone(), notification_gate.clone(), clipboard_gate.clone(), allowed_ext_ids.clone(), context_ready, self.prompt_shared.clone(), input_guard.clone(), emulation_scale.clone(),
             self.next_cdp_id.clone(), prompts.clone(), self.permissions.clone(),
             self.extensions.is_some(), self.events.clone(), self.out_tx.clone(),
         );
@@ -1371,6 +1368,7 @@ impl EngineManager {
         let mut arm = if is_popup || is_allowed_ext_url.is_some() { cdp_ledger.lock().unwrap().arm_extension_tab() } else { cdp_ledger.lock().unwrap().arm() };
         arm.extend(passkeys.attach_messages(None));
         arm.extend(media_gate.attach_messages(None));
+        arm.extend(notification_gate.attach_messages(None));
         arm.extend(clipboard_gate.attach_messages(None));
         if agent_driven || is_preview {
             arm.push(passkeys.file_chooser_intercept_msg(true, None));
@@ -1405,6 +1403,7 @@ impl EngineManager {
                 cdp_ledger,
                 passkeys,
                 media_gate,
+                notification_gate,
                 clipboard_gate,
                 input_guard,
                 emulation_scale,
