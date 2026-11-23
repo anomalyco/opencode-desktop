@@ -219,7 +219,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     cookies::service_methods(lua, vmx, t)?;
     extensions::service_methods(lua, vmx, t)?;
     let raw: Function = vmx.asyncs.raw_get("Browser.OpenAsync")?;
-    let open: Function = lua.load("local raw = ... return function(self, spec) local id = raw(spec) return if id then self:Get(id) else nil end").set_name("=Browser:OpenAsync").call(raw)?;
+    let open: Function = opencode_plugin_runtime::chunk::load(lua, "local raw = ... return function(self, spec) local id = raw(spec) return if id then self:Get(id) else nil end").set_name("=Browser:OpenAsync").call(raw)?;
     t.raw_set("OpenAsync", open)?;
     lazy_signals(lua, vmx, t, "Browser", &["Changed", "Picked", "SiteBack", "AddressSelectionChanged", "ImportSite"])
 }
@@ -543,8 +543,7 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
         Some(vmx) => vmx.asyncs.raw_get("BrowserTab.DevtoolsAsync")?,
         None => return Err(mlua::Error::runtime("the plugin host isn't set up")),
     };
-    let call: Function = lua
-        .load("local raw = ... return function(self, method, params, target) local r = raw(self.Id, method, params, target) if r and r.error then error(r.error, 0) end return if r then r.result else nil end")
+    let call: Function = opencode_plugin_runtime::chunk::load(lua, "local raw = ... return function(self, method, params, target) local r = raw(self.Id, method, params, target) if r and r.error then error(r.error, 0) end return if r then r.result else nil end")
         .set_name("=BrowserTab:DevtoolsAsync")
         .call(raw)?;
     m.raw_set("DevtoolsAsync", call)?;
@@ -552,8 +551,7 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
         Some(vmx) => vmx.asyncs.raw_get("BrowserTab.SiteCookiesAsync")?,
         None => return Err(mlua::Error::runtime("the plugin host isn't set up")),
     };
-    let call: Function = lua
-        .load("local raw = ... return function(self) local r = raw(self.Id) if r and r.error then error(r.error, 0) end local res = if r then r.result else nil return if type(res) == 'table' and type(res.cookies) == 'number' then res.cookies else 0 end")
+    let call: Function = opencode_plugin_runtime::chunk::load(lua, "local raw = ... return function(self) local r = raw(self.Id) if r and r.error then error(r.error, 0) end local res = if r then r.result else nil return if type(res) == 'table' and type(res.cookies) == 'number' then res.cookies else 0 end")
         .set_name("=BrowserTab:SiteCookiesAsync")
         .call(raw)?;
     m.raw_set("SiteCookiesAsync", call)?;
@@ -561,8 +559,7 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
         Some(vmx) => vmx.asyncs.raw_get("BrowserTab.ClearSiteAsync")?,
         None => return Err(mlua::Error::runtime("the plugin host isn't set up")),
     };
-    let call: Function = lua
-        .load("local raw = ... return function(self) local r = raw(self.Id) if r and r.error then error(r.error, 0) end end")
+    let call: Function = opencode_plugin_runtime::chunk::load(lua, "local raw = ... return function(self) local r = raw(self.Id) if r and r.error then error(r.error, 0) end end")
         .set_name("=BrowserTab:ClearSiteAsync")
         .call(raw)?;
     m.raw_set("ClearSiteAsync", call)?;
@@ -570,8 +567,7 @@ fn tab_methods(lua: &Lua) -> mlua::Result<Table> {
         Some(vmx) => vmx.asyncs.raw_get("BrowserTab.ReadFileAsync")?,
         None => return Err(mlua::Error::runtime("the plugin host isn't set up")),
     };
-    let call: Function = lua
-        .load("local raw = ... return function(self, fileId) local r = raw(self.Id, fileId) if r and r.error then error(r.error, 0) end return r end")
+    let call: Function = opencode_plugin_runtime::chunk::load(lua, "local raw = ... return function(self, fileId) local r = raw(self.Id, fileId) if r and r.error then error(r.error, 0) end return r end")
         .set_name("=BrowserTab:ReadFileAsync")
         .call(raw)?;
     m.raw_set("ReadFileAsync", call)?;

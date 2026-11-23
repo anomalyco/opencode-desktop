@@ -48,6 +48,7 @@ pub const EXE: &str = "opencode-desktop.exe";
 pub const EXPECTED_PUBLISHER: &str = "Anomaly Innovations, Inc https://anoma.ly/";
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+const CREATE_SUSPENDED: u32 = 0x0000_0004;
 const DETACHED_PROCESS: u32 = 0x0000_0008;
 const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
 const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
@@ -138,6 +139,7 @@ impl Platform for Windows {
         let found = self.engine.found().ok_or_else(|| "No update to download".to_owned())?;
         if let Some(staged_dir) = receipt::staged_dir_if_matches(&self.root, &found.version, &found.target.sha256) {
             self.verify_quick(&staged_dir)?;
+            first_start(&staged_dir.join(EXE));
             *self.staged.lock().unwrap_or_else(|e| e.into_inner()) = Some(Staged { version: found.version, sha256: found.target.sha256, dir: staged_dir });
             return Ok(());
         }
@@ -172,6 +174,7 @@ impl Platform for Windows {
             }
             std::fs::rename(&app, &dest).map_err(|e| format!("could not stage the update: {e}"))?;
             receipt::stage(&dest, &found.version, &found.target.sha256)?;
+            first_start(&dest.join(EXE));
             Ok(Staged { version: found.version, sha256: found.target.sha256, dir: dest })
         })();
         std::fs::remove_dir_all(&download).ok();
@@ -281,6 +284,29 @@ impl Windows {
             (Err(e), Trust::Publisher) => Err(format!("the staged update couldn't be verified: {e}")),
             _ => Ok(()),
         }
+    }
+}
+
+/// Makes a process from the staged executable and ends it before a line of it runs.
+///
+/// Windows Defender checks a new executable the first time a process is made from it, inside
+/// `CreateProcess`, before that process exists: 276,941-423,602 us for the signed 162 MB exe of
+/// dev-476 and 641,632-868,502 us for an unsigned one, in a folder it scans (n = 3 and 8). It
+/// keeps the answer for that file, also through a hard link and a renamed folder, so the next
+/// process from it is made in 2,000-3,500 us; opening, reading or mapping the file does not
+/// get the answer early. Done here, while the update is staged in the background, the helper
+/// that "Install and restart" starts doesn't wait for it (342,661-568,149 us without, 2,730-
+/// 3,520 us with, n = 4, the updater's file steps repeated from outside).
+fn first_start(exe: &Path) {
+    let started = rune::time::Instant::now();
+    let child = Command::new(exe).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).creation_flags(CREATE_SUSPENDED | CREATE_NO_WINDOW).spawn();
+    match child {
+        Ok(mut child) => {
+            child.kill().ok();
+            child.wait().ok();
+            log(&format!("updater: Windows checked the staged {EXE} in {} us", started.elapsed().as_micros()));
+        }
+        Err(e) => log(&format!("updater: the staged {EXE} could not be checked ahead: {e}")),
     }
 }
 

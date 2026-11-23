@@ -183,6 +183,9 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
     w.placement = super::placement::Placement::opening(frame.as_ref());
     w.scale = display_scale(frame.as_ref()).unwrap_or(0.0);
     let (id, life) = (w.id.clone(), w.life);
+    // What this window's view read from layout when it last rested or closed: its first view
+    // is given the same rects, and runs once when the layout agrees with them.
+    let layout = life.saved().then(|| (store::load_layout(&id), id.clone()));
     let diagnostics = diagnostics.clone();
     let app_diagnostics = diagnostics.clone();
     let app = crate::rune_app(AppSpec { families: crate::appearance::launch_families(), ..crate::spec(App::new) }).init(move || {
@@ -190,10 +193,17 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
         *app.diag.diagnostics = app_diagnostics;
         app
     });
+    // The saved layout's titlebar before the window exists: the first frame is drawn once.
+    #[cfg(target_os = "macos")]
+    let app = app.titlebar(crate::view::saved_mac_titlebar());
     let handle = app.handle();
     let ready = handle.clone();
     let mut motion_log = crate::motion_log::Log::default();
     let (encoded, drawn) = (diagnostics.clone(), diagnostics);
+    let app = match layout {
+        Some((seed, id)) => app.layout_seed(seed, move |seed| store::save_layout(&id, &seed)),
+        None => app,
+    };
     let app = app
         .on_ready(move |_| {
             // The first frame is up: the storage's second stage is taken off the UI thread.

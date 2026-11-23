@@ -206,7 +206,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             s.tail_page(&session);
             s.judge_sends_by_page(&session, &messages);
             s.check_sends();
-            let cold = s.launch.cold_transcript.as_deref() == Some(session.as_str());
+            let cold = s.launch.cold_transcript.as_ref().is_some_and(|c| c.id == session);
             if cold {
                 s.launch.cold_transcript = None;
             }

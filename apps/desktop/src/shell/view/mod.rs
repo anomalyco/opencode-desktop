@@ -306,7 +306,16 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
         .children(band)
         // Toggle review comes next, before the page (`screen.tsx`: its `z-30` row ahead of the
         // chat panel), and paints over the page and the panels after it.
-        .children(crate::panels::view::side_toggle(s, p).map(|toggle| toggle.paint_order(1).paint_contained(main)))
+        // It is drawn at the window's level over the session header's slot, and Desktop's is inside the
+        // header (`message-timeline.tsx:644`), inside the timeline's scroll bar hover target: the
+        // pointer on it shows the timeline's thumb, as the pointer on the header does.
+        .children(crate::panels::view::side_toggle(s, p).map(|toggle| {
+            let toggle = match s.active_session_id() {
+                Some(id) => rune_kit::ScrollBar::scroll_bar_hover(toggle, &format!("scroll-{id}")),
+                None => toggle,
+            };
+            toggle.paint_order(1).paint_contained(main)
+        }))
         // `paint_contained` establishes its children's pixel grid. The painted frame is
         // itself inside <main> (shell.tsx:304), not the element establishing containment.
         // Keep its ring, shadow and clip on the same grid as the content they surround.

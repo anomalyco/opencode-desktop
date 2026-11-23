@@ -18,10 +18,12 @@ pub const WARM: usize = 6;
 const NEAR_TOP: f32 = 200.0;
 
 mod cache_ref;
+mod early;
 mod machines;
 mod shown;
 
 pub(crate) use cache_ref::CacheRef;
+pub use early::Early;
 pub use machines::{History, Key, LATEST, OpenEvent, Opening};
 use machines::{HOLD, Histories, HistoryEffect, HistoryEvent, Stall};
 
@@ -138,6 +140,7 @@ pub struct Page {
 #[derive(Clone, PartialEq, Eq)]
 struct Job { key: Key, cursor: Option<String>, limit: usize, foreground: bool }
 
+
 /// Whether the open lane's reads are getting answers, or since when they began failing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum LaneHealth { #[default] Healthy, Stalled { since: Instant } }
@@ -218,12 +221,9 @@ impl Pages {
         q.ready.extend(ready);
         (Self { shared: Arc::new((Mutex::new(QueueState::Running(Box::new(q))), Condvar::new())), results, wake: None, server: String::new(), #[cfg(target_arch = "wasm32")] lanes: None }, send)
     }
-    pub fn live(server: Server, wake: Waker) -> Self {
+    pub fn live(server: Server, wake: Waker, early: Option<Early>) -> Self {
         let base = server.base.clone();
-        let mut pages = Self::new(Arc::new(move |path| server.read_timed(path).map(|(value, t)| {
-            crate::telemetry::note_read(t.first_byte, t.bytes, t.parsing);
-            value
-        })), wake);
+        let mut pages = Self::new(early::fetch(server, early), wake);
         pages.server = base;
         pages
     }
@@ -601,7 +601,7 @@ impl crate::App {
         // The latest page landing on a boot preview it doesn't reach: the preview was the
         // place's turn (`restore::preview`), and the messages between it and the page are still
         // to read. They come first, newest page first, each under the preview.
-        let cold = self.launch.cold_transcript.as_deref() == Some(id.as_str());
+        let cold = self.launch.cold_transcript.as_ref().is_some_and(|c| c.id == *id);
         if cold && !page.history && added == page.messages.len()
             && let (Some(last), Some(next)) = (t.messages.last(), page.messages.first())
             && next.id() > last.id()

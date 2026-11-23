@@ -2,28 +2,28 @@
   "generated_at": "2026-11-23",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "d6379ff0e1c1c09e927e63c28c58a1f2a0533462",
+  "upstream_head": "d1f98703ab254ca80b85b70caea5d33130604fa2",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "24c7c1c56b7853955999d2688fda597d7b0eb5d0",
-  "post_1114_commit_count": 503,
-  "post_1114_in_ledger": 188,
-  "post_1114_skipped": 315,
+  "rune_desktop_head": "ffbffe88f4ea34d7cc3a6d22cb03058e352294f7",
+  "post_1114_commit_count": 514,
+  "post_1114_in_ledger": 194,
+  "post_1114_skipped": 320,
   "post_1114_skipped_breakdown": {
     "test-only": 24,
     "ci-bench-deps": 18,
     "docs-site-data": 50,
-    "tui-only": 19,
+    "tui-only": 20,
     "cli-acp-only": 8,
-    "server-core-ai-codemode-internal": 196
+    "server-core-ai-codemode-internal": 200
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 209,
+  "total_ledger_rows": 215,
   "status_counts": {
-    "have it": 178,
-    "not applicable": 29,
+    "have it": 182,
+    "not applicable": 30,
     "differs on purpose": 1,
-    "partly": 1
+    "partly": 2
   },
   "rows": [
     {
@@ -5260,6 +5260,145 @@
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-189",
+      "window": "post-1120",
+      "pr": 65757,
+      "sha": "d284e7ce17",
+      "title": "fix(app): show the selected layout card's check in the accent blue",
+      "merged": "2026-11-23",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/settings/general/interface-mode.css"
+      ],
+      "summary": "The selected layout card's check (Settings > General: Interface layout and Navigation) is the accent blue with text-contrast ink; it was icon-muted with the ground's colour.",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "rune-desktop #860 (be2c4033): features/settings/src/interface_mode.rs check_badge fills bg_accent and inks text_contrast. Official RUN (dev 7cfd868443): the check is rgb(59, 92, 246) = --v2-background-bg-accent with white ink. Ours: cargo check; the run on the PR build is queued, not read yet.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#860"
+    },
+    {
+      "id": "UP-190",
+      "window": "post-1120",
+      "pr": 65758,
+      "sha": "7cfd868443",
+      "title": "fix(app): keep the timeline and Home list out of the Tab order",
+      "merged": "2026-11-23",
+      "packages": [
+        "ui"
+      ],
+      "main_files": [
+        "packages/ui/src/components/scroll-view.tsx"
+      ],
+      "summary": "The timeline's and the Home list's scroll viewport are no Tab stop (ScrollView tabIndex -1; it was a stop whenever it could scroll). Tab goes to the items inside; a click still focuses the viewport so the keys scroll it.",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "rune-desktop #860 (be2c4033): tab_index(-1) on the timeline viewport (crates/session-view/src/timeline/mod.rs) and the Home viewport (apps/desktop/src/shell/view/home.rs). Official RUN (dev 7cfd868443): both viewports tabindex=-1; Shift+Tab from the composer goes Copy response, Copy, Copy, Copy, a link, Used 1 Thought and never the viewport; a click focuses the viewport and PageUp scrolls it (top 639 -> 0); on Home Tab goes through the project and session controls and never the viewport. Ours: cargo check; the run on the PR build is queued, not read yet.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#860"
+    },
+    {
+      "id": "UP-191",
+      "window": "post-1120",
+      "pr": 65225,
+      "sha": "4551672c80",
+      "title": "fix(app): tolerate subpixel rounding in folder picker middle truncation",
+      "merged": "2026-11-23",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/workspaces/selection/dialog.tsx"
+      ],
+      "summary": "The folder picker's middle-truncation markers show only for a row that really overflows at a fractional UI zoom (a CSS container-query threshold of 1.5lh for @pierre/trees).",
+      "size": "XS",
+      "status": "not applicable",
+      "status_evidence": "A CSS workaround for @pierre/trees' truncation markers under subpixel rounding. rune-desktop draws the folder picker itself and has no such marker (truncate_middle is used only in crates/session-view/src/video.rs). By reading.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-192",
+      "window": "post-1120",
+      "pr": 65783,
+      "sha": "2bf2468018",
+      "title": "fix(app): drop the ring around a clicked Settings page and round the split button's ring",
+      "merged": "2026-11-23",
+      "packages": [
+        "app",
+        "ui"
+      ],
+      "main_files": [
+        "packages/app/src/settings/settings.css",
+        "packages/ui/src/actions/split-button/split-button.css"
+      ],
+      "summary": "The Settings page draws no ring after a click on its text and a key press; each half of a split button rounds its own outer corners so the inset focus ring follows them (the group no longer clips).",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "Settings: already so (features/settings/src/shell.rs: the panel is focusable with tab_index(-1) and no_focus_ring, from UP-135). Split button: rune-desktop #872 (639b7857): opencode_ui::focus::split_half gives each half of the Open in split button (features/files/src/viewer/toolbar.rs, apps/desktop/src/workspace/system/open_in.rs) its outer 6 pt corners and the ring 2 pt inside; before, a half took the view's default outside ring, which the group's rounded clip cut off. CI build passes; not run in either app.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#872"
+    },
+    {
+      "id": "UP-193",
+      "window": "post-1120",
+      "pr": 65785,
+      "sha": "16ba706544",
+      "title": "fix(app): drop the ring around focused file viewers, tool output, error details, What's New and the terminal",
+      "merged": "2026-11-23",
+      "packages": [
+        "gui-plugins",
+        "session-ui",
+        "ui"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/terminal/terminal.tsx",
+        "packages/gui-plugins/src/updater/whats-new.tsx",
+        "packages/session-ui/src/components/file.css",
+        "packages/session-ui/src/components/file.tsx"
+      ],
+      "summary": "No focus ring round a focused file viewer, tool output region, error details box, What's New or the terminal; the file viewer and the tool output regions are no Tab stop any more (tabIndex -1: a click still focuses them so the keys scroll and search).",
+      "size": "XS",
+      "status": "partly",
+      "status_evidence": "rune-desktop #881 (6e508f01): the keyboard's line in a file viewer or diff (crates/opencode-code-view/src/file/view.rs and diff/view.rs line_stop) drew Rune's default ring; it now sets no_focus_ring and shows by the line's hover fill (focus_fill); the terminal screen (features/terminal-surface/src/grid/mod.rs) sets no_focus_ring. Tool output, console and error details are not focusable in ours and What's New has no focus container: no ring, nothing to do. OPEN, owner question (24 Nov): official's viewer is no Tab stop at all; ours keeps one Tab stop per viewer (the cursor line, for commenting by keyboard). Found, not checked: official's tool output and error details take focus on a click so the keys scroll them; ours are not focusable. Ported by reading; run owed (CI build only).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#881"
+    },
+    {
+      "id": "UP-194",
+      "window": "post-1120",
+      "pr": 65800,
+      "sha": "d1f98703ab",
+      "title": "fix(app): match the layout cards to the navigation cards' style",
+      "merged": "2026-11-23",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/settings/general/interface-mode.css",
+        "packages/app/src/settings/general/interface-mode.tsx"
+      ],
+      "summary": "The layout cards (Settings > General: Interface layout) take the navigation cards' style: a 120 pt card whose window shows only its navigation (top tabs, side tabs, or sessions under headings) and fades into the name; cards 10 px apart; accent only on the chosen card. The Tabs navigation card follows Tab position and the List card shows grouped sessions.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "rune-desktop #882 (a1babddb): features/settings/src/mode_card.rs draws both rows' cards from interface-mode.css at d1f98703ab (card 120 x 78, window 98 x 56 on layer-01 with the fade to 44 pt, sketch-tabs / sketch-list / sketch-heading / sketch-row[data-detail], chosen card: 40% accent on the active tab or row, 60% on List marks, 100 / 60 / 30% on Inbox marks); interface_mode.rs and navigation_mode.rs are controls over it. Ours' navigation cards were 96 pt tall before, now 78. Ported by reading; run owed in both apps (official needs a build of d1f98703ab; CI build only for ours).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#882"
     }
   ],
   "browser_security_review": {

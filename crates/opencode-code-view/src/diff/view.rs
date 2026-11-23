@@ -456,7 +456,9 @@ impl<S: 'static> Inner<S> {
     /// Line row `i` as the keyboard and a screen reader meet it: one Tab stop for the whole diff
     /// (the cursor's line; the rest are reached by Up and Down, `DiffDocState::line_key`), named
     /// by what it is and says (added, removed, or a line of context, its number and its code), and
-    /// Return or C opens a comment on it, as the `+` beside it does under the pointer.
+    /// Return or C opens a comment on it, as the `+` beside it does under the pointer. No ring in
+    /// the viewer (`packages/session-ui/src/components/file.css`): the keyboard's line shows as
+    /// the pointer's does, by its fill.
     fn line_stop(&self, st: &DiffDocState, i: usize, cursor: bool, el: El) -> El {
         let f = st.rows[i].file();
         let (label, at) = line_stop_meta(st, i);
@@ -465,6 +467,8 @@ impl<S: 'static> Inner<S> {
         let path = st.files()[f].path().to_owned();
         el.focusable(true)
             .tab_index(if cursor { 0 } else { -1 })
+            .focus_fill(self.look.hover)
+            .no_focus_ring()
             .role("listitem")
             .label(label)
             .on_key(move |s: &mut S, ev: &rune::KeyEvent, tx: &mut Tx| {

@@ -191,8 +191,21 @@ pub fn picker<S: PickerHost>(s: &S, p: &Pal) -> El {
     let active = s.picker_active();
     let selected = s.picker_current(kind);
     let items = s.picker_items();
+    // The widest option with `gap` before its check, the row's padding and the surface's inset.
+    let hug = |gap: f32| {
+        let label = items.iter().map(|i| rune::text::measure(&i.label, &[], crate::style::UI, None).0).fold(0.0, f32::max);
+        label + gap + pop::SLOT + MENU.pad_l + MENU.pad_r + 2.0 * MENU.inset
+    };
+    let width = match kind {
+        Kind::Project => 240.0,
+        // `fitMenuToOptions` (`packages/app/src/composer/editor/editor.tsx`, opencode#60026): the
+        // agent menu is as wide as its longest option, with 24 pt before the check.
+        Kind::Agent => hug(24.0),
+        // `min-width: 160px` (`packages/ui/src/navigation/menu/menu.css`), wider for a longer option.
+        Kind::Effort | Kind::Speed | Kind::Model => hug(MENU.gap).max(160.0),
+    };
     let mut menu = pop::surface::<S>(p, MENU, format!("picker-{}", kind.key()), kind.choose_label())
-        .w(if kind == Kind::Project { 240.0 } else { 180.0 })
+        .w(width)
         .focusable(true)
         .tab_index(-1)
         .no_focus_ring()

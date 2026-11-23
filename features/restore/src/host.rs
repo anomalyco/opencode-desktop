@@ -206,8 +206,10 @@ pub trait RestoreHost: opencode_kernel::AppEnv {
     fn sidecar_launch_waiting(&self) -> bool { false }
     /// Whether `id` is currently loaded only from the cold boot preview (`launch.cold_transcript`).
     fn is_cold_transcript(&self, _id: &str) -> bool { false }
-    /// Records the session ID whose transcript was seeded from the cold boot preview.
-    fn set_cold_transcript(&mut self, _id: Option<String>) {}
+    /// Records the session whose transcript was seeded from the cold boot preview.
+    fn set_cold_transcript(&mut self, _cold: Option<crate::ColdTranscript>) {}
+    /// Whether messages older than session `id`'s loaded ones are still to read from its server.
+    fn more_above(&self, _id: &str) -> bool { false }
 
     /// Whether session `id` exists in the active server's loaded session list.
     fn has_session(&self, _id: &str) -> bool { false }

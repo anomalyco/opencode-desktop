@@ -121,6 +121,7 @@ pub(super) fn open_in_button<H: FilesHost + PopupHost + 'static>(
             s.open_in_launch_current(&rel_main, false, false);
         })
         .child(mark);
+    let main = opencode_ui::focus::split_half(main, p, 6.0, false);
     let open = s.popup().open_at(&chevron_key);
     let menu_anchor = chevron_key.clone();
     let chev = el()
@@ -140,6 +141,7 @@ pub(super) fn open_in_button<H: FilesHost + PopupHost + 'static>(
             open_in_toolbar_menu(s, &rel_menu, &anchor, tx);
         })
         .child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon));
+    let chev = opencode_ui::focus::split_half(chev, p, 6.0, true);
     Some(
         row()
             .key(key)

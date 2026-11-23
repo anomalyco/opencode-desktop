@@ -60,6 +60,11 @@ if ($Payload) {
 } else {
     # A release app is the shipped build: its profile-guided optimisation profile comes with it.
     if ($Profile -eq 'release') {
+        # A pull request from a branch with "symbols" in its name (or OPENCODE_RUNE_SYMBOLS=1) builds
+        # the shipped code with line tables and leaves its PDB in -Out, for profilers that name the
+        # source (perf/README.md). Only the debug directory of the exe differs from a build without:
+        # release.ps1 asks for the line tables, in a way that keeps every symbol's name.
+        $symbols = $env:OPENCODE_RUNE_SYMBOLS -eq '1' -or $env:GITHUB_HEAD_REF -match 'symbols'
         & (Join-Path $root 'apps/desktop/scripts/release.ps1') -Cargo $Cargo -Target $triple
         if ($LASTEXITCODE -ne 0) { throw 'the release build failed' }
         # release.ps1 always names the target, so the app is under target/<triple>/ even when native.
@@ -87,6 +92,8 @@ if ($Payload) {
     Remove-Item -Force $zip -ErrorAction SilentlyContinue
     Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
     Remove-Item -Recurse -Force $stage
+    # The PDB keeps the name the exe looks for beside itself.
+    if ($Profile -eq 'release' -and $symbols) { Copy-Item (Join-Path $appBin 'opencode_desktop.pdb') $Out }
 }
 
 $env:OPENCODE_RUNE_SETUP_PAYLOAD = $zip

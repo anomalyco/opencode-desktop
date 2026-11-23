@@ -52,6 +52,44 @@ pub fn load_frame(id: &str) -> Option<Frame> {
     crate::storage::frame(id)
 }
 
+/// The key of a window's layout reads in its namespace.
+const LAYOUT: &str = "rune.layout";
+
+/// What window `id`'s view last read from layout (`rune::App::layout_seed`): its next launch's
+/// first view is given these rects, so the first frame builds the view once, not twice.
+/// `OPENCODE_RUNE_LAYOUT_SEED=off` gives it none (a bench's arm).
+pub fn load_layout(id: &str) -> Option<rune::LayoutSeed> {
+    if id.is_empty() || rune::env::var("OPENCODE_RUNE_LAYOUT_SEED").is_some_and(|v| v == "off") {
+        return None;
+    }
+    let v = crate::storage::json(&opencode_storage::window_namespace(id), LAYOUT)?;
+    let floats = |v: &Value| v.as_array()?.iter().map(|n| n.as_f64().map(|n| n as f32)).collect::<Option<Vec<f32>>>();
+    let &[w, h, scale, zoom] = floats(v.get("view")?)?.as_slice() else { return None };
+    let rects = v
+        .get("rects")?
+        .as_object()?
+        .iter()
+        .map(|(key, rect)| {
+            if rect.is_null() {
+                return Some((key.clone(), None));
+            }
+            let &[x, y, w, h] = floats(rect)?.as_slice() else { return None };
+            Some((key.clone(), Some([x, y, w, h])))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(rune::LayoutSeed { viewport: [w, h], scale, zoom, rects })
+}
+
+/// Rune hands them over as the window rests, closes or quits, when they changed.
+pub fn save_layout(id: &str, seed: &rune::LayoutSeed) {
+    if id.is_empty() {
+        return;
+    }
+    let rects: serde_json::Map<String, Value> = seed.rects.iter().map(|(key, rect)| (key.clone(), rect.map_or(Value::Null, |r| serde_json::json!(r)))).collect();
+    let value = serde_json::json!({ "view": [seed.viewport[0], seed.viewport[1], seed.scale, seed.zoom], "rects": rects });
+    crate::storage::set_json(&opencode_storage::window_namespace(id), LAYOUT, &value);
+}
+
 /// Written behind, as the window settles after a move and as it closes.
 pub fn save_frame(id: &str, frame: Frame) {
     crate::storage::set_frame(id, frame);

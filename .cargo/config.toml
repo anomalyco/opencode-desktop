@@ -22,3 +22,9 @@ rustflags = ["--cfg", "getrandom_backend=\"wasm_js\"", "-C", "target-feature=+si
 # its module), and nothing else until a table uses it.
 [env]
 LIBSQLITE3_FLAGS = "-USQLITE_ENABLE_FTS3 -USQLITE_ENABLE_FTS3_PARENTHESIS -USQLITE_ENABLE_RTREE -USQLITE_ENABLE_DBSTAT_VTAB -USQLITE_ENABLE_STAT4 -USQLITE_ENABLE_SESSION -USQLITE_ENABLE_PREUPDATE_HOOK -USQLITE_ENABLE_COLUMN_METADATA -USQLITE_ENABLE_LOAD_EXTENSION -DSQLITE_OMIT_LOAD_EXTENSION -USQLITE_SOUNDEX -DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_OMIT_DEPRECATED -DSQLITE_OMIT_SHARED_CACHE -DSQLITE_DQS=0 -DSQLITE_LIKE_DOESNT_MATCH_BLOBS -DSQLITE_USE_ALLOCA"
+# macOS: the deployment target the bundle declares (`LSMinimumSystemVersion` 13.0), not the
+# toolchain's default 11.0. From 12.0 the linker writes dyld's chained fixups
+# (`LC_DYLD_CHAINED_FIXUPS`) in place of the rebase opcodes (`LC_DYLD_INFO_ONLY`: 143,645 rebases
+# that dyld applied before `main`). That is 19 M instructions less before `main`, which run on
+# efficiency cores when the Dock starts the app.
+MACOSX_DEPLOYMENT_TARGET = "13.0"

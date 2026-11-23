@@ -252,6 +252,8 @@ impl<S: 'static> Inner<S> {
     /// Line `n` as the keyboard and a screen reader meet it: the view's one Tab stop is the
     /// cursor's line, Up and Down move it (`CodeDocState::line_key`), each line says its number
     /// and its code, and Return or C opens a comment on it, as the `+` does under the pointer.
+    /// No ring in the viewer (`packages/session-ui/src/components/file.css`): the keyboard's line
+    /// shows as the pointer's does, by its fill.
     fn line_stop(&self, st: &CodeDocState, n: u32, cursor: bool, el: El) -> El {
         let label = opencode_i18n::t!("rune.a11y.diff.line", line = n, code = st.line(n).unwrap_or("").trim());
         let get_mut = self.v.get_mut.clone();
@@ -259,6 +261,8 @@ impl<S: 'static> Inner<S> {
         let path = st.path().to_owned();
         el.focusable(true)
             .tab_index(if cursor { 0 } else { -1 })
+            .focus_fill(self.look.hover)
+            .no_focus_ring()
             .role("listitem")
             .label(label)
             .on_key(move |s: &mut S, ev: &rune::KeyEvent, tx: &mut Tx| {

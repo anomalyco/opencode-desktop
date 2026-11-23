@@ -6,21 +6,26 @@
 
 mod boot;
 #[cfg(target_os = "windows")]
+pub mod compat_layer;
+#[cfg(target_os = "windows")]
 pub mod image_pages;
 #[cfg(target_os = "windows")]
 pub mod io_trace;
 pub mod last_exit;
 mod network;
+pub mod saved;
+mod shifts;
 pub mod trace;
 
 #[cfg(target_arch = "wasm32")]
 pub use boot::start_first_reads;
+pub use saved::{catalog as saved_catalog, gutters as saved_gutters, list as saved_list};
 pub use boot::{
     Accepted, FIRST_PATIENCE, First, GRACE, Ready, defer, deferred, initial_server, window_title,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use boot::{
-    apply_app_icon, attach_console, instance_id, print_version_if_asked, product, write_profile,
+    apply_app_icon, attach_console, head_start, instance_id, print_version_if_asked, product, write_profile,
 };
 
 use std::sync::mpsc::{Receiver, TryRecvError};
@@ -204,9 +209,25 @@ enum EngineFetch {
 #[cfg(not(target_arch = "wasm32"))]
 const ENGINE_FETCH_LATEST: Duration = Duration::from_secs(2);
 
+/// The saved first screen's write (`saved`): owed from `connect`, written once the window has
+/// shown the server's answer for [`SAVED_WRITE_AFTER`]. Building it in `connect` put it in the
+/// frame that draws that answer (1.2 ms of that frame's 21.8 on the main thread with 120
+/// sessions listed). A window that hides, closes or quits before then writes it at once.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+enum SavedWrite {
+    #[default]
+    Idle,
+    /// Due at `at` (the app's clock, seconds).
+    Owed { at: f64 },
+}
+
+/// How long after the server's answer the saved first screen is written.
+const SAVED_WRITE_AFTER: Duration = Duration::from_secs(2);
+
 #[derive(Default)]
 pub struct Launch {
     network_change: Option<std::sync::Arc<network::Change>>,
+    saved_write: SavedWrite,
     #[cfg(not(target_arch = "wasm32"))]
     engine_fetch: EngineFetch,
     /// A quiet poll for network deliveries; unlike an image completion, the inbox
@@ -214,11 +235,11 @@ pub struct Launch {
     pub inbox_wake: Option<rune::Waker>,
     /// Each server's launch, many at once: every server the window has a half of (`servers::runtime`).
     phases: std::collections::HashMap<ServerId, Phase>,
-    /// Restored session id whose cached boot-preview messages painted on frame 0 and settle on the
+    /// The restored session whose cached boot-preview messages painted on frame 0 and settle on the
     /// first live message page (`session::pages` or `session::events::incoming`). Independent of
     /// per-server `Phase`: set in `Waiting`, preserved across `Probing` and `Offline`, and still
     /// live in `Connected` until the async first message page lands.
-    pub cold_transcript: Option<String>,
+    pub cold_transcript: Option<crate::restore::ColdTranscript>,
     /// The session this window last began reading because its page showed it with nothing reading
     /// its messages (`App::read_shown_session`): asked once while it stays shown, so a failure isn't
     /// retried in a loop (the loading row's Retry asks again). Cleared when the route leaves it or
@@ -229,6 +250,11 @@ pub struct Launch {
     pub grace: Option<Duration>,
     /// The address the setup card names, in its story.
     pub story_addr: Option<String>,
+    /// The restored session's newest page, read beside the first reads, until `connect` hands it
+    /// to the session's reader.
+    pub early_page: Option<crate::session_pages::Early>,
+    /// The session list the first frame drew from the saved state, until the server's lands.
+    pub saved_list: Option<saved_list::SavedList>,
     /// The first reads' thread `setup` started before the first frame, for `on_ready`'s Start.
     #[cfg(not(target_arch = "wasm32"))]
     early: Option<Early>,
@@ -492,6 +518,7 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     started
 }
 
+
 /// Re-probes the local OpenCode server (including any fresh `service.json` written since launch).
 pub fn retry(s: &mut App, tx: &mut Tx) {
     step(s, LaunchEvent::Retry { quiet: false }, tx);
@@ -613,7 +640,22 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let changed = first_reads(s, tx);
     #[cfg(not(target_arch = "wasm32"))]
     engine_fetch(s);
+    saved_write(s);
     changed
+}
+
+/// Writes the saved first screen once it's due (`SavedWrite`): what the server lists now, for
+/// the next launch's first frame.
+fn saved_write(s: &mut App) {
+    let SavedWrite::Owed { at } = s.launch.saved_write else { return };
+    // The timer's wake may come a moment early.
+    if *s.clock + 0.05 < at {
+        return;
+    }
+    s.launch.saved_write = SavedWrite::Idle;
+    saved_list::save(s);
+    saved_catalog::save(s);
+    saved_gutters::save(s);
 }
 
 /// The first reads land at once (nothing animates in on the first load), then connect.
@@ -638,6 +680,12 @@ fn first_reads(s: &mut App, tx: &mut Tx) -> bool {
         }
     }
     let slow = first_reads_slow(s, tx);
+    // A server that took the connection after the state was read: the saved list stands in from here.
+    let stood_in = matches!(window_phase(s), Some(Phase::Probing { .. })) && saved_list::restore(s);
+    if stood_in {
+        tx.instant();
+    }
+    let slow = slow || stood_in;
     // Every poll comes here: the window's key is borrowed, not copied.
     let Some(Phase::Probing { rx, .. }) = window_phase(s) else { return slow };
     let ready = match rx.try_recv() {
@@ -648,10 +696,12 @@ fn first_reads(s: &mut App, tx: &mut Tx) -> bool {
             beta_tabs: None,
             first: Some(Err("The first server reads stopped".into())),
             refused: false,
+            page: None,
         },
     };
     let reached = ready.first.as_ref().map(Result::is_ok);
     let refused = ready.refused;
+    s.launch.early_page = ready.page;
     rune::marks::mark("server.answered");
     tx.instant();
     let Some(result) = ready.first else {

@@ -191,7 +191,7 @@ return out
 /// Puts the remembering `T`, `Number` and `Date` in front of the host's on service `t`.
 fn remembered(lua: &Lua, t: &Table) -> mlua::Result<()> {
     let host = (t.raw_get::<mlua::Function>("T")?, t.raw_get::<mlua::Function>("Number")?, t.raw_get::<mlua::Function>("Date")?);
-    let out: Table = lua.load(REMEMBERED).set_name("=I18n").call(host)?;
+    let out: Table = crate::chunk::load(lua, REMEMBERED).set_name("=I18n").call(host)?;
     for name in ["T", "Number", "Date"] {
         t.raw_set(name, out.raw_get::<mlua::Function>(name)?)?;
     }

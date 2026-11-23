@@ -14,6 +14,8 @@
 //! on a server) has none. `--launch-trace-why` prints, for each such frame, the elements that
 //! changed (stderr), so a change nobody sees can be named.
 //!
+//! `--launch-trace-shifts` counts the launch's layout shifts from the first frame on (`shifts`).
+//!
 //! `--launch-trace-quit <ms>` quits the app as its Quit command does, `ms` after the window
 //! shows live content (or after the first frame, when no server answers within
 //! [`CONTENT_WAIT`]), so a bench times the quit of a launch that settled.
@@ -136,8 +138,22 @@ fn echoes() -> bool {
 }
 
 /// The milestones `--launch-marks` prints.
-const MILESTONES: [&str; 8] =
-    ["main.entered", "window.created", "frame.first.presented", "text.complete", "input.ready", "server.answered", "content.live", "pixels.stable"];
+/// `content.rows` is the first frame with the open session's messages (the saved copy's, on a
+/// later launch), `sessions.rows` the first with sessions to list, `session.read.received` the
+/// server's answer with the open session's newest page.
+const MILESTONES: [&str; 11] = [
+    "main.entered",
+    "window.created",
+    "frame.first.presented",
+    "text.complete",
+    "input.ready",
+    "content.rows",
+    "sessions.rows",
+    "server.answered",
+    "content.live",
+    "session.read.received",
+    "pixels.stable",
+];
 
 /// Prints the milestones reached since the last call.
 fn echo() {
@@ -166,7 +182,8 @@ fn echo() {
         let epoch_us = BOOT.get().map_or(0, |b| (b.created.saturating_sub(116_444_736_000_000_000) / 10).saturating_add(at / 1_000));
         lines.push_str(&format!("launch-mark {name} {at} at={}.{:03}\n", epoch_us / 1_000, epoch_us % 1_000));
         printed |= 1 << i;
-    }    PRINTED.store(printed, Ordering::Relaxed);
+    }
+    PRINTED.store(printed, Ordering::Relaxed);
     if lines.is_empty() {
         return;
     }
@@ -202,11 +219,22 @@ pub fn drawn(rt: &rune::Runtime<App>) {
         return;
     }
     let s = &rt.state;
+    super::shifts::drawn(rt, BOOT.get().map_or(0, |b| Instant::now().checked_duration_since(b.at).unwrap_or_default().as_millis()));
     #[cfg(not(target_arch = "wasm32"))]
     let _ = FIRST_IO.get_or_init(|| (io_counters(), crate::flag("--launch-trace-threads").then(threads).unwrap_or_default()));
     let rows = s.painted_session().map_or(0, |(_, rows)| rows);
     if rows > 0 {
         mark("content.rows");
+    }
+    // The first frame with words in the composer: a key a bench posts as the window shows has
+    // landed in it (a restored draft has them from the first frame).
+    if !s.composer.text.is_empty() {
+        mark("composer.text");
+    }
+    // The first frame with sessions to list (Home's rows, the sidebar's): the saved list's on a
+    // later launch, else the server's.
+    if !s.sessions.is_empty() {
+        mark("sessions.rows");
     }
     let shows = rows > 0 || !matches!(*s.route, Route::Session { .. });
     if shows && !crate::launch::waiting(s) && !crate::launch::offline(s) {
@@ -364,6 +392,7 @@ pub fn finish(windows: usize) {
         "marks_ns": marks,
         "metrics": metrics,
         "notes": notes,
+        "shifts": super::shifts::json(&ns),
         "boot_record": crate::storage::boot_bytes().map(|(all, plugins)| serde_json::json!({ "bytes": all, "plugin_bytes": plugins })),
     });
     use std::io::Write;

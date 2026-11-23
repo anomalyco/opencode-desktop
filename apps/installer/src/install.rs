@@ -4,7 +4,7 @@ use std::fs::OpenOptions;
 use std::io::Write as _;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use win_install::{EXE, Product};
@@ -13,6 +13,7 @@ use win_install::{EXE, Product};
 static PAYLOAD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/payload.zip"));
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+const CREATE_SUSPENDED: u32 = 0x0000_0004;
 const DETACHED_PROCESS: u32 = 0x0000_0008;
 /// How long a running copy has to close on its own before setup ends it.
 const CLOSE_GRACE: Duration = Duration::from_secs(10);
@@ -74,7 +75,11 @@ pub fn run() -> i32 {
     }
     match install(&p, &root, args.desktop_shortcut, &|line| args.log(line)) {
         Ok(()) if args.launch => launch(&root, &args),
-        Ok(()) => 0,
+        Ok(()) => {
+            // Nobody waits on a silent install's last moment: Windows' check of the new exe is paid here.
+            first_start(&root, &args.log).join().ok();
+            0
+        }
         Err(e) => {
             args.log(&format!("couldn't install: {e}"));
             1
@@ -179,11 +184,42 @@ fn beside(root: &Path, what: &str) -> PathBuf {
     root.parent().unwrap_or(root).join(format!(".{name}.{what}"))
 }
 
+/// Makes a process from the installed exe and ends it before a line of it runs, on a thread of
+/// its own (as the updater does for a staged update: `features/updater/src/windows.rs`).
+///
+/// Windows Defender checks a new executable the first time a process is made from it, inside
+/// `CreateProcess`, before that process exists; opening, reading or mapping the file does not
+/// get the answer early. For this exe, unpacked as here into a folder Defender scans, that is
+/// 372,854 to 704,455 µs of the person's first start (the signed build of 23 Nov, n = 3; an
+/// unsigned one 900,000 µs). Windows keeps the answer for the file, so paid here, while the last
+/// page shows, their own first start (its Launch box, or the Start menu later) has its process
+/// after 2,000 to 3,500 µs (the updater's measure of the same call).
+pub fn first_start(root: &Path, log: &Option<PathBuf>) -> std::thread::JoinHandle<()> {
+    let (exe, args) = (root.join(EXE), Args { log: log.clone(), ..Args::default() });
+    std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        let child = Command::new(&exe).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).creation_flags(CREATE_SUSPENDED | CREATE_NO_WINDOW).spawn();
+        match child {
+            Ok(mut child) => {
+                child.kill().ok();
+                child.wait().ok();
+                args.log(&format!("Windows checked {} in {} µs", exe.display(), started.elapsed().as_micros()));
+            }
+            Err(e) => args.log(&format!("couldn't check {} ahead: {e}", exe.display())),
+        }
+    })
+}
 /// Starts the installed app, in the user's home folder, as its Start menu shortcut does.
+///
+/// Without `__COMPAT_LAYER`: Windows starts a setup program with its Program Compatibility
+/// Assistant's layer (`DetectorsAppHealth`) in the environment, and a process created with that
+/// variable runs with ntdll's shim engine (`apphelp.dll` hooking every module before `main`):
+/// the app's first start would take 6,320 µs longer than the Start menu's, and so would every
+/// start the app itself made afterwards (an update's relaunch).
 pub fn launch(root: &Path, args: &Args) -> i32 {
     let exe = root.join(EXE);
     let home = std::env::var_os("USERPROFILE").map_or_else(|| root.to_path_buf(), PathBuf::from);
-    match Command::new(&exe).current_dir(home).creation_flags(DETACHED_PROCESS).spawn() {
+    match Command::new(&exe).current_dir(home).env_remove("__COMPAT_LAYER").creation_flags(DETACHED_PROCESS).spawn() {
         Ok(child) => {
             args.log(&format!("started {} (pid {})", exe.display(), child.id()));
             0

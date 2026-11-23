@@ -358,11 +358,15 @@ impl RestoreHost for App {
     }
 
     fn is_cold_transcript(&self, id: &str) -> bool {
-        self.launch.cold_transcript.as_deref() == Some(id)
+        self.launch.cold_transcript.as_ref().is_some_and(|cold| cold.id == id)
     }
 
-    fn set_cold_transcript(&mut self, id: Option<String>) {
-        self.launch.cold_transcript = id;
+    fn set_cold_transcript(&mut self, cold: Option<ColdTranscript>) {
+        self.launch.cold_transcript = cold;
+    }
+
+    fn more_above(&self, id: &str) -> bool {
+        self.pages.more_above(id)
     }
 
     fn has_session(&self, id: &str) -> bool {
@@ -625,10 +629,16 @@ impl App {
     }
 
     pub fn save_on_close(&mut self) {
+        crate::launch::saved_list::save(self);
+        crate::launch::saved_catalog::save(self);
+        crate::launch::saved_gutters::save(self);
         save_on_close(self);
     }
 
     pub fn save_on_quit(&mut self) {
+        crate::launch::saved_list::save(self);
+        crate::launch::saved_catalog::save(self);
+        crate::launch::saved_gutters::save(self);
         save_on_quit(self);
     }
 

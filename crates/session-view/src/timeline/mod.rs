@@ -624,10 +624,11 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         .w_full()
         .scroll(ScrollSpec { stick_bottom: true })
         .scroll_fade(fade)
-        // A Tab stop that scrolls with the keys, as Desktop's `ScrollView` (`tabIndex={0}` and its
-        // own `onKeyDown`, `scroll-view.tsx:453-551`), with no ring: the rows inside show focus
-        // (opencode#65690). The header's controls follow it.
+        // It scrolls with the keys once a click focuses it but is no Tab stop, as Desktop's
+        // `ScrollView` (`tabIndex={-1}` and its own `onKeyDown`, `scroll-view.tsx`,
+        // opencode#65758), with no ring: the rows inside show focus (opencode#65690).
         .focusable(true)
+        .tab_index(-1)
         .role("region")
         .label_static(opencode_i18n::t!("ui.scrollView.ariaLabel"))
         .no_focus_ring()
@@ -635,6 +636,12 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         // rows under it clip at its bottom edge, where their fade starts (`below_sticky`), so
         // the panel's corners and ring show as they do without it.
         .children(header.map(|h| h.sticky_top(0.0)))
+        // With older messages still to land above, the rows stand at the viewport's end even while
+        // they are shorter than it (a restored session's saved last turns in a tall window, a
+        // newest page of short messages): where they stay once the rest is above them. Without
+        // this they started at the top and moved down by what the viewport had left (70 pt in a
+        // 1200 px window) when the server's page landed. A whole short session starts at the top.
+        .children(s.more_above(id).then(|| el().key("above").grow(1.0)))
         .child(stack);
     // Near its top, older messages load above what's on screen.
     if let Some(top) = s.watch_scroll_top(id) {
