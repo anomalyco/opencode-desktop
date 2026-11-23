@@ -46,7 +46,8 @@ libc = { version = "0.2", optional = true }
 memchr = { version = "2", optional = true }
 
 # The engine's socket: AF_UNIX, in Windows 10 1803 and later. `windows`: the background download's
-# thread priority and its pause checks (power line, connection cost); whether commit memory was short when the engine ended;
+# thread priority and its pause checks (power line, connection cost), the warm-up's wait for a still keyboard and
+# its peak memory; whether commit memory was short when the engine ended;
 # DPAPI `CryptUnprotectData` for Windows Chromium cookie import.
 [target.'cfg(windows)'.dependencies]
 authenticode = { path = "../authenticode", optional = true }
@@ -64,8 +65,10 @@ windows = { version = "0.62", optional = true, features = [
     "Win32_System_SystemInformation",
     "Win32_Storage_FileSystem",
     "Win32_System_Power",
+    "Win32_System_ProcessStatus",
     "Win32_System_Registry",
     "Win32_System_Threading",
+    "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
 ] }
 
