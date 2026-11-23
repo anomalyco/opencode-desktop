@@ -50,6 +50,7 @@ pub const VARIANTS: &[(&str, usize)] = &[
     ("GPU textured quad", 29),
     ("GPU post-process", 30),
     ("GPU maze, HUD in a stack", 31),
+    ("Backdrop, still", 32),
 ];
 pub const KEYS: &[Trigger] = &[
     replay(open),
@@ -258,6 +259,9 @@ function tap(state, p) {
 /// drawing with `widget.gpu`: their story names and templates.
 const GPU: [(&str, &str); 4] = [("story-gpu-cube", "cube"), ("story-gpu-quad", "textured-quad"), ("story-gpu-post", "post-process"), ("story-gpu-maze", "maze")];
 
+/// The aurora backdrop at speed 0 (`fps: 0`): drawn once, then only when its `values` change.
+const STILL: &str = "story-backdrop-still";
+
 const OLDER: &str = "story-older";
 const NEWER: &str = "story-newer";
 
@@ -334,6 +338,7 @@ fn widget_template(v: usize) -> &'static str {
         26 => OLDER,
         27 => NEWER,
         28..=31 => GPU[v - 28].0,
+        32 => STILL,
         _ => "suggestions",
     }
 }
@@ -409,6 +414,7 @@ fn data(v: usize) -> (&'static str, Value) {
         29 => ("Textured quad", json!({})),
         30 => ("Post-process", json!({})),
         31 => ("Maze", json!({})),
+        32 => ("Aurora, still", json!({ "title": "Northern lights", "text": "A shader drawn once: its speed is 0.", "preset": "aurora" })),
         16 => ("Delete the branch", json!({ "title": "Delete feature/reconnect-backoff?", "message": "The branch is merged into `main`." })),
         _ => ("Pick a hero image", json!({
             "title": "Which hero image should the landing page use?",
@@ -463,6 +469,9 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     preload(s, OLDER, &version(OLDER), &format!("{older}\nfunction view(state, data) {{ return ui.text(\"never shown\") }}"), "step", &Value::Null);
     let newer = fixtures::PRELUDE.replacen("const __widget_protocol = 2", "const __widget_protocol = 3", 1);
     preload(s, NEWER, &version(NEWER), &format!("{newer}\n{}\nasync function main(data) {{ widget.render(ui.text(\"never shown\")) }}", fixtures::LIVE_PRELUDE), "live", &Value::Null);
+    // The backdrop starting still: a later `init` replaces the template's.
+    let still = format!("{}\nfunction init(data) {{ return {{ speed: 0 }} }}", fixtures::source("backdrop").unwrap_or_default());
+    preload(s, STILL, &version(STILL), &fixtures::served("step", &still), "step", &Value::Null);
     for (name, template) in GPU {
         let source = fixtures::gpu_template(template).unwrap_or_default();
         preload(s, name, &version(name), &fixtures::served("live", source), "live", &Value::Null);
