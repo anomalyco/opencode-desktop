@@ -5,9 +5,9 @@
 //! asked, and nothing when nothing is. A `Shorthand` skips a frame while its last is still
 //! drawing: the worker tries it again shortly. One too slow (over 50 ms a frame, three in a row)
 //! stops on its last frame: the window shows it frozen. One whose frame hangs (still unfinished
-//! 1 s after its submit) stops with its placeholder for good, a loss after it included: the
-//! worker looks at a frame about once a display frame while it may still be drawing. It submits
-//! one frame at a time, so it can't be stuck submitting while the GPU hangs.
+//! 250 ms after its submit, `widget_gpu::HANG`) stops with its placeholder for good, a loss after
+//! it included: the worker looks at a frame about once a display frame while it may still be
+//! drawing. It submits one frame at a time, so it can't be stuck submitting while the GPU hangs.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
