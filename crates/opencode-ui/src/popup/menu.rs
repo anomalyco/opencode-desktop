@@ -551,5 +551,7 @@ pub(super) fn hug_width(menu: &Menu) -> f32 {
         Entry::Sub(sub) => sub.glyph.map_or(0.0, |_| 16.0 + MENU.gap) + w(&sub.title, label) + MENU.gap + 16.0,
         Entry::Separator => 0.0,
     });
-    rows.fold(0.0, f32::max) + menu.item_inset.unwrap_or(MENU.pad_l) + menu.item_end.unwrap_or(MENU.pad_r) + 2.0 * MENU.inset + 2.0
+    // `w-max` with no border (`menu.css:6-18`: the ring is the box shadow, outside the box). A label
+    // as wide as its text fits: text fades only past half a point over.
+    rows.fold(0.0, f32::max) + menu.item_inset.unwrap_or(MENU.pad_l) + menu.item_end.unwrap_or(MENU.pad_r) + 2.0 * MENU.inset
 }
