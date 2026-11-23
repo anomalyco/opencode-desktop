@@ -1,7 +1,7 @@
 //! `opencode-desktop --apply-update …`: the app's own executable as the Windows update helper. It
 //! puts a staged update in place once the app has exited, since Windows locks a running
-//! program's files (see `windows.rs` for the install model). The app copies the staged version's
-//! executable into the updates folder and starts it:
+//! program's files (see `windows.rs` for the install model). The app hard-links the staged version's
+//! executable into the updates folder (a copy across volumes) and starts it:
 //!
 //! ```text
 //! opencode-desktop.exe --apply-update --wait <pid> --root <install> --staged <next>
