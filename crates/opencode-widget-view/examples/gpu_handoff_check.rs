@@ -46,7 +46,7 @@ mod mac {
         let adapters = block(instance.enumerate_adapters(wgpu::Backends::METAL));
         let adapter = adapters.into_iter().find(|a| unsafe { a.as_hal::<wgpu::hal::api::Metal>() }.is_some_and(|h| std::ptr::eq(h.raw_device() as *const _ as *const u8, raw))).expect("the stock adapter on Rune's MTLDevice");
         let (device, queue) = block(adapter.request_device(&wgpu::DeviceDescriptor { required_limits: gpu::device_limits(), ..Default::default() })).expect("a stock device");
-        ((rd, rq), Device { device, queue, format: wgpu::TextureFormat::Bgra8Unorm, copies: true, aborts: None })
+        ((rd, rq), Device { device, queue, format: wgpu::TextureFormat::Bgra8Unorm, copies: true })
     }
 
     fn ops(v: serde_json::Value) -> Vec<Arg> {

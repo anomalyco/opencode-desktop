@@ -60,7 +60,7 @@ pub(super) fn provide<S>(provided: &mut Option<DeviceKey>, f: &Frame<'_, S>) {
         return;
     }
     let format = widget_gpu_format(device.adapter_info().backend);
-    run::provide(move || Some(Device { device: device.clone(), queue: queue.clone(), format, copies: false, aborts: None }));
+    run::provide(move || Some(Device { device: device.clone(), queue: queue.clone(), format, copies: false }));
     if had && let Some(g) = run::generation() {
         run::lose(g, "unknown", None);
     }

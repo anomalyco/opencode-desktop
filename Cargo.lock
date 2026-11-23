@@ -3607,7 +3607,6 @@ dependencies = [
  "procwatch",
  "project-icon",
  "rune",
- "rune-gpu",
  "rune-kit",
  "rune-knobs",
  "rune-luau",

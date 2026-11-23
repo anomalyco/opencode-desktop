@@ -1,7 +1,7 @@
 //! The GPU hang watch (`widgets-gpu.md`, GPU hang): live runs' GPU work is looked at about once a
 //! display frame (`widget_gpu::Gpu::poll`) on a thread of its own, which never submits, so a run
 //! stuck submitting or waiting while the GPU hangs can't keep it from looking. It looks only while
-//! some run's work may be unfinished, and once after, and sleeps otherwise until a run submits.
+//! some run's work may be unfinished, and sleeps otherwise until a run submits.
 
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::Duration;
@@ -56,9 +56,6 @@ impl Watch {
     }
 
     fn run(&self) {
-        // Some run was busy at the last look: each is looked at once more, as work seen finished
-        // may have been aborted (`widget_gpu::Aborts`).
-        let mut was = false;
         loop {
             let (runs, seen) = {
                 let mut st = self.lock();
@@ -70,11 +67,8 @@ impl Watch {
                 if run.busy() {
                     busy = true;
                     run.look();
-                } else if was {
-                    run.look();
                 }
             }
-            was = busy;
             drop(runs);
             let st = self.lock();
             if busy {

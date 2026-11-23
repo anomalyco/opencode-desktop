@@ -82,10 +82,7 @@ impl RunGpu {
     fn start(&self, device: Option<&Device>) {
         let mut inner = self.lock();
         let gpu = device.and_then(|d| match Gpu::new(d.device.clone(), d.queue.clone(), d.format) {
-            Ok(mut g) => {
-                g.set_aborts(d.aborts.clone());
-                Some(g)
-            }
+            Ok(g) => Some(g),
             Err(e) => {
                 eprintln!("widget gpu: {e}");
                 None
@@ -273,10 +270,7 @@ impl Lost for RunGpu {
                 gpu.lost();
             }
             let reset = match (inner.gpu.as_mut(), next) {
-                (Some(gpu), Some(d)) => {
-                    gpu.set_aborts(d.aborts.clone());
-                    gpu.reset(d.device.clone(), d.queue.clone()).map_err(|e| eprintln!("widget gpu: {e}")).is_ok()
-                }
+                (Some(gpu), Some(d)) => gpu.reset(d.device.clone(), d.queue.clone()).map_err(|e| eprintln!("widget gpu: {e}")).is_ok(),
                 _ => false,
             };
             if !reset {
