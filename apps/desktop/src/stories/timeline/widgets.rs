@@ -46,6 +46,10 @@ pub const VARIANTS: &[(&str, usize)] = &[
     ("Stack HUD", 25),
     ("Older widget runtime", 26),
     ("Newer widget runtime (live)", 27),
+    ("GPU cube", 28),
+    ("GPU textured quad", 29),
+    ("GPU post-process", 30),
+    ("GPU maze, HUD in a stack", 31),
 ];
 pub const KEYS: &[Trigger] = &[
     replay(open),
@@ -250,6 +254,10 @@ function tap(state, p) {
 
 /// Programs built for another protocol (`widgets.md`, Protocol): refused without running, with no
 /// Try again or Restart. The older one has no protocol line (protocol 1); the newer one says 3.
+/// The GPU example widget templates (`widgets-gpu.md`; `fixtures::gpu_template`), live programs
+/// drawing with `widget.gpu`: their story names and templates.
+const GPU: [(&str, &str); 4] = [("story-gpu-cube", "cube"), ("story-gpu-quad", "textured-quad"), ("story-gpu-post", "post-process"), ("story-gpu-maze", "maze")];
+
 const OLDER: &str = "story-older";
 const NEWER: &str = "story-newer";
 
@@ -325,6 +333,7 @@ fn widget_template(v: usize) -> &'static str {
         25 => HUD,
         26 => OLDER,
         27 => NEWER,
+        28..=31 => GPU[v - 28].0,
         _ => "suggestions",
     }
 }
@@ -396,6 +405,10 @@ fn data(v: usize) -> (&'static str, Value) {
         25 => ("Signal field", json!({})),
         26 => ("Release checklist", json!({})),
         27 => ("Orbit", json!({})),
+        28 => ("Cube", json!({})),
+        29 => ("Textured quad", json!({})),
+        30 => ("Post-process", json!({})),
+        31 => ("Maze", json!({})),
         16 => ("Delete the branch", json!({ "title": "Delete feature/reconnect-backoff?", "message": "The branch is merged into `main`." })),
         _ => ("Pick a hero image", json!({
             "title": "Which hero image should the landing page use?",
@@ -450,6 +463,10 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     preload(s, OLDER, &version(OLDER), &format!("{older}\nfunction view(state, data) {{ return ui.text(\"never shown\") }}"), "step", &Value::Null);
     let newer = fixtures::PRELUDE.replacen("const __widget_protocol = 2", "const __widget_protocol = 3", 1);
     preload(s, NEWER, &version(NEWER), &format!("{newer}\n{}\nasync function main(data) {{ widget.render(ui.text(\"never shown\")) }}", fixtures::LIVE_PRELUDE), "live", &Value::Null);
+    for (name, template) in GPU {
+        let source = fixtures::gpu_template(template).unwrap_or_default();
+        preload(s, name, &version(name), &fixtures::served("live", source), "live", &Value::Null);
+    }
     preload(s, HUD, &version(HUD), &format!("{}\n{HUD_SOURCE}", fixtures::PRELUDE), "step", &Value::Null);
     preload(s, DRAG, &version(DRAG), &fixtures::served("live", DRAG_SOURCE), "live", &Value::Null);
     preload(s, FAILING, &version(FAILING), &fixtures::served("live", FAILING_SOURCE), "live", &Value::Null);
