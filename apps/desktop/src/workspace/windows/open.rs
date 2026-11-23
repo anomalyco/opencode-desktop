@@ -200,9 +200,12 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
             crate::storage::presented();
             // Stream batches wake the window for a quiet poll, which draws only what they change.
             let wake = crate::launch::inbox_waker(ready.clone());
+            // The web has no browser engine: nothing for its messages to wake.
+            #[cfg(not(target_arch = "wasm32"))]
             let browser = crate::launch::browser_waker(ready.clone());
             ready.update_if(move |s, tx| {
                 s.launch.inbox_wake = Some(wake);
+                #[cfg(not(target_arch = "wasm32"))]
                 s.workspace_panes.browser.host.set_message_waker(browser);
                 crate::launch::ready(s, tx)
             })
