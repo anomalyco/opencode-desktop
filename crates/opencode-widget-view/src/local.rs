@@ -135,9 +135,9 @@ impl Local {
         self.shown
     }
 
-    /// The widget came on screen, or left it.
-    pub fn set_shown(&mut self, on: bool) {
-        self.shown = on;
+    /// The widget came on screen, or left it. Whether that changed.
+    pub fn set_shown(&mut self, on: bool) -> bool {
+        std::mem::replace(&mut self.shown, on) != on
     }
 
     /// A live program drew canvas `id` of `view`: it shows `commands` until the next draw.
@@ -221,17 +221,19 @@ impl Local {
     }
 
     /// Canvas `path` was laid out at `rect` (window points). Full screen, moving it (a scroll)
-    /// draws it again, as the close button's area over it moved.
-    pub fn canvas_laid(&mut self, path: &str, [x, y, w, h]: [f32; 4]) {
+    /// draws it again, as the close button's area over it moved. Whether its size changed.
+    pub fn canvas_laid(&mut self, path: &str, [x, y, w, h]: [f32; 4]) -> bool {
         let close = self.close.is_some();
         let c = self.canvases.entry(path.to_owned()).or_default();
         let moved = c.origin != Some([x, y]);
+        let resized = c.size != Some([w, h]);
         c.origin = Some([x, y]);
         c.step(CanvasEvent::Resized([w, h]));
         if close && moved {
             c.step(CanvasEvent::Changed);
         }
         self.version += 1;
+        resized
     }
 
     /// The shader at `path` was laid out at `[x, y]` (window points).

@@ -36,7 +36,12 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, height:
     let Some(hooks) = cx.hooks.cloned() else { return b };
     let lens = hooks.local.clone();
     let key = path.to_owned();
-    b = b.on_layout(move |s: &mut S, rect| (lens)(s).canvas_laid(&key, rect));
+    b = b.on_layout_tx(move |s: &mut S, rect, tx: &mut Tx| {
+        // A live program's frame may wait for this size: the widgets' poll runs at the next frame.
+        if (lens)(s).canvas_laid(&key, rect) {
+            tx.wake_at(tx.clock());
+        }
+    });
     let (lens, key) = (hooks.local.clone(), path.to_owned());
     b = b.on_visible(move |s: &mut S, on, _tx: &mut Tx| (lens)(s).canvas_event(&key, Event::Seen(if on { Sight::Shown } else { Sight::Hidden })));
     // In a stack, a canvas that takes no input lets the pointer through to the layer below.

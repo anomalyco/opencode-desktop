@@ -296,11 +296,6 @@ impl Canvases {
         }
     }
 
-    /// Whether something wakes the window when a frame reaches it ([`Canvases::wake`]).
-    pub fn wakes(&self) -> bool {
-        self.wake.is_some()
-    }
-
     /// Wakes the window: a frame it shows reached it.
     pub fn wake(&self) {
         if let Some(wake) = &self.wake {

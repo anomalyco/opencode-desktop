@@ -184,7 +184,13 @@ pub fn frame<S: 'static>(look: &Look, local: &Local, hooks: Option<&Hooks<S>>, f
     // Whether it shows: a live widget runs only while it does.
     if let Some(h) = hooks {
         let lens = h.local.clone();
-        frame = frame.on_visible(move |s: &mut S, on, _tx: &mut Tx| (lens)(s).set_shown(on));
+        frame = frame.on_visible(move |s: &mut S, on, tx: &mut Tx| {
+            // A live run starts, pauses or resumes, and gets its frames, as it shows: the widgets'
+            // poll runs at the next frame.
+            if (lens)(s).set_shown(on) {
+                tx.wake_at(tx.clock());
+            }
+        });
     }
     if let (Some(h), Face::Live { live: true, .. }) = (hooks, face) {
         frame = keyboard(look, local, h, frame);

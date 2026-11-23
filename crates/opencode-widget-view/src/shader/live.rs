@@ -201,8 +201,8 @@ impl Live {
                 t.version = 1;
             }
         }
-        // Without a listener to wake it (a `wgsl` canvas), the window looks again next frame.
-        if !canvases.wakes() && rings.pending(canvases, id) {
+        // A frame on its way: the window draws until it shows, as it does a run's own texture.
+        if rings.pending(canvases, id) {
             self.animating = true;
         }
     }

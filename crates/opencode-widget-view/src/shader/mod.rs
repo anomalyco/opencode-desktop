@@ -270,6 +270,9 @@ fn slot<S: 'static>(cx: &Cx<S>, b: El, path: &str, id: Option<&str>, mark: u32) 
             return;
         }
         local.set_size(&skey, [w, hgt]);
+        // A live program's frame may wait for this size, and its GPU canvas's size goes to it:
+        // the widgets' poll runs at the next frame.
+        tx.wake_at(tx.clock());
     });
     // In a stack, a GPU canvas that takes no input lets the pointer through to the layer below.
     if cx.layered && id.is_none() {
