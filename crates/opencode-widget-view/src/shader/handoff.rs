@@ -31,6 +31,9 @@ use super::live::{MetalShare, RawEvent};
 /// to copy into (measured: `gpu_handoff_check`).
 pub const SLOTS: usize = 3;
 
+/// Rings made so far: the next one's generation.
+static GENERATIONS: AtomicU64 = AtomicU64::new(0);
+
 /// The rings, by run and canvas id.
 pub struct Rings {
     share: MetalShare,
@@ -55,7 +58,8 @@ struct Ring {
     reads: u64,
     /// The run's newest frame wasn't copied yet: no slot was free.
     behind: bool,
-    /// Moves when the slots change: the window wraps them again.
+    /// New with each ring, never reused, even for a ring made again for the same run and canvas
+    /// (a run restored from its snapshot, a new device): the window wraps its slots again.
     generation: u64,
 }
 
@@ -94,7 +98,7 @@ impl Rings {
     fn ring<'a>(&self, rings: &'a mut HashMap<(usize, String), Ring>, run: &Arc<Canvases>, queue: &wgpu::Queue, id: &str, c: &Canvas) -> Option<&'a mut Ring> {
         let key = (Arc::as_ptr(run) as usize, id.to_owned());
         if rings.get(&key).is_none_or(|r| r.source != c.texture) {
-            let generation = rings.get(&key).map_or(0, |r| r.generation + 1);
+            let generation = GENERATIONS.fetch_add(1, Ordering::Relaxed);
             let device = run.device()?;
             let desc = wgpu::TextureDescriptor {
                 label: Some("widget gpu canvas slot"),
