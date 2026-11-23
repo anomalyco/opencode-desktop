@@ -231,6 +231,9 @@ pub struct Launch {
     pub grace: Option<Duration>,
     /// The address the setup card names, in its story.
     pub story_addr: Option<String>,
+    /// The restored session's newest page, read beside the first reads, until `connect` hands it
+    /// to the session's reader.
+    pub early_page: Option<crate::session_pages::Early>,
     /// The session list the first frame drew from the saved state, until the server's lands.
     pub saved_list: Option<saved_list::SavedList>,
     /// The first reads' thread `setup` started before the first frame, for `on_ready`'s Start.
@@ -653,10 +656,12 @@ fn first_reads(s: &mut App, tx: &mut Tx) -> bool {
             beta_tabs: None,
             first: Some(Err("The first server reads stopped".into())),
             refused: false,
+            page: None,
         },
     };
     let reached = ready.first.as_ref().map(Result::is_ok);
     let refused = ready.refused;
+    s.launch.early_page = ready.page;
     rune::marks::mark("server.answered");
     tx.instant();
     let Some(result) = ready.first else {

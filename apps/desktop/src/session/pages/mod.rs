@@ -138,6 +138,19 @@ pub struct Page {
 #[derive(Clone, PartialEq, Eq)]
 struct Job { key: Key, cursor: Option<String>, limit: usize, foreground: bool }
 
+/// A page read before its reader existed: the launch reads the restored session's newest page
+/// beside its first reads, a round trip before the window connects and can ask. The reader's
+/// ask for `path` takes `value` instead of reading it again, while it is fresh.
+pub struct Early {
+    pub path: String,
+    pub value: Value,
+    pub read: Instant,
+}
+
+/// How long an early page stands in for a read: the launch's own connect comes milliseconds
+/// after it; a session opened later than this reads its page anew.
+const EARLY_FRESH: Duration = Duration::from_secs(10);
+
 /// Whether the open lane's reads are getting answers, or since when they began failing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum LaneHealth { #[default] Healthy, Stalled { since: Instant } }
@@ -218,12 +231,29 @@ impl Pages {
         q.ready.extend(ready);
         (Self { shared: Arc::new((Mutex::new(QueueState::Running(Box::new(q))), Condvar::new())), results, wake: None, server: String::new(), #[cfg(target_arch = "wasm32")] lanes: None }, send)
     }
-    pub fn live(server: Server, wake: Waker) -> Self {
+    pub fn live(server: Server, wake: Waker, early: Option<Early>) -> Self {
         let base = server.base.clone();
-        let mut pages = Self::new(Arc::new(move |path| server.read_timed(path).map(|(value, t)| {
-            crate::telemetry::note_read(t.first_byte, t.bytes, t.parsing);
-            value
-        })), wake);
+        let early = Mutex::new(early);
+        let mut pages = Self::new(Arc::new(move |path| {
+            let taken = {
+                let mut slot = early.lock().unwrap_or_else(PoisonError::into_inner);
+                match &*slot {
+                    Some(e) if e.read.elapsed() >= EARLY_FRESH => {
+                        *slot = None;
+                        None
+                    }
+                    Some(e) if e.path == path => slot.take(),
+                    _ => None,
+                }
+            };
+            if let Some(early) = taken {
+                return Ok(early.value);
+            }
+            server.read_timed(path).map(|(value, t)| {
+                crate::telemetry::note_read(t.first_byte, t.bytes, t.parsing);
+                value
+            })
+        }), wake);
         pages.server = base;
         pages
     }

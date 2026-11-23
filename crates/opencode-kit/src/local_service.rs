@@ -178,6 +178,21 @@ fn discover_with_service(default: &Server, explicit_env_url: bool, svc: Option<L
     reg.unwrap_or(fallback)
 }
 
+/// The background service `service.json` registers, as a server to talk to, with nothing asked
+/// of it: none when `OPENCODE_SERVER_URL` names the server, or no registration is there. A
+/// launch reads from it at once; whether it is OpenCode's is what its answers say, and one
+/// that fails them is looked for again the long way ([`discover_local_server`]).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn registered(default: &Server) -> Option<Server> {
+    // Public standalone discovery API; opencode-kit has no app config.rs layer.
+    #[allow(clippy::disallowed_methods)]
+    let explicit_env_url = std::env::var("OPENCODE_SERVER_URL").ok().is_some_and(|v| !v.trim().is_empty());
+    if explicit_env_url {
+        return None;
+    }
+    read_local_service().map(|svc| candidate_for_service(&svc, default.media_refs))
+}
+
 /// Resolves the app's own local OpenCode server when `--server` was not passed: prefers a
 /// registered background service in `service.json` when it answers `/api/info`, falls back to
 /// `http://127.0.0.1:4096` (with `OPENCODE_SERVER_PASSWORD` if set) only when no registration
