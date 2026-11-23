@@ -13,6 +13,7 @@ use rune::{Key, KeyEvent, KeyPlatform, Keybind, Mods, Tx};
 
 pub mod base;
 pub mod overrides;
+pub mod sequence;
 pub mod view;
 
 pub use base::{caps, label, sentence};
@@ -374,13 +375,20 @@ impl Bind {
         &self.binding().keybind
     }
 
-    /// Whether `ev` is one of this command's chords here; see `Keybind::matches`.
+    /// Whether `ev` is one of this command's chords here; see `Keybind::matches`. While a key
+    /// chord's command is fired (`sequence::with_fired`), whether this is that command.
     pub fn matches(self, ev: &KeyEvent) -> bool {
+        if let Some(fired) = sequence::fired_is(self.id()) {
+            return fired;
+        }
         self.keybind().matches(ev) || control_char(ev).is_some_and(|ev| self.keybind().matches(&ev))
     }
 
     /// `matches`, following the keyboard layout (`Keybind::matches_tx`); use it in key handlers.
     pub fn matches_tx(self, ev: &KeyEvent, tx: &Tx) -> bool {
+        if let Some(fired) = sequence::fired_is(self.id()) {
+            return fired;
+        }
         self.keybind().matches_tx(ev, tx) || control_char(ev).is_some_and(|ev| self.keybind().matches(&ev))
     }
 
@@ -389,14 +397,22 @@ impl Bind {
         Self::TABS.iter().position(|b| b.matches_tx(ev, tx))
     }
 
-    /// How the first chord reads here: "⇧⌘T" on macOS, "Ctrl+Shift+T" elsewhere. "" when unbound.
+    /// How the first chord reads here: "⇧⌘T" on macOS, "Ctrl+Shift+T" elsewhere, and a chord of
+    /// several strokes with a space between them ("Ctrl+K Ctrl+C"). "" when unbound.
     pub fn label(self) -> String {
-        self.chord().map_or_else(String::new, label)
+        match sequence::first(self.id()) {
+            Some(strokes) => sequence::label(&strokes),
+            None => self.chord().map_or_else(String::new, label),
+        }
     }
 
-    /// One string per keycap, modifiers first, as Desktop's keybind chips draw it.
+    /// One string per keycap, modifiers first, as Desktop's keybind chips draw it; a chord of
+    /// several strokes gives one per stroke.
     pub fn keycaps(self) -> Vec<String> {
-        self.chord().map_or_else(Vec::new, caps)
+        match sequence::first(self.id()) {
+            Some(strokes) => sequence::caps(&strokes),
+            None => self.chord().map_or_else(Vec::new, caps),
+        }
     }
 
     /// The first chord here, if any.
@@ -443,12 +459,18 @@ impl PluginBind {
 
     /// How the first chord reads here; "" when unbound.
     pub fn label(self) -> String {
-        self.chord().map_or_else(String::new, label)
+        match sequence::first(self.id) {
+            Some(strokes) => sequence::label(&strokes),
+            None => self.chord().map_or_else(String::new, label),
+        }
     }
 
-    /// One string per keycap, modifiers first.
+    /// One string per keycap, modifiers first; one per stroke for a chord of several.
     pub fn keycaps(self) -> Vec<String> {
-        self.chord().map_or_else(Vec::new, caps)
+        match sequence::first(self.id) {
+            Some(strokes) => sequence::caps(&strokes),
+            None => self.chord().map_or_else(Vec::new, caps),
+        }
     }
 
     /// The first chord as a menu item's key equivalent.
@@ -458,7 +480,7 @@ impl PluginBind {
 
     /// Whether `ev` is one of its chords here.
     pub fn matches(self, ev: &KeyEvent) -> bool {
-        self.keybind().matches(ev)
+        sequence::fired_is(self.id).unwrap_or_else(|| self.keybind().matches(ev))
     }
 }
 

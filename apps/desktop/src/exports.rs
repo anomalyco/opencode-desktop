@@ -12,7 +12,7 @@ pub(crate) use crate::shell::{
     commands,
     commands::type_to_compose,
     diag::{diagnostics, motion_log},
-    input::{escape, keymap, keys, shortcuts},
+    input::{escape, key_sequence, keymap, keys, shortcuts},
     menus::{add_menu, app_menu, menubar, popover, popup},
     narrow,
     nav::{history, layout_state, pinch, route},

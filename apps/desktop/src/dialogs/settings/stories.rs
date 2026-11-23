@@ -141,7 +141,7 @@ rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
     // Shortcuts recording Auto-accept permissions' chord.
     ("settings-shortcut-recording", |s| {
         on(s, Page::Shortcuts);
-        s.kernel.slots.get_mut(&super::SETTINGS_PAGES).shortcuts.capture = Some("permissions.autoaccept".into());
+        s.kernel.slots.get_mut(&super::SETTINGS_PAGES).shortcuts.capture = crate::settings::pages::shortcuts::Capture::Recording { id: "permissions.autoaccept".into(), prefix: Vec::new() };
     }),
     // Providers disconnect confirmation dialog.
     ("provider-disconnect", |s| {

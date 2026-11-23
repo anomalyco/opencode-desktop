@@ -477,7 +477,7 @@ pub fn close_settings(host: &mut dyn SettingsHost) {
     let was_open = host.settings_open();
     host.set_settings_open(false);
     search::clear(host);
-    host.settings_pages_mut().shortcuts.capture = None;
+    host.settings_pages_mut().shortcuts.capture = pages::shortcuts::Capture::Idle;
     host.settings_pages_mut().models_reveal = pages::models::Reveal::Idle;
     host.settings_pages_mut().console_expanded = false;
     host.settings_pages_mut().blur_fields();

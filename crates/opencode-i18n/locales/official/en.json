@@ -1737,6 +1737,7 @@
   "settings.server.unreachable.retry": "Retry",
   "settings.server.unreachable.title": "Can't reach {{server}}",
   "settings.servers.description": "Manage server connections",
+  "settings.shortcuts.addKey": "Add a key",
   "settings.shortcuts.conflict.description": "{{keybind}} is already assigned to {{titles}}.",
   "settings.shortcuts.conflict.title": "Shortcut already in use",
   "settings.shortcuts.description": "Customize shortcuts for common actions",
