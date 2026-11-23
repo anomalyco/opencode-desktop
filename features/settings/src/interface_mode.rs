@@ -104,9 +104,10 @@ fn card_shell(p: &Pal, layout: TabLayout, checked: bool) -> El {
         .children(checked.then(|| check_badge(p)))
 }
 
-/// `mode-option-check`: the chosen card's 16 pt check outside its top end corner, `icon-muted`
-/// with the ground's colour inked, in a 2 pt ring of `layer-01`. Selection is a neutral border and
-/// this check, so it never reads as the blue keyboard ring (opencode#64909).
+/// `mode-option-check`: the chosen card's 16 pt check outside its top end corner, the accent blue
+/// with `text-contrast` inked, in a 2 pt ring of `layer-01` (opencode#65757; `icon-muted` on the
+/// ground's colour before). The card's border stays neutral, so it never reads as the blue
+/// keyboard ring (opencode#64909).
 pub(crate) fn check_badge(p: &Pal) -> El {
     let c = &kit(p).c;
     el().key("check")
@@ -114,10 +115,10 @@ pub(crate) fn check_badge(p: &Pal) -> El {
         .size(16.0, 16.0)
         .radius(8.0)
         .center()
-        .fill(c.icon_muted)
+        .fill(c.bg_accent)
         .box_shadow(rune::Shadow { spread: 2.0, color: c.layer_01, ..rune::Shadow::default() })
         .a11y_hidden()
-        .child(rune::icon(&rune_theme_opencode::icons::CHECK_SMALL, 16.0).color(c.bg_base))
+        .child(rune::icon(&rune_theme_opencode::icons::CHECK_SMALL, 16.0).color(c.text_contrast))
 }
 
 /// `interface-mode-sketch`: a 52pt window in miniature, 10pt in from the card's top and sides,
