@@ -7,6 +7,7 @@
 mod exec;
 pub mod express;
 mod frames;
+mod loading;
 mod session;
 mod start_gate;
 mod suppression;
@@ -59,6 +60,14 @@ pub(super) enum WorkerMsg {
         session_id: String,
         attempt: u64,
         outcome: AttachOutcome,
+    },
+    /// The session's Location answered its plugin list (`AttachEffect::ListPlugins`): `any` when
+    /// it names a plugin.
+    PluginsListed {
+        server_key: ServerKey,
+        session_id: String,
+        attempt: u64,
+        any: bool,
     },
     CommandFetched {
         server_key: ServerKey,
@@ -334,6 +343,16 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
                 let st = app.kernel.slots.get_mut(&BROWSER_RPC);
                 if let Some(att) = st.sessions.get_mut(&key) {
                     let effs = att.attach.step(AttachEvent::AttachEnded { attempt, outcome }, now);
+                    if !effs.is_empty() {
+                        pending_effects.push((key, effs));
+                    }
+                }
+            }
+            WorkerMsg::PluginsListed { server_key, session_id, attempt, any } => {
+                let key = (server_key, session_id);
+                let st = app.kernel.slots.get_mut(&BROWSER_RPC);
+                if let Some(att) = st.sessions.get_mut(&key) {
+                    let effs = att.attach.step(AttachEvent::PluginsListed { attempt, any }, now);
                     if !effs.is_empty() {
                         pending_effects.push((key, effs));
                     }
@@ -710,6 +729,9 @@ fn apply_batch_effects(
                         })
                         .ok();
                 }
+                // A Location the server has only just started lists no plugin until its plugins
+                // have loaded (`pane.ts` `loaded`, opencode#65720).
+                AttachEffect::ListPlugins { attempt } => loading::list_plugins(att, attempt, worker_tx.clone(), waker.clone()),
                 AttachEffect::AbortAttach { attempt } => {
                     if att.attach_abort.as_ref().is_some_and(|(a, _)| *a == attempt)
                         && let Some((_, abort)) = att.attach_abort.take()

@@ -20,6 +20,20 @@ pub const MAX_IN_FLIGHT_COMMANDS: usize = 16;
 const MAX_RECENT_REQUESTS: usize = 256;
 /// Minimum interval before an SSE-triggered retry (`plugin.updated` / `session.moved`) runs again.
 const MIN_EVENT_RETRY_INTERVAL: Duration = Duration::from_millis(1_000);
+/// How often, and for how long, the plugin list is asked while a Location the server has only
+/// just started loads its plugins (`pane.ts`, opencode#65720): ten seconds outlasts a server
+/// that starts every open project at once, as after an update.
+const PLUGINS_POLL: Duration = Duration::from_millis(100);
+const PLUGINS_WAIT: Duration = Duration::from_secs(10);
+
+/// Where the wait for a Location's plugins stands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PluginsPoll {
+    /// The plugin list was asked for; its answer is on its way.
+    Asked,
+    /// It listed no plugin; it is asked again at `next_at`.
+    Waiting { next_at: Instant },
+}
 
 /// Why a session is blocked from automatic re-attach until an explicit wake event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,6 +61,19 @@ pub enum AttachState {
         /// immediately following `AttachOutcome::Unavailable` retries right away instead of
         /// missing the `PRE-08` wake signal.
         plugin_updated: bool,
+        /// True for the attach that follows the wait for the Location's plugins
+        /// (`AttachState::Loading`): a server that still refuses has no browser.
+        after_load: bool,
+    },
+    /// The server refused a first attach with `rpc.unavailable`. A Location it has only just
+    /// started lists no plugin until its plugins have loaded, the browser's among them, so the
+    /// plugin list is asked until it names one, for at most ten seconds; then one more attach
+    /// decides (`pane.ts`, opencode#65720). Still connecting, as far as anything else can tell.
+    Loading {
+        attempt: u64,
+        failures: u32,
+        until: Instant,
+        poll: PluginsPoll,
     },
     /// Server completed permission grant and emitted `attached` v4; commands and state sync run.
     Attached {
@@ -89,6 +116,9 @@ pub enum AttachEvent {
     Control { frame: ControlFrame },
     /// Held `attach` HTTP request ended with `outcome`.
     AttachEnded { attempt: u64, outcome: AttachOutcome },
+    /// The plugin list asked for by `AttachEffect::ListPlugins` answered: `any` when it names a
+    /// plugin (a failed request names none).
+    PluginsListed { attempt: u64, any: bool },
     /// A timer tick at `now` (`Connecting` deadline or `Backoff` expiry).
     Tick,
     /// One command completed or was cancelled locally.
@@ -109,6 +139,8 @@ pub enum AttachEvent {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AttachEffect {
     StartAttach { attempt: u64, connection_id: String },
+    /// Ask the session's Location for its plugins and answer with `AttachEvent::PluginsListed`.
+    ListPlugins { attempt: u64 },
     AbortAttach { attempt: u64 },
     SendState { connection_id: String },
     FetchCommand { connection_id: String, request_id: String },
@@ -197,6 +229,7 @@ impl AttachMachine {
         match &self.state {
             AttachState::Connecting { deadline, .. } => Some(*deadline),
             AttachState::Backoff { next_at, .. } => Some(*next_at),
+            AttachState::Loading { poll: PluginsPoll::Waiting { next_at }, .. } => Some(*next_at),
             _ => None,
         }
     }
@@ -219,6 +252,7 @@ impl AttachMachine {
                 // or while parked in Idle/Unavailable/Unsupported/Backoff (`#63500` PRE-08).
                 AttachState::Idle
                 | AttachState::Connecting { .. }
+                | AttachState::Loading { .. }
                 | AttachState::Unavailable
                 | AttachState::Unsupported
                 | AttachState::Backoff { .. } => self.start_attach(now),
@@ -231,7 +265,8 @@ impl AttachMachine {
                     *plugin_updated = true;
                     Vec::new()
                 }
-                AttachState::Unavailable
+                AttachState::Loading { .. }
+                | AttachState::Unavailable
                 | AttachState::Unsupported
                 | AttachState::Backoff { .. } => self.start_attach_throttled(now),
                 _ => Vec::new(),
@@ -256,6 +291,7 @@ impl AttachMachine {
             },
             AttachEvent::Control { frame } => self.handle_control(frame),
             AttachEvent::AttachEnded { attempt, outcome } => self.handle_ended(attempt, outcome, now),
+            AttachEvent::PluginsListed { attempt, any } => self.handle_plugins_listed(attempt, any, now),
             AttachEvent::Tick => self.handle_tick(now),
             AttachEvent::CommandFinished { request_id } => {
                 if let AttachState::Attached { in_flight, recent, .. } = &mut self.state
@@ -299,6 +335,28 @@ impl AttachMachine {
     }
 
     fn start_attach_with_failures(&mut self, now: Instant, failures: u32) -> Vec<AttachEffect> {
+        self.start_attach_as(now, failures, false)
+    }
+
+    /// The plugin list answered while the Location's plugins load (`AttachState::Loading`): once
+    /// it names a plugin, or the wait is over, one more attach decides; else it is asked again.
+    fn handle_plugins_listed(&mut self, attempt: u64, any: bool, now: Instant) -> Vec<AttachEffect> {
+        let AttachState::Loading { attempt: cur, failures, until, poll } = &mut self.state else {
+            return Vec::new();
+        };
+        if *cur != attempt || *poll != PluginsPoll::Asked {
+            return Vec::new();
+        }
+        if any || now >= *until {
+            let failures = *failures;
+            return self.start_attach_as(now, failures, true);
+        }
+        let next_at = now + PLUGINS_POLL;
+        *poll = PluginsPoll::Waiting { next_at };
+        vec![AttachEffect::ScheduleTimer { at: next_at }]
+    }
+
+    fn start_attach_as(&mut self, now: Instant, failures: u32, after_load: bool) -> Vec<AttachEffect> {
         let mut effects = self.abort_current();
         self.next_attempt = self.next_attempt.saturating_add(1);
         self.last_attach_at = Some(now);
@@ -311,6 +369,7 @@ impl AttachMachine {
             failures,
             deadline,
             plugin_updated: false,
+            after_load,
         };
         effects.push(AttachEffect::StartAttach { attempt, connection_id });
         effects.push(AttachEffect::ScheduleTimer { at: deadline });
@@ -387,6 +446,8 @@ impl AttachMachine {
             }
             _ => (false, false, 0, false, Vec::new()),
         };
+        // A first refusal while connecting: the Location may still be loading its plugins.
+        let first_refusal = matches!(self.state, AttachState::Connecting { after_load: false, .. });
         if !matches_attempt {
             return Vec::new();
         }
@@ -406,6 +467,19 @@ impl AttachMachine {
                 // `plugin.updated` arrived while this cold attach was in flight (`PRE-08`):
                 // retry via throttled path so repeated rapid events cannot spin at 0 ms.
                 effects.extend(self.start_attach_throttled(now));
+                return effects;
+            }
+            // A Location still loading its plugins has no browser RPC to call yet, so only one
+            // that lists its plugins and still refuses has no browser (`pane.ts`, opencode#65720).
+            // An attachment the server accepted and then dropped stays dropped.
+            AttachOutcome::Unavailable if first_refusal => {
+                self.state = AttachState::Loading {
+                    attempt,
+                    failures: prev_failures,
+                    until: now + PLUGINS_WAIT,
+                    poll: PluginsPoll::Asked,
+                };
+                effects.push(AttachEffect::ListPlugins { attempt });
                 return effects;
             }
             AttachOutcome::Unavailable => {
@@ -455,6 +529,13 @@ impl AttachMachine {
             AttachState::Backoff { failures, next_at, .. } if now >= *next_at => {
                 let prev_failures = *failures;
                 self.start_attach_with_failures(now, prev_failures)
+            }
+            AttachState::Loading { attempt, poll: PluginsPoll::Waiting { next_at }, .. } if now >= *next_at => {
+                let attempt = *attempt;
+                if let AttachState::Loading { poll, .. } = &mut self.state {
+                    *poll = PluginsPoll::Asked;
+                }
+                vec![AttachEffect::ListPlugins { attempt }]
             }
             _ => Vec::new(),
         }
