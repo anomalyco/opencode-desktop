@@ -24,6 +24,7 @@ impl EngineManager {
     /// Windows: repaints each tab that dropped a frame while the app had every one unread,
     /// once it has read one.
     pub fn poll_frames(&mut self) {
+        crate::input_fps::relax(std::time::Instant::now());
         #[cfg(windows)]
         for t in self.tabs.values() {
             let Some(ring) = &t.frames else { continue };

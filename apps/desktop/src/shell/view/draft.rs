@@ -41,5 +41,6 @@ pub(crate) fn draft_page(s: &App, p: &Pal, width: f32) -> El {
         .child(col().key("draft-column").w_full().px(24.0).center().child(content))
         .child(el().key("below").grow(0.7))
         .children(s.diag.debug.then(|| status_bar(s, p, None)))
+        .children(super::home::tip::new_session(s, p))
         .children(crate::egg::view::over(s, p))
 }

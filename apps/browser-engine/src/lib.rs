@@ -34,6 +34,7 @@ mod diagnostics;
 mod favicon;
 mod frame_authority;
 mod find;
+mod input_fps;
 mod input_guard;
 mod media_gate;
 mod notification_gate;
