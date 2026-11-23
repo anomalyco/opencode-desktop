@@ -12,7 +12,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use psychoscript::{Compiled, DiagnosticKind, HostFunction, HostValue, Limits, Runtime, Translate, TranslateFunctions};
+use psychoscript::{Clock, Compiled, DiagnosticKind, HostFunction, HostValue, Limits, Runtime, Translate, TranslateFunctions};
 use serde_json::Value;
 
 use crate::draw::{Command, DRAW_TIMEOUT_MS, DrawOutput, Frame};
@@ -167,7 +167,8 @@ impl Program {
                         ("__widget_emit", HostFunction::new(move |args: Vec<HostValue>, _call| emit(&out, args, draws))),
                     ]
                 })
-                .limits(Limits { timeout_ms: Some(timeout_ms), max_heap_bytes: Some(MAX_HEAP_BYTES), max_value_depth: Some(MAX_VALUE_DEPTH), ..Default::default() })
+                // Budgets on the thread's CPU time: a loaded machine doesn't time a step or draw out.
+                .limits(Limits { timeout_ms: Some(timeout_ms), max_heap_bytes: Some(MAX_HEAP_BYTES), max_value_depth: Some(MAX_VALUE_DEPTH), clock: Clock::ThreadCpu, ..Default::default() })
         };
         let runtime = make(timeout_ms.clamp(1, STEP_TIMEOUT_MS), false);
         let drawing = make(DRAW_TIMEOUT_MS.min(timeout_ms.max(1)), true);
