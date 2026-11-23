@@ -36,6 +36,13 @@ trained on (commit, Rune rev, rustc, processes, functions that ran).
   with another `lto` or `debug` setting, or with another Rune pin, gets no counts from it. Extra
   flags must go through `RUSTFLAGS`, which is not in that hash (`release.ps1` does: the profile
   itself, and the line tables of a `symbols` build).
+- **After a Rune pin bump, move the counts instead of training again:**
+  `node scripts/pgo-rekey.mjs --counts <this profile> --names <an instrumented exe of the new code>`
+  `--out <this profile> --stamp <target>.txt --commit <sha> --rune <rev>`. It rewrites the crate hash
+  inside each symbol name, reads the new build's functions from the exe file (no run), and keeps a
+  function's counts when the new build has it with the same control-flow hash. On the 23 Nov bump
+  (81 crate hashes) 16,287 of 16,292 functions kept theirs. Train again when its report's
+  `code_changed` grows.
 - **Refresh it** before a release, when the app or Rune changed since `<target>.txt`'s commit (`release.ps1`
   prints how many app commits there have been), or after a Rust toolchain bump (the file format
   follows LLVM's): `pwsh apps/desktop/scripts/pgo.ps1 -Train "<training command>"`, then commit both
