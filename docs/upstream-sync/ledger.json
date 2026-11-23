@@ -5,7 +5,7 @@
   "upstream_head": "030e8d75d34b6167981f9c71964c4a4dbfeea2bc",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "c3fc7a0c09e5b471620508981f984bb8c942fa78",
+  "rune_desktop_head": "9bb1c98f90392083211ef6dc22f89a03eaae01e6",
   "post_1114_commit_count": 468,
   "post_1114_in_ledger": 171,
   "post_1114_skipped": 297,
@@ -20,10 +20,10 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 192,
   "status_counts": {
-    "have it": 165,
+    "have it": 166,
     "not applicable": 24,
     "differs on purpose": 1,
-    "partly": 2
+    "partly": 1
   },
   "rows": [
     {
@@ -2830,14 +2830,14 @@
       ],
       "summary": "Overhaul the desktop browser pane with one encrypted persistent profile, cookie import from 15 browsers + site chooser, remote partition/sharing, Settings > Browser, `oc-preview://` local/remote workspace & artifact previews, chat/terminal link routing + app-link review, full browser chrome (right-click, find, hard reload, pop-up blocking, notices, plain errors), in-app JS dialogs/permissions/HTTP auth, and hardened/upgraded agent browser tools (`tabs.open({ path })` replacing `browser.preview`, deep snapshots with field-value redaction, hidden screenshots, BuiltinPromptGate, deny rules, agent-driven tab isolation). (Chrome extensions tracked separately in UP-095-EXT under WS-9.)",
       "size": "XL",
-      "status": "partly",
-      "status_evidence": "WS-1 engine core: Phase 1 (#239, #245, #268, #272), Phase 3a (#277, #288, #291, #299), Fix PR 1 (#292 6d7a6ede remote proxy + isolation), and Fix PR 4 (#306 b5167f7e atomic OpenTab/TabSnapshot agent_driven across cold start/crash+Retry/promote/reconnect/3P plugins + TabDriver) merged on dev; Fix PR 3 (#305 site permissions, confirmed 3rd read merging new dev), controlled-tab Permissions-Policy + clipboard-write follow-up, Fix PRs 5-7, and Phase 3b (#286 OS cookie encryption) remain open.",
+      "status": "have it",
+      "status_evidence": "WS-1's engine core of the browser pane is merged on dev. Persistent profile with OS cookie encryption and the two-way remote sign-in mirror (#286, #353, #473, #486, #523; UP-151). Remote-server proxy and isolation (#292, #302). Agent-driven tab state (#306). Site permissions per context (#305). Downloads through the OS Save dialog and the download-only tab (#328, #581, #665). Passkey gate (#438, #440). File-picker takeover (#426). Granted frames (#451, #527). Media gate (#570, #590). Copy image, spellcheck and Languages (#578, #584). Chrome services official's Electron lacks turned off, with a fail-closed lock that respects company policy (#624, #682: password leak check). Agent and preview tabs never print, because a native print dialog stops the whole engine (#662). PDF viewer off (#652, BROWSER-UI). Clipboard writes refused on agent tabs (#643, BROWSER-UI). Chromium's OS sandbox on Windows and macOS (#622, ENGINE-TARGETS). Deliberate differences, in notes/upstream-sync/ours.md: the File System Access pickers are refused before any dialog (official opens a dialog whose read then fails and leaves an empty file on Save); window.print() does nothing on agent-driven and preview tabs (official shows a native dialog that blocks the page while nobody is watching).",
       "depends_on": "CEF engine updates + new signed browser engine publishes for macOS/Windows/Linux; Luau contract bump for Browser service; server `plugin-browser` alignment (or rune_mcp parity); Rune framework checks for extension popup anchoring",
       "risks": "HIGH SECURITY & ARCHITECTURE: (1) CEF OSR Alloy vs Chrome-runtime extension support spike required; (2) must NOT regress Rune's stricter URL/CDP/download security (`0b540fd8`, `a5a71a0d`, `344a2087`, `bb41d149`) and must address `no_sandbox: 1` (`engine.rs:100`); (3) cookie encryption is one-way; (4) `browser.preview` removal is breaking for scripts/prompts; (5) publishing signed macOS/Windows/Linux engines requires release signing keys and release workflow.",
       "workstream": "WS-1",
-      "open_pr_note": "PR #305 (ws1-fix3-permissions, merge-check fix + merging 6e98fc2b); controlled-tab stopgap / Permissions-Policy + clipboard-write follow-up; PR #286 (ws1-phase3b, held)",
+      "open_pr_note": "#653 (N12 permission locks, redirect guard), #767 (Chrome browser commands refused so pane keys reach the page; built-in AI APIs off): engine follow-ups, not parity gaps.",
       "rune_pr": "#239, #245, #268, #272, #277, #288, #291, #299, #292, #306",
-      "reviewed": "#292 confirmed (4th read); #306 confirmed (2nd read at e79c1306); #305 confirmed 3rd read at d590a0b1 (merge check at 5551ea60 needs ~4-line reopen_tab_as_* visit_permissions clear + dev merge); NOT SOUND TO SHIP (#245/#268/#272/#277/#288 retrospective findings still open in #305 + controlled-tab stopgap/Permissions-Policy/clipboard-write + Fix PRs 5-7); #286 held"
+      "reviewed": "#292, #306, #305 confirmed; #624, #662, #682 MERGE (READER-7); #665 MERGE (READER-12, READER-12b)"
     },
     {
       "id": "UP-096",
