@@ -1,6 +1,6 @@
 # Written by scripts/guardrails/engine-revision.mjs --write: the engine's inputs at this ENGINE_REVISION.
 # Inputs: apps/browser-engine, crates/browser-policy, crates/browser-pane/src/device.rs
-revision 15
+revision 16
 0a006ceedcb72b86a2aa4d7497ff9a21fddfd428 apps/browser-engine/Cargo.lock
 784fa46ca9b85a0557f8bd2dc55362cbd3298682 apps/browser-engine/Cargo.toml
 528bfc2bc7bfcd5183505505f91f9750e57e325b apps/browser-engine/build.rs
@@ -47,13 +47,14 @@ df1af82c8ec0d88a7d7c9434f4faa638590a94e2 apps/browser-engine/src/handlers.rs
 1f04ab24fd468f8ee5b571330a10693927ccfac2 apps/browser-engine/src/helper.rs
 861b67493c42d26866a24fd0b572568f6521da0f apps/browser-engine/src/input_guard.rs
 481532e61011fdf5ca5886751a5f9ee708800683 apps/browser-engine/src/keys.rs
-a83be7c6657ddedd8f9673b334dae12a8bdc20de apps/browser-engine/src/lib.rs
+44e02c48480f0c31ebd0880e54773c8da4fbcc2d apps/browser-engine/src/lib.rs
 c0b1bd94059bdd2d1d9771784b5ba56791c7f2a9 apps/browser-engine/src/linux_gpu.rs
 52fab419cb461a5a3665d8840d3400b978c07645 apps/browser-engine/src/mac_app.rs
 fe6d276a9baad3d6e67bcf0f6676df8ee265f100 apps/browser-engine/src/main.rs
 cd7f20984ad4314eeacb4cc3348c7afbd74bd1d0 apps/browser-engine/src/media_gate.rs
 b3e9d2097456fc0bb0418e00dc4e2810426755cc apps/browser-engine/src/menu.rs
 c6595f91829f4f94ef236b0b6b35c4c3954b7ac6 apps/browser-engine/src/menu_extras.rs
+7d0601bccace5d55d690f825300f70b79a535b3f apps/browser-engine/src/modal_pump.rs
 ec6380dca3d9b4039cdf82e73b87b43fba24c4d1 apps/browser-engine/src/output.rs
 dad3d1e9c9e5ad30fd76f6f062225a1be1ed5efa apps/browser-engine/src/passkeys.rs
 50b34256e286a94e81044f88c28c0f5569252a05 apps/browser-engine/src/permissions.rs

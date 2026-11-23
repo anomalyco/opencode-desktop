@@ -38,6 +38,8 @@ mod input_guard;
 mod media_gate;
 mod menu;
 mod menu_extras;
+#[cfg(windows)]
+mod modal_pump;
 mod passkeys;
 mod preview;
 mod profile;
@@ -356,6 +358,8 @@ pub fn run_browser(
         )
     });
     step("cef_initialized");
+    #[cfg(windows)]
+    modal_pump::install();
 
     let (out_tx, out_rx) = output::Output::channel();
     {
@@ -508,7 +512,26 @@ pub fn run_browser(
         if pump_at.is_some_and(|at| at <= now) || now.saturating_duration_since(last_pump) >= cap {
             pump_at = None;
             last_pump = now;
+            #[cfg(not(windows))]
             cef::do_message_loop_work();
+            // A person's print dialog keeps this call until it closes: meanwhile its loop runs
+            // the engine's turn (`modal_pump`), so the app's messages and the other tabs go on.
+            #[cfg(windows)]
+            {
+                let mut stop = false;
+                modal_pump::work(&mut || {
+                    while let (false, Ok(event)) = (stop, rx.try_recv()) {
+                        stop = !dispatch!(event);
+                    }
+                    cef::do_message_loop_work();
+                    manager.poll_picks();
+                    manager.release_passkey_held();
+                    manager.poll_frames();
+                });
+                if stop {
+                    break 'run;
+                }
+            }
             manager.poll_picks();
             manager.release_passkey_held();
         }
