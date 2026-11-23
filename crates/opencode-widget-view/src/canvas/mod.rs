@@ -63,10 +63,11 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, height:
             h.send(s, WidgetEvent::hover(id.clone(), f64::from(p.x), f64::from(p.y), f64::from(size[0]), f64::from(size[1]), close), tx);
         }
     });
-    let (lens, key) = (hooks.local.clone(), path.to_owned());
-    b = b.on_hover_change(move |s: &mut S, inside, _tx: &mut Tx| {
+    let (lens, key, h) = (hooks.local.clone(), path.to_owned(), hooks.clone());
+    b = b.on_hover_change(move |s: &mut S, inside, tx: &mut Tx| {
         if !inside {
             (lens)(s).canvas_event(&key, Event::Pointer(None));
+            crate::left(&h, s, tx);
         }
     });
     let live = cx.live;

@@ -49,6 +49,15 @@ pub(crate) fn captured<S: 'static>(hooks: &Hooks<S>, s: &mut S, id: Option<&str>
     }
     input(s, Input::Captured { id, kind, at, button: button(tx) }, tx)
 }
+/// The pointer left a canvas: when captured, the host puts it back where capture began, so its
+/// moves reach the canvas again.
+pub(crate) fn left<S: 'static>(hooks: &Hooks<S>, s: &mut S, tx: &mut Tx) {
+    if let Some(input) = hooks.input.clone()
+        && (hooks.local)(s).captured()
+    {
+        input(s, Input::Left, tx);
+    }
+}
 pub use local::{DEBOUNCE_S, Local};
 
 /// What a widget's build reads from the host besides the widget.
@@ -120,6 +129,9 @@ pub enum Input<'a> {
     /// The pointer while captured, at `at` (logical points in the element that heard it):
     /// moving, or a button going down or up.
     Captured { id: Option<&'a str>, kind: opencode_widget::PointerKind, at: [f32; 2], button: u8 },
+    /// The captured pointer left the canvas that hears it: one move took it past the edge
+    /// before it drifted far enough to be put back.
+    Left,
 }
 
 /// Where the host takes [`Input`]; true when it took it.

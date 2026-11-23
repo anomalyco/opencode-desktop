@@ -256,7 +256,7 @@ fn slot<S: 'static>(cx: &Cx<S>, b: El, path: &str, id: Option<&str>, mark: u32) 
     let b = b.effect(mark).effect_data([f32::from_bits(mark), 0.0, 0.0, 0.0]);
     let Some(hooks) = cx.hooks.cloned() else { return b };
     let (live, id, key) = (cx.live, id.map(str::to_owned), path.to_owned());
-    let (h, sid, hkey) = (hooks.clone(), id.clone(), key.clone());
+    let (h, sid, hkey, left) = (hooks.clone(), id.clone(), key.clone(), hooks.clone());
     let (sized, skey) = (hooks.local.clone(), key.clone());
     // Only where it sits moved (a scroll), or only the pointer the GPU reads: the view needn't
     // build again.
@@ -297,9 +297,10 @@ fn slot<S: 'static>(cx: &Cx<S>, b: El, path: &str, id: Option<&str>, mark: u32) 
         let close = local.shader_close(&hkey);
         h.send(s, opencode_widget::WidgetEvent::hover(id.clone(), f64::from(p.x), f64::from(p.y), f64::from(size[0]), f64::from(size[1]), close), tx);
     })
-    .on_hover_change(move |_: &mut S, inside, tx: &mut Tx| {
+    .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| {
         if !inside {
             point(mark, None);
+            crate::left(&left, s, tx);
         }
         tx.live_only();
     })

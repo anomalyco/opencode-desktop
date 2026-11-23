@@ -12,8 +12,8 @@
 //! Focused, the widget's keys go to its widget template (`key` events), except Cmd chords (Ctrl off
 //! macOS), which the app keeps; Esc is never delivered. Captured, the cursor hides, presses
 //! arrive as `down`/`up` with their button and moves as relative `dx`, `dy`; the cursor is put
-//! back where capture began as it drifts (`WidgetsHost::warp_pointer`), so it stays over the
-//! widget. Releasing sends `up` for keys still held, `focus: false`, and `capture: false` if it
+//! back where capture began as it drifts (`WidgetsHost::warp_pointer`), or when one move took it
+//! off the canvas, so it stays over the widget. Releasing sends `up` for keys still held, `focus: false`, and `capture: false` if it
 //! held the pointer.
 
 use opencode_widget::{Event, Key, PointerKind, WidgetEvent};
@@ -197,6 +197,18 @@ pub fn take(host: &mut dyn WidgetsHost, id: &str, input: Input<'_>, tx: &mut Tx)
             if let Some(event) = event {
                 tell(host, id, event);
             }
+            true
+        }
+        // One move took the hidden cursor off the canvas, where its moves don't reach: back where
+        // capture began, which the next move counts from (that one move's motion is lost).
+        Input::Left => {
+            let Focus::Focused { id: f, capture: Capture::On { home, at_home, last }, .. } = &mut host.widgets_mut().focus else { return false };
+            if f != id {
+                return false;
+            }
+            let Some(to) = *home else { return true };
+            *last = *at_home;
+            host.warp_pointer(to);
             true
         }
     }
