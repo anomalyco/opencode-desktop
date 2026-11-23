@@ -240,8 +240,7 @@ pub(super) fn service_methods(lua: &Lua, vmx: &Vmx, t: &Table) -> mlua::Result<(
         }
     })?;
     let raw_import: Function = vmx.asyncs.raw_get("Browser.HistoryImportProfileAsync")?;
-    let import_async: Function = lua
-        .load("local raw = ... return function(self, b, p) local r = raw(b, p) if type(r) == 'table' and type(r.token) == 'number' then return self:_HistoryApplyImport(r.token) end return r end")
+    let import_async: Function = opencode_plugin_runtime::chunk::load(lua, "local raw = ... return function(self, b, p) local r = raw(b, p) if type(r) == 'table' and type(r.token) == 'number' then return self:_HistoryApplyImport(r.token) end return r end")
         .set_name("=Browser:HistoryImportProfileAsync")
         .call(raw_import)?;
     t.raw_set("HistoryImportProfileAsync", import_async)?;

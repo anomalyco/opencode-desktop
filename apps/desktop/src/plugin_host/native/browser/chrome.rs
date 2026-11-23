@@ -316,8 +316,7 @@ pub(super) fn tab_methods(lua: &Lua, m: &Table) -> mlua::Result<()> {
         Some(vmx) => vmx.asyncs.raw_get("BrowserTab.ClearCacheAsync")?,
         None => return Err(mlua::Error::runtime("the plugin host isn't set up")),
     };
-    let call: Function = lua
-        .load("local raw = ... return function(self) local r = raw(self.Id) if r and r.error then error(r.error, 0) end end")
+    let call: Function = opencode_plugin_runtime::chunk::load(lua, "local raw = ... return function(self) local r = raw(self.Id) if r and r.error then error(r.error, 0) end end")
         .set_name("=BrowserTab:ClearCacheAsync")
         .call(raw)?;
     m.raw_set("ClearCacheAsync", call)?;
