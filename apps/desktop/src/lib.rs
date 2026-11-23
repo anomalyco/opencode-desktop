@@ -178,7 +178,7 @@ pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
         setup: Some(setup),
         poll: Some(poll),
         on_key: Some(keys::on_key),
-        ..AppSpec::new(launch::window_title(), (1280.0, 820.0), init, view::app)
+        ..AppSpec::new(launch::window_title(), (1280.0, 800.0), init, view::app)
     }
 }
 

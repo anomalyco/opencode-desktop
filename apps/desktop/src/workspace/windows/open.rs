@@ -148,7 +148,8 @@ pub fn launch(diagnostics: crate::diagnostics::Diagnostics) {
         ids.iter()
             .enumerate()
             .map(|(i, id)| {
-                let frame = store::load_frame(id).and_then(|f| super::placement::fit(f, displays));
+                // Nothing saved (a new profile): where Desktop's first window opens.
+                let frame = store::load_frame(id).and_then(|f| super::placement::fit(f, displays)).or_else(|| super::placement::first(displays));
                 window(Window::new(id.clone(), i == 0 && fresh), frame, &diagnostics).boxed()
             })
             .collect::<Vec<_>>()
