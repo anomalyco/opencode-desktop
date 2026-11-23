@@ -86,7 +86,10 @@ pub fn view<S: PopupHost + 'static>(s: &S, p: &Pal) -> Vec<El> {
     // A right-click menu is at least Desktop's context-menu width; one from a control hugs its rows.
     let menu = drawn(s, p, listed, active, shown.subs.first().map(|o| o.at), search_placeholder);
     let menu = if at_point { menu.min_w(CONTEXT_MIN_W.max(shown.menu.min_w)) } else { menu };
-    let menu = if shown.menu.card && !at_point { menu.offset(-4.0, 0.0).offset_motion(rune::Anim::INSTANT) } else { menu };
+    // `shift={-4}` is Floating UI's cross-axis offset, which it negates for a top or bottom
+    // placement in a right-to-left page: the card then sits 4 past its trigger's right edge.
+    let shift = if opencode_i18n::direction() == opencode_i18n::Direction::Rtl { 4.0 } else { -4.0 };
+    let menu = if shown.menu.card && !at_point { menu.offset(shift, 0.0).offset_motion(rune::Anim::INSTANT) } else { menu };
     layer.push(popover::place(s.knobs(), menu, &anchor, side, align, gap));
     // Each open submenu beside its row, 4 off it (`Menu.Sub gutter={4}`) unless it says.
     let mut parent = listed;
