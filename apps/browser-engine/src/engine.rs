@@ -85,6 +85,7 @@ pub struct EngineManager {
     passkey_held: Vec<HostMsg>,
     default_locked: bool, // `context::lock_chrome_services` held on `Default`
     pub(super) ext_clipboard_write_ids: Arc<Mutex<std::collections::HashSet<String>>>,
+    pub(super) registered_ext_ids: Arc<Mutex<std::collections::HashSet<String>>>,
     /// The app's scheme, once it said (`HostMsg::SetColorScheme`).
     dark: Option<bool>,
     /// The user's home directory, for filtering overly broad workspace `file_roots`.
@@ -134,6 +135,7 @@ impl EngineManager {
         // Chrome services official lacks, off on `Default` too; else `Default` tabs are refused (N9).
         let default_locked = cef::request_context_get_global_context().is_some_and(|g| crate::context::lock_chrome_services(&g));
         let ext_clipboard_write_ids = Arc::new(Mutex::new(extensions.as_ref().map(|e| e.clipboard_write_ext_ids()).unwrap_or_default()));
+        let registered_ext_ids = Arc::new(Mutex::new(extensions.as_ref().map(|e| e.registered_ext_ids()).unwrap_or_default()));
         Self {
             tabs: HashMap::new(),
             mach_port: Arc::new(AtomicU32::new(0)),
@@ -152,6 +154,7 @@ impl EngineManager {
             passkey_held: Vec::new(),
             default_locked,
             ext_clipboard_write_ids,
+            registered_ext_ids,
             dark: None,
             home: crate::profile::home_dir(),
             downloads: crate::downloads::Downloads::open(&downloads),
@@ -388,7 +391,7 @@ impl EngineManager {
                             Ok(true) => {
                                 if let Some(t) = self.tabs.get(&tab_id) {
                                     t.deferred_initial.store(false, Ordering::Release);
-                                    if let Some(frame) = t.browser.main_frame() {
+                                    if !t.clipboard_gate.replace_held_first_load(&url) && let Some(frame) = t.browser.main_frame() {
                                         t.prompts.set_pending_top_url(Some(url.clone()));
                                         frame.load_url(Some(&CefString::from(url.as_str())));
                                     }
@@ -970,7 +973,7 @@ impl EngineManager {
         };
         let mut preview_grant: Option<Arc<PreviewGrant>> = None;
         let mut refused_reason: Option<String> = None;
-        let mut refused_inherited_url: Option<String> = None;
+        let (mut refused_inherited_url, mut first_load_url): (Option<String>, Option<String>) = (None, None);
         let mut req_ctx: Option<RequestContext>;
         let context_ready;
         let deferred_initial;
@@ -1093,8 +1096,8 @@ impl EngineManager {
             context_ready = resolved_ctx.ready;
             deferred_initial = resolved_ctx.deferred_initial;
             tab_generation = resolved_ctx.generation;
-            let init = if resolved_ctx.defer_initial_load { "about:blank" } else { target_url };
-            (init.to_owned(), init.to_owned(), isolated, allow_ext, is_popup_valid)
+            let (init, display) = crate::clipboard_gate::first_load_urls(agent_driven, resolved_ctx.defer_initial_load, is_allowed_ext_url.is_some(), target_url, &mut first_load_url);
+            (init, display, isolated, allow_ext, is_popup_valid)
         };
         let is_preview = preview_grant.is_some();
         let file_roots = Arc::new(Mutex::new(if is_preview { Vec::new() } else { file_roots }));
@@ -1349,11 +1352,11 @@ impl EngineManager {
         }
 
         let cdp_id_map = Arc::new(Mutex::new(HashMap::new()));
-        let cdp_ledger = Arc::new(Mutex::new(crate::cdp_ledger::EngineCdpLedger::default()));
+        let cdp_ledger = Arc::new(Mutex::new(crate::cdp_ledger::EngineCdpLedger::with_registered_exts(self.registered_ext_ids.clone())));
         let passkeys = Arc::new(crate::passkeys::TabPasskeyGate::new(tab_id, agent_driven));
         let media_gate = Arc::new(crate::media_gate::TabMediaGate::new());
         let ext_cw = is_allowed_ext_url.as_deref().is_some_and(|id| self.ext_clipboard_write_ids.lock().unwrap().contains(id));
-        let clipboard_gate = Arc::new(crate::clipboard_gate::TabClipboardGate::new(is_popup, is_preview, agent_driven, ext_cw, self.ext_clipboard_write_ids.clone()));
+        let clipboard_gate = Arc::new(crate::clipboard_gate::TabClipboardGate::new(is_popup, is_preview, agent_driven, ext_cw, self.ext_clipboard_write_ids.clone(), first_load_url));
         let internal_picked = Arc::new(Mutex::new(Vec::new()));
         let pending_clears = Arc::new(Mutex::new(Vec::new()));
         let mut observer = TabCdpObserver::new(

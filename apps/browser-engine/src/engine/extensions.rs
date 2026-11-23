@@ -39,13 +39,15 @@ impl EngineManager {
             Some(ext) => ext.on_startup_verified(startup),
             None => return,
         };
-        self.refresh_ext_clipboard_write_ids();
+        self.refresh_ext_mirrors();
         self.run_ext_effects(effects);
     }
 
-    fn refresh_ext_clipboard_write_ids(&self) {
+    fn refresh_ext_mirrors(&self) {
         let next = self.extensions.as_ref().map(|e| e.clipboard_write_ext_ids()).unwrap_or_default();
         *self.ext_clipboard_write_ids.lock().unwrap() = next;
+        let reg = self.extensions.as_ref().map(|e| e.registered_ext_ids()).unwrap_or_default();
+        *self.registered_ext_ids.lock().unwrap() = reg;
     }
 
     fn push_ext_clipboard_write_for_tabs(&self, ext_id: &str, allowed: bool) {
@@ -141,6 +143,7 @@ impl EngineManager {
 
     pub(super) fn cmd_reload_extension(&mut self, ext_id: &str) {
         let effects = self.extensions.as_mut().map(|e| e.reload_extension(ext_id)).unwrap_or_default();
+        self.refresh_ext_mirrors();
         self.run_ext_effects(effects);
     }
 
@@ -291,7 +294,7 @@ impl EngineManager {
                     let _ = self.out_tx.send(EngineMsg::ExtensionAction { action });
                 }
                 ExtEffect::ExtensionsSynced(extensions) => {
-                    self.refresh_ext_clipboard_write_ids();
+                    self.refresh_ext_mirrors();
                     let _ = self.out_tx.send(EngineMsg::ExtensionsState {
                         request_id: None,
                         extensions,
@@ -305,6 +308,7 @@ impl EngineManager {
                         self.rejected_exts.push(ext_id.clone());
                     }
                     self.ext_clipboard_write_ids.lock().unwrap().remove(&ext_id);
+                    self.registered_ext_ids.lock().unwrap().remove(&ext_id);
                     self.push_ext_clipboard_write_for_tabs(&ext_id, false);
                     let _ = self.out_tx.send(EngineMsg::ExtensionIntegrityFailed { ext_id });
                 }
@@ -317,6 +321,7 @@ impl EngineManager {
                 ExtEffect::ExtensionUninstalled { ext_id, ok, error } => {
                     if ok {
                         self.ext_clipboard_write_ids.lock().unwrap().remove(&ext_id);
+                        self.registered_ext_ids.lock().unwrap().remove(&ext_id);
                         let prefix = format!("chrome-extension://{ext_id}/");
                         let stale_popups: Vec<u64> = self
                             .tabs
@@ -342,18 +347,12 @@ impl EngineManager {
                     let _ = self.out_tx.send(EngineMsg::ExtensionUninstalled { ext_id, ok, error });
                 }
                 ExtEffect::ExtensionReloaded { ext_id, ok, error } => {
-                    if ok {
-                        let has_cw = self.extensions.as_ref().is_some_and(|e| e.has_clipboard_write(&ext_id));
-                        {
-                            let mut set = self.ext_clipboard_write_ids.lock().unwrap();
-                            if has_cw {
-                                set.insert(ext_id.clone());
-                            } else {
-                                set.remove(&ext_id);
-                            }
-                        }
-                        self.push_ext_clipboard_write_for_tabs(&ext_id, has_cw);
-                    }
+                    // Resync directly from `ExtensionHost` on both `ok` and `!ok` so early reload
+                    // failures that leave the existing extension loaded keep its mirror entries
+                    // while load/pipe failures that removed it clear them (`#709-B1`).
+                    self.refresh_ext_mirrors();
+                    let has_cw = self.extensions.as_ref().is_some_and(|e| e.has_clipboard_write(&ext_id));
+                    self.push_ext_clipboard_write_for_tabs(&ext_id, has_cw);
                     let _ = self.out_tx.send(EngineMsg::ExtensionReloaded { ext_id, ok, error });
                 }
                 ExtEffect::NotificationShow { ext_id, ext_name, notif_id, body } => {

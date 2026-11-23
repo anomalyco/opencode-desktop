@@ -973,6 +973,18 @@ wrap_request_handler! {
                 return 1;
             }
             let url = target_url.map(CefString::to_string).unwrap_or_default();
+            // With the PDF viewer off, Chromium swaps a PDF in a sub-frame for its own placeholder, a
+            // `data:` page of about 30 kB, and opens it through here without a gesture; CEF would load
+            // it in the main frame, over the page. It stays cancelled, but silently: no top-level
+            // page was asked for, so the tab gets no refusal (official refuses only what a main frame
+            // navigates to, `chromium.ts:975`, `:991-992`). A `data:` page opened with a gesture is
+            // still refused below; one the top frame navigates to, in `on_before_browse`.
+            if user_gesture == 0
+                && *target_disposition.as_ref() == sys::cef_window_open_disposition_t::CEF_WOD_CURRENT_TAB
+                && url.trim_start().get(..5).is_some_and(|scheme| scheme.eq_ignore_ascii_case("data:"))
+            {
+                return 1;
+            }
             if self.preview.is_some() {
                 if user_gesture != 0
                     && url.len() <= crate::prompts::MAX_POPUP_URL_BYTES

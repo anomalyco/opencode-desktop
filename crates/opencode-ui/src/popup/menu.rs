@@ -4,7 +4,7 @@
 use rune::{Align, Icon, PopupItem, PopupMenu, Side, TextStyle};
 use crate::popover::{self, MENU};
 
-use super::{GROUP, MAX_H, MIN_W};
+use super::{GROUP, MAX_H, MIN_W, SELECT_MAX_H, SELECT_MIN_W};
 
 /// The status mark a server menu row shows (`ServerHealthIndicator`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -291,6 +291,8 @@ pub struct Menu {
     /// The location card's rows (`session-location-card`): 2 apart, 8 in on both sides, and the
     /// card 4 to the start of its trigger (`shift={-4}`).
     pub(super) card: bool,
+    /// A select's list (`select-v2-content`): its rows' look, height cap and narrowest.
+    pub(super) select: bool,
     /// Home's row uses a 1 pt dropdown trigger at the pointer, not ContextMenu's virtual point.
     pub(super) pointer_trigger: bool,
 }
@@ -312,6 +314,7 @@ impl Menu {
             gap: None,
             item_inset: None,
             card: false,
+            select: false,
             pointer_trigger: false,
         }
     }
@@ -337,7 +340,7 @@ impl Menu {
             let on = id == selected;
             Item::new(id, title).checked(on).enabled(enabled)
         });
-        Menu { selected: Some(selected.to_owned()), min_w: 180.0, align: Align::End, ..Menu::new(label) }.items(items)
+        Menu { selected: Some(selected.to_owned()), min_w: SELECT_MIN_W, max_h: SELECT_MAX_H, select: true, align: Align::End, ..Menu::new(label) }.items(items)
     }
 
     pub fn item(mut self, item: Item) -> Menu {

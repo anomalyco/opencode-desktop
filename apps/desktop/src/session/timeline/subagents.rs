@@ -44,6 +44,10 @@ impl SubagentsHost for App {
         Some(rune::Tracked::version(&self.transcripts))
     }
 
+    fn transcript_changed_from(&self, session: &str, since: u64) -> Option<usize> {
+        App::transcript_changed_from(self, session, since)
+    }
+
     fn running_sessions(&self) -> &HashSet<String> {
         &self.running
     }
