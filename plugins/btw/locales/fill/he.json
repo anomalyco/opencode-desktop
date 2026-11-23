@@ -8,5 +8,6 @@
   "modelVariant": "⁨{{model}}⁩ (⁨{{variant}}⁩)",
   "question.required": "הוסף שאלה אחרי /btw",
   "retry": "ניסיון חוזר",
-  "tab.title": "/btw"
+  "tab.title": "/btw",
+  "tab.unread": "תשובה חדשה"
 }

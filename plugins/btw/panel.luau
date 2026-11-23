@@ -23,6 +23,8 @@ export type Env = {
     -- What each chat's Copy buttons copied: the text, so a changed text clears the mark.
     copied: { [string]: { question: string?, answer: string? } },
     retry: (session: string, id: string) -> (),
+    -- The tab got its answer or failure while hidden and has not been shown since.
+    unread: (session: string, id: string) -> boolean,
     refresh: () -> (),
 }
 
@@ -60,11 +62,20 @@ function panel.label(env: Env, view: View, props: PanelTabLabelProps): ui.Node?
     local id = props.instance or ""
     local title = machine.tab(env.state, env.saved(props.sessionId), props.sessionId, id) or env.I18n:T("tab.title")
     -- A label of its own keeps the trigger's ink, selected or not (`flex items-center gap-1.5`).
-    return view:Memo(`btw-label-{id}`, title, function()
-        return ui.row({ shrink = true, minW = 0, gap = 6, align = "center" }, {
+    local unread = env.unread(props.sessionId, id)
+    return view:Memo(`btw-label-{id}`, if unread then `{title}\n` else title, function()
+        local children: { ui.Node } = {
             ui.icon("comment", LABEL_ICON),
             ui.text(title, LABEL_TEXT),
-        })
+        }
+        if unread then
+            -- `size-1.5 shrink-0 rounded-full bg-v2-state-fg-info`, named for a reader.
+            table.insert(
+                children,
+                ui.box({ role = "img", label = env.I18n:T("tab.unread"), w = 6, h = 6, radius = 3, fill = "status-info" })
+            )
+        end
+        return ui.row({ shrink = true, minW = 0, gap = 6, align = "center" }, children)
     end)
 end
 
