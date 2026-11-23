@@ -2,15 +2,15 @@
   "generated_at": "2026-11-23",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "571619bc1570d417d5a1ba52021cec2445d6dc01",
+  "upstream_head": "609e4bb6aed2fbd6628910861aef54e8b2e9f712",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "a434c8a105c8d99923c25665fc429dc08267d712",
-  "post_1114_commit_count": 497,
-  "post_1114_in_ledger": 185,
-  "post_1114_skipped": 312,
+  "rune_desktop_head": "3dcc577414c0fb49dccd64df5d1d91c6fc1547f5",
+  "post_1114_commit_count": 499,
+  "post_1114_in_ledger": 186,
+  "post_1114_skipped": 313,
   "post_1114_skipped_breakdown": {
-    "test-only": 23,
+    "test-only": 24,
     "ci-bench-deps": 18,
     "docs-site-data": 49,
     "tui-only": 19,
@@ -18,9 +18,9 @@
     "server-core-ai-codemode-internal": 195
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 206,
+  "total_ledger_rows": 207,
   "status_counts": {
-    "have it": 176,
+    "have it": 177,
     "not applicable": 28,
     "differs on purpose": 1,
     "partly": 1
@@ -5155,6 +5155,28 @@
       "risks": "none",
       "workstream": "UPSTREAM",
       "rune_pr": "#838"
+    },
+    {
+      "id": "UP-186",
+      "window": "post-1120",
+      "pr": 65740,
+      "sha": "331010a1ef",
+      "title": "fix(app): hide OpenCode Go from Settings popular providers",
+      "merged": "2026-11-23",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/settings/providers/providers.tsx"
+      ],
+      "summary": "Settings > Providers: OpenCode Go is in the Popular list only for someone who has saved a Go key (its integration has a credential connection), since it connects through OpenCode; the OpenCode row there loses its note.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "rune-desktop #847 (3dcc5774): features/settings/src/pages/providers.rs popular (filter on opencode-go with a credential connection), note() without the opencode arm; the connect dialog already filtered Go the same way (features/connect/src/view.rs:55). cargo check -p opencode-feature-settings; not run in the app.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#847"
     }
   ],
   "browser_security_review": {
