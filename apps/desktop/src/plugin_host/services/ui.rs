@@ -111,6 +111,10 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, name: &str, t: &Table) -> mlua::Result<()
             })?;
             method(lua, t, "Keybind", |_, id: String| {
                 with_app("Commands:Keybind", |app| {
+                    // A chord Settings bound it reads stroke by stroke ("Ctrl+K Ctrl+C", opencode#64395).
+                    if let Some(strokes) = crate::keymap::sequence::first(&id) {
+                        return Ok(Some(crate::keymap::sequence::label(&strokes)));
+                    }
                     let chord = crate::keymap::overrides::command(&id).and_then(|k| k.chords().first().copied()).or_else(|| app.catalog().into_iter().find(|c| c.id == id).and_then(|c| c.chord));
                     Ok(chord.map(crate::keymap::label))
                 })
@@ -320,15 +324,15 @@ fn open_menu(lua: &Lua, p: &Rc<str>, a: MultiValue, done: Completer) -> mlua::Re
                 spec::MenuEntryKind::Group => menu.group(e.title.as_deref().unwrap_or_default()),
                 spec::MenuEntryKind::Item => {
                     let mut item = crate::popup::Item::new(e.id.as_deref().unwrap_or_default(), e.title.as_deref().unwrap_or_default());
-                    let chord = match (&e.keys, &e.keybind) {
-                        (Some(keys), _) => keys.parse::<rune::Keybind>().ok().and_then(|k| k.chords().first().copied()),
-                        (None, Some(id)) => crate::keymap::command_chord(app, id),
-                        _ => None,
+                    let strokes = match (&e.keys, &e.keybind) {
+                        (Some(keys), _) => keys.parse::<rune::Keybind>().ok().and_then(|k| k.chords().first().copied()).into_iter().collect(),
+                        (None, Some(id)) => crate::keymap::command_strokes(app, id),
+                        _ => Vec::new(),
                     };
                     // Desktop's menus show a shortcut as neutral `Keybind` chips, a plus or minus at a
-                    // letter key's width (`fullWidth`).
-                    if let Some(chord) = chord {
-                        let caps = crate::keymap::caps(chord).into_iter().map(|c| match c.as_str() {
+                    // letter key's width (`fullWidth`); a chord shows one chip per stroke.
+                    if !strokes.is_empty() {
+                        let caps = crate::keymap::sequence::caps(&strokes).into_iter().map(|c| match c.as_str() {
                             "+" => "＋".to_owned(),
                             "-" => "－".to_owned(),
                             _ => c,

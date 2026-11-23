@@ -23,7 +23,7 @@ pub mod tabs;
 pub mod view;
 pub mod width;
 
-use opencode_ui::keymap::{Bind, caps as keymap_caps};
+use opencode_ui::keymap::Bind;
 use rune::{El, Icon, Tx};
 use opencode_ui::palette::Pal;
 
@@ -268,7 +268,7 @@ impl PanelLauncherDesc {
         if let Some(&bind) = self.shortcut.iter().find(|b| !b.keycaps().is_empty()) {
             return bind.keycaps();
         }
-        self.command.and_then(|id| host.command_chord(id)).map_or_else(Vec::new, keymap_caps)
+        self.command.map_or_else(Vec::new, |id| opencode_ui::keymap::sequence::caps(&host.command_strokes(id)))
     }
 }
 

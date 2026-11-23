@@ -58,6 +58,15 @@ impl Command {
         crate::keymap::overrides::command(self.id)
             .map_or(self.chord, |k| k.chords().first().copied())
     }
+
+    /// The strokes its rows show (`formatKeybind`'s first combo): a chord Settings › Shortcuts
+    /// bound it (opencode#64395), else its first chord alone. Empty when unbound.
+    pub fn strokes(&self) -> Vec<rune::Chord> {
+        match self.keys {
+            Some(bind) => bind.strokes(),
+            None => crate::keymap::sequence::first(self.id).unwrap_or_else(|| self.effective_chord().into_iter().collect()),
+        }
+    }
 }
 
 /// Search commands' own entry: the commands-only palette doesn't list itself.

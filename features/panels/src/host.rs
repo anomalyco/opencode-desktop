@@ -107,6 +107,12 @@ pub trait PanelsHost: opencode_kernel::AppEnv {
         None
     }
 
+    /// The strokes published command `id`'s labels show: more than one for a chord
+    /// (opencode#64395), none when unbound.
+    fn command_strokes(&self, id: &str) -> Vec<Chord> {
+        self.command_chord(id).into_iter().collect()
+    }
+
     /// Resolves a stored closed-tab icon without waking dormant plugin VMs.
     fn resolve_closed_icon(&self, key: &str, name: Option<&str>) -> &'static rune::Icon {
         let _ = key;
