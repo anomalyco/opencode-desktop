@@ -1,6 +1,6 @@
 # Written by scripts/guardrails/engine-revision.mjs --write: the engine's inputs at this ENGINE_REVISION.
 # Inputs: apps/browser-engine, crates/browser-policy, crates/browser-pane/src/device.rs
-revision 16
+revision 17
 0a006ceedcb72b86a2aa4d7497ff9a21fddfd428 apps/browser-engine/Cargo.lock
 784fa46ca9b85a0557f8bd2dc55362cbd3298682 apps/browser-engine/Cargo.toml
 528bfc2bc7bfcd5183505505f91f9750e57e325b apps/browser-engine/build.rs
@@ -13,10 +13,10 @@ b046beaab8b13b8ad19201043e39e7a645bdad33 apps/browser-engine/scripts/package-win
 ca1eb1771d3fa17ab0fdf8c400ea1ac0abd3c81a apps/browser-engine/src/agent.rs
 dd3064014c9a9eddda7f7f3faaa7ced684ace92e apps/browser-engine/src/bin/opencode_browser_engine_helper.rs
 5600fa6b32140c31f171b6dc9f5543388bb6f084 apps/browser-engine/src/cdp_ledger.rs
-fce49a7e320a8900d0e7a805a3c9328cb6724cc4 apps/browser-engine/src/cef_runtime.rs
+75d1aaecc35bf39aade9f5d6fa8d97a8d71d9af2 apps/browser-engine/src/cef_runtime.rs
 b58a42fb56a761fc9fc7b64343c3be78f7831b8f apps/browser-engine/src/clear_storage.rs
 e29143cc917b2d3e9cc540de6499cb290236e7c8 apps/browser-engine/src/clipboard_gate.rs
-3acfc66a0df208429a006e43a3dcfc7f4da8f4dc apps/browser-engine/src/context.rs
+c92188335c2dfb4739e550eae18a5e9f8d8f99ff apps/browser-engine/src/context.rs
 2470fa0979751c67220010b3cfb8d38b6f0d9956 apps/browser-engine/src/cookies.rs
 457d2512f2829b3f523bd9e67ce8deeb8925a820 apps/browser-engine/src/d3d_frames.rs
 28ee51e2c48eb44b7a02101aa0c1c8550891a537 apps/browser-engine/src/diagnostics.rs
@@ -43,7 +43,7 @@ b6baf0115f183568b0e5ed0d3b8daaaf94dbce47 apps/browser-engine/src/extensions/web_
 d43ab49400f86ef0ba36cf62f2a156c50b179a4a apps/browser-engine/src/favicon.rs
 d771373a8d6f5f11c6450842287976e9c8455256 apps/browser-engine/src/find.rs
 36150c1de192dc0058396cf992fff1b1c29d1fb9 apps/browser-engine/src/frame_authority.rs
-df1af82c8ec0d88a7d7c9434f4faa638590a94e2 apps/browser-engine/src/handlers.rs
+d3507700b91ccd536e6c14ed3edcf96669c9f2df apps/browser-engine/src/handlers.rs
 1f04ab24fd468f8ee5b571330a10693927ccfac2 apps/browser-engine/src/helper.rs
 861b67493c42d26866a24fd0b572568f6521da0f apps/browser-engine/src/input_guard.rs
 481532e61011fdf5ca5886751a5f9ee708800683 apps/browser-engine/src/keys.rs

@@ -321,12 +321,15 @@ wrap_app! {
                 "disable-sync",
                 "disable-field-trial-config",
                 "disable-variations-seed-fetch",
-                // N4: belt-and-suspenders alongside `plugins.always_open_pdf_externally = true`
-                // (`context.rs`; Chromium 156 removed `--disable-pdf-extension`, keeping the pref primary).
-                "disable-pdf-extension",
             ] {
                 cmd.append_switch(Some(&sw.into()));
             }
+            // Pages play sound without a click first, as in official's Electron (its default
+            // `autoplayPolicy`; official sets none): Chrome's own policy refused even muted play.
+            cmd.append_switch_with_value(
+                Some(&"autoplay-policy".into()),
+                Some(&"no-user-gesture-required".into()),
+            );
             // Background fetch and periodic background sync, which official's permission check
             // handler denies (N12); their content settings crash CEF 156 when set, so the APIs go.
             cmd.append_switch_with_value(
