@@ -1,8 +1,12 @@
 //! First-run migration from Official Desktop (`drafts.sqlite`, `opencode.settings`,
-//! `window-state-<id>.json`), running before the first `BootPacket` on a fresh profile.
+//! `window-state-<id>.json`) on a fresh profile, in two halves: [`collect`] reads Desktop's rows
+//! (it needs no database of ours, so a new profile's open runs it before the database exists and
+//! builds the first `BootPacket` from what it read), [`commit`] writes them.
 //!
 //! Safety invariants:
-//! 1. **Zero writes to Official Desktop's folder:** `drafts.sqlite` (+ `-wal` when present; never
+//! 1. **Zero writes to Official Desktop's folder:** `drafts.sqlite` is read in place only while
+//!    nobody writes it (no `-wal`, no rollback journal: opened `immutable`, so no lock and no
+//!    `-shm`, and thrown away if the file changed during the read); otherwise it (+ `-wal`; never
 //!    `-shm`) is copied via plain shared file reads into a scratch directory inside OUR profile,
 //!    checked for mid-checkpoint DB/WAL skew, recovered and verified with `PRAGMA integrity_check`
 //!    there, and deleted on drop.
@@ -76,11 +80,14 @@ pub(crate) enum SeedOutcome {
 /// copy so Official Desktop's folder is never written to.
 pub fn recent_tabs_in(dirs: &[PathBuf]) -> Option<(Value, Value)> {
     let scratch = std::env::temp_dir().join(format!("opencode-rune-seed-{}", std::process::id()));
-    let PickResult::Picked(_, snap) = pick_dir(dirs, &scratch) else { return None };
-    let res = recent_tabs_from(snap.conn());
-    drop(snap);
+    // Read in place when nobody writes the database; from a copy when it was written to meanwhile.
+    let res = [true, false].into_iter().find_map(|in_place| {
+        let PickResult::Picked(_, snap) = pick_dir(dirs, &scratch, in_place) else { return Some(None) };
+        let res = recent_tabs_from(snap.conn());
+        snap.held().then_some(res)
+    });
     let _ = std::fs::remove_dir_all(&scratch);
-    res
+    res.flatten()
 }
 
 /// Legacy single-file helper kept safe via private scratch copy (never writes `-shm` beside `db`).
@@ -307,7 +314,7 @@ fn clear_blank_retry_defaults(tx: &Transaction<'_>, bundle: &SeedBundle) -> rusq
     Ok(())
 }
 
-struct SeedBundle {
+pub(crate) struct SeedBundle {
     global_rows: Vec<(String, String, String)>,
     window_rows: Vec<(String, String, String)>,
     global_docs: Vec<(String, String)>,
@@ -566,17 +573,69 @@ fn collect_bundle(dir: &Path, snap: &snapshot::Snapshot) -> Result<SeedBundle, S
     })
 }
 
-/// Runs the first-run seed from Official Desktop inside ONE atomic transaction (migrated rows,
-/// drafts, blobs, frames, boot record, and `settle_flags` commit together).
-pub(crate) fn run(
-    conn: &mut Connection,
-    scratch_parent: &Path,
-    dirs: &[PathBuf],
-    settle_flags: u32,
-    now_ms: i64,
-) -> SeedOutcome {
-    let (dir, snap) = match pick_dir(dirs, scratch_parent) {
-        PickResult::None => {
+/// What the seed read from Official Desktop, before any of it is written: the first half of the
+/// seed, which needs no database of ours. On a new profile the open reads it before it makes the
+/// database, so the first frame is built from it ([`Collected::packet`]) without waiting for the
+/// file, its schema or the commit.
+pub(crate) enum Collected {
+    /// No Official Desktop database in any candidate folder.
+    NoSource,
+    /// One was there and couldn't be read or verified cleanly.
+    Failed(String),
+    Bundle { dir: PathBuf, bundle: Box<SeedBundle> },
+}
+
+impl Collected {
+    /// The boot packet the database will hold once this is committed into a new profile: the
+    /// same entries `boot_record::rebuild` writes from the rows. None when there is nothing to seed.
+    pub(crate) fn packet(&self) -> Option<crate::BootPacket> {
+        let Collected::Bundle { bundle, .. } = self else { return None };
+        let mut cache = crate::cache::Cache { complete: true, ..Default::default() };
+        for (name, key, value) in bundle.global_rows.iter().chain(&bundle.window_rows) {
+            // An existing row wins in the commit (`ON CONFLICT DO NOTHING`): the first of a key here.
+            if matches!(cache.get(name, key), crate::Lookup::Ready(None)) {
+                cache.set(name, key.clone(), Some(value.as_str().into()));
+            }
+        }
+        for (key, value) in bundle.global_docs.iter().chain(&bundle.window_docs) {
+            cache.docs.entry(key.clone()).or_insert_with(|| crate::cache::Doc::Present(value.as_str().into()));
+        }
+        for (id, frame) in &bundle.frames {
+            cache.windows.entry(id.clone()).or_insert(*frame);
+        }
+        Some(boot_record::from_cache(&cache))
+    }
+}
+
+/// Reads what the seed takes from the newest Official Desktop database among `dirs`: in place
+/// when nobody is writing it, else (or when it was written to during the read) from a verified
+/// copy under `scratch_parent`.
+pub(crate) fn collect(dirs: &[PathBuf], scratch_parent: &Path) -> Collected {
+    let mut failed = String::new();
+    for in_place in [true, false] {
+        let (dir, snap) = match pick_dir(dirs, scratch_parent, in_place) {
+            PickResult::None => return Collected::NoSource,
+            PickResult::Failed(why) => return Collected::Failed(why),
+            PickResult::Picked(d, s) => (d, s),
+        };
+        let bundle = collect_bundle(&dir, &snap);
+        let held = snap.held();
+        // Drop (and delete a scratch copy) before anything is written into Rune's DB.
+        drop(snap);
+        match bundle {
+            Ok(bundle) if held => return Collected::Bundle { dir, bundle: Box::new(bundle) },
+            Err(why) if held => return Collected::Failed(why),
+            _ => failed = format!("{}: drafts.sqlite was written to while it was read", dir.display()),
+        }
+    }
+    Collected::Failed(failed)
+}
+
+/// Writes what [`collect`] read inside ONE atomic transaction (migrated rows, drafts, blobs,
+/// frames, boot record, and `settle_flags` commit together).
+pub(crate) fn commit(conn: &mut Connection, collected: Collected, settle_flags: u32, now_ms: i64) -> SeedOutcome {
+    let (dir, bundle) = match collected {
+        Collected::NoSource => {
             let _ = (|| -> rusqlite::Result<()> {
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
                 tx.execute("DELETE FROM state WHERE name = ?1 AND key = ?2", [META_NS, ATTEMPTS_KEY])?;
@@ -585,19 +644,9 @@ pub(crate) fn run(
             })();
             return SeedOutcome::NoSource;
         }
-        PickResult::Failed(why) => return record_attempt(conn, settle_flags, now_ms, why),
-        PickResult::Picked(d, s) => (d, s),
+        Collected::Failed(why) => return record_attempt(conn, settle_flags, now_ms, why),
+        Collected::Bundle { dir, bundle } => (dir, *bundle),
     };
-
-    let bundle = match collect_bundle(&dir, &snap) {
-        Ok(b) => b,
-        Err(why) => {
-            drop(snap);
-            return record_attempt(conn, settle_flags, now_ms, why);
-        }
-    };
-    // Drop & delete the scratch snapshot copy before writing into Rune's DB.
-    drop(snap);
 
     let is_retry = prior_attempts(conn) > 0;
     let commit = (|| -> rusqlite::Result<(Vec<(String, String, String)>, bool)> {

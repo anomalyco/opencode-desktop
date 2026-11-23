@@ -256,6 +256,9 @@ fn quit_last() {
 /// Runs the native desktop application entrypoint.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run_native() {
+    // Before anything is started: what this process starts doesn't inherit the installer's layer.
+    #[cfg(windows)]
+    launch::compat_layer::shed();
     commit_pages_on_demand();
     #[cfg(feature = "alloc-sites")]
     plugin_host::memory::register_reports();

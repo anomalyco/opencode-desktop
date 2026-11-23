@@ -402,6 +402,8 @@ fn build_canvas_layer(
         .w(clip_w)
         .h(grid_h)
         .focusable(true)
+        // The caret shows focus, never a ring (`packages/gui-plugins/src/terminal/terminal.tsx`: `outline-none`).
+        .no_focus_ring()
         // A name that holds while a command runs: a shell retitles its window per command, and
         // each change of the focused element's name is said again. The tab shows the shell's.
         .label(opencode_i18n::t!(

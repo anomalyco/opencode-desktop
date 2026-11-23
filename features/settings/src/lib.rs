@@ -12,6 +12,7 @@
 
 pub mod host;
 mod interface_mode;
+mod mode_card;
 mod navigation_mode;
 pub mod jobs;
 pub mod pages;
