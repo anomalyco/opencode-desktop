@@ -66,6 +66,12 @@ pub trait SubagentsHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback 
     fn transcripts_version(&self) -> Option<u64> {
         None
     }
+    /// Session `session`'s first message that may have changed since version `since` of
+    /// [`Self::transcripts_version`], when only a streamed reply's writes came between; `None`
+    /// when anything else may have changed it.
+    fn transcript_changed_from(&self, _session: &str, _since: u64) -> Option<usize> {
+        None
+    }
     /// Set of currently running session IDs.
     fn running_sessions(&self) -> &HashSet<String>;
     /// When `child`'s current run started (epoch ms), combining `created`, `idle`, `call`, and
