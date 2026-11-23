@@ -601,7 +601,7 @@ impl crate::App {
         // The latest page landing on a boot preview it doesn't reach: the preview was the
         // place's turn (`restore::preview`), and the messages between it and the page are still
         // to read. They come first, newest page first, each under the preview.
-        let cold = self.launch.cold_transcript.as_deref() == Some(id.as_str());
+        let cold = self.launch.cold_transcript.as_ref().is_some_and(|c| c.id == *id);
         if cold && !page.history && added == page.messages.len()
             && let (Some(last), Some(next)) = (t.messages.last(), page.messages.first())
             && next.id() > last.id()

@@ -217,11 +217,11 @@ pub struct Launch {
     pub inbox_wake: Option<rune::Waker>,
     /// Each server's launch, many at once: every server the window has a half of (`servers::runtime`).
     phases: std::collections::HashMap<ServerId, Phase>,
-    /// Restored session id whose cached boot-preview messages painted on frame 0 and settle on the
+    /// The restored session whose cached boot-preview messages painted on frame 0 and settle on the
     /// first live message page (`session::pages` or `session::events::incoming`). Independent of
     /// per-server `Phase`: set in `Waiting`, preserved across `Probing` and `Offline`, and still
     /// live in `Connected` until the async first message page lands.
-    pub cold_transcript: Option<String>,
+    pub cold_transcript: Option<crate::restore::ColdTranscript>,
     /// The session this window last began reading because its page showed it with nothing reading
     /// its messages (`App::read_shown_session`): asked once while it stays shown, so a failure isn't
     /// retried in a loop (the loading row's Retry asks again). Cleared when the route leaves it or
