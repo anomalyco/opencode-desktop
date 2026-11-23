@@ -13,6 +13,7 @@ use rune::{Key, KeyEvent, KeyPlatform, Keybind, Mods, Tx};
 
 pub mod base;
 pub mod overrides;
+pub mod sequence;
 pub mod view;
 
 pub use base::{caps, label, sentence};
@@ -30,6 +31,13 @@ pub trait KeymapHost {
     /// The default chord for published command `id` when no user override is installed
     /// (for example, a registered command's [`Bind::chord`] or a plugin-declared chord).
     fn default_command_chord(&self, id: &str) -> Option<Chord>;
+
+    /// The table row command `id` takes its keys from, when it has one (a registered command's
+    /// `bind_id`): Settings › Shortcuts saves such a command's keys under the row's id.
+    fn command_bind(&self, id: &str) -> Option<Bind> {
+        let _ = id;
+        None
+    }
 }
 
 /// One bound command.
@@ -38,6 +46,7 @@ pub enum Bind {
     Palette,
     CommandSearch,
     SessionSearch,
+    QuickOpen,
     Settings,
     Home,
     Sidebar,
@@ -174,13 +183,17 @@ fn table() -> Vec<Binding> {
         row(Palette, "command.palette", key!("command.palette"), General, on("mod+k, mod+shift+p")),
         row(CommandSearch, "commands.search", key!("command.commands.search"), General, on("none")),
         row(SessionSearch, "sessions.search", key!("command.session.search"), General, on("mod+shift+f")),
+        // `quickOpenCommand` (`titlebar.tsx`): recent projects and sessions.
+        row(QuickOpen, "quick.open", key!("command.quickOpen"), General, on("mod+o")),
         row(Settings, "settings.open", key!("command.settings.open"), General, on("mod+comma")),
         // `titlebar.tsx`: Windows keeps Ctrl+B for Move to background.
         row(Home, "home.toggle", key!("home.title"), General, on("mod+b").on(Windows, "alt+home")),
         row(Sidebar, "sidebar.toggle", key!("command.sidebar.toggle"), General, on("mod+shift+b")),
         // ⌥⌘B is Ctrl+Alt+B off macOS, the Browser's launcher; there only `review.toggle`'s chord.
         row(SideToggle, "review.toggle", key!("command.review.toggle"), Session, on("mod+alt+b, mod+shift+r").on(Windows, "mod+shift+r").on(Linux, "mod+shift+r")),
-        row(OpenProject, "project.open", key!("command.project.open"), General, view(base::Bind::OpenProject)),
+        // ⌘O opens Quick Open; Open project keeps it inside the project dialog and picker, where
+        // Desktop registers `project.open` while its location dialog is mounted.
+        scoped(OpenProject, "project.open", key!("command.project.open"), General, view(base::Bind::OpenProject)),
         row(SelectProject, "project.select", key!("session.new.project.search"), General, on("mod+shift+o")),
         // The app menu's View items: Desktop's Settings has no row for them.
         unlisted(ZoomIn, "view.zoomIn", key!("desktop.menu.zoomIn"), General, view(base::Bind::ZoomIn)),
@@ -374,13 +387,20 @@ impl Bind {
         &self.binding().keybind
     }
 
-    /// Whether `ev` is one of this command's chords here; see `Keybind::matches`.
+    /// Whether `ev` is one of this command's chords here; see `Keybind::matches`. While a key
+    /// chord's command is fired (`sequence::with_fired`), whether this is that command.
     pub fn matches(self, ev: &KeyEvent) -> bool {
+        if let Some(fired) = sequence::fired_is(self.id()) {
+            return fired;
+        }
         self.keybind().matches(ev) || control_char(ev).is_some_and(|ev| self.keybind().matches(&ev))
     }
 
     /// `matches`, following the keyboard layout (`Keybind::matches_tx`); use it in key handlers.
     pub fn matches_tx(self, ev: &KeyEvent, tx: &Tx) -> bool {
+        if let Some(fired) = sequence::fired_is(self.id()) {
+            return fired;
+        }
         self.keybind().matches_tx(ev, tx) || control_char(ev).is_some_and(|ev| self.keybind().matches(&ev))
     }
 
@@ -389,19 +409,33 @@ impl Bind {
         Self::TABS.iter().position(|b| b.matches_tx(ev, tx))
     }
 
-    /// How the first chord reads here: "⇧⌘T" on macOS, "Ctrl+Shift+T" elsewhere. "" when unbound.
+    /// How the first chord reads here: "⇧⌘T" on macOS, "Ctrl+Shift+T" elsewhere, and a chord of
+    /// several strokes with a space between them ("Ctrl+K Ctrl+C"). "" when unbound.
     pub fn label(self) -> String {
-        self.chord().map_or_else(String::new, label)
+        match sequence::first(self.id()) {
+            Some(strokes) => sequence::label(&strokes),
+            None => self.chord().map_or_else(String::new, label),
+        }
     }
 
-    /// One string per keycap, modifiers first, as Desktop's keybind chips draw it.
+    /// One string per keycap, modifiers first, as Desktop's keybind chips draw it; a chord of
+    /// several strokes gives one per stroke.
     pub fn keycaps(self) -> Vec<String> {
-        self.chord().map_or_else(Vec::new, caps)
+        match sequence::first(self.id()) {
+            Some(strokes) => sequence::caps(&strokes),
+            None => self.chord().map_or_else(Vec::new, caps),
+        }
     }
 
     /// The first chord here, if any.
     pub fn chord(self) -> Option<Chord> {
         self.keybind().chords().first().copied()
+    }
+
+    /// The strokes its labels show: its chord's when Settings bound it one, else its first
+    /// chord alone. Empty when unbound.
+    pub fn strokes(self) -> Vec<Chord> {
+        sequence::first(self.id()).unwrap_or_else(|| self.chord().into_iter().collect())
     }
 
     /// The first chord as a menu item's key equivalent.
@@ -443,12 +477,18 @@ impl PluginBind {
 
     /// How the first chord reads here; "" when unbound.
     pub fn label(self) -> String {
-        self.chord().map_or_else(String::new, label)
+        match sequence::first(self.id) {
+            Some(strokes) => sequence::label(&strokes),
+            None => self.chord().map_or_else(String::new, label),
+        }
     }
 
-    /// One string per keycap, modifiers first.
+    /// One string per keycap, modifiers first; one per stroke for a chord of several.
     pub fn keycaps(self) -> Vec<String> {
-        self.chord().map_or_else(Vec::new, caps)
+        match sequence::first(self.id) {
+            Some(strokes) => sequence::caps(&strokes),
+            None => self.chord().map_or_else(Vec::new, caps),
+        }
     }
 
     /// The first chord as a menu item's key equivalent.
@@ -458,7 +498,7 @@ impl PluginBind {
 
     /// Whether `ev` is one of its chords here.
     pub fn matches(self, ev: &KeyEvent) -> bool {
-        self.keybind().matches(ev)
+        sequence::fired_is(self.id).unwrap_or_else(|| self.keybind().matches(ev))
     }
 }
 
@@ -468,6 +508,18 @@ pub fn command_chord(host: &dyn KeymapHost, id: &str) -> Option<Chord> {
     overrides::command(id)
         .and_then(|k| k.chords().first().copied())
         .or_else(|| host.default_command_chord(id))
+}
+
+/// The strokes published command `id`'s labels show (`formatKeybind`'s first combo): the chord
+/// Settings › Shortcuts bound it, its table row's keys, else [`command_chord`]. Empty when unbound.
+pub fn command_strokes(host: &dyn KeymapHost, id: &str) -> Vec<Chord> {
+    if let Some(strokes) = sequence::first(id) {
+        return strokes;
+    }
+    match host.command_bind(id) {
+        Some(bind) => bind.strokes(),
+        None => command_chord(host, id).into_iter().collect(),
+    }
 }
 
 /// A Ctrl-letter that arrives as its control character (⌃R as U+0012), as the letter.

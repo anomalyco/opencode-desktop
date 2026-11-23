@@ -11,7 +11,7 @@ use opencode_ui::prompt_history::Entry;
 
 pub(super) use super::machine::Operation;
 use super::store::{self, Forward, Mail, Store};
-use super::{AfterCheck, Check, Event, Log, Phase, Retry, SendFailedHost, Sent, State, machine};
+use super::{AfterCheck, Event, Log, Phase, Retry, SendFailedHost, Sent, State, machine};
 
 impl Log {
     /// Another window's outbox of the same server, joining this one (`windows::peer`): prompts
@@ -417,62 +417,48 @@ pub fn tick_outbox(host: &mut dyn SendFailedHost, tx: &mut rune::Tx) -> bool {
     changed
 }
 
-/// Sends the outbox's oldest prompt still on its way, through this window's writer, once the
-/// one before it is confirmed: its `Sending` row commits on the storage thread, which hands
-/// the write to the writer once it's durable.
+/// Sends each session's oldest eligible prompt. Its Sending row commits before its write
+/// leaves; an in-flight or unconfirmed prompt blocks only its own session, even when a
+/// queue-first prompt was inserted ahead of it. Queue rewrites retain the same session fence.
 pub fn pump_outbox(host: &mut dyn SendFailedHost) -> bool {
     if host.is_reconnect_down() || matches!(host.unsent().store, Store::Reading { .. }) || !host.live_allow_send() {
         return false;
     }
-    let Some(writer) = host.live_writer() else {
-        return false;
-    };
-    // Serialize the outbox across all prompts (including when a queue-first prompt has a lower
-    // `seq` than an already-sending prompt): confirm any unconfirmed prompt first and never send
-    // two prompts in parallel.
-    if host.unsent().sent.iter().any(|s| s.journaled && matches!(s.phase, Phase::Unconfirmed { .. })) {
-        if host.unsent().check == Check::Idle {
-            super::check_sends(host);
+    let Some(writer) = host.live_writer() else { return false };
+    super::check_sends_if_idle(host);
+    let sent = &host.unsent().sent;
+    let mut blocked: std::collections::HashSet<&str> = sent.iter()
+        .filter(|s| s.journaled && matches!(s.phase, Phase::Sending { .. } | Phase::Unconfirmed { .. }))
+        .map(|s| s.session.as_str()).collect();
+    let ready: Vec<_> = sent.iter().filter(|s| {
+        s.journaled && matches!(s.phase, Phase::Waiting { .. })
+            && !host.is_queue_busy(&s.session) && blocked.insert(&s.session)
+    }).filter_map(|s| s.prompt.clone().map(|prompt| (s.id.clone(), s.session.clone(), prompt, s.operation.clone()))).collect();
+    let changed = !ready.is_empty();
+    for (id, session, prompt, operation) in ready {
+        let by = host.peer_token();
+        let now = host.clock();
+        super::step_send(host, &id, Event::Send { by, now });
+        let Some(Phase::Sending { handoff, .. }) = host.unsent().get(&id).map(|s| s.phase.clone()) else { continue };
+        let write = operation.write(session, prompt);
+        if host.unsent().store == Store::Memory {
+            if writer.send(write).is_err() {
+                super::step_send(host, &id, Event::NotSent { why: "waiting for connection", handoff });
+            }
+            continue;
         }
-        return false;
-    }
-    if host.unsent().sent.iter().any(|s| s.journaled && matches!(s.phase, Phase::Sending { .. })) {
-        return false;
-    }
-    let next = host
-        .unsent()
-        .sent
-        .iter()
-        .find(|s| s.journaled && matches!(s.phase, Phase::Waiting { .. }) && !host.is_queue_busy(&s.session))
-        .map(|s| (s.id.clone(), s.session.clone(), s.prompt.clone(), s.operation.clone()));
-    let Some((id, session, prompt, operation)) = next else {
-        return false;
-    };
-    let Some(prompt) = prompt else {
-        return false;
-    };
-    let by = host.peer_token();
-    let now = host.clock();
-    super::step_send(host, &id, Event::Send { by, now });
-    let Some(Phase::Sending { handoff, .. }) = host.unsent().get(&id).map(|s| s.phase.clone()) else { return true };
-    let write = operation.write(session, prompt);
-    if host.unsent().store == Store::Memory {
-        if writer.send(write).is_err() {
-            super::step_send(host, &id, Event::NotSent { why: "waiting for connection", handoff });
-        }
-        return true;
-    }
-    match hand_over(&writer, write, handoff) {
-        Some(forward) => {
-            if let Some(op) = host.unsent_mut().persist_op(&id, Some(forward)) {
-                host.with_storage(op);
+        match hand_over(&writer, write, handoff) {
+            Some(forward) => {
+                if let Some(op) = host.unsent_mut().persist_op(&id, Some(forward)) {
+                    host.with_storage(op);
+                }
+            }
+            None => {
+                super::step_send(host, &id, Event::NotSent { why: "waiting for connection", handoff });
             }
         }
-        None => {
-            super::step_send(host, &id, Event::NotSent { why: "waiting for connection", handoff });
-        }
     }
-    true
+    changed
 }
 
 /// Puts a prompt that never went back in the composer, when that's empty.

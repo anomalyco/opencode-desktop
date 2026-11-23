@@ -72,11 +72,20 @@ impl Bind {
     }
 
     pub fn matches(self, ev: &KeyEvent) -> bool {
-        self.keybind().matches(ev)
+        self.fired().unwrap_or_else(|| self.keybind().matches(ev))
     }
 
     pub fn matches_tx(self, ev: &KeyEvent, tx: &Tx) -> bool {
-        self.keybind().matches_tx(ev, tx)
+        self.fired().unwrap_or_else(|| self.keybind().matches_tx(ev, tx))
+    }
+
+    /// While a key chord's command is fired (`sequence::with_fired`): whether it is the table
+    /// row this shortcut stands for.
+    fn fired(self) -> Option<bool> {
+        super::sequence::fired_is("")?;
+        // A shortcut with no row (a popover's row keys) is no command: no chord runs it.
+        let row = super::all().iter().find(|b| super::overrides::view_bind(b.bind) == Some(self));
+        Some(row.is_some_and(|row| super::sequence::fired_is(row.id) == Some(true)))
     }
 
     /// How the first chord reads here ("⌘⏎", "Ctrl+⏎"); "" when unbound here.

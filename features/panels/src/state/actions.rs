@@ -54,11 +54,18 @@ pub fn keeping_keyboard<H: PanelsHost, R>(host: &mut H, open: impl FnOnce(&mut H
     out
 }
 
-/// Marks `tx` instant if showing a pane tab did not change which panes are visible.
+/// Lands `tx` at once if showing a pane tab did not change which panes are visible (`was`);
+/// else animates it, so the pane flies on `SIDE_SPRING` even from a poll, whose commit Rune
+/// otherwise lands at once, and after the poll's later systems ([`super::flight`]). Callers
+/// that may call `tx.instant()` after showing a tab (a scroll to a line) finish again with the
+/// `was` they began with.
 pub fn finish_show_pane_tab(host: &dyn PanelsHost, was: (bool, bool), tx: &mut Tx) {
     if panes_shown(host) == was {
         tx.instant();
+        return;
     }
+    tx.animated();
+    super::flight::step(host, super::flight::PaneFlightEvent::Opened);
 }
 
 /// Lands a tab shown with `show` at once when its pane was already on screen, as switching

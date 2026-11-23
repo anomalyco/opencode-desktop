@@ -46,13 +46,13 @@ impl SlashHost for App {
             .filter_map(|c| {
                 let name = c.slash?;
                 // Desktop's `/new` is `session.new`, which has no keys of its own (`use-session-commands.tsx:446-451`).
-                let chord = (name != "new").then(|| c.effective_chord()).flatten();
+                let keys = if name == "new" { Vec::new() } else { c.strokes() };
                 Some(BuiltinSlashCommand {
                     id: c.id,
                     name: name.into(),
                     title: c.title.into(),
                     description: c.description.into(),
-                    chord,
+                    keys,
                     args: false,
                 })
             })
@@ -64,7 +64,7 @@ impl SlashHost for App {
             title: c.title.into(),
             description: c.description.into(),
             // A plugin's keys show too, as Desktop's `/terminal` shows Ctrl+` (`editor.tsx:1400-1402`).
-            chord: crate::keymap::command_chord(self, c.id),
+            keys: crate::keymap::command_strokes(self, c.id),
             args: c.args,
         }));
         own

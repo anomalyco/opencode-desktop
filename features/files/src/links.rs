@@ -334,7 +334,7 @@ pub fn open_link(host: &mut dyn FilesHost, sid: &str, from: Option<&str>, href: 
             }
         }
         Link::Inside { path, lines: None, .. } if host.opens_as_page(&path) => {
-            host.open_workspace_preview(sid, &path);
+            host.open_workspace_preview(sid, &path, tx);
         }
         Link::Inside { path, lines, heading } => open_file_link(host, sid, &path, lines, heading, tx),
         Link::Outside { path } if !is_file_uri => reveal_outside_file(host, &path),
@@ -355,7 +355,8 @@ fn open_file_link(
     heading: Option<String>,
     tx: &mut Tx,
 ) {
-    tx.instant();
+    // No `tx.instant()` here: the side region this opens flies on `SIDE_SPRING`, and a tab
+    // switch in an open one lands at once (`show_pane_tab`).
     host.ensure_session_review(sid);
     {
         let ws = host.files_mut().sessions.entry(sid.to_owned()).or_default();
@@ -406,6 +407,7 @@ pub(crate) fn finish_file_link(host: &mut dyn FilesHost, sid: &str, path: &str, 
         }
     };
     if missing {
+        tx.instant();
         let title = if is_bare_word(path) {
             opencode_i18n::t!("rune.files.link.nowhere")
         } else {
@@ -414,10 +416,12 @@ pub(crate) fn finish_file_link(host: &mut dyn FilesHost, sid: &str, path: &str, 
         host.toast_say(title.to_owned(), path.to_owned());
         return;
     }
-    ops::open_workspace_file_for_session(host, sid, path, false, link.lines, false, tx);
+    // Before the tab opens: a scroll to a source line asks for `tx.instant()`, which would land
+    // the side region's flight. The scroll applies to the view this commit mounts either way.
     if let Some(h) = link.heading {
         markdown::scroll_to_heading(host, sid, path, &h, tx);
     }
+    ops::open_workspace_file_for_session(host, sid, path, false, link.lines, false, tx);
 }
 
 /// A file outside the session's folder: NEVER executes or opens with the default OS app, and

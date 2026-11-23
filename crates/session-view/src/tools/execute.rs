@@ -28,12 +28,20 @@ pub fn execute<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
     let view_code = code.filter(|_| *c.status != ToolStatus::Pending).map(|_| view_code_button::<S>(p, cx.session, c.id));
     disclosure(s, trigger(s, p, cx, c, d, t, press, view_code), d, || {
         let owner = calls.iter().rposition(|v| v["status"] == "error");
-        let mut list = col().key("calls").w_full().gap(6.0);
-        for (n, call) in calls.iter().enumerate() {
+        // A script can make thousands of calls, so the list shows the latest and each press of "+N
+        // more" reveals earlier ones (`executeCallsShown`, `executeCallsRevealed`, opencode#65696).
+        let presses = (1..).take_while(|k| s.expanded().contains(&sub_key(c.id, format!("more-{k}")))).count();
+        let hidden = calls.len().saturating_sub(CALLS_SHOWN + presses * CALLS_REVEALED);
+        let mut list = col().key(calls_key(c.id)).w_full().gap(6.0);
+        if hidden > 0 {
+            list = list.child(more_button::<S>(p, c.id, presses + 1, hidden));
+        }
+        for (n, call) in calls.iter().enumerate().skip(hidden) {
             let err = if Some(n) == owner { error.as_deref() } else { None };
             list = list.child(call_row(s, p, cx, c.id, n, Some(call), err));
         }
-        if let (None, Some(e)) = (owner, error.as_deref()) {
+        // A failure with no call, or one that belongs to a call still hidden above, shows on its own.
+        if let (true, Some(e)) = (owner.is_none_or(|o| o < hidden), error.as_deref()) {
             list = list.child(call_row(s, p, cx, c.id, calls.len(), None, Some(e)));
         }
         if !out.is_empty() {
@@ -41,6 +49,43 @@ pub fn execute<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
         }
         body(list, false, 4.0)
     })
+}
+
+/// How many of a script's latest calls show when it opens, and how many more each "+N more" adds.
+const CALLS_SHOWN: usize = 10;
+const CALLS_REVEALED: usize = 50;
+
+/// The calls list of script `id`: its own key, so focus can be sent to its first call.
+fn calls_key(id: &str) -> String {
+    format!("calls-{id}")
+}
+
+/// "+N more" above the shown calls, lined up with their names past the markers
+/// (`execute-tool-call-more`): faint, brighter under the pointer. Its `press`th press reveals the
+/// next calls.
+fn more_button<S: TimelineHost>(p: &Pal, id: &str, press: usize, hidden: usize) -> El {
+    let label = opencode_i18n::plural!("ui.common.moreCount", hidden);
+    let reveal = crate::disclosure::toggle::<S>(sub_key(id, format!("more-{press}")), format!("tool-{id}"));
+    let (list, last) = (calls_key(id), hidden <= CALLS_REVEALED);
+    row()
+        .key("calls-more")
+        .role("button")
+        .label(label.clone())
+        .ml(20.0)
+        .radius(4.0)
+        .cursor(rune::Cursor::Pointer)
+        .focus_default(p)
+        .hover_group_focus()
+        .hover_motion(INSTANT, INSTANT)
+        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+            reveal(s, tx);
+            // The button leaves with the last hidden call, so focus moves on to the first call
+            // rather than nowhere (`reveal` in `tools/tool-renderer.tsx`).
+            if last {
+                tx.focus(list.clone(), tx.focus_visible());
+            }
+        })
+        .child(text(label).font(TOOL_CODE).color(p.faint).group_color(p.text))
 }
 
 /// The nested calls Code Mode reported (`metadata.toolCalls`).

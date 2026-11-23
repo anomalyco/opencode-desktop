@@ -308,8 +308,10 @@ impl FilesHost for App {
         App::opens_as_page(self, path)
     }
 
-    fn open_workspace_preview(&mut self, sid: &str, rel_path: &str) {
-        self.open_workspace_preview_tab(sid, rel_path, None, true);
+    fn open_workspace_preview(&mut self, sid: &str, rel_path: &str, tx: &mut Tx) {
+        self.show_pane_tab(tx, |s| {
+            s.open_workspace_preview_tab(sid, rel_path, None, true);
+        });
     }
 
     fn try_open_artifact_link(&mut self, sid: &str, href: &str) -> bool {

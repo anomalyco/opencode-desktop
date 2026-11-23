@@ -476,10 +476,6 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
         let underlay = if s.composer_border_underlay() { box_el.box_shadow(Pal::ring_out(p.bg_base)) } else { box_el };
         underlay.fill(composer_fill(p)).elevate(p.raised).clip_soft(0.0)
     };
-    // The frame rings, 2 in, while the prompt has focus and the keys put it there: not a click, a
-    // hand-over (a tab switched by the pointer, Steer, Remove) or the window coming back
-    // (`editor.css`, opencode#64976, #65082, #65211).
-    let box_el = if s.composer_edit().focused { box_el.focus_visible_within_ring(crate::focus::WIDTH, crate::focus::INSET, crate::focus::color(p)) } else { box_el };
     let held = s.composer_held_height();
     let box_el = match held {
         Some(h) => box_el.h(h),

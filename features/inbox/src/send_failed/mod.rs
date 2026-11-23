@@ -244,12 +244,17 @@ pub(crate) enum Retry {
 }
 
 #[derive(Default)]
+struct ReceiptCheck {
+    phase: Check,
+    receipts: rune::Latest<Vec<(String, Result<receipt::Receipt, WireError>)>>,
+}
+
+#[derive(Default)]
 pub struct Log {
     pub(crate) store: store::Store,
     pub(crate) retry: Retry,
     pub(crate) sent: Vec<Sent>,
-    receipts: rune::Latest<Vec<(String, Result<receipt::Receipt, WireError>)>>,
-    pub(crate) check: Check,
+    checks: HashMap<String, ReceiptCheck>,
 }
 
 impl Log {
@@ -545,37 +550,55 @@ pub fn send_failed(host: &mut dyn SendFailedHost, id: &str, error: &WireError) -
     true
 }
 
-/// A successful read or reconnect retries receipts, with at most one bounded batch in flight.
+/// A successful read or reconnect retries receipts, with one bounded batch per session.
 pub fn check_sends(host: &mut dyn SendFailedHost) {
-    if matches!(host.unsent().check, Check::Checking { .. }) {
-        if let Check::Checking { again } = &mut host.unsent_mut().check {
-            *again = true;
-        }
-        return;
-    }
-    let Some(server) = host.live_server() else { return };
-    let ask: Vec<(String, String)> = host.unsent().sent.iter().filter(|s| s.state() == State::Unconfirmed).map(|s| (s.session.clone(), s.id.clone())).collect();
-    if ask.is_empty() {
-        return;
-    }
-    let waker = host.waker().unwrap_or_else(|| Arc::new(|| {}));
-    let fetch = Arc::new(move |path: &str| server.read(path));
-    let unsent = host.unsent_mut();
-    unsent.check = Check::Checking { again: false };
-    unsent.receipts = rune::Latest::new(waker);
-    unsent.receipts.request(ask, move |ask| read_receipts(&*fetch, ask));
+    start_checks(host, true);
 }
 
-/// Drains storage mail and completed delivery receipt checks.
+/// Pumping must not queue another check every frame while this session's read is out.
+pub(super) fn check_sends_if_idle(host: &mut dyn SendFailedHost) {
+    start_checks(host, false);
+}
+
+fn start_checks(host: &mut dyn SendFailedHost, again: bool) {
+    let Some(server) = host.live_server() else { return };
+    let mut sessions: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    for s in &host.unsent().sent {
+        if s.state() == State::Unconfirmed {
+            sessions.entry(s.session.clone()).or_default().push((s.session.clone(), s.id.clone()));
+        }
+    }
+    let waker = host.waker().unwrap_or_else(|| Arc::new(|| {}));
+    for (session, ask) in sessions {
+        let check = host.unsent_mut().checks.entry(session).or_default();
+        if let Check::Checking { again: queued } = &mut check.phase {
+            *queued |= again;
+            continue;
+        }
+        let server = server.clone();
+        check.phase = Check::Checking { again: false };
+        check.receipts = rune::Latest::new(waker.clone());
+        check.receipts.request(ask, move |ask| read_receipts(&|path| server.read(path), ask));
+    }
+}
+
+/// Drains storage mail and completed delivery receipt checks. A slow session's read never
+/// holds another session's receipts (or new prompts) behind it.
 pub fn poll_sends(host: &mut dyn SendFailedHost) -> bool {
-    let mailed = outbox::take_mail(host);
-    let Some(receipts) = host.unsent_mut().receipts.take() else { return mailed };
-    apply_receipts(host, receipts);
-    true
+    let mut changed = outbox::take_mail(host);
+    let ready: Vec<_> = host.unsent_mut().checks.iter_mut()
+        .filter_map(|(session, check)| check.receipts.take().map(|r| (session.clone(), r))).collect();
+    let mut again = false;
+    for (session, receipts) in ready {
+        again |= host.unsent_mut().checks.remove(&session).is_some_and(|c| matches!(c.phase, Check::Checking { again: true }));
+        apply_receipts(host, receipts);
+        changed = true;
+    }
+    if again { check_sends_if_idle(host); }
+    changed
 }
 
 fn apply_receipts(host: &mut dyn SendFailedHost, receipts: Vec<(String, Result<receipt::Receipt, WireError>)>) {
-    let again = matches!(std::mem::take(&mut host.unsent_mut().check), Check::Checking { again: true });
     for (id, result) in receipts {
         // A newer SSE receipt always wins over an older absent read.
         if host.unsent().state(&id) != Some(State::Unconfirmed) {
@@ -619,9 +642,6 @@ fn apply_receipts(host: &mut dyn SendFailedHost, receipts: Vec<(String, Result<r
             }
         };
         step_send(host, &id, Event::Checked(found));
-    }
-    if again {
-        check_sends(host);
     }
 }
 

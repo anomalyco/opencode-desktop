@@ -1,6 +1,7 @@
 //! Side region per-session state, resolved strip projection, and query helpers.
 
 mod actions;
+pub mod flight;
 mod resolve;
 
 use std::cell::{Cell, RefCell};
@@ -512,6 +513,8 @@ pub struct SideState {
     /// Whether the left sidebar's flight is moving the side region's edge, so its contents glide
     /// with the edge rather than land at once.
     pub edge_flight: EdgeFlight,
+    /// Whether a pane opened during this frame's poll, which flies past the poll's later systems.
+    pub pane_flight: Cell<flight::PaneFlight>,
     /// A tab dragged between panes.
     pub pane_drag: PaneDrag,
     /// Side/bottom region keyboard focus and composer-shortcut quiet state machine.
@@ -556,6 +559,7 @@ impl Default for SideState {
             empty_span: EmptySpan::Outside,
             laid_w: Cell::new(1280.0),
             edge_flight: EdgeFlight::Idle,
+            pane_flight: Cell::new(flight::PaneFlight::Idle),
             pane_drag: Default::default(),
             focus: SideFocus::default(),
             active_pane_focus: SessionPane::Side,

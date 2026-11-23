@@ -181,6 +181,7 @@ pub fn dialog<H: SwitcherHost + 'static>(s: &H, p: &Pal, w: f32, max_h: f32) -> 
 fn dialog_placeholder(s: &dyn SwitcherHost) -> &'static str {
     match s.switcher().mode {
         SwitcherMode::Sessions | SwitcherMode::Archived => t!("home.sessions.search.placeholder"),
+        SwitcherMode::QuickOpen => t!("palette.quickOpen.placeholder"),
         SwitcherMode::Commands => t!("command.commands.search"),
         // `palette.search.placeholder.home` on Home (`HomeCommandPalette`).
         _ if s.is_home() => t!("palette.search.placeholder.home"),
@@ -343,13 +344,19 @@ fn memo_hash(s: &dyn SwitcherHost, p: &Pal, e: &Entry, lit: bool, q: &str, w: f3
     let found_snippet = snippet(e, q, fulltext);
     found_snippet.is_some().hash(&mut v);
     let sw = s.switcher();
-    (sw.mode as u8, p.theme, p.generation, p.dark, p.forced, opencode_i18n::locale().id(), e.hint.and_then(|b| b.chord())).hash(&mut v);
+    (sw.mode as u8, p.theme, p.generation, p.dark, p.forced, opencode_i18n::locale().id(), e.hint.map(|b| b.keycaps())).hash(&mut v);
     let own = s.active_server();
     let session = match &e.action {
         Action::Session(id) => Some((&own, id, None)),
         Action::RemoteSession { server, id } => Some((server, id, sw.remotes.iter().find(|r| r.server == *server))),
         _ => None,
     };
+    if let Action::Project { server, .. } = &e.action {
+        s.avatar_memo_version().hash(&mut v);
+        if let Some(proj) = project_of(s, server, &e.project) {
+            (&proj.name, &proj.directory, &proj.icon.color, proj.icon.source(&proj.id)).hash(&mut v);
+        }
+    }
     if let Some((server, id, remote)) = session {
         let marks = s.session_marks(id);
         (server, marks.busy, marks.attention, marks.unread, s.is_session_open(id), e.updated.map(|t| relative_time(s.now_ms(), t))).hash(&mut v);
@@ -360,7 +367,7 @@ fn memo_hash(s: &dyn SwitcherHost, p: &Pal, e: &Entry, lit: bool, q: &str, w: f3
                 (&proj.name, &proj.directory, &proj.icon.color, proj.icon.source(&proj.id)).hash(&mut v);
             }
         }
-        if matches!(sw.mode, SwitcherMode::Sessions | SwitcherMode::Archived) {
+        if matches!(sw.mode, SwitcherMode::Sessions | SwitcherMode::Archived | SwitcherMode::QuickOpen) {
             s.is_session_hidden(server, id).hash(&mut v);
         }
         if let Some(r) = found_snippet {
@@ -403,6 +410,8 @@ fn entry_row_shell(s: &dyn SwitcherHost, p: &Pal, e: &Entry, active: bool, q: &s
             let remote = sw.remotes.iter().find(|r| r.server == *server);
             session_parts(s, p, e, id, remote.and_then(|r| r.project(&e.project)), remote.and_then(|r| r.session(id)))
         }
+        // A project's avatar, as its sessions show it (`SessionTabAvatarView`).
+        Action::Project { server, .. } => (Some(s.session_avatar(p, project_of(s, server, &e.project), &e.title, false, false)), None),
         Action::Command(_) => (None, command_keys(p, e)),
         Action::File(_) | Action::Setting(_) => (None, None),
     };
@@ -456,8 +465,16 @@ fn entry_row_shell(s: &dyn SwitcherHost, p: &Pal, e: &Entry, active: bool, q: &s
     r.children(trailing.map(|(el, _)| el)).children(unhide.map(|(el, _)| el))
 }
 
+/// Project `id` on `server`: the window's own, or another server's the search read.
+fn project_of<'a>(s: &'a dyn SwitcherHost, server: &ServerKey, id: &str) -> Option<&'a Project> {
+    if *server == s.active_server() {
+        return s.project(id);
+    }
+    s.switcher().remotes.iter().find(|r| r.server == *server).and_then(|r| r.project(id))
+}
+
 fn unhide_target(s: &dyn SwitcherHost, e: &Entry) -> Option<(ServerKey, String)> {
-    if !matches!(s.switcher().mode, SwitcherMode::Sessions | SwitcherMode::Archived) {
+    if !matches!(s.switcher().mode, SwitcherMode::Sessions | SwitcherMode::Archived | SwitcherMode::QuickOpen) {
         return None;
     }
     let (server, id) = match &e.action {
@@ -527,8 +544,10 @@ pub fn snippet_line_parts(p: &Pal, kind: FullTextKind, snippet: &Snippet, more: 
 /// 60% (`dialog.css:217-229`). Both end in an ellipsis. An archived session's are at 70%.
 fn row_text(p: &Pal, e: &Entry, q: &str, w: f32, archived: bool, stacked: bool) -> El {
     let fade = |c: Color| if archived { c.alpha(c.a * 0.7) } else { c };
-    // Each in its own direction (`dialog.tsx:166-171`, `:236-243`).
+    // Each in its own direction (`dialog.tsx:166-171`, `:236-243`); a project's folder reads left
+    // to right, as a file's path does.
     let title = highlighted(&e.title, q, UI, fade(p.text), p.accent).truncate().dir(Direction::Auto);
+    let described = if matches!(e.action, Action::Project { .. }) { Direction::Ltr } else { Direction::Auto };
     // At 640 pt or narrower the description goes under the title (`dialog.css:127-138`).
     if stacked {
         return col()
@@ -538,14 +557,14 @@ fn row_text(p: &Pal, e: &Entry, q: &str, w: f32, archived: bool, stacked: bool) 
             .min_w(0.0)
             .gap(1.0)
             .child(title.shrink().min_w(0.0))
-            .child(highlighted(&e.description, q, UI, fade(p.faint), p.accent).truncate().shrink().min_w(0.0).dir(Direction::Auto));
+            .child(highlighted(&e.description, q, UI, fade(p.faint), p.accent).truncate().shrink().min_w(0.0).dir(described));
     }
     let mut words = row().key("words").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y();
     if e.description.is_empty() {
         return words.child(title.shrink().min_w(0.0));
     }
     words = words.child(row().key("title").max_w((w * 0.6).max(0.0)).center_y().child(title.shrink().min_w(0.0)));
-    words.child(highlighted(&e.description, q, UI, fade(p.faint), p.accent).truncate().grow(1.0).shrink().min_w(0.0).dir(Direction::Auto))
+    words.child(highlighted(&e.description, q, UI, fade(p.faint), p.accent).truncate().grow(1.0).shrink().min_w(0.0).dir(described))
 }
 
 /// A session's project avatar, with the open-tab bar 6 before it and the unread dot on its corner,
@@ -595,9 +614,15 @@ pub fn relative_time(now: i64, then: i64) -> String {
 
 /// A command's chord as Desktop's neutral `Keybind` chips, and their width.
 fn command_keys(p: &Pal, e: &Entry) -> Option<(El, f32)> {
-    let caps = match (e.hint, e.chord) {
-        (Some(bind), _) if bind.chord().is_some() => bind.keycaps(),
-        (_, Some(chord)) => keymap_caps(chord),
+    // A chord Settings › Shortcuts bound the command shows one keycap per stroke (opencode#64395).
+    let chord = match e.action {
+        Action::Command(id) => opencode_ui::keymap::sequence::first(id),
+        _ => None,
+    };
+    let caps = match (chord, e.hint, e.chord) {
+        (Some(strokes), _, _) => opencode_ui::keymap::sequence::caps(&strokes),
+        (_, Some(bind), _) if !bind.keycaps().is_empty() => bind.keycaps(),
+        (_, _, Some(chord)) => keymap_caps(chord),
         _ => return None,
     };
     // The chips' own label style, in their left-to-right row.

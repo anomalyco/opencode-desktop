@@ -412,7 +412,7 @@ fn prepare_panel_layout(host: &dyn SubagentsHost, id: &str) -> Option<PanelLayou
     let label_w = items.iter().map(|it| width(&it.label, UI)).fold(0.0, f32::max);
     // A script's or shell's command spans the agent and task columns and the gap between them.
     let commands = scripts.iter().map(|sc| sc.label.as_str()).chain(shell_items.iter().map(|sh| sh.command.as_str()));
-    let command_w = commands.map(|c| width(c, shells_view::COMMAND)).fold(0.0, f32::max);
+    let command_w = commands.map(|c| width(&shells_view::one_line(c), shells_view::COMMAND)).fold(0.0, f32::max);
     let span = (agent_w + 6.0 + label_w).max(command_w);
     // Panel inset 4 + hairline 0.5, row inset 4, then the mark, agent and task (or command) and
     // time, 6 apart, with 8 more before the time (`activity-chips.css:9-64`).

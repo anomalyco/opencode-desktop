@@ -1,4 +1,4 @@
-//! Search sessions across servers (`shell/commands/session-search.tsx`): ⇧⌘F and the Inbox's
+//! Search sessions across servers (`shell/commands/session-search.tsx`): ⇧⌘F, ⌘O and the Inbox's
 //! Archived button search every listed server that isn't down, each its own source, so a slow or
 //! failing server never holds back or hides another's sessions. With two servers or more, a
 //! session on a server other than the app's own reads "<project> · <server>"
@@ -31,6 +31,10 @@ pub struct RemoteSeed {
     pub indexed: HashMap<String, (i64, i64)>,
     /// Its projects, for each row's name and avatar.
     pub projects: Vec<Project>,
+    /// What Quick Open lists of them: this client's used projects, most recently active first,
+    /// and the server's others.
+    pub used: Vec<Project>,
+    pub other: Vec<Project>,
 }
 
 /// Another server's source.
@@ -45,6 +49,9 @@ pub(crate) struct Remote {
     indexed: HashMap<String, (i64, i64)>,
     /// Its projects, for each row's name and avatar.
     pub projects: Vec<Project>,
+    /// Its used projects and the others, for Quick Open.
+    pub used: Vec<Project>,
+    pub other: Vec<Project>,
     /// It lists archived sessions (the Inbox's Archived).
     archived: bool,
     source: search::Source<()>,
@@ -81,28 +88,34 @@ pub fn tag(host: &dyn SwitcherHost, key: &ServerKey, servers: usize) -> Option<S
 /// that the window has a half of.
 pub(crate) fn open(host: &mut dyn SwitcherHost) -> Vec<Remote> {
     let mode = host.switcher().mode;
-    if !matches!(mode, SwitcherMode::Sessions | SwitcherMode::Archived) || host.live_server().is_none() {
+    if !matches!(mode, SwitcherMode::Sessions | SwitcherMode::Archived | SwitcherMode::QuickOpen) || host.live_server().is_none() {
         return Vec::new();
     }
     let archived = mode == SwitcherMode::Archived;
     let waker = host.waker();
-    host.remote_server_seeds(archived)
-        .into_iter()
-        .map(|seed| {
-            let fetch = waker.clone().map_or_else(Latest::default, Latest::new);
-            Remote {
-                server: seed.server,
-                tag: seed.tag,
-                conn: seed.conn,
-                known: seed.known,
-                indexed: seed.indexed,
-                projects: seed.projects,
-                archived,
-                source: search::Source::default(),
-                fetch,
-            }
-        })
-        .collect()
+    host.remote_server_seeds(archived).into_iter().map(|seed| remote(seed, archived, waker.clone())).collect()
+}
+
+fn remote(seed: RemoteSeed, archived: bool, waker: Option<rune::Waker>) -> Remote {
+    Remote {
+        server: seed.server,
+        tag: seed.tag,
+        conn: seed.conn,
+        known: seed.known,
+        indexed: seed.indexed,
+        projects: seed.projects,
+        used: seed.used,
+        other: seed.other,
+        archived,
+        source: search::Source::default(),
+        fetch: waker.map_or_else(Latest::default, Latest::new),
+    }
+}
+
+/// Stories: an open search reads `seeds` as its other servers, without asking them anything.
+pub fn stage_remotes(host: &mut dyn SwitcherHost, seeds: Vec<RemoteSeed>) {
+    let archived = host.switcher().mode == SwitcherMode::Archived;
+    host.switcher_mut().remotes = seeds.into_iter().map(|seed| remote(seed, archived, None)).collect();
 }
 
 /// What the window's own server's rows add: its name, once two servers or more are searched.

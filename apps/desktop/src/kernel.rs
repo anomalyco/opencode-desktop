@@ -181,6 +181,15 @@ pub fn build() -> Kernel<App> {
                 crate::status_toast::view(s, p).into_iter().collect()
             }),
     );
+    // `KeySequenceHint` (`key-sequence.tsx`): the chord in progress, at the window's foot.
+    b.register_overlay(
+        OverlayRegistration::<App>::new("overlay.key_sequence")
+            .with_render(crate::overlays::layer::TOAST, |s, cx| {
+                let p = crate::palette::pal(s.dark(cx));
+                crate::key_sequence::view(s, p).into_iter().collect()
+            })
+            .above("overlay.status_toast"),
+    );
     b.register_overlay(
         OverlayRegistration::<App>::new(crate::view::move_recovery::OVERLAY_ID)
             .with_render(crate::overlays::layer::ELEVATED_DIALOG, |s, cx| {
@@ -247,6 +256,7 @@ pub fn build() -> Kernel<App> {
         .register_slot(&crate::events::STREAM_GAPS)
         .register_slot(&crate::speech::SPEECH)
         .register_slot(&crate::crash_notice::CRASH_NOTICE)
+        .register_slot(&crate::key_sequence::SEQUENCE)
         .register_slot(&crate::servers::dialog::DIALOG);
     let kernel = b.build();
     crate::shortcuts::validate(&kernel.commands);

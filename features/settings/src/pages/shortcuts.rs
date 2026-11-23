@@ -1,14 +1,17 @@
 //! Settings › Shortcuts (`settings/keybinds/keybinds.tsx`, `keybinds/machine.ts`): every command
-//! by group (General, Session, Navigation, Model and agent, Terminal, Prompt), each with its chord
-//! or Unassigned. Pressing one records the next chord: Escape stops, Backspace or Delete alone
-//! unbinds, a chord another command has is refused with a toast naming it, any other becomes the
-//! command's. Unbind clears it while recording; Reset to defaults clears every change.
+//! by group (General, Session, Navigation, Model and agent, Terminal, Prompt), each with its
+//! shortcut or Unassigned. Pressing one records the next key: Escape stops, Backspace or Delete
+//! alone unbinds, a key another command's shortcut starts with (or that starts with it) is refused
+//! with a toast naming it, any other becomes the command's. The row just saved offers + to add a
+//! key, up to four: a chord such as Ctrl+K Ctrl+C (opencode#64395). Unbind clears it while
+//! recording; Reset to defaults clears every change.
 
 use opencode_i18n::t;
 use opencode_ui::focus::FocusExt;
-use opencode_ui::keymap::{self, Section, all, overrides};
-use rune::{Chord, ChordKey, ChordMod, Cursor, El, Key, KeyEvent, KeyPlatform, Keybind, TextEdit, TextStyle, Tx, col, row, text};
+use opencode_ui::keymap::{Section, all, overrides, sequence};
+use rune::{Chord, ChordKey, ChordMod, Cursor, El, Key, KeyEvent, KeyPlatform, Keybind, TextEdit, TextStyle, Tx, col, icon, row, text};
 use opencode_ui::palette::Pal;
+use rune_theme_opencode::icons as ic;
 
 use super::{filter_field, ghost_button, header_beside, tab_no_results};
 use crate::change_settings;
@@ -22,15 +25,131 @@ const UNASSIGNED: TextStyle = TITLE.features("\"tnum\"");
 #[derive(Default)]
 pub struct State {
     pub filter: TextEdit,
-    /// The command recording a chord, by id.
-    pub capture: Option<String>,
+    pub capture: Capture,
+}
+
+/// Recording a shortcut (`KeybindCaptureState`, `keybinds/machine.ts`). Each pressed key saves
+/// the shortcut at once.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Capture {
+    #[default]
+    Idle,
+    /// Idle, and this command's row was just saved: it offers + to add a key (`idle.recent`).
+    Saved(String),
+    /// The next key becomes command `id`'s shortcut, added to `prefix`: the strokes it has, from +.
+    Recording { id: String, prefix: Vec<Chord> },
+}
+
+/// What happens to a recording (`KeybindCaptureEvent`); the driver classifies a pressed key.
+pub enum Event {
+    /// A row's shortcut button.
+    Toggled(String),
+    /// + on a row: the next key is added to `chord`, the row's shortcut.
+    Extended { id: String, chord: Vec<Chord> },
+    /// Focus went to a text field, or the page went away: typing there is no shortcut.
+    Cancelled,
+    Unbind(String),
+    Reset,
+    Escape,
+    Backspace,
+    /// A key with the titles of the commands its chord would clash with.
+    Stroke { chord: Chord, taken: Vec<String> },
+}
+
+/// What a transition asks of the page (`KeybindCaptureEffect`).
+pub enum Effect {
+    Bind { id: String, spec: String },
+    Reset,
+    Conflict { keys: String, titles: Vec<String> },
+}
+
+impl Capture {
+    /// The command recording, by id (`selectCapturingKeybind`).
+    pub fn recording(&self) -> Option<&str> {
+        match self {
+            Self::Recording { id, .. } => Some(id),
+            _ => None,
+        }
+    }
+
+    /// The strokes the key being recorded adds to (`selectCapturePrefix`).
+    fn prefix(&self) -> &[Chord] {
+        match self {
+            Self::Recording { prefix, .. } => prefix,
+            _ => &[],
+        }
+    }
+
+    /// `transitionKeybindCapture`.
+    pub fn step(&mut self, event: Event) -> Vec<Effect> {
+        let recording = self.recording().map(str::to_owned);
+        match (event, recording) {
+            (Event::Unbind(id), _) => {
+                *self = Self::Idle;
+                vec![Effect::Bind { id, spec: "none".into() }]
+            }
+            (Event::Reset, _) => {
+                *self = Self::Idle;
+                vec![Effect::Reset]
+            }
+            (Event::Toggled(id), Some(now)) if now == id => {
+                *self = Self::Idle;
+                Vec::new()
+            }
+            (Event::Toggled(id), _) => {
+                *self = Self::Recording { id, prefix: Vec::new() };
+                Vec::new()
+            }
+            (Event::Extended { id, chord }, _) => {
+                *self = Self::Recording { id, prefix: chord };
+                Vec::new()
+            }
+            (_, None) => Vec::new(),
+            (Event::Cancelled | Event::Escape, Some(_)) => {
+                *self = Self::Idle;
+                Vec::new()
+            }
+            // With nothing before it, Backspace removes the shortcut; otherwise it drops the key being added.
+            (Event::Backspace, Some(id)) => {
+                let mut prefix = self.prefix().to_vec();
+                if prefix.pop().is_none() {
+                    *self = Self::Idle;
+                    return vec![Effect::Bind { id, spec: "none".into() }];
+                }
+                *self = Self::Recording { id, prefix };
+                Vec::new()
+            }
+            (Event::Stroke { chord, taken }, Some(id)) => {
+                let mut strokes = self.prefix().to_vec();
+                strokes.push(chord);
+                // A clashing key keeps recording, so the next press tries again.
+                if !taken.is_empty() {
+                    return vec![Effect::Conflict { keys: sequence::label(&strokes), titles: taken }];
+                }
+                *self = Self::Saved(id.clone());
+                vec![Effect::Bind { id, spec: sequence::spec(&strokes) }]
+            }
+        }
+    }
 }
 
 struct Entry {
     id: String,
     title: String,
     section: Section,
-    keybind: Keybind,
+    /// Every combo of its keybind as strokes: one for a plain shortcut, more for a chord.
+    chords: Vec<Vec<Chord>>,
+    /// The combo its row shows (`firstCombo`); empty when it has none.
+    first: Vec<Chord>,
+}
+
+impl Entry {
+    fn new(id: String, title: String, section: Section, keybind: &Keybind, bound: &[sequence::Bound]) -> Self {
+        let mine = bound.iter().filter(|b| b.id == id);
+        let first = mine.clone().find(|b| b.first).map(|b| b.strokes.clone()).or_else(|| keybind.chords().first().map(|c| vec![*c])).unwrap_or_default();
+        let chords = keybind.chords().iter().map(|c| vec![*c]).chain(mine.map(|b| b.strokes.clone())).collect();
+        Self { id, title, section, chords, first }
+    }
 }
 
 /// `groupFor`: a command without a section of its own goes by its id's prefix.
@@ -52,10 +171,11 @@ fn group_for(id: &str) -> Section {
 }
 
 fn entries(s: &dyn SettingsHost) -> Vec<Entry> {
+    let bound = sequence::all();
     let mut out: Vec<Entry> = all()
         .iter()
         .filter(|b| b.listed)
-        .map(|b| Entry { id: b.id.to_owned(), title: b.title(), section: b.section, keybind: b.bind.keybind().clone() })
+        .map(|b| Entry::new(b.id.to_owned(), b.title(), b.section, b.bind.keybind(), &bound))
         .collect();
     for c in s.commands_catalog() {
         if c.has_keys || out.iter().any(|e| e.id == c.id) {
@@ -73,31 +193,55 @@ fn entries(s: &dyn SettingsHost) -> Vec<Entry> {
         }
         let keybind = stored.or_else(|| c.chord.map(Keybind::from)).unwrap_or_default();
         let section = c.section.unwrap_or_else(|| group_for(c.id));
-        out.push(Entry { id: c.id.to_owned(), title: c.title, section, keybind });
+        out.push(Entry::new(c.id.to_owned(), c.title, section, &keybind, &bound));
     }
     out
 }
 
-fn label(k: &Keybind) -> String {
-    k.chords().first().map_or_else(String::new, |c| keymap::label(*c))
+/// A shortcut as its row writes it (`formatKeybind`): "Ctrl+Shift+T", "Ctrl+K Ctrl+C", "".
+fn label(strokes: &[Chord]) -> String {
+    sequence::label(strokes)
+}
+
+/// Steps the recording and carries out what it asks.
+fn dispatch(s: &mut dyn SettingsHost, event: Event) {
+    let effects = s.settings_pages_mut().shortcuts.capture.step(event);
+    for effect in effects {
+        match effect {
+            Effect::Bind { id, spec } => bind(s, &id, &spec),
+            Effect::Reset => reset(s),
+            Effect::Conflict { keys, titles } => s.toast_say(
+                t!("settings.shortcuts.conflict.title").into(),
+                t!("settings.shortcuts.conflict.description", keybind = keys, titles = titles.join(", ")),
+            ),
+        }
+    }
 }
 
 fn toggle_capture(s: &mut dyn SettingsHost, id: &str, tx: &mut Tx) {
     tx.instant();
+    dispatch(s, Event::Toggled(id.to_owned()));
     let pages = s.settings_pages_mut();
-    pages.shortcuts.capture = if pages.shortcuts.capture.as_deref() == Some(id) { None } else { Some(id.to_owned()) };
+    pages.shortcuts.filter.focused = false;
+    pages.find.query.focused = false;
+}
+
+/// + on the row just saved: its next key joins the shortcut it has.
+fn extend_capture(s: &mut dyn SettingsHost, id: &str, chord: Vec<Chord>, tx: &mut Tx) {
+    tx.instant();
+    dispatch(s, Event::Extended { id: id.to_owned(), chord });
+    let pages = s.settings_pages_mut();
     pages.shortcuts.filter.focused = false;
     pages.find.query.focused = false;
 }
 
 fn unbind_shortcut(s: &mut dyn SettingsHost, id: &str, tx: &mut Tx) {
     tx.instant();
-    bind(s, id, "none");
-    s.settings_pages_mut().shortcuts.capture = None;
+    dispatch(s, Event::Unbind(id.to_owned()));
 }
 
 fn reset_button_pressed(s: &mut dyn SettingsHost, _tx: &mut Tx) {
-    reset(s);
+    dispatch(s, Event::Reset);
 }
 
 pub fn view<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
@@ -117,7 +261,7 @@ pub fn view<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
         let mut rows: Vec<&Entry> = list
             .iter()
             .filter(|e| e.section == section)
-            .filter(|e| query.is_empty() || opencode_search::model_search::score(&query, &[&e.title, &label(&e.keybind)]).is_some())
+            .filter(|e| query.is_empty() || opencode_search::model_search::score(&query, &[&e.title, &label(&e.first)]).is_some())
             .collect();
         if rows.is_empty() {
             continue;
@@ -157,9 +301,14 @@ pub fn view<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
 }
 
 fn controls<H: SettingsHost + 'static>(s: &H, p: &Pal, e: &Entry) -> El {
-    let recording = s.settings_pages().shortcuts.capture.as_deref() == Some(e.id.as_str());
-    let keys = label(&e.keybind);
-    let (words, ink, font) = if recording {
+    let capture = &s.settings_pages().shortcuts.capture;
+    let recording = capture.recording() == Some(e.id.as_str());
+    let prefix = if recording { label(capture.prefix()) } else { String::new() };
+    let keys = label(&e.first);
+    let (words, ink, font) = if recording && !prefix.is_empty() {
+        // The keys the next one adds to (`ShortcutButton`).
+        (format!("{prefix} …"), p.text, KEYS_BUTTON)
+    } else if recording {
         (t!("settings.shortcuts.pressKeys").to_owned(), p.text, KEYS_BUTTON)
     } else if keys.is_empty() {
         (t!("settings.shortcuts.unassigned").to_owned(), p.muted, UNASSIGNED)
@@ -184,7 +333,7 @@ fn controls<H: SettingsHost + 'static>(s: &H, p: &Pal, e: &Entry) -> El {
         .on_press_tx(move |s: &mut H, tx: &mut Tx| toggle_capture(s, &id, tx))
         .child(text(words).font(font).color(ink));
     let id = e.id.clone();
-    let unbind = (recording && !keys.is_empty()).then(|| {
+    let unbind = (recording && !keys.is_empty() && prefix.is_empty()).then(|| {
         row()
             .key("shortcut-unbind")
             .role("button")
@@ -200,7 +349,26 @@ fn controls<H: SettingsHost + 'static>(s: &H, p: &Pal, e: &Entry) -> El {
             .on_press_tx(move |s: &mut H, tx: &mut Tx| unbind_shortcut(s, &id, tx))
             .child(text(t!("settings.shortcuts.unbind")).font(KEYS).color(p.danger))
     });
-    row().gap(4.0).center_y().children(unbind).child(button)
+    // The row just saved offers + while its shortcut has room for another key (`extendable`).
+    let extendable = *capture == Capture::Saved(e.id.clone()) && !e.first.is_empty() && e.first.len() < sequence::MAX_STROKES;
+    let (id, chord) = (e.id.clone(), e.first.clone());
+    let add = extendable.then(|| {
+        row()
+            .key(format!("shortcut-add-key-{}", e.id))
+            .role("button")
+            .label_static(t!("settings.shortcuts.addKey"))
+            .w(24.0)
+            .h(24.0)
+            .center()
+            .radius(4.0)
+            .cursor(Cursor::Pointer)
+            .focus_default(p)
+            .hover(p.hover)
+            .press(p.pressed)
+            .on_press_tx(move |s: &mut H, tx: &mut Tx| extend_capture(s, &id, chord.clone(), tx))
+            .child(icon(&ic::PLUS, 16.0).color(p.muted))
+    });
+    row().gap(4.0).center_y().child(row().gap(4.0).center_y().children(unbind).child(button)).children(add)
 }
 
 /// Saves `spec` as command `id`'s keys and puts it to work.
@@ -213,7 +381,7 @@ pub fn bind(s: &mut dyn SettingsHost, id: &str, spec: &str) {
 }
 
 pub fn reset(s: &mut dyn SettingsHost) {
-    s.settings_pages_mut().shortcuts.capture = None;
+    s.settings_pages_mut().shortcuts.capture = Capture::Idle;
     change_settings(s, |x| x.keybinds.clear());
     overrides::apply(&s.settings().keybinds);
     s.toast_say(t!("settings.shortcuts.reset.toast.title").into(), t!("settings.shortcuts.reset.toast.description").into());
@@ -274,44 +442,35 @@ pub fn key(s: &mut dyn SettingsHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
     // A text field, such as the search box, gets its keys; typing there ends the recording (`keybinds.tsx:377-378`).
     let editing = s.settings_pages().shortcuts.filter.focused || s.settings_pages().find.query.focused;
     if editing {
-        if s.settings_pages().shortcuts.capture.is_some() {
+        if s.settings_pages().shortcuts.capture.recording().is_some() {
             tx.instant();
-            s.settings_pages_mut().shortcuts.capture = None;
+            dispatch(s, Event::Cancelled);
         }
         return false;
     }
-    let Some(id) = s.settings_pages().shortcuts.capture.clone() else { return type_to_search(s, ev, tx) };
+    let Some(id) = s.settings_pages().shortcuts.capture.recording().map(str::to_owned) else { return type_to_search(s, ev, tx) };
     tx.instant();
     let bare = !(ev.mods.cmd || ev.mods.ctrl || ev.mods.alt || ev.mods.shift || ev.mods.logo);
-    match &ev.key {
-        Key::Escape => {
-            s.settings_pages_mut().shortcuts.capture = None;
-            return true;
-        }
-        Key::Backspace | Key::Delete if bare => {
-            bind(s, &id, "none");
-            s.settings_pages_mut().shortcuts.capture = None;
-            return true;
-        }
+    let event = match &ev.key {
+        Key::Escape => Event::Escape,
+        Key::Backspace | Key::Delete if bare => Event::Backspace,
         Key::Modifier { .. } => return true,
-        _ => {}
-    }
-    let Some(chord) = chord_of(ev, tx) else { return true };
-    let platform = KeyPlatform::current();
-    let taken: Vec<String> = entries(s)
-        .into_iter()
-        .filter(|e| e.id != id && e.keybind.chords().iter().any(|c| c.same_keys(&chord, platform)))
-        .map(|e| e.title)
-        .collect();
-    if !taken.is_empty() {
-        s.toast_say(
-            t!("settings.shortcuts.conflict.title").into(),
-            t!("settings.shortcuts.conflict.description", keybind = keymap::label(chord), titles = taken.join(", ")),
-        );
-        return true;
-    }
-    bind(s, &id, &overrides::spec(chord));
-    s.settings_pages_mut().shortcuts.capture = None;
+        _ => {
+            let Some(chord) = chord_of(ev, tx) else { return true };
+            // The commands the chord would clash with (`conflicts`): one starts the other, so the
+            // shorter would run before the longer could finish.
+            let mut strokes = s.settings_pages().shortcuts.capture.prefix().to_vec();
+            strokes.push(chord);
+            let mut taken: Vec<String> = Vec::new();
+            for e in entries(s) {
+                if e.id != id && e.chords.iter().any(|c| sequence::clashes(&strokes, c)) && !taken.contains(&e.title) {
+                    taken.push(e.title);
+                }
+            }
+            Event::Stroke { chord, taken }
+        }
+    };
+    dispatch(s, event);
     true
 }
 

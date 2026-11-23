@@ -21,6 +21,8 @@ export type MenuData = {
     canFind: boolean,
     canHardReload: boolean,
     canClearHistory: boolean,
+    -- The device toolbar exists on this channel (`viewportToolbarAvailable`).
+    canToggleToolbar: boolean,
     paneWidth: number?,
 }
 
@@ -200,14 +202,16 @@ end
 -- Renders the nested "More tools" submenu (`panel.tsx:1298`: `w-max min-w-[220px]`).
 function options.renderMore(cb: Callbacks, view: View, d: MenuData): ui.Node
     local hasUrl = d.url ~= ""
-    local items: { ui.Node } = {
-        menuItem(view, "browser-more-inspect", cb.I18n:T("inspect"), d.inspectable, function()
-            cb.act("inspect", d.tabId)
-        end, "browser.inspect", true),
-        menuItem(view, "browser-more-external", cb.I18n:T("menu.openPage"), d.canOpenExternal, function()
-            cb.act("external", d.tabId)
-        end, nil, true),
-    }
+    -- The comment tool has its button in the bar; the device toolbar's toggle lives here (`panel.tsx` More tools).
+    local items: { ui.Node } = {}
+    if d.canToggleToolbar then
+        table.insert(items, menuItem(view, "browser-more-toolbar", cb.I18n:T("command.toggleToolbar"), d.inspectable, function()
+            cb.act("device", d.tabId)
+        end, "browser.toggleToolbar", true))
+    end
+    table.insert(items, menuItem(view, "browser-more-external", cb.I18n:T("menu.openPage"), d.canOpenExternal, function()
+        cb.act("external", d.tabId)
+    end, nil, true))
     if not d.canOpenExternal then
         table.insert(items, menuHint(cb.I18n:T("menu.pageUnavailable")))
     end

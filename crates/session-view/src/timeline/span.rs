@@ -37,12 +37,16 @@ impl<'a> Inputs<'a> {
         let busy = s.timeline_busy(t) && !s.is_session_stopped(&t.session);
         let revert = s.session_revert(&t.session);
         let shown = t.visible_len(revert);
-        let last_assistant = t.messages[..shown].iter().rposition(|m| matches!(m, Message::Assistant(_)));
+        // A later prompt owns the tail; the previous reply already has its inline footer
+        // (`packages/session-ui/src/timeline-next/projection.ts`, per-turn `turnRows`).
+        // Notices, compaction and Changed files do not start a new prompt.
+        let last_turn = t.messages[..shown].iter().rposition(|m| matches!(m, Message::Assistant(_) | Message::User { .. }));
+        let last_assistant = last_turn.filter(|&i| matches!(t.messages[i], Message::Assistant(_)));
         let pending = if revert.is_some() { Vec::new() } else { s.inbox_for(&t.session).map(|i| i.steering().collect()).unwrap_or_default() };
         // Working, or a compaction waiting to start, sits between the last prompt and the steers.
         let queued = if revert.is_none() { s.queued_compaction(&t.session) } else { None };
         // A new session's first prompt has no reply above it yet, and Working shows under it all the same.
-        let actions = last_assistant.or_else(|| (busy && revert.is_none() && shown > 0).then(|| shown - 1));
+        let actions = last_assistant.or_else(|| ((busy || s.is_session_live(&t.session)) && revert.is_none() && shown > 0).then(|| last_turn.unwrap_or(shown - 1)));
         Inputs {
             busy,
             revert,
