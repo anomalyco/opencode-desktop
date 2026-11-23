@@ -103,7 +103,9 @@ pub struct Row {
 /// them in its first frame without starting the four plugins that offer them (11 ms of a warm
 /// launch, strobe `rec_7ecdd3`, `rec_5a45c9`, `rec_2fd572`); each plugin still starts at the next
 /// turn and its live answers replace these. A plugin with no entry for a session has never drawn
-/// there: its rows wait for it, as they did.
+/// there: its rows wait for it, as they did. They stand in only while a server is there
+/// ([`rows_stand`]), and a running plugin's rows are kept only then too ([`note_rows`]): what a
+/// plugin answers with no server is not what the next launch should draw.
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Rows {
     /// The interface language the detail lines were made in.
@@ -122,9 +124,23 @@ impl Rows {
     }
 }
 
+/// Whether kept rows may stand in for their sleeping plugins: a server took this launch's
+/// connection (`launch::reached`) and nothing says the window's server is gone. The rows answer
+/// for a session the server knows and for what it offers; with no server the plugins answer
+/// that there are none, so a kept row would show and then go. Without one the window is what it
+/// was before the rows were kept: the plugins start before the frame and answer themselves (as
+/// the saved session list waits, `launch::saved_list`).
+fn rows_stand(app: &App) -> bool {
+    crate::launch::reached() && !crate::launch::offline(app) && !crate::view::server_unavailable::unreachable(crate::servers::runtime::active(app))
+}
+
 /// The rows dormant plugin `plugin` showed in `session`'s New tab view when it last drew it;
-/// `None` when it never drew there.
+/// `None` when it never drew there, while kept rows don't stand in ([`rows_stand`]), or while the
+/// window doesn't know the session (every row's `when` asks for it: `Sessions:Get`).
 pub fn rows(app: &App, session: &str, plugin: &str) -> Option<BTreeMap<String, Row>> {
+    if !rows_stand(app) || app.session(session).is_none() {
+        return None;
+    }
     let mut rows = app.plugins.dormant.rows.borrow_mut();
     let rows = rows.get_or_insert_with(Rows::read);
     rows.sessions.iter().find(|(id, _)| id == session).and_then(|(_, plugins)| plugins.get(plugin)).cloned()
@@ -132,6 +148,9 @@ pub fn rows(app: &App, session: &str, plugin: &str) -> Option<BTreeMap<String, R
 
 /// Running plugin `plugin` drew `shown` as its rows of `session`'s New tab view.
 pub fn note_rows(app: &App, session: &str, plugin: &str, shown: BTreeMap<String, Row>) {
+    if !rows_stand(app) {
+        return;
+    }
     let mut rows = app.plugins.dormant.rows.borrow_mut();
     let rows = rows.get_or_insert_with(Rows::read);
     let at = rows.sessions.iter().position(|(id, _)| id == session);
