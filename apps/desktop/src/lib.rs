@@ -178,8 +178,21 @@ pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
         setup: Some(setup),
         poll: Some(poll),
         on_key: Some(keys::on_key),
-        ..AppSpec::new(launch::window_title(), (1280.0, 800.0), init, view::app)
+        ..AppSpec::new(launch::window_title(), (1280.0, 800.0), init, app_view)
     }
+}
+
+/// [`view::app`], its first build marked for the launch trace: how much of the first frame's
+/// layout is the app building its view.
+fn app_view(s: &App, cx: &mut rune::Cx<App>) -> rune::El {
+    static FIRST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+    if !FIRST.swap(false, std::sync::atomic::Ordering::Relaxed) {
+        return view::app(s, cx);
+    }
+    rune::marks::mark("view.first.begin");
+    let el = view::app(s, cx);
+    rune::marks::mark("view.first.built");
+    el
 }
 
 /// The app as it runs: its history, its storybook (⌘⇧D), its window chrome, and Rune's native

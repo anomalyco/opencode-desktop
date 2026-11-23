@@ -55,12 +55,14 @@ pub fn setup(app: &mut App, waker: Waker) {
     servers::read_own_version(app);
     // The servers added by address are in the registry from launch, their health checked.
     crate::servers::refresh(app);
+    rune::marks::mark("plugins.records");
     // The built-ins this launch's first screen shows start now, the rest after its first frame
     // (`first_screen`); a headless run (no first-frame hook) starts them all.
     let first = (!crate::headless()).then(|| first_screen::plugins(app));
     let (now, later): (Vec<_>, Vec<_>) = sources::builtins()
         .into_iter()
         .partition(|f| first.as_ref().is_none_or(|ids| ids.contains(&f.manifest.id.as_str())));
+    rune::marks::mark("plugins.sources");
     let start_now = known && stores::answers();
     // The ones with a record of this build go to sleep with it just after the first frame
     // (`doze_owed`): nothing they contribute draws in it (`first_screen`).
