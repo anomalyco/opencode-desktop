@@ -49,6 +49,12 @@ pub(super) const MIN_W: f32 = 96.0;
 /// The location card's rows (`session-identity-header.css`): 2 apart, 8 in on both sides.
 pub(super) const CARD: popover::Look = popover::Look { row_gap: 2.0, pad_l: 8.0, pad_r: 8.0, ..MENU };
 
+/// A select's list (`select.css`): 4 in around its rows and 2 between them, at most 12rem tall
+/// (its rows scroll past that) and at least 160 wide.
+pub(super) const SELECT: popover::Look = popover::Look { inset: 4.0, row_gap: 2.0, ..MENU };
+pub(super) const SELECT_MAX_H: f32 = 192.0;
+pub(super) const SELECT_MIN_W: f32 = 160.0;
+
 pub(super) const CONTEXT_MIN_W: f32 = 160.0;
 
 /// From a point (a right-click) or an element to the menu's corner.
