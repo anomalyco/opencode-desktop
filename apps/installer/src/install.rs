@@ -13,6 +13,7 @@ use win_install::{EXE, Product};
 static PAYLOAD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/payload.zip"));
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
 const CREATE_SUSPENDED: u32 = 0x0000_0004;
 const DETACHED_PROCESS: u32 = 0x0000_0008;
 /// How long a running copy has to close on its own before setup ends it.
@@ -119,17 +120,19 @@ pub fn install(p: &Product, root: &Path, desktop_shortcut: bool, log: &dyn Fn(&s
 }
 
 /// Unpacks the payload into `staging` with Windows' own bsdtar (as the updater does); returns
-/// the app's folder in it.
+/// the app's folder in it. bsdtar reads its arguments in the ANSI code page, where a user folder
+/// named `测试` arrives as `??`: so the zip goes in on standard input and `staging` is the
+/// working directory, and no path is an argument.
 fn unpack(staging: &Path) -> Result<PathBuf, String> {
     std::fs::create_dir_all(staging).map_err(|e| format!("{}: {e}", staging.display()))?;
     let zip = staging.join("payload.zip");
     std::fs::write(&zip, PAYLOAD).map_err(|e| format!("couldn't write the app: {e}"))?;
+    let archive = std::fs::File::open(&zip).map_err(|e| format!("couldn't read the app: {e}"))?;
     let system = std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
     let out = Command::new(system.join("System32").join("tar.exe"))
-        .arg("-xf")
-        .arg(&zip)
-        .arg("-C")
-        .arg(staging)
+        .args(["-xf", "-"])
+        .current_dir(staging)
+        .stdin(archive)
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|e| format!("couldn't run tar: {e}"))?;
@@ -205,7 +208,20 @@ pub fn first_start(root: &Path, log: &Option<PathBuf>) -> std::thread::JoinHandl
             }
             Err(e) => args.log(&format!("couldn't check {} ahead: {e}", exe.display())),
         }
-    })
+        // The GPU's cache for this exe, made now in a process nobody waits for (`--warm-gpu`):
+        // Direct3D keeps it per user and per exe path, so the first launch finds its pipelines
+        // compiled and its cache databases made. Below normal, so the last page stays smooth.
+        let warm = Command::new(&exe)
+            .arg("--warm-gpu")
+            .env_remove("__COMPAT_LAYER")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS)
+            .spawn();
+        if let Err(e) = warm {
+            args.log(&format!("couldn't warm the GPU's cache for {}: {e}", exe.display()));
+        }    })
 }
 /// Starts the installed app, in the user's home folder, as its Start menu shortcut does.
 ///
