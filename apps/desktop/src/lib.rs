@@ -259,6 +259,9 @@ pub fn run_native() {
     // Before anything is started: what this process starts doesn't inherit the installer's layer.
     #[cfg(windows)]
     launch::compat_layer::shed();
+    // The DLLs the first frame's path loads on first use, loading beside it from here on.
+    #[cfg(windows)]
+    launch::dlls::warm();
     commit_pages_on_demand();
     #[cfg(feature = "alloc-sites")]
     plugin_host::memory::register_reports();
