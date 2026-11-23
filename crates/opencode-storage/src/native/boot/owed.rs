@@ -21,6 +21,9 @@ pub(super) struct Owe {
     pub journal: super::super::writer::OpenJournal,
     /// This run keeps a journal (not one that shows another process's file, saving nothing).
     pub want_journal: bool,
+    /// What stage A read from Desktop for a new profile, which the first frame is built from:
+    /// stage B's import commits it.
+    pub seed: Option<super::super::seed::Collected>,
 }
 
 pub(super) fn attach_journal(config: &StorageConfig, report: &mut BootReport, owe: &mut Owe, loc: &journal::Location, fresh: bool) -> bool {
