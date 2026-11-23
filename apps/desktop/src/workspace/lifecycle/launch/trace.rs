@@ -126,36 +126,47 @@ pub fn on() -> bool {
     *ON.get_or_init(|| crate::arg("--launch-trace").is_some() || echoes() || quit_after().is_some())
 }
 
-/// `--launch-marks`: each launch milestone printed as a line the moment the app sees it
-/// (`launch-mark <name> <ns since creation> at=<epoch ms>`), for strobe's `launch: { milestones }`.
+/// `--launch-marks`: each launch milestone printed as a line once the app sees it
+/// (`launch-mark <name> <ns since creation> at=<epoch ms, to the microsecond>`), for strobe's
+/// `launch: { milestones }`. A line carries its mark's own time, so the marks from before the
+/// first frame, which go out with it, are timed where they happened.
 fn echoes() -> bool {
     static ECHO: OnceLock<bool> = OnceLock::new();
     *ECHO.get_or_init(|| crate::flag("--launch-marks"))
 }
 
 /// The milestones `--launch-marks` prints.
-const MILESTONES: [&str; 6] = ["frame.first.presented", "text.complete", "input.ready", "server.answered", "content.live", "pixels.stable"];
+const MILESTONES: [&str; 8] =
+    ["main.entered", "window.created", "frame.first.presented", "text.complete", "input.ready", "server.answered", "content.live", "pixels.stable"];
 
 /// Prints the milestones reached since the last call.
 fn echo() {
+    // One bit per milestone printed.
     static PRINTED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let done = PRINTED.load(Ordering::Relaxed);
-    if !echoes() || done == MILESTONES.len() {
+    if !echoes() || done == (1 << MILESTONES.len()) - 1 {
         return;
     }
     let marks = rune::marks::marks();
+    // Nothing is printed or written before the first frame.
+    if !marks.iter().any(|(n, _)| *n == "frame.first.presented") {
+        return;
+    }
     let mut printed = done;
     let mut lines = String::new();
-    for name in MILESTONES.iter().skip(done) {
+    for (i, name) in MILESTONES.iter().enumerate() {
+        if done & (1 << i) != 0 {
+            continue;
+        }
         let found = marks.iter().find(|(n, _)| n == name).map(|(_, t)| *t).or_else(|| if *name == "pixels.stable" { STABLE.get().copied() } else { None });
-        let Some(t) = found else { break };
+        let Some(t) = found else { continue };
         let at = ns(t);
-        // Epoch ms of the mark, for strobe's milestone `at` group: FILETIME is 100 ns since 1601.
-        let epoch_ms = BOOT.get().map_or(0, |b| (b.created.saturating_sub(116_444_736_000_000_000) / 10_000).saturating_add(at / 1_000_000));
-        lines.push_str(&format!("launch-mark {name} {at} at={epoch_ms}\n"));
-        printed += 1;
-    }
-    PRINTED.store(printed, Ordering::Relaxed);
+        // Epoch microseconds of the mark, printed as ms with three decimals for strobe's milestone
+        // `at` group: FILETIME is 100 ns since 1601.
+        let epoch_us = BOOT.get().map_or(0, |b| (b.created.saturating_sub(116_444_736_000_000_000) / 10).saturating_add(at / 1_000));
+        lines.push_str(&format!("launch-mark {name} {at} at={}.{:03}\n", epoch_us / 1_000, epoch_us % 1_000));
+        printed |= 1 << i;
+    }    PRINTED.store(printed, Ordering::Relaxed);
     if lines.is_empty() {
         return;
     }
@@ -164,7 +175,7 @@ fn echo() {
     out.write_all(lines.as_bytes()).ok();
     out.flush().ok();
     // A launch from the Dock, Finder or Explorer has no stdout: the same lines go to
-    // `<logs>/launch-marks.log`. The first milestone is the first frame, so this file is never
+    // `<logs>/launch-marks.log`. The first lines go out with the first frame, so this file is never
     // written before it.
     if let Some(dir) = crate::dirs::logs() {
         std::fs::create_dir_all(&dir).ok();
