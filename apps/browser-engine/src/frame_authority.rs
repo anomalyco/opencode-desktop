@@ -65,6 +65,8 @@ pub enum Reach {
 
 enum Internal {
     Resume { session: String, worker: bool },
+    /// `Fetch.enable` on an extension frame's session, for the dedicated workers waiting on it.
+    Guard { session: String },
     Prepare { session: Option<String> },
     Tree { session: Option<String> },
 }
@@ -138,6 +140,11 @@ pub struct EngineCdpLedger {
     /// Mirror of `ExtensionHost`'s registered extension IDs (`self.extensions.keys()`), used so
     /// `on_attached` detaches-without-resuming ONLY workers owned by `ExtensionHost` (`#695-F1`).
     registered_ext_ids: Arc<Mutex<HashSet<String>>>,
+    /// Extension frames inside this tab whose session carries the `file:` guard for their dedicated
+    /// workers (`ExtensionHost` is attached to neither): `false` while `Fetch.enable` is in flight.
+    guarded_ext_frames: HashMap<String, bool>,
+    /// Paused worker sessions waiting for their frame's guard to confirm, by frame session.
+    guard_waiters: HashMap<String, Vec<String>>,
     /// Bumped only on security-relevant frame-tree transitions (main-frame commit, extension target/
     /// frame/context change, overflow, or `Unprepared`) so unrelated background ad/analytics
     /// subframes reloading do not cause false `InputGuard` refusals.
@@ -720,8 +727,19 @@ impl EngineCdpLedger {
                 self.on_attached(params, session, &mut obs);
                 return obs;
             }
+            "Fetch.requestPaused" if session.is_some_and(|s| self.guarded_ext_frames.contains_key(s)) => {
+                // Only `file:` requests match the guard's patterns: fail them, as the host does.
+                if let Some(request) = params.get("requestId").and_then(Value::as_str) {
+                    let fail = json!({ "requestId": request, "errorReason": "BlockedByClient" });
+                    obs.send.push(self.msg("Fetch.failRequest", fail, session, None));
+                }
+                return obs;
+            }
             "Target.detachedFromTarget" => {
                 if let Some(sid) = params.get("sessionId").and_then(Value::as_str) {
+                    self.guarded_ext_frames.remove(sid);
+                    self.guard_waiters.remove(sid);
+                    self.guard_waiters.values_mut().for_each(|waiting| waiting.retain(|w| w != sid));
                     if self.web_sessions.remove(sid).is_some_and(|w| w.announced) {
                         obs.forward = true;
                     }
@@ -865,6 +883,31 @@ impl EngineCdpLedger {
                 && crate::extensions::manifest::extension_id_from_target_url(url)
                     .is_some_and(|id| self.registered_ext_ids.lock().unwrap().contains(id));
             let detach = self.msg("Target.detachFromTarget", json!({ "sessionId": child }), None, None);
+            if ext_worker
+                && ty == "worker"
+                && let Some(frame_session) = parent
+            {
+                // A dedicated worker of an extension frame inside this tab: `ExtensionHost` is attached
+                // to neither, so nobody else would ever resume it. A worker target has no `Fetch`
+                // domain; its requests go through its frame, so the `file:` guard (the host's own,
+                // `cdp.rs` `fetch_enable_cmd`) goes on the frame's session and the worker runs only
+                // once that guard confirmed.
+                match self.guarded_ext_frames.get(frame_session).copied() {
+                    Some(true) => {
+                        let worker = Some(Internal::Resume { session: child.to_owned(), worker: true });
+                        let resume = self.msg("Runtime.runIfWaitingForDebugger", json!({}), Some(child), worker);
+                        obs.send.extend([resume, detach]);
+                    }
+                    Some(false) => self.guard_waiters.entry(frame_session.to_owned()).or_default().push(child.to_owned()),
+                    None => {
+                        self.guarded_ext_frames.insert(frame_session.to_owned(), false);
+                        self.guard_waiters.entry(frame_session.to_owned()).or_default().push(child.to_owned());
+                        let guard = Some(Internal::Guard { session: frame_session.to_owned() });
+                        obs.send.push(self.msg("Fetch.enable", file_guard_patterns(), Some(frame_session), guard));
+                    }
+                }
+                return;
+            }
             if ext_worker {
                 obs.send.push(detach);
                 return;
@@ -1025,6 +1068,23 @@ impl EngineCdpLedger {
                 }
                 Some(Vec::new())
             }
+            Internal::Guard { session } => {
+                let waiting = self.guard_waiters.remove(&session).unwrap_or_default();
+                // A guard that did not go on leaves its workers paused: none runs unguarded.
+                if !ok {
+                    self.guarded_ext_frames.remove(&session);
+                    return Some(Vec::new());
+                }
+                let Some(confirmed) = self.guarded_ext_frames.get_mut(&session) else { return Some(Vec::new()) };
+                *confirmed = true;
+                let mut out = Vec::new();
+                for child in waiting {
+                    let worker = Some(Internal::Resume { session: child.clone(), worker: true });
+                    out.push(self.msg("Runtime.runIfWaitingForDebugger", json!({}), Some(&child), worker));
+                    out.push(self.msg("Target.detachFromTarget", json!({ "sessionId": child }), None, None));
+                }
+                Some(out)
+            }
             Internal::Resume { worker: true, .. } => Some(Vec::new()),
             Internal::Resume { session, worker: false } if !ok && !gone && live(&Some(session.clone())) => Some(self.unprepare()),
             Internal::Prepare { session } if !ok && !gone && live(&session) => Some(self.unprepare()),
@@ -1038,6 +1098,8 @@ impl EngineCdpLedger {
         self.state = ArmState::Unprepared;
         self.exclusion_revision = self.exclusion_revision.wrapping_add(1);
         self.internal.clear();
+        self.guarded_ext_frames.clear();
+        self.guard_waiters.clear();
         let sessions: Vec<String> = self.web_sessions.keys().chain(self.extension_targets.keys()).cloned().collect();
         let mut out: Vec<String> = sessions
             .iter()
@@ -1082,6 +1144,17 @@ impl EngineCdpLedger {
         }
         out
     }
+}
+
+/// The `file:` guard `ExtensionHost` puts on its own extension targets (`cdp.rs`, `fetch_enable_cmd`).
+fn file_guard_patterns() -> Value {
+    json!({
+        "patterns": [
+            { "urlPattern": "file://*" },
+            { "urlPattern": "blob:file://*" },
+            { "urlPattern": "filesystem:file://*" }
+        ]
+    })
 }
 
 fn auto_attach(on: bool) -> Value {
