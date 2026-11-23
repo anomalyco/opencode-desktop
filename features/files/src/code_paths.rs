@@ -227,13 +227,17 @@ pub(crate) fn execute_check_code_path(srv: &Server, dir: &str, target: &str) -> 
         .any(|(p, is_dir)| !is_dir && p == target)
 }
 
-/// `checkFileLinkExists` with no base: `~` (the server's home, which the app can't expand) and
-/// network shares are no; an absolute path is listed in its folder; any other is searched for.
-fn reply_path_exists(srv: &Server, dir: &str, code: &str) -> bool {
+/// `checkFileLinkExists` with no base: `~` names the server's `home` (no until it is known,
+/// opencode#65689) and network shares are no; an absolute path is listed in its folder; any other is
+/// searched for.
+fn reply_path_exists(srv: &Server, dir: &str, home: &str, code: &str) -> bool {
     if browser_policy::is_raw_unc_href(code) {
         return false;
     }
     let (path, _) = file_link(code);
+    let home = home.replace('\\', "/");
+    let expanded = path.strip_prefix("~/").or((path == "~").then_some("")).filter(|_| !home.is_empty()).map(|rest| format!("{}/{rest}", home.trim_end_matches('/')));
+    let path = expanded.unwrap_or(path);
     if path.is_empty() || path.starts_with('~') || path.starts_with("//") || browser_policy::is_raw_unc_href(&path) {
         return false;
     }
@@ -370,7 +374,7 @@ pub fn reply_code_links(host: &dyn FilesHost, body: &str, live: bool) -> Option<
     let waker = host.waker();
     host.files_untracked()
         .replies
-        .read(sid, codes, server, || link_directory(host, sid), waker.as_ref())
+        .read(sid, codes, server, || link_directory(host, sid), host.home_directory().to_owned(), waker.as_ref())
 }
 
 /// A click on reply code naming a file (`code`): a plugin's link handler takes it first, as
