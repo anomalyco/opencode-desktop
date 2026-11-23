@@ -290,43 +290,28 @@ pub fn menu_items(app: &App, menu: &str) -> Vec<MenuItem> {
 /// `opened` and with its `detail` as that session answers them.
 pub fn panel_menu_items(app: &App, i: usize, session: &str) -> Vec<crate::panels::PanelLauncherDesc> {
     let p = &app.plugins.list[i];
-    let running = p.running();
-    // A dormant plugin's item that answers `when` draws as its plugin last drew it for this session
-    // (`dormant::rows`), else waits for it to start; the rest show from its record.
-    let kept = if running { None } else { dormant::rows(app, session, &p.manifest.id) };
-    let asleep = |key: &str| dormant::recorded_fn(app, &p.manifest.id, "menu_items", key, "when") && !kept.as_ref().is_some_and(|rows| rows.contains_key(key));
+    // A dormant plugin's item that answers `when` waits for it to start; the rest show from its record.
+    let asleep = |key: &str| dormant::recorded_fn(app, &p.manifest.id, "menu_items", key, "when");
     let items: Vec<_> = p.half.contribs.borrow().menu_items.iter().filter(|c| c.spec.menu == opencode_plugin_spec::MenuName::SessionPanel && !asleep(c.key)).map(|c| (c.key, c.spec.clone(), c.f("when").cloned(), c.f("opened").cloned(), c.f("detail").cloned())).collect();
-    let mut shown = std::collections::BTreeMap::new();
-    let out: Vec<crate::panels::PanelLauncherDesc> = items
+    items
         .into_iter()
         .filter(|(key, _, when, _, _)| when.as_ref().is_none_or(|f| panels::answer(app, i, &format!("when:{key}:{session}"), f, session.to_owned()) == Some(Data::Bool(true))))
         .map(|(key, s, _, opened, detail)| {
             let ask = |what: &str, f: &Function| panels::answer(app, i, &format!("{what}:{key}:{session}"), f, session.to_owned());
-            let row = match kept.as_ref().and_then(|rows| rows.get(key)) {
-                Some(row) => row.clone(),
-                None => dormant::Row {
-                    opened: opened.as_ref().and_then(|f| ask("opened", f)) == Some(Data::Bool(true)),
-                    detail: match detail.as_ref().and_then(|f| ask("detail", f)) {
-                        Some(Data::String(d)) => Some(d),
-                        _ => s.description.clone(),
-                    },
-                },
+            let opened = opened.as_ref().and_then(|f| ask("opened", f));
+            let detail = match detail.as_ref().and_then(|f| ask("detail", f)) {
+                Some(Data::String(d)) => Some(d),
+                _ => s.description.clone(),
             };
             let icon = crate::plugin_host::icons::resolve(&p.manifest.id, s.icon.as_deref().unwrap_or("plus"));
-            let desc = crate::panels::PanelLauncherDesc::new(intern(&s.id), s.title, icon, s.order.unwrap_or(0) as i32)
-                .description(row.detail.clone())
+            crate::panels::PanelLauncherDesc::new(intern(&s.id), s.title, icon, s.order.unwrap_or(0) as i32)
+                .description(detail)
                 .command(s.keybind.as_deref().map(intern))
-                .opened(row.opened);
-            shown.insert(key.to_owned(), row);
-            desc
+                .opened(opened == Some(Data::Bool(true)))
         })
-        .collect();
-    // What a running plugin shows here is what its record draws at the next launch.
-    if running {
-        dormant::note_rows(app, session, &p.manifest.id, shown);
-    }
-    out
+        .collect()
 }
+
 /// Runs Luau menu item `key` for `target`; false when it isn't one.
 pub fn run_menu_item(app: &mut App, key: &str, target: &str, tx: &mut Tx) -> bool {
     dormant::wake_owners(app, |c| c.menu_items.iter().any(|c| c.key == key));

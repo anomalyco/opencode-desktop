@@ -15,9 +15,9 @@
 //!   tab in the session's open side or bottom pane (the tab strip shows each one's title), plus
 //!   the file viewers when the Files plugin has one.
 //! - **A session whose side panel is open on New tab:** the plugins with an entry there that
-//!   answers a function, unless the rows they drew for this session the last time are kept
-//!   (`dormant::Rows`): then, and for an entry that is all in its plugin's record, the record
-//!   draws it and the plugin starts at the next turn. A plugin with no record of this build starts.
+//!   answers a function (a row's `when`, a panel's `enabled`). An entry that is all in its
+//!   plugin's record draws from it, and a plugin with no entry there doesn't start for the view.
+//!   A plugin with no record of this build starts.
 //! - **Not before the frame:** a composer pill. The one built-in with one (Goal) shows it once the
 //!   server has answered for the session's goal, which is after the first frame however early it
 //!   starts; the composer asks for it as it draws (`surfaces::pill_views`), so it starts at the
@@ -82,7 +82,7 @@ pub fn plugins(app: &App, record: impl Fn(&str) -> Option<opencode_plugin_runtim
     });
     let empty_side = side_open && !has_side_tab;
     if !with_tabs.is_empty() || empty_side {
-        let launcher = |id: &str| has(id, &["Panel", "MenuItem"]) && record(id).is_none_or(|record| super::dormant::launcher_needs(app, id, &record, session.as_str()));
+        let launcher = |id: &str| has(id, &["Panel", "MenuItem"]) && record(id).is_none_or(|record| super::dormant::launcher_needs(&record));
         out.extend(sources::builtin_ids().filter(|id| with_tabs.contains(id) || (files && has(id, &["FileViewer"])) || (empty_side && launcher(id))));
     }
     out.sort_unstable();

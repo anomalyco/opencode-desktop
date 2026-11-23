@@ -400,13 +400,6 @@ pub fn offline(s: &App) -> bool {
     window_phase(s).is_some_and(Phase::offline)
 }
 
-/// Whether a server took a connection of this launch's (`boot::reached`): what a saved stand-in
-/// for something the server or a plugin answers waits for, so a launch with no server shows
-/// nothing that then goes away.
-pub fn reached() -> bool {
-    boot::reached()
-}
-
 /// The window's first reads haven't landed.
 pub fn waiting(s: &App) -> bool {
     window_phase(s).is_some_and(Phase::waiting)
