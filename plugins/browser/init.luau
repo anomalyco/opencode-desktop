@@ -820,6 +820,7 @@ return plugin.defineWindow(function(ctx)
             return
         end
         if what == "device" and device then
+            Popover:Close()
             device.toggle(tab)
         elseif what == "edit" then
             edit(tab)
@@ -945,6 +946,7 @@ return plugin.defineWindow(function(ctx)
                 canFind = canFind,
                 canHardReload = true,
                 canClearHistory = #visits() > 0,
+                canToggleToolbar = device ~= nil,
                 paneWidth = if type(arg) == "number" then arg else nil,
             }
             Popover:Toggle({

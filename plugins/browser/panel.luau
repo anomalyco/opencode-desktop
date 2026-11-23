@@ -301,8 +301,8 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
 end
 
 -- The bar (`panel.tsx:910-1325`): 44 tall, 12 in, 8 between groups, hairline under it.
--- Right controls: [Extensions slot for WS-9] -> Device toolbar toggle -> '...' Options trigger
--- (accented while element picker is active, since Comment on part of the page lives in More tools).
+-- Right controls: [Extensions slot for WS-9] -> Comment on part of the page (pressed while picking, accented while
+-- the picker or its comment is up) -> '...' Options trigger. The device toolbar's toggle is in Options > More tools.
 local function bar(env: Env, view: View, tab: BrowserTab, state: address.View, width: number): ui.Node
     local loading = tab:Loading()
     local url = tab:Url()
@@ -342,7 +342,7 @@ local function bar(env: Env, view: View, tab: BrowserTab, state: address.View, w
     local tAny = tab :: any
     local picking = tab:Inspecting() or (type(tAny.OverlayAccent) == "function" and tAny:OverlayAccent() == true)
     local showExt = env.hasExtensions ~= nil and env.hasExtensions()
-    local rightCount = 1 + (if env.device then 1 else 0) + (if showExt then 1 else 0)
+    local rightCount = 2 + (if showExt then 1 else 0)
     local rightW = rightCount * 28 + math.max(0, rightCount - 1) * 4
     local fieldW = math.max(40, width - 24 - 92 - 8 - 8 - rightW)
     local rightControls: { ui.Node } = {}
@@ -359,20 +359,17 @@ local function bar(env: Env, view: View, tab: BrowserTab, state: address.View, w
             { pressed = env.extMenuOpen ~= nil and env.extMenuOpen(), menuTrigger = env.menuTrigger }
         ))
     end
-    if env.device then
-        local devOpen = if env.deviceOpen then env.deviceOpen(tab) else false
-        table.insert(rightControls, large(
-            view,
-            "browser-device-toggle",
-            "viewport-devices",
-            env.I18n:T("command.toggleToolbar"),
-            inspectable,
-            function()
-                env.act("device", tab)
-            end,
-            { pressed = devOpen, keybind = "browser.toggleToolbar" }
-        ))
-    end
+    table.insert(rightControls, large(
+        view,
+        "browser-inspect",
+        "select-element",
+        env.I18n:T("inspect"),
+        inspectable,
+        function()
+            env.act("inspect", tab)
+        end,
+        { pressed = tab:Inspecting(), color = if picking then "accent" else nil, keybind = "browser.inspect" }
+    ))
     table.insert(rightControls, large(
         view,
         "browser-options",
@@ -384,7 +381,6 @@ local function bar(env: Env, view: View, tab: BrowserTab, state: address.View, w
         end,
         {
             pressed = env.optionsOpen(),
-            color = if picking then "accent" else nil,
             menuTrigger = env.menuTrigger,
         }
     ))
@@ -645,7 +641,8 @@ local function suggestions(env: Env, view: View, tab: BrowserTab, state: address
     if not state.listed then
         return nil
     end
-    local rightCount = 1 + (if env.device then 1 else 0)
+    -- The bar's right controls: the comment button, Options, and Extensions when shown.
+    local rightCount = 2 + (if env.hasExtensions ~= nil and env.hasExtensions() then 1 else 0)
     local rightW = rightCount * 28 + math.max(0, rightCount - 1) * 4
     local fieldW = math.max(0, width - 24 - 92 - 8 - 8 - rightW)
     local rows: { ui.Node } = {}
