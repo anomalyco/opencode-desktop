@@ -9,7 +9,8 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use mlua::{Chunk, ChunkMode, Lua};
+use mlua::Lua;
+use mlua::chunk::{Chunk, ChunkMode, Compiler};
 
 /// Bytecode by the text's address and length: a `'static` text is the same text for the whole run.
 static COMPILED: Mutex<BTreeMap<(usize, usize), Arc<[u8]>>> = Mutex::new(BTreeMap::new());
@@ -24,7 +25,7 @@ pub fn load(lua: &Lua, source: &'static str) -> Chunk<'static> {
     let bytes = match kept {
         Some(bytes) => bytes,
         None => {
-            let compiler = mlua::chunk::Compiler::new().set_optimization_level(2).set_type_info_level(1).set_debug_level(1);
+            let compiler = Compiler::new().set_optimization_level(2).set_type_info_level(1).set_debug_level(1);
             let Ok(bytes) = compiler.compile(source) else { return lua.load(source) };
             let bytes: Arc<[u8]> = bytes.into();
             COMPILED.lock().unwrap_or_else(PoisonError::into_inner).insert(key, bytes.clone());
