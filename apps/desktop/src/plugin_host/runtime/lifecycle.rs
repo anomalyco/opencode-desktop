@@ -161,9 +161,10 @@ fn restart_later(app: &mut App, id: &str) {
 /// frame: plugins that timed out together in a busy boot don't all start again in one frame.
 fn poll_restarts(app: &mut App, tx: &mut Tx) -> bool {
     let now = *app.clock;
-    let restarts = &mut app.plugins.restarts;
-    let id = restarts.due.iter().position(|(_, at)| *at <= now).map(|k| restarts.due.remove(k).0);
-    if let Some(next) = restarts.due.iter().map(|(_, at)| *at).min_by(f64::total_cmp) {
+    // Read first: a `&mut` borrow of the host is a write, after which every region showing a
+    // plugin surface (the sidebar, titlebar and session header) builds again.
+    let id = app.plugins.restarts.due.iter().position(|(_, at)| *at <= now).map(|k| app.plugins.restarts.due.remove(k).0);
+    if let Some(next) = app.plugins.restarts.due.iter().map(|(_, at)| *at).min_by(f64::total_cmp) {
         tx.wake_at(next.max(now));
     }
     let Some(i) = id.and_then(|id| app.plugins.find(&id)).filter(|&i| matches!(app.plugins.list[i].life, Life::Errored { .. })) else {

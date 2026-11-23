@@ -258,7 +258,7 @@ pub fn wake(app: &mut App, id: &str, why: Why) -> bool {
     drive(app, i, LifeEvent::Load);
     // The events kept for it, but for those still waiting for this poll: it hears those with the rest.
     let pending = app.plugins.events.borrow().clone();
-    let kept: Vec<_> = asleep.events.into_iter().filter(|e| !pending.contains(e)).collect();
+    let kept: Vec<_> = asleep.events.into_inner().into_iter().filter(|e| !pending.contains(e)).collect();
     let caught = kept.len();
     if !kept.is_empty() {
         app.plugins.dormant.catch_up.entry(id.to_owned()).or_default().extend(kept);
@@ -494,12 +494,13 @@ pub fn near_session(app: &App, session: &str) {
 }
 
 /// Keeps server event `ty` for each dormant plugin that listened for it.
-pub fn buffer_event(app: &mut App, ty: &str, data: &serde_json::Value) {
-    for a in app.plugins.dormant.asleep.values_mut().filter(|a| a.record.events.iter().any(|p| ty.starts_with(p.as_str()))) {
-        if a.events.len() >= KEPT_EVENTS {
-            a.events.pop_front();
+pub fn buffer_event(app: &App, ty: &str, data: &serde_json::Value) {
+    for a in app.plugins.dormant.asleep.values().filter(|a| a.record.events.iter().any(|p| ty.starts_with(p.as_str()))) {
+        let mut events = a.events.borrow_mut();
+        if events.len() >= KEPT_EVENTS {
+            events.pop_front();
         }
-        a.events.push_back((ty.to_owned(), data.clone()));
+        events.push_back((ty.to_owned(), data.clone()));
     }
 }
 
