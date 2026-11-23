@@ -10,12 +10,13 @@
 //!   updater's worker, started after the first frame, has an update ready, so it's hidden in the
 //!   first frame and the second either way.
 //! - **A session:** the slots in its header (the debug bar's only while it's shown, above), the
-//!   composer's pills; with a cached transcript on screen, the code blocks and link handlers its
-//!   messages draw with; and every
+//!   composer's pills; with a cached transcript on screen, the code block plugins whose languages
+//!   its saved turns hold a block of (a link handler draws nothing: opening a link starts it); and every
 //!   plugin with a tab in the session's open side or bottom pane (the tab strip shows each one's
 //!   title), plus the file viewers when the Files plugin has one.
 //! - **Home and a draft:** nothing else.
 
+use opencode_kit::servers::ServerKey;
 use opencode_storage::Lookup;
 
 use crate::App;
@@ -37,9 +38,18 @@ pub fn plugins(app: &App) -> Vec<&'static str> {
         out.push(id);
     }
     let Route::Session { id: session, .. } = &*app.route else { return out };
-    let transcript = app.launch.cold_transcript.is_some();
+    // The saved turns on screen, as the storage's boot packet holds them: what a code block
+    // plugin's languages are looked for in. They are the app's own server's (`features/restore`).
+    let saved = app.launch.cold_transcript.as_ref().map(|cold| crate::storage::boot_preview(ServerKey::sidecar().as_str(), &cold.id).map(|(_, bytes)| bytes));
+    let draws_block = |id: &str| match (&saved, sources::code_languages(id)) {
+        (None, _) => false,
+        (Some(Some(bytes)), Some(languages)) => languages.iter().any(|language| fenced(bytes, language)),
+        // Turns this can't read, or languages the build doesn't know: it starts, as it did.
+        (Some(_), _) => true,
+    };
     // The debug plugin's one slot is its bar (`window.bottom`), counted above: hidden, it draws nothing.
-    out.extend(sources::builtin_ids().filter(|id| (*id != "debug" && has(id, &["Slot", "ComposerPill"])) || (transcript && has(id, &["CodeBlock", "LinkHandler"]))));
+    // A link handler draws nothing: it answers when a link is opened, which starts it (`commands::open_link`).
+    out.extend(sources::builtin_ids().filter(|id| (*id != "debug" && has(id, &["Slot", "ComposerPill"])) || (has(id, &["CodeBlock"]) && draws_block(id))));
     let side_state = app.kernel.slots.get(&crate::panels::SIDE);
     let side = side_state.sessions.get(session);
     let side_open = if app.settings.shared_side_panel {
@@ -68,6 +78,29 @@ pub fn plugins(app: &App) -> Vec<&'static str> {
     out.sort_unstable();
     out.dedup();
     out
+}
+
+/// Whether `saved` (a session's saved turns, `opencode_kit::model::preview`: their text is in it
+/// as written) holds the opening fence of a `language` code block: three or more backticks or
+/// tildes, then the language, any case, ending the word. A longer language that starts with it
+/// doesn't count; text that only quotes such a fence does, and then the plugin starts as it did.
+fn fenced(saved: &[u8], language: &str) -> bool {
+    let language = language.as_bytes();
+    let mut at = 0;
+    while let Some(found) = saved[at..].windows(3).position(|w| w == b"```" || w == b"~~~") {
+        let fence = saved[at + found];
+        let mut rest = &saved[at + found..];
+        let run = rest.iter().take_while(|b| **b == fence).count();
+        rest = &rest[run..];
+        let pad = rest.iter().take_while(|b| **b == b' ' || **b == b'\t').count();
+        rest = &rest[pad..];
+        let named = rest.len() >= language.len() && rest[..language.len()].eq_ignore_ascii_case(language);
+        if named && rest.get(language.len()).is_none_or(|b| !(b.is_ascii_alphanumeric() || b"-_+#.".contains(b))) {
+            return true;
+        }
+        at += found + run;
+    }
+    false
 }
 
 /// Whether the debug bar is up at launch: the debug plugin's `bar` value says so, or it isn't in
