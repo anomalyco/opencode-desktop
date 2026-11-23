@@ -584,8 +584,9 @@ fn short_socket_dir() -> PathBuf {
 
 /// Windows: the user's own temporary folder, or when its path is too long (a long user folder name,
 /// or a short one in a script whose UTF-8 bytes add up: Cyrillic, CJK), the same folder by its 8.3
-/// name where the volume keeps them. Without it such a user had no browser at all: "Couldn't create
-/// the browser socket directory."
+/// name where the volume keeps them, or a short folder only this user can open (`private_dir`)
+/// where it doesn't. Without them such a user had no browser at all: "Couldn't create the browser
+/// socket directory."
 #[cfg(all(feature = "engine", windows))]
 #[allow(unsafe_code)]
 fn short_socket_dir() -> PathBuf {
@@ -604,7 +605,12 @@ fn short_socket_dir() -> PathBuf {
     // the size it needs when `buf` is too small).
     let n = unsafe { windows::Win32::Storage::FileSystem::GetShortPathNameW(windows::core::PCWSTR(wide.as_ptr()), Some(&mut buf)) } as usize;
     let base = if n > 0 && n < buf.len() { PathBuf::from(std::ffi::OsString::from_wide(&buf[..n])) } else { tmp };
-    base.join("opencode-browser")
+    let short = base.join("opencode-browser");
+    if short.as_os_str().len() + LEAF <= SOCKET_PATH_MAX {
+        return short;
+    }
+    // No 8.3 name either (8.3 off, ReFS, a Dev Drive): a short folder only this user can open.
+    crate::private_dir::private_short_dir().unwrap_or(short)
 }
 
 /// The engine chmods its socket's parent. On Linux, only pass an override in an already private
