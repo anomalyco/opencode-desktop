@@ -704,8 +704,10 @@ function panel.render(env: Env, view: View, props: PanelProps): ui.Node
     local isServerPreview = string.sub(lowerUrl, 1, 12) == "workspace://" or string.sub(lowerUrl, 1, 11) == "artifact://"
     local offline = isServerPreview and env.serverConnected ~= nil and not env.serverConnected()
     local suspended = offline or tab:Refusal() == "browser.proxy.required"
+    -- A new tab loads about:blank while the engine starts (seconds on Windows): its page shows at once, as
+    -- official's does. A tab opened on an address has that address from the start, so it never reads as blank.
     local blank = (url == "" or url == "about:blank")
-        and not tab:Loading()
+        and (not tab:Loading() or url == "about:blank")
         and not state.navigating
         and tab:Refusal() ~= "browser.controlled.inherited_permission"
 
