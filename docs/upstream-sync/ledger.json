@@ -2,25 +2,25 @@
   "generated_at": "2026-11-23",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "8c0be712aa65f4cdc03ab86fb13f5b45fa08b478",
+  "upstream_head": "45aca07b15e4abeee09ddbd79302cd934a3a542f",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "5b2dd28fd55b2b70ebb1a259146f74a87b6a15b1",
-  "post_1114_commit_count": 491,
-  "post_1114_in_ledger": 184,
-  "post_1114_skipped": 307,
+  "rune_desktop_head": "893c4bf90fa61741a7d2da59c85e753ac6d5c2f7",
+  "post_1114_commit_count": 495,
+  "post_1114_in_ledger": 185,
+  "post_1114_skipped": 310,
   "post_1114_skipped_breakdown": {
     "test-only": 23,
     "ci-bench-deps": 18,
     "docs-site-data": 49,
     "tui-only": 19,
     "cli-acp-only": 8,
-    "server-core-ai-codemode-internal": 190
+    "server-core-ai-codemode-internal": 193
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 205,
+  "total_ledger_rows": 206,
   "status_counts": {
-    "have it": 175,
+    "have it": 176,
     "not applicable": 28,
     "differs on purpose": 1,
     "partly": 1
@@ -5132,6 +5132,29 @@
       "risks": "none",
       "workstream": "UPSTREAM",
       "rune_pr": "#833"
+    },
+    {
+      "id": "UP-185",
+      "window": "post-1120",
+      "pr": 65720,
+      "sha": "45aca07b15",
+      "title": "fix(browser): open the browser in a project its server has only just started",
+      "merged": "2026-11-22",
+      "packages": [
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/electron-open.fixture.ts",
+        "packages/gui-plugins/src/browser/pane.ts"
+      ],
+      "summary": "The browser opens in a project its server has only just started (after an update, or a project that sat idle): a first rpc.unavailable to attach no longer counts as a server without a browser. The pane asks the Location's plugin list every 100 ms until it names a plugin, for at most 10 s, then attaches again.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "rune-desktop #838 (893c4bf9): crates/opencode-kit/src/client/browser_rpc/machine.rs AttachState::Loading (PluginsPoll Asked / Waiting, PLUGINS_POLL 100 ms, PLUGINS_WAIT 10 s), AttachEffect::ListPlugins, AttachEvent::PluginsListed; apps/desktop/src/surfaces/browser/rpc/workers.rs list_plugins (GET /api/plugin). cargo check and guardrails; not run against a server that starts a project late.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#838"
     }
   ],
   "browser_security_review": {
