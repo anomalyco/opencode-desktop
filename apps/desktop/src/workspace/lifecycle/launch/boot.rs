@@ -537,6 +537,7 @@ impl App {
 /// With the data in: the event stream, info for tabs past the listed page, the open session,
 /// `--session`, and the newest pages.
 pub(super) fn connect(s: &mut App, tx: &mut Tx) {
+    s.launch.settle.step(super::settle::SettleEvent::Connected { now: *s.clock });
     // Running sessions (subagents) whose family isn't loaded yet.
     let mut missing: Vec<String> = s.running.iter().filter_map(|id| s.missing_ancestor(id)).collect();
     missing.sort();
