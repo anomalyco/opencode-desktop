@@ -1,4 +1,4 @@
-//! ⌘K, ⇧⌘P, ⌘P, ⇧⌘F, and ⇧⌘O — Desktop's "Search everything" command/file/session palette
+//! ⌘K, ⇧⌘P, ⌘P, ⇧⌘F, ⌘O and ⇧⌘O — Desktop's "Search everything" command/file/session palette
 //! (`shell/commands/{dialog,palette,search}.ts(x)`), shared root-session search index, and
 //! project/worktree/branch location switcher (`new-session/location/dialog.tsx`).
 //!
@@ -13,6 +13,7 @@ mod entries;
 mod order;
 pub mod poll;
 pub mod project;
+mod quick_open;
 mod search;
 pub mod search_index;
 pub mod servers;
@@ -39,6 +40,7 @@ pub use entries::{
 };
 pub use poll::{fetch_live_find, poll};
 pub use project::{ProjectSwitcher, ProjectSwitcherHost};
+pub use quick_open::{RECENT_PROJECTS, open_quick_open};
 pub use search_index::{
     Scope, SessionSearch, find_sessions, is_building as session_search_building, poll as poll_session_search, rest as rest_session_search, search_session,
 };
@@ -64,6 +66,8 @@ pub enum SwitcherMode {
     /// The Inbox's Archived button: archived sessions, each restored as it opens
     /// (`DialogSessionSearch archived`).
     Archived,
+    /// ⌘O: session search with projects ahead of its sessions (`DialogSessionSearch projects`).
+    QuickOpen,
 }
 
 /// One command offered by the host catalog to the palette.
@@ -125,6 +129,10 @@ pub trait SwitcherHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback +
     fn push_session(&mut self, session: SessionInfo);
     fn project(&self, id: &str) -> Option<&Project>;
     fn project_for_session(&self, session: &SessionInfo) -> Option<&Project>;
+    /// This client's used projects, most recently active first, and the server's others.
+    fn listed_projects(&self) -> (Vec<&Project>, Vec<&Project>) {
+        (Vec::new(), Vec::new())
+    }
     /// Tracked `(id, version)` pair for the host's sessions list.
     fn sessions_version(&self) -> (u32, u64);
     /// Tracked `(id, version)` pair for the host's projects list.
@@ -224,6 +232,8 @@ pub trait SwitcherHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback +
     fn prefetch_session(&self, _id: &str) {}
     /// Opens session `id`, optionally opening Find at `(query, message_id)`.
     fn open_session(&mut self, id: &str, find: Option<(&str, &str)>, tx: &mut Tx);
+    /// Starts a new session draft in `directory` on `server`, touching the project as used.
+    fn open_project(&mut self, _server: &ServerKey, _directory: &str, _tx: &mut Tx) {}
     /// Opens a restored archived session via the Inbox path.
     fn open_inbox_session(&mut self, id: &str, tx: &mut Tx) {
         self.open_session(id, None, tx);
@@ -548,6 +558,7 @@ pub fn run_action(host: &mut dyn SwitcherHost, action: Action, tx: &mut Tx) {
             host.open_session(&id, find.as_deref().map(|m| (q.as_str(), m)), tx);
         }
         Action::RemoteSession { .. } => {}
+        Action::Project { server, directory } => host.open_project(&server, &directory, tx),
         Action::Command(id) => {
             host.switcher_mut().phase = SwitcherPhase::Dispatching { restore_composer: back };
             host.run_command(id, tx);
@@ -618,6 +629,9 @@ pub fn key(host: &mut dyn SwitcherHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
         } else {
             open_file_search(host, tx);
         }
+        return true;
+    }
+    if quick_open::key(host, ev, tx) {
         return true;
     }
     for (bind, mode) in [(Bind::Palette, SwitcherMode::All), (Bind::SessionSearch, SwitcherMode::Sessions)] {
@@ -699,7 +713,8 @@ fn found_message(host: &dyn SwitcherHost, id: &str, query: &str) -> Option<Strin
 // --- Thin non-generic callback helpers invoked by `view.rs` ---
 
 pub(crate) fn nav_or_shortcut(host: &mut dyn SwitcherHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    nav(host, ev, tx) || host.handle_shortcut(ev, tx)
+    // ⌘O first: the window's `quick.open` would only open the palette it's already in.
+    quick_open::key(host, ev, tx) || nav(host, ev, tx) || host.handle_shortcut(ev, tx)
 }
 
 pub(crate) fn row_key(host: &mut dyn SwitcherHost, action: &Action, ev: &KeyEvent, tx: &mut Tx) -> bool {

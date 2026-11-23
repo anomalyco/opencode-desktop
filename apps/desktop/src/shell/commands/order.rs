@@ -36,6 +36,7 @@ pub const SELECT_PROJECT: u16 = 100;
 pub const SESSION_LOCATION_SELECT: u16 = 110;
 pub const SESSION_BRANCH_CHOOSE: u16 = 120;
 pub const SESSIONS: u16 = 130;
+pub const QUICK_OPEN: u16 = 135;
 pub const COMMANDS: u16 = 140;
 pub const RELOAD: u16 = 150;
 pub const COMPACT: u16 = 160;

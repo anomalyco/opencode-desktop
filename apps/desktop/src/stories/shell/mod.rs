@@ -4,6 +4,7 @@ pub(crate) mod frosted;
 pub(crate) mod history;
 pub(crate) mod menu;
 pub(crate) mod project;
+pub(crate) mod quick_open;
 pub(crate) mod raster_probe;
 pub(crate) mod session_menu;
 pub(crate) mod side;

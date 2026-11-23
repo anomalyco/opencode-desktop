@@ -9,7 +9,7 @@ use opencode_search::query::cycle;
 use opencode_ui::keymap::Bind;
 use rune::{Chord, Key, KeyEvent};
 
-use crate::{PaletteCommand, SwitcherHost, SwitcherMode, project_or_dir, search_index, servers, session_index, shown};
+use crate::{PaletteCommand, SwitcherHost, SwitcherMode, project_or_dir, quick_open, search_index, servers, session_index, shown};
 
 /// `ENTRY_LIMIT`: the empty query's commands, files and recent sessions; `DialogSessionSearch`'s
 /// recent sessions (`RECENT_LIMIT`); and a query's local session matches (`ENTRY_LIMIT * 10`).
@@ -34,6 +34,8 @@ pub enum Action {
     Session(String),
     /// A session on another server (`⇧⌘F` searches them all).
     RemoteSession { server: ServerKey, id: String },
+    /// A project's folder on a server, where Quick Open starts a new session.
+    Project { server: ServerKey, directory: String },
     /// A command's id in the host command catalog.
     Command(&'static str),
     /// A workspace file's path, from the session's folder.
@@ -90,18 +92,20 @@ pub fn matches(e: &Entry, q: &str) -> bool {
         Action::Command(_) => ("", e.group),
         Action::File(path) => (path.as_str(), e.group),
         Action::Setting(_) => ("", e.group),
+        Action::Project { .. } => ("", ""),
     };
     [e.title.as_str(), e.description.as_str(), id, group].iter().any(|t| t.to_lowercase().contains(&q))
 }
 
-/// `rankCommandPaletteEntries`: commands lead, then sessions (open tabs first, then the newest),
-/// then files.
+/// `rankCommandPaletteEntries`: commands lead, then projects, sessions (open tabs first, then the
+/// newest), settings and files.
 pub fn rank(mut entries: Vec<Entry>) -> Vec<Entry> {
     let kind = |e: &Entry| match e.action {
         Action::Command(_) => 0,
-        Action::Session(_) | Action::RemoteSession { .. } => 1,
-        Action::Setting(_) => 2,
-        Action::File(_) => 3,
+        Action::Project { .. } => 1,
+        Action::Session(_) | Action::RemoteSession { .. } => 2,
+        Action::Setting(_) => 3,
+        Action::File(_) => 4,
     };
     entries.sort_by(|a, b| {
         kind(a).cmp(&kind(b)).then_with(|| match (&a.action, &b.action) {
@@ -274,22 +278,11 @@ pub(crate) fn matches_for(host: &dyn SwitcherHost, q: &str) -> Vec<Entry> {
     };
     // A project's tasks live in its inbox.
     let sessions = session_index::session_matches(host, q, group, archived);
-    if matches!(sw.mode, SwitcherMode::Sessions | SwitcherMode::Archived) {
-        if !sw.remotes.is_empty() {
-            // Every server's sessions, newest first (`session-search.tsx:73-79`).
-            let tag = servers::own_tag(host);
-            let mut all_rows: Vec<Entry> = sessions
-                .into_iter()
-                .map(|e| Entry { description: servers::located(&e.description, tag.as_deref()), ..e })
-                .chain(servers::remote_matches(host, q, group, archived))
-                .collect();
-            all_rows.sort_by_key(|a| std::cmp::Reverse(a.updated));
-            return all_rows.into_iter().take(if q.is_empty() { RECENT_SESSIONS } else { usize::MAX }).collect();
-        }
-        if q.is_empty() {
-            return sessions.into_iter().take(RECENT_SESSIONS).collect();
-        }
-        return rank(sessions);
+    match sw.mode {
+        SwitcherMode::Sessions | SwitcherMode::Archived => return searched_sessions(host, q, group, archived, sessions),
+        // Projects ahead of the sessions (`DialogSessionSearch`'s `items`).
+        SwitcherMode::QuickOpen => return quick_open::projects(host, q).into_iter().chain(searched_sessions(host, q, group, archived, sessions)).collect(),
+        SwitcherMode::All | SwitcherMode::Commands => {}
     }
     if q.is_empty() {
         // `preferredCommandEntries` over a session; Home's first five (`HomeCommandPalette`).
@@ -310,6 +303,25 @@ pub(crate) fn matches_for(host: &dyn SwitcherHost, q: &str) -> Vec<Entry> {
         .chain(found_files(host, q))
         .collect();
     rank(found)
+}
+
+/// The session search's rows: every server's, newest first, or the first few with no query.
+fn searched_sessions(host: &dyn SwitcherHost, q: &str, group: &'static str, archived: bool, sessions: Vec<Entry>) -> Vec<Entry> {
+    if !host.switcher().remotes.is_empty() {
+        // Every server's sessions, newest first (`session-search.tsx:73-79`).
+        let tag = servers::own_tag(host);
+        let mut all_rows: Vec<Entry> = sessions
+            .into_iter()
+            .map(|e| Entry { description: servers::located(&e.description, tag.as_deref()), ..e })
+            .chain(servers::remote_matches(host, q, group, archived))
+            .collect();
+        all_rows.sort_by_key(|a| std::cmp::Reverse(a.updated));
+        return all_rows.into_iter().take(if q.is_empty() { RECENT_SESSIONS } else { usize::MAX }).collect();
+    }
+    if q.is_empty() {
+        return sessions.into_iter().take(RECENT_SESSIONS).collect();
+    }
+    rank(sessions)
 }
 
 /// Settings' rows for the query (`createSettingsPaletteEntries`): the settings search's best
