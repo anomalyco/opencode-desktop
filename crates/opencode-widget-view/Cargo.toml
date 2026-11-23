@@ -12,10 +12,8 @@ opencode-widget = { path = "../opencode-widget", default-features = false, featu
 rune = { workspace = true, default-features = false }
 rune-kit = { workspace = true, default-features = false }
 serde_json.workspace = true
-# Shader nodes: their pipelines on the window's GPU (Rune's own wgpu), their WGSL checked first
-# with naga (wgpu's own), so a widget template's mistake comes back as a message.
+# GPU canvases: their frames shown on the window's GPU (Rune's own wgpu).
 wgpu = { version = "30", default-features = false }
-naga = { version = "30", default-features = false, features = ["wgsl-in"] }
 
 # Live GPU canvases on Rune's Metal backend: replayed on a stock wgpu Metal device made on Rune's
 # own MTLDevice (wgpu's validation), their textures shown through `rune_gpu::metal::texture_from_raw`.

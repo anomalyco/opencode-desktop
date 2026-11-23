@@ -17,7 +17,6 @@ pub use opencode_widget::gpu::{Device as GpuDevice, device_limits as gpu_limits}
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
 use std::sync::Arc;
 
 use opencode_widget::gpu::Canvases;
@@ -38,17 +37,19 @@ pub fn is_mark(mark: u32) -> bool {
 pub enum Status {
     #[default]
     Running,
-    /// It didn't run: its WGSL failed validation (`program`: the widget template's error), or the device
-    /// refused WGSL that validated (a client error, never reported).
+    /// It stopped: its WGSL didn't compile or a frame failed (`program`: the widget template's
+    /// error), or the GPU failed it otherwise (a client error, never reported).
     Failed { message: String, program: bool },
     /// It ran over 50 ms a frame three frames in a row: stopped on its last frame.
     Frozen,
+    /// This client has no GPU for it: its placeholder (a client error, never reported).
+    Unavailable,
 }
 
 /// One GPU canvas on screen, as the view last built it.
 #[derive(Clone, Debug)]
 pub struct Slot {
-    pub wgsl: Rc<str>,
+    pub wgsl: Arc<str>,
     /// A hash of `wgsl`: the compiled pipeline's key, shared by every slot with that source.
     pub source: u64,
     pub values: [f32; 16],
@@ -148,9 +149,9 @@ fn show(key: &str, wgsl: &str, values: &[f64], fps: f64, duration: Option<f64>) 
         let source = h.finish();
         let mut v = opencode_widget::shader::Uniforms::default();
         v.set_values(values);
-        let slot = r.slots.entry(mark).or_insert_with(|| Slot { wgsl: Rc::from(wgsl), source, values: v.values, fps, duration, pointer: None, status: Status::Running });
+        let slot = r.slots.entry(mark).or_insert_with(|| Slot { wgsl: Arc::from(wgsl), source, values: v.values, fps, duration, pointer: None, status: Status::Running });
         if slot.source != source {
-            *slot = Slot { wgsl: Rc::from(wgsl), source, values: v.values, fps, duration, pointer: slot.pointer, status: Status::Running };
+            *slot = Slot { wgsl: Arc::from(wgsl), source, values: v.values, fps, duration, pointer: slot.pointer, status: Status::Running };
         }
         slot.values = v.values;
         slot.fps = fps;
@@ -193,8 +194,10 @@ pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, size: S
     let key = format!("{}/{path}", cx.look.scope);
     let (mark, status) = show(&key, wgsl, values, fps, duration.filter(|d| d.is_finite() && *d >= 0.0));
     let b = frame(cx, size, alt);
-    if let Status::Failed { message: error, .. } = status {
-        return placeholder(cx, b, poster, alt.unwrap_or("Shader"), Some(error));
+    match status {
+        Status::Failed { message: error, .. } => return placeholder(cx, b, poster, alt.unwrap_or("Shader"), Some(error)),
+        Status::Unavailable => return placeholder(cx, b, poster, alt.unwrap_or("GPU canvas not supported"), None),
+        Status::Running | Status::Frozen => {}
     }
     slot(cx, b, path, id, mark)
 }

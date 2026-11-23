@@ -1,5 +1,5 @@
-//! Live programs' GPU canvases in the window's frame (`widgets-gpu.md`): the device runs replay on
-//! ([`provide`]), and each canvas's texture drawn at its slot.
+//! GPU canvases in the window's frame (`widgets-gpu.md`), a live program's or `wgsl`: the device
+//! they render on ([`provide`]), and each canvas's texture drawn at its slot.
 //!
 //! Where the window draws with stock wgpu, runs replay on its own device and the frame samples a
 //! canvas's texture as it is (one queue orders both). On Rune's Metal backend, which validates
@@ -29,10 +29,12 @@ struct Target {
     version: u64,
 }
 
-/// The live canvases' side of the window's GPU, by run and canvas id.
+/// The GPU canvases' side of the window's GPU, by run and canvas id.
 #[derive(Default)]
 pub(super) struct Live {
     targets: HashMap<(usize, String), Target>,
+    /// The canvases on screen: their run and id, by mark.
+    marks: HashMap<u32, (usize, String)>,
     /// A canvas on screen shows an older version than its run published: frames keep coming.
     pub animating: bool,
 }
@@ -98,18 +100,20 @@ pub fn share_metal(share: MetalShare) {
 }
 
 impl Live {
-    /// Before the frame records: each live canvas on screen (`marks`) gets its latest finished
-    /// version, copied on the window's queue (copies) or bound as it is.
-    pub(super) fn prepare<S>(&mut self, f: &mut Frame<'_, S>, blit: &super::gpu::Blit, marks: &[u32]) {
+    /// Before the frame records: each GPU canvas on screen (its mark, run's canvases and id there)
+    /// gets its latest finished version, copied on the window's queue (copies) or bound as it is.
+    pub(super) fn prepare<S>(&mut self, f: &mut Frame<'_, S>, blit: &super::gpu::Blit, shown: &[(u32, Arc<Canvases>, String)]) {
         self.animating = false;
         let mut runs: Vec<Arc<Canvases>> = Vec::new();
         let mut on_screen = Vec::new();
-        for &m in marks {
-            let Some((canvases, id)) = super::live_slot(m) else { continue };
-            if !runs.iter().any(|r| Arc::ptr_eq(r, &canvases)) {
+        self.marks.clear();
+        for (m, canvases, id) in shown {
+            if !runs.iter().any(|r| Arc::ptr_eq(r, canvases)) {
                 runs.push(canvases.clone());
             }
-            on_screen.push((Arc::as_ptr(&canvases) as usize, id));
+            let key = (Arc::as_ptr(canvases) as usize, id.clone());
+            self.marks.insert(*m, key.clone());
+            on_screen.push(key);
         }
         self.targets.retain(|k, _| on_screen.contains(k));
         let mut copies: Option<wgpu::CommandEncoder> = None;
@@ -184,10 +188,9 @@ impl Live {
         Some(t)
     }
 
-    /// Live slot `mark`'s canvas, to draw: its blit uniform, bind group and whether it's opaque.
+    /// Slot `mark`'s canvas, to draw: its blit uniform, bind group and whether it's opaque.
     pub(super) fn drawn(&self, mark: u32) -> Option<(&wgpu::Buffer, &wgpu::BindGroup, bool)> {
-        let (canvases, id) = super::live_slot(mark)?;
-        let t = self.targets.get(&(Arc::as_ptr(&canvases) as usize, id))?;
+        let t = self.targets.get(self.marks.get(&mark)?)?;
         (t.version > 0).then_some((&t.blit_uniform, &t.blit_bind, t.opaque))
     }
 }

@@ -10,15 +10,19 @@
 //!   while one replays ([`Canvases::due`]);
 //! - a batch waits to replay while a copy is in flight ([`Canvases::begin`]): until the window's
 //!   queue finished it, normally done already;
-//! - a run whose GPU never catches up (it submits faster than it finishes) would leave no moment
-//!   to copy in: when the window found its GPU busy, the next batch first lets it finish and gives
-//!   the window a moment (20 ms at most) to take its copy.
+//! - a run whose GPU never catches up (it submits faster than it finishes), or that always
+//!   replays when the window looks, would leave no moment to copy in: when the window found it
+//!   replaying or its GPU busy, the next batch first lets the GPU finish and gives the window a
+//!   moment (20 ms at most) to take its copy.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak};
 
-pub use widget_gpu::{Arg, ErrorKind, clamp_size, device_limits, preferred_format};
+mod shorthand;
+
+pub use shorthand::{Ask, Shorthands};
+pub use widget_gpu::{Arg, ErrorKind, Uniforms, clamp_size, device_limits, preferred_format};
 
 /// A device for GPU canvases, as the window provides it.
 #[derive(Clone)]
@@ -43,7 +47,7 @@ struct Host {
 
 static HOST: Mutex<Host> = Mutex::new(Host { provider: None, current: None, generation: 0, runs: Vec::new() });
 
-/// A live run on the device, which hears of its loss.
+/// A user of the device (a live run, the `wgsl` canvases), which hears of its loss.
 pub trait Lost: Send + Sync {
     /// The device was lost: start over on `next` (none: no GPU), and tell the program `reason`.
     fn lost(&self, next: Option<&Device>, reason: &str, message: Option<&str>);
@@ -252,13 +256,13 @@ impl Canvases {
 
     /// The canvases to copy now, newer than their last copy; then a copy is in flight until
     /// [`Canvases::copied`]. None while a batch replays, its work isn't finished, or a copy is in
-    /// flight: the window shows what it copied last.
+    /// flight: the window shows what it copied last (and, but for the last, wants a copy).
     pub fn due(&self) -> Option<Vec<(String, Canvas)>> {
         let mut st = self.lock();
-        if st.replaying || st.copying {
+        if st.copying {
             return None;
         }
-        if self.finished.load(Ordering::Acquire) < st.submitted {
+        if st.replaying || self.finished.load(Ordering::Acquire) < st.submitted {
             st.wanted = st.shown.iter().any(|(k, c)| st.copied.get(k) != Some(&c.version));
             return None;
         }
