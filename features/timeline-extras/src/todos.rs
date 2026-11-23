@@ -41,6 +41,11 @@ pub trait TodosHost: opencode_kernel::AppEnv {
     fn transcript(&self, id: &str) -> Option<&Transcript>;
     /// Monotonic version of `id`'s transcript family for plan caching.
     fn transcript_version(&self, id: &str) -> u64;
+    /// Session `id`'s first message that may have changed since [`Self::transcript_version`]
+    /// `since`, when only a streamed reply's writes came between; `None` when anything else may have.
+    fn transcript_changed_from(&self, _id: &str, _since: u64) -> Option<usize> {
+        None
+    }
     /// Active staged revert boundary for session `id`, if any.
     fn session_revert(&self, id: &str) -> Option<&str>;
     fn knobs(&self) -> &Knobs;
@@ -58,7 +63,8 @@ pub trait TodosHost: opencode_kernel::AppEnv {
     }
 }
 
-type PlanCache = Option<((String, u64, Option<String>), Vec<Todo>)>;
+/// The session, transcripts version and revert a plan was read at; the plan; the message it is in.
+type PlanCache = Option<((String, u64, Option<String>), Vec<Todo>, Option<usize>)>;
 
 thread_local! {
     /// The open session's plan, and the session, transcripts version and revert it was read at.
@@ -68,19 +74,25 @@ thread_local! {
 /// The plan in a transcript: the latest completed `todowrite` call's todos, among the messages
 /// a staged revert at `boundary` leaves.
 pub fn session_todos(t: &Transcript, boundary: Option<&str>) -> Vec<Todo> {
-    let input = t.messages[..t.visible_len(boundary)]
+    latest_plan(&t.messages[..t.visible_len(boundary)], 0).map_or_else(Vec::new, |(_, input)| parse(input))
+}
+
+/// The latest completed `todowrite` call among `messages[from..]`: its message and its input.
+fn latest_plan(messages: &[Message], from: usize) -> Option<(usize, &Value)> {
+    messages
         .iter()
+        .enumerate()
+        .skip(from)
         .rev()
-        .filter_map(|m| match m {
-            Message::Assistant(a) => Some(a),
+        .filter_map(|(i, m)| match m {
+            Message::Assistant(a) => Some((i, a)),
             _ => None,
         })
-        .flat_map(|a| a.parts.iter().rev())
-        .find_map(|p| match p {
-            Part::Tool { name, status: ToolStatus::Completed, input, .. } if name == "todowrite" => Some(input),
+        .flat_map(|(i, a)| a.parts.iter().rev().map(move |p| (i, p)))
+        .find_map(|(i, p)| match p {
+            Part::Tool { name, status: ToolStatus::Completed, input, .. } if name == "todowrite" => Some((i, input)),
             _ => None,
-        });
-    input.map_or_else(Vec::new, parse)
+        })
 }
 
 fn parse(input: &Value) -> Vec<Todo> {
@@ -122,13 +134,26 @@ pub fn shown_todos(host: &dyn TodosHost, id: &str) -> Vec<Todo> {
     // Every poll asks: the plan is read once per version of the transcripts, not by walking
     // a long session back to its last plan each frame.
     let version = (id.to_owned(), host.transcript_version(id), revert.map(str::to_owned));
-    let todos = PLAN.with_borrow_mut(|kept| match kept.as_ref().filter(|(v, _)| *v == version) {
-        Some((_, todos)) => todos.clone(),
-        None => {
-            let todos = session_todos(t, revert);
-            *kept = Some((version, todos.clone()));
-            todos
+    let todos = PLAN.with_borrow_mut(|kept| {
+        if let Some((_, todos, _)) = kept.as_ref().filter(|(v, ..)| *v == version) {
+            return todos.clone();
         }
+        // A streamed reply's writes change only the messages from the one they name on
+        // (`transcript_changed_from`): a plan found above them stands unless a newer one follows.
+        let from = kept
+            .as_ref()
+            .filter(|((sid, _, rev), ..)| *sid == version.0 && *rev == version.2)
+            .and_then(|((_, since, _), _, at)| host.transcript_changed_from(id, *since).filter(|&low| at.is_none_or(|at| at < low)))
+            .unwrap_or(0);
+        let (todos, at) = match latest_plan(&t.messages[..t.visible_len(revert)], from) {
+            Some((at, input)) => (parse(input), Some(at)),
+            None => match kept.take().filter(|_| from > 0) {
+                Some((_, todos, at)) => (todos, at),
+                None => (Vec::new(), None),
+            },
+        };
+        *kept = Some((version, todos.clone(), at));
+        todos
     });
     if todos.iter().all(Todo::finished) { Vec::new() } else { todos }
 }

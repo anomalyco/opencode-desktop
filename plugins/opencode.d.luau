@@ -561,6 +561,8 @@ export type UiBoxProps = {
     scrollY: boolean?,
     --- Scrolls horizontal overflow.
     scrollX: boolean?,
+    --- With `scrollY`: stays scrolled to the bottom as content grows, as a log or a chat does, until the reader scrolls up.
+    stickBottom: boolean?,
     --- Takes keyboard focus.
     focusable: boolean?,
     --- Takes no presses.
@@ -683,6 +685,8 @@ export type UiFrameProps = {
     scrollY: boolean?,
     --- Scrolls horizontal overflow.
     scrollX: boolean?,
+    --- With `scrollY`: stays scrolled to the bottom as content grows, as a log or a chat does, until the reader scrolls up.
+    stickBottom: boolean?,
     --- Takes keyboard focus.
     focusable: boolean?,
     --- Takes no presses.
@@ -711,6 +715,12 @@ export type UiFrameProps = {
     borderSides: { number }?,
     --- The key of the element that takes focus when this frame leaves while focus is on it or inside it: one view of a popover handing focus to the control that leads back to it. That element, or its first focusable child; nothing happens when none shows.
     focusReturn: string?,
+    --- One Tab stop for the focusable controls inside, which the arrow keys move between, as a roving `tabindex` does: Up and Down with `role` `list`, `listbox`, `menu` or `tree`, Left and Right as well otherwise. Home and End go to the ends; a `list` or `tree` stops at its ends, the others wrap. In a `list`, `listbox`, `menu`, `tree` or `tablist`, typing moves to the first control whose label starts with it. Space presses the focused control, and in a list Return does too.
+    focusGroup: boolean?,
+    --- Keys `onKey` takes while focus is on the frame or inside it, outside a text field, pressed with no modifier: any of `Enter`, `Escape`, `ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`, `Home`, `End`, `PageUp`, `PageDown`, `Delete` and `Backspace`. A key it takes does nothing else there: Return in a `focusGroup` list then no longer presses the focused control.
+    keys: { string }?,
+    --- Runs as a key `keys` names is pressed, with its name in `event.keyName`.
+    onKey: UiHandler?,
 }
 
 --- Text styling: `ui.text` and `ui.shimmer`.
@@ -1745,6 +1755,12 @@ export type UiFieldProps = {
     multiline: boolean?,
     --- The look. Defaults to `default`.
     variant: FieldVariant?,
+    --- An icon in the box before the text, as Desktop's `TextInput` `leadingIcon`: a search field's magnifying glass. The `default` variant only.
+    icon: IconName?,
+    --- A Clear button at the box's end that empties the field, as Desktop's `TextInput` `showClearButton`: set it while the field has text. The `default` variant only.
+    clearable: boolean?,
+    --- The key of the element Down moves the keyboard to from this field, or that element's first focusable control: a list under its search field, as official's site chooser does. The `default` variant only.
+    focusDown: string?,
     --- Keys the field hands to its editor's `KeyPressed` instead of handling them: any of `ArrowUp`, `ArrowDown` and `Escape`.
     keys: { string }?,
     --- Runs on Enter with the text in `event.text`.
@@ -2341,6 +2357,8 @@ export type UiFlyoutRowProps = {
     alert: boolean?,
     --- The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`.
     side: Side?,
+    --- Corner radius of the row's hover and open fill. Defaults to 4.
+    radius: number?,
 }
 
 --- `ui.dialogHeader` props: the app's dialog header (`DialogHeader` with a `DialogTitleGroup`), 16 in from the frame, with its close button. Desktop's plugin API calls it `DialogHeader`.

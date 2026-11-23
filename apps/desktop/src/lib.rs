@@ -178,7 +178,7 @@ pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
         setup: Some(setup),
         poll: Some(poll),
         on_key: Some(keys::on_key),
-        ..AppSpec::new(launch::window_title(), (1280.0, 820.0), init, view::app)
+        ..AppSpec::new(launch::window_title(), (1280.0, 800.0), init, view::app)
     }
 }
 
@@ -356,7 +356,12 @@ pub fn run_native() {
         .on_ready(move |_| {
             storage::presented();
             let wake = launch::inbox_waker(handle.clone());
-            handle.update_if(move |s, tx| { s.launch.inbox_wake = Some(wake); launch::ready(s, tx) });
+            let browser = launch::browser_waker(handle.clone());
+            handle.update_if(move |s, tx| {
+                s.launch.inbox_wake = Some(wake);
+                s.workspace_panes.browser.host.set_message_waker(browser);
+                launch::ready(s, tx)
+            });
         })
         .on_frame_encoded(move |f| {
             encoded.encoded(f);

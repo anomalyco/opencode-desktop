@@ -664,12 +664,18 @@ export type SiteChooser = {
     onClearShown: () -> (),
     onRetry: () -> (),
     onProfile: (value: string) -> (),
+    -- Opened for one site's sign-in, from a page's passkey notice: no boxes, and sign-ins only
+    -- (`site-chooser.tsx:352`, `:247-249`).
+    single: boolean,
+    -- Searched for that site, which this profile has no cookies for: what the count line says while
+    -- sites that only contain its name show (`site-chooser.tsx:132-138`, `:457-468`).
+    missing: string?,
 }
 
 -- `site-chooser.tsx:20` `ROW_HEIGHT`.
 local SITE_ROW = 32
 -- Set below the import dialog, which draws it.
-local siteList: (i18n: I18nService, view: View, chooser: SiteChooser, busy: boolean) -> ui.Node
+local siteList: (i18n: I18nService, view: View, chooser: SiteChooser, busy: boolean, onImport: () -> ()) -> ui.Node
 
 -- "Import from <browser>" (`site-chooser.tsx:328-384`): what comes over, as two boxes, "Sign-ins" and
 -- "Browsing history", then Cancel and Import. Import needs at least one box; while it runs the boxes
@@ -704,15 +710,22 @@ function settings.renderImportDialog(
             }),
         })
     end
-    local canImport = (boxes.signins or boxes.history) and not busy and (chooser == nil or chooser.canImport)
+    local single = chooser ~= nil and chooser.single
+    local canImport = (single or boxes.signins or boxes.history) and not busy and (chooser == nil or chooser.canImport)
     -- The body: the boxes, the sites once revealed, then how the last import went
     -- (`site-chooser.tsx:566-576`, 13 on a 20 line).
-    local body: { ui.Node } = {
-        box("signins", i18n:T("import.signins"), boxes.signins),
-        box("history", i18n:T("import.history"), boxes.history),
-    }
+    local body: { ui.Node } = if single
+        then {}
+        else {
+            box("signins", i18n:T("import.signins"), boxes.signins),
+            box("history", i18n:T("import.history"), boxes.history),
+        }
     if chooser and chooser.revealed then
-        table.insert(body, siteList(i18n, view, chooser, busy))
+        table.insert(body, siteList(i18n, view, chooser, busy, function()
+            if canImport then
+                onImport()
+            end
+        end))
     end
     if message ~= nil then
         table.insert(body, ui.text(message.text, MUTED, {
@@ -749,7 +762,7 @@ function settings.renderImportDialog(
     end
     local action = if chooser == nil or chooser.everything
         then i18n:T("signins.action")
-        else i18n:T(if chooser.chosen == 1 then "import.some.one" else "import.some.other", { number = chooser.chosen })
+        else i18n:T(if chooser.chosen == 1 then "import.some.one" else "import.some.other", { number = i18n:Number(chooser.chosen) })
     table.insert(footer, ui.button({
         key = "settings-import-cancel",
         text = i18n:T("common.cancel"),
@@ -787,7 +800,7 @@ end
 -- The sites under the boxes (`site-chooser.tsx:385-565`): the search and, with several browser
 -- profiles, the profile; the count with Select all / none for the sites shown; then the list, one
 -- row per site with its box, or in its place what is going on (loading, failed, empty, unmatched).
-siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: boolean): ui.Node
+siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: boolean, onImport: () -> ()): ui.Node
     local searching = chooser.query ~= ""
     local top: { ui.Node } = {
         ui.field({
@@ -795,6 +808,10 @@ siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: b
             editor = chooser.editor,
             label = i18n:T("sites.search"),
             placeholder = i18n:T("sites.search"),
+            icon = "magnifying-glass",
+            clearable = searching,
+            -- Down goes on to the list, once it shows sites (`site-chooser.tsx:423-428`).
+            focusDown = if chooser.status == nil and #chooser.shown > 0 then "settings-import-sites" else nil,
             size = "large",
             grow = 1,
             shrink = true,
@@ -848,15 +865,17 @@ siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: b
         }))
     end
     local shown = chooser.shown
-    local count = if searching
-        then i18n:T("sites.selected.shown", { shown = #shown, selected = chooser.chosen })
-        else i18n:T("sites.selected", { selected = chooser.chosen, total = chooser.total })
+    local count = if chooser.missing ~= nil and #shown > 0
+        then chooser.missing
+        elseif searching
+        then i18n:T("sites.selected.shown", { shown = i18n:Number(#shown), selected = i18n:Number(chooser.chosen) })
+        else i18n:T("sites.selected", { selected = i18n:Number(chooser.chosen), total = i18n:Number(chooser.total) })
     -- The count alone is announced, so Select all and Select none say what they did.
     local counts = ui.row({ key = "settings-import-counts", w = "full", h = 28, gap = 4, align = "center", opacity = if chooser.ready then 1 else 0 }, {
         ui.text(count, { key = "settings-import-count", size = 13, weight = "regular", lineHeight = 20, color = "text-muted", truncate = true, shrink = true, minW = 0, grow = 1, role = "status" }),
         ui.button({
             key = "settings-import-all",
-            text = if searching then i18n:T("sites.all.shown", { count = #shown }) else i18n:T("sites.all"),
+            text = if searching then i18n:T("sites.all.shown", { count = i18n:Number(#shown) }) else i18n:T("sites.all"),
             size = "small",
             variant = "ghost",
             disabled = not chooser.ready or chooser.shownChosen == #shown,
@@ -866,7 +885,7 @@ siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: b
         }),
         ui.button({
             key = "settings-import-none",
-            text = if searching then i18n:T("sites.none.shown", { count = #shown }) else i18n:T("sites.none"),
+            text = if searching then i18n:T("sites.none.shown", { count = i18n:Number(#shown) }) else i18n:T("sites.none"),
             size = "small",
             variant = "ghost",
             disabled = not chooser.ready or chooser.shownChosen == 0,
@@ -902,10 +921,23 @@ siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: b
                 })
                 else nil,
         } :: { any })
-        else ui.virtualList({
+        -- One Tab stop, as official's listbox (`site-chooser.tsx:295-324`): Up and Down move between the
+        -- sites' boxes and stop at the ends, Home and End go to the ends, a typed name moves to its site,
+        -- Space ticks or unticks the focused one, and Return imports.
+        else ui.frame({
             key = "settings-import-sites",
             role = "list",
             label = i18n:T("sites.list"),
+            focusGroup = true,
+            keys = { "Enter" },
+            onKey = view:Handler(function()
+                onImport()
+            end),
+            w = "full",
+            grow = 1,
+            minH = 0,
+        }, { ui.virtualList({
+            key = "settings-import-sites-rows",
             w = "full",
             grow = 1,
             minH = 0,
@@ -942,8 +974,8 @@ siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: b
                     ui.text(site, { size = 13, weight = "regular", lineHeight = 20, color = "text-base", truncate = true, shrink = true, minW = 0, grow = 1, dir = "ltr" }),
                 })
             end,
-        })
-    return ui.col({ key = "settings-import-sites-area", w = "full", grow = 1, minH = 0, gap = 12, pt = 8, pb = 4 }, {
+        }) })
+    return ui.col({ key = "settings-import-sites-area", w = "full", grow = 1, minH = 0, gap = 12, pt = if chooser.single then 4 else 8, pb = 4 }, {
         ui.row({ key = "settings-import-sites-top", w = "full", gap = 8, align = "center" }, top),
         ui.col({ key = "settings-import-sites-body", w = "full", grow = 1, minH = 0, gap = 0 }, {
             counts,

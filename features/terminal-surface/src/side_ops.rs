@@ -95,7 +95,7 @@ pub fn on_focus(host: &mut dyn TerminalSurfaceHost, session_id: &str, tab_id: &s
 }
 
 pub fn poll_panel(host: &mut dyn TerminalSurfaceHost, tx: &mut Tx) -> bool {
-    rename::poll(host, tx) | poll::poll_terminal(host, tx)
+    rename::poll(host, tx) | poll::poll_terminal(host, tx) | crate::grid::poll_edge_scroll(host, tx)
 }
 
 pub fn key_terminal(host: &mut dyn TerminalSurfaceHost, ev: &KeyEvent, tx: &mut Tx) -> bool {

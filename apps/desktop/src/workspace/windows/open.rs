@@ -148,7 +148,8 @@ pub fn launch(diagnostics: crate::diagnostics::Diagnostics) {
         ids.iter()
             .enumerate()
             .map(|(i, id)| {
-                let frame = store::load_frame(id).and_then(|f| super::placement::fit(f, displays));
+                // Nothing saved (a new profile): where Desktop's first window opens.
+                let frame = store::load_frame(id).and_then(|f| super::placement::fit(f, displays)).or_else(|| super::placement::first(displays));
                 window(Window::new(id.clone(), i == 0 && fresh), frame, &diagnostics).boxed()
             })
             .collect::<Vec<_>>()
@@ -199,8 +200,10 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
             crate::storage::presented();
             // Stream batches wake the window for a quiet poll, which draws only what they change.
             let wake = crate::launch::inbox_waker(ready.clone());
+            let browser = crate::launch::browser_waker(ready.clone());
             ready.update_if(move |s, tx| {
                 s.launch.inbox_wake = Some(wake);
+                s.workspace_panes.browser.host.set_message_waker(browser);
                 crate::launch::ready(s, tx)
             })
         })

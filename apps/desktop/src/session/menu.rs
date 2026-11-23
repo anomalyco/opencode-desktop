@@ -340,7 +340,7 @@ impl Feature<App> for SessionMenuFeature {
         );
         builder.add_command(
             CommandEntry::<App>::from_key(
-                "export",
+                "session.export",
                 opencode_i18n::key!("command.session.export"),
                 crate::commands::order::EXPORT,
                 |s, _| {
@@ -355,7 +355,7 @@ impl Feature<App> for SessionMenuFeature {
         );
         builder.add_command(
             CommandEntry::<App>::from_key(
-                "copy-session",
+                "session.copyID",
                 opencode_i18n::key!("command.session.copyID"),
                 crate::commands::order::COPY_SESSION,
                 |s, tx| {
@@ -365,6 +365,21 @@ impl Feature<App> for SessionMenuFeature {
             )
             .section("session")
             .when(|s| s.active_session_id().is_some()),
+        );
+        // Archive session (`use-session-commands.tsx` `session.archive`, opencode#65428): the open root
+        // session, not one already archived; its tab closes, as archiving it from the sidebar does.
+        builder.add_command(
+            CommandEntry::<App>::from_key(
+                "session.archive",
+                opencode_i18n::key!("command.session.archive"),
+                crate::commands::order::SESSION_ARCHIVE,
+                |s, tx| {
+                    let Some(id) = s.open_root_session().filter(|id| s.session(id).is_some_and(|i| i.archived.is_none())) else { return };
+                    App::archive_session(s, &id, tx);
+                },
+            )
+            .bind_id(Bind::ArchiveSession.id())
+            .when(|s| s.open_root_session().is_some_and(|id| s.session(&id).is_some_and(|i| i.archived.is_none()))),
         );
         // Delete session (`message-timeline.tsx:268-277`): the open root session's confirmation.
         builder.add_command(

@@ -184,6 +184,7 @@ pub static UI_BOX_PROPS: PropsSpec = PropsSpec::new("UiBoxProps", Some(&UI_LAYOU
     PropSpec::new("clip", PropType::Bool, false),
     PropSpec::new("scrollY", PropType::Bool, false),
     PropSpec::new("scrollX", PropType::Bool, false),
+    PropSpec::new("stickBottom", PropType::Bool, false),
     PropSpec::new("focusable", PropType::Bool, false),
     PropSpec::new("disabled", PropType::Bool, false),
     PropSpec::new("onPress", PropType::Handler, false),
@@ -274,6 +275,9 @@ pub static UI_FIELD_PROPS: PropsSpec = PropsSpec::new("UiFieldProps", Some(&UI_L
     PropSpec::new("readOnly", PropType::Bool, false),
     PropSpec::new("multiline", PropType::Bool, false),
     PropSpec::new("variant", PropType::Enum("FieldVariant"), false),
+    PropSpec::new("icon", PropType::String, false),
+    PropSpec::new("clearable", PropType::Bool, false),
+    PropSpec::new("focusDown", PropType::String, false),
     PropSpec::new("keys", PropType::List("string"), false),
     PropSpec::new("onSubmit", PropType::Handler, false),
 ]);
@@ -301,6 +305,7 @@ pub static UI_FLYOUT_ROW_PROPS: PropsSpec = PropsSpec::new("UiFlyoutRowProps", S
     PropSpec::new("props", PropType::Map, false),
     PropSpec::new("alert", PropType::Bool, false),
     PropSpec::new("side", PropType::Enum("Side"), false),
+    PropSpec::new("radius", PropType::Number, false),
 ]);
 
 /// `UiFrameProps`.
@@ -308,6 +313,9 @@ pub static UI_FRAME_PROPS: PropsSpec = PropsSpec::new("UiFrameProps", Some(&UI_B
     PropSpec::new("direction", PropType::Enum("UiDirection"), false),
     PropSpec::new("borderSides", PropType::List("number"), false),
     PropSpec::new("focusReturn", PropType::String, false),
+    PropSpec::new("focusGroup", PropType::Bool, false),
+    PropSpec::new("keys", PropType::List("string"), false),
+    PropSpec::new("onKey", PropType::Handler, false),
 ]);
 
 /// `UiGenUiProps`.

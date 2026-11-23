@@ -90,8 +90,9 @@ choice! {
     /// sessions in place of tabs, or Consolidated's navigation prototype (pinned sessions & groups,
     /// and Tabs or List). `Projects` is retired (#64727) and omitted from [`Organize::options`];
     /// keeping the variant preserves a saved `"projects"` value until the user picks a new option
+    /// (its label, never offered, is Home's `home.projects`: official dropped the old one)
     /// while [`Organize::effective`] resolves it to Consolidated (local/dev) or Customize.
-    Organize { List => "list", "settings.experimental.sidebarOrganize.list", Projects => "projects", "settings.experimental.sidebarOrganize.projects", Customize => "customize", "settings.experimental.sidebarOrganize.customize", Recent => "recent", "settings.experimental.sidebarOrganize.recent", Consolidated => "consolidated", "settings.experimental.sidebarOrganize.consolidated" } default List
+    Organize { List => "list", "settings.experimental.sidebarOrganize.list", Projects => "projects", "home.projects", Customize => "customize", "settings.experimental.sidebarOrganize.customize", Recent => "recent", "settings.experimental.sidebarOrganize.recent", Consolidated => "consolidated", "settings.experimental.sidebarOrganize.consolidated" } default List
 }
 
 impl Organize {

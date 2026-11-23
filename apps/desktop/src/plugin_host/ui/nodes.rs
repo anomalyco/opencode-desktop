@@ -11,23 +11,23 @@ use crate::palette::{Pal, kit, pal};
 use crate::plugin_host::{FlyoutEvent, bump, cx, flyout, input_changed, key_pressed, native, requests, services, submitted};
 
 pub fn all() -> Vec<HostNode> {
-    let mut all = ui_nodes::base_nodes(
+    let mut all = ui_nodes::base_nodes::<App>(
         |id| cx::with_app(|app| crate::keymap::command_chord(app, id)).flatten(),
         |command| cx::with_app(|app| app.catalog().into_iter().find(|c| c.id == command).and_then(|c| c.chord)).flatten(),
     );
     all.extend([
-        HostNode::new("image", services::images::node),
-        HostNode::new("video", services::images::video_node),
-        HostNode::new("shimmer", shimmer),
-        HostNode::new("switch", switch),
-        HostNode::new("field", field),
-        HostNode::new("pill", pill),
-        HostNode::new("settingsRow", settings_row),
-        HostNode::new("settingsList", settings_list),
-        HostNode::new("flyoutRow", flyout_row),
-        HostNode::new("dialogHeader", dialog_header),
-        HostNode::new("markdown", markdown),
-        HostNode::new("genUi", gen_ui),
+        ui_nodes::node("image", services::images::node),
+        ui_nodes::node("video", services::images::video_node),
+        ui_nodes::node("shimmer", shimmer),
+        ui_nodes::node("switch", switch),
+        ui_nodes::node("field", field),
+        ui_nodes::node("pill", pill),
+        ui_nodes::node("settingsRow", settings_row),
+        ui_nodes::node("settingsList", settings_list),
+        ui_nodes::node("flyoutRow", flyout_row),
+        ui_nodes::node("dialogHeader", dialog_header),
+        ui_nodes::node("markdown", markdown),
+        ui_nodes::node("genUi", gen_ui),
     ]);
     all.extend(native::nodes());
     #[cfg(feature = "office")]
@@ -107,6 +107,50 @@ fn field(a: &mut NodeArgs) -> Result<El, String> {
         if a.flag("secure") {
             input = input.secure();
         }
+        if let Some(name) = a.string("icon") {
+            input = input.leading_icon(named_icon(name));
+        }
+        // Desktop's `showClearButton`: the button empties the field, and the editor's watch
+        // reports the change to the plugin.
+        if a.flag("clearable") && !a.flag("disabled") && !a.flag("readOnly") {
+            let clear_plugin = plugin.clone();
+            input = input.clear_button().on_action(move |app: &mut App, tx: &mut Tx| {
+                tx.instant();
+                super::editors::get_mut(app, &clear_plugin, index).replace_text("");
+                bump();
+            });
+        }
+        let handed = handed_keys(a);
+        let focus_down = a.string("focusDown").map(str::to_owned);
+        if !handed.is_empty() || focus_down.is_some() {
+            let key_plugin = plugin.clone();
+            input = input.on_key(move |app: &mut App, ev: &rune::KeyEvent, tx: &mut Tx| {
+                // Keys during IME composition belong to the candidate window.
+                if super::editors::is_composing(app, &key_plugin, index) {
+                    return false;
+                }
+                // Down leaves the field for the list under it, as official's site search does
+                // (`site-chooser.tsx:423-428`); the field gives up its focus so the request wins.
+                if let Some(target) = focus_down.as_deref()
+                    && ev.key == rune::Key::Down
+                    && ev.mods == rune::Mods::default()
+                {
+                    tx.instant();
+                    super::editors::get_mut(app, &key_plugin, index).focused = false;
+                    tx.focus(target, true);
+                    bump();
+                    return true;
+                }
+                let Some(&(_, _, name)) = handed.iter().find(|(key, shift, _)| {
+                    ev.key == *key && ev.mods.shift == *shift && !ev.mods.cmd && !ev.mods.ctrl && !ev.mods.alt
+                }) else {
+                    return false;
+                };
+                tx.instant();
+                key_pressed(app, &key_plugin, index, name, tx);
+                true
+            });
+        }
         if let Some(w) = a.number("w").filter(|w| *w > 0.0) {
             input = input.width(Some(w as f32));
         } else if a.string("w") == Some("full") {
@@ -127,23 +171,7 @@ fn field(a: &mut NodeArgs) -> Result<El, String> {
 /// editor's `KeyPressed`.
 fn bare_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize) -> El {
     let pal = p(a);
-    let handed: Vec<(rune::Key, bool, &'static str)> = match a.data("keys") {
-        Some(Data::List(keys)) => keys
-            .iter()
-            .filter_map(|k| match k.as_str()? {
-                "ArrowUp" => Some((rune::Key::Up, false, "ArrowUp")),
-                "ArrowDown" => Some((rune::Key::Down, false, "ArrowDown")),
-                "Escape" => Some((rune::Key::Escape, false, "Escape")),
-                "Tab" => Some((rune::Key::Tab, false, "Tab")),
-                "Shift+Tab" => Some((rune::Key::Tab, true, "Shift+Tab")),
-                "Shift+Delete" => Some((rune::Key::Delete, true, "Shift+Delete")),
-                "Shift+Backspace" => Some((rune::Key::Backspace, true, "Shift+Backspace")),
-                "Shift+Enter" => Some((rune::Key::Enter, true, "Shift+Enter")),
-                _ => None,
-            })
-            .collect(),
-        _ => Vec::new(),
-    };
+    let handed = handed_keys(a);
     let (on_edit, on_change, on_submit, on_key) = (plugin.clone(), plugin.clone(), plugin.clone(), plugin);
     let font = TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
     let mut input = session_view::style::field(edit, font)
@@ -185,6 +213,25 @@ fn bare_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usize)
         });
     }
     input
+}
+
+/// The keys `keys` names, which the field hands to its editor's `KeyPressed`: the key, whether
+/// Shift is held, and the name the plugin receives.
+fn handed_keys(a: &NodeArgs) -> Vec<(rune::Key, bool, &'static str)> {
+    let Some(Data::List(keys)) = a.data("keys") else { return Vec::new() };
+    keys.iter()
+        .filter_map(|k| match k.as_str()? {
+            "ArrowUp" => Some((rune::Key::Up, false, "ArrowUp")),
+            "ArrowDown" => Some((rune::Key::Down, false, "ArrowDown")),
+            "Escape" => Some((rune::Key::Escape, false, "Escape")),
+            "Tab" => Some((rune::Key::Tab, false, "Tab")),
+            "Shift+Tab" => Some((rune::Key::Tab, true, "Shift+Tab")),
+            "Shift+Delete" => Some((rune::Key::Delete, true, "Shift+Delete")),
+            "Shift+Backspace" => Some((rune::Key::Backspace, true, "Shift+Backspace")),
+            "Shift+Enter" => Some((rune::Key::Enter, true, "Shift+Enter")),
+            _ => None,
+        })
+        .collect()
 }
 
 fn step_filter_highlight(list: &[String], current: Option<&str>, down: bool) -> Option<String> {

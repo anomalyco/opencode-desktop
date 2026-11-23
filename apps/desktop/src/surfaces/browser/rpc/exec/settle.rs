@@ -10,9 +10,12 @@
 //! and, unless the engine runs extensions (which keep `Page.*` to themselves), the main frame's
 //! `Page.frameNavigated`, and no other bump. The new document's main execution context must exist
 //! again too: clearing removes it, and an evaluate before it is created fails as
-//! `document_changed`. An entry that sends none of them (same document, same address, no entry
-//! that way) settles at the grace, and a load the wait happened to see never ends a back/forward
-//! early.
+//! `document_changed`. A same-document entry (pushState, anchor) bumps only its address, and ends
+//! once that moved and the main frame's `Page.navigatedWithinDocument` arrived, with no new
+//! document begun: official returns it as soon as the tab stops loading (while extensions keep
+//! `Page.*`, the page's own main context stands in for that event: `same_doc`). An entry that
+//! sends none of them (same address, no entry that way) settles at the grace, and a load the wait
+//! happened to see never ends a back/forward early.
 
 use std::time::Duration;
 
@@ -22,6 +25,7 @@ pub(crate) struct HistoryFrom {
     pub url: String,
     pub contexts_cleared: u64,
     pub frame_navigations: u64,
+    pub same_document: u64,
 }
 
 /// The tab now.
@@ -34,6 +38,7 @@ pub(crate) struct TabNow<'a> {
 pub(crate) struct FramesNow {
     pub contexts_cleared: u64,
     pub frame_navigations: u64,
+    pub same_document: u64,
     /// The main frame has an execution context.
     pub main_context: bool,
 }
@@ -64,7 +69,7 @@ pub(crate) fn settle(w: &Waiting, tab: Option<TabNow>, frames: Option<FramesNow>
         return Settle::Wait;
     }
     let ended = match w.history {
-        Some(from) => tab.url != from.url && frames.is_some_and(|f| committed(from, &f, extensions_active)),
+        Some(from) => tab.url != from.url && frames.is_some_and(|f| committed(from, &f, extensions_active) || same_document(from, &f)),
         None => w.saw_loading,
     };
     if ended || w.elapsed >= grace { Settle::Done } else { Settle::Wait }
@@ -75,5 +80,12 @@ fn committed(from: &HistoryFrom, f: &FramesNow, extensions_active: bool) -> bool
         // A tab whose main-frame navigations have reached the app before gets this one too,
         // whatever the app believes about extensions.
         && ((extensions_active && from.frame_navigations == 0) || f.frame_navigations > from.frame_navigations)
+        && f.main_context
+}
+
+fn same_document(from: &HistoryFrom, f: &FramesNow) -> bool {
+    f.same_document > from.same_document
+        && f.contexts_cleared == from.contexts_cleared
+        && f.frame_navigations == from.frame_navigations
         && f.main_context
 }

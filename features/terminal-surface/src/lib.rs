@@ -372,6 +372,8 @@ pub struct TerminalTab {
     pub backend: TabBackend,
     pub scroll_px_accum: f32,
     pub drag: mount::TextDrag,
+    /// While a drag selecting text is held at the text's top or bottom edge.
+    pub edge_scroll: Option<mount::EdgeScroll>,
     /// Whether it has an attachment (`surface-machine.ts`).
     pub mount: mount::Mount,
     pub(crate) fit: Cell<mount::Fit>,

@@ -9,6 +9,13 @@ use opencode_i18n::t;
 // sessions, its rows with their hover actions and menu, and Settings and Help under them; on a
 // narrow window the same rows in a dropdown.
 
+/// Add project with one server listed (`onChooseProject(props.servers[0])`): this computer's
+/// folder dialog for the app's own server, the server's own folders for another.
+fn add_project(s: &mut App, tx: &mut Tx) {
+    let key = crate::servers::runtime::active(s).clone();
+    super::servers::choose_project(s, &key, tx);
+}
+
 /// `HomeProjectsPanel`. Wide: 280 pt, 56 down and sticking there (`lg:sticky lg:top-14 lg:mt-14`),
 /// its header 52 below that, on the first group's line (`lg:pt-[52px]`), and Settings and Help
 /// under the list; as tall as the page leaves under those 56 (`lg:h-[calc(100cqh-56px)]`, the page
@@ -23,7 +30,7 @@ pub(super) fn column(s: &App, p: &Pal, selected: Option<&model::Project>, wide: 
     let mut header = row().key("home-projects-header").w_full().h(28.0).pl(6.0).pr(12.0).center_y().child(text(t!("home.projects")).font(HOME_MED).color(p.muted)).child(spacer());
     if s.kernel.slots.get(&crate::projects::HOME_STATE).servers.len() <= 1 {
         let add = el().key("home-add-project").role("button").label_static(t!("home.project.add")).help(t!("home.project.add")).size(28.0, 28.0).radius(6.0).focus_inset(p).center();
-        let add = if failed { add.opacity(0.5).disabled(true) } else { add.cursor(rune::Cursor::Pointer).hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx)) };
+        let add = if failed { add.opacity(0.5).disabled(true) } else { add.cursor(rune::Cursor::Pointer).hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| add_project(s, tx)) };
         header = header.child(add.child(icon(&ic::FOLDER_ADD_LEFT, 16.0).color(p.icon_muted)));
     }
     // `pr-3`, rows `gap-1`; a row is as wide as the list leaves it, less the scroll bar's gutter
@@ -38,7 +45,7 @@ pub(super) fn column(s: &App, p: &Pal, selected: Option<&model::Project>, wide: 
         rows = rows.child(if failed {
             add.opacity(0.6).disabled(true).cursor(rune::Cursor::Default)
         } else {
-            add.on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx))
+            add.on_press_tx(|s: &mut App, tx: &mut Tx| add_project(s, tx))
         });
     } else {
         for proj in used {
@@ -414,7 +421,7 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
         let add = if failed {
             add.opacity(0.6).disabled(true).cursor(rune::Cursor::Default)
         } else {
-            add.on_press_tx(|s: &mut App, tx: &mut Tx| s.open_project_dialog(tx))
+            add.on_press_tx(|s: &mut App, tx: &mut Tx| add_project(s, tx))
         };
         (Some(all), scroll(viewport, list), Some(add))
     };

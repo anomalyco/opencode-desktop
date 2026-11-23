@@ -19,6 +19,7 @@ pub mod tree;
 use std::rc::Rc;
 
 use mlua::{Lua, Table, Value};
+use opencode_plugin_runtime::ui_nodes;
 use rune::{KeyEvent, Tx};
 use rune_luau::{Data, HostNode, NodeArgs};
 
@@ -29,14 +30,14 @@ use crate::palette::{Pal, pal};
 /// The native nodes, for the script's `ui`.
 pub fn nodes() -> Vec<HostNode> {
     vec![
-        HostNode::new("diffView", diff::view),
-        HostNode::new("codeView", files::view),
-        HostNode::new("fileTree", tree::view),
-        HostNode::new("panelSidebar", sidebar::view),
-        HostNode::new("openInButton", open_in::view),
-        HostNode::new("terminalSurface", terminal::view),
-        HostNode::new("terminalTabLabel", terminal::label),
-        HostNode::new("browserSurface", browser::view),
+        ui_nodes::node("diffView", diff::view),
+        ui_nodes::node("codeView", files::view),
+        ui_nodes::node("fileTree", tree::view),
+        ui_nodes::node("panelSidebar", sidebar::view),
+        ui_nodes::node("openInButton", open_in::view),
+        ui_nodes::node("terminalSurface", terminal::view),
+        ui_nodes::node("terminalTabLabel", terminal::label),
+        ui_nodes::node("browserSurface", browser::view),
     ]
 }
 

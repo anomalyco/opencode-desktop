@@ -2,29 +2,28 @@
   "generated_at": "2026-11-23",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "d9dacaf52592dcdaaac3cf52f175d8ae8e541a26",
+  "upstream_head": "030e8d75d34b6167981f9c71964c4a4dbfeea2bc",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "8fd50ce8559711d6514c51886f53e78dc6ac9779",
-  "post_1114_commit_count": 459,
-  "post_1114_in_ledger": 169,
-  "post_1114_skipped": 290,
+  "rune_desktop_head": "9bb1c98f90392083211ef6dc22f89a03eaae01e6",
+  "post_1114_commit_count": 468,
+  "post_1114_in_ledger": 171,
+  "post_1114_skipped": 297,
   "post_1114_skipped_breakdown": {
     "test-only": 23,
     "ci-bench-deps": 17,
-    "docs-site-data": 47,
-    "tui-only": 16,
+    "docs-site-data": 48,
+    "tui-only": 19,
     "cli-acp-only": 8,
-    "server-core-ai-codemode-internal": 179
+    "server-core-ai-codemode-internal": 182
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 190,
+  "total_ledger_rows": 192,
   "status_counts": {
-    "have it": 156,
+    "have it": 166,
     "not applicable": 24,
     "differs on purpose": 1,
-    "partly": 3,
-    "missing": 6
+    "partly": 1
   },
   "rows": [
     {
@@ -2831,14 +2830,14 @@
       ],
       "summary": "Overhaul the desktop browser pane with one encrypted persistent profile, cookie import from 15 browsers + site chooser, remote partition/sharing, Settings > Browser, `oc-preview://` local/remote workspace & artifact previews, chat/terminal link routing + app-link review, full browser chrome (right-click, find, hard reload, pop-up blocking, notices, plain errors), in-app JS dialogs/permissions/HTTP auth, and hardened/upgraded agent browser tools (`tabs.open({ path })` replacing `browser.preview`, deep snapshots with field-value redaction, hidden screenshots, BuiltinPromptGate, deny rules, agent-driven tab isolation). (Chrome extensions tracked separately in UP-095-EXT under WS-9.)",
       "size": "XL",
-      "status": "partly",
-      "status_evidence": "WS-1 engine core: Phase 1 (#239, #245, #268, #272), Phase 3a (#277, #288, #291, #299), Fix PR 1 (#292 6d7a6ede remote proxy + isolation), and Fix PR 4 (#306 b5167f7e atomic OpenTab/TabSnapshot agent_driven across cold start/crash+Retry/promote/reconnect/3P plugins + TabDriver) merged on dev; Fix PR 3 (#305 site permissions, confirmed 3rd read merging new dev), controlled-tab Permissions-Policy + clipboard-write follow-up, Fix PRs 5-7, and Phase 3b (#286 OS cookie encryption) remain open.",
+      "status": "have it",
+      "status_evidence": "WS-1's engine core of the browser pane is merged on dev. Persistent profile with OS cookie encryption and the two-way remote sign-in mirror (#286, #353, #473, #486, #523; UP-151). Remote-server proxy and isolation (#292, #302). Agent-driven tab state (#306). Site permissions per context (#305). Downloads through the OS Save dialog and the download-only tab (#328, #581, #665). Passkey gate (#438, #440). File-picker takeover (#426). Granted frames (#451, #527). Media gate (#570, #590). Copy image, spellcheck and Languages (#578, #584). Chrome services official's Electron lacks turned off, with a fail-closed lock that respects company policy (#624, #682: password leak check). Agent and preview tabs never print, because a native print dialog stops the whole engine (#662). PDF viewer off (#652, BROWSER-UI). Clipboard writes refused on agent tabs (#643, BROWSER-UI). Chromium's OS sandbox on Windows and macOS (#622, ENGINE-TARGETS). Deliberate differences, in notes/upstream-sync/ours.md: the File System Access pickers are refused before any dialog (official opens a dialog whose read then fails and leaves an empty file on Save); window.print() does nothing on agent-driven and preview tabs (official shows a native dialog that blocks the page while nobody is watching).",
       "depends_on": "CEF engine updates + new signed browser engine publishes for macOS/Windows/Linux; Luau contract bump for Browser service; server `plugin-browser` alignment (or rune_mcp parity); Rune framework checks for extension popup anchoring",
       "risks": "HIGH SECURITY & ARCHITECTURE: (1) CEF OSR Alloy vs Chrome-runtime extension support spike required; (2) must NOT regress Rune's stricter URL/CDP/download security (`0b540fd8`, `a5a71a0d`, `344a2087`, `bb41d149`) and must address `no_sandbox: 1` (`engine.rs:100`); (3) cookie encryption is one-way; (4) `browser.preview` removal is breaking for scripts/prompts; (5) publishing signed macOS/Windows/Linux engines requires release signing keys and release workflow.",
       "workstream": "WS-1",
-      "open_pr_note": "PR #305 (ws1-fix3-permissions, merge-check fix + merging 6e98fc2b); controlled-tab stopgap / Permissions-Policy + clipboard-write follow-up; PR #286 (ws1-phase3b, held)",
+      "open_pr_note": "#653 (N12 permission locks, redirect guard), #767 (Chrome browser commands refused so pane keys reach the page; built-in AI APIs off): engine follow-ups, not parity gaps.",
       "rune_pr": "#239, #245, #268, #272, #277, #288, #291, #299, #292, #306",
-      "reviewed": "#292 confirmed (4th read); #306 confirmed (2nd read at e79c1306); #305 confirmed 3rd read at d590a0b1 (merge check at 5551ea60 needs ~4-line reopen_tab_as_* visit_permissions clear + dev merge); NOT SOUND TO SHIP (#245/#268/#272/#277/#288 retrospective findings still open in #305 + controlled-tab stopgap/Permissions-Policy/clipboard-write + Fix PRs 5-7); #286 held"
+      "reviewed": "#292, #306, #305 confirmed; #624, #662, #682 MERGE (READER-7); #665 MERGE (READER-12, READER-12b)"
     },
     {
       "id": "UP-096",
@@ -3433,8 +3432,8 @@
       ],
       "summary": "Sync both permissions and forms across running descendants and any child session with cached requests on open, inactive tab poll, inbox settle, and reconnect.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Verified on dev: apps/desktop/src/session/meta/status.rs read_open_requests() only fetches running descendants (skipping idle children with stale cached requests), and poll() for inactive tabs/Inbox only fetches the root session id.",
+      "status": "have it",
+      "status_evidence": "rune-desktop #413 (f427f17928): permissions and forms recovered across running descendants and any child session with cached requests, on open, inactive-tab poll, inbox settle and reconnect.",
       "depends_on": "none",
       "risks": "Must still avoid booting cold idle subagent locations that have no running work or cached requests.",
       "workstream": "BROWSER-UI"
@@ -4003,8 +4002,8 @@
       ],
       "summary": "Allow sending inline browser, file, and review comments straight to the active session with Mod+Enter.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Audit line/browser/review comment editors and composer submission in features/annotations, features/files, features/review, and plugins/browser for Mod+Enter direct send.",
+      "status": "have it",
+      "status_evidence": "rune-desktop #481 (779cdc3000): browser, file and review comments send with Mod+Enter through Enter's Send/Steer/Queue delivery, disabled on child sessions; other attached line comments are kept.",
       "depends_on": "UP-095-UI",
       "risks": "Touches browser, file, and review comment flows + plugin host APIs.",
       "workstream": "BROWSER-UI"
@@ -4334,8 +4333,8 @@
       ],
       "summary": "Sharing sign-ins with a remote server's pages copies cookies off the main thread, in batches, so the app doesn't stall.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "\"Share sign-ins with remote servers\" is not built yet (follows WS-1's #286; see UP-120).",
+      "status": "have it",
+      "status_evidence": "Share sign-ins with remote servers (#353, #286, #486, #523): the two-way mirror runs in the browser engine process (apps/browser-engine/src/cookies.rs, CEF's asynchronous cookie visitor and set callbacks, writes in batches tracked by Draining), so the app's UI thread never waits on a copy. Not measured with a large cookie store.",
       "depends_on": "#286 (OS cookie encryption, CefCookieManager), UP-120 follow-ups",
       "risks": "none",
       "workstream": "WS-1"
@@ -4403,8 +4402,8 @@
       ],
       "summary": "A count badge on the taskbar button for sessions that need you.",
       "size": "S",
-      "status": "partly",
-      "status_evidence": "Count and badge match official (taskbar_summary, the same summary as the progress state). Left: the badge description is English-only (apps/desktop/src/workspace/windows/taskbar.rs Summary::shown); official uses notification.taskbar.badge (plural, localized). Arrives with the next crates/opencode-i18n/sync.ts run, then plural!(...).",
+      "status": "have it",
+      "status_evidence": "Count and badge match official (taskbar_summary); rune-desktop #748 (1f8b88f7b8) renders the description from notification.taskbar.badge, plural and localized (apps/desktop/src/workspace/windows/taskbar.rs Summary::shown).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"
@@ -4630,8 +4629,8 @@
       ],
       "summary": "A session command \"Archive session\" (mod+shift+s), for root sessions not yet archived: archives on the server, refreshes Home/inbox lists and removes the tab (the view moves to the next open session); a failure toasts.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "No session.archive command or mod+shift+s binding in apps/desktop or features (archiving exists from the session menu only).",
+      "status": "have it",
+      "status_evidence": "rune-desktop #740 (a4bdc387a4): session.archive (Mod+Shift+S, Settings > Shortcuts row) archives the open root session not yet archived through the session menu's archive_session: lists update, its tab closes, Undo toast kept.",
       "depends_on": "none",
       "risks": "mod+shift+s must not collide with an existing binding.",
       "workstream": "WS-8"
@@ -4679,8 +4678,8 @@
       ],
       "summary": "OpenCode Go is reached through the OpenCode connection: the connect picker lists opencode-go only for someone who already saved a Go key (a credential connection); the unpaid model picker drops it from the featured providers and its tagline; the free-limit panel's Subscribe and the usage-exceeded dialog open the OpenCode connect flow instead of Go's; provider.connect.opencode.name becomes \"OpenCode\" (was \"OpenCode Console\").",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "features/connect/src/view.rs POPULAR and features/connect/src/unpaid.rs still list opencode-go with its tagline unconditionally; apps/desktop/src/session/composer/free_limit.rs:220 opens connect for \"opencode-go\"; crates/opencode-i18n still has provider.connect.opencode.name = \"OpenCode Console\" (arrives with the next sync.ts run).",
+      "status": "have it",
+      "status_evidence": "rune-desktop #724 (1bc37630): features/connect/src/view.rs lists opencode-go only with a credential connection and drops OpenCode's note; features/connect/src/unpaid.rs features opencode, openai, anthropic, google, github-copilot with the note on OpenCode only; free_limit.rs Subscribe opens connect for opencode. The provider.connect.opencode.name 'OpenCode' label arrives with the next crates/opencode-i18n sync.",
       "depends_on": "none",
       "risks": "Hiding Go must keep it for people who already saved a Go key (credential connection), as official does.",
       "workstream": "WS-8"
@@ -4746,8 +4745,52 @@
       ],
       "summary": "Desktop-facing part only: two new provider marks, thinkingmachines and tencent, in @opencode/ui's provider icon set (the rest is the data site).",
       "size": "XS",
-      "status": "missing",
-      "status_evidence": "Rune themes/opencode/src/provider_icons.rs (generated by tools/provider-icons.py from @opencode/ui's provider marks) has no thinkingmachines or tencent entry; opencode-ui widgets.rs provider_mark() and features/connect ui.rs then draw Desktop's custom provider mark for them. Needs a Rune regeneration PR and a pin bump.",
+      "status": "have it",
+      "status_evidence": "rune#1375 (1ef6fc20) adds tencent and thinkingmachines to rune-theme-opencode provider_icons::named; rune-desktop #734 (7ce2a07d) pins it.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-170",
+      "window": "post-1120",
+      "pr": 65624,
+      "sha": "a946e848e6",
+      "title": "fix(desktop): isolate local Windows AppUserModelID from installed channels",
+      "merged": "2026-11-22",
+      "packages": [
+        "desktop"
+      ],
+      "main_files": [
+        "packages/desktop/src/main/identity.ts",
+        "packages/desktop/src/main/constants.ts",
+        "packages/desktop/src/main/lifecycle/environment.ts"
+      ],
+      "summary": "An unpackaged (local) run gets its own AppUserModelID, ai.opencode.desktop.local, instead of the installed dev channel's, so its taskbar button and toasts never merge with an installed copy; a start-menu Electron.lnk that claims the installed dev AUMID for a dev Electron is recognised as colliding.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "crates/win-install/src/product.rs Product::from_build: a local build (no channel or `local`) takes id anomaly.opencode-rune.dev and scheme opencode-rune-dev, while every release build (release.yml sets OPENCODE_RUNE_BUILD_CHANNEL, no OPENCODE_RUNE_BUNDLE_ID) takes anomaly.opencode-rune; harness runs take a scratch id (Product::with_id). Ours has no Electron shortcut to repair.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-171",
+      "window": "post-1120",
+      "pr": 65525,
+      "sha": "030e8d75d3",
+      "title": "fix(app): list drafts in the inbox sidebar",
+      "merged": "2026-11-22",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/titlebar/inbox.tsx"
+      ],
+      "summary": "The inbox gets a Drafts group: the open draft and every other draft tab still holding something, newest first, each opening its draft, with Discard draft in its context menu.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "rune-desktop #769 (c3fc7a0c09): apps/desktop/src/shell/view/inbox.rs draft_ids / draft_card, Drafts header above the groups, Discard draft closes the tab. Lists drafts with words; official also lists drafts holding only attachments or context items.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"

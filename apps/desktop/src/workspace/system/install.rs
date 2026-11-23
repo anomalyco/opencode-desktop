@@ -314,12 +314,16 @@ fn data_free(exe: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// The data folder an installed build keeps (`dirs::app`), from its id: a pull request's build
-/// its own, the release channels `rune-opencode`; every build `rune-opencode` under this run's
-/// `RUNE_DIRS_ROOT`.
+/// The data folder an installed build keeps (`dirs::app`), from its id: a pull request's build,
+/// stable and beta their own, dev (and a local build) `rune-opencode`; every build
+/// `rune-opencode` under this run's `RUNE_DIRS_ROOT`.
 fn folder_of(id: &str) -> String {
-    match id.strip_prefix("anomaly.opencode-rune.pr.").filter(|_| !crate::dirs::rooted()) {
-        Some(n) => format!("rune-opencode.pr-{n}"),
+    if crate::dirs::rooted() {
+        return "rune-opencode".to_owned();
+    }
+    match id.strip_prefix("anomaly.opencode-rune.") {
+        Some(own @ ("stable" | "beta")) => format!("rune-opencode.{own}"),
+        Some(own) => own.strip_prefix("pr.").map_or_else(|| "rune-opencode".to_owned(), |n| format!("rune-opencode.pr-{n}")),
         None => "rune-opencode".to_owned(),
     }
 }

@@ -14,6 +14,7 @@ use rune::time::Instant;
 use serde_json::{Value, json};
 
 use super::super::session::SessionAttachment;
+use super::same_doc::SameDocProbe;
 use super::settle;
 use super::target_url::parse_agent_url;
 use super::{ExecPhase, StepOutcome, check_page_guards};
@@ -31,6 +32,8 @@ pub(super) struct WaitLoadState {
     pub saw_loading: bool,
     /// Back/forward: the page they started from, whose commit settles the wait.
     pub history_from: Option<settle::HistoryFrom>,
+    /// Back/forward while extensions run: the page's own answer for a same-document entry.
+    pub same_doc: Option<SameDocProbe>,
     pub prev_rejected: u64,
     pub started_at: Instant,
     pub deadline: Instant,
@@ -166,6 +169,7 @@ fn start_tabs_open(
         close_on_fail: true,
         saw_loading: app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.loading),
         history_from: None,
+        same_doc: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -302,6 +306,7 @@ fn start_navigate(
         close_on_fail: false,
         saw_loading: app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.loading),
         history_from: None,
+        same_doc: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -338,9 +343,15 @@ fn start_history(
     // Always a history wait, so a back/forward never ends at a load it happened to see (#706). With no
     // frame tracker for the tab yet its counts start at zero: only events the tracker then counts, or
     // the grace, end the wait.
-    let (contexts_cleared, frame_navigations) =
-        att.frames.get(&host_id).map_or((0, 0), |f| (f.main_contexts_cleared, f.main_frame_navigations));
-    let history_from = Some(settle::HistoryFrom { url, contexts_cleared, frame_navigations });
+    let (contexts_cleared, frame_navigations, same_document) = att.frames.get(&host_id).map_or((0, 0, 0), |f| {
+        (f.main_contexts_cleared, f.main_frame_navigations, f.main_same_document_navigations)
+    });
+    let history_from = Some(settle::HistoryFrom { url, contexts_cleared, frame_navigations, same_document });
+    let main_context = att.frames.get(&host_id).and_then(|f| {
+        let (cid, sid) = f.main_contexts.get(f.main_frame_id.as_ref()?)?;
+        sid.is_none().then_some(*cid)
+    });
+    let same_doc = SameDocProbe::start(main_context, app.workspace_panes.browser.host.extensions_active());
     if is_back {
         app.workspace_panes.browser.host.back(host_id);
     } else {
@@ -360,6 +371,7 @@ fn start_history(
         close_on_fail: false,
         saw_loading: false,
         history_from,
+        same_doc,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -405,6 +417,7 @@ fn start_reload(
         close_on_fail: false,
         saw_loading: false,
         history_from: None,
+        same_doc: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -500,6 +513,7 @@ fn start_preview(
         close_on_fail,
         saw_loading: false,
         history_from: None,
+        same_doc: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -550,6 +564,7 @@ fn start_navigate_path(
         close_on_fail: false,
         saw_loading: false,
         history_from: None,
+        same_doc: None,
         prev_rejected,
         started_at: now,
         deadline: now + LOAD_TIMEOUT,
@@ -609,6 +624,10 @@ pub(super) fn step_wait_load(
             browser_pane::prompts::agent_passkey_refusal_message((!site.is_empty()).then_some(site.as_str())),
         ));
     }
+    if let (Some(probe), Some(from)) = (st.same_doc.as_mut(), st.history_from.as_ref()) {
+        let url = app.workspace_panes.browser.host.tab(st.host_id).map(|t| t.url.clone()).unwrap_or_default();
+        probe.step(app, st.host_id, &url, &from.url);
+    }
     let Some(tab) = app.workspace_panes.browser.host.tab(st.host_id) else {
         return Some(Outcome::fail(
             failure_code::NAVIGATION_FAILED,
@@ -663,6 +682,8 @@ pub(super) fn step_wait_load(
     let frames = att.frames.get(&st.host_id).map(|f| settle::FramesNow {
         contexts_cleared: f.main_contexts_cleared,
         frame_navigations: f.main_frame_navigations,
+        // The page's own answer stands in for the event extensions keep (`same_doc`).
+        same_document: f.main_same_document_navigations + u64::from(st.same_doc.as_ref().is_some_and(|p| p.confirmed)),
         main_context: f.main_frame_id.as_ref().is_some_and(|id| f.main_contexts.contains_key(id)),
     });
     let waiting = settle::Waiting {

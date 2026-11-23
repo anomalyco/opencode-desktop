@@ -74,7 +74,7 @@ fn main() {
         println!("cargo:rustc-link-arg-bin=opencode-desktop=/STACK:8388608");
     }
     // The exe's icon (Explorer, the taskbar, Alt+Tab, a pinned shortcut), version and manifest.
-    let title = env("OPENCODE_RUNE_WINDOW_TITLE").unwrap_or_else(|| "OpenCode (Rune)".into());
+    let title = env("OPENCODE_RUNE_WINDOW_TITLE").unwrap_or_else(|| win_install::default_name(env("OPENCODE_RUNE_BUILD_CHANNEL").as_deref()).into());
     let version = env("OPENCODE_RUNE_VERSION").or_else(|| env("CARGO_PKG_VERSION")).unwrap_or_default();
     let dir = std::path::PathBuf::from(env("CARGO_MANIFEST_DIR").unwrap_or_default());
     let (icon, manifest) = (dir.join("assets/icon.ico"), dir.join("assets/windows/app.manifest"));
