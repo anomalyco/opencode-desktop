@@ -18,9 +18,6 @@ pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: 
         .gap(8.0)
         .center_y()
         .radius(6.0)
-        // `home-session-search-field`: the shared ring 2 out while the keys put focus in it
-        // (opencode#64909's field focus).
-        .focus_visible_within_ring(opencode_ui::focus::WIDTH, opencode_ui::focus::OFFSET, opencode_ui::focus::color(p))
         .fill(if s.search.focused { p.layer2 } else { p.search_bg })
         .hover(p.layer2)
         .child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted))
