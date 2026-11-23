@@ -298,6 +298,10 @@ pub fn run_native() {
         return launch::trace::finish(0);
     }
     storage::claimed();
+    // A window's first server reads, asked now (`launch::head_start`).
+    if !headless() {
+        launch::head_start();
+    }
     launch::last_exit::init_hooks();
     notifications::take_activation(rune::extra_args());
     glyph_masks::start();

@@ -198,6 +198,10 @@ impl ProjectsHost for App {
         matches!(self.launch.phase(key.as_str()), Some(crate::launch::Phase::Connected))
     }
 
+    fn lists_saved_sessions(&self, key: &ServerKey) -> bool {
+        key.is_sidecar() && self.launch.saved_list.is_some()
+    }
+
     fn server_sources_hydrated(&self) -> bool {
         crate::plugin_host::server_sources::pending_sources().is_empty()
     }

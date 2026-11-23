@@ -13,17 +13,19 @@ pub mod image_pages;
 pub mod io_trace;
 pub mod last_exit;
 mod network;
+pub mod saved;
 mod shifts;
 pub mod trace;
 
 #[cfg(target_arch = "wasm32")]
 pub use boot::start_first_reads;
+pub use saved::{catalog as saved_catalog, gutters as saved_gutters, list as saved_list};
 pub use boot::{
     Accepted, FIRST_PATIENCE, First, GRACE, Ready, defer, deferred, initial_server, window_title,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use boot::{
-    apply_app_icon, attach_console, instance_id, print_version_if_asked, product, write_profile,
+    apply_app_icon, attach_console, head_start, instance_id, print_version_if_asked, product, write_profile,
 };
 
 use std::sync::mpsc::{Receiver, TryRecvError};
@@ -232,6 +234,11 @@ pub struct Launch {
     pub grace: Option<Duration>,
     /// The address the setup card names, in its story.
     pub story_addr: Option<String>,
+    /// The restored session's newest page, read beside the first reads, until `connect` hands it
+    /// to the session's reader.
+    pub early_page: Option<crate::session_pages::Early>,
+    /// The session list the first frame drew from the saved state, until the server's lands.
+    pub saved_list: Option<saved_list::SavedList>,
     /// The first reads' thread `setup` started before the first frame, for `on_ready`'s Start.
     #[cfg(not(target_arch = "wasm32"))]
     early: Option<Early>,
@@ -495,6 +502,7 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     started
 }
 
+
 /// Re-probes the local OpenCode server (including any fresh `service.json` written since launch).
 pub fn retry(s: &mut App, tx: &mut Tx) {
     step(s, LaunchEvent::Retry { quiet: false }, tx);
@@ -641,6 +649,12 @@ fn first_reads(s: &mut App, tx: &mut Tx) -> bool {
         }
     }
     let slow = first_reads_slow(s, tx);
+    // A server that took the connection after the state was read: the saved list stands in from here.
+    let stood_in = matches!(window_phase(s), Some(Phase::Probing { .. })) && saved_list::restore(s);
+    if stood_in {
+        tx.instant();
+    }
+    let slow = slow || stood_in;
     // Every poll comes here: the window's key is borrowed, not copied.
     let Some(Phase::Probing { rx, .. }) = window_phase(s) else { return slow };
     let ready = match rx.try_recv() {
@@ -651,10 +665,12 @@ fn first_reads(s: &mut App, tx: &mut Tx) -> bool {
             beta_tabs: None,
             first: Some(Err("The first server reads stopped".into())),
             refused: false,
+            page: None,
         },
     };
     let reached = ready.first.as_ref().map(Result::is_ok);
     let refused = ready.refused;
+    s.launch.early_page = ready.page;
     rune::marks::mark("server.answered");
     tx.instant();
     let Some(result) = ready.first else {

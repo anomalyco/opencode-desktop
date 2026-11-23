@@ -192,6 +192,9 @@ pub(crate) fn visibility(s: &mut App, shown: bool, tx: &mut Tx) {
     if !shown && s.persists() {
         s.poll_restore();
         s.poll_preview(true);
+        launch::saved_list::save(s);
+        launch::saved_catalog::save(s);
+        launch::saved_gutters::save(s);
         storage::flush(opencode_storage::FlushReason::Hide, false);
     }
 }

@@ -41,6 +41,8 @@ const milestones = {
   input_ready: mark("input.ready"),
   // The first frame with the open session's messages: the saved copy's, on a later launch.
   rows: mark("content.rows"),
+  // The first frame with sessions to list (Home's rows, the sidebar's).
+  list: mark("sessions.rows"),
   server: mark("server.answered"),
   // The server answered and the window shows its page.
   content_live: mark("content.live"),
