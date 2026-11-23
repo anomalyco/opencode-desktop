@@ -2,28 +2,28 @@
   "generated_at": "2026-11-23",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "2bf24680183c704a3e9168347c14f5f335d3a71e",
+  "upstream_head": "d1f98703ab254ca80b85b70caea5d33130604fa2",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "639b78573892bd5864b3c4dc489758f36bf34f8b",
-  "post_1114_commit_count": 510,
-  "post_1114_in_ledger": 192,
-  "post_1114_skipped": 318,
+  "rune_desktop_head": "ffbffe88f4ea34d7cc3a6d22cb03058e352294f7",
+  "post_1114_commit_count": 514,
+  "post_1114_in_ledger": 194,
+  "post_1114_skipped": 320,
   "post_1114_skipped_breakdown": {
     "test-only": 24,
     "ci-bench-deps": 18,
     "docs-site-data": 50,
-    "tui-only": 19,
+    "tui-only": 20,
     "cli-acp-only": 8,
-    "server-core-ai-codemode-internal": 199
+    "server-core-ai-codemode-internal": 200
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 213,
+  "total_ledger_rows": 215,
   "status_counts": {
-    "have it": 181,
+    "have it": 182,
     "not applicable": 30,
     "differs on purpose": 1,
-    "partly": 1
+    "partly": 2
   },
   "rows": [
     {
@@ -5349,6 +5349,56 @@
       "risks": "none",
       "workstream": "UPSTREAM",
       "rune_pr": "#872"
+    },
+    {
+      "id": "UP-193",
+      "window": "post-1120",
+      "pr": 65785,
+      "sha": "16ba706544",
+      "title": "fix(app): drop the ring around focused file viewers, tool output, error details, What's New and the terminal",
+      "merged": "2026-11-23",
+      "packages": [
+        "gui-plugins",
+        "session-ui",
+        "ui"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/terminal/terminal.tsx",
+        "packages/gui-plugins/src/updater/whats-new.tsx",
+        "packages/session-ui/src/components/file.css",
+        "packages/session-ui/src/components/file.tsx"
+      ],
+      "summary": "No focus ring round a focused file viewer, tool output region, error details box, What's New or the terminal; the file viewer and the tool output regions are no Tab stop any more (tabIndex -1: a click still focuses them so the keys scroll and search).",
+      "size": "XS",
+      "status": "partly",
+      "status_evidence": "rune-desktop #881 (6e508f01): the keyboard's line in a file viewer or diff (crates/opencode-code-view/src/file/view.rs and diff/view.rs line_stop) drew Rune's default ring; it now sets no_focus_ring and shows by the line's hover fill (focus_fill); the terminal screen (features/terminal-surface/src/grid/mod.rs) sets no_focus_ring. Tool output, console and error details are not focusable in ours and What's New has no focus container: no ring, nothing to do. OPEN, owner question (24 Nov): official's viewer is no Tab stop at all; ours keeps one Tab stop per viewer (the cursor line, for commenting by keyboard). Found, not checked: official's tool output and error details take focus on a click so the keys scroll them; ours are not focusable. Ported by reading; run owed (CI build only).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#881"
+    },
+    {
+      "id": "UP-194",
+      "window": "post-1120",
+      "pr": 65800,
+      "sha": "d1f98703ab",
+      "title": "fix(app): match the layout cards to the navigation cards' style",
+      "merged": "2026-11-23",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/settings/general/interface-mode.css",
+        "packages/app/src/settings/general/interface-mode.tsx"
+      ],
+      "summary": "The layout cards (Settings > General: Interface layout) take the navigation cards' style: a 120 pt card whose window shows only its navigation (top tabs, side tabs, or sessions under headings) and fades into the name; cards 10 px apart; accent only on the chosen card. The Tabs navigation card follows Tab position and the List card shows grouped sessions.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "rune-desktop #882 (a1babddb): features/settings/src/mode_card.rs draws both rows' cards from interface-mode.css at d1f98703ab (card 120 x 78, window 98 x 56 on layer-01 with the fade to 44 pt, sketch-tabs / sketch-list / sketch-heading / sketch-row[data-detail], chosen card: 40% accent on the active tab or row, 60% on List marks, 100 / 60 / 30% on Inbox marks); interface_mode.rs and navigation_mode.rs are controls over it. Ours' navigation cards were 96 pt tall before, now 78. Ported by reading; run owed in both apps (official needs a build of d1f98703ab; CI build only for ours).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#882"
     }
   ],
   "browser_security_review": {
