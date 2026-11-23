@@ -125,7 +125,7 @@ mod mac {
         loop {
             let finished = done.load(Ordering::Acquire);
             canvases.poll();
-            if let Some(due) = canvases.due() {
+            if let Some(due) = canvases.due(rd) {
                 let mut enc = rd.create_command_encoder(&Default::default());
                 let mut version = 0;
                 for (_, c) in due {

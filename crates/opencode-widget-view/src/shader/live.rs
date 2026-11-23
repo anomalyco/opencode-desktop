@@ -122,7 +122,7 @@ impl Live {
             let run = Arc::as_ptr(&canvases) as usize;
             if canvases.copies {
                 canvases.poll();
-                if let Some(due) = canvases.due() {
+                if let Some(due) = canvases.due(f.device) {
                     let enc = copies.get_or_insert_with(|| f.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("widget gpu copies") }));
                     for (id, c) in due {
                         if let Some(t) = self.target(f.device, blit, run, &id, &c, true) {
