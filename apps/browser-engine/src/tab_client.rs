@@ -87,15 +87,27 @@ pub fn print_gate_info(gated: bool) -> Option<DictionaryValue> {
     Some(dict)
 }
 
-/// `IDC_PRINT` and `IDC_BASIC_PRINT` (`cef_command_ids.h`): the browser's own print command.
-const PRINT_COMMANDS: [i32; 2] = [35003, 35007];
+/// Chrome's own browser commands a key can reach (`cef_command_ids.h`). Official's Electron has none
+/// of them, so a key the pane passes to the page (Ctrl+P / S / U / O / H / J / D / T / W / R,
+/// Ctrl+1..9, F1, F5, F11, F12, Ctrl+Shift+I / J / C / M, Shift+Esc) reaches the page and nothing
+/// else: print (whose native dialog stops the whole engine), save page, view source, DevTools, help,
+/// fullscreen, reload, open file, history, downloads, bookmark, task manager, tab and location commands.
+const REFUSED_COMMANDS: [i32; 36] = [
+    33002, 33007, 33009, // IDC_RELOAD, _BYPASSING_CACHE, _CLEARING_CACHE
+    34014, 34015, 34016, 34017, // IDC_NEW_TAB, IDC_CLOSE_TAB, IDC_SELECT_NEXT_TAB, IDC_SELECT_PREVIOUS_TAB
+    34018, 34019, 34020, 34021, 34022, 34023, 34024, 34025, 34026, // IDC_SELECT_TAB_0..7, IDC_SELECT_LAST_TAB
+    34030, // IDC_FULLSCREEN
+    35000, 35002, 35003, 35004, 35007, // IDC_BOOKMARK_THIS_TAB, IDC_VIEW_SOURCE, IDC_PRINT, IDC_SAVE_PAGE, IDC_BASIC_PRINT
+    39001, // IDC_FOCUS_LOCATION
+    40000, 40004, 40005, 40006, 40007, // IDC_OPEN_FILE, IDC_DEV_TOOLS, _CONSOLE, IDC_TASK_MANAGER, IDC_DEV_TOOLS_DEVICES
+    40010, 40012, 40019, 40023, 40237, // IDC_SHOW_HISTORY, IDC_SHOW_DOWNLOADS, IDC_HELP_PAGE_VIA_KEYBOARD, IDC_DEV_TOOLS_INSPECT, _TOGGLE
+    40286, 40287, 40288, // IDC_TASK_MANAGER_SHORTCUT, _CONTEXT_MENU, _MAIN_MENU
+];
 
-// Refuses the browser's print command (Ctrl+P, Ctrl+Shift+P) on tabs where nobody may be watching
-// (`TabPrompts::print_gated`): its native dialog would stop the whole engine.
+// Refuses `REFUSED_COMMANDS` on every tab (WS-6, #681: the pane keeps those chords with the page, as
+// official does). A page's own `window.print()` is not a command: it is gated per tab kind (#662).
 wrap_command_handler! {
-    pub struct TabCommandHandler {
-        prompts: Arc<crate::prompts::TabPrompts>,
-    }
+    pub struct TabCommandHandler;
 
     impl CommandHandler {
         fn on_chrome_command(
@@ -104,7 +116,7 @@ wrap_command_handler! {
             command_id: ::std::os::raw::c_int,
             _disposition: WindowOpenDisposition,
         ) -> ::std::os::raw::c_int {
-            i32::from(PRINT_COMMANDS.contains(&command_id) && self.prompts.print_gated.load(std::sync::atomic::Ordering::Acquire))
+            i32::from(REFUSED_COMMANDS.contains(&command_id))
         }
     }
 }
@@ -164,7 +176,7 @@ wrap_client! {
             Some(self.frame_handler.clone())
         }
         fn command_handler(&self) -> Option<CommandHandler> {
-            Some(TabCommandHandler::new(self.prompts.clone()))
+            Some(TabCommandHandler::new())
         }
         fn on_process_message_received(
             &self,

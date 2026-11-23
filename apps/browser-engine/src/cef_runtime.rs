@@ -353,8 +353,10 @@ wrap_app! {
             // fenced frames (N6a), payments (N7), Translate and on-device language/model services
             // (N11). FedCM itself stays: with its content setting blocked
             // (`permissions::CHROME_SERVICE_SETTINGS`) a page gets `NetworkError` before any
-            // identity-provider fetch, as on official, where Electron has no FedCM delegate.
-            const DISABLED_NET_FEATURES: [&str; 30] = [
+            // identity-provider fetch, as on official, where Electron has no FedCM delegate. The
+            // built-in AI APIs (`LanguageModel`, `Summarizer`, `Writer`, `Rewriter`, `Proofreader`):
+            // a page saw the first two; official has none.
+            const DISABLED_NET_FEATURES: [&str; 35] = [
                 "MediaRouter",
                 "DialMediaRouteProvider",
                 "CastMediaRouteProvider",
@@ -385,6 +387,11 @@ wrap_app! {
                 "FencedFrames",
                 "FedCmDelegation",
                 "FedCmMultipleIdentityProviders",
+                "AIPromptAPI",
+                "AISummarizationAPI",
+                "AIWriterAPI",
+                "AIRewriterAPI",
+                "AIProofreadingAPI",
             ];
             let existing = CefString::from(&cmd.switch_value(Some(&"disable-features".into()))).to_string();
             cmd.remove_switch(Some(&"disable-features".into()));

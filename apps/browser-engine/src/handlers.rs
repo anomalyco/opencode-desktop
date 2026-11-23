@@ -1335,6 +1335,7 @@ pub fn native_key_code(vk: i32, _mac: i32) -> i32 {
         0xdc => 51, 0xbc => 59, 0xbe => 60, 0xbf => 61, 0x20 => 65,
         0x24 => 110, 0x26 => 111, 0x21 => 112, 0x25 => 113, 0x27 => 114,
         0x23 => 115, 0x28 => 116, 0x22 => 117, 0x2e => 119,
+        0x70..=0x79 => 67 + (vk - 0x70), 0x7a => 95, 0x7b => 96,
         _ => 0,
     }
 }
@@ -1388,6 +1389,19 @@ pub fn named_codes(name: &str) -> Option<(i32, i32, Option<u16>)> {
         "End" => Some((0x23, 119, None)),
         "PageUp" => Some((0x21, 116, None)),
         "PageDown" => Some((0x22, 121, None)),
+        // Windows virtual-key codes 0x70..0x7B; macOS key codes (`kVK_F1`..`kVK_F12`).
+        "F1" => Some((0x70, 122, None)),
+        "F2" => Some((0x71, 120, None)),
+        "F3" => Some((0x72, 99, None)),
+        "F4" => Some((0x73, 118, None)),
+        "F5" => Some((0x74, 96, None)),
+        "F6" => Some((0x75, 97, None)),
+        "F7" => Some((0x76, 98, None)),
+        "F8" => Some((0x77, 100, None)),
+        "F9" => Some((0x78, 101, None)),
+        "F10" => Some((0x79, 109, None)),
+        "F11" => Some((0x7A, 103, None)),
+        "F12" => Some((0x7B, 111, None)),
         _ => None,
     }
 }
