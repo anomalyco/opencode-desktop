@@ -88,6 +88,9 @@ try {
         if ($instrument) { '-Cprofile-generate=target/pgo-raw' } elseif (Test-Path $profdata) { "-Cprofile-use=$profdata"; '-Cllvm-args=-no-pgo-warn-mismatch' }
         # After cargo's own flags, so these win over the release profile's "no debug info".
         if ($symbols) { '-Cdebuginfo=line-tables-only'; '-Cstrip=none' }
+        # TRIAL (branch pgo/after-lld-order, never merge): the functions a launch runs, first in the file. MSVC's link.exe
+        # orders only external functions, so the toolchain's own lld-link links the exe and takes the order file.
+        if (!$instrument -and (Test-Path (Join-Path $root "apps/desktop/pgo/$triple.order"))) { '-Clinker=rust-lld'; '-Clinker-flavor=lld-link'; "-Clink-arg=/order:@$(Join-Path $root "apps/desktop/pgo/$triple.order")"; '-Clink-arg=/ignore:4037' }
     )
     if ($flags) { [Environment]::SetEnvironmentVariable($name, (@($before) + $flags | Where-Object { $_ }) -join ' ') }
     $parts = $Cargo -split ' '
