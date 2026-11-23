@@ -98,7 +98,6 @@ impl Accounts {
 
 fn note(id: &str) -> Option<&'static str> {
     Some(match id {
-        "opencode" => t!("dialog.provider.opencode.note"),
         "opencode-go" => t!("dialog.provider.opencodeGo.tagline"),
         "anthropic" => t!("dialog.provider.anthropic.note"),
         "claude-agent" => t!("dialog.provider.claudeAgent.note"),
@@ -248,6 +247,9 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
     let mut popular: Vec<(String, String)> = integrations
         .iter()
         .filter(|i| POPULAR.contains(&i.id.as_str()))
+        // OpenCode Go connects through OpenCode, so it is listed only for someone who has saved a Go
+        // key (`providers.tsx` `popular`, opencode#65740).
+        .filter(|i| i.id != "opencode-go" || i.connections.iter().any(|c| c.credential))
         .filter(|i| {
             if i.id == "opencode" {
                 i.connections.iter().find(|c| c.credential).is_none_or(|c| c.method != "oauth")
