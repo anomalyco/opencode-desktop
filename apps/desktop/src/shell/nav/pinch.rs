@@ -73,16 +73,18 @@ impl Pinch {
     }
 }
 
-/// A pinch as the wheel pixels Desktop's window sees for it. Off macOS a pinch reaches Rune as
-/// Ctrl + wheel, `-dy / 200` a point, and Chromium reads a wheel notch (Rune's 40 points) as
-/// 100 pixels of the page, at its zoom. On macOS Chromium reads a wheel's points as pixels, and
-/// turns a pinch, which macOS reports itself, into a Ctrl + wheel of `-100 ln(1 + delta)`.
+/// A pinch as the wheel pixels Desktop's window sees for it, which Chromium divides by the
+/// page's zoom. Off macOS a pinch reaches Rune as Ctrl + wheel, `-dy / 200` a point, and
+/// Chromium reads a wheel notch (Rune's 40 points) as 100 pixels. On macOS Chromium reads a
+/// wheel's points as pixels, and turns a pinch, which macOS reports itself, into a Ctrl + wheel
+/// of `-100 ln(1 + delta)` (measured on a Mac: Desktop's pinch zooms less the further in it is).
 fn wheel_pixels(ev: &MagnifyEvent, zoom: f32) -> f32 {
-    if cfg!(target_os = "macos") && !ev.wheel {
-        return -100.0 * (1.0 + ev.delta).max(0.01).ln();
-    }
-    let per_point = if cfg!(target_os = "macos") { 1.0 } else { 2.5 };
-    -ev.delta * 200.0 * per_point / zoom
+    let pixels = if cfg!(target_os = "macos") && !ev.wheel {
+        -100.0 * (1.0 + ev.delta).max(0.01).ln()
+    } else {
+        -ev.delta * 200.0 * if cfg!(target_os = "macos") { 1.0 } else { 2.5 }
+    };
+    pixels / zoom
 }
 
 impl App {
