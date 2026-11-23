@@ -30,7 +30,10 @@
         "OPENCODE_SERVER_PASSWORD": "parity-harness",
         "OPENCODE_RUNE_OTEL": "0"
       },
-      "unset": ["OPENCODE_*", "OTEL_*", "SENTRY_*", "RUNE_*", "WGPU_*", "XDG_*"],
+      // `__COMPAT_LAYER`: a shell an installed app's chain started carries the Program Compatibility
+      // Assistant's layer, and every process created with it runs with ntdll's shim engine (about
+      // 4,600 us of this app's start, `exp_a7d0dd`). The Start menu starts the app without it.
+      "unset": ["OPENCODE_*", "OTEL_*", "SENTRY_*", "RUNE_*", "WGPU_*", "XDG_*", "__COMPAT_LAYER"],
       "dirs": ["home/AppData/Roaming", "home/AppData/Local", "home/Documents", "tmp", "xdg/state", "xdg/config", "xdg/data", "xdg/cache"],
       "args": ["--launch-marks"]
     }
