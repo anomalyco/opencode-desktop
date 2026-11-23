@@ -327,7 +327,6 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             tx.instant();
             *s.projects = projects;
             s.sort_projects();
-            s.list_unlisted_worktrees();
         }
         Incoming::DefaultDirectory(directory) => crate::start_location::answered(s, directory),
         Incoming::ProjectOpened { location, projects, session } => {

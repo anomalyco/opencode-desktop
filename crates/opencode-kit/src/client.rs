@@ -82,6 +82,11 @@ pub use worker::{connect, connect_with_idle};
 
 pub const DEFAULT_SERVER: &str = "http://127.0.0.1:4096";
 
+/// The session list: the newest 500 root sessions in one read, as Desktop's Home and sidebar share
+/// (`packages/app/src/home/sessions/index.ts`). Subagents don't take the page from their roots; the
+/// open session's children and running sessions are read on their own.
+pub const SESSION_LIST: &str = "/api/session?limit=500&order=desc&parentID=null";
+
 /// The server to use when no `--server` was passed: `OPENCODE_SERVER_URL` when set (a Mac that
 /// reaches another Mac's server through a tunnel sets it with `launchctl setenv`, so opening the
 /// app from Spotlight or a launcher still finds it), else [`DEFAULT_SERVER`].

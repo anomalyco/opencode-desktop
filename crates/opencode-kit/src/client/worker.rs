@@ -485,7 +485,7 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
             wake();
             ok
         };
-        let sessions = |server: &Server| server.get("/api/session?limit=120").map(|v| model::parse_sessions(&v));
+        let sessions = |server: &Server| server.get(super::SESSION_LIST).map(|v| model::parse_sessions(&v));
         if let Err(e) = rune::task::serve("opencode-fetch", req_rx, move |r| {
                     let ok = match r {
                         Request::Session(id) => match server.read(&format!("/api/session/{id}/message?limit=80&order=desc")) {
