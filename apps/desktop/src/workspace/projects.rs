@@ -495,7 +495,7 @@ impl Feature<App> for ProjectsFeature {
         );
         builder.add_command(
             CommandEntry::<App>::from_key(
-                "copy-project",
+                "project.copyID",
                 opencode_i18n::key!("command.project.copyID"),
                 crate::commands::order::COPY_PROJECT,
                 |s, tx| {

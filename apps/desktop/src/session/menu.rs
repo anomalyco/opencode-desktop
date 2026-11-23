@@ -340,7 +340,7 @@ impl Feature<App> for SessionMenuFeature {
         );
         builder.add_command(
             CommandEntry::<App>::from_key(
-                "export",
+                "session.export",
                 opencode_i18n::key!("command.session.export"),
                 crate::commands::order::EXPORT,
                 |s, _| {
@@ -355,7 +355,7 @@ impl Feature<App> for SessionMenuFeature {
         );
         builder.add_command(
             CommandEntry::<App>::from_key(
-                "copy-session",
+                "session.copyID",
                 opencode_i18n::key!("command.session.copyID"),
                 crate::commands::order::COPY_SESSION,
                 |s, tx| {

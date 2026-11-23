@@ -234,7 +234,7 @@ fn has_sidebar(s: &App) -> bool {
 pub fn register_shell_commands(b: &mut KernelBuilder<App>) {
     // `session.new` has no keybind of its own; it runs `tab.new` (`use-session-commands.tsx:446-451`).
     b.add_command(
-        CommandEntry::<App>::from_key("new", opencode_i18n::key!("command.session.new"), order::NEW, |s, tx| s.new_session(tx))
+        CommandEntry::<App>::from_key("session.new", opencode_i18n::key!("command.session.new"), order::NEW, |s, tx| s.new_session(tx))
             .slash("new")
             .section("session"),
     );
@@ -263,13 +263,13 @@ pub fn register_shell_commands(b: &mut KernelBuilder<App>) {
             .when(has_sidebar),
     );
     b.add_command(
-        CommandEntry::<App>::from_key("reload", opencode_i18n::key!("command.config.reload"), order::RELOAD, reload)
+        CommandEntry::<App>::from_key("config.reload", opencode_i18n::key!("command.config.reload"), order::RELOAD, reload)
             .describe(opencode_i18n::key!("command.config.reload.description"))
             .slash("reload")
             .when(is_live),
     );
     b.add_command(
-        CommandEntry::<App>::from_key("compact", opencode_i18n::key!("command.session.compact"), order::COMPACT, compact)
+        CommandEntry::<App>::from_key("session.compact", opencode_i18n::key!("command.session.compact"), order::COMPACT, compact)
             .describe(opencode_i18n::key!("command.session.compact.description"))
             .slash("compact")
             .section("session")
