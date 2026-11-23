@@ -70,8 +70,8 @@ pub enum Error {
     Compile(String),
     /// The step threw; `location` is the 1-based line and column in the program, when known.
     Script { message: String, location: Option<(u32, u32)> },
-    /// The step ran past its budget.
-    Timeout,
+    /// The step (or draw) ran past its budget, of this many ms.
+    Timeout(u64),
     /// A draw step returned more commands than a frame may draw.
     Budget(String),
     /// The step returned something that isn't a step output (no view, an invalid view).
@@ -90,7 +90,7 @@ impl fmt::Display for Error {
             Error::Compile(m) => write!(f, "the widget's program doesn't compile: {m}"),
             // The interpreter's message already says where.
             Error::Script { message, .. } => f.write_str(message),
-            Error::Timeout => write!(f, "the widget took longer than {STEP_TIMEOUT_MS} ms to respond"),
+            Error::Timeout(ms) => write!(f, "the widget took longer than {ms} ms to respond"),
             Error::Output(m) | Error::Input(m) | Error::Budget(m) => f.write_str(m),
             Error::Older => f.write_str(OLDER),
             Error::Newer => f.write_str(NEWER),
@@ -129,6 +129,8 @@ pub struct Program {
     runtime: Runtime,
     /// The same program under the draw budget.
     drawing: Runtime,
+    /// The step and draw budgets, ms.
+    budgets: [u64; 2],
     /// `Err`: refused for its protocol, never compiled.
     compiled: Result<Compiled, Box<Error>>,
     /// What `__input()` returns to the step running now (once: the step's tail reads it once).
@@ -170,13 +172,14 @@ impl Program {
                 // Budgets on the thread's CPU time: a loaded machine doesn't time a step or draw out.
                 .limits(Limits { timeout_ms: Some(timeout_ms), max_heap_bytes: Some(MAX_HEAP_BYTES), max_value_depth: Some(MAX_VALUE_DEPTH), clock: Clock::ThreadCpu, ..Default::default() })
         };
-        let runtime = make(timeout_ms.clamp(1, STEP_TIMEOUT_MS), false);
-        let drawing = make(DRAW_TIMEOUT_MS.min(timeout_ms.max(1)), true);
+        let budgets = [timeout_ms.clamp(1, STEP_TIMEOUT_MS), DRAW_TIMEOUT_MS.min(timeout_ms.max(1))];
+        let runtime = make(budgets[0], false);
+        let drawing = make(budgets[1], true);
         let compiled = match refused(program) {
             Some(e) => Err(Box::new(e)),
             None => Ok(runtime.compile(&format!("{program}{TAIL}")).map_err(|d| Error::Compile(d.message_lossy()))?),
         };
-        Ok(Program { runtime, drawing, compiled, input, emitted, running: Mutex::new(()) })
+        Ok(Program { runtime, drawing, budgets, compiled, input, emitted, running: Mutex::new(()) })
     }
 
     /// Whether it's refused for its protocol (`widgets.md`, Protocol): no step of it runs, and no
@@ -191,7 +194,7 @@ impl Program {
             return Err(Error::Input("a draw step returns commands: run it with Program::draw".into()));
         }
         let input = serde_json::to_value(input).map_err(|e| Error::Input(e.to_string()))?;
-        let (rest, view) = self.run(&self.runtime, HostValue::from_json(&input))?;
+        let (rest, view) = self.run(false, HostValue::from_json(&input))?;
         output(rest, view)
     }
 
@@ -204,7 +207,7 @@ impl Program {
                 input("event", data, vec![("state", HostValue::from_json(state)), ("event", HostValue::from_json(&event))])
             }
         };
-        let (rest, view) = self.run(&self.runtime, input)?;
+        let (rest, view) = self.run(false, input)?;
         output(rest, view)
     }
 
@@ -222,7 +225,7 @@ impl Program {
     }
 
     fn drawn(&self, input: HostValue) -> Result<Vec<Command>, Error> {
-        let (_, commands) = self.run(&self.drawing, input)?;
+        let (_, commands) = self.run(true, input)?;
         DrawOutput::from_host(commands.as_ref()).map(|d| d.commands).map_err(|e| if e.contains("over the budget") { Error::Budget(e) } else { Error::Output(e) })
     }
 
@@ -230,20 +233,21 @@ impl Program {
     /// emitted view's tree as `view`; a draw's emitted commands as `{ commands }`.
     pub fn step_value(&self, input: Value) -> Result<Value, Error> {
         if input["phase"] == "draw" {
-            let (_, commands) = self.run(&self.drawing, HostValue::from_json(&input))?;
+            let (_, commands) = self.run(true, HostValue::from_json(&input))?;
             return Ok(serde_json::json!({ "commands": commands.and_then(|c| c.to_json()) }));
         }
-        let (mut rest, view) = self.run(&self.runtime, HostValue::from_json(&input))?;
+        let (mut rest, view) = self.run(false, HostValue::from_json(&input))?;
         if let (Value::Object(m), Some(view)) = (&mut rest, view) {
             m.insert("view".into(), view.to_json().unwrap_or(Value::Null));
         }
         Ok(rest)
     }
 
-    /// Runs one step: the run's result as JSON (functions left out), and the view it emitted, as
-    /// the tree clients get. A view that broke Keys and depth fails it (phase `view`), before the
-    /// run's own failure.
-    fn run(&self, runtime: &Runtime, input: HostValue) -> Result<(Value, Option<HostValue>), Error> {
+    /// Runs one step (`draw`: a draw step, under the draw budget): the run's result as JSON
+    /// (functions left out), and the view it emitted, as the tree clients get. A view that broke
+    /// Keys and depth fails it (phase `view`), before the run's own failure.
+    fn run(&self, draw: bool, input: HostValue) -> Result<(Value, Option<HostValue>), Error> {
+        let (runtime, budget) = if draw { (&self.drawing, self.budgets[1]) } else { (&self.runtime, self.budgets[0]) };
         let compiled = self.compiled.as_ref().map_err(|e| (**e).clone())?;
         let _running = self.running.lock().unwrap_or_else(PoisonError::into_inner);
         *self.input.lock().unwrap_or_else(PoisonError::into_inner) = input;
@@ -255,7 +259,7 @@ impl Program {
             return Err(Error::Output(failure));
         }
         let rest = outcome.json().map_err(|d| match d.kind {
-            DiagnosticKind::TimeoutExceeded => Error::Timeout,
+            DiagnosticKind::TimeoutExceeded => Error::Timeout(budget),
             DiagnosticKind::MemoryLimitExceeded => Error::Script { message: heap_exceeded(), location: None },
             DiagnosticKind::ParseError | DiagnosticKind::UnsupportedSyntax if d.location.is_none() => Error::Compile(d.message_lossy()),
             _ => Error::Script { message: d.message_lossy(), location: d.location },
