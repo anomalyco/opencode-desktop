@@ -67,9 +67,28 @@ Milestones: `launch.first_frame`, `launch.input_ready`, `launch.rows` (the first
 - The server is yours to start: any `opencode serve` whose port is not 4096 (the app's default address, which a launch falls back to when the registered server is away: the bench refuses to run while something listens there).
 - `OPENCODE_BENCH_ENGINE=<folder>`: an installed browser engine (`<state>/co.anomaly.opencode/browser-engine/<version>` of a profile that has one), linked into each launch's home. Without it every launch starts the engine's download once its content is up.
 - Layout shifts: start the app with `--launch-trace <file> --launch-trace-shifts` and read `shifts` in its line (frames in which an element on screen moved, how many moved, and the first of them by name). It walks every frame's elements, so it is off in a timed launch.
+## The pinned strobe, beside another install
+
+`perf/package.json` pins strobe (`@hona/strobe` 0.44.1). `bun install` in `perf/`, then `bunx strobe …` there runs that version whatever the machine has installed.
+
+On a machine whose installed strobe is older and must stay as it is (its daemon and deep helper belong to other work), give the pinned one a state folder of its own: it keeps its recordings and experiments under `%LOCALAPPDATA%\strobe`, so start it with `LOCALAPPDATA` pointing at a scratch folder. It then leaves the installed state folder, daemon and helper alone (`strobe status` names them as another build; only `strobe up` would replace them, and that asks for admin rights).
+
+```powershell
+cd perf; bun install
+$env:LOCALAPPDATA = 'C:\tmp\strobe-0441'    # this shell only
+bunx strobe bench launch.bench.ts --base exe:<A>\opencode-desktop.exe --head exe:<B>\opencode-desktop.exe --filter warm --target small
+```
+
+What 0.44.1 does with this bench on Windows (24 Nov 2026, `exp_e20f7c`, `rec_7ecb5f`, the installed strobe 0.28.0):
+
+- **A comparison runs about twice the pairs in the same time:** 31 pairs of the warm case in 124 s (a block is one launch, about 1.4 s), with looks at 8, 12, 18, 26 and 40 pairs. The verdict needs as many pairs as before: a 4 % change on a machine with other work was still `unclear` at 31.
+- **Milestones are still timed from the spawn call.** There is no clock from `main` or from the process's creation, so a late `CreateProcess` is inside every `launch.*` value. Stages counted from `main` come from the app's own marks: `strobe run --base "bun <tail-loop.ts> <A> --n 1 --metric-lines" --head "… <B> …" --primary metric.frame_from_main_us` (the tool is not in this repository yet).
+- **`strobe record --bench launch.bench.ts#warm` keeps no native samples** while the installed deep helper is another build's (`0 samples`: strobe's own sampler takes one sample per 2 ms of a thread's CPU and a launch's threads end first). Stacks of a launch still come from a process created suspended with `strobe record pid:<n> --probes deep` attached before it is resumed.
+- Values print in µs (`--unit`), and `strobe run --plan` estimates the pairs and time of a command comparison without running it.
+
 ## Not covered yet
 
-Several windows, the browser pane restored, an update pending, a launch from a folder a virus scanner reads.
+The browser pane restored, an update pending. A window restored with its side panel open, two saved windows and a launch from a folder a virus scanner reads are measured by hand (the app's own launch trace under `strobe run`), not by a case here.
 
 ## macOS, started as the Dock starts it
 
