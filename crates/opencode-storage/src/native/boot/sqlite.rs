@@ -164,7 +164,7 @@ pub(super) fn stage_b(
             let path = config.path.clone();
             let scratch_parent = config.path.parent().map_or_else(|| import.dir.clone(), Path::to_path_buf);
             let reopen = move || connect(&path).and_then(|(c, _)| configure(&c, true).map(|()| c));
-            let (summary, deferred, settled) = import::run(&mut conn, &reopen, import, &config.official, scratch_parent, flags, (config.clock)());
+            let (summary, deferred, settled) = import::run(&mut conn, &reopen, import, &config.official, scratch_parent, flags, (config.clock)(), owe.seed.take());
             report.import = summary;
             if settled != flags {
                 schema::set_flags(&conn, settled)?;
