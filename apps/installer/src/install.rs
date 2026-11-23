@@ -13,6 +13,7 @@ use win_install::{EXE, Product};
 static PAYLOAD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/payload.zip"));
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+const CREATE_SUSPENDED: u32 = 0x0000_0004;
 const DETACHED_PROCESS: u32 = 0x0000_0008;
 /// How long a running copy has to close on its own before setup ends it.
 const CLOSE_GRACE: Duration = Duration::from_secs(10);
@@ -75,7 +76,7 @@ pub fn run() -> i32 {
     match install(&p, &root, args.desktop_shortcut, &|line| args.log(line)) {
         Ok(()) if args.launch => launch(&root, &args),
         Ok(()) => {
-            // Nobody waits on a silent install's last moment: the first start is paid here.
+            // Nobody waits on a silent install's last moment: Windows' check of the new exe is paid here.
             first_start(&root, &args.log).join().ok();
             0
         }
@@ -181,25 +182,31 @@ fn beside(root: &Path, what: &str) -> PathBuf {
     root.parent().unwrap_or(root).join(format!(".{name}.{what}"))
 }
 
-/// Starts the installed exe once, to print its version and exit (`--version` returns before the
-/// app resolves a folder or looks for a running copy), on a thread of its own. The first start of
-/// a file that was just written is where an antivirus scans it, inside the call that starts it:
-/// for this exe, where Windows Defender scans, 250,000 to 700,000 µs before the process exists
-/// (the signed build of 23 Nov, unpacked as here; an unsigned one 900,000 µs). Paid here, while
-/// the last page shows, the person's own first start (its Launch box, or the Start menu later)
-/// has its process after 13,000 to 36,000 µs.
+/// Makes a process from the installed exe and ends it before a line of it runs, on a thread of
+/// its own (as the updater does for a staged update: `features/updater/src/windows.rs`).
+///
+/// Windows Defender checks a new executable the first time a process is made from it, inside
+/// `CreateProcess`, before that process exists; opening, reading or mapping the file does not
+/// get the answer early. For this exe, unpacked as here into a folder Defender scans, that is
+/// 372,854 to 704,455 µs of the person's first start (the signed build of 23 Nov, n = 3; an
+/// unsigned one 900,000 µs). Windows keeps the answer for the file, so paid here, while the last
+/// page shows, their own first start (its Launch box, or the Start menu later) has its process
+/// after 2,000 to 3,500 µs (the updater's measure of the same call).
 pub fn first_start(root: &Path, log: &Option<PathBuf>) -> std::thread::JoinHandle<()> {
     let (exe, args) = (root.join(EXE), Args { log: log.clone(), ..Args::default() });
     std::thread::spawn(move || {
         let started = std::time::Instant::now();
-        let ran = Command::new(&exe).arg("--version").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).creation_flags(CREATE_NO_WINDOW).status();
-        match ran {
-            Ok(status) => args.log(&format!("first start of {} ({status}) took {} µs", exe.display(), started.elapsed().as_micros())),
-            Err(e) => args.log(&format!("couldn't start {} once: {e}", exe.display())),
+        let child = Command::new(&exe).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).creation_flags(CREATE_SUSPENDED | CREATE_NO_WINDOW).spawn();
+        match child {
+            Ok(mut child) => {
+                child.kill().ok();
+                child.wait().ok();
+                args.log(&format!("Windows checked {} in {} µs", exe.display(), started.elapsed().as_micros()));
+            }
+            Err(e) => args.log(&format!("couldn't check {} ahead: {e}", exe.display())),
         }
     })
 }
-
 /// Starts the installed app, in the user's home folder, as its Start menu shortcut does.
 ///
 /// Without `__COMPAT_LAYER`: Windows starts a setup program with its Program Compatibility
