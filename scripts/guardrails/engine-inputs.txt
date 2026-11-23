@@ -13,7 +13,7 @@ b046beaab8b13b8ad19201043e39e7a645bdad33 apps/browser-engine/scripts/package-win
 ca1eb1771d3fa17ab0fdf8c400ea1ac0abd3c81a apps/browser-engine/src/agent.rs
 dd3064014c9a9eddda7f7f3faaa7ced684ace92e apps/browser-engine/src/bin/opencode_browser_engine_helper.rs
 3ae5a73535523dabdc437edf2e11031ce49df4a0 apps/browser-engine/src/cdp_ledger.rs
-75d1aaecc35bf39aade9f5d6fa8d97a8d71d9af2 apps/browser-engine/src/cef_runtime.rs
+4ed333cb2a76c058e1818d15a116f7b796d68c06 apps/browser-engine/src/cef_runtime.rs
 b58a42fb56a761fc9fc7b64343c3be78f7831b8f apps/browser-engine/src/clear_storage.rs
 04647800739b91fc4c574358f63ffddadf0ce821 apps/browser-engine/src/clipboard_gate.rs
 c92188335c2dfb4739e550eae18a5e9f8d8f99ff apps/browser-engine/src/context.rs
