@@ -616,6 +616,11 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let changed = first_reads(s, tx);
     #[cfg(not(target_arch = "wasm32"))]
     engine_fetch(s);
+    // The launch's other saved windows, one per turn once this one takes input.
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(after) = crate::windows::open_rest(s) {
+        tx.wake_after(after);
+    }
     changed
 }
 

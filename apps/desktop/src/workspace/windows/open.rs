@@ -127,10 +127,40 @@ fn display_scale(frame: Option<&Frame>) -> Option<f32> {
     by_frame.or_else(|| displays.iter().find(|d| d.primary)).or_else(|| displays.first()).map(|d| d.scale as f32)
 }
 
-/// Opens every window saved at the last quit, or one for a new profile, each where it was. The
-/// list and the frames come from the boot packet, taken once the event loop is up (so the
-/// storage's read runs under it); a list that didn't change isn't written again. Returns when
-/// the app quits, unless it ends at once (`rune::fast_exit`).
+/// The windows saved at the last quit after the first, with where each opens: [`open_rest`]
+/// opens them once the first one takes input.
+#[cfg(not(target_arch = "wasm32"))]
+static REST: std::sync::Mutex<Vec<(String, Option<Frame>)>> = std::sync::Mutex::new(Vec::new());
+
+/// Opens the launch's next saved window after the first, once the loop has waited for input
+/// (`input.ready`): one per turn. Rune builds every window it is given at launch, and draws each
+/// one's first frame, before the first of them takes a key (two saved windows: input 65-76 ms
+/// after `main`, against 42-50 with one; strobe `rec_74d5a1`, `rec_4b5e43`, `rec_b46005`), so the launch gives
+/// it the first window alone. Answers when to look again while one is left to open: a moment
+/// later while the loop hasn't waited yet (a wake at once would keep it from waiting), else at
+/// the next turn.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn open_rest(s: &App) -> Option<std::time::Duration> {
+    let next = {
+        let mut rest = REST.lock().unwrap_or_else(|e| e.into_inner());
+        if rest.is_empty() {
+            return None;
+        }
+        if !rune::marks::marks().iter().any(|(name, _)| *name == "input.ready") {
+            return Some(std::time::Duration::from_millis(2));
+        }
+        rest.remove(0)
+    };
+    rune::marks::mark("window.rest.open");
+    let _ = rune::open_window(window(Window::new(next.0, false), next.1, &s.diag.diagnostics));
+    (!REST.lock().unwrap_or_else(|e| e.into_inner()).is_empty()).then_some(std::time::Duration::ZERO)
+}
+
+/// Opens the first window saved at the last quit, or one for a new profile, where it was, and
+/// leaves the other saved windows to [`open_rest`]. The list and the frames come from the boot
+/// packet, taken once the event loop is up (so the storage's read runs under it); a list that
+/// didn't change isn't written again. Returns when the app quits, unless it ends at once
+/// (`rune::fast_exit`).
 #[cfg(not(target_arch = "wasm32"))]
 pub fn launch(diagnostics: crate::diagnostics::Diagnostics) {
     rune::run_windows(move |displays: &[Display]| {
@@ -145,14 +175,10 @@ pub fn launch(diagnostics: crate::diagnostics::Diagnostics) {
         }
         OPENED.store(ids.len(), std::sync::atomic::Ordering::Relaxed);
         let fresh = saved.is_none();
-        ids.iter()
-            .enumerate()
-            .map(|(i, id)| {
-                // Nothing saved (a new profile): where Desktop's first window opens.
-                let frame = store::load_frame(id).and_then(|f| super::placement::fit(f, displays)).or_else(|| super::placement::first(displays));
-                window(Window::new(id.clone(), i == 0 && fresh), frame, &diagnostics).boxed()
-            })
-            .collect::<Vec<_>>()
+        // Nothing saved (a new profile): where Desktop's first window opens.
+        let frame = |id: &str| store::load_frame(id).and_then(|f| super::placement::fit(f, displays)).or_else(|| super::placement::first(displays));
+        *REST.lock().unwrap_or_else(|e| e.into_inner()) = ids.iter().skip(1).map(|id| (id.clone(), frame(id))).collect();
+        vec![window(Window::new(ids[0].clone(), fresh), frame(&ids[0]), &diagnostics).boxed()]
     });
 }
 

@@ -29,7 +29,7 @@ pub(crate) mod tear_stories;
 
 pub use open::new_window;
 #[cfg(not(target_arch = "wasm32"))]
-pub use open::{launch, opened};
+pub use open::{launch, open_rest, opened};
 pub use reopen::reopen;
 
 /// One window's identity and what it tracks of itself.
