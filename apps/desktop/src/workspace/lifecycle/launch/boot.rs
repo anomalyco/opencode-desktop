@@ -160,7 +160,7 @@ pub fn deferred() -> bool {
     DEFERRED.load(Ordering::Relaxed)
 }
 
-/// What [`First::fetch`] reads, the projects first.
+/// What [`First::fetch`] reads; the projects' answer says whether the server is OpenCode's.
 const FIRST_READS: [&str; 7] =
     ["/api/project", "/api/session?limit=120", "/api/model", "/api/agent", "/api/provider", "/api/session/active", "/api/config"];
 
@@ -195,19 +195,23 @@ impl First {
         #[cfg(target_arch = "wasm32")]
         server.start_gets(&FIRST_READS);
         let [projects, paths @ ..] = FIRST_READS;
-        let projects = get(projects).inspect_err(|_| {
-            #[cfg(target_arch = "wasm32")]
-            server.forget_gets();
-        })?;
         // A page has no threads: its fiber takes up the answers one after another, but the
         // browser asked for them all at once.
         #[cfg(target_arch = "wasm32")]
-        let [sessions, models, agents, providers, active, config] = paths.map(|path| get(path).ok());
-        // Once the project probe succeeds these reads are independent. A slow catalog
-        // mustn't add its whole round trip to each successive startup read.
+        let (projects, [sessions, models, agents, providers, active, config]) = {
+            let projects = get(projects).inspect_err(|_| server.forget_gets())?;
+            (projects, paths.map(|path| get(path).ok()))
+        };
+        // All seven at once: each is its own round trip, and one after another they add up. The
+        // projects' read was asked alone first and the other six after its answer: against a
+        // server 300 ms away that was a round trip (300 ms) before the others started.
         #[cfg(not(target_arch = "wasm32"))]
-        let [sessions, models, agents, providers, active, config] =
-            std::thread::scope(|scope| paths.map(|path| scope.spawn(move || get(path).ok())).map(|task| task.join().ok().flatten()));
+        let (projects, [sessions, models, agents, providers, active, config]) = std::thread::scope(|scope| {
+            let rest = paths.map(|path| scope.spawn(move || get(path).ok()));
+            (get(projects), rest.map(|task| task.join().ok().flatten()))
+        });
+        #[cfg(not(target_arch = "wasm32"))]
+        let projects = projects?;
         Ok(First { projects, sessions, models, agents, providers, active, config })
     }
 }
@@ -222,10 +226,76 @@ pub struct Ready {
     /// Nothing accepted a connection at the address, and the reach watcher tries it from now on
     /// (`Server::watch_reach`): the launch waits for it rather than trying on a timer.
     pub refused: bool,
+    /// The restored session's newest page, asked for beside the first reads, for the session's
+    /// reader to take up when the window connects (`Pages::live`).
+    pub page: Option<session_pages::Early>,
+}
+
+/// The path of session `id`'s newest page, as its reader asks for it.
+fn newest_page(id: &str) -> String {
+    format!("/api/session/{id}/message?limit={}&order=desc", session_pages::LATEST)
+}
+
+/// Asks `server` for the restored session's newest page (`page`, its path) without waiting for
+/// it. A page's reader asks for its own (`start_first_reads` asked for the rest as it started).
+fn ask_page(server: &Server, page: Option<String>) -> Option<session_pages::Early> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (server, page);
+        None
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    page.and_then(|path| session_pages::Early::ask(server, path))
+}
+
+/// What the head start found: the registered service's address and its first reads, or none
+/// when no service is registered or nothing accepts connections at its address.
+#[cfg(not(target_arch = "wasm32"))]
+type Head = Option<(String, Result<First, String>)>;
+
+#[cfg(not(target_arch = "wasm32"))]
+static HEAD: std::sync::Mutex<Option<Receiver<Head>>> = std::sync::Mutex::new(None);
+
+/// From the top of `main`, for a window that will find its server through `service.json`: the
+/// registered service is asked for the first reads now, on a thread, while the app's state
+/// loads, its plugins start and its window is made (about 19 ms of a warm launch). The launch's
+/// first probe takes the answers up (`spawn_probe_waking`); nothing here needs the app's state.
+/// The service's answers to them are the proof that it is OpenCode's: `/api/info` isn't asked
+/// first, which was a round trip of its own.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn head_start() {
+    // As `App::load` decides a live window, and `spawn_probe_waking` that it discovers its server.
+    if crate::arg("--server").is_some() || crate::arg("--fixture").is_some() || crate::demo::requested() {
+        return;
+    }
+    let (out, rx) = std::sync::mpsc::channel();
+    let work = move || {
+        let default = Server::new(&opencode_kit::client::default_server());
+        let found = opencode_kit::local_service::registered(&default).filter(Server::reachable).map(|candidate| {
+            REACHED.store(true, Ordering::Relaxed);
+            rune::marks::mark("reads.head.asked");
+            let first = First::fetch(&candidate);
+            rune::marks::mark("reads.head.in");
+            (candidate.base.clone(), first)
+        });
+        out.send(found).ok();
+    };
+    if std::thread::Builder::new().name("opencode-first-head".into()).spawn(work).is_ok() {
+        *HEAD.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(rx);
+    }
 }
 
 /// When the probe's thread found the server taking connections, set once from that thread.
 pub type Accepted = std::sync::Arc<std::sync::OnceLock<Instant>>;
+
+/// Whether a server took this launch's connection: the head start's, or a probe's.
+static REACHED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether a server took a connection of this launch's (it may not have answered yet): what
+/// the saved session list waits for before it stands in for the server's (`saved_list`).
+pub(super) fn reached() -> bool {
+    REACHED.load(Ordering::Relaxed)
+}
 
 /// How long the launch's first reads may wait on a server that took their connection before the
 /// window says it's slow (`Link::Slow`): a server that accepts and holds every request would
@@ -239,14 +309,16 @@ pub const FIRST_PATIENCE: Duration = Duration::from_millis(1500);
 pub const GRACE: Duration = Duration::from_secs(5);
 
 /// The server `server` stands for (`service.json` when `discover`), probed until it answers or
-/// `grace` runs out; true when it answered.
-fn probe(server: &Server, discover: bool, grace: Duration) -> (Server, bool) {
+/// `grace` runs out; true when it answered. `registered_up`: what the caller has just found at
+/// the registered service's address, for the first try.
+fn probe(server: &Server, discover: bool, grace: Duration, mut registered_up: Option<bool>) -> (Server, bool) {
     let start = Instant::now();
     let mut pause = Duration::from_millis(250);
     loop {
-        let actual = if discover { opencode_kit::local_service::discover_local_server(server) } else { server.clone() };
         let tried = Instant::now();
-        if actual.reachable() {
+        // Finding the server tried its address: it isn't tried again here.
+        let (actual, up) = if discover { opencode_kit::local_service::discover_local_reach(server, registered_up.take()) } else { (server.clone(), None) };
+        if up.unwrap_or_else(|| actual.reachable()) {
             return (actual, true);
         }
         let left = grace.saturating_sub(start.elapsed());
@@ -295,11 +367,45 @@ pub(super) fn spawn_probe_waking(s: &App, beta_tabs: bool, fallback_fixture: boo
     let now = server.gets_in(&FIRST_READS);
     #[cfg(not(target_arch = "wasm32"))]
     let now = false;
+    // The session the window restores, when it's the app's own server's: its newest page is
+    // read with the first reads, not a round trip after them.
+    let page = match &*s.route {
+        Route::Session { id, server } if server == crate::servers::runtime::active(s) && own => Some(newest_page(id)),
+        _ => None,
+    };
+    // The launch's first probe takes up what `head_start` asked for from the top of `main`.
+    #[cfg(not(target_arch = "wasm32"))]
+    let head = if discover_local { HEAD.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() } else { None };
     let work = move || {
-        let (actual, reached) = probe(&server, discover_local, grace);
+        // What the head start found at the registered service's address, for the probe below.
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut registered_up = None;
+        #[cfg(target_arch = "wasm32")]
+        let registered_up = None;
+        // The registered service's answers to the first reads say it is OpenCode's. One that
+        // fails them, or isn't there, is found the long way below, as every later probe is.
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(found) = head.and_then(|head| head.recv().ok()) {
+            registered_up = Some(found.is_some());
+            let candidate = opencode_kit::local_service::registered(&server);
+            if let (Some((base, first @ Ok(_))), Some(candidate)) = (found, candidate)
+                && base == candidate.base
+            {
+                REACHED.store(true, Ordering::Relaxed);
+                took.set(Instant::now()).ok();
+                let page = ask_page(&candidate, page);
+                let beta_tabs = beta_tabs.then(crate::tabs::from_beta).flatten();
+                out.send(Ready { server: Some(candidate), beta_tabs, first: Some(first), refused: false, page }).ok();
+                if let Some(w) = wake {
+                    w();
+                }
+                return;
+            }
+        }
+        let (actual, reached) = probe(&server, discover_local, grace, registered_up);
         let ready = if !reached {
             if fallback {
-                Ready { server: None, beta_tabs: None, first: None, refused: false }
+                Ready { server: None, beta_tabs: None, first: None, refused: false, page: None }
             } else {
                 let msg = format!("No OpenCode server responded at {}", actual.base);
                 // `service.json` may name another port next time, so a discovered server keeps
@@ -308,17 +414,19 @@ pub(super) fn spawn_probe_waking(s: &App, beta_tabs: bool, fallback_fixture: boo
                 if refused {
                     actual.watch_reach(wake.clone());
                 }
-                Ready { server: Some(actual), beta_tabs: None, first: Some(Err(msg)), refused }
+                Ready { server: Some(actual), beta_tabs: None, first: Some(Err(msg)), refused, page: None }
             }
         } else {
             // The window counts its patience from here (`poll`).
+            REACHED.store(true, Ordering::Relaxed);
             took.set(Instant::now()).ok();
             if let Some(w) = &wake {
                 w();
             }
             let beta_tabs = beta_tabs.then(crate::tabs::from_beta).flatten();
+            let page = ask_page(&actual, page);
             let first = First::fetch(&actual);
-            Ready { server: Some(actual), beta_tabs, first: Some(first), refused: false }
+            Ready { server: Some(actual), beta_tabs, first: Some(first), refused: false, page }
         };
         out.send(ready).ok();
         if let Some(w) = wake {
@@ -387,6 +495,10 @@ impl App {
             *self.projects = opencode_kit::model::parse_projects(&f.projects);
         }
         if let Some(sessions) = &f.sessions {
+            // The saved list stood in for this one: a session the server no longer lists goes.
+            if let Some(saved) = self.launch.saved_list.take() {
+                saved.retire(&mut self.sessions);
+            }
             self.refresh_recent();
             self.sessions_listed(opencode_kit::model::parse_sessions(sessions));
         }
@@ -431,7 +543,7 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
     missing.dedup();
     s.set_media_fetch();
     if let (Source::Live { server, requests, writes, .. }, Some(waker)) = (&mut *s.source, (*s.waker).clone()) {
-        s.pages.set(session_pages::Pages::live(server.clone(), waker.clone()));
+        s.pages.set(session_pages::Pages::live(server.clone(), waker.clone(), s.launch.early_page.take()));
         let inbox_wake = s.launch.inbox_wake.clone().unwrap_or(waker);
         let (r, w, inbox) = crate::windows::connect(server, inbox_wake.clone());
         *writes = Some(w);
@@ -485,6 +597,8 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
     // those back from 111 to 214 ms after the process started (a real server, each read 1-2 ms),
     // so a session waiting on a permission showed its dock that late.
     s.list_unlisted_worktrees();
+    // What the server lists now, for the next launch's first frame.
+    super::saved_list::save(s);
     // Small newest pages, on the speculative lane after foreground startup work is queued.
     let mut recent: Vec<_> = s.sessions.iter().filter(|s| s.parent.is_none()).collect();
     recent.sort_by_key(|s| std::cmp::Reverse(s.updated));
