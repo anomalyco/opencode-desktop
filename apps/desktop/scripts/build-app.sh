@@ -119,6 +119,15 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSHighResolutionCapable</key><true/>
   <key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>$ESC_ID</string><key>CFBundleURLSchemes</key><array><string>$ESC_SCHEME</string></array></dict></array>
   <key>NSMicrophoneUsageDescription</key><string>OpenCode (Rune) uses the microphone when you dictate prompts or join voice sessions.</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
+  <key>NSHumanReadableCopyright</key><string>Copyright © $(date +%Y) OpenCode</string>
+  <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
+  <key>NSDesktopFolderUsageDescription</key><string>OpenCode (Rune) uses files on your Desktop for projects you open and commands you run there.</string>
+  <key>NSDocumentsFolderUsageDescription</key><string>OpenCode (Rune) uses files in your Documents folder for projects you open and commands you run there.</string>
+  <key>NSDownloadsFolderUsageDescription</key><string>OpenCode (Rune) uses files in your Downloads folder for projects you open and commands you run there.</string>
+  <key>NSNetworkVolumesUsageDescription</key><string>OpenCode (Rune) uses files on network volumes for projects you open and commands you run there.</string>
+  <key>NSRemovableVolumesUsageDescription</key><string>OpenCode (Rune) uses files on removable volumes for projects you open and commands you run there.</string>
 </dict></plist>
 PLIST
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
