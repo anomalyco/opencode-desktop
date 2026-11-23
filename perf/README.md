@@ -47,6 +47,26 @@ The primary is `launch.first_frame` (the app's `frame.first.presented`). The oth
 - **A window nobody can see gives no `launch.painted`.** On a hidden desktop strobe reads no frame of the window (`NoPresentSource`); the first-frame clock is the app's own `frame.first.presented` mark either way.
 - Profiles are made once per exe and size by two untimed launches of that exe and kept in `OPENCODE_LAUNCH_SCRATCH` (the system's temporary folder by default).
 
+## content.bench.ts: from the window to content
+
+A later launch that restores the session the window had open, against **OpenCode's own server** holding a real-size history (not the fixture): the app is given no `--server` and finds the server from `<state>/opencode/service.json`, as an installed copy does.
+
+```sh
+OPENCODE_BENCH_SERVER=http://127.0.0.1:<port> OPENCODE_BENCH_PASSWORD=<password> OPENCODE_BENCH_SESSION=<session id> \
+  strobe bench perf/content.bench.ts --base exe:<A>/opencode-desktop.exe --head exe:<B>/opencode-desktop.exe --filter live
+```
+
+| Case | Ends at |
+|---|---|
+| `live` | `content.live`: the server answered and the open session's rows show. |
+| `session` | `session.read.received`: the open session's newest page came from the server. |
+| `settled` | The window's last change (its pixels: needs a desktop a person could see). |
+
+Milestones: `launch.first_frame`, `launch.input_ready`, `launch.rows` (the first frame with the session's messages: the saved copy's), `launch.server`, `launch.content_live`, `launch.session_read`. No case ends at a row of the timeline: the saved copy puts the session's last turns in the first frame, so strobe finds them in its first read of the window and refuses to time them.
+
+- The server is yours to start: any `opencode serve` whose port is not 4096 (the app's default address, which a launch falls back to when the registered server is away: the bench refuses to run while something listens there).
+- `OPENCODE_BENCH_ENGINE=<folder>`: an installed browser engine (`<state>/co.anomaly.opencode/browser-engine/<version>` of a profile that has one), linked into each launch's home. Without it every launch starts the engine's download once its content is up.
+- Layout shifts: start the app with `--launch-trace <file> --launch-trace-shifts` and read `shifts` in its line (frames in which an element on screen moved, how many moved, and the first of them by name). It walks every frame's elements, so it is off in a timed launch.
 ## Not covered yet
 
 Several windows, the browser pane restored, an update pending, a launch from a folder a virus scanner reads.

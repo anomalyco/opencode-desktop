@@ -13,6 +13,7 @@ pub mod image_pages;
 pub mod io_trace;
 pub mod last_exit;
 mod network;
+mod shifts;
 pub mod trace;
 
 #[cfg(target_arch = "wasm32")]
