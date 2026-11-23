@@ -50,6 +50,28 @@ pub fn write_profile() {
     }
 }
 
+/// `opencode-desktop --warm-gpu`: what the setup runs once after an install, in a process nobody
+/// waits for (`apps/installer` `first_start`). It makes the GPU device and Rune's pipelines
+/// with no window (`rune::warm_gpu_cache`) and exits. Direct3D keeps what that leaves (its
+/// shader-cache databases, made with 184 flushed commits inside `D3D12CreateDevice`, and the
+/// driver's compiled pipelines) per user and per exe path, so the person's first launch takes its
+/// window over to the GPU about 0.1 s after its first frame, as a later launch does, not after
+/// 1 to 2.5 s with three or four threads busy beside their first keys. An update at the same path
+/// keeps the cache. Nothing else of the app starts: no storage, no instance claim, no server.
+#[cfg(windows)]
+pub fn warm_gpu_if_asked() {
+    if std::env::args().nth(1).as_deref() != Some("--warm-gpu") {
+        return;
+    }
+    let code = match rune::warm_gpu_cache() {
+        Ok(()) => 0,
+        Err(why) => {
+            eprintln!("opencode-rune: the GPU's cache was not made: {why}");
+            1
+        }
+    };
+    std::process::exit(code);
+}
 /// `opencode-desktop --version`: the version and the release channel it was built for.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn print_version_if_asked() {

@@ -20,6 +20,8 @@ pub mod trace;
 #[cfg(target_arch = "wasm32")]
 pub use boot::start_first_reads;
 pub use saved::{catalog as saved_catalog, gutters as saved_gutters, list as saved_list};
+#[cfg(windows)]
+pub use boot::warm_gpu_if_asked;
 pub use boot::{
     Accepted, FIRST_PATIENCE, First, GRACE, Ready, defer, deferred, initial_server, window_title,
 };
@@ -640,6 +642,11 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let changed = first_reads(s, tx);
     #[cfg(not(target_arch = "wasm32"))]
     engine_fetch(s);
+    // The launch's other saved windows, one per turn once this one takes input.
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(after) = crate::windows::open_rest(s) {
+        tx.wake_after(after);
+    }
     saved_write(s);
     changed
 }

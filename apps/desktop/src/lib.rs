@@ -259,6 +259,9 @@ pub fn run_native() {
     // Before anything is started: what this process starts doesn't inherit the installer's layer.
     #[cfg(windows)]
     launch::compat_layer::shed();
+    // The setup's run of a new install: the GPU's cache is made and nothing else starts.
+    #[cfg(windows)]
+    launch::warm_gpu_if_asked();
     commit_pages_on_demand();
     #[cfg(feature = "alloc-sites")]
     plugin_host::memory::register_reports();
