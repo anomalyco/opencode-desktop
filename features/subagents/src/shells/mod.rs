@@ -411,10 +411,11 @@ fn followed(host: &dyn SubagentsHost) -> Vec<(String, String, bool)> {
     let Some(t) = host.transcript(id) else { return Vec::new() };
     let directory = host.session_info(id).map_or("", |i| i.directory.as_str());
     let running = |shell: &str| host.shells().running.iter().any(|r| r.id == shell);
-    let scan = || -> Vec<(usize, usize)> {
+    let scan = |from: usize| -> Vec<(usize, usize)> {
         t.messages
             .iter()
             .enumerate()
+            .skip(from)
             .filter_map(|(mi, m)| assistant_step(m).map(|a| (mi, a)))
             .flat_map(|(mi, a)| a.parts.iter().enumerate().map(move |(pi, p)| (mi, pi, p)))
             .filter_map(|(mi, pi, p)| match p {
@@ -428,15 +429,20 @@ fn followed(host: &dyn SubagentsHost) -> Vec<(String, String, bool)> {
             .collect()
     };
     // Which calls could follow a shell is the transcript's to say: found once per version of it,
-    // not on every poll of a long session.
+    // not on every poll of a long session. A streamed reply's writes change only the messages
+    // from the one they name on (`transcript_changed_from`): the calls above it stand.
     let calls = match host.transcripts_version() {
         Some(version) => FOLLOWABLE.with_borrow_mut(|kept| {
-            if kept.0.as_ref().is_none_or(|(sid, v)| sid != id || *v != version) {
-                *kept = (Some((id.to_owned(), version)), scan());
+            let since = kept.0.as_ref().filter(|(sid, _)| sid == id).map(|(_, v)| *v);
+            if since != Some(version) {
+                let from = since.and_then(|v| host.transcript_changed_from(id, v)).unwrap_or(0);
+                kept.1.retain(|(mi, _)| *mi < from);
+                kept.1.extend(scan(from));
+                kept.0 = Some((id.to_owned(), version));
             }
             kept.1.clone()
         }),
-        None => scan(),
+        None => scan(0),
     };
     calls
         .into_iter()

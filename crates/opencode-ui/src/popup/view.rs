@@ -10,7 +10,7 @@ use super::menu::{Entry, Glyph, Look, Menu, hug_width, key_at, row_key};
 use super::rows::{self, CHEVRON, detail_row, diff_note};
 use super::search::{SEARCH_H, search_field};
 use super::state::{choose, choose_at, close, hover_focus, left, moved, open_sub_at};
-use super::{CARD, CONTEXT_MIN_W, GAP, GROUP, GROUP_H, PRESS_ON_DOWN, PopupHost, SURFACE, focus, standard};
+use super::{CARD, CONTEXT_MIN_W, GAP, GROUP, GROUP_H, PRESS_ON_DOWN, PopupHost, SELECT, SURFACE, focus, standard};
 
 /// The drawn menu and the scrim under it that dismisses it, for the window's top layer.
 pub fn view<S: PopupHost + 'static>(s: &S, p: &Pal) -> Vec<El> {
@@ -86,7 +86,10 @@ pub fn view<S: PopupHost + 'static>(s: &S, p: &Pal) -> Vec<El> {
     // A right-click menu is at least Desktop's context-menu width; one from a control hugs its rows.
     let menu = drawn(s, p, listed, active, shown.subs.first().map(|o| o.at), search_placeholder);
     let menu = if at_point { menu.min_w(CONTEXT_MIN_W.max(shown.menu.min_w)) } else { menu };
-    let menu = if shown.menu.card && !at_point { menu.offset(-4.0, 0.0).offset_motion(rune::Anim::INSTANT) } else { menu };
+    // `shift={-4}` is Floating UI's cross-axis offset, which it negates for a top or bottom
+    // placement in a right-to-left page: the card then sits 4 past its trigger's right edge.
+    let shift = if opencode_i18n::direction() == opencode_i18n::Direction::Rtl { 4.0 } else { -4.0 };
+    let menu = if shown.menu.card && !at_point { menu.offset(shift, 0.0).offset_motion(rune::Anim::INSTANT) } else { menu };
     layer.push(popover::place(s.knobs(), menu, &anchor, side, align, gap));
     // Each open submenu beside its row, 4 off it (`Menu.Sub gutter={4}`) unless it says.
     let mut parent = listed;
@@ -129,7 +132,7 @@ fn build<S: PopupHost + 'static>(
         1 => sub.to_owned(),
         _ => format!("{sub}-{level}"),
     };
-    let mut list = popover::List::new(&name("popup-rows", "popup-sub-rows"), if menu.card { CARD } else { MENU });
+    let mut list = popover::List::new(&name("popup-rows", "popup-sub-rows"), if menu.card { CARD } else if menu.select { SELECT } else { MENU });
     if let (Some(s), Some(placeholder)) = (s, search_placeholder) {
         list.other(search_field(s, p, placeholder), SEARCH_H);
     }
@@ -186,7 +189,7 @@ fn build<S: PopupHost + 'static>(
                 };
                 // A server row keeps its check's column when unchecked, as a radio item's indicator does.
                 let o = if matches!(i.glyph, Some(Glyph::Status(_))) && !i.checked { o.trailing(el().size(16.0, 16.0)) } else { o };
-                let look = if menu.card { CARD } else { menu.item_inset.map_or(MENU, |pad| popover::Look { pad_l: pad, ..MENU }) };
+                let look = if menu.card { CARD } else if menu.select { SELECT } else { menu.item_inset.map_or(MENU, |pad| popover::Look { pad_l: pad, ..MENU }) };
                 let o = match i.diff {
                     Some((a, d)) => o.after(diff_note(p, a, d)),
                     None => o,
@@ -243,7 +246,7 @@ fn build<S: PopupHost + 'static>(
                     Some(g) => o.lead(icon(g, 16.0).color(p.icon_muted)),
                     None => o,
                 };
-                let look = if menu.card { CARD } else { MENU };
+                let look = if menu.card { CARD } else if menu.select { SELECT } else { MENU };
                 let row = popover::option_tx::<S>(
                     p,
                     look,

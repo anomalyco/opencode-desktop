@@ -12,9 +12,21 @@ use rune::Keybind;
 
 use super::{Bind, all};
 
-/// Rows saved under another id before (old, now): `session.stop` became Desktop's `prompt.stop`
-/// (opencode#64394).
-const RENAMES: [(&str, &str); 1] = [("session.stop", "prompt.stop")];
+/// Shortcuts saved under another id before (old, now): `session.stop` became Desktop's
+/// `prompt.stop` (opencode#64394), and the commands below took Desktop's own ids, so a keybind
+/// written by Desktop or for it names the same command here.
+const RENAMES: [(&str, &str); 10] = [
+    ("session.stop", "prompt.stop"),
+    ("new", "session.new"),
+    ("reload", "config.reload"),
+    ("compact", "session.compact"),
+    ("copy-project", "project.copyID"),
+    ("copy-session", "session.copyID"),
+    ("export", "session.export"),
+    ("undo", "session.undo"),
+    ("redo", "session.redo"),
+    ("fork", "session.fork"),
+];
 
 /// The table's overrides, by `Bind`.
 static TABLE: RwLock<Vec<Option<&'static Keybind>>> = RwLock::new(Vec::new());
@@ -88,7 +100,17 @@ pub fn apply(map: &BTreeMap<String, String>) {
             super::base::set_override(v, table[b.bind as usize]);
         }
     }
-    let commands = map.iter().filter(|(id, _)| !rows.iter().any(|b| b.id == id.as_str()) && !RENAMES.iter().any(|(old, _)| old == id)).filter_map(|(id, spec)| Some((id.clone(), parse(spec)?))).collect();
+    // A command saved under its old id keeps that keybind under its new one, unless the new one is
+    // saved too (a renamed row reads its old id above).
+    let commands = map
+        .iter()
+        .filter(|(id, _)| !rows.iter().any(|b| b.id == id.as_str()))
+        .filter_map(|(id, spec)| match RENAMES.iter().find(|(old, _)| old == id).map(|(_, now)| *now) {
+            Some(now) if map.contains_key(now) || rows.iter().any(|b| b.id == now) => None,
+            Some(now) => Some((now.to_owned(), parse(spec)?)),
+            None => Some((id.clone(), parse(spec)?)),
+        })
+        .collect();
     *TABLE.write().unwrap_or_else(|e| e.into_inner()) = table;
     *COMMANDS.write().unwrap_or_else(|e| e.into_inner()) = commands;
     VERSION.fetch_add(1, Ordering::Release);

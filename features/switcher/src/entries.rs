@@ -19,7 +19,7 @@ pub const MATCHES: usize = 50;
 
 /// The palette's opening rows over a session, in this order (`palette.ts:57-60,160-165`): New
 /// session, Previous and Next session, then every `featured` command, then Toggle review.
-pub const COMMON: [&str; 3] = ["new", "previous-tab", "next-tab"];
+pub const COMMON: [&str; 3] = ["session.new", "previous-tab", "next-tab"];
 pub const COMMON_VIEW: [&str; 1] = ["side"];
 
 /// The opening rows on Home (`HomeCommandPalette`).

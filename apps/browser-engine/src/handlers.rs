@@ -690,6 +690,7 @@ wrap_resource_request_handler! {
         prompts: Arc<crate::prompts::TabPrompts>,
         is_main_navigation: bool,
         is_subframe_navigation: bool,
+        isolated: bool,
     }
 
     impl ResourceRequestHandler {
@@ -724,7 +725,7 @@ wrap_resource_request_handler! {
 
         fn on_resource_redirect(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             frame: Option<&mut Frame>,
             _request: Option<&mut Request>,
             _response: Option<&mut Response>,
@@ -739,6 +740,14 @@ wrap_resource_request_handler! {
             if crate::extensions::manifest::is_pdf_extension_url(&target) {
                 *new_url = CefString::from("");
                 return;
+            }
+            // A redirected navigation lands on a new origin: its device and file-system guards are
+            // locked there before it commits, as `on_before_browse` does (READER-7 N9/N10).
+            if self.isolated
+                && (self.is_main_navigation || self.is_subframe_navigation)
+                && let Some(ctx) = browser.as_ref().and_then(|b| b.host()).and_then(|h| h.request_context())
+            {
+                crate::permissions::block_device_permission_guards_for_origin(&ctx, &target);
             }
             let roots = self.file_roots.lock().unwrap().clone();
             if !browser_policy::subresource_allowed(&target, &roots) {
@@ -964,6 +973,18 @@ wrap_request_handler! {
                 return 1;
             }
             let url = target_url.map(CefString::to_string).unwrap_or_default();
+            // With the PDF viewer off, Chromium swaps a PDF in a sub-frame for its own placeholder, a
+            // `data:` page of about 30 kB, and opens it through here without a gesture; CEF would load
+            // it in the main frame, over the page. It stays cancelled, but silently: no top-level
+            // page was asked for, so the tab gets no refusal (official refuses only what a main frame
+            // navigates to, `chromium.ts:975`, `:991-992`). A `data:` page opened with a gesture is
+            // still refused below; one the top frame navigates to, in `on_before_browse`.
+            if user_gesture == 0
+                && *target_disposition.as_ref() == sys::cef_window_open_disposition_t::CEF_WOD_CURRENT_TAB
+                && url.trim_start().get(..5).is_some_and(|scheme| scheme.eq_ignore_ascii_case("data:"))
+            {
+                return 1;
+            }
             if self.preview.is_some() {
                 if user_gesture != 0
                     && url.len() <= crate::prompts::MAX_POPUP_URL_BYTES
@@ -1192,6 +1213,7 @@ wrap_request_handler! {
                 self.prompts.clone(),
                 is_main_navigation,
                 is_subframe_navigation,
+                self.context_scope_id.is_some(),
             ))
         }
 

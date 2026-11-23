@@ -102,6 +102,8 @@ fn file() -> Vec<MenuItem<App>> {
         MenuItem::separator().menu("File"),
         keyed(MenuItem::new(t!("command.tab.close"), |s: &mut App, tx: &mut Tx| run(s, Act::CloseTab, tx)).id("File/CloseTab").menu("File"), Bind::TabClose).keys_first(),
         fixed(MenuItem::new(t!("desktop.menu.closeWindow"), |s: &mut App, tx: &mut Tx| run(s, Act::CloseWindow, tx)).id("File/CloseWindow").menu("File"), "mod+shift+w"),
+        // AppKit's Close All, behind Close Window while Option is held, as official Desktop's File menu has it.
+        fixed(MenuItem::new(t!("rune.menu.file.closeAll"), |s: &mut App, tx: &mut Tx| run(s, Act::CloseAll, tx)).id("File/CloseAll").menu("File").alternate(), "mod+alt+shift+w"),
     ]
 }
 

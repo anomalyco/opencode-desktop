@@ -58,7 +58,7 @@ Start a local OpenCode server (`opencode serve --service` or open **OpenCode Des
 </p>
 
 - **Windfoil GPU text.** Draws each glyph's exact coverage directly from its vector outline on the GPU, so text stays sharp while zooming or moving.
-- **Zero Chromium at startup.** The built-in browser pane (`⌥⌘B` / `Ctrl+Alt+B`) fetches an isolated CEF sidecar (`apps/browser-engine`) lazily on demand. If you never open it, you never pay for it.
+- **Zero Chromium at startup.** The built-in browser pane (`⌃⌘B` / `Ctrl+Alt+B`) fetches an isolated CEF sidecar (`apps/browser-engine`) lazily on demand. If you never open it, you never pay for it.
 - **Real native engines.** **Ghostty-VT** (`libghostty-vt`) terminal tabs, virtualized syntax-highlighted code and split diffs (`opencode-code-view`), native GPU ```` ```ui ```` generative UI and vector diagrams (`rune-parts`), Word/Excel/PowerPoint previews via Vello (`office-preview`), local **Hex** voice dictation (`hex-client`), crash-safe SQLite with an mmap draft journal (`opencode-storage`), and 63 locales with RTL.
 - **0 ms UI iteration.** Built-in `--!strict` Luau plugins (`plugins/*`) reload live in place with `--plugin-hot` without touching `rustc`.
 - **Headless eyes, zero tests.** By policy, this repo has no automated tests or mocks (*"Application code is truth"*, see [AGENTS.md](AGENTS.md)). The binary renders any scene or 111-story playground view offscreen to PNG (`--snap`), dumps its live element tree (`--tree`), and replays scripted input (`--script`).

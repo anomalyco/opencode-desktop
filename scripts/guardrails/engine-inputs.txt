@@ -1,6 +1,6 @@
 # Written by scripts/guardrails/engine-revision.mjs --write: the engine's inputs at this ENGINE_REVISION.
 # Inputs: apps/browser-engine, crates/browser-policy, crates/browser-pane/src/device.rs
-revision 11
+revision 15
 0a006ceedcb72b86a2aa4d7497ff9a21fddfd428 apps/browser-engine/Cargo.lock
 784fa46ca9b85a0557f8bd2dc55362cbd3298682 apps/browser-engine/Cargo.toml
 528bfc2bc7bfcd5183505505f91f9750e57e325b apps/browser-engine/build.rs
@@ -12,10 +12,10 @@ b046beaab8b13b8ad19201043e39e7a645bdad33 apps/browser-engine/scripts/package-win
 8aece42a321c1111250fd4792fe938853f8cca63 apps/browser-engine/scripts/serve.ts
 ca1eb1771d3fa17ab0fdf8c400ea1ac0abd3c81a apps/browser-engine/src/agent.rs
 dd3064014c9a9eddda7f7f3faaa7ced684ace92e apps/browser-engine/src/bin/opencode_browser_engine_helper.rs
-ab7adaf5a2bd33e7fbe070972f378f4265af4bc2 apps/browser-engine/src/cdp_ledger.rs
-81097c6de2f9445b591efba1faa7ceae714b0dc6 apps/browser-engine/src/cef_runtime.rs
+5600fa6b32140c31f171b6dc9f5543388bb6f084 apps/browser-engine/src/cdp_ledger.rs
+fce49a7e320a8900d0e7a805a3c9328cb6724cc4 apps/browser-engine/src/cef_runtime.rs
 b58a42fb56a761fc9fc7b64343c3be78f7831b8f apps/browser-engine/src/clear_storage.rs
-4726d5adfdeaad6bd5f62f53d0a9914d2ba07bc7 apps/browser-engine/src/clipboard_gate.rs
+e29143cc917b2d3e9cc540de6499cb290236e7c8 apps/browser-engine/src/clipboard_gate.rs
 3acfc66a0df208429a006e43a3dcfc7f4da8f4dc apps/browser-engine/src/context.rs
 2470fa0979751c67220010b3cfb8d38b6f0d9956 apps/browser-engine/src/cookies.rs
 457d2512f2829b3f523bd9e67ce8deeb8925a820 apps/browser-engine/src/d3d_frames.rs
@@ -23,9 +23,9 @@ b58a42fb56a761fc9fc7b64343c3be78f7831b8f apps/browser-engine/src/clear_storage.r
 9ac08dd3167f2dccddfec1787641f4d47f4c84e4 apps/browser-engine/src/dmabuf_frames/egl.rs
 90efea18ac44e7f1e2d8005593ca627b67519d8e apps/browser-engine/src/dmabuf_frames/mod.rs
 721f998f461086c07a53cdaec93140a78fbda73f apps/browser-engine/src/downloads.rs
-6bc9ed777b62ea0eff5b576532c79c2a1895bc76 apps/browser-engine/src/engine.rs
+7b793c3f7c42edb63353e5162a110d41f9fbb881 apps/browser-engine/src/engine.rs
 48671e17e89e28f8fbc679c6cde73e671482525b apps/browser-engine/src/engine/emulation.rs
-7805232fcf789a149c676f64c6ec7c71f953ce18 apps/browser-engine/src/engine/extensions.rs
+2b32f3ca8e2b27708a3b747cd2f8632a30f61a4a apps/browser-engine/src/engine/extensions.rs
 d23af48fff9ee26ee319b025a1f3a6c1c8a43b4c apps/browser-engine/src/engine/frames.rs
 bfd20043c6e6cb3ccafc1adca97bfeabc3f5305f apps/browser-engine/src/engine/picks.rs
 aca1409aedd0a611e27c396526e639256224ebaa apps/browser-engine/src/engine/profile_cookies.rs
@@ -33,7 +33,7 @@ aca1409aedd0a611e27c396526e639256224ebaa apps/browser-engine/src/engine/profile_
 bdef5b628abce239143f17c1cc7e5c8cdf5cb61b apps/browser-engine/src/extensions/context_menus.rs
 ebfb88e99491c006aacfb39989a26e843e98b91e apps/browser-engine/src/extensions/integrity.rs
 d88f00d7440156bd620b62046767db8b91738094 apps/browser-engine/src/extensions/manifest.rs
-05265b53242654a7cdb71582ff4594bb2480a3c2 apps/browser-engine/src/extensions/mod.rs
+a11e2de8bd56b9b34c0779dd740cb236da8a50ee apps/browser-engine/src/extensions/mod.rs
 c5f98834329a49745039b6b50e4ab5c2a4380751 apps/browser-engine/src/extensions/pipe.rs
 35acd01ab321839f4ffd501d90696ab3bbb16e8e apps/browser-engine/src/extensions/png.rs
 565bd6a5cd34e53ca54ceef698d31bb33f0ace45 apps/browser-engine/src/extensions/rpc.rs
@@ -42,8 +42,8 @@ adc20d1720abda0fac35905dccdc1510c2691a93 apps/browser-engine/src/extensions/sw_w
 b6baf0115f183568b0e5ed0d3b8daaaf94dbce47 apps/browser-engine/src/extensions/web_nav.rs
 d43ab49400f86ef0ba36cf62f2a156c50b179a4a apps/browser-engine/src/favicon.rs
 d771373a8d6f5f11c6450842287976e9c8455256 apps/browser-engine/src/find.rs
-9207fed9c2a06947e5fb6bab5b953be5c431529e apps/browser-engine/src/frame_authority.rs
-ab157d82f4d6a49cef6f2d18a40d358afb2c5f01 apps/browser-engine/src/handlers.rs
+36150c1de192dc0058396cf992fff1b1c29d1fb9 apps/browser-engine/src/frame_authority.rs
+df1af82c8ec0d88a7d7c9434f4faa638590a94e2 apps/browser-engine/src/handlers.rs
 1f04ab24fd468f8ee5b571330a10693927ccfac2 apps/browser-engine/src/helper.rs
 861b67493c42d26866a24fd0b572568f6521da0f apps/browser-engine/src/input_guard.rs
 481532e61011fdf5ca5886751a5f9ee708800683 apps/browser-engine/src/keys.rs
@@ -56,7 +56,7 @@ b3e9d2097456fc0bb0418e00dc4e2810426755cc apps/browser-engine/src/menu.rs
 c6595f91829f4f94ef236b0b6b35c4c3954b7ac6 apps/browser-engine/src/menu_extras.rs
 ec6380dca3d9b4039cdf82e73b87b43fba24c4d1 apps/browser-engine/src/output.rs
 dad3d1e9c9e5ad30fd76f6f062225a1be1ed5efa apps/browser-engine/src/passkeys.rs
-afbe757fc6b4f0a281dcbd5125d74304f7a989c9 apps/browser-engine/src/permissions.rs
+50b34256e286a94e81044f88c28c0f5569252a05 apps/browser-engine/src/permissions.rs
 0cebdcf546aa45f2054616253815d5b5ba9f232e apps/browser-engine/src/preview/context.rs
 3bbfd4e88187cf55607ac5733b9dcfc5f3eeeb77 apps/browser-engine/src/preview/handle_path.rs
 ab84a264c6966841e2191e3a8ff208e6435f0a66 apps/browser-engine/src/preview/handler.rs

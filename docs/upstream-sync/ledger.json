@@ -2,12 +2,12 @@
   "generated_at": "2026-11-23",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "a946e848e6e45a1cd6b9e329fb2fedfb4eb519aa",
+  "upstream_head": "361bed51ef53b65135c24b55874f3378ced36ae6",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "1f8b88f7b8f382d8daa5feabf0f77ff4130badef",
-  "post_1114_commit_count": 467,
-  "post_1114_in_ledger": 170,
+  "rune_desktop_head": "c66e379e4f68febdfc3a60cbdc287978faba3632",
+  "post_1114_commit_count": 471,
+  "post_1114_in_ledger": 174,
   "post_1114_skipped": 297,
   "post_1114_skipped_breakdown": {
     "test-only": 23,
@@ -18,12 +18,12 @@
     "server-core-ai-codemode-internal": 182
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 191,
+  "total_ledger_rows": 195,
   "status_counts": {
-    "have it": 164,
-    "not applicable": 24,
+    "have it": 168,
+    "not applicable": 25,
     "differs on purpose": 1,
-    "partly": 2
+    "partly": 1
   },
   "rows": [
     {
@@ -2830,14 +2830,14 @@
       ],
       "summary": "Overhaul the desktop browser pane with one encrypted persistent profile, cookie import from 15 browsers + site chooser, remote partition/sharing, Settings > Browser, `oc-preview://` local/remote workspace & artifact previews, chat/terminal link routing + app-link review, full browser chrome (right-click, find, hard reload, pop-up blocking, notices, plain errors), in-app JS dialogs/permissions/HTTP auth, and hardened/upgraded agent browser tools (`tabs.open({ path })` replacing `browser.preview`, deep snapshots with field-value redaction, hidden screenshots, BuiltinPromptGate, deny rules, agent-driven tab isolation). (Chrome extensions tracked separately in UP-095-EXT under WS-9.)",
       "size": "XL",
-      "status": "partly",
-      "status_evidence": "WS-1 engine core: Phase 1 (#239, #245, #268, #272), Phase 3a (#277, #288, #291, #299), Fix PR 1 (#292 6d7a6ede remote proxy + isolation), and Fix PR 4 (#306 b5167f7e atomic OpenTab/TabSnapshot agent_driven across cold start/crash+Retry/promote/reconnect/3P plugins + TabDriver) merged on dev; Fix PR 3 (#305 site permissions, confirmed 3rd read merging new dev), controlled-tab Permissions-Policy + clipboard-write follow-up, Fix PRs 5-7, and Phase 3b (#286 OS cookie encryption) remain open.",
+      "status": "have it",
+      "status_evidence": "WS-1's engine core of the browser pane is merged on dev. Persistent profile with OS cookie encryption and the two-way remote sign-in mirror (#286, #353, #473, #486, #523; UP-151). Remote-server proxy and isolation (#292, #302). Agent-driven tab state (#306). Site permissions per context (#305). Downloads through the OS Save dialog and the download-only tab (#328, #581, #665). Passkey gate (#438, #440). File-picker takeover (#426). Granted frames (#451, #527). Media gate (#570, #590). Copy image, spellcheck and Languages (#578, #584). Chrome services official's Electron lacks turned off, with a fail-closed lock that respects company policy (#624, #682: password leak check). Agent and preview tabs never print, because a native print dialog stops the whole engine (#662). PDF viewer off (#652, BROWSER-UI). Clipboard writes refused on agent tabs (#643, BROWSER-UI). Chromium's OS sandbox on Windows and macOS (#622, ENGINE-TARGETS). Deliberate differences, in notes/upstream-sync/ours.md: the File System Access pickers are refused before any dialog (official opens a dialog whose read then fails and leaves an empty file on Save); window.print() does nothing on agent-driven and preview tabs (official shows a native dialog that blocks the page while nobody is watching).",
       "depends_on": "CEF engine updates + new signed browser engine publishes for macOS/Windows/Linux; Luau contract bump for Browser service; server `plugin-browser` alignment (or rune_mcp parity); Rune framework checks for extension popup anchoring",
       "risks": "HIGH SECURITY & ARCHITECTURE: (1) CEF OSR Alloy vs Chrome-runtime extension support spike required; (2) must NOT regress Rune's stricter URL/CDP/download security (`0b540fd8`, `a5a71a0d`, `344a2087`, `bb41d149`) and must address `no_sandbox: 1` (`engine.rs:100`); (3) cookie encryption is one-way; (4) `browser.preview` removal is breaking for scripts/prompts; (5) publishing signed macOS/Windows/Linux engines requires release signing keys and release workflow.",
       "workstream": "WS-1",
-      "open_pr_note": "PR #305 (ws1-fix3-permissions, merge-check fix + merging 6e98fc2b); controlled-tab stopgap / Permissions-Policy + clipboard-write follow-up; PR #286 (ws1-phase3b, held)",
+      "open_pr_note": "#653 (N12 permission locks, redirect guard), #767 (Chrome browser commands refused so pane keys reach the page; built-in AI APIs off): engine follow-ups, not parity gaps.",
       "rune_pr": "#239, #245, #268, #272, #277, #288, #291, #299, #292, #306",
-      "reviewed": "#292 confirmed (4th read); #306 confirmed (2nd read at e79c1306); #305 confirmed 3rd read at d590a0b1 (merge check at 5551ea60 needs ~4-line reopen_tab_as_* visit_permissions clear + dev merge); NOT SOUND TO SHIP (#245/#268/#272/#277/#288 retrospective findings still open in #305 + controlled-tab stopgap/Permissions-Policy/clipboard-write + Fix PRs 5-7); #286 held"
+      "reviewed": "#292, #306, #305 confirmed; #624, #662, #682 MERGE (READER-7); #665 MERGE (READER-12, READER-12b)"
     },
     {
       "id": "UP-096",
@@ -4770,6 +4770,94 @@
       "size": "S",
       "status": "have it",
       "status_evidence": "crates/win-install/src/product.rs Product::from_build: a local build (no channel or `local`) takes id anomaly.opencode-rune.dev and scheme opencode-rune-dev, while every release build (release.yml sets OPENCODE_RUNE_BUILD_CHANNEL, no OPENCODE_RUNE_BUNDLE_ID) takes anomaly.opencode-rune; harness runs take a scratch id (Product::with_id). Ours has no Electron shortcut to repair.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-171",
+      "window": "post-1120",
+      "pr": 65525,
+      "sha": "030e8d75d3",
+      "title": "fix(app): list drafts in the inbox sidebar",
+      "merged": "2026-11-22",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/titlebar/inbox.tsx"
+      ],
+      "summary": "The inbox gets a Drafts group: the open draft and every other draft tab still holding something, newest first, each opening its draft, with Discard draft in its context menu.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "rune-desktop #769 (c3fc7a0c09): apps/desktop/src/shell/view/inbox.rs draft_ids / draft_card, Drafts header above the groups, Discard draft closes the tab. Lists drafts with words; official also lists drafts holding only attachments or context items.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-172",
+      "window": "post-1120",
+      "pr": 65639,
+      "sha": "23fd3da786",
+      "title": "fix(session-ui): show Windows tool paths relative to the project",
+      "merged": "2026-11-23",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/tools/project-path.ts",
+        "packages/session-ui/src/tools/tool-renderer.tsx"
+      ],
+      "summary": "Glob, Grep and List subtitles (and file-change directories) show a Windows path relative to the project whatever its separators or drive letter case.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "Ours upstreamed (WS-8, owner-approved, merged by the orchestrator): rune-desktop already relativizes Windows tool paths case-insensitively with either separator (crates/session-view/src/tools/mod.rs directory(), #647).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-173",
+      "window": "post-1120",
+      "pr": 65634,
+      "sha": "f55e2575b1",
+      "title": "perf(app): keep the background activity menu smooth with many subagents",
+      "merged": "2026-11-22",
+      "packages": [
+        "app",
+        "ui"
+      ],
+      "main_files": [
+        "packages/app/src/session/composer/activity-chips.tsx",
+        "packages/ui/src/hooks/spin-phase.ts"
+      ],
+      "summary": "SolidJS reactivity work for the background activity menu with many subagents: keyed rows reuse unchanged items, counts memoized, one spinner phase clock.",
+      "size": "M",
+      "status": "not applicable",
+      "status_evidence": "A web reactivity optimisation with no visible change; rune-desktop's background activity capsule and menu are native (apps/desktop/src/session/timeline/subagents.rs), rebuilt per frame from tracked state with no keyed DOM rows to reuse.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-174",
+      "window": "post-1120",
+      "pr": 65644,
+      "sha": "361bed51ef",
+      "title": "fix(session-ui): light the whole Compacted label on hover",
+      "merged": "2026-11-23",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/timeline-next/compaction.tsx",
+        "packages/session-ui/src/components/session-compaction.css"
+      ],
+      "summary": "The Compacting/Compacted label lights as one word on hover and while open, splits between graphemes, and keeps the space where a translation splits.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "Whole-word hover was already ours (compaction.rs quiet_label); rune-desktop #783 (c66e379e4f) splits on graphemes (unicode-segmentation) and moves a space at the split into the endings.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"

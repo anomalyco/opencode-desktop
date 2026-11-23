@@ -1,6 +1,5 @@
 //! Screenshot capture, console/network diagnostics, and tab-owned file list/get executors.
 
-use std::io::Cursor;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver};
 
@@ -16,11 +15,10 @@ use serde_json::{Value, json};
 use super::super::session::{CapturedFile, SessionAttachment};
 use super::point::PointResolver;
 use super::read::{queue_live_frame_refresh, step_live_frame_refresh};
+use super::shot::{MAX_FULLPAGE_EDGE, MAX_FULLPAGE_PIXELS, box_model_rect, capture_clip, capture_viewport, maybe_downscale};
 use super::{ExecPhase, StepOutcome, cdp_err_msg, check_page_guards, send_rpc_cdp, send_rpc_cdp_in_frame, verify_authorized_state};
 use crate::App;
 
-const MAX_FULLPAGE_EDGE: f64 = 16_384.0;
-const MAX_FULLPAGE_PIXELS: f64 = 16_000_000.0;
 /// Maximum raw base64 characters accepted from `Page.captureScreenshot` before rejecting (16 MiB).
 const MAX_RAW_SCREENSHOT_B64: usize = 16 * 1024 * 1024;
 /// Cap concurrent off-UI screenshot decodes so 16 in-flight commands cannot amplify peak RAM.
@@ -81,6 +79,7 @@ impl ScreenshotState {
             ScreenshotStage::GetBox { cdp_req }
             | ScreenshotStage::PlaceRef { cdp_req, .. }
             | ScreenshotStage::GetMetrics { cdp_req }
+            | ScreenshotStage::Viewport { cdp_req }
             | ScreenshotStage::Capture { cdp_req } => {
                 app.workspace_panes.browser.host.cancel_cdp(*cdp_req);
             }
@@ -102,6 +101,8 @@ pub(super) enum ScreenshotStage {
     /// That box, waiting for the page's scroll offset.
     PlaceRef { cdp_req: u64, rect: (f64, f64, f64, f64) },
     GetMetrics { cdp_req: u64 },
+    /// The visible viewport's metrics, for a capture the engine scales to `maxWidth` (`shot`).
+    Viewport { cdp_req: u64 },
     Capture { cdp_req: u64 },
     Process { rx: Receiver<Result<Vec<u8>, String>>, resources: Vec<String> },
     VerifyPost { pending: Vec<(u64, Option<String>)>, bytes: Vec<u8> },
@@ -215,6 +216,20 @@ fn start_screenshot(att: &mut SessionAttachment, app: &mut App, cmd: &Command) -
                 expected_target,
                 cmd: cmd.clone(),
                 stage: ScreenshotStage::GetMetrics { cdp_req },
+            })),
+            Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
+        }
+    } else if max_width.is_some() {
+        match send_rpc_cdp(app, host_id, "Page.getLayoutMetrics", json!({}), None) {
+            Ok(cdp_req) => StepOutcome::Pending(ExecPhase::Screenshot(ScreenshotState {
+                host_id,
+                format,
+                quality,
+                max_width,
+                expected_gen,
+                expected_target,
+                cmd: cmd.clone(),
+                stage: ScreenshotStage::Viewport { cdp_req },
             })),
             Err(e) => StepOutcome::Done(Outcome::fail(failure_code::OPERATION_FAILED, e)),
         }
@@ -556,6 +571,14 @@ pub(super) fn step_screenshot(
             };
             capture_clip(app, st, rect)
         }
+        ScreenshotStage::Viewport { cdp_req } => {
+            let resp = app.workspace_panes.browser.host.take_cdp_response(*cdp_req)?;
+            let max_w = st.max_width.unwrap_or(u32::MAX);
+            match resp {
+                Ok(val) => capture_viewport(app, st, &val, max_w),
+                Err(e) => Some(Outcome::fail(failure_code::OPERATION_FAILED, cdp_err_msg(&e))),
+            }
+        }
         ScreenshotStage::GetMetrics { cdp_req } => {
             let resp = app.workspace_panes.browser.host.take_cdp_response(*cdp_req)?;
             let val = match resp {
@@ -732,67 +755,4 @@ fn finish_screenshot(
         return Outcome::fail(failure_code::OPERATION_FAILED, "Tab unavailable.");
     };
     Outcome::ok(json!({ "tab": tab }), vec![wf])
-}
-
-fn maybe_downscale(bytes: &[u8], format: &str, max_w: u32) -> Vec<u8> {
-    if !matches!(format, "png" | "jpeg") {
-        return bytes.to_vec();
-    }
-    let Ok(img) = image::load_from_memory(bytes) else {
-        return bytes.to_vec();
-    };
-    if img.width() <= max_w {
-        return bytes.to_vec();
-    }
-    let new_h = ((img.height() as u64 * max_w as u64) / img.width().max(1) as u64).max(1) as u32;
-    let resized = img.resize(max_w, new_h, image::imageops::FilterType::Triangle);
-    let mut out = Cursor::new(Vec::new());
-    let fmt = if format == "jpeg" {
-        image::ImageFormat::Jpeg
-    } else {
-        image::ImageFormat::Png
-    };
-    if resized.write_to(&mut out, fmt).is_ok() {
-        out.into_inner()
-    } else {
-        bytes.to_vec()
-    }
-}
-
-/// An element box: drawn (finite, positive; an ancestor's `scale(0)` gives none) and within the
-/// full-page pixel bounds, scaled down to fit.
-fn capture_clip(app: &mut App, st: &mut ScreenshotState, (x, y, w, h): (f64, f64, f64, f64)) -> Option<Outcome> {
-    if ![x, y, w, h].iter().all(|v| v.is_finite()) || w <= 0.0 || h <= 0.0 {
-        return Some(Outcome::fail(failure_code::OPERATION_FAILED, "Element has zero visible size."));
-    }
-    let scale = (MAX_FULLPAGE_EDGE / w).min(MAX_FULLPAGE_EDGE / h).min((MAX_FULLPAGE_PIXELS / (w * h)).sqrt()).min(1.0);
-    let mut params = json!({ "format": st.format, "clip": { "x": x, "y": y, "width": w, "height": h, "scale": scale } });
-    if let Some(q) = st.quality
-        && st.format != "png"
-    {
-        params["quality"] = json!(q);
-    }
-    match send_rpc_cdp(app, st.host_id, "Page.captureScreenshot", params, None) {
-        Ok(req) => {
-            st.stage = ScreenshotStage::Capture { cdp_req: req };
-            None
-        }
-        Err(e) => Some(Outcome::fail(failure_code::OPERATION_FAILED, e)),
-    }
-}
-
-fn box_model_rect(v: &Value) -> Option<(f64, f64, f64, f64)> {
-    let border = v.get("model")?.get("border")?.as_array()?;
-    if border.len() < 8 {
-        return None;
-    }
-    let xs = [0, 2, 4, 6].map(|i| border[i].as_f64().unwrap_or(0.0));
-    let ys = [1, 3, 5, 7].map(|i| border[i].as_f64().unwrap_or(0.0));
-    let min_x = xs.into_iter().fold(f64::INFINITY, f64::min);
-    let max_x = xs.into_iter().fold(f64::NEG_INFINITY, f64::max);
-    let min_y = ys.into_iter().fold(f64::INFINITY, f64::min);
-    let max_y = ys.into_iter().fold(f64::NEG_INFINITY, f64::max);
-    let w = max_x - min_x;
-    let h = max_y - min_y;
-    (w > 0.0 && h > 0.0).then_some((min_x, min_y, w, h))
 }

@@ -311,6 +311,21 @@ struct ContextState {
     pending_adds: HashMap<i32, (String, u64)>,
 }
 
+/// The URL a new tab must hold until its gate script is in place (#643 first-load race, READER-7 22 Nov): a tab born
+/// agent-driven opens on `about:blank` and `TabClipboardGate::take_first_load` loads it once the root script is
+/// confirmed, so its first document never runs before the wrap. Not for tabs whose context already defers the first
+/// load, extension URLs, or `about:blank` itself.
+pub fn first_load_hold(agent_driven: bool, context_defers: bool, extension_url: bool, url: &str) -> Option<String> {
+    (agent_driven && !context_defers && !extension_url && !url.trim().eq_ignore_ascii_case("about:blank")).then(|| url.to_owned())
+}
+
+/// A new tab's `(initial URL, address-bar URL)`, setting `hold` to the URL it must hold (`first_load_hold`).
+pub fn first_load_urls(agent_driven: bool, context_defers: bool, extension_url: bool, url: &str, hold: &mut Option<String>) -> (String, String) {
+    *hold = first_load_hold(agent_driven, context_defers, extension_url, url);
+    let init = if context_defers || hold.is_some() { "about:blank" } else { url };
+    (init.to_owned(), hold.as_deref().unwrap_or(init).to_owned())
+}
+
 pub struct TabClipboardGate {
     pass_through_popup: bool,
     is_preview: bool,
@@ -323,6 +338,11 @@ pub struct TabClipboardGate {
     secret: String,
     next_id: AtomicI32,
     state: Mutex<ContextState>,
+    /// The first URL of a tab born agent-driven: it opens on `about:blank` and loads this only
+    /// once the root session's gate script is confirmed, so the first document cannot keep a
+    /// `Clipboard.prototype.writeText` reference from before the wrap (#643 first-load race).
+    first_load: Mutex<Option<String>>,
+    root_armed: AtomicBool,
 }
 
 impl TabClipboardGate {
@@ -332,6 +352,7 @@ impl TabClipboardGate {
         agent_driven: bool,
         initial_ext_cw: bool,
         ext_clipboard_write_ids: Arc<Mutex<HashSet<String>>>,
+        first_load: Option<String>,
     ) -> Self {
         // Extension popups that explicitly declared `"clipboardWrite"` (e.g. Bitwarden) pass
         // through without page-side wrapping; popups without `"clipboardWrite"` stay gated.
@@ -349,7 +370,33 @@ impl TabClipboardGate {
             secret: crate::passkeys::random_token(),
             next_id: AtomicI32::new(0),
             state: Mutex::new(ContextState::default()),
+            first_load: Mutex::new(first_load),
+            root_armed: AtomicBool::new(false),
         }
+    }
+
+    /// A navigation while the first load is still held replaces it and waits for the same
+    /// confirmation (`true`: the caller must not load). Otherwise any held URL is dropped and the
+    /// caller loads as usual (`false`).
+    pub fn replace_held_first_load(&self, url: &str) -> bool {
+        let mut held = self.first_load.lock().unwrap();
+        if held.is_none() {
+            return false;
+        }
+        if self.root_armed.load(Ordering::Acquire) {
+            *held = None;
+            return false;
+        }
+        *held = Some(url.to_owned());
+        true
+    }
+
+    /// The held first URL, once, after the root session's gate script is confirmed.
+    pub fn take_first_load(&self) -> Option<String> {
+        if !self.root_armed.load(Ordering::Acquire) {
+            return None;
+        }
+        self.first_load.lock().unwrap().take()
     }
 
     pub fn ext_has_clipboard_write(&self, ext_id: &str) -> bool {
@@ -538,6 +585,9 @@ impl TabClipboardGate {
         }
         let replaced = st.script_ids.insert(sid.clone(), ident);
         drop(st);
+        if sid.is_empty() {
+            self.root_armed.store(true, Ordering::Release);
+        }
         replaced.map(|old| {
             let sess = (!sid.is_empty()).then_some(sid.as_str());
             self.remove_script_msg(sess, &old)
