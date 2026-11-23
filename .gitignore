@@ -4,3 +4,6 @@
 __pycache__/
 *.pyc
 /apps/browser-engine/target
+
+# perf/ pins strobe (bun add -d @hona/strobe); its packages are not checked in.
+perf/node_modules/

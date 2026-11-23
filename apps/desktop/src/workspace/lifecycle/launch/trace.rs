@@ -16,6 +16,10 @@
 //!
 //! `--launch-trace-shifts` counts the launch's layout shifts from the first frame on (`shifts`).
 //!
+//! `--launch-trace-hold <ms>` keeps the sleeping built-in plugins from starting for `ms` after the
+//! first turn that would start one ([`held`]): a picture of the window taken in that time shows what
+//! the first frame drew from their records, and one taken after it what they draw themselves.
+//!
 //! `--launch-trace-quit <ms>` quits the app as its Quit command does, `ms` after the window
 //! shows live content (or after the first frame, when no server answers within
 //! [`CONTENT_WAIT`]), so a bench times the quit of a launch that settled.
@@ -348,6 +352,21 @@ pub fn poll(tx: &mut Tx) {
         } else {
             tx.quit();
         }
+    }
+}
+
+/// `--launch-trace-hold <ms>`: how much longer the sleeping plugins wait, counted from the first
+/// call; `None` once it's over, or without the flag.
+pub fn held() -> Option<Duration> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        static HOLD: OnceLock<Option<(std::time::Instant, Duration)>> = OnceLock::new();
+        let (since, hold) = (*HOLD.get_or_init(|| crate::arg("--launch-trace-hold").and_then(|ms| ms.parse().ok()).map(|ms| (std::time::Instant::now(), Duration::from_millis(ms)))))?;
+        hold.checked_sub(since.elapsed()).filter(|left| !left.is_zero())
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        None
     }
 }
 
