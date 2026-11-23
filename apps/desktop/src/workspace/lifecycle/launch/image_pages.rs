@@ -37,9 +37,16 @@ use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetCurrentThread,
 const PAGE: usize = 4096;
 /// The list file's first four bytes.
 const MAGIC: u32 = u32::from_le_bytes(*b"RLP1");
-/// Runs of pages at most this far apart are asked for as one. A later launch holds 6,500 pages
+/// Runs of pages at most this far apart are listed as one. A later launch holds 6,500 pages
 /// (26 MB) in 1,800 runs; joined at 2 they are 1,000 runs and 30 MB, at 16, 285 runs and 49 MB.
 const JOIN: u32 = 2;
+/// Runs at most this far apart are asked for as one read. The ask is bound by how many reads it
+/// makes, not by their bytes: the whole 160 MB in one read takes 38 ms, the list's 30 MB in 1,000
+/// reads 23 ms. A cold launch's first frame by gap, pages (medians of 8, twice): 2: 76,850 and
+/// 74,690 us; 16: 66,852 and 68,148; 32: 70,889; 64: 75,425; 256: 82,550. The list itself stays
+/// joined at [`JOIN`], so what is looked at to learn whether the exe is in memory is what a
+/// launch reads.
+const ASK_JOIN: u32 = 16;
 /// How many of the wanted pages are read to learn whether they are in memory, how long a read
 /// of one that isn't takes at least, and how many such reads say the exe is away.
 const SAMPLES: u32 = 16;
@@ -194,9 +201,7 @@ fn away(image: &Image, runs: &[(u32, u32)]) -> bool {
 
 /// Asks Windows to bring `runs` into memory.
 fn prefetch(image: &Image, runs: &[(u32, u32)]) {
-    // `OPENCODE_RUNE_IMAGE_PAGES_JOIN`: the gap for this ask, for timing one gap against another.
-    let gap = std::env::var("OPENCODE_RUNE_IMAGE_PAGES_JOIN").ok().and_then(|v| v.parse().ok()).unwrap_or(JOIN);
-    let mut ranges: Vec<WIN32_MEMORY_RANGE_ENTRY> = join(runs.to_vec(), gap)
+    let mut ranges: Vec<WIN32_MEMORY_RANGE_ENTRY> = join(runs.to_vec(), ASK_JOIN)
         .into_iter()
         .filter(|&(first, pages)| (first as usize + pages as usize) * PAGE <= image.size as usize)
         .map(|(first, pages)| WIN32_MEMORY_RANGE_ENTRY { VirtualAddress: (image.base + first as usize * PAGE) as *mut _, NumberOfBytes: pages as usize * PAGE })
@@ -246,7 +251,7 @@ fn covers(runs: &[(u32, u32)], page: u32) -> bool {
     i > 0 && page < runs[i - 1].0 + runs[i - 1].1
 }
 
-/// `runs` sorted, with neighbours and near neighbours ([`JOIN`]) made one.
+/// `runs` sorted, with neighbours and near neighbours (at most `gap` pages apart) made one.
 fn join(mut runs: Runs, gap: u32) -> Runs {
     runs.sort_unstable();
     let mut out = Runs::with_capacity(runs.len());
