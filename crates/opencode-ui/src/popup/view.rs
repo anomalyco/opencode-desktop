@@ -49,12 +49,18 @@ pub fn view<S: PopupHost + 'static>(s: &S, p: &Pal) -> Vec<El> {
         }
     }
     let scrim = scrim::<S>();
+    // The pointer's spot is physical, so it stays unmirrored in a right-to-left window.
+    let rtl = opencode_i18n::direction() == opencode_i18n::Direction::Rtl;
     let (anchor, point, align, side) = match &shown.anchor {
         PopupAnchor::Key(key) => (key.clone(), None, shown.menu.align, shown.menu.side),
-        &PopupAnchor::Point(x, y) if shown.menu.pointer_trigger => ("popup-point".to_owned(), Some(el().key("popup-point").absolute(x, y).size(1.0, 1.0)), Align::Start, Side::Bottom),
+        &PopupAnchor::Point(x, y) if shown.menu.pointer_trigger => ("popup-point".to_owned(), Some(el().key("popup-point").absolute(x, y).unmirrored().size(1.0, 1.0)), Align::Start, Side::Bottom),
         // Kobalte's context menu opens `right-start` of the pointer, 2 off it and shifted 2 down
-        // (`gutter: 2, shift: 2`, `context-menu-root.tsx`).
-        &PopupAnchor::Point(x, y) => ("popup-point".to_owned(), Some(el().key("popup-point").absolute(x, y + 2.0).size(0.0, 0.0)), Align::Start, Side::Right),
+        // (`gutter: 2, shift: 2`, `context-menu-root.tsx`). Floating UI's `right` is physical in a
+        // right-to-left page too, and Rune swaps an anchored side there, so ask for `Left`.
+        &PopupAnchor::Point(x, y) => {
+            let side = if rtl { Side::Left } else { Side::Right };
+            ("popup-point".to_owned(), Some(el().key("popup-point").absolute(x, y + 2.0).unmirrored().size(0.0, 0.0)), Align::Start, side)
+        }
     };
     let at_point = point.is_some();
     let gap = if at_point { GAP } else { shown.menu.gap.unwrap_or(4.0) };
