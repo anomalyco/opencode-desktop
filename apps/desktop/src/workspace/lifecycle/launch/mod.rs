@@ -12,6 +12,7 @@ pub mod io_trace;
 pub mod last_exit;
 mod network;
 pub mod saved_catalog;
+pub mod saved_gutters;
 pub mod saved_list;
 mod shifts;
 pub mod trace;
