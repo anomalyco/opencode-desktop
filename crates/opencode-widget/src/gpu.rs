@@ -28,11 +28,12 @@ pub(crate) mod watch;
 pub use shorthand::{Ask, Shorthands};
 pub use widget_gpu::{Arg, ErrorKind, Uniforms, clamp_size, device_limits, preferred_format};
 
-/// `f`, which may poll a device: `None` if it found the device lost. wgpu 30 panics in
+/// `f`, which polls a device: `None` if it found the device lost. wgpu 30 panics in
 /// `Device::poll` once a fence read fails ("Error in Device::poll: Parent device is lost"), which is
 /// how a lost device shows; only that panic is caught (wgpu holds no lock when it panics there),
-/// as Rune's `rune_gpu::health::poll` does. The device's loss callback has run by then.
-pub fn unless_lost<R>(f: impl FnOnce() -> R) -> Option<R> {
+/// as Rune's `rune_gpu::health::poll` and `widget-gpu`'s own polls do. The device's loss callback
+/// has run by then.
+fn unless_lost<R>(f: impl FnOnce() -> R) -> Option<R> {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(r) => Some(r),
         Err(panic) => {

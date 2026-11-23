@@ -246,7 +246,7 @@ impl Watched for RunGpu {
             Err(TryLockError::WouldBlock) => return,
         };
         let Some(gpu) = inner.gpu.as_mut() else { return };
-        if let Some(Err(e)) = crate::gpu::unless_lost(|| gpu.poll()) {
+        if let Err(e) = gpu.poll() {
             eprintln!("widget gpu: {}", e.message);
             self.canvases.set_stopped(Self::stopped(&inner));
             (self.notify)();
@@ -264,6 +264,11 @@ impl Lost for RunGpu {
             if inner.saved.is_some() {
                 return;
             }
+            // Work running a quarter second at the loss hung (`widget_gpu::HANG_AT_LOSS`): judged
+            // before the reset and the program hearing of it; its stop comes from the next poll.
+            if let Some(gpu) = inner.gpu.as_mut() {
+                gpu.lost();
+            }
             let reset = match (inner.gpu.as_mut(), next) {
                 (Some(gpu), Some(d)) => gpu.reset(d.device.clone(), d.queue.clone()).map_err(|e| eprintln!("widget gpu: {e}")).is_ok(),
                 _ => false,
@@ -273,7 +278,7 @@ impl Lost for RunGpu {
             }
             inner.generation = crate::gpu::generation().unwrap_or(inner.generation);
             // Work the lost device hung on stays stopped (`Gpu::reset`): a client error, logged.
-            if let Some(Some(Err(e))) = inner.gpu.as_mut().map(|g| crate::gpu::unless_lost(|| g.poll())) {
+            if let Some(Err(e)) = inner.gpu.as_mut().map(Gpu::poll) {
                 eprintln!("widget gpu: {}", e.message);
             }
             inner.queue = next.filter(|_| reset).map(|d| d.queue.clone());

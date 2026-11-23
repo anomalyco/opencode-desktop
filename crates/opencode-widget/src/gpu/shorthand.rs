@@ -181,6 +181,11 @@ fn work(shared: &Arc<Shared>) {
         };
         let (mut failed, mut frozen) = (Vec::new(), Vec::new());
         if let Some(next) = lost {
+            // Work running a quarter second at the loss hung (`widget_gpu::HANG_AT_LOSS`): judged
+            // before the reset, its stop comes from the next poll.
+            for s in slots.values_mut().filter_map(|s| s.shorthand.as_mut()) {
+                s.lost();
+            }
             device = next;
             generation = super::generation().unwrap_or(generation);
             canvases.start(device.as_ref().map(|d| &d.device));
@@ -231,9 +236,7 @@ fn work(shared: &Arc<Shared>) {
                 };
                 let before = s.canvas().map(|c| c.version);
                 let Ask { size: [w, h], uniforms, .. } = slot.last;
-                // A device lost meanwhile: the worker hears it (`Lost`) and starts over.
-                let Some(rendered) = super::unless_lost(|| s.render(w, h, &uniforms)) else { continue };
-                if let Err(e) = rendered {
+                if let Err(e) = s.render(w, h, &uniforms) {
                     failed.push((id.clone(), e.message, e.kind == ErrorKind::Program));
                     slot.shorthand = None;
                     slot.pending = false;
@@ -276,9 +279,7 @@ fn work(shared: &Arc<Shared>) {
         let now = Instant::now();
         for (id, slot) in slots.iter_mut().filter(|(_, s)| !s.pending && s.watch.is_some_and(|t| t > now)) {
             let Some(s) = slot.shorthand.as_mut() else { continue };
-            if super::unless_lost(|| s.poll()).is_none() {
-                continue;
-            }
+            s.poll();
             if !s.too_slow()
                 && let Some(e) = s.error()
             {
