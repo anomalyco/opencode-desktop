@@ -166,7 +166,8 @@ fn echo() {
         let epoch_us = BOOT.get().map_or(0, |b| (b.created.saturating_sub(116_444_736_000_000_000) / 10).saturating_add(at / 1_000));
         lines.push_str(&format!("launch-mark {name} {at} at={}.{:03}\n", epoch_us / 1_000, epoch_us % 1_000));
         printed |= 1 << i;
-    }    PRINTED.store(printed, Ordering::Relaxed);
+    }
+    PRINTED.store(printed, Ordering::Relaxed);
     if lines.is_empty() {
         return;
     }
