@@ -19,3 +19,4 @@ fn main() {
 
 #[cfg(target_arch = "wasm32")]
 fn main() {}
+// NEVER MERGE: dev 527324685 alone, built with its PDB: the baseline build for #912.
