@@ -637,11 +637,16 @@ impl Link {
 
 /// The program's thread: runs it (from `main` or a snapshot) until it ends or is suspended.
 fn run(link: Arc<Link>, era: u64, snapshot: Option<Snapshot>) {
-    if snapshot.is_none() {
-        // Making the GPU (a device, the first time) is the host's work, not the program's.
+    {
+        // Making the GPU (a device, the first time), or again for a run restored from its
+        // snapshot, is the host's work, not the program's.
         link.lock().watch.host += 1;
         let _host = HostWork(&link);
-        link.start_gpu();
+        match (&snapshot, link.gpu()) {
+            (None, _) => link.start_gpu(),
+            (Some(_), Some(gpu)) => gpu.restore(),
+            (Some(_), None) => {}
+        }
     }
     let runtime = super::host::runtime(&link, era);
     let program = match &snapshot {
@@ -669,6 +674,15 @@ fn run(link: Arc<Link>, era: u64, snapshot: Option<Snapshot>) {
     }
     let result = program.run_resumable();
     drop(runtime);
+    // Saved to a snapshot: its GPU goes with the VM (`widgets-gpu.md`, A run restored from a
+    // snapshot).
+    let saving = matches!(result, Ok(RunOutcome::Suspended(_))) && {
+        let st = link.lock();
+        st.era == era && matches!(st.run, Run::Saving)
+    };
+    if saving && let Some(gpu) = link.gpu() {
+        gpu.save();
+    }
     link.finished(era, result, None);
 }
 

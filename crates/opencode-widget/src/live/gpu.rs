@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use psychoscript::{HostValue, TypedKind};
 use serde_json::json;
-use widget_gpu::{Arg, Gpu, GpuError};
+use widget_gpu::{Arg, Gpu, GpuError, SavedStops};
 
 use crate::gpu::{Canvas, Canvases, Device, Lost};
 
@@ -56,6 +56,8 @@ struct Inner {
     keys: Vec<(String, String)>,
     /// Their sizes, from the window's `canvas` messages, clamped.
     sizes: HashMap<String, (u32, u32)>,
+    /// Saved to a snapshot: the greatest handle the program made, and the canvases errors stopped.
+    saved: Option<(u64, SavedStops)>,
 }
 
 impl RunGpu {
@@ -63,7 +65,7 @@ impl RunGpu {
     pub fn new(tell: impl Fn(serde_json::Value) + Send + Sync + 'static, notify: Arc<dyn Fn() + Send + Sync>) -> Arc<RunGpu> {
         let device = crate::gpu::device();
         let copies = device.as_ref().is_some_and(|(_, d)| d.copies);
-        let run = Arc::new(RunGpu { canvases: Canvases::new(copies), inner: Mutex::new(Inner { gpu: None, queue: None, format: "rgba8unorm", keys: Vec::new(), sizes: HashMap::new() }), tell: Box::new(tell), notify });
+        let run = Arc::new(RunGpu { canvases: Canvases::new(copies), inner: Mutex::new(Inner { gpu: None, queue: None, format: "rgba8unorm", keys: Vec::new(), sizes: HashMap::new(), saved: None }), tell: Box::new(tell), notify });
         run.start(device.as_ref().map(|(_, d)| d));
         crate::gpu::register(Arc::downgrade(&run) as std::sync::Weak<dyn Lost>);
         run
@@ -88,6 +90,40 @@ impl RunGpu {
         inner.queue = gpu.as_ref().and(device).map(|d| d.queue.clone());
         self.canvases.start(gpu.as_ref().and(device).map(|d| &d.device));
         inner.gpu = gpu;
+    }
+
+    /// The run was saved to a snapshot (`widgets-gpu.md`, A run restored from a snapshot): its
+    /// GPU goes, keeping the greatest handle its program made and the canvases errors stopped.
+    pub fn save(&self) {
+        let mut inner = self.lock();
+        if let Some(gpu) = inner.gpu.take() {
+            inner.saved = Some((gpu.last_handle(), gpu.saved_stops()));
+            inner.queue = None;
+        }
+    }
+
+    /// The run goes on from its snapshot, which is a device loss: a new GPU counts the handles
+    /// made before as gone and keeps the stopped canvases stopped, and the program hears
+    /// `{ type: "gpu", lost: "unknown" }` before it runs on.
+    pub fn restore(&self) {
+        let Some((last, stops)) = self.lock().saved.take() else { return };
+        let device = crate::gpu::device();
+        self.start(device.as_ref().map(|(_, d)| d));
+        {
+            let mut inner = self.lock();
+            let Inner { gpu, keys, sizes, .. } = &mut *inner;
+            if let Some(gpu) = gpu {
+                gpu.restored(last);
+                gpu.restore_stops(stops);
+                for (k, _) in keys.iter() {
+                    let (w, h) = sizes.get(k).copied().unwrap_or((0, 0));
+                    gpu.resize(k, w, h);
+                }
+            }
+            self.canvases.begin();
+            self.publish(&inner);
+        }
+        (self.tell)(json!({ "type": "gpu", "lost": "unknown" }));
     }
 
     /// The live input's `gpu` (`widgets-gpu.md`): whether batches replay, and the canvas format.
@@ -181,6 +217,10 @@ impl Lost for RunGpu {
     fn lost(&self, next: Option<&Device>, reason: &str, message: Option<&str>) {
         {
             let mut inner = self.lock();
+            // Saved, it has no GPU: its restore is the loss it hears.
+            if inner.saved.is_some() {
+                return;
+            }
             let reset = match (inner.gpu.as_mut(), next) {
                 (Some(gpu), Some(d)) => gpu.reset(d.device.clone(), d.queue.clone()).map_err(|e| eprintln!("widget gpu: {e}")).is_ok(),
                 _ => false,
@@ -216,12 +256,13 @@ pub fn with_batch<R>(batch: &HostValue, f: impl FnOnce(&[Arg], &[u8]) -> R) -> R
     }
 }
 
-/// An op's value as its JSON reads: `undefined` and functions left out of objects, `null` in
-/// lists, non-finite numbers `null`.
+/// An op's value as JSON reads it (`widgets-gpu.md`, Transport): `undefined` and functions left
+/// out of objects, `null` in lists. Numbers stay as they are: `NaN` and infinities fail the check
+/// that reads them.
 fn arg(v: &HostValue) -> Arg {
     match v {
         HostValue::Bool(b) => Arg::Bool(*b),
-        HostValue::Number(n) if n.is_finite() => Arg::Num(*n),
+        HostValue::Number(n) => Arg::Num(*n),
         HostValue::String(s) => Arg::Str(s.to_string_lossy().into_owned()),
         HostValue::Array(items) => Arg::List(items.iter().map(|i| i.as_ref().filter(|i| !crate::host_value::skipped(i)).map_or(Arg::Null, arg)).collect()),
         HostValue::Object(fields) => Arg::Obj(fields.iter().filter(|(_, v)| !crate::host_value::skipped(v)).map(|(k, v)| (k.to_string_lossy().into_owned(), arg(v))).collect()),

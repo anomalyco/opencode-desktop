@@ -30,6 +30,8 @@ fn to_json(a: &Arg) -> Value {
     match a {
         Arg::Null => Value::Null,
         Arg::Bool(b) => json!(b),
+        // As the fixtures write a number JSON can't hold.
+        Arg::Num(n) if !n.is_finite() => json!({ "$num": if n.is_nan() { "NaN" } else if *n > 0.0 { "Infinity" } else { "-Infinity" } }),
         Arg::Num(n) => json!(n),
         Arg::Str(s) => json!(s),
         Arg::List(l) => Value::Array(l.iter().map(to_json).collect()),
