@@ -18,6 +18,7 @@ use super::Post;
 use crate::draw::{Arg, DrawOutput};
 use crate::node::Node;
 use crate::step::SendMessage;
+use crate::tree::Drawn;
 
 /// An `Error` thrown at the program's `post` call, located there.
 fn throw(message: String) -> HostValue {
@@ -32,7 +33,11 @@ pub(super) fn runtime(link: &Arc<Link>, era: u64) -> Runtime {
     let translate = Translate { functions: TranslateFunctions::Mark, ..Default::default() };
     let limits = Limits { max_heap_bytes: Some(crate::runner::MAX_HEAP_BYTES), max_value_depth: Some(crate::runner::MAX_VALUE_DEPTH), ..Default::default() };
     Runtime::make().typed_arrays(true).limits(limits).translate(translate).globals(move |_run| {
-        let input = json!({ "data": link.data });
+        // `gpu`: whether this client replays the program's GPU batches, and its canvas format.
+        let mut input = json!({ "data": link.data });
+        if let Some(gpu) = link.gpu() {
+            input["gpu"] = gpu.input();
+        }
         let (l1, l2, l3, l4, l5) = (link.clone(), link.clone(), link.clone(), link.clone(), link.clone());
         let host = HostValue::object([
             ("post", HostValue::Function(HostFunction::new(move |args: Vec<HostValue>, _call: &Call| post(&l1, args)))),
@@ -152,7 +157,11 @@ fn post(link: &Link, mut args: Vec<HostValue>) -> HostResult {
             Err(m) => return Err(link.fail_view(m)),
         };
         let interactive = !tree.handlers.is_empty();
-        // The canvases of the last view, read or not, rendered at once or waiting for the rate.
+        // The canvases of the last view, read or not, rendered at once or waiting for the rate;
+        // its GPU canvases are the ones `context` ops name.
+        if let Some(gpu) = link.gpu() {
+            gpu.rendered(tree.canvases.iter().filter(|(_, (_, d))| *d == Drawn::Gpu).map(|(k, (id, _))| (k.clone(), id.clone())).collect());
+        }
         link.lock().canvases = tree.canvases;
         match Node::from_host(&tree.view) {
             Ok(node) => link.counted(Post::Render(node), None),
@@ -180,8 +189,9 @@ fn post(link: &Link, mut args: Vec<HostValue>) -> HostResult {
             };
             let id = match link.lock().canvases.get(&key) {
                 None => return Err(throw(format!("No canvas with key \"{key}\" in the rendered view"))),
-                Some((_, true)) => return Err(throw(format!("Canvas \"{key}\" is drawn by its wgsl; it takes no draw commands"))),
-                Some((id, false)) => id.clone(),
+                Some((_, Drawn::Wgsl)) => return Err(throw(format!("Canvas \"{key}\" is drawn by its wgsl; it takes no draw commands"))),
+                Some((_, Drawn::Gpu)) => return Err(throw(format!("Canvas \"{key}\" is drawn by the GPU; it takes no draw commands"))),
+                Some((id, Drawn::Commands)) => id.clone(),
             };
             // The client gets its commands under the canvas's id; nothing else of it crosses.
             crate::tree::strict(field("commands").unwrap_or(&HostValue::Undefined), POSTED)?;
@@ -192,7 +202,19 @@ fn post(link: &Link, mut args: Vec<HostValue>) -> HostResult {
             }
             return Ok(HostValue::Undefined);
         }
-        Some("frame") => Post::Frame,
+        // A frame request, with the GPU batch recorded since the last one or without (a `gpu` that
+        // isn't an object is none); a batch on its own (`widgets-gpu.md`, Transport).
+        Some("frame") => {
+            match field("gpu") {
+                Some(batch @ HostValue::Object(_)) => link.gpu_batch(batch, true),
+                _ => link.bare_frame(),
+            }
+            return Ok(HostValue::Undefined);
+        }
+        Some("gpu") => {
+            link.gpu_batch(message, false);
+            return Ok(HostValue::Undefined);
+        }
         Some("submit") => Post::Submit(json("value")),
         Some("dismiss") => Post::Dismiss,
         Some("capture") => Post::Capture(field("value").and_then(Arg::flag).unwrap_or(false)),
@@ -259,6 +281,13 @@ impl Future for Receive {
             }
             if again {
                 st.watch.repolled(now, false);
+            }
+            drop(st);
+            // A GPU canvas's size, as the program hears it, is the size its replay draws at.
+            if message["type"] == "canvas"
+                && let (Some(key), Some(w), Some(h)) = (message["key"].as_str(), message["width"].as_u64(), message["height"].as_u64())
+            {
+                link.resized(key.to_owned(), w as u32, h as u32);
             }
             return Poll::Ready(Ok(HostValue::from_json(&message)));
         }

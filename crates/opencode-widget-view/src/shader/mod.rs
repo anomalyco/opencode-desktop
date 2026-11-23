@@ -1,17 +1,26 @@
-//! A GPU canvas (a `canvas` node with `wgsl`): an effect slot in Rune's painter stream that
-//! [`gpu::ShaderGpu`] paints, in the host's compositor, with the node's WGSL. The view and the
-//! GPU side meet in a registry of slots (one per GPU canvas on screen, by widget and path): the
-//! view writes each slot's source, `values`, `fps`, `duration` and pointer; the GPU side writes
-//! back a compile error or a freeze, which the view shows as the `poster` (or `alt`) with the
-//! error under it. It never renders at a zero width or height.
+//! A GPU canvas: an effect slot in Rune's painter stream that [`gpu::ShaderGpu`] paints, in the
+//! host's compositor. A `wgsl` canvas it draws with the node's WGSL; a live program's `gpu: true`
+//! canvas it shows as the run's replay drew it (`widgets-gpu.md`, [`opencode_widget::gpu`]). The
+//! view and the GPU side meet in a registry of slots (one per GPU canvas on screen, by widget and
+//! path): the view writes each `wgsl` slot's source, `values`, `fps`, `duration` and pointer; the
+//! GPU side writes back a compile error or a freeze, which the view shows as the `poster` (or
+//! `alt`) with the error under it, as it shows a live canvas the run stopped or can't draw. It
+//! never renders at a zero width or height.
 
 pub mod gpu;
+mod live;
+
+#[cfg(target_os = "macos")]
+pub use live::{MetalShare, share_metal};
+pub use opencode_widget::gpu::{Device as GpuDevice, device_limits as gpu_limits};
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+use std::sync::Arc;
 
+use opencode_widget::gpu::Canvases;
 use rune::{Drag, El, Phase, SurfaceFit, Tx, el, text};
 
 use crate::Cx;
@@ -55,7 +64,27 @@ pub struct Slot {
 struct Registry {
     marks: HashMap<String, u32>,
     slots: HashMap<u32, Slot>,
+    /// Live GPU canvases on screen: their run's canvases, and the canvas's id.
+    live: HashMap<u32, (Arc<Canvases>, String)>,
     next: u16,
+}
+
+impl Registry {
+    /// Slot `key`'s mark, made the first time it's shown.
+    fn mark(&mut self, key: &str) -> u32 {
+        if let Some(m) = self.marks.get(key) {
+            return *m;
+        }
+        self.next = self.next.wrapping_add(1).max(1);
+        let m = TAG | u32::from(self.next);
+        self.marks.insert(key.to_owned(), m);
+        m
+    }
+}
+
+/// Live slot `mark`: its run's canvases and the canvas's id.
+pub fn live_slot(mark: u32) -> Option<(Arc<Canvases>, String)> {
+    REGISTRY.with_borrow(|r| r.live.get(&mark).cloned())
 }
 
 thread_local! {
@@ -103,8 +132,9 @@ pub fn failures() -> Vec<(String, String, bool)> {
 pub fn retain(keep: impl Fn(u32) -> bool) {
     REGISTRY.with_borrow_mut(|r| {
         r.slots.retain(|m, _| keep(*m));
-        let slots = &r.slots;
-        r.marks.retain(|_, m| slots.contains_key(m));
+        r.live.retain(|m, _| keep(*m));
+        let (slots, live) = (&r.slots, &r.live);
+        r.marks.retain(|_, m| slots.contains_key(m) || live.contains_key(m));
     });
 }
 
@@ -112,15 +142,7 @@ pub fn retain(keep: impl Fn(u32) -> bool) {
 /// status.
 fn show(key: &str, wgsl: &str, values: &[f64], fps: f64, duration: Option<f64>) -> (u32, Status) {
     REGISTRY.with_borrow_mut(|r| {
-        let mark = match r.marks.get(key) {
-            Some(m) => *m,
-            None => {
-                r.next = r.next.wrapping_add(1).max(1);
-                let m = TAG | u32::from(r.next);
-                r.marks.insert(key.to_owned(), m);
-                m
-            }
-        };
+        let mark = r.mark(key);
         let mut h = std::collections::hash_map::DefaultHasher::new();
         wgsl.hash(&mut h);
         let source = h.finish();
@@ -167,27 +189,67 @@ fn point(mark: u32, at: Option<([f32; 2], bool)>) {
 /// `id`: the id its pointer events carry, when it takes input (`pointer: true`).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, size: Size, wgsl: &str, values: &[f64], motion: (f64, Option<f64>), alt: Option<&str>, poster: Option<&str>) -> El {
-    let k = cx.look.kit;
     let (fps, duration) = motion;
     let key = format!("{}/{path}", cx.look.scope);
     let (mark, status) = show(&key, wgsl, values, fps, duration.filter(|d| d.is_finite() && *d >= 0.0));
+    let b = frame(cx, size, alt);
+    if let Status::Failed { message: error, .. } = status {
+        return placeholder(cx, b, poster, alt.unwrap_or("Shader"), Some(error));
+    }
+    slot(cx, b, path, id, mark)
+}
+
+/// A live program's GPU canvas (`gpu: true`): `canvas` its id, the run's texture once drawn; its
+/// placeholder (the `poster`, else `alt`, else "GPU canvas not supported") where this client has
+/// no GPU for it, with the error that stopped it under it.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn live_view<S: 'static>(cx: &Cx<S>, path: &str, id: Option<&str>, canvas: Option<&str>, size: Size, alt: Option<&str>, poster: Option<&str>) -> El {
+    let b = frame(cx, size, alt);
+    let (Some(canvases), Some(canvas)) = (cx.local.gpu(), canvas) else {
+        return placeholder(cx, b, poster, alt.unwrap_or("GPU canvas not supported"), None);
+    };
+    match canvases.status(canvas) {
+        opencode_widget::gpu::Status::Unavailable => placeholder(cx, b, poster, alt.unwrap_or("GPU canvas not supported"), None),
+        opencode_widget::gpu::Status::Stopped(error) => placeholder(cx, b, poster, alt.unwrap_or("GPU canvas not supported"), Some(error)),
+        opencode_widget::gpu::Status::Drawn => {
+            let key = format!("{}/{path}", cx.look.scope);
+            let mark = REGISTRY.with_borrow_mut(|r| {
+                let m = r.mark(&key);
+                r.live.insert(m, (canvases.clone(), canvas.to_owned()));
+                m
+            });
+            slot(cx, b, path, id, mark)
+        }
+    }
+}
+
+/// A GPU canvas's box: its size, clipped to its rounded corners, labelled by `alt`.
+fn frame<S>(cx: &Cx<S>, size: Size, alt: Option<&str>) -> El {
     let Size { height, width, fill } = size;
     let b = if fill { el().min_h(height as f32).grow(1.0) } else { el().h(height as f32) };
-    let mut b = b.radius(crate::nodes::RADIUS).clip_rounded(crate::nodes::RADIUS).role("img").label(alt.unwrap_or("").to_owned());
-    b = match width {
+    let b = b.radius(crate::nodes::RADIUS).clip_rounded(crate::nodes::RADIUS).role("img").label(alt.unwrap_or("").to_owned());
+    match width {
         Some(w) => b.w(w as f32).max_w(cx.look.width),
         None => b.w_full(),
-    };
-    if let Status::Failed { message: error, .. } = status {
-        // The poster, or the words it stands for, with why the shader didn't run under it.
-        let picture = poster.and_then(|src| (cx.look.image)(src)).filter(|i| i.error().is_none());
-        let b = match picture {
-            Some(img) => b.pixels_fit(img.pixels(), SurfaceFit::Fill),
-            None => b.fill(k.c.surface_weak).center().child(text(alt.unwrap_or("Shader").to_owned()).font(k.ty.ui).color(k.c.text_muted)),
-        };
-        let note = text(error).font(k.ty.mono).color(k.c.danger.fg).wrap().selectable(true);
-        return rune::col().w_full().gap(4.0).child(b).child(note);
     }
+}
+
+/// The poster in the box, or the words it stands for, with `error` under it.
+fn placeholder<S>(cx: &Cx<S>, b: El, poster: Option<&str>, words: &str, error: Option<String>) -> El {
+    let k = cx.look.kit;
+    let picture = poster.and_then(|src| (cx.look.image)(src)).filter(|i| i.error().is_none());
+    let b = match picture {
+        Some(img) => b.pixels_fit(img.pixels(), SurfaceFit::Fill),
+        None => b.fill(k.c.surface_weak).center().child(text(words.to_owned()).font(k.ty.ui).color(k.c.text_muted)),
+    };
+    let Some(error) = error else { return b };
+    let note = text(error).font(k.ty.mono).color(k.c.danger.fg).wrap().selectable(true);
+    rune::col().w_full().gap(4.0).child(b).child(note)
+}
+
+/// The box as effect slot `mark`, with its size kept for the GPU side and, when it takes input
+/// (`id`), its pointer sent to the widget template.
+fn slot<S: 'static>(cx: &Cx<S>, b: El, path: &str, id: Option<&str>, mark: u32) -> El {
     let b = b.effect(mark).effect_data([f32::from_bits(mark), 0.0, 0.0, 0.0]);
     let Some(hooks) = cx.hooks.cloned() else { return b };
     let (live, id, key) = (cx.live, id.map(str::to_owned), path.to_owned());

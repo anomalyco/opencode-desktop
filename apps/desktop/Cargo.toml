@@ -135,6 +135,10 @@ browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }
 # Ogg and Opus audio tracks in videos, which AVPlayer can't play (Rune decodes them).
 rune = { workspace = true, features = ["ogg-audio"] }
 libc = "0.2"
+# Live widgets' GPU canvases share Rune's MTLDevice (`session::widget_gpu`).
+wgpu = { version = "30", default-features = false }
+objc2 = "0.6"
+objc2-metal = "0.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"

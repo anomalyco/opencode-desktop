@@ -11,7 +11,8 @@ struct Slot {
     // The pass's window origin and size, device px.
     frame: vec4<f32>,
     fade: vec4<u32>,
-    // x: 1 when the pass blends sRGB-encoded values.
+    // x: 1 when the pass blends sRGB-encoded values; y: 1 when the texture's alpha is ignored
+    // (a GPU canvas configured `alphaMode: "opaque"`).
     flags: vec4<f32>,
 };
 
@@ -42,7 +43,7 @@ fn to_linear(c: vec3<f32>) -> vec3<f32> {
 @fragment
 fn fs(in: Out) -> @location(0) vec4<f32> {
     let texel = textureSample(shot, shot_sampler, in.uv);
-    let a = clamp(texel.a, 0.0, 1.0);
+    let a = select(clamp(texel.a, 0.0, 1.0), 1.0, slot.flags.y > 0.5);
     let straight = select(texel.rgb / max(a, 1e-4), vec3<f32>(0.0), a <= 0.0);
     let rgb = select(to_linear(clamp(straight, vec3<f32>(0.0), vec3<f32>(1.0))) * a, texel.rgb, slot.flags.x > 0.5);
     let cover = clip_alpha(in.position.xy + slot.frame.xy, slot.clip, slot.fade);

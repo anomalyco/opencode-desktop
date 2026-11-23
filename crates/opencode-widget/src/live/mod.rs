@@ -15,6 +15,7 @@
 //! over the post rate wait and coalesce ([`POSTS_PER_SECOND`], `widgets-live.md`, Post rate).
 
 pub mod fetch;
+pub mod gpu;
 mod host;
 mod link;
 
@@ -95,6 +96,9 @@ pub enum Post {
     Capture(bool),
     /// Something the program asked of the host failed (`phase`: `fetch`), for the agent to hear.
     Failed { phase: &'static str, message: String },
+    /// A GPU batch's error (`widgets-gpu.md`): the program's (phase `gpu`, reported) or this
+    /// client's, and the canvases it stopped.
+    Gpu(widget_gpu::GpuError),
 }
 
 /// How a program ended.
@@ -149,6 +153,17 @@ impl Live {
     /// Delivers what the user did.
     pub fn event(&self, event: &WidgetEvent) {
         self.link.deliver(json!({ "type": "event", "event": event }));
+    }
+
+    /// Tells the program GPU canvas `key`'s size, in physical pixels clamped to the texture limit
+    /// (`widget_gpu::clamp_size`), before the frame after it changed (`widgets-gpu.md`).
+    pub fn canvas(&self, key: &str, width: u32, height: u32) {
+        self.link.deliver(json!({ "type": "canvas", "key": key, "width": width, "height": height }));
+    }
+
+    /// The run's GPU canvases, as the window shows them; none before it started.
+    pub fn gpu(&self) -> Option<Arc<crate::gpu::Canvases>> {
+        self.link.gpu().map(|g| g.canvases.clone())
     }
 
     /// Delivers the display frame the program asked for.

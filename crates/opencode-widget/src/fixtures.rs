@@ -69,6 +69,19 @@ pub fn program(name: &str) -> Option<String> {
     source(name).map(|s| served(mode(name), s))
 }
 
+/// GPU example widget template `name`'s source (`fixtures/gpu/templates`, opencode
+/// `packages/widget/test/fixtures/gpu/templates`; `widgets-gpu.md`): live programs drawing with
+/// `widget.gpu`. Each stops after `data.frames` frames when given, else runs on.
+pub fn gpu_template(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "cube" => include_str!("../fixtures/gpu/templates/cube.js"),
+        "textured-quad" => include_str!("../fixtures/gpu/templates/textured-quad.js"),
+        "post-process" => include_str!("../fixtures/gpu/templates/post-process.js"),
+        "maze" => include_str!("../fixtures/gpu/templates/maze.js"),
+        _ => return None,
+    })
+}
+
 /// Diagram built-in `name`'s example data.
 pub fn example(name: &str) -> Option<serde_json::Value> {
     static EXAMPLES: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();

@@ -16,6 +16,8 @@
 //! and a server can all embed it.
 
 #![forbid(unsafe_code)]
+// Proving a live run `Sync` walks wgpu-core's nested validation types (its GPU), past the default 128.
+#![recursion_limit = "256"]
 
 pub mod draw;
 pub mod fixtures;
@@ -23,6 +25,8 @@ pub mod fixtures;
 mod host_value;
 pub mod machine;
 pub mod node;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 #[cfg(feature = "runner")]
 pub mod live;
 #[cfg(feature = "runner")]

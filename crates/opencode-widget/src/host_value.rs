@@ -16,7 +16,7 @@ use crate::draw::Arg;
 const NULL: &HostValue = &HostValue::Null;
 
 /// What JSON leaves out of an object and writes as `null` in an array.
-fn skipped(v: &HostValue) -> bool {
+pub(crate) fn skipped(v: &HostValue) -> bool {
     matches!(v, HostValue::Undefined | HostValue::Function(_) | HostValue::FunctionMarker | HostValue::Durable(_) | HostValue::Namespace(_) | HostValue::Interrupt)
 }
 

@@ -21,6 +21,10 @@ pub struct Run {
     frame_wanted: bool,
     /// The clock of the last frame it got.
     last_frame: Option<f64>,
+    /// The GPU canvases' sizes last sent, by id: physical pixels, clamped (`widgets-gpu.md`).
+    gpu_sizes: std::collections::HashMap<String, (u32, u32)>,
+    /// The run's GPU canvases' revision and publications last seen.
+    gpu_seen: (u64, u64),
 }
 
 impl Run {
@@ -68,6 +72,7 @@ pub(crate) fn deliver(host: &mut dyn WidgetsHost, id: &str, event: &WidgetEvent)
 pub(crate) fn stop(host: &mut dyn WidgetsHost, id: &str) {
     if let Some(e) = host.widgets_mut().entries.get_mut(id) {
         e.run = Run::default();
+        e.local.set_gpu(None);
     }
 }
 
@@ -164,6 +169,15 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
                 crate::client_error(host, id, phase, &message);
                 continue;
             }
+            // A GPU batch's error: the program's (phase `gpu`), or this client's. The canvases it
+            // stopped show their placeholder with it (their status, below).
+            Post::Gpu(e) => {
+                match e.kind {
+                    opencode_widget::gpu::ErrorKind::Program => crate::report(host, id, "gpu", &e.message, None, 0),
+                    opencode_widget::gpu::ErrorKind::Client => crate::client_error(host, id, "gpu", &e.message),
+                }
+                continue;
+            }
         };
         advance(host, id, event);
         changed = true;
@@ -196,6 +210,30 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
     }
     let Some(e) = host.widgets_mut().entries.get_mut(id) else { return changed };
     let Some(live) = e.run.live.as_ref() else { return changed };
+    if let Some(canvases) = live.gpu() {
+        // A canvas's placeholder shows or goes: the widget builds again. A new version needs a
+        // frame, unless the window draws them already.
+        let seen = (canvases.revision(), canvases.published());
+        if seen.0 != e.run.gpu_seen.0 || (seen.1 != e.run.gpu_seen.1 && !opencode_widget_view::shader::gpu::live_animating()) {
+            changed = true;
+        }
+        e.run.gpu_seen = seen;
+        // Before the frame after a GPU canvas's size changed (and the first), the program hears
+        // it: physical pixels, clamped to the texture limit.
+        if let Some(view) = e.machine.view() {
+            let (scale, _) = opencode_widget_view::appearance();
+            for (canvas, [w, h]) in e.local.gpu_canvases(view) {
+                let size = opencode_widget::gpu::clamp_size((w * scale).round().max(0.0) as u32, (h * scale).round().max(0.0) as u32);
+                if e.run.gpu_sizes.get(&canvas) != Some(&size)
+                    && let Some(key) = canvases.key(&canvas)
+                {
+                    live.canvas(&key, size.0, size.1);
+                    e.run.gpu_sizes.insert(canvas, size);
+                }
+            }
+        }
+        e.local.set_gpu(Some(canvases));
+    }
     if !e.run.frame_wanted || !on {
         return changed;
     }

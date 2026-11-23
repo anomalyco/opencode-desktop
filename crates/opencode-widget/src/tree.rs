@@ -20,8 +20,19 @@ pub struct Tree {
     pub view: HostValue,
     /// The ids whose node has a handler, with its event (`press`, `change` or `pointer`).
     pub handlers: HashMap<String, &'static str>,
-    /// The first canvas with each `String(key)`: its id, and whether it's drawn by its `wgsl`.
-    pub canvases: HashMap<String, (String, bool)>,
+    /// The first canvas with each `String(key)`: its id, and what draws it.
+    pub canvases: HashMap<String, (String, Drawn)>,
+}
+
+/// What draws a canvas (`widgets.md`, Canvas; `widgets-gpu.md`): one way each.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Drawn {
+    /// `widget.draw`'s commands.
+    Commands,
+    /// Its `wgsl`.
+    Wgsl,
+    /// The live program's `widget.gpu` (`gpu: true`).
+    Gpu,
 }
 
 /// Why a view didn't build.
@@ -155,7 +166,7 @@ fn node(v: HostValue, path: &str, level: usize, label: &str, tree: &mut Tree) ->
     let mut ty = None;
     let mut children = None;
     let mut handled: [bool; 3] = [false; 3];
-    let mut wgsl = false;
+    let mut drawn = Drawn::Commands;
     let mut out = Vec::with_capacity(fields.len() + 2);
     for (k, v) in fields {
         match k.as_str() {
@@ -182,7 +193,15 @@ fn node(v: HostValue, path: &str, level: usize, label: &str, tree: &mut Tree) ->
             }
             Some("key" | "id" | "pointer") => {}
             Some("wgsl") => {
-                wgsl = matches!(v, HostValue::String(_));
+                if matches!(v, HostValue::String(_)) {
+                    drawn = Drawn::Wgsl;
+                }
+                out.push((k, v));
+            }
+            Some("gpu") => {
+                if matches!(v, HostValue::Bool(true)) && drawn == Drawn::Commands {
+                    drawn = Drawn::Gpu;
+                }
                 out.push((k, v));
             }
             _ => out.push((k, v)),
@@ -206,7 +225,7 @@ fn node(v: HostValue, path: &str, level: usize, label: &str, tree: &mut Tree) ->
                     HostValue::Bool(b) => b.to_string(),
                     _ => String::new(),
                 };
-                tree.canvases.entry(name).or_insert_with(|| (path.to_owned(), wgsl));
+                tree.canvases.entry(name).or_insert_with(|| (path.to_owned(), drawn));
             }
         }
     }

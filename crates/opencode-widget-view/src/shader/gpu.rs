@@ -18,9 +18,21 @@ use super::{Status, is_mark, set_status, with_slot};
 
 const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
+thread_local! {
+    static LIVE_ANIMATING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether the window keeps drawing frames for a live GPU canvas showing an older version than
+/// its run published: then a new version needs no other frame.
+pub fn live_animating() -> bool {
+    LIVE_ANIMATING.get()
+}
+
 #[derive(Default)]
 pub struct ShaderGpu {
     gpu: Option<Gpu>,
+    /// The window device live runs replay on was provided for (`live::provide`).
+    provided: Option<DeviceKey>,
     /// The shader marks on screen this frame (kept to reuse its allocation).
     on_screen: Vec<(u32, [f32; 4], f32)>,
     animating: bool,
@@ -34,6 +46,8 @@ struct Gpu {
     pipelines: HashMap<u64, Result<wgpu::RenderPipeline, (String, bool)>>,
     blit: Blit,
     slots: HashMap<u32, SlotGpu>,
+    /// Live programs' GPU canvases (`gpu: true`).
+    live: super::live::Live,
 }
 
 /// One slot's GPU side and its drawing as an explicit machine.
@@ -83,7 +97,7 @@ impl BlitUniform {
     }
 }
 
-struct Blit {
+pub(super) struct Blit {
     layout: wgpu::BindGroupLayout,
     pipeline_layout: wgpu::PipelineLayout,
     shader: wgpu::ShaderModule,
@@ -158,7 +172,7 @@ impl Gpu {
             }],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("widget shader"), bind_group_layouts: &[Some(&uniform_layout)], immediate_size: 0 });
-        Gpu { key, uniform_layout, pipeline_layout, pipelines: HashMap::new(), blit: Blit::new(device), slots: HashMap::new() }
+        Gpu { key, uniform_layout, pipeline_layout, pipelines: HashMap::new(), blit: Blit::new(device), slots: HashMap::new(), live: super::live::Live::default() }
     }
 }
 
@@ -176,6 +190,9 @@ impl ShaderGpu {
     /// Renders the shader slots on screen that are due, before the frame records. False when no
     /// shader is on screen.
     pub fn prepare<S>(&mut self, f: &mut Frame<'_, S>) -> bool {
+        // Live runs replay on this window's device, or one made on it: provided before any shows.
+        super::live::provide(&mut self.provided, f);
+        LIVE_ANIMATING.set(false);
         self.on_screen.clear();
         for i in f.rt.instances.iter().filter(|i| i.params[1] == KIND_EFFECT) {
             let m = mark(i);
@@ -198,6 +215,10 @@ impl ShaderGpu {
         let Some(gpu) = self.gpu.as_mut() else { return false };
         let on_screen = &self.on_screen;
         gpu.slots.retain(|m, _| on_screen.iter().any(|(s, ..)| s == m));
+        let live: Vec<u32> = on_screen.iter().map(|(m, ..)| *m).filter(|m| super::live_slot(*m).is_some()).collect();
+        gpu.live.prepare(f, &gpu.blit, &live);
+        self.animating |= gpu.live.animating;
+        LIVE_ANIMATING.set(gpu.live.animating);
         let clock = f.rt.clock;
         let slow_frame = f.dt * 1000.0 > SLOW_FRAME_MS;
         for &(m, rect, scale) in on_screen {
@@ -294,22 +315,29 @@ impl ShaderGpu {
         true
     }
 
-    /// Draws shader slot `site`'s last frame into the open pass.
+    /// Draws shader slot `site`'s last frame (a live canvas's latest shown) into the open pass,
+    /// scaled to its box.
     pub fn draw(&mut self, pass: &mut wgpu::RenderPass<'_>, site: &EffectSite<'_>, queue: &wgpu::Queue, device: &wgpu::Device) {
         let Some(gpu) = self.gpu.as_mut() else { return };
-        let Some(target) = gpu.slots.get(&site.mark).and_then(|s| s.target.as_ref()) else { return };
+        let (uniform, bind, opaque) = match gpu.slots.get(&site.mark).and_then(|s| s.target.as_ref()) {
+            Some(t) => (&t.blit_uniform, &t.blit_bind, false),
+            None => match gpu.live.drawn(site.mark) {
+                Some(drawn) => drawn,
+                None => return,
+            },
+        };
         let i = site.instance;
         let u = BlitUniform {
             rect: [i.rect[0] - site.origin[0], i.rect[1] - site.origin[1], i.rect[2], i.rect[3]],
             clip: i.clip,
             frame: [site.origin[0], site.origin[1], site.size[0] as f32, site.size[1] as f32],
             fade: i.fade,
-            flags: [if site.srgb_blend { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0],
+            flags: [if site.srgb_blend { 1.0 } else { 0.0 }, if opaque { 1.0 } else { 0.0 }, 0.0, 0.0],
         };
-        queue.write_buffer(&target.blit_uniform, 0, &u.bytes());
+        queue.write_buffer(uniform, 0, &u.bytes());
         let pipeline = gpu.blit.pipeline(device, site.format);
         pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, &target.blit_bind, &[]);
+        pass.set_bind_group(0, bind, &[]);
         pass.draw(0..4, 0..1);
     }
 }
@@ -342,6 +370,21 @@ impl Target {
 }
 
 impl Blit {
+    /// A slot's blit uniform and bind group, sampling `view`.
+    pub(super) fn bind(&self, device: &wgpu::Device, view: &wgpu::TextureView) -> (wgpu::Buffer, wgpu::BindGroup) {
+        let uniform = device.create_buffer(&wgpu::BufferDescriptor { label: Some("widget shader slot"), size: 80, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
+        let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("widget shader slot"),
+            layout: &self.layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: uniform.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(view) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+            ],
+        });
+        (uniform, bind)
+    }
+
     fn new(device: &wgpu::Device) -> Blit {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("widget shader blit"),

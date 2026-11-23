@@ -244,6 +244,9 @@ pub enum Node {
         /// A GPU canvas: WGSL defining `fn shade(frag: vec2f) -> vec4f`, at most 16 KB.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         wgsl: Option<String>,
+        /// A live program draws it with `widget.gpu` (`widgets-gpu.md`); not with `wgsl`.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        gpu: bool,
         /// With `wgsl`, up to 16 floats for `widget.values`.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         values: Vec<f64>,
@@ -380,7 +383,10 @@ impl Node {
     fn checked(node: Node) -> Result<Node, String> {
         let mut bad = None;
         node.walk(&mut |n| {
-            if let Node::Canvas { wgsl, values, .. } = n {
+            if let Node::Canvas { wgsl, values, gpu, .. } = n {
+                if *gpu && wgsl.is_some() {
+                    bad.get_or_insert("`gpu` and `wgsl` exclude each other".to_owned());
+                }
                 if wgsl.is_none() && !values.is_empty() {
                     bad.get_or_insert("a canvas's `values` need `wgsl`".to_owned());
                 }

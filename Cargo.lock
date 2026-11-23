@@ -175,7 +175,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
  "wl-clipboard-rs",
  "x11rb",
 ]
@@ -1529,7 +1529,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3400,6 +3400,7 @@ checksum = "a0125f776a10d00af4152d74616409f0d4a2053a6f57fa5b7d6aa2854ac04794"
 dependencies = [
  "bitflags 2.13.2",
  "block2 0.6.2",
+ "dispatch2",
  "objc2 0.6.5",
  "objc2-core-foundation",
  "objc2-foundation 0.3.2",
@@ -3558,6 +3559,8 @@ dependencies = [
  "libc",
  "mimalloc",
  "mlua",
+ "objc2 0.6.5",
+ "objc2-metal 0.3.2",
  "office-preview",
  "opencode-code-view",
  "opencode-feature-annotations",
@@ -3623,6 +3626,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "wgpu",
  "win-install",
  "windows-sys 0.61.2",
 ]
@@ -4263,11 +4267,14 @@ name = "opencode-widget"
 version = "0.0.1"
 dependencies = [
  "base64 0.22.1",
+ "pollster",
  "psychoscript",
  "ryu-js",
  "serde",
  "serde_json",
  "url",
+ "wgpu",
+ "widget-gpu",
 ]
 
 [[package]]
@@ -4275,8 +4282,12 @@ name = "opencode-widget-view"
 version = "0.0.1"
 dependencies = [
  "naga",
+ "objc2 0.6.5",
+ "objc2-metal 0.3.2",
  "opencode-widget",
+ "pollster",
  "rune",
+ "rune-gpu",
  "rune-kit",
  "serde_json",
  "wgpu",
@@ -4339,7 +4350,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4999,7 +5010,7 @@ dependencies = [
 [[package]]
 name = "psychoscript"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/psychoscript?rev=b30b1c2d51e1e1c8415d97f640df3320058b5515#b30b1c2d51e1e1c8415d97f640df3320058b5515"
+source = "git+https://github.com/anomalyco/psychoscript?rev=802eac5540a386cdc3399f97c114aa3b7b65435e#802eac5540a386cdc3399f97c114aa3b7b65435e"
 dependencies = [
  "icu_calendar",
  "icu_collator",
@@ -5775,7 +5786,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5832,7 +5843,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6295,8 +6306,8 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d204abcbdf8e88729306a8d0ca01a79d8a49969fe1f84696909d6dbc4321c1a"
 dependencies = [
- "foldhash 0.2.0",
- "hashbrown 0.17.1",
+ "foldhash 0.1.5",
+ "hashbrown 0.15.5",
 ]
 
 [[package]]
@@ -6568,10 +6579,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.6",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7651,6 +7662,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "widget-gpu"
+version = "0.1.0"
+source = "git+https://github.com/anomalyco/psychoscript?rev=802eac5540a386cdc3399f97c114aa3b7b65435e#802eac5540a386cdc3399f97c114aa3b7b65435e"
+dependencies = [
+ "serde_json",
+ "wgpu",
+ "widget-wire",
+]
+
+[[package]]
+name = "widget-wire"
+version = "0.1.0"
+source = "git+https://github.com/anomalyco/psychoscript?rev=802eac5540a386cdc3399f97c114aa3b7b65435e#802eac5540a386cdc3399f97c114aa3b7b65435e"
+dependencies = [
+ "psychoscript",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "win-install"
 version = "0.0.1"
 dependencies = [
@@ -7665,7 +7696,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

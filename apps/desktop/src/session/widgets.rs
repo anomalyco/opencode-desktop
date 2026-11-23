@@ -164,6 +164,7 @@ impl Feature<App> for WidgetsFeature {
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.register_slot(&WIDGETS);
+        crate::session::widget_gpu::setup();
         // A widget full screen fills the window over everything but popups and dialogs; Esc
         // brings it back.
         builder.register_overlay(

@@ -30,6 +30,11 @@ use psychoscript::{DiagnosticKind, HostResult, HostValue, Interrupted, ProgramOp
 use serde_json::{Value, json};
 
 use super::fetch::Rate;
+use super::gpu::RunGpu;
+
+mod queue;
+
+use queue::{HostWork, Wait};
 use super::{BURST, Ended, LiveProgram, Post, SAVE_AFTER, SLICE_MS, Setup};
 
 /// How long after its last rest a possibly busy run is kicked.
@@ -76,11 +81,14 @@ pub(super) struct Watch {
     pub kicked: Option<u64>,
     /// Host calls completed (each may start the run).
     pub wakes: u64,
+    /// The host is working inside one of the program's calls (replaying a GPU batch): that time
+    /// isn't the program's.
+    pub host: u32,
 }
 
 impl Watch {
     fn fresh(now: Instant) -> Watch {
-        Watch { idle: false, last_stop: now, kicked: None, wakes: 0 }
+        Watch { idle: false, last_stop: now, kicked: None, wakes: 0, host: 0 }
     }
 
     /// A host call completed, which may start the run. Whether the run was idle: the clock, which
@@ -131,16 +139,16 @@ pub(super) struct St {
     pub outbox: Vec<Post>,
     /// The post rate's bucket: its tokens, as of when (wall time: a pause doesn't stop it).
     pub bucket: (f64, Instant),
-    /// `render` and `draw` posts waiting for a token, oldest first, each with its canvas key (a
-    /// draw's) to coalesce by.
-    pub waiting: VecDeque<(Option<String>, Post)>,
+    /// What waits for the post rate, oldest first: `render` and `draw` posts for a token, and
+    /// GPU batches behind them.
+    pub waiting: VecDeque<Wait>,
     pub watch: Watch,
     pub suspender: Option<Suspender>,
     /// Where in the program it threw, when it ended so (1-based line and column).
     pub failed_at: Option<(u32, u32)>,
     /// Native: the last rendered view's canvases by `String(key)`, their ids and whether `wgsl`
     /// draws them (kept across a save, as the program's view is).
-    pub canvases: HashMap<String, (String, bool)>,
+    pub canvases: HashMap<String, (String, crate::tree::Drawn)>,
     /// A post broke the rules (a view of Keys and depth, an invalid render or draw): the run was
     /// interrupted to end with it.
     pub post_failure: Option<Ended>,
@@ -190,13 +198,6 @@ impl St {
         was_empty
     }
 
-    /// Every post waiting for the rate goes to the client at once, in order.
-    fn release(&mut self) {
-        for (_, post) in std::mem::take(&mut self.waiting) {
-            self.out(post);
-        }
-    }
-
     /// Wakes every future (to see the interrupt, or a pause end).
     fn wake_all(&mut self) {
         for (_, w) in &self.waiters {
@@ -217,8 +218,14 @@ pub(super) struct Link {
     pub setup: Setup,
     /// The post rate, tokens a second.
     per_second: f64,
+    /// The run's GPU canvases, made on its thread when it starts from `main`.
+    gpu: Mutex<Option<Arc<RunGpu>>>,
+    /// Held while GPU work is applied, so batches replay in the order they were posted, whether
+    /// at once, from the queue, or at the run's end.
+    order: Mutex<()>,
     me: Weak<Link>,
 }
+
 
 impl Link {
     pub fn new(program: Arc<LiveProgram>, data: Value, setup: Setup, per_second: f64) -> Arc<Link> {
@@ -249,7 +256,7 @@ impl Link {
             canvases: HashMap::new(),
             post_failure: None,
         };
-        Arc::new_cyclic(|me| Link { st: Mutex::new(st), news: AtomicBool::new(false), program, data, setup, per_second, me: me.clone() })
+        Arc::new_cyclic(|me| Link { st: Mutex::new(st), news: AtomicBool::new(false), program, data, setup, per_second, gpu: Mutex::default(), order: Mutex::default(), me: me.clone() })
     }
 
     pub fn lock(&self) -> MutexGuard<'_, St> {
@@ -282,6 +289,8 @@ impl Link {
             st.paused_total = Duration::ZERO;
             st.dues.clear();
             st.canvases.clear();
+            // The last run's GPU work goes with it.
+            st.waiting.retain(|w| matches!(w, Wait::Counted(..)));
         }
         st.era += 1;
         st.run = Run::Alive;
@@ -300,6 +309,17 @@ impl Link {
 
     /// The run of `era` ended: with its outcome, saved, or interrupted.
     fn finished(&self, era: u64, result: Result<RunOutcome, Interrupted>, failure: Option<String>) {
+        // The last view is never lost: what waits for the rate goes out before the end (the GPU's
+        // batches replayed), unless the client stopped the run or it's only being saved.
+        let pending = {
+            let mut st = self.lock();
+            if st.era != era {
+                return;
+            }
+            let keeps = matches!(st.run, Run::Stopping | Run::Discarding) || (matches!(st.run, Run::Saving) && matches!(result, Ok(RunOutcome::Suspended(_))));
+            if keeps { VecDeque::new() } else { std::mem::take(&mut st.waiting) }
+        };
+        self.flush(pending);
         let mut st = self.lock();
         if st.era != era {
             return;
@@ -328,12 +348,8 @@ impl Link {
             (Run::Stopping, _) => Run::Ended(Ended::Stopped),
             (_, result) => Run::Ended(ended(result)),
         };
-        // The last view is never lost: what waits for the rate goes out before the end, unless the
-        // client stopped the run.
-        match &st.run {
-            Run::Ended(Ended::Stopped) => st.waiting.clear(),
-            Run::Ended(_) => st.release(),
-            _ => {}
+        if matches!(st.run, Run::Ended(Ended::Stopped)) {
+            st.waiting.clear();
         }
         st.failed_at = at;
         st.suspender = None;
@@ -397,71 +413,20 @@ impl Link {
     /// ahead of what waits for the rate. A `submit` or `dismiss` lets what waits go first; a frame
     /// request while one waits for the client changes nothing.
     pub fn post(&self, post: Post) {
+        if matches!(post, Post::Submit(_) | Post::Dismiss) {
+            let pending = std::mem::take(&mut self.lock().waiting);
+            self.flush(pending);
+        }
         let mut st = self.lock();
         let first = st.outbox.is_empty();
-        match post {
-            Post::Frame if st.outbox.contains(&Post::Frame) => return,
-            Post::Submit(_) | Post::Dismiss => st.release(),
-            _ => {}
+        if post == Post::Frame && st.outbox.contains(&Post::Frame) {
+            return;
         }
         st.out(post);
         drop(st);
         if first {
             self.signal();
         }
-    }
-
-    /// The program posted a render (no `key`) or canvas `key`'s draw, counted toward the post rate
-    /// (`widgets-live.md`, Post rate): with nothing waiting and a token, it takes the token and
-    /// goes to the client at once. Otherwise it waits, in place of the waiting render or the
-    /// waiting draw of its canvas, or last; the clock lets the waiting posts out as tokens come.
-    pub fn counted(&self, post: Post, key: Option<String>) {
-        let mut st = self.lock();
-        st.refill(Instant::now(), self.per_second);
-        if st.waiting.is_empty() && st.token() {
-            st.bucket.0 -= 1.0;
-            let first = st.out(post);
-            drop(st);
-            if first {
-                self.signal();
-            }
-            return;
-        }
-        let render = matches!(post, Post::Render(_));
-        let same = st.waiting.iter_mut().find(|(k, p)| if render { matches!(p, Post::Render(_)) } else { matches!(p, Post::Draw { .. }) && *k == key });
-        match same {
-            Some(waiting) => *waiting = (key, post),
-            None => {
-                let first = st.waiting.is_empty();
-                st.waiting.push_back((key, post));
-                drop(st);
-                if first {
-                    clock().poke();
-                }
-            }
-        }
-    }
-
-    /// The clock's look at `now` for the post rate: waiting posts go to the client, in order, one
-    /// per token. When the next one's token comes.
-    fn release_due(&self, now: Instant) -> Option<Instant> {
-        let mut st = self.lock();
-        if st.waiting.is_empty() {
-            return None;
-        }
-        st.refill(now, self.per_second);
-        let mut first = false;
-        while st.token() {
-            let Some((_, post)) = st.waiting.pop_front() else { break };
-            st.bucket.0 -= 1.0;
-            first |= st.out(post);
-        }
-        let next = (!st.waiting.is_empty()).then(|| now + Duration::from_secs_f64((1.0 - st.bucket.0).max(0.0) / self.per_second));
-        drop(st);
-        if first {
-            self.signal();
-        }
-        next
     }
 
     pub fn take(&self) -> Vec<Post> {
@@ -591,7 +556,7 @@ impl Link {
         if let Some(ms) = st.timers.keys().filter_map(|k| st.dues.get(k)).copied().reduce(f64::min).filter(|_| st.pause.is_none()) {
             soon(now + Duration::from_secs_f64(((ms - running) / 1000.0).max(0.0)));
         }
-        if !st.watch.idle {
+        if !st.watch.idle && st.watch.host == 0 {
             let busy = now.saturating_duration_since(st.watch.last_stop);
             if busy > Duration::from_millis(SLICE_MS) {
                 st.run = Run::Killing { reason: format!("The widget ran for more than {SLICE_MS} ms without awaiting, so it was stopped."), asked: now };
@@ -672,6 +637,12 @@ impl Link {
 
 /// The program's thread: runs it (from `main` or a snapshot) until it ends or is suspended.
 fn run(link: Arc<Link>, era: u64, snapshot: Option<Snapshot>) {
+    if snapshot.is_none() {
+        // Making the GPU (a device, the first time) is the host's work, not the program's.
+        link.lock().watch.host += 1;
+        let _host = HostWork(&link);
+        link.start_gpu();
+    }
     let runtime = super::host::runtime(&link, era);
     let program = match &snapshot {
         Some(s) => match runtime.resume(s) {

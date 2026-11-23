@@ -107,6 +107,8 @@ pub struct Local {
     version: u64,
     /// The widget is on screen (a live program runs only while it is).
     shown: bool,
+    /// Its live run's GPU canvases, while it runs (`widgets-gpu.md`).
+    gpu: Option<std::sync::Arc<opencode_widget::gpu::Canvases>>,
     /// When each shader last sent a pointer `move`, by path.
     moved: HashMap<String, f64>,
     /// Each shader's logical size, by path, once laid out.
@@ -147,10 +149,47 @@ impl Local {
 
     /// The first canvas of `view`, which a live program's frame is for. None when the view has
     /// no canvas.
+    /// Its live run's GPU canvases: set while the run runs, none after.
+    pub fn set_gpu(&mut self, gpu: Option<std::sync::Arc<opencode_widget::gpu::Canvases>>) {
+        if self.gpu.as_ref().map(std::sync::Arc::as_ptr) != gpu.as_ref().map(std::sync::Arc::as_ptr) {
+            self.gpu = gpu;
+            self.version += 1;
+        }
+    }
+
+    pub fn gpu(&self) -> Option<&std::sync::Arc<opencode_widget::gpu::Canvases>> {
+        self.gpu.as_ref()
+    }
+
     pub fn live_canvas(&self, view: &Node) -> Option<LiveCanvas> {
-        let (path, id, _) = canvases(view).into_iter().next()?;
+        let mut first = None;
+        walk(view, "w", &mut |path, n| {
+            if first.is_none()
+                && let Node::Canvas { id, wgsl: None, gpu, .. } = n
+            {
+                first = Some((path.to_owned(), id.clone(), *gpu));
+            }
+        });
+        let (path, id, gpu) = first?;
+        // A GPU canvas is laid out as a GPU slot: its pointer reaches the program as events.
+        if gpu {
+            return Some(LiveCanvas { id, size: self.size(&path), pointer: None, close: self.shader_close(&path) });
+        }
         let c = self.canvases.get(&path);
         Some(LiveCanvas { id, size: c.and_then(|c| c.size), pointer: c.and_then(|c| c.pointer), close: self.canvas_close(&path) })
+    }
+
+    /// The live program's GPU canvases on screen: each one's id and logical size, once laid out.
+    pub fn gpu_canvases(&self, view: &Node) -> Vec<(String, [f32; 2])> {
+        let mut out = Vec::new();
+        walk(view, "w", &mut |path, n| {
+            if let Node::Canvas { id: Some(id), gpu: true, wgsl: None, .. } = n
+                && let Some(size) = self.size(path)
+            {
+                out.push((id.clone(), size));
+            }
+        });
+        out
     }
 
     /// Full screen, the close button's area over canvas `path`, in its coordinates.
@@ -487,7 +526,7 @@ fn canvases(view: &Node) -> Vec<(String, Option<String>, Motion)> {
     let mut out = Vec::new();
     walk(view, "w", &mut |path, n| {
         // A GPU canvas is drawn by its shader, never by `draw`.
-        if let Node::Canvas { id, fps, duration, wgsl: None, .. } = n {
+        if let Node::Canvas { id, fps, duration, wgsl: None, gpu: false, .. } = n {
             out.push((path.to_owned(), id.clone(), Motion::new(*fps, *duration)));
         }
     });

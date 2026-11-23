@@ -10,7 +10,10 @@ publish = false
 default = ["runner"]
 # The step runner over the Rust PsychoScript (`Program`, `step_json`). Off, the crate is the contract's
 # types and the lifecycle machine alone: what a renderer needs, without the interpreter.
-runner = ["dep:psychoscript", "dep:url", "dep:base64", "dep:ryu-js"]
+runner = ["gpu", "dep:psychoscript", "dep:url", "dep:base64", "dep:ryu-js"]
+# GPU canvases as a window shows them (`gpu`): the device live runs replay on and what their replay
+# publishes for the compositor. Renderers enable it without the runner.
+gpu = ["dep:wgpu", "dep:widget-gpu"]
 
 [dependencies]
 base64 = { workspace = true, optional = true }
@@ -21,11 +24,23 @@ serde_json.workspace = true
 url = { version = "2", optional = true }
 # `String(number)` as ECMAScript writes it, for a view key's path segment (widgets.md, Native hosts).
 ryu-js = { version = "1", optional = true }
-psychoscript = { git = "https://github.com/anomalyco/psychoscript", rev = "b30b1c2d51e1e1c8415d97f640df3320058b5515", optional = true }
+# At `mobile` 802eac55, whose `psychoscript` is `rust` b30b1c2d's to the byte (the same tree): the
+# one `widget-gpu` builds on, so both share one PsychoScript.
+psychoscript = { git = "https://github.com/anomalyco/psychoscript", rev = "802eac5540a386cdc3399f97c114aa3b7b65435e", optional = true }
+# GPU canvases' replay (`widgets-gpu.md`): checks and replays a live program's WebGPU batches on wgpu.
+widget-gpu = { git = "https://github.com/anomalyco/psychoscript", rev = "802eac5540a386cdc3399f97c114aa3b7b65435e", optional = true }
+wgpu = { version = "30", default-features = false, optional = true }
 
 [dev-dependencies]
 # The check programs read wire fixtures of 100-level views, deeper than serde_json reads by default.
 serde_json = { workspace = true, features = ["unbounded_depth"] }
+pollster = "1"
+
+# The GPU checks replay on a real device: Vulkan here (lavapipe without a GPU), Metal on a Mac.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+wgpu = { version = "30", default-features = false, features = ["vulkan"] }
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+wgpu = { version = "30", default-features = false, features = ["metal"] }
 
 [lints]
 workspace = true

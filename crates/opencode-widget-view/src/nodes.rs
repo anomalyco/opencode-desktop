@@ -46,6 +46,11 @@ pub(crate) fn node<S: 'static>(cx: &Cx<S>, n: &Node, path: &str) -> El {
         Node::Input { id, label, placeholder, multiline, .. } => controls::input(cx, id, label.as_deref(), placeholder.as_deref(), *multiline),
         Node::Divider => rune::rule(1.0, k.c.border_weak).w_full(),
         // Only a canvas with `pointer: true` sends events; without it, its id is for drawing.
+        // A live program's GPU canvas: drawn by its `widget.gpu` batches.
+        Node::Canvas { id, height, width, alt, fill, wgsl: None, gpu: true, poster, pointer, .. } => {
+            let size = crate::shader::Size { height: *height, width: *width, fill: placed.canvas_grows(*fill) };
+            crate::shader::live_view(cx, path, id.as_deref().filter(|_| *pointer), id.as_deref(), size, alt.as_deref(), poster.as_deref())
+        }
         Node::Canvas { id, height, width, alt, fill, wgsl: None, pointer, .. } => crate::canvas::view(cx, path, id.as_deref().filter(|_| *pointer), *height, *width, alt.as_deref(), placed.canvas_grows(*fill)),
         // A GPU canvas: drawn by its WGSL, never by `draw`.
         Node::Canvas { id, height, width, alt, fill, wgsl: Some(wgsl), values, poster, duration, pointer, .. } => {
