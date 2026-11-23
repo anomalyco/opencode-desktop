@@ -45,4 +45,18 @@ The primary is `launch.first_frame` (the app's `frame.first.presented`). The oth
 
 ## Not covered yet
 
-Several windows, the browser pane restored, an update pending, a launch from a folder a virus scanner reads, macOS started as the Dock starts it.
+Several windows, the browser pane restored, an update pending, a launch from a folder a virus scanner reads.
+
+## macOS, started as the Dock starts it
+
+strobe spawns its target as a child process. The Dock and Finder start an app through Launch Services, which costs about 20,000 to 55,000 µs more on an M4 MacBook Air (launchd starts the process, and AppKit waits for the open-application Apple event). `perf/macos-open.ts` is one such launch (`open -n -W -a <.app>`) for `strobe run`: it prints the app's own launch marks as `strobe:metric` lines, in µs from the kernel's start time of the process.
+
+```sh
+strobe run --base "bun perf/macos-open.ts /path/Old.app" --head "bun perf/macos-open.ts /path/New.app" \
+  --primary metric.first_frame --metrics metric.input_ready,metric.content_live,metric.main,metric.resumed,metric.window
+```
+
+- Profiles `small` (the default), `first` and `cold` (a copy of the bundle at a new path); a fourth argument `child` starts the bundle's exe directly.
+- The fixture server must already answer at `OPENCODE_LAUNCH_SERVER_SMALL`: a run that started one and left it behind is refused by strobe.
+- The bundle must be signed (ad hoc is enough). A file added inside a signed bundle makes every later start from that path hang before `main`.
+- For stacks, record the child launch (`strobe record --bench perf/launch.bench.ts#warm --head exe:<.app>/Contents/MacOS/opencode-desktop`) with the dSYM beside the bundle. macOS samples are untimed snapshots: rows are counts, not ms, and the sampler inflates `dlopen`.
