@@ -213,3 +213,28 @@ pub enum Write {
     /// `Incoming::Created`; a failure reports `Incoming::SendFailed` with the prompt's id.
     StartInNewWorktree { session: String, project: String, from: String, branch: Option<String>, prompt: Prompt },
 }
+
+impl Write {
+    /// The ordering lane, including writes held for durable storage or tracked by a caller.
+    /// Session-less operations keep their own serial lane.
+    pub(super) fn session(&self) -> Option<&str> {
+        match self {
+            Self::Prompt { session, .. } | Self::Permission { session, .. }
+            | Self::Form { session, .. } | Self::CancelForm { session, .. }
+            | Self::Send { session, .. } | Self::SendMovingHome { session, .. }
+            | Self::StartAs { session, .. } | Self::Cancel { session, .. }
+            | Self::Deliver { session, .. } | Self::Shell { session, .. }
+            | Self::Rename { session, .. } | Self::View { session, .. }
+            | Self::Metadata { session, .. } | Self::Background { session, .. }
+            | Self::RevertStage { session, .. } | Self::SendFromRevert { session, .. }
+            | Self::Fork { session, .. } | Self::StartInNewWorktree { session, .. }
+            | Self::Interrupt(session) | Self::Delete(session) | Self::Archive(session)
+            | Self::Unarchive(session) | Self::Compact(session) | Self::RevertClear(session)
+            | Self::RevertCommit(session) => Some(session),
+            Self::Tracked { write, .. } => write.session(),
+            #[cfg(not(target_arch = "wasm32"))]
+            Self::Gated { write, .. } => write.session(),
+            Self::Create { .. } | Self::Start { .. } | Self::Reload | Self::OpenProject { .. } => None,
+        }
+    }
+}
