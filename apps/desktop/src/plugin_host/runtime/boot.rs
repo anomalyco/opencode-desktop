@@ -388,11 +388,10 @@ pub fn first_frame(app: &mut App) -> bool {
     doze_owed(app);
     // What the routed session's screen draws that slept through the first frame (a composer
     // pill, `first_screen`) starts from the next turn, one per turn.
-    if let Some(session) = app.active_session_id().map(str::to_owned) {
-        dormant::near_session(app, &session);
-        if let Some(wake) = &*app.waker {
-            wake();
-        }
+    if app.active_session_id().is_some() && dormant::want_pills(app)
+        && let Some(wake) = &*app.waker
+    {
+        wake();
     }
     let later = !app.plugins.boot.later().is_empty();
     let effects = app.plugins.boot.step(BootEvent::FirstFrame);

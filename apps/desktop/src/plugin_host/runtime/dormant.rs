@@ -483,7 +483,19 @@ pub fn recorded_fn(app: &App, id: &str, kind: &str, key: &str, name: &str) -> bo
 /// entries there (panels, `session.panel` rows) start, so the entries are the ones they offer.
 pub fn wake_launchers(app: &mut App) -> bool {
     let adopted = super::boot::adopt_later_kinds(app, &["Panel", "MenuItem"]);
-    let woke = wake_owners(app, |c| !c.panels.is_empty() || c.menu_items.iter().any(|m| m.spec.menu == spec::MenuName::SessionPanel));
+    let Some(session) = app.active_session_id().map(str::to_owned) else {
+        let woke = wake_owners(app, |c| !c.panels.is_empty() || c.menu_items.iter().any(|m| m.spec.menu == spec::MenuName::SessionPanel));
+        return adopted || woke;
+    };
+    // A plugin whose entries there draw from its record and its kept rows (`launcher_needs`)
+    // stays asleep through this turn: the view asks for it as it draws (`panels::asleep_launchers`),
+    // so it starts at the next one. A launch reaches this before its first frame, for a side
+    // panel saved on New tab (`panels::sync_empty_side`).
+    let ids: Vec<String> = app.plugins.dormant.asleep.iter().filter(|(id, a)| launcher_needs(app, id.as_str(), &a.record, &session)).map(|(id, _)| id.clone()).collect();
+    let mut woke = false;
+    for id in ids {
+        woke |= wake(app, &id, Why::Use);
+    }
     adopted || woke
 }
 
@@ -595,6 +607,17 @@ pub fn near_session(app: &App, session: &str) {
     for id in for_session(app, session) {
         push_once(&mut asked, &id, Wait::Next);
     }
+}
+
+/// The sleeping plugins with a composer pill start from the next turn, one per turn: a launch
+/// leaves them out of its first frame (`first_screen`). True when one was asked for.
+pub fn want_pills(app: &App) -> bool {
+    let mut asked = app.plugins.dormant.asked.borrow_mut();
+    let ids: Vec<&String> = app.plugins.dormant.asleep.iter().filter(|(_, a)| a.wait < Wait::Next && a.record.window.get("composer_pills").is_some_and(|es| !es.is_empty())).map(|(id, _)| id).collect();
+    for id in &ids {
+        push_once(&mut asked, id, Wait::Next);
+    }
+    !ids.is_empty()
 }
 
 /// Keeps server event `ty` for each dormant plugin that listened for it.
