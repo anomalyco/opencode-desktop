@@ -37,6 +37,11 @@ pub fn desktop() -> Option<PathBuf> {
     known(&FOLDERID_Desktop)
 }
 
+/// The user's Documents folder (moved by OneDrive or policy, too).
+pub fn documents() -> Option<PathBuf> {
+    known(&FOLDERID_Documents)
+}
+
 /// The user's home folder, where a shortcut starts the app, so no process holds the install
 /// folder open against an update's swap.
 pub fn profile() -> Option<PathBuf> {
