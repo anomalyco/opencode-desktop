@@ -40,7 +40,7 @@ pub fn plugins(app: &App) -> Vec<&'static str> {
     let Route::Session { id: session, .. } = &*app.route else { return out };
     // The saved turns on screen, as the storage's boot packet holds them: what a code block
     // plugin's languages are looked for in. They are the app's own server's (`features/restore`).
-    let saved = app.launch.cold_transcript.as_deref().map(|id| crate::storage::boot_preview(ServerKey::sidecar().as_str(), id).map(|(_, bytes)| bytes));
+    let saved = app.launch.cold_transcript.as_ref().map(|cold| crate::storage::boot_preview(ServerKey::sidecar().as_str(), &cold.id).map(|(_, bytes)| bytes));
     let draws_block = |id: &str| match (&saved, sources::code_languages(id)) {
         (None, _) => false,
         (Some(Some(bytes)), Some(languages)) => languages.iter().any(|language| fenced(bytes, language)),
