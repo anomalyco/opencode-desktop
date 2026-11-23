@@ -118,7 +118,7 @@ fn run(mode: Mode) {
     if new < WORTH_WRITING {
         return;
     }
-    let all = join(known.into_iter().chain(used).collect());
+    let all = join(known.into_iter().chain(used).collect(), JOIN);
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).ok();
     }
@@ -194,7 +194,9 @@ fn away(image: &Image, runs: &[(u32, u32)]) -> bool {
 
 /// Asks Windows to bring `runs` into memory.
 fn prefetch(image: &Image, runs: &[(u32, u32)]) {
-    let mut ranges: Vec<WIN32_MEMORY_RANGE_ENTRY> = join(runs.to_vec())
+    // `OPENCODE_RUNE_IMAGE_PAGES_JOIN`: the gap for this ask, for timing one gap against another.
+    let gap = std::env::var("OPENCODE_RUNE_IMAGE_PAGES_JOIN").ok().and_then(|v| v.parse().ok()).unwrap_or(JOIN);
+    let mut ranges: Vec<WIN32_MEMORY_RANGE_ENTRY> = join(runs.to_vec(), gap)
         .into_iter()
         .filter(|&(first, pages)| (first as usize + pages as usize) * PAGE <= image.size as usize)
         .map(|(first, pages)| WIN32_MEMORY_RANGE_ENTRY { VirtualAddress: (image.base + first as usize * PAGE) as *mut _, NumberOfBytes: pages as usize * PAGE })
@@ -245,12 +247,12 @@ fn covers(runs: &[(u32, u32)], page: u32) -> bool {
 }
 
 /// `runs` sorted, with neighbours and near neighbours ([`JOIN`]) made one.
-fn join(mut runs: Runs) -> Runs {
+fn join(mut runs: Runs, gap: u32) -> Runs {
     runs.sort_unstable();
     let mut out = Runs::with_capacity(runs.len());
     for (first, pages) in runs {
         match out.last_mut() {
-            Some((start, len)) if first <= *start + *len + JOIN => *len = (*len).max(first + pages - *start),
+            Some((start, len)) if first <= *start + *len + gap => *len = (*len).max(first + pages - *start),
             _ => out.push((first, pages)),
         }
     }
