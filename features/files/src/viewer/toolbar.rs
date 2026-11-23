@@ -211,7 +211,7 @@ fn open_artifact_menu(
                     }
                 }
                 Some("mode") => markdown::toggle_rendered(h, &sid, &at, tx),
-                Some("open-browser") => crate::ops::open_html_in_browser(h, &sid, &at),
+                Some("open-browser") => crate::ops::open_html_in_browser(h, &sid, &at, tx),
                 Some("reveal") => h.open_in_reveal(&at),
                 Some("copy") => {
                     if let Some(full) = h.open_in_path(&at) {

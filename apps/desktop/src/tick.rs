@@ -154,8 +154,10 @@ pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
         s.composer.focused = false;
     }
     let scheduler = s.kernel.scheduler.clone();
+    crate::panels::state::flight::begin_poll(s);
     let changed = scheduler.run_all(s, now, tx);
     s.finish_tail_change(tx);
+    crate::panels::state::flight::end_poll(s, tx);
     changed
 }
 

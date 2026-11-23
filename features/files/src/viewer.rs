@@ -157,7 +157,7 @@ pub fn files_main<H: FilesHost + PopupHost + 'static>(
             let label = opencode_i18n::t!("plugin.file.view.openInBrowser");
             tool::<H>(p, "files-open-browser-btn", &ic::GLOBE, false, label, label, move |s: &mut H, tx: &mut Tx| {
                 tx.instant();
-                s.open_workspace_preview(&sid, &at);
+                s.open_workspace_preview(&sid, &at, tx);
             })
         }))
         .children(previewable.then(|| {

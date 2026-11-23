@@ -296,8 +296,8 @@ pub fn start_read(host: &mut dyn FilesHost, sid: &str, path: &str, attempt: u64)
 }
 
 /// Opens workspace-relative `path` (local or remote) as an isolated `oc-preview://` tab.
-pub fn open_html_in_browser(host: &mut dyn FilesHost, sid: &str, path: &str) {
-    host.open_workspace_preview(sid, path);
+pub fn open_html_in_browser(host: &mut dyn FilesHost, sid: &str, path: &str, tx: &mut Tx) {
+    host.open_workspace_preview(sid, path, tx);
 }
 
 /// Opens `path` from the Files sidebar tree/filter: routes workspace HTML files to the browser
@@ -306,7 +306,7 @@ pub fn open_html_in_browser(host: &mut dyn FilesHost, sid: &str, path: &str) {
 pub fn open_workspace_file_or_page(host: &mut dyn FilesHost, path: &str, preview: bool, tx: &mut Tx) {
     let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
     if host.opens_as_page(path) {
-        open_html_in_browser(host, &sid, path);
+        open_html_in_browser(host, &sid, path, tx);
     } else {
         open_workspace_file_for_session(host, &sid, path, preview, None, true, tx);
     }
@@ -344,7 +344,7 @@ pub fn open_workspace_file_for_session(
     tx: &mut Tx,
 ) {
     if lines.is_none() && host.opens_as_page(path) {
-        host.open_workspace_preview(sid, path);
+        host.open_workspace_preview(sid, path, tx);
         return;
     }
     open_workspace_file_in_viewer(host, sid, path, preview, lines, steal_focus, false, tx);
@@ -377,9 +377,6 @@ fn open_workspace_file_in_viewer(
 ) {
     ensure_file_loaded(host, sid, path);
     watch::watch(host, sid, path);
-    let tab_key = file_tab_key(path);
-    // Remove transient `file:open` tab once a concrete file is picked (`file/renderer.tsx:128`).
-    host.open_side_tab(sid, &tab_key, preview, steal_focus, true, tx);
     let ws = host.files_mut().sessions.entry(sid.to_owned()).or_default();
     if force_source {
         ws.close_preview(path);
@@ -405,6 +402,10 @@ fn open_workspace_file_in_viewer(
             ws.pending_jump.insert(path.to_owned(), (start, end));
         }
     }
+    // Last, after `scroll_to_lines`'s `tx.instant()`: a side region this opens flies on
+    // `SIDE_SPRING` (`show_pane_tab`). Removes the transient `file:open` tab once a concrete
+    // file is picked (`file/renderer.tsx:128`).
+    host.open_side_tab(sid, &file_tab_key(path), preview, steal_focus, true, tx);
 }
 
 pub fn filtered_sidebar_files(host: &dyn FilesHost, session_id: &str) -> Vec<String> {

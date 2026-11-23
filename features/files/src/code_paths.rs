@@ -430,7 +430,6 @@ pub(crate) fn apply_code_link_resolved(
 
 /// The side region's Open file picker, its filter holding `query` (`renderer.tsx` `openPicker`).
 pub fn open_file_picker(host: &mut dyn FilesHost, query: &str, tx: &mut Tx) {
-    tx.instant();
     let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
     crate::ops::ensure_workspace_files(host, &sid);
     {
