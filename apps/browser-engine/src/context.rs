@@ -372,10 +372,10 @@ pub fn lock_chrome_services(ctx: &RequestContext) -> bool {
     for name in OFF {
         ok &= set_optional_bool_pref(ctx, name, false);
     }
-    // N4 built-in PDF viewer: official Electron never renders PDFs inline (`chromium.ts:352-364,959`);
-    // `plugins.always_open_pdf_externally` is verified present in CEF 156 `libcef.dll` and routes
-    // top-level PDFs through our `DownloadHandler` (Save dialog / agent staging) with 0 PDFium load.
-    ok &= set_optional_bool_pref(ctx, "plugins.always_open_pdf_externally", true);
+    // PDFs show inline, top-level and framed, as in official's Electron 44 (its built-in viewer,
+    // `navigator.pdfViewerEnabled` true). Set back explicitly: profiles from revisions 7-16 stored
+    // `true`, which sent every PDF to the Save dialog.
+    ok &= set_optional_bool_pref(ctx, "plugins.always_open_pdf_externally", false);
     // 2 == NETWORK_PREDICTION_NEVER.
     ok &= set_optional_int_pref(ctx, "net.network_prediction_options", 2);
     // The content settings, as their default-scope prefs (`Default` also gets them directly).

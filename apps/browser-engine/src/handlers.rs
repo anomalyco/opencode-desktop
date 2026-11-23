@@ -712,9 +712,6 @@ wrap_resource_request_handler! {
                     ReturnValue::CANCEL
                 };
             }
-            if crate::extensions::manifest::is_pdf_extension_url(&url) {
-                return ReturnValue::CANCEL;
-            }
             let roots = self.file_roots.lock().unwrap().clone();
             if browser_policy::subresource_allowed(&url, &roots) {
                 ReturnValue::CONTINUE
@@ -876,8 +873,13 @@ wrap_request_handler! {
                 return i32::from(!grant.allows_subframe_navigation(&url));
             }
             let is_agent = self.prompts.agent_driven.load(Ordering::Relaxed);
-            // Unconditionally block Chromium's built-in PDF viewer component extension across all tabs (N4).
+            // Chromium's PDF viewer, as official's Electron shows it: only as the frame Chromium puts
+            // in a PDF document (official lets the viewer's own frames through, `chromium.ts:963`).
+            // A page can't frame it (none of its pages is web-accessible) and no main frame goes there.
             if crate::extensions::manifest::is_pdf_extension_url(&url) {
+                if !is_main {
+                    return 0;
+                }
                 let _ = self.out_tx.send(EngineMsg::Refused {
                     tab_id: self.tab_id,
                     reason: browser_policy::Refusal::Blocked.code().to_owned(),
