@@ -13,6 +13,7 @@ pub mod image_pages;
 pub mod io_trace;
 pub mod last_exit;
 mod network;
+pub mod saved_list;
 mod shifts;
 pub mod trace;
 
@@ -232,6 +233,8 @@ pub struct Launch {
     pub grace: Option<Duration>,
     /// The address the setup card names, in its story.
     pub story_addr: Option<String>,
+    /// The session list the first frame drew from the saved state, until the server's lands.
+    pub saved_list: Option<saved_list::SavedList>,
     /// The first reads' thread `setup` started before the first frame, for `on_ready`'s Start.
     #[cfg(not(target_arch = "wasm32"))]
     early: Option<Early>,
@@ -494,6 +497,7 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     }
     started
 }
+
 
 /// Re-probes the local OpenCode server (including any fresh `service.json` written since launch).
 pub fn retry(s: &mut App, tx: &mut Tx) {

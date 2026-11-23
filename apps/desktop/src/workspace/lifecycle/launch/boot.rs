@@ -387,6 +387,10 @@ impl App {
             *self.projects = opencode_kit::model::parse_projects(&f.projects);
         }
         if let Some(sessions) = &f.sessions {
+            // The saved list stood in for this one: a session the server no longer lists goes.
+            if let Some(saved) = self.launch.saved_list.take() {
+                saved.retire(&mut self.sessions);
+            }
             self.refresh_recent();
             self.sessions_listed(opencode_kit::model::parse_sessions(sessions));
         }
@@ -485,6 +489,8 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
     // those back from 111 to 214 ms after the process started (a real server, each read 1-2 ms),
     // so a session waiting on a permission showed its dock that late.
     s.list_unlisted_worktrees();
+    // What the server lists now, for the next launch's first frame.
+    super::saved_list::save(s);
     // Small newest pages, on the speculative lane after foreground startup work is queued.
     let mut recent: Vec<_> = s.sessions.iter().filter(|s| s.parent.is_none()).collect();
     recent.sort_by_key(|s| std::cmp::Reverse(s.updated));

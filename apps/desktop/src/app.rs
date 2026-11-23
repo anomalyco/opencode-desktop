@@ -417,6 +417,10 @@ impl App {
         let allow_send = !flag("--read-only") && attended();
         *self.source = Source::Live { server, requests: None, writes: None, allow_send };
         self.open_outbox();
+        // A window whose server answers after its first frame lists what that server last listed.
+        if deferred {
+            launch::saved_list::restore(self);
+        }
         *self.diag.status = self.live_status();
         self.resume_settings_page();
         true

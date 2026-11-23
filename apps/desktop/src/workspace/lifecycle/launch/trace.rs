@@ -139,14 +139,16 @@ fn echoes() -> bool {
 
 /// The milestones `--launch-marks` prints.
 /// `content.rows` is the first frame with the open session's messages (the saved copy's, on a
-/// later launch), `session.read.received` the server's answer with its newest page.
-const MILESTONES: [&str; 10] = [
+/// later launch), `sessions.rows` the first with sessions to list, `session.read.received` the
+/// server's answer with the open session's newest page.
+const MILESTONES: [&str; 11] = [
     "main.entered",
     "window.created",
     "frame.first.presented",
     "text.complete",
     "input.ready",
     "content.rows",
+    "sessions.rows",
     "server.answered",
     "content.live",
     "session.read.received",
@@ -223,6 +225,16 @@ pub fn drawn(rt: &rune::Runtime<App>) {
     let rows = s.painted_session().map_or(0, |(_, rows)| rows);
     if rows > 0 {
         mark("content.rows");
+    }
+    // The first frame with words in the composer: a key a bench posts as the window shows has
+    // landed in it (a restored draft has them from the first frame).
+    if !s.composer.text.is_empty() {
+        mark("composer.text");
+    }
+    // The first frame with sessions to list (Home's rows, the sidebar's): the saved list's on a
+    // later launch, else the server's.
+    if !s.sessions.is_empty() {
+        mark("sessions.rows");
     }
     let shows = rows > 0 || !matches!(*s.route, Route::Session { .. });
     if shows && !crate::launch::waiting(s) && !crate::launch::offline(s) {
