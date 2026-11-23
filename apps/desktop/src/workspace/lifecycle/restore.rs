@@ -629,10 +629,12 @@ impl App {
     }
 
     pub fn save_on_close(&mut self) {
+        crate::launch::saved_list::save(self);
         save_on_close(self);
     }
 
     pub fn save_on_quit(&mut self) {
+        crate::launch::saved_list::save(self);
         save_on_quit(self);
     }
 

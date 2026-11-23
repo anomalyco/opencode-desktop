@@ -224,6 +224,11 @@ pub fn drawn(rt: &rune::Runtime<App>) {
     if rows > 0 {
         mark("content.rows");
     }
+    // The first frame with words in the composer: a key a bench posts as the window shows has
+    // landed in it (a restored draft has them from the first frame).
+    if !s.composer.text.is_empty() {
+        mark("composer.text");
+    }
     let shows = rows > 0 || !matches!(*s.route, Route::Session { .. });
     if shows && !crate::launch::waiting(s) && !crate::launch::offline(s) {
         mark("content.live");
