@@ -7,11 +7,11 @@
 mod exec;
 pub mod express;
 mod frames;
-mod loading;
 mod session;
 mod start_gate;
 mod suppression;
 mod tunnel;
+mod workers;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -61,14 +61,8 @@ pub(super) enum WorkerMsg {
         attempt: u64,
         outcome: AttachOutcome,
     },
-    /// The session's Location answered its plugin list (`AttachEffect::ListPlugins`): `any` when
-    /// it names a plugin.
-    PluginsListed {
-        server_key: ServerKey,
-        session_id: String,
-        attempt: u64,
-        any: bool,
-    },
+    /// The session's Location answered its plugin list (`AttachEffect::ListPlugins`): `any` when it names a plugin.
+    PluginsListed { server_key: ServerKey, session_id: String, attempt: u64, any: bool },
     CommandFetched {
         server_key: ServerKey,
         session_id: String,
@@ -702,36 +696,11 @@ fn apply_batch_effects(
         for effect in effects {
             match effect {
                 AttachEffect::StartAttach { attempt, connection_id } => {
-                    if let Some((_, prev_abort)) = att.attach_abort.take() {
-                        prev_abort.abort();
-                    }
-                    let abort = AbortHandle::new();
-                    att.attach_abort = Some((attempt, abort.clone()));
-                    let server = att.server.clone();
-                    let location = att.location.clone();
-                    let sid = att.session_id.clone();
-                    let skey = att.server_key.clone();
-                    let tx = worker_tx.clone();
-                    let wake = waker.clone();
-                    std::thread::Builder::new()
-                        .name("browser-rpc-attach".into())
-                        .spawn(move || {
-                            let outcome = server.browser_rpc_attach(&location, &sid, &connection_id, &abort);
-                            let _ = tx.send(WorkerMsg::AttachEnded {
-                                server_key: skey,
-                                session_id: sid,
-                                attempt,
-                                outcome,
-                            });
-                            if let Some(w) = wake {
-                                w();
-                            }
-                        })
-                        .ok();
+                    workers::attach(att, attempt, connection_id, worker_tx.clone(), waker.clone());
                 }
                 // A Location the server has only just started lists no plugin until its plugins
                 // have loaded (`pane.ts` `loaded`, opencode#65720).
-                AttachEffect::ListPlugins { attempt } => loading::list_plugins(att, attempt, worker_tx.clone(), waker.clone()),
+                AttachEffect::ListPlugins { attempt } => workers::list_plugins(att, attempt, worker_tx.clone(), waker.clone()),
                 AttachEffect::AbortAttach { attempt } => {
                     if att.attach_abort.as_ref().is_some_and(|(a, _)| *a == attempt)
                         && let Some((_, abort)) = att.attach_abort.take()
