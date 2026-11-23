@@ -264,7 +264,7 @@ fn is_home_broad_lex(lex: &str, home_lex: &str) -> bool {
         && if cfg!(any(windows, target_os = "macos")) {
             home_lex.as_bytes()[..lex.len()].eq_ignore_ascii_case(lex.as_bytes())
         } else {
-            &home_lex[..lex.len()] == lex
+            home_lex.as_bytes()[..lex.len()] == *lex.as_bytes()
         }
     {
         return true;
