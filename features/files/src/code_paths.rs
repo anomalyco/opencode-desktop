@@ -300,7 +300,7 @@ pub fn check_code_paths(host: &mut dyn FilesHost, sid: &str, path: &str) {
     }
     let dir = link_directory(host, sid);
     let base = opencode_kit::path::parent(path).to_owned();
-    let home = host.home_directory().to_owned();
+    let home = host.home_directory().into_owned();
     let live = host.is_live();
     let mut jobs = Vec::new();
     {
@@ -374,7 +374,7 @@ pub fn reply_code_links(host: &dyn FilesHost, body: &str, live: bool) -> Option<
     let waker = host.waker();
     host.files_untracked()
         .replies
-        .read(sid, codes, server, || link_directory(host, sid), host.home_directory().to_owned(), waker.as_ref())
+        .read(sid, codes, server, || link_directory(host, sid), host.home_directory().into_owned(), waker.as_ref())
 }
 
 /// A click on reply code naming a file (`code`): a plugin's link handler takes it first, as

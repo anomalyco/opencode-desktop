@@ -33,7 +33,7 @@ pub fn prepare(host: &dyn FilesHost) {
             return;
         }
         let bare = ws.map(|w| w.known_files.iter().filter(|f| is_bare_word(f)).cloned().collect());
-        *sc = Scope { dir, home: home.to_owned(), known_len, bare };
+        *sc = Scope { dir, home: home.into_owned(), known_len, bare };
     });
 }
 
