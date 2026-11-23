@@ -21,8 +21,8 @@
 //! A check reads the feed's `windows-x64` (or `windows-arm64`) target: a zip of the install
 //! folder. The download's size and SHA-256 must match the manifest's, every program and library
 //! in it must carry a trusted Authenticode signature from [`EXPECTED_PUBLISHER`], and it unpacks
-//! beside the root. Clicking Update / Install and restart copies the staged version's own
-//! executable into the updates folder and starts it as the helper (`--apply-update`, see
+//! beside the root. Clicking Update / Install and restart hard-links the staged version's own
+//! executable into the updates folder (a copy across volumes) and starts it as the helper (`--apply-update`, see
 //! `apply.rs`), which waits for this process to exit, swaps the folders and starts the new
 //! version with the same arguments. Windows never installs on plain quit (`platform.ts:30`).
 
@@ -228,7 +228,18 @@ impl Windows {
         self.verify_quick(&dir)?;
         let updates = &self.engine.facts.updates;
         let helper = updates.join(format!("opencode-update-helper-{}.exe", std::process::id()));
-        std::fs::copy(dir.join(EXE), &helper).map_err(|e| format!("could not prepare the update: {e}"))?;
+        // A hard link to the staged executable, not a copy of it: the helper is then the new
+        // version's own file. A copy is 170 MB that Windows flushes to the disk and scans before
+        // the copy's first start: 918,904 us from here to a started helper, against 88,747 us
+        // for a link (medians of 5, dev-475, a folder Windows Defender scans), and the version
+        // the helper starts is then a file Windows has loaded and scanned already (its start:
+        // 23,962 us against 81,811 us). The swap renames folders, which a file running through
+        // another link doesn't hold (the transacted and the plain renames both). A copy when
+        // the updates folder is on another volume, where a link can't be made.
+        std::fs::remove_file(&helper).ok();
+        std::fs::hard_link(dir.join(EXE), &helper)
+            .or_else(|_| std::fs::copy(dir.join(EXE), &helper).map(drop))
+            .map_err(|e| format!("could not prepare the update: {e}"))?;
         let mut cmd = Command::new(&helper);
         cmd.arg("--apply-update")
             .arg("--wait")
@@ -334,7 +345,7 @@ fn binaries(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 /// Clears what an earlier update left: the previous version's folder, unfinished unpacks and
-/// downloads, and the helper's copies.
+/// downloads, and the helper's links or copies.
 fn sweep(root: &Path, updates: &Path) {
     repair_interrupted(root);
     let mut helper_running = false;
@@ -345,8 +356,14 @@ fn sweep(root: &Path, updates: &Path) {
                 && bundle::process_gone(pid)
             {
                 std::fs::remove_dir_all(e.path()).ok();
-            } else if n.starts_with("opencode-update-helper-") && std::fs::remove_file(e.path()).is_err() {
-                helper_running = true;
+            } else if let Some(rest) = n.strip_prefix("opencode-update-helper-") {
+                // A helper's copy can't be removed while it runs. A hard-linked helper can (its
+                // file has another name, the staged executable's), so the app it waits on, the
+                // pid in its name, stands for it, and its link stays until that app is gone.
+                let waiting = rest.strip_suffix(".exe").and_then(|pid| pid.parse::<u32>().ok()).is_some_and(|pid| pid != std::process::id() && !bundle::process_gone(pid));
+                if waiting || std::fs::remove_file(e.path()).is_err() {
+                    helper_running = true;
+                }
             }
         }
     }
