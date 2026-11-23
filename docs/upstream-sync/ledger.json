@@ -2,26 +2,26 @@
   "generated_at": "2026-11-23",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "d6379ff0e1c1c09e927e63c28c58a1f2a0533462",
+  "upstream_head": "2bf24680183c704a3e9168347c14f5f335d3a71e",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "24c7c1c56b7853955999d2688fda597d7b0eb5d0",
-  "post_1114_commit_count": 503,
-  "post_1114_in_ledger": 188,
-  "post_1114_skipped": 315,
+  "rune_desktop_head": "639b78573892bd5864b3c4dc489758f36bf34f8b",
+  "post_1114_commit_count": 510,
+  "post_1114_in_ledger": 192,
+  "post_1114_skipped": 318,
   "post_1114_skipped_breakdown": {
     "test-only": 24,
     "ci-bench-deps": 18,
     "docs-site-data": 50,
     "tui-only": 19,
     "cli-acp-only": 8,
-    "server-core-ai-codemode-internal": 196
+    "server-core-ai-codemode-internal": 199
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 209,
+  "total_ledger_rows": 213,
   "status_counts": {
-    "have it": 178,
-    "not applicable": 29,
+    "have it": 181,
+    "not applicable": 30,
     "differs on purpose": 1,
     "partly": 1
   },
@@ -5260,6 +5260,95 @@
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-189",
+      "window": "post-1120",
+      "pr": 65757,
+      "sha": "d284e7ce17",
+      "title": "fix(app): show the selected layout card's check in the accent blue",
+      "merged": "2026-11-23",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/settings/general/interface-mode.css"
+      ],
+      "summary": "The selected layout card's check (Settings > General: Interface layout and Navigation) is the accent blue with text-contrast ink; it was icon-muted with the ground's colour.",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "rune-desktop #860 (be2c4033): features/settings/src/interface_mode.rs check_badge fills bg_accent and inks text_contrast. Official RUN (dev 7cfd868443): the check is rgb(59, 92, 246) = --v2-background-bg-accent with white ink. Ours: cargo check; the run on the PR build is queued, not read yet.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#860"
+    },
+    {
+      "id": "UP-190",
+      "window": "post-1120",
+      "pr": 65758,
+      "sha": "7cfd868443",
+      "title": "fix(app): keep the timeline and Home list out of the Tab order",
+      "merged": "2026-11-23",
+      "packages": [
+        "ui"
+      ],
+      "main_files": [
+        "packages/ui/src/components/scroll-view.tsx"
+      ],
+      "summary": "The timeline's and the Home list's scroll viewport are no Tab stop (ScrollView tabIndex -1; it was a stop whenever it could scroll). Tab goes to the items inside; a click still focuses the viewport so the keys scroll it.",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "rune-desktop #860 (be2c4033): tab_index(-1) on the timeline viewport (crates/session-view/src/timeline/mod.rs) and the Home viewport (apps/desktop/src/shell/view/home.rs). Official RUN (dev 7cfd868443): both viewports tabindex=-1; Shift+Tab from the composer goes Copy response, Copy, Copy, Copy, a link, Used 1 Thought and never the viewport; a click focuses the viewport and PageUp scrolls it (top 639 -> 0); on Home Tab goes through the project and session controls and never the viewport. Ours: cargo check; the run on the PR build is queued, not read yet.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#860"
+    },
+    {
+      "id": "UP-191",
+      "window": "post-1120",
+      "pr": 65225,
+      "sha": "4551672c80",
+      "title": "fix(app): tolerate subpixel rounding in folder picker middle truncation",
+      "merged": "2026-11-23",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/workspaces/selection/dialog.tsx"
+      ],
+      "summary": "The folder picker's middle-truncation markers show only for a row that really overflows at a fractional UI zoom (a CSS container-query threshold of 1.5lh for @pierre/trees).",
+      "size": "XS",
+      "status": "not applicable",
+      "status_evidence": "A CSS workaround for @pierre/trees' truncation markers under subpixel rounding. rune-desktop draws the folder picker itself and has no such marker (truncate_middle is used only in crates/session-view/src/video.rs). By reading.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-192",
+      "window": "post-1120",
+      "pr": 65783,
+      "sha": "2bf2468018",
+      "title": "fix(app): drop the ring around a clicked Settings page and round the split button's ring",
+      "merged": "2026-11-23",
+      "packages": [
+        "app",
+        "ui"
+      ],
+      "main_files": [
+        "packages/app/src/settings/settings.css",
+        "packages/ui/src/actions/split-button/split-button.css"
+      ],
+      "summary": "The Settings page draws no ring after a click on its text and a key press; each half of a split button rounds its own outer corners so the inset focus ring follows them (the group no longer clips).",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "Settings: already so (features/settings/src/shell.rs: the panel is focusable with tab_index(-1) and no_focus_ring, from UP-135). Split button: rune-desktop #872 (639b7857): opencode_ui::focus::split_half gives each half of the Open in split button (features/files/src/viewer/toolbar.rs, apps/desktop/src/workspace/system/open_in.rs) its outer 6 pt corners and the ring 2 pt inside; before, a half took the view's default outside ring, which the group's rounded clip cut off. CI build passes; not run in either app.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#872"
     }
   ],
   "browser_security_review": {
