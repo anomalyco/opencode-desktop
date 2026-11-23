@@ -250,14 +250,24 @@ fn run(mut config: StorageConfig, send: &dyn Fn(BootPacket), gate: &Gate) -> (St
             report.raw_miss = Some("another process holds the file");
             held = Some(BootPacket::held_empty());
         }
-        // A new profile with nothing to import or seed from: the first frame is a first run, so
-        // it needn't wait for the database to be made (its schema takes ~13,000 µs). The journal
-        // is reserved beside it; keys before it are held for it (`journal::hold`).
-        FastBoot::UseSqlite(why) if why == "no database file" && nothing_to_import(&config) => {
+        // A new profile with no files of Rune's own to import: the first frame needn't wait for
+        // the database to be made (its schema takes ~13,000 µs). It is a first run, or, where
+        // Desktop left a database, what Desktop had open: read from Desktop's file here (in place
+        // when Desktop isn't writing it: a few state rows), and committed by stage B's import once
+        // the database exists (`owe.seed`). The journal is reserved beside the first frame; keys
+        // before it are held for it (`journal::hold`).
+        FastBoot::UseSqlite(why) if why == "no database file" && no_legacy_files(&config) => {
             report.raw_miss = Some(why);
+            // Only an open that imports commits a seed.
+            let collected = config.import.as_ref().map(|import| super::seed::collect(&config.official, &config.path.parent().map_or_else(|| import.dir.clone(), std::path::Path::to_path_buf)));
+            rune::marks::mark("storage.seed.read");
+            let p = collected.as_ref().and_then(super::seed::Collected::packet).unwrap_or_default();
+            owe.seed = collected;
+            report.boot_bytes = p.len();
+            report.plugin_bytes = p.plugin_bytes();
             report.stage_a_ns = ns(t0);
-            packet = Some(BootPacket::default());
-            send(BootPacket::default());
+            packet = Some(p.clone());
+            send(p);
         }
         FastBoot::UseSqlite(why) => report.raw_miss = Some(why),
     }
@@ -437,9 +447,9 @@ fn shows_the_same(conn: &Connection, shown: &BootPacket) -> bool {
     }
 }
 
-/// No legacy file to import and no Desktop profile to seed from (a profile's first launch).
-fn nothing_to_import(config: &StorageConfig) -> bool {
-    config.import.as_ref().is_none_or(|i| import::shapes::scan(i).is_empty()) && config.official.iter().all(|d| !d.join("drafts.sqlite").exists())
+/// No file Rune kept before the database to import (a profile's first launch).
+fn no_legacy_files(config: &StorageConfig) -> bool {
+    config.import.as_ref().is_none_or(|i| import::shapes::scan(i).is_empty())
 }
 
 /// Another process has the file: SQLite's lock, or a handle that shares nothing.

@@ -6,6 +6,8 @@
 
 mod boot;
 #[cfg(target_os = "windows")]
+pub mod compat_layer;
+#[cfg(target_os = "windows")]
 pub mod image_pages;
 #[cfg(target_os = "windows")]
 pub mod io_trace;
