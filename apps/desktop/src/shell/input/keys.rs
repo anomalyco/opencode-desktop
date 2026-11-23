@@ -4,6 +4,11 @@ use crate::pickers::PickerHost as _;
 use crate::{App, Route, knobs};
 
 pub(crate) fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    // A key chord in progress, or one this key starts, takes the key before anything else
+    // (`createAppKeymap` reads keys on the document, in the capture phase).
+    if crate::key_sequence::window_key(s, ev, tx) {
+        return true;
+    }
     crate::tab_hints::key_down(s, ev, tx);
     // A key before the after-frame turn still finds the dormant built-ins' shortcuts.
     crate::plugin_host::doze_owed(s);

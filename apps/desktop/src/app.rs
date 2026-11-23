@@ -448,7 +448,8 @@ impl App {
     /// (between `key_band::MID` and `knobs::key`) and calls [`Self::shortcut_without_dictation`] so
     /// one key press never evaluates `dictation::key` twice.
     pub fn shortcut(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {
-        self.shortcut_inner(ev, tx, true)
+        // A key chord in progress, or one this key starts, takes the key before any shortcut.
+        crate::key_sequence::field_key(self, ev, tx) || self.shortcut_inner(ev, tx, true)
     }
 
     pub(crate) fn shortcut_without_dictation(&mut self, ev: &KeyEvent, tx: &mut Tx) -> bool {

@@ -10,6 +10,7 @@ use std::sync::{Mutex, RwLock};
 
 use rune::Keybind;
 
+use super::sequence::{self, Bound};
 use super::{Bind, all};
 
 /// Shortcuts saved under another id before (old, now): `session.stop` became Desktop's
@@ -32,6 +33,8 @@ const RENAMES: [(&str, &str); 10] = [
 static TABLE: RwLock<Vec<Option<&'static Keybind>>> = RwLock::new(Vec::new());
 /// Commands without a row in the table, by id.
 static COMMANDS: RwLock<Vec<(String, &'static Keybind)>> = RwLock::new(Vec::new());
+/// The chords (keybinds of several strokes) among the saved keybinds, by command id.
+static CHORDS: RwLock<Vec<Bound>> = RwLock::new(Vec::new());
 /// Each keybind spec parsed once and kept for the app's life, as the table's are.
 static PARSED: Mutex<Option<HashMap<String, &'static Keybind>>> = Mutex::new(None);
 /// Optional host callback invoked after [`apply`] installs new overrides (e.g. menu bar refresh).
@@ -51,13 +54,14 @@ fn parse(spec: &str) -> Option<&'static Keybind> {
     if let Some(k) = cache.get(spec) {
         return Some(k);
     }
-    let k: &'static Keybind = Box::leak(Box::new(spec.parse::<Keybind>().ok()?));
+    // The single strokes only: a chord ("mod+k mod+c") answers through `sequence` instead.
+    let k: &'static Keybind = Box::leak(Box::new(sequence::parse(spec)?.keybind));
     cache.insert(spec.to_owned(), k);
     Some(k)
 }
 
 /// The shared view shortcut a table row stands for, if any.
-fn view_bind(b: Bind) -> Option<super::base::Bind> {
+pub(super) fn view_bind(b: Bind) -> Option<super::base::Bind> {
     use super::base::Bind as V;
     Some(match b {
         Bind::OpenProject => V::OpenProject,
@@ -102,17 +106,28 @@ pub fn apply(map: &BTreeMap<String, String>) {
     }
     // A command saved under its old id keeps that keybind under its new one, unless the new one is
     // saved too (a renamed row reads its old id above).
-    let commands = map
+    let renamed = map
         .iter()
         .filter(|(id, _)| !rows.iter().any(|b| b.id == id.as_str()))
         .filter_map(|(id, spec)| match RENAMES.iter().find(|(old, _)| old == id).map(|(_, now)| *now) {
             Some(now) if map.contains_key(now) || rows.iter().any(|b| b.id == now) => None,
-            Some(now) => Some((now.to_owned(), parse(spec)?)),
-            None => Some((id.clone(), parse(spec)?)),
+            Some(now) => Some((now.to_owned(), spec)),
+            None => Some((id.clone(), spec)),
+        });
+    let commands: Vec<(String, &String)> = renamed.collect();
+    let chords = rows
+        .iter()
+        .filter_map(|b| Some((b.id.to_owned(), saved(b.id)?)))
+        .chain(commands.iter().cloned())
+        .flat_map(|(id, spec)| {
+            let chords = sequence::parse(spec).map(|p| p.chords).unwrap_or_default();
+            chords.into_iter().map(move |(strokes, first)| Bound { id: id.clone(), strokes, first })
         })
         .collect();
+    let commands = commands.into_iter().filter_map(|(id, spec)| Some((id, parse(spec)?))).collect();
     *TABLE.write().unwrap_or_else(|e| e.into_inner()) = table;
     *COMMANDS.write().unwrap_or_else(|e| e.into_inner()) = commands;
+    *CHORDS.write().unwrap_or_else(|e| e.into_inner()) = chords;
     VERSION.fetch_add(1, Ordering::Release);
     let hook = *ON_CHANGED.read().unwrap_or_else(|e| e.into_inner());
     if let Some(on_changed) = hook {
@@ -133,6 +148,21 @@ pub fn command(id: &str) -> Option<&'static Keybind> {
 /// Every command Settings bound that has no row in the table, with its keybind.
 pub fn commands() -> Vec<(String, &'static Keybind)> {
     COMMANDS.read().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// Every chord (a keybind of several strokes) Settings bound, table rows' and other commands'.
+pub fn chords() -> Vec<Bound> {
+    CHORDS.read().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// Whether Settings bound any chord.
+pub fn has_chords() -> bool {
+    !CHORDS.read().unwrap_or_else(|e| e.into_inner()).is_empty()
+}
+
+/// The chord command `id`'s labels show: its keybind's first combo, when that is a chord.
+pub fn first_chord(id: &str) -> Option<Vec<rune::Chord>> {
+    CHORDS.read().unwrap_or_else(|e| e.into_inner()).iter().find(|b| b.first && b.id == id).map(|b| b.strokes.clone())
 }
 
 /// A spec as Settings saves it: `chord`'s canonical form ("mod+shift+l").

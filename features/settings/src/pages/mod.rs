@@ -235,7 +235,8 @@ pub fn show_page(host: &mut dyn SettingsHost, page: Page) {
     if was_confirm {
         host.on_overlay_closed(crate::PROVIDER_REMOVAL_OVERLAY_ID);
     }
-    host.settings_pages_mut().shortcuts.capture = None;
+    // Leaving the page stops a recording (`page.synced`); the row just saved keeps its +.
+    let _ = host.settings_pages_mut().shortcuts.capture.step(shortcuts::Event::Cancelled);
     host.settings_pages_mut().blur_fields();
     let key = host.settings_pages().server.key.clone();
     if page.per_server() && host.is_server_listed(&key) {
@@ -492,7 +493,7 @@ pub(crate) fn filter_page_key(s: &mut dyn SettingsHost, ev: &KeyEvent, tx: &mut 
     }
     let st = s.settings_pages();
     let any_focused = st.search.focused || st.projects.filter.focused || st.shortcuts.filter.focused || st.find.query.focused;
-    if any_focused || st.shortcuts.capture.is_some() {
+    if any_focused || st.shortcuts.capture.recording().is_some() {
         return false;
     }
     let f = match st.page {
