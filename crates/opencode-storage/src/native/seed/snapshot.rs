@@ -1,13 +1,21 @@
-//! Read-only scratch-copy snapshot of Official Desktop's `drafts.sqlite` (+ `-wal`) inside OUR
-//! profile directory so Official's folder is never written to, never has `-shm` created in it,
-//! catches mid-checkpoint DB/WAL skew, recovers live WAL frames cleanly, and verifies
-//! `PRAGMA integrity_check` before reading a row.
+//! A read-only view of Official Desktop's `drafts.sqlite`, two ways, neither of which writes to
+//! Official's folder or makes a `-shm` in it:
+//!
+//! - **In place** ([`open_in_place`]), when nobody is writing the file: no `-wal` beside it (Desktop
+//!   closed, its last connection checkpointed and removed it) and no rollback journal. SQLite
+//!   opens it `immutable` (no lock, no `-shm`, no write) and reads only the pages the seed's rows
+//!   are on, so a 120 MB file full of attachments costs what its few state rows cost. What was
+//!   read counts only if the file is still as it was afterwards ([`Snapshot::held`]).
+//! - **A scratch copy** ([`open_snapshot`]) inside OUR profile directory otherwise (Desktop is
+//!   running, or was killed: the WAL holds frames): the whole file and its WAL copied, checked for
+//!   mid-checkpoint DB/WAL skew, the WAL's frames recovered there, and `PRAGMA integrity_check`
+//!   run before a row is read.
 
 use std::fs::{self, File};
 use std::io::{self, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 use rusqlite::{Connection, OpenFlags};
 
@@ -79,7 +87,20 @@ fn copy_file_capped(src: &Path, dst: &Path, max_bytes: u64) -> Result<bool, Stri
     }
     let mut reader = File::open(src).map_err(|e| format!("open {}: {e}", src.display()))?.take(max_bytes + 1);
     let mut writer = File::create(dst).map_err(|e| format!("create {}: {e}", dst.display()))?;
-    let copied = io::copy(&mut reader, &mut writer).map_err(|e| format!("copy {}: {e}", src.display()))?;
+    // 1 MiB a read: `io::copy` moves 8 KiB at a time here (a `Take` has no fast path), 16,000
+    // reads and as many writes for a 128 MB database.
+    let mut chunk = vec![0u8; 1 << 20];
+    let mut copied: u64 = 0;
+    loop {
+        let n = match reader.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(format!("copy {}: {e}", src.display())),
+        };
+        writer.write_all(&chunk[..n]).map_err(|e| format!("copy {}: {e}", src.display()))?;
+        copied += n as u64;
+    }
     if copied > max_bytes {
         return Err(format!("{}: grew past {} B cap during copy", src.display(), max_bytes));
     }
@@ -151,10 +172,46 @@ fn sweep_stale_copies(scratch_parent: &Path) {
     }
 }
 
-/// Private verified copy of Official Desktop's `drafts.sqlite` inside OUR profile directory.
-/// Dropping closes the SQLite connection first, then deletes the scratch folder.
+/// What a database nobody is writing looks like from outside: its length, when it was last
+/// written and its header (the change counter, the page count, the schema cookie), with no WAL
+/// and no rollback journal beside it. Any write by Desktop starts by making one of those two
+/// files, and ends by changing the database's own, so two equal looks with nothing beside the
+/// file mean nothing was written between them.
+#[derive(PartialEq, Eq)]
+struct Quiet {
+    len: u64,
+    modified: Option<SystemTime>,
+    header: [u8; 100],
+}
+
+/// `db` as nobody writing it leaves it; none when a WAL or a rollback journal is beside it, or it
+/// isn't a plain file of at most `MAX_SEED_DB_BYTES`.
+fn quiet(db: &Path) -> Option<Quiet> {
+    let beside = |suffix: &str| PathBuf::from(format!("{}{suffix}", db.display()));
+    // A WAL that exists, even empty, is a database someone has open.
+    if fs::symlink_metadata(beside("-wal")).is_ok() || fs::symlink_metadata(beside("-journal")).is_ok_and(|m| m.len() > 0) {
+        return None;
+    }
+    let meta = fs::symlink_metadata(db).ok()?;
+    if !meta.is_file() || meta.file_type().is_symlink() || meta.len() > MAX_SEED_DB_BYTES {
+        return None;
+    }
+    let (len, header) = read_prefix::<100>(db).ok()??;
+    (len == meta.len() && &header[..16] == b"SQLite format 3\0").then(|| Quiet { len, modified: meta.modified().ok(), header })
+}
+
+/// How a [`Snapshot`] reads Official Desktop's database.
+enum Source {
+    /// A verified private copy inside OUR profile directory, removed on drop.
+    Copy { dir: PathBuf },
+    /// The file itself, opened `immutable`: what it looked like when it was opened.
+    InPlace { db: PathBuf, opened: Quiet },
+}
+
+/// Official Desktop's `drafts.sqlite`, read-only: a private verified copy, or the file in place.
+/// Dropping closes the SQLite connection first, then deletes a copy's scratch folder.
 pub(super) struct Snapshot {
-    dir: PathBuf,
+    source: Source,
     conn: Option<Connection>,
 }
 
@@ -168,13 +225,39 @@ impl Snapshot {
             .query_row("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1", [name], |_| Ok(()))
             .is_ok()
     }
+
+    /// Whether what was read is what the database held all along: always for a copy; for the file
+    /// in place, when it is still as it was when it was opened (nothing wrote to it meanwhile).
+    /// Ask after the last read; what a snapshot that didn't hold gave is thrown away.
+    pub(super) fn held(&self) -> bool {
+        match &self.source {
+            Source::Copy { .. } => true,
+            Source::InPlace { db, opened } => quiet(db).as_ref() == Some(opened),
+        }
+    }
 }
 
 impl Drop for Snapshot {
     fn drop(&mut self) {
         self.conn.take();
-        let _ = fs::remove_dir_all(&self.dir);
+        if let Source::Copy { dir } = &self.source {
+            let _ = fs::remove_dir_all(dir);
+        }
     }
+}
+
+/// Opens `official_dir/drafts.sqlite` where it is, when nobody is writing it ([`quiet`]): read-only
+/// and `immutable`, so SQLite takes no lock, makes no `-shm` and reads only the pages asked for.
+/// None when it can't be read this way (a WAL beside it, not a database): [`open_snapshot`] then.
+pub(super) fn open_in_place(official_dir: &Path) -> Option<Snapshot> {
+    let db = official_dir.join("drafts.sqlite");
+    let opened = quiet(&db)?;
+    let uri = format!("file:{}?mode=ro&immutable=1", encode_uri_path(&db));
+    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX | OpenFlags::SQLITE_OPEN_URI;
+    let conn = Connection::open_with_flags(&uri, flags).ok()?;
+    // The schema reads: it is a database SQLite can open this way.
+    conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get::<_, i64>(0)).ok()?;
+    Some(Snapshot { source: Source::InPlace { db, opened }, conn: Some(conn) })
 }
 
 pub(super) enum SnapshotErr {
@@ -235,7 +318,7 @@ pub(super) fn open_snapshot(official_dir: &Path, scratch_parent: &Path) -> Resul
                 let check: Result<String, _> = conn.query_row("PRAGMA integrity_check(1)", [], |r| r.get(0));
                 match check {
                     Ok(ref s) if s.eq_ignore_ascii_case("ok") => {
-                        return Ok(Snapshot { dir, conn: Some(conn) });
+                        return Ok(Snapshot { source: Source::Copy { dir }, conn: Some(conn) });
                     }
                     Ok(other) => {
                         drop(conn);
@@ -264,15 +347,31 @@ pub(super) enum PickResult {
     Failed(String),
 }
 
-/// Picks the newest valid Official Desktop `userData` folder among `dirs`, supporting both modern
-/// `state`-table databases and older pre-`state` (`document`/`blob`-only) databases.
-pub(super) fn pick_dir(dirs: &[PathBuf], scratch_parent: &Path) -> PickResult {
-    sweep_stale_copies(scratch_parent);
-    let mut best: Option<(i64, PathBuf, Snapshot)> = None;
-    let mut last_err: Option<String> = None;
+/// When `dir`'s database was last written: the later of the file's and its WAL's last write
+/// (a commit lands in the WAL first). None when there is no database.
+fn last_written(dir: &Path) -> Option<SystemTime> {
+    let db = fs::symlink_metadata(dir.join("drafts.sqlite")).ok().filter(fs::Metadata::is_file)?;
+    let wal = fs::symlink_metadata(dir.join("drafts.sqlite-wal")).ok().and_then(|m| m.modified().ok());
+    Some(db.modified().ok().into_iter().chain(wal).max().unwrap_or(SystemTime::UNIX_EPOCH))
+}
 
-    for dir in dirs {
-        let snap = match open_snapshot(dir, scratch_parent) {
+/// Picks the Official Desktop `userData` folder among `dirs` whose database was written last,
+/// supporting both modern `state`-table databases and older pre-`state` (`document`/`blob`-only)
+/// ones. Which is newest is read from the files' own times, so only the one that wins is opened:
+/// opening each to ask it (`MAX(updated_at)`) copied and checked every channel's database, up to
+/// 128 MB each, before the first frame. `in_place`: a database nobody is writing is read where it
+/// is ([`open_in_place`]); the caller asks [`Snapshot::held`] after its last read and comes back
+/// with `false` when it didn't.
+pub(super) fn pick_dir(dirs: &[PathBuf], scratch_parent: &Path, in_place: bool) -> PickResult {
+    let mut found: Vec<(SystemTime, &PathBuf)> = dirs.iter().filter_map(|d| Some((last_written(d)?, d))).collect();
+    if found.is_empty() {
+        return PickResult::None;
+    }
+    found.sort_by(|a, b| b.0.cmp(&a.0));
+    sweep_stale_copies(scratch_parent);
+    let mut last_err: Option<String> = None;
+    for (_, dir) in found {
+        let snap = match in_place.then(|| open_in_place(dir)).flatten().map_or_else(|| open_snapshot(dir, scratch_parent), Ok) {
             Ok(s) => s,
             Err(SnapshotErr::NotFound) => continue,
             Err(SnapshotErr::Retryable(why)) => {
@@ -280,37 +379,12 @@ pub(super) fn pick_dir(dirs: &[PathBuf], scratch_parent: &Path) -> PickResult {
                 continue;
             }
         };
-        let has_state = snap.has_table("state");
-        let has_doc = snap.has_table("document");
-        if !has_state && !has_doc {
-            continue;
-        }
-        let newest: i64 = if has_state {
-            match snap.conn().query_row("SELECT COALESCE(MAX(updated_at), 0) FROM state", [], |r| r.get(0)) {
-                Ok(n) => n,
-                Err(e) => {
-                    last_err = Some(format!("{}: query state: {e}", dir.display()));
-                    continue;
-                }
-            }
-        } else {
-            fs::metadata(dir.join("drafts.sqlite"))
-                .ok()
-                .and_then(|m| m.modified().ok())
-                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                .and_then(|d| i64::try_from(d.as_millis()).ok())
-                .unwrap_or(1)
-        };
-        if best.as_ref().is_none_or(|(b, _, _)| newest > *b) {
-            best = Some((newest, dir.clone(), snap));
+        if snap.has_table("state") || snap.has_table("document") {
+            return PickResult::Picked(dir.clone(), snap);
         }
     }
-
-    match best {
-        Some((_, d, s)) => PickResult::Picked(d, s),
-        None => match last_err {
-            Some(why) => PickResult::Failed(why),
-            None => PickResult::None,
-        },
+    match last_err {
+        Some(why) => PickResult::Failed(why),
+        None => PickResult::None,
     }
 }
