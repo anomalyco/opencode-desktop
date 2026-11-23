@@ -2334,7 +2334,16 @@ return plugin.defineWindow(function(ctx)
     -- profile that lists exactly that site; it brings that site's sign-in only. Without another
     -- browser, Settings > Browser says so.
     local function openImportSite(name: string?, choose: boolean, tab: string)
+        -- The host lists the browsers off the UI thread, and the first ask in a run only starts that:
+        -- the dialog waits for the listing as official's does (`site-chooser.tsx:643`), up to 5 s.
         local choices = signins.choices(listImportSources())
+        for _ = 1, 50 do
+            if choices[1] ~= nil then
+                break
+            end
+            task.wait(0.1)
+            choices = signins.choices(listImportSources())
+        end
         local first = choices[1]
         if first == nil then
             Layout:OpenSettings("browser")
@@ -2360,7 +2369,7 @@ return plugin.defineWindow(function(ctx)
     if importSiteSignal ~= nil then
         importSiteSignal:Connect(function(request: any)
             if type(request) == "table" and type(request.tab) == "string" then
-                openImportSite(if type(request.site) == "string" then request.site else nil, request.choose == true, request.tab)
+                task.spawn(openImportSite, if type(request.site) == "string" then request.site else nil, request.choose == true, request.tab)
             end
         end)
     end

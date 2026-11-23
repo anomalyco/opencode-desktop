@@ -60,9 +60,7 @@ fn any_connection(s: &App) -> Option<bool> {
 
 /// Bottom fade and centered hint over Home's scroller when nothing is connected.
 pub(super) fn tip(s: &App, p: &Pal) -> Vec<El> {
-    let dismissed = s.kernel.slots.get(&PROVIDER_TIP).read();
-    let visible = any_connection(s) == Some(false) && *s.now_ms - dismissed >= DISMISSAL_MS;
-    if !visible {
+    if !visible(s) {
         return vec![];
     }
     let fade = el()
@@ -124,4 +122,16 @@ pub(super) fn tip(s: &App, p: &Pal) -> Vec<El> {
         .center()
         .child(hint);
     vec![fade, place]
+}
+
+/// The same hint at the new-session page's foot, without the fade (`new-session/view.tsx`'s
+/// `NewSessionTips`): Desktop shows it there as on Home.
+pub(crate) fn new_session(s: &App, p: &Pal) -> Option<El> {
+    tip(s, p).pop()
+}
+
+/// Nothing connected, and not dismissed in the last 30 days.
+fn visible(s: &App) -> bool {
+    let dismissed = s.kernel.slots.get(&PROVIDER_TIP).read();
+    any_connection(s) == Some(false) && *s.now_ms - dismissed >= DISMISSAL_MS
 }
