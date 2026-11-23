@@ -388,12 +388,13 @@ fn refresh(s: &mut App, server: &str, id: String) {
     }
 }
 
-/// The server's running sessions: families we don't know are looked up, and right after a
-/// reconnect each running subagent's page is read too.
+/// The server's running sessions: ones we don't know are looked up (each itself, as Desktop does on
+/// connect, `packages/client/src/solid/data.ts`), and right after a reconnect each running
+/// subagent's page is read too.
 pub fn active(s: &mut App, ids: &[String]) {
     let Some(server) = server_of(s) else { return };
     let catching_up = s.services.server_links.catch_up.remove(&server) == Some(CatchUp::AwaitingActive);
-    let mut missing: Vec<String> = ids.iter().filter_map(|id| s.missing_ancestor(id)).collect();
+    let mut missing: Vec<String> = ids.iter().filter(|id| s.session(id).is_none()).cloned().collect();
     missing.sort();
     missing.dedup();
     for id in missing {

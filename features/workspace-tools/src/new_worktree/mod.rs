@@ -319,12 +319,6 @@ pub fn list_worktrees(host: &dyn NewWorktreeHost, project: &str) {
 
 /// Asks for the worktrees of each Git project not listed yet, so a folder in one resolves
 /// to its project (`project_at`), as Desktop's location lookup does.
-pub fn list_unlisted_worktrees(host: &dyn NewWorktreeHost) {
-    for p in host.projects().iter().filter(|p| project_git(&p.id) && !host.new_worktree().listed.contains_key(&p.id)) {
-        list_worktrees(host, &p.id);
-    }
-}
-
 pub fn worktrees_listed(host: &mut dyn NewWorktreeHost, project: String, directories: Vec<String>, managed: Vec<String>) {
     host.new_worktree_mut().managed.insert(project.clone(), managed);
     host.new_worktree_mut().listed.insert(project, directories);

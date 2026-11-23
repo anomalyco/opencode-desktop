@@ -135,6 +135,11 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
     if !matches!(m, Incoming::Status(_) | Incoming::Failed(_) | Incoming::ActiveFailed(_) | Incoming::StreamDown(_) | Incoming::Unanswered(_) | Incoming::SendFailed { .. }) {
         reconnect::heard(s);
     }
+    if matches!(m, Incoming::Sessions(_) | Incoming::Info(_) | Incoming::Worktrees { .. })
+        && s.launch.settle.step(crate::launch::settle::SettleEvent::Answer { now: *s.clock }) == crate::launch::settle::SettleEffect::Instant
+    {
+        tx.instant();
+    }
     match m {
         Incoming::Sessions(list) => {
             s.session_search.invalidate();
@@ -322,7 +327,6 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             tx.instant();
             *s.projects = projects;
             s.sort_projects();
-            s.list_unlisted_worktrees();
         }
         Incoming::DefaultDirectory(directory) => crate::start_location::answered(s, directory),
         Incoming::ProjectOpened { location, projects, session } => {

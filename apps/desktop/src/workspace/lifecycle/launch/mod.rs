@@ -14,6 +14,7 @@ pub mod io_trace;
 pub mod last_exit;
 mod network;
 pub mod saved;
+pub mod settle;
 mod shifts;
 pub mod trace;
 
@@ -217,6 +218,8 @@ pub struct Launch {
     /// A quiet poll for network deliveries; unlike an image completion, the inbox
     /// often contains nothing that changes this window.
     pub inbox_wake: Option<rune::Waker>,
+    /// The launch's follow-up reads settling in (`settle`).
+    pub settle: settle::Settle,
     /// Each server's launch, many at once: every server the window has a half of (`servers::runtime`).
     phases: std::collections::HashMap<ServerId, Phase>,
     /// The restored session whose cached boot-preview messages painted on frame 0 and settle on the
@@ -250,6 +253,10 @@ pub struct Launch {
 /// server); `on_ready` takes this thread up instead, with whatever it has already read.
 #[cfg(not(target_arch = "wasm32"))]
 struct Early {
+    /// The server it probes: only that server's Start may take it up. The page's server can change
+    /// between `setup` and `on_ready` (a restored session on another server is checked out on the
+    /// first turn), and that server taking the sidecar's probe read the sidecar in its place.
+    server: ServerId,
     rx: Receiver<Ready>,
     accepted: Accepted,
     beta_tabs: bool,
@@ -360,20 +367,25 @@ pub fn setup(s: &mut App) {
                 }
             })),
         );
-        s.launch.early = Some(Early { rx, accepted, beta_tabs, fallback_fixture, grace, wake });
+        s.launch.early = Some(Early { server, rx, accepted, beta_tabs, fallback_fixture, grace, wake });
     }
 }
 
 /// How long `server`'s probe keeps trying: only the local default address may be a server still
 /// starting (see `GRACE`).
 fn probe_grace(s: &App, server: &str) -> Duration {
-    if server == opencode_kit::client::DEFAULT_SERVER || s.launch.grace.is_some() { s.launch.grace.unwrap_or(GRACE) } else { Duration::ZERO }
+    // `server` is a server key: the app's own server is the one at the local default address.
+    if server == opencode_kit::servers::ServerKey::SIDECAR || s.launch.grace.is_some() { s.launch.grace.unwrap_or(GRACE) } else { Duration::ZERO }
 }
 
 /// The thread `setup` started, when it was started for this probe: its wake is the window's from
 /// here on, and one poll takes what it has already sent.
 #[cfg(not(target_arch = "wasm32"))]
-fn take_early(s: &mut App, beta_tabs: bool, fallback_fixture: bool, grace: Duration, tx: &mut Tx) -> Option<(Receiver<Ready>, Accepted)> {
+fn take_early(s: &mut App, server: &str, beta_tabs: bool, fallback_fixture: bool, grace: Duration, tx: &mut Tx) -> Option<(Receiver<Ready>, Accepted)> {
+    // Another server's Start leaves it for its own server's.
+    if s.launch.early.as_ref().is_none_or(|early| early.server != server) {
+        return None;
+    }
     let early = s.launch.early.take()?;
     if (early.beta_tabs, early.fallback_fixture, early.grace) != (beta_tabs, fallback_fixture, grace) {
         return None;
@@ -529,7 +541,7 @@ fn step(s: &mut App, event: LaunchEvent, tx: &mut Tx) -> bool {
         match effect {
             LaunchEffect::Probe { beta_tabs, fallback_fixture, again, grace } => {
                 #[cfg(not(target_arch = "wasm32"))]
-                let early = if again.is_none() { take_early(s, beta_tabs, fallback_fixture, grace, tx) } else { None };
+                let early = if again.is_none() { take_early(s, &server, beta_tabs, fallback_fixture, grace, tx) } else { None };
                 #[cfg(target_arch = "wasm32")]
                 let early = None;
                 let (rx, accepted) = early.unwrap_or_else(|| boot::spawn_probe(s, beta_tabs, fallback_fixture, grace));
@@ -683,11 +695,12 @@ fn first_reads(s: &mut App, tx: &mut Tx) -> bool {
         s.load_fixture(crate::FIXTURE);
         return true;
     };
-    if let (Some(actual), Source::Live { server, .. }) = (ready.server, &mut *s.source) {
+    // Only the app's own server moves to where its probe found it (`service.json`'s port).
+    if crate::servers::runtime::active(s).is_sidecar()
+        && let (Some(actual), Source::Live { server, .. }) = (ready.server, &mut *s.source)
+    {
         *server = actual.clone();
-        if crate::servers::runtime::active(s).is_sidecar() {
-            crate::servers::runtime::moved(s, &actual);
-        }
+        crate::servers::runtime::moved(s, &actual);
     }
     if let Some(tabs) = ready.beta_tabs {
         let drafts: Vec<_> = s.tabs.drain(..).filter(crate::tabs::Tab::is_draft).collect();

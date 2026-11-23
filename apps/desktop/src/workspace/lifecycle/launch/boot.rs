@@ -162,7 +162,7 @@ pub fn deferred() -> bool {
 
 /// What [`First::fetch`] reads; the projects' answer says whether the server is OpenCode's.
 const FIRST_READS: [&str; 7] =
-    ["/api/project", "/api/session?limit=120", "/api/model", "/api/agent", "/api/provider", "/api/session/active", "/api/config"];
+    ["/api/project", opencode_kit::client::SESSION_LIST, "/api/model", "/api/agent", "/api/provider", "/api/session/active", "/api/config"];
 
 /// The page, as it starts: the browser asks for the first reads while the module starts and
 /// draws its first frame, and `on_ready`'s reads take up the answers.
@@ -537,19 +537,34 @@ impl App {
 /// With the data in: the event stream, info for tabs past the listed page, the open session,
 /// `--session`, and the newest pages.
 pub(super) fn connect(s: &mut App, tx: &mut Tx) {
-    // Running sessions (subagents) whose family isn't loaded yet.
-    let mut missing: Vec<String> = s.running.iter().filter_map(|id| s.missing_ancestor(id)).collect();
+    s.launch.settle.step(super::settle::SettleEvent::Connected { now: *s.clock });
+    // Running sessions not in the list: each one's own info, as Desktop reads them on connect
+    // (`packages/client/src/solid/data.ts`); one whose parent isn't loaded sits under the furthest
+    // ancestor that is.
+    let mut missing: Vec<String> = s.running.iter().filter(|id| s.session(id).is_none()).cloned().collect();
     missing.sort();
     missing.dedup();
+    // Tabs past the listed page keep the title and folder they saved: only the open one and one
+    // with no title are read now, as Desktop defers the rest
+    // (`packages/app/src/shell/titlebar/tab-load-machine.ts`).
+    let open = match &*s.route {
+        Route::Session { id, .. } => Some(id.as_str()),
+        _ => None,
+    };
+    let tabs: Vec<String> = s
+        .tabs
+        .iter()
+        .filter(|t| !t.is_draft() && (t.title.trim().is_empty() || open == Some(t.id.as_str())) && s.session(&t.id).is_none())
+        .map(|t| t.id.clone())
+        .collect();
     s.set_media_fetch();
     if let (Source::Live { server, requests, writes, .. }, Some(waker)) = (&mut *s.source, (*s.waker).clone()) {
         s.pages.set(session_pages::Pages::live(server.clone(), waker.clone(), s.launch.early_page.take()));
         let inbox_wake = s.launch.inbox_wake.clone().unwrap_or(waker);
         let (r, w, inbox) = crate::windows::connect(server, inbox_wake.clone());
         *writes = Some(w);
-        // Tabs for sessions past the listed page: their info, so marks and avatars resolve.
-        for t in s.tabs.iter().filter(|t| !t.is_draft() && !s.sessions.iter().any(|x| x.id == t.id)) {
-            r.send(Request::Info(t.id.clone())).ok();
+        for id in tabs {
+            r.send(Request::Info(id)).ok();
         }
         for id in missing {
             r.send(Request::Info(id)).ok();
@@ -591,12 +606,9 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
             s.open(&id, tx);
         }
     }
-    // Every Git project's worktrees, one read each on the connection's one fetch thread, which
-    // answers in the order asked: after the open session's own reads (its inbox, its subagents,
-    // the permission or question it waits on), not before them. Asked first, 40 projects held
-    // those back from 111 to 214 ms after the process started (a real server, each read 1-2 ms),
-    // so a session waiting on a permission showed its dock that late.
-    s.list_unlisted_worktrees();
+    // No worktree reads here: a project's `sandboxes` place its worktrees' sessions, and a project's
+    // worktrees are read when something shows them, as Desktop reads its inventory
+    // (`packages/app/src/workspaces/inventory.ts`).
     // What the server lists now, for the next launch's first frame.
     super::saved_list::save(s);
     super::saved_catalog::save(s);
