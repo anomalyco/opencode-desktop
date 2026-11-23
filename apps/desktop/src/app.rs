@@ -420,6 +420,7 @@ impl App {
         // A window whose server answers after its first frame lists what that server last listed.
         if deferred {
             launch::saved_list::restore(self);
+            launch::saved_catalog::restore(self);
         }
         *self.diag.status = self.live_status();
         self.resume_settings_page();

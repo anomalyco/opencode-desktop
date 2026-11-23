@@ -587,6 +587,7 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
     s.list_unlisted_worktrees();
     // What the server lists now, for the next launch's first frame.
     super::saved_list::save(s);
+    super::saved_catalog::save(s);
     // Small newest pages, on the speculative lane after foreground startup work is queued.
     let mut recent: Vec<_> = s.sessions.iter().filter(|s| s.parent.is_none()).collect();
     recent.sort_by_key(|s| std::cmp::Reverse(s.updated));
