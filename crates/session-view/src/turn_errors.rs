@@ -347,7 +347,16 @@ pub fn notice<S: TimelineHost>(s: &S, p: &Pal, n: &Notice, run: crate::compactio
         }
         NoticeKind::Model { model, previous } => {
             let variant_only = previous.as_ref().is_some_and(|x| x.provider == model.provider && x.id == model.id);
-            let (label, variant) = if variant_only {
+            // A model's faster and slower speeds are models of their own ("gpt-5.5-fast"), so moving
+            // between them is a change of speed (`timeline-next/row.tsx`, opencode#65749).
+            let speed = previous.as_ref().and_then(|x| s.model_speed_switch(model, x));
+            let (label, variant) = if let Some(speed) = speed {
+                let label = match speed {
+                    Some(speed) => opencode_i18n::t!("ui.sessionTimeline.notice.speedSwitched", speed = speed),
+                    None => opencode_i18n::t!("ui.sessionTimeline.notice.speedStandard").to_owned(),
+                };
+                (label, None)
+            } else if variant_only {
                 let label = if model.variant.is_empty() || model.variant == "default" {
                     opencode_i18n::t!("ui.sessionTimeline.notice.variantDefault").to_owned()
                 } else {

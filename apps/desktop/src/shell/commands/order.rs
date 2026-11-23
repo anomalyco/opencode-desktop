@@ -57,6 +57,7 @@ pub const MESSAGE_PREVIOUS: u16 = 290;
 pub const MESSAGE_NEXT: u16 = 300;
 pub const MODEL: u16 = 310;
 pub const VARIANT: u16 = 320;
+pub const SPEED: u16 = 325;
 pub const AGENT: u16 = 330;
 pub const AGENT_BACK: u16 = 340;
 pub const FIND: u16 = 350;

@@ -1,4 +1,4 @@
--- OpenCode plugin contract 1.7: global types for luau-lsp.
+-- OpenCode plugin contract 1.8: global types for luau-lsp.
 -- Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit.
 -- Load it with `luau-lsp analyze --definitions=@opencode=plugins/opencode.d.luau`.
 
@@ -124,7 +124,7 @@ export type UiJustify = "start" | "center" | "end" | "between"
 export type UiDirection = "col" | "row" | "box"
 
 --- Which picker overlay the composer currently has open.
-export type ComposerPicker = "agent" | "model" | "effort" | "project"
+export type ComposerPicker = "agent" | "model" | "effort" | "speed" | "project"
 
 --- A text weight.
 export type FontWeight = "regular" | "medium" | "semibold" | "bold"

@@ -45,6 +45,7 @@ pub enum Gesture {
 pub enum MenuKind {
     Agent,
     Effort,
+    Speed,
     Project,
 }
 
@@ -53,6 +54,7 @@ impl MenuKind {
         match self {
             Self::Agent => Kind::Agent,
             Self::Effort => Kind::Effort,
+            Self::Speed => Kind::Speed,
             Self::Project => Kind::Project,
         }
     }
@@ -61,6 +63,7 @@ impl MenuKind {
         match kind {
             Kind::Agent => Some(Self::Agent),
             Kind::Effort => Some(Self::Effort),
+            Kind::Speed => Some(Self::Speed),
             Kind::Project => Some(Self::Project),
             Kind::Model => None,
         }

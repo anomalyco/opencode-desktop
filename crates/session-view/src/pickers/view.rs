@@ -77,9 +77,19 @@ fn wrap<S: PickerHost>(s: &S, p: &Pal, kind: Kind, button: El) -> El {
             Kind::Agent => Some(opencode_ui::keymap::Bind::Agent),
             Kind::Model => Some(opencode_ui::keymap::Bind::Model),
             Kind::Effort => Some(opencode_ui::keymap::Bind::Variant),
-            Kind::Project => None,
+            Kind::Speed | Kind::Project => None,
         } {
             button = button.help_keys(bind.keycaps());
+        }
+        // The speed's command has no key until Settings > Shortcuts gives it one
+        // (`composer/model.ts` `speed.keybind`).
+        if kind == Kind::Speed {
+            use opencode_ui::keymap::{overrides, sequence};
+            let strokes = sequence::first(super::speed::CYCLE_COMMAND)
+                .unwrap_or_else(|| overrides::command(super::speed::CYCLE_COMMAND).and_then(|k| k.chords().first().copied()).into_iter().collect());
+            if !strokes.is_empty() {
+                button = button.help_keys(sequence::caps(&strokes));
+            }
         }
     }
     let button = button.on_press_tx(move |s: &mut S, tx: &mut Tx| open::<S>(s, kind, tx));
@@ -135,8 +145,9 @@ fn open<S: PickerHost>(s: &mut S, kind: Kind, tx: &mut Tx) {
     }
 }
 
-/// The agent, model and effort triggers for a toolbar with room for all of them: the agent's
-/// only when the host shows it, the effort's only for a model that has efforts.
+/// The agent, model, effort and speed triggers for a toolbar with room for all of them: the
+/// agent's only when the host shows it, the effort's only for a model that has efforts, the
+/// speed's only for a model running at another speed than its standard one.
 pub fn triggers<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
     let selected = s.selection();
     let model = selected.model;
@@ -144,13 +155,22 @@ pub fn triggers<S: PickerHost>(s: &S, p: &Pal) -> Vec<El> {
     if s.picker_show_agent() {
         out.push(trigger(s, p, Kind::Agent, &capitalize(&selected.agent), p.muted, true));
     }
-    let name = s.pickers().model_name(&model);
+    let name = s.pickers().composer_model_name(&model);
     let provider = s.pickers().provider_label(&model);
     out.push(model_trigger(s, p, provider.as_deref(), &name, true).shrink().min_w(0.0));
     if s.has_effort() {
         out.push(effort_trigger(s, p, &model.variant, true));
     }
+    if s.speed_shown() {
+        out.push(speed_trigger(s, p, true));
+    }
     out
+}
+
+/// The speed's button, after the effort's (`editor.tsx`): shown only away from the standard
+/// speed, so a host asks [`PickerHost::speed_shown`] first.
+pub fn speed_trigger<S: PickerHost>(s: &S, p: &Pal, chevron: bool) -> El {
+    trigger(s, p, Kind::Speed, &capitalize(&s.picker_current(Kind::Speed)), p.muted, chevron)
 }
 
 /// The effort's button. "Default", the absence of a choice, shows only while the pointer is

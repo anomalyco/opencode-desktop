@@ -147,6 +147,20 @@ impl Feature<App> for ComposerInputFeature {
             .bind_id(Bind::Variant.id())
             .when(|s| s.has_composer() && s.has_effort()),
         );
+        // Only for a model that has other speeds, so nothing about speeds shows for the rest
+        // (`composer/commands.tsx`, opencode#65749). It has no key until Settings gives it one.
+        builder.add_command(
+            CommandEntry::<App>::from_key(
+                session_view::pickers::speed::CYCLE_COMMAND,
+                opencode_i18n::key!("command.model.speed.cycle"),
+                crate::commands::order::SPEED,
+                |s, tx| s.cycle_picker(Kind::Speed, false, tx),
+            )
+            .describe(opencode_i18n::key!("command.model.speed.cycle.description"))
+            .slash("speed")
+            .section("models")
+            .when(|s| s.has_composer() && s.has_speeds()),
+        );
         // Offered while the agent shows, as Desktop's `disabled: !local.agent.visible()` (`composer/commands.tsx:145-161`).
         builder.add_command(
             CommandEntry::<App>::from_key(

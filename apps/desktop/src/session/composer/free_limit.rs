@@ -290,6 +290,7 @@ fn scene(s: &mut App, reset_at: Option<i64>) {
         latest: false,
         inputs: Default::default(),
         tools: true,
+        speed: None,
     }];
     dispatch(s, Event::Seed(State::Active { reset_at }));
 }

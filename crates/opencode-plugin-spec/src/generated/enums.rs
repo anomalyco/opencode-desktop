@@ -292,6 +292,8 @@ string_enum! {
         Model = "model",
         /// The model effort/variant picker.
         Effort = "effort",
+        /// The model speed picker, for a model the server offers at faster or slower speeds.
+        Speed = "speed",
         /// The draft project picker.
         Project = "project",
     }

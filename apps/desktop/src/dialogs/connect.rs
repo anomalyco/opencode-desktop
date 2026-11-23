@@ -343,6 +343,7 @@ mod scenes {
             latest: false,
             inputs: vec![],
             tools: true,
+            speed: None,
         }));
         super::preview_step(s, "drive", Step::Models { selected: "drive:model-1".into(), collapsed: HashSet::new() });
     }
@@ -407,6 +408,7 @@ mod scenes {
                     latest: true,
                     inputs: Default::default(),
                     tools: true,
+                    speed: None,
                 },
                 crate::pickers::Model {
                     key: "opencode:minimax-free".into(),
@@ -420,6 +422,7 @@ mod scenes {
                     latest: false,
                     inputs: Default::default(),
                     tools: true,
+                    speed: None,
                 },
             ];
             super::unpaid::preview(s);
