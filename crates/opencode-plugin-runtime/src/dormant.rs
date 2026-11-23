@@ -73,7 +73,10 @@ pub enum Wait {
 #[derive(Default)]
 pub struct Asleep {
     pub record: Record,
-    pub events: VecDeque<(String, serde_json::Value)>,
+    /// In a cell: keeping an event for a sleeping plugin shows nothing, so it must not write the
+    /// host's tracked state (every region showing a plugin surface would build again for each
+    /// text piece of a streaming reply).
+    pub events: std::cell::RefCell<VecDeque<(String, serde_json::Value)>>,
     pub wait: Wait,
 }
 

@@ -276,7 +276,11 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     for server in ticking {
         changed |= step_link(s, &server, Event::Tick { now }, tx);
     }
-    if let Some(remaining) = s.stops.active_sync.take_due(now) {
+    // A `&mut` borrow of `stops` is a write that rebuilds every region reading it (the composer
+    // dock): borrow it only when a retry is set, not on every poll.
+    if rune::Tracked::untracked(&s.stops).active_sync.retry_at.is_some()
+        && let Some(remaining) = s.stops.active_sync.take_due(now)
+    {
         if remaining <= 0.0 {
             request_active(s, false);
             crate::windows::peer::touch(s);
