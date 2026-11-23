@@ -76,6 +76,22 @@ pub(crate) fn mac_titlebar(layout: TabLayout, zoom: f32, bottom: bool) -> Titleb
     }
 }
 
+/// The titlebar `view::app`'s first run sets in a window of the saved layout and zoom
+/// (`App::load_live`, `App::new_window`), for `rune::App::titlebar`: the window opens with its
+/// traffic lights there, so Rune draws a launch's first frame once. With `App::chrome`'s spot
+/// (side tabs' at 100 %) top tabs' first frame was drawn, the lights moved, and the frame drawn
+/// again before it reached the screen. Where this differs from the view's (a narrow window with
+/// side tabs, whose first frame has top tabs' row) Rune still draws twice.
+#[cfg(target_os = "macos")]
+pub(crate) fn saved_mac_titlebar() -> Titlebar {
+    let mut settings = crate::settings::load();
+    if let Some(layout) = crate::arg("--tab-layout") {
+        settings.tab_layout = TabLayout::parse(Some(&layout));
+    }
+    let zoom = crate::tabs::load_zoom().or_else(|| crate::arg("--zoom").and_then(|z| z.parse::<f32>().ok())).unwrap_or(1.0);
+    mac_titlebar(settings.effective_tab_layout(), zoom.clamp(crate::shortcuts::ZOOM_MIN, crate::shortcuts::ZOOM_MAX), false)
+}
+
 /// Notes the window's chrome for this frame's view (`view::app`), drawn at the app's `zoom`.
 /// The insets and `scale` are the view's (`Cx::chrome_insets`, `Cx::env`), at the zoom. On Windows the row
 /// is the titlebar's height (`titlebar_height`), so it lines up with the caption buttons at
