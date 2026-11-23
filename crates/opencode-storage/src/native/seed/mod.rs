@@ -92,7 +92,7 @@ pub fn recent_tabs_in(dirs: &[PathBuf]) -> Option<(Value, Value)> {
     res.flatten()
 }
 
-/// Legacy single-file helper kept safe via private scratch copy (never writes `-shm` beside `db`).
+/// Legacy single-file helper kept safe via a private read (the image in memory, or the scratch copy; never writes `-shm` beside `db`).
 pub fn recent_tabs(db: &Path) -> Option<(Value, Value)> {
     let dir = db.parent()?;
     let scratch = std::env::temp_dir().join(format!("opencode-rune-seed-{}", std::process::id()));
