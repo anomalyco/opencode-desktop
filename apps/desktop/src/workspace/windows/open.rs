@@ -192,7 +192,7 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
     });
     // The saved layout's titlebar before the window exists: the first frame is drawn once.
     #[cfg(target_os = "macos")]
-    let app = app.titlebar(crate::view::saved_mac_titlebar());
+    let app = if std::env::var_os("RUNE_LMD_OLD_TITLEBAR").is_none() { app.titlebar(crate::view::saved_mac_titlebar()) } else { app };
     let handle = app.handle();
     let ready = handle.clone();
     let mut motion_log = crate::motion_log::Log::default();
