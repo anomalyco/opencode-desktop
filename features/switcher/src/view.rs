@@ -343,7 +343,7 @@ fn memo_hash(s: &dyn SwitcherHost, p: &Pal, e: &Entry, lit: bool, q: &str, w: f3
     let found_snippet = snippet(e, q, fulltext);
     found_snippet.is_some().hash(&mut v);
     let sw = s.switcher();
-    (sw.mode as u8, p.theme, p.generation, p.dark, p.forced, opencode_i18n::locale().id(), e.hint.and_then(|b| b.chord())).hash(&mut v);
+    (sw.mode as u8, p.theme, p.generation, p.dark, p.forced, opencode_i18n::locale().id(), e.hint.map(|b| b.keycaps())).hash(&mut v);
     let own = s.active_server();
     let session = match &e.action {
         Action::Session(id) => Some((&own, id, None)),
@@ -595,9 +595,15 @@ pub fn relative_time(now: i64, then: i64) -> String {
 
 /// A command's chord as Desktop's neutral `Keybind` chips, and their width.
 fn command_keys(p: &Pal, e: &Entry) -> Option<(El, f32)> {
-    let caps = match (e.hint, e.chord) {
-        (Some(bind), _) if bind.chord().is_some() => bind.keycaps(),
-        (_, Some(chord)) => keymap_caps(chord),
+    // A chord Settings › Shortcuts bound the command shows one keycap per stroke (opencode#64395).
+    let chord = match e.action {
+        Action::Command(id) => opencode_ui::keymap::sequence::first(id),
+        _ => None,
+    };
+    let caps = match (chord, e.hint, e.chord) {
+        (Some(strokes), _, _) => opencode_ui::keymap::sequence::caps(&strokes),
+        (_, Some(bind), _) if !bind.keycaps().is_empty() => bind.keycaps(),
+        (_, _, Some(chord)) => keymap_caps(chord),
         _ => return None,
     };
     // The chips' own label style, in their left-to-right row.

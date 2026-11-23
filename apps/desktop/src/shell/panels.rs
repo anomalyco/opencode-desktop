@@ -117,6 +117,10 @@ impl PanelsHost for App {
         crate::keymap::command_chord(self, id)
     }
 
+    fn command_strokes(&self, id: &str) -> Vec<Chord> {
+        crate::keymap::command_strokes(self, id)
+    }
+
     fn resolve_closed_icon(&self, key: &str, name: Option<&str>) -> &'static rune::Icon {
         let Some(name) = name else { return opencode_feature_panels::icon_by_name(None) };
         let plugin = key.split_once(':').map_or("", |(p, _)| p);

@@ -243,11 +243,15 @@ fn keybind(a: &mut NodeArgs, catalog_chord: fn(&str) -> Option<Chord>) -> Result
             .and_then(|k| k.chords().first().copied())
             .map(keymap::caps)
             .unwrap_or_else(|| vec![keys.to_owned()]),
-        (None, Some(command)) => keymap::overrides::command(command)
-            .and_then(|k| k.chords().first().copied())
-            .or_else(|| catalog_chord(command))
-            .map(keymap::caps)
-            .unwrap_or_default(),
+        // A chord Settings bound the command shows one keycap per stroke (opencode#64395).
+        (None, Some(command)) => match keymap::sequence::first(command) {
+            Some(strokes) => keymap::sequence::caps(&strokes),
+            None => keymap::overrides::command(command)
+                .and_then(|k| k.chords().first().copied())
+                .or_else(|| catalog_chord(command))
+                .map(keymap::caps)
+                .unwrap_or_default(),
+        },
         _ => Vec::new(),
     };
     Ok(keymap::view::chips(&p(a), caps))
@@ -310,8 +314,15 @@ fn icon_button(a: &mut NodeArgs, command_chord: fn(&str) -> Option<Chord>) -> Re
     // ghost-muted draws its icon in icon-muted, icon-base while pressed (`icon-button.css`).
     let ink = a.color("color").unwrap_or(if a.string("variant") == Some("ghost-muted") && !pressed { pal.icon_muted } else { pal.icon });
     let mut b = b.child(rune_icon(named_icon(&name), 16.0).color(ink));
-    if let Some(chord) = a.string("keybind").and_then(command_chord) {
-        b = b.help_keys(keymap::caps(chord));
+    if let Some(command) = a.string("keybind") {
+        // A chord Settings bound the command shows one keycap per stroke (opencode#64395).
+        let caps = match keymap::sequence::first(command) {
+            Some(strokes) => keymap::sequence::caps(&strokes),
+            None => command_chord(command).map_or_else(Vec::new, keymap::caps),
+        };
+        if !caps.is_empty() {
+            b = b.help_keys(caps);
+        }
     }
     let b = focus(a, b);
     Ok(if a.flag("disabled") { b.layer_opacity(0.5) } else { a.on_press(b, "onPress") })

@@ -297,7 +297,7 @@ fn tab_menu_meta(host: &dyn PanelsHost, target_key: &str) -> TabMenuMeta {
 
 fn launcher_hint(host: &dyn PanelsHost, desc: &PanelLauncherDesc) -> String {
     match keymap::first_label(desc.shortcut) {
-        l if l.is_empty() => desc.command.and_then(|c| host.command_chord(c)).map(keymap::label).unwrap_or_default(),
+        l if l.is_empty() => desc.command.map(|c| keymap::sequence::label(&host.command_strokes(c))).unwrap_or_default(),
         l => l,
     }
 }

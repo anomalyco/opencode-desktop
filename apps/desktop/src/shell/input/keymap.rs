@@ -9,6 +9,10 @@ impl KeymapHost for crate::App {
             .find(|c| c.id == id)
             .and_then(|c| c.keys.and_then(Bind::chord).or(c.chord))
     }
+
+    fn command_bind(&self, id: &str) -> Option<Bind> {
+        self.catalog().into_iter().find(|c| c.id == id).and_then(|c| c.keys)
+    }
 }
 
 /// Installs desktop's native menu bar refresh hook for keybind override updates.

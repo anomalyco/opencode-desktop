@@ -31,6 +31,13 @@ pub trait KeymapHost {
     /// The default chord for published command `id` when no user override is installed
     /// (for example, a registered command's [`Bind::chord`] or a plugin-declared chord).
     fn default_command_chord(&self, id: &str) -> Option<Chord>;
+
+    /// The table row command `id` takes its keys from, when it has one (a registered command's
+    /// `bind_id`): Settings › Shortcuts saves such a command's keys under the row's id.
+    fn command_bind(&self, id: &str) -> Option<Bind> {
+        let _ = id;
+        None
+    }
 }
 
 /// One bound command.
@@ -420,6 +427,12 @@ impl Bind {
         self.keybind().chords().first().copied()
     }
 
+    /// The strokes its labels show: its chord's when Settings bound it one, else its first
+    /// chord alone. Empty when unbound.
+    pub fn strokes(self) -> Vec<Chord> {
+        sequence::first(self.id()).unwrap_or_else(|| self.chord().into_iter().collect())
+    }
+
     /// The first chord as a menu item's key equivalent.
     pub fn shortcut(self) -> Option<rune::Shortcut> {
         self.chord().and_then(|c| c.to_string().parse().ok())
@@ -490,6 +503,18 @@ pub fn command_chord(host: &dyn KeymapHost, id: &str) -> Option<Chord> {
     overrides::command(id)
         .and_then(|k| k.chords().first().copied())
         .or_else(|| host.default_command_chord(id))
+}
+
+/// The strokes published command `id`'s labels show (`formatKeybind`'s first combo): the chord
+/// Settings › Shortcuts bound it, its table row's keys, else [`command_chord`]. Empty when unbound.
+pub fn command_strokes(host: &dyn KeymapHost, id: &str) -> Vec<Chord> {
+    if let Some(strokes) = sequence::first(id) {
+        return strokes;
+    }
+    match host.command_bind(id) {
+        Some(bind) => bind.strokes(),
+        None => command_chord(host, id).into_iter().collect(),
+    }
 }
 
 /// A Ctrl-letter that arrives as its control character (⌃R as U+0012), as the letter.
