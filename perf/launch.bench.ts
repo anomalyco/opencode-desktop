@@ -17,7 +17,8 @@
 // Milestones are the app's own `--launch-trace` marks, printed by `--launch-marks` with the mark's own time:
 //   launch.main (`main.entered`), launch.window (`window.created`), launch.first_frame
 //   (`frame.first.presented`), launch.input_ready, launch.server (`server.answered`), launch.content_live.
-import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { dlopen, FFIType, ptr, toArrayBuffer } from "bun:ffi"
+import { closeSync, cpSync, existsSync, mkdirSync, openSync, readSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, dirname, join } from "node:path"
 import { bench, native } from "@hona/strobe"
@@ -111,7 +112,40 @@ function coldExe(exe: string) {
   rmSync(aside, { recursive: true, force: true })
 }
 
-/** Before every launch, never timed: the server up, the home seeded, the exe made cold. */
+/** Every page of the exe's image in memory, as after a launch a moment ago (Windows). A machine
+ *  short of memory drops them between launches, and a "warm" launch then reads them again before
+ *  `main`: 85-1,873 ms to `main` instead of 20 in 5 of 24 launches on a busy machine (exp_9fb654). */
+function warmExe(exe: string) {
+  if (process.platform !== "win32") return
+  const k32 = dlopen("kernel32.dll", {
+    CreateFileW: { args: [FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.ptr], returns: FFIType.u64 },
+    CreateFileMappingW: { args: [FFIType.u64, FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.u32, FFIType.ptr], returns: FFIType.u64 },
+    MapViewOfFile: { args: [FFIType.u64, FFIType.u32, FFIType.u32, FFIType.u32, FFIType.u64], returns: FFIType.ptr },
+    UnmapViewOfFile: { args: [FFIType.ptr], returns: FFIType.i32 },
+    CloseHandle: { args: [FFIType.u64], returns: FFIType.i32 },
+  }).symbols
+  // SizeOfImage, from the PE header.
+  const first = new Uint8Array(4096)
+  const fd = openSync(exe, "r")
+  readSync(fd, first, 0, 4096, 0)
+  closeSync(fd)
+  const head = new DataView(first.buffer)
+  const size = head.getUint32(head.getUint32(0x3c, true) + 24 + 56, true)
+  const file = k32.CreateFileW(ptr(new Uint8Array(Buffer.from(exe + "\0", "utf16le"))), 0x80000000, 7, null, 3, 0, null)
+  const section = k32.CreateFileMappingW(file, null, 0x02 | 0x1000000, 0, 0, null)
+  const view = section ? k32.MapViewOfFile(section, 0x0004, 0, 0, 0n) : null
+  if (view) {
+    const bytes = new Uint8Array(toArrayBuffer(view, 0, size))
+    let sum = 0
+    for (let at = 0; at < size; at += 4096) sum += bytes[at]!
+    void sum
+    k32.UnmapViewOfFile(view)
+  }
+  if (section) k32.CloseHandle(section)
+  k32.CloseHandle(file)
+}
+
+/** Before every launch, never timed: the server up, the home seeded, the exe made cold or warm. */
 async function before(ctx: Before) {
   const shape = ctx.target as Shape
   if (!ctx.home || !ctx.env || !ctx.exe) throw new Error("this bench needs an exe variant: --head exe:<path to opencode-desktop>")
@@ -125,6 +159,7 @@ async function before(ctx: Before) {
     for (const name of readdirSync(tpl)) if (name !== "ready" && name !== "home" && name !== "tmp" && !(ctx.case === "first-new-build" && name === "cache")) cpSync(join(tpl, name), join(ctx.home, name), { recursive: true })
   }
   if (ctx.case === "cold" || ctx.case === "first-new-build") coldExe(ctx.exe)
+  else if (process.env.OPENCODE_LAUNCH_WARM_EXE !== "0") warmExe(ctx.exe)
 }
 
 // Each milestone is a line the app prints with the mark's own time (epoch ms, to the microsecond in builds from 24 Nov).
