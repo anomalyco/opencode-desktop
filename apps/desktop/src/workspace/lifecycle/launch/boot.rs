@@ -608,9 +608,10 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
     // those back from 111 to 214 ms after the process started (a real server, each read 1-2 ms),
     // so a session waiting on a permission showed its dock that late.
     s.list_unlisted_worktrees();
-    // What the server lists now, for the next launch's first frame.
-    super::saved_list::save(s);
-    super::saved_catalog::save(s);
+    // What the server lists now is kept for the next launch's first frame, after this frame
+    // and the next ones have drawn it (`launch::saved_write`).
+    s.launch.saved_write = super::SavedWrite::Owed { at: *s.clock + super::SAVED_WRITE_AFTER.as_secs_f64() };
+    tx.wake_after(super::SAVED_WRITE_AFTER);
     // Small newest pages, on the speculative lane after foreground startup work is queued.
     let mut recent: Vec<_> = s.sessions.iter().filter(|s| s.parent.is_none()).collect();
     recent.sort_by_key(|s| std::cmp::Reverse(s.updated));

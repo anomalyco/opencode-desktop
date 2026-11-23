@@ -209,9 +209,25 @@ enum EngineFetch {
 #[cfg(not(target_arch = "wasm32"))]
 const ENGINE_FETCH_LATEST: Duration = Duration::from_secs(2);
 
+/// The saved first screen's write (`saved`): owed from `connect`, written once the window has
+/// shown the server's answer for [`SAVED_WRITE_AFTER`]. Building it in `connect` put it in the
+/// frame that draws that answer (1.2 ms of that frame's 21.8 on the main thread with 120
+/// sessions listed). A window that hides, closes or quits before then writes it at once.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+enum SavedWrite {
+    #[default]
+    Idle,
+    /// Due at `at` (the app's clock, seconds).
+    Owed { at: f64 },
+}
+
+/// How long after the server's answer the saved first screen is written.
+const SAVED_WRITE_AFTER: Duration = Duration::from_secs(2);
+
 #[derive(Default)]
 pub struct Launch {
     network_change: Option<std::sync::Arc<network::Change>>,
+    saved_write: SavedWrite,
     #[cfg(not(target_arch = "wasm32"))]
     engine_fetch: EngineFetch,
     /// A quiet poll for network deliveries; unlike an image completion, the inbox
@@ -624,7 +640,22 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     let changed = first_reads(s, tx);
     #[cfg(not(target_arch = "wasm32"))]
     engine_fetch(s);
+    saved_write(s);
     changed
+}
+
+/// Writes the saved first screen once it's due (`SavedWrite`): what the server lists now, for
+/// the next launch's first frame.
+fn saved_write(s: &mut App) {
+    let SavedWrite::Owed { at } = s.launch.saved_write else { return };
+    // The timer's wake may come a moment early.
+    if *s.clock + 0.05 < at {
+        return;
+    }
+    s.launch.saved_write = SavedWrite::Idle;
+    saved_list::save(s);
+    saved_catalog::save(s);
+    saved_gutters::save(s);
 }
 
 /// The first reads land at once (nothing animates in on the first load), then connect.
