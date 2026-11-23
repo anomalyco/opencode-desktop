@@ -2,26 +2,26 @@
   "generated_at": "2026-11-23",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "bab0d0413ff31edd07b55fc499294e2e031c57d2",
+  "upstream_head": "70c7f452a5851ef6e36077ec15d339f9271ae5fa",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "bdf4ce8e1d0ae30e9c1d2d8ac010ff4e140deaa5",
-  "post_1114_commit_count": 472,
-  "post_1114_in_ledger": 175,
-  "post_1114_skipped": 297,
+  "rune_desktop_head": "24dba76baca7dc08f327a540bea63a62ea83b01b",
+  "post_1114_commit_count": 489,
+  "post_1114_in_ledger": 183,
+  "post_1114_skipped": 306,
   "post_1114_skipped_breakdown": {
     "test-only": 23,
-    "ci-bench-deps": 17,
-    "docs-site-data": 48,
+    "ci-bench-deps": 18,
+    "docs-site-data": 49,
     "tui-only": 19,
     "cli-acp-only": 8,
-    "server-core-ai-codemode-internal": 182
+    "server-core-ai-codemode-internal": 189
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 196,
+  "total_ledger_rows": 204,
   "status_counts": {
-    "have it": 168,
-    "not applicable": 26,
+    "have it": 174,
+    "not applicable": 28,
     "differs on purpose": 1,
     "partly": 1
   },
@@ -4883,6 +4883,230 @@
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-1"
+    },
+    {
+      "id": "UP-176",
+      "window": "post-1120",
+      "pr": 65707,
+      "sha": "9b1cdf0167",
+      "title": "fix(desktop): put the comment button back in the browser bar",
+      "merged": "2026-11-22",
+      "packages": [
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/panel.tsx"
+      ],
+      "summary": "The browser bar gets Comment on part of the page back as a button (pressed while picking); Toggle browser toolbar moves into Options > More tools; Ctrl+Shift+M leaves focus on Options.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "rune-desktop #822 (df0b7f0f): plugins/browser/panel.luau bar has the select-element button with browser.inspect, Options no longer accents; options.luau More tools lists Toggle browser toolbar where the device toolbar exists. Not carried: Ctrl+Shift+M moving focus to Options (ours never focused a bar button from it). By reading and luau-lsp only; not run in the app.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8",
+      "rune_pr": "#822"
+    },
+    {
+      "id": "UP-177",
+      "window": "post-1120",
+      "pr": 65703,
+      "sha": "b705c446f0",
+      "title": "fix(app): show a file's whole diff when its accordion opens",
+      "merged": "2026-11-22",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/components/message-part.css",
+        "packages/session-ui/src/timeline-next/tools/patch.tsx",
+        "packages/session-ui/src/tools/tool-renderer.tsx"
+      ],
+      "summary": "An open file row in an edit, write or patch card shows its whole diff again: FileDiffFold (420 px fold, fade, Show more) is removed.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "rune-desktop #823 (9884ec0a): crates/session-view/src/tools/files.rs drops fold() and FOLD_AT (our #642, UP-162). cargo check only.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8",
+      "rune_pr": "#823"
+    },
+    {
+      "id": "UP-178",
+      "window": "post-1120",
+      "pr": 65690,
+      "sha": "18be128acc",
+      "title": "fix(app): remove the focus rings around the timeline and composer",
+      "merged": "2026-11-22",
+      "packages": [
+        "app",
+        "ui"
+      ],
+      "main_files": [
+        "packages/app/src/composer/editor/editor.css",
+        "packages/app/src/composer/editor/editor.tsx",
+        "packages/app/src/composer/editor/interaction.ts",
+        "packages/app/src/home/sessions/view.css"
+      ],
+      "summary": "No focus ring on text fields (composer, Home search) or scroll areas (timeline, Home's list); focus shows as the caret, the field's fill, or the items inside.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "rune-desktop #824 (305f5826): composer/mod.rs and home/search.rs drop focus_visible_within_ring; timeline/mod.rs and home.rs use no_focus_ring; session.rs drops the timeline-ring overlay. Not carried: the composer restoring the draft's caret on any focus a press didn't cause (ours keeps its own caret model). cargo check only.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8",
+      "rune_pr": "#824"
+    },
+    {
+      "id": "UP-179",
+      "window": "post-1120",
+      "pr": 65696,
+      "sha": "d84e1d7bb3",
+      "title": "fix(session-ui): open a group of long Code Mode scripts without freezing the timeline",
+      "merged": "2026-11-22",
+      "packages": [
+        "session-ui",
+        "ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/components/markdown.css",
+        "packages/session-ui/src/components/message-part.css",
+        "packages/session-ui/src/message/current-tool-state.ts",
+        "packages/session-ui/src/storybook/current-session-fixtures.ts"
+      ],
+      "summary": "An open Code Mode script lists its latest 10 calls with a +N more button that reveals 50 earlier ones per press; the rest is web performance (collapsible measuring, a :has() restyle, shimmer nodes).",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "rune-desktop #825 (972f8491): crates/session-view/src/tools/execute.rs CALLS_SHOWN 10, CALLS_REVEALED 50, more_button; a failure on a hidden call shows on its own row. The performance parts have no counterpart in the native renderer. Not carried: focus moving to the first call when the button goes. cargo check only.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8",
+      "rune_pr": "#825"
+    },
+    {
+      "id": "UP-180",
+      "window": "post-1120",
+      "pr": 65689,
+      "sha": "b3f233c64c",
+      "title": "fix(app): open ~ file links in the server's home folder",
+      "merged": "2026-11-22",
+      "packages": [
+        "app",
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/app/src/workspaces/files/model.tsx",
+        "packages/app/src/workspaces/files/path.ts",
+        "packages/gui-plugins/src/file/renderer.tsx",
+        "packages/gui-plugins/src/file/resolve-link.ts"
+      ],
+      "summary": "~ in file links and reply code names the server's home folder; a ~ path in a reply becomes a link when the file is there.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "rune-desktop #826 (24dba76b): features/files/src/code_paths.rs reply_path_exists expands ~ with the host's home_directory before checking; links::classify already expanded ~ for markdown links and clicks. cargo check only.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8",
+      "rune_pr": "#826"
+    },
+    {
+      "id": "UP-181",
+      "window": "post-1120",
+      "pr": 65635,
+      "sha": "6622d61309",
+      "title": "fix(app): eliminate model picker layout thrash on open, scroll, and select",
+      "merged": "2026-11-22",
+      "packages": [
+        "app",
+        "ui"
+      ],
+      "main_files": [
+        "packages/app/src/providers/models/select-dialog-machine.ts",
+        "packages/app/src/providers/models/select-dialog.tsx",
+        "packages/ui/src/components/menu-scroll.tsx",
+        "packages/ui/src/context/dialog.tsx"
+      ],
+      "summary": "Model picker web performance: coalesced row measuring, a non-inherited fade property, Kobalte's scroll lock only on touch, icon registry and menu-scroll read order.",
+      "size": "M",
+      "status": "not applicable",
+      "status_evidence": "Layout-thrash fixes in the DOM picker; the native picker (crates/session-view/src/pickers) has no style recalculation or forced layout. No visible change in official.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-182",
+      "window": "post-1120",
+      "pr": 65693,
+      "sha": "512d2f33a8",
+      "title": "perf(ui): bake the activity spinner into a 90 fps APNG",
+      "merged": "2026-11-23",
+      "packages": [
+        "ui"
+      ],
+      "main_files": [
+        "packages/ui/package.json",
+        "packages/ui/script/generate-spinner.ts",
+        "packages/ui/src/components/spinner-frames.css",
+        "packages/ui/src/components/spinner-radar.ts"
+      ],
+      "summary": "The Soft Radar spinner is baked into a 90 fps APNG (was a 20 fps SVG strip), drawn by one element; spinners stay in step.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "rune_kit::Spinner (crates/rune-kit/src/feedback.rs) already animates each dot on the wall clock at the display rate, so every spinner sweeps together and smoothly. Same dots and loop.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-183",
+      "window": "post-1120",
+      "pr": 65701,
+      "sha": "406fd32698",
+      "title": "docs: add the v2.3.1 and v2.3.2 changelog entries to dev",
+      "merged": "2026-11-23",
+      "packages": [
+        "ai",
+        "app",
+        "cli",
+        "client",
+        "codemode",
+        "core",
+        "data",
+        "desktop",
+        "gui-plugins",
+        "http-recorder",
+        "httpapi-codegen",
+        "latex",
+        "merman",
+        "nav-menus",
+        "patchmark",
+        "plugin-browser",
+        "plugin",
+        "plugins",
+        "protocol",
+        "schema",
+        "sdk",
+        "server",
+        "session-ui",
+        "simulation",
+        "theme",
+        "tui",
+        "ui",
+        "util"
+      ],
+      "main_files": [
+        "packages/ai/package.json",
+        "packages/app/package.json",
+        "packages/cli/package.json",
+        "packages/client/package.json"
+      ],
+      "summary": "CHANGELOG entries for v2.3.1 and v2.3.2 on dev, with version bumps.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "Docs. Prod check: all 45 Desktop PRs the v2.3.1 and v2.3.2 entries name are in this ledger as have it / not applicable, or ported earlier (#63760 first-tip delay: features/tips/src/queue.rs FIRST_TIP_DELAY_MS).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
     }
   ],
   "browser_security_review": {
