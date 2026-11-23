@@ -158,12 +158,19 @@ pub fn block_device_permission_guards(ctx: &RequestContext) {
 
 /// Content settings for Chrome services official's Electron does not contain (READER-7's audit,
 /// `notes/review-rd274.md`): FedCM (N2), the anti-abuse Privacy Sandbox setting (N6a), payment
-/// handlers (N7), and the minor locks (window management, idle detection, local fonts).
-/// Default-scope prefs so isolated contexts, where a `None` origin is a no-op, get them too
-/// (`context::lock_chrome_services`). Not protocol handlers: `PROTOCOL_HANDLERS` set to `BLOCK`,
-/// on `Default` as a content setting or on an isolated context as its pref, leaves every isolated
-/// tab never loading in CEF 156; `registerProtocolHandler`'s prompt is denied by the prompt handler.
-const CHROME_SERVICE_SETTINGS: [(sys::cef_content_setting_types_t, &str); 7] = [
+/// handlers (N7), and the minor locks (window management, idle detection, local fonts). Then what
+/// official's permission check handler denies that Chrome allows without asking (N12: sensors,
+/// background sync, keyboard and pointer lock, fullscreen without a gesture), and the device kinds
+/// the guards above leave out (N9/N10). Default-scope prefs so isolated contexts, where a `None`
+/// origin is a no-op, get them too (`context::lock_chrome_services`).
+/// Not here, each found by halving the list:
+/// - `PROTOCOL_HANDLERS`: set to `BLOCK`, on `Default` as a content setting or on an isolated
+///   context as its pref, it leaves every isolated tab never loading in CEF 156;
+///   `registerProtocolHandler`'s prompt is denied by the prompt handler.
+/// - `BACKGROUND_FETCH` and `PERIODIC_BACKGROUND_SYNC`: set to `BLOCK` at the default scope, each
+///   crashes CEF 156 before `Ready` (access violation in `libcef.dll`, offset `0xa99a84b`); their
+///   Blink features are off in `cef_runtime.rs` instead.
+const CHROME_SERVICE_SETTINGS: [(sys::cef_content_setting_types_t, &str); 15] = [
     (sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_FEDERATED_IDENTITY_API, "webid_api"),
     (
         sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_FEDERATED_IDENTITY_AUTO_REAUTHN_PERMISSION,
@@ -174,6 +181,17 @@ const CHROME_SERVICE_SETTINGS: [(sys::cef_content_setting_types_t, &str); 7] = [
     (sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_WINDOW_MANAGEMENT, "window_placement"),
     (sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_IDLE_DETECTION, "idle_detection"),
     (sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_LOCAL_FONTS, "local_fonts"),
+    (sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_SENSORS, "sensors"),
+    (sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_BACKGROUND_SYNC, "background_sync"),
+    (sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_KEYBOARD_LOCK, "keyboard_lock"),
+    (sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_POINTER_LOCK, "pointer_lock"),
+    (sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_AUTOMATIC_FULLSCREEN, "automatic_fullscreen"),
+    (sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_SPEAKER_SELECTION, "speaker_selection"),
+    (sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_DIRECT_SOCKETS, "direct_sockets"),
+    (
+        sys::cef_content_setting_types_t::CEF_CONTENT_SETTING_TYPE_FILE_SYSTEM_ACCESS_EXTENDED_PERMISSION,
+        "file_system_access_extended_permission",
+    ),
 ];
 
 pub fn chrome_service_setting_prefs() -> impl Iterator<Item = String> {
