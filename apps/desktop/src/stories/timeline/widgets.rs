@@ -264,9 +264,9 @@ const GPU: [(&str, &str); 4] = [("story-gpu-cube", "cube"), ("story-gpu-quad", "
 const STILL: &str = "story-backdrop-still";
 
 /// A shader whose frame ties the GPU up past what macOS allows: the GPU aborts it (about 50 ms in
-/// on an M5 Max), one GPU recovery, and the canvas shows its placeholder, stopped as a GPU hang
-/// (`widget_gpu::HANG_ABORTED`). A GPU that runs it to the end stops it as too slow (over 50 ms a
-/// frame, three in a row) or hung (250 ms).
+/// on an M5 Max), a GPU recovery that loses the device with the frame in flight, a strike; the
+/// second stops it with its placeholder, as a GPU hang (`widget_gpu::STRIKE_WINDOW`). A GPU that
+/// runs it to the end stops it as too slow (over 50 ms a frame, three in a row) or hung (250 ms).
 const HEAVY_SHADER: &str = "story-heavy-shader";
 const HEAVY_SHADER_SOURCE: &str = r##"const WGSL = `fn shade(frag: vec2f) -> vec4f {
   var v = fract(frag.x * 0.013 + frag.y * 0.007 + widget.time);

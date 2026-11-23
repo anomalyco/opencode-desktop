@@ -220,11 +220,16 @@ impl Link {
 
     /// A run from `main` starts its GPU canvases afresh, on its own thread; a loss tells it.
     pub(super) fn start_gpu(&self) {
-        let me = self.me.clone();
+        let (me, also) = (self.me.clone(), self.me.clone());
         let gpu = RunGpu::new(
             move |lost| {
                 if let Some(link) = me.upgrade() {
                     link.deliver(lost);
+                }
+            },
+            move |stopped| {
+                if let Some(link) = also.upgrade() {
+                    link.post(Post::Gpu(stopped));
                 }
             },
             self.setup.notify.clone(),

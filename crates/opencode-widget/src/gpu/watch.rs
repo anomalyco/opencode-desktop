@@ -3,6 +3,7 @@
 //! stuck submitting or waiting while the GPU hangs can't keep it from looking. It looks only while
 //! some run's work may be unfinished, and sleeps otherwise until a run submits.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::Duration;
 
@@ -42,6 +43,15 @@ pub(crate) fn add(run: Weak<dyn Watched>) {
     watch().lock().0.push(run);
 }
 
+/// The watch doesn't look while held ([`super::hold_watch`]).
+static HELD: AtomicBool = AtomicBool::new(false);
+
+/// Holds the watch, or lets it look again.
+pub(crate) fn hold(held: bool) {
+    HELD.store(held, Ordering::Release);
+    watch().turn.notify_all();
+}
+
 /// A run submitted GPU work: the watch looks.
 #[cfg_attr(not(feature = "runner"), allow(dead_code))]
 pub(crate) fn poke() {
@@ -63,7 +73,7 @@ impl Watch {
                 (st.0.iter().filter_map(Weak::upgrade).collect::<Vec<Arc<dyn Watched>>>(), st.1)
             };
             let mut busy = false;
-            for run in &runs {
+            for run in runs.iter().filter(|_| !HELD.load(Ordering::Acquire)) {
                 if run.busy() {
                     busy = true;
                     run.look();

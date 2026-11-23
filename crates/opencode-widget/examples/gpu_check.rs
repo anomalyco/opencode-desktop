@@ -2,7 +2,9 @@
 //! `widgets-gpu.md`) as their driver does, on a real GPU: each fixture's program as a live run with
 //! `gpu: { available, format: "rgba8unorm" }`, its canvas sizes first, then while it asks for frames
 //! (at most 10) each frame's inputs, the frame, and the inputs after it; stopped when it settles
-//! without asking. Its batches (ops, bytes, whether they rode a frame request; not compared for a
+//! without asking. A device loss (`{ type: "gpu", lost, inFlight? }`) goes through the device
+//! registry as a real one: with `inFlight`, right after the last batch, nothing having polled (the
+//! hang watch held); else once the GPU is idle. Its batches (ops, bytes, whether they rode a frame request; not compared for a
 //! fixture whose batches are too big to record, `"batches": "from-source"`), its GPU errors (the
 //! host checks' exact messages and the canvases they stopped) and how it ended must be the
 //! fixture's. Replay runs on the device too, so valid fixtures must replay without an error.
@@ -56,7 +58,7 @@ struct Run {
     end: String,
 }
 
-fn run(f: &Value, batches: &Arc<Mutex<Vec<Value>>>) -> Run {
+fn run(f: &Value, batches: &Arc<Mutex<Vec<Value>>>, device: &wgpu::Device) -> Run {
     batches.lock().unwrap().clear();
     let program = Arc::new(LiveProgram::compile(&fixtures::served("live", f["source"].as_str().unwrap())).expect("compiles"));
     let setup = Setup { grants: Grants::default(), transport: None, allow_local_network: false, notify: Arc::new(|| {}) };
@@ -90,6 +92,7 @@ fn run(f: &Value, batches: &Arc<Mutex<Vec<Value>>>) -> Run {
         take(live, wanted);
     };
     let inputs = f.get("inputs").and_then(Value::as_array).cloned().unwrap_or_default();
+    gpu::hold_watch(inputs.iter().any(|e| e["input"]["inFlight"] == true));
     for i in 0..10u64 {
         settle(&live, &mut wanted, &mut take);
         if live.ended().is_some() || !wanted {
@@ -101,7 +104,14 @@ fn run(f: &Value, batches: &Arc<Mutex<Vec<Value>>>) -> Run {
                 match input["type"].as_str() {
                     Some("event") => live.event(&serde_json::from_value::<WidgetEvent>(input["event"].clone()).expect("an event")),
                     Some("canvas") => canvas(&live, input),
-                    Some("gpu") => gpu::lose(gpu::generation().expect("a device"), input["lost"].as_str().unwrap_or("unknown"), None),
+                    Some("gpu") => {
+                        // `inFlight`: lost right after the last batch, before anything polls (the
+                        // hang watch is held); else once the GPU is idle and the run saw so.
+                        if input["inFlight"] != true {
+                            device.poll(wgpu::PollType::wait_indefinitely()).expect("idle");
+                        }
+                        gpu::lose(gpu::generation().expect("a device"), input["lost"].as_str().unwrap_or("unknown"), None);
+                    }
                     _ => {}
                 }
             }
@@ -122,6 +132,7 @@ fn run(f: &Value, batches: &Arc<Mutex<Vec<Value>>>) -> Run {
         }
     };
     take(&live, &mut wanted);
+    gpu::hold_watch(false);
     Run { batches: batches.lock().unwrap().clone(), errors, end }
 }
 
@@ -129,6 +140,7 @@ fn main() {
     let only = std::env::args().nth(1);
     let d = device();
     println!("device: {} ({:?})", d.device.adapter_info().name, d.device.adapter_info().backend);
+    let polled = d.device.clone();
     gpu::provide(move || Some(d.clone()));
     let batches: Arc<Mutex<Vec<Value>>> = Arc::default();
     let sink = batches.clone();
@@ -148,7 +160,7 @@ fn main() {
         }
         ran += 1;
         let started = Instant::now();
-        let r = run(&f, &batches);
+        let r = run(&f, &batches, &polled);
         let mut why = Vec::new();
         let recorded = f["batches"].as_array();
         if !(recorded.is_some() || f["batches"].is_null() || f["batches"] == "from-source") {

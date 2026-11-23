@@ -5,9 +5,9 @@
 //! asked, and nothing when nothing is. A `Shorthand` skips a frame while its last is still
 //! drawing: the worker tries it again shortly. One too slow (over 50 ms a frame, three in a row)
 //! stops on its last frame: the window shows it frozen. One whose frame hangs (still unfinished
-//! 250 ms after its submit, `widget_gpu::HANG`) stops with its placeholder for good, a loss after
-//! it included: the worker looks at a frame about once a display frame while it may still be
-//! drawing. It submits one frame at a time, so it can't be stuck submitting while the GPU hangs.
+//! 250 ms after its submit, `widget_gpu::HANG`, or two device losses within 30 s with a frame in
+//! flight) stops with its placeholder for good, a loss after it included: the worker looks at a
+//! frame about once a display frame while it may still be drawing. It submits one frame at a time, so it can't be stuck submitting while the GPU hangs.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -181,8 +181,8 @@ fn work(shared: &Arc<Shared>) {
         };
         let (mut failed, mut frozen) = (Vec::new(), Vec::new());
         if let Some(next) = lost {
-            // Work running a quarter second at the loss hung (`widget_gpu::HANG_AT_LOSS`): judged
-            // before the reset, its stop comes from the next poll.
+            // A loss with a frame in flight is a strike, the second within 30 s a hang
+            // (`widget_gpu::Shorthand::lost`): told before the reset, its stop comes from the next poll.
             for s in slots.values_mut().filter_map(|s| s.shorthand.as_mut()) {
                 s.lost();
             }

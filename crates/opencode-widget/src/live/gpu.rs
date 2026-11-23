@@ -45,6 +45,9 @@ pub struct RunGpu {
     inner: Mutex<Inner>,
     /// Tells the program of a loss: `{ type: "gpu", lost, message? }`.
     tell: Box<dyn Fn(serde_json::Value) + Send + Sync>,
+    /// A GPU hang stopped canvases outside a batch (the hang watch, or strikes at a loss): the
+    /// client error goes where a batch's errors go.
+    stopped: Box<dyn Fn(GpuError) + Send + Sync>,
     /// Wakes the window: something it shows changed.
     notify: Arc<dyn Fn() + Send + Sync>,
 }
@@ -65,9 +68,9 @@ struct Inner {
 
 impl RunGpu {
     /// A run's GPU on the provided device; placeholders without one.
-    pub fn new(tell: impl Fn(serde_json::Value) + Send + Sync + 'static, notify: Arc<dyn Fn() + Send + Sync>) -> Arc<RunGpu> {
+    pub fn new(tell: impl Fn(serde_json::Value) + Send + Sync + 'static, stopped: impl Fn(GpuError) + Send + Sync + 'static, notify: Arc<dyn Fn() + Send + Sync>) -> Arc<RunGpu> {
         let device = crate::gpu::device();
-        let run = Arc::new(RunGpu { canvases: Canvases::new(Some(notify.clone())), inner: Mutex::new(Inner { gpu: None, queue: None, format: "rgba8unorm", keys: Vec::new(), sizes: HashMap::new(), saved: None, generation: device.as_ref().map_or(0, |(g, _)| *g) }), tell: Box::new(tell), notify });
+        let run = Arc::new(RunGpu { canvases: Canvases::new(Some(notify.clone())), inner: Mutex::new(Inner { gpu: None, queue: None, format: "rgba8unorm", keys: Vec::new(), sizes: HashMap::new(), saved: None, generation: device.as_ref().map_or(0, |(g, _)| *g) }), tell: Box::new(tell), stopped: Box::new(stopped), notify });
         run.start(device.as_ref().map(|(_, d)| d));
         crate::gpu::register(Arc::downgrade(&run) as std::sync::Weak<dyn Lost>);
         crate::gpu::watch::add(Arc::downgrade(&run) as std::sync::Weak<dyn Watched>);
@@ -244,8 +247,9 @@ impl Watched for RunGpu {
         };
         let Some(gpu) = inner.gpu.as_mut() else { return };
         if let Err(e) = gpu.poll() {
-            eprintln!("widget gpu: {}", e.message);
             self.canvases.set_stopped(Self::stopped(&inner));
+            drop(inner);
+            (self.stopped)(e);
             (self.notify)();
         }
     }
@@ -255,14 +259,15 @@ impl Lost for RunGpu {
     /// The device was lost: the run starts over on `next` (handles gone, stopped canvases kept),
     /// and its program hears it.
     fn lost(&self, next: Option<&Device>, reason: &str, message: Option<&str>) {
-        {
+        let hung = {
             let mut inner = self.lock();
             // Saved, it has no GPU: its restore is the loss it hears.
             if inner.saved.is_some() {
                 return;
             }
-            // Work running a quarter second at the loss hung (`widget_gpu::HANG_AT_LOSS`): judged
-            // before the reset and the program hearing of it; its stop comes from the next poll.
+            // A loss with the run's GPU work in flight is a strike, the second within 30 s a hang
+            // (`widget_gpu::Gpu::lost`): told before the reset and the program hearing of it; its
+            // stop comes from the next poll.
             if let Some(gpu) = inner.gpu.as_mut() {
                 gpu.lost();
             }
@@ -274,14 +279,16 @@ impl Lost for RunGpu {
                 inner.gpu = None;
             }
             inner.generation = crate::gpu::generation().unwrap_or(inner.generation);
-            // Work the lost device hung on stays stopped (`Gpu::reset`): a client error, logged.
-            if let Some(Err(e)) = inner.gpu.as_mut().map(Gpu::poll) {
-                eprintln!("widget gpu: {}", e.message);
-            }
+            // Canvases the strikes stopped stay stopped (`Gpu::reset`): a client error.
+            let hung = inner.gpu.as_mut().map(Gpu::poll).and_then(Result::err);
             inner.queue = next.filter(|_| reset).map(|d| d.queue.clone());
             self.canvases.start(next.filter(|_| reset));
             self.canvases.begin();
             self.publish(&inner);
+            hung
+        };
+        if let Some(e) = hung {
+            (self.stopped)(e);
         }
         let mut lost = json!({ "type": "gpu", "lost": reason });
         if let Some(m) = message {

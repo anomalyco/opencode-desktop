@@ -108,7 +108,7 @@ mod mac {
 
     /// A run with canvas `c` at `w` x `h`, configured.
     fn run(w: u32, h: u32) -> Arc<RunGpu> {
-        let run = RunGpu::new(|_| {}, Arc::new(|| {}));
+        let run = RunGpu::new(|_| {}, |_| {}, Arc::new(|| {}));
         run.rendered(vec![("c".into(), "0/:c".into())]);
         run.resize("c", w, h);
         let setup = ops(json!([

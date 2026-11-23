@@ -98,6 +98,14 @@ pub(crate) fn register(run: Weak<dyn Lost>) {
     host().runs.push(run);
 }
 
+/// Holds the hang watch (`true`), so nothing polls the runs' device, or lets it look again: for a
+/// check that loses the device while GPU work isn't seen finished (the shared fixtures' `inFlight`
+/// losses).
+#[doc(hidden)]
+pub fn hold_watch(held: bool) {
+    watch::hold(held);
+}
+
 /// The device's generation now, for a check that loses it on purpose.
 pub fn generation() -> Option<u64> {
     host().current.as_ref().map(|(g, _)| *g)

@@ -5014,7 +5014,7 @@ dependencies = [
 [[package]]
 name = "psychoscript"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/psychoscript?rev=00a1d9e71a73c39e2eb0cbca3db12e35abfcf3f7#00a1d9e71a73c39e2eb0cbca3db12e35abfcf3f7"
+source = "git+https://github.com/anomalyco/psychoscript?rev=a77590d4bb866d7309b4d0033a55f307eabf1030#a77590d4bb866d7309b4d0033a55f307eabf1030"
 dependencies = [
  "icu_calendar",
  "icu_collator",
@@ -7670,7 +7670,7 @@ dependencies = [
 [[package]]
 name = "widget-gpu"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/psychoscript?rev=00a1d9e71a73c39e2eb0cbca3db12e35abfcf3f7#00a1d9e71a73c39e2eb0cbca3db12e35abfcf3f7"
+source = "git+https://github.com/anomalyco/psychoscript?rev=a77590d4bb866d7309b4d0033a55f307eabf1030#a77590d4bb866d7309b4d0033a55f307eabf1030"
 dependencies = [
  "serde_json",
  "wgpu",
@@ -7680,7 +7680,7 @@ dependencies = [
 [[package]]
 name = "widget-wire"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/psychoscript?rev=00a1d9e71a73c39e2eb0cbca3db12e35abfcf3f7#00a1d9e71a73c39e2eb0cbca3db12e35abfcf3f7"
+source = "git+https://github.com/anomalyco/psychoscript?rev=a77590d4bb866d7309b4d0033a55f307eabf1030#a77590d4bb866d7309b4d0033a55f307eabf1030"
 dependencies = [
  "psychoscript",
  "serde",
