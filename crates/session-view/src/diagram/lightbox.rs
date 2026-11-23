@@ -6,6 +6,7 @@
 //! drags move it at once, on the fingers.
 
 use rune::{Cx, Drag, El, Phase as Pointer, Spring, SpringPair, Transition, Tx, el};
+use rune_kit::image_zoom::math::wheel_zoom_factor;
 
 use super::{Gesture, Open, Phase};
 use crate::TimelineHost;
@@ -224,8 +225,11 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
         });
     if open {
         stage = stage
+            // Desktop's `diagram-preview.tsx`: Cmd or Ctrl + wheel scales by `wheelZoomFactor` of
+            // the browser's `deltaY`, which a macOS pinch is `-100 ln(1 + delta)` of.
             .on_magnify(|s: &mut S, e, tx| {
-                zoom_about(s, 1.0 + e.delta, e.x, e.y);
+                let by = if e.wheel { wheel_zoom_factor(-e.delta * 200.0) } else { 1.0 + e.delta };
+                zoom_about(s, by, e.x, e.y);
                 tx.instant();
                 true
             })
@@ -235,7 +239,7 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
             })
             .on_wheel(|s: &mut S, e, tx| {
                 if e.mods.cmd {
-                    zoom_about(s, (-e.dy * 0.01).exp(), e.x, e.y);
+                    zoom_about(s, wheel_zoom_factor(-e.dy), e.x, e.y);
                 } else {
                     pan_by(s, e.dx, e.dy);
                 }

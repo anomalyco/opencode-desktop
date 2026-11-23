@@ -74,7 +74,7 @@ impl Pinch {
 }
 
 /// A pinch as the wheel pixels Desktop's window sees for it, which Chromium divides by the
-/// page's zoom. Ctrl + wheel (and so a pinch off macOS) reaches Rune as `-dy / 200` a point,
+/// page's zoom. Ctrl + wheel (and so a pinch off macOS) reaches Rune as `dy / 200` a point,
 /// and Rune's wheel points are Chromium's wheel pixels on every platform (100 a notch on
 /// Windows, rune#856). macOS reports a pinch itself, which Chromium turns into a Ctrl + wheel
 /// of `-100 ln(1 + delta)` (measured on a Mac: Desktop's pinch zooms less the further in it is).
