@@ -70,7 +70,11 @@ if (Test-Path $profdata) {
     Write-Host "no profile for ${triple}: building without profile-guided optimisation"
 }
 try {
-    if (Test-Path $profdata) {
+    # NEVER MERGE (branch pgo/instrumented-build): the x64 release exe is built instrumented, exactly as
+    # pgo.ps1 builds its training exe, so this PR's CI artifact is what the PGO training run drives.
+    if ($triple -eq 'x86_64-pc-windows-msvc') {
+        [Environment]::SetEnvironmentVariable($name, (@($before, '-Cprofile-generate=target/pgo-raw') | Where-Object { $_ }) -join ' ')
+    } elseif (Test-Path $profdata) {
         [Environment]::SetEnvironmentVariable($name, (@($before, "-Cprofile-use=$profdata", '-Cllvm-args=-no-pgo-warn-mismatch') | Where-Object { $_ }) -join ' ')
     }
     $parts = $Cargo -split ' '
