@@ -202,6 +202,11 @@ impl Job {
                     log(&format!("browser engine {} installed in {} µs", release.version, started.elapsed().as_micros()));
                     installer::remove_old(root, release.version);
                     self.report(EngineStatus::Installed);
+                    if mode == Mode::Update
+                        && let Some(engine) = installer::installed()
+                    {
+                        warm(&engine.bin);
+                    }
                     break;
                 }
                 Err(Cut::Stopped) => continue,
@@ -409,6 +414,21 @@ fn set(shared: &Mutex<SharedEngine>, waker: Option<&Waker>, next: EngineStatus) 
     {
         w();
     }
+}
+
+/// Loads an updated engine's program and libraries once, here in the background, and lets it exit
+/// (`--print-cef-dir` returns before Chromium starts). The OS's first load of newly written images
+/// (Windows Defender scans each one) took the first page after an update 4.1 s against 0.4 s
+/// for every later start; now this run pays it.
+fn warm(bin: &Path) {
+    let started = Instant::now();
+    let ran = std::process::Command::new(bin)
+        .arg("--print-cef-dir")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    log(&format!("browser engine: warmed in {} µs ({})", started.elapsed().as_micros(), ran.map_or_else(|e| e.to_string(), |s| s.to_string())));
 }
 
 fn log(line: &str) {
