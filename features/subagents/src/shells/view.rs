@@ -130,9 +130,16 @@ fn build_row_shell(p: &Pal, key: &str, mark: &'static rune::Icon, command: &str,
         .hover_motion(INSTANT, INSTANT)
         .hover_group_focus()
         .child(icon(mark, 16.0).key("mark").color(p.icon_muted))
-        .child(text(command.to_owned()).key("command").font(COMMAND).color(p.text).truncate_fade().w(span).grow(1.0).shrink().min_w(0.0))
+        .child(text(one_line(command)).key("command").font(COMMAND).color(p.text).truncate_fade().w(span).grow(1.0).shrink().min_w(0.0))
         .child(end_el);
     if clickable { r.cursor(rune::Cursor::Pointer) } else { r }
+}
+
+/// A command as its row shows it, on one line as the subagents' titles are: each run of
+/// whitespace, line breaks included, as one space (`white-space: nowrap`). A line break would
+/// otherwise start a new line even in unwrapped text and spill over the rows around it.
+pub fn one_line(command: &str) -> String {
+    command.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn build_stop_button_shell(p: &Pal, kind: Kind, stopping: bool) -> El {
