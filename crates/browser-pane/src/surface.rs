@@ -190,10 +190,11 @@ impl BrowserHost {
                 });
                 true
             })
-            // Off macOS a pinch or Ctrl + wheel reaches Rune as a pinch; step the page's zoom
-            // presets (`chromium.ts:275` `zoom-changed`), leaving the window's own pinch zoom alone.
+            // Ctrl + wheel (and off macOS a pinch, which arrives as one) steps the page's zoom
+            // presets (`chromium.ts:289` `zoom-changed`), leaving the window's own pinch zoom alone.
+            // A macOS pinch gesture is no `zoom-changed` in Electron, so it goes on to the window.
             .on_magnify(move |s: &mut S, m: MagnifyEvent, _tx| {
-                if cfg!(target_os = "macos") {
+                if cfg!(target_os = "macos") && !m.wheel {
                     return false;
                 }
                 let host = access(s);
