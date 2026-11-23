@@ -508,11 +508,13 @@ pub(crate) fn sweep_unpacking(root: &Path) {
     }
 }
 
-/// Removes the partial downloads nobody holds: an earlier version's, left when the app was
-/// updated before its engine arrived, each up to an archive's size. The one a download writes is
-/// locked (`download::Body`), also by another app or an older build beside this one, and stays.
+/// Removes the partial downloads nobody has touched for a day: an earlier version's, left when
+/// the app was updated before its engine arrived, each up to an archive's size. The one a
+/// download writes is locked (`download::Body`), also by another app or an older build beside
+/// this one, and stays; so does a recent one that such a build goes on from at its next try.
 #[cfg(feature = "engine")]
 pub(crate) fn sweep_partials(root: &Path) {
+    const STALE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
     let Ok(entries) = std::fs::read_dir(root) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name();
@@ -521,7 +523,8 @@ pub(crate) fn sweep_partials(root: &Path) {
             Version::parse(version).is_some() && hash.len() == 16 && hash.bytes().all(|b| b.is_ascii_hexdigit())
         });
         let path = entry.path();
-        if !ours || is_reparse_or_symlink(&path) {
+        let stale = entry.metadata().and_then(|m| m.modified()).is_ok_and(|at| at.elapsed().is_ok_and(|age| age >= STALE));
+        if !ours || !stale || is_reparse_or_symlink(&path) {
             continue;
         }
         let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&path) else { continue };

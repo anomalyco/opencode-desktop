@@ -564,6 +564,9 @@ impl Job {
         // unpacks the whole file once, rather than unpacking the bytes it already has again on
         // every try.
         let stream_unpack = tar_zst && body.resumed_at() == 0;
+        if body.resumed_at() > 0 {
+            log(&format!("browser engine: the download goes on from {} of {} MB", body.resumed_at() / 1_000_000, release.size.div_ceil(1_000_000)));
+        }
         let streamed = if stream_unpack {
             unpack::tar_zst(&mut body, staging, &mut unpacked).map_err(unpack::UnpackError::cut)
         } else {
