@@ -26,7 +26,7 @@ mod shorthand;
 pub(crate) mod watch;
 
 pub use shorthand::{Ask, Shorthands};
-pub use widget_gpu::{Arg, ErrorKind, Uniforms, clamp_size, device_limits, preferred_format};
+pub use widget_gpu::{Aborts, Arg, ErrorKind, Uniforms, clamp_size, device_limits, preferred_format};
 
 /// `f`, which polls a device: `None` if it found the device lost. wgpu 30 panics in
 /// `Device::poll` once a fence read fails ("Error in Device::poll: Parent device is lost"), which is
@@ -60,6 +60,8 @@ pub struct Device {
     pub format: wgpu::TextureFormat,
     /// Not the window's own device: the window shows copies ([`Canvases::copies`]).
     pub copies: bool,
+    /// Which of its submissions the GPU aborted, where the host can tell (`widget_gpu::Aborts`).
+    pub aborts: Option<Arc<dyn Aborts>>,
 }
 
 type Provider = Arc<dyn Fn() -> Option<Device> + Send + Sync>;

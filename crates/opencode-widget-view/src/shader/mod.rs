@@ -12,7 +12,7 @@ mod live;
 
 #[cfg(target_os = "macos")]
 pub use live::{MetalShare, share_metal};
-pub use opencode_widget::gpu::{Device as GpuDevice, device_limits as gpu_limits};
+pub use opencode_widget::gpu::{Aborts as GpuAborts, Device as GpuDevice, device_limits as gpu_limits};
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;

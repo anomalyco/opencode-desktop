@@ -135,8 +135,10 @@ browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }
 # Ogg and Opus audio tracks in videos, which AVPlayer can't play (Rune decodes them).
 rune = { workspace = true, features = ["ogg-audio"] }
 libc = "0.2"
-# Live widgets' GPU canvases share Rune's MTLDevice (`session::widget_gpu`).
+# Live widgets' GPU canvases share Rune's MTLDevice (`session::widget_gpu`), which tells the
+# submissions its GPU aborted (`rune_gpu::metal::aborted`).
 wgpu = { version = "30", default-features = false }
+rune-gpu = { git = "https://github.com/anomalyco/rune", rev = "4c4abf5d6d2b47892b3b01c519341b943f5cebcf" }
 objc2 = "0.6"
 objc2-metal = "0.3"
 

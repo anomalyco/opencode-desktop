@@ -5,9 +5,9 @@
 //! asked, and nothing when nothing is. A `Shorthand` skips a frame while its last is still
 //! drawing: the worker tries it again shortly. One too slow (over 50 ms a frame, three in a row)
 //! stops on its last frame: the window shows it frozen. One whose frame hangs (still unfinished
-//! 250 ms after its submit, `widget_gpu::HANG`) stops with its placeholder for good, a loss after
-//! it included: the worker looks at a frame about once a display frame while it may still be
-//! drawing. It submits one frame at a time, so it can't be stuck submitting while the GPU hangs.
+//! 250 ms after its submit, `widget_gpu::HANG`, or aborted by the GPU after running 30 ms,
+//! `widget_gpu::HANG_ABORTED`) stops with its placeholder for good, a loss after it included: the
+//! worker looks at a frame about once a display frame while it may still be drawing. It submits one frame at a time, so it can't be stuck submitting while the GPU hangs.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -194,7 +194,10 @@ fn work(shared: &Arc<Shared>) {
             }
             for (id, slot) in &mut slots {
                 if let (Some(d), Some(s)) = (&device, slot.shorthand.as_mut())
-                    && let Err(e) = s.reset(d.device.clone(), d.queue.clone())
+                    && let Err(e) = {
+                        s.set_aborts(d.aborts.clone());
+                        s.reset(d.device.clone(), d.queue.clone())
+                    }
                 {
                     failed.push((id.clone(), e.message, e.kind == ErrorKind::Program));
                     slot.shorthand = None;
@@ -212,7 +215,10 @@ fn work(shared: &Arc<Shared>) {
             let Some(d) = &device else { continue };
             if slots.get(&id).is_none_or(|s| s.last.source != ask.source) {
                 let shorthand = match Shorthand::new(d.device.clone(), d.queue.clone(), d.format, &ask.wgsl) {
-                    Ok(s) => Some(s),
+                    Ok(mut s) => {
+                        s.set_aborts(d.aborts.clone());
+                        Some(s)
+                    }
                     Err(e) => {
                         failed.push((id.clone(), e.message, e.kind == ErrorKind::Program));
                         None

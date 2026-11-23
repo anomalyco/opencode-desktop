@@ -12,11 +12,13 @@ pub fn setup() {
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
 mod os {
+    use std::sync::Arc;
+
     use objc2::rc::Retained;
     use objc2::runtime::ProtocolObject;
     use objc2_metal::MTLTexture;
 
-    use crate::session::widgets::shader::{GpuDevice, MetalShare, gpu_limits, share_metal};
+    use crate::session::widgets::shader::{GpuAborts, GpuDevice, MetalShare, gpu_limits, share_metal};
 
     pub fn share() {
         share_metal(MetalShare { stock, raw_texture });
@@ -44,7 +46,16 @@ mod os {
         let adapter = adapters.into_iter().find(on)?;
         let made = block(adapter.request_device(&wgpu::DeviceDescriptor { label: Some("widget gpu"), required_limits: gpu_limits(), ..Default::default() }));
         let (device, queue) = made.map_err(|e| eprintln!("widget gpu: no device: {e}")).ok()?;
-        Some(GpuDevice { device, queue, format: wgpu::TextureFormat::Bgra8Unorm, copies: true })
+        Some(GpuDevice { device, queue, format: wgpu::TextureFormat::Bgra8Unorm, copies: true, aborts: Some(Arc::new(Metal)) })
+    }
+
+    /// Which submissions a stock wgpu Metal queue's GPU aborted, as Rune's vendored wgpu-hal records them.
+    struct Metal;
+
+    impl GpuAborts for Metal {
+        fn aborted(&self, queue: &wgpu::Queue, submission: &wgpu::SubmissionIndex) -> Option<std::time::Duration> {
+            rune_gpu::metal::aborted(queue, submission)
+        }
     }
 
     /// A stock device texture's `MTLTexture`.
