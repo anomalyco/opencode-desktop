@@ -2,28 +2,28 @@
   "generated_at": "2026-11-23",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "70c7f452a5851ef6e36077ec15d339f9271ae5fa",
+  "upstream_head": "8c0be712aa65f4cdc03ab86fb13f5b45fa08b478",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "24dba76baca7dc08f327a540bea63a62ea83b01b",
-  "post_1114_commit_count": 489,
-  "post_1114_in_ledger": 183,
-  "post_1114_skipped": 306,
+  "rune_desktop_head": "d610e757c62ee228e201e82dc1aa8b79c3c7b61f",
+  "post_1114_commit_count": 491,
+  "post_1114_in_ledger": 184,
+  "post_1114_skipped": 307,
   "post_1114_skipped_breakdown": {
     "test-only": 23,
     "ci-bench-deps": 18,
     "docs-site-data": 49,
     "tui-only": 19,
     "cli-acp-only": 8,
-    "server-core-ai-codemode-internal": 189
+    "server-core-ai-codemode-internal": 190
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 204,
+  "total_ledger_rows": 205,
   "status_counts": {
     "have it": 174,
     "not applicable": 28,
     "differs on purpose": 1,
-    "partly": 1
+    "partly": 2
   },
   "rows": [
     {
@@ -4900,7 +4900,7 @@
       "summary": "The browser bar gets Comment on part of the page back as a button (pressed while picking); Toggle browser toolbar moves into Options > More tools; Ctrl+Shift+M leaves focus on Options.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "rune-desktop #822 (df0b7f0f): plugins/browser/panel.luau bar has the select-element button with browser.inspect, Options no longer accents; options.luau More tools lists Toggle browser toolbar where the device toolbar exists. Not carried: Ctrl+Shift+M moving focus to Options (ours never focused a bar button from it). By reading and luau-lsp only; not run in the app.",
+      "status_evidence": "rune-desktop #822 (df0b7f0f): plugins/browser/panel.luau bar has the select-element button with browser.inspect, Options no longer accents; options.luau More tools lists Toggle browser toolbar where the device toolbar exists. #828 (0f1c3f81): browser.toggleToolbar leaves the keyboard on Options (Layout:Focus, plugin contract 1.7).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8",
@@ -4950,7 +4950,7 @@
       "summary": "No focus ring on text fields (composer, Home search) or scroll areas (timeline, Home's list); focus shows as the caret, the field's fill, or the items inside.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "rune-desktop #824 (305f5826): composer/mod.rs and home/search.rs drop focus_visible_within_ring; timeline/mod.rs and home.rs use no_focus_ring; session.rs drops the timeline-ring overlay. Not carried: the composer restoring the draft's caret on any focus a press didn't cause (ours keeps its own caret model). cargo check only.",
+      "status_evidence": "rune-desktop #824 (305f5826): composer/mod.rs and home/search.rs drop focus_visible_within_ring; timeline/mod.rs and home.rs use no_focus_ring; session.rs drops the timeline-ring overlay. The draft's caret on a focus no press caused: the caret is part of the draft's state here (SavedDraft.caret) and no focus move rewrites it, by reading.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8",
@@ -4976,7 +4976,7 @@
       "summary": "An open Code Mode script lists its latest 10 calls with a +N more button that reveals 50 earlier ones per press; the rest is web performance (collapsible measuring, a :has() restyle, shimmer nodes).",
       "size": "S",
       "status": "have it",
-      "status_evidence": "rune-desktop #825 (972f8491): crates/session-view/src/tools/execute.rs CALLS_SHOWN 10, CALLS_REVEALED 50, more_button; a failure on a hidden call shows on its own row. The performance parts have no counterpart in the native renderer. Not carried: focus moving to the first call when the button goes. cargo check only.",
+      "status_evidence": "rune-desktop #825 (972f8491): crates/session-view/src/tools/execute.rs CALLS_SHOWN 10, CALLS_REVEALED 50, more_button; a failure on a hidden call shows on its own row. #828 (0f1c3f81): the press that removes the button moves focus to the first call. The performance parts have no counterpart in the native renderer.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8",
@@ -5107,6 +5107,31 @@
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"
+    },
+    {
+      "id": "UP-184",
+      "window": "post-1120",
+      "pr": 64395,
+      "sha": "2720b4b20c",
+      "title": "feat(app): support key chords in shortcuts",
+      "merged": "2026-11-23",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/app.tsx",
+        "packages/app/src/runtime/i18n/en.ts",
+        "packages/app/src/settings/keybinds/keybinds.tsx",
+        "packages/app/src/settings/keybinds/machine.ts"
+      ],
+      "summary": "A shortcut can be a chord of up to four strokes (Ctrl+K Ctrl+C). Settings > Shortcuts saves each pressed key at once and the row just saved offers + (Add a key); recording shows the keys so far and an ellipsis; Backspace drops the key being added; a chord clashes with any shortcut that starts it or that it starts. While a chord is in progress a card at the window's foot lists the keys that continue it and what each runs; Escape clears it and Backspace drops its last stroke.",
+      "size": "L",
+      "status": "partly",
+      "status_evidence": "rune-desktop #833 (d610e757): crates/opencode-ui/src/keymap/sequence.rs (chord specs, the Pending machine, labels), overrides.rs (chords registry), apps/desktop/src/shell/input/key_sequence.rs (field_key / window_key, the hint overlay), features/settings/src/pages/shortcuts.rs (Capture machine, + button, prefix clashes), settings.shortcuts.addKey synced. Partly: a chord's label shows for the table's commands; for a command with no table row the palette, the slash popover, plugin menus and tooltips still show no keys (Command::effective_chord and keymap::command_chord carry one stroke). cargo check; the app run is recorded in notes/upstream-sync/status-upstream.md.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#833"
     }
   ],
   "browser_security_review": {
