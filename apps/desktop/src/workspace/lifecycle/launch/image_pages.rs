@@ -21,7 +21,8 @@
 //! not in the process: the first thread to touch it takes a soft fault that maps it in, and a
 //! warm launch's main thread spent 8.2 of its 35.7 ms to the first frame inside those faults
 //! (strobe stacks of six launches, `KiPageFault`; 3.5 ms of it image pages). Taken on this
-//! thread, the launch's own threads find the page mapped. `OPENCODE_RUNE_IMAGE_PAGES_TOUCH=off`
+//! thread, the launch's own threads find the page mapped (on a machine with four processors or
+//! more: with fewer, the reads would run in the launch's own time). `OPENCODE_RUNE_IMAGE_PAGES_TOUCH=off`
 //! leaves the pages untouched, `=2` reads them on two threads (a bench's arms).
 //!
 //! Once the launch has settled the same thread reads which of the exe's pages the process
@@ -138,7 +139,9 @@ fn run(mode: Mode, threads: usize) {
             rune::marks::mark("image.pages.present");
         }
     }
-    if let (Some(runs), true) = (&listed, threads > 0 && mode != Mode::All) {
+    // With fewer than four processors the reads would take the launch's own time.
+    let room = std::thread::available_parallelism().is_ok_and(|n| n.get() >= 4);
+    if let (Some(runs), true) = (&listed, threads > 0 && room && mode != Mode::All) {
         touch(&image, runs, threads);
         rune::marks::mark("image.pages.touched");
     }
