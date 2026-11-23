@@ -27,6 +27,8 @@ pub(crate) enum Act {
     NewWindow,
     CloseTab,
     CloseWindow,
+    /// macOS's File › Close All, Close Window's Option alternate.
+    CloseAll,
     /// An Edit item: the key it sends to the focused field.
     Edit(EditKey),
     ToggleSidebar,
@@ -230,7 +232,7 @@ fn enabled(s: &App, act: Act) -> bool {
 
 pub(crate) fn run(s: &mut App, act: Act, tx: &mut Tx) {
     // An item that acts in the window brings back the last window Close Window hid.
-    let revealed = !matches!(act, Act::CloseWindow | Act::Open(_) | Act::ExportLogs) && s.reveal();
+    let revealed = !matches!(act, Act::CloseWindow | Act::CloseAll | Act::Open(_) | Act::ExportLogs) && s.reveal();
     match act {
         Act::NewSession => s.new_session(tx),
         Act::Settings => {
@@ -245,6 +247,7 @@ pub(crate) fn run(s: &mut App, act: Act, tx: &mut Tx) {
         }
         Act::CloseTab => s.close_tab_key(tx),
         Act::CloseWindow => s.close_window(tx),
+        Act::CloseAll => s.close_all_windows(tx),
         Act::Edit(key) => {
             // Back to the field focused as the menu opened, then the key (`windows-menu.tsx:69`).
             if let Some(field) = s.popup.remembered().map(str::to_owned) {
