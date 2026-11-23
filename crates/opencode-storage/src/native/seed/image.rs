@@ -3,7 +3,8 @@
 //! Desktop running (or killed) leaves a `-wal` with committed frames beside the database, so the
 //! file alone is not the database. A new profile's first frame waits for the seed's rows, and a
 //! scratch copy of both files wrote every byte to disk first: 380,867 us to the first frame for
-//! a 120 MB database with a 64 MB WAL, and one launch of 4,160,481 us while the disk was busy.
+//! a 126 MB database with a small WAL, launches of 1,560,618 and 4,160,481 us while the disk was
+//! busy, and 2,096,977 us to the packet for a 67 MB database with a 64 MB WAL (112,149 us here).
 //! Here nothing is written: the database's pages are read once, straight into the memory SQLite
 //! then opens ([`rusqlite::Connection::deserialize_read_exact`]), with the page of each
 //! committed WAL frame in place of the file's. That is what a checkpoint would leave in the file
