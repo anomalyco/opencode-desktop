@@ -295,7 +295,6 @@ impl App {
 
     /// Opens `target` for step `step`; pressed again while it shows, puts the side region back.
     pub fn open_tool_step(&mut self, step: &str, target: Target, tx: &mut Tx) {
-        tx.instant();
         // The timeline narrows or widens with the side region; the pressed row stays put.
         tx.keep_on_screen(format!("tool-{step}"));
         if self.tool_step_showing(step) {
@@ -303,6 +302,7 @@ impl App {
             return;
         }
         let Some(sid) = self.active_session_id().map(str::to_owned) else { return };
+        let was = crate::panels::panes_shown(self);
         // A chain of steps opened one after another still goes back to where it began.
         let before = match self.workspace_panes.tool_open.take().filter(|o| self.showing(o)) {
             Some(o) => o.before,
@@ -319,12 +319,16 @@ impl App {
         // Focus stays in the timeline, as a link's click leaves it.
         self.kernel.slots.get_mut(&crate::panels::SIDE).focus.blur();
         *self.workspace_panes.tool_open = Some(Opened { session: sid, step: step.to_owned(), tab, before });
+        // Once more over the whole open: a closed side region flies open on `SIDE_SPRING` even
+        // after a second tab or a scroll to a line asked for `tx.instant()`; an open one switches
+        // tabs at once.
+        crate::panels::state::finish_show_pane_tab(self, was, tx);
     }
 
     /// Opens Changes at `path`'s change, or Files at its line when Changes doesn't list it.
     /// Returns the tab it opened.
     fn open_change(&mut self, sid: &str, path: &str, anchor: Option<&Anchor>, tx: &mut Tx) -> String {
-        self.show_side_tab(sid, REVIEW_KEY, None);
+        self.show_pane_tab(tx, |s| s.show_side_tab(sid, REVIEW_KEY, None));
         self.ensure_session_review(sid);
         let Some(sr) = self.kernel.slots.get_mut(&crate::review::REVIEW).sessions.get_mut(sid) else { return REVIEW_KEY.to_owned() };
         if let crate::review::Load::Loading { focus } = &mut sr.load {
@@ -355,13 +359,14 @@ impl App {
         if !self.showing(&o) {
             return false;
         }
-        tx.instant();
         tx.keep_on_screen(format!("tool-{}", o.step));
         match o.before {
+            // Back to the tab it showed: a tab switch, at once (`select_side_tab`).
             Some(tab) => {
                 self.select_side_tab(&tab, tx);
                 self.kernel.slots.get_mut(&crate::panels::SIDE).focus.blur();
             }
+            // Shut, as the region's toggle does: on `SIDE_SPRING`.
             None => {
                 self.session_side_mut(&o.session).visibility.step(false);
                 self.kernel.slots.get_mut(&crate::panels::SIDE).focus.blur();

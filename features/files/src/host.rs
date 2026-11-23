@@ -317,8 +317,9 @@ pub trait FilesHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
         false
     }
     /// Opens workspace-relative `rel_path` as an isolated `oc-preview://` tab for session `sid`.
-    fn open_workspace_preview(&mut self, sid: &str, rel_path: &str) {
-        let _ = (sid, rel_path);
+    /// Lands at once in an open side region; a closed one flies open (`show_pane_tab`).
+    fn open_workspace_preview(&mut self, sid: &str, rel_path: &str, tx: &mut Tx) {
+        let _ = (sid, rel_path, tx);
     }
     /// Opens `href` as an isolated `artifact://` preview tab if it targets an artifact on the active server.
     fn try_open_artifact_link(&mut self, sid: &str, href: &str) -> bool {
