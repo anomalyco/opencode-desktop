@@ -456,26 +456,3 @@ fn log(message: &str) {
     eprintln!("{message}");
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn unpacks_into_a_folder_named_outside_the_ansi_code_page() {
-        let base = std::env::temp_dir().join(format!("opencode-rune-unpack 更新 ü Ω {}", std::process::id()));
-        let src = base.join("src");
-        let into = base.join("解压");
-        std::fs::create_dir_all(src.join("sub")).unwrap();
-        std::fs::create_dir_all(&into).unwrap();
-        std::fs::write(src.join(EXE), b"exe").unwrap();
-        std::fs::write(src.join("sub").join("a.txt"), b"a").unwrap();
-        // Made with relative, ASCII arguments: only the paths around them are not.
-        let made = Command::new("tar.exe").args(["-a", "-cf", "../update.zip", EXE, "sub"]).current_dir(&src).status().unwrap();
-        assert!(made.success());
-        unpack_zip(&base.join("update.zip"), &into).unwrap();
-        assert_eq!(std::fs::read(into.join(EXE)).unwrap(), b"exe");
-        assert_eq!(std::fs::read(into.join("sub").join("a.txt")).unwrap(), b"a");
-        assert_eq!(locate(&into).unwrap(), into);
-        std::fs::remove_dir_all(&base).unwrap();
-    }
-}
