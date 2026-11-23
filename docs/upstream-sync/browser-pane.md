@@ -17,7 +17,7 @@ Official's browser plugin read at `361bed51ef` (`packages/gui-plugins/src/browse
 | Load failure page | `failure-view.tsx` | `failure.luau` + `panel.luau` | yes |
 | Find in page | `find-bar.tsx`, `page-find.ts` | `plugins/browser/find.luau` | yes |
 | Zoom | Chromium's zoom steps (`chromium.ts:181-182`) | `init.luau` `zoom` action, `tab:SetZoom` | yes |
-| Site info | `site-*.ts`, drill-in views | `plugins/browser/site.luau` (focus between views: #717) | yes, except official keeps keyboard focus on the trigger when it opens; ours moves it into the popover |
+| Site info | `site-*.ts`, drill-in views | `plugins/browser/site.luau` (focus between views: #717) | yes, except the keyboard: official (read at `361bed51ef`, 23 Nov) keeps focus on the trigger when Site info opens; Enter, Space and Escape close it, arrows and F6 do nothing, Tab / Shift+Tab leave and close it, and 12 presses of either never reach inside, so a keyboard user cannot reach Site settings, Clear or Back. Ours moves focus into the popover, so all of it is reachable. Kept on purpose. |
 | Viewport / device toolbar | `viewport-*.ts(x)` | `plugins/browser/device.luau` | yes |
 | History, back / forward | `history/*`, navigation turn | `plugins/browser/history.luau`, engine navigation | yes |
 | Sign-in offer, import | `import-prompt.tsx`, `site-chooser.tsx` | `signins.luau`, `settings.luau` (Choose sites: #711, #716) | yes |
