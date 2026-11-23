@@ -18,10 +18,12 @@ pub const WARM: usize = 6;
 const NEAR_TOP: f32 = 200.0;
 
 mod cache_ref;
+mod early;
 mod machines;
 mod shown;
 
 pub(crate) use cache_ref::CacheRef;
+pub use early::Early;
 pub use machines::{History, Key, LATEST, OpenEvent, Opening};
 use machines::{HOLD, Histories, HistoryEffect, HistoryEvent, Stall};
 
@@ -138,18 +140,6 @@ pub struct Page {
 #[derive(Clone, PartialEq, Eq)]
 struct Job { key: Key, cursor: Option<String>, limit: usize, foreground: bool }
 
-/// A page read before its reader existed: the launch reads the restored session's newest page
-/// beside its first reads, a round trip before the window connects and can ask. The reader's
-/// ask for `path` takes `value` instead of reading it again, while it is fresh.
-pub struct Early {
-    pub path: String,
-    pub value: Value,
-    pub read: Instant,
-}
-
-/// How long an early page stands in for a read: the launch's own connect comes milliseconds
-/// after it; a session opened later than this reads its page anew.
-const EARLY_FRESH: Duration = Duration::from_secs(10);
 
 /// Whether the open lane's reads are getting answers, or since when they began failing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -233,27 +223,7 @@ impl Pages {
     }
     pub fn live(server: Server, wake: Waker, early: Option<Early>) -> Self {
         let base = server.base.clone();
-        let early = Mutex::new(early);
-        let mut pages = Self::new(Arc::new(move |path| {
-            let taken = {
-                let mut slot = early.lock().unwrap_or_else(PoisonError::into_inner);
-                match &*slot {
-                    Some(e) if e.read.elapsed() >= EARLY_FRESH => {
-                        *slot = None;
-                        None
-                    }
-                    Some(e) if e.path == path => slot.take(),
-                    _ => None,
-                }
-            };
-            if let Some(early) = taken {
-                return Ok(early.value);
-            }
-            server.read_timed(path).map(|(value, t)| {
-                crate::telemetry::note_read(t.first_byte, t.bytes, t.parsing);
-                value
-            })
-        }), wake);
+        let mut pages = Self::new(early::fetch(server, early), wake);
         pages.server = base;
         pages
     }
