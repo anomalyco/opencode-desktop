@@ -160,6 +160,33 @@ function desktop(home: string, running: boolean) {
   cpSync(dir, join(home, "config", "ai.opencode.desktop"), { recursive: true })
 }
 
+/** What the updater does to an exe it has staged, and the setup to the one it installed (Windows): a process is
+ *  made from it, suspended, and ended before a line of it runs. A virus scanner checks a new exe the first time a
+ *  process is made from it, inside that call; this pays the check before the timed launch, as an update or an
+ *  install by a build with that step does. Asked for by a file named `staged` beside the exe, so one build can be
+ *  both sides: a copy without the file is the launch after an update that left the check to the person's start. */
+function staged(exe: string) {
+  if (process.platform !== "win32" || !existsSync(join(dirname(exe), "staged"))) return
+  const { dlopen, FFIType, ptr } = require("bun:ffi")
+  const k32 = dlopen("kernel32.dll", {
+    CreateProcessW: { args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.i32, FFIType.u32, FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
+    TerminateProcess: { args: [FFIType.u64, FFIType.u32], returns: FFIType.i32 },
+    WaitForSingleObject: { args: [FFIType.u64, FFIType.u32], returns: FFIType.u32 },
+    CloseHandle: { args: [FFIType.u64], returns: FFIType.i32 },
+  }).symbols
+  const wide = (s: string) => new Uint8Array(Buffer.from(s + "\0", "utf16le"))
+  const si = new Uint8Array(104)
+  new DataView(si.buffer).setUint32(0, 104, true)
+  const pi = new Uint8Array(24)
+  // CREATE_SUSPENDED | CREATE_NO_WINDOW, as `features/updater/src/windows.rs` `first_start`.
+  if (!k32.CreateProcessW(ptr(wide(exe)), ptr(wide(`"${exe}"`)), null, null, 0, 0x4 | 0x0800_0000, null, ptr(wide(dirname(exe))), ptr(si), ptr(pi))) throw new Error(`could not make a process from ${exe}`)
+  const view = new DataView(pi.buffer)
+  k32.TerminateProcess(view.getBigUint64(0, true), 0)
+  k32.WaitForSingleObject(view.getBigUint64(0, true), 5000)
+  k32.CloseHandle(view.getBigUint64(8, true))
+  k32.CloseHandle(view.getBigUint64(0, true))
+}
+
 /** Before every launch, never timed: the server up, the home seeded, the exe made cold or warm. */
 async function before(ctx: Before) {
   const shape = ctx.target as Shape
@@ -174,8 +201,10 @@ async function before(ctx: Before) {
     // A new build finds the profile and none of what the last exe kept for itself (its page list, compiled shaders).
     for (const name of readdirSync(tpl)) if (name !== "ready" && name !== "home" && name !== "tmp" && !(ctx.case === "first-new-build" && name === "cache")) cpSync(join(tpl, name), join(ctx.home, name), { recursive: true })
   }
-  if (ctx.case === "cold" || ctx.case === "first-new-build") coldExe(ctx.exe)
-  else if (process.env.OPENCODE_LAUNCH_WARM_EXE !== "0") warmExe(ctx.exe)
+  if (ctx.case === "cold" || ctx.case === "first-new-build") {
+    coldExe(ctx.exe)
+    staged(ctx.exe)
+  } else if (process.env.OPENCODE_LAUNCH_WARM_EXE !== "0") warmExe(ctx.exe)
 }
 
 // Each milestone is a line the app prints with the mark's own time (epoch ms, to the microsecond in builds from 24 Nov).
