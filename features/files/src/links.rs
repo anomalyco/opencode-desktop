@@ -242,7 +242,7 @@ pub fn open_reply_link(host: &mut dyn FilesHost, href: &str, tx: &mut Tx) {
     // through the same process-wide physical root pin table.
     let draft_dir = host.draft_directory().to_owned();
     let draft_phys = host.draft_physical_directory();
-    let home = host.home_directory().to_owned();
+    let home = host.home_directory().into_owned();
     let is_file_uri = href.trim().get(..5).is_some_and(|s| s.eq_ignore_ascii_case("file:"));
     let mut classified = classify(href, "", &draft_dir, &home);
     if matches!(classified, Link::Outside { .. })
@@ -305,7 +305,7 @@ pub fn open_link(host: &mut dyn FilesHost, sid: &str, from: Option<&str>, href: 
     }
     let base = from.map_or("", opencode_kit::path::parent);
     let dir = link_directory(host, sid);
-    let home = host.home_directory().to_owned();
+    let home = host.home_directory().into_owned();
     let is_file_uri = href.trim().get(..5).is_some_and(|s| s.eq_ignore_ascii_case("file:"));
     let mut classified = classify(href, base, &dir, &home);
     if matches!(classified, Link::Outside { .. })

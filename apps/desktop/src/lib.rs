@@ -284,6 +284,10 @@ pub fn run_native() {
     if genui::skill::maybe_cli() {
         return;
     }
+    // The exe's own pages for this launch, asked for at once on a thread instead of one disk
+    // read per page fault (a new build's first start, or memory pressure since the last one).
+    #[cfg(windows)]
+    launch::image_pages::ask();
     // The app's state, read on its own thread beside the instance claim (`storage::start`). A
     // launch while the app runs hands its links (`deep_links`) to it and ends here.
     storage::start();

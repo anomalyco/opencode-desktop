@@ -100,6 +100,9 @@ pub(crate) enum EngineEvent {
     /// A later index read found an engine for this platform.
     #[cfg(feature = "engine")]
     ProbePublished,
+    /// A quiet download installed the engine.
+    #[cfg(feature = "engine")]
+    Fetched,
     #[cfg(feature = "engine")]
     Hung { generation: u64 },
     #[cfg(feature = "engine")]
@@ -367,6 +370,16 @@ impl SharedEngine {
                     return EngineEffect::None;
                 }
                 self.phase = EnginePhase::Disconnected(EngineStatus::Unchecked);
+                EngineEffect::Wake
+            }
+            // Only a host that looked before and found none (`prepare`) changes: it starts the
+            // engine ahead of a page again. One that never looked finds it when a page opens.
+            #[cfg(feature = "engine")]
+            EngineEvent::Fetched => {
+                if !matches!(self.phase, EnginePhase::Disconnected(EngineStatus::NotInstalled)) {
+                    return EngineEffect::None;
+                }
+                self.phase = EnginePhase::Disconnected(EngineStatus::Installed);
                 EngineEffect::Wake
             }
             #[cfg(feature = "engine")]

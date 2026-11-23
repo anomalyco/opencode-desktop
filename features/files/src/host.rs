@@ -140,9 +140,10 @@ pub trait FilesHost: opencode_kernel::AppEnv + opencode_kernel::AppFeedback {
         let dir = self.draft_directory();
         (!dir.is_empty()).then(|| dir.to_owned())
     }
-    /// User home directory used to expand `~` and format out-of-workspace paths.
-    fn home_directory(&self) -> &str {
-        ""
+    /// The home folder of the server the window is on, used to expand `~` and format
+    /// out-of-workspace paths; empty while it is not known (`sync.data.path.home`).
+    fn home_directory(&self) -> std::borrow::Cow<'_, str> {
+        "".into()
     }
 
     /// Live OpenCode server handle when connected, or `None` in fixture mode.

@@ -84,8 +84,15 @@ impl FilesHost for App {
         }
     }
 
-    fn home_directory(&self) -> &str {
-        &self.home
+    /// This machine's home for the app's own server (the fixture's, in a fixture run); another
+    /// server's as Desktop infers it from where that server runs (`createPathHelpers`' `home`,
+    /// `sync.data.path.home`), as `App::tilde` reads it.
+    fn home_directory(&self) -> std::borrow::Cow<'_, str> {
+        let server = crate::servers::runtime::active(self);
+        if server.is_sidecar() {
+            return self.home.as_str().into();
+        }
+        crate::servers::health::home(server).unwrap_or_default().into()
     }
 
     fn live_server(&self) -> Option<&Server> {
@@ -472,7 +479,7 @@ impl App {
         }
         let Some(sid) = sid.map(str::to_owned) else { return };
         let dir = link_directory(self, &sid);
-        let home = self.home.clone();
+        let home = FilesHost::home_directory(self).into_owned();
         match crate::files::links::classify(trimmed, "", &dir, &home) {
             crate::files::links::Link::Inside { path, lines, .. } => {
                 self.open_workspace_file_source(&sid, &path, false, lines, true, tx);

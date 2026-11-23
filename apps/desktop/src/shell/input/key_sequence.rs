@@ -65,6 +65,9 @@ fn resting(s: &App) -> bool {
 
 fn key(s: &mut App, ev: &KeyEvent, editing: bool, tx: &mut Tx) -> bool {
     // A modifier going down is no stroke, and a fired command's stand-in key is none either.
+    // Desktop's keymap takes the modifier's own keydown for a key that continues nothing, so there
+    // Ctrl+K Ctrl+C runs only with Ctrl held from the first key to the last. That is a bug there
+    // (opencode#65734, draft fix opencode#65735), not copied: letting the modifier go is fine here.
     if matches!(ev.key, Key::Modifier { .. }) {
         return false;
     }
@@ -146,7 +149,8 @@ pub(crate) fn view(s: &App, p: &Pal) -> Option<El> {
         .min_w(240.0)
         .padding(12.0)
         .gap(8.0)
-        .radius(12.0)
+        // ounded-xl is 10px in Desktop's theme (measured on the card: border-radius 10px).
+        .radius(10.0)
         .fill(p.bg_base)
         .elevate(p.floating)
         .child(keymap::chips(p, held.iter().flat_map(|c| keymap::caps(*c)).collect()))

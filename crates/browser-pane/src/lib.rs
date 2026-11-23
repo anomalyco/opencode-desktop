@@ -2,8 +2,9 @@
 //!
 //! Keeps `OpenCode (Rune).app` small (~8 MB) and free of C++/CEF dependencies:
 //! - Finds the installed engine, or fetches it from the build's source (`source.rs`) and checks it against
-//!   the build's trust rule before anything of it runs: in the background when the app asks
-//!   (`BrowserHost::prefetch`, resumable and throttled), on first use, or as an update beside a running one.
+//!   the build's trust rule before anything of it runs: in the background once the app is up
+//!   (`BrowserHost::fetch_in_background`, resumable, on a background-priority thread), on first
+//!   use, or as an update beside a running one.
 //! - Speaks line-delimited JSON over a private Unix domain socket (AF_UNIX on Windows too) for tabs,
 //!   input, resize, and CDP.
 //! - Receives zero-copy 2x Retina `IOSurface` frames over a Mach port pipe on macOS, and named D3D
