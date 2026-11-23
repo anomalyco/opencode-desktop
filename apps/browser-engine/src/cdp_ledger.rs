@@ -482,6 +482,12 @@ wrap_dev_tools_message_observer! {
                     if let Some(rm) = self.clipboard_gate.on_reply(message_id, success != 0, body.as_ref()) {
                         self.send_all(browser.as_deref(), vec![rm]);
                     }
+                    if let Some(url) = self.clipboard_gate.take_first_load()
+                        && let Some(frame) = browser.as_deref().and_then(cef::ImplBrowser::main_frame)
+                    {
+                        self.prompts.set_pending_top_url(Some(url.clone()));
+                        cef::ImplFrame::load_url(&frame, Some(&cef::CefString::from(url.as_str())));
+                    }
                     return;
                 }
                 if self.passkeys.on_reply(message_id, success != 0) {

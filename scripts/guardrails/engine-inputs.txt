@@ -1,6 +1,7 @@
 # Written by scripts/guardrails/engine-revision.mjs --write: the engine's inputs at this ENGINE_REVISION.
 # Inputs: apps/browser-engine, crates/browser-policy, crates/browser-pane/src/device.rs
-revision 12
+# same-revision: revision 13 is unreleased: same PR (#735) after merging dev; only moved code
+revision 13
 0a006ceedcb72b86a2aa4d7497ff9a21fddfd428 apps/browser-engine/Cargo.lock
 784fa46ca9b85a0557f8bd2dc55362cbd3298682 apps/browser-engine/Cargo.toml
 528bfc2bc7bfcd5183505505f91f9750e57e325b apps/browser-engine/build.rs
@@ -12,10 +13,10 @@ b046beaab8b13b8ad19201043e39e7a645bdad33 apps/browser-engine/scripts/package-win
 8aece42a321c1111250fd4792fe938853f8cca63 apps/browser-engine/scripts/serve.ts
 ca1eb1771d3fa17ab0fdf8c400ea1ac0abd3c81a apps/browser-engine/src/agent.rs
 dd3064014c9a9eddda7f7f3faaa7ced684ace92e apps/browser-engine/src/bin/opencode_browser_engine_helper.rs
-ab7adaf5a2bd33e7fbe070972f378f4265af4bc2 apps/browser-engine/src/cdp_ledger.rs
+5600fa6b32140c31f171b6dc9f5543388bb6f084 apps/browser-engine/src/cdp_ledger.rs
 e9764e6c60f90cdd6a2a84735503d0256b58536d apps/browser-engine/src/cef_runtime.rs
 b58a42fb56a761fc9fc7b64343c3be78f7831b8f apps/browser-engine/src/clear_storage.rs
-4726d5adfdeaad6bd5f62f53d0a9914d2ba07bc7 apps/browser-engine/src/clipboard_gate.rs
+e29143cc917b2d3e9cc540de6499cb290236e7c8 apps/browser-engine/src/clipboard_gate.rs
 3acfc66a0df208429a006e43a3dcfc7f4da8f4dc apps/browser-engine/src/context.rs
 2470fa0979751c67220010b3cfb8d38b6f0d9956 apps/browser-engine/src/cookies.rs
 457d2512f2829b3f523bd9e67ce8deeb8925a820 apps/browser-engine/src/d3d_frames.rs
@@ -23,7 +24,7 @@ b58a42fb56a761fc9fc7b64343c3be78f7831b8f apps/browser-engine/src/clear_storage.r
 9ac08dd3167f2dccddfec1787641f4d47f4c84e4 apps/browser-engine/src/dmabuf_frames/egl.rs
 90efea18ac44e7f1e2d8005593ca627b67519d8e apps/browser-engine/src/dmabuf_frames/mod.rs
 721f998f461086c07a53cdaec93140a78fbda73f apps/browser-engine/src/downloads.rs
-f5095604f2f6be358e52e551663177868a911f8f apps/browser-engine/src/engine.rs
+7b793c3f7c42edb63353e5162a110d41f9fbb881 apps/browser-engine/src/engine.rs
 48671e17e89e28f8fbc679c6cde73e671482525b apps/browser-engine/src/engine/emulation.rs
 2b32f3ca8e2b27708a3b747cd2f8632a30f61a4a apps/browser-engine/src/engine/extensions.rs
 d23af48fff9ee26ee319b025a1f3a6c1c8a43b4c apps/browser-engine/src/engine/frames.rs
