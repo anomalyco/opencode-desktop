@@ -62,14 +62,10 @@ if ($Payload) {
     if ($Profile -eq 'release') {
         # A pull request from a branch with "symbols" in its name (or OPENCODE_RUNE_SYMBOLS=1) builds
         # the shipped code with line tables and leaves its PDB in -Out, for profilers that name the
-        # source (perf/README.md). Only the debug directory of the exe differs from a build without.
+        # source (perf/README.md). Only the debug directory of the exe differs from a build without:
+        # release.ps1 asks for the line tables, in a way that keeps every symbol's name.
         $symbols = $env:OPENCODE_RUNE_SYMBOLS -eq '1' -or $env:GITHUB_HEAD_REF -match 'symbols'
-        if ($symbols) { $env:CARGO_PROFILE_RELEASE_DEBUG = 'line-tables-only' }
-        try {
-            & (Join-Path $root 'apps/desktop/scripts/release.ps1') -Cargo $Cargo -Target $triple
-        } finally {
-            if ($symbols) { Remove-Item Env:CARGO_PROFILE_RELEASE_DEBUG }
-        }
+        & (Join-Path $root 'apps/desktop/scripts/release.ps1') -Cargo $Cargo -Target $triple
         if ($LASTEXITCODE -ne 0) { throw 'the release build failed' }
         # release.ps1 always names the target, so the app is under target/<triple>/ even when native.
         $appBin = if ($cross) { $bin } else { Join-Path $target "$triple/release" }

@@ -19,6 +19,15 @@
 # build: cargo gives a crate built for a named target other symbol hashes than one built for the
 # host, and a profile only applies to the functions it names. So the exe is in
 # target/<triple>/release/.
+#
+# Two builds of the same code for people who measure it, chosen by the pull request's branch name
+# (GITHUB_HEAD_REF) or a variable, and never by a cargo profile setting: cargo hashes the profile
+# (lto, codegen units, debug info) into every symbol's name, and RUSTFLAGS are not in that hash.
+#   - `pgo-train/...` (or OPENCODE_RUNE_PGO_GENERATE=1): the exe is instrumented (`-Cprofile-generate`)
+#     instead of optimised with the profile. Its CI artifact is what a training run drives
+#     (apps/desktop/pgo/README.md); never install it.
+#   - a name with `symbols` (or OPENCODE_RUNE_SYMBOLS=1): line tables and a PDB beside the exe, with
+#     the profile applied as in the build that ships.
 param(
     [string] $Target = '',
     [string] $Cargo = 'cargo',
@@ -33,7 +42,12 @@ $triple = if ($Target) { $Target } else { $hostTriple }
 $profdata = Join-Path $root "apps/desktop/pgo/$triple.profdata"
 $name = 'CARGO_TARGET_' + ($triple.ToUpperInvariant() -replace '[-.]', '_') + '_RUSTFLAGS'
 $before = [Environment]::GetEnvironmentVariable($name)
-if (Test-Path $profdata) {
+# Only a target that has a profile is instrumented (Windows ARM64 has none and stays as it is).
+$instrument = ($env:OPENCODE_RUNE_PGO_GENERATE -eq '1' -or $env:GITHUB_HEAD_REF -match '^pgo-train/') -and (Test-Path $profdata)
+$symbols = $env:OPENCODE_RUNE_SYMBOLS -eq '1' -or $env:GITHUB_HEAD_REF -match 'symbols'
+if ($instrument) {
+    Write-Host "profile-guided: an instrumented build of $triple for a training run (not for use)"
+} elseif (Test-Path $profdata) {
     # Functions changed since the training run keep no counts and build as without a profile; LLVM
     # would warn once per such function.
     $stamp = Join-Path $root "apps/desktop/pgo/$triple.txt"
@@ -70,9 +84,12 @@ if (Test-Path $profdata) {
     Write-Host "no profile for ${triple}: building without profile-guided optimisation"
 }
 try {
-    if (Test-Path $profdata) {
-        [Environment]::SetEnvironmentVariable($name, (@($before, "-Cprofile-use=$profdata", '-Cllvm-args=-no-pgo-warn-mismatch') | Where-Object { $_ }) -join ' ')
-    }
+    $flags = @(
+        if ($instrument) { '-Cprofile-generate=target/pgo-raw' } elseif (Test-Path $profdata) { "-Cprofile-use=$profdata"; '-Cllvm-args=-no-pgo-warn-mismatch' }
+        # After cargo's own flags, so these win over the release profile's "no debug info".
+        if ($symbols) { '-Cdebuginfo=line-tables-only'; '-Cstrip=none' }
+    )
+    if ($flags) { [Environment]::SetEnvironmentVariable($name, (@($before) + $flags | Where-Object { $_ }) -join ' ') }
     $parts = $Cargo -split ' '
     $targetArgs = @('--target', $triple)
     $featureArgs = if ($Features) { @('--features', $Features) } else { @() }
