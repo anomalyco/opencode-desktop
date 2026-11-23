@@ -272,6 +272,7 @@ pub fn head_start() {
     let work = move || {
         let default = Server::new(&opencode_kit::client::default_server());
         let found = opencode_kit::local_service::registered(&default).filter(Server::reachable).map(|candidate| {
+            REACHED.store(true, Ordering::Relaxed);
             rune::marks::mark("reads.head.asked");
             let first = First::fetch(&candidate);
             rune::marks::mark("reads.head.in");
@@ -286,6 +287,15 @@ pub fn head_start() {
 
 /// When the probe's thread found the server taking connections, set once from that thread.
 pub type Accepted = std::sync::Arc<std::sync::OnceLock<Instant>>;
+
+/// Whether a server took this launch's connection: the head start's, or a probe's.
+static REACHED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether a server took a connection of this launch's (it may not have answered yet): what
+/// the saved session list waits for before it stands in for the server's (`saved_list`).
+pub(super) fn reached() -> bool {
+    REACHED.load(Ordering::Relaxed)
+}
 
 /// How long the launch's first reads may wait on a server that took their connection before the
 /// window says it's slow (`Link::Slow`): a server that accepts and holds every request would
@@ -381,6 +391,7 @@ pub(super) fn spawn_probe_waking(s: &App, beta_tabs: bool, fallback_fixture: boo
             if let (Some((base, first @ Ok(_))), Some(candidate)) = (found, candidate)
                 && base == candidate.base
             {
+                REACHED.store(true, Ordering::Relaxed);
                 took.set(Instant::now()).ok();
                 let page = ask_page(&candidate, page);
                 let beta_tabs = beta_tabs.then(crate::tabs::from_beta).flatten();
@@ -407,6 +418,7 @@ pub(super) fn spawn_probe_waking(s: &App, beta_tabs: bool, fallback_fixture: boo
             }
         } else {
             // The window counts its patience from here (`poll`).
+            REACHED.store(true, Ordering::Relaxed);
             took.set(Instant::now()).ok();
             if let Some(w) = &wake {
                 w();
