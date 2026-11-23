@@ -306,7 +306,6 @@ pub fn open_link(host: &mut dyn FilesHost, sid: &str, from: Option<&str>, href: 
     let base = from.map_or("", opencode_kit::path::parent);
     let dir = link_directory(host, sid);
     let home = host.home_directory().into_owned();
-    let is_file_uri = href.trim().get(..5).is_some_and(|s| s.eq_ignore_ascii_case("file:"));
     let mut classified = classify(href, base, &dir, &home);
     if matches!(classified, Link::Outside { .. })
         && let Some(phys) = host.session_physical_directory(sid)
@@ -337,12 +336,33 @@ pub fn open_link(host: &mut dyn FilesHost, sid: &str, from: Option<&str>, href: 
             host.open_workspace_preview(sid, &path, tx);
         }
         Link::Inside { path, lines, heading } => open_file_link(host, sid, &path, lines, heading, tx),
-        Link::Outside { path } if !is_file_uri => reveal_outside_file(host, &path),
-        // Never hand a raw `file://` URL outside the workspace to the OS shell (`ours.md` §4).
-        Link::Outside { path } => {
-            host.toast_say(opencode_i18n::t!("rune.files.link.outside").to_owned(), path);
-        }
+        // Never hand a file outside the workspace to the OS shell (`ours.md` §4): it opens in
+        // the viewer, a raw `file://` URL too.
+        Link::Outside { path } => open_outside_file(host, sid, &path, tx),
     }
+}
+
+/// A file outside the session's folder opens in the viewer as Desktop's does (`file/renderer.tsx`
+/// `open` -> `openSource`): read through the server with its own folder as the Location, so it
+/// works on a remote server too and nothing is handed to the OS. Refused before the server is
+/// asked anything: a UNC or device path, and one `~` could not expand; an HTML file gets
+/// Desktop's words (`preview.outside`). A video stays with the file manager, where a file
+/// outside the folder plays.
+fn open_outside_file(host: &mut dyn FilesHost, sid: &str, path: &str, tx: &mut Tx) {
+    let drive = path.as_bytes().get(1) == Some(&b':');
+    if !is_absolute(path) || browser_policy::is_unc_or_device_path_for(path, drive) {
+        host.toast_say(opencode_i18n::t!("rune.files.link.outside").to_owned(), path.to_owned());
+        return;
+    }
+    let ext = path.rsplit_once('.').map_or("", |(_, e)| e);
+    if ["html", "htm"].iter().any(|e| ext.eq_ignore_ascii_case(e)) {
+        host.toast_fail(opencode_i18n::t!("plugin.file.preview.outside").to_owned(), String::new());
+        return;
+    }
+    if crate::video::is_video(path) {
+        return reveal_outside_file(host, path);
+    }
+    open_file_link(host, sid, path, None, None, tx);
 }
 
 /// Opens `path` (in session `sid`'s folder) in the viewer once it's known to exist, at
@@ -428,7 +448,7 @@ pub(crate) fn finish_file_link(host: &mut dyn FilesHost, sid: &str, path: &str, 
 /// NEVER calls `exists()` / `metadata()` / `canonicalize()` on UNC or device paths. At most
 /// reveals a verified local fixed-drive path in the file manager (`SHOpenFolderAndSelectItems` /
 /// `open -R`).
-fn reveal_outside_file(host: &mut dyn FilesHost, path: &str) {
+pub(crate) fn reveal_outside_file(host: &mut dyn FilesHost, path: &str) {
     let Some(clean) = browser_policy::safe_local_reveal_path(path) else {
         host.toast_say(opencode_i18n::t!("rune.files.link.outside").to_owned(), path.to_owned());
         return;
