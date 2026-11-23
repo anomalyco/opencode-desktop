@@ -250,11 +250,9 @@ mod native {
             self.workspace_panes.browser.overlay.set_waker(waker.clone());
             self.workspace_panes.browser.host.set_waker(waker);
             self.workspace_panes.browser.host.set_shell_shortcut(claims_app_shortcut);
-            // Closing the last tab leaves the engine up (it quits on its own after a minute with no tabs), so a page opened
-            // again soon skips the engine's start: seconds on Windows.
+            // The last tab's close leaves the engine up for its idle minute, so a page opened again skips its start.
             self.workspace_panes.browser.host.set_keep_engine(true);
-            // The levels live in the app's state (`plugin.browser`, Desktop's browser plugin namespace),
-            // in memory once the storage is up; a change goes behind like any other.
+            // The levels live in `plugin.browser` (Desktop's browser plugin namespace); a change goes behind like any other.
             if self.persists() {
                 self.workspace_panes.browser.host.remember_site_zoom(browser_pane::ZoomStore {
                     read: Box::new(|| crate::storage::text("plugin.browser", "rune.siteZoom").map(|t| t.to_string())),
