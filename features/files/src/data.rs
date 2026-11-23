@@ -40,6 +40,14 @@ pub enum FilePayload {
 }
 
 pub fn fetch_live_file_payload(server: &Server, directory: &str, path: &str) -> FilePayload {
+    // A file outside the session's folder is read with its own folder as the Location and its
+    // name as the path, as Desktop reads it (`/api/fs/read/todo.md?location[directory]=<folder>`).
+    let (directory, path) = if opencode_kit::path::is_absolute(path) {
+        let folder = opencode_kit::path::parent(path);
+        (if folder.is_empty() { "/" } else { folder }, opencode_kit::path::basename(path))
+    } else {
+        (directory, path)
+    };
     let encoded = encode_fs_path(path);
     let url = format!(
         "/api/fs/read/{encoded}?location%5Bdirectory%5D={}",

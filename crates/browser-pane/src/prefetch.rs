@@ -15,11 +15,12 @@
 //! partial file that a later try (or a later run) resumes, unpack as they arrive, and the folder
 //! moves into place only once the archive's hash and the trust rule pass. The partial file is
 //! locked while it downloads, so a second copy of the app never downloads it too: it follows the
-//! first one's progress instead.
+//! first one's progress instead. A connection that goes silent is dropped (`download::Cut::Stalled`)
+//! and the download goes on from the partial file: at once the first time, and at once for a page
+//! that began to wait meanwhile, with the backoff after that.
 
-use std::cell::Cell;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::Duration;
 use rune::time::Instant;
@@ -328,8 +329,12 @@ impl Job {
         // A launch's fetch runs at background priority throughout. An update's index check and
         // pause answer come at normal priority (they're small, and a busy machine would starve
         // them for minutes); its download sets its pace.
-        let low = Cell::new(false);
+        let low = Arc::new(AtomicBool::new(false));
         let mut unlisted = false;
+        // What the partial file held at the last failed try, and the silent connections since it
+        // last grew: a download that still gets somewhere starts its tries and its backoff anew.
+        let mut reached = 0;
+        let mut stalls = 0;
         loop {
             let Some(mode) = self.ctl.mode() else { break };
             self.pace_thread(mode, false, &low);
@@ -412,7 +417,35 @@ impl Job {
                 Err(Cut::Stopped) => continue,
                 // Another app downloads it into the same file: never twice.
                 Err(Cut::Failed(Fault::Busy)) if self.follow(&partial, &release) => continue,
-                Err(Cut::Failed(err) | Cut::Rejected(err)) => err,
+                Err(cut) => {
+                    let have = std::fs::metadata(&partial).map_or(0, |m| m.len()).min(release.size);
+                    if have > std::mem::replace(&mut reached, have) {
+                        attempts = 0;
+                        stalls = 0;
+                    }
+                    // A page began to wait during a quiet try that the network then failed: the
+                    // page gets its own try, now, from what the partial file holds.
+                    let joined = mode != Mode::Urgent && self.ctl.mode() == Some(Mode::Urgent);
+                    match cut {
+                        Cut::Stalled => {
+                            log(&format!("browser engine: the download went silent at {} of {} MB; connecting again", have / 1_000_000, release.size.div_ceil(1_000_000)));
+                            stalls += 1;
+                            // Once at once; a source that goes silent again without a new byte
+                            // is a failed try, with its backoff.
+                            if joined || stalls == 1 {
+                                continue;
+                            }
+                            Fault::Interrupted { have, total: release.size }
+                        }
+                        Cut::Failed(err) if joined && network_fault(&err) => {
+                            log(&format!("browser engine: {err}"));
+                            continue;
+                        }
+                        Cut::Failed(err) | Cut::Rejected(err) => err,
+                        // Handled above.
+                        Cut::Stopped => continue,
+                    }
+                }
             };
             // Another app finished the same install while this try ran (and took the partial
             // file with it): the engine is there, whatever this try tripped on.
@@ -479,7 +512,7 @@ impl Job {
 
     /// One try: the rest of the archive, unpacked as it arrives into a staging folder, checked,
     /// and moved into place as `<root>\<version>`.
-    fn install(&self, root: &Path, release: &Release, partial: &Path, low: &Cell<bool>) -> Result<(), Cut> {
+    fn install(&self, root: &Path, release: &Release, partial: &Path, low: &Arc<AtomicBool>) -> Result<(), Cut> {
         std::fs::create_dir_all(root).map_err(|e| Cut::Failed(err_write(&e)))?;
         installer::sweep_unpacking(root);
         let dest = root.join(release.version.to_string());
@@ -528,7 +561,7 @@ impl Job {
         done
     }
 
-    fn fetch_into(&self, release: &Release, partial: &Path, staging: &Path, low: &Cell<bool>) -> Result<(), Cut> {
+    fn fetch_into(&self, release: &Release, partial: &Path, staging: &Path, low: &Arc<AtomicBool>) -> Result<(), Cut> {
         let mut progress = |downloaded_bytes: u64, total: u64| {
             self.ctl.report(EngineStatus::Downloading { downloaded_bytes, total_bytes: Some(total) });
         };
@@ -545,7 +578,7 @@ impl Job {
                     return Pace::Stop;
                 }
             }
-            if mode == Mode::Update { Pace::Limit(BACKGROUND_RATE) } else { Pace::Full }
+            if mode == Mode::Update { Pace::Limit(BACKGROUND_RATE) } else { Pace::Quiet }
         };
         let verifier = Verifier::new(&release.trust);
         // Each unpacked file: a page that began to wait meanwhile gets a normal-priority thread
@@ -559,7 +592,7 @@ impl Job {
         if !tar_zst {
             return Err(Cut::Rejected(Fault::Corrupt));
         }
-        let mut body = Body::open(&release.url, partial, release.size, &mut progress, &mut pace).map_err(Cut::Failed)?;
+        let mut body = Body::open(&release.url, partial, release.size, &mut progress, &mut pace, low).map_err(Cut::Failed)?;
         // A first try unpacks as the bytes arrive. A resumed one downloads the rest first and
         // unpacks the whole file once, rather than unpacking the bytes it already has again on
         // every try.
@@ -623,19 +656,20 @@ impl Job {
 
     /// The thread's priority for `mode`: normal when a page waits, background for a launch's
     /// fetch throughout, and for an update while it downloads and unpacks (`working`).
-    fn pace_thread(&self, mode: Mode, working: bool, low: &Cell<bool>) {
+    /// The thread that reads the network follows `low` (`download::Watched`).
+    fn pace_thread(&self, mode: Mode, working: bool, low: &AtomicBool) {
         let want = match mode {
             Mode::Urgent => false,
             Mode::Launch => true,
             Mode::Update => working,
         };
-        if low.replace(want) != want {
+        if low.swap(want, Ordering::Relaxed) != want {
             background::set_background_priority(want);
         }
     }
 
     /// `pace_thread` for the job's mode now, while it downloads, unpacks or checks.
-    fn keep_pace(&self, low: &Cell<bool>) {
+    fn keep_pace(&self, low: &AtomicBool) {
         if let Some(mode) = self.ctl.mode() {
             self.pace_thread(mode, true, low);
         }
