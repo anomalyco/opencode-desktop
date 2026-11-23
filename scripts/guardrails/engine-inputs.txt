@@ -1,6 +1,6 @@
 # Written by scripts/guardrails/engine-revision.mjs --write: the engine's inputs at this ENGINE_REVISION.
 # Inputs: apps/browser-engine, crates/browser-policy, crates/browser-pane/src/device.rs
-revision 21
+revision 22
 0a006ceedcb72b86a2aa4d7497ff9a21fddfd428 apps/browser-engine/Cargo.lock
 784fa46ca9b85a0557f8bd2dc55362cbd3298682 apps/browser-engine/Cargo.toml
 528bfc2bc7bfcd5183505505f91f9750e57e325b apps/browser-engine/build.rs
@@ -29,11 +29,11 @@ c92188335c2dfb4739e550eae18a5e9f8d8f99ff apps/browser-engine/src/context.rs
 445cf4321c3081b794a4ed9b9e256c1b44513b68 apps/browser-engine/src/engine/frames.rs
 bfd20043c6e6cb3ccafc1adca97bfeabc3f5305f apps/browser-engine/src/engine/picks.rs
 aca1409aedd0a611e27c396526e639256224ebaa apps/browser-engine/src/engine/profile_cookies.rs
-83ee0dccb3956c84f621f7b3ec96edc913868304 apps/browser-engine/src/extensions/cdp.rs
+4fdadc0f10b3c2f9a34debb99de52851e7ecc82d apps/browser-engine/src/extensions/cdp.rs
 bdef5b628abce239143f17c1cc7e5c8cdf5cb61b apps/browser-engine/src/extensions/context_menus.rs
 ebfb88e99491c006aacfb39989a26e843e98b91e apps/browser-engine/src/extensions/integrity.rs
 d88f00d7440156bd620b62046767db8b91738094 apps/browser-engine/src/extensions/manifest.rs
-a11e2de8bd56b9b34c0779dd740cb236da8a50ee apps/browser-engine/src/extensions/mod.rs
+5cd9d9583b1697b1600cf78f0dcbbb3c6759b082 apps/browser-engine/src/extensions/mod.rs
 c5f98834329a49745039b6b50e4ab5c2a4380751 apps/browser-engine/src/extensions/pipe.rs
 35acd01ab321839f4ffd501d90696ab3bbb16e8e apps/browser-engine/src/extensions/png.rs
 565bd6a5cd34e53ca54ceef698d31bb33f0ace45 apps/browser-engine/src/extensions/rpc.rs
