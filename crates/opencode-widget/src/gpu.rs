@@ -5,22 +5,12 @@
 //! Where the run's device is the window's, the window samples a canvas's texture as it is: one
 //! queue orders the replay and the frame. Where it isn't (on Rune's Metal backend the run's device
 //! is a stock wgpu one on the same `MTLDevice`, for wgpu's validation), the two queues don't order
-//! each other, so the window shows a copy, handed over so the window never waits:
-//! - it copies a canvas only once the run's GPU finished every batch submitted before, and never
-//!   while one replays ([`Canvases::due`]);
-//! - a batch waits to replay while a copy is in flight ([`Canvases::begin`]): until the window's
-//!   queue finished it, normally done already. It polls the window's device (never waiting) to
-//!   learn so, as an idle window learns of nothing;
-//! - a batch would overwrite a frame the window hasn't shown, and a run whose GPU never catches
-//!   up (it submits faster than it finishes) or that always replays when the window looks would
-//!   leave no moment to copy in: while a canvas has a version the window hasn't copied, or the
-//!   window found the run replaying or its GPU busy, the next batch first lets the GPU finish
-//!   and gives the window a moment (20 ms at most) to take its copy. The window shows every
-//!   frame.
+//! each other: the host hands each frame over on the GPU ([`Handoff`]), so neither the run nor the
+//! window waits for the other.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 mod shorthand;
 pub(crate) mod watch;
@@ -58,8 +48,20 @@ pub struct Device {
     pub queue: wgpu::Queue,
     /// The canvases' format: `Bgra8Unorm` or `Rgba8Unorm` (`widget_gpu::preferred_format`).
     pub format: wgpu::TextureFormat,
-    /// Not the window's own device: the window shows copies ([`Canvases::copies`]).
-    pub copies: bool,
+    /// Not the window's own device: how its frames reach the window ([`Handoff`]).
+    pub handoff: Option<Arc<dyn Handoff>>,
+}
+
+/// How a window on another device than the runs' takes their canvases' frames: on the GPU, so
+/// neither waits for the other. Called on the thread that submitted them, right after.
+pub trait Handoff: Send + Sync {
+    /// `canvases`' run submitted these frames on `queue` (the canvases whose version moved).
+    fn publish(&self, canvases: &Arc<Canvases>, queue: &wgpu::Queue, frames: &[(String, Canvas)]);
+    /// `canvases`' run isn't replaying, as of the lock it holds: a frame `publish` couldn't hand
+    /// over yet may be now.
+    fn retry(&self, canvases: &Arc<Canvases>, queue: &wgpu::Queue);
+    /// `canvases`' frames are no longer shown: a new device, or none.
+    fn forget(&self, canvases: &Canvases);
 }
 
 type Provider = Arc<dyn Fn() -> Option<Device> + Send + Sync>;
@@ -189,16 +191,12 @@ pub enum Status {
 /// A live run's GPU canvases, shared by the run (which publishes) and the window (which shows).
 pub struct Canvases {
     state: Mutex<State>,
-    turn: Condvar,
     /// Batches the run's GPU finished, of those submitted (`State::submitted`).
     finished: Arc<AtomicU64>,
-    /// The window shows copies: the run's device isn't the window's.
-    pub copies: bool,
-    /// The run's device, which the window polls (without waiting) to learn what finished.
+    /// The run's device, which the hang watch polls (without waiting) to learn what finished.
     device: Mutex<Option<wgpu::Device>>,
-    /// The window's device, which a batch waiting for a copy polls (without waiting) to learn
-    /// that it finished.
-    window: Mutex<Option<wgpu::Device>>,
+    /// Wakes the window: a frame it shows changed, or reached it.
+    wake: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 /// By canvas id (the node's, as the window has it).
@@ -209,26 +207,15 @@ struct State {
     shown: HashMap<String, Canvas>,
     stopped: HashMap<String, String>,
     available: bool,
+    /// A batch replays: submits may be under way on the run's queue.
     replaying: bool,
-    copying: bool,
-    /// The window found the run's GPU busy when it wanted a copy.
-    wanted: bool,
     submitted: u64,
-    /// The versions last copied, by key.
-    copied: HashMap<String, u64>,
+    /// The run's queue and how its frames reach the window, when that isn't the window's.
+    handoff: Option<(wgpu::Queue, Arc<dyn Handoff>)>,
     /// Moves when a canvas's status does: the widget builds again.
     revision: u64,
     /// Moves when anything shown does (a version or a status).
     published: u64,
-    /// Batches that waited for a copy: how many, how long in all, the longest.
-    waits: (u64, std::time::Duration, std::time::Duration),
-}
-
-impl State {
-    /// A canvas has a version the window hasn't copied yet.
-    fn uncopied(&self) -> bool {
-        self.shown.iter().any(|(k, c)| self.copied.get(k) != Some(&c.version))
-    }
 }
 
 impl std::fmt::Debug for Canvases {
@@ -238,8 +225,9 @@ impl std::fmt::Debug for Canvases {
 }
 
 impl Canvases {
-    pub fn new(copies: bool) -> Arc<Canvases> {
-        Arc::new(Canvases { state: Mutex::default(), turn: Condvar::new(), finished: Arc::default(), copies, device: Mutex::default(), window: Mutex::default() })
+    /// Canvases whose changes `wake` the window (none: it looks every frame).
+    pub fn new(wake: Option<Arc<dyn Fn() + Send + Sync>>) -> Arc<Canvases> {
+        Arc::new(Canvases { state: Mutex::default(), finished: Arc::default(), device: Mutex::default(), wake })
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -261,25 +249,19 @@ impl Canvases {
         self.lock().revision
     }
 
-    /// Batches that waited for a copy to finish before replaying: how many, how long in all, and
-    /// the longest wait.
-    pub fn waits(&self) -> (u64, std::time::Duration, std::time::Duration) {
-        self.lock().waits
-    }
-
     /// Moves when anything a canvas shows does: the window draws a frame for it.
     pub fn published(&self) -> u64 {
         self.lock().published
     }
 
-    /// Canvas `id`'s key, which the program names it by (its `canvas` messages).
+    /// Canvas `key`'s key, which the program names it by (its `canvas` messages).
     pub fn key(&self, id: &str) -> Option<String> {
         self.lock().keys.get(id).cloned()
     }
 
-    /// Whether a canvas has a version the window hasn't copied yet.
-    pub fn behind(&self) -> bool {
-        self.lock().uncopied()
+    /// Whether the window takes the frames through a [`Handoff`] (the run's device isn't its).
+    pub fn handed_off(&self) -> bool {
+        self.lock().handoff.is_some()
     }
 
     #[cfg_attr(not(feature = "runner"), allow(dead_code))]
@@ -292,6 +274,11 @@ impl Canvases {
         self.lock().shown.get(key).cloned()
     }
 
+    /// The run's device.
+    pub fn device(&self) -> Option<wgpu::Device> {
+        self.device.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
     /// Learns, without waiting, which batches the run's GPU finished.
     pub fn poll(&self) {
         let device = self.device.lock().unwrap_or_else(PoisonError::into_inner).clone();
@@ -301,31 +288,28 @@ impl Canvases {
         }
     }
 
-    /// The canvases to copy now on `window` (the window's device), newer than their last copy;
-    /// then a copy is in flight until [`Canvases::copied`]. None while a batch replays, its work isn't finished, or a copy is in
-    /// flight: the window shows what it copied last (and, but for the last, wants a copy).
-    pub fn due(&self, window: &wgpu::Device) -> Option<Vec<(String, Canvas)>> {
-        let mut st = self.lock();
-        if st.copying {
-            return None;
+    /// Whether something wakes the window when a frame reaches it ([`Canvases::wake`]).
+    pub fn wakes(&self) -> bool {
+        self.wake.is_some()
+    }
+
+    /// Wakes the window: a frame it shows reached it.
+    pub fn wake(&self) {
+        if let Some(wake) = &self.wake {
+            wake();
         }
-        if st.replaying || self.finished.load(Ordering::Acquire) < st.submitted {
-            st.wanted = st.uncopied();
-            return None;
+    }
+
+    /// Lets the [`Handoff`] hand over a frame it couldn't before, unless a batch replays (its
+    /// submits mustn't interleave with the handoff's).
+    pub fn retry(self: &Arc<Self>) {
+        let st = self.lock();
+        if st.replaying {
+            return;
         }
-        let due: Vec<(String, Canvas)> = st.shown.iter().filter(|(k, c)| st.copied.get(*k) != Some(&c.version)).map(|(k, c)| (k.clone(), c.clone())).collect();
-        if due.is_empty() {
-            return None;
+        if let Some((queue, handoff)) = &st.handoff {
+            handoff.retry(self, queue);
         }
-        for (k, c) in &due {
-            st.copied.insert(k.clone(), c.version);
-        }
-        st.copying = true;
-        st.wanted = false;
-        self.turn.notify_all();
-        drop(st);
-        *self.window.lock().unwrap_or_else(PoisonError::into_inner) = Some(window.clone());
-        Some(due)
     }
 
     /// Whether GPU work the run submitted may be unfinished (as of the last poll of its device).
@@ -345,90 +329,31 @@ impl Canvases {
         }
     }
 
-    /// The window's queue finished the copy [`Canvases::due`] gave: batches may replay.
-    pub fn copied(&self) {
-        self.lock().copying = false;
-        self.turn.notify_all();
-    }
-
     /// The run's GPU, or none (`available` false: placeholders).
     #[cfg_attr(not(feature = "runner"), allow(dead_code))]
-    pub(crate) fn start(&self, device: Option<&wgpu::Device>) {
-        *self.device.lock().unwrap_or_else(PoisonError::into_inner) = device.cloned();
+    pub(crate) fn start(&self, device: Option<&Device>) {
+        *self.device.lock().unwrap_or_else(PoisonError::into_inner) = device.map(|d| d.device.clone());
         let mut st = self.lock();
+        if let Some((_, handoff)) = st.handoff.take() {
+            handoff.forget(self);
+        }
+        st.handoff = device.and_then(|d| Some((d.queue.clone(), d.handoff.clone()?)));
         st.available = device.is_some();
         st.shown.clear();
-        st.copied.clear();
         st.revision += 1;
     }
 
-    /// A batch is about to replay: once no copy is in flight. Returns how long it waited.
+    /// A batch is about to replay: until [`Canvases::end`], its submits may be under way.
     #[cfg_attr(not(feature = "runner"), allow(dead_code))]
-    pub(crate) fn begin(&self) -> std::time::Duration {
-        self.begin_with(true)
+    pub(crate) fn begin(&self) {
+        self.lock().replaying = true;
     }
 
-    /// As [`Canvases::begin`], but never waiting for the run's GPU, nor for the window to take a
-    /// frame it hasn't copied: for a `wgsl` canvas's `Shorthand`, which skips a frame while its
-    /// last still draws and must find it unfinished to tell it's slow.
-    pub(crate) fn begin_unsettled(&self) {
-        self.begin_with(false);
-    }
-
-    fn begin_with(&self, settle: bool) -> std::time::Duration {
-        let since = std::time::Instant::now();
-        let mut st = self.lock();
-        let (mut waited, mut given_up) = (false, false);
-        let copies = self.copies;
-        let behind = move |s: &State| s.wanted || (copies && s.uncopied());
-        loop {
-            while st.copying {
-                waited = true;
-                // Rune's Metal backend says a copy finished only when its device is polled (or
-                // submits again): poll it, then look again shortly.
-                let window = self.window.lock().unwrap_or_else(PoisonError::into_inner).clone();
-                drop(st);
-                if let Some(w) = window {
-                    poll(&w, wgpu::PollType::Poll);
-                }
-                st = self.lock();
-                if st.copying {
-                    st = self.turn.wait_timeout(st, std::time::Duration::from_millis(1)).unwrap_or_else(PoisonError::into_inner).0;
-                }
-            }
-            if !settle || given_up || !behind(&st) {
-                break;
-            }
-            // A frame the window hasn't copied (or it found the GPU busy): let the GPU finish,
-            // and the window take its copy (or, if it doesn't come, go on).
-            waited = true;
-            drop(st);
-            let device = self.device.lock().unwrap_or_else(PoisonError::into_inner).clone();
-            if let Some(d) = device {
-                poll(&d, wgpu::PollType::wait_indefinitely());
-            }
-            st = self.lock();
-            let (guard, timeout) = self.turn.wait_timeout_while(st, std::time::Duration::from_millis(20), |s| behind(s) && !s.copying).unwrap_or_else(PoisonError::into_inner);
-            st = guard;
-            if timeout.timed_out() {
-                st.wanted = false;
-                given_up = true;
-            }
-        }
-        st.replaying = true;
-        let d = since.elapsed();
-        if waited {
-            st.waits = (st.waits.0 + 1, st.waits.1 + d, st.waits.2.max(d));
-        }
-        d
-    }
-
-    /// The batch replayed on `queue`: the canvases as they are now, and those stopped. The
-    /// window may copy them once the GPU finished it.
+    /// The batch replayed on `queue`: the canvases as they are now, and those stopped. Frames
+    /// that moved go to the [`Handoff`], if any.
     #[cfg_attr(not(feature = "runner"), allow(dead_code))]
-    pub(crate) fn end(&self, queue: Option<&wgpu::Queue>, shown: HashMap<String, Canvas>, stopped: HashMap<String, String>) {
+    pub(crate) fn end(self: &Arc<Self>, queue: Option<&wgpu::Queue>, shown: HashMap<String, Canvas>, stopped: HashMap<String, String>) {
         let mut st = self.lock();
-        st.replaying = false;
         st.submitted += 1;
         if let Some(queue) = queue {
             let (finished, n) = (self.finished.clone(), st.submitted);
@@ -442,10 +367,20 @@ impl Canvases {
             st.revision += 1;
             st.published += 1;
         }
-        if shown.iter().any(|(k, c)| st.shown.get(k).is_none_or(|o| o.version != c.version || o.texture != c.texture)) {
+        let moved: Vec<(String, Canvas)> = shown.iter().filter(|(k, c)| st.shown.get(*k).is_none_or(|o| o.version != c.version || o.texture != c.texture)).map(|(k, c)| (k.clone(), c.clone())).collect();
+        if !moved.is_empty() {
             st.published += 1;
         }
         st.shown = shown;
         st.stopped = stopped;
+        // Still replaying until handed over, so a retry can't come in between.
+        if let Some((queue, handoff)) = st.handoff.clone()
+            && !moved.is_empty()
+        {
+            drop(st);
+            handoff.publish(self, &queue, &moved);
+            st = self.lock();
+        }
+        st.replaying = false;
     }
 }

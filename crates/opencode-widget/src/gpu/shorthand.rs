@@ -37,7 +37,7 @@ pub struct Shorthands {
 struct Shared {
     work: Mutex<Work>,
     turn: Condvar,
-    /// Made once the worker has its device (whether the window copies depends on it).
+    /// Made once the worker runs.
     canvases: OnceLock<Arc<Canvases>>,
     /// Asks made, and those the worker published.
     asked: AtomicU64,
@@ -83,7 +83,7 @@ impl Shorthands {
         let worker = shared.clone();
         if let Err(e) = std::thread::Builder::new().name("widget-wgsl".into()).spawn(move || work(&worker)) {
             eprintln!("widget gpu: no thread for wgsl canvases: {e}");
-            let canvases = Canvases::new(false);
+            let canvases = Canvases::new(None);
             canvases.start(None);
             shared.canvases.get_or_init(|| canvases);
         }
@@ -154,8 +154,8 @@ fn work(shared: &Arc<Shared>) {
     let made = super::device();
     let mut generation = made.as_ref().map_or(0, |(g, _)| *g);
     let mut device = made.map(|(_, d)| d);
-    let canvases = shared.canvases.get_or_init(|| Canvases::new(device.as_ref().is_some_and(|d| d.copies))).clone();
-    canvases.start(device.as_ref().map(|d| &d.device));
+    let canvases = shared.canvases.get_or_init(|| Canvases::new(None)).clone();
+    canvases.start(device.as_ref());
     let mut slots: HashMap<String, Slot> = HashMap::new();
     let mut serial = 0u64;
     loop {
@@ -188,7 +188,7 @@ fn work(shared: &Arc<Shared>) {
             }
             device = next;
             generation = super::generation().unwrap_or(generation);
-            canvases.start(device.as_ref().map(|d| &d.device));
+            canvases.start(device.as_ref());
             if device.is_none() {
                 slots.clear();
             }
@@ -228,7 +228,7 @@ fn work(shared: &Arc<Shared>) {
         let drawing = slots.values().any(|s| s.pending) && !super::is_lost(generation);
         if let Some(d) = device.as_ref().filter(|_| drawing || dropped) {
             // A frame waits for no GPU here: one still drawing is skipped and tried again.
-            canvases.begin_unsettled();
+            canvases.begin();
             for (id, slot) in slots.iter_mut().filter(|(_, s)| s.pending) {
                 let Some(s) = slot.shorthand.as_mut() else {
                     slot.pending = false;

@@ -8,10 +8,12 @@
 //! never renders at a zero width or height.
 
 pub mod gpu;
+#[cfg(target_os = "macos")]
+pub mod handoff;
 mod live;
 
 #[cfg(target_os = "macos")]
-pub use live::{MetalShare, share_metal};
+pub use live::{MetalShare, RawEvent, RawTexture, share_metal};
 pub use opencode_widget::gpu::{Device as GpuDevice, device_limits as gpu_limits};
 
 use std::cell::{Cell, RefCell};

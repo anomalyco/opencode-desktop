@@ -24,7 +24,7 @@ fn device() -> gpu::Device {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).expect("an adapter");
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { required_limits: widget_gpu::device_limits(), ..Default::default() })).expect("a device");
-    gpu::Device { device, queue, format: wgpu::TextureFormat::Rgba8Unorm, copies: false }
+    gpu::Device { device, queue, format: wgpu::TextureFormat::Rgba8Unorm, handoff: None }
 }
 
 fn to_json(a: &Arg) -> Value {

@@ -67,8 +67,7 @@ impl RunGpu {
     /// A run's GPU on the provided device; placeholders without one.
     pub fn new(tell: impl Fn(serde_json::Value) + Send + Sync + 'static, notify: Arc<dyn Fn() + Send + Sync>) -> Arc<RunGpu> {
         let device = crate::gpu::device();
-        let copies = device.as_ref().is_some_and(|(_, d)| d.copies);
-        let run = Arc::new(RunGpu { canvases: Canvases::new(copies), inner: Mutex::new(Inner { gpu: None, queue: None, format: "rgba8unorm", keys: Vec::new(), sizes: HashMap::new(), saved: None, generation: device.as_ref().map_or(0, |(g, _)| *g) }), tell: Box::new(tell), notify });
+        let run = Arc::new(RunGpu { canvases: Canvases::new(Some(notify.clone())), inner: Mutex::new(Inner { gpu: None, queue: None, format: "rgba8unorm", keys: Vec::new(), sizes: HashMap::new(), saved: None, generation: device.as_ref().map_or(0, |(g, _)| *g) }), tell: Box::new(tell), notify });
         run.start(device.as_ref().map(|(_, d)| d));
         crate::gpu::register(Arc::downgrade(&run) as std::sync::Weak<dyn Lost>);
         crate::gpu::watch::add(Arc::downgrade(&run) as std::sync::Weak<dyn Watched>);
@@ -92,7 +91,7 @@ impl RunGpu {
             inner.format = g.preferred_format();
         }
         inner.queue = gpu.as_ref().and(device).map(|d| d.queue.clone());
-        self.canvases.start(gpu.as_ref().and(device).map(|d| &d.device));
+        self.canvases.start(gpu.as_ref().and(device));
         inner.gpu = gpu;
     }
 
@@ -187,8 +186,6 @@ impl RunGpu {
         if crate::gpu::is_lost(generation) {
             return None;
         }
-        // Its turn (which may wait for the window's copy, or the GPU) is taken before the GPU: the
-        // hang watch can look at it meanwhile.
         self.canvases.begin();
         let mut inner = self.lock();
         let failed = inner.gpu.as_mut().and_then(|g| g.apply(ops, bytes).err());
@@ -282,7 +279,7 @@ impl Lost for RunGpu {
                 eprintln!("widget gpu: {}", e.message);
             }
             inner.queue = next.filter(|_| reset).map(|d| d.queue.clone());
-            self.canvases.start(next.filter(|_| reset).map(|d| &d.device));
+            self.canvases.start(next.filter(|_| reset));
             self.canvases.begin();
             self.publish(&inner);
         }
