@@ -37,6 +37,8 @@ mod machine;
 pub use browser_policy as policy;
 #[cfg(feature = "engine")]
 mod prefetch;
+#[cfg(all(feature = "engine", windows))]
+mod private_dir;
 pub mod preview;
 #[cfg(feature = "engine")]
 pub mod profile;
