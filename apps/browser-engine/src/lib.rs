@@ -36,6 +36,7 @@ mod frame_authority;
 mod find;
 mod input_guard;
 mod media_gate;
+mod notification_gate;
 mod menu;
 mod menu_extras;
 #[cfg(windows)]

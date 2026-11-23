@@ -188,6 +188,7 @@ pub(crate) fn handle_typed_cdp_call(
             for binding in [
                 Some(t.passkeys.binding_msg(session_id.as_deref())),
                 Some(t.media_gate.binding_msg(session_id.as_deref())),
+                Some(t.notification_gate.binding_msg(session_id.as_deref())),
                 t.clipboard_gate.binding_msg(session_id.as_deref()),
             ]
             .into_iter()
@@ -445,6 +446,7 @@ wrap_dev_tools_message_observer! {
         cdp_ledger: Arc<Mutex<crate::cdp_ledger::EngineCdpLedger>>,
         passkeys: Arc<crate::passkeys::TabPasskeyGate>,
         media_gate: Arc<crate::media_gate::TabMediaGate>,
+        notification_gate: Arc<crate::notification_gate::TabNotificationGate>,
         clipboard_gate: Arc<crate::clipboard_gate::TabClipboardGate>,
         allowed_ext_ids: Arc<Mutex<Vec<String>>>,
         context_ready: Arc<std::sync::atomic::AtomicBool>,
@@ -823,6 +825,7 @@ wrap_dev_tools_message_observer! {
                 let resume = obs.send.pop();
                 obs.send.extend(self.passkeys.attach_messages(Some(child_sid)));
                 obs.send.extend(self.media_gate.attach_messages(Some(child_sid)));
+                obs.send.extend(self.notification_gate.attach_messages(Some(child_sid)));
                 obs.send.extend(self.clipboard_gate.attach_messages(Some(child_sid)));
                 if self.is_preview || self.prompts.agent_owns_dialogs() {
                     obs.send.push(self.passkeys.file_chooser_intercept_msg(true, Some(child_sid)));
@@ -849,13 +852,31 @@ wrap_dev_tools_message_observer! {
                     obs.send.push(deny);
                 }
             }
+            let (ng_consumed, ng_effect) = self.notification_gate.observe_event(&method, &params, session_id.as_deref());
+            match ng_effect {
+                // `page:<tab>` keeps them apart from extensions' own; the origin goes under the
+                // page's text, so a page can't pass for the app or another site.
+                Some(crate::notification_gate::NotificationEffect::Show { notif_id, origin, title, body }) => {
+                    let host = url::Url::parse(&origin).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or(origin);
+                    let _ = self.out_tx.send(EngineMsg::ExtensionNotificationShow {
+                        ext_id: format!("page:{}", self.tab_id),
+                        ext_name: title,
+                        notif_id,
+                        body: if body.is_empty() { host } else { format!("{body}\n{host}") },
+                    });
+                }
+                Some(crate::notification_gate::NotificationEffect::Close { notif_id }) => {
+                    let _ = self.out_tx.send(EngineMsg::ExtensionNotificationClear { ext_id: format!("page:{}", self.tab_id), notif_id });
+                }
+                None => {}
+            }
             let (cb_consumed, cb_sync, cb_ask) = self.clipboard_gate.observe_event(&method, &params, session_id.as_deref());
             obs.send.extend(cb_sync);
             if let Some(ask) = cb_ask {
                 obs.send.push(self.answer_clipboard_ask(browser.as_deref(), ask));
             }
             self.send_all(browser.as_deref(), obs.send);
-            if pk_consumed || mg_consumed || cb_consumed || !app_attached {
+            if pk_consumed || mg_consumed || ng_consumed || cb_consumed || !app_attached {
                 return 1;
             }
             for (frame_id, sid) in obs.excluded {

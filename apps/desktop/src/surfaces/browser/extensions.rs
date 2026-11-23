@@ -616,7 +616,13 @@ fn poll_extension_notifications(app: &mut App) {
                 body,
             } => {
                 let os_id = format!("ext-{ext_id}-{notif_id}");
-                let title = opencode_i18n::t!("rune.browser.extension.notification.title", name = ext_name).to_string();
+                // A web page's own (`page:<tab>`, the engine's notification gate) reads as the
+                // page wrote it, as official's Electron shows it; its site is the body's last line.
+                let title = if ext_id.starts_with("page:") {
+                    ext_name
+                } else {
+                    opencode_i18n::t!("rune.browser.extension.notification.title", name = ext_name).to_string()
+                };
                 if !crate::notifications::post_extension(app, &os_id, &title, &body, &ext_id, &notif_id) {
                     app.workspace_panes.browser.host.send_extension_notification_event(
                         ext_id, notif_id, false, false,
