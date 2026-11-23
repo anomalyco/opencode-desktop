@@ -8,6 +8,9 @@
 //
 // Cases (the launch):
 //   first            a fresh profile, never run before (target `none` only)
+//   first-desktop    a fresh profile on a machine where OpenCode Desktop (the official app) left a database:
+//                    the first launch seeds its windows, tabs and drafts from it (target `none` only)
+//   first-desktop-running   the same while Desktop runs: its database has a WAL with frames
 //   first-new-build  a profile an earlier run made, a new exe file, none of the exe's own caches: the launch after an update
 //   cold             the exe's pages not in memory (a new file with the same bytes), GPU shader cache cold
 //   warm             a later launch, everything cached
@@ -22,6 +25,8 @@ import { closeSync, cpSync, existsSync, mkdirSync, openSync, readSync, readdirSy
 import { tmpdir } from "node:os"
 import { basename, dirname, join } from "node:path"
 import { bench, native } from "@hona/strobe"
+
+import { desktopProfile } from "./desktop-profile"
 
 // The OpenCode server the app talks to: a fixture that answers the v2 API with a profile's worth of
 // data. It is not in this repository yet. Give running servers (OPENCODE_LAUNCH_SERVER_SMALL, _BIG:
@@ -145,13 +150,24 @@ function warmExe(exe: string) {
   k32.CloseHandle(file)
 }
 
+/** Desktop's `userData` folder as a first launch finds it (`desktop-profile.ts`): made once per size
+ *  (OPENCODE_LAUNCH_DESKTOP_MB, 64 by default: a file that has held a few pasted screenshots), then
+ *  copied to where the app looks for it under its root (`<root>/config/ai.opencode.desktop`). */
+function desktop(home: string, running: boolean) {
+  const mb = Number(process.env.OPENCODE_LAUNCH_DESKTOP_MB ?? 64)
+  const dir = join(SCRATCH, "desktop", `${mb}mb${running ? "-running" : ""}`)
+  if (!existsSync(join(dir, "drafts.sqlite"))) desktopProfile(dir, { mb, running, session: SESSION })
+  cpSync(dir, join(home, "config", "ai.opencode.desktop"), { recursive: true })
+}
+
 /** Before every launch, never timed: the server up, the home seeded, the exe made cold or warm. */
 async function before(ctx: Before) {
   const shape = ctx.target as Shape
   if (!ctx.home || !ctx.env || !ctx.exe) throw new Error("this bench needs an exe variant: --head exe:<path to opencode-desktop>")
   await server(shape)
   folders(ctx.home)
-  if (ctx.case !== "first") {
+  if (ctx.case.startsWith("first-desktop")) desktop(ctx.home, ctx.case === "first-desktop-running")
+  else if (ctx.case !== "first") {
     // `OPENCODE_LAUNCH_PROFILE_BY`: another build's exe makes the profile, for the launch after an update from it.
     const by = ctx.case === "first-new-build" ? (process.env.OPENCODE_LAUNCH_PROFILE_BY ?? ctx.exe) : ctx.exe
     const tpl = await template(by, ctx.env, ctx.home, shape)
@@ -186,6 +202,8 @@ export default bench({
   },
   cases: {
     first: { primary: "launch.first_frame", hero: true, targets: ["none"], gpuCache: "cold", metrics, launch: launch("fresh") },
+    "first-desktop": { primary: "launch.first_frame", targets: ["none"], gpuCache: "cold", metrics, launch: launch("fresh") },
+    "first-desktop-running": { primary: "launch.first_frame", targets: ["none"], gpuCache: "cold", metrics, launch: launch("fresh") },
     "first-new-build": { primary: "launch.first_frame", targets: ["small", "big"], gpuCache: "cold", metrics, launch: launch("fresh") },
     cold: { primary: "launch.first_frame", targets: ["small", "big"], gpuCache: "cold", metrics, launch: launch("fresh") },
     warm: { primary: "launch.first_frame", targets: ["small", "big"], metrics, launch: launch("fresh") },
