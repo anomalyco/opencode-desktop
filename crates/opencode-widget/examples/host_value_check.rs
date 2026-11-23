@@ -125,7 +125,7 @@ fn run(code: &str) -> Vec<Seen> {
     let seen: Arc<Mutex<Vec<Seen>>> = Arc::default();
     let (views, draws, builts) = (seen.clone(), seen.clone(), seen.clone());
     let translate = psychoscript::Translate { functions: psychoscript::TranslateFunctions::Mark, ..Default::default() };
-    let runtime = Runtime::make().translate(translate).globals(move |_run| {
+    let runtime = Runtime::make().typed_arrays(true).translate(translate).globals(move |_run| {
         let (views, draws, builts) = (views.clone(), draws.clone(), builts.clone());
         [
             ("__built", HostFunction::new(move |args: Vec<HostValue>, _call| {

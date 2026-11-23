@@ -28,7 +28,7 @@ fn emitted(code: &str, input: HostValue) -> Result<HostValue, String> {
     let out: Arc<Mutex<Option<HostValue>>> = Arc::default();
     let seen = out.clone();
     let limits = psychoscript::Limits { max_value_depth: Some(opencode_widget::runner::MAX_VALUE_DEPTH), ..Default::default() };
-    let runtime = Runtime::make().limits(limits).translate(Translate { functions: TranslateFunctions::Mark, ..Default::default() }).globals(move |_run| {
+    let runtime = Runtime::make().typed_arrays(true).limits(limits).translate(Translate { functions: TranslateFunctions::Mark, ..Default::default() }).globals(move |_run| {
         let (seen, input) = (seen.clone(), input.clone());
         [
             ("__input", HostFunction::new(move |_args: Vec<HostValue>, _call| Ok(input.clone()))),

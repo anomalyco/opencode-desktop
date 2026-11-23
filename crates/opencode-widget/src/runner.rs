@@ -158,6 +158,7 @@ impl Program {
         let make = |timeout_ms: u64, draws: bool| {
             let (reads, out) = (input.clone(), emitted.clone());
             Runtime::make()
+                .typed_arrays(true)
                 .translate(Translate { functions: TranslateFunctions::Mark, ..Default::default() })
                 .globals(move |_run| {
                     let (reads, out) = (reads.clone(), out.clone());

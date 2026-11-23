@@ -31,7 +31,7 @@ pub(super) fn runtime(link: &Arc<Link>, era: u64) -> Runtime {
     // A function in a post's view (a handler) crosses as a marker; anywhere else it fails the call.
     let translate = Translate { functions: TranslateFunctions::Mark, ..Default::default() };
     let limits = Limits { max_heap_bytes: Some(crate::runner::MAX_HEAP_BYTES), max_value_depth: Some(crate::runner::MAX_VALUE_DEPTH), ..Default::default() };
-    Runtime::make().limits(limits).translate(translate).globals(move |_run| {
+    Runtime::make().typed_arrays(true).limits(limits).translate(translate).globals(move |_run| {
         let input = json!({ "data": link.data });
         let (l1, l2, l3, l4, l5) = (link.clone(), link.clone(), link.clone(), link.clone(), link.clone());
         let host = HostValue::object([
