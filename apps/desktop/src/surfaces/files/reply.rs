@@ -29,12 +29,12 @@ fn target(app: &App, href: &str) -> Option<(String, Link)> {
             return None;
         }
     }
-    let mut link = links::classify(href, "", &raw_dir, app.home_directory());
+    let mut link = links::classify(href, "", &raw_dir, &app.home_directory());
     if matches!(link, Link::Outside { .. })
         && let Some(ref phys) = pinned
         && phys != &raw_dir
     {
-        let phys_link = links::classify(href, "", phys, app.home_directory());
+        let phys_link = links::classify(href, "", phys, &app.home_directory());
         if matches!(phys_link, Link::Inside { .. }) {
             link = phys_link;
         }
