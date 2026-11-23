@@ -139,6 +139,8 @@ struct Driver<'a> {
     /// Per row of `plan`, in order: whether this import inserted it (false: it was there).
     inserted: Vec<bool>,
     seeded: Vec<(String, String, String)>,
+    /// What the open already read from Desktop for a new profile (`seed::collect`), to commit.
+    collected: Option<super::seed::Collected>,
 }
 
 /// Runs the open's part: schema flags to verified import (and first-run Official Desktop seed).
@@ -151,6 +153,7 @@ pub(crate) fn run(
     scratch_parent: PathBuf,
     flags: u32,
     now_ms: i64,
+    collected: Option<super::seed::Collected>,
 ) -> (ImportSummary, Deferred, u32) {
     let mut state = ImportState::default();
     let groups = cfg.pending(flags);
@@ -170,6 +173,7 @@ pub(crate) fn run(
         plan: Plan::default(),
         inserted: Vec::new(),
         seeded: Vec::new(),
+        collected,
     };
     drive(&mut state, effects, &mut d);
     let flags = d.flags;
@@ -198,6 +202,7 @@ pub(crate) fn after_first_frame(conn: &mut Connection, deferred: &mut Deferred, 
         plan: Plan::default(),
         inserted: Vec::new(),
         seeded: Vec::new(),
+        collected: None,
     };
     drive(&mut deferred.state, effects, &mut d);
     if d.flags & FLAG_RETIRED != 0 {
@@ -228,7 +233,9 @@ fn drive(state: &mut ImportState, effects: Effects<ImportEffect>, d: &mut Driver
                     .or_else(|| d.dir.clone())
                     .unwrap_or_else(std::env::temp_dir);
                 let settle_flags = d.flags | d.groups | FLAG_SEED_SETTLED;
-                match super::seed::run(d.conn, &scratch, d.official, settle_flags, d.now_ms) {
+                // Read by the open before the database existed (a new profile), or here.
+                let collected = d.collected.take().unwrap_or_else(|| super::seed::collect(d.official, &scratch));
+                match super::seed::commit(d.conn, collected, settle_flags, d.now_ms) {
                     super::seed::SeedOutcome::NoSource => {
                         d.flags = settle_flags;
                         d.summary.reports.push("no Desktop database to seed from".into());

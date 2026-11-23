@@ -23,6 +23,8 @@ strobe open <rec>
 | Case | The launch |
 |---|---|
 | `first` | A fresh profile, never run before (target `none`). |
+| `first-desktop` | A fresh profile on a machine where OpenCode Desktop (the official app) left its database (target `none`): the first launch takes Desktop's windows, tabs and drafts. `desktop-profile.ts` makes the database (`OPENCODE_LAUNCH_DESKTOP_MB`, 64 by default). |
+| `first-desktop-running` | The same while Desktop runs: its database has a WAL with frames, so it is copied before it is read. |
 | `first-new-build` | A profile an earlier run made, the exe a new file, none of the exe's own caches: the launch after an update. `OPENCODE_LAUNCH_PROFILE_BY=<older exe>` makes the profile with another build. |
 | `cold` | The exe's pages not in memory, GPU shader cache cold. |
 | `warm` | A later launch, everything cached. |
@@ -41,6 +43,8 @@ The primary is `launch.first_frame` (the app's `frame.first.presented`). The oth
 - **A build with symbols for stacks.** CI's artifacts carry no PDB or dSYM, so their stacks do not resolve. A profiling build is `cargo build --profile perf -p opencode-desktop` (the `perf` profile in `Cargo.toml`: optimised as `release-quick`, 16 codegen units and no cross-crate LTO, with line tables kept), which leaves `opencode-desktop.pdb` beside the exe on Windows. Read strobe's `! Coverage` line and its two resolved shares before trusting a hotspot table, and say which build a recording used.
 - **A fixture server.** The app is started with `--server`; the bench does not start OpenCode's own. Either servers already running (`OPENCODE_LAUNCH_SERVER_SMALL`, `OPENCODE_LAUNCH_SERVER_BIG`: their URLs) or `OPENCODE_LAUNCH_FIXTURE=<script>`, started as `bun <script> --port <p> --projects <n> --sessions <n> --messages <n>` once per size (ports `OPENCODE_LAUNCH_PORT_SMALL` 5871 and `OPENCODE_LAUNCH_PORT_BIG` 5872). The fixture is not in this repository yet.
 - **`cold` and `first-new-build` replace the variant's exe file** with a new file of the same bytes at the same path before each launch (an unbuffered copy): point them at a copy of a build, not at the only one.
+- **`warm` and `first` start with the exe's pages in memory.** Before each of their launches the bench touches every page of the exe's image (Windows), as a launch a moment earlier leaves them. Without it a machine short of memory drops the pages between launches and a "warm" launch reads them again before `main` (`main` at 85-1,873 ms instead of 20 in 5 of 24 launches; with it 2 of 24). `OPENCODE_LAUNCH_WARM_EXE=0` turns it off.
+- **A window nobody can see gives no `launch.painted`.** On a hidden desktop strobe reads no frame of the window (`NoPresentSource`); the first-frame clock is the app's own `frame.first.presented` mark either way.
 - Profiles are made once per exe and size by two untimed launches of that exe and kept in `OPENCODE_LAUNCH_SCRATCH` (the system's temporary folder by default).
 
 ## content.bench.ts: from the window to content
