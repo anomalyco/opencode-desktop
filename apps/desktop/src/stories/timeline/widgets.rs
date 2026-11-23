@@ -51,6 +51,7 @@ pub const VARIANTS: &[(&str, usize)] = &[
     ("GPU post-process", 30),
     ("GPU maze, HUD in a stack", 31),
     ("Backdrop, still", 32),
+    ("Slow shader, frozen", 33),
 ];
 pub const KEYS: &[Trigger] = &[
     replay(open),
@@ -262,6 +263,24 @@ const GPU: [(&str, &str); 4] = [("story-gpu-cube", "cube"), ("story-gpu-quad", "
 /// The aurora backdrop at speed 0 (`fps: 0`): drawn once, then only when its `values` change.
 const STILL: &str = "story-backdrop-still";
 
+/// A shader whose frames take the GPU over 50 ms (about 100 ms on an M5 Max): three in a row, it
+/// stops on its last frame.
+const SLOW: &str = "story-slow-shader";
+const SLOW_SOURCE: &str = r##"const WGSL = `fn shade(frag: vec2f) -> vec4f {
+  var v = fract(frag.x * 0.013 + frag.y * 0.007 + widget.time);
+  for (var i = 0; i < 300000; i++) {
+    v = fract(sin(v * 12.9898 + f32(i) * 0.001) * 43758.5453);
+  }
+  return vec4f(0.2 + 0.6 * frag.x / widget.resolution.x, 0.2 + 0.2 * v, 0.6, 1.0);
+}`
+
+function view(state, data) {
+  return ui.column({ gap: 2, align: "stretch" }, [
+    ui.text("A slow shader", { style: "title" }),
+    ui.canvas({ wgsl: WGSL, height: 200, alt: "A shader too slow to keep running" }),
+  ])
+}"##;
+
 const OLDER: &str = "story-older";
 const NEWER: &str = "story-newer";
 
@@ -339,6 +358,7 @@ fn widget_template(v: usize) -> &'static str {
         27 => NEWER,
         28..=31 => GPU[v - 28].0,
         32 => STILL,
+        33 => SLOW,
         _ => "suggestions",
     }
 }
@@ -415,6 +435,7 @@ fn data(v: usize) -> (&'static str, Value) {
         30 => ("Post-process", json!({})),
         31 => ("Maze", json!({})),
         32 => ("Aurora, still", json!({ "title": "Northern lights", "text": "A shader drawn once: its speed is 0.", "preset": "aurora" })),
+        33 => ("Slow shader", json!({})),
         16 => ("Delete the branch", json!({ "title": "Delete feature/reconnect-backoff?", "message": "The branch is merged into `main`." })),
         _ => ("Pick a hero image", json!({
             "title": "Which hero image should the landing page use?",
@@ -477,6 +498,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
         preload(s, name, &version(name), &fixtures::served("live", source), "live", &Value::Null);
     }
     preload(s, HUD, &version(HUD), &format!("{}\n{HUD_SOURCE}", fixtures::PRELUDE), "step", &Value::Null);
+    preload(s, SLOW, &version(SLOW), &fixtures::served("step", SLOW_SOURCE), "step", &Value::Null);
     preload(s, DRAG, &version(DRAG), &fixtures::served("live", DRAG_SOURCE), "live", &Value::Null);
     preload(s, FAILING, &version(FAILING), &fixtures::served("live", FAILING_SOURCE), "live", &Value::Null);
     preload(s, FULLSCREEN, &version(FULLSCREEN), &format!("{}\n{FULLSCREEN_SOURCE}", fixtures::PRELUDE), "step", &Value::Null);
