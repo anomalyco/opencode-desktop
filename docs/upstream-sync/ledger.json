@@ -2,12 +2,12 @@
   "generated_at": "2026-11-23",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "030e8d75d34b6167981f9c71964c4a4dbfeea2bc",
+  "upstream_head": "361bed51ef53b65135c24b55874f3378ced36ae6",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "9bb1c98f90392083211ef6dc22f89a03eaae01e6",
-  "post_1114_commit_count": 468,
-  "post_1114_in_ledger": 171,
+  "rune_desktop_head": "c66e379e4f68febdfc3a60cbdc287978faba3632",
+  "post_1114_commit_count": 471,
+  "post_1114_in_ledger": 174,
   "post_1114_skipped": 297,
   "post_1114_skipped_breakdown": {
     "test-only": 23,
@@ -18,10 +18,10 @@
     "server-core-ai-codemode-internal": 182
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 192,
+  "total_ledger_rows": 195,
   "status_counts": {
-    "have it": 166,
-    "not applicable": 24,
+    "have it": 168,
+    "not applicable": 25,
     "differs on purpose": 1,
     "partly": 1
   },
@@ -4791,6 +4791,73 @@
       "size": "S",
       "status": "have it",
       "status_evidence": "rune-desktop #769 (c3fc7a0c09): apps/desktop/src/shell/view/inbox.rs draft_ids / draft_card, Drafts header above the groups, Discard draft closes the tab. Lists drafts with words; official also lists drafts holding only attachments or context items.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-172",
+      "window": "post-1120",
+      "pr": 65639,
+      "sha": "23fd3da786",
+      "title": "fix(session-ui): show Windows tool paths relative to the project",
+      "merged": "2026-11-23",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/tools/project-path.ts",
+        "packages/session-ui/src/tools/tool-renderer.tsx"
+      ],
+      "summary": "Glob, Grep and List subtitles (and file-change directories) show a Windows path relative to the project whatever its separators or drive letter case.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "Ours upstreamed (WS-8, owner-approved, merged by the orchestrator): rune-desktop already relativizes Windows tool paths case-insensitively with either separator (crates/session-view/src/tools/mod.rs directory(), #647).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-173",
+      "window": "post-1120",
+      "pr": 65634,
+      "sha": "f55e2575b1",
+      "title": "perf(app): keep the background activity menu smooth with many subagents",
+      "merged": "2026-11-22",
+      "packages": [
+        "app",
+        "ui"
+      ],
+      "main_files": [
+        "packages/app/src/session/composer/activity-chips.tsx",
+        "packages/ui/src/hooks/spin-phase.ts"
+      ],
+      "summary": "SolidJS reactivity work for the background activity menu with many subagents: keyed rows reuse unchanged items, counts memoized, one spinner phase clock.",
+      "size": "M",
+      "status": "not applicable",
+      "status_evidence": "A web reactivity optimisation with no visible change; rune-desktop's background activity capsule and menu are native (apps/desktop/src/session/timeline/subagents.rs), rebuilt per frame from tracked state with no keyed DOM rows to reuse.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-8"
+    },
+    {
+      "id": "UP-174",
+      "window": "post-1120",
+      "pr": 65644,
+      "sha": "361bed51ef",
+      "title": "fix(session-ui): light the whole Compacted label on hover",
+      "merged": "2026-11-23",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/timeline-next/compaction.tsx",
+        "packages/session-ui/src/components/session-compaction.css"
+      ],
+      "summary": "The Compacting/Compacted label lights as one word on hover and while open, splits between graphemes, and keeps the space where a translation splits.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "Whole-word hover was already ours (compaction.rs quiet_label); rune-desktop #783 (c66e379e4f) splits on graphemes (unicode-segmentation) and moves a space at the split into the endings.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"
