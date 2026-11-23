@@ -19,3 +19,4 @@ fn main() {
 
 #[cfg(target_arch = "wasm32")]
 fn main() {}
+// Baseline build marker (never merged): no code change.
