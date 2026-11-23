@@ -293,7 +293,7 @@ pub fn handle(id: &str) -> Option<WindowHandle> {
 /// on (Wayland, or before `on_created`), else `--scale` (headless).
 pub fn view_scale(s: &App) -> f32 {
     let win = handle(&s.window.id)
-        .and_then(|h| h.placement().map(|p| p.scale as f32))
+        .and_then(|h| h.scale().map(|s| s as f32))
         .or_else(|| (s.window.scale > 0.0).then_some(s.window.scale))
         .or_else(|| crate::arg("--scale").and_then(|v| v.parse::<f32>().ok()))
         .filter(|&v| v > 0.0);

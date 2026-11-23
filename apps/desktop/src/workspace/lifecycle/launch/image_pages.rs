@@ -21,8 +21,8 @@
 //! not in the process: the first thread to touch it takes a soft fault that maps it in, and a
 //! warm launch's main thread spent 8.2 of its 35.7 ms to the first frame inside those faults
 //! (strobe stacks of six launches, `KiPageFault`; 3.5 ms of it image pages). Taken on this
-//! thread, the launch's own threads find the page mapped (on a machine with four processors or
-//! more: with fewer, the reads would run in the launch's own time). `OPENCODE_RUNE_IMAGE_PAGES_TOUCH=off`
+//! thread, the launch's own threads find the page mapped (when the process may run on four
+//! processors or more: with fewer, the reads would run in the launch's own time). `OPENCODE_RUNE_IMAGE_PAGES_TOUCH=off`
 //! leaves the pages untouched, `=2` reads them on two threads (a bench's arms).
 //!
 //! Once the launch has settled the same thread reads which of the exe's pages the process
@@ -40,7 +40,7 @@ use std::time::{Duration, Instant};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Memory::{PrefetchVirtualMemory, WIN32_MEMORY_RANGE_ENTRY};
 use windows_sys::Win32::System::ProcessStatus::{PSAPI_WORKING_SET_EX_INFORMATION, QueryWorkingSetEx};
-use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL};
+use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetCurrentThread, GetProcessAffinityMask, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL};
 
 const PAGE: usize = 4096;
 /// The list file's first four bytes.
@@ -122,6 +122,19 @@ pub fn warm() {
         .ok();
 }
 
+/// The processors this process may run on: its affinity mask's, which a launcher or a job can
+/// narrow below the machine's count (all `std::thread::available_parallelism` reads on Windows).
+fn processors() -> usize {
+    let (mut process, mut system) = (0usize, 0usize);
+    // SAFETY: the pseudo-handle of this process and two out pointers that outlive the call.
+    let known = unsafe { GetProcessAffinityMask(GetCurrentProcess(), &mut process, &mut system) } != 0;
+    // Zero: the process's threads are in several processor groups (over 64 processors).
+    if known && process != 0 {
+        return process.count_ones() as usize;
+    }
+    std::thread::available_parallelism().map_or(1, |n| n.get())
+}
+
 fn run(mode: Mode, threads: usize) {
     let Some(image) = image() else { return };
     let path = crate::dirs::cache().map(|dir| dir.join("launch-pages.bin"));
@@ -140,7 +153,7 @@ fn run(mode: Mode, threads: usize) {
         }
     }
     // With fewer than four processors the reads would take the launch's own time.
-    let room = std::thread::available_parallelism().is_ok_and(|n| n.get() >= 4);
+    let room = processors() >= 4;
     if let (Some(runs), true) = (&listed, threads > 0 && room && mode != Mode::All) {
         touch(&image, runs, threads);
         rune::marks::mark("image.pages.touched");

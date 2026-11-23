@@ -24,7 +24,7 @@ strobe open <rec>
 |---|---|
 | `first` | A fresh profile, never run before (target `none`). |
 | `first-desktop` | A fresh profile on a machine where OpenCode Desktop (the official app) left its database (target `none`): the first launch takes Desktop's windows, tabs and drafts. `desktop-profile.ts` makes the database (`OPENCODE_LAUNCH_DESKTOP_MB`, 64 by default). |
-| `first-desktop-running` | The same while Desktop runs: its database has a WAL with frames, so it is copied before it is read. |
+| `first-desktop-running` | The same while Desktop runs: its database has a WAL with frames, so the database and the WAL are read into memory (the WAL's committed frames applied) instead of the few pages a closed Desktop's file gives. |
 | `first-new-build` | A profile an earlier run made, the exe a new file, none of the exe's own caches: the launch after an update. `OPENCODE_LAUNCH_PROFILE_BY=<older exe>` makes the profile with another build. |
 | `cold` | The exe's pages not in memory, GPU shader cache cold. |
 | `warm` | A later launch, everything cached. |
