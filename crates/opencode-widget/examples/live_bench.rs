@@ -15,7 +15,7 @@ fn main() {
     let source = std::fs::read_to_string(args.next().expect("a widget template source path")).expect("reads the source");
     let data = args.next().map_or(serde_json::json!({}), |d| serde_json::from_str(&d).expect("data is JSON"));
     let frames: u32 = args.next().map_or(900, |n| n.parse().expect("a frame count"));
-    let program = Arc::new(LiveProgram::compile(&format!("{}\n{source}", fixtures::PRELUDE)).expect("compiles"));
+    let program = Arc::new(LiveProgram::compile(&fixtures::served("live", &source)).expect("compiles"));
     let setup = Setup { grants: Grants::default(), transport: None, allow_local_network: false, notify: Arc::new(|| {}) };
     let live = Live::start(program, data, setup);
     let frame = Frame { id: None, t: 0.0, dt: 1.0 / 60.0, width: 1200.0, height: 800.0, scale: 2.0, pointer: None, dark: true, fullscreen: false, close: None };

@@ -68,10 +68,11 @@ impl LoadError {
     }
 }
 
-/// Lines of `program` before `source`, its tail.
+/// Lines of `program` before its `source`: the source starts on the program's line `program lines
+/// − source lines + 1` (`widgets.md`, Prelude and step ABI).
 pub fn offset(program: &str, source: &str) -> u32 {
-    let head = program.len().saturating_sub(source.len());
-    program.get(..head).map_or(0, |h| h.matches('\n').count() as u32)
+    let lines = |s: &str| s.matches('\n').count() as u32 + 1;
+    lines(program).saturating_sub(lines(source))
 }
 
 #[cfg(not(target_arch = "wasm32"))]

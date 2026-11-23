@@ -17,7 +17,7 @@ use opencode_widget::{Frame, Node, fixtures};
 use serde_json::{Value, json};
 
 fn start(source: &str, per_second: f64) -> Live {
-    let program = Arc::new(LiveProgram::compile(&format!("{}\n{source}", fixtures::PRELUDE)).expect("compiles"));
+    let program = Arc::new(LiveProgram::compile(&fixtures::served("live", source)).expect("compiles"));
     let setup = Setup { grants: Grants::default(), transport: None, allow_local_network: false, notify: Arc::new(|| {}) };
     Live::start_rated(program, json!({}), setup, per_second)
 }

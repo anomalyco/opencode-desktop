@@ -317,9 +317,9 @@ pub fn loaded(host: &mut dyn WidgetsHost, name: &str, version: &str, result: Res
 }
 
 /// Seeds `name@version` with a program compiled here (stories, fixtures): `mode` `"step"` or
-/// `"live"`, granted the `capabilities` it declares.
+/// `"live"`, as the server serves one ([`fixtures::served`]), granted the `capabilities` it declares.
 pub fn preload(host: &mut dyn WidgetsHost, name: &str, version: &str, program: &str, mode: &str, capabilities: &Value) {
-    let lines = fixtures::PRELUDE.matches('\n').count() as u32 + 1;
+    let lines = offset(&fixtures::served(mode, ""), "");
     let result = compile_as(program, mode, grant(capabilities), lines).map(Arc::new);
     loaded(host, name, version, result);
 }

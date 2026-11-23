@@ -87,7 +87,7 @@ fn step(case: &Value) -> Result<Vec<Command>, String> {
 }
 
 fn live(case: &Value) -> Result<Vec<Command>, String> {
-    let source = format!("{}\nasync function main() {{\n  widget.render(ui.canvas({{ key: \"c\", height: 1 }}))\n  widget.draw(\"c\", {})\n}}", fixtures::PRELUDE, expression(case));
+    let source = fixtures::served("live", &format!("async function main() {{\n  widget.render(ui.canvas({{ key: \"c\", height: 1 }}))\n  widget.draw(\"c\", {})\n}}", expression(case)));
     let setup = Setup { grants: Grants::default(), transport: None, allow_local_network: false, notify: Arc::new(|| {}) };
     let live = Live::start(Arc::new(LiveProgram::compile(&source).expect("compiles")), json!({}), setup);
     let (end, mut drawn) = (Instant::now() + Duration::from_secs(10), Vec::new());

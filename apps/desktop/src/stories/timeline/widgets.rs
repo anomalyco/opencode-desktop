@@ -439,19 +439,20 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     );
     preload(s, BROKEN_SHADER, &version(BROKEN_SHADER), &shader, "step", &Value::Null);
     let runaway = format!(
-        "{}\nasync function main(data) {{\n  widget.render(ui.column({{ gap: 2 }}, [ui.text(\"Price ticker\", {{ style: \"title\" }}), ui.text(\"BTC 97,412.50 · ETH 3,604.12\", {{ style: \"body\" }})]))\n  await widget.sleep(500)\n  while (true) {{}}\n}}",
-        fixtures::PRELUDE
+        "{}\n{}\nasync function main(data) {{\n  widget.render(ui.column({{ gap: 2 }}, [ui.text(\"Price ticker\", {{ style: \"title\" }}), ui.text(\"BTC 97,412.50 · ETH 3,604.12\", {{ style: \"body\" }})]))\n  await widget.sleep(500)\n  while (true) {{}}\n}}",
+        fixtures::PRELUDE,
+        fixtures::LIVE_PRELUDE
     );
     preload(s, RUNAWAY, &version(RUNAWAY), &runaway, "live", &json!({ "https": { "hosts": ["api.coingecko.com"] } }));
-    preload(s, SHADER_GAME, &version(SHADER_GAME), &format!("{}\n{SHADER_GAME_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);
-    preload(s, INPUT, &version(INPUT), &format!("{}\n{INPUT_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);
+    preload(s, SHADER_GAME, &version(SHADER_GAME), &fixtures::served("live", SHADER_GAME_SOURCE), "live", &Value::Null);
+    preload(s, INPUT, &version(INPUT), &fixtures::served("live", INPUT_SOURCE), "live", &Value::Null);
     let older = fixtures::PRELUDE.replacen("const __widget_protocol = 2\n", "", 1);
     preload(s, OLDER, &version(OLDER), &format!("{older}\nfunction view(state, data) {{ return ui.text(\"never shown\") }}"), "step", &Value::Null);
     let newer = fixtures::PRELUDE.replacen("const __widget_protocol = 2", "const __widget_protocol = 3", 1);
-    preload(s, NEWER, &version(NEWER), &format!("{newer}\nasync function main(data) {{ widget.render(ui.text(\"never shown\")) }}"), "live", &Value::Null);
+    preload(s, NEWER, &version(NEWER), &format!("{newer}\n{}\nasync function main(data) {{ widget.render(ui.text(\"never shown\")) }}", fixtures::LIVE_PRELUDE), "live", &Value::Null);
     preload(s, HUD, &version(HUD), &format!("{}\n{HUD_SOURCE}", fixtures::PRELUDE), "step", &Value::Null);
-    preload(s, DRAG, &version(DRAG), &format!("{}\n{DRAG_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);
-    preload(s, FAILING, &version(FAILING), &format!("{}\n{FAILING_SOURCE}", fixtures::PRELUDE), "live", &Value::Null);
+    preload(s, DRAG, &version(DRAG), &fixtures::served("live", DRAG_SOURCE), "live", &Value::Null);
+    preload(s, FAILING, &version(FAILING), &fixtures::served("live", FAILING_SOURCE), "live", &Value::Null);
     preload(s, FULLSCREEN, &version(FULLSCREEN), &format!("{}\n{FULLSCREEN_SOURCE}", fixtures::PRELUDE), "step", &Value::Null);
     tx.after(0.3, |s, tx| post(s, tx));
     if *s.fixture_run.variant == 3 {

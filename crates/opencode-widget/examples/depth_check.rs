@@ -28,7 +28,7 @@ fn step(levels: usize) -> Result<Node, Error> {
 
 /// How a live run rendering a view `levels` deep goes: its view, or how it ended.
 fn live(levels: usize) -> Result<Node, Option<Ended>> {
-    let source = format!("{}\n{}\nasync function main() {{ widget.render(deep()); await widget.sleep(500) }}", fixtures::PRELUDE, view(levels));
+    let source = fixtures::served("live", &format!("{}\nasync function main() {{ widget.render(deep()); await widget.sleep(500) }}", view(levels)));
     let program = Arc::new(LiveProgram::compile(&source).expect("compiles"));
     let live = Live::start(program, json!({}), Setup { grants: Grants::default(), transport: None, allow_local_network: false, notify: Arc::new(|| {}) });
     let end = Instant::now() + Duration::from_secs(5);

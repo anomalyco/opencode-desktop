@@ -5,7 +5,8 @@
 //! prelude whether the view has handlers (a run without any ends when `main` returns). A render
 //! breaking Keys and depth ends the run at once in phase `view`; a function anywhere but a view's
 //! handler props throws the runtime's `TypeError` from that call; a program built for another
-//! protocol (`widgets.md`, Protocol) isn't run, step or live. The repo
+//! protocol (`widgets.md`, Protocol) isn't run, step or live. A live run has typed arrays, and a
+//! position in its program less `program lines − source lines` is one in its source. The repo
 //! has no automated tests (AGENTS.md), so this is a program to run by hand:
 //! `cargo run -p opencode-widget --example live_native_check` (exits non-zero on a failure).
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::print_stdout)]
@@ -103,8 +104,15 @@ async function main(data) {
 }
 "#;
 
+/// Typed arrays work in a live run; it fails on its source's line 4.
+const TYPED: &str = r#"async function main(data) {
+  const bytes = new Uint8Array(4)
+  widget.render(ui.text("bytes " + bytes.byteLength))
+  return data.missing.length
+}"#;
+
 fn start(source: &str) -> Live {
-    start_program(&format!("{}\n{source}", fixtures::PRELUDE))
+    start_program(&fixtures::served("live", source))
 }
 
 fn start_program(program: &str) -> Live {
@@ -142,7 +150,7 @@ fn main() {
     let live = start(UNCAUGHT);
     let (_, end) = posts(&live, Duration::from_secs(2));
     // Located at the prelude's `__host.post` call, as the TS host locates it.
-    let line = fixtures::PRELUDE.lines().position(|l| l.contains(": __host.post(message))")).map(|i| i as u32 + 1);
+    let line = fixtures::served("live", "").lines().position(|l| l.contains(": __host.post(message))")).map(|i| i as u32 + 1);
     match (end, live.failed_at()) {
         (Some(Ended::Failed(m)), Some((at, _))) if m.starts_with("Error: No canvas with key \"nope\" in the rendered view (line ") && Some(at) == line => {
             println!("ok   an uncaught bad draw fails the run, located at the call (line {at}): {m}")
@@ -197,12 +205,25 @@ fn main() {
     assert_eq!(text.as_deref(), Some(want.as_str()), "a function where none may go throws the runtime's TypeError");
     println!("ok   a function where none may go throws the runtime's TypeError, naming the argument");
 
+    let live = start(TYPED);
+    let (seen, end) = posts(&live, Duration::from_secs(2));
+    let rendered = seen.iter().find_map(|p| match p {
+        Post::Render(Node::Text { text, .. }) => Some(text.clone()),
+        _ => None,
+    });
+    assert_eq!(rendered.as_deref(), Some("bytes 4"), "typed arrays are on in a live run");
+    let lines = |s: &str| s.matches('\n').count() as u32 + 1;
+    let offset = lines(&fixtures::served("live", TYPED)) - lines(TYPED);
+    assert!(matches!(end, Some(Ended::Failed(ref m)) if m.starts_with("TypeError: Cannot read properties of undefined (reading 'length')")), "it fails: {end:?}");
+    assert_eq!(live.failed_at().map(|(line, _)| line - offset), Some(4), "the failure is on its source's line 4");
+    println!("ok   a live run has typed arrays, and its failure is on source line 4 (program line {}, less {offset})", live.failed_at().unwrap().0);
+
     let body = "\nasync function main(data) { widget.render(ui.text(\"never\")) }";
     let older = fixtures::PRELUDE.replacen("const __widget_protocol = 2\n", "", 1);
     let newer = fixtures::PRELUDE.replacen("const __widget_protocol = 2", "const __widget_protocol = 3", 1);
-    let (seen, end) = posts(&start_program(&format!("{older}{body}")), Duration::from_millis(500));
+    let (seen, end) = posts(&start_program(&format!("{older}\n{}{body}", fixtures::LIVE_PRELUDE)), Duration::from_millis(500));
     assert_eq!((seen.len(), end), (0, Some(Ended::Failed(opencode_widget::runner::OLDER.into()))), "an older protocol is a program error");
-    let (seen, end) = posts(&start_program(&format!("{newer}{body}")), Duration::from_millis(500));
+    let (seen, end) = posts(&start_program(&format!("{newer}\n{}{body}", fixtures::LIVE_PRELUDE)), Duration::from_millis(500));
     assert_eq!((seen.len(), end), (0, Some(Ended::Broke(opencode_widget::runner::NEWER.into()))), "a newer protocol is this client's");
     let step = |prelude: &str| opencode_widget::Program::compile(&format!("{prelude}\nfunction view() {{ return ui.text(\"x\") }}")).unwrap().step(&opencode_widget::StepInput::Init { data: json!(null) });
     assert_eq!(step(&older), Err(opencode_widget::Error::Older));

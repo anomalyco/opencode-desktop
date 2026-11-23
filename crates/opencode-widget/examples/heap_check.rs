@@ -106,7 +106,7 @@ fn program(source: &str) -> Program {
 }
 
 fn start(source: &str) -> Live {
-    let program = Arc::new(LiveProgram::compile(&format!("{}\n{source}", fixtures::PRELUDE)).expect("compiles"));
+    let program = Arc::new(LiveProgram::compile(&fixtures::served("live", source)).expect("compiles"));
     Live::start(program, json!({}), Setup { grants: Grants::default(), transport: None, allow_local_network: false, notify: Arc::new(|| {}) })
 }
 

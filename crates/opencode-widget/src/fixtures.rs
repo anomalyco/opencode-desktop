@@ -1,12 +1,23 @@
-//! Copies of `@opencode/widget`'s prelude and built-in widget templates (anomalyco/opencode
-//! `packages/widget/src/prelude.js` and `widget-templates/*.js`), and the diagram built-ins' example
+//! Copies of `@opencode/widget`'s preludes and built-in widget templates (anomalyco/opencode
+//! `packages/widget/src/prelude.js`, `prelude-live.js` and `widget-templates/*.js`), and the diagram built-ins' example
 //! data (`packages/widget/test/fixtures/diagrams.ts`, as JSON), for stories, fixtures and local
 //! runs without a server. A live client always runs the program the server serves, never these;
 //! refresh them when the canonical ones change.
 
-/// The prelude (`ui`, `submit`, `dismiss`, `send`, `__widget_step`, and live mode's `widget`
-/// and `__widget_live`).
+/// The prelude (`ui`, `submit`, `dismiss`, `send`, `__widget_native_step`): every program starts
+/// with it.
 pub const PRELUDE: &str = include_str!("../fixtures/prelude.js");
+
+/// The live prelude (`widget`, with `widget.gpu`, and `__widget_live`): after the prelude in a
+/// live program only.
+pub const LIVE_PRELUDE: &str = include_str!("../fixtures/prelude-live.js");
+
+/// The program the server serves for `source` in `mode` (`widgets.md`, Prelude and step ABI):
+/// `prelude + "\n" + source` for a step widget template, `prelude + "\n" + livePrelude + "\n" +
+/// source` for a live one.
+pub fn served(mode: &str, source: &str) -> String {
+    if mode == "live" { format!("{PRELUDE}\n{LIVE_PRELUDE}\n{source}") } else { format!("{PRELUDE}\n{source}") }
+}
 
 /// The diagram built-ins, in the skill's order.
 pub const DIAGRAMS: [&str; 17] = [
@@ -53,9 +64,9 @@ pub fn source(name: &str) -> Option<&'static str> {
     })
 }
 
-/// Built-in widget template `name`'s program, as the server serves it: `prelude + "\n" + source`.
+/// Built-in widget template `name`'s program, as the server serves it ([`served`]).
 pub fn program(name: &str) -> Option<String> {
-    source(name).map(|s| format!("{PRELUDE}\n{s}"))
+    source(name).map(|s| served(mode(name), s))
 }
 
 /// Diagram built-in `name`'s example data.
