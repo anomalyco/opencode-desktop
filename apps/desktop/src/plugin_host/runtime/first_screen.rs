@@ -9,11 +9,19 @@
 //! - **Not before the frame on any route:** the updater's titlebar pill shows only once the
 //!   updater's worker, started after the first frame, has an update ready, so it's hidden in the
 //!   first frame and the second either way.
-//! - **A session:** the slots in its header (the debug bar's only while it's shown, above), the
-//!   composer's pills; with a cached transcript on screen, the code block plugins whose languages
-//!   its saved turns hold a block of (a link handler draws nothing: opening a link starts it); and every
-//!   plugin with a tab in the session's open side or bottom pane (the tab strip shows each one's
-//!   title), plus the file viewers when the Files plugin has one.
+//! - **A session:** the slots in its header (the debug bar's only while it's shown, above); with a
+//!   cached transcript on screen, the code block plugins whose languages its saved turns hold a
+//!   block of (a link handler draws nothing: opening a link starts it); and every plugin with a
+//!   tab in the session's open side or bottom pane (the tab strip shows each one's title), plus
+//!   the file viewers when the Files plugin has one.
+//! - **A session whose side panel is open on New tab:** the plugins with an entry there that
+//!   answers a function, unless the rows they drew for this session the last time are kept
+//!   (`dormant::Rows`): then, and for an entry that is all in its plugin's record, the record
+//!   draws it and the plugin starts at the next turn. A plugin with no record of this build starts.
+//! - **Not before the frame:** a composer pill. The one built-in with one (Goal) shows it once the
+//!   server has answered for the session's goal, which is after the first frame however early it
+//!   starts; the composer asks for it as it draws (`surfaces::pill_views`), so it starts at the
+//!   next turn.
 //! - **Home and a draft:** nothing else.
 
 use opencode_kit::servers::ServerKey;
@@ -25,8 +33,9 @@ use crate::route::Route;
 
 use super::sources;
 
-/// The built-in plugins `app`'s first screen shows.
-pub fn plugins(app: &App) -> Vec<&'static str> {
+/// The built-in plugins `app`'s first screen shows. `record` is a built-in's record of this build
+/// in this language, when the boot record has one.
+pub fn plugins(app: &App, record: impl Fn(&str) -> Option<opencode_plugin_runtime::dormant::Record>) -> Vec<&'static str> {
     let has = |id: &str, kinds: &[&str]| sources::contributions(id).iter().any(|k| kinds.contains(k));
     let mut out: Vec<&'static str> = sources::builtin_ids().filter(|id| has(id, &["ServerSource"]) && crate::plugin_host::server_sources::remembers(id)).collect();
     if debug_bar_shown() {
@@ -49,7 +58,7 @@ pub fn plugins(app: &App) -> Vec<&'static str> {
     };
     // The debug plugin's one slot is its bar (`window.bottom`), counted above: hidden, it draws nothing.
     // A link handler draws nothing: it answers when a link is opened, which starts it (`commands::open_link`).
-    out.extend(sources::builtin_ids().filter(|id| (*id != "debug" && has(id, &["Slot", "ComposerPill"])) || (has(id, &["CodeBlock"]) && draws_block(id))));
+    out.extend(sources::builtin_ids().filter(|id| (*id != "debug" && has(id, &["Slot"])) || (has(id, &["CodeBlock"]) && draws_block(id))));
     let side_state = app.kernel.slots.get(&crate::panels::SIDE);
     let side = side_state.sessions.get(session);
     let side_open = if app.settings.shared_side_panel {
@@ -73,7 +82,8 @@ pub fn plugins(app: &App) -> Vec<&'static str> {
     });
     let empty_side = side_open && !has_side_tab;
     if !with_tabs.is_empty() || empty_side {
-        out.extend(sources::builtin_ids().filter(|id| with_tabs.contains(id) || (files && has(id, &["FileViewer"])) || (empty_side && has(id, &["Panel", "MenuItem"]))));
+        let launcher = |id: &str| has(id, &["Panel", "MenuItem"]) && record(id).is_none_or(|record| super::dormant::launcher_needs(app, id, &record, session.as_str()));
+        out.extend(sources::builtin_ids().filter(|id| with_tabs.contains(id) || (files && has(id, &["FileViewer"])) || (empty_side && launcher(id))));
     }
     out.sort_unstable();
     out.dedup();

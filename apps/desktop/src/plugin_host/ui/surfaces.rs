@@ -228,7 +228,9 @@ pub fn sidebar_items(app: &App, p: &Pal) -> Option<El> {
 pub fn pill_views(app: &App, p: &Pal, session: &str) -> Vec<El> {
     let directory = app.session(session).map_or("", |s| s.directory.as_str()).to_owned();
     let found = each::<(), _>(app, |c| c.composer_pills.iter().map(|c| (c.key, c.spec.id.clone(), c.f("show").cloned(), c.f("renderMenu").is_some(), c.f("run").cloned())).collect());
-    want_asleep(app, &found, false);
+    // A pill's plugin starts at the next turn: at a launch that is just after the first frame
+    // (`first_screen`), so the pill comes as soon as its plugin can answer.
+    want_asleep(app, &found, true);
     found
         .into_iter()
         .filter_map(|(i, (key, id, show, menu, run))| {

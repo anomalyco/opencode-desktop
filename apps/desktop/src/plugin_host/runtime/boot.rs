@@ -57,8 +57,16 @@ pub fn setup(app: &mut App, waker: Waker) {
     crate::servers::refresh(app);
     // The built-ins this launch's first screen shows start now, the rest after its first frame
     // (`first_screen`); a headless run (no first-frame hook) starts them all.
-    let first = (!crate::headless()).then(|| first_screen::plugins(app));
-    let (now, later): (Vec<_>, Vec<_>) = sources::builtins()
+    let builtins = sources::builtins();
+    app.plugins.dormant.ensure_read();
+    let first = (!crate::headless()).then(|| {
+        first_screen::plugins(app, |id| {
+            let found = builtins.iter().find(|f| f.manifest.id == id)?;
+            let hash = sources::files_hash(id, &found.origin, found.tier)?;
+            app.plugins.dormant.kept(id, &hash).cloned()
+        })
+    });
+    let (now, later): (Vec<_>, Vec<_>) = builtins
         .into_iter()
         .partition(|f| first.as_ref().is_none_or(|ids| ids.contains(&f.manifest.id.as_str())));
     let start_now = known && stores::answers();
@@ -75,6 +83,11 @@ pub fn setup(app: &mut App, waker: Waker) {
     app.plugins.boot.step(BootEvent::Start { later, doze });
     if !adopt_now.is_empty() {
         adopt(app, adopt_now);
+    }
+    // A side panel open on New tab lists the sleeping built-ins' entries from their records
+    // (`first_screen`): those go to sleep before this frame, not after it.
+    if app.active_session_id().is_some_and(|session| dormant::shows_launchers(app, session)) {
+        doze_owed(app);
     }
     // A headless run (a capture, a check) reads the plugin folders before it draws; a window
     // reads them on a worker after its first frame ([`first_frame`]).
@@ -373,6 +386,14 @@ pub fn doze_owed(app: &mut App) {
 /// the app's thread. True when some start (the window redraws for them).
 pub fn first_frame(app: &mut App) -> bool {
     doze_owed(app);
+    // What the routed session's screen draws that slept through the first frame (a composer
+    // pill, `first_screen`) starts from the next turn, one per turn.
+    if let Some(session) = app.active_session_id().map(str::to_owned) {
+        dormant::near_session(app, &session);
+        if let Some(wake) = &*app.waker {
+            wake();
+        }
+    }
     let later = !app.plugins.boot.later().is_empty();
     let effects = app.plugins.boot.step(BootEvent::FirstFrame);
     for effect in effects {

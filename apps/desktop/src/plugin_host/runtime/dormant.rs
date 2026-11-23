@@ -52,14 +52,23 @@ pub struct Dormant {
     asked: std::cell::RefCell<Vec<(String, Wait)>>,
     /// Count of settings-open retries for bundled settings plugins killed by a startup watchdog.
     watchdog_retries: BTreeMap<String, u8>,
+    /// What each plugin's New tab rows answered per session when it last drew them ([`Rows`]).
+    rows: std::cell::RefCell<Option<Rows>>,
+    rows_dirty: std::cell::Cell<bool>,
 }
 
 impl Dormant {
-    fn ensure_read(&mut self) {
+    pub(super) fn ensure_read(&mut self) {
         if self.records.is_unread() {
             let found = read_file();
             self.records.step(RecordsEvent::Loaded(found));
         }
+    }
+
+    /// [`Dormant::record`] of records already read ([`Dormant::ensure_read`]).
+    pub fn kept(&self, id: &str, hash: &str) -> Option<&Record> {
+        let locale = opencode_i18n::locale().id();
+        self.records.get(id).filter(|r| r.hash == hash && r.locale == locale)
     }
 
     /// The record of built-in `id` for `hash`, in the current language.
@@ -72,6 +81,96 @@ impl Dormant {
 
 /// Where the records are: a state row in a namespace the boot record carries whole.
 const RECORDS: (&str, &str) = (crate::storage::DEV, "plugins.contributions");
+
+/// Where the New tab rows' answers are ([`Rows`]): beside the records, so a launch reads them
+/// from the boot record too.
+const ROWS: (&str, &str) = (crate::storage::DEV, "plugins.launchers");
+
+/// Sessions whose New tab rows are kept; the one drawn longest ago goes first past it.
+const KEPT_SESSIONS: usize = 24;
+
+/// One `session.panel` row as its running plugin last drew it for a session: whether its tab is
+/// open, and its detail line.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Row {
+    pub opened: bool,
+    pub detail: Option<String>,
+}
+
+/// The `session.panel` rows each running plugin showed in a session's New tab view (the rows whose
+/// `when` answered true), by session, then plugin, then the row's key. A dormant plugin's rows
+/// that answer `when` draw from this, so a window restored with its side panel on New tab lists
+/// them in its first frame without starting the four plugins that offer them (11 ms of a warm
+/// launch, strobe `rec_7ecdd3`, `rec_5a45c9`, `rec_2fd572`); each plugin still starts at the next
+/// turn and its live answers replace these. A plugin with no entry for a session has never drawn
+/// there: its rows wait for it, as they did.
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct Rows {
+    /// The interface language the detail lines were made in.
+    locale: String,
+    /// Oldest first.
+    sessions: Vec<(String, BTreeMap<String, BTreeMap<String, Row>>)>,
+}
+
+impl Rows {
+    fn read() -> Self {
+        let locale = opencode_i18n::locale().id();
+        crate::storage::text(ROWS.0, ROWS.1)
+            .and_then(|text| serde_json::from_str::<Rows>(&text).ok())
+            .filter(|rows| rows.locale == locale)
+            .unwrap_or_else(|| Rows { locale: locale.to_owned(), sessions: Vec::new() })
+    }
+}
+
+/// The rows dormant plugin `plugin` showed in `session`'s New tab view when it last drew it;
+/// `None` when it never drew there.
+pub fn rows(app: &App, session: &str, plugin: &str) -> Option<BTreeMap<String, Row>> {
+    let mut rows = app.plugins.dormant.rows.borrow_mut();
+    let rows = rows.get_or_insert_with(Rows::read);
+    rows.sessions.iter().find(|(id, _)| id == session).and_then(|(_, plugins)| plugins.get(plugin)).cloned()
+}
+
+/// Running plugin `plugin` drew `shown` as its rows of `session`'s New tab view.
+pub fn note_rows(app: &App, session: &str, plugin: &str, shown: BTreeMap<String, Row>) {
+    let mut rows = app.plugins.dormant.rows.borrow_mut();
+    let rows = rows.get_or_insert_with(Rows::read);
+    let at = rows.sessions.iter().position(|(id, _)| id == session);
+    if at.is_some_and(|at| rows.sessions[at].1.get(plugin) == Some(&shown)) {
+        return;
+    }
+    let mut entry = at.map(|at| rows.sessions.remove(at)).unwrap_or_else(|| (session.to_owned(), BTreeMap::new()));
+    entry.1.insert(plugin.to_owned(), shown);
+    rows.sessions.push(entry);
+    if rows.sessions.len() > KEPT_SESSIONS {
+        rows.sessions.remove(0);
+    }
+    app.plugins.dormant.rows_dirty.set(true);
+}
+
+/// Whether `record`'s plugin has an entry in a session's New tab view: a `session.panel` row, or a
+/// single panel that wants a launcher.
+fn offers_launcher(record: &Record) -> bool {
+    panel_rows(record).next().is_some()
+        || record.window.get("panels").is_some_and(|es| es.iter().any(|e| !e.fns.iter().any(|f| f == "list") && e.spec.get("launcher").and_then(|v| v.as_bool()) != Some(false)))
+}
+
+/// `record`'s `session.panel` rows.
+fn panel_rows(record: &Record) -> impl Iterator<Item = &opencode_plugin_runtime::dormant::Entry> {
+    record.window.get("menu_items").into_iter().flatten().filter(|e| e.spec.get("menu").and_then(|v| v.as_str()) == Some("session.panel"))
+}
+
+/// Whether the plugin of `record` has to run for `session`'s New tab view to list its entries as
+/// it would: it has one that answers a function (a row's `when`, a panel's `enabled`), and no
+/// rows kept for this session ([`Rows`]) to draw instead. A plugin with no entry there, or whose
+/// entries are all in its record, needn't.
+pub(super) fn launcher_needs(app: &App, id: &str, record: &Record, session: &str) -> bool {
+    if !offers_launcher(record) {
+        return false;
+    }
+    let asks = |e: &opencode_plugin_runtime::dormant::Entry, name: &str| e.fns.iter().any(|f| f == name);
+    let panel = record.window.get("panels").is_some_and(|es| es.iter().any(|e| !asks(e, "list") && asks(e, "enabled") && e.spec.get("launcher").and_then(|v| v.as_bool()) != Some(false)));
+    panel || (panel_rows(record).any(|e| asks(e, "when")) && rows(app, session, id).is_none())
+}
 
 /// The records as written last: none when there are none yet, they don't read, or are of another
 /// version. Before the first frame this is the boot packet's, so it reads no file.
@@ -124,6 +223,11 @@ pub fn note_started(app: &mut App, i: usize) {
 
 /// Writes the records back, when one changed (the storage's writer commits it off the app's thread).
 pub fn save(app: &mut App) {
+    if app.plugins.dormant.rows_dirty.replace(false)
+        && let Some(json) = app.plugins.dormant.rows.borrow().as_ref().and_then(|rows| serde_json::to_string(rows).ok())
+    {
+        crate::storage::set(ROWS.0, ROWS.1, json);
+    }
     // Read before it's taken: a write to the host rebuilds every region showing it.
     if !app.plugins.dormant.records.is_dirty() {
         return;
@@ -433,7 +537,7 @@ fn push_once(list: &mut Vec<(String, Wait)>, id: &str, to: Wait) {
 }
 
 /// Whether session `session`'s side region is open on New tab (empty side strip, or adding a tab).
-fn session_shows_launchers(app: &App, session: &str) -> bool {
+pub(super) fn shows_launchers(app: &App, session: &str) -> bool {
     let side_state = app.kernel.slots.get(&crate::panels::SIDE);
     let st = side_state.sessions.get(session);
     let side_open = if app.settings.shared_side_panel {
@@ -458,16 +562,16 @@ fn for_session(app: &App, session: &str) -> Vec<String> {
     let side = app.kernel.slots.get(&crate::panels::SIDE).sessions.get(session);
     let with_tabs: Vec<&str> = side.map(|side| side.tab_state.tabs.all.iter().filter_map(|k| crate::panels::tabs::split_panel_key(k).map(|(plugin, _)| plugin)).collect()).unwrap_or_default();
     let files = with_tabs.contains(&"file");
-    let shows_launchers = session_shows_launchers(app, session);
+    let on_new_tab = shows_launchers(app, session);
     let has = |a: &Asleep, kind: &str| a.record.window.get(kind).is_some_and(|es| !es.is_empty());
-    let has_panel_menu = |a: &Asleep| a.record.window.get("menu_items").is_some_and(|es| es.iter().any(|e| e.spec.get("menu").and_then(|v| v.as_str()) == Some("session.panel")));
+
     app.plugins
         .dormant
         .asleep
         .iter()
         .filter(|(id, a)| {
             let slot = has(a, "slots") && (id.as_str() != "debug" || super::first_screen::debug_bar_shown());
-            let launcher = shows_launchers && (has(a, "panels") || has_panel_menu(a));
+            let launcher = on_new_tab && launcher_needs(app, id.as_str(), &a.record, session);
             slot || has(a, "composer_pills") || with_tabs.contains(&id.as_str()) || (files && has(a, "file_viewers")) || launcher
         })
         .map(|(id, _)| id.clone())
@@ -476,7 +580,7 @@ fn for_session(app: &App, session: &str) -> Vec<String> {
 
 /// The window routes to session `session`: what its screen draws starts before its frame.
 pub fn wake_for_route(app: &mut App, session: &str) {
-    if session_shows_launchers(app, session) {
+    if shows_launchers(app, session) {
         super::boot::adopt_later_kinds(app, &["Panel", "MenuItem"]);
     }
     for id in for_session(app, session) {
