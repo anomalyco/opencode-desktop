@@ -139,7 +139,7 @@ const milestones = {
 }
 // `main.entered` and `window.created` are printed by builds from 24 Nov on: OPENCODE_LAUNCH_EARLY=0 leaves them out for an older one.
 const early = process.env.OPENCODE_LAUNCH_EARLY === "0" ? [] : ["launch.main", "launch.window"]
-const metrics = [...early, "launch.input_ready", "launch.server", "launch.content_live", "launch.painted", "cpu.work", "ui.cpu", "io.read"]
+const metrics = [...early, "launch.input_ready", "launch.server", "launch.content_live", "launch.painted", "cpu.work"]
 const app = (shape: Shape, name: string) => native("opencode-rune", { name, output: true, viewport: { width: 1280, height: 800 }, args: ["--server", serverUrl(shape)] })
 const launch = (profile: "fresh" | "warm") => ({ until: { milestone: "content_live" }, milestones, profile, before })
 
