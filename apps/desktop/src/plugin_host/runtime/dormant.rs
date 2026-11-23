@@ -623,6 +623,13 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
             a.wait = a.wait.max(to);
         }
     }
+    // A launch trace's hold (`--launch-trace-hold`): nothing sleeping starts until it's over.
+    if let Some(left) = crate::launch::trace::held() {
+        if app.plugins.dormant.asleep.values().any(|a| a.wait > Wait::FirstUse) {
+            tx.wake_after(left);
+        }
+        return false;
+    }
     if tx.input_waiting() {
         if app.plugins.dormant.asleep.iter().any(|(id, a)| a.wait == Wait::Next && !debug_held(id)) {
             tx.wake_after(Duration::ZERO);
