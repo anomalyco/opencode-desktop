@@ -890,13 +890,15 @@ return plugin.defineWindow(function(ctx)
             end
         elseif what == "history.clear" then
             Popover:Close()
-            local bAny = Browser :: any
-            if type(bAny.HistoryClear) == "function" then
-                bAny:HistoryClear()
-            end
             local keeper = recorder:Get()
             if keeper then
                 keeper.clear()
+            end
+            -- The list empties at once; a history the app could not clear is said, and the item
+            -- stays to try again (`panel.tsx` `history.clear.failed`). The web has only the list.
+            local bAny = Browser :: any
+            if type(bAny.HistoryClear) == "function" and bAny:HistoryClear() == false and App.Platform ~= "web" then
+                Toast:Error(I18n:T("history.clear.failed"))
             end
         elseif what == "find.open" then
             Popover:Close()
@@ -945,7 +947,9 @@ return plugin.defineWindow(function(ctx)
                 canViewSource = canSource,
                 canFind = canFind,
                 canHardReload = true,
-                canClearHistory = #visits() > 0,
+                -- Always, as official's desktop (`historyClearable`): the app's history can hold
+                -- pages this window's list does not, those imported from another browser.
+                canClearHistory = App.Platform ~= "web" or #visits() > 0,
                 canToggleToolbar = device ~= nil,
                 paneWidth = if type(arg) == "number" then arg else nil,
             }
