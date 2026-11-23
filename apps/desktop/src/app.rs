@@ -421,6 +421,7 @@ impl App {
         if deferred {
             let _ = launch::saved_list::restore(self);
             launch::saved_catalog::restore(self);
+            launch::saved_gutters::restore(self);
         }
         *self.diag.status = self.live_status();
         self.resume_settings_page();

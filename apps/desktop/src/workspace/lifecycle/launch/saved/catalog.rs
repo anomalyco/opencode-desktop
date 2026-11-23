@@ -51,7 +51,7 @@ pub(crate) fn restore(s: &mut App) {
 pub(crate) fn save(s: &App) {
     let own = crate::servers::runtime::active(s);
     let pickers = &s.composer_ext.pickers;
-    if !s.persists() || !own.is_sidecar() || s.launch.saved_list.is_some() || !matches!(s.launch.phase(own.as_str()), Some(super::Phase::Connected)) || pickers.models.is_empty() {
+    if !s.persists() || !own.is_sidecar() || s.launch.saved_list.is_some() || !matches!(s.launch.phase(own.as_str()), Some(super::super::Phase::Connected)) || pickers.models.is_empty() {
         return;
     }
     // The models on screen first: the open session's pick, the tabs' sessions', then what a new
