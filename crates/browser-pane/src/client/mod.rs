@@ -980,8 +980,14 @@ impl BrowserHost {
             self.reload_ignore_cache(tab_id);
             return true;
         }
+        // Every other chord and the function keys go to the page, as official leaves them there
+        // (`keys.ts` `pageShortcut` forwards only the shell's own): Ctrl+P / S / U, Ctrl+Shift+I,
+        // F1-F12. The engine refuses Chrome's own command for each (#767), so only the page sees
+        // them. Alt+F4 still closes the window.
         let (text, named) = match &ev.key {
             Key::Text(s) => (Some(s.clone()), None),
+            Key::Command(c) => (Some(c.to_string()), None),
+            Key::Function(n @ 1..=12) if !ev.mods.alt => (None, Some(format!("F{n}"))),
             other => (None, named_key_str(other).map(str::to_owned)),
         };
         if text.is_none() && named.is_none() {
