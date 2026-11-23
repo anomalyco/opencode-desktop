@@ -2,12 +2,12 @@
   "generated_at": "2026-11-23",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "361bed51ef53b65135c24b55874f3378ced36ae6",
+  "upstream_head": "bab0d0413ff31edd07b55fc499294e2e031c57d2",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "c66e379e4f68febdfc3a60cbdc287978faba3632",
-  "post_1114_commit_count": 471,
-  "post_1114_in_ledger": 174,
+  "rune_desktop_head": "bdf4ce8e1d0ae30e9c1d2d8ac010ff4e140deaa5",
+  "post_1114_commit_count": 472,
+  "post_1114_in_ledger": 175,
   "post_1114_skipped": 297,
   "post_1114_skipped_breakdown": {
     "test-only": 23,
@@ -18,10 +18,10 @@
     "server-core-ai-codemode-internal": 182
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 195,
+  "total_ledger_rows": 196,
   "status_counts": {
     "have it": 168,
-    "not applicable": 25,
+    "not applicable": 26,
     "differs on purpose": 1,
     "partly": 1
   },
@@ -4861,6 +4861,28 @@
       "depends_on": "none",
       "risks": "none",
       "workstream": "WS-8"
+    },
+    {
+      "id": "UP-175",
+      "window": "post-1120",
+      "pr": 65646,
+      "sha": "bab0d0413f",
+      "title": "fix(desktop): keep sites in the browser off the taskbar badge",
+      "merged": "2026-11-23",
+      "packages": [
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/profile/extension-api/app-badge.js",
+        "packages/gui-plugins/src/browser/profile/extension-api/host.ts"
+      ],
+      "summary": "Pages and workers in the browser pane get no-op navigator.setAppBadge / clearAppBadge, so a site cannot draw on the app's taskbar button, Dock icon or launcher entry.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "Checked in the engine by WS-1 (proof/ws1/badge-dev.json, engine revision 10): setAppBadge / clearAppBadge resolve but reach nothing of the app's. The engine is a separate windowless process with no taskbar button (LSUIElement on macOS, package-release.sh:192,228); Chromium badges only installed web apps; the app's badge comes only from its sessions (apps/desktop/src/workspace/windows/taskbar.rs) and its title is the fixed product name.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "WS-1"
     }
   ],
   "browser_security_review": {
