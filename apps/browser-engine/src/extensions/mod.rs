@@ -305,6 +305,8 @@ pub struct ExtensionHost {
     /// never poison another extension's Chromium tab ID mappings (READER-12 #6).
     pub(super) ext_tab_ids: HashMap<String, HashMap<u64, i32>>,
     pub(super) ext_last_known_session_id: HashMap<String, i32>,
+    /// Per extension, the Chromium id of the tab last announced through `tabs.onActivated`.
+    pub(super) announced_active: HashMap<String, i32>,
     pub(super) next_probe_id: i64,
     pub(super) pending_rpcs: Vec<PendingRpc>,
     pub(super) probe_in_flight: HashMap<String, ProbeInFlight>,
@@ -386,6 +388,7 @@ impl ExtensionHost {
             seed_eval_id: None,
             ext_tab_ids: HashMap::new(),
             ext_last_known_session_id: HashMap::new(),
+            announced_active: HashMap::new(),
             next_probe_id: 1,
             pending_rpcs: Vec::new(),
             probe_in_flight: HashMap::new(),
@@ -596,6 +599,9 @@ impl ExtensionHost {
             }
             return Vec::new();
         }
+        // As official's `click`: the tab the click is about counts as activated before the popup
+        // opens or the extension hears the click.
+        self.announce_active_tab_for(ext_id);
         let Some(snap) = self.action_snapshot(ext_id) else {
             return Vec::new();
         };
@@ -887,12 +893,47 @@ impl ExtensionHost {
                 .collect();
             for (ext_id, cid) in pairs {
                 self.broadcast_active_tab_for(&ext_id, cid);
-                self.emit_event(
-                    "tabs.onActivated",
-                    vec![json!({ "tabId": cid, "windowId": WINDOW_ID })],
-                    Some(&ext_id),
-                );
             }
+        }
+        if has_visible {
+            self.announce_active_tab_all();
+        }
+    }
+
+    /// Tells `ext_id` which visible tab is the active one, once per activation, through
+    /// `tabs.onActivated`: official does when a pane tab takes focus and when the user picks the
+    /// extension in the toolbar menu (`extension-api/tabs.ts` `activate`), the first tab included.
+    /// A tab's Chromium id is known here only after a probe bound it, and the extension may start
+    /// listening after that, so the announcement waits for both instead of being dropped: an
+    /// extension that tracks the selected tab from this event (PayPal Honey) otherwise never learns
+    /// it and its popup stays blank.
+    pub(super) fn announce_active_tab_for(&mut self, ext_id: &str) {
+        let Some(cid) = self.active_chromium_tab_id_for(ext_id) else {
+            return;
+        };
+        if self.announced_active.get(ext_id) == Some(&cid) {
+            return;
+        }
+        let listening = self
+            .subscribers
+            .get("tabs.onActivated")
+            .and_then(|by_ext| by_ext.get(ext_id))
+            .is_some_and(|sids| !sids.is_empty());
+        if !listening {
+            return;
+        }
+        self.announced_active.insert(ext_id.to_owned(), cid);
+        self.emit_event(
+            "tabs.onActivated",
+            vec![json!({ "tabId": cid, "windowId": WINDOW_ID })],
+            Some(ext_id),
+        );
+    }
+
+    fn announce_active_tab_all(&mut self) {
+        let ext_ids: Vec<String> = self.ext_tab_ids.keys().cloned().collect();
+        for ext_id in ext_ids {
+            self.announce_active_tab_for(&ext_id);
         }
     }
 

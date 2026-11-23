@@ -587,6 +587,7 @@ impl ExtensionHost {
                 effects.extend(self.forget_notifications(&ext_id));
                 self.ext_tab_ids.remove(&ext_id);
                 self.ext_last_known_session_id.remove(&ext_id);
+                self.announced_active.remove(&ext_id);
                 self.probe_in_flight.remove(&ext_id);
                 self.subscribers.retain(|_, by_ext| {
                     by_ext.remove(&ext_id);
@@ -1055,6 +1056,9 @@ impl ExtensionHost {
                         .entry(sess_ext_id.clone())
                         .or_default()
                         .insert(sid.to_owned());
+                    if name == "tabs.onActivated" {
+                        self.announce_active_tab_for(&sess_ext_id);
+                    }
                     if is_sw
                         && super::sw_wake::is_wakeable_event(name)
                         && let Some(ref version) = ext_version
@@ -1314,6 +1318,7 @@ impl ExtensionHost {
         if let Some(cid) = self.active_chromium_tab_id_for(ext_id) {
             self.broadcast_active_tab_for(ext_id, cid);
         }
+        self.announce_active_tab_for(ext_id);
     }
 
     fn reconcile_chromium_tab_id(&mut self, ext_id: &str, cid: i32, url: &str) {
@@ -1338,6 +1343,7 @@ impl ExtensionHost {
             map.insert(tab.engine_tab_id, cid);
             let last_known = self.ext_last_known_session_id.entry(ext_id.to_owned()).or_insert(0);
             *last_known = (*last_known).max(cid);
+            self.announce_active_tab_for(ext_id);
         }
     }
 
