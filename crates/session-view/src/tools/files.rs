@@ -280,9 +280,7 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
     if open {
         let corner = if end { RADIUS } else { 0.0 };
         let diffs = item.diffs();
-        let tall = diffs.iter().map(super::diff::height).sum::<f32>() >= FOLD_AT;
         let views = col().key("views").w_full().children(diffs.into_iter().map(|fd| super::diff::view::<S>(p, fd)));
-        let views = if tall { fold::<S>(s, p, views, &k, &row_key) } else { views };
         // Flush under the row, a hairline over the change (`edit-content`); the row's bottom
         // border is the content's top, which has none of its own (`border-top: 0`).
         out = out.child(crate::disclosure::reveal(
@@ -318,55 +316,6 @@ fn file_item<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, group: &str, item: &Item,
         );
     }
     out
-}
-
-/// A file's change shows this much until its toggle opens the rest (`FILE_DIFF_FOLD`).
-const FOLD_AT: f32 = 420.0;
-/// Its toggle's height; folded, it lies over the change's last 32 px.
-const FOLD_TOGGLE: f32 = 32.0;
-/// Folded, the change fades out over 48 px and is clear for the last 24 (`message-part.css`:
-/// `mask-image: linear-gradient(to bottom, #000 calc(100% - 72px), transparent calc(100% - 24px))`).
-const FOLD_FADE: f32 = 48.0;
-const FOLD_CLEAR: f32 = 24.0;
-
-/// A tall change folded as a long prompt folds (official #65329, `FileDiffFold`): laid out whole,
-/// clipped at [`FOLD_AT`] and fading out under a Show more / Show less toggle. Opening holds the
-/// file's row where it is; closing keeps the toggle where it was pressed. `k` is the file's disclosure
-/// key, `row_key` its row's.
-fn fold<S: TimelineHost>(s: &S, p: &Pal, views: El, k: &str, row_key: &str) -> El {
-    let key = format!("{k}:fold");
-    let open = crate::disclosure::is_open(s, &key, false);
-    let toggle_key = format!("fold-{row_key}");
-    let label = if open { opencode_i18n::t!("ui.common.showLess") } else { opencode_i18n::t!("ui.common.showMore") };
-    let body = col().key("diff-fold").w_full().child(views);
-    let body = if open { body } else { body.max_h(FOLD_AT - FOLD_CLEAR).clip_fade(0.0, 0.0, 0.0, FOLD_FADE) };
-    let (held, row_key) = (toggle_key.clone(), row_key.to_owned());
-    let toggle = row()
-        .key(toggle_key)
-        .role("button")
-        .label(label)
-        .expanded(open)
-        .w_full()
-        .h(FOLD_TOGGLE)
-        .mt(if open { 0.0 } else { FOLD_CLEAR - FOLD_TOGGLE })
-        .gap(2.0)
-        .center()
-        .radius(4.0)
-        .cursor(rune::Cursor::Pointer)
-        .focus_inset(p)
-        .hover_group_focus()
-        .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT)
-        // The label and the chevron flip in the press's frame.
-        .instant_changes()
-        .on_press_tx(move |s: &mut S, tx: &mut rune::Tx| {
-            // Opening holds the file's row, so a timeline at its end doesn't scroll the change's
-            // start away; closing holds the toggle.
-            let opening = crate::disclosure::toggle_expanded(s, &key);
-            tx.keep_on_screen(if opening { row_key.clone() } else { held.clone() });
-        })
-        .child(text(label).font(UI_MED).color(p.muted).group_color(p.text))
-        .child(icon(&rune_theme_opencode::icons::CHEVRON_DOWN, 16.0).color(p.icon_muted).rotate(if open { std::f32::consts::PI } else { 0.0 }).rotate_motion(rune::Anim::INSTANT));
-    col().key("fold").w_full().child(body).child(toggle)
 }
 
 /// "Created", "Deleted" (13 px medium) or `+N` / `-M`, showing only the side that changed
