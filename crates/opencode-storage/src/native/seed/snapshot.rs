@@ -1,4 +1,4 @@
-//! A read-only view of Official Desktop's `drafts.sqlite`, two ways, neither of which writes to
+//! A read-only view of Official Desktop's `drafts.sqlite`, three ways, none of which writes to
 //! Official's folder or makes a `-shm` in it:
 //!
 //! - **In place** ([`open_in_place`]), when nobody is writing the file: no `-wal` beside it (Desktop
@@ -6,10 +6,12 @@
 //!   opens it `immutable` (no lock, no `-shm`, no write) and reads only the pages the seed's rows
 //!   are on, so a 120 MB file full of attachments costs what its few state rows cost. What was
 //!   read counts only if the file is still as it was afterwards ([`Snapshot::held`]).
-//! - **A scratch copy** ([`open_snapshot`]) inside OUR profile directory otherwise (Desktop is
-//!   running, or was killed: the WAL holds frames): the whole file and its WAL copied, checked for
-//!   mid-checkpoint DB/WAL skew, the WAL's frames recovered there, and `PRAGMA integrity_check`
-//!   run before a row is read.
+//! - **In memory** ([`super::image`]) otherwise (Desktop is running, or was killed: the WAL holds
+//!   frames): the file's pages with the WAL's committed frames laid over them, read once into
+//!   memory, nothing written to disk, and `PRAGMA integrity_check` run before a row is read.
+//! - **A scratch copy** ([`open_copy`]) inside OUR profile directory when that fails: the whole
+//!   file and its WAL copied, checked for mid-checkpoint DB/WAL skew, the WAL's frames recovered
+//!   there by SQLite, and `PRAGMA integrity_check` run.
 
 use std::fs::{self, File};
 use std::io::{self, Read as _, Write as _};
@@ -109,10 +111,10 @@ fn copy_file_capped(src: &Path, dst: &Path, max_bytes: u64) -> Result<bool, Stri
 }
 
 #[derive(Clone, PartialEq, Eq)]
-struct DbWalStamp {
-    db_len: u64,
+pub(super) struct DbWalStamp {
+    pub(super) db_len: u64,
     db_change_counter: [u8; 4],
-    wal_len: u64,
+    pub(super) wal_len: u64,
     /// First 24 bytes of `-wal` (magic, format, page size, checkpoint seq, salt1, salt2).
     wal_header: Option<[u8; 24]>,
 }
@@ -135,7 +137,7 @@ fn read_prefix<const N: usize>(path: &Path) -> Result<Option<(u64, [u8; N])>, St
     Ok(Some((len, buf)))
 }
 
-fn read_stamp(src_db: &Path, src_wal: &Path) -> Result<DbWalStamp, String> {
+pub(super) fn read_stamp(src_db: &Path, src_wal: &Path) -> Result<DbWalStamp, String> {
     let Some((db_len, db_hdr)) = read_prefix::<28>(src_db)? else {
         return Err("drafts.sqlite vanished".into());
     };
@@ -206,9 +208,11 @@ enum Source {
     Copy { dir: PathBuf },
     /// The file itself, opened `immutable`: what it looked like when it was opened.
     InPlace { db: PathBuf, opened: Quiet },
+    /// The file with its WAL applied, in memory ([`super::image`]).
+    Image,
 }
 
-/// Official Desktop's `drafts.sqlite`, read-only: a private verified copy, or the file in place.
+/// Official Desktop's `drafts.sqlite`, read-only: the file in place, its image in memory, or a private verified copy.
 /// Dropping closes the SQLite connection first, then deletes a copy's scratch folder.
 pub(super) struct Snapshot {
     source: Source,
@@ -226,12 +230,12 @@ impl Snapshot {
             .is_ok()
     }
 
-    /// Whether what was read is what the database held all along: always for a copy; for the file
+    /// Whether what was read is what the database held all along: always for a copy or an image; for the file
     /// in place, when it is still as it was when it was opened (nothing wrote to it meanwhile).
     /// Ask after the last read; what a snapshot that didn't hold gave is thrown away.
     pub(super) fn held(&self) -> bool {
         match &self.source {
-            Source::Copy { .. } => true,
+            Source::Copy { .. } | Source::Image => true,
             Source::InPlace { db, opened } => quiet(db).as_ref() == Some(opened),
         }
     }
@@ -265,11 +269,23 @@ pub(super) enum SnapshotErr {
     Retryable(String),
 }
 
+/// `official_dir/drafts.sqlite` with whatever its WAL holds: the image in memory, or the scratch
+/// copy when the image can't be built.
+pub(super) fn open_snapshot(official_dir: &Path, scratch_parent: &Path) -> Result<Snapshot, SnapshotErr> {
+    if !official_dir.join("drafts.sqlite").is_file() {
+        return Err(SnapshotErr::NotFound);
+    }
+    match super::image::open(official_dir) {
+        Ok(conn) => Ok(Snapshot { source: Source::Image, conn: Some(conn) }),
+        Err(_) => open_copy(official_dir, scratch_parent),
+    }
+}
+
 /// Copies `official_dir/drafts.sqlite` (+ `-wal` if present; never `-shm`, which SQLite rebuilds
 /// via `walIndexRecover` and which Windows locks on bytes 120..128) into a private directory under
 /// `scratch_parent` (inside OUR profile), checks DB change counter + WAL salts across the copy to
 /// detect mid-checkpoint skew, recovers the copied WAL, and verifies `PRAGMA integrity_check(1) == "ok"`.
-pub(super) fn open_snapshot(official_dir: &Path, scratch_parent: &Path) -> Result<Snapshot, SnapshotErr> {
+fn open_copy(official_dir: &Path, scratch_parent: &Path) -> Result<Snapshot, SnapshotErr> {
     let src_db = official_dir.join("drafts.sqlite");
     if !src_db.is_file() {
         return Err(SnapshotErr::NotFound);
