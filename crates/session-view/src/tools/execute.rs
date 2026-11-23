@@ -32,7 +32,7 @@ pub fn execute<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
         // more" reveals earlier ones (`executeCallsShown`, `executeCallsRevealed`, opencode#65696).
         let presses = (1..).take_while(|k| s.expanded().contains(&sub_key(c.id, format!("more-{k}")))).count();
         let hidden = calls.len().saturating_sub(CALLS_SHOWN + presses * CALLS_REVEALED);
-        let mut list = col().key("calls").w_full().gap(6.0);
+        let mut list = col().key(calls_key(c.id)).w_full().gap(6.0);
         if hidden > 0 {
             list = list.child(more_button::<S>(p, c.id, presses + 1, hidden));
         }
@@ -55,11 +55,18 @@ pub fn execute<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call) -> El {
 const CALLS_SHOWN: usize = 10;
 const CALLS_REVEALED: usize = 50;
 
+/// The calls list of script `id`: its own key, so focus can be sent to its first call.
+fn calls_key(id: &str) -> String {
+    format!("calls-{id}")
+}
+
 /// "+N more" above the shown calls, lined up with their names past the markers
 /// (`execute-tool-call-more`): faint, brighter under the pointer. Its `press`th press reveals the
 /// next calls.
 fn more_button<S: TimelineHost>(p: &Pal, id: &str, press: usize, hidden: usize) -> El {
     let label = opencode_i18n::plural!("ui.common.moreCount", hidden);
+    let reveal = crate::disclosure::toggle::<S>(sub_key(id, format!("more-{press}")), format!("tool-{id}"));
+    let (list, last) = (calls_key(id), hidden <= CALLS_REVEALED);
     row()
         .key("calls-more")
         .role("button")
@@ -70,7 +77,14 @@ fn more_button<S: TimelineHost>(p: &Pal, id: &str, press: usize, hidden: usize) 
         .focus_default(p)
         .hover_group_focus()
         .hover_motion(INSTANT, INSTANT)
-        .on_press_tx(crate::disclosure::toggle::<S>(sub_key(id, format!("more-{press}")), format!("tool-{id}")))
+        .on_press_tx(move |s: &mut S, tx: &mut Tx| {
+            reveal(s, tx);
+            // The button leaves with the last hidden call, so focus moves on to the first call
+            // rather than nowhere (`reveal` in `tools/tool-renderer.tsx`).
+            if last {
+                tx.focus(list.clone(), tx.focus_visible());
+            }
+        })
         .child(text(label).font(TOOL_CODE).color(p.faint).group_color(p.text))
 }
 

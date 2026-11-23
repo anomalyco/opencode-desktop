@@ -1375,6 +1375,9 @@ return plugin.defineWindow(function(ctx)
                 return false
             end
             device.toggle(tab)
+            -- The toggle is an item of the Options menu, so the shortcut leaves the keyboard where choosing that item
+            -- does: on the menu's button (`panel.tsx` `toggleToolbar`).
+            Layout:Focus("browser-options")
             return true
         end)
     end

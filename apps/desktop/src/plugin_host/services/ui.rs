@@ -268,6 +268,11 @@ fn layout(lua: &Lua, p: &Rc<str>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "RegionFocused", |_, ()| {
         with_app("Layout:RegionFocused", |app| Ok(app.kernel.slots.get(&crate::panels::SIDE).focus.is_focused() && !app.composer.focused && !app.popup.holds_focus()))
     })?;
+    let q = p.clone();
+    method(lua, t, "Focus", move |_, key: String| {
+        cx::ask(&q, Request::Focus(key));
+        Ok(())
+    })?;
     method(lua, t, "TogglePanelSidebar", |_, ()| {
         with_app("Layout:TogglePanelSidebar", |app| {
             app.later(Box::new(|s: &mut App, tx: &mut rune::Tx| {
