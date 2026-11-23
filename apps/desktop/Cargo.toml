@@ -138,6 +138,11 @@ browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }
 rune = { workspace = true, features = ["ogg-audio"] }
 libc = "0.2"
 
+# sha2 0.10 hashes in software on aarch64 unless `asm` is on; with it SHA-256 uses the Arm SHA2 instructions
+# (the browser engine's archive, an update's, the plugins'). macOS only: sha2-asm does not build with MSVC.
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+sha2 = { version = "0.10", features = ["asm"] }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 browser-pane = { path = "../../crates/browser-pane", features = ["engine"] }
 libc = "0.2"
