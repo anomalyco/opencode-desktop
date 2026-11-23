@@ -12,23 +12,29 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use psychoscript::{HostValue, TypedKind};
 use serde_json::json;
-use widget_gpu::{Arg, ErrorKind, Gpu, GpuError, Stops};
+use widget_gpu::{Arg, Gpu, GpuError};
 
 use crate::gpu::{Canvas, Canvases, Device, Lost};
 
-type Tap = Box<dyn Fn(&[Arg], &[u8], bool) + Send + Sync>;
+type Tap = Box<dyn Fn(&Arg, Option<&[u8]>, bool) + Send + Sync>;
 
 static TAP: Mutex<Option<Tap>> = Mutex::new(None);
 
-/// Sees every batch a run posts, as posted (its ops, bytes, and whether it rode a frame
-/// request): for checks against the shared fixtures.
+/// Sees every batch a run posts, as posted, whatever its shape (its ops; its bytes when an
+/// `ArrayBuffer`; whether it rode a frame request): for checks against the shared fixtures.
 pub fn tap(f: Option<Tap>) {
     *TAP.lock().unwrap_or_else(PoisonError::into_inner) = f;
 }
 
-pub(super) fn tapped(ops: &[Arg], bytes: &[u8], frame: bool) {
-    if let Some(f) = &*TAP.lock().unwrap_or_else(PoisonError::into_inner) {
-        f(ops, bytes, frame);
+/// A posted batch (`None`: a bare frame request), to the tap if one is set.
+pub(super) fn tapped(batch: Option<&HostValue>, frame: bool) {
+    let Some(f) = &*TAP.lock().unwrap_or_else(PoisonError::into_inner) else { return };
+    let Some(batch) = batch else { return f(&Arg::List(Vec::new()), Some(&[]), frame) };
+    let field = |k: &str| <HostValue as crate::draw::Arg>::field(batch, k);
+    let ops = field("ops").map_or(Arg::Null, arg);
+    match field("bytes") {
+        Some(HostValue::TypedArray(t)) if t.kind() == TypedKind::ArrayBuffer => t.with_bytes(|b| f(&ops, Some(b), frame)),
+        _ => f(&ops, None, frame),
     }
 }
 
@@ -50,9 +56,6 @@ struct Inner {
     keys: Vec<(String, String)>,
     /// Their sizes, from the window's `canvas` messages, clamped.
     sizes: HashMap<String, (u32, u32)>,
-    /// What a batch's shape stopped (host checks `widget-gpu` doesn't see): by key, or all.
-    stopped: HashMap<String, String>,
-    all: Option<String>,
 }
 
 impl RunGpu {
@@ -60,7 +63,7 @@ impl RunGpu {
     pub fn new(tell: impl Fn(serde_json::Value) + Send + Sync + 'static, notify: Arc<dyn Fn() + Send + Sync>) -> Arc<RunGpu> {
         let device = crate::gpu::device();
         let copies = device.as_ref().is_some_and(|(_, d)| d.copies);
-        let run = Arc::new(RunGpu { canvases: Canvases::new(copies), inner: Mutex::new(Inner { gpu: None, queue: None, format: "rgba8unorm", keys: Vec::new(), sizes: HashMap::new(), stopped: HashMap::new(), all: None }), tell: Box::new(tell), notify });
+        let run = Arc::new(RunGpu { canvases: Canvases::new(copies), inner: Mutex::new(Inner { gpu: None, queue: None, format: "rgba8unorm", keys: Vec::new(), sizes: HashMap::new() }), tell: Box::new(tell), notify });
         run.start(device.as_ref().map(|(_, d)| d));
         crate::gpu::register(Arc::downgrade(&run) as std::sync::Weak<dyn Lost>);
         run
@@ -134,49 +137,39 @@ impl RunGpu {
     /// Checks and replays a batch; the error to report, if any.
     pub fn apply(&self, ops: &[Arg], bytes: &[u8]) -> Option<GpuError> {
         let mut inner = self.lock();
-        if inner.gpu.is_none() || inner.all.is_some() {
-            return None;
-        }
+        inner.gpu.as_ref()?;
         self.canvases.begin();
         let failed = inner.gpu.as_mut().and_then(|g| g.apply(ops, bytes).err());
         self.publish(&inner);
         failed
     }
 
-    /// A batch whose shape the host checks failed: it stops every canvas, as one rendering into
-    /// none does (`widgets-gpu.md`, Which canvases stop), and later batches are ignored. Reported
-    /// unless it stops only canvases already stopped.
-    pub fn refuse(&self, message: String) -> Option<GpuError> {
+    /// A batch whose shape the host checks failed (`message`; `ops` when they were a list): it
+    /// stops the canvases it renders into, or all of them, as a replayed batch's error does
+    /// (`widgets-gpu.md`, Which canvases stop). The error to report, if it stopped any anew.
+    pub fn refuse(&self, ops: Option<&[Arg]>, message: String) -> Option<GpuError> {
         let mut inner = self.lock();
-        if inner.gpu.is_none() || inner.all.is_some() {
-            return None;
-        }
-        let stopped = |k: &str| inner.gpu.as_ref().is_some_and(|g| g.error(k).is_some()) || inner.stopped.contains_key(k);
-        let fresh = inner.keys.iter().any(|(k, _)| !stopped(k));
-        let none = inner.keys.iter().all(|(k, _)| !stopped(k)) && inner.stopped.is_empty();
-        inner.all = Some(message.clone());
+        inner.gpu.as_ref()?;
         self.canvases.begin();
+        let failed = inner.gpu.as_mut().and_then(|g| g.shape_error(ops, message).err());
         self.publish(&inner);
-        (fresh || none).then_some(GpuError { kind: ErrorKind::Program, message, canvases: Stops::All })
+        failed
     }
 
     /// Publishes the canvases as they are for the window.
     fn publish(&self, inner: &Inner) {
-        let mut shown = HashMap::new();
-        let mut stopped = inner.stopped.clone();
+        let (mut shown, mut stopped) = (HashMap::new(), HashMap::new());
         if let Some(gpu) = &inner.gpu {
             for (k, id) in &inner.keys {
                 if let Some(c) = gpu.canvas(k) {
                     shown.insert(id.clone(), Canvas { texture: c.texture.clone(), opaque: c.alpha == widget_gpu::AlphaMode::Opaque, version: c.version });
                 }
                 if let Some(e) = gpu.error(k) {
-                    stopped.entry(id.clone()).or_insert_with(|| e.message.clone());
+                    stopped.insert(id.clone(), e.message.clone());
                 }
             }
         }
-        let ids: HashMap<&str, &str> = inner.keys.iter().map(|(k, id)| (k.as_str(), id.as_str())).collect();
-        let stopped = stopped.into_iter().map(|(k, e)| (ids.get(k.as_str()).map_or(k.clone(), |id| (*id).to_owned()), e)).collect();
-        self.canvases.end(inner.queue.as_ref(), shown, stopped, inner.all.clone());
+        self.canvases.end(inner.queue.as_ref(), shown, stopped);
         (self.notify)();
     }
 
@@ -209,16 +202,17 @@ impl Lost for RunGpu {
 }
 
 /// A posted batch (`{ ops, bytes }`) read as `widget-gpu` takes it, with the host checks of its
-/// shape (`widgets-gpu.md`, Host checks); its bytes borrowed in place for `f`. `Err`: the message.
-pub fn with_batch<R>(batch: &HostValue, f: impl FnOnce(&[Arg], &[u8]) -> R) -> Result<R, String> {
+/// shape (`widgets-gpu.md`, Host checks); its bytes borrowed in place for `f`. `Err`: the message,
+/// with the ops when they were a list.
+pub fn with_batch<R>(batch: &HostValue, f: impl FnOnce(&[Arg], &[u8]) -> R) -> Result<R, (Option<Vec<Arg>>, String)> {
     let field = |k: &str| <HostValue as crate::draw::Arg>::field(batch, k);
     let ops = match field("ops") {
         Some(HostValue::Array(items)) => items.iter().map(|i| arg(i.as_ref().unwrap_or(&HostValue::Null))).collect::<Vec<_>>(),
-        _ => return Err("a batch's ops must be a list".into()),
+        _ => return Err((None, "a batch's ops must be a list".into())),
     };
     match field("bytes") {
         Some(HostValue::TypedArray(t)) if t.kind() == TypedKind::ArrayBuffer => Ok(t.with_bytes(|b| f(&ops, b))),
-        _ => Err("a batch's bytes must be an ArrayBuffer".into()),
+        _ => Err((Some(ops), "a batch's bytes must be an ArrayBuffer".into())),
     }
 }
 

@@ -30,8 +30,8 @@ pub(in crate::live) enum Wait {
     /// A GPU batch, its bytes copied: it takes no token, but never overtakes a waiting post.
     /// `frame`: it rode a frame request, which goes out after it.
     Batch { ops: Vec<widget_gpu::Arg>, bytes: Vec<u8>, frame: bool },
-    /// A batch whose shape failed the host checks, with why.
-    Refused { message: String, frame: bool },
+    /// A batch whose shape failed the host checks, with why (and its ops, when a list).
+    Refused { ops: Option<Vec<widget_gpu::Arg>>, message: String, frame: bool },
     /// A `canvas` size the program heard, for the GPU after the batches ahead of it.
     Resize(String, u32, u32),
 }
@@ -137,7 +137,7 @@ impl Link {
         match w {
             Wait::Counted(..) => {}
             Wait::Batch { ops, bytes, frame } => self.replayed(&gpu, gpu.apply(&ops, &bytes), frame),
-            Wait::Refused { message, frame } => self.replayed(&gpu, gpu.refuse(message), frame),
+            Wait::Refused { ops, message, frame } => self.replayed(&gpu, gpu.refuse(ops.as_deref(), message), frame),
             Wait::Resize(key, w, h) => gpu.resize(&key, w, h),
         }
     }
@@ -176,8 +176,8 @@ impl Link {
         };
         // Replaying is the host's work, not the program's: it doesn't count toward the 50 ms.
         let _host = HostWork(self);
+        crate::live::gpu::tapped(Some(batch), frame);
         let queued = match crate::live::gpu::with_batch(batch, |ops, bytes| {
-            crate::live::gpu::tapped(ops, bytes, frame);
             if waits {
                 return Some(Wait::Batch { ops: ops.to_vec(), bytes: bytes.to_vec(), frame });
             }
@@ -185,9 +185,9 @@ impl Link {
             None
         }) {
             Ok(queued) => queued,
-            Err(message) if waits => Some(Wait::Refused { message, frame }),
-            Err(message) => {
-                self.replayed(&gpu, gpu.refuse(message), frame);
+            Err((ops, message)) if waits => Some(Wait::Refused { ops, message, frame }),
+            Err((ops, message)) => {
+                self.replayed(&gpu, gpu.refuse(ops.as_deref(), message), frame);
                 None
             }
         };
@@ -198,7 +198,7 @@ impl Link {
 
     /// A frame request without a batch: it goes at once, and the GPU's frame limits count again.
     pub fn bare_frame(&self) {
-        crate::live::gpu::tapped(&[], &[], true);
+        crate::live::gpu::tapped(None, true);
         if let Some(gpu) = self.gpu() {
             gpu.end_frame();
         }

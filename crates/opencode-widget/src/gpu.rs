@@ -163,8 +163,6 @@ struct State {
     keys: HashMap<String, String>,
     shown: HashMap<String, Canvas>,
     stopped: HashMap<String, String>,
-    /// An error that stopped every canvas.
-    all: Option<String>,
     available: bool,
     replaying: bool,
     copying: bool,
@@ -199,7 +197,7 @@ impl Canvases {
     /// What canvas `key` shows.
     pub fn status(&self, key: &str) -> Status {
         let st = self.lock();
-        match (st.stopped.get(key).or(st.all.as_ref()), st.available) {
+        match (st.stopped.get(key), st.available) {
             (Some(e), _) => Status::Stopped(e.clone()),
             (None, false) => Status::Unavailable,
             (None, true) => Status::Drawn,
@@ -334,7 +332,7 @@ impl Canvases {
     /// The batch replayed on `queue`: the canvases as they are now, and those stopped. The
     /// window may copy them once the GPU finished it.
     #[cfg_attr(not(feature = "runner"), allow(dead_code))]
-    pub(crate) fn end(&self, queue: Option<&wgpu::Queue>, shown: HashMap<String, Canvas>, stopped: HashMap<String, String>, all: Option<String>) {
+    pub(crate) fn end(&self, queue: Option<&wgpu::Queue>, shown: HashMap<String, Canvas>, stopped: HashMap<String, String>) {
         let mut st = self.lock();
         st.replaying = false;
         st.submitted += 1;
@@ -346,7 +344,7 @@ impl Canvases {
         } else {
             self.finished.fetch_max(st.submitted, Ordering::AcqRel);
         }
-        if st.stopped != stopped || st.all != all {
+        if st.stopped != stopped {
             st.revision += 1;
             st.published += 1;
         }
@@ -355,6 +353,5 @@ impl Canvases {
         }
         st.shown = shown;
         st.stopped = stopped;
-        st.all = all;
     }
 }

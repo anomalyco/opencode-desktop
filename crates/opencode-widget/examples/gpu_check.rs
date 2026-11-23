@@ -129,8 +129,9 @@ fn main() {
     gpu::provide(move || Some(d.clone()));
     let batches: Arc<Mutex<Vec<Value>>> = Arc::default();
     let sink = batches.clone();
-    opencode_widget::live::gpu::tap(Some(Box::new(move |ops: &[Arg], bytes: &[u8], frame: bool| {
-        sink.lock().unwrap().push(json!({ "frame": frame, "bytes": base64::engine::general_purpose::STANDARD.encode(bytes), "ops": ops.iter().map(to_json).collect::<Vec<_>>() }));
+    opencode_widget::live::gpu::tap(Some(Box::new(move |ops: &Arg, bytes: Option<&[u8]>, frame: bool| {
+        let bytes = bytes.map(|b| base64::engine::general_purpose::STANDARD.encode(b));
+        sink.lock().unwrap().push(json!({ "frame": frame, "bytes": bytes, "ops": to_json(ops) }));
     })));
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/gpu");
     let mut files: Vec<_> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).filter(|p| p.extension().is_some_and(|e| e == "json")).collect();
