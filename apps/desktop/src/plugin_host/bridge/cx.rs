@@ -58,6 +58,8 @@ pub enum Request {
     ClosePanel { panel: String },
     OpenPopover { id: String, anchor: String, trigger: Option<String>, side: rune::Side, align: rune::Align, gap: f32, data: rune_luau::Data, toggle: bool },
     ClosePopover,
+    /// `Layout:Focus`: the keyboard goes to the element with this key, with its ring.
+    Focus(String),
     /// A step of the open popover's row list (`ui.flyoutRow`).
     Flyout(crate::plugin_host::FlyoutEvent),
     OpenDialog { id: String, data: rune_luau::Data },

@@ -294,6 +294,7 @@ Panels, settings and drafts in this window. Halves: window.
 | `:OpenDrawerView` | `(title: string, data: { [string]: any }?) -> ()` | From a `drawer` kind panel's view in a narrow window's More drawer: shows a nested view in the drawer in its place (Desktop's `useDrawer().open`), with a back button named after the panel's view. The panel's render draws it, with `props.drawer` set to `data`. Does nothing elsewhere. |
 | `:RegionOpen` | `(sessionId: string?) -> boolean` | A session's side region is open. Defaults to the routed session. |
 | `:RegionFocused` | `() -> boolean` | The side region has the keyboard: the last focus, click or key was in it, as Desktop's side focus reads (`#review-panel[data-focused]`). Read it when a command runs: Desktop's Open browser shortcut focuses the new tab's address only from inside the region. |
+| `:Focus` | `(key: string) -> ()` | Moves the keyboard to the element with `key`, or to its first focusable control, and draws its focus ring: where a shortcut leaves the keyboard. Official's Toggle browser toolbar shortcut leaves it on the Options button. Since 1.7. |
 
 ### Links
 

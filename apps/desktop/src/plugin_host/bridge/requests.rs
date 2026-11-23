@@ -67,6 +67,7 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
             crate::popover::motion::opening(&app.diag.knobs, tx);
         }
         Request::ClosePopover => close_popover(app, tx),
+        Request::Focus(key) => tx.focus(key, true),
         Request::Flyout(event) => step_flyout(app, Some(plugin), event, tx),
         Request::OpenDialog { id, data } => {
             tx.instant();
