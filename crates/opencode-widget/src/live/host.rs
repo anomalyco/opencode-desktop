@@ -1,7 +1,6 @@
 //! The host functions a live program reaches: `__input`, and under `__host`: `post` (sync),
 //! `receive` and `sleep` (async, idempotent, so a paused program can be saved while they wait),
-//! `now` (sync) and `fetch` (async). Each async call is a future of its own here, so the run's
-//! rests are seen when its futures are polled again ([`super::link::Watch`]).
+//! `now` (sync) and `fetch` (async).
 
 use std::future::Future;
 use std::pin::Pin;
@@ -9,7 +8,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Instant;
 
-use psychoscript::{Call, HostError, HostFunction, HostResult, HostValue, Limits, Runtime, Translate, TranslateFunctions};
+use psychoscript::{Call, Clock, HostError, HostFunction, HostResult, HostValue, Limits, Runtime, Translate, TranslateFunctions};
 use serde_json::{Value, json};
 
 use super::fetch;
@@ -31,7 +30,14 @@ pub(super) fn runtime(link: &Arc<Link>, era: u64) -> Runtime {
     let link = link.clone();
     // A function in a post's view (a handler) crosses as a marker; anywhere else it fails the call.
     let translate = Translate { functions: TranslateFunctions::Mark, ..Default::default() };
-    let limits = Limits { max_heap_bytes: Some(crate::runner::MAX_HEAP_BYTES), max_value_depth: Some(crate::runner::MAX_VALUE_DEPTH), ..Default::default() };
+    // The 50 ms rule on the program thread's CPU time (a saved run keeps it).
+    let limits = Limits {
+        max_heap_bytes: Some(crate::runner::MAX_HEAP_BYTES),
+        max_value_depth: Some(crate::runner::MAX_VALUE_DEPTH),
+        clock: Clock::ThreadCpu,
+        slice_ms: Some(super::SLICE_MS),
+        ..Default::default()
+    };
     Runtime::make().typed_arrays(true).limits(limits).translate(translate).globals(move |_run| {
         // `gpu`: whether this client replays the program's GPU batches, and its canvas format.
         let mut input = json!({ "data": link.data });
@@ -51,7 +57,7 @@ pub(super) fn runtime(link: &Arc<Link>, era: u64) -> Runtime {
             (
                 "receive",
                 HostValue::Function(
-                    HostFunction::new_async(move |args: Vec<HostValue>, _call| Checked::new(checked("receive", &args, 0), || Receive { link: l3.clone(), era, ticket: None, polls: 0 })).idempotent(),
+                    HostFunction::new_async(move |args: Vec<HostValue>, _call| Checked::new(checked("receive", &args, 0), || Receive { link: l3.clone(), era, ticket: None })).idempotent(),
                 ),
             ),
             (
@@ -59,7 +65,7 @@ pub(super) fn runtime(link: &Arc<Link>, era: u64) -> Runtime {
                 HostValue::Function(
                     HostFunction::new_async(move |args: Vec<HostValue>, call: Call| {
                         let ms = args.first().and_then(HostValue::as_f64).filter(|m| m.is_finite()).unwrap_or(0.0).max(0.0);
-                        Checked::new(checked("sleep", &args, 0), || Sleep { link: l4.clone(), era, key: call.key(), ms, polls: 0 })
+                        Checked::new(checked("sleep", &args, 0), || Sleep { link: l4.clone(), era, key: call.key(), ms })
                     })
                     .idempotent(),
                 ),
@@ -72,7 +78,6 @@ pub(super) fn runtime(link: &Arc<Link>, era: u64) -> Runtime {
                         era,
                         request: Some(args.first().and_then(HostValue::to_json).unwrap_or(Value::Null)),
                         id: 0,
-                        polls: 0,
                     })
                 })),
             ),
@@ -231,7 +236,6 @@ struct Receive {
     era: u64,
     /// Its place among the receives waiting, once polled; none once served.
     ticket: Option<u64>,
-    polls: u32,
 }
 
 impl Future for Receive {
@@ -239,19 +243,13 @@ impl Future for Receive {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<HostResult> {
         let this = self.get_mut();
-        this.polls += 1;
-        let now = Instant::now();
         let link = this.link.clone();
         let mut st = link.lock();
         if st.interrupt || st.era != this.era {
             return Poll::Ready(Err(HostValue::Interrupt));
         }
-        let again = this.polls > 1;
         if st.pause.is_some() {
             st.hold(cx.waker());
-            if again {
-                st.watch.repolled(now, true);
-            }
             return Poll::Pending;
         }
         let ticket = match this.ticket {
@@ -279,9 +277,6 @@ impl Future for Receive {
             {
                 w.wake_by_ref();
             }
-            if again {
-                st.watch.repolled(now, false);
-            }
             drop(st);
             // A GPU canvas's size, as the program hears it, is the size its replay draws at.
             if message["type"] == "canvas"
@@ -290,9 +285,6 @@ impl Future for Receive {
                 link.resized(key.to_owned(), w as u32, h as u32);
             }
             return Poll::Ready(Ok(HostValue::from_json(&message)));
-        }
-        if again {
-            st.watch.repolled(now, true);
         }
         Poll::Pending
     }
@@ -320,7 +312,6 @@ struct Sleep {
     era: u64,
     key: String,
     ms: f64,
-    polls: u32,
 }
 
 impl Future for Sleep {
@@ -328,19 +319,14 @@ impl Future for Sleep {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<HostResult> {
         let this = self.get_mut();
-        this.polls += 1;
         let now = Instant::now();
         let link = this.link.clone();
         let mut st = link.lock();
         if st.interrupt || st.era != this.era {
             return Poll::Ready(Err(HostValue::Interrupt));
         }
-        let again = this.polls > 1;
         if st.pause.is_some() {
             st.hold(cx.waker());
-            if again {
-                st.watch.repolled(now, true);
-            }
             return Poll::Pending;
         }
         let running = st.running(now);
@@ -348,15 +334,9 @@ impl Future for Sleep {
         if running >= due {
             st.dues.remove(&this.key);
             st.timers.remove(&this.key);
-            if again {
-                st.watch.repolled(now, false);
-            }
             return Poll::Ready(Ok(HostValue::Undefined));
         }
         let fresh = st.timers.insert(this.key.clone(), cx.waker().clone()).is_none();
-        if again {
-            st.watch.repolled(now, true);
-        }
         drop(st);
         if fresh {
             super::link::poke();
@@ -384,7 +364,6 @@ struct Fetch {
     /// The request, until it goes.
     request: Option<Value>,
     id: u64,
-    polls: u32,
 }
 
 impl Future for Fetch {
@@ -392,14 +371,12 @@ impl Future for Fetch {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<HostResult> {
         let this = self.get_mut();
-        this.polls += 1;
         let now = Instant::now();
         let link = this.link.clone();
         let mut st = link.lock();
         if st.interrupt || st.era != this.era {
             return Poll::Ready(Err(HostValue::Interrupt));
         }
-        let again = this.polls > 1;
         if let Some(request) = this.request.take() {
             let started = start(&link, &mut st, this, request, cx, now);
             drop(st);
@@ -413,22 +390,13 @@ impl Future for Fetch {
         }
         if st.pause.is_some() {
             st.hold(cx.waker());
-            if again {
-                st.watch.repolled(now, true);
-            }
             return Poll::Pending;
         }
         if let Some(result) = st.fetched.remove(&this.id) {
-            if again {
-                st.watch.repolled(now, false);
-            }
             return Poll::Ready(result);
         }
         if let Some(w) = st.fetches.get_mut(&this.id) {
             w.clone_from(cx.waker());
-        }
-        if again {
-            st.watch.repolled(now, true);
         }
         Poll::Pending
     }

@@ -5,20 +5,15 @@
 //!  start ─▶ Alive ──main returns / throws──────────────────────────────▶ Ended
 //!            │ ├──paused 30 s──▶ Saving ──saved──▶ Saved ──resume──▶ Alive
 //!            │ │                   └──can't save──▶ Discarding ──▶ Discarded ──resume──▶ Alive (from main)
-//!            │ ├──50 ms without awaiting──▶ Killing ──stopped──▶ Ended(Failed)
+//!            │ ├──50 ms without awaiting──────────────────────────────▶ Ended(Failed)
 //!            │ └──stop──▶ Stopping ──────────────────────────────────────▶ Ended(Stopped)
 //! ```
 //!
 //! Time is the program's running time: wall time less pauses. Timers are due in it, so a pause
 //! freezes them with what they had left, and `now()` reads it.
 //!
-//! The 50 ms rule is watched from outside the run. The program runs on its thread under
-//! PsychoScript's blocking driver, which polls a host call's future again only when the run has
-//! stopped (nothing left to run until a host call completes). So a future polled again proves the
-//! run was at rest then ([`Watch::repolled`]). While the run may be busy, the clock wakes one of its
-//! waiting futures (a kick); polled again soon, the run was at rest and is idle until a host call
-//! completes; still unpolled 50 ms after its last rest, it has run that long without awaiting, and
-//! it is stopped (suspended at its next step and let go).
+//! The 50 ms rule is the VM's (`Limits::slice_ms`, on the program thread's CPU time): a run that
+//! computes that long without awaiting the host, host calls left out, ends with `SliceExceeded`.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -34,15 +29,9 @@ use super::gpu::RunGpu;
 
 mod queue;
 
-use queue::{HostWork, Wait};
+use queue::Wait;
 use super::{BURST, Ended, LiveProgram, Post, SAVE_AFTER, SLICE_MS, Setup};
 
-/// How long after its last rest a possibly busy run is kicked.
-const KICK_AFTER: Duration = Duration::from_millis(10);
-/// How often the clock looks at a possibly busy run.
-const WATCH_EVERY: Duration = Duration::from_millis(5);
-/// How long a stop waits for a runaway before it asks again.
-const ASK_AGAIN: Duration = Duration::from_millis(30);
 /// The program's thread's stack: the run's own budget (512 KB) and room for the host's frames.
 const STACK: usize = 4 << 20;
 
@@ -57,8 +46,6 @@ pub(super) enum Run {
     Discarding,
     /// No thread; starts again from `main` on resume.
     Discarded,
-    /// Ran too long without awaiting: being stopped with `reason`.
-    Killing { reason: String, asked: Instant },
     /// The client stopped it.
     Stopping,
     Ended(Ended),
@@ -67,50 +54,7 @@ pub(super) enum Run {
 impl Run {
     /// A thread runs (or is winding down).
     fn threaded(&self) -> bool {
-        matches!(self, Run::Alive | Run::Saving | Run::Discarding | Run::Killing { .. } | Run::Stopping)
-    }
-}
-
-/// Whether the run is at rest, for the 50 ms rule.
-pub(super) struct Watch {
-    /// At rest until a host call completes.
-    pub idle: bool,
-    /// When it was last seen at rest.
-    pub last_stop: Instant,
-    /// A kick in flight, made when `wakes` was this.
-    pub kicked: Option<u64>,
-    /// Host calls completed (each may start the run).
-    pub wakes: u64,
-    /// The host is working inside one of the program's calls (replaying a GPU batch): that time
-    /// isn't the program's.
-    pub host: u32,
-}
-
-impl Watch {
-    fn fresh(now: Instant) -> Watch {
-        Watch { idle: false, last_stop: now, kicked: None, wakes: 0, host: 0 }
-    }
-
-    /// A host call completed, which may start the run. Whether the run was idle: the clock, which
-    /// doesn't watch an idle run, must look again.
-    pub fn woke(&mut self, now: Instant) -> bool {
-        self.wakes += 1;
-        let was = self.idle;
-        if was {
-            self.idle = false;
-            self.last_stop = now;
-        }
-        was
-    }
-
-    /// One of its futures was polled again: the run is at rest now. `pending`: that future still
-    /// waits; after a kick with nothing completed since, the run is idle.
-    pub fn repolled(&mut self, now: Instant, pending: bool) {
-        self.last_stop = now;
-        if pending && self.kicked == Some(self.wakes) {
-            self.idle = true;
-        }
-        self.kicked = None;
+        matches!(self, Run::Alive | Run::Saving | Run::Discarding | Run::Stopping)
     }
 }
 
@@ -142,7 +86,6 @@ pub(super) struct St {
     /// What waits for the post rate, oldest first: `render` and `draw` posts for a token, and
     /// GPU batches behind them.
     pub waiting: VecDeque<Wait>,
-    pub watch: Watch,
     pub suspender: Option<Suspender>,
     /// Where in the program it threw, when it ended so (1-based line and column).
     pub failed_at: Option<(u32, u32)>,
@@ -250,7 +193,6 @@ impl Link {
             outbox: Vec::new(),
             bucket: (BURST, now),
             waiting: VecDeque::new(),
-            watch: Watch::fresh(now),
             suspender: None,
             failed_at: None,
             canvases: HashMap::new(),
@@ -295,7 +237,6 @@ impl Link {
         st.era += 1;
         st.run = Run::Alive;
         st.interrupt = false;
-        st.watch = Watch::fresh(now);
         st.suspender = None;
         st.post_failure = None;
         let era = st.era;
@@ -330,6 +271,8 @@ impl Link {
                 Ok(_) => Ended::Returned,
                 // Over the heap cap: a program error, where it happened is no line of its own.
                 Err(d) if d.kind == DiagnosticKind::MemoryLimitExceeded => Ended::Failed(crate::runner::heap_exceeded()),
+                // Over the slice: no line of its own either.
+                Err(d) if d.kind == DiagnosticKind::SliceExceeded => Ended::Failed(format!("The widget ran for more than {SLICE_MS} ms without awaiting, so it was stopped.")),
                 Err(d) => {
                     at = d.location;
                     Ended::Failed(d.message_lossy())
@@ -344,7 +287,6 @@ impl Link {
             _ if st.post_failure.is_some() => Run::Ended(st.post_failure.take().unwrap_or(Ended::Stopped)),
             (Run::Saving, Ok(RunOutcome::Suspended(s))) => Run::Saved(s.state),
             (Run::Discarding, _) => Run::Discarded,
-            (Run::Killing { reason, .. }, _) => Run::Ended(Ended::Failed(reason)),
             (Run::Stopping, _) => Run::Ended(Ended::Stopped),
             (_, result) => Run::Ended(ended(result)),
         };
@@ -380,17 +322,10 @@ impl Link {
             return;
         }
         st.inbox.push_back(message);
-        if st.pause.is_none() {
-            let now = Instant::now();
-            if let Some((_, w)) = st.waiters.front() {
-                let w = w.clone();
-                let watch = st.watch.woke(now);
-                w.wake();
-                drop(st);
-                if watch {
-                    poke();
-                }
-            }
+        if st.pause.is_none()
+            && let Some((_, w)) = st.waiters.front()
+        {
+            w.wake_by_ref();
         }
     }
 
@@ -484,7 +419,6 @@ impl Link {
             run => {
                 st.run = run;
                 st.inbox.push_front(resumed);
-                st.watch.woke(now);
                 let held = std::mem::take(&mut st.held);
                 for w in held {
                     w.wake();
@@ -492,9 +426,6 @@ impl Link {
                 if let Some((_, w)) = st.waiters.front() {
                     w.wake_by_ref();
                 }
-                // The pause held it, not its own work: its 50 ms start again now.
-                st.watch.last_stop = now;
-                st.watch.kicked = None;
             }
         }
         drop(st);
@@ -509,15 +440,14 @@ impl Link {
                 st.run = Run::Ended(Ended::Stopped);
                 st.waiting.clear();
             }
-            Run::Killing { .. } => {}
             _ => st.run = Run::Stopping,
         }
         st.interrupt = true;
         st.wake_all();
     }
 
-    /// The clock's look at `now`: due timers fire, a long pause saves the program, a run that may
-    /// be busy is kicked or stopped. When it wants to look again.
+    /// The clock's look at `now`: due timers fire, a long pause saves the program. When it wants to
+    /// look again.
     fn tick(&self, now: Instant) -> Option<Instant> {
         let mut st = self.lock();
         if !st.run.threaded() {
@@ -525,21 +455,14 @@ impl Link {
         }
         let mut next: Option<Instant> = None;
         let mut soon = |at: Instant| next = Some(next.map_or(at, |n: Instant| n.min(at)));
-        if let Run::Killing { asked, .. } = st.run {
-            if now.duration_since(asked) >= ASK_AGAIN {
-                self.ask(&mut st, now);
-            }
-            soon(now + ASK_AGAIN);
-            return next;
-        }
         if let Some(since) = st.pause {
-            // Paused, timers don't fire; a run still busy when it paused is still watched, and its
-            // kicks reach the futures the pause holds.
-            if matches!(st.run, Run::Alive) && st.watch.idle {
+            // Paused, timers don't fire. A run paused that long is saved at its next step: no host
+            // call completes for it while paused, so it's awaiting one, or the VM stopped it.
+            if matches!(st.run, Run::Alive) {
                 let at = since + SAVE_AFTER;
                 if now >= at {
                     st.run = Run::Saving;
-                    self.ask(&mut st, now);
+                    self.ask(&mut st);
                 } else {
                     soon(at);
                 }
@@ -549,41 +472,17 @@ impl Link {
         let due: Vec<String> = if st.pause.is_some() { Vec::new() } else { st.timers.keys().filter(|k| st.dues.get(*k).is_none_or(|d| *d <= running)).cloned().collect() };
         for k in due {
             if let Some(w) = st.timers.remove(&k) {
-                st.watch.woke(now);
                 w.wake();
             }
         }
         if let Some(ms) = st.timers.keys().filter_map(|k| st.dues.get(k)).copied().reduce(f64::min).filter(|_| st.pause.is_none()) {
             soon(now + Duration::from_secs_f64(((ms - running) / 1000.0).max(0.0)));
         }
-        if !st.watch.idle && st.watch.host == 0 {
-            let busy = now.saturating_duration_since(st.watch.last_stop);
-            if busy > Duration::from_millis(SLICE_MS) {
-                st.run = Run::Killing { reason: format!("The widget ran for more than {SLICE_MS} ms without awaiting, so it was stopped."), asked: now };
-                st.interrupt = true;
-                self.ask(&mut st, now);
-                soon(now + ASK_AGAIN);
-                return next;
-            }
-            if st.watch.kicked.is_none() && busy >= KICK_AFTER {
-                // A future first polled while paused waits only in `held`: kicked there too, or a
-                // run at rest behind the pause would look busy and be stopped.
-                let kick = st.waiters.front().map(|(_, w)| w).or_else(|| st.timers.values().next()).or_else(|| st.fetches.values().next()).or_else(|| st.held.first()).cloned();
-                if let Some(w) = kick {
-                    st.watch.kicked = Some(st.watch.wakes);
-                    w.wake();
-                }
-            }
-            soon(now + WATCH_EVERY);
-        }
         next
     }
 
-    /// Asks the run to suspend at its next step (to save it, or to stop it), off this thread.
-    fn ask(&self, st: &mut St, now: Instant) {
-        if let Run::Killing { asked, .. } = &mut st.run {
-            *asked = now;
-        }
+    /// Asks the run to suspend at its next step, to save it, off this thread.
+    fn ask(&self, st: &mut St) {
         let Some(suspender) = st.suspender.clone() else {
             if matches!(st.run, Run::Saving) {
                 self.discard(st);
@@ -625,28 +524,19 @@ impl Link {
         if st.pause.is_some() {
             st.held.push(w);
         } else {
-            let watch = st.watch.woke(Instant::now());
             w.wake();
-            drop(st);
-            if watch {
-                poke();
-            }
         }
     }
 }
 
 /// The program's thread: runs it (from `main` or a snapshot) until it ends or is suspended.
 fn run(link: Arc<Link>, era: u64, snapshot: Option<Snapshot>) {
-    {
-        // Making the GPU (a device, the first time), or again for a run restored from its
-        // snapshot, is the host's work, not the program's.
-        link.lock().watch.host += 1;
-        let _host = HostWork(&link);
-        match (&snapshot, link.gpu()) {
-            (None, _) => link.start_gpu(),
-            (Some(_), Some(gpu)) => gpu.restore(),
-            (Some(_), None) => {}
-        }
+    // Its GPU canvases: a device the first time, the same again for a run restored from its
+    // snapshot.
+    match (&snapshot, link.gpu()) {
+        (None, _) => link.start_gpu(),
+        (Some(_), Some(gpu)) => gpu.restore(),
+        (Some(_), None) => {}
     }
     let runtime = super::host::runtime(&link, era);
     let program = match &snapshot {
@@ -666,9 +556,9 @@ fn run(link: Arc<Link>, era: u64, snapshot: Option<Snapshot>) {
         let mut st = link.lock();
         if st.era == era {
             st.suspender = Some(program.suspender());
-            // Asked to save or stop before it could be asked: it is asked now.
-            if matches!(st.run, Run::Saving | Run::Killing { .. }) {
-                link.ask(&mut st, Instant::now());
+            // Asked to save before it could be asked: it is asked now.
+            if matches!(st.run, Run::Saving) {
+                link.ask(&mut st);
             }
         }
     }
@@ -686,8 +576,7 @@ fn run(link: Arc<Link>, era: u64, snapshot: Option<Snapshot>) {
     link.finished(era, result, None);
 }
 
-/// The one thread that keeps every live program's time: timers, saves, the 50 ms rule, the post
-/// rate.
+/// The one thread that keeps every live program's time: timers, saves, the post rate.
 struct Clock {
     m: Mutex<(Vec<Weak<Link>>, bool)>,
     cv: Condvar,

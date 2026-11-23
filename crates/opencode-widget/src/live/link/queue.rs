@@ -12,17 +12,6 @@ use super::super::Post;
 use super::super::gpu::RunGpu;
 use super::{Link, clock};
 
-/// Host work inside a program's call, until dropped (`Watch::host`).
-pub(super) struct HostWork<'a>(pub(super) &'a Link);
-
-impl Drop for HostWork<'_> {
-    fn drop(&mut self) {
-        let mut st = self.0.lock();
-        st.watch.host = st.watch.host.saturating_sub(1);
-        st.watch.last_stop = Instant::now();
-    }
-}
-
 /// What waits for the post rate (`widgets-live.md`, Post rate).
 pub(in crate::live) enum Wait {
     /// A `render` (no key) or canvas key's `draw`, for a token.
@@ -169,13 +158,7 @@ impl Link {
             return;
         };
         let _order = self.order.lock().unwrap_or_else(PoisonError::into_inner);
-        let waits = {
-            let mut st = self.lock();
-            st.watch.host += 1;
-            !st.waiting.is_empty()
-        };
-        // Replaying is the host's work, not the program's: it doesn't count toward the 50 ms.
-        let _host = HostWork(self);
+        let waits = !self.lock().waiting.is_empty();
         crate::live::gpu::tapped(Some(batch), frame);
         let queued = match crate::live::gpu::with_batch(batch, |ops, bytes| {
             if waits {

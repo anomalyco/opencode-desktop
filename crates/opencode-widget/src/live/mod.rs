@@ -10,8 +10,8 @@
 //! snapshot and its thread let go ([`link`]); resumed, it continues from the snapshot, or starts
 //! again from `main` when it couldn't be saved.
 //!
-//! Budgets: a program that runs 50 ms without awaiting is stopped with an error (watched from
-//! outside the run, [`link`]); a `draw` over 2,000 commands ends the run. `render` and `draw` posts
+//! Budgets: a program that runs 50 ms without awaiting is stopped with an error (the VM's slice, on
+//! its thread's CPU time, [`SLICE_MS`]); a `draw` over 2,000 commands ends the run. `render` and `draw` posts
 //! over the post rate wait and coalesce ([`POSTS_PER_SECOND`], `widgets-live.md`, Post rate).
 
 pub mod fetch;
@@ -34,7 +34,8 @@ use crate::step::{SendMessage, WidgetEvent};
 pub use fetch::{Grants, Transport};
 use link::Link;
 
-/// The longest a program may run without awaiting.
+/// The longest a program may run without awaiting the host (`Limits::slice_ms`): its thread's CPU
+/// time, host calls left out, so a loaded machine doesn't stop it.
 pub const SLICE_MS: u64 = 50;
 /// The post rate (`widgets-live.md`, Post rate): a run's `render` and `draw` posts take a token of
 /// a bucket of [`BURST`], refilled at this many a second; past it they wait, and coalesce.
