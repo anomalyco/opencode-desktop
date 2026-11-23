@@ -55,7 +55,7 @@ impl SavedList {
 /// Before the first frame of a window whose server answers after it, or as soon after as the
 /// server has taken the launch's connection: the saved list. True when it was put back.
 pub(crate) fn restore(s: &mut App) -> bool {
-    if !s.persists() || !crate::servers::runtime::active(s).is_sidecar() || !s.sessions.is_empty() || s.launch.saved_list.is_some() || !super::boot::reached() {
+    if !s.persists() || !crate::servers::runtime::active(s).is_sidecar() || !s.sessions.is_empty() || s.launch.saved_list.is_some() || !super::super::boot::reached() {
         return false;
     }
     let Some(saved) = crate::storage::json(GLOBAL, KEY).filter(|v| v["v"].as_u64() == Some(VERSION)) else { return false };
@@ -82,7 +82,7 @@ pub(crate) fn restore(s: &mut App) -> bool {
 /// a window still showing the saved one writes nothing.
 pub(crate) fn save(s: &App) {
     let own = crate::servers::runtime::active(s);
-    if !s.persists() || !own.is_sidecar() || s.launch.saved_list.is_some() || !matches!(s.launch.phase(own.as_str()), Some(super::Phase::Connected)) {
+    if !s.persists() || !own.is_sidecar() || s.launch.saved_list.is_some() || !matches!(s.launch.phase(own.as_str()), Some(super::super::Phase::Connected)) {
         return;
     }
     let tabs: HashSet<&str> = s.tabs.iter().filter(|t| !t.is_draft()).map(|t| t.id.as_str()).collect();

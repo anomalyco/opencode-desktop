@@ -248,13 +248,18 @@ fn ask_page(server: &Server, page: Option<String>) -> Option<session_pages::Earl
     page.and_then(|path| session_pages::Early::ask(server, path))
 }
 
-/// What the head start found: the registered service's address and its first reads, or none
-/// when no service is registered or nothing accepts connections at its address.
+/// What the head start finds, as it finds it.
 #[cfg(not(target_arch = "wasm32"))]
-type Head = Option<(String, Result<First, String>)>;
+struct Head {
+    /// The registered service's address once it took a connection: none when no service is
+    /// registered or nothing accepts connections there.
+    reach: Receiver<Option<String>>,
+    /// Its first reads, when it took the connection.
+    first: Receiver<Result<First, String>>,
+}
 
 #[cfg(not(target_arch = "wasm32"))]
-static HEAD: std::sync::Mutex<Option<Receiver<Head>>> = std::sync::Mutex::new(None);
+static HEAD: std::sync::Mutex<Option<Head>> = std::sync::Mutex::new(None);
 
 /// From the top of `main`, for a window that will find its server through `service.json`: the
 /// registered service is asked for the first reads now, on a thread, while the app's state
@@ -268,20 +273,20 @@ pub fn head_start() {
     if crate::arg("--server").is_some() || crate::arg("--fixture").is_some() || crate::demo::requested() {
         return;
     }
-    let (out, rx) = std::sync::mpsc::channel();
+    let (reached, reach) = std::sync::mpsc::channel();
+    let (read, first) = std::sync::mpsc::channel();
     let work = move || {
         let default = Server::new(&opencode_kit::client::default_server());
-        let found = opencode_kit::local_service::registered(&default).filter(Server::reachable).map(|candidate| {
-            REACHED.store(true, Ordering::Relaxed);
-            rune::marks::mark("reads.head.asked");
-            let first = First::fetch(&candidate);
-            rune::marks::mark("reads.head.in");
-            (candidate.base.clone(), first)
-        });
-        out.send(found).ok();
+        let candidate = opencode_kit::local_service::registered(&default).filter(Server::reachable);
+        reached.send(candidate.as_ref().map(|c| c.base.clone())).ok();
+        let Some(candidate) = candidate else { return };
+        REACHED.store(true, Ordering::Relaxed);
+        rune::marks::mark("reads.head.asked");
+        read.send(First::fetch(&candidate)).ok();
+        rune::marks::mark("reads.head.in");
     };
     if std::thread::Builder::new().name("opencode-first-head".into()).spawn(work).is_ok() {
-        *HEAD.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(rx);
+        *HEAD.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Head { reach, first });
     }
 }
 
@@ -385,21 +390,27 @@ pub(super) fn spawn_probe_waking(s: &App, beta_tabs: bool, fallback_fixture: boo
         // The registered service's answers to the first reads say it is OpenCode's. One that
         // fails them, or isn't there, is found the long way below, as every later probe is.
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(found) = head.and_then(|head| head.recv().ok()) {
-            registered_up = Some(found.is_some());
-            let candidate = opencode_kit::local_service::registered(&server);
-            if let (Some((base, first @ Ok(_))), Some(candidate)) = (found, candidate)
-                && base == candidate.base
-            {
-                REACHED.store(true, Ordering::Relaxed);
+        if let Some(head) = head
+            && let Ok(reach) = head.reach.recv()
+        {
+            registered_up = Some(reach.is_some());
+            let candidate = opencode_kit::local_service::registered(&server).filter(|c| reach.as_deref() == Some(c.base.as_str()));
+            if let Some(candidate) = candidate {
                 took.set(Instant::now()).ok();
-                let page = ask_page(&candidate, page);
-                let beta_tabs = beta_tabs.then(crate::tabs::from_beta).flatten();
-                out.send(Ready { server: Some(candidate), beta_tabs, first: Some(first), refused: false, page }).ok();
-                if let Some(w) = wake {
+                if let Some(w) = &wake {
                     w();
                 }
-                return;
+                // Beside the head start's reads, not after them: with a server 300 ms away the
+                // page was a second round (asked at 333 ms, in at 645 ms).
+                let early = ask_page(&candidate, page.clone());
+                if let Ok(first @ Ok(_)) = head.first.recv() {
+                    let beta_tabs = beta_tabs.then(crate::tabs::from_beta).flatten();
+                    out.send(Ready { server: Some(candidate), beta_tabs, first: Some(first), refused: false, page: early }).ok();
+                    if let Some(w) = wake {
+                        w();
+                    }
+                    return;
+                }
             }
         }
         let (actual, reached) = probe(&server, discover_local, grace, registered_up);
@@ -597,9 +608,10 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
     // those back from 111 to 214 ms after the process started (a real server, each read 1-2 ms),
     // so a session waiting on a permission showed its dock that late.
     s.list_unlisted_worktrees();
-    // What the server lists now, for the next launch's first frame.
-    super::saved_list::save(s);
-    super::saved_catalog::save(s);
+    // What the server lists now is kept for the next launch's first frame, after this frame
+    // and the next ones have drawn it (`launch::saved_write`).
+    s.launch.saved_write = super::SavedWrite::Owed { at: *s.clock + super::SAVED_WRITE_AFTER.as_secs_f64() };
+    tx.wake_after(super::SAVED_WRITE_AFTER);
     // Small newest pages, on the speculative lane after foreground startup work is queued.
     let mut recent: Vec<_> = s.sessions.iter().filter(|s| s.parent.is_none()).collect();
     recent.sort_by_key(|s| std::cmp::Reverse(s.updated));
