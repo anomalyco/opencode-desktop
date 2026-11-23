@@ -497,7 +497,10 @@ impl Icons {
         // Desktop's letter tile under a light that draws its own edge gets a ringless body.
         let lit_body = look.style == Style::Desktop && !finish.ringed();
         let px = (size_pt * self.scale()).ceil().clamp(1.0, 1024.0) as u32;
-        let key = (seed.to_owned(), pal.dark, variant, px, look.key(), if look.style == Style::Desktop { finish } else { Finish::Flat });
+        // Desktop's tile is its colour, size and finish alone (the letter is text over it): every
+        // project of a colour shares one image, so a list of projects draws one tile, not one each.
+        let named = if look.style == Style::Desktop { String::new() } else { seed.to_owned() };
+        let key = (named, pal.dark, variant, px, look.key(), if look.style == Style::Desktop { finish } else { Finish::Flat });
         let cached = self.marks.borrow().get(&key).cloned();
         let img = cached.unwrap_or_else(|| {
             let rgba = if lit_body { finish::body(pal, variant, finish, px) } else { styles::draw(pal, seed, variant, &look, size_pt, px) };

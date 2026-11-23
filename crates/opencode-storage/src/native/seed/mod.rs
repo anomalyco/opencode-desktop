@@ -7,9 +7,10 @@
 //! 1. **Zero writes to Official Desktop's folder:** `drafts.sqlite` is read in place only while
 //!    nobody writes it (no `-wal`, no rollback journal: opened `immutable`, so no lock and no
 //!    `-shm`, and thrown away if the file changed during the read); otherwise it (+ `-wal`; never
-//!    `-shm`) is copied via plain shared file reads into a scratch directory inside OUR profile,
-//!    checked for mid-checkpoint DB/WAL skew, recovered and verified with `PRAGMA integrity_check`
-//!    there, and deleted on drop.
+//!    `-shm`) is read via plain shared file reads into memory with the WAL's committed frames
+//!    applied (`image`), thrown away if either file changed during the read, and verified with
+//!    `PRAGMA integrity_check`. When that fails, both files are copied into a scratch directory
+//!    inside OUR profile, recovered and verified there, and deleted on drop.
 //! 2. **Explicit allow-list + credential scrubbing:** only approved settings, zoom, window frames,
 //!    tabs, drafts + attachment blobs, prompt history, and strictly allow-listed, userinfo-stripped
 //!    HTTP server entries are imported (never passwords, tokens, `ssh.servers`, `bundledCliVersion`,
@@ -20,6 +21,7 @@
 //!    `MAX_SEED_ATTEMPTS` launches; once settled, migration never runs again.
 
 mod drafts;
+mod image;
 mod snapshot;
 
 use std::collections::HashSet;
@@ -90,7 +92,7 @@ pub fn recent_tabs_in(dirs: &[PathBuf]) -> Option<(Value, Value)> {
     res.flatten()
 }
 
-/// Legacy single-file helper kept safe via private scratch copy (never writes `-shm` beside `db`).
+/// Legacy single-file helper kept safe via a private read (the image in memory, or the scratch copy; never writes `-shm` beside `db`).
 pub fn recent_tabs(db: &Path) -> Option<(Value, Value)> {
     let dir = db.parent()?;
     let scratch = std::env::temp_dir().join(format!("opencode-rune-seed-{}", std::process::id()));
