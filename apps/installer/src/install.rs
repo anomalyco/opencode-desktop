@@ -114,17 +114,19 @@ pub fn install(p: &Product, root: &Path, desktop_shortcut: bool, log: &dyn Fn(&s
 }
 
 /// Unpacks the payload into `staging` with Windows' own bsdtar (as the updater does); returns
-/// the app's folder in it.
+/// the app's folder in it. bsdtar reads its arguments in the ANSI code page, where a user folder
+/// named `测试` arrives as `??`: so the zip goes in on standard input and `staging` is the
+/// working directory, and no path is an argument.
 fn unpack(staging: &Path) -> Result<PathBuf, String> {
     std::fs::create_dir_all(staging).map_err(|e| format!("{}: {e}", staging.display()))?;
     let zip = staging.join("payload.zip");
     std::fs::write(&zip, PAYLOAD).map_err(|e| format!("couldn't write the app: {e}"))?;
+    let archive = std::fs::File::open(&zip).map_err(|e| format!("couldn't read the app: {e}"))?;
     let system = std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
     let out = Command::new(system.join("System32").join("tar.exe"))
-        .arg("-xf")
-        .arg(&zip)
-        .arg("-C")
-        .arg(staging)
+        .args(["-xf", "-"])
+        .current_dir(staging)
+        .stdin(archive)
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|e| format!("couldn't run tar: {e}"))?;
