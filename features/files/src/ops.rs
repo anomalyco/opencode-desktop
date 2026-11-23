@@ -376,7 +376,12 @@ fn open_workspace_file_in_viewer(
     tx: &mut Tx,
 ) {
     ensure_file_loaded(host, sid, path);
-    watch::watch(host, sid, path);
+    // A file outside the session's folder (`links::open_outside_file`) is not in its tree and
+    // is not watched.
+    let outside = opencode_kit::path::is_absolute(path);
+    if !outside {
+        watch::watch(host, sid, path);
+    }
     let ws = host.files_mut().sessions.entry(sid.to_owned()).or_default();
     if force_source {
         ws.close_preview(path);
@@ -385,7 +390,7 @@ fn open_workspace_file_in_viewer(
     ws.narrow = ws.narrow.step(narrow::NarrowFilesEvent::Opened);
     ws.push_recent(path);
     // Ensure parent folders in the tree are expanded so the active file highlights in context.
-    let parts: Vec<&str> = path.split('/').collect();
+    let parts: Vec<&str> = if outside { Vec::new() } else { path.split('/').collect() };
     for i in 0..parts.len().saturating_sub(1) {
         ws.expanded_dirs.insert(parts[..=i].join("/"));
     }

@@ -91,7 +91,8 @@ pub(super) fn open_in_button<H: FilesHost + PopupHost + 'static>(
     key: &'static str,
     rel: &str,
 ) -> Option<El> {
-    if !s.can_open_in() {
+    // No app opens a file outside the session's folder; its menu still shows it in the file manager.
+    if !s.can_open_in() || opencode_kit::path::is_absolute(rel) {
         return None;
     }
     let cur = s.open_in_current()?;
@@ -212,14 +213,18 @@ fn open_artifact_menu(
                 }
                 Some("mode") => markdown::toggle_rendered(h, &sid, &at, tx),
                 Some("open-browser") => crate::ops::open_html_in_browser(h, &sid, &at, tx),
+                // A file outside the session's folder: shown in the file manager, never opened
+                // in an app (`links::reveal_outside_file`).
+                Some("reveal") if opencode_kit::path::is_absolute(&at) => crate::links::reveal_outside_file(h, &at),
                 Some("reveal") => h.open_in_reveal(&at),
                 Some("copy") => {
-                    if let Some(full) = h.open_in_path(&at) {
+                    let full = if opencode_kit::path::is_absolute(&at) { Some(at.clone()) } else { h.open_in_path(&at) };
+                    if let Some(full) = full {
                         tx.copy(full);
                         h.toast_succeed(opencode_i18n::t!("common.copied").to_owned(), String::new());
                     }
                 }
-                Some(id) if id.starts_with("app:") => h.open_in_pick(&at, id, false, tx),
+                Some(id) if id.starts_with("app:") && !opencode_kit::path::is_absolute(&at) => h.open_in_pick(&at, id, false, tx),
                 _ => {}
             }
         }),
@@ -332,17 +337,21 @@ fn artifact_menu(host: &dyn FilesHost, path: &str, source: bool, previewable: bo
         };
         menu = menu.item(Item::new("mode", label));
     }
-    if host.opens_as_page(path) {
+    // A file outside the session's folder (`links::open_outside_file`) can be shown in the file
+    // manager where the server shares this machine's files, and nothing else: no app opens it
+    // and the browser pane does not take it.
+    let outside = opencode_kit::path::is_absolute(path);
+    if !outside && host.opens_as_page(path) {
         menu = menu.item(Item::new("open-browser", opencode_i18n::t!("plugin.file.view.openInBrowser")));
     }
-    if host.can_open_in() {
+    if if outside { host.can_reveal_outside() } else { host.can_open_in() } {
         menu = menu.item(Item::new(
             "reveal",
             opencode_i18n::t!("plugin.file.view.reveal", app = host.open_in_finder_label()),
         ));
     }
     menu = menu.item(Item::new("copy", opencode_i18n::t!("plugin.file.open.copyPath")));
-    if host.can_open_in() {
+    if !outside && host.can_open_in() {
         menu = menu.submenu("open-in", opencode_i18n::t!("plugin.file.open.in"), open_in_apps_menu(host));
     }
     menu

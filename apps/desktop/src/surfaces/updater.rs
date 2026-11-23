@@ -240,6 +240,11 @@ pub(crate) fn display_version(s: &App) -> String {
 #[cfg(windows)]
 pub mod apply {
     pub fn run_if_asked() {
+        // The helper is the new version's own executable (a hard link to it): what it reads of
+        // itself while it waits for the old version to exit is in memory when it starts the new one.
+        if std::env::args().nth(1).as_deref() == Some("--apply-update") {
+            crate::launch::image_pages::warm();
+        }
         opencode_feature_updater::apply::run_if_asked(crate::launch::product);
     }
 }
