@@ -45,6 +45,7 @@ d771373a8d6f5f11c6450842287976e9c8455256 apps/browser-engine/src/find.rs
 20f52a77216efb1c6ebee46813ada1fb4c0c761d apps/browser-engine/src/frame_authority.rs
 d3507700b91ccd536e6c14ed3edcf96669c9f2df apps/browser-engine/src/handlers.rs
 1f04ab24fd468f8ee5b571330a10693927ccfac2 apps/browser-engine/src/helper.rs
+8b1a84ca98811e926c92d1aa50aa4c3c9e68d691 apps/browser-engine/src/input_fps.rs
 861b67493c42d26866a24fd0b572568f6521da0f apps/browser-engine/src/input_guard.rs
 481532e61011fdf5ca5886751a5f9ee708800683 apps/browser-engine/src/keys.rs
 1e29d60b4e29acf6e1b081905aa1d51510d7330e apps/browser-engine/src/lib.rs
