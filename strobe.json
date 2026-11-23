@@ -16,15 +16,22 @@
       "env": {
         "RUNE_DIRS_ROOT": "{home}",
         "OPENCODE_RUNE_HOME": "{home}",
+        "HOME": "{home}/home",
         "USERPROFILE": "{home}/home",
+        "APPDATA": "{home}/home/AppData/Roaming",
         "LOCALAPPDATA": "{home}/home/AppData/Local",
+        "XDG_STATE_HOME": "{home}/xdg/state",
+        "XDG_CONFIG_HOME": "{home}/xdg/config",
+        "XDG_DATA_HOME": "{home}/xdg/data",
+        "XDG_CACHE_HOME": "{home}/xdg/cache",
         "TEMP": "{home}/tmp",
         "TMP": "{home}/tmp",
         "TMPDIR": "{home}/tmp",
         "OPENCODE_SERVER_PASSWORD": "parity-harness",
         "OPENCODE_RUNE_OTEL": "0"
       },
-      "unset": ["OPENCODE_*", "OTEL_*", "SENTRY_*", "RUNE_*", "WGPU_*"],
+      "unset": ["OPENCODE_*", "OTEL_*", "SENTRY_*", "RUNE_*", "WGPU_*", "XDG_*"],
+      "dirs": ["home/AppData/Roaming", "home/AppData/Local", "home/Documents", "tmp", "xdg/state", "xdg/config", "xdg/data", "xdg/cache"],
       "args": ["--launch-marks"]
     }
   }
