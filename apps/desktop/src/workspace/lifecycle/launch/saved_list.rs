@@ -5,6 +5,11 @@
 //! rows or a spinner, for as long as the server takes; its first answer replaces them, and a
 //! session it no longer lists goes then.
 //!
+//! It stands in for a server that is there: one that took the launch's connection
+//! (`boot::reached`: the head start's, asked from the top of `main`, has usually been taken by
+//! the time the state is read) and hasn't answered. With no server running the window is what
+//! it was without the list: Home's setup card, not a list that shows and then gives way to it.
+//!
 //! OpenCode Desktop keeps no such copy: its window shows a splash until its server is ready
 //! (`packages/desktop/src/renderer/startup/machine.ts`), and Home's list shows placeholder rows
 //! while it loads (`packages/app/src/home/sessions/load-machine.ts`).
@@ -47,16 +52,17 @@ impl SavedList {
     }
 }
 
-/// Before the first frame of a window whose server answers after it: the saved list.
-pub(crate) fn restore(s: &mut App) {
-    if !s.persists() || !crate::servers::runtime::active(s).is_sidecar() || !s.sessions.is_empty() {
-        return;
+/// Before the first frame of a window whose server answers after it, or as soon after as the
+/// server has taken the launch's connection: the saved list. True when it was put back.
+pub(crate) fn restore(s: &mut App) -> bool {
+    if !s.persists() || !crate::servers::runtime::active(s).is_sidecar() || !s.sessions.is_empty() || s.launch.saved_list.is_some() || !super::boot::reached() {
+        return false;
     }
-    let Some(saved) = crate::storage::json(GLOBAL, KEY).filter(|v| v["v"].as_u64() == Some(VERSION)) else { return };
+    let Some(saved) = crate::storage::json(GLOBAL, KEY).filter(|v| v["v"].as_u64() == Some(VERSION)) else { return false };
     let projects = opencode_kit::model::parse_projects(&saved["projects"]);
     let sessions = opencode_kit::model::parse_sessions(&saved["sessions"]);
     if sessions.is_empty() {
-        return;
+        return false;
     }
     rune::marks::mark("state.list");
     let ids = sessions.iter().map(|x| x.id.clone()).collect();
@@ -69,6 +75,7 @@ pub(crate) fn restore(s: &mut App) {
     s.init_used_projects(Some(used));
     s.sort_projects();
     s.launch.saved_list = Some(SavedList { sessions: ids });
+    true
 }
 
 /// Keeps what the app's own server lists now, for the next launch. Only a list the server gave:

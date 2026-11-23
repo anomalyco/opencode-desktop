@@ -648,6 +648,12 @@ fn first_reads(s: &mut App, tx: &mut Tx) -> bool {
         }
     }
     let slow = first_reads_slow(s, tx);
+    // A server that took the connection after the state was read: the saved list stands in from here.
+    let stood_in = matches!(window_phase(s), Some(Phase::Probing { .. })) && saved_list::restore(s);
+    if stood_in {
+        tx.instant();
+    }
+    let slow = slow || stood_in;
     // Every poll comes here: the window's key is borrowed, not copied.
     let Some(Phase::Probing { rx, .. }) = window_phase(s) else { return slow };
     let ready = match rx.try_recv() {

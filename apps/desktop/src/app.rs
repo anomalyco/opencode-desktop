@@ -419,7 +419,7 @@ impl App {
         self.open_outbox();
         // A window whose server answers after its first frame lists what that server last listed.
         if deferred {
-            launch::saved_list::restore(self);
+            let _ = launch::saved_list::restore(self);
             launch::saved_catalog::restore(self);
             launch::saved_gutters::restore(self);
         }
