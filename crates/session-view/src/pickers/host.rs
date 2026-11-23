@@ -4,7 +4,7 @@
 use opencode_kit::model::{ModelRef, capitalize};
 use rune::{El, Key, KeyEvent, TextEdit, Tx};
 
-use super::{ADD_PROJECT_KEY, FAVORITES, Item, Kind, Model, ModelAction, Pickers, RECENT, Selection, grouped, hover, menu, search};
+use super::{ADD_PROJECT_KEY, FAVORITES, Item, Kind, Model, ModelAction, Pickers, RECENT, Selection, grouped, hover, menu, search, speed};
 use super::hover::ModelHover;
 use crate::composer::ComposerHost;
 use crate::palette::Pal;
@@ -127,6 +127,9 @@ pub trait PickerHost: ComposerHost {
                 std::iter::once(Item::new("default", opencode_i18n::t!("common.default")))
                     .chain(variants.into_iter().flat_map(|m| &m.variants).map(|v| Item::new(v.clone(), capitalize(v)))).collect()
             }
+            // Its speeds by name, as the efforts are (`composer/model.ts` `speed.options`).
+            Kind::Speed => pk.speeds(&selection.model.key()).into_iter()
+                .map(|(id, _)| if id == speed::STANDARD { Item::new(id, capitalize(opencode_i18n::t!("composer.speed.standard"))) } else { Item::new(id.clone(), capitalize(&id)) }).collect(),
             Kind::Project => self.picker_projects(),
         }
     }
@@ -141,7 +144,8 @@ pub trait PickerHost: ComposerHost {
         let pk = self.pickers();
         let m = pk.models.iter().find(|m| m.key == key).filter(|m| !m.variants.is_empty())?;
         let s = self.selection();
-        let current = s.model.id == m.id && s.model.provider == m.provider;
+        // A model's speeds share its effort (`models.tsx` `getVariant`).
+        let current = pk.standard_key(&s.model.key()) == key;
         Some(pk.staged.get(key).cloned()
             .or_else(|| current.then(|| s.model.variant.clone()))
             .or_else(|| pk.efforts.get(key).filter(|v| m.variants.contains(v)).cloned())
@@ -178,10 +182,24 @@ pub trait PickerHost: ComposerHost {
         self.pickers().models.iter().find(|x| x.id == m.id && x.provider == m.provider).is_some_and(|x| !x.variants.is_empty())
     }
 
+    /// Whether the selected model has other speeds: its speed command is offered only then, so
+    /// nothing about speeds shows for the rest (`composer/commands.tsx`).
+    fn has_speeds(&self) -> bool {
+        !self.pickers().speeds(&self.selection().model.key()).is_empty()
+    }
+
+    /// Whether the toolbar shows the speed's picker: not at the standard speed, so it adds nothing
+    /// to the composer until the speed command chooses one (`editor.tsx`).
+    fn speed_shown(&self) -> bool {
+        self.has_speeds() && self.picker_current(Kind::Speed) != speed::STANDARD
+    }
+
     fn picker_current(&self, kind: Kind) -> String {
         let s = self.selection();
         match kind {
-            Kind::Model => format!("{}:{}", s.model.provider, s.model.id),
+            // The row that stands for the model at any of its speeds (`select-dialog.tsx` `current`).
+            Kind::Model => self.pickers().standard_key(&s.model.key()),
+            Kind::Speed => self.pickers().speed_of(&s.model.key()),
             Kind::Agent => s.agent,
             Kind::Effort => if s.model.variant.is_empty() { "default".into() } else { s.model.variant },
             Kind::Project => self.picker_project_current(),
@@ -283,15 +301,19 @@ pub trait PickerHost: ComposerHost {
         let pk = self.pickers_mut();
         match kind {
             Kind::Model => {
-                let Some(m) = pk.models.iter().find(|m| m.key == key).cloned() else { return false };
+                // A model runs at the speed last used with it, and another speed of the same
+                // model keeps its effort (`composer/selection.ts` `set`).
+                let key = &pk.standard_key(key);
+                let target = pk.remembered_speed(key);
+                let Some(m) = pk.models.iter().find(|m| m.key == target).cloned() else { return false };
                 pk.prefs.picked(key);
                 let staged = pk.staged.get(key).cloned();
-                if m.id != selected.model.id || m.provider != selected.model.provider {
-                    let variant = staged.clone().or_else(|| pk.efforts.get(key).filter(|v| m.variants.contains(v)).cloned()).unwrap_or_default();
-                    selected.model = ModelRef { id: m.id.clone(), provider: m.provider.clone(), variant };
-                } else if let Some(v) = staged.clone() {
-                    selected.model.variant = v;
-                }
+                let variant = if pk.standard_key(&selected.model.key()) == *key {
+                    staged.clone().unwrap_or(selected.model.variant)
+                } else {
+                    staged.clone().or_else(|| pk.efforts.get(key).filter(|v| m.variants.contains(v)).cloned()).unwrap_or_default()
+                };
+                selected.model = ModelRef { id: m.id.clone(), provider: m.provider.clone(), variant };
                 if let Some(v) = staged { pk.efforts.insert(key.to_owned(), v); }
             }
             Kind::Agent => {
@@ -303,7 +325,16 @@ pub trait PickerHost: ComposerHost {
             }
             Kind::Effort => {
                 selected.model.variant = if key == "default" { String::new() } else { key.into() };
-                pk.efforts.insert(format!("{}:{}", selected.model.provider, selected.model.id), selected.model.variant.clone());
+                pk.efforts.insert(pk.standard_key(&selected.model.key()), selected.model.variant.clone());
+            }
+            // The same model at another speed, remembered for when it is picked again
+            // (`composer/selection.ts` `speed.set`).
+            Kind::Speed => {
+                let now = selected.model.key();
+                let Some((_, target)) = pk.speeds(&now).into_iter().find(|(id, _)| id == key) else { return false };
+                let Some(m) = pk.models.iter().find(|m| m.key == target) else { return false };
+                selected.model.id = m.id.clone();
+                pk.prefs.set_speed(&pk.standard_key(&now), Some(key).filter(|k| *k != speed::STANDARD));
             }
             Kind::Project => return false,
         }
@@ -378,8 +409,9 @@ fn model_items(pk: &Pickers) -> Vec<Item> {
         note: if note { m.group.clone() } else { String::new() }, free: m.free, latest: m.latest,
     };
     if !pk.search.text.trim().is_empty() {
+        // A model's speeds are not rows of their own (`models.tsx` `listed`).
         let mut hits: Vec<(i64, Item)> = pk.models.iter()
-            .filter(|m| pk.visible(m))
+            .filter(|m| m.speed.is_none() && pk.visible(m))
             .filter_map(|m| {
                 let fields = [m.name.as_str(), m.group.as_str(), m.provider.as_str(), m.id.as_str()];
                 search::score(&pk.search.text, &fields).map(|score| (score, item(m, &m.provider, &m.group, false)))
@@ -390,10 +422,14 @@ fn model_items(pk: &Pickers) -> Vec<Item> {
     }
     let prefs = &pk.prefs;
     let find = |k: &String| pk.models.iter().find(|m| &m.key == k);
-    let favorites: Vec<&Model> = prefs.favorites.iter().filter_map(find).collect();
-    let recent: Vec<&Model> = prefs.recent.iter().filter(|k| !prefs.is_favorite(k)).filter_map(find).collect();
+    // Saved entries may name a model at any of its speeds; the lists show each model once
+    // (`models.tsx` `recent`, `favorite`).
+    let once = |keys: &[String]| keys.iter().map(|k| pk.standard_key(k)).fold(Vec::new(), |mut out: Vec<String>, k| { if !out.contains(&k) { out.push(k); } out });
+    let (favorites, recent) = (once(&prefs.favorites), once(&prefs.recent));
+    let recent: Vec<&Model> = recent.iter().filter(|k| !favorites.contains(k)).filter_map(find).collect();
+    let favorites: Vec<&Model> = favorites.iter().filter_map(find).collect();
     let lead = |m: &Model| favorites.iter().chain(&recent).any(|x| x.key == m.key);
-    let mut rest: Vec<&Model> = pk.models.iter().filter(|m| pk.visible(m) && !lead(m)).collect();
+    let mut rest: Vec<&Model> = pk.models.iter().filter(|m| m.speed.is_none() && pk.visible(m) && !lead(m)).collect();
     rest.sort_by(|a, b| provider_rank(a).cmp(&provider_rank(b)).then_with(|| rune::text::compare_names(&a.name, &b.name)));
     grouped(favorites.iter().map(|m| item(m, FAVORITES, opencode_i18n::t!("dialog.model.favorites"), true))
         .chain(recent.iter().map(|m| item(m, RECENT, opencode_i18n::t!("dialog.model.recent"), true)))
@@ -482,7 +518,7 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
     // A focused trigger opens its list on the arrows too, as Kobalte's `MenuTrigger.onKeyDown`
     // does (`ArrowDown` focuses the first row, `ArrowUp` the last).
-    let toolbar_focus = [Kind::Agent, Kind::Model, Kind::Effort].into_iter().find(|k| tx.focused() == Some(k.key()));
+    let toolbar_focus = [Kind::Agent, Kind::Model, Kind::Effort, Kind::Speed].into_iter().find(|k| tx.focused() == Some(k.key()));
     if matches!(ev.key, Key::Down | Key::Up) && ev.mods == Default::default()
         && let Some(kind) = toolbar_focus {
         let entry = if ev.key == Key::Up { menu::EntryFocus::Last } else { menu::EntryFocus::First };

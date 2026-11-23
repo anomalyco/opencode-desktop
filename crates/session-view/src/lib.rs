@@ -319,6 +319,11 @@ pub trait TimelineHost: Sized + 'static {
     fn switch_model(&mut self, _tx: &mut Tx) {}
     /// Returns focus to the composer after a keyboard-triggered Jump to latest (`virtualizer.tsx:1171`).
     fn focus_composer(&mut self, _tx: &mut Tx) {}
+    /// A move from `previous` to `model` that changed the model's speed, not the model: the
+    /// speed it moved to, none for its standard one (`pickers::Pickers::speed_switch`).
+    fn model_speed_switch(&self, _model: &ModelRef, _previous: &ModelRef) -> Option<Option<String>> {
+        None
+    }
     fn model_name(&self, model: &ModelRef) -> String {
         if model.id.is_empty() {
             model.provider.clone()

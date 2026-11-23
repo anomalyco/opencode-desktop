@@ -3,6 +3,8 @@
 //! Recent holds the last five picks; `user` holds each model Manage models showed or hid. The
 //! host keeps them (Desktop's `model` key); fixtures and tests keep them in memory.
 
+use std::collections::BTreeMap;
+
 use serde_json::{Value, json};
 
 const RECENT_LIMIT: usize = 5;
@@ -17,6 +19,9 @@ pub struct ModelPrefs {
     pub recent: Vec<String>,
     /// `provider:id` keys Manage models showed (true) or hid (false), in the order first set.
     pub user: Vec<(String, bool)>,
+    /// The speed last chosen for each model, by `provider:id`; a model without one runs at its
+    /// standard speed (`ModelState.speed`, keyed `provider/model` there).
+    speeds: BTreeMap<String, String>,
     write: Option<Write>,
 }
 
@@ -38,7 +43,10 @@ impl ModelPrefs {
         let user = v["user"].as_array().into_iter().flatten()
             .filter_map(|m| Some((format!("{}:{}", m["providerID"].as_str()?, m["modelID"].as_str()?), m["visibility"].as_str()? == "show")))
             .collect();
-        ModelPrefs { favorites: keys(&v["favorite"]), recent, user, write }
+        let speeds = v["speed"].as_object().into_iter().flatten()
+            .filter_map(|(k, speed)| Some((k.split_once('/').map(|(p, m)| format!("{p}:{m}"))?, speed.as_str()?.to_owned())))
+            .collect();
+        ModelPrefs { favorites: keys(&v["favorite"]), recent, user, speeds, write }
     }
 
     pub fn is_favorite(&self, key: &str) -> bool {
@@ -79,13 +87,30 @@ impl ModelPrefs {
         self.save();
     }
 
+    /// The speed last chosen for the model `key`, if not its standard one.
+    pub fn speed(&self, key: &str) -> Option<&str> {
+        self.speeds.get(key).map(String::as_str)
+    }
+
+    /// Remembers the model `key`'s speed; none is its standard one (`models.tsx` `speed.remember`).
+    pub fn set_speed(&mut self, key: &str, speed: Option<&str>) {
+        match speed {
+            Some(speed) => self.speeds.insert(key.to_owned(), speed.to_owned()),
+            None => self.speeds.remove(key),
+        };
+        self.save();
+    }
+
     fn save(&self) {
         let Some(write) = self.write else { return };
         let user: Vec<Value> = self.user.iter().filter_map(|(k, shown)| {
             let (p, m) = k.split_once(':')?;
             Some(json!({ "providerID": p, "modelID": m, "visibility": if *shown { "show" } else { "hide" } }))
         }).collect();
-        let body = json!({ "favorite": refs(&self.favorites), "recent": refs(&self.recent), "user": user }).to_string();
+        let speed: serde_json::Map<String, Value> = self.speeds.iter()
+            .filter_map(|(k, speed)| Some((k.split_once(':').map(|(p, m)| format!("{p}/{m}"))?, json!(speed))))
+            .collect();
+        let body = json!({ "favorite": refs(&self.favorites), "recent": refs(&self.recent), "user": user, "speed": speed }).to_string();
         write(body);
     }
 }

@@ -18,6 +18,7 @@ pub mod manage;
 pub use opencode_ui::provider_mark as mark;
 pub mod menu;
 pub mod prefs;
+pub mod speed;
 pub use opencode_search::model_search as search;
 pub mod view;
 
@@ -37,7 +38,7 @@ pub use hover::ModelHover;
 pub use prefs::ModelPrefs;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Kind { Agent, Model, Effort, Project }
+pub enum Kind { Agent, Model, Effort, Speed, Project }
 
 pub const ADD_PROJECT_KEY: &str = "+add";
 
@@ -58,15 +59,16 @@ impl ModelAction {
 
 impl Kind {
     pub fn key(self) -> &'static str {
-        match self { Self::Agent => "agent", Self::Model => "model", Self::Effort => "effort", Self::Project => "project" }
+        match self { Self::Agent => "agent", Self::Model => "model", Self::Effort => "effort", Self::Speed => "speed", Self::Project => "project" }
     }
 
-    /// Its trigger's and menu's name: Choose model, Choose agent, Choose model variant.
+    /// Its trigger's and menu's name: Choose model, Choose agent, Choose model variant, Choose model speed.
     pub fn choose_label(self) -> &'static str {
         match self {
             Self::Agent => opencode_i18n::t!("ui.promptInput.chooseAgent"),
             Self::Model => opencode_i18n::t!("ui.promptInput.chooseModel"),
             Self::Effort => opencode_i18n::t!("ui.promptInput.chooseVariant"),
+            Self::Speed => opencode_i18n::t!("ui.promptInput.chooseSpeed"),
             Self::Project => opencode_i18n::t!("session.new.project.trigger.tooltip"),
         }
     }
@@ -233,8 +235,9 @@ impl Pickers {
             Model { key: format!("{}:{}", s("provider"), s("id")), id: s("id"), provider: s("provider"),
                 group: s("group"), name: s("name"), variants: v["variants"].as_array().into_iter().flatten()
                     .filter_map(Value::as_str).map(str::to_owned).collect(), hidden: false, free: false, latest: false,
-                inputs: inputs(v), tools: v["capabilities"]["tools"].as_bool().unwrap_or(false) }
+                inputs: inputs(v), tools: v["capabilities"]["tools"].as_bool().unwrap_or(false), speed: speed::parse(&v["speed"]) }
         }).collect();
+        speed::settle(&mut self.models);
         self.load_limits(&fixture["models"]);
         // A fixture may name its providers too, as the server's `/api/provider` does.
         self.load_providers(&fixture["providers"]);
@@ -278,10 +281,11 @@ impl Pickers {
             let (id, provider) = (s(v, "id"), s(v, "providerID"));
             let key = format!("{provider}:{id}");
             let name = s(v, "name");
-            Model { hidden: !shown.contains(&key), free: is_free(v), latest: name.contains("(latest)"), inputs: inputs(v), tools: v["capabilities"]["tools"].as_bool().unwrap_or(false),
+            Model { speed: speed::parse(&v["experimental"]["speed"]), hidden: !shown.contains(&key), free: is_free(v), latest: name.contains("(latest)"), inputs: inputs(v), tools: v["capabilities"]["tools"].as_bool().unwrap_or(false),
                 key, id, group: names.get(&provider).cloned().unwrap_or_else(|| provider.clone()), provider, name: name.replace("(latest)", "").trim().to_owned(),
                 variants: v["variants"].as_array().into_iter().flatten().filter_map(|x| x["id"].as_str().or(x.as_str())).map(str::to_owned).collect() }
         }).collect();
+        speed::settle(&mut self.models);
         self.load_limits(models);
     }
 

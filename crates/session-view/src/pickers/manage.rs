@@ -41,7 +41,9 @@ impl super::Pickers {
     /// together by name, the providers in Desktop's order.
     fn manage_groups(&self) -> Vec<(String, Vec<&Model>)> {
         let query = self.manage.as_ref().map_or("", |m| m.search.text.as_str()).trim().to_owned();
+        // A model's speeds are not entries of their own (`settings/models/models.tsx` `listed`).
         let mut models: Vec<&Model> = self.models.iter()
+            .filter(|m| m.speed.is_none())
             .filter(|m| query.is_empty() || search::score(&query, &[m.group.as_str(), m.name.as_str(), m.id.as_str()]).is_some())
             .collect();
         models.sort_by(|a, b| host::provider_rank(a).cmp(&host::provider_rank(b)).then_with(|| rune::text::compare_names(&a.name, &b.name)));

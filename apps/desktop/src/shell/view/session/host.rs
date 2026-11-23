@@ -249,6 +249,9 @@ impl session_view::TimelineHost for App {
     fn model_name(&self, model: &opencode_kit::model::ModelRef) -> String {
         self.composer_ext.pickers.model_name(model)
     }
+    fn model_speed_switch(&self, model: &opencode_kit::model::ModelRef, previous: &opencode_kit::model::ModelRef) -> Option<Option<String>> {
+        self.composer_ext.pickers.speed_switch(model, previous)
+    }
     fn tool_row_action(&self, p: &palette::Pal, session: &str, call: &session_view::tools::Call) -> Option<rune::El> {
         tool_open::action(self, p, session, call)
     }

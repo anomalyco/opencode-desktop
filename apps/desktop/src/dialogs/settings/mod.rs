@@ -357,8 +357,12 @@ impl SettingsHost for App {
     }
 
     fn commands_catalog(&self) -> Vec<CommandItem> {
+        // Desktop registers the speed command only for a model that has speeds
+        // (`composer/commands.tsx`): no row for it while the server offers none.
+        let speeds = self.composer_ext.pickers.models.iter().any(|m| m.speed.is_some());
         self.catalog()
             .into_iter()
+            .filter(|c| speeds || c.id != session_view::pickers::speed::CYCLE_COMMAND)
             .map(|c| CommandItem {
                 id: c.id,
                 title: c.title.to_owned(),

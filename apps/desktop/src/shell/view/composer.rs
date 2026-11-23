@@ -322,7 +322,7 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
         model::capitalize(&model.variant)
     };
     let agent = (s.settings.show_agent || s.subagent_page().is_some()).then(|| model::capitalize(&selected.agent));
-    let model_name = s.composer_ext.pickers.model_name(&model);
+    let model_name = s.composer_ext.pickers.composer_model_name(&model);
     let provider = s.composer_ext.pickers.provider_label(&model);
     // What the model's button measures to: the provider, its slash's 6 pt either side, the name.
     let model_label = match &provider {
@@ -335,7 +335,10 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
     // row's end, which scrolls (`editor.tsx`, `overflow-x-auto`): it folds nothing. The row folds as
     // if it weren't there, and it shows where it fits without folding anything.
     let default_effort = model.variant.is_empty() || model.variant == "default";
-    let fold_with = |effort: Option<&str>| folds(s, scope, agent.as_deref(), &model_label, effort, mic.is_some(), dictating);
+    // The speed's button, after the effort's and folded with it; none at the standard speed
+    // (`editor.tsx`, opencode#65749).
+    let speed = s.speed_shown().then(|| model::capitalize(&s.picker_current(Kind::Speed)));
+    let fold_with = |effort: Option<&str>| folds(s, scope, agent.as_deref(), &model_label, [effort, speed.as_deref()], mic.is_some(), dictating);
     let fold = fold_with(s.has_effort().then_some(effort.as_str()).filter(|_| !default_effort));
     let effort_shows = s.has_effort() && fold.effort && (!default_effort || fold_with(Some(effort.as_str())) == fold);
     let agent = agent.and_then(|name| match fold.agent {
@@ -349,6 +352,9 @@ fn toolbar_items(s: &App, p: &Pal, scope: &str, queues: bool) -> Vec<El> {
     out.push(hidden(session_view::pickers::view::model_trigger(s, p, provider.as_deref(), &model_name, fold.chevrons).shrink().min_w(0.0)));
     if effort_shows {
         out.push(hidden(session_view::pickers::view::effort_trigger(s, p, &model.variant, fold.chevrons)));
+    }
+    if speed.is_some() && fold.effort {
+        out.push(hidden(session_view::pickers::view::speed_trigger(s, p, fold.chevrons)));
     }
     // Shell mode has no other delivery, and its Exit stands where that hint would.
     let actions = if s.kernel.slots.get(&crate::add_menu::ADD_MENU).shell() {
@@ -381,7 +387,8 @@ fn folds(
     scope: &str,
     agent: Option<&str>,
     model: &str,
-    effort: Option<&str>,
+    // The effort's and the speed's labels, which fold together.
+    after: [Option<&str>; 2],
     mic: bool,
     dictating: bool,
 ) -> narrow::Toolbar {
@@ -408,8 +415,8 @@ fn folds(
         // The slash takes its 6 pt either side, a little more than the spaces measured.
         let whole = label(model, t.chevrons) + if model.contains(" / ") { 4.0 } else { 0.0 };
         items.push(if t.model_whole { whole } else { whole.min(narrow::MODEL_FLOOR) });
-        if let Some(effort) = effort.filter(|_| t.effort) {
-            items.push(label(effort, t.chevrons));
+        if t.effort {
+            items.extend(after.iter().flatten().map(|name| label(name, t.chevrons)));
         }
         items.iter().sum::<f32>() + 2.0 * (items.len() - 1) as f32
     };

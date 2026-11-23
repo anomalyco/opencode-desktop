@@ -197,6 +197,8 @@ fn groups(s: &dyn SettingsHost) -> Vec<(String, Vec<&Model>)> {
     let mut models: Vec<&Model> = s
         .models()
         .iter()
+        // A model's speeds are not entries of their own (`settings/models/models.tsx` `listed`).
+        .filter(|m| m.speed.is_none())
         .filter(|m| query.is_empty() || opencode_search::model_search::score(&query, &[m.group.as_str(), m.name.as_str(), m.id.as_str()]).is_some())
         .collect();
     let rank = |m: &Model| match POPULAR.iter().position(|p| *p == m.provider) {
@@ -226,7 +228,7 @@ fn toggle_model_visibility(s: &mut dyn SettingsHost, key: &str, visible: bool, t
 
 fn set_provider_visibility(s: &mut dyn SettingsHost, provider: &str, visible: bool, tx: &mut Tx) {
     tx.instant();
-    let keys: Vec<String> = s.models().iter().filter(|m| m.provider == provider).map(|m| m.key.clone()).collect();
+    let keys: Vec<String> = s.models().iter().filter(|m| m.provider == provider && m.speed.is_none()).map(|m| m.key.clone()).collect();
     for key in keys {
         s.set_model_visibility(&key, visible);
     }

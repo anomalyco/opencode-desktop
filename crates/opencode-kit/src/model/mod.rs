@@ -25,7 +25,7 @@ pub mod turn;
 
 pub use attachment::{Attachment, base64_decode, media_hash, parse_attachment, prompt_extras_generation, set_user_files, user_files};
 pub use background_result::{BackgroundResult, BackgroundResultKind, parse_background_result};
-pub use catalog::{AttachmentInput, Model};
+pub use catalog::{AttachmentInput, Model, Speed};
 pub(crate) use attachment::extras_changed;
 use attachment::parse_attachments;
 pub use compaction::{Compaction, CompactionStatus, background_compaction};
@@ -133,6 +133,11 @@ impl ModelRef {
             provider: s(&v["providerID"]),
             variant: s(&v["variant"]),
         }
+    }
+
+    /// The catalog's key for it: `provider:id` ([`Model::key`]).
+    pub fn key(&self) -> String {
+        format!("{}:{}", self.provider, self.id)
     }
 
     /// "claude-opus-5-5" → "Claude Opus 5.5".
