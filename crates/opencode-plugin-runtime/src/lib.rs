@@ -8,6 +8,7 @@
 pub mod askpass;
 pub mod boot;
 pub mod catalogs;
+pub mod chunk;
 pub mod console;
 pub mod contracts;
 pub mod contribs;

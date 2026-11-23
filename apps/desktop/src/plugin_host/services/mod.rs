@@ -142,7 +142,7 @@ pub fn asyncs(host: &Host<'_>, t: &Table, half: &Rc<Half>) -> mlua::Result<()> {
 /// Adds the async function `name` (made in [`asyncs`]) as method `method` of `t`.
 pub(super) fn async_method(lua: &Lua, vmx: &Rc<Vmx>, t: &Table, method: &str, name: &str) -> mlua::Result<()> {
     let f: Function = vmx.asyncs.raw_get(name)?;
-    let wrap: Function = lua.load("local f = ... ; return function(_, ...) return f(...) end").call(f)?;
+    let wrap: Function = opencode_plugin_runtime::chunk::load(lua, "local f = ... ; return function(_, ...) return f(...) end").call(f)?;
     t.raw_set(method, wrap)
 }
 
