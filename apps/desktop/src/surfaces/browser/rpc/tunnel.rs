@@ -86,7 +86,7 @@ pub(super) fn sync_remote_tunnels(app: &mut App) {
             } else if !sse_up
                 || matches!(
                     att.attach.state,
-                    AttachState::Connecting { .. } | AttachState::Backoff { .. }
+                    AttachState::Connecting { .. } | AttachState::Loading { .. } | AttachState::Backoff { .. }
                 )
             {
                 reconnecting.insert(key.clone());
