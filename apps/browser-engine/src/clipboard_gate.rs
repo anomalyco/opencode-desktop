@@ -319,6 +319,13 @@ pub fn first_load_hold(agent_driven: bool, context_defers: bool, extension_url: 
     (agent_driven && !context_defers && !extension_url && !url.trim().eq_ignore_ascii_case("about:blank")).then(|| url.to_owned())
 }
 
+/// A new tab's `(initial URL, address-bar URL)`, setting `hold` to the URL it must hold (`first_load_hold`).
+pub fn first_load_urls(agent_driven: bool, context_defers: bool, extension_url: bool, url: &str, hold: &mut Option<String>) -> (String, String) {
+    *hold = first_load_hold(agent_driven, context_defers, extension_url, url);
+    let init = if context_defers || hold.is_some() { "about:blank" } else { url };
+    (init.to_owned(), hold.as_deref().unwrap_or(init).to_owned())
+}
+
 pub struct TabClipboardGate {
     pass_through_popup: bool,
     is_preview: bool,
@@ -345,6 +352,7 @@ impl TabClipboardGate {
         agent_driven: bool,
         initial_ext_cw: bool,
         ext_clipboard_write_ids: Arc<Mutex<HashSet<String>>>,
+        first_load: Option<String>,
     ) -> Self {
         // Extension popups that explicitly declared `"clipboardWrite"` (e.g. Bitwarden) pass
         // through without page-side wrapping; popups without `"clipboardWrite"` stay gated.
@@ -362,14 +370,9 @@ impl TabClipboardGate {
             secret: crate::passkeys::random_token(),
             next_id: AtomicI32::new(0),
             state: Mutex::new(ContextState::default()),
-            first_load: Mutex::new(None),
+            first_load: Mutex::new(first_load),
             root_armed: AtomicBool::new(false),
         }
-    }
-
-    /// Holds `url` until the root session's gate script is confirmed (see `first_load`).
-    pub fn hold_first_load(&self, url: String) {
-        *self.first_load.lock().unwrap() = Some(url);
     }
 
     /// A navigation while the first load is still held replaces it and waits for the same

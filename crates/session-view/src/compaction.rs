@@ -14,6 +14,7 @@ use opencode_kit::model::{Compaction, CompactionStatus, Tokens};
 use rune::{AnimExt, Color, Curve, Cursor, Cycle, Easing, Effect, El, LoopSpec, Spring, SpringPair, Transition, Tx, col, el, row, text};
 
 use rune_knobs::{Group, Knob};
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::TimelineHost;
 use crate::focus::FocusExt;
@@ -318,9 +319,13 @@ fn light<S: TimelineHost>(s: &S, p: &Pal, start: f64, end: bool) -> El {
 /// as wide as the wider so nothing beside it moves. While it runs, a brighter copy warms the
 /// label each time the lights land on it.
 fn quiet_label<S: TimelineHost>(s: &S, p: &Pal, running: bool, open: bool, start: f64) -> El {
-    // The words' shared start stays while the rest rolls: "Compact" with "ing" and "ed".
+    // The words' shared start stays while the rest rolls: "Compact" with "ing" and "ed". They part
+    // between whole characters as read (`splitEnding`, opencode#65644), so a vowel sign stays with
+    // its consonant (Bengali); a space where they part goes with the endings, so it is drawn
+    // whatever the text does with a run's trailing space (Hindi).
     let (running_w, done_w) = (opencode_i18n::t!("ui.messagePart.compaction.running"), opencode_i18n::t!("ui.messagePart.compaction.done"));
-    let shared = running_w.char_indices().zip(done_w.chars()).take_while(|((_, a), b)| a == b).last().map_or(0, |((at, c), _)| at + c.len_utf8());
+    let shared = running_w.grapheme_indices(true).zip(done_w.graphemes(true)).take_while(|((_, a), b)| a == b).last().map_or(0, |((at, g), _)| at + g.len());
+    let shared = running_w[..shared].trim_end().len();
     let (stem, ing, ed) = (&running_w[..shared], &running_w[shared..], &done_w[shared..]);
     let width = |w: &str| rune::text::measure(w, &[], UI, None).0;
     let ending_w = width(ing).max(width(ed)).ceil();
