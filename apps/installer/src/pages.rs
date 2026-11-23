@@ -168,6 +168,8 @@ unsafe extern "system" fn callback(hwnd: HWND, msg: u32, wparam: WPARAM, _: LPAR
             match done {
                 Some(Ok(())) => {
                     w.launch = true;
+                    // While the person reads the last page (`install::first_start`).
+                    install::first_start(w.root, &w.args.log);
                     w.go(hwnd, Stage::Done);
                 }
                 Some(Err(e)) => {

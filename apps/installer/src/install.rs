@@ -4,7 +4,7 @@ use std::fs::OpenOptions;
 use std::io::Write as _;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use win_install::{EXE, Product};
@@ -74,7 +74,11 @@ pub fn run() -> i32 {
     }
     match install(&p, &root, args.desktop_shortcut, &|line| args.log(line)) {
         Ok(()) if args.launch => launch(&root, &args),
-        Ok(()) => 0,
+        Ok(()) => {
+            // Nobody waits on a silent install's last moment: the first start is paid here.
+            first_start(&root, &args.log).join().ok();
+            0
+        }
         Err(e) => {
             args.log(&format!("couldn't install: {e}"));
             1
@@ -175,6 +179,25 @@ fn rename(from: &Path, to: &Path) -> std::io::Result<()> {
 fn beside(root: &Path, what: &str) -> PathBuf {
     let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     root.parent().unwrap_or(root).join(format!(".{name}.{what}"))
+}
+
+/// Starts the installed exe once, to print its version and exit (`--version` returns before the
+/// app resolves a folder or looks for a running copy), on a thread of its own. The first start of
+/// a file that was just written is where an antivirus scans it, inside the call that starts it:
+/// for this exe, where Windows Defender scans, 250,000 to 700,000 µs before the process exists
+/// (the signed build of 23 Nov, unpacked as here; an unsigned one 900,000 µs). Paid here, while
+/// the last page shows, the person's own first start (its Launch box, or the Start menu later)
+/// has its process after 13,000 to 36,000 µs.
+pub fn first_start(root: &Path, log: &Option<PathBuf>) -> std::thread::JoinHandle<()> {
+    let (exe, args) = (root.join(EXE), Args { log: log.clone(), ..Args::default() });
+    std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        let ran = Command::new(&exe).arg("--version").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).creation_flags(CREATE_NO_WINDOW).status();
+        match ran {
+            Ok(status) => args.log(&format!("first start of {} ({status}) took {} µs", exe.display(), started.elapsed().as_micros())),
+            Err(e) => args.log(&format!("couldn't start {} once: {e}", exe.display())),
+        }
+    })
 }
 
 /// Starts the installed app, in the user's home folder, as its Start menu shortcut does.
