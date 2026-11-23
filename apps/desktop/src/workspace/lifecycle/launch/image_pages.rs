@@ -12,17 +12,22 @@
 //! - the pages the earlier launches of this very exe used, from `<cache>/launch-pages.bin`;
 //! - with no list for this exe yet (its first start), its code and constants in address order.
 //!
+//! It asks only when the pages are away: it reads one byte of sixteen of them first, and a page
+//! in memory answers in a few microseconds where one on the disk takes fifty or more. With the
+//! exe in memory (most launches) nothing is asked for: the call would take the locks the
+//! launch's own page faults need.
+//!
 //! Once the launch has settled the same thread reads which of the exe's pages the process
 //! holds (`QueryWorkingSetEx`) and, when the list lacks enough of them, writes the two joined.
 //! The list names the exe by its link time stamp and image size, so a new build never uses an
 //! old one's.
 //!
-//! `OPENCODE_RUNE_IMAGE_PAGES=off` skips all of it, `=all` asks for the whole code and
-//! constants whatever the list says, `=listed` asks only for a list's pages (a bench's arms).
+//! `OPENCODE_RUNE_IMAGE_PAGES=off` skips all of it; `=all` asks for the whole code and
+//! constants and `=listed` for a list's pages, both without looking first (a bench's arms).
 // Reading this process's own image headers and working set is Win32; each block says what it relies on.
 #![allow(unsafe_code)]
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Memory::{PrefetchVirtualMemory, WIN32_MEMORY_RANGE_ENTRY};
@@ -35,6 +40,11 @@ const MAGIC: u32 = u32::from_le_bytes(*b"RLP1");
 /// Runs of pages at most this far apart are asked for as one. A later launch holds 6,500 pages
 /// (26 MB) in 1,800 runs; joined at 2 they are 1,000 runs and 30 MB, at 16, 285 runs and 49 MB.
 const JOIN: u32 = 2;
+/// How many of the wanted pages are read to learn whether they are in memory, how long a read
+/// of one that isn't takes at least, and how many such reads say the exe is away.
+const SAMPLES: u32 = 16;
+const AWAY: Duration = Duration::from_micros(25);
+const AWAY_SAMPLES: u32 = 2;
 /// How long after the first input the launch counts as settled.
 const SETTLED: Duration = Duration::from_millis(750);
 /// How often the thread looks for the first input, and for how long at most.
@@ -57,7 +67,7 @@ type Runs = Vec<(u32, u32)>;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
-    /// A list's pages, else the whole code and constants.
+    /// A list's pages, else the whole code and constants, when they aren't in memory.
     Auto,
     All,
     Listed,
@@ -84,8 +94,12 @@ fn run(mode: Mode) {
         _ => Some(image.sections.clone()),
     };
     if let Some(runs) = &wanted {
-        prefetch(&image, runs);
-        rune::marks::mark("image.pages.asked");
+        if mode != Mode::Auto || away(&image, runs) {
+            prefetch(&image, runs);
+            rune::marks::mark("image.pages.asked");
+        } else {
+            rune::marks::mark("image.pages.present");
+        }
     }
     // The rest waits for the launch and must not compete with it.
     // SAFETY: the pseudo-handle of this thread.
@@ -147,6 +161,35 @@ fn image() -> Option<Image> {
             .collect();
         Some(Image { base, stamp: u32_at(pe + 8), size: u32_at(pe + 24 + 56), sections })
     }
+}
+
+/// Whether `runs`' pages wait on the disk: [`SAMPLES`] of them, evenly spread, read one byte each.
+fn away(image: &Image, runs: &[(u32, u32)]) -> bool {
+    let total: u64 = runs.iter().map(|&(_, pages)| u64::from(pages)).sum();
+    let mut slow = 0;
+    for i in 0..u64::from(SAMPLES) {
+        let mut nth = total * (2 * i + 1) / (2 * u64::from(SAMPLES));
+        let Some(page) = runs.iter().find_map(|&(first, pages)| {
+            if nth < u64::from(pages) {
+                return Some(u64::from(first) + nth);
+            }
+            nth -= u64::from(pages);
+            None
+        }) else {
+            continue;
+        };
+        if (page + 1) * PAGE as u64 > u64::from(image.size) {
+            continue;
+        }
+        let started = Instant::now();
+        // SAFETY: a page inside this process's own image (checked against its size above), in
+        // its code or constants, which stay mapped and readable for the life of the process.
+        std::hint::black_box(unsafe { std::ptr::read_volatile((image.base + page as usize * PAGE) as *const u8) });
+        if started.elapsed() >= AWAY {
+            slow += 1;
+        }
+    }
+    slow >= AWAY_SAMPLES
 }
 
 /// Asks Windows to bring `runs` into memory.
