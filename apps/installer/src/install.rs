@@ -178,10 +178,16 @@ fn beside(root: &Path, what: &str) -> PathBuf {
 }
 
 /// Starts the installed app, in the user's home folder, as its Start menu shortcut does.
+///
+/// Without `__COMPAT_LAYER`: Windows starts a setup program with its Program Compatibility
+/// Assistant's layer (`DetectorsAppHealth`) in the environment, and a process created with that
+/// variable runs with ntdll's shim engine (`apphelp.dll` hooking every module before `main`):
+/// the app's first start would take 6,320 µs longer than the Start menu's, and so would every
+/// start the app itself made afterwards (an update's relaunch).
 pub fn launch(root: &Path, args: &Args) -> i32 {
     let exe = root.join(EXE);
     let home = std::env::var_os("USERPROFILE").map_or_else(|| root.to_path_buf(), PathBuf::from);
-    match Command::new(&exe).current_dir(home).creation_flags(DETACHED_PROCESS).spawn() {
+    match Command::new(&exe).current_dir(home).env_remove("__COMPAT_LAYER").creation_flags(DETACHED_PROCESS).spawn() {
         Ok(child) => {
             args.log(&format!("started {} (pid {})", exe.display(), child.id()));
             0
