@@ -46,29 +46,25 @@ pub(super) fn service_methods(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> m
     })?;
     // `Browser:ClearProfileDataAsync()`: every cookie and the open sites' stored data (`cookie_import`).
     let raw: Function = vmx.asyncs.raw_get("Browser.ClearProfileDataAsync")?;
-    let call: Function = lua
-        .load("local raw = ... return function(self) return raw() end")
+    let call: Function = opencode_plugin_runtime::chunk::load(lua, "local raw = ... return function(self) return raw() end")
         .set_name("=Browser:ClearProfileDataAsync")
         .call(raw)?;
     t.raw_set("ClearProfileDataAsync", call)?;
     // `Browser:ImportCookieFileAsync(title)`: the app shows the picker itself (`cookie_import`).
     let raw: Function = vmx.asyncs.raw_get("Browser.ImportCookieFileAsync")?;
-    let call: Function = lua
-        .load("local raw = ... return function(self, title) return raw(title) end")
+    let call: Function = opencode_plugin_runtime::chunk::load(lua, "local raw = ... return function(self, title) return raw(title) end")
         .set_name("=Browser:ImportCookieFileAsync")
         .call(raw)?;
     t.raw_set("ImportCookieFileAsync", call)?;
     // `Browser:ImportSignInsAsync(source, profile, sites?)`: another browser's sign-ins (`cookie_import`).
     let raw: Function = vmx.asyncs.raw_get("Browser.ImportSignInsAsync")?;
-    let call: Function = lua
-        .load("local raw = ... return function(self, source, profile, sites) return raw(source, profile, sites) end")
+    let call: Function = opencode_plugin_runtime::chunk::load(lua, "local raw = ... return function(self, source, profile, sites) return raw(source, profile, sites) end")
         .set_name("=Browser:ImportSignInsAsync")
         .call(raw)?;
     t.raw_set("ImportSignInsAsync", call)?;
     // `Browser:ListSourceSitesAsync(source, profile)`: the sites the import dialog's "Choose sites" lists.
     let raw: Function = vmx.asyncs.raw_get("Browser.ListSourceSitesAsync")?;
-    let call: Function = lua
-        .load("local raw = ... return function(self, source, profile) return raw(source, profile) end")
+    let call: Function = opencode_plugin_runtime::chunk::load(lua, "local raw = ... return function(self, source, profile) return raw(source, profile) end")
         .set_name("=Browser:ListSourceSitesAsync")
         .call(raw)?;
     t.raw_set("ListSourceSitesAsync", call)?;

@@ -359,8 +359,7 @@ pub(super) fn service_methods(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> m
         ("ExtApproveAsync", "Browser.ExtApproveAsync"),
     ] {
         let raw: Function = vmx.asyncs.raw_get(async_key)?;
-        let wrapped: Function = lua
-            .load("local raw = ... return function(_self, ...) return raw(...) end")
+        let wrapped: Function = opencode_plugin_runtime::chunk::load(lua, "local raw = ... return function(_self, ...) return raw(...) end")
             .set_name(format!("=Browser:{method_name}"))
             .call(raw)?;
         t.raw_set(method_name, wrapped)?;

@@ -105,7 +105,7 @@ pub fn build(
     let wait_async = asyncs_table.clone();
     method(lua, t, "Spawn", move |lua, spec: Value| spawn(lua, &procs, get_vm(), &script_signal, &wait_async, get_waker, spec))?;
     let f: Function = asyncs_table.raw_get("Process.RunAsync")?;
-    let wrap: Function = lua.load("local f = ... ; return function(_, ...) return f(...) end").call(f)?;
+    let wrap: Function = crate::chunk::load(lua, "local f = ... ; return function(_, ...) return f(...) end").call(f)?;
     t.raw_set("RunAsync", wrap)
 }
 
@@ -194,7 +194,7 @@ fn spawn(
         Ok(())
     })?;
     let wait: Function = asyncs_table.raw_get("Process.WaitAsync")?;
-    let wrap: Function = lua.load("local f, id = ... ; return function() return f(id) end").call((wait, id))?;
+    let wrap: Function = crate::chunk::load(lua, "local f, id = ... ; return function() return f(id) end").call((wait, id))?;
     h.raw_set("WaitAsync", wrap)?;
     Ok(h)
 }
