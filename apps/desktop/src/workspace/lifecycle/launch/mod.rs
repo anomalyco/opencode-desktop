@@ -474,7 +474,6 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     if s.persists() {
         crate::windows::reopen::expire(*s.now_ms);
     }
-    focus_restored(s, tx);
     // The window's other servers start from its next poll (`servers::runtime::poll`).
     s.checkout.boot = crate::servers::runtime::Boot::Ready;
     // On the web setup already started the probe, and its first poll may already have
@@ -497,18 +496,6 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     started
 }
 
-/// The restored session's composer takes the keys from the first frame on, as `App::open` gives
-/// it the focus (`session/composer/focus.tsx`) once the server has answered: until then a key
-/// typed into the window that just appeared went nowhere, for as long as the server took (for
-/// good with no server running). A subagent's page, a dock and a touch screen keep `open`'s rules.
-fn focus_restored(s: &mut App, tx: &mut Tx) {
-    let Route::Session { id, server } = &*s.route else { return };
-    if server != crate::servers::runtime::active(s) || s.settings_open() || s.fixture_run.stage.is_some() || s.root_of(id) != id || s.dock_shown() || !crate::auto_focus_composer(tx) {
-        return;
-    }
-    s.composer.focused = true;
-    tx.focus("prompt", tx.focus_visible());
-}
 
 /// Re-probes the local OpenCode server (including any fresh `service.json` written since launch).
 pub fn retry(s: &mut App, tx: &mut Tx) {
