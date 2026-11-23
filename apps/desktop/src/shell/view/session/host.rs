@@ -304,7 +304,9 @@ impl session_view::TimelineHost for App {
         self.pages.loading_older(session)
     }
     fn more_above(&self, session: &str) -> bool {
-        self.pages.more_above(session)
+        // The boot record's preview of a longer session: its older messages land above it once
+        // its server answers, so it is drawn as it will stand under them from the first frame.
+        self.pages.more_above(session) || self.launch.cold_transcript.as_ref().is_some_and(|cold| cold.id == session && cold.older)
     }
     fn watch_scroll_top(&self, session: &str) -> Option<Box<dyn Fn(rune::ScrollPos)>> {
         let (pages, nav) = (self.pages.watch_top(session), self.kernel.slots.get(&crate::message_nav::MESSAGE_NAV).watch());

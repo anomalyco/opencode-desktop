@@ -149,6 +149,7 @@ impl Platform for Mac {
             let app = unpack_zip(&zip, &unpacked)?;
             std::fs::remove_file(&zip).ok();
             verify_bundle(&app, &self.bundle.id, self.check_team.as_deref(), self.check_gatekeeper)?;
+            first_run(&app.join(&self.exe_rel));
             Ok(Staged { version: found.version, dir: dir.clone(), app, sha256: found.target.sha256 })
         })();
         match result {
@@ -242,6 +243,30 @@ fn check_replaceable(app: &Path) -> Result<(), String> {
         .map(drop)
         .and_then(|()| std::fs::remove_file(&probe))
         .map_err(|_| format!("{} is not writable.", parent.display()))
+}
+
+/// macOS checks a new executable file the first time a process is made from it, before that
+/// process's `main`: 1,074,000 to 1,097,000 µs for the 179 MB bundles of dev-473 and dev-474 on
+/// an M4, and more for a larger bundle. It is once per file, not per signature (a second unpack
+/// of the same build pays it again), and `codesign --verify` and `spctl --assess` don't take it.
+/// The swap renames the staged files into place, so the staged executable runs once here
+/// (`--version` prints and exits before anything else starts), and the version the app
+/// restarts into is one macOS has checked: its `main` came 27,273 µs after its start instead of
+/// 1,095,137. A run that fails, or is ended after 20 s, changes nothing: the update is staged
+/// either way.
+fn first_run(exe: &Path) {
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+    let Ok(mut child) = Command::new(exe).arg("--version").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() else { return };
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while matches!(child.try_wait(), Ok(None)) {
+        if Instant::now() >= deadline {
+            child.kill().ok();
+            child.wait().ok();
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 fn unpack_zip(zip: &Path, into: &Path) -> Result<PathBuf, String> {

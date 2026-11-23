@@ -636,6 +636,12 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         // rows under it clip at its bottom edge, where their fade starts (`below_sticky`), so
         // the panel's corners and ring show as they do without it.
         .children(header.map(|h| h.sticky_top(0.0)))
+        // With older messages still to land above, the rows stand at the viewport's end even while
+        // they are shorter than it (a restored session's saved last turns in a tall window, a
+        // newest page of short messages): where they stay once the rest is above them. Without
+        // this they started at the top and moved down by what the viewport had left (70 pt in a
+        // 1200 px window) when the server's page landed. A whole short session starts at the top.
+        .children(s.more_above(id).then(|| el().key("above").grow(1.0)))
         .child(stack);
     // Near its top, older messages load above what's on screen.
     if let Some(top) = s.watch_scroll_top(id) {

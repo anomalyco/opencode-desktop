@@ -105,6 +105,7 @@ pub static BUILTINS: &[(&str, &[BuiltinFile], &[u8])] = &[];
 pub static MODULES: &[(&str, &[BuiltinModule])] = &[];
 pub static CONTRIBUTIONS: &[(&str, &[&str])] = &[];
 pub static SIGNALS: &[(&str, &[&str])] = &[];
+pub static CODE_LANGUAGES: &[(&str, &[&str])] = &[];
 pub static HASHES: &[(&str, &str)] = &[];
 pub static LUAURC: &str = \"\";
 ";
@@ -135,6 +136,11 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
     // Which watched host signals each built-in connects to (`Composer.PickerChanged`, ...), so
     // deferred built-ins listening for a host trigger can be adopted synchronously on first launch.
     let mut signals = String::from("pub static SIGNALS: &[(&str, &[&str])] = &[\n");
+    // The languages of each built-in's code blocks (`ctx:AddCodeBlock({ languages = { ... } })`), so
+    // a launch starts such a plugin before its first frame only when the saved turns on screen hold
+    // a block of one of them (`plugin_host::first_screen`). A plugin whose languages don't read as
+    // plain strings has no row, and starts as if every transcript held its blocks.
+    let mut languages = String::from("pub static CODE_LANGUAGES: &[(&str, &[&str])] = &[\n");
     // Each plugin's files hashed, so a record of what it contributed (`plugin_host::dormant`) is
     // known to be this build's.
     let mut hashes = String::from("pub static HASHES: &[(&str, &str)] = &[\n");
@@ -180,6 +186,9 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
         sigs.sort();
         sigs.dedup();
         writeln!(signals, "    ({id:?}, &{sigs:?}),").ok();
+        if let Some(langs) = code_languages(&luau_sources) {
+            writeln!(languages, "    ({id:?}, &{langs:?}),").ok();
+        }
         writeln!(precompiled, "    ({id:?}, &[").ok();
         for (index, (rel, path)) in files.into_iter().enumerate() {
             println!("cargo:rerun-if-changed={}", path.display());
@@ -210,12 +219,35 @@ fn embed_luau_plugins(manifest_dir: &std::path::Path, out: &std::path::Path) {
     precompiled.push_str("];\n");
     contributions.push_str("];\n");
     signals.push_str("];\n");
+    languages.push_str("];\n");
     hashes.push_str("];\n");
-    code = consts + &code + &precompiled + &contributions + &signals + &hashes;
+    code = consts + &code + &precompiled + &contributions + &signals + &languages + &hashes;
     let luaurc = root.join(".luaurc");
     println!("cargo:rerun-if-changed={}", luaurc.display());
     writeln!(code, "pub static LUAURC: &str = include_str!({:?});", luaurc.display().to_string()).ok();
     std::fs::write(out.join("luau_builtins.rs"), code).ok();
+
+    /// Every language of the plugin's `ctx:AddCodeBlock` calls; None when one of them doesn't give
+    /// its `languages` as a table of plain strings.
+    fn code_languages(sources: &[String]) -> Option<Vec<String>> {
+        let mut out = Vec::new();
+        for src in sources {
+            for call in src.split("ctx:AddCodeBlock(").skip(1) {
+                let (_, rest) = call.split_once("languages")?;
+                let (list, _) = rest.trim_start().strip_prefix('=')?.trim_start().strip_prefix('{')?.split_once('}')?;
+                for item in list.split(',').map(str::trim).filter(|i| !i.is_empty()) {
+                    let name = item.strip_prefix('"')?.strip_suffix('"')?;
+                    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || "-_+#.".contains(c)) {
+                        return None;
+                    }
+                    out.push(name.to_ascii_lowercase());
+                }
+            }
+        }
+        out.sort();
+        out.dedup();
+        Some(out)
+    }
 
     fn extract_signals(src: &str) -> Vec<String> {
         let mut out = Vec::new();

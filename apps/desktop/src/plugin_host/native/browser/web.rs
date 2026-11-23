@@ -116,15 +116,13 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         ("ExtApproveAsync", "Browser.ExtApproveAsync"),
     ] {
         let raw: Function = vmx.asyncs.raw_get(async_key)?;
-        let wrapped: Function = lua
-            .load("local raw = ... return function(_self, ...) return raw(...) end")
+        let wrapped: Function = opencode_plugin_runtime::chunk::load(lua, "local raw = ... return function(_self, ...) return raw(...) end")
             .set_name(format!("=Browser:{method_name}"))
             .call(raw)?;
         t.raw_set(method_name, wrapped)?;
     }
     let raw: Function = vmx.asyncs.raw_get("Browser.OpenAsync")?;
-    let open: Function = lua
-        .load("local raw = ... return function(self, spec) local id = raw(spec) return if id then self:Get(id) else nil end")
+    let open: Function = opencode_plugin_runtime::chunk::load(lua, "local raw = ... return function(self, spec) local id = raw(spec) return if id then self:Get(id) else nil end")
         .set_name("=Browser:OpenAsync")
         .call(raw)?;
     t.raw_set("OpenAsync", open)?;

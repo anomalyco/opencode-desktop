@@ -104,9 +104,11 @@ fn transition(state: ImportState, event: ImportEvent) -> (ImportState, Effects<I
         (S::MigratingSchema, Ev::SchemaReady { pending: false, seed_settled: true }) => (S::Ready, Effects::none()),
         (S::MigratingSchema, Ev::SchemaReady { seed_settled, .. }) => (S::ScanningSources { seed_settled }, Effects::one(E::Scan)),
         (S::ScanningSources { .. }, Ev::FoundRuneFiles { files }) => (S::ImportingLegacyFiles { files }, Effects::one(E::Import)),
-        // Nothing of Rune's to import: seed a fresh profile from Desktop before the first boot
-        // packet is built. `Seed` commits migrated rows, rebuilt boot record, and both settled
-        // flags (`groups | FLAG_SEED_SETTLED`) in ONE SQLite transaction.
+        // Nothing of Rune's to import: seed a fresh profile from Desktop. `Seed` commits migrated
+        // rows, rebuilt boot record, and both settled flags (`groups | FLAG_SEED_SETTLED`) in ONE
+        // SQLite transaction. On a new profile the open read Desktop's rows before it made the
+        // database and built the first frame's packet from them (`seed::collect`); a profile
+        // whose seed is retried reads them here, before its packet is built.
         (S::ScanningSources { seed_settled: false }, Ev::NoRuneFiles { fresh: true }) => (S::SeedingFromOfficial, Effects::one(E::Seed)),
         (S::ScanningSources { .. }, Ev::NoRuneFiles { .. }) => (S::Ready, Effects::two(E::MarkGroupsSettled, E::MarkSeedSettled)),
         (S::ImportingLegacyFiles { files }, Ev::CommittedAndCheckpointed) => (S::VerifyingImport { files }, Effects::one(E::Verify)),

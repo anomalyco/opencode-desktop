@@ -32,7 +32,7 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, hot: &Table) -> mlua::Result<Table> {
             if let Some(half) = owner.upgrade() { half.epoch.set(half.epoch.get().wrapping_add(1)); }
             Ok(())
         })?;
-        let new: Function = lua.load("local new, redraw = ...; return function() local s = new(); s:Connect(redraw); return s end").set_name("=ctx.CreateSignal").call((signal, redraw))?;
+        let new: Function = opencode_plugin_runtime::chunk::load(lua, "local new, redraw = ...; return function() local s = new(); s:Connect(redraw); return s end").set_name("=ctx.CreateSignal").call((signal, redraw))?;
         ctx.raw_set("CreateSignal", new)?;
     } else {
         ctx.raw_set("CreateSignal", lua.create_function(move |_, _: Value| signal.call::<Value>(()))?)?;

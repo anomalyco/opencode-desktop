@@ -447,7 +447,6 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
         crate::windows::peer::join(s, Some(inbox_wake.clone()));
         // A window that started in its opener's copy was woken plainly until now.
         crate::windows::peer::set_waker(s, inbox_wake);
-        s.list_unlisted_worktrees();
         // Home's provider tip waits for the default location's integrations (`home::tip`), which
         // are otherwise read only when Connect or Settings opens: with only the free models, read them now.
         if !s.composer_ext.pickers.models.iter().any(|m| m.provider != "opencode") {
@@ -465,6 +464,7 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
             s.open(&id, tx);
         }
     }
+
     // `--session <id or title words>` opens a session of the app's own server at start; in a
     // browser, of the page's server (`?session=`, the address a session's page has).
     if let Some(raw) = arg("--session").filter(|_| cfg!(target_arch = "wasm32") || crate::servers::runtime::active(s).is_sidecar()) {
@@ -479,6 +479,12 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
             s.open(&id, tx);
         }
     }
+    // Every Git project's worktrees, one read each on the connection's one fetch thread, which
+    // answers in the order asked: after the open session's own reads (its inbox, its subagents,
+    // the permission or question it waits on), not before them. Asked first, 40 projects held
+    // those back from 111 to 214 ms after the process started (a real server, each read 1-2 ms),
+    // so a session waiting on a permission showed its dock that late.
+    s.list_unlisted_worktrees();
     // Small newest pages, on the speculative lane after foreground startup work is queued.
     let mut recent: Vec<_> = s.sessions.iter().filter(|s| s.parent.is_none()).collect();
     recent.sort_by_key(|s| std::cmp::Reverse(s.updated));

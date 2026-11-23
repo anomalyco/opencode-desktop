@@ -14,6 +14,8 @@
 //! on a server) has none. `--launch-trace-why` prints, for each such frame, the elements that
 //! changed (stderr), so a change nobody sees can be named.
 //!
+//! `--launch-trace-shifts` counts the launch's layout shifts from the first frame on (`shifts`).
+//!
 //! `--launch-trace-quit <ms>` quits the app as its Quit command does, `ms` after the window
 //! shows live content (or after the first frame, when no server answers within
 //! [`CONTENT_WAIT`]), so a bench times the quit of a launch that settled.
@@ -136,8 +138,20 @@ fn echoes() -> bool {
 }
 
 /// The milestones `--launch-marks` prints.
-const MILESTONES: [&str; 8] =
-    ["main.entered", "window.created", "frame.first.presented", "text.complete", "input.ready", "server.answered", "content.live", "pixels.stable"];
+/// `content.rows` is the first frame with the open session's messages (the saved copy's, on a
+/// later launch), `session.read.received` the server's answer with its newest page.
+const MILESTONES: [&str; 10] = [
+    "main.entered",
+    "window.created",
+    "frame.first.presented",
+    "text.complete",
+    "input.ready",
+    "content.rows",
+    "server.answered",
+    "content.live",
+    "session.read.received",
+    "pixels.stable",
+];
 
 /// Prints the milestones reached since the last call.
 fn echo() {
@@ -203,6 +217,7 @@ pub fn drawn(rt: &rune::Runtime<App>) {
         return;
     }
     let s = &rt.state;
+    super::shifts::drawn(rt, BOOT.get().map_or(0, |b| Instant::now().checked_duration_since(b.at).unwrap_or_default().as_millis()));
     #[cfg(not(target_arch = "wasm32"))]
     let _ = FIRST_IO.get_or_init(|| (io_counters(), crate::flag("--launch-trace-threads").then(threads).unwrap_or_default()));
     let rows = s.painted_session().map_or(0, |(_, rows)| rows);
@@ -365,6 +380,7 @@ pub fn finish(windows: usize) {
         "marks_ns": marks,
         "metrics": metrics,
         "notes": notes,
+        "shifts": super::shifts::json(&ns),
         "boot_record": crate::storage::boot_bytes().map(|(all, plugins)| serde_json::json!({ "bytes": all, "plugin_bytes": plugins })),
     });
     use std::io::Write;
