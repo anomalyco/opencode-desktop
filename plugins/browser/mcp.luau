@@ -460,7 +460,7 @@ function mcp.add(ctx: WindowContext, Browser: BrowserService, Layout: LayoutServ
     end)
 
     -- The engine's index is read after the first frame and hourly while it lists nothing for this
-    -- platform (`BrowserHost::probe_availability`); the built-in plugin hears `Browser.Changed`
+    -- platform (`BrowserHost::fetch_in_background`); the built-in plugin hears `Browser.Changed`
     -- with "" when the engine's state moves. While it's unknown ("starting") the tools stay.
     local function followEngine()
         local want = Browser:Engine().state ~= "unsupported"

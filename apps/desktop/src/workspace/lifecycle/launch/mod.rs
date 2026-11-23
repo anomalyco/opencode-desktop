@@ -185,9 +185,28 @@ impl Phase {
     }
 }
 
+/// The browser engine's background fetch (`engine_fetch`): owed from `on_ready` until the launch
+/// is over, then asked for once.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+enum EngineFetch {
+    #[default]
+    NotYet,
+    /// `on_ready` ran at `since` (the app's clock, seconds).
+    Owed { since: f64 },
+    Asked,
+}
+
+/// The engine's fetch starts when the window shows its content, or this long after `on_ready`
+/// when no server has answered by then.
+#[cfg(not(target_arch = "wasm32"))]
+const ENGINE_FETCH_LATEST: Duration = Duration::from_secs(2);
+
 #[derive(Default)]
 pub struct Launch {
     network_change: Option<std::sync::Arc<network::Change>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    engine_fetch: EngineFetch,
     /// A quiet poll for network deliveries; unlike an image completion, the inbox
     /// often contains nothing that changes this window.
     pub inbox_wake: Option<rune::Waker>,
@@ -268,6 +287,9 @@ pub(crate) fn network_available(s: &mut App, tx: &mut Tx) {
         return;
     }
     Server::wake_reconnects();
+    // The engine's background download, when it waits for the network, tries again now.
+    #[cfg(not(target_arch = "wasm32"))]
+    s.workspace_panes.browser.host.network_changed();
     if let Some(server) = window_server(s) {
         crate::reconnect::step_link(s, &server, opencode_kit::servers::link::Event::NetworkChanged, tx);
     }
@@ -373,10 +395,12 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     // The menu bar was built before the saved shortcuts loaded.
     crate::menubar::refresh();
     crate::updater::start_if_packaged(s);
-    // Whether this platform has an engine to download, known before the first link is clicked.
+    // The browser engine, when this build's isn't installed, downloads in the background: not
+    // from here, but once the launch is over (`engine_fetch`).
     #[cfg(not(target_arch = "wasm32"))]
     if !s.use_mock_browser() {
-        s.workspace_panes.browser.host.probe_availability();
+        s.launch.engine_fetch = EngineFetch::Owed { since: *s.clock };
+        tx.wake_after(ENGINE_FETCH_LATEST);
     }
     // Which install this is, for the toasts' clicks; it reads the registry, so after the first frame and off the UI thread.
     crate::notifications::settle_identity();
@@ -500,8 +524,39 @@ fn first_reads_slow(s: &mut App, tx: &mut Tx) -> bool {
     crate::reconnect::step_link(s, &server, Event::FirstReadsSlow { now }, tx)
 }
 
-/// `poll`: the first reads land at once (nothing animates in on the first load), then connect.
+/// Starts the browser engine's background fetch, once, when the launch is over: the loop has
+/// waited for input (`input.ready`) and the window shows its content, or `ENGINE_FETCH_LATEST`
+/// has passed since `on_ready` with no server answering. Before that nothing of the engine is
+/// touched: no file, no request, no thread. The fetch itself is the browser's (`browser-pane`): it
+/// looks for the installed engine on its own background-priority thread and downloads only when
+/// this build's isn't there. A browser turned off (its plugin disabled) fetches nothing.
+#[cfg(not(target_arch = "wasm32"))]
+fn engine_fetch(s: &mut App) {
+    let EngineFetch::Owed { since } = s.launch.engine_fetch else { return };
+    // The timer's wake may come a moment early.
+    let late = *s.clock - since + 0.05 >= ENGINE_FETCH_LATEST.as_secs_f64();
+    // A headless run (a harness's realtime probe of the engine) has no loop that waits for input.
+    let input_ready = crate::headless() || rune::marks::marks().iter().any(|(name, _)| *name == "input.ready");
+    if (waiting(s) && !late) || !input_ready {
+        return;
+    }
+    s.launch.engine_fetch = EngineFetch::Asked;
+    if s.plugins.plugin_available(crate::surfaces::browser::PLUGIN) {
+        s.workspace_panes.browser.host.fetch_in_background();
+    }
+}
+
+/// `poll`: the launch's first reads (`first_reads`), then the browser engine's background fetch
+/// once the launch is over.
 pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
+    let changed = first_reads(s, tx);
+    #[cfg(not(target_arch = "wasm32"))]
+    engine_fetch(s);
+    changed
+}
+
+/// The first reads land at once (nothing animates in on the first load), then connect.
+fn first_reads(s: &mut App, tx: &mut Tx) -> bool {
     if s.launch.network_change.as_ref().is_some_and(|n| n.take()) {
         network_available(s, tx);
     }

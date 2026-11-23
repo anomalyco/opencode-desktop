@@ -18,9 +18,6 @@ use crate::transport::{Link, UnixStream, spawn_and_attach, wire_stream};
 #[cfg(target_os = "macos")]
 static NEXT_RECEIVER_TAG: AtomicU64 = AtomicU64::new(1);
 
-/// How long a running app waits between two reads of an index that publishes nothing for it.
-const PROBE_RECHECK: std::time::Duration = std::time::Duration::from_secs(60 * 60);
-
 impl BrowserHost {
     /// Nothing is looked for until a page needs the engine (`EngineStatus::Unchecked`), unless
     /// this build has no engine source, trust rule or binary override at all (`Fault::NotPublished`).
@@ -32,50 +29,26 @@ impl BrowserHost {
         }
     }
 
-    /// Once at start-up, after the first frame: a build with a source and no engine installed
-    /// reads the source's index on a thread (a few KB, no download), so that a source with no
-    /// engine for this platform is `NotPublished` before the first link is clicked. Only that
-    /// answer changes anything; a network fault leaves the state unknown, and a newly published
-    /// engine is found at the next start.
-    pub fn probe_availability(&self) {
+    /// Once a launch is over (the app drew its first frame and takes input): unless an engine
+    /// this build accepts is installed, the process's one download job fetches, checks and
+    /// installs it now, quietly, on its own background-priority thread, so the first page finds
+    /// it there (a fresh install, or an app update that wants a newer engine revision). It reads
+    /// the engine's folder first and asks the source nothing when the engine is there. Nothing
+    /// shows and no engine process starts; a page that opens meanwhile joins the same download
+    /// and shows its progress. A source with no engine for this build is `NotPublished` before
+    /// the first link is clicked, and is read again every hour.
+    pub fn fetch_in_background(&self) {
         if self.status() != EngineStatus::Unchecked || !crate::source::configured() {
             return;
         }
         rune::marks::mark("browser.engine.probe");
-        let (shared, waker) = (self.shared.clone(), self.waker.clone());
-        let spawned = std::thread::Builder::new().name("opencode-browser-probe".into()).spawn(move || {
-            if installer::installed().is_some() {
-                return rune::marks::mark("browser.engine.probe.installed");
-            }
-            rune::marks::mark("browser.engine.probe.index");
-            // While nothing is published the index is read again every hour, so a running app
-            // finds an engine published meanwhile (a stale copy, or a revision this build
-            // rejects, reads as `NotPublished` too). Any other answer ends the watch.
-            loop {
-                let event = match crate::source::latest() {
-                    Err(Fault::NotPublished) => EngineEvent::ProbeNotPublished,
-                    Ok(_) => EngineEvent::ProbePublished,
-                    Err(_) => return,
-                };
-                let not_published = matches!(event, EngineEvent::ProbeNotPublished);
-                if not_published {
-                    rune::marks::mark("browser.engine.probe.not_published");
-                }
-                let mut engine = shared.lock().unwrap_or_else(PoisonError::into_inner);
-                let effect = engine.step(event);
-                let watching = not_published && engine.status().is_not_published();
-                drop(engine);
-                if let (EngineEffect::Wake, Some(wake)) = (effect, waker.as_ref()) {
-                    wake();
-                }
-                if !watching {
-                    return;
-                }
-                std::thread::sleep(PROBE_RECHECK);
-            }
-        });
+        self.prefetch.start(Mode::Launch, &self.shared, self.message_waker());
         rune::marks::mark("browser.engine.probe.spawned");
-        drop(spawned);
+    }
+
+    /// The network changed: a quiet download that waits for it tries again now.
+    pub fn network_changed(&self) {
+        self.prefetch.network_changed();
     }
 
     /// Starts (or retries) the engine: connects to this app's running one, starts the installed
@@ -141,8 +114,8 @@ impl BrowserHost {
     }
 
     /// The first page of the run is open on a running engine: a newer release the source offers
-    /// downloads beside it, quietly, for its next start. Once a run; before that page, the
-    /// installer and the updater do nothing at all (no request, timer or thread).
+    /// downloads beside it, quietly, for its next start. Once a run; before that page, a launch
+    /// that found its engine installed asked the source nothing.
     pub(crate) fn check_for_update_once(&mut self) {
         let has_tabs = !self.tabs.is_empty();
         if !self.update_check.is_pending() || !has_tabs {
@@ -151,7 +124,7 @@ impl BrowserHost {
         if !self.update_check.step(has_tabs, self.status() == EngineStatus::Ready) {
             return;
         }
-        self.prefetch.start(Mode::Update, self.shared.clone(), self.waker.clone());
+        self.prefetch.start(Mode::Update, &self.shared, self.waker.clone());
     }
 
     fn ensure_mach_receiver(&mut self) -> Option<String> {
@@ -176,7 +149,7 @@ impl BrowserHost {
         match self.status() {
             EngineStatus::Connecting | EngineStatus::Failed(_) => {}
             // A tab waits for the download running in the background: let it finish, at full speed.
-            EngineStatus::Downloading { .. } | EngineStatus::Verifying | EngineStatus::Paused(_) => self.prefetch.hurry(),
+            EngineStatus::Downloading { .. } | EngineStatus::Verifying | EngineStatus::Paused(_) => self.prefetch.start(Mode::Urgent, &self.shared, self.message_waker()),
             _ => self.connect(Start::ForPage),
         }
     }
@@ -233,7 +206,8 @@ impl BrowserHost {
                 if start == Start::Only {
                     return link.set(EngineStatus::NotInstalled);
                 }
-                return prefetch.start(Mode::Urgent, link.shared.clone(), link.waker.clone());
+                // The launch's quiet download, when it runs, is the one this page joins.
+                return prefetch.start(Mode::Urgent, &link.shared, link.waker.clone());
             };
             rune::marks::mark("browser.engine.spawn");
             spawn_and_attach(&engine, &sock, &profile, mach_service, &link);

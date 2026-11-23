@@ -167,7 +167,8 @@ pub struct BrowserHost {
     pub(crate) last_viewport: ((f32, f32), f32),
     #[cfg(all(feature = "engine", target_os = "macos"))]
     pub(crate) mach: Option<MachReceiver>,
-    /// The engine download job, background or asked for.
+    /// The engine download job, background or asked for: the process's one, which every
+    /// window's host shares.
     #[cfg(feature = "engine")]
     pub(crate) prefetch: Arc<crate::prefetch::Prefetch>,
     /// Whether this run looked for a newer engine yet (`check_for_update_once`).
@@ -240,7 +241,7 @@ impl BrowserHost {
             #[cfg(all(feature = "engine", target_os = "macos"))]
             mach: None,
             #[cfg(feature = "engine")]
-            prefetch: Arc::default(),
+            prefetch: crate::prefetch::Prefetch::global(),
             #[cfg(feature = "engine")]
             update_check: UpdateCheck::Pending,
             opened: Arc::default(),
@@ -326,9 +327,12 @@ impl BrowserHost {
         }
     }
 
-    /// Without the engine there is no source to read (`EngineStatus::Unsupported` already).
+    /// Without the engine there is nothing to fetch (`EngineStatus::Unsupported` already).
     #[cfg(not(feature = "engine"))]
-    pub fn probe_availability(&self) {}
+    pub fn fetch_in_background(&self) {}
+
+    #[cfg(not(feature = "engine"))]
+    pub fn network_changed(&self) {}
 
     pub fn with_socket(socket: PathBuf) -> Self {
         let mut h = Self::new();
