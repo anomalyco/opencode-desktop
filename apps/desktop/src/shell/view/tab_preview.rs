@@ -277,10 +277,13 @@ pub(crate) fn view(s: &App, p: &Pal) -> Option<El> {
     // The server, only while several are listed in the registry and it isn't the app's own (`servers.tag`, `tab-nav.tsx:202-207`).
     let server = crate::servers::registry::tag_of(s, &tab.server);
     let max_w = rune::memo::layout_with("zoom", |r| (r[2] - 24.0).max(0.0)).unwrap_or(W);
+    // Beside a side tab, its top is the row's as drawn (`right-start` of the 28 tall trigger),
+    // not the top of the slot that reaches half the gap above it.
+    let anchor = if vertical && anchor == format!("t-{id}") { format!("{anchor}-pill") } else { anchor.to_owned() };
     let card = col()
         .key("tab-preview")
         .a11y_hidden()
-        .anchored(anchor.to_owned(), side, Align::Start, 6.0)
+        .anchored(anchor, side, Align::Start, 6.0)
         .anchored_round()
         .w(W)
         .max_w(max_w)
