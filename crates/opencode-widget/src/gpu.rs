@@ -313,6 +313,17 @@ impl Canvases {
     /// A batch is about to replay: once no copy is in flight. Returns how long it waited.
     #[cfg_attr(not(feature = "runner"), allow(dead_code))]
     pub(crate) fn begin(&self) -> std::time::Duration {
+        self.begin_with(true)
+    }
+
+    /// As [`Canvases::begin`], but never waiting for the run's GPU, nor for the window to take a
+    /// frame it hasn't copied: for a `wgsl` canvas's `Shorthand`, which skips a frame while its
+    /// last still draws and must find it unfinished to tell it's slow.
+    pub(crate) fn begin_unsettled(&self) {
+        self.begin_with(false);
+    }
+
+    fn begin_with(&self, settle: bool) -> std::time::Duration {
         let since = std::time::Instant::now();
         let mut st = self.lock();
         let (mut waited, mut given_up) = (false, false);
@@ -333,7 +344,7 @@ impl Canvases {
                     st = self.turn.wait_timeout(st, std::time::Duration::from_millis(1)).unwrap_or_else(PoisonError::into_inner).0;
                 }
             }
-            if given_up || !behind(&st) {
+            if !settle || given_up || !behind(&st) {
                 break;
             }
             // A frame the window hasn't copied (or it found the GPU busy): let the GPU finish,

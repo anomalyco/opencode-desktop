@@ -24,11 +24,11 @@ serde_json.workspace = true
 url = { version = "2", optional = true }
 # `String(number)` as ECMAScript writes it, for a view key's path segment (widgets.md, Native hosts).
 ryu-js = { version = "1", optional = true }
-# At `mobile` 50d6e8b, whose `psychoscript` is `rust` b30b1c2d's to the byte (the same tree): the
+# At `mobile` 6f857d32, whose `psychoscript` is `rust` b30b1c2d's to the byte (the same tree): the
 # one `widget-gpu` builds on, so both share one PsychoScript.
-psychoscript = { git = "https://github.com/anomalyco/psychoscript", rev = "50d6e8b89082ad87d464d92bb4a7292af994e8eb", optional = true }
+psychoscript = { git = "https://github.com/anomalyco/psychoscript", rev = "6f857d326134ff18c0d7c62b3835ca0c8e50abc7", optional = true }
 # GPU canvases' replay (`widgets-gpu.md`): checks and replays a live program's WebGPU batches on wgpu.
-widget-gpu = { git = "https://github.com/anomalyco/psychoscript", rev = "50d6e8b89082ad87d464d92bb4a7292af994e8eb", optional = true }
+widget-gpu = { git = "https://github.com/anomalyco/psychoscript", rev = "6f857d326134ff18c0d7c62b3835ca0c8e50abc7", optional = true }
 wgpu = { version = "30", default-features = false, optional = true }
 
 [dev-dependencies]

@@ -4,14 +4,13 @@
 //! the device live runs share); each canvas, `wgsl` or a live run's, gets its latest finished
 //! frame (`live`), which is drawn at the slot's place in Rune's pass, clipped as Rune clips. A
 //! `wgsl` canvas is due again at its `fps`; with `fps: 0` only when its `values` change or it's
-//! resized: a still one renders and copies nothing more. A frame over 50 ms three frames in a
-//! row freezes it on its last frame.
+//! resized: a still one renders and copies nothing more. One whose frames take the GPU over
+//! 50 ms three in a row stops on its last frame (the `Shorthand` tells), shown frozen.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use opencode_widget::gpu::{Ask, Canvases, Shorthands, Uniforms};
-use opencode_widget::shader::{SLOW_FRAME_MS, SLOW_FRAMES_TO_FREEZE};
 use rune::compose::{DeviceKey, Frame};
 use rune::render::{EffectSite, Instance, KIND_EFFECT};
 
@@ -63,9 +62,9 @@ enum Phase {
     /// Nothing rendered yet.
     Fresh,
     /// Renders every `1 / fps` (or, at `fps: 0`, when `values` change); `start` is when it
-    /// first drew (`widget.time` counts from it), `slow` frames over budget in a row.
-    Running { start: f64, last: f64, values: [f32; 16], slow: u32 },
-    /// Stopped on its last frame.
+    /// first drew (`widget.time` counts from it).
+    Running { start: f64, last: f64, values: [f32; 16] },
+    /// Too slow: stopped on its last frame.
     Frozen,
 }
 
@@ -155,12 +154,20 @@ impl ShaderGpu {
                 set_status(m, Status::Failed { message, program });
             }
         }
+        // One too slow stays on its last frame: it isn't asked again.
+        for id in gpu.shorthands.frozen() {
+            if let Ok(m) = id.parse() {
+                if let Some(s) = gpu.slots.get_mut(&m) {
+                    s.phase = Phase::Frozen;
+                }
+                set_status(m, Status::Frozen);
+            }
+        }
         let shorthands = gpu.shorthands.canvases();
         let mut kept = HashSet::new();
         let mut asks = Vec::new();
         gpu.shown.clear();
         let clock = f.rt.clock;
-        let slow_frame = f.dt * 1000.0 > SLOW_FRAME_MS;
         for &(m, rect, scale) in on_screen {
             if let Some((canvases, id)) = super::live_slot(m) {
                 gpu.shown.push((m, canvases, id));
@@ -185,20 +192,14 @@ impl ShaderGpu {
             slot.size = size;
             // The slot's machine: whether this frame renders, and where it goes next.
             let (render, next) = match slot.phase {
-                Phase::Fresh => (true, Phase::Running { start: clock, last: clock, values, slow: 0 }),
-                Phase::Frozen => (resized, Phase::Frozen),
-                Phase::Running { start, last, values: drawn, slow } => {
-                    let slow = if slow_frame && fps > 0.0 { slow + 1 } else { 0 };
-                    if slow >= SLOW_FRAMES_TO_FREEZE {
-                        set_status(m, Status::Frozen);
-                        (false, Phase::Frozen)
-                    } else {
-                        // With `duration`, it animates until it drew a frame that old.
-                        let animating = fps > 0.0 && duration.is_none_or(|d| last - start < d);
-                        let due = if animating { clock - last >= 1.0 / fps - 0.002 } else { drawn != values };
-                        let render = due || resized;
-                        (render, Phase::Running { start, last: if render { clock } else { last }, values, slow })
-                    }
+                Phase::Fresh => (true, Phase::Running { start: clock, last: clock, values }),
+                Phase::Frozen => (false, Phase::Frozen),
+                Phase::Running { start, last, values: drawn } => {
+                    // With `duration`, it animates until it drew a frame that old.
+                    let animating = fps > 0.0 && duration.is_none_or(|d| last - start < d);
+                    let due = if animating { clock - last >= 1.0 / fps - 0.002 } else { drawn != values };
+                    let render = due || resized;
+                    (render, Phase::Running { start, last: if render { clock } else { last }, values })
                 }
             };
             slot.phase = next;

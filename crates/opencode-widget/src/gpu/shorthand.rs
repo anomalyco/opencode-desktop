@@ -1,12 +1,15 @@
 //! `wgsl` canvases (`widgets-gpu.md`, The `wgsl` shorthand) on the device live runs share: each
 //! a [`widget_gpu::Shorthand`], rendered off the window's thread when the window asks, and shown
 //! through the hand-off a run's canvases take ([`Canvases`]), a frame after it asked. The window
-//! decides when a canvas renders (its `fps`, `values` and the freeze rule); the worker only
-//! renders what it's asked, and nothing when nothing is.
+//! decides when a canvas renders (its `fps` and `values`); the worker only renders what it's
+//! asked, and nothing when nothing is. A `Shorthand` skips a frame while its last is still
+//! drawing: the worker tries it again shortly. One too slow (over 50 ms a frame, three in a row)
+//! stops on its last frame: the window shows it frozen.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
+use std::time::Duration;
 
 use widget_gpu::{ErrorKind, Shorthand, Uniforms};
 
@@ -47,6 +50,8 @@ struct Work {
     lost: Option<Option<Device>>,
     /// Canvases that stopped: id, why, and whether it's the program's error.
     failed: Vec<(String, String, bool)>,
+    /// Canvases too slow: stopped on their last frame.
+    frozen: Vec<String>,
     closed: bool,
 }
 
@@ -106,7 +111,12 @@ impl Shorthands {
         std::mem::take(&mut self.shared.lock().failed)
     }
 
-    /// An ask the worker hasn't published yet.
+    /// The canvases that stopped on their last frame since the last call, for being too slow.
+    pub fn frozen(&self) -> Vec<String> {
+        std::mem::take(&mut self.shared.lock().frozen)
+    }
+
+    /// An ask the worker hasn't drawn yet.
     pub fn pending(&self) -> bool {
         self.shared.done.load(Ordering::Acquire) < self.shared.asked.load(Ordering::Acquire)
     }
@@ -123,6 +133,10 @@ impl Drop for Shorthands {
 struct Slot {
     shorthand: Option<Shorthand>,
     last: Ask,
+    /// `last` isn't drawn yet.
+    pending: bool,
+    /// Its `Shorthand` stopped for being too slow, and the window heard so.
+    frozen: bool,
     /// Its `Shorthand`'s version last published, and the version the window sees for it (moving
     /// across a new `Shorthand` too).
     drawn: Option<u64>,
@@ -138,9 +152,15 @@ fn work(shared: &Arc<Shared>) {
     let mut slots: HashMap<String, Slot> = HashMap::new();
     let mut serial = 0u64;
     loop {
+        // A frame a `Shorthand` skipped (its last still drawing) is tried again shortly.
+        let retry = slots.values().any(|s| s.pending);
         let (asks, keep, lost, upto) = {
             let mut w = shared.lock();
             while !w.closed && w.asks.is_empty() && w.keep.is_none() && w.lost.is_none() {
+                if retry {
+                    w = shared.turn.wait_timeout(w, Duration::from_millis(1)).unwrap_or_else(PoisonError::into_inner).0;
+                    break;
+                }
                 w = shared.turn.wait(w).unwrap_or_else(PoisonError::into_inner);
             }
             if w.closed {
@@ -148,8 +168,7 @@ fn work(shared: &Arc<Shared>) {
             }
             (std::mem::take(&mut w.asks), w.keep.take(), w.lost.take(), shared.asked.load(Ordering::Acquire))
         };
-        let mut failed = Vec::new();
-        let mut render: HashSet<String> = HashSet::new();
+        let (mut failed, mut frozen) = (Vec::new(), Vec::new());
         if let Some(next) = lost {
             device = next;
             canvases.start(device.as_ref().map(|d| &d.device));
@@ -164,7 +183,7 @@ fn work(shared: &Arc<Shared>) {
                     slot.shorthand = None;
                 }
                 slot.drawn = None;
-                render.insert(id.clone());
+                slot.pending = true;
             }
         }
         let dropped = keep.is_some_and(|keep| {
@@ -174,8 +193,7 @@ fn work(shared: &Arc<Shared>) {
         });
         for (id, ask) in asks {
             let Some(d) = &device else { continue };
-            let fresh = slots.get(&id).is_none_or(|s| s.last.source != ask.source);
-            if fresh {
+            if slots.get(&id).is_none_or(|s| s.last.source != ask.source) {
                 let shorthand = match Shorthand::new(d.device.clone(), d.queue.clone(), d.format, &ask.wgsl) {
                     Ok(s) => Some(s),
                     Err(e) => {
@@ -183,21 +201,40 @@ fn work(shared: &Arc<Shared>) {
                         None
                     }
                 };
-                slots.insert(id.clone(), Slot { shorthand, last: ask, drawn: None, version: 0 });
+                slots.insert(id, Slot { shorthand, last: ask, pending: true, frozen: false, drawn: None, version: 0 });
             } else if let Some(s) = slots.get_mut(&id) {
                 s.last = ask;
+                s.pending = true;
             }
-            render.insert(id);
         }
-        if let Some(d) = device.as_ref().filter(|_| !render.is_empty() || dropped) {
-            canvases.begin();
-            for id in &render {
-                let Some(slot) = slots.get_mut(id) else { continue };
-                let Some(s) = slot.shorthand.as_mut() else { continue };
+        let drawing = slots.values().any(|s| s.pending);
+        if let Some(d) = device.as_ref().filter(|_| drawing || dropped) {
+            // A frame waits for no GPU here: one still drawing is skipped and tried again.
+            canvases.begin_unsettled();
+            for (id, slot) in slots.iter_mut().filter(|(_, s)| s.pending) {
+                let Some(s) = slot.shorthand.as_mut() else {
+                    slot.pending = false;
+                    continue;
+                };
+                let before = s.canvas().map(|c| c.version);
                 let Ask { size: [w, h], uniforms, .. } = slot.last;
                 if let Err(e) = s.render(w, h, &uniforms) {
                     failed.push((id.clone(), e.message, e.kind == ErrorKind::Program));
                     slot.shorthand = None;
+                    slot.pending = false;
+                } else if s.too_slow() {
+                    // Stopped on its last frame: a client error, logged, not reported.
+                    if !slot.frozen {
+                        slot.frozen = true;
+                        frozen.push(id.clone());
+                        if let Some(e) = s.error() {
+                            eprintln!("widget gpu: {}", e.message);
+                        }
+                    }
+                    slot.pending = false;
+                } else {
+                    // Skipped while its last frame still draws: tried again.
+                    slot.pending = s.canvas().map(|c| c.version) == before;
                 }
             }
             let mut shown = HashMap::new();
@@ -212,9 +249,14 @@ fn work(shared: &Arc<Shared>) {
             }
             canvases.end(Some(&d.queue), shown, HashMap::new());
         }
-        if !failed.is_empty() {
-            shared.lock().failed.extend(failed);
+        if !failed.is_empty() || !frozen.is_empty() {
+            let mut w = shared.lock();
+            w.failed.extend(failed);
+            w.frozen.extend(frozen);
         }
-        shared.done.fetch_max(upto, Ordering::AcqRel);
+        // Drawn once nothing waits to be tried again: the window keeps drawing frames till then.
+        if !slots.values().any(|s| s.pending) {
+            shared.done.fetch_max(upto, Ordering::AcqRel);
+        }
     }
 }

@@ -5,10 +5,6 @@
 
 /// The contract's cap on a shader's source.
 pub const MAX_SOURCE: usize = 16 * 1024;
-/// Frames a shader may take over [`SLOW_FRAME_MS`] in a row before it stops.
-pub const SLOW_FRAMES_TO_FREEZE: u32 = 3;
-/// A frame slower than this counts against a shader.
-pub const SLOW_FRAME_MS: f64 = 50.0;
 /// `fps` when the node sets none.
 pub const DEFAULT_FPS: f64 = 60.0;
 
