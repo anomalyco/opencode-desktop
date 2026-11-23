@@ -50,6 +50,12 @@ const LAUNCH_HEADROOM: u64 = 1 << 30;
 const PROBE_RECHECK: Duration = Duration::from_secs(60 * 60);
 /// How often a page that waits reads the progress of another app's download.
 const FOLLOW_EVERY: Duration = Duration::from_millis(500);
+/// How long the keyboard and mouse must have been still before a new engine's files are loaded.
+const WARM_QUIET: Duration = Duration::from_secs(2);
+/// How long the warm-up waits for that stillness before it leaves the first load to a page.
+const WARM_PATIENCE: Duration = Duration::from_secs(60);
+/// How long the warm-up's process may take (it takes a few seconds on a slow disk).
+const WARM_LIMIT: Duration = Duration::from_secs(60);
 /// How often a quiet job looks whether another app's download ended.
 const BUSY_RECHECK: Duration = Duration::from_secs(5);
 /// How long another app's download may show no new byte before this job stops following it.
@@ -239,6 +245,14 @@ impl Prefetch {
         }
     }
 
+    /// Whether a window's engine starts or runs.
+    fn engine_starts(&self) -> bool {
+        self.lock().hosts.iter().filter_map(|(host, _)| host.upgrade()).any(|host| {
+            let host = host.lock().unwrap_or_else(PoisonError::into_inner);
+            host.is_connected() || host.status() == EngineStatus::Connecting
+        })
+    }
+
     /// Whether a source that publishes nothing is watched (a launch asked this run).
     fn watches_source(&self) -> bool {
         self.lock().launched
@@ -406,11 +420,14 @@ impl Job {
                     log(&format!("browser engine {} installed in {} µs", release.version, started.elapsed().as_micros()));
                     installer::remove_old(root, release.version);
                     installer::sweep_partials(root);
+                    // A page that waits starts the engine itself, now. Else its files load once
+                    // here, so the first page doesn't pay their first load.
+                    let quiet = self.ctl.mode().filter(|&now| now != Mode::Urgent);
                     self.ctl.end(EngineStatus::Installed);
-                    if mode == Mode::Update
+                    if let Some(quiet) = quiet
                         && let Some(engine) = installer::installed()
                     {
-                        warm(&engine.bin);
+                        self.warm(&engine.bin, quiet);
                     }
                     break;
                 }
@@ -457,6 +474,55 @@ impl Job {
                 break;
             }
         }
+    }
+
+    /// Loads a newly installed engine's program and libraries once, in the background, and lets
+    /// it exit (`--print-cef-dir` returns at the top of the engine's `main`: no Chromium, no
+    /// profile, no Keychain, no socket). The OS's first load of newly written images (Windows
+    /// Defender scans each one; macOS checks the bundle's signature) took the first page after
+    /// an install 4.1 s against 0.4 s for every later start; this pays it before the page comes.
+    ///
+    /// Considerate about it: the process runs at idle priority, only once the keyboard and
+    /// mouse have been still for `WARM_QUIET` (it waits up to `WARM_PATIENCE` for that, then
+    /// leaves the first load to the first page), not at all when a page starts the engine
+    /// meanwhile, and it is ended if it hasn't exited after `WARM_LIMIT`.
+    fn warm(&self, bin: &Path, mode: Mode) {
+        let asked = Instant::now();
+        loop {
+            // After a launch's fetch no engine runs: one that starts now loads the files itself.
+            if mode == Mode::Launch && self.ctl.engine_starts() {
+                return log("browser engine: not warmed (a page starts it)");
+            }
+            if background::input_idle().is_none_or(|idle| idle >= WARM_QUIET) {
+                break;
+            }
+            if asked.elapsed() >= WARM_PATIENCE {
+                return log("browser engine: not warmed (the keyboard and mouse stayed busy)");
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        let started = Instant::now();
+        let mut command = std::process::Command::new(bin);
+        command.arg("--print-cef-dir").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+        background::idle_priority(&mut command);
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(err) => return log(&format!("browser engine: not warmed ({err})")),
+        };
+        let ran = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status.to_string(),
+                Ok(None) if started.elapsed() < WARM_LIMIT => std::thread::sleep(Duration::from_millis(50)),
+                Ok(None) => {
+                    child.kill().ok();
+                    child.wait().ok();
+                    break "ended: it didn't exit".to_owned();
+                }
+                Err(err) => break err.to_string(),
+            }
+        };
+        let peak = background::peak_memory(&child).map_or_else(String::new, |bytes| format!(", peak {} MB", bytes.div_ceil(1_000_000)));
+        log(&format!("browser engine: warmed in {} µs ({ran}{peak})", started.elapsed().as_micros()));
     }
 
     /// A try failed: true when the job ended (a page waits and hears why, or a quiet job has
@@ -730,21 +796,6 @@ fn set(shared: &Mutex<SharedEngine>, waker: Option<&Waker>, next: EngineStatus) 
     if let Some(wake) = tell(shared, waker, EngineEvent::InstallStatus(next)) {
         wake();
     }
-}
-
-/// Loads an updated engine's program and libraries once, here in the background, and lets it exit
-/// (`--print-cef-dir` returns before Chromium starts). The OS's first load of newly written images
-/// (Windows Defender scans each one) took the first page after an update 4.1 s against 0.4 s
-/// for every later start; now this run pays it.
-fn warm(bin: &Path) {
-    let started = Instant::now();
-    let ran = std::process::Command::new(bin)
-        .arg("--print-cef-dir")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-    log(&format!("browser engine: warmed in {} µs ({})", started.elapsed().as_micros(), ran.map_or_else(|e| e.to_string(), |s| s.to_string())));
 }
 
 fn log(line: &str) {

@@ -21,6 +21,24 @@ pub(crate) fn set_background_priority(background: bool) {
     imp::set_background_priority(background);
 }
 
+/// How long the keyboard and mouse have been still, for everything in the user's session, when
+/// the OS says (Windows, macOS).
+pub(crate) fn input_idle() -> Option<std::time::Duration> {
+    imp::input_idle()
+}
+
+/// Makes `command`'s process run at idle priority: it gets the processor and the disk only when
+/// nothing else wants them.
+pub(crate) fn idle_priority(command: &mut std::process::Command) {
+    imp::idle_priority(command);
+}
+
+/// The most memory `child` held at once (its peak working set), once it has exited, where the
+/// OS says (Windows).
+pub(crate) fn peak_memory(child: &std::process::Child) -> Option<u64> {
+    imp::peak_memory(child)
+}
+
 /// Bytes free for this user on the volume holding `dir` (which must exist).
 pub(crate) fn free_space(dir: &std::path::Path) -> Option<u64> {
     imp::free_space(dir)
@@ -70,6 +88,36 @@ mod imp {
             || cost.ApproachingDataLimit().unwrap_or(false)
     }
 
+    pub(super) fn input_idle() -> Option<std::time::Duration> {
+        use windows::Win32::System::SystemInformation::GetTickCount;
+        use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+        let mut last = LASTINPUTINFO { cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
+        // SAFETY: `last` is a valid LASTINPUTINFO with its size set, for the call to fill.
+        if !unsafe { GetLastInputInfo(&mut last) }.as_bool() {
+            return None;
+        }
+        // SAFETY: no arguments; both tick counts are milliseconds since the system started and wrap together.
+        let now = unsafe { GetTickCount() };
+        Some(std::time::Duration::from_millis(u64::from(now.wrapping_sub(last.dwTime))))
+    }
+
+    pub(super) fn idle_priority(command: &mut std::process::Command) {
+        use std::os::windows::process::CommandExt;
+        use windows::Win32::System::Threading::{CREATE_NO_WINDOW, IDLE_PRIORITY_CLASS};
+        command.creation_flags(IDLE_PRIORITY_CLASS.0 | CREATE_NO_WINDOW.0);
+    }
+
+    pub(super) fn peak_memory(child: &std::process::Child) -> Option<u64> {
+        use std::os::windows::io::AsRawHandle;
+        use windows::Win32::Foundation::HANDLE;
+        use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
+        let mut counters = PROCESS_MEMORY_COUNTERS::default();
+        let size = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+        // SAFETY: the child's handle is open for as long as `child` lives, and `counters` is ours to fill, `size` bytes of it.
+        unsafe { GetProcessMemoryInfo(HANDLE(child.as_raw_handle()), &mut counters, size) }.ok()?;
+        Some(counters.PeakWorkingSetSize as u64)
+    }
+
     pub(super) fn set_background_priority(background: bool) {
         let mode = if background { THREAD_MODE_BACKGROUND_BEGIN } else { THREAD_MODE_BACKGROUND_END };
         // SAFETY: the pseudo-handle names the calling thread; background mode also lowers its
@@ -107,6 +155,42 @@ mod imp {
 
     #[cfg(target_os = "linux")]
     pub(super) fn pause_reason(_update: bool) -> Option<PauseReason> {
+        None
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(super) fn input_idle() -> Option<std::time::Duration> {
+        None
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(super) fn input_idle() -> Option<std::time::Duration> {
+        #[link(name = "CoreGraphics", kind = "framework")]
+        unsafe extern "C" {
+            fn CGEventSourceSecondsSinceLastEventType(state: i32, event: u32) -> f64;
+        }
+        // SAFETY: plain values in (kCGEventSourceStateCombinedSessionState, kCGAnyInputEventType), a number out.
+        let seconds = unsafe { CGEventSourceSecondsSinceLastEventType(0, u32::MAX) };
+        (seconds.is_finite() && seconds >= 0.0).then(|| std::time::Duration::from_secs_f64(seconds))
+    }
+
+    /// The lowest scheduling priority, and on macOS the system's background state for the whole
+    /// process (its processor time and its disk reads give way to everything else).
+    pub(super) fn idle_priority(command: &mut std::process::Command) {
+        use std::os::unix::process::CommandExt;
+        // SAFETY: the closure runs in the child between fork and exec and only makes system
+        // calls that are safe there (`setpriority`); a failure leaves the default priority.
+        unsafe {
+            command.pre_exec(|| {
+                libc::setpriority(libc::PRIO_PROCESS, 0, 19);
+                #[cfg(target_os = "macos")]
+                libc::setpriority(libc::PRIO_DARWIN_PROCESS, 0, libc::PRIO_DARWIN_BG);
+                Ok(())
+            });
+        }
+    }
+
+    pub(super) fn peak_memory(_child: &std::process::Child) -> Option<u64> {
         None
     }
 
@@ -282,6 +366,16 @@ mod imp {
     use crate::installer::PauseReason;
 
     pub(super) fn pause_reason(_update: bool) -> Option<PauseReason> {
+        None
+    }
+
+    pub(super) fn input_idle() -> Option<std::time::Duration> {
+        None
+    }
+
+    pub(super) fn idle_priority(_command: &mut std::process::Command) {}
+
+    pub(super) fn peak_memory(_child: &std::process::Child) -> Option<u64> {
         None
     }
 
