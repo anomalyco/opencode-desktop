@@ -119,20 +119,19 @@ pub fn apply_app_icon() {
     rune::set_app_icon_resource(1);
 }
 
-/// Sets the Dock icon from the enclosing `.app`'s `Contents/Resources/icon.icns` (preserving PR
-/// icon badges) when bundled, or the embedded default icon during `cargo run`.
+/// Sets the Dock icon to the embedded default during `cargo run`. A bundle names its own
+/// (`CFBundleIconFile`: `Contents/Resources/icon.icns`, a PR build's with its badge), and the Dock
+/// shows that without being asked: setting the same image again read and checked 1.4 MB in `main`
+/// (11,100 µs) and had AppKit render it on the main thread before `applicationDidFinishLaunching`
+/// (21,400 µs; a bare AppKit app with one window, M4: its window came 19,000 µs later).
 #[cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))]
 pub fn apply_app_icon() {
     let bundled = std::env::current_exe()
         .ok()
-        .and_then(|exe| std::fs::read(exe.parent()?.parent()?.join("Resources/icon.icns")).ok());
-    match bundled {
-        Some(bytes) => {
-            rune::set_app_icon(bytes.as_slice()).ok();
-        }
-        None => {
-            rune::set_app_icon(include_bytes!("../../../../assets/icon.icns").as_slice()).ok();
-        }
+        .and_then(|exe| Some(exe.parent()?.parent()?.join("Resources/icon.icns")))
+        .is_some_and(|icon| icon.is_file());
+    if !bundled {
+        rune::set_app_icon(include_bytes!("../../../../assets/icon.icns").as_slice()).ok();
     }
 }
 
