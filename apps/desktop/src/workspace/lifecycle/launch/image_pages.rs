@@ -84,6 +84,24 @@ pub fn ask() {
     std::thread::Builder::new().name("image-pages".into()).spawn(move || run(mode)).ok();
 }
 
+/// The update helper: asks for the whole code and constants of its own image, which is the new
+/// version's file, on a thread beside its wait for the old version. A version's first launch has
+/// no list of its pages yet, and after an update it would read them from the disk as it starts.
+pub fn warm() {
+    // `helper-off`: only this is off (the launch's own asking stays), for timing one against the other.
+    if std::env::var_os("OPENCODE_RUNE_IMAGE_PAGES").is_some_and(|v| v == "off" || v == "helper-off") {
+        return;
+    }
+    std::thread::Builder::new()
+        .name("image-pages".into())
+        .spawn(|| {
+            if let Some(image) = image() {
+                prefetch(&image, &image.sections);
+            }
+        })
+        .ok();
+}
+
 fn run(mode: Mode) {
     let Some(image) = image() else { return };
     let path = crate::dirs::cache().map(|dir| dir.join("launch-pages.bin"));
