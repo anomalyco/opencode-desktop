@@ -328,14 +328,17 @@ fn check_replaceable(root: &Path) -> Result<(), String> {
         .map_err(|_| format!("{} is not writable, so OpenCode can't update itself there.", parent.display()))
 }
 
-/// Windows' own bsdtar reads zip archives (a GNU tar earlier on PATH doesn't).
+/// Windows' own bsdtar reads zip archives (a GNU tar earlier on PATH doesn't). It reads its
+/// arguments in the ANSI code page, where a path with other characters (a user folder named
+/// `测试`) arrives as `??` and the update fails: so no path goes in an argument. The archive
+/// comes on standard input and the target is the working directory.
 fn unpack_zip(zip: &Path, into: &Path) -> Result<(), String> {
     let system = std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
+    let archive = std::fs::File::open(zip).map_err(|e| format!("could not open update archive: {e}"))?;
     let out = Command::new(system.join("System32").join("tar.exe"))
-        .arg("-xf")
-        .arg(zip)
-        .arg("-C")
-        .arg(into)
+        .args(["-xf", "-"])
+        .current_dir(into)
+        .stdin(archive)
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|e| format!("failed to run tar: {e}"))?;
@@ -478,3 +481,4 @@ fn repair_interrupted(root: &Path) {
 fn log(message: &str) {
     eprintln!("{message}");
 }
+
