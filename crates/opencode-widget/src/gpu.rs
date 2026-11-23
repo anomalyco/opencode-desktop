@@ -23,9 +23,32 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak};
 
 mod shorthand;
+pub(crate) mod watch;
 
 pub use shorthand::{Ask, Shorthands};
 pub use widget_gpu::{Arg, ErrorKind, Uniforms, clamp_size, device_limits, preferred_format};
+
+/// `f`, which may poll a device: `None` if it found the device lost. wgpu 30 panics in
+/// `Device::poll` once a fence read fails ("Error in Device::poll: Parent device is lost"), which is
+/// how a lost device shows; only that panic is caught (wgpu holds no lock when it panics there),
+/// as Rune's `rune_gpu::health::poll` does. The device's loss callback has run by then.
+pub fn unless_lost<R>(f: impl FnOnce() -> R) -> Option<R> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(r) => Some(r),
+        Err(panic) => {
+            let message = panic.downcast_ref::<String>().map(String::as_str).or_else(|| panic.downcast_ref::<&str>().copied()).unwrap_or("");
+            if message.starts_with("Error in Device::poll") {
+                return None;
+            }
+            std::panic::resume_unwind(panic)
+        }
+    }
+}
+
+/// Polls `device`, without waiting or with; nothing if it's lost (`unless_lost`).
+pub(crate) fn poll(device: &wgpu::Device, kind: wgpu::PollType) {
+    unless_lost(|| device.poll(kind).ok());
+}
 
 /// A device for GPU canvases, as the window provides it.
 #[derive(Clone)]
@@ -49,6 +72,16 @@ struct Host {
 }
 
 static HOST: Mutex<Host> = Mutex::new(Host { provider: None, current: None, generation: 0, runs: Vec::new() });
+
+/// The generation whose device wgpu reported lost, until its runs start over (`u64::MAX`: none).
+static LOST: AtomicU64 = AtomicU64::new(u64::MAX);
+
+/// Whether the device of `generation` was lost: work on it is dropped (it would fail as if the
+/// program's), the runs about to start over on a new one.
+#[cfg_attr(not(feature = "runner"), allow(dead_code))]
+pub(crate) fn is_lost(generation: u64) -> bool {
+    LOST.load(Ordering::Acquire) == generation || host().generation != generation
+}
 
 /// A user of the device (a live run, the `wgsl` canvases), which hears of its loss.
 pub trait Lost: Send + Sync {
@@ -97,6 +130,7 @@ pub(crate) fn device() -> Option<(u64, Device)> {
     }
     let lost = generation;
     d.device.set_device_lost_callback(move |reason, message| {
+        LOST.store(lost, Ordering::Release);
         let reason = match reason {
             wgpu::DeviceLostReason::Destroyed => "destroyed",
             _ => "unknown",
@@ -262,7 +296,7 @@ impl Canvases {
         let device = self.device.lock().unwrap_or_else(PoisonError::into_inner).clone();
         // A loss shows through the device's callback; nothing else to learn here.
         if let Some(d) = device {
-            d.poll(wgpu::PollType::Poll).ok();
+            poll(&d, wgpu::PollType::Poll);
         }
     }
 
@@ -291,6 +325,23 @@ impl Canvases {
         drop(st);
         *self.window.lock().unwrap_or_else(PoisonError::into_inner) = Some(window.clone());
         Some(due)
+    }
+
+    /// Whether GPU work the run submitted may be unfinished (as of the last poll of its device).
+    #[cfg_attr(not(feature = "runner"), allow(dead_code))]
+    pub(crate) fn busy(&self) -> bool {
+        self.finished.load(Ordering::Acquire) < self.lock().submitted
+    }
+
+    /// The canvases stopped now, outside a batch (a GPU hang the watch found).
+    #[cfg_attr(not(feature = "runner"), allow(dead_code))]
+    pub(crate) fn set_stopped(&self, stopped: HashMap<String, String>) {
+        let mut st = self.lock();
+        if st.stopped != stopped {
+            st.stopped = stopped;
+            st.revision += 1;
+            st.published += 1;
+        }
     }
 
     /// The window's queue finished the copy [`Canvases::due`] gave: batches may replay.
@@ -337,7 +388,7 @@ impl Canvases {
                 let window = self.window.lock().unwrap_or_else(PoisonError::into_inner).clone();
                 drop(st);
                 if let Some(w) = window {
-                    w.poll(wgpu::PollType::Poll).ok();
+                    poll(&w, wgpu::PollType::Poll);
                 }
                 st = self.lock();
                 if st.copying {
@@ -353,7 +404,7 @@ impl Canvases {
             drop(st);
             let device = self.device.lock().unwrap_or_else(PoisonError::into_inner).clone();
             if let Some(d) = device {
-                d.poll(wgpu::PollType::wait_indefinitely()).ok();
+                poll(&d, wgpu::PollType::wait_indefinitely());
             }
             st = self.lock();
             let (guard, timeout) = self.turn.wait_timeout_while(st, std::time::Duration::from_millis(20), |s| behind(s) && !s.copying).unwrap_or_else(PoisonError::into_inner);

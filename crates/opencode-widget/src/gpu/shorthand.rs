@@ -4,14 +4,17 @@
 //! decides when a canvas renders (its `fps` and `values`); the worker only renders what it's
 //! asked, and nothing when nothing is. A `Shorthand` skips a frame while its last is still
 //! drawing: the worker tries it again shortly. One too slow (over 50 ms a frame, three in a row)
-//! stops on its last frame: the window shows it frozen.
+//! stops on its last frame: the window shows it frozen. One whose frame hangs (still unfinished
+//! 1 s after its submit) stops with its placeholder for good, a loss after it included: the
+//! worker looks at a frame about once a display frame while it may still be drawing. It submits
+//! one frame at a time, so it can't be stuck submitting while the GPU hangs.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use widget_gpu::{ErrorKind, Shorthand, Uniforms};
+use widget_gpu::{ErrorKind, HANG, Shorthand, Uniforms};
 
 use super::{Canvas, Canvases, Device, Lost};
 
@@ -137,6 +140,8 @@ struct Slot {
     pending: bool,
     /// Its `Shorthand` stopped for being too slow, and the window heard so.
     frozen: bool,
+    /// Its last frame may still be drawing till then: looked at for a hang.
+    watch: Option<Instant>,
     /// Its `Shorthand`'s version last published, and the version the window sees for it (moving
     /// across a new `Shorthand` too).
     drawn: Option<u64>,
@@ -146,19 +151,25 @@ struct Slot {
 fn work(shared: &Arc<Shared>) {
     let weak: Weak<dyn Lost> = Arc::downgrade(&(shared.clone() as Arc<dyn Lost>));
     super::register(weak);
-    let mut device = super::device().map(|(_, d)| d);
+    let made = super::device();
+    let mut generation = made.as_ref().map_or(0, |(g, _)| *g);
+    let mut device = made.map(|(_, d)| d);
     let canvases = shared.canvases.get_or_init(|| Canvases::new(device.as_ref().is_some_and(|d| d.copies))).clone();
     canvases.start(device.as_ref().map(|d| &d.device));
     let mut slots: HashMap<String, Slot> = HashMap::new();
     let mut serial = 0u64;
     loop {
-        // A frame a `Shorthand` skipped (its last still drawing) is tried again shortly.
+        // A frame a `Shorthand` skipped (its last still drawing) is tried again shortly; one that
+        // may still be drawing is looked at about once a display frame.
+        let now = Instant::now();
         let retry = slots.values().any(|s| s.pending);
+        let watching = slots.values().any(|s| s.watch.is_some_and(|t| t > now));
         let (asks, keep, lost, upto) = {
             let mut w = shared.lock();
             while !w.closed && w.asks.is_empty() && w.keep.is_none() && w.lost.is_none() {
-                if retry {
-                    w = shared.turn.wait_timeout(w, Duration::from_millis(1)).unwrap_or_else(PoisonError::into_inner).0;
+                if retry || watching {
+                    let wait = Duration::from_millis(if retry { 1 } else { 16 });
+                    w = shared.turn.wait_timeout(w, wait).unwrap_or_else(PoisonError::into_inner).0;
                     break;
                 }
                 w = shared.turn.wait(w).unwrap_or_else(PoisonError::into_inner);
@@ -171,6 +182,7 @@ fn work(shared: &Arc<Shared>) {
         let (mut failed, mut frozen) = (Vec::new(), Vec::new());
         if let Some(next) = lost {
             device = next;
+            generation = super::generation().unwrap_or(generation);
             canvases.start(device.as_ref().map(|d| &d.device));
             if device.is_none() {
                 slots.clear();
@@ -201,13 +213,14 @@ fn work(shared: &Arc<Shared>) {
                         None
                     }
                 };
-                slots.insert(id, Slot { shorthand, last: ask, pending: true, frozen: false, drawn: None, version: 0 });
+                slots.insert(id, Slot { shorthand, last: ask, pending: true, frozen: false, watch: None, drawn: None, version: 0 });
             } else if let Some(s) = slots.get_mut(&id) {
                 s.last = ask;
                 s.pending = true;
             }
         }
-        let drawing = slots.values().any(|s| s.pending);
+        // Its device was lost: nothing more on it, the worker is about to hear it and start over.
+        let drawing = slots.values().any(|s| s.pending) && !super::is_lost(generation);
         if let Some(d) = device.as_ref().filter(|_| drawing || dropped) {
             // A frame waits for no GPU here: one still drawing is skipped and tried again.
             canvases.begin_unsettled();
@@ -218,7 +231,9 @@ fn work(shared: &Arc<Shared>) {
                 };
                 let before = s.canvas().map(|c| c.version);
                 let Ask { size: [w, h], uniforms, .. } = slot.last;
-                if let Err(e) = s.render(w, h, &uniforms) {
+                // A device lost meanwhile: the worker hears it (`Lost`) and starts over.
+                let Some(rendered) = super::unless_lost(|| s.render(w, h, &uniforms)) else { continue };
+                if let Err(e) = rendered {
                     failed.push((id.clone(), e.message, e.kind == ErrorKind::Program));
                     slot.shorthand = None;
                     slot.pending = false;
@@ -232,9 +247,17 @@ fn work(shared: &Arc<Shared>) {
                         }
                     }
                     slot.pending = false;
+                } else if let Some(e) = s.error() {
+                    // Its frame hung: the placeholder, for good.
+                    failed.push((id.clone(), e.message.clone(), e.kind == ErrorKind::Program));
+                    slot.shorthand = None;
+                    slot.pending = false;
                 } else {
                     // Skipped while its last frame still draws: tried again.
                     slot.pending = s.canvas().map(|c| c.version) == before;
+                    if !slot.pending {
+                        slot.watch = Some(Instant::now() + HANG + Duration::from_millis(500));
+                    }
                 }
             }
             let mut shown = HashMap::new();
@@ -248,6 +271,20 @@ fn work(shared: &Arc<Shared>) {
                 shown.insert(id.clone(), Canvas { texture: c.texture.clone(), opaque: false, version: slot.version });
             }
             canvases.end(Some(&d.queue), shown, HashMap::new());
+        }
+        // The frames not drawn just now that may still be drawing: a hang stops them.
+        let now = Instant::now();
+        for (id, slot) in slots.iter_mut().filter(|(_, s)| !s.pending && s.watch.is_some_and(|t| t > now)) {
+            let Some(s) = slot.shorthand.as_mut() else { continue };
+            if super::unless_lost(|| s.poll()).is_none() {
+                continue;
+            }
+            if !s.too_slow()
+                && let Some(e) = s.error()
+            {
+                failed.push((id.clone(), e.message.clone(), e.kind == ErrorKind::Program));
+                slot.shorthand = None;
+            }
         }
         if !failed.is_empty() || !frozen.is_empty() {
             let mut w = shared.lock();

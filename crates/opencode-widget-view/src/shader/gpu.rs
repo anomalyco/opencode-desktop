@@ -103,8 +103,11 @@ fn mark(i: &Instance) -> u32 {
 }
 
 impl Gpu {
-    fn new(device: &wgpu::Device, key: DeviceKey) -> Gpu {
-        Gpu { key, blit: Blit::new(device), slots: HashMap::new(), shorthands: Shorthands::new(), kept: HashSet::new(), shown: Vec::new(), live: super::live::Live::default() }
+    /// The window's GPU side on `device`; the `wgsl` canvases of `before`, the one on its device
+    /// before, carry on: they render on the widgets' device, with what a hang stopped.
+    fn new(device: &wgpu::Device, key: DeviceKey, before: Option<Gpu>) -> Gpu {
+        let (shorthands, kept) = before.map_or_else(|| (Shorthands::new(), HashSet::new()), |g| (g.shorthands, g.kept));
+        Gpu { key, blit: Blit::new(device), slots: HashMap::new(), shorthands, kept, shown: Vec::new(), live: super::live::Live::default() }
     }
 }
 
@@ -142,7 +145,7 @@ impl ShaderGpu {
         }
         let key = f.device_key();
         if self.gpu.as_ref().is_none_or(|g| g.key != key) {
-            self.gpu = Some(Gpu::new(f.device, key));
+            self.gpu = Some(Gpu::new(f.device, key, self.gpu.take()));
         }
         let Some(gpu) = self.gpu.as_mut() else { return false };
         let on_screen = &self.on_screen;

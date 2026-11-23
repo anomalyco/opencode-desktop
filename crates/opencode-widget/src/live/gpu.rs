@@ -8,12 +8,13 @@
 //! program hears `{ type: "gpu", lost }`.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, TryLockError};
 
 use psychoscript::{HostValue, TypedKind};
 use serde_json::json;
 use widget_gpu::{Arg, Gpu, GpuError, SavedStops};
 
+use crate::gpu::watch::Watched;
 use crate::gpu::{Canvas, Canvases, Device, Lost};
 
 type Tap = Box<dyn Fn(&Arg, Option<&[u8]>, bool) + Send + Sync>;
@@ -58,6 +59,8 @@ struct Inner {
     sizes: HashMap<String, (u32, u32)>,
     /// Saved to a snapshot: the greatest handle the program made, and the canvases errors stopped.
     saved: Option<(u64, SavedStops)>,
+    /// The device's generation (`crate::gpu`).
+    generation: u64,
 }
 
 impl RunGpu {
@@ -65,9 +68,10 @@ impl RunGpu {
     pub fn new(tell: impl Fn(serde_json::Value) + Send + Sync + 'static, notify: Arc<dyn Fn() + Send + Sync>) -> Arc<RunGpu> {
         let device = crate::gpu::device();
         let copies = device.as_ref().is_some_and(|(_, d)| d.copies);
-        let run = Arc::new(RunGpu { canvases: Canvases::new(copies), inner: Mutex::new(Inner { gpu: None, queue: None, format: "rgba8unorm", keys: Vec::new(), sizes: HashMap::new(), saved: None }), tell: Box::new(tell), notify });
+        let run = Arc::new(RunGpu { canvases: Canvases::new(copies), inner: Mutex::new(Inner { gpu: None, queue: None, format: "rgba8unorm", keys: Vec::new(), sizes: HashMap::new(), saved: None, generation: device.as_ref().map_or(0, |(g, _)| *g) }), tell: Box::new(tell), notify });
         run.start(device.as_ref().map(|(_, d)| d));
         crate::gpu::register(Arc::downgrade(&run) as std::sync::Weak<dyn Lost>);
+        crate::gpu::watch::add(Arc::downgrade(&run) as std::sync::Weak<dyn Watched>);
         run
     }
 
@@ -111,6 +115,7 @@ impl RunGpu {
         self.start(device.as_ref().map(|(_, d)| d));
         {
             let mut inner = self.lock();
+            inner.generation = device.as_ref().map_or(inner.generation, |(g, _)| *g);
             let Inner { gpu, keys, sizes, .. } = &mut *inner;
             if let Some(gpu) = gpu {
                 gpu.restored(last);
@@ -172,11 +177,23 @@ impl RunGpu {
 
     /// Checks and replays a batch; the error to report, if any.
     pub fn apply(&self, ops: &[Arg], bytes: &[u8]) -> Option<GpuError> {
-        let mut inner = self.lock();
-        inner.gpu.as_ref()?;
+        let generation = {
+            let inner = self.lock();
+            inner.gpu.as_ref()?;
+            inner.generation
+        };
+        // Its device was lost and the run is about to start over: dropped, as a batch from before
+        // the program heard of the loss is.
+        if crate::gpu::is_lost(generation) {
+            return None;
+        }
+        // Its turn (which may wait for the window's copy, or the GPU) is taken before the GPU: the
+        // hang watch can look at it meanwhile.
         self.canvases.begin();
+        let mut inner = self.lock();
         let failed = inner.gpu.as_mut().and_then(|g| g.apply(ops, bytes).err());
         self.publish(&inner);
+        crate::gpu::watch::poke();
         failed
     }
 
@@ -184,9 +201,9 @@ impl RunGpu {
     /// stops the canvases it renders into, or all of them, as a replayed batch's error does
     /// (`widgets-gpu.md`, Which canvases stop). The error to report, if it stopped any anew.
     pub fn refuse(&self, ops: Option<&[Arg]>, message: String) -> Option<GpuError> {
-        let mut inner = self.lock();
-        inner.gpu.as_ref()?;
+        self.lock().gpu.as_ref()?;
         self.canvases.begin();
+        let mut inner = self.lock();
         let failed = inner.gpu.as_mut().and_then(|g| g.shape_error(ops, message).err());
         self.publish(&inner);
         failed
@@ -194,21 +211,47 @@ impl RunGpu {
 
     /// Publishes the canvases as they are for the window.
     fn publish(&self, inner: &Inner) {
-        let (mut shown, mut stopped) = (HashMap::new(), HashMap::new());
+        let mut shown = HashMap::new();
         if let Some(gpu) = &inner.gpu {
             for (k, id) in &inner.keys {
                 if let Some(c) = gpu.canvas(k) {
                     shown.insert(id.clone(), Canvas { texture: c.texture.clone(), opaque: c.alpha == widget_gpu::AlphaMode::Opaque, version: c.version });
                 }
-                if let Some(e) = gpu.error(k) {
-                    stopped.insert(id.clone(), e.message.clone());
-                }
             }
         }
-        self.canvases.end(inner.queue.as_ref(), shown, stopped);
+        self.canvases.end(inner.queue.as_ref(), shown, Self::stopped(inner));
         (self.notify)();
     }
 
+    /// The canvases an error stopped, by id, with why.
+    fn stopped(inner: &Inner) -> HashMap<String, String> {
+        let Some(gpu) = &inner.gpu else { return HashMap::new() };
+        inner.keys.iter().filter_map(|(k, id)| Some((id.clone(), gpu.error(k)?.message.clone()))).collect()
+    }
+
+}
+
+impl Watched for RunGpu {
+    fn busy(&self) -> bool {
+        self.canvases.busy()
+    }
+
+    /// A GPU hang (`widgets-gpu.md`, GPU hang) stops the canvases its batch draws into: a client
+    /// error, logged and shown, not reported. A run busy with its GPU is looked at next time.
+    fn look(&self) {
+        self.canvases.poll();
+        let mut inner = match self.inner.try_lock() {
+            Ok(inner) => inner,
+            Err(TryLockError::Poisoned(p)) => p.into_inner(),
+            Err(TryLockError::WouldBlock) => return,
+        };
+        let Some(gpu) = inner.gpu.as_mut() else { return };
+        if let Some(Err(e)) = crate::gpu::unless_lost(|| gpu.poll()) {
+            eprintln!("widget gpu: {}", e.message);
+            self.canvases.set_stopped(Self::stopped(&inner));
+            (self.notify)();
+        }
+    }
 }
 
 impl Lost for RunGpu {
@@ -227,6 +270,11 @@ impl Lost for RunGpu {
             };
             if !reset {
                 inner.gpu = None;
+            }
+            inner.generation = crate::gpu::generation().unwrap_or(inner.generation);
+            // Work the lost device hung on stays stopped (`Gpu::reset`): a client error, logged.
+            if let Some(Some(Err(e))) = inner.gpu.as_mut().map(|g| crate::gpu::unless_lost(|| g.poll())) {
+                eprintln!("widget gpu: {}", e.message);
             }
             inner.queue = next.filter(|_| reset).map(|d| d.queue.clone());
             self.canvases.start(next.filter(|_| reset).map(|d| &d.device));
