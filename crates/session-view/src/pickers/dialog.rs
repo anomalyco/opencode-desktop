@@ -215,7 +215,8 @@ fn search_match(name: &str, query: &str) -> Option<std::ops::Range<usize>> {
 }
 
 /// A `ghost-muted` button at the search's end (`select-dialog.tsx:1010-1034`): it closes the
-/// dialog and opens Manage models, or hands Connect to the host.
+/// dialog and opens Manage models, or hands Connect to the host. Its tooltip sits above it
+/// (`Tooltip placement="top" gutter={4}`).
 fn model_action<S: PickerHost>(p: &Pal, action: ModelAction) -> El {
     let (key, glyph) = match action {
         ModelAction::Connect => ("picker-connect", &ic::PLUS),
@@ -229,4 +230,5 @@ fn model_action<S: PickerHost>(p: &Pal, action: ModelAction) -> El {
             ModelAction::Connect => s.picker_model_action(action, tx),
         }
     })
+    .help_above()
 }

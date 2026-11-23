@@ -85,6 +85,7 @@ pub struct EngineManager {
     passkey_held: Vec<HostMsg>,
     default_locked: bool, // `context::lock_chrome_services` held on `Default`
     pub(super) ext_clipboard_write_ids: Arc<Mutex<std::collections::HashSet<String>>>,
+    pub(super) registered_ext_ids: Arc<Mutex<std::collections::HashSet<String>>>,
     /// The app's scheme, once it said (`HostMsg::SetColorScheme`).
     dark: Option<bool>,
     /// The user's home directory, for filtering overly broad workspace `file_roots`.
@@ -134,6 +135,7 @@ impl EngineManager {
         // Chrome services official lacks, off on `Default` too; else `Default` tabs are refused (N9).
         let default_locked = cef::request_context_get_global_context().is_some_and(|g| crate::context::lock_chrome_services(&g));
         let ext_clipboard_write_ids = Arc::new(Mutex::new(extensions.as_ref().map(|e| e.clipboard_write_ext_ids()).unwrap_or_default()));
+        let registered_ext_ids = Arc::new(Mutex::new(extensions.as_ref().map(|e| e.registered_ext_ids()).unwrap_or_default()));
         Self {
             tabs: HashMap::new(),
             mach_port: Arc::new(AtomicU32::new(0)),
@@ -152,6 +154,7 @@ impl EngineManager {
             passkey_held: Vec::new(),
             default_locked,
             ext_clipboard_write_ids,
+            registered_ext_ids,
             dark: None,
             home: crate::profile::home_dir(),
             downloads: crate::downloads::Downloads::open(&downloads),
@@ -1349,7 +1352,7 @@ impl EngineManager {
         }
 
         let cdp_id_map = Arc::new(Mutex::new(HashMap::new()));
-        let cdp_ledger = Arc::new(Mutex::new(crate::cdp_ledger::EngineCdpLedger::default()));
+        let cdp_ledger = Arc::new(Mutex::new(crate::cdp_ledger::EngineCdpLedger::with_registered_exts(self.registered_ext_ids.clone())));
         let passkeys = Arc::new(crate::passkeys::TabPasskeyGate::new(tab_id, agent_driven));
         let media_gate = Arc::new(crate::media_gate::TabMediaGate::new());
         let ext_cw = is_allowed_ext_url.as_deref().is_some_and(|id| self.ext_clipboard_write_ids.lock().unwrap().contains(id));
