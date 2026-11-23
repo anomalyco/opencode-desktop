@@ -11,14 +11,13 @@ pub mod image_pages;
 pub mod io_trace;
 pub mod last_exit;
 mod network;
-pub mod saved_catalog;
-pub mod saved_gutters;
-pub mod saved_list;
+pub mod saved;
 mod shifts;
 pub mod trace;
 
 #[cfg(target_arch = "wasm32")]
 pub use boot::start_first_reads;
+pub use saved::{catalog as saved_catalog, gutters as saved_gutters, list as saved_list};
 pub use boot::{
     Accepted, FIRST_PATIENCE, First, GRACE, Ready, defer, deferred, initial_server, window_title,
 };
