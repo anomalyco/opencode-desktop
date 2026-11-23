@@ -6,6 +6,8 @@
 
 mod boot;
 #[cfg(target_os = "windows")]
+pub mod image_pages;
+#[cfg(target_os = "windows")]
 pub mod io_trace;
 pub mod last_exit;
 mod network;
@@ -227,6 +229,25 @@ pub struct Launch {
     pub grace: Option<Duration>,
     /// The address the setup card names, in its story.
     pub story_addr: Option<String>,
+    /// The first reads' thread `setup` started before the first frame, for `on_ready`'s Start.
+    #[cfg(not(target_arch = "wasm32"))]
+    early: Option<Early>,
+}
+
+/// The probe and first reads started in `setup`, beside the window's creation and its first
+/// frame, with what they were started for. Started in `on_ready` they began after the first
+/// frame and took 12,300 µs of a warm launch (`input.ready` to `server.answered`, a loopback
+/// server); `on_ready` takes this thread up instead, with whatever it has already read.
+#[cfg(not(target_arch = "wasm32"))]
+struct Early {
+    rx: Receiver<Ready>,
+    accepted: Accepted,
+    beta_tabs: bool,
+    fallback_fixture: bool,
+    grace: Duration,
+    /// The window's quiet poll, once `on_ready` has it: the thread wakes nothing before that, so
+    /// nothing is polled or drawn ahead of the first frame.
+    wake: std::sync::Arc<std::sync::OnceLock<rune::Waker>>,
 }
 
 impl Launch {
@@ -311,6 +332,47 @@ pub fn setup(s: &mut App) {
     if matches!(window_phase(s), Some(Phase::Waiting { .. })) {
         start(s, &mut Tx::default());
     }
+    // A window: the reads' thread starts now and `on_ready` takes it up (`Early`). The launch
+    // itself still starts there, so the first frame is drawn from what it was before.
+    #[cfg(not(target_arch = "wasm32"))]
+    if let (Some(&Phase::Waiting { beta_tabs, fallback_fixture }), Some(server)) = (window_phase(s), window_server(s)) {
+        let grace = probe_grace(s, &server);
+        let wake = std::sync::Arc::new(std::sync::OnceLock::<rune::Waker>::new());
+        let late = wake.clone();
+        let (rx, accepted) = boot::spawn_probe_waking(
+            s,
+            beta_tabs,
+            fallback_fixture,
+            grace,
+            Some(std::sync::Arc::new(move || {
+                if let Some(wake) = late.get() {
+                    wake();
+                }
+            })),
+        );
+        s.launch.early = Some(Early { rx, accepted, beta_tabs, fallback_fixture, grace, wake });
+    }
+}
+
+/// How long `server`'s probe keeps trying: only the local default address may be a server still
+/// starting (see `GRACE`).
+fn probe_grace(s: &App, server: &str) -> Duration {
+    if server == opencode_kit::client::DEFAULT_SERVER || s.launch.grace.is_some() { s.launch.grace.unwrap_or(GRACE) } else { Duration::ZERO }
+}
+
+/// The thread `setup` started, when it was started for this probe: its wake is the window's from
+/// here on, and one poll takes what it has already sent.
+#[cfg(not(target_arch = "wasm32"))]
+fn take_early(s: &mut App, beta_tabs: bool, fallback_fixture: bool, grace: Duration, tx: &mut Tx) -> Option<(Receiver<Ready>, Accepted)> {
+    let early = s.launch.early.take()?;
+    if (early.beta_tabs, early.fallback_fixture, early.grace) != (beta_tabs, fallback_fixture, grace) {
+        return None;
+    }
+    if let Some(wake) = s.launch.inbox_wake.clone().or_else(|| (*s.waker).clone()) {
+        early.wake.set(wake).ok();
+    }
+    tx.wake_after(Duration::ZERO);
+    Some((early.rx, early.accepted))
 }
 
 /// The server the window works against now (`servers::runtime`'s checkout), keyed as
@@ -447,12 +509,7 @@ pub(crate) fn start(s: &mut App, tx: &mut Tx) {
 /// Steps the window's server's launch and carries out what it asks for.
 fn step(s: &mut App, event: LaunchEvent, tx: &mut Tx) -> bool {
     let Some(server) = window_server(s) else { return false };
-    // Only the local default address may be a server still starting (see `GRACE`).
-    let grace = if server == opencode_kit::client::DEFAULT_SERVER || s.launch.grace.is_some() {
-        s.launch.grace.unwrap_or(GRACE)
-    } else {
-        Duration::ZERO
-    };
+    let grace = probe_grace(s, &server);
     let Some(mut phase) = s.launch.phases.remove(&server) else { return false };
     let effects = phase.step(event, grace);
     s.launch.set_phase(&server, phase);
@@ -460,7 +517,11 @@ fn step(s: &mut App, event: LaunchEvent, tx: &mut Tx) -> bool {
     for effect in effects {
         match effect {
             LaunchEffect::Probe { beta_tabs, fallback_fixture, again, grace } => {
-                let (rx, accepted) = boot::spawn_probe(s, beta_tabs, fallback_fixture, grace);
+                #[cfg(not(target_arch = "wasm32"))]
+                let early = if again.is_none() { take_early(s, beta_tabs, fallback_fixture, grace, tx) } else { None };
+                #[cfg(target_arch = "wasm32")]
+                let early = None;
+                let (rx, accepted) = early.unwrap_or_else(|| boot::spawn_probe(s, beta_tabs, fallback_fixture, grace));
                 s.launch.set_phase(&server, Phase::Probing { rx, again, accepted, defer_plugins: false });
             }
             LaunchEffect::Connect => boot::connect(s, tx),
