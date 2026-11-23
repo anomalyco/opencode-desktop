@@ -288,6 +288,8 @@ pub struct Menu {
     pub(super) gap: Option<f32>,
     /// Its rows' start padding, when not the look's (`.settings-server-switcher-menu`'s 8).
     pub(super) item_inset: Option<f32>,
+    /// Its rows' end padding, when not the look's (`.session-options-menu`'s 30).
+    pub(super) item_end: Option<f32>,
     /// The location card's rows (`session-location-card`): 2 apart, 8 in on both sides, and the
     /// card 4 to the start of its trigger (`shift={-4}`).
     pub(super) card: bool,
@@ -313,6 +315,7 @@ impl Menu {
             remembers_focus: false,
             gap: None,
             item_inset: None,
+            item_end: None,
             card: false,
             select: false,
             pointer_trigger: false,
@@ -440,6 +443,12 @@ impl Menu {
         self
     }
 
+    /// Its rows end `pad` in rather than the look's 6.
+    pub fn item_end(mut self, pad: f32) -> Menu {
+        self.item_end = Some(pad);
+        self
+    }
+
     /// The location card's look (`session-location-card`).
     pub fn card(mut self) -> Menu {
         self.card = true;
@@ -542,5 +551,5 @@ pub(super) fn hug_width(menu: &Menu) -> f32 {
         Entry::Sub(sub) => sub.glyph.map_or(0.0, |_| 16.0 + MENU.gap) + w(&sub.title, label) + MENU.gap + 16.0,
         Entry::Separator => 0.0,
     });
-    rows.fold(0.0, f32::max) + menu.item_inset.unwrap_or(MENU.pad_l) + MENU.pad_r + 2.0 * MENU.inset + 2.0
+    rows.fold(0.0, f32::max) + menu.item_inset.unwrap_or(MENU.pad_l) + menu.item_end.unwrap_or(MENU.pad_r) + 2.0 * MENU.inset + 2.0
 }

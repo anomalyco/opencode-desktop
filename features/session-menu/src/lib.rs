@@ -354,10 +354,11 @@ fn open_with(host: &mut dyn SessionMenuHost, t: Target, at: PopupAnchor, dialog:
     finish_rename(host, true);
     host.menus_mut().on = Some(t.clone());
     tx.instant();
-    // The header's "…" opens 6 under it (`message-timeline.tsx`: `gutter={6}`).
+    // The header's "…" opens 6 under it (`message-timeline.tsx`: `gutter={6}`), as wide as its
+    // rows (`w-max`, `min-width: 0`), each 30 from its end (`session-identity-header.css:1`).
     let dots = t.spot == Spot::Header && matches!(at, PopupAnchor::Key(_));
     let built = if dots {
-        menu(&items).gap(6.0)
+        menu(&items).gap(6.0).item_end(30.0).min_width(0.0).hug()
     } else if t.spot == Spot::Row && !dialog {
         // home/sessions/view.tsx: Menu.Trigger is a size-px span placed at the press.
         menu(&items).pointer_trigger()

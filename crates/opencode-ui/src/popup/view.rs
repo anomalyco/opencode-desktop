@@ -195,7 +195,7 @@ fn build<S: PopupHost + 'static>(
                 };
                 // A server row keeps its check's column when unchecked, as a radio item's indicator does.
                 let o = if matches!(i.glyph, Some(Glyph::Status(_))) && !i.checked { o.trailing(el().size(16.0, 16.0)) } else { o };
-                let look = if menu.card { CARD } else if menu.select { SELECT } else { menu.item_inset.map_or(MENU, |pad| popover::Look { pad_l: pad, ..MENU }) };
+                let look = if menu.card { CARD } else if menu.select { SELECT } else { popover::Look { pad_l: menu.item_inset.unwrap_or(MENU.pad_l), pad_r: menu.item_end.unwrap_or(MENU.pad_r), ..MENU } };
                 let o = match i.diff {
                     Some((a, d)) => o.after(diff_note(p, a, d)),
                     None => o,
@@ -252,7 +252,7 @@ fn build<S: PopupHost + 'static>(
                     Some(g) => o.lead(icon(g, 16.0).color(p.icon_muted)),
                     None => o,
                 };
-                let look = if menu.card { CARD } else if menu.select { SELECT } else { MENU };
+                let look = if menu.card { CARD } else if menu.select { SELECT } else { popover::Look { pad_r: menu.item_end.unwrap_or(MENU.pad_r), ..MENU } };
                 let row = popover::option_tx::<S>(
                     p,
                     look,
