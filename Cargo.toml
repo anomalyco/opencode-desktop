@@ -204,3 +204,8 @@ unwrap_used = "warn"
 let_underscore_must_use = "warn"
 disallowed_methods = "warn"
 undocumented_unsafe_blocks = "warn"
+
+# TEMPORARY (local only): psychoscript `rust` e7b6aa7 (#44) merged into `mobile` a77590d4, until `mobile` has it.
+[patch."https://github.com/anomalyco/psychoscript"]
+psychoscript = { path = "/home/exedev/services/opencode-agent/agent-state/home/work/widgets/ps-slice/rust/crates/psychoscript" }
+widget-gpu = { path = "/home/exedev/services/opencode-agent/agent-state/home/work/widgets/ps-slice/rust/crates/widget-gpu" }
