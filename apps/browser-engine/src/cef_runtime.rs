@@ -332,9 +332,10 @@ wrap_app! {
             );
             // Background fetch and periodic background sync, which official's permission check
             // handler denies (N12); their content settings crash CEF 156 when set, so the APIs go.
+            // Web Share too: official's Electron has no `navigator.share`.
             cmd.append_switch_with_value(
                 Some(&"disable-blink-features".into()),
-                Some(&"BackgroundFetch,PeriodicBackgroundSync".into()),
+                Some(&"BackgroundFetch,PeriodicBackgroundSync,WebShare".into()),
             );
             // Disable Cast/DIAL discovery (UDP 5353/1900), mDNS local-IP responder (UDP 5353),
             // and `ConnectionAllowlists` (Spotify CEF 156.0.26 ships with `dcheck_always_on`,
