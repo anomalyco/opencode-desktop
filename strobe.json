@@ -1,0 +1,31 @@
+{
+  "$schema": "https://unpkg.com/@hona/strobe/schema/strobe.v1.json",
+  // The benches in perf/ never build: a variant is an exe (`--base exe:<path> --head exe:<path>`),
+  // CI's artifact or a profiling build (README in perf/).
+  "apps": {
+    // OpenCode (Rune) in a throwaway home: RUNE_DIRS_ROOT moves every folder it reads or writes
+    // there, and the folders it looks in for other programs' data go with it. `--launch-marks`
+    // prints the launch's milestones for strobe.
+    "opencode-rune": {
+      "kind": "native",
+      "exe": {
+        "windows": "./target/release/opencode-desktop.exe",
+        "macos": "./target/release/opencode-desktop",
+        "linux": "./target/release/opencode-desktop"
+      },
+      "env": {
+        "RUNE_DIRS_ROOT": "{home}",
+        "OPENCODE_RUNE_HOME": "{home}",
+        "USERPROFILE": "{home}/home",
+        "LOCALAPPDATA": "{home}/home/AppData/Local",
+        "TEMP": "{home}/tmp",
+        "TMP": "{home}/tmp",
+        "TMPDIR": "{home}/tmp",
+        "OPENCODE_SERVER_PASSWORD": "parity-harness",
+        "OPENCODE_RUNE_OTEL": "0"
+      },
+      "unset": ["OPENCODE_*", "OTEL_*", "SENTRY_*", "RUNE_*", "WGPU_*"],
+      "args": ["--launch-marks"]
+    }
+  }
+}
