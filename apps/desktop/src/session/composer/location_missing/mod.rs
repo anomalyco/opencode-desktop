@@ -19,11 +19,9 @@ use std::time::Duration;
 
 use opencode_i18n::t;
 use opencode_kernel::{Feature, KernelBuilder, Slot};
-use opencode_kit::model::{parse_managed_worktrees, parse_worktrees};
 use opencode_kit::wire_error::{WireError, WireKind};
-use opencode_search::query::{Highlight, HighlightEvent};
 use rune::machine::{Attempt, Effects};
-use rune::{PointerEvent, TextEdit, Tx};
+use rune::Tx;
 use serde_json::{Value, json};
 
 use crate::jobs::Apply;
@@ -42,11 +40,9 @@ const KEY: &str = "rune.location.missing";
 /// The folders kept; the oldest goes first.
 const KNOWN_MAX: usize = 32;
 
-/// The keys of what takes focus.
-pub(crate) const TRIGGER: &str = "session-location-worktree";
-pub(crate) const CHOOSE: &str = "session-location-choose";
-pub(crate) const LIST: &str = "session-location-worktrees";
-const SCROLL: &str = "session-location-worktrees-scroll";
+/// The buttons' keys: Choose worktree, and Choose directory, which takes focus back.
+const WORKTREE: &str = "session-location-worktree";
+const CHOOSE: &str = "session-location-choose";
 
 /// What the card is for (`region.tsx`'s `missing`): a new one starts its steps over.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,18 +51,6 @@ pub(crate) struct Subject {
     pub directory: String,
     /// The session's project, once this window knows it.
     pub project: Option<String>,
-}
-
-/// The open Choose worktree menu's search text and lit row; the card's machine says whether it
-/// is open.
-#[derive(Default)]
-pub struct Menu {
-    pub search: TextEdit,
-    active: Highlight,
-    /// Where the pointer last moved over a row: only a moving pointer lights one.
-    pointer: Option<[f32; 2]>,
-    /// Whether keys opened it, so its trigger takes the focus ring back when keys close it.
-    by_keys: bool,
 }
 
 #[derive(Default)]
@@ -79,7 +63,6 @@ pub struct LocationMissing {
     connected: bool,
     /// The card's steps while it shows, and what it shows for.
     card: Option<(Subject, card::Card)>,
-    menu: Menu,
 }
 
 /// The open session and its folder: its info's, or what its tab saved while its server hasn't
@@ -258,7 +241,6 @@ fn mount(s: &mut App) -> Option<bool> {
     }
     let st = s.kernel.slots.get_mut(&LOCATION_MISSING);
     st.card = subject.map(|subject| (subject, card::Card::default()));
-    st.menu = Menu::default();
     Some(st.card.is_some())
 }
 
@@ -272,10 +254,17 @@ fn poll(s: &mut App, _now: f64, tx: &mut Tx) -> bool {
     if s.kernel.slots.get(&LOCATION_MISSING).sync.as_ref().is_some_and(|y| y.due(now)) {
         changed |= step_sync(s, sync::Event::Tick { now }, tx);
     }
+    let shown = s.kernel.slots.get(&LOCATION_MISSING).card.as_ref().map(|(subject, _)| subject.session.clone());
     if let Some(came) = mount(s) {
         tx.instant();
-        // No composer under the card takes keys; back, it takes them as a page that opens does.
-        s.composer.focused = !came && s.has_composer() && !dialog_open(s) && crate::auto_focus_composer(tx);
+        if came {
+            // No composer under the card takes keys.
+            s.composer.focused = false;
+        } else if shown.as_deref() == s.active_session_id() && s.has_composer() && !dialog_open(s) && crate::auto_focus_composer(tx) {
+            // The session moved, or its folder is back: its composer takes the keys, as a page
+            // that opens does. Another page opened instead keeps its own focus.
+            s.composer.focused = true;
+        }
         changed = true;
     }
     let Some(card) = s.kernel.slots.get(&LOCATION_MISSING).card.as_ref().map(|(_, c)| *c) else { return changed };
@@ -294,66 +283,33 @@ fn dialog_open(s: &App) -> bool {
 }
 
 /// Feeds the card `event` and runs what it asks for. True when it changed.
-pub(super) fn dispatch(s: &mut App, event: card::Event, tx: &mut Tx) -> bool {
+fn dispatch(s: &mut App, event: card::Event, tx: &mut Tx) -> bool {
     let Some((subject, before)) = s.kernel.slots.get(&LOCATION_MISSING).card.clone() else { return false };
     let mut next = before;
     let effects = card::step(&mut next, event);
     if next == before && effects.is_empty() {
         return false;
     }
-    let st = s.kernel.slots.get_mut(&LOCATION_MISSING);
-    if let Some((_, card)) = st.card.as_mut() {
+    if let Some((_, card)) = s.kernel.slots.get_mut(&LOCATION_MISSING).card.as_mut() {
         *card = next;
-    }
-    if before.menu_open() && !next.menu_open() {
-        st.menu = Menu::default();
     }
     tx.instant();
     for effect in effects {
-        run_card(s, &subject, effect, tx);
+        match effect {
+            card::Effect::WakeAt(at) => wake(s, at, tx),
+            card::Effect::FocusChoose => tx.focus(CHOOSE, tx.focus_visible()),
+            card::Effect::ToastMoveFailed { error } => crate::status_toast::fail(s, t!("session.location.moveFailed"), error),
+            card::Effect::PickerOpen { attempt } => {
+                let server = crate::servers::runtime::active(s).clone();
+                let picked: OnPick = std::rc::Rc::new(move |h: &mut dyn ProjectsHost, directory: String, tx: &mut Tx| h.session_location_picked(attempt, Some(directory), tx));
+                let cancelled: OnCancel = std::rc::Rc::new(move |h: &mut dyn ProjectsHost, tx: &mut Tx| h.session_location_picked(attempt, None, tx));
+                // The server's own folders for a server that isn't this computer's (`useDirectoryPicker`).
+                crate::projects::remote_picker::pick_settling(s, &server, t!("session.location.choose").to_owned(), tx, picked, Some(cancelled));
+            }
+            card::Effect::MoveRun { attempt, directory } => run_move(s, &subject, attempt, directory),
+        }
     }
     true
-}
-
-fn run_card(s: &mut App, subject: &Subject, effect: card::Effect, tx: &mut Tx) {
-    match effect {
-        card::Effect::WakeAt(at) => wake(s, at, tx),
-        card::Effect::FocusChoose => tx.focus(CHOOSE, tx.focus_visible()),
-        card::Effect::ToastWorktreesFailed => crate::status_toast::fail(s, t!("session.location.worktreesFailed"), ""),
-        card::Effect::ToastMoveFailed { error } => crate::status_toast::fail(s, t!("session.location.moveFailed"), error),
-        card::Effect::WorktreesLoad { attempt } => load_worktrees(s, subject, attempt),
-        card::Effect::PickerOpen { attempt } => {
-            let server = crate::servers::runtime::active(s).clone();
-            let picked: OnPick = std::rc::Rc::new(move |h: &mut dyn ProjectsHost, directory: String, tx: &mut Tx| h.session_location_picked(attempt, Some(directory), tx));
-            let cancelled: OnCancel = std::rc::Rc::new(move |h: &mut dyn ProjectsHost, tx: &mut Tx| h.session_location_picked(attempt, None, tx));
-            // The server's own folders for a server that isn't this computer's (`useDirectoryPicker`).
-            crate::projects::remote_picker::pick_settling(s, &server, t!("session.location.choose").to_owned(), tx, picked, Some(cancelled));
-        }
-        card::Effect::MoveRun { attempt, directory } => run_move(s, subject, attempt, directory),
-    }
-}
-
-/// `worktrees.load`: the server looks for the project's worktrees again, then lists them.
-fn load_worktrees(s: &mut App, subject: &Subject, attempt: Attempt) {
-    let loaded = move |listed: bool| Box::new(move |s: &mut App, tx: &mut Tx| { dispatch(s, card::Event::WorktreesLoaded { attempt, listed }, tx); }) as Apply;
-    let Some(project) = subject.project.clone().filter(|_| s.live()) else { return s.later(loaded(true)) };
-    let root = s.project(&project).map(|p| p.directory.clone()).unwrap_or_default();
-    let refresh = s.can_write();
-    s.job(move |srv| {
-        if refresh {
-            srv.write("POST", "/api/worktree/refresh", Some(json!({ "projectID": project }))).ok();
-        }
-        let listed = srv.get(&format!("/api/worktree?projectID={}", crate::switcher::encode(&project))).ok().map(|v| (parse_worktrees(&v, &root), parse_managed_worktrees(&v, &root)));
-        Box::new(move |s: &mut App, tx: &mut Tx| {
-            let ok = listed.is_some();
-            if let Some((directories, managed)) = listed {
-                s.worktrees_listed(project, directories, managed);
-            }
-            if dispatch(s, card::Event::WorktreesLoaded { attempt, listed: ok }, tx) {
-                menu_listed(s, tx);
-            }
-        }) as Apply
-    });
 }
 
 /// `move.run`: a new worktree of the project first when no folder was picked, then the session
@@ -364,8 +320,12 @@ fn run_move(s: &mut App, subject: &Subject, attempt: Attempt, directory: Option<
     // The missing worktree can't resolve its own project, so a new one is made from the project's
     // saved checkout.
     let checkout = subject.project.as_ref().and_then(|id| s.project(id)).map(|p| (p.id.clone(), p.directory.clone()));
+    // Nothing to ask (a fixture): the move fails as a request would.
     if !s.live() {
-        return;
+        let dialog_open = dialog_open(s);
+        return s.later(Box::new(move |s: &mut App, tx: &mut Tx| {
+            dispatch(s, card::Event::MoveFailed { attempt, error: t!("common.requestFailed").to_owned(), dialog_open }, tx);
+        }));
     }
     s.job(move |srv| {
         let made = directory.is_none();
@@ -400,158 +360,34 @@ fn failure(e: WireError) -> String {
     }
 }
 
+/// Choose directory: the folder picker opens (`choose.requested`).
+pub(super) fn choose_directory(s: &mut App, tx: &mut Tx) {
+    dispatch(s, card::Event::ChooseRequested, tx);
+}
+
 /// `picker.settled`: the folder picked, or none.
 pub(crate) fn picker_settled(s: &mut App, attempt: Attempt, directory: Option<String>, tx: &mut Tx) {
     let dialog_open = dialog_open(s);
     dispatch(s, card::Event::PickerSettled { attempt, directory, dialog_open }, tx);
 }
 
-/// The project's other worktrees the menu can list: those OpenCode made (the inventory's entries
-/// with a `strategy`), never the missing folder itself.
-pub(super) fn others(s: &App, subject: &Subject) -> Vec<String> {
-    let Some(project) = &subject.project else { return Vec::new() };
-    let gone = opencode_servers::home::same_directory_key(&subject.directory);
-    s.managed_worktrees(project).into_iter().filter(|d| opencode_servers::home::same_directory_key(d) != gone).collect()
-}
-
-/// `selectLocationMissingView`'s `visibleWorktrees`: the first ten whose folder's name holds the
-/// query.
-pub(super) fn visible(others: &[String], query: &str) -> Vec<String> {
-    let query = query.trim().to_lowercase();
-    others.iter().filter(|d| query.is_empty() || name(d).to_lowercase().contains(&query)).take(10).cloned().collect()
-}
-
-/// A worktree's row reads its folder's name (`getFilename`).
-pub(super) fn name(directory: &str) -> &str {
-    opencode_kit::path::basename(directory)
-}
-
-/// The menu has a search field from ten other worktrees (`searchable`).
-pub(super) fn searchable(others: &[String]) -> bool {
-    others.len() >= 10
-}
-
-/// The menu's rows by key: New worktree (the empty key), then the worktrees on screen.
-fn entries(s: &App) -> Vec<String> {
-    let st = s.kernel.slots.get(&LOCATION_MISSING);
-    let Some((subject, _)) = &st.card else { return Vec::new() };
-    std::iter::once(String::new()).chain(visible(&others(s, subject), &st.menu.search.text)).collect()
-}
-
-/// The lit row: the one chosen while it's listed, else New worktree.
-pub(super) fn active(s: &App) -> String {
-    let entries = entries(s);
-    s.kernel.slots.get(&LOCATION_MISSING).menu.active.resolve(entries.iter().map(String::as_str)).unwrap_or_default()
-}
-
-/// Choose worktree: opens its menu, or closes it. Focus goes to the search field, or to the list
-/// without one.
-pub(super) fn toggle_menu(s: &mut App, tx: &mut Tx) {
+/// Choose worktree: the new-session location dialog's worktree step on its own, the session's
+/// missing folder left out (`useWorktreeDialog`). Nothing while the project hasn't loaded.
+pub(super) fn choose_worktree(s: &mut App, tx: &mut Tx) {
     let Some((subject, card)) = s.kernel.slots.get(&LOCATION_MISSING).card.clone() else { return };
-    if card.menu_open() {
-        return close_menu(s, true, tx);
-    }
-    let (by_keys, now) = (tx.focus_visible(), *s.clock);
-    if !dispatch(s, card::Event::MenuToggled { open: true, now }, tx) {
-        return;
-    }
-    let field = searchable(&others(s, &subject));
-    let menu = &mut s.kernel.slots.get_mut(&LOCATION_MISSING).menu;
-    *menu = Menu { by_keys, ..Menu::default() };
-    menu.search.focused = field;
-    if !field {
-        tx.focus(LIST, false);
-    }
+    let Some(project) = subject.project.filter(|id| !card.disabled() && s.project(id).is_some()) else { return };
+    crate::project_switcher::open_worktree_dialog(s, &project, subject.directory, tx);
 }
 
-/// Worktrees can load after the menu opens, so the field takes focus from the list when it
-/// comes.
-fn menu_listed(s: &mut App, tx: &mut Tx) {
-    let Some((subject, card)) = s.kernel.slots.get(&LOCATION_MISSING).card.clone() else { return };
-    if card.menu_open() && tx.focused() == Some(LIST) && searchable(&others(s, &subject)) {
-        s.kernel.slots.get_mut(&LOCATION_MISSING).menu.search.focused = true;
-    }
-}
-
-/// Closes the menu. Keys hand focus back to its trigger, ringed if keys opened it; a press
-/// outside leaves focus where it landed (`createOverlayFocus`).
-pub(super) fn close_menu(s: &mut App, to_trigger: bool, tx: &mut Tx) {
-    let (by_keys, now) = (s.kernel.slots.get(&LOCATION_MISSING).menu.by_keys, *s.clock);
-    if dispatch(s, card::Event::MenuToggled { open: false, now }, tx) && to_trigger {
-        tx.focus(TRIGGER, by_keys);
-    }
-}
-
-/// A row: the session moves to that worktree, or to a new one for the empty key.
-pub(super) fn choose(s: &mut App, key: &str, tx: &mut Tx) {
-    dispatch(s, card::Event::MoveWorktree { directory: (!key.is_empty()).then(|| key.to_owned()) }, tx);
-}
-
-pub(super) fn choose_directory(s: &mut App, tx: &mut Tx) {
-    dispatch(s, card::Event::ChooseRequested, tx);
-}
-
-/// The search text changed: a query lights its first match, so Enter after typing picks one; an
-/// empty one falls back to New worktree.
-pub(super) fn searched(s: &mut App, tx: &mut Tx) {
-    tx.instant();
-    let first = entries(s).into_iter().nth(1).filter(|_| !s.kernel.slots.get(&LOCATION_MISSING).menu.search.text.trim().is_empty());
-    let menu = &mut s.kernel.slots.get_mut(&LOCATION_MISSING).menu;
-    match first {
-        Some(key) => menu.active.set(key),
-        None => menu.active.clear(),
-    }
-}
-
-/// The pointer moved on a row: it lights it, and focus stays in the search field (or on the
-/// list). Only a moving pointer does, so rows the keys scroll under a still one keep the
-/// highlight where the keys put it (opencode#66092).
-pub(super) fn pointed(s: &mut App, key: &str, ev: PointerEvent, tx: &mut Tx) {
-    let at = [ev.window_x, ev.window_y];
-    let menu = &s.kernel.slots.get(&LOCATION_MISSING).menu;
-    if menu.pointer == Some(at) || menu.active.pointed(key) {
-        return tx.live_only();
-    }
-    let menu = &mut s.kernel.slots.get_mut(&LOCATION_MISSING).menu;
-    menu.pointer = Some(at);
-    menu.active.step(HighlightEvent::Pointer(key.to_owned()));
-    tx.instant();
-}
-
-/// The menu's keys, from its search field or its list (`onListKeyDown`).
-pub(super) fn menu_key(s: &mut App, ev: &rune::KeyEvent, tx: &mut Tx) -> bool {
-    use rune::Key;
-    let Some((subject, card)) = s.kernel.slots.get(&LOCATION_MISSING).card.clone() else { return false };
-    if !card.menu_open() {
-        return false;
-    }
-    let plain = !ev.mods.shift && !ev.mods.ctrl && !ev.mods.alt && !ev.mods.cmd;
-    let entries = entries(s);
-    let lit = active(s);
-    let at = entries.iter().position(|k| *k == lit).unwrap_or(0);
-    let light = |s: &mut App, tx: &mut Tx, i: usize| {
-        tx.instant();
-        tx.scroll_into_view_in(SCROLL, view::row_key(&entries[i]));
-        s.kernel.slots.get_mut(&LOCATION_MISSING).menu.active.set(entries[i].clone());
+/// The dialog's row: New worktree moves the session into a new one; the project's own checkout
+/// and a worktree are their folders (`chooseWorktree`'s `onSelect`).
+pub(crate) fn worktree_picked(s: &mut App, pick: crate::project_switcher::WorktreePick, tx: &mut Tx) {
+    use crate::project_switcher::WorktreePick;
+    let directory = match pick {
+        WorktreePick::Create => None,
+        WorktreePick::Directory(directory) => Some(directory),
     };
-    let field = searchable(&others(s, &subject));
-    match &ev.key {
-        Key::Escape => close_menu(s, true, tx),
-        // The list is one stop: Tab closes it and focus goes on from its trigger.
-        Key::Tab => {
-            close_menu(s, false, tx);
-            tx.focus(if ev.mods.shift { TRIGGER } else { CHOOSE }, true);
-        }
-        Key::Down if plain => light(s, tx, (at + 1) % entries.len()),
-        Key::Up if plain => light(s, tx, (at + entries.len() - 1) % entries.len()),
-        Key::Enter => choose(s, &entries[at], tx),
-        // Without a search field the list itself has the keys.
-        Key::Home if !field => light(s, tx, 0),
-        Key::End if !field => light(s, tx, entries.len() - 1),
-        Key::Text(t) if !field && t == " " => choose(s, &entries[at], tx),
-        _ => return false,
-    }
-    true
+    dispatch(s, card::Event::MoveWorktree { directory }, tx);
 }
 
 /// Kernel feature registration for the card.
@@ -565,18 +401,14 @@ impl Feature<App> for LocationMissingFeature {
     fn register(&self, builder: &mut KernelBuilder<App>) {
         builder.register_slot(&LOCATION_MISSING);
         builder.schedule(crate::tick::stage::DERIVE_COMPOSER, "location_missing.poll", poll);
-        builder.register_overlay(opencode_kernel::OverlayRegistration::<App>::new("overlay.location_worktrees").with_render(crate::overlays::layer::SURFACE_POPOVER, |s, cx| {
-            let p = crate::palette::pal(s.dark(cx));
-            view::menu(s, p).into_iter().flatten().collect()
-        }));
     }
 }
 
-/// A scene's session with its folder gone, in a Git project with `worktrees` others.
-fn scene(s: &mut App, worktrees: usize) -> Option<Subject> {
+/// A scene's session with its folder gone, in a Git project with three other worktrees.
+fn scene(s: &mut App, state: card::State) {
     crate::scenes::open_scene(s);
-    let Route::Session { id, server } = (*s.route).clone() else { return None };
-    let info = s.session(&id)?.clone();
+    let Route::Session { id, server } = (*s.route).clone() else { return };
+    let Some(info) = s.session(&id).cloned() else { return };
     let (root, name) = s.project(&info.project).map(|p| (p.directory.clone(), p.name.clone())).unwrap_or_default();
     let directory = format!("{}/.worktrees/removed-worktree", root.trim_end_matches('/'));
     if let Some(x) = s.sessions.iter_mut().find(|x| x.id == id) {
@@ -584,28 +416,19 @@ fn scene(s: &mut App, worktrees: usize) -> Option<Subject> {
     }
     // The project is a Git checkout, so Choose worktree shows.
     let _ = opencode_kit::model::parse_project(&json!({ "id": info.project, "canonical": root, "name": name, "vcs": "git" }));
-    let made: Vec<String> = (1..=worktrees).map(|n| format!("{}/.worktrees/feature-{n:02}", root.trim_end_matches('/'))).collect();
+    let made: Vec<String> = (1..=3).map(|n| format!("{}/.worktrees/feature-{n:02}", root.trim_end_matches('/'))).collect();
     s.worktrees_listed(info.project.clone(), made.clone(), made);
-    let location = sync::Location { server: server.as_str().to_owned(), directory };
     let st = s.kernel.slots.get_mut(&LOCATION_MISSING);
     st.connected = false;
-    st.sync = Some(sync::Check::new(location, true));
+    st.sync = Some(sync::Check::new(sync::Location { server: server.as_str().to_owned(), directory }, true));
     let _ = mount(s);
     s.composer.focused = false;
-    s.kernel.slots.get(&LOCATION_MISSING).card.as_ref().map(|(subject, _)| subject.clone())
-}
-
-fn scene_card(s: &mut App, worktrees: usize, state: card::State) {
-    if scene(s, worktrees).is_some()
-        && let Some((_, card)) = s.kernel.slots.get_mut(&LOCATION_MISSING).card.as_mut()
-    {
+    if let Some((_, card)) = s.kernel.slots.get_mut(&LOCATION_MISSING).card.as_mut() {
         card.state = state;
     }
 }
 
 rune_register::register!(crate::scenes::SCENE_LIST: crate::scenes::Scene = [
-    ("location-missing", |s| { scene(s, 3); }),
-    ("location-missing-menu", |s| scene_card(s, 3, card::State::MenuReady)),
-    ("location-missing-search", |s| scene_card(s, 12, card::State::MenuReady)),
-    ("location-missing-moving", |s| scene_card(s, 3, card::State::Moving { attempt: Attempt(1), source: card::Source::Directory })),
+    ("location-missing", |s| scene(s, card::State::Idle { restore_focus: false })),
+    ("location-missing-moving", |s| scene(s, card::State::Moving { attempt: Attempt(1), source: card::Source::Directory })),
 ]);
