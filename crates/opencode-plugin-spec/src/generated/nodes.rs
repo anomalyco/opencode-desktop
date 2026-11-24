@@ -78,7 +78,7 @@ string_enum! {
         DiffView = "diffView",
         /// A folder's file tree.
         FileTree = "fileTree",
-        /// A resizable sidebar at a panel's start, its children stacked in it.
+        /// A resizable sidebar at a panel's start or end, its children stacked in it.
         PanelSidebar = "panelSidebar",
         /// The app's Open in split button for a path.
         OpenInButton = "openInButton",

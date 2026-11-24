@@ -4,9 +4,9 @@
 use crate::{Half, string_enum};
 
 /// The contract version this crate describes.
-pub const CONTRACT: &str = "1.8";
+pub const CONTRACT: &str = "1.9";
 pub const CONTRACT_MAJOR: u16 = 1;
-pub const CONTRACT_MINOR: u16 = 8;
+pub const CONTRACT_MINOR: u16 = 9;
 
 string_enum! {
     /// A contribution kind, by its contract name.
@@ -252,7 +252,7 @@ impl ServiceName {
             Self::Popover => &["Open", "Toggle", "Close", "IsOpen"],
             Self::Dialog => &["Open", "Close", "IsOpen"],
             Self::Menu => &["OpenAsync"],
-            Self::Layout => &["OpenPanel", "TogglePanel", "ClosePanel", "PanelState", "OpenSettings", "NewDraft", "OpenDraft", "OpenProject", "Narrow", "PanelSidebar", "TogglePanelSidebar", "OpenDrawerView", "RegionOpen", "RegionFocused", "Focus"],
+            Self::Layout => &["OpenPanel", "TogglePanel", "ClosePanel", "PanelState", "OpenSettings", "NewDraft", "OpenDraft", "OpenProject", "Narrow", "PanelSidebar", "TogglePanelSidebar", "MovePanelSidebar", "OpenDrawerView", "RegionOpen", "RegionFocused", "Focus"],
             Self::Links => &["Open", "Exists"],
             Self::Commands => &["Run", "Keybind"],
             Self::Theme => &["Current", "IsDark", "Resolve", "Font", "Changed"],
