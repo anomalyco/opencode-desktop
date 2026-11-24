@@ -17,6 +17,9 @@
 #   OPENCODE_RUNE_PROFILE        (default: "release"; e.g. "release-thin" for faster dev CI)
 #   OPENCODE_RUNE_SYMBOLS        (folder for opencode-desktop.dSYM.zip; default: $RUNNER_TEMP/macos, else OUT)
 #   OPENCODE_RUNE_KEEP_SYMBOLS   (1 ships the exe with its symbol names and writes no dSYM)
+#   OPENCODE_RUNE_LINK_ORDER     (0 links without apps/desktop/pgo/startup-order.txt; see link-order.sh)
+#   OPENCODE_RUNE_PGO_TRAIN      (1 builds the training exe; so does a pull request from a branch
+#                                 with "order-train" in its name; see apps/desktop/pgo/README.md)
 set -euo pipefail
 OUT=${1:?usage: build-app.sh OUT}
 : "${OPENCODE_RUNE_VERSION:?Set OPENCODE_RUNE_VERSION}"
@@ -38,6 +41,12 @@ case "$OPENCODE_RUNE_VERSION" in
   *) BUILD=$(printf '%s\n' "${OPENCODE_RUNE_VERSION%%-*}" | awk -F. '{ print ($1 * 10000) + ($2 * 100) + $3 }') ;;
 esac
 
+# A training build records which functions run, how often and in which order (temporal
+# instrumentation), for the release profile and the link order. It keeps its names.
+TRAIN=${OPENCODE_RUNE_PGO_TRAIN:-0}
+case "${GITHUB_HEAD_REF:-}" in *order-train*) TRAIN=1 ;; esac
+[ "$TRAIN" != 1 ] || export OPENCODE_RUNE_KEEP_SYMBOLS=1
+
 host_triple=$(rustc -vV | sed -n 's/^host: //p')
 target_triple=${OPENCODE_RUNE_TARGET:-$host_triple}
 cross=0
@@ -50,16 +59,28 @@ else
 fi
 
 if [ "${OPENCODE_RUNE_SKIP_CARGO_BUILD:-0}" != "1" ]; then
+  # The functions a launch runs go first in the exe, together (link-order.sh): a launch whose exe
+  # is not in memory then reads far fewer pages. Cargo takes the linker per target triple.
+  if [ "${OPENCODE_RUNE_LINK_ORDER:-1}" = 1 ] && [ "$TRAIN" != 1 ]; then
+    export OPENCODE_RUNE_ORDER_LIST="$ROOT/apps/desktop/pgo/startup-order.txt"
+    export "CARGO_TARGET_$(printf '%s' "$target_triple" | tr 'a-z-' 'A-Z_')_LINKER=$ROOT/apps/desktop/scripts/link-order.sh"
+    rm -f "$(dirname "$BIN")"/deps/opencode_desktop-*.link-order.txt
+  fi
   if [ "$target_triple" = aarch64-apple-darwin ] && [ "$PROFILE" = release ]; then
     # The training build names its target. Keep the same crate identities here and leave
     # host build scripts and proc macros uninstrumented. No training happens on CI.
     (
       cd "$ROOT"
       profile="apps/desktop/pgo/$target_triple.profdata"
-      test -s "$profile" || { echo "Missing release profile: $profile" >&2; exit 1; }
-      echo "profile-guided: $target_triple ($(head -n 1 "${profile%.profdata}.txt"))" >&2
-      # rustc for a dependency may run in that dependency's directory.
-      export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS }-Cprofile-use=$ROOT/$profile -Cllvm-args=-no-pgo-warn-mismatch"
+      if [ "$TRAIN" = 1 ]; then
+        echo "training build: $target_triple, instrumented (set LLVM_PROFILE_FILE when you run it)" >&2
+        export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS }-Cprofile-generate -Cllvm-args=-pgo-temporal-instrumentation"
+      else
+        test -s "$profile" || { echo "Missing release profile: $profile" >&2; exit 1; }
+        echo "profile-guided: $target_triple ($(head -n 1 "${profile%.profdata}.txt"))" >&2
+        # rustc for a dependency may run in that dependency's directory.
+        export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS }-Cprofile-use=$ROOT/$profile -Cllvm-args=-no-pgo-warn-mismatch"
+      fi
       cargo build --release --locked --target "$target_triple" -p opencode-desktop
     )
   else
@@ -70,6 +91,9 @@ if [ "${OPENCODE_RUNE_SKIP_CARGO_BUILD:-0}" != "1" ]; then
     cargo "${cargo_args[@]}"
   fi
 fi
+
+# What the link said about the order (nothing when cargo had no link to do).
+cat "$(dirname "$BIN")"/deps/opencode_desktop-*.link-order.txt 2>/dev/null >&2 || true
 
 case "$target_triple" in
   x86_64-apple-darwin) expected_arch=x86_64 ;;
