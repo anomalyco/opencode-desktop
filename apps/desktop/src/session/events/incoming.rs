@@ -38,6 +38,7 @@ pub(crate) fn poll(s: &mut App, tx: &mut Tx) -> bool {
                 if e.ty == "session.deleted" && let Some(id) = e.data["sessionID"].as_str() {
                     crate::session_menu::unread::set(s, &crate::servers::runtime::current(), id, false);
                     crate::session_menu::preferences::forget(s, &crate::servers::runtime::current(), id);
+                    crate::pickers::saved::forget(s, id);
                 }
                 if gone && let Some(id) = e.data["sessionID"].as_str() { crate::session_state::missing(s, id, tx); }
                 s.react_live(e) | gone
@@ -341,6 +342,8 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             let id = info.id.clone();
             // A command sent from a draft started it: the draft's tab becomes its tab.
             s.promote_draft(&id, &info.directory);
+            s.composer_ext.pickers.promote_draft(&id);
+            crate::pickers::saved::save(s, &id);
             if s.session(&id).is_none() {
                 s.sessions.insert(0, info);
             }

@@ -411,6 +411,7 @@ impl App {
         }
         *self.kernel.slots.get_mut(&prompt_history::PROMPTS) = prompt_history::PromptHistory::load(attended());
         self.composer_ext.pickers.prefs = model_prefs::load();
+        crate::pickers::saved::restore(self);
         telemetry::startup("launch.restore_ui", || self.restore_ui(&doc, &server.base));
         launch::saved::page_tab::note(self);
         tabs::groups::restore(self);
