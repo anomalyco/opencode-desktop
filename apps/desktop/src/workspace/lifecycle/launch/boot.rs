@@ -146,14 +146,19 @@ pub fn apply_app_icon() {
 /// shows that without being asked: setting the same image again read and checked 1.4 MB in `main`
 /// (11,100 µs) and had AppKit render it on the main thread before `applicationDidFinishLaunching`
 /// (21,400 µs; a bare AppKit app with one window, M4: its window came 19,000 µs later).
+/// A packaged macOS app (`cfg(bundle_assets)`) is always in its bundle and carries no second copy
+/// of the icon in its exe (1.4 MiB).
 #[cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))]
 pub fn apply_app_icon() {
-    let bundled = std::env::current_exe()
-        .ok()
-        .and_then(|exe| Some(exe.parent()?.parent()?.join("Resources/icon.icns")))
-        .is_some_and(|icon| icon.is_file());
-    if !bundled {
-        rune::set_app_icon(include_bytes!("../../../../assets/icon.icns").as_slice()).ok();
+    #[cfg(not(bundle_assets))]
+    {
+        let bundled = std::env::current_exe()
+            .ok()
+            .and_then(|exe| Some(exe.parent()?.parent()?.join("Resources/icon.icns")))
+            .is_some_and(|icon| icon.is_file());
+        if !bundled {
+            rune::set_app_icon(include_bytes!("../../../../assets/icon.icns").as_slice()).ok();
+        }
     }
 }
 
