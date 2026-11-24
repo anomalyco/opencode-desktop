@@ -47,6 +47,13 @@ pub(crate) fn terminal_session_dir(host: &dyn TerminalSurfaceHost, ws_key: &str)
     (sid, dir)
 }
 
+/// Whether a terminal of session `sid` has to wait: the server is live and hasn't listed the
+/// session yet (a subagent's page at launch), so its folder isn't known. A shell started now
+/// would start in another folder (the app's own), which is worse than a late one.
+pub fn waits_for_folder(host: &dyn TerminalSurfaceHost, sid: &str) -> bool {
+    live_terminals(host).is_some() && !sid.is_empty() && host.session_directory(sid).is_none_or(str::is_empty)
+}
+
 pub fn terminal_waker(host: &dyn TerminalSurfaceHost) -> Waker {
     let dirty = host.terminal().dirty_flag.clone();
     let app_waker = host.waker();
@@ -99,6 +106,10 @@ pub fn ensure_workspace_ready(host: &mut dyn TerminalSurfaceHost, ws_key: &str) 
 /// Opens session `sid`'s terminal tab (a new terminal when `new_tab` or it has none), leaving
 /// the keyboard where it was.
 pub fn open_terminal_for_session(host: &mut dyn TerminalSurfaceHost, sid: &str, new_tab: bool) -> Option<String> {
+    if waits_for_folder(host, sid) {
+        host.terminal_mut().asked = Some(side_ops::Asked::Open { session: sid.to_owned(), new_tab });
+        return None;
+    }
     let mut out = None;
     host.keeping_keyboard(&mut |h: &mut dyn TerminalSurfaceHost| {
         let ws_key = terminal_workspace_key_for_session(h, sid);
@@ -228,6 +239,10 @@ pub fn close_terminal_tab(host: &mut dyn TerminalSurfaceHost, ws_key: &str, tab_
 pub fn new_terminal_in(host: &mut dyn TerminalSurfaceHost, ws_key: &str) -> Option<String> {
     let theme = host.terminal_theme(terminal_dark(host));
     let (session_id, directory) = terminal_session_dir(host, ws_key);
+    // Never in a folder that isn't the session's: the callers ask again once it's listed.
+    if waits_for_folder(host, &session_id) {
+        return None;
+    }
     let num = {
         let pane = host.terminal_mut();
         pane.touch_lru(ws_key);
