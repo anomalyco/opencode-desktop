@@ -22,6 +22,9 @@
 #                                 loaded at the first office file, instead of in the exe; so does a pull request
 #                                 from a branch with "office-library" in its name. 0 until the release's signing
 #                                 step signs a second Mach-O file.)
+#   OPENCODE_RUNE_APP_LIBRARY    (1 ships the app as Contents/Frameworks/libopencode_desktop_app.dylib behind a small
+#                                 exe; so does a pull request from a branch with "app-library" in its name. 0 until
+#                                 the release's signing step signs a second Mach-O file.)
 #   OPENCODE_RUNE_COMPACT_UNWIND (0 keeps a DWARF unwind entry per function; see rustc-compact-unwind.sh)
 #   OPENCODE_RUNE_LINK_ORDER     (0 links without apps/desktop/pgo/startup-order.txt; see link-order.sh)
 #   OPENCODE_RUNE_PGO_TRAIN      (1 builds the training exe; so does a pull request from a branch
@@ -50,14 +53,24 @@ case "$OPENCODE_RUNE_VERSION" in
   *) BUILD=$(printf '%s\n' "${OPENCODE_RUNE_VERSION%%-*}" | awk -F. '{ print ($1 * 10000) + ($2 * 100) + $3 }') ;;
 esac
 
-# The office viewer's engines (Word, Excel, PowerPoint: 24 MiB of code and fonts no launch runs)
-# as a library in the bundle. macOS reads every byte of a new exe before its first run, and a
-# library when it is first loaded: the first office file after an install pays for it, not every
-# first launch.
+# macOS reads every byte of an exe it has not seen before its first run (5.4 ms per MiB on an M4),
+# on every install and update; a library in the bundle is not read that way (a 30-line exe with
+# 143 MiB of this app's code in libraries beside it first ran in 551 ms, with none in 254 ms;
+# builds of this app with and without the office library, code never seen, 5 rounds: 1,225 against
+# 1,004 ms). Two switches move code out of the exe into Contents/Frameworks:
+#   the app itself (apps/desktop-app) behind a small exe (apps/desktop-launcher);
+#   the office viewer's engines (crates/office-library), loaded at the first office file.
+APP_LIBRARY=${OPENCODE_RUNE_APP_LIBRARY:-0}
+case "${GITHUB_HEAD_REF:-}" in *app-library*) APP_LIBRARY=1 ;; esac
+packages=(-p opencode-desktop)
+[ "$APP_LIBRARY" != 1 ] || packages=(-p opencode-desktop-app -p opencode-desktop-launcher)
 OFFICE_LIBRARY=${OPENCODE_RUNE_OFFICE_LIBRARY:-0}
 case "${GITHUB_HEAD_REF:-}" in *office-library*) OFFICE_LIBRARY=1 ;; esac
 office_args=()
-[ "$OFFICE_LIBRARY" != 1 ] || office_args=(-p office-library --features opencode-desktop/office-library)
+if [ "$OFFICE_LIBRARY" = 1 ]; then
+  office_args=(-p office-library --features opencode-desktop/office-library)
+  [ "$APP_LIBRARY" != 1 ] || office_args=(-p office-library --features opencode-desktop-app/office-library)
+fi
 # A training build records which functions run, how often and in which order (temporal
 # instrumentation), for the release profile and the link order. It keeps its names.
 TRAIN=${OPENCODE_RUNE_PGO_TRAIN:-0}
@@ -82,6 +95,12 @@ if [ -n "${OPENCODE_RUNE_TARGET:-}" ] || { [ "$target_triple" = aarch64-apple-da
 else
   BIN="${CARGO_TARGET_DIR:-$ROOT/target}/$PROFILE/opencode-desktop"
 fi
+# CODE: the file that holds the app's code. The exe itself, or the library beside the small exe.
+CODE=$BIN
+if [ "$APP_LIBRARY" = 1 ]; then
+  CODE="$(dirname "$BIN")/libopencode_desktop_app.dylib"
+  BIN="$(dirname "$BIN")/opencode-desktop-launcher"
+fi
 
 if [ "${OPENCODE_RUNE_SKIP_CARGO_BUILD:-0}" != "1" ]; then
   # The functions a launch runs go first in the exe, together (link-order.sh): a launch whose exe
@@ -89,7 +108,7 @@ if [ "${OPENCODE_RUNE_SKIP_CARGO_BUILD:-0}" != "1" ]; then
   if [ "${OPENCODE_RUNE_LINK_ORDER:-1}" = 1 ] && [ "$TRAIN" != 1 ]; then
     export OPENCODE_RUNE_ORDER_LIST="$ROOT/apps/desktop/pgo/startup-order.txt"
     export "CARGO_TARGET_$(printf '%s' "$target_triple" | tr 'a-z-' 'A-Z_')_LINKER=$ROOT/apps/desktop/scripts/link-order.sh"
-    rm -f "$(dirname "$BIN")"/deps/opencode_desktop-*.link-order.txt
+    rm -f "$(dirname "$BIN")"/deps/*opencode_desktop*.link-order.txt
   fi
   if [ "$target_triple" = aarch64-apple-darwin ] && [ "$PROFILE" = release ]; then
     # The training build names its target. Keep the same crate identities here and leave
@@ -106,10 +125,10 @@ if [ "${OPENCODE_RUNE_SKIP_CARGO_BUILD:-0}" != "1" ]; then
         # rustc for a dependency may run in that dependency's directory.
         export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS }-Cprofile-use=$ROOT/$profile -Cllvm-args=-no-pgo-warn-mismatch"
       fi
-      cargo build --release --locked --target "$target_triple" -p opencode-desktop ${office_args[@]+"${office_args[@]}"}
+      cargo build --release --locked --target "$target_triple" "${packages[@]}" ${office_args[@]+"${office_args[@]}"}
     )
   else
-    cargo_args=(build --profile "$PROFILE" --locked -p opencode-desktop --manifest-path "$ROOT/Cargo.toml")
+    cargo_args=(build --profile "$PROFILE" --locked "${packages[@]}" --manifest-path "$ROOT/Cargo.toml")
     if [ -n "${OPENCODE_RUNE_TARGET:-}" ]; then
       cargo_args+=(--target "$target_triple")
     fi
@@ -118,7 +137,7 @@ if [ "${OPENCODE_RUNE_SKIP_CARGO_BUILD:-0}" != "1" ]; then
 fi
 
 # What the link said about the order (nothing when cargo had no link to do).
-cat "$(dirname "$BIN")"/deps/opencode_desktop-*.link-order.txt 2>/dev/null >&2 || true
+cat "$(dirname "$BIN")"/deps/*opencode_desktop*.link-order.txt 2>/dev/null >&2 || true
 
 case "$target_triple" in
   x86_64-apple-darwin) expected_arch=x86_64 ;;
@@ -126,7 +145,7 @@ case "$target_triple" in
   *) expected_arch= ;;
 esac
 if [ -n "$expected_arch" ] && command -v lipo >/dev/null 2>&1; then
-  actual_arch=$(lipo -archs "$BIN")
+  actual_arch=$(lipo -archs "$CODE")
   [ "$actual_arch" = "$expected_arch" ] || {
     echo "opencode-desktop arch reported '$actual_arch', expected '$expected_arch'" >&2
     exit 1
@@ -147,6 +166,14 @@ APP="$OUT/$APP_NAME.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/opencode-desktop"
+# SHIPPED: the bundle's copy of CODE.
+SHIPPED="$APP/Contents/MacOS/opencode-desktop"
+if [ "$APP_LIBRARY" = 1 ]; then
+  SHIPPED="$APP/Contents/Frameworks/libopencode_desktop_app.dylib"
+  mkdir -p "$APP/Contents/Frameworks"
+  cp "$CODE" "$SHIPPED"
+  strip "$APP/Contents/MacOS/opencode-desktop" 2>&1 | grep -v 'will invalidate the code signature' >&2 || true
+fi
 # The exe ships without its symbol names. macOS reads every byte of a new executable file before
 # its first run (XProtect: 5.6-5.9 ms per MiB on an M4), and the names are 27.5 MiB of a 180 MiB
 # thin-LTO exe and 9 MiB of a fat-LTO one. They go into a dSYM first (same UUID as the exe, so
@@ -156,24 +183,34 @@ if [ "${OPENCODE_RUNE_KEEP_SYMBOLS:-0}" != "1" ]; then
   SYMBOLS=${OPENCODE_RUNE_SYMBOLS:-${RUNNER_TEMP:+$RUNNER_TEMP/macos}}
   [ -n "$SYMBOLS" ] && [ -d "$SYMBOLS" ] || SYMBOLS=$OUT
   rm -rf "$OUT/opencode-desktop.dSYM" "$SYMBOLS/opencode-desktop.dSYM.zip"
-  dsymutil "$BIN" -o "$OUT/opencode-desktop.dSYM" 2>&1 | grep -v 'no debug symbols in executable' >&2 || true
-  [ "$(dwarfdump --uuid "$OUT/opencode-desktop.dSYM" | awk '{ print $2 }')" = "$(dwarfdump --uuid "$BIN" | awk '{ print $2 }')" ] || {
+  dsymutil "$CODE" -o "$OUT/opencode-desktop.dSYM" 2>&1 | grep -v 'no debug symbols in executable' >&2 || true
+  [ "$(dwarfdump --uuid "$OUT/opencode-desktop.dSYM" | awk '{ print $2 }')" = "$(dwarfdump --uuid "$CODE" | awk '{ print $2 }')" ] || {
     echo "opencode-desktop.dSYM does not carry the exe's UUID" >&2
     exit 1
   }
   /usr/bin/ditto -c -k --keepParent "$OUT/opencode-desktop.dSYM" "$SYMBOLS/opencode-desktop.dSYM.zip"
   rm -rf "$OUT/opencode-desktop.dSYM"
-  strip "$APP/Contents/MacOS/opencode-desktop" 2>&1 | grep -v 'will invalidate the code signature' >&2 || true
-  [ "$(stat -f %z "$APP/Contents/MacOS/opencode-desktop")" -lt "$(stat -f %z "$BIN")" ] || {
+  # A library keeps its exported names (the small exe looks the app's entry up).
+  strip_how=(); [ "$APP_LIBRARY" != 1 ] || strip_how=(-x)
+  strip ${strip_how[@]+"${strip_how[@]}"} "$SHIPPED" 2>&1 | grep -v 'will invalidate the code signature' >&2 || true
+  [ "$(stat -f %z "$SHIPPED")" -lt "$(stat -f %z "$CODE")" ] || {
     echo "strip left opencode-desktop as large as it was" >&2
     exit 1
   }
-  echo "opencode-desktop: $(stat -f %z "$BIN") -> $(stat -f %z "$APP/Contents/MacOS/opencode-desktop") bytes without symbol names; they are in $SYMBOLS/opencode-desktop.dSYM.zip" >&2
+  echo "opencode-desktop: $(stat -f %z "$CODE") -> $(stat -f %z "$SHIPPED") bytes without symbol names; they are in $SYMBOLS/opencode-desktop.dSYM.zip" >&2
+fi
+if [ "$APP_LIBRARY" = 1 ]; then
+  nm -gU "$SHIPPED" | grep -q ' _opencode_desktop_app_main$' || {
+    echo "libopencode_desktop_app.dylib does not export opencode_desktop_app_main" >&2
+    exit 1
+  }
+  codesign --force --sign - "$SHIPPED"
+  echo "app library: $(stat -f %z "$SHIPPED") bytes in Contents/Frameworks/libopencode_desktop_app.dylib, exe $(stat -f %z "$APP/Contents/MacOS/opencode-desktop") bytes" >&2
 fi
 if [ "$OFFICE_LIBRARY" = 1 ]; then
   LIBRARY="$APP/Contents/Frameworks/libopencode_office.dylib"
   mkdir -p "$APP/Contents/Frameworks"
-  cp "$(dirname "$BIN")/libopencode_office.dylib" "$LIBRARY"
+  cp "$(dirname "$CODE")/libopencode_office.dylib" "$LIBRARY"
   # Its one exported name stays (the app looks it up); the local names go, as the exe's do.
   strip -x "$LIBRARY" 2>&1 | grep -v 'will invalidate the code signature' >&2 || true
   nm -gU "$LIBRARY" | grep -q ' _opencode_office_v1$' || {

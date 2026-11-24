@@ -41,7 +41,7 @@ for arg in "${args[@]}"; do
   esac
 done
 case "$(basename "${out:-none}")" in
-  opencode-desktop | opencode_desktop-*) ;;
+  opencode-desktop | opencode_desktop-* | libopencode_desktop_app*) ;;
   *) exec cc "$@" ;;
 esac
 [ -n "$list" ] && [ -s "$list" ] && [ "${#objects[@]}" -gt 0 ] || exec cc "$@"

@@ -34,14 +34,20 @@ plist_value NSMicrophoneUsageDescription > /dev/null || fail "no microphone usag
 [ "$("$bundle/Contents/MacOS/opencode-desktop" --version)" = "opencode-rune $version ($channel)" ] || fail "opencode-desktop --version is not $version ($channel)"
 
 codesign --verify --deep --strict --verbose=2 "$bundle"
-# The office viewer's library, when this build ships one: the hardened runtime loads it only with
-# the app's own team's signature.
-library="$bundle/Contents/Frameworks/libopencode_office.dylib"
-if [ -e "$library" ]; then
-  [ "$(lipo -archs "$library")" = "$(uname -m)" ] || fail "the office library does not match the native verify runner"
-  codesign -d --verbose=4 "$library" 2>&1 | grep -Fq "TeamIdentifier=$team_id" || fail "the office library is not signed by the app's team"
-  nm -gU "$library" | grep -q ' _opencode_office_v1$' || fail "the office library does not export opencode_office_v1"
-fi
+# The libraries of a build that ships code in Contents/Frameworks (the app itself behind a small
+# exe, the office viewer's engines): the hardened runtime loads one only with the app's own
+# team's signature, and each must export the name it is loaded by.
+for library in "$bundle"/Contents/Frameworks/*.dylib; do
+  [ -e "$library" ] || continue
+  [ "$(lipo -archs "$library")" = "$(uname -m)" ] || fail "$(basename "$library") does not match the native verify runner"
+  codesign -d --verbose=4 "$library" 2>&1 | grep -Fq "TeamIdentifier=$team_id" || fail "$(basename "$library") is not signed by the app's team"
+  case "$(basename "$library")" in
+    libopencode_office.dylib) entry=_opencode_office_v1 ;;
+    libopencode_desktop_app.dylib) entry=_opencode_desktop_app_main ;;
+    *) fail "unexpected library $(basename "$library")" ;;
+  esac
+  nm -gU "$library" | grep -q " $entry\$" || fail "$(basename "$library") does not export ${entry#_}"
+done
 signature=$(codesign -d --verbose=4 "$bundle" 2>&1)
 printf '%s\n' "$signature" | grep -Fq "Identifier=$expected_id" || fail "code signature has the wrong identifier"
 printf '%s\n' "$signature" | grep -Fq "TeamIdentifier=$team_id" || fail "code signature has the wrong team"

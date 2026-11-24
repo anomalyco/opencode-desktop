@@ -3495,6 +3495,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencode-desktop-app"
+version = "0.0.1"
+dependencies = [
+ "mimalloc",
+ "opencode-desktop",
+ "procwatch",
+]
+
+[[package]]
+name = "opencode-desktop-launcher"
+version = "0.0.1"
+
+[[package]]
 name = "opencode-feature-annotations"
 version = "0.0.1"
 dependencies = [
