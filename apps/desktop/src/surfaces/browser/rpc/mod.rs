@@ -601,6 +601,15 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
         }
     }
 
+    // A subagent routed before stays attached while its root's tab does: official keeps a tab's
+    // refs, the routed child's too, until the tab closes (`host-apis.tsx` `sessions`).
+    let kept: Vec<(ServerKey, String)> = app.kernel.slots.get(&BROWSER_RPC).routed_sessions.iter().filter(|k| k.0 == active_server && !open_dirs.contains_key(*k)).cloned().collect();
+    for key in kept {
+        let root = app.panel_root(&key.1);
+        if root != key.1 && open_dirs.contains_key(&(active_server.clone(), root.to_owned())) && let Some(dir) = Some(session_directory(app, &key.1, "")).filter(|d| !d.is_empty()) {
+            open_dirs.insert(key, dir);
+        }
+    }
     let engine_known = app.workspace_panes.browser.host.engine_caps_known();
     let engine_remote_proxy = app.workspace_panes.browser.host.engine_remote_proxy();
     let mut changed = false;
