@@ -18,7 +18,7 @@ pub trait PickerHost: ComposerHost {
     fn pickers(&self) -> &Pickers;
     fn pickers_mut(&mut self) -> &mut Pickers;
 
-    /// Where picks are kept: the open session's id, or "draft" for a new session.
+    /// Where picks are kept: the open session's id, a new session's draft's own id, or "draft".
     fn picker_scope(&self) -> String;
     /// A new session, which starts with what the toolbar shows.
     fn picker_draft(&self) -> bool {
@@ -406,7 +406,7 @@ pub trait PickerHost: ComposerHost {
             // selection owns its variant even when preferences change in another session").
             if !draft { selected.effort = Effort::Chosen; }
         }
-        if draft && kind != Kind::Agent { pk.remember_draft_pick(&selected); }
+        if draft && kind != Kind::Agent { pk.remember_draft_pick(&session, &selected); }
         let live = !self.picker_draft();
         let durable = self.durable();
         let pk = self.pickers_mut();
