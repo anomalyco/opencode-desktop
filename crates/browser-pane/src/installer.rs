@@ -330,6 +330,21 @@ pub fn quit() {
     crate::prefetch::Prefetch::global().quit();
 }
 
+/// The quit's last step, after [`quit`]: waits, half a second at most, until the engine's download
+/// has closed the files it writes, so the process's end has none of them to close (Windows
+/// Defender scans a half-written DLL inside that close, for seconds). False when they are still
+/// open.
+pub fn quit_wait() -> bool {
+    #[cfg(feature = "engine")]
+    {
+        crate::prefetch::Prefetch::global().wait_closed()
+    }
+    #[cfg(not(feature = "engine"))]
+    {
+        true
+    }
+}
+
 #[cfg(feature = "engine")]
 pub(crate) fn engine_dirs() -> Option<rune::dirs::AppDirs> {
     HOME.get().cloned().or_else(|| rune::dirs::AppDirs::new("co.anomaly.opencode"))
