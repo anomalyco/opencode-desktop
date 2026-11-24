@@ -193,6 +193,10 @@ impl App {
     /// session opens; the caller adds the prompt. The draft's id, or None when no draft showed.
     fn show_start(&mut self, id: &str, directory: &str, tx: &mut Tx) -> Option<String> {
         let selection = self.selection();
+        // The models the draft's agents were given go with the session, and the next draft
+        // starts with none (`new-session/composer-adapter.ts` `choices: model.remembered()`).
+        self.composer_ext.pickers.promote_draft(id);
+        crate::pickers::saved::save(self, id);
         let mut info = SessionInfo {
             // Provisional until `started` takes the server's create response.
             created: *self.now_ms,
@@ -384,6 +388,9 @@ impl App {
     fn roll_back_start(&mut self, session: &str, directory: String, draft: Option<String>, held: Option<Held>, worktree: bool, why: Why, tx: &mut Tx) {
         let directory = if worktree { directory } else { self.session(session).map(|i| i.directory.clone()).unwrap_or(directory) };
         self.sessions.retain(|s| s.id != session);
+        // The draft's agents get their models back.
+        self.composer_ext.pickers.demote_session(session);
+        crate::pickers::saved::save(self, session);
         self.transcripts.remove(session);
         self.inboxes.remove(session);
         self.running.remove(session);
