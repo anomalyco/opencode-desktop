@@ -14,7 +14,8 @@
 //!
 //! When it's trusted: the WAL holds no frames (the writer checkpoints when writes go quiet and
 //! at quit, so after a clean quit it's empty), the header's `application_id` equals the record's
-//! generation (both written in the same transaction), and the record's xxh3 matches. Otherwise
+//! generation (both written in the same transaction; the first commit after it that changes what
+//! the record holds moves the header's on: [`unstamp`]), and the record's xxh3 matches. Otherwise
 //! the record comes from SQLite with the rest ([`FastBoot::UseSqlite`]). The one exception: when
 //! another process holds the file so SQLite can't open it, the first frame is painted from the
 //! last checkpoint's record ([`FastBoot::Checkpointed`]) rather than wait, and nothing is saved.
@@ -112,6 +113,15 @@ pub fn rebuild(tx: &Connection) -> rusqlite::Result<usize> {
     Ok(bytes.len())
 }
 
+/// The transaction changes something the stored record summarizes without rebuilding it: the
+/// header's generation moves on with it, so the record no longer carries it and no raw read
+/// trusts the record until the next [`rebuild`] (`read_raw`: "stale record"). An empty WAL alone
+/// doesn't prove the record current: SQLite checkpoints when a connection closes, and so does
+/// any other program that opens the file, neither of which rebuilds the record.
+pub fn unstamp(tx: &Connection) -> rusqlite::Result<()> {
+    let generation = tx.query_row("PRAGMA application_id", [], |r| r.get::<_, i64>(0)).map(|g| (g as u32).wrapping_add(1))?;
+    tx.execute_batch(&format!("PRAGMA application_id = {}", generation as i32))
+}
 fn table_exists(c: &Connection, name: &str) -> rusqlite::Result<bool> {
     c.prepare_cached("SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?1)")?.query_row([name], |r| r.get(0))
 }
