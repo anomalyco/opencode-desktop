@@ -215,6 +215,8 @@ impl FilesHost for App {
 
     fn session_open_file_tabs(&self, sid: &str) -> (Vec<String>, Option<String>) {
         let side = self.kernel.slots.get(&crate::panels::SIDE);
+        // A subagent's file tabs are its root's strip's.
+        let sid = self.panel_root(sid);
         let opened = side
             .sessions
             .get(sid)
@@ -265,7 +267,8 @@ impl FilesHost for App {
         tx: &mut Tx,
     ) {
         let saved_focus = (self.composer.focused, self.kernel.slots.get(&crate::panels::SIDE).focus.mode());
-        if remove_open_tab && let Some(st) = self.kernel.slots.get_mut(&crate::panels::SIDE).sessions.get_mut(sid) {
+        let strip = self.panel_root(sid).to_owned();
+        if remove_open_tab && let Some(st) = self.kernel.slots.get_mut(&crate::panels::SIDE).sessions.get_mut(&strip) {
             st.tab_state.tabs.all.retain(|k| k != data::OPEN_TAB_KEY);
         }
         self.show_pane_tab(tx, |s| {
@@ -356,7 +359,8 @@ impl FilesHost for App {
 }
 
 impl App {
-    /// Returns `(session_id, Some(file_path) | None /* file:open */)` when a `file:*` tab is active & visible.
+    /// Returns `(session_id, Some(file_path) | None /* file:open */)` when a `file:*` tab is active & visible:
+    /// the routed session, which the tab draws for (a subagent on its root's strip).
     pub fn active_file_tab(&self) -> Option<(String, Option<String>)> {
         if !(self.side_open() || self.fixture_run.stage.is_some()) {
             return None;
@@ -365,9 +369,9 @@ impl App {
         let act = reg.active.as_deref()?;
         let id = act.strip_prefix("file:")?;
         if id == data::OPEN_TAB_ID {
-            Some((reg.session_id.clone(), None))
+            Some((reg.view_session.clone(), None))
         } else {
-            data::file_tab_path(id).map(|p| (reg.session_id.clone(), Some(p)))
+            data::file_tab_path(id).map(|p| (reg.view_session.clone(), Some(p)))
         }
     }
 

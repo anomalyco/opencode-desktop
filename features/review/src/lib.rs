@@ -390,6 +390,11 @@ pub struct ReviewPane {
     pub(crate) vcs_fetch: Latest<(String, String, Option<FetchedVcs>)>,
     pub(crate) file_fetch: Latest<(String, String, Option<String>)>,
     pub(crate) asked: Option<(String, ChangeMode, u64)>,
+    /// Desktop's `waiting` (`packages/gui-plugins/src/review/machine.ts:22-28, 50, 92`): sessions
+    /// whose changes were wanted before the server listed them, so their folder isn't known.
+    /// Nothing is asked for them, since the server would answer for its own folder; they show
+    /// as loading, and [`poll`] asks once the folder is known.
+    pub(crate) waiting: HashSet<String>,
     pub(crate) vcs_asked: Option<(String, String)>,
     pub(crate) vcs_cache: HashMap<(String, String), CachedVcs>,
     pub(crate) cache: HashMap<ReviewCacheKey, CachedReview>,
@@ -412,6 +417,7 @@ impl Default for ReviewPane {
             vcs_fetch: Latest::default(),
             file_fetch: Latest::default(),
             asked: None,
+            waiting: HashSet::new(),
             vcs_asked: None,
             vcs_cache: HashMap::new(),
             cache: HashMap::new(),
@@ -421,13 +427,13 @@ impl Default for ReviewPane {
 }
 
 impl ReviewPane {
-    /// The data or the pending live request already covers this document. Merely asking
-    /// for the same thing again while rendering must not enqueue a follow-up commit.
+    /// The data, the pending live request or the wait for the session's folder already covers
+    /// this document. Merely asking for the same thing again while rendering must not enqueue a
+    /// follow-up commit.
     pub fn has_read(&self, sid: &str, mode: ChangeMode) -> bool {
-        self.sessions
-            .get(sid)
-            .is_some_and(|sr| sr.mode == mode && sr.load.loaded_revision() == Some((mode, self.revision)))
-            || self.asked.as_ref().is_some_and(|(id, m, rev)| id == sid && *m == mode && *rev == self.revision)
+        self.sessions.get(sid).is_some_and(|sr| {
+            sr.mode == mode && (sr.load.loaded_revision() == Some((mode, self.revision)) || self.waiting.contains(sid))
+        }) || self.asked.as_ref().is_some_and(|(id, m, rev)| id == sid && *m == mode && *rev == self.revision)
     }
 
     pub fn set_waker(&mut self, waker: Waker) {
@@ -457,6 +463,7 @@ impl ReviewPane {
             ReviewCacheKey::Vcs { directory, .. } => keep_dirs.contains(directory),
         });
         self.vcs_cache.retain(|(_, dir), _| keep_dirs.contains(dir));
+        self.waiting.retain(|sid| self.sessions.contains_key(sid));
     }
 }
 

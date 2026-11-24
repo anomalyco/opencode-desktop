@@ -521,7 +521,13 @@ fn trigger_shell(host: &dyn NewWorktreeHost, p: &Pal, current: &str) -> El {
         .child(icon(&ic::BRANCH_OUT, 16.0).color(p.icon_muted))
         .child(text(opencode_i18n::t!("session.new.workspace.fromBranch", branch = branch)).font(UI).color(if open { p.text } else { p.muted }).group_color(p.text).truncate_fade())
         .child(icon(&ic::CHEVRON_DOWN, 14.0).ml(-2.0).color(p.icon_muted));
-    if open { el } else { el.help(opencode_i18n::t!("command.session.branch.choose")).help_keys(Bind::BranchChoose.keycaps()) }
+    if open {
+        return el;
+    }
+    // Two commands, each with its shortcut: Choose worktree, then Choose branch (official
+    // `new-session/workspace/selector.tsx` `BaseBranchPicker`, opencode#66097).
+    el.help(opencode_i18n::t!("session.location.worktree")).help_keys(Bind::LocationSelect.keycaps())
+        .help_row(opencode_i18n::t!("command.session.branch.choose")).help_keys(Bind::BranchChoose.keycaps())
 }
 
 /// The branch beside a new worktree (`selector.tsx:159-176`): `from <branch>` after the

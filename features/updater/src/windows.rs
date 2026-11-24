@@ -173,6 +173,7 @@ impl Platform for Windows {
             }
             std::fs::rename(&app, &dest).map_err(|e| format!("could not stage the update: {e}"))?;
             receipt::stage(&dest, &found.version, &found.target.sha256)?;
+            flush(&dest);
             first_start(&dest.join(EXE));
             Ok(Staged { version: found.version, sha256: found.target.sha256, dir: dest })
         })();
@@ -284,6 +285,23 @@ impl Windows {
             _ => Ok(()),
         }
     }
+}
+
+/// Has Windows write every program and library of the staged build to the disk, while the update
+/// still shows as downloading.
+///
+/// Windows doesn't map a file as an image while bytes of it are only in its file cache: the
+/// first run of a build `tar` had just unpacked waited 775 to 1,481 ms for that (the 146 MiB
+/// library, n = 8), against 26 to 29 ms once the files were flushed (the setup does the same,
+/// `apps/installer/src/install.rs` `flush`). Without it the first process to load the staged
+/// library pays the wait: `first_start` below, or the update helper at the click (1.1 to 1.7 s
+/// in six real updates whose staging step didn't run the build).
+fn flush(dir: &Path) {
+    let started = rune::time::Instant::now();
+    let mut files = Vec::new();
+    binaries(dir, &mut files);
+    let flushed = files.iter().filter(|path| std::fs::OpenOptions::new().write(true).open(path).and_then(|file| file.sync_all()).is_ok()).count();
+    log(&format!("updater: {flushed} of {} staged programs and libraries are on the disk after {} us", files.len(), started.elapsed().as_micros()));
 }
 
 /// Runs the staged build once, with `--version`, where nobody waits for it: so Windows has made

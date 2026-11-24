@@ -393,7 +393,7 @@ impl App {
     pub(crate) fn is_browser_tab_currently_selected_and_open(&self, tab_id: u64) -> bool {
         !self.plugins.window_blurred.get()
             && self.side_open()
-            && self.browser_tab_session(tab_id) == self.active_session_id()
+            && self.browser_tab_session(tab_id).is_some_and(|owner| self.panel_shows(owner))
             && self.active_browser_tab_id() == Some(tab_id)
     }
 
@@ -410,7 +410,6 @@ impl App {
             crate::plugin_host::bump();
             return true;
         }
-        let active_sid = self.active_session_id().map(str::to_owned);
         let side_open = self.side_open();
         let active_tab = self.active_browser_tab_id();
         let now = Instant::now();
@@ -435,7 +434,7 @@ impl App {
             if !tab.loading {
                 r.saw_settled = true;
             }
-            if self.browser_tab_session(tab_id) != active_sid.as_deref() {
+            if !self.browser_tab_session(tab_id).is_some_and(|owner| self.panel_shows(owner)) {
                 return false;
             }
             if r.was_visible && (!side_open || active_tab != Some(tab_id)) {

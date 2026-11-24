@@ -207,7 +207,7 @@ impl SwitcherHost for App {
     }
 
     fn side_tab_keys(&self, session_id: &str) -> Option<(Option<&str>, &[String])> {
-        let tabs = &self.kernel.slots.get(&crate::panels::SIDE).sessions.get(session_id)?.tab_state.tabs;
+        let tabs = &self.kernel.slots.get(&crate::panels::SIDE).sessions.get(self.panel_root(session_id))?.tab_state.tabs;
         Some((tabs.active.as_deref(), &tabs.all))
     }
 

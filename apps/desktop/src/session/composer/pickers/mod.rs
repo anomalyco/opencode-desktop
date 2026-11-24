@@ -34,14 +34,14 @@ impl PickerHost for App {
     }
     fn picker_running(&self) -> Option<Selection> {
         let Route::Session { id, .. } = &*self.route else { return None };
-        self.session(id).map(|i| Selection { model: i.model.clone(), agent: i.agent.clone() })
+        self.session(id).map(|i| Selection { model: i.model.clone(), agent: i.agent.clone(), effort: Effort::Chosen })
     }
     /// Desktop's order, not another session's model: a server with no sessions still names one.
     fn picker_fallback_model(&self) -> Option<ModelRef> {
         self.composer_ext.pickers.fallback_model()
     }
     fn picker_subagent(&self) -> Option<(String, Selection)> {
-        self.subagent_page().map(|i| (i.id.clone(), Selection { model: i.model.clone(), agent: i.agent.clone() }))
+        self.subagent_page().map(|i| (i.id.clone(), Selection { model: i.model.clone(), agent: i.agent.clone(), effort: Effort::Chosen }))
     }
     fn picker_show_agent(&self) -> bool {
         self.settings.show_agent || self.subagent_page().is_some()
@@ -141,7 +141,7 @@ impl App {
             let s = |v: &Value| v.as_str().unwrap_or("").to_owned();
             info.model = ModelRef { id: s(&m["id"]), provider: s(&m["providerID"]), variant: s(&m["variant"]) };
         }
-        Some(Box::new(Selection { model: info.model.clone(), agent: info.agent.clone() }))
+        Some(Box::new(Selection { model: info.model.clone(), agent: info.agent.clone(), effort: Effort::Chosen }))
     }
 
     /// After `apply_selected`, in each window: a pick it now runs with is forgotten, so the

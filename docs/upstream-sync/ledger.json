@@ -2,29 +2,29 @@
   "generated_at": "2026-11-24",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "adc958a7d7976e0b89d4678f0364eaf972411108",
+  "upstream_head": "2255b8932263fb368d3f4e16e60bf3901bde6c4f",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "b1cb9124f",
-  "post_1114_commit_count": 586,
-  "post_1114_in_ledger": 207,
-  "post_1114_skipped": 379,
+  "rune_desktop_head": "b6cdcb48a",
+  "post_1114_commit_count": 604,
+  "post_1114_in_ledger": 215,
+  "post_1114_skipped": 389,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
     "ci-bench-deps": 22,
-    "docs-site-data": 58,
+    "docs-site-data": 59,
     "tui-only": 28,
     "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 235
+    "server-core-ai-codemode-internal": 244
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 228,
+  "total_ledger_rows": 236,
   "status_counts": {
-    "have it": 193,
+    "have it": 198,
     "not applicable": 31,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 1
+    "missing": 4
   },
   "rows": [
     {
@@ -5544,7 +5544,7 @@
       "summary": "Linux only: with side tabs, the app menu button shows in the side tabs header (it was hidden with the vertical titlebar).",
       "size": "XS",
       "status": "have it",
-      "status_evidence": "By reading (UPSTREAM-PROOF): outside Windows the titlebar row has no height with side tabs, and the app menu's button was only put in that row, so ours on Linux had no app menu with Side tabs or the Inbox layout. Ported in rune-desktop #1009 (8bc31926): on Linux the app menu's button leads the sidebar's header, 2 before its start, as titlebar.tsx's linux() branch. Type-checked for Linux x64 by LAUNCH-LINUX-d (cargo check, exit 0); compiled on macOS and Windows by CI; NOT run on Linux.",
+      "status_evidence": "Ported in rune-desktop #1009 (8bc31926): on Linux the app menu's button leads the sidebar's header, as titlebar.tsx's linux() branch (ours had no app menu with Side tabs or the Inbox layout outside Windows). Type-checked for Linux x64 before merging, and RUN by LAUNCH-LINUX-d on the published dev-482 deb under headless weston and Xvfb: the app menu button is in the header with Side tabs and with the Inbox layout.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
@@ -5594,11 +5594,12 @@
       ],
       "summary": "A subagent (a child session a tab routes to) shows its root session's side panel tabs: the strip and the plugins' panel state go by the tab's session, not the routed child's.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Not ported: read and planned (notes/upstream-sync/status-upstream-f.md). Ours keys the side panel by the routed session in every store (features/panels, terminals, browser tab owners, open files: about 150 call sites), and an agent's browser tabs are owned by the agent's own session, so this is a cross-feature change that needs runs, not official's two lines. A WIP branch upstream-f/panel-session holds the mechanical part (AppEnv::panel_session_id / panel_root; not compiled, not merged). Today a subagent page shows a side panel of its own.",
+      "status": "have it",
+      "status_evidence": "rune-desktop #1020 (a942fe8d, by the agent UP-201): a subagent's page shows its root session's side panel: one strip, one selection, one pane split, open state and widths for a tab's family; Review, Context and Details show the routed session's own; the family's terminals and browser tabs show on every page of the family. RUN on both commits' CI builds and next to official in Electron (678621a5df; notes/upstream-sync/up-201-official.md): the same on strip, selection and routed panels. Different on purpose in one thing: official drops the parent's terminal tab for good after one visit to a subagent's page (an official fault, not copied). Follow-up #1028 (b5c5701d): a subagent keeps its browser after the person leaves its page (run: #1020's build answered Unknown tool for browser.tabs.list there, #1028's answers its tab). Not run: a real window's first frame on a subagent's page; an agent's focus request while the person reads the parent.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "rune_pr": "#1020, #1028"
     },
     {
       "id": "UP-202",
@@ -5723,11 +5724,11 @@
       "summary": "A model's speeds share its effort (variant), saved under the standard model; an effort saved before speeds existed may be stored under one of the speeds, and is still read (models.tsx getVariant looks at the standard model, the model itself, then its speeds).",
       "size": "S",
       "status": "have it",
-      "status_evidence": "rune-desktop #991 (d6da8b22): Pickers::saved_effort (crates/session-view/src/pickers/speed.rs) reads the standard model, the model, then its speeds, as getVariant. Found with it and closed: ours kept the per-model effort in memory only; ModelPrefs (pickers/prefs.rs) now reads and writes official's `variant` map (provider/model -> effort id or `default`) with favourites, recents and speeds, so an effort is kept across launches. By reading, compiled by CI; not run.",
+      "status_evidence": "rune-desktop #991 (d6da8b22): Pickers::saved_effort reads the standard model, the model, then its speeds, as getVariant, and ModelPrefs reads and writes official's variant map. RUN by UP-EFFORT on published dev-482: a profile in official's shape is read and an effort saved under a speed applies when the model is picked from the list; but a fresh draft showed Default with an effort saved (official shows it), and the write was skipped in every headless run. Both fixed in #1026 (c638a6c7): the saved effort shows in a fresh draft, and pick High, relaunch, the new draft shows High at once (run on its CI build with --harness-writes). Not run: a person's window.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
-      "rune_pr": "#991"
+      "rune_pr": "#991, #1026"
     },
     {
       "id": "UP-207",
@@ -5750,6 +5751,190 @@
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-208",
+      "window": "post-1120",
+      "pr": 66090,
+      "sha": "678621a5df",
+      "title": "fix(app): make the worktree step's back control the search-field arrow",
+      "merged": "2026-11-24",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/new-session/location/dialog.css",
+        "packages/app/src/new-session/location/dialog.tsx"
+      ],
+      "summary": "New-session location dialog, the worktree step: the search field's leading icon is the back arrow in every step that owns Escape (it was the magnifying glass there), and the group's title \"Run session in\" is a heading named for the list, not a button or a Tab stop.",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "rune-desktop #1019 (03893b3f): features/switcher/src/project/view.rs shows the back arrow in the search field for every step but the first, and the step's title is a plain heading (project-switcher-title) with the list as a group it names; the title's button is gone. Run by UPSTREAM-PROOF on its CI build: the back arrow leads the search field in the worktree and branch steps and steps back to the projects; the title is a group that takes no focus (Tab goes field, arrow, field). Official side by its code and test.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#1019"
+    },
+    {
+      "id": "UP-209",
+      "window": "post-1120",
+      "pr": 66092,
+      "sha": "24cf6eb258",
+      "title": "fix(app): keep focus in the worktree search while hovering rows",
+      "merged": "2026-11-24",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/session/composer/location-missing.tsx"
+      ],
+      "summary": "In the composer's \"Session location unavailable\" card (a session whose folder is gone), the worktree list is a popover whose search field keeps focus while the pointer moves over rows (it was a menu, whose hovered item took focus); ten or more other worktrees add the search field.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Not applicable as ours stands, and not decided: ours has no such card. A session whose folder is gone is moved to its project's main checkout on the next send, with a first line saying so (crates/opencode-kit/src/session_home.rs), where official lets the person choose a worktree or a directory (session/composer/location-missing.tsx, since opencode#56087). Owner question sent 24 Nov: keep ours or port the card; this row follows his answer.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-210",
+      "window": "post-1120",
+      "pr": 66097,
+      "sha": "b47eb4ed2d",
+      "title": "feat(app): show the worktree shortcut in the base branch tooltip",
+      "merged": "2026-11-24",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/new-session/workspace/selector.tsx"
+      ],
+      "summary": "The base branch control's tooltip in a new session's composer lists two commands, each with its shortcut: Choose worktree (session.location.select), then Choose branch.",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "rune-desktop #1021 (f5c616ec): features/workspace-tools/src/new_worktree/mod.rs trigger_shell gives the tooltip two rows (El::help_row), Choose worktree with Bind::LocationSelect's keycaps, then Choose branch with Bind::BranchChoose's. Run by UPSTREAM-PROOF on its CI build: the pointer resting on \"from main\" draws two rows, each with its keycaps (Choose worktree CTRL ALT O; Choose base branch CTRL ALT B). Two differences left, seen in the run: ours draws the tooltip under the control with rows from the start edge; official places it on top with centred rows.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#1021"
+    },
+    {
+      "id": "UP-211",
+      "window": "post-1120",
+      "pr": 66096,
+      "sha": "87dd60cbea",
+      "title": "refactor(app): choose a missing session worktree from the shared worktree dialog",
+      "merged": "2026-11-24",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/new-session/location/dialog.tsx",
+        "packages/app/src/new-session/location/machine.ts",
+        "packages/app/src/runtime/i18n/am.ts",
+        "packages/app/src/runtime/i18n/ar.ts"
+      ],
+      "summary": "The \"Session location unavailable\" card's Choose worktree opens the shared new-session location dialog (its worktree step) instead of a list of its own; the card's own popover, search and machine states for the list are gone, and one string is removed.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Part of the card port (UP-CARD, decided 24 Nov under the parity rule): ours has no card yet (crates/opencode-kit/src/session_home.rs moves the session by itself). Port the card from this commit's shape.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-212",
+      "window": "post-1120",
+      "pr": 66071,
+      "sha": "0c2e204eaa",
+      "title": "fix(ui): stack elevation shadows in Figma's order",
+      "merged": "2026-11-24",
+      "packages": [
+        "ui"
+      ],
+      "main_files": [
+        "packages/ui/src/styles/tokens/theme.css",
+        "packages/ui/src/theme/themes/oc-2.json",
+        "packages/ui/src/theme/v2/mapping.ts"
+      ],
+      "summary": "The elevation shadows' layers are listed in Figma's order (the 0.5 px ring first, then the soft shadows; for the contrast button the insets before the ring and the drop shadow), which changes which layer paints over which.",
+      "size": "XS",
+      "status": "missing",
+      "status_evidence": "Not ported, not compared. The tokens are Rune's (rune-theme-opencode), so a change is a Rune PR and a pin. Black layers over black composite the same in any order, so raised / floating / overlay / input / neutral button cannot differ; the contrast button (an opaque grey ring, light and dark insets) can. Needs a pixel comparison of the contrast button next to official.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-213",
+      "window": "post-1120",
+      "pr": 66107,
+      "sha": "4bb997ea44",
+      "title": "fix(models): honor legacy variants at the selected speed",
+      "merged": "2026-11-24",
+      "packages": [
+        "app",
+        "tui"
+      ],
+      "main_files": [
+        "packages/app/src/composer/selection.ts",
+        "packages/app/src/providers/models/models.tsx",
+        "packages/app/src/providers/models/variant.ts",
+        "packages/app/test-browser/fixtures/model-selection.ts"
+      ],
+      "summary": "Which effort (variant) a model runs with at a chosen speed: a saved effort is read from the standard model, then the model itself, and from its other speeds only when no agent or config names an effort for it; an agent's or the config's effort for a model applies at its speeds too; switching to another speed of the same model keeps an effort the person chose, and resolves an inherited one for the new speed.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "rune-desktop #1026 (c638a6c7, by the agent UP-EFFORT): a model with no effort chosen runs with its saved effort, else its agent's or the config's, at every speed; a speed switch keeps a chosen effort and resolves an inherited one for the new speed. RUN before merge on its CI build next to official's own selection code under its test fixture at 4bb997ea44: 58 of 58 observations the same (25 cases, the 9 that #66107 changed among them); a sent prompt carries the inherited effort. Found while porting, official's long-standing behaviour (composer/selection.ts): picking an agent that names no model goes to the config's model, else a recent one, else the first; ours kept the other agent's model. Ported in #1038 (0a409c4b): 5 of 18 observations differed before, 18 of 18 the same after. Official's Electron window not run; ours headless only.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#1026, #1038"
+    },
+    {
+      "id": "UP-214",
+      "window": "post-1120",
+      "pr": 66108,
+      "sha": "a44675ecee",
+      "title": "feat(ui): radio surfaces and flat unselected controls, as in Figma",
+      "merged": "2026-11-24",
+      "packages": [
+        "ui"
+      ],
+      "main_files": [
+        "packages/ui/src/forms/radio/radio.css",
+        "packages/ui/src/forms/radio/radio.tsx"
+      ],
+      "summary": "The radio control's look, as in Figma: an unselected control is flat (the base background, no top-light gradient), its hover is an inset overlay; a new `surface=\"layer-1\"` puts the controls on layer-01; the invalid ring takes the danger foreground; the disabled control and the selected dot's ring and shadow change. Used in the provider connect dialog and the WSL dialog.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Not ported, not compared. Ours' radios in the connect and WSL dialogs come from the shared kit; a change to their look is likely a Rune change and a pin. Needs a pixel comparison of an unselected, hovered, selected and disabled radio next to official a44675ecee first.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-215",
+      "window": "post-1120",
+      "pr": 66149,
+      "sha": "22d022cb13",
+      "title": "fix(session-ui): lift one-line inline quotes so lowercase sits centered on the bar",
+      "merged": "2026-11-24",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/components/message-part.css",
+        "packages/session-ui/src/message/user-message-quotes.tsx"
+      ],
+      "summary": "An inline quote of one line (and a file or note reference) has its bar run 1 px past the line, so lowercase text reads centred on the bar; wrapped quotes are unchanged.",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "rune-desktop #1042 (b6cdcb48): crates/session-view/src/user_quotes.rs behind_bar gives a one-line quote 1 of room under its line, which the bar spans. Also in it: a quote's lines are laid out (fold::measure), so a short quote that wraps past three lines can be opened (#976 asked fold::lines, which answers hard breaks alone under 360 bytes). RUN by UPSTREAM-PROOF on its CI build: a one-line quote and a file reference are 22 high over a 21 line (dev: 21 over 21); a 289-character quote with no break is three lines and a button, a press opens it to four (on dev it was clamped with no button: the fault was run too); a quote of exactly three lines has no button. The line count is kept by text and width. Scroll cost on a session of 40 inline quotes (frame CPU time from the app trace, two runs a side, taken close to a WSL build, so provisional): the eight frames where quote rows are built total 27.4 / 30.9 ms on dev against 25.5 / 25.3; the other frames median 1.3 to 1.4 ms on both. NOT RUN: 30 or more quotes on screen at once (owed when blade has the memory).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#1042"
     }
   ],
   "browser_security_review": {

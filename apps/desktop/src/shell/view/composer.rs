@@ -132,6 +132,12 @@ impl ComposerHost for App {
     fn composer_send(&mut self, tx: &mut Tx) {
         self.send(tx);
     }
+    fn composer_send_in_place(&mut self, tx: &mut Tx) {
+        self.submit_mode(crate::send::SubmitMode::InPlace, tx);
+    }
+    fn composer_shift_held(&self) -> bool {
+        *self.kernel.slots.get(&crate::attachments::SHIFT_HELD)
+    }
     fn composer_stop(&mut self, tx: &mut Tx) {
         crate::stop::press(self, tx);
     }
@@ -298,6 +304,12 @@ impl ComposerHost for App {
         if crate::keymap::Bind::SubmitFirst.matches_tx(ev, tx) {
             if !tx.key_repeat() {
                 self.submit_mode(crate::send::SubmitMode::QueueFirst, tx);
+            }
+            return true;
+        }
+        if crate::keymap::Bind::SubmitInPlace.matches_tx(ev, tx) {
+            if !tx.key_repeat() {
+                self.submit_mode(crate::send::SubmitMode::InPlace, tx);
             }
             return true;
         }

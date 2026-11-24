@@ -319,13 +319,28 @@ mod native {
                 && self.browser_preview_supported()
         }
 
-        /// Zero-allocation lookup of the active browser tab ID in the routed session.
+        /// Zero-allocation lookup of the browser tab the page's side panel has selected, whichever
+        /// session of the routed session's family owns it (a subagent draws on its root's strip).
         pub fn active_browser_tab_id(&self) -> Option<u64> {
-            self.active_browser_tab_for_session(self.active_session_id()?)
+            self.strip_browser_tab(self.panel_session_id()?)
         }
 
-        /// Active browser tab ID in `sid`'s side panel, if a browser tab is currently active there.
+        /// The browser tab session `sid`'s side panel has selected, whichever session of its
+        /// family owns it: what the pane's own chrome acts on.
+        pub fn shown_browser_tab_for_session(&self, sid: &str) -> Option<u64> {
+            self.strip_browser_tab(self.panel_root(sid))
+        }
+
+        /// Session `sid`'s active browser tab: the one its side panel has selected, when it is
+        /// `sid`'s own. The strip is its whole family's (`App::panel_root`), so an agent's look-up
+        /// goes by the tab's owner: a subagent never reads or moves its parent's tab, nor a
+        /// sibling's.
         pub fn active_browser_tab_for_session(&self, sid: &str) -> Option<u64> {
+            self.shown_browser_tab_for_session(sid).filter(|&id| self.browser_tab_session(id) == Some(sid))
+        }
+
+        /// The browser tab strip `sid` (a panel session) has selected, if one is.
+        fn strip_browser_tab(&self, sid: &str) -> Option<u64> {
             let side = self.kernel.slots.get(&crate::panels::SIDE);
             let st = side.sessions.get(sid)?;
             let act = st.tab_state.tabs.active.as_deref()?;
@@ -354,7 +369,7 @@ mod native {
             if self.composer.focused {
                 return None;
             }
-            let sid = self.active_session_id()?;
+            let sid = self.panel_session_id()?;
             let key = panel_key(PLUGIN, &self.active_browser_tab_id()?.to_string());
             let side = self.kernel.slots.get(&crate::panels::SIDE);
             let st = side.sessions.get(sid)?;
@@ -367,7 +382,7 @@ mod native {
         /// region makes it, so ⌘W, ⌘L and ⌘T act on the browser rather than the session's tab.
         pub fn focus_browser_page(&mut self, id: u64) {
             self.workspace_panes.browser.host.close_extension_popup();
-            let Some(sid) = self.browser_tab_session(id).map(str::to_owned) else { return };
+            let Some(sid) = self.browser_tab_session(id).map(|owner| self.panel_root(owner).to_owned()) else { return };
             let key = panel_key(PLUGIN, &id.to_string());
             let side = self.kernel.slots.get_mut(&crate::panels::SIDE);
             let Some(st) = side.sessions.get(&sid) else { return };
@@ -663,7 +678,7 @@ mod native {
         pub fn close_browser_tab_for_session(&mut self, sid: &str, id: u64, tx: &mut Tx) {
             let (composer, side) = (self.composer.focused, self.kernel.slots.get(&crate::panels::SIDE).focus.mode());
             let key = panel_key(PLUGIN, &id.to_string());
-            let routed = self.active_session_id() == Some(sid);
+            let routed = self.panel_shows(sid);
             if routed {
                 self.close_side_tab(&key, tx);
             } else {

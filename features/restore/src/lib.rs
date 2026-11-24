@@ -98,7 +98,11 @@ pub fn restore_ui(host: &mut dyn RestoreHost, doc: &WindowDoc, server: &str) {
     host.set_home_return_tab(home_return);
 
     let namespace = opencode_storage::window_namespace(host.window_id());
-    let last_project = host.storage_json(&namespace, "tabs.recent").and_then(|r| {
+    let recent = host.storage_json(&namespace, "tabs.recent");
+    // The session that was routed in that tab, said only beside the key it was saved with.
+    let routed = recent.as_ref().filter(|r| doc.recent.is_some() && r["key"].as_str().and_then(TabKey::parse) == doc.recent);
+    host.set_saved_routed_child(routed.and_then(|r| r["routeSessionId"].as_str()).map(str::to_owned));
+    let last_project = recent.and_then(|r| {
         Some((ServerKey::new(r["target"]["server"].as_str()?), r["target"]["directory"].as_str()?.to_owned()))
     });
     host.set_last_project(last_project);

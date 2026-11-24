@@ -45,7 +45,9 @@ pub fn view<H: ProjectSwitcherHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> [El
     let lit = active(host, &list_rows);
     let (placeholder, step_title) = step_meta(&open.mode);
 
-    let leading = if matches!(open.mode, StepMode::Others | StepMode::Servers) {
+    // Every step past the first steps back from the search field's arrow (`dialog.tsx`:
+    // `view().ownsEscape`), the worktree step too (opencode#66090).
+    let leading = if !matches!(open.mode, StepMode::Projects) {
         search_back_shell(p).on_press_tx(|s: &mut H, tx: &mut Tx| super::back(s, tx))
     } else {
         icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted)
@@ -66,7 +68,9 @@ pub fn view<H: ProjectSwitcherHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> [El
         _ => None,
     };
     if let Some(title) = step_title {
-        list = list.child(step_back_shell(p, title).on_press_tx(|s: &mut H, tx: &mut Tx| super::back(s, tx)));
+        // The list's heading, not a control or a Tab stop (opencode#66090): it was the step's
+        // back button.
+        list = list.role("group").label_static(title).child(step_title_shell(p, title));
         content_h += 32.0;
     }
     if list_rows.is_empty() {
@@ -165,14 +169,8 @@ fn group_title_shell(key: &'static str) -> El {
     row().key(key).h(30.0).px(8.0).pt(10.0).pb(2.0).center_y()
 }
 
-fn step_back_shell(p: &Pal, title: &'static str) -> El {
-    group_title_shell("project-switcher-back")
-        .role("button")
-        .label_static(t!("session.new.location.back"))
-        .radius(2.0)
-        .cursor(rune::Cursor::Pointer)
-        .focus_inset(p)
-        .child(text(title).font(GROUP_TITLE).color(p.faint))
+fn step_title_shell(p: &Pal, title: &'static str) -> El {
+    group_title_shell("project-switcher-title").child(text(title).font(GROUP_TITLE).color(p.faint))
 }
 
 fn empty_shell(p: &Pal, waiting: bool) -> El {
