@@ -336,13 +336,14 @@ pub fn open_side_tab_for_session(
         }
     }
 
+    // The tab's panel and the narrow window's view hear of the session on the page.
+    let view = view_session(host, session_id);
     if let Some((plugin, tab_id)) = split_panel_key(key)
         && let Some(prov) = find_panel(host, plugin)
     {
-        let view = view_session(host, session_id);
         prov.focus(host, &view, tab_id, false);
     }
-    if host.place_narrow(session_id, key, was) && shared {
+    if host.place_narrow(&view, key, was) && shared {
         host.side_mut().shared_open = was_shared;
     }
 }
@@ -414,13 +415,14 @@ pub fn show_side_tab(host: &mut dyn PanelsHost, session_id: &str, key: &str, tar
         }
     }
 
+    // The tab's panel and the narrow window's view hear of the session on the page.
+    let view = view_session(host, session_id);
     if let Some((plugin, tab_id)) = split_panel_key(key)
         && let Some(prov) = find_panel(host, plugin)
     {
-        let view = view_session(host, session_id);
         prov.focus(host, &view, tab_id, false);
     }
-    if host.place_narrow(session_id, key, was) && shared {
+    if host.place_narrow(&view, key, was) && shared {
         host.side_mut().shared_open = was_shared;
     }
 }
