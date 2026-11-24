@@ -1,0 +1,17 @@
+[package]
+name = "office-library"
+version = "0.1.0"
+description = "The office viewer's engines as a library of their own (opencode_office), which the app loads when the first Word, Excel or PowerPoint file opens"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "opencode_office"
+crate-type = ["cdylib"]
+
+[dependencies]
+office-preview = { path = "../office-preview" }
+
+[lints]
+workspace = true

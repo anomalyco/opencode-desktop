@@ -3355,6 +3355,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "office-library"
+version = "0.1.0"
+dependencies = [
+ "office-preview",
+]
+
+[[package]]
 name = "office-preview"
 version = "0.1.0"
 dependencies = [

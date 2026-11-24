@@ -23,6 +23,17 @@ if [ "${OPENCODE_RUNE_SMOKE_HEADLESS:-0}" = "1" ]; then
   }
   [ -s "$home/no-server.png" ] || { echo "Expected non-empty $home/no-server.png" >&2; exit 1; }
   echo "OpenCode (Rune) rendered headless snapshot from $bundle."
+  # The office viewer's engines load (from their library, when the bundle ships them as one).
+  HOME="$home" "$exe" --office-check > "$home/office.log" 2>&1 || {
+    cat "$home/office.log" >&2 || true
+    echo "OpenCode (Rune) could not load the office viewer's engines" >&2
+    exit 1
+  }
+  cat "$home/office.log"
+  [ ! -e "$bundle/Contents/Frameworks/libopencode_office.dylib" ] || grep -q 'in their library, loaded' "$home/office.log" || {
+    echo "The bundle ships the office library, but the exe does not load it" >&2
+    exit 1
+  }
   # A panic unwinds and is caught, a panicking thread ends alone (the app relies on both).
   HOME="$home" "$exe" --unwind-check || {
     echo "OpenCode (Rune) does not unwind a panic as it must" >&2

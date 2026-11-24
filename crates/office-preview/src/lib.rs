@@ -9,6 +9,7 @@
 
 pub mod cjk;
 mod docx;
+pub mod engine;
 pub mod fonts;
 mod pptx;
 mod shared;
