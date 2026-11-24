@@ -310,6 +310,7 @@ pub fn run_native() {
     launch::print_version_if_asked();
     #[cfg(feature = "office")]
     office::check_if_asked();
+    launch::unwind_check_if_asked();
     if plugin_host::types::from_args() {
         return;
     }

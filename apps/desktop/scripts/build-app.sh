@@ -22,6 +22,7 @@
 #                                 loaded at the first office file, instead of in the exe; so does a pull request
 #                                 from a branch with "office-library" in its name. 0 until the release's signing
 #                                 step signs a second Mach-O file.)
+#   OPENCODE_RUNE_COMPACT_UNWIND (0 keeps a DWARF unwind entry per function; see rustc-compact-unwind.sh)
 #   OPENCODE_RUNE_LINK_ORDER     (0 links without apps/desktop/pgo/startup-order.txt; see link-order.sh)
 #   OPENCODE_RUNE_PGO_TRAIN      (1 builds the training exe; so does a pull request from a branch
 #                                 with "order-train" in its name; see apps/desktop/pgo/README.md)
@@ -67,6 +68,14 @@ host_triple=$(rustc -vV | sed -n 's/^host: //p')
 target_triple=${OPENCODE_RUNE_TARGET:-$host_triple}
 cross=0
 [ "$target_triple" = "$host_triple" ] || cross=1
+
+# Apple silicon: functions unwind by the linker's compact table instead of a DWARF entry each
+# (rustc-compact-unwind.sh): the exe loses its __eh_frame, 9.5 MiB of a thin-LTO build. Measured
+# and checked there (`--unwind-check` in smoke-app.sh); an Intel build keeps its entries.
+# OPENCODE_RUNE_COMPACT_UNWIND=0 builds as before.
+if [ "${OPENCODE_RUNE_COMPACT_UNWIND:-1}" = 1 ] && [ "$target_triple" = aarch64-apple-darwin ]; then
+  export RUSTC_WRAPPER="$ROOT/apps/desktop/scripts/rustc-compact-unwind.sh"
+fi
 
 if [ -n "${OPENCODE_RUNE_TARGET:-}" ] || { [ "$target_triple" = aarch64-apple-darwin ] && [ "$PROFILE" = release ]; }; then
   BIN="${CARGO_TARGET_DIR:-$ROOT/target}/$target_triple/$PROFILE/opencode-desktop"

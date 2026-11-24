@@ -34,6 +34,11 @@ if [ "${OPENCODE_RUNE_SMOKE_HEADLESS:-0}" = "1" ]; then
     echo "The bundle ships the office library, but the exe does not load it" >&2
     exit 1
   }
+  # A panic unwinds and is caught, a panicking thread ends alone (the app relies on both).
+  HOME="$home" "$exe" --unwind-check || {
+    echo "OpenCode (Rune) does not unwind a panic as it must" >&2
+    exit 1
+  }
   exit 0
 fi
 
