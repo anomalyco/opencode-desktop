@@ -17,7 +17,7 @@ const KEYS: &[Trigger] = &[
         key: 's',
         label: "Toggle source",
         run: |s, _| {
-            let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
+            let Some(sid) = s.panel_session_id().map(str::to_owned) else { return };
             let path = s.active_file_tab().and_then(|(_, p)| p).unwrap_or_else(|| PROPOSAL.into());
             s.toggle_rendered(&sid, &path, &mut Tx::default());
         },
@@ -30,7 +30,7 @@ const KEYS: &[Trigger] = &[
 ];
 
 fn follow(s: &mut App) {
-    let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = s.panel_session_id().map(str::to_owned) else { return };
     s.open_link(&sid, Some(PROPOSAL), "first-principles.md#the-rule", &mut Tx::default());
 }
 
@@ -42,7 +42,7 @@ pub fn init(s: &mut App) {
     let mut tx = Tx::default();
     s.open_workspace_file(PROPOSAL, false, None, &mut tx);
     s.workspace_panes.panel_sidebar.opened = false;
-    let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = s.panel_session_id().map(str::to_owned) else { return };
     match *s.fixture_run.variant {
         1 => s.toggle_rendered(&sid, PROPOSAL, &mut tx),
         2 => follow(s),

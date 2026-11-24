@@ -14,7 +14,7 @@ fn target(app: &App, href: &str) -> Option<(String, Link)> {
         return None;
     }
     let href = href.strip_prefix(opencode_ui::style::CODE_LINK).unwrap_or(href).trim();
-    let raw_dir = links::link_directory(app, app.active_session_id()?);
+    let raw_dir = links::link_directory(app, app.panel_session_id()?);
     let pinned = if app.can_reveal_outside() {
         app.pinned_local_root(&raw_dir)
     } else {
@@ -53,7 +53,7 @@ fn web_url(href: &str) -> bool {
 fn is_remote_session(app: &App) -> bool {
     let non_local = app.live_server().is_some_and(|s| !s.is_local());
     #[cfg(not(target_arch = "wasm32"))]
-    let non_sidecar = !app.browser_server_for_session(app.active_session_id()).is_sidecar();
+    let non_sidecar = !app.browser_server_for_session(app.panel_session_id()).is_sidecar();
     #[cfg(target_arch = "wasm32")]
     let non_sidecar = false;
     non_local || non_sidecar

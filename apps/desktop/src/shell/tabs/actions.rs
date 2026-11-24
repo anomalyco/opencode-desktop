@@ -314,7 +314,7 @@ impl App {
     pub(crate) fn reopen_tab(&mut self, tx: &mut Tx) {
         // The side panel's tab when it closed since the last titlebar tab (`reopensSideTab`,
         // `use-session-commands.tsx:129-136`), wherever focus is.
-        let side = self.active_session_id().and_then(|sid| self.kernel.slots.get(&crate::panels::SIDE).sessions.get(sid)).and_then(|s| s.closed.first()).map(|c| c.closed_ms);
+        let side = self.panel_session_id().and_then(|sid| self.kernel.slots.get(&crate::panels::SIDE).sessions.get(sid)).and_then(|s| s.closed.first()).map(|c| c.closed_ms);
         if side.is_some_and(|side| self.gestures.tab_closed_ms.is_none_or(|tab| side >= tab)) && self.reopen_closed_side_tab(None, tx) {
             return;
         }

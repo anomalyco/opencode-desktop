@@ -61,7 +61,7 @@ fn on_tab_press(host: &mut dyn FilesHost, sid: &str, tab_id: &str, tx: &mut Tx) 
 }
 
 fn on_tab_close(host: &mut dyn FilesHost, sid: &str, tab_id: &str, tx: &mut Tx) {
-    if let Some(path) = file_tab_path(tab_id).filter(|_| host.active_session_id() == Some(sid)) {
+    if let Some(path) = file_tab_path(tab_id).filter(|_| host.panel_session_id() == Some(sid)) {
         host.close_side_tab(&file_tab_key(&path), tx);
     }
 }

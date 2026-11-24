@@ -106,7 +106,7 @@ impl TabScope {
                     crate::surfaces::browser::rpc::is_mcp_browser_suppressed(
                         app,
                         server_key,
-                        app.active_session_id(),
+                        app.panel_session_id(),
                     ) || self.in_flight.iter().any(|sid| {
                         crate::surfaces::browser::rpc::is_mcp_browser_suppressed(
                             app,
@@ -147,7 +147,7 @@ impl TabScope {
                 if !mutate && self.is_builtin_browser {
                     true
                 } else {
-                    app.active_session_id() == Some(owner)
+                    app.panel_session_id() == Some(owner)
                         && (self.is_builtin_browser || self.in_flight.iter().all(|sid| sid == owner))
                 }
             }
@@ -173,9 +173,9 @@ impl TabScope {
             Some(None) => None,
             None if self.is_builtin_browser => requested
                 .map(str::to_owned)
-                .or_else(|| app.active_session_id().map(str::to_owned)),
+                .or_else(|| app.panel_session_id().map(str::to_owned)),
             None => {
-                let active = app.active_session_id()?;
+                let active = app.panel_session_id()?;
                 if requested.is_some_and(|req| req != active) {
                     return None;
                 }
@@ -191,6 +191,6 @@ impl TabScope {
 /// Whether a third-party plugin may hear passive signals (`Browser.Changed` / `Browser.Picked`)
 /// about `tab_id`: strictly limited to non-isolated tabs owned by the currently active session.
 pub(super) fn tab_visible_to_third_party(app: &App, tab_id: u64) -> bool {
-    app.active_session_id().is_some_and(|sid| app.browser_tab_session(tab_id) == Some(sid))
+    app.panel_session_id().is_some_and(|sid| app.browser_tab_session(tab_id) == Some(sid))
         && app.workspace_panes.browser.host.tab(tab_id).is_some_and(|t| !t.context.is_isolated())
 }

@@ -95,7 +95,7 @@ pub fn ensure_workspace_files(host: &mut dyn FilesHost, session_id: &str) {
 }
 
 pub fn toggle_workspace_dir(host: &mut dyn FilesHost, dir_path: &str) {
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     let is_live = host.is_live();
     let need_fetch = {
         let ws = host.files_mut().sessions.entry(sid.clone()).or_default();
@@ -304,7 +304,7 @@ pub fn open_html_in_browser(host: &mut dyn FilesHost, sid: &str, path: &str, tx:
 /// pane when [`FilesHost::opens_as_page`] is true (`packages/gui-plugins/src/file/renderer.tsx`),
 /// otherwise opens the file in the Files viewer.
 pub fn open_workspace_file_or_page(host: &mut dyn FilesHost, path: &str, preview: bool, tx: &mut Tx) {
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     if host.opens_as_page(path) {
         open_html_in_browser(host, &sid, path, tx);
     } else {
@@ -330,7 +330,7 @@ pub fn open_workspace_file_at(
     lines: Option<(u32, u32)>,
     tx: &mut Tx,
 ) {
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     open_workspace_file_for_session(host, &sid, path, preview, lines, true, tx);
 }
 
@@ -439,7 +439,7 @@ pub fn filtered_files(host: &dyn FilesHost, session_id: &str, query: &str) -> Ve
 }
 
 pub fn submit_files_filter(host: &mut dyn FilesHost, tx: &mut Tx) {
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     let filtered = filtered_sidebar_files(host, &sid);
     let pick = host
         .files()
@@ -455,7 +455,7 @@ pub fn submit_files_filter(host: &mut dyn FilesHost, tx: &mut Tx) {
 }
 
 pub fn request_sidebar_file_search(host: &mut dyn FilesHost) {
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     let q = host.files().filter.text.clone();
     request_file_search(host, &sid, &q);
 }

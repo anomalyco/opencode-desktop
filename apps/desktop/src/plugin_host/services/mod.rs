@@ -266,7 +266,7 @@ pub fn dep_version(app: &App, dep: &Dep) -> u64 {
         Dep::Popover(plugin, id) => app.plugins.overlay.popover_open(plugin, id).hash(&mut h),
         Dep::Flyout(plugin) => app.plugins.overlay.flyout_row(plugin).hash(&mut h),
         Dep::Dialog(plugin, id) => app.plugins.dialog.as_ref().is_some_and(|o| *o.plugin == **plugin && o.id == *id).hash(&mut h),
-        Dep::Panel(plugin, panel) => ui::panel_state(app, plugin, panel, app.active_session_id().unwrap_or_default()).hash(&mut h),
+        Dep::Panel(plugin, panel) => ui::panel_state(app, plugin, panel, app.panel_session_id().unwrap_or_default()).hash(&mut h),
         Dep::Narrow => ui::narrow(app).hash(&mut h),
         Dep::Locale => opencode_i18n::locale().id().hash(&mut h),
         Dep::Now => (*app.now_ms).hash(&mut h),

@@ -321,7 +321,7 @@ mod native {
 
         /// Zero-allocation lookup of the active browser tab ID in the routed session.
         pub fn active_browser_tab_id(&self) -> Option<u64> {
-            self.active_browser_tab_for_session(self.active_session_id()?)
+            self.active_browser_tab_for_session(self.panel_session_id()?)
         }
 
         /// Active browser tab ID in `sid`'s side panel, if a browser tab is currently active there.
@@ -354,7 +354,7 @@ mod native {
             if self.composer.focused {
                 return None;
             }
-            let sid = self.active_session_id()?;
+            let sid = self.panel_session_id()?;
             let key = panel_key(PLUGIN, &self.active_browser_tab_id()?.to_string());
             let side = self.kernel.slots.get(&crate::panels::SIDE);
             let st = side.sessions.get(sid)?;
@@ -467,7 +467,7 @@ mod native {
         }
 
         pub fn open_new_browser_tab_in(&mut self, url: &str, target_pane: Option<SessionPane>) -> u64 {
-            let sid = self.active_session_id().map(str::to_owned);
+            let sid = self.panel_session_id().map(str::to_owned);
             self.open_new_browser_tab_for_session(sid.as_deref(), url, target_pane, true)
         }
 
@@ -637,7 +637,7 @@ mod native {
         }
 
         pub fn register_existing_browser_tab(&mut self, id: u64) {
-            if let Some(sid) = self.active_session_id().map(str::to_owned) {
+            if let Some(sid) = self.panel_session_id().map(str::to_owned) {
                 self.register_existing_browser_tab_for_session(&sid, id, true);
             }
         }
@@ -663,7 +663,7 @@ mod native {
         pub fn close_browser_tab_for_session(&mut self, sid: &str, id: u64, tx: &mut Tx) {
             let (composer, side) = (self.composer.focused, self.kernel.slots.get(&crate::panels::SIDE).focus.mode());
             let key = panel_key(PLUGIN, &id.to_string());
-            let routed = self.active_session_id() == Some(sid);
+            let routed = self.panel_session_id() == Some(sid);
             if routed {
                 self.close_side_tab(&key, tx);
             } else {

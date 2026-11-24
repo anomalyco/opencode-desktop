@@ -37,7 +37,7 @@ pub fn init_files(s: &mut App) {
     s.finish_stream();
     *s.kernel.slots.get_mut(&crate::panels::SIDE) = Default::default();
     *s.kernel.slots.get_mut(&super::FILES) = Default::default();
-    let Some(sid) = s.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = s.panel_session_id().map(str::to_owned) else { return };
     s.ensure_session_review(&sid);
     let mut tx = rune::Tx::default();
     match *s.fixture_run.variant {

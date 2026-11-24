@@ -34,7 +34,7 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
     })?;
     method(lua, t, "OpenDocument", |lua, path: String| {
         let (sid, path) = with_app("Workspace:OpenDocument", |app| {
-            let sid = app.active_session_id().ok_or_else(|| mlua::Error::runtime("Workspace:OpenDocument: no session is open"))?.to_owned();
+            let sid = app.panel_session_id().ok_or_else(|| mlua::Error::runtime("Workspace:OpenDocument: no session is open"))?.to_owned();
             let path = crate::review::data::normalize_path(&path);
             // A file not read yet, one still loading with no read running (its session's folder
             // wasn't known), or one a failed refresh left stale, reads as it shows.
@@ -127,7 +127,7 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
                     let allowed_sid = tool_sid
                         .as_ref()
                         .map(|c| c.as_deref() == Some(sid.as_str()))
-                        .unwrap_or_else(|| s.active_session_id() == Some(sid.as_str()));
+                        .unwrap_or_else(|| s.panel_session_id() == Some(sid.as_str()));
                     if allowed_sid {
                         s.open_workspace_file_source(&sid, &path, preview, lines, false, tx);
                     }
@@ -182,7 +182,7 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
             }
             app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
                 let is_builtin = caller.as_deref().is_some_and(|id| s.plugins.is_builtin_plugin(id));
-                if !is_builtin && tool_sid.is_none() && s.active_session_id() != Some(sid.as_str()) {
+                if !is_builtin && tool_sid.is_none() && s.panel_session_id() != Some(sid.as_str()) {
                     return;
                 }
                 tx.instant();
@@ -251,7 +251,7 @@ fn document(lua: &Lua) -> mlua::Result<Table> {
 /// The session a tree of `directory` reads: the routed one when it's there (or no folder is
 /// given), else the first session open in it.
 fn session_for(app: &App, directory: &str) -> Option<String> {
-    let routed = app.active_session_id().and_then(|id| app.session(id));
+    let routed = app.panel_session_id().and_then(|id| app.session(id));
     if let Some(s) = routed.filter(|s| directory.is_empty() || s.directory == directory) {
         return Some(s.id.clone());
     }

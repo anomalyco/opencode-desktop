@@ -284,7 +284,7 @@ pub fn tab_lead(app: &App, p: &Pal, plugin: &str, tab: &PanelTabDesc, selected: 
     let (i, all) = panels(app, plugin)?;
     let k = owner(&all, &tab.id)?;
     let label = all[k].label.as_ref()?;
-    let session = app.active_session_id().unwrap_or_default();
+    let session = app.panel_session_id().unwrap_or_default();
     let instance = if all[k].list.is_some() { Data::String(tab.id.clone()) } else { Data::Nil };
     let data = map([("sessionId", Data::String(session.to_owned())), ("instance", instance), ("active", Data::Bool(selected)), ("preview", Data::Bool(false))]);
     Some(render_surface(app, p, i, &format!("label:{}:{session}:{}", all[k].spec.id, tab.id), label, data))
@@ -298,7 +298,7 @@ pub fn tab_lead_stamp(app: &App, p: &Pal, plugin: &str, tab: &PanelTabDesc, sele
     all[k].label.as_ref()?;
     let plug = &app.plugins.list[i];
     let script = plug.script()?;
-    let session = app.active_session_id().unwrap_or_default();
+    let session = app.panel_session_id().unwrap_or_default();
     let surface = format!("label:{}:{session}:{}", all[k].spec.id, tab.id);
     let reads = plug.half.reads.borrow().get(&surface).cloned();
     // Until the label has rendered once and recorded its reads, force a build.
@@ -354,7 +354,7 @@ fn asleep_launchers(app: &App, ctx: &PanelSessionCtx) -> Vec<PanelLauncherDesc> 
 /// Desktop's launcher does, `side-launch-<plugin>-<id>`), else opens panel `id`'s tab in `pane`.
 pub fn open_entry(app: &mut App, plugin: &str, id: &str, pane: SessionPane, tx: &mut Tx) {
     dormant::wake(app, plugin, dormant::Why::Use);
-    let session = app.active_session_id().unwrap_or_default().to_owned();
+    let session = app.panel_session_id().unwrap_or_default().to_owned();
     if !commands::run_menu_item(app, &format!("{plugin}.{id}"), &session, tx) {
         app.open_side_tab(&crate::panels::panel_key(plugin, id), Some(pane), false, false, tx);
     }
@@ -363,7 +363,7 @@ pub fn open_entry(app: &mut App, plugin: &str, id: &str, pane: SessionPane, tx: 
 /// The pointer came onto entry `id` of plugin `plugin`: its `session.panel` item's `hover` runs
 /// with the session.
 pub fn hover_entry(app: &mut App, plugin: &str, id: &str, tx: &mut Tx) {
-    let session = app.active_session_id().unwrap_or_default().to_owned();
+    let session = app.panel_session_id().unwrap_or_default().to_owned();
     commands::hover_menu_item(app, &format!("{plugin}.{id}"), &session, tx);
 }
 
@@ -462,7 +462,7 @@ pub fn home_pane(app: &App, plugin: &str) -> Option<SessionPane> {
 /// The narrow-window views the plugins' panels offer the routed session (`PanelSpec.mobile`),
 /// each keyed by its panel's tab key, `<plugin>:<panel>`.
 pub fn narrow_views(app: &App) -> Vec<(String, opencode_plugin_spec::PanelMobileView)> {
-    let session = app.active_session_id().unwrap_or_default();
+    let session = app.panel_session_id().unwrap_or_default();
     let ids: Vec<String> = app.plugins.running().map(|(_, p)| p.manifest.id.clone()).collect();
     ids.iter()
         .filter_map(|id| panels(app, id).map(|(i, all)| (id, i, all)))

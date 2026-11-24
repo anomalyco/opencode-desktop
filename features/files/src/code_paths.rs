@@ -366,7 +366,7 @@ pub fn reply_code_links(host: &dyn FilesHost, body: &str, live: bool) -> Option<
         return None;
     }
     let server = host.live_server()?;
-    let sid = host.active_session_id()?;
+    let sid = host.panel_session_id()?;
     let codes = candidates(body);
     if codes.is_empty() {
         return None;
@@ -389,7 +389,7 @@ pub fn open_code_path(host: &mut dyn FilesHost, code: &str, tx: &mut Tx) {
     if host.plugin_open_link(code, tx) {
         return;
     }
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     let (path, lines) = file_link(code);
     if path.is_empty() || is_absolute_link(&path) || path.starts_with('~') || path.starts_with("//") {
         return open_link(host, &sid, None, code, tx);
@@ -412,7 +412,7 @@ pub(crate) fn apply_code_link_resolved(
     target: Option<ResolvedCodeLink>,
     tx: &mut Tx,
 ) {
-    if host.active_session_id() != Some(sid) {
+    if host.panel_session_id() != Some(sid) {
         return;
     }
     match target {
@@ -430,7 +430,7 @@ pub(crate) fn apply_code_link_resolved(
 
 /// The side region's Open file picker, its filter holding `query` (`renderer.tsx` `openPicker`).
 pub fn open_file_picker(host: &mut dyn FilesHost, query: &str, tx: &mut Tx) {
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     crate::ops::ensure_workspace_files(host, &sid);
     {
         let pane = host.files_mut();

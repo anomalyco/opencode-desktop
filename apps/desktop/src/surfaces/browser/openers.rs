@@ -309,7 +309,7 @@ impl App {
 
     pub(crate) fn sync_browser_openers(&mut self) -> bool {
         let mut changed = self.sync_browser_strip_tabs();
-        if let Some(sid) = self.active_session_id().map(str::to_owned)
+        if let Some(sid) = self.panel_session_id().map(str::to_owned)
             && let Some(active) = self.active_browser_tab_id()
         {
             let prev = self.workspace_panes.browser.openers.last_selected.insert(sid, active);
@@ -326,7 +326,7 @@ impl App {
     /// its side-panel strip, restoring any tab the strip lost without an explicit close in exact
     /// relative order after its predecessor.
     fn sync_browser_strip_tabs(&mut self) -> bool {
-        let Some(sid) = self.active_session_id().map(str::to_owned) else {
+        let Some(sid) = self.panel_session_id().map(str::to_owned) else {
             return false;
         };
         let live_ids: Vec<u64> = {
@@ -398,7 +398,7 @@ impl App {
                     let new_id = self.workspace_panes.browser.host.open_extension_page_tab(&popup.url);
                     let sid = about_tab
                         .and_then(|t| self.browser_tab_session(t).map(str::to_owned))
-                        .or_else(|| self.active_session_id().map(str::to_owned));
+                        .or_else(|| self.panel_session_id().map(str::to_owned));
                     if let Some(sid) = sid {
                         if let Some(opener) = about_tab {
                             self.attach_browser_tab_beside(&sid, new_id, opener, !popup.background);
@@ -410,7 +410,7 @@ impl App {
                 } else if browser_policy::destination_origin(&popup.url).is_some() {
                     let sid = about_tab
                         .and_then(|t| self.browser_tab_session(t).map(str::to_owned))
-                        .or_else(|| self.active_session_id().map(str::to_owned));
+                        .or_else(|| self.panel_session_id().map(str::to_owned));
                     if let Some(opener) = about_tab {
                         let _ = self.open_new_browser_tab_beside(
                             sid.as_deref(),

@@ -234,7 +234,7 @@ pub fn open_reply_link(host: &mut dyn FilesHost, href: &str, tx: &mut Tx) {
     if host.plugin_open_link(href, tx) {
         return;
     }
-    if let Some(sid) = host.active_session_id().map(str::to_owned) {
+    if let Some(sid) = host.panel_session_id().map(str::to_owned) {
         return open_link(host, &sid, None, href, tx);
     }
     // A new session's page: no side panel to open a file in. Never execute via OS default app;
@@ -280,7 +280,7 @@ fn open_middle_link(host: &mut dyn FilesHost, href: &str, tx: &mut Tx) {
         .iter()
         .any(|s| href.get(..s.len()).is_some_and(|p| p.eq_ignore_ascii_case(s)));
     if web {
-        let sid = host.active_session_id().map(str::to_owned);
+        let sid = host.panel_session_id().map(str::to_owned);
         open_web(host, sid.as_deref(), href, false, tx);
     }
 }

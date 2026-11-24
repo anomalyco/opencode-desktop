@@ -117,7 +117,7 @@ impl NarrowHost for App {
                 (provider, &fallback)
             }
             None => {
-                let stored = self.kernel.slots.get(&crate::panels::SIDE).sessions.get(session_id).map(|st| &st.tab_state.tabs);
+                let stored = self.kernel.slots.get(&crate::panels::SIDE).sessions.get(self.panel_root(session_id)).map(|st| &st.tab_state.tabs);
                 let active = stored.and_then(|t| t.active.clone()).filter(|k| k.starts_with(&format!("{view}:")));
                 match active
                     .as_deref()

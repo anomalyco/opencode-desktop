@@ -537,7 +537,7 @@ pub fn poll(app: &mut App) -> bool {
         .drain_extension_open_requests()
         .collect();
     for req in open_reqs {
-        if let Some(sid) = app.active_session_id().map(str::to_owned) {
+        if let Some(sid) = app.panel_session_id().map(str::to_owned) {
             let tab_id = app
                 .workspace_panes
                 .browser

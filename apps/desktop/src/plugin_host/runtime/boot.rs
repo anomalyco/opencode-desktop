@@ -86,7 +86,7 @@ pub fn setup(app: &mut App, waker: Waker) {
     }
     // A side panel open on New tab lists the sleeping built-ins' entries from their records
     // (`first_screen`): those go to sleep before this frame, not after it.
-    if app.active_session_id().is_some_and(|session| dormant::shows_launchers(app, session)) {
+    if app.panel_session_id().is_some_and(|session| dormant::shows_launchers(app, session)) {
         doze_owed(app);
     }
     // A headless run (a capture, a check) reads the plugin folders before it draws; a window
@@ -175,7 +175,7 @@ fn start_later(app: &mut App) {
         if app.settings_open() {
             dormant::wake_settings(app);
         }
-        if let Some(sid) = app.active_session_id().map(str::to_owned) {
+        if let Some(sid) = app.panel_session_id().map(str::to_owned) {
             let tab_plugins: Vec<String> = app
                 .kernel
                 .slots
@@ -388,7 +388,7 @@ pub fn first_frame(app: &mut App) -> bool {
     doze_owed(app);
     // What the routed session's screen draws that slept through the first frame (a composer
     // pill, `first_screen`) starts from the next turn, one per turn.
-    if app.active_session_id().is_some() && dormant::want_pills(app)
+    if app.panel_session_id().is_some() && dormant::want_pills(app)
         && let Some(wake) = &*app.waker
     {
         wake();

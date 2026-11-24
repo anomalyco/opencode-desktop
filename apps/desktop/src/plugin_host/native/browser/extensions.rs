@@ -330,7 +330,7 @@ pub(super) fn service_methods(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> m
                     && let Some(url) = options_url.filter(|u| u.starts_with(&format!("chrome-extension://{ext_id}/")))
                 {
                     let new_id = host.open_extension_page_tab(&url);
-                    if let Some(sid) = s.active_session_id().map(str::to_owned) {
+                    if let Some(sid) = s.panel_session_id().map(str::to_owned) {
                         s.workspace_panes.browser.session_tabs.entry(sid).or_default().push(new_id);
                     }
                     s.workspace_panes.browser.host.focus_tab(new_id);

@@ -34,7 +34,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<super::super::vm::Vmx>, t: &Table) -> 
         // The terminal's pane opens on SIDE_SPRING; `show_pane_tab` lands a tab switch at once.
         with_app("Terminal:New", |app| {
             app.later(Box::new(move |s: &mut App, tx: &mut Tx| {
-                if sid.as_deref().is_none_or(|id| s.active_session_id() == Some(id)) {
+                if sid.as_deref().is_none_or(|id| s.panel_session_id() == Some(s.panel_root(id))) {
                     s.create_terminal_tab(None, tx);
                 }
             }));
@@ -56,7 +56,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<super::super::vm::Vmx>, t: &Table) -> 
         })
     })?;
     method(lua, t, "Attach", |lua, id: String| {
-        let Some(sid) = with_app("Terminal:Attach", |app| Ok(app.active_session_id().map(str::to_owned)))? else { return Ok(Value::Nil) };
+        let Some(sid) = with_app("Terminal:Attach", |app| Ok(app.panel_session_id().map(str::to_owned)))? else { return Ok(Value::Nil) };
         Ok(Value::Table(session(lua, &sid, &id)?))
     })?;
     // A terminal of the routed session, on its server, running the spec's program in its folder;
@@ -64,7 +64,7 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<super::super::vm::Vmx>, t: &Table) -> 
     method(lua, t, "Create", |lua, spec: Value| {
         let spec: opencode_plugin_spec::TerminalSpec = mlua::FromLua::from_lua(spec, lua).and_then(|d: Data| d.decode().map_err(|e| mlua::Error::runtime(format!("TerminalSpec: {e}"))))?;
         let (sid, id) = with_app("Terminal:Create", |app| {
-            let sid = app.active_session_id().map(str::to_owned).ok_or_else(|| mlua::Error::runtime("Terminal:Create needs a session: this window shows none"))?;
+            let sid = app.panel_session_id().map(str::to_owned).ok_or_else(|| mlua::Error::runtime("Terminal:Create needs a session: this window shows none"))?;
             let cwd = spec.cwd.or(Some(spec.directory));
             let info = app.start_terminal(&sid, spec.title, cwd, spec.command, spec.args.unwrap_or_default()).map_err(mlua::Error::runtime)?;
             let id = info.id.clone();
@@ -196,7 +196,7 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
     cx::with_app(|app| {
         let pal = p(a);
         if a.flag("narrow") {
-            let sid = a.string("sessionId").map(str::to_owned).or_else(|| app.active_session_id().map(str::to_owned)).unwrap_or_default();
+            let sid = a.string("sessionId").map(|id| app.panel_root(id).to_owned()).or_else(|| app.panel_session_id().map(str::to_owned)).unwrap_or_default();
             cx::read(Dep::TerminalScreen(sid.clone()));
             return Ok(crate::terminal::narrow::view(app, &pal, &sid));
         }

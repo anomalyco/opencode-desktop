@@ -22,7 +22,7 @@ thread_local! {
 
 /// Before the view builds: the folder links in the open session resolve against.
 pub fn prepare(host: &dyn FilesHost) {
-    let sid = host.active_session_id();
+    let sid = host.panel_session_id();
     let dir = sid.map_or_else(|| host.draft_directory().to_owned(), |sid| link_directory(host, sid));
     let home = host.home_directory();
     let files = host.files_untracked();

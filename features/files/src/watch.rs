@@ -117,7 +117,7 @@ pub fn changed(host: &mut dyn FilesHost, data: &serde_json::Value) {
 /// file is marked stale and reads when the session shows (`shown`), so an agent rewriting many
 /// files costs no reads for files nobody is looking at.
 pub fn reload(host: &mut dyn FilesHost, sid: &str, path: &str) {
-    if host.active_session_id() != Some(sid) {
+    if host.panel_session_id() != Some(sid) {
         host.files_mut().reads.outdate(sid, path);
         return;
     }

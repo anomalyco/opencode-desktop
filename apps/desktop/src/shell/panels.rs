@@ -135,7 +135,7 @@ impl PanelsHost for App {
         use rune::Tracked;
         let slots = &self.kernel.slots;
         let mut h = DefaultHasher::new();
-        self.active_session_id().hash(&mut h);
+        self.panel_session_id().hash(&mut h);
         crate::servers::runtime::active(self).hash(&mut h);
         let server_base = match Tracked::untracked(&self.source) {
             crate::Source::Live { server, allow_send, .. } => {
@@ -147,7 +147,7 @@ impl PanelsHost for App {
                 "fixture"
             }
         };
-        if let Some(sid) = self.active_session_id() {
+        if let Some(sid) = self.panel_session_id() {
             let wk = crate::terminal::workspace_key(server_base, sid);
             match slots.untracked(&crate::terminal::TERMINAL).workspaces.get(&wk) {
                 Some(ws) => {
@@ -404,7 +404,7 @@ impl App {
         toggle_side_region(self, tx);
         if !was_open
             && self.is_review_active()
-            && let Some(sid) = self.active_session_id().map(str::to_owned)
+            && let Some(sid) = self.panel_session_id().map(str::to_owned)
         {
             crate::plugin_host::native::diff::open_review(self, &sid);
         }
@@ -463,7 +463,7 @@ impl App {
     pub fn select_side_tab(&mut self, key: &str, tx: &mut Tx) {
         select_side_tab(self, key, tx);
         if key == crate::review::REVIEW_KEY
-            && let Some(sid) = self.active_session_id().map(str::to_owned)
+            && let Some(sid) = self.panel_session_id().map(str::to_owned)
         {
             crate::plugin_host::native::diff::open_review(self, &sid);
         }
@@ -485,7 +485,7 @@ impl App {
         let reopened = reopen_closed_side_tab(self, key, tx);
         if reopened
             && self.is_review_active()
-            && let Some(sid) = self.active_session_id().map(str::to_owned)
+            && let Some(sid) = self.panel_session_id().map(str::to_owned)
         {
             crate::plugin_host::native::diff::open_review(self, &sid);
         }

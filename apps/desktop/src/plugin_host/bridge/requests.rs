@@ -29,7 +29,7 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
             if instant {
                 tx.instant();
             }
-            if let Some(sid) = app.active_session_id().map(str::to_owned) {
+            if let Some(sid) = app.panel_session_id().map(str::to_owned) {
                 app.open_side_tab(&tab_key(plugin, &panel, instance.as_deref()), None, false, false, tx);
                 if plugin.as_ref() == "review" && panel == "changes" {
                     crate::plugin_host::native::diff::open_review(app, &sid);
@@ -40,7 +40,7 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
             if instant {
                 tx.instant();
             }
-            let Some(active) = app.active_session_id().map(str::to_owned) else { return };
+            let Some(active) = app.panel_session_id().map(str::to_owned) else { return };
             let session = session.unwrap_or(active);
             let key = tab_key(plugin, &panel, None);
             if services::ui_panel_state(app, plugin, &panel, &session) == 3 {
@@ -192,7 +192,7 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
             } else {
                 let target_sid = match tool_sid {
                     Some(caller) => caller,
-                    None => app.active_session_id().map(str::to_owned),
+                    None => app.panel_session_id().map(str::to_owned),
                 };
                 app.open_restricted_plugin_link(target_sid.as_deref(), &href, in_tool, tx);
             }
@@ -207,7 +207,7 @@ fn apply(app: &mut App, plugin: &std::rc::Rc<str>, request: Request, tx: &mut Tx
                         tx.copy(trimmed.to_owned());
                         app.toast_say(opencode_i18n::t!("common.copied").to_owned(), String::new());
                     }
-                } else if is_http && !app.external_url_allowed_for_session(app.active_session_id(), trimmed) {
+                } else if is_http && !app.external_url_allowed_for_session(app.panel_session_id(), trimmed) {
                     app.toast_fail(opencode_i18n::t!("rune.browser.menu.pageUnavailable").to_owned(), String::new());
                 } else {
                     crate::open_in::open_external(tx, trimmed);

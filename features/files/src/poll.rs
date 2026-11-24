@@ -9,7 +9,7 @@ use crate::{FilesHost, FilesKeyMatch, code_paths, content, image, links, markdow
 
 /// Landing a positive path check changes a visible reply's plain code to a link.
 pub fn poll_reply_links(host: &dyn FilesHost, tx: &mut Tx) -> bool {
-    if !host.files_untracked().replies.land(host.active_session_id()) {
+    if !host.files_untracked().replies.land(host.panel_session_id()) {
         return false;
     }
     host.touch_files();
@@ -89,7 +89,7 @@ pub fn poll_files(host: &mut dyn FilesHost, tx: &mut Tx) -> bool {
     }
     changed |= video::poll(host, tx);
     // A session that comes on screen reads what changed while it was off.
-    let session = host.active_session_id().map(str::to_owned);
+    let session = host.panel_session_id().map(str::to_owned);
     if session != host.files().shown_session {
         host.files_mut().shown_session = session.clone();
         if let Some(sid) = session {

@@ -452,7 +452,7 @@ fn start_preview(
         return StepOutcome::Done(Outcome::fail(failure_code::PREVIEW_UNAVAILABLE, "Missing path."));
     };
     if !is_html_path(path) {
-        if app.active_session_id() == Some(att.session_id.as_str()) {
+        if app.panel_session_id() == Some(att.session_id.as_str()) {
             app.open_workspace_file(path, false, None, tx);
         }
         return StepOutcome::Done(Outcome::ok(json!({ "path": path }), Vec::new()));

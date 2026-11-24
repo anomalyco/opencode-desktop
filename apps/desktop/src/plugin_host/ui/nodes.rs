@@ -244,7 +244,7 @@ fn step_filter_highlight(list: &[String], current: Option<&str>, down: bool) -> 
 }
 
 fn clear_filter_highlight(app: &mut App, field_key: &str) {
-    let Some(sid) = app.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = app.panel_session_id().map(str::to_owned) else { return };
     if field_key == "files-filter" {
         if let Some(ws) = app.kernel.slots.get_mut(&crate::files::FILES).sessions.get_mut(&sid) {
             ws.highlighted_filter_path = None;
@@ -276,7 +276,7 @@ fn filter_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usiz
         move |app: &mut App, tx: &mut Tx| {
             let query = super::editors::get_mut(app, &on_submit, index).text.trim().to_owned();
             if !query.is_empty()
-                && let Some(sid) = app.active_session_id().map(str::to_owned)
+                && let Some(sid) = app.panel_session_id().map(str::to_owned)
             {
                 if key_sub == "files-filter" {
                     let list = app.filtered_files(&sid, &query);
@@ -358,7 +358,7 @@ fn filter_field(a: &NodeArgs, edit: &rune::TextEdit, plugin: String, index: usiz
                 if query.is_empty() {
                     return false;
                 }
-                let Some(sid) = app.active_session_id().map(str::to_owned) else {
+                let Some(sid) = app.panel_session_id().map(str::to_owned) else {
                     return false;
                 };
                 let down = ev.key == rune::Key::Down;

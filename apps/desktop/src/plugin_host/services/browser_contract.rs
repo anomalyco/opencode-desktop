@@ -134,7 +134,7 @@ mod native {
     /// The caller may act only on the routed session, on the window's server, while the built-in
     /// browser runs in a wide window, and from a tool call only for that call's own session.
     fn routed_session(lua: &Lua, app: &App, arg: &SessionArg) -> bool {
-        if !app.browser_plugin_ready() || app.active_session_id() != Some(arg.id.as_str()) {
+        if !app.browser_plugin_ready() || app.panel_session_id() != Some(app.panel_root(&arg.id)) {
             return false;
         }
         let (tool_sid, in_flight) = current_tool_scope(lua);
@@ -361,7 +361,7 @@ mod native {
                         drop(pending);
                         // The plugin reloaded or stopped, or the person routed elsewhere, before this ran.
                         let running = s.plugins.list.iter().any(|p| *p.half.id == *pid && p.script().is_some_and(|sc| sc.vm_id() == Some(vm_id)));
-                        if !running || s.active_session_id() != Some(sid.as_str()) {
+                        if !running || s.panel_session_id() != Some(s.panel_root(&sid)) {
                             return;
                         }
                         tx.instant();
@@ -416,7 +416,7 @@ mod native {
                 app.later(Box::new(move |s, tx| {
                     drop(pending);
                     let live = OWNED_TABS.with_borrow(|tabs| tabs.get(&handle_for_cb).is_some_and(|t| t.half.strong_count() > 0));
-                    if !live || s.active_session_id() != Some(sid.as_str()) {
+                    if !live || s.panel_session_id() != Some(s.panel_root(&sid)) {
                         OWNED_TABS.with_borrow_mut(|tabs| tabs.remove(&handle_for_cb));
                         return;
                     }
