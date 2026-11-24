@@ -17,6 +17,8 @@
 #   OPENCODE_RUNE_PROFILE        (default: "release"; e.g. "release-thin" for faster dev CI)
 #   OPENCODE_RUNE_SYMBOLS        (folder for opencode-desktop.dSYM.zip; default: $RUNNER_TEMP/macos, else OUT)
 #   OPENCODE_RUNE_KEEP_SYMBOLS   (1 ships the exe with its symbol names and writes no dSYM)
+#   OPENCODE_RUNE_PGO_TRAIN      (1 builds the training exe; so does a pull request from a branch
+#                                 with "order-train" in its name; see apps/desktop/pgo/README.md)
 set -euo pipefail
 OUT=${1:?usage: build-app.sh OUT}
 : "${OPENCODE_RUNE_VERSION:?Set OPENCODE_RUNE_VERSION}"
@@ -38,6 +40,12 @@ case "$OPENCODE_RUNE_VERSION" in
   *) BUILD=$(printf '%s\n' "${OPENCODE_RUNE_VERSION%%-*}" | awk -F. '{ print ($1 * 10000) + ($2 * 100) + $3 }') ;;
 esac
 
+# A training build records which functions run, how often and in which order (temporal
+# instrumentation), for the release profile and the link order. It keeps its names.
+TRAIN=${OPENCODE_RUNE_PGO_TRAIN:-0}
+case "${GITHUB_HEAD_REF:-}" in *order-train*) TRAIN=1 ;; esac
+[ "$TRAIN" != 1 ] || export OPENCODE_RUNE_KEEP_SYMBOLS=1
+
 host_triple=$(rustc -vV | sed -n 's/^host: //p')
 target_triple=${OPENCODE_RUNE_TARGET:-$host_triple}
 cross=0
@@ -56,10 +64,15 @@ if [ "${OPENCODE_RUNE_SKIP_CARGO_BUILD:-0}" != "1" ]; then
     (
       cd "$ROOT"
       profile="apps/desktop/pgo/$target_triple.profdata"
-      test -s "$profile" || { echo "Missing release profile: $profile" >&2; exit 1; }
-      echo "profile-guided: $target_triple ($(head -n 1 "${profile%.profdata}.txt"))" >&2
-      # rustc for a dependency may run in that dependency's directory.
-      export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS }-Cprofile-use=$ROOT/$profile -Cllvm-args=-no-pgo-warn-mismatch"
+      if [ "$TRAIN" = 1 ]; then
+        echo "training build: $target_triple, instrumented (set LLVM_PROFILE_FILE when you run it)" >&2
+        export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS }-Cprofile-generate -Cllvm-args=-pgo-temporal-instrumentation"
+      else
+        test -s "$profile" || { echo "Missing release profile: $profile" >&2; exit 1; }
+        echo "profile-guided: $target_triple ($(head -n 1 "${profile%.profdata}.txt"))" >&2
+        # rustc for a dependency may run in that dependency's directory.
+        export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS }-Cprofile-use=$ROOT/$profile -Cllvm-args=-no-pgo-warn-mismatch"
+      fi
       cargo build --release --locked --target "$target_triple" -p opencode-desktop
     )
   else
