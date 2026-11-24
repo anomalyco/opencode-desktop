@@ -461,6 +461,8 @@ pub struct TerminalPane {
     /// The terminal took the keyboard (opened, toggled, clicked): keyboard focus goes to its
     /// viewport on the next poll, so Tab and F6 there are the viewport's and never trapped.
     pub focus_claim: FocusClaim,
+    /// A terminal asked for before the server listed its session (`side_ops::Asked`).
+    pub asked: Option<side_ops::Asked>,
     /// A paste waiting for the user to say it may run (`paste`).
     pub pending_paste: Option<paste::Pending>,
     /// An OSC 8 hyperlink click waiting for target confirmation (`osc8`).
@@ -487,6 +489,7 @@ impl Default for TerminalPane {
             connections: 0,
             spare_field: TextEdit::default(),
             focus_claim: FocusClaim::default(),
+            asked: None,
             pending_paste: None,
             pending_osc8: None,
             server_shells: RefCell::new(HashMap::new()),

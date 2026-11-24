@@ -2,29 +2,29 @@
   "generated_at": "2026-11-24",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "2255b8932263fb368d3f4e16e60bf3901bde6c4f",
+  "upstream_head": "244491841dea5735c4c069ddc217e1e5f16126bd",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "b6cdcb48a",
-  "post_1114_commit_count": 604,
-  "post_1114_in_ledger": 215,
-  "post_1114_skipped": 389,
+  "rune_desktop_head": "c1a6f1c82",
+  "post_1114_commit_count": 610,
+  "post_1114_in_ledger": 216,
+  "post_1114_skipped": 394,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
-    "ci-bench-deps": 22,
+    "ci-bench-deps": 23,
     "docs-site-data": 59,
     "tui-only": 28,
     "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 244
+    "server-core-ai-codemode-internal": 248
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 236,
+  "total_ledger_rows": 237,
   "status_counts": {
     "have it": 198,
     "not applicable": 31,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 4
+    "missing": 5
   },
   "rows": [
     {
@@ -5595,11 +5595,11 @@
       "summary": "A subagent (a child session a tab routes to) shows its root session's side panel tabs: the strip and the plugins' panel state go by the tab's session, not the routed child's.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "rune-desktop #1020 (a942fe8d, by the agent UP-201): a subagent's page shows its root session's side panel: one strip, one selection, one pane split, open state and widths for a tab's family; Review, Context and Details show the routed session's own; the family's terminals and browser tabs show on every page of the family. RUN on both commits' CI builds and next to official in Electron (678621a5df; notes/upstream-sync/up-201-official.md): the same on strip, selection and routed panels. Different on purpose in one thing: official drops the parent's terminal tab for good after one visit to a subagent's page (an official fault, not copied). Follow-up #1028 (b5c5701d): a subagent keeps its browser after the person leaves its page (run: #1020's build answered Unknown tool for browser.tabs.list there, #1028's answers its tab). Not run: a real window's first frame on a subagent's page; an agent's focus request while the person reads the parent.",
+      "status_evidence": "rune-desktop #1020 (a942fe8d, by the agent UP-201): a subagent's page shows its root session's side panel: one strip, one selection, one pane split, open state and widths for a tab's family; Review, Context and Details show the routed session's own; the family's terminals and browser tabs show on every page of the family. RUN on both commits' CI builds and next to official in Electron (678621a5df; notes/upstream-sync/up-201-official.md): the same on strip, selection and routed panels. Different on purpose in one thing: official drops the parent's terminal tab for good after one visit to a subagent's page (an official fault, not copied). Follow-up #1028 (b5c5701d): a subagent keeps its browser after the person leaves its page (run: #1020's build answered Unknown tool for browser.tabs.list there, #1028's answers its tab). Not run: a real window's first frame on a subagent's page; an agent's focus request while the person reads the parent. A fault of ours on a subagent's page at launch, fixed in #1051 (c8cdc46d): Review asked for the diff before the session's folder was known and showed No changed files (or the server folder's changes); it now sends no vcs/diff until the folder is known and shows Loading meanwhile, as official's waiting state (run on its CI build next to dev).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
-      "rune_pr": "#1020, #1028"
+      "rune_pr": "#1020, #1028, #1051"
     },
     {
       "id": "UP-202",
@@ -5885,11 +5885,11 @@
       "summary": "Which effort (variant) a model runs with at a chosen speed: a saved effort is read from the standard model, then the model itself, and from its other speeds only when no agent or config names an effort for it; an agent's or the config's effort for a model applies at its speeds too; switching to another speed of the same model keeps an effort the person chose, and resolves an inherited one for the new speed.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "rune-desktop #1026 (c638a6c7, by the agent UP-EFFORT): a model with no effort chosen runs with its saved effort, else its agent's or the config's, at every speed; a speed switch keeps a chosen effort and resolves an inherited one for the new speed. RUN before merge on its CI build next to official's own selection code under its test fixture at 4bb997ea44: 58 of 58 observations the same (25 cases, the 9 that #66107 changed among them); a sent prompt carries the inherited effort. Found while porting, official's long-standing behaviour (composer/selection.ts): picking an agent that names no model goes to the config's model, else a recent one, else the first; ours kept the other agent's model. Ported in #1038 (0a409c4b): 5 of 18 observations differed before, 18 of 18 the same after. Official's Electron window not run; ours headless only.",
+      "status_evidence": "rune-desktop #1026 (c638a6c7, by the agent UP-EFFORT): a model with no effort chosen runs with its saved effort, else its agent's or the config's, at every speed; a speed switch keeps a chosen effort and resolves an inherited one for the new speed. RUN before merge on its CI build next to official's own selection code under its test fixture at 4bb997ea44: 58 of 58 observations the same (25 cases, the 9 that #66107 changed among them); a sent prompt carries the inherited effort. Found while porting, official's long-standing behaviour (composer/selection.ts): picking an agent that names no model goes to the config's model, else a recent one, else the first; ours kept the other agent's model. Ported in #1038 (0a409c4b): 5 of 18 observations differed before, 18 of 18 the same after. Also official's long-standing behaviour, by the agent MODELS-PORT: #1049 (177d7ff3): a draft's model for each agent goes with the session it starts, the next draft starts with none, and a session's picks are kept across a relaunch (12 of 29 observations differed before, 24 of 25 the same after, next to official's selection code at 22d022cb13); #1065 (8df457ae): each new-session draft keeps its own agent and model, also across a relaunch (1 of 7 two-draft observations the same before, 6 of 7 after). One difference kept on purpose pending the owner: official shows the first agent again whenever a draft is shown again, so a model picked for plan shows under build; ours keeps the draft's agent with its model. Official's Electron window not run; ours headless only.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
-      "rune_pr": "#1026, #1038"
+      "rune_pr": "#1026, #1038, #1049, #1065"
     },
     {
       "id": "UP-214",
@@ -5930,11 +5930,35 @@
       "summary": "An inline quote of one line (and a file or note reference) has its bar run 1 px past the line, so lowercase text reads centred on the bar; wrapped quotes are unchanged.",
       "size": "XS",
       "status": "have it",
-      "status_evidence": "rune-desktop #1042 (b6cdcb48): crates/session-view/src/user_quotes.rs behind_bar gives a one-line quote 1 of room under its line, which the bar spans. Also in it: a quote's lines are laid out (fold::measure), so a short quote that wraps past three lines can be opened (#976 asked fold::lines, which answers hard breaks alone under 360 bytes). RUN by UPSTREAM-PROOF on its CI build: a one-line quote and a file reference are 22 high over a 21 line (dev: 21 over 21); a 289-character quote with no break is three lines and a button, a press opens it to four (on dev it was clamped with no button: the fault was run too); a quote of exactly three lines has no button. The line count is kept by text and width. Scroll cost on a session of 40 inline quotes (frame CPU time from the app trace, two runs a side, taken close to a WSL build, so provisional): the eight frames where quote rows are built total 27.4 / 30.9 ms on dev against 25.5 / 25.3; the other frames median 1.3 to 1.4 ms on both. NOT RUN: 30 or more quotes on screen at once (owed when blade has the memory).",
+      "status_evidence": "rune-desktop #1042 (b6cdcb48): crates/session-view/src/user_quotes.rs behind_bar gives a one-line quote 1 of room under its line, which the bar spans. Also in it: a quote's lines are laid out (kept by text and width), so a short quote that wraps past three lines can be opened (#976 asked fold::lines, which answers hard breaks alone under 360 bytes). RUN by UPSTREAM-PROOF on its CI build: a one-line quote and a file reference are 22 high over a 21 line (dev: 21 over 21); a 289-character quote with no break is three lines and a button, a press opens it to four (on dev it was clamped with no button: the fault was run too); a quote of exactly three lines has no button. Scroll cost, 34 inline quotes on screen at once (a 1280x5400 window, all 40 built, 48 wheel steps, 301 frames a run, three runs a side after a warm-up, the two builds in turn, alone in the capture window): frame CPU time median 1.53 / 1.46 / 1.29 ms on dev against 1.39 / 1.35 / 1.39; 99th 5.28 / 5.05 / 5.17 against 5.03 / 4.50 / 5.75; no frame over 16 ms; the session's first build 100 / 124 / 104 ms against 96 / 97 / 92. Headless, one machine, NVIDIA, CPU time of the frame.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
       "rune_pr": "#1042"
+    },
+    {
+      "id": "UP-216",
+      "window": "post-1120",
+      "pr": 65969,
+      "sha": "f555dfefad",
+      "title": "fix(desktop): reattach the browser to sessions in open tabs",
+      "merged": "2026-11-24",
+      "packages": [
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/machine.ts",
+        "packages/gui-plugins/src/browser/model.ts",
+        "packages/gui-plugins/src/browser/prompt-gate.ts",
+        "packages/gui-plugins/src/browser/renderer.tsx"
+      ],
+      "summary": "The browser's attachment to sessions: (1) a session that runs in an open tab nobody has opened since the app started attaches as the routed one does, so its agent has the browser tools (a session the server resumed, or that an automation, a finished job or a subagent woke); (2) a session another window took comes back only when the person comes to it in this window (its route, a prompt, opening its browser), never on focus, a press, a key or an agent's edge; (3) when the window that took it lets it go (the server revokes the grant), the session attaches here again; (4) the browser can be opened here while another window holds it, which takes it back.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Not ported yet; the agent ATTACH has it since 25 Nov 08:17 (read: packages/gui-plugins/src/browser machine.ts `session.wake` takes / `session.released`, model.ts `unopened` + `openable`, prompt-gate.ts `attachesUnopened` / `unheld`). Ours' side is the browser attachment in apps/desktop/src/surfaces/browser/rpc and the browser plugin, where #1028 (a subagent keeps its browser after the person leaves its page) just changed the same machine. Needs runs with an agent that drives the browser in an unopened tab and with two windows.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
     }
   ],
   "browser_security_review": {
