@@ -250,6 +250,9 @@ thread_local! {
 /// idle one can't hold it.
 #[cfg(not(target_arch = "wasm32"))]
 fn quit_last() {
+    // First, so its threads have left their writes by the time the process ends.
+    browser_pane::installer::quit();
+    rune::marks::mark("browser.engine.stopped");
     // Landed and closed: the file's lock goes before the update helper takes over.
     storage::close();
     rune::marks::mark("storage.flushed");
@@ -271,6 +274,10 @@ fn quit_last() {
     }
     QUIT_DIAGNOSTICS.with(|d| if let Some(d) = d.borrow_mut().take() { d.shutdown() });
     rune::marks::mark("diagnostics.stopped");
+    // The engine's download had the storage's flush to stop in. What it writes is closed before
+    // the process ends: left open, the process's own teardown closes it, with Defender's scan of a
+    // half-written DLL inside that close (seconds before an update's helper sees the app gone).
+    rune::marks::mark(if browser_pane::installer::quit_wait() { "browser.engine.closed" } else { "browser.engine.open" });
     updater::finish_quit();
     rune::marks::mark("quit.update_handed_off");
     launch::trace::finish(windows::opened());

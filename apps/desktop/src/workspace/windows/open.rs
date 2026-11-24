@@ -283,6 +283,9 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
         // Quitting (File > Quit, the Quit command) installs a ready update on the way out too, as
         // closing the last window does; the second call of the two does nothing.
         .on_quit(|s, _| {
+            // Before the state is saved: the engine's download has that long to leave its write.
+            #[cfg(not(target_arch = "wasm32"))]
+            browser_pane::installer::quit();
             s.plugins.restarts.cancel_all();
             let scheduler = s.kernel.scheduler.clone();
             scheduler.run_close(s);
