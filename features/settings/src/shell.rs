@@ -199,8 +199,8 @@ fn nav_item<H: SettingsHost + 'static>(s: &H, p: &Pal, page: &Page) -> El {
         .w_full()
         .h(28.0)
         .px(6.0)
-        // `tabs-v2-trigger`'s gap went from 6 to 8 (opencode#65998): 2 more here.
-        .gap(10.0)
+        // `tabs-v2-trigger`'s gap is 8 (opencode#65998; measured next to official).
+        .gap(8.0)
         .center_y()
         .radius(6.0)
         .fill(if on { p.layer3 } else { Color::TRANSPARENT })
