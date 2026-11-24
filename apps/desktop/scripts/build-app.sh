@@ -15,6 +15,8 @@
 #   OPENCODE_RUNE_URL_SCHEME     (default: "opencode-rune")
 #   OPENCODE_RUNE_TARGET         (optional Cargo target triple, e.g. x86_64-apple-darwin)
 #   OPENCODE_RUNE_PROFILE        (default: "release"; e.g. "release-thin" for faster dev CI)
+#   OPENCODE_RUNE_SYMBOLS        (folder for opencode-desktop.dSYM.zip; default: $RUNNER_TEMP/macos, else OUT)
+#   OPENCODE_RUNE_KEEP_SYMBOLS   (1 ships the exe with its symbol names and writes no dSYM)
 set -euo pipefail
 OUT=${1:?usage: build-app.sh OUT}
 : "${OPENCODE_RUNE_VERSION:?Set OPENCODE_RUNE_VERSION}"
@@ -92,6 +94,29 @@ APP="$OUT/$APP_NAME.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/opencode-desktop"
+# The exe ships without its symbol names. macOS reads every byte of a new executable file before
+# its first run (XProtect: 5.6-5.9 ms per MiB on an M4), and the names are 27.5 MiB of a 180 MiB
+# thin-LTO exe and 9 MiB of a fat-LTO one. They go into a dSYM first (same UUID as the exe, so
+# crash reports, `atos -o`, `sample`, lldb and strobe resolve against it), zipped into SYMBOLS:
+# the CI job's artifact folder when it exists, else OUT. Unzip it beside an exe to profile it.
+if [ "${OPENCODE_RUNE_KEEP_SYMBOLS:-0}" != "1" ]; then
+  SYMBOLS=${OPENCODE_RUNE_SYMBOLS:-${RUNNER_TEMP:+$RUNNER_TEMP/macos}}
+  [ -n "$SYMBOLS" ] && [ -d "$SYMBOLS" ] || SYMBOLS=$OUT
+  rm -rf "$OUT/opencode-desktop.dSYM" "$SYMBOLS/opencode-desktop.dSYM.zip"
+  dsymutil "$BIN" -o "$OUT/opencode-desktop.dSYM" 2>&1 | grep -v 'no debug symbols in executable' >&2 || true
+  [ "$(dwarfdump --uuid "$OUT/opencode-desktop.dSYM" | awk '{ print $2 }')" = "$(dwarfdump --uuid "$BIN" | awk '{ print $2 }')" ] || {
+    echo "opencode-desktop.dSYM does not carry the exe's UUID" >&2
+    exit 1
+  }
+  /usr/bin/ditto -c -k --keepParent "$OUT/opencode-desktop.dSYM" "$SYMBOLS/opencode-desktop.dSYM.zip"
+  rm -rf "$OUT/opencode-desktop.dSYM"
+  strip "$APP/Contents/MacOS/opencode-desktop" 2>&1 | grep -v 'will invalidate the code signature' >&2 || true
+  [ "$(stat -f %z "$APP/Contents/MacOS/opencode-desktop")" -lt "$(stat -f %z "$BIN")" ] || {
+    echo "strip left opencode-desktop as large as it was" >&2
+    exit 1
+  }
+  echo "opencode-desktop: $(stat -f %z "$BIN") -> $(stat -f %z "$APP/Contents/MacOS/opencode-desktop") bytes without symbol names; they are in $SYMBOLS/opencode-desktop.dSYM.zip" >&2
+fi
 cp "$ICON_PATH" "$APP/Contents/Resources/icon.icns"
 cp "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE"
 cp "$ROOT/THIRD_PARTY_NOTICES.md" "$APP/Contents/Resources/THIRD_PARTY_NOTICES.md"
