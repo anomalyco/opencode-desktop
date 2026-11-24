@@ -320,6 +320,8 @@ pub trait PickerHost: ComposerHost {
         // configured later (`selection.tsx` `set`); a draft's goes on inheriting until one is
         // chosen (`composer/selection.ts` `set`).
         if !draft { selected.effort = Effort::Chosen; }
+        // What an agent that names no model runs with (`composer/selection.ts` `key`).
+        let fallback = (kind == Kind::Agent).then(|| self.picker_fallback_model()).flatten();
         let pk = self.pickers_mut();
         match kind {
             Kind::Model => {
@@ -348,19 +350,26 @@ pub trait PickerHost: ComposerHost {
                 // Picking the agent already shown changes nothing (`selection-machine.ts`
                 // `editSelection`).
                 if selected.agent == key { return true; }
-                // The model the agent last had here comes back as it was; a draft remembers
-                // only the model (`composer/selection.ts` `remembered`). An agent's own model
-                // has no effort chosen.
-                match (pk.choices.get(&session).and_then(|c| c.get(key)), pk.agent_models.get(key)) {
-                    (Some(m), _) => {
-                        selected.model = m.clone();
+                // The agent it leaves keeps the model it had, for when it is picked again
+                // (`selection-machine.ts` `editSelection`).
+                pk.choices.entry(session.clone()).or_default().insert(selected.agent.clone(), selected.model.clone());
+                match pk.choices.get(&session).and_then(|c| c.get(key)).cloned() {
+                    // The model the agent last had here comes back as it was; a draft
+                    // remembers only the model (`composer/selection.ts` `remembered`).
+                    Some(m) => {
+                        selected.model = m;
                         if draft { selected.effort = Effort::Inherited; }
                     }
-                    (None, Some(m)) => {
-                        selected.model = m.clone();
-                        selected.effort = Effort::Inherited;
+                    // An agent new here runs with its own model, else with the one a session
+                    // nobody chose a model for starts with: the config's, a recent one or the
+                    // first (`composer/selection.ts` `key`, `selection.tsx` `key`). The model
+                    // on screen was the other agent's, so it does not stay. No effort is chosen.
+                    None => {
+                        if let Some(m) = pk.agent_models.get(key).cloned().or(fallback) {
+                            selected.model = m;
+                            selected.effort = Effort::Inherited;
+                        }
                     }
-                    (None, None) => {}
                 }
                 selected.agent = key.into();
             }
