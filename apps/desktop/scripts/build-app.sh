@@ -22,9 +22,9 @@
 #                                 loaded at the first office file, instead of in the exe; so does a pull request
 #                                 from a branch with "office-library" in its name. 0 until the release's signing
 #                                 step signs a second Mach-O file.)
-#   OPENCODE_RUNE_LAYERS         (1 ships the app's code as several libraries in Contents/Frameworks beside a
-#                                 small exe (apps/desktop/layers/layers.txt), so the first launch of a new
-#                                 build waits for the largest of them and not for all the code; so does a pull
+#   OPENCODE_RUNE_LAYERS         (1 ships part of the app's code as a library in Contents/Frameworks beside a
+#                                 smaller exe (apps/desktop/layers/layers.txt), so the first launch of a new
+#                                 build waits for the largest file and not for all the code; so does a pull
 #                                 request from a branch with "code-layers" in its name. 0 until the release's
 #                                 signing step signs every Contents/Frameworks/*.dylib.)
 #   OPENCODE_RUNE_COMPACT_UNWIND (0 keeps a DWARF unwind entry per function; see rustc-compact-unwind.sh)
@@ -56,20 +56,23 @@ case "$OPENCODE_RUNE_VERSION" in
 esac
 
 # The office viewer's engines (Word, Excel, PowerPoint: 24 MiB of code and fonts no launch runs)
-# as a library in the bundle. At a bundle's first run macOS reads every Mach-O file in it side by
-# side and the launch waits for the largest one (5.5 ms per MiB on an M4, plus 250 ms once for
-# code it has never seen): what leaves the exe for a second library is no longer waited for
-# (a build never seen: 1,225 -> 1,004 ms thin, 1,057 -> 911 ms fat). One big library in place of
-# the exe changes nothing (#958); a file that is not Mach-O is not read at all.
+# as a library in the bundle. At a bundle's first run macOS reads every file in it, of any kind,
+# 8 files at a time, and the launch waits for the largest one (5.5 ms per MiB on an M4, plus 250 ms
+# once for code it has never seen): what leaves the exe for a second library is no longer waited
+# for (a build never seen: 1,225 -> 1,004 ms thin, 1,057 -> 911 ms fat). One big library in place
+# of the exe changes nothing (#958). A file that is not code is read too: it is free only while a
+# larger file is read beside it.
 OFFICE_LIBRARY=${OPENCODE_RUNE_OFFICE_LIBRARY:-0}
 case "${GITHUB_HEAD_REF:-}" in *office-library*) OFFICE_LIBRARY=1 ;; esac
 office_args=()
 [ "$OFFICE_LIBRARY" != 1 ] || office_args=(-p office-library --features opencode-desktop/office-library)
-# The app's code as several libraries of similar size beside a small exe. At the first run of a new
-# build macOS reads every file of the bundle, 8 at a time, before `main` runs, and waits for the
-# largest (proof/launch/mac-first-run-law.md: the same 112 MiB of our code as 1 file 1,424 ms, as
-# 4 files 599, as 8 files 426). apps/desktop/layers/layers.txt says which crates go where; the
-# office engines are then always the library above (one more file of the same size class).
+# Part of the app's code as a library beside a smaller exe (apps/desktop/layers/layers.txt says
+# which crates; the office engines are then always the library above). The first launch of a new
+# build waits for the largest file, not for all the code. Measured on the Air, dev as the dev
+# channel builds it: one exe of 119.6 MiB against exe 41.1 + library 38.0 + office 25.7 MiB:
+# first launch of a new install, click -> window on screen 1,093 -> 713 ms; the everyday launch
+# 130.4 -> 133.5 ms (exp_728bd8: dyld looks up the 2,800 names the exe takes from the library at
+# every launch). More libraries cost more at every launch: 4 of them +6 ms, 8 +17 ms.
 LAYERS=${OPENCODE_RUNE_LAYERS:-0}
 case "${GITHUB_HEAD_REF:-}" in *code-layers*) LAYERS=1 ;; esac
 if [ "$LAYERS" = 1 ]; then
