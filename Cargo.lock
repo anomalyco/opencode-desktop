@@ -3494,6 +3494,7 @@ dependencies = [
  "mimalloc",
  "opencode-desktop",
  "procwatch",
+ "win-install",
 ]
 
 [[package]]
