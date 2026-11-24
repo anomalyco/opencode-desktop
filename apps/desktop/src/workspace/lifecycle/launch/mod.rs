@@ -9,6 +9,9 @@ mod boot;
 pub mod compat_layer;
 #[cfg(target_os = "windows")]
 pub mod image_pages;
+#[cfg(target_os = "linux")]
+#[path = "image_pages_linux.rs"]
+pub mod image_pages;
 #[cfg(target_os = "windows")]
 pub mod io_trace;
 pub mod last_exit;
