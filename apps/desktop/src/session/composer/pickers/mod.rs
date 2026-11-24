@@ -27,7 +27,11 @@ impl PickerHost for App {
         Some(crate::widgets::provider_mark(provider, p.icon))
     }
     fn picker_scope(&self) -> String {
-        match &*self.route { Route::Session { id, .. } => id.clone(), _ => "draft".into() }
+        // Each draft tab has its own picks, as official's drafts do (`composer/persistence.tsx`,
+        // `new-session/route.tsx`: a draft tab's own composer state and providers). Official
+        // keeps a draft's model and effort but shows the first agent again whenever the draft
+        // is shown again; here the draft keeps the agent it was given too, with its model.
+        match &*self.route { Route::Session { id, .. } | Route::Draft(id) => id.clone(), _ => DRAFT.into() }
     }
     fn picker_draft(&self) -> bool {
         !matches!(*self.route, Route::Session { .. })

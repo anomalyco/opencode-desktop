@@ -341,9 +341,11 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         Incoming::Created(info) => {
             let id = info.id.clone();
             // A command sent from a draft started it: the draft's tab becomes its tab.
-            s.promote_draft(&id, &info.directory);
-            s.composer_ext.pickers.promote_draft(&id);
-            crate::pickers::saved::save(s, &id);
+            if let Some(draft) = s.promote_draft(&id, &info.directory) {
+                s.composer_ext.pickers.promote_draft(&draft, &id);
+                crate::pickers::saved::save(s, &draft);
+                crate::pickers::saved::save(s, &id);
+            }
             if s.session(&id).is_none() {
                 s.sessions.insert(0, info);
             }
