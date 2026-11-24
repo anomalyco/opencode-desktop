@@ -48,6 +48,7 @@ pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
     let (keys, built, pal) = (items.clone(), items.clone(), *p);
     let (key_order, built_order) = (order.clone(), order.clone());
     let (key_drafts, built_drafts) = (drafts.clone(), drafts.clone());
+    let epoch = epoch(&items, &order);
     let list = col()
         .key("content")
         .w_full()
@@ -57,7 +58,7 @@ pub(crate) fn inbox(s: &App, p: &Pal, inset: (f32, f32)) -> El {
             n,
             // Most rows are a card and the 2 above it.
             CARD_H + 2.0,
-            move |_: &App, i| keys[i].key(&key_order, &key_drafts).into(),
+            move |_: &App, i| keys[i].key(&key_order, &key_drafts, &epoch).into(),
             move |s: &App, i| {
                 let item = &built[i];
                 el().w_full().pt(space_above(&built, i)).child(item.build(s, &pal, &built_order, &built_drafts))
@@ -184,6 +185,18 @@ fn items(order: &Order, ui: InboxUi, drafts: usize) -> Vec<Line> {
     }
     out
 }
+/// What the list's row keys carry besides their element: the open session while it stands
+/// first as the unheaded current row. A virtual list holds the reader's place when rows come in
+/// above the ones in view, so that row coming in at the top of a list at its top would push
+/// itself out of sight, where Desktop's list (a page at `scrollTop` 0) shows it. With every
+/// row's key new, there's no place to hold and the list stays where it is.
+fn epoch(items: &[Line], order: &Order) -> String {
+    items.iter().find_map(|l| match l {
+        Line::Card { g: Group::Current, at, .. } => Some(order.rows[*at].id.clone()),
+        _ => None,
+    }).unwrap_or_default()
+}
+
 /// The inbox's first or (`last`) last row a key can reach, in the list or, open, the Working
 /// shelf below it: the row to scroll to (the list's own key for one of its rows), and the
 /// element to focus.
@@ -192,13 +205,14 @@ fn end_key(s: &App, last: bool) -> Option<(String, String)> {
     let drafts = draft_ids(s);
     let ui = s.kernel.slots.get(&crate::restore::RESTORE).inbox;
     let items = items(&order, ui, drafts.len());
+    let epoch = epoch(&items, &order);
     let reach = |l: &Line| match l {
         Line::Card { at, .. } => Some(order.rows[*at].key.clone()),
         Line::Draft { .. } => Some(l.element_key(&order, &drafts)),
         Line::More => Some("inbox-more".to_owned()),
         Line::Header(_) | Line::Drafts | Line::Empty | Line::Toggle(_) => None,
     }
-    .map(|key| (l.key(&order, &drafts), key));
+    .map(|key| (l.key(&order, &drafts, &epoch), key));
     let shelf = if ui.working_placement == WorkingPlacement::Shelf && ui.working_expanded { order.group(Group::Working) } else { Default::default() };
     let shelved = |r: &crate::inbox_order::Shown| (r.key.clone(), r.key.clone());
     if last {
@@ -223,9 +237,13 @@ fn space_above(items: &[Line], i: usize) -> f32 {
 }
 
 impl Line {
-    /// The list's key for the row: `line-` and its element's, so a key names one element.
-    fn key(&self, order: &Order, drafts: &[String]) -> String {
-        format!("line-{}", self.element_key(order, drafts))
+    /// The list's key for the row: `line-` and its element's, so a key names one element, and
+    /// the list's [`epoch`] when it has one.
+    fn key(&self, order: &Order, drafts: &[String], epoch: &str) -> String {
+        if epoch.is_empty() {
+            return format!("line-{}", self.element_key(order, drafts));
+        }
+        format!("line-{}@{epoch}", self.element_key(order, drafts))
     }
 
     fn element_key(&self, order: &Order, drafts: &[String]) -> String {
@@ -262,16 +280,23 @@ impl Line {
             },
             Line::More => {
                 let label = if s.kernel.slots.get(&crate::restore::RESTORE).inbox.recent_expanded { t!("sidebar.inbox.showLess") } else { t!("sidebar.inbox.showMore") };
+                // Focus stays on the button, which goes to the group's end as Show less, and
+                // the list stays where it is (`inbox.tsx`: the same button, its label changed).
                 ghost_button(p, "inbox-more", label).on_press_tx(|s: &mut App, tx: &mut Tx| {
                     tx.instant();
                     let opening = !s.kernel.slots.get(&crate::restore::RESTORE).inbox.recent_expanded;
                     s.toggle_inbox_recent();
-                    // Open, the button goes to the list's end, past the rows built: focus goes on
-                    // to the first row it brought, which stands where the button stood.
+                    // That holds while the button's new place is one the list still builds,
+                    // about two list heights past the view. Further down the list drops the
+                    // row, and its focus would land on the last card built, out of sight, for
+                    // the next Return to open. So past a list height and a half of new rows,
+                    // focus goes to the first row the press brought, where the button stood.
                     let order = s.inbox_order();
-                    let folds = Folds::from(s.kernel.slots.get(&crate::restore::RESTORE).inbox);
-                    if opening && let Some(&at) = order.shows(Group::Recent, folds).get(order.pinned + crate::inbox_model::RECENT_LIMIT) {
-                        tx.focus(order.rows[at].key.clone(), false);
+                    let first = order.pinned + crate::inbox_model::RECENT_LIMIT;
+                    let brought = order.group(Group::Recent).len().saturating_sub(first);
+                    let near = brought as f32 * (CARD_H + 2.0) <= 1.5 * s.sidebar_inbox.height;
+                    if opening && !near && let Some(row) = order.group(Group::Recent).get(first) {
+                        tx.focus(row.key.clone(), false);
                     }
                 })
             }
