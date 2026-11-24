@@ -247,7 +247,13 @@ fn build_from_source(
                 ZIG_BUILD_TIMEOUT,
                 "`zig build -Demit-lib-vt=true`",
             )?;
-            if output.status.success() || attempt == ZIG_BUILD_ATTEMPTS || !download_failed(&String::from_utf8_lossy(&output.stderr)) {
+            if output.status.success() {
+                if attempt > 1 {
+                    println!("cargo:warning=terminal build: `zig build` succeeded at try {attempt} of {ZIG_BUILD_ATTEMPTS}");
+                }
+                break output;
+            }
+            if attempt == ZIG_BUILD_ATTEMPTS || !download_failed(&String::from_utf8_lossy(&output.stderr)) {
                 break output;
             }
             println!("cargo:warning=terminal build: `zig build` could not download a package (try {attempt} of {ZIG_BUILD_ATTEMPTS}); trying again");
