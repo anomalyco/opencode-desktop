@@ -569,7 +569,11 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
                 // Rows build after this returns, maybe beside another timeline's.
                 crate::style::set_sticky_top(sticky);
                 let Some(r) = specs.get(i) else { return col() };
-                marks.row(&r.key, s.with_transcript(&id, |t| r.build(s, &p, t, e.word_fade, latest_copy)).unwrap_or_else(col))
+                // A row that leaves the mounted range takes its focused control with it: the
+                // viewport takes focus then, without scrolling, so the scroll keys keep working
+                // (official `session/timeline/virtualizer.tsx`, opencode#65921), not a control
+                // somewhere else.
+                marks.row(&r.key, s.with_transcript(&id, |t| r.build(s, &p, t, e.word_fade, latest_copy)).unwrap_or_else(col)).focus_return(format!("scroll-{id}"))
             },
         ).virtual_rows_version(version);
     }
