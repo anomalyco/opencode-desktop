@@ -169,9 +169,7 @@ pub struct Pickers {
     /// The model each agent last had in a session, by session then agent, so switching back to
     /// an agent brings its model back (Desktop's `choices`).
     pub(crate) choices: HashMap<String, HashMap<String, ModelRef>>,
-    /// The effort last picked for each model, which picking that model again brings back
-    /// (Desktop's per-model `variant` preference).
-    pub(crate) efforts: HashMap<String, String>,
+
     /// Efforts chosen with ← → on a model's row in the open list, which picking it applies
     /// (Desktop's staged variant). Opening the list clears them.
     pub(crate) staged: HashMap<String, String>,
