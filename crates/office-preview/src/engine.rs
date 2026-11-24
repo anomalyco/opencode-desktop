@@ -4,8 +4,9 @@
 //!
 //! This is all an app calls of the engines, so it is also the line a build can cut them off at:
 //! `crates/office-library` exports `start`, `send` and `close` from a library of its own, and
-//! the app then carries none of the engines' code or fonts in its exe (the system reads every
-//! byte of a new exe before its first run; a library is read when it is first loaded). `Host`,
+//! the app then carries none of the engines' code or fonts in its exe (at a bundle's first run
+//! macOS reads every Mach-O file in it side by side and waits for the largest; Windows Defender
+//! reads a new exe when its process is made). `Host`,
 //! `Api` and `Abi` are that library's C interface. Rust values cross it, so both sides must
 //! come from one build: `Abi` is how the library tells, before anything crosses.
 
