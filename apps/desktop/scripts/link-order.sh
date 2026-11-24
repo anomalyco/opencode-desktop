@@ -48,8 +48,9 @@ case "$(basename "${out:-none}")" in
     # One of the app's code libraries (build-app.sh, OPENCODE_RUNE_LAYERS). rustc exports a
     # library's Rust names only, but a higher library also calls the C code linked into this one
     # (Luau, SQLite, zstd: generic Rust wrappers are compiled where they are used). So every global
-    # name is exported (rustc's list is dropped) and the C archives are loaded whole: a function
-    # only a higher library calls would otherwise not be in the file at all.
+    # name is exported (rustc's list is dropped), the C archives are loaded whole (a function only
+    # a higher library calls would otherwise not be in the file at all), and C code compiled with
+    # hidden names is linked from a copy that has them visible (c-names.py).
     link=()
     skip=0
     for arg in "${args[@]}"; do
@@ -63,6 +64,9 @@ case "$(basename "${out:-none}")" in
         *) link+=("$arg") ;;
       esac
     done
+    visible=()
+    while IFS= read -r arg; do visible+=("$arg"); done < <(python3 "$(dirname "$0")/c-names.py" "$out.c-names" "${link[@]}")
+    [ "${#visible[@]}" -ne "${#link[@]}" ] || link=("${visible[@]}")
     link+=(-Wl,-all_load)
     ;;
   *) exec cc "$@" ;;
