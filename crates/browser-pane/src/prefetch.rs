@@ -227,6 +227,14 @@ impl Prefetch {
         }
     }
 
+    /// The app quits: the job stops at its next step (its partial file stays, and the next run
+    /// goes on from it) and its threads get normal priority back. Nothing waits for them.
+    pub(crate) fn quit(&self) {
+        self.lock().run = State::Idle;
+        self.nudge.notify_all();
+        background::lift_for_quit();
+    }
+
     /// The network changed: a job that waits for it tries again now.
     pub(crate) fn network_changed(&self) {
         let mut ctl = self.lock();

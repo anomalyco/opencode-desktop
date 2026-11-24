@@ -250,6 +250,9 @@ thread_local! {
 /// idle one can't hold it.
 #[cfg(not(target_arch = "wasm32"))]
 fn quit_last() {
+    // First, so its threads have left their writes by the time the process ends.
+    browser_pane::installer::quit();
+    rune::marks::mark("browser.engine.stopped");
     // Landed and closed: the file's lock goes before the update helper takes over.
     storage::close();
     rune::marks::mark("storage.flushed");

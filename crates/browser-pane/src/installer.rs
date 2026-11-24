@@ -323,6 +323,13 @@ pub fn set_home(dirs: rune::dirs::AppDirs) {
     HOME.set(dirs).ok();
 }
 
+/// The app quits: an engine download that runs in the background stops where it is, and the
+/// process doesn't end with a thread of it inside a write at background priority.
+pub fn quit() {
+    #[cfg(feature = "engine")]
+    crate::prefetch::Prefetch::global().quit();
+}
+
 #[cfg(feature = "engine")]
 pub(crate) fn engine_dirs() -> Option<rune::dirs::AppDirs> {
     HOME.get().cloned().or_else(|| rune::dirs::AppDirs::new("co.anomaly.opencode"))
