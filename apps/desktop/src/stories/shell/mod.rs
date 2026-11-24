@@ -3,6 +3,7 @@ pub(crate) mod background;
 pub(crate) mod frosted;
 pub(crate) mod history;
 pub(crate) mod menu;
+pub(crate) mod message_matches;
 pub(crate) mod project;
 pub(crate) mod quick_open;
 pub(crate) mod raster_probe;
