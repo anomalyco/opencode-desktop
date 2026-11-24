@@ -37,6 +37,8 @@ APP=$(cd "$1" && pwd)
 SERVER=${2:-}
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 EXE="$APP/Contents/MacOS/opencode-desktop"
+# rustc is the repository's (rust-toolchain.toml), whatever folder this is called from.
+cd "$ROOT"
 [ -x "$EXE" ] || { echo "no exe at $EXE" >&2; exit 1; }
 profdata=${LLVM_PROFDATA:-$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin/llvm-profdata}
 [ -x "$profdata" ] || { echo "no llvm-profdata at $profdata: rustup component add llvm-tools, or set LLVM_PROFDATA" >&2; exit 1; }
