@@ -91,6 +91,8 @@ enum Event {
     /// The source lists no engine for this build: the job stays, quietly, to read it again.
     Unlisted,
     Finished,
+    /// The app quits: the job stops at its next step.
+    Quit,
 }
 
 #[derive(Debug, PartialEq)]
@@ -107,6 +109,7 @@ fn step(state: State, event: Event) -> (State, Option<Effect>) {
         (State::Running(_), Event::Start(Mode::Urgent)) => (State::Running(Mode::Urgent), Some(Effect::Nudge)),
         (State::Running(_), Event::Unlisted) => (State::Running(Mode::Launch), None),
         (_, Event::Finished) => (State::Idle, None),
+        (State::Running(_), Event::Quit) => (State::Idle, Some(Effect::Nudge)),
         (other, _) => (other, None),
     }
 }
@@ -230,9 +233,14 @@ impl Prefetch {
     /// The app quits: the job stops at its next step (its partial file stays, and the next run
     /// goes on from it) and its threads get normal priority back. Nothing waits for them.
     pub(crate) fn quit(&self) {
-        self.lock().run = State::Idle;
-        self.nudge.notify_all();
-        background::lift_for_quit();
+        let mut ctl = self.lock();
+        let (next, effect) = step(ctl.run, Event::Quit);
+        ctl.run = next;
+        drop(ctl);
+        if effect == Some(Effect::Nudge) {
+            self.nudge.notify_all();
+            background::lift_for_quit();
+        }
     }
 
     /// The network changed: a job that waits for it tries again now.
