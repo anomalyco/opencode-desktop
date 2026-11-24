@@ -403,7 +403,8 @@ impl App {
         tabs::navigation_switch::restore(self);
         view::sidebar::recent_view::restore(self);
         self.load_open_in();
-        if self.persists() {
+        // Not `persists()`: the source goes live below, so that reads false here in every launch.
+        if attended() {
             let wrap = files::markdown::WrapPrefs::load(self);
             self.kernel.slots.get_mut(&files::FILES).wrap = wrap;
             *self.workspace_panes.panel_sidebar = plugin_host::native::sidebar::PanelSidebar::load();
