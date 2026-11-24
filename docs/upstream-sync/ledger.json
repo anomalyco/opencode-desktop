@@ -2,17 +2,17 @@
   "generated_at": "2026-11-24",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "f25b09005e1b1559146e1bd164284c6ec8599959",
+  "upstream_head": "c94ff33f5684105ae277a17d0771e8277cfad4d5",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "0fb660396bbba1e55ad12158abab837038ac1e94",
-  "post_1114_commit_count": 571,
+  "rune_desktop_head": "98f18e5a8",
+  "post_1114_commit_count": 573,
   "post_1114_in_ledger": 205,
-  "post_1114_skipped": 366,
+  "post_1114_skipped": 368,
   "post_1114_skipped_breakdown": {
     "test-only": 24,
     "ci-bench-deps": 22,
-    "docs-site-data": 55,
+    "docs-site-data": 57,
     "tui-only": 28,
     "cli-acp-only": 11,
     "server-core-ai-codemode-internal": 226
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 226,
   "status_counts": {
-    "have it": 186,
+    "have it": 189,
     "not applicable": 30,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 7
+    "missing": 4
   },
   "rows": [
     {
@@ -5592,7 +5592,7 @@
       "summary": "A subagent (a child session a tab routes to) shows its root session's side panel tabs: the strip and the plugins' panel state go by the tab's session, not the routed child's.",
       "size": "S",
       "status": "missing",
-      "status_evidence": "Not ported. By reading, ours keys the side region by the routed session (features/panels/src/state/resolve.rs resolve_side_region_now and state/mod.rs tab_state use host.active_session_id()), so a child session has a strip of its own. Needs a panel-session id (the tab's root session) through the panels feature, and a run.",
+      "status_evidence": "Not ported: read and planned (notes/upstream-sync/status-upstream-f.md). Ours keys the side panel by the routed session in every store (features/panels, terminals, browser tab owners, open files: about 150 call sites), and an agent's browser tabs are owned by the agent's own session, so this is a cross-feature change that needs runs, not official's two lines. A WIP branch upstream-f/panel-session holds the mechanical part (AppEnv::panel_session_id / panel_root; not compiled, not merged). Today a subagent page shows a side panel of its own.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -5615,11 +5615,12 @@
       ],
       "summary": "Settings lines up with Home (same column and search field placement) and Home keeps its layout steady at medium window widths.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Not read against ours yet (home/route.tsx, home/sessions/view.css, home/projects/region.tsx, settings/search.css, settings/settings.css).",
+      "status": "have it",
+      "status_evidence": "rune-desktop #985 (98f18e5a): features/settings/src/shell.rs lays Settings in Home's 1056 box with 24 gutters (rail 256 with 0 / 12 padding, content max 728 with margins 28 / -4, the wide tier from 1008; 240 rail from 800 to 1007), page rows and Back at radius 6 with the layer-01 hover (rows over 120 ms, base ink), the search icon 6 / 2; apps/desktop/src/shell/view/home.rs: grid 1056, projects column 256, and from 768 to 1023 the picker sits in the search field in one 768 column with the header 48 from the top (header top 108), a pick closing a search that is not inline. By reading, compiled by CI; not run. To measure in a run: the page rows' icon-to-name gap (ours 8 -> 10 where official went 6 -> 8).",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "rune_pr": "#985"
     },
     {
       "id": "UP-203",
@@ -5641,11 +5642,12 @@
       ],
       "summary": "Inbox sessions can be pinned, and archived sessions are listed in the sidebar (shell/titlebar/inbox.tsx, session search, the palette; a new icon; strings in every language).",
       "size": "L",
-      "status": "missing",
-      "status_evidence": "Not read against ours yet. The largest open port.",
+      "status": "have it",
+      "status_evidence": "rune-desktop #982 (ffbd2b68): the Inbox sidebar's sections follow inbox.tsx: pinned sessions (the shared navigation.pins) lead Recent in the pins' order with Desktop's pin glyph after the title, and a card's menu starts with Pin / Unpin; archived sessions are entries of the list (the newest 50 per server, read apart from the session list) under an Archived header that folds (archivedExpanded, shut at first), the last archived first; the Unread group and Recent's header are gone (done / failed / ready sort together, so reading one does not move it); the list's own right-click menu places Working on the shelf or in the list above Archived (workingPlacement). Official's catalogs synced to f25b09005e. By reading, compiled by CI; not run (handed to UPSTREAM-PROOF). Not removed yet: the archived search dialog's code, which has no entry point now.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "rune_pr": "#982"
     },
     {
       "id": "UP-204",
@@ -5692,11 +5694,12 @@
       ],
       "summary": "The file tree of the Files and Review panels moves to the right (or back) from a context menu on the sidebar or its toggle: Sidebar position > Left / Right; one preference for every side panel; the toggle, border and resize handle swap sides.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Not ported; read, with a port plan in notes (apps/desktop/src/plugin_host/native/sidebar.rs holds the state and the frame; Layout:PanelSidebar needs a side, a plugin contract change; three new strings). Needs a run.",
+      "status": "have it",
+      "status_evidence": "rune-desktop #984 (60b2784d): apps/desktop/src/plugin_host/native/sidebar.rs keeps sidebarSide (start / end) in review-panel-v2 beside sidebarOpened / sidebarWidth; a right-click on the sidebar or its toggle opens Sidebar position > Left / Right (physical: right is the end edge left to right); on the end edge the body's order, the sidebar's border, the resize handle and the toggle (8 from the inline end) swap sides, and plugins/review and plugins/file leave the toggle room at the end of the sidebar header and the shut toolbar (8 / 46, 8 / 54). Plugin contract 1.9: PanelSidebarInfo.side and Layout:MovePanelSidebar, as PanelSidebar.side() / move(). By reading, compiled by CI; not run (handed to UPSTREAM-PROOF).",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "rune_pr": "#984"
     }
   ],
   "browser_security_review": {
