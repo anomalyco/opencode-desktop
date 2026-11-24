@@ -235,7 +235,8 @@ fn image() -> Option<Image> {
     }
 }
 
-/// Whether `runs`' pages wait on the disk: [`SAMPLES`] of them, evenly spread, read one byte each.
+/// Whether `runs`' pages wait on the disk: up to [`SAMPLES`] of them, evenly spread, read one byte
+/// each, until [`AWAY_SAMPLES`] were slow.
 fn away(image: &Image, runs: &[(u32, u32)]) -> bool {
     let total: u64 = runs.iter().map(|&(_, pages)| u64::from(pages)).sum();
     let mut slow = 0;
@@ -259,9 +260,14 @@ fn away(image: &Image, runs: &[(u32, u32)]) -> bool {
         std::hint::black_box(unsafe { std::ptr::read_volatile((image.base + page as usize * PAGE) as *const u8) });
         if started.elapsed() >= AWAY {
             slow += 1;
+            // Enough to say so: each further sample of an exe that is away waits on the disk
+            // (a read of its own, 200-400 us), before the ask that would bring it in.
+            if slow >= AWAY_SAMPLES {
+                return true;
+            }
         }
     }
-    slow >= AWAY_SAMPLES
+    false
 }
 
 /// Asks Windows to bring `runs` into memory, from this thread and `threads - 1` more, each with
