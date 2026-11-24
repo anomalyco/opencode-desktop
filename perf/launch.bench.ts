@@ -84,12 +84,16 @@ async function settle(exe: string, env: Record<string, string>, from: string, ho
  *  opens the session and one that settles its caches. Kept per exe (path, size, time) and size. */
 async function template(exe: string, env: Record<string, string>, from: string, shape: Shape) {
   const st = statSync(exe)
-  const dir = join(SCRATCH, "profiles", `${basename(dirname(exe))}-${st.size}-${Math.round(st.mtimeMs)}-${shape}`)
+  const dir = join(SCRATCH, "profiles", `${basename(dirname(exe))}-${st.size}-${Math.round(st.mtimeMs)}-${shape}-noengine`)
   if (existsSync(join(dir, "ready"))) return dir
   rmSync(dir, { recursive: true, force: true })
   mkdirSync(dir, { recursive: true })
   await settle(exe, env, from, dir, shape, ["--session", SESSION])
   await settle(exe, env, from, dir, shape, [])
+  // The browser engine downloads in the background while those two launches run, and how far it got
+  // is chance: one build's template held 32 MB of it and the other's 82 MB, copied into every launch's
+  // home right before the timed launch. A template holds none of it.
+  rmSync(join(dir, "state", "co.anomaly.opencode", "browser-engine"), { recursive: true, force: true })
   writeFileSync(join(dir, "ready"), new Date().toISOString())
   return dir
 }
