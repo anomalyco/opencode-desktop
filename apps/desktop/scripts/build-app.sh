@@ -18,6 +18,7 @@
 #                                 from a branch with "thin-build" in its name builds release-thin)
 #   OPENCODE_RUNE_SYMBOLS        (folder for opencode-desktop.dSYM.zip; default: $RUNNER_TEMP/macos, else OUT)
 #   OPENCODE_RUNE_KEEP_SYMBOLS   (1 ships the exe with its symbol names and writes no dSYM)
+#   OPENCODE_RUNE_COMPACT_UNWIND (0 keeps a DWARF unwind entry per function; see rustc-compact-unwind.sh)
 #   OPENCODE_RUNE_LINK_ORDER     (0 links without apps/desktop/pgo/startup-order.txt; see link-order.sh)
 #   OPENCODE_RUNE_PGO_TRAIN      (1 builds the training exe; so does a pull request from a branch
 #                                 with "order-train" in its name; see apps/desktop/pgo/README.md)
@@ -38,11 +39,6 @@ case "${GITHUB_HEAD_REF:-}" in *thin-build*) PROFILE=release-thin ;; esac
 # cfg(bundle_assets); src/workspace/system/bundle.rs): macOS reads a new exe whole before its
 # first run, and a file in Resources only when the app opens it.
 export OPENCODE_RUNE_BUNDLE_ASSETS=1
-# Functions unwind by the linker's compact table instead of a DWARF entry each
-# (rustc-compact-unwind.sh): the exe loses most of __eh_frame. OPENCODE_RUNE_COMPACT_UNWIND=0 builds as before.
-if [ "${OPENCODE_RUNE_COMPACT_UNWIND:-1}" = 1 ]; then
-  export RUSTC_WRAPPER="$ROOT/apps/desktop/scripts/rustc-compact-unwind.sh"
-fi
 
 case "$OPENCODE_RUNE_VERSION" in
   0.0.0-dev-[0-9]*) BUILD=${OPENCODE_RUNE_VERSION#0.0.0-dev-} ;;
@@ -60,6 +56,14 @@ host_triple=$(rustc -vV | sed -n 's/^host: //p')
 target_triple=${OPENCODE_RUNE_TARGET:-$host_triple}
 cross=0
 [ "$target_triple" = "$host_triple" ] || cross=1
+
+# Apple silicon: functions unwind by the linker's compact table instead of a DWARF entry each
+# (rustc-compact-unwind.sh): the exe loses its __eh_frame, 9.5 MiB of a thin-LTO build. Measured
+# and checked there (`--unwind-check` in smoke-app.sh); an Intel build keeps its entries.
+# OPENCODE_RUNE_COMPACT_UNWIND=0 builds as before.
+if [ "${OPENCODE_RUNE_COMPACT_UNWIND:-1}" = 1 ] && [ "$target_triple" = aarch64-apple-darwin ]; then
+  export RUSTC_WRAPPER="$ROOT/apps/desktop/scripts/rustc-compact-unwind.sh"
+fi
 
 if [ -n "${OPENCODE_RUNE_TARGET:-}" ] || { [ "$target_triple" = aarch64-apple-darwin ] && [ "$PROFILE" = release ]; }; then
   BIN="${CARGO_TARGET_DIR:-$ROOT/target}/$target_triple/$PROFILE/opencode-desktop"
