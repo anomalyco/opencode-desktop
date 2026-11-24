@@ -177,6 +177,12 @@ pub(crate) fn harness_writes() -> bool {
     flag("--harness-writes") && dirs::rooted()
 }
 
+/// `--realtime`: a headless run on the wall clock, the harness's stand-in for a window. Rune takes
+/// the flag for itself, so it is not among `rune::extra_args` and [`flag`] never sees it.
+pub(crate) fn realtime() -> bool {
+    std::env::args().any(|a| a == "--realtime")
+}
+
 /// A person, or the harness standing in for one, is at this run: it may write.
 pub(crate) fn attended() -> bool {
     !headless() || harness_writes()

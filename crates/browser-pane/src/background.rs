@@ -21,6 +21,12 @@ pub(crate) fn set_background_priority(background: bool) {
     imp::set_background_priority(background);
 }
 
+/// The app quits: every thread now at background priority gets normal priority back, asked from
+/// the calling thread. A thread can't be asked to leave it itself: it may be inside a write.
+pub(crate) fn lift_for_quit() {
+    imp::lift_for_quit();
+}
+
 /// How long the keyboard and mouse have been still, for everything in the user's session, when
 /// the OS says (Windows, macOS).
 pub(crate) fn input_idle() -> Option<std::time::Duration> {
@@ -118,11 +124,53 @@ mod imp {
         Some(counters.PeakWorkingSetSize as u64)
     }
 
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        fn NtSetInformationThread(thread: windows::Win32::Foundation::HANDLE, class: u32, information: *const core::ffi::c_void, length: u32) -> i32;
+    }
+    /// THREADINFOCLASS `ThreadIoPriority`, and `IoPriorityNormal`.
+    const IO_PRIORITY: u32 = 22;
+    const IO_NORMAL: u32 = 2;
+
+    /// The threads now in background mode, by id.
+    static LOW: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
+
     pub(super) fn set_background_priority(background: bool) {
         let mode = if background { THREAD_MODE_BACKGROUND_BEGIN } else { THREAD_MODE_BACKGROUND_END };
         // SAFETY: the pseudo-handle names the calling thread; background mode also lowers its
         // I/O and memory priority, and only the thread itself may enter or leave it.
         unsafe { SetThreadPriority(GetCurrentThread(), mode) }.ok();
+        // SAFETY: no arguments.
+        let id = unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
+        let mut low = LOW.lock().unwrap_or_else(|e| e.into_inner());
+        low.retain(|&thread| thread != id);
+        if background {
+            low.push(id);
+        }
+    }
+
+    /// Background mode's very low I/O priority holds a thread's write back for as long as
+    /// anything else uses the disk, and a process ends only once each of its threads has left
+    /// the kernel. `THREAD_MODE_BACKGROUND_END` is the thread's own to ask, so its I/O and
+    /// memory priority are set back from here, as the kernel's own call for it allows.
+    pub(super) fn lift_for_quit() {
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::Threading::{OpenThread, THREAD_PRIORITY_NORMAL, THREAD_SET_INFORMATION};
+        // THREADINFOCLASS `ThreadPagePriority`, and the default page priority.
+        const PAGE_PRIORITY: u32 = 24;
+        let (io, page) = (IO_NORMAL, 5u32);
+        let low = std::mem::take(&mut *LOW.lock().unwrap_or_else(|e| e.into_inner()));
+        for id in low {
+            // SAFETY: the handle is this process's own thread's (or none, when it has ended),
+            // closed before the next; each value is a `u32` that outlives its call.
+            unsafe {
+                let Ok(thread) = OpenThread(THREAD_SET_INFORMATION, false, id) else { continue };
+                NtSetInformationThread(thread, IO_PRIORITY, (&raw const io).cast(), 4);
+                NtSetInformationThread(thread, PAGE_PRIORITY, (&raw const page).cast(), 4);
+                SetThreadPriority(thread, THREAD_PRIORITY_NORMAL).ok();
+                CloseHandle(thread).ok();
+            }
+        }
     }
 
     pub(super) fn pid_alive(pid: u32) -> bool {
@@ -193,6 +241,9 @@ mod imp {
     pub(super) fn peak_memory(_child: &std::process::Child) -> Option<u64> {
         None
     }
+
+    /// `_exit` ends the process whatever its threads do.
+    pub(super) fn lift_for_quit() {}
 
     #[cfg(target_os = "macos")]
     pub(super) fn pause_reason(_update: bool) -> Option<PauseReason> {
@@ -380,6 +431,8 @@ mod imp {
     }
 
     pub(super) fn set_background_priority(_background: bool) {}
+
+    pub(super) fn lift_for_quit() {}
 
     pub(super) fn free_space(_dir: &std::path::Path) -> Option<u64> {
         None
