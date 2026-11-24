@@ -1,4 +1,4 @@
-//! The plugin tables in SQLite.
+//! The plugin tables in SQLite. 
 
 use rusqlite::{Connection, params};
 
