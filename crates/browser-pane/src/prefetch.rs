@@ -691,6 +691,9 @@ impl Job {
             return Err(body.cut().cloned().unwrap_or(cut));
         }
         let sha256 = body.finish()?;
+        // The last byte is in: what follows (the hash's answer, a resumed download's whole unpack,
+        // the trust check, the rename) runs at the disk's own speed and gives way to everything.
+        background::set_disk_pace(background::DiskPace::Disk);
 
         rune::marks::mark("browser.engine.downloaded");
         self.ctl.report(EngineStatus::Verifying);

@@ -21,6 +21,22 @@ pub(crate) fn set_background_priority(background: bool) {
     imp::set_background_priority(background);
 }
 
+/// What paces the disk work of a thread that runs at background priority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DiskPace {
+    /// The disk's own speed: the replay of a partial file, the unpack of a whole one, the checks
+    /// after the last byte. It runs at background disk priority and gives way to everything.
+    Disk,
+    /// Bytes arriving from the network: each write is as large as what just came. It goes at
+    /// normal disk priority (see `imp::apply` for why background priority can't hold it).
+    Network,
+}
+
+/// Says what paces the calling thread's disk work from now on. It changes something only while
+/// the thread runs at background priority, and costs a thread-local read when nothing changes.
+pub(crate) fn set_disk_pace(pace: DiskPace) {
+    imp::set_disk_pace(pace);
+}
 /// The app quits: every thread now at background priority gets normal priority back, asked from
 /// the calling thread. A thread can't be asked to leave it itself: it may be inside a write.
 pub(crate) fn lift_for_quit() {
@@ -128,36 +144,96 @@ mod imp {
     unsafe extern "system" {
         fn NtSetInformationThread(thread: windows::Win32::Foundation::HANDLE, class: u32, information: *const core::ffi::c_void, length: u32) -> i32;
     }
-    /// THREADINFOCLASS `ThreadIoPriority`, and `IoPriorityNormal`.
+    /// THREADINFOCLASS `ThreadIoPriority`, `IoPriorityNormal` and `IoPriorityVeryLow` (background mode's).
     const IO_PRIORITY: u32 = 22;
     const IO_NORMAL: u32 = 2;
+    const IO_VERY_LOW: u32 = 0;
 
     /// The threads now in background mode, by id.
     static LOW: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
 
+    /// The calling thread's priority.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Priority {
+        Normal,
+        /// Background mode (processor, memory), with its disk work paced by this.
+        Background(super::DiskPace),
+    }
+
+    enum Event {
+        Background(bool),
+        Paced(super::DiskPace),
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Effect {
+        /// Enter or leave Windows' background mode.
+        Mode(bool),
+        /// The thread's I/O priority: normal, or background mode's own (very low).
+        Io { normal: bool },
+    }
+
+    fn step(state: Priority, event: Event) -> (Priority, [Option<Effect>; 2]) {
+        use super::DiskPace;
+        match (state, event) {
+            // Background mode starts at its own disk priority; the job says when the network paces it.
+            (Priority::Normal, Event::Background(true)) => (Priority::Background(DiskPace::Disk), [Some(Effect::Mode(true)), None]),
+            (Priority::Background(_), Event::Background(false)) => (Priority::Normal, [Some(Effect::Mode(false)), Some(Effect::Io { normal: true })]),
+            (Priority::Background(from), Event::Paced(to)) if from != to => (Priority::Background(to), [Some(Effect::Io { normal: to == DiskPace::Network }), None]),
+            (state, _) => (state, [None, None]),
+        }
+    }
+
+    thread_local! {
+        static PRIORITY: std::cell::Cell<Priority> = const { std::cell::Cell::new(Priority::Normal) };
+    }
+
+    /// Steps the calling thread's priority and carries the effects out.
+    ///
+    /// Why a network-paced write can't stay at background mode's I/O priority: for a thread at
+    /// that priority the cache manager doesn't leave a cached write to its lazy writer, it
+    /// writes the bytes to the disk inside the call, at the thread's priority (`NtWriteFile` >
+    /// `CcMapAndCopyInToCache` > `CcFlushCachePriv` > `MmFlushSection` >
+    /// `MiIssueSynchronousFlush`), and the disk serves that priority only once nothing of normal
+    /// priority has come for a moment. The thread is inside the call meanwhile, a process ends
+    /// only when each of its threads has left the kernel, and at "Install and restart"
+    /// everything else on the disk is normal priority: the old app, already ended, was not
+    /// released for 2.9 to 6.9 s with the download's thread in that write (four of five real
+    /// updates), and the new window came that much later.
+    fn apply(event: Event) {
+        let (next, effects) = step(PRIORITY.get(), event);
+        PRIORITY.set(next);
+        for effect in effects.into_iter().flatten() {
+            match effect {
+                Effect::Mode(background) => {
+                    let mode = if background { THREAD_MODE_BACKGROUND_BEGIN } else { THREAD_MODE_BACKGROUND_END };
+                    // SAFETY: the pseudo-handle names the calling thread; background mode also
+                    // lowers its I/O and memory priority, and only the thread itself may enter
+                    // or leave it.
+                    unsafe { SetThreadPriority(GetCurrentThread(), mode) }.ok();
+                    // SAFETY: no arguments.
+                    let id = unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
+                    let mut low = LOW.lock().unwrap_or_else(|e| e.into_inner());
+                    low.retain(|&thread| thread != id);
+                    if background {
+                        low.push(id);
+                    }
+                }
+                Effect::Io { normal } => {
+                    let io = if normal { IO_NORMAL } else { IO_VERY_LOW };
+                    // SAFETY: the pseudo-handle names the calling thread; the value outlives the call.
+                    unsafe { NtSetInformationThread(GetCurrentThread(), IO_PRIORITY, (&raw const io).cast(), 4) };
+                }
+            }
+        }
+    }
+
     pub(super) fn set_background_priority(background: bool) {
-        let mode = if background { THREAD_MODE_BACKGROUND_BEGIN } else { THREAD_MODE_BACKGROUND_END };
-        // SAFETY: the pseudo-handle names the calling thread; background mode also lowers its
-        // I/O and memory priority, and only the thread itself may enter or leave it.
-        unsafe { SetThreadPriority(GetCurrentThread(), mode) }.ok();
-        // Background mode's I/O priority is the lowest there is: Windows holds such a write
-        // back for as long as anything else uses the disk, and the thread is inside the call
-        // meanwhile. A process ends only once each of its threads has left the kernel, so a
-        // quit beside an update's own writes ended 0.5 to 7 s late with the download's thread in
-        // `NtWriteFile` (`download.rs` `read_source`, the partial file). The thread keeps
-        // background mode's processor and memory priority and writes at normal priority.
-        if background {
-            let io = IO_NORMAL;
-            // SAFETY: the pseudo-handle names the calling thread; the value outlives the call.
-            unsafe { NtSetInformationThread(GetCurrentThread(), IO_PRIORITY, (&raw const io).cast(), 4) };
-        }
-        // SAFETY: no arguments.
-        let id = unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
-        let mut low = LOW.lock().unwrap_or_else(|e| e.into_inner());
-        low.retain(|&thread| thread != id);
-        if background {
-            low.push(id);
-        }
+        apply(Event::Background(background));
+    }
+
+    pub(super) fn set_disk_pace(pace: super::DiskPace) {
+        apply(Event::Paced(pace));
     }
 
     /// Background mode's very low I/O priority holds a thread's write back for as long as
@@ -255,6 +331,9 @@ mod imp {
 
     /// `_exit` ends the process whatever its threads do.
     pub(super) fn lift_for_quit() {}
+
+    /// Only Windows ties a thread's disk priority to its background mode.
+    pub(super) fn set_disk_pace(_pace: super::DiskPace) {}
 
     #[cfg(target_os = "macos")]
     pub(super) fn pause_reason(_update: bool) -> Option<PauseReason> {
@@ -444,6 +523,8 @@ mod imp {
     pub(super) fn set_background_priority(_background: bool) {}
 
     pub(super) fn lift_for_quit() {}
+
+    pub(super) fn set_disk_pace(_pace: super::DiskPace) {}
 
     pub(super) fn free_space(_dir: &std::path::Path) -> Option<u64> {
         None

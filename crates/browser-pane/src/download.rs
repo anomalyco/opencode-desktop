@@ -218,6 +218,12 @@ impl<'a> Body<'a> {
             _ => buf.len(),
         };
         let heard_at = *self.heard_at.get_or_insert(limit);
+        // The network sets the pace of what is written from here (the partial file, and what a
+        // first try unpacks as the bytes arrive); a package on this disk is read at the disk's.
+        crate::background::set_disk_pace(match self.source {
+            Some(Source::Network(_)) => crate::background::DiskPace::Network,
+            Some(Source::File(_)) | None => crate::background::DiskPace::Disk,
+        });
         let n = loop {
             let next = match self.source.as_mut() {
                 None => return Ok(0),
@@ -263,6 +269,8 @@ impl Read for Body<'_> {
             return Err(std::io::Error::other("engine download cut short"));
         }
         let n = if self.replay > 0 {
+            // The stored part again, at the disk's own speed: it gives way to everything.
+            crate::background::set_disk_pace(crate::background::DiskPace::Disk);
             let want = buf.len().min(self.replay.min(usize::MAX as u64) as usize);
             match self.partial.read(&mut buf[..want]) {
                 Ok(0) => return Err(self.fail(Cut::Rejected(Fault::Corrupt))),
