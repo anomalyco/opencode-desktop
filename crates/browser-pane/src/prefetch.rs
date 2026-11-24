@@ -12,7 +12,8 @@
 //! and what it does shows in the pane.
 //!
 //! The job reads the source's index, then streams the archive into place: the bytes land in a
-//! partial file that a later try (or a later run) resumes, unpack as they arrive, and the folder
+//! partial file that a later try (or a later run) resumes, unpack as they arrive (on Windows
+//! once the last one is in: see `fetch_into`), and the folder
 //! moves into place only once the archive's hash and the trust rule pass. The partial file is
 //! locked while it downloads, so a second copy of the app never downloads it too: it follows the
 //! first one's progress instead. A connection that goes silent is dropped (`download::Cut::Stalled`)
@@ -576,8 +577,8 @@ impl Job {
         }
     }
 
-    /// One try: the rest of the archive, unpacked as it arrives into a staging folder, checked,
-    /// and moved into place as `<root>\<version>`.
+    /// One try: the rest of the archive, unpacked into a staging folder (as it arrives, or after
+    /// it on Windows), checked, and moved into place as `<root>\<version>`.
     fn install(&self, root: &Path, release: &Release, partial: &Path, low: &Arc<AtomicBool>) -> Result<(), Cut> {
         std::fs::create_dir_all(root).map_err(|e| Cut::Failed(err_write(&e)))?;
         installer::sweep_unpacking(root);
@@ -661,8 +662,12 @@ impl Job {
         let mut body = Body::open(&release.url, partial, release.size, &mut progress, &mut pace, low).map_err(Cut::Failed)?;
         // A first try unpacks as the bytes arrive. A resumed one downloads the rest first and
         // unpacks the whole file once, rather than unpacking the bytes it already has again on
-        // every try.
-        let stream_unpack = tar_zst && body.resumed_at() == 0;
+        // every try. Windows always unpacks after the last byte: unpacked as it arrives,
+        // `libcef.dll` (the archive's first file, two thirds of its bytes) stays open and half
+        // written for most of a download, and a quit then leaves its close to the process's
+        // teardown, where Defender scans the half-written DLL for seconds before the process is
+        // released (an update's helper waits for that).
+        let stream_unpack = tar_zst && body.resumed_at() == 0 && !cfg!(windows);
         if body.resumed_at() > 0 {
             log(&format!("browser engine: the download goes on from {} of {} MB", body.resumed_at() / 1_000_000, release.size.div_ceil(1_000_000)));
         }

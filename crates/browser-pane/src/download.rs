@@ -2,7 +2,7 @@
 //! the partial file, then the rest from the source (an HTTP `Range` from where it ended), each
 //! new byte written to the partial file as it passes, so a cut-short download resumes. The
 //! reader hashes everything it hands on, so the SHA-256 covers the whole archive however many
-//! tries it took, and the archive unpacks while it downloads.
+//! tries it took, and the archive can unpack while it downloads.
 //!
 //! A connection that goes silent (no byte and no error: a network that dropped it without
 //! telling, a computer back from sleep) would hold a read for ever, since the HTTP library only

@@ -1,7 +1,7 @@
 //! The trust rule's check of the unpacked files, before anything of them runs. A hash rule
 //! (`Trust::Sha256`, `Trust::Local`) is already met by the archive's SHA-256; a publisher rule
 //! checks every program and library: on Windows each one's Authenticode signature as it
-//! unpacks (on a thread of its own, so it overlaps the rest of the download), on macOS the
+//! unpacks (on a thread of its own, so it overlaps the rest of the unpack), on macOS the
 //! bundle's Developer ID signature once it's whole.
 
 use std::path::{Path, PathBuf};
