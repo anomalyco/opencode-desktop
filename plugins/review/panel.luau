@@ -171,7 +171,9 @@ end
 -- and its choice is kept under its folder. Desktop's `canReview` (`model.ts`: "the mode picker
 -- waits for the stored mode").
 function panel.held(env: Env, sid: string): boolean
-    return env.Sessions:Get(sid) == nil
+    -- `panel.doc` asks while the session is unlisted, and not again once it is listed.
+    panel.doc(env, sid)
+    return env.unlisted[sid] == true
 end
 
 -- The source picker (`ReviewTitle`: select-v2 inline, 24 tall, 8 4 in, 4 round): the source in
