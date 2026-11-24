@@ -2,12 +2,12 @@
   "generated_at": "2026-11-24",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "244491841dea5735c4c069ddc217e1e5f16126bd",
+  "upstream_head": "58473c4511b0eae637c966543db5f2b6bbd47ca9",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "c1a6f1c82",
-  "post_1114_commit_count": 610,
-  "post_1114_in_ledger": 216,
+  "rune_desktop_head": "95913d07d",
+  "post_1114_commit_count": 611,
+  "post_1114_in_ledger": 217,
   "post_1114_skipped": 394,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
@@ -18,10 +18,10 @@
     "server-core-ai-codemode-internal": 248
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 237,
+  "total_ledger_rows": 238,
   "status_counts": {
     "have it": 198,
-    "not applicable": 31,
+    "not applicable": 32,
     "differs on purpose": 1,
     "partly": 2,
     "missing": 5
@@ -5956,6 +5956,28 @@
       "size": "M",
       "status": "missing",
       "status_evidence": "Not ported yet; the agent ATTACH has it since 25 Nov 08:17 (read: packages/gui-plugins/src/browser machine.ts `session.wake` takes / `session.released`, model.ts `unopened` + `openable`, prompt-gate.ts `attachesUnopened` / `unheld`). Ours' side is the browser attachment in apps/desktop/src/surfaces/browser/rpc and the browser plugin, where #1028 (a subagent keeps its browser after the person leaves its page) just changed the same machine. Needs runs with an agent that drives the browser in an unopened tab and with two windows.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-217",
+      "window": "post-1120",
+      "pr": 66120,
+      "sha": "58473c4511",
+      "title": "fix(session-ui): stop hiding a working turn from screen readers",
+      "merged": "2026-11-24",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/timeline-next/row.tsx",
+        "packages/session-ui/src/timeline/session-timeline-row.tsx"
+      ],
+      "summary": "A screen reader can read a working turn: official's two timelines marked every reply and tool row of a turn that is still working aria-hidden, although those rows hold controls that take focus (a tool's header, a link in a reply); the attribute is removed.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "By reading: ours never hid a working turn. The only a11y_hidden in crates/session-view/src/timeline are the meta lines (model and time, parts.rs), the pending label, and the Copy button while the turn is busy, which is also inert then, so it takes no focus; a reply's text, its links and tool headers are in the accessibility tree while the turn works. Not run with a screen reader.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
