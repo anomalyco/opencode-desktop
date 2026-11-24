@@ -158,6 +158,66 @@ lto = "fat"
 codegen-units = 1
 incremental = false
 
+# The office viewer (BetterOffice's engines: 19 MiB of the macOS exe's 92 MiB of code at opt-level 3) is built for
+# size: no launch runs it, and every MiB of the exe is 5.7 ms of the first launch after an install on an M4
+# (macOS reads a new exe whole) and Defender's read on Windows. Profiles that inherit `release` take it too.
+[profile.release.package.betteroffice-base-latin]
+opt-level = "s"
+[profile.release.package.betteroffice-docx-edit]
+opt-level = "s"
+[profile.release.package.betteroffice-docx-layout]
+opt-level = "s"
+[profile.release.package.betteroffice-docx-parse]
+opt-level = "s"
+[profile.release.package.betteroffice-docx-raster]
+opt-level = "s"
+[profile.release.package.betteroffice-drawingml]
+opt-level = "s"
+[profile.release.package.betteroffice-fonts]
+opt-level = "s"
+[profile.release.package.betteroffice-fonts-intl]
+opt-level = "s"
+[profile.release.package.betteroffice-fonts-latin]
+opt-level = "s"
+[profile.release.package.betteroffice-metafile]
+opt-level = "s"
+[profile.release.package.betteroffice-ooxml-diff]
+opt-level = "s"
+[profile.release.package.betteroffice-ooxml-raster]
+opt-level = "s"
+[profile.release.package.betteroffice-ooxml-text]
+opt-level = "s"
+[profile.release.package.betteroffice-opc]
+opt-level = "s"
+[profile.release.package.betteroffice-pptx]
+opt-level = "s"
+[profile.release.package.betteroffice-pptx-edit]
+opt-level = "s"
+[profile.release.package.betteroffice-pptx-parse]
+opt-level = "s"
+[profile.release.package.betteroffice-pptx-raster]
+opt-level = "s"
+[profile.release.package.betteroffice-pptx-render]
+opt-level = "s"
+[profile.release.package.betteroffice-xlsx]
+opt-level = "s"
+[profile.release.package.betteroffice-xlsx-calc]
+opt-level = "s"
+[profile.release.package.betteroffice-xlsx-model]
+opt-level = "s"
+[profile.release.package.betteroffice-xlsx-ops]
+opt-level = "s"
+[profile.release.package.betteroffice-xlsx-parse]
+opt-level = "s"
+[profile.release.package.betteroffice-xlsx-raster]
+opt-level = "s"
+[profile.release.package.betteroffice-xlsx-render]
+opt-level = "s"
+[profile.release.package.office-preview]
+opt-level = "s"
+[profile.release.package.opencode-feature-office]
+opt-level = "s"
+
 # A release build in minutes, for iterating on something you then time with `release`: 16 codegen units,
 # no cross-crate LTO. Not incremental: an optimised build's incremental state outlived a Rune bump and
 # linked against `anon.*.llvm.*` symbols the new units no longer had (LNK2019), and CI builds without it.
