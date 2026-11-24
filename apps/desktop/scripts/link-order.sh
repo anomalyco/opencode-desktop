@@ -69,4 +69,7 @@ listed=$(grep -c -v -e '^#' -e '^$' "$list")
 rm -f "$order.ranked"
 echo "link order: $found of $listed listed functions are in this build ($(wc -l < "$order" | tr -d ' ') symbols)" | tee "$out.link-order.txt" >&2
 [ -s "$order" ] || exec cc "$@"
-cc "$@" -Wl,-order_file,"$order"
+# The order is an optimisation: a link that fails with it is made again without it.
+cc "$@" -Wl,-order_file,"$order" && exit 0
+echo "link order: the link failed with the order file; linking without it" | tee -a "$out.link-order.txt" >&2
+exec cc "$@"
