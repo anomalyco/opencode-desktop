@@ -284,7 +284,20 @@ impl Line {
                 // the list stays where it is (`inbox.tsx`: the same button, its label changed).
                 ghost_button(p, "inbox-more", label).on_press_tx(|s: &mut App, tx: &mut Tx| {
                     tx.instant();
+                    let opening = !s.kernel.slots.get(&crate::restore::RESTORE).inbox.recent_expanded;
                     s.toggle_inbox_recent();
+                    // That holds while the button's new place is one the list still builds,
+                    // about two list heights past the view. Further down the list drops the
+                    // row, and its focus would land on the last card built, out of sight, for
+                    // the next Return to open. So past a list height and a half of new rows,
+                    // focus goes to the first row the press brought, where the button stood.
+                    let order = s.inbox_order();
+                    let first = order.pinned + crate::inbox_model::RECENT_LIMIT;
+                    let brought = order.group(Group::Recent).len().saturating_sub(first);
+                    let near = brought as f32 * (CARD_H + 2.0) <= 1.5 * s.sidebar_inbox.height;
+                    if opening && !near && let Some(row) = order.group(Group::Recent).get(first) {
+                        tx.focus(row.key.clone(), false);
+                    }
                 })
             }
             // `px-1.5 py-2`, a block whose words wrap at the sidebar's width (`inbox.tsx:421`).
