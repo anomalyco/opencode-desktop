@@ -42,13 +42,9 @@ for arg in "${args[@]}"; do
   esac
 done
 link=("$@")
-# In a build with code libraries a call from one file into another is bound when it is first made
-# (the linker's older fixup format: chained fixups bind every name before `main`, 12,600 of them
-# here, at every launch). Names taken as data (function tables) are still bound at load.
-lazy=()
-[ "${OPENCODE_RUNE_LAYERS:-0}" != 1 ] || lazy=(-Wl,-no_fixup_chains)
+keep=
 case "$(basename "${out:-none}")" in
-  opencode-desktop | opencode_desktop-*) link+=(${lazy[@]+"${lazy[@]}"}) ;;
+  opencode-desktop | opencode_desktop-*) ;;
   libopencode_layer_*.dylib)
     # One of the app's code libraries (build-app.sh, OPENCODE_RUNE_LAYERS). rustc exports a
     # library's Rust names only, but a higher library also calls the C code linked into this one
@@ -72,7 +68,27 @@ case "$(basename "${out:-none}")" in
     visible=()
     while IFS= read -r arg; do visible+=("$arg"); done < <(python3 "$(dirname "$0")/c-names.py" "$out.c-names" "${link[@]}")
     [ "${#visible[@]}" -eq 0 ] || link=("${visible[@]}")
-    link+=(${lazy[@]+"${lazy[@]}"})
+    # The link is kept, with the objects rustc deletes after it: layers-exports.py makes it again
+    # once the whole app is built, exporting only the names another file takes.
+    case "$out" in /*) keep="$out.relink" ;; *) keep="$PWD/$out.relink" ;; esac
+    rm -rf "$keep"
+    mkdir -p "$keep"
+    kept=()
+    count=0
+    for arg in "${link[@]}"; do
+      case "$arg" in
+        *.o)
+          if [ -f "$arg" ]; then
+            count=$((count + 1))
+            cp "$arg" "$keep/$count-${arg##*/}"
+            arg="$keep/$count-${arg##*/}"
+          fi
+          ;;
+      esac
+      kept+=("$arg")
+    done
+    printf '%s\n' "${kept[@]}" > "$keep/args"
+    pwd > "$keep/cwd"
     ;;
   *) exec cc "$@" ;;
 esac
@@ -101,6 +117,10 @@ listed=$(grep -c -v -e '^#' -e '^$' "$list")
 rm -f "$order.ranked"
 echo "link order: $found of $listed listed functions are in this build ($(wc -l < "$order" | tr -d ' ') symbols)" | tee "$out.link-order.txt" >&2
 [ -s "$order" ] || exec cc "${link[@]}"
+if [ -n "$keep" ]; then
+  cp "$order" "$keep/order"
+  printf '%s\n' "-Wl,-order_file,$keep/order" >> "$keep/args"
+fi
 # The order is an optimisation: a link that fails with it is made again without it.
 cc "${link[@]}" -Wl,-order_file,"$order" && exit 0
 echo "link order: the link failed with the order file; linking without it" | tee -a "$out.link-order.txt" >&2
