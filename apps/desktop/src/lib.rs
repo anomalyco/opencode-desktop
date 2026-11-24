@@ -92,7 +92,7 @@ pub(crate) use tick::{poll, setup, visibility};
 #[allow(unused_imports)]
 pub(crate) use exports::*;
 #[cfg(not(target_arch = "wasm32"))]
-pub use workspace::lifecycle::launch::last_exit::OomGuard;
+pub use workspace::lifecycle::launch::last_exit::{OomGuard, alloc_failed};
 
 /// Configures extracted feature crates once per process (native and wasm32).
 pub(crate) fn init_features() {

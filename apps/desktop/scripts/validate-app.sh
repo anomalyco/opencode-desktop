@@ -34,6 +34,12 @@ plist_value NSMicrophoneUsageDescription > /dev/null || fail "no microphone usag
 [ "$("$bundle/Contents/MacOS/opencode-desktop" --version)" = "opencode-rune $version ($channel)" ] || fail "opencode-desktop --version is not $version ($channel)"
 
 codesign --verify --deep --strict --verbose=2 "$bundle"
+# Every library of the bundle: the hardened runtime loads one only with the app's own team's signature.
+for code in "$bundle"/Contents/Frameworks/*.dylib; do
+  [ -f "$code" ] || continue
+  [ "$(lipo -archs "$code")" = "$(uname -m)" ] || fail "${code##*/} does not match the native verify runner"
+  codesign -d --verbose=4 "$code" 2>&1 | grep -Fq "TeamIdentifier=$team_id" || fail "${code##*/} is not signed by the app's team"
+done
 # The office viewer's library, when this build ships one: the hardened runtime loads it only with
 # the app's own team's signature.
 library="$bundle/Contents/Frameworks/libopencode_office.dylib"

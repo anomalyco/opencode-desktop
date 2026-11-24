@@ -1,0 +1,23 @@
+# The macOS app's code as several libraries (apps/desktop/scripts/layers.py; build-app.sh, OPENCODE_RUNE_LAYERS).
+#
+# One line per library, lowest first: `name: crate crate ...`. A library holds the named crates and
+# everything they need that no lower library holds; each library links the ones below it, so a
+# crate is in exactly one file. What no line names stays in the exe. Names are package names;
+# `@rune` is every crate of the Rune repository, `@office` the office viewer's engines, `@third`
+# every other crate that is not ours, `@app` our crates outside `features/` and `apps/`.
+#
+# Why: at the first run of a new build macOS reads every file of the bundle, 8 at a time, and
+# `main` waits for the largest (proof/launch/mac-first-run-law.md: the same 112 MiB of our code as
+# 1 file 1,424 ms, 4 files 599, 8 files 426). So the sizes should be alike: move a name to
+# another line when one file outgrows the rest (the build prints each file's size).
+#
+# `base` must stay the first line: it holds the standard library and the allocator every other
+# file uses (layers/base.rs).
+base: procwatch mimalloc serde_json tracing smol_str zeroize blake3 linkme portable-atomic stacker rustc-demangle unicode-segmentation pollster cursor-icon dpi objc2-app-kit core-graphics
+text: parley swash icu_decimal icu_list icu_locale taffy pulldown-cmark
+media: resvg avif-decode arboard symphonia wasmi mlua opuscule rfd accesskit_consumer objc2-av-foundation
+gpu: wgpu
+rune: @rune
+deps: @third
+office: @office
+kit: @app
