@@ -95,7 +95,7 @@ pub fn on_focus(host: &mut dyn TerminalSurfaceHost, session_id: &str, tab_id: &s
 }
 
 pub fn poll_panel(host: &mut dyn TerminalSurfaceHost, tx: &mut Tx) -> bool {
-    rename::poll(host, tx) | poll::poll_terminal(host, tx) | crate::grid::poll_edge_scroll(host, tx)
+    poll_asked(host, tx) | rename::poll(host, tx) | poll::poll_terminal(host, tx) | crate::grid::poll_edge_scroll(host, tx)
 }
 
 pub fn key_terminal(host: &mut dyn TerminalSurfaceHost, ev: &KeyEvent, tx: &mut Tx) -> bool {
@@ -184,10 +184,45 @@ pub fn terminal_focus(host: &dyn TerminalSurfaceHost) -> Option<(String, String)
     Some((ops::terminal_workspace_key_for_session(host, sid), id.to_owned()))
 }
 
+/// A terminal asked for (a toggle, a new tab, a plugin's open) before the server listed its
+/// session (`ops::waits_for_folder`). It's done once the session is listed, while the page
+/// still shows that session; the newest ask replaces an older one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Asked {
+    Toggle { session: String },
+    Create { session: String, pane: Option<PaneTarget> },
+    Open { session: String, new_tab: bool },
+}
+
+/// Does the terminal asked for while its session wasn't listed, now that it is; forgets it
+/// when the page moved to another session.
+pub fn poll_asked(host: &mut dyn TerminalSurfaceHost, tx: &mut Tx) -> bool {
+    let Some(asked) = host.terminal().asked.clone() else { return false };
+    let (Asked::Toggle { session } | Asked::Create { session, .. } | Asked::Open { session, .. }) = &asked;
+    if host.active_session_id() != Some(session.as_str()) {
+        host.terminal_mut().asked = None;
+        return false;
+    }
+    if ops::waits_for_folder(host, session) {
+        return false;
+    }
+    host.terminal_mut().asked = None;
+    match asked {
+        Asked::Toggle { .. } => toggle_terminal(host, tx),
+        Asked::Create { pane, .. } => create_terminal_tab(host, pane, tx),
+        Asked::Open { session, new_tab } => drop(ops::open_terminal_for_session(host, &session, new_tab)),
+    }
+    true
+}
+
 /// Starts a terminal in the routed session and opens its tab, in `pane` or beside its other
 /// terminals (Desktop's `create`).
 pub fn create_terminal_tab(host: &mut dyn TerminalSurfaceHost, pane: Option<PaneTarget>, tx: &mut Tx) {
     let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    if ops::waits_for_folder(host, &sid) {
+        host.terminal_mut().asked = Some(Asked::Create { session: sid, pane });
+        return;
+    }
     let wk = ops::terminal_workspace_key_for_session(host, &sid);
     persist::ensure_terminal_workspace_hydrated(host, &wk);
     let Some(id) = ops::new_terminal_in(host, &wk) else { return };
@@ -200,6 +235,10 @@ pub fn create_terminal_tab(host: &mut dyn TerminalSurfaceHost, pane: Option<Pane
 /// pane hides while that tab shows; otherwise the tab opens and shows.
 pub fn toggle_terminal(host: &mut dyn TerminalSurfaceHost, tx: &mut Tx) {
     let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    if ops::waits_for_folder(host, &sid) {
+        host.terminal_mut().asked = Some(Asked::Toggle { session: sid });
+        return;
+    }
     let wk = ops::terminal_workspace_key_for_session(host, &sid);
     persist::ensure_terminal_workspace_hydrated(host, &wk);
     let active = host
