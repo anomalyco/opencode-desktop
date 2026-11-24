@@ -2,25 +2,25 @@
   "generated_at": "2026-11-24",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "4bb997ea44ce0ad58eb10ab37937c24d77eb6ff9",
+  "upstream_head": "af54caef70f9bc1d700d9bfd5b4f2f7471deadd8",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "f5c616ecb",
-  "post_1114_commit_count": 597,
-  "post_1114_in_ledger": 213,
-  "post_1114_skipped": 384,
+  "rune_desktop_head": "a942fe8d2",
+  "post_1114_commit_count": 599,
+  "post_1114_in_ledger": 214,
+  "post_1114_skipped": 385,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
     "ci-bench-deps": 22,
     "docs-site-data": 58,
     "tui-only": 28,
     "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 240
+    "server-core-ai-codemode-internal": 241
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 234,
+  "total_ledger_rows": 235,
   "status_counts": {
-    "have it": 195,
+    "have it": 196,
     "not applicable": 31,
     "differs on purpose": 1,
     "partly": 3,
@@ -5594,11 +5594,12 @@
       ],
       "summary": "A subagent (a child session a tab routes to) shows its root session's side panel tabs: the strip and the plugins' panel state go by the tab's session, not the routed child's.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Not ported: read and planned (notes/upstream-sync/status-upstream-f.md). Ours keys the side panel by the routed session in every store (features/panels, terminals, browser tab owners, open files: about 150 call sites), and an agent's browser tabs are owned by the agent's own session, so this is a cross-feature change that needs runs, not official's two lines. A WIP branch upstream-f/panel-session holds the mechanical part (AppEnv::panel_session_id / panel_root; not compiled, not merged). Today a subagent page shows a side panel of its own.",
+      "status": "have it",
+      "status_evidence": "rune-desktop #1020 (a942fe8d, by the agent UP-201): a subagent's page shows its root session's side panel: one strip, one selection, one pane split, open state and widths for a tab's family, on the root's page and every subagent's page; Review, Context and Details show the routed session's own; the family's terminals and browser tabs show on every page of the family. RUN on both commits' CI builds and next to official in Electron (678621a5df; notes/upstream-sync/up-201-official.md): the same on strip, selection and routed panels. Different on purpose in one thing: official drops the parent's terminal tab for good after one visit to a subagent's page (an official fault, not copied; an upstream draft is being prepared). Not run: a real window's first frame on a subagent's page; an agent's focus request while the person reads the parent.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "rune_pr": "#1020"
     },
     {
       "id": "UP-202",
@@ -5885,6 +5886,28 @@
       "size": "S",
       "status": "partly",
       "status_evidence": "By reading, not run. Have: the order of the saved effort (Pickers::saved_effort, #991: the standard model, the model, then its speeds), and a speed switch keeps the selection's effort (pickers/host.rs Kind::Speed). Not ported: (1) no sibling fallback when an agent or the config names an effort for the model (ours has no such test in saved_effort); (2) the agent's / config's effort applying at a model's speeds (getConfiguredAgentVariant's baseModelID: ours' configured ModelRef is matched by key only); (3) an inherited (not chosen) effort being resolved again for the target speed (ours' selection holds one string and does not tell chosen from inherited). Each needs ours' effort resolution read end to end and a run with a config that names a variant.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-214",
+      "window": "post-1120",
+      "pr": 66108,
+      "sha": "a44675ecee",
+      "title": "feat(ui): radio surfaces and flat unselected controls, as in Figma",
+      "merged": "2026-11-24",
+      "packages": [
+        "ui"
+      ],
+      "main_files": [
+        "packages/ui/src/forms/radio/radio.css",
+        "packages/ui/src/forms/radio/radio.tsx"
+      ],
+      "summary": "The radio control's look, as in Figma: an unselected control is flat (the base background, no top-light gradient), its hover is an inset overlay; a new `surface=\"layer-1\"` puts the controls on layer-01; the invalid ring takes the danger foreground; the disabled control and the selected dot's ring and shadow change. Used in the provider connect dialog and the WSL dialog.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Not ported, not compared. Ours' radios in the connect and WSL dialogs come from the shared kit; a change to their look is likely a Rune change and a pin. Needs a pixel comparison of an unselected, hovered, selected and disabled radio next to official a44675ecee first.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
