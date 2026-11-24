@@ -681,7 +681,12 @@ impl Job {
         if done.is_ok() {
             std::fs::remove_file(partial).ok();
         }
-        std::fs::remove_dir_all(&staging).ok();
+        // The app quits (the job was stopped and is no longer running): what the try unpacked stays,
+        // closed, for the next start's `sweep_unpacking`. Removing a half-written 200 MB file takes
+        // hundreds of ms inside one call, and the process can't end while a thread is in it.
+        if !(matches!(done, Err(Cut::Stopped)) && self.ctl.mode().is_none()) {
+            std::fs::remove_dir_all(&staging).ok();
+        }
         done
     }
 
