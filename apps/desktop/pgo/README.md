@@ -114,4 +114,4 @@ pages and few others. Without it the same functions lie spread over the whole of
 - `OPENCODE_RUNE_LINK_ORDER=0` links without it. A failure to make the order never fails a link.
 - The same raw profiles, merged with `--sparse`, are a fresh `aarch64-apple-darwin.profdata`.
 
-<!-- symbols build of edf163457b (pin Rune 4d8df909) for a recording of rune#1949's thread; never merged -->
+<!-- symbols build of edf163457b with Rune 4d8df909 + rune#2006 alone (branch warm-cut/measure-4d8-plus-2006, c10c04ff) for one recording; never merged -->
