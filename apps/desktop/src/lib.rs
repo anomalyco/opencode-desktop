@@ -228,6 +228,12 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
             // 2.2.7 Tabs through Home, Search sessions, New session, a reply's buttons and the
             // prompt, where AppKit's rule left only the prompt and the tab strip.
             .tab_visits_controls(true)
+            // The timeline's jump-to-latest button and the composer's drop zone blur what is behind
+            // them. Rune compiles its effect pipelines on a background thread after the first frame
+            // only for an app that asks (rune#2006); without it the button's first showing in a
+            // scroll waits for the GPU driver to compile the blur (about 80 to 120 ms on a cold
+            // shader cache). The switch is all four effects or none at this pin.
+            .prewarm_effects(true)
             .titlebar(rune::Titlebar::new(view::TITLEBAR_H))
             .chrome(rune::Chrome {
                 full_size_content: true,
