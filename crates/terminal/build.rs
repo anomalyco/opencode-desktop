@@ -18,7 +18,16 @@ const ZIG_VERSION_TIMEOUT: Duration = Duration::from_secs(15);
 const AROCC_FETCH_TIMEOUT: Duration = Duration::from_secs(600);
 const TAR_EXTRACT_TIMEOUT: Duration = Duration::from_secs(120);
 const ZIG_BUILD_TIMEOUT: Duration = Duration::from_secs(600);
+/// How often `zig build` runs when its package downloads fail (10, 20 and 30 s apart).
+const ZIG_BUILD_ATTEMPTS: u64 = 4;
 
+/// Whether zig's stderr says a package download failed in a way another try can mend: the name server,
+/// the connection, or the server's own error. A wrong hash or a missing file is not tried again.
+fn download_failed(stderr: &str) -> bool {
+    ["NameServerFailure", "server connection failed", "unable to connect to server", "ConnectionResetByPeer", "ConnectionTimedOut", "ConnectionRefused", "NetworkUnreachable", "TlsInitializationFailed", "EndOfStream", "bad HTTP response code: '5"]
+        .iter()
+        .any(|sign| stderr.contains(sign))
+}
 /// Ends the build script with the whole message: a failure names its cause (zig's stderr), not one line of it.
 fn fail(msg: &str) -> ! {
     eprintln!("{msg}");
@@ -227,11 +236,24 @@ fn build_from_source(
             cmd.arg("--system").arg(sys_dir);
         }
 
-        let output = run_command_with_timeout(
-            &mut cmd,
-            ZIG_BUILD_TIMEOUT,
-            "`zig build -Demit-lib-vt=true`",
-        )?;
+        // `zig build` downloads Ghostty's packages itself, once each. A download that fails on the name
+        // server or the connection is tried again: what zig did fetch stays in the package cache, so each
+        // try has less left to download. On 25 Nov a release's Linux job had lost its cache, zig's name
+        // lookups failed (`NameServerFailure`) for two tarballs, and the release published for no platform.
+        let mut attempt = 1;
+        let output = loop {
+            let output = run_command_with_timeout(
+                &mut cmd,
+                ZIG_BUILD_TIMEOUT,
+                "`zig build -Demit-lib-vt=true`",
+            )?;
+            if output.status.success() || attempt == ZIG_BUILD_ATTEMPTS || !download_failed(&String::from_utf8_lossy(&output.stderr)) {
+                break output;
+            }
+            println!("cargo:warning=terminal build: `zig build` could not download a package (try {attempt} of {ZIG_BUILD_ATTEMPTS}); trying again");
+            std::thread::sleep(Duration::from_secs(10 * attempt));
+            attempt += 1;
+        };
         if !output.status.success() {
             // zig's last lines, not its last one: on 18 Nov the last one was the caret under the error.
             let stderr = String::from_utf8_lossy(&output.stderr);
