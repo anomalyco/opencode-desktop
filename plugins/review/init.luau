@@ -26,8 +26,10 @@ return plugin.defineWindow(function(ctx)
         Layout = Layout,
         Menu = ctx:GetService("Menu"),
         Theme = ctx:GetService("Theme"),
+        Sessions = Sessions,
         menuTrigger = true,
         docs = {},
+        unlisted = {},
         filter = ctx:CreateEditor(""),
         -- Desktop's `layout` review style (split) and `review-panel-v2` expand mode (collapse).
         style = Store:Value("diff", { diffStyle = "split" :: panel.DiffStyle }),

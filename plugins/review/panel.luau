@@ -34,9 +34,12 @@ export type Env = {
     Layout: LayoutService,
     Menu: MenuService,
     Theme: ThemeService,
+    Sessions: SessionsService,
     menuTrigger: boolean,
     -- One document per session, opened once.
     docs: { [string]: DiffDocument },
+    -- The sessions whose document opened before the server listed them.
+    unlisted: { [string]: boolean },
     cache: { [string]: CachedDiff }?,
     kindsCache: { [string]: CachedKinds }?,
     -- The sidebar's filter.
@@ -55,6 +58,22 @@ function panel.doc(env: Env, sid: string): DiffDocument
         doc = env.Diff:Open({ sessionId = sid, source = stored.mode or "git" })
         env.docs[sid] = doc
         -- The file picked last shows again while the changes still list it (`activeFile`).
+        if stored.file then
+            doc:Focus(stored.file)
+        end
+        -- A session the server hasn't listed yet (a subagent's page at launch) has no folder, and
+        -- its choice is kept under its folder: that first read found none.
+        if env.Sessions:Get(sid) == nil then
+            env.unlisted[sid] = true
+        end
+    elseif env.unlisted[sid] and env.Sessions:Get(sid) ~= nil then
+        -- Listed now: the source and the file it chose apply over the defaults it opened with
+        -- (Desktop waits for the stored state before it shows or asks for anything, `model.ts`).
+        env.unlisted[sid] = nil
+        local stored = env.source:Get(sid)
+        if stored.mode and stored.mode ~= doc:Source() then
+            doc:SetSource(stored.mode)
+        end
         if stored.file then
             doc:Focus(stored.file)
         end
