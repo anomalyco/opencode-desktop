@@ -11,6 +11,7 @@
 
 pub mod dialog;
 pub mod drawer;
+pub mod effort;
 pub mod flyout;
 mod host;
 pub mod hover;
@@ -32,6 +33,7 @@ use serde_json::Value;
 
 use crate::popover::Highlight;
 
+pub use effort::Effort;
 pub use flyout::EffortFlyout;
 pub use host::PickerHost;
 pub use hover::ModelHover;
@@ -74,8 +76,10 @@ impl Kind {
     }
 }
 
+/// An agent and its model. `effort` says whether the model's `variant` was chosen or is the one
+/// the model inherits.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Selection { pub model: ModelRef, pub agent: String }
+pub struct Selection { pub model: ModelRef, pub agent: String, pub effort: Effort }
 
 /// Picks by session ("draft" for a new one), each installed as its own edit: picking again
 /// starts a new one even when it revisits the same model and effort, so a send can release the
@@ -97,12 +101,14 @@ impl Selections {
     }
 
     /// The edit a prompt carries, for its admission to release: only when the prompt names the
-    /// agent or model this session's pick holds.
+    /// agent or model this session's pick holds. A pick that chose no effort holds its model at
+    /// whichever effort the prompt went out with.
     pub fn submitted(&self, scope: &str, agent: Option<&str>, model: Option<&ModelRef>) -> Option<Arc<Selection>> {
         let pick = self.0.get(scope)?;
+        let holds = |m: &ModelRef| m.id == pick.model.id && m.provider == pick.model.provider && (pick.effort == Effort::Inherited || m.variant == pick.model.variant);
         ((agent.is_some() || model.is_some())
             && agent.is_none_or(|a| a == pick.agent)
-            && model.is_none_or(|m| *m == pick.model))
+            && model.is_none_or(holds))
             .then(|| Arc::clone(pick))
     }
 
