@@ -323,8 +323,9 @@ pub fn set_home(dirs: rune::dirs::AppDirs) {
     HOME.set(dirs).ok();
 }
 
-/// The app quits: an engine download that runs in the background stops where it is, and the
-/// process doesn't end with a thread of it inside a write at background priority.
+/// The app quits: an engine download that runs in the background stops where it is, its threads
+/// get normal priority back for what they still do, and it closes the files it writes
+/// ([`quit_wait`] waits for that).
 pub fn quit() {
     #[cfg(feature = "engine")]
     crate::prefetch::Prefetch::global().quit();

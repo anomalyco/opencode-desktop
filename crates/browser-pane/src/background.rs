@@ -140,17 +140,6 @@ mod imp {
         // SAFETY: the pseudo-handle names the calling thread; background mode also lowers its
         // I/O and memory priority, and only the thread itself may enter or leave it.
         unsafe { SetThreadPriority(GetCurrentThread(), mode) }.ok();
-        // Background mode's I/O priority is the lowest there is: Windows holds such a write
-        // back for as long as anything else uses the disk, and the thread is inside the call
-        // meanwhile. A process ends only once each of its threads has left the kernel, so a
-        // quit beside an update's own writes ended 0.5 to 7 s late with the download's thread in
-        // `NtWriteFile` (`download.rs` `read_source`, the partial file). The thread keeps
-        // background mode's processor and memory priority and writes at normal priority.
-        if background {
-            let io = IO_NORMAL;
-            // SAFETY: the pseudo-handle names the calling thread; the value outlives the call.
-            unsafe { NtSetInformationThread(GetCurrentThread(), IO_PRIORITY, (&raw const io).cast(), 4) };
-        }
         // SAFETY: no arguments.
         let id = unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
         let mut low = LOW.lock().unwrap_or_else(|e| e.into_inner());
