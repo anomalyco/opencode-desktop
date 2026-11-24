@@ -15,7 +15,7 @@ pub(crate) use projects::home_projects_popover;
 
 // ---------------------------------------------------------------------------------------------
 // Home (`home/route.tsx`): projects (`home/projects/view.tsx`) beside recent sessions by day
-// (`home/sessions/view.tsx`), in a centred `max-w-[1080px]` grid that scrolls as one.
+// (`home/sessions/view.tsx`), in a centred `max-w-[1056px]` grid that scrolls as one.
 
 /// Tailwind's `lg` and `md` breakpoints, on the window's width as Desktop's media queries are.
 const LG: f32 = 1024.0;
@@ -26,9 +26,10 @@ const MD: f32 = 768.0;
 enum Tier {
     /// Under 768: the projects as a dropdown above the sessions.
     Narrow,
-    /// 768 to 1023: the projects stacked above the sessions, Settings and Help along the foot.
+    /// 768 to 1023: the projects column has no room beside the sessions, so the picker is in
+    /// the search field (`route.tsx` `tablet`); Settings and Help along the foot.
     Medium,
-    /// 1024 and up: `grid-cols-[280px_minmax(0,720px)]`, Settings and Help under the projects.
+    /// 1024 and up: `grid-cols-[256px_minmax(0,720px)]`, Settings and Help under the projects.
     Wide,
 }
 
@@ -44,27 +45,43 @@ impl Tier {
     }
 
     /// The sticky search header's height plus the list's top padding, where the group headers
-    /// stick and the New session button sits (`top-[68px] md:top-[84px] lg:top-[108px]`).
+    /// stick and the New session button sits (`top-[68px] md:top-[108px]`).
     fn header_top(self) -> f32 {
         match self {
             Tier::Narrow => 68.0,
-            Tier::Medium => 84.0,
-            Tier::Wide => 108.0,
+            Tier::Medium | Tier::Wide => 108.0,
         }
     }
 }
 
-/// `max-w-[1080px]`, and the 280 pt projects column 32 from the sessions (`lg:gap-8`).
+/// Whether the project picker sits in the search field, not in a column or a bar of its own
+/// (`route.tsx` `scoped`): Consolidated navigation's Side tabs, or a window between `md` and
+/// `lg`. For code outside the page's own build, from the window's width as last laid out.
+pub(super) fn scoped(s: &App) -> bool {
+    s.home_project_scope() || rune::memo::layout_with("zoom", |r| r[2]).is_some_and(|w| Tier::of(w) == Tier::Medium)
+}
+
+/// A pick from the picker in the search field (`route.tsx` `onPick`): the search closes, as a
+/// pick from the projects column does by pressing outside it. An inline search filters the list
+/// in place, so its query carries over to the new project.
+pub(super) fn picked(s: &mut App, tx: &mut Tx) {
+    if scoped(s) && !s.settings.navigation_prototype() && !s.search.text.is_empty() {
+        s.clear_home_search(false, tx);
+    }
+}
+
+/// `max-w-[1056px]`, and the 256 pt projects column 32 from the sessions (`lg:gap-8`): the
+/// columns Settings' sidebar and content line up with (opencode#65998).
 /// Home's labels: Desktop's rows, headings and project list leave letter-spacing normal (13 px at
 /// 440 or 530), where its controls take -0.04 (`UI`), on Desktop's 24 px line: a 16 pt line centred
 /// in the row put the text half a device pixel lower at 1.875x, a pixel lower once rounded.
 const HOME: rune::TextStyle = rune::TextStyle::new(13.0, 440.0).lh(24.0);
 const HOME_MED: rune::TextStyle = rune::TextStyle::new(13.0, 530.0).lh(24.0);
 
-const GRID_MAX: f32 = 1080.0;
+const GRID_MAX: f32 = 1056.0;
 /// Consolidated navigation's single-column width (`max-w-[768px]`).
 const SCOPED_MAX: f32 = 768.0;
-const PROJECTS_W: f32 = 280.0;
+const PROJECTS_W: f32 = 256.0;
 const GRID_GAP: f32 = 32.0;
 const SESSIONS_MAX: f32 = 720.0;
 
@@ -84,16 +101,17 @@ pub(crate) fn home(s: &App, p: &Pal, [panel_w, panel_h]: [f32; 2], window: [f32;
     let tier = Tier::of(window_w);
     // `px-3 lg:px-6`.
     let pad = if tier == Tier::Wide { 24.0 } else { 12.0 };
-    let scope = s.home_project_scope();
+    let project_scope = s.home_project_scope();
+    // `scoped`: between md and lg the picker moves into the search field too.
+    let scope = project_scope || tier == Tier::Medium;
     let grid_max = if scope { SCOPED_MAX } else { GRID_MAX };
     let grid_w = panel.min(grid_max) - 2.0 * pad;
     let column_w = if tier == Tier::Wide && !scope { (grid_w - PROJECTS_W - GRID_GAP).min(SESSIONS_MAX) } else { grid_w };
-    let sessions = sessions_column(s, p, selected, tier, column_w, window_h);
+    let sessions = sessions_column(s, p, selected, tier, scope, column_w, window_h);
     let grid = match tier {
         _ if scope => col().key("home-grid").w_full().max_w(SCOPED_MAX).px(pad).child(sessions),
         Tier::Wide => row().key("home-grid").w_full().max_w(GRID_MAX).px(pad).gap(GRID_GAP).child(projects::column(s, p, selected, true, panel_h)).child(sessions),
-        Tier::Medium => col().key("home-grid").w_full().max_w(GRID_MAX).px(pad).gap(16.0).child(projects::column(s, p, selected, false, panel_h)).child(sessions),
-        Tier::Narrow => col().key("home-grid").w_full().max_w(GRID_MAX).px(pad).child(sessions),
+        Tier::Medium | Tier::Narrow => col().key("home-grid").w_full().max_w(GRID_MAX).px(pad).child(sessions),
     };
     // Out of the Tab order, as Desktop's `ScrollView` (`tabIndex={-1}`, opencode#65758): the items
     // inside take Tab focus, and a click still focuses it so the keys scroll it. No ring
@@ -108,14 +126,14 @@ pub(crate) fn home(s: &App, p: &Pal, [panel_w, panel_h]: [f32; 2], window: [f32;
         .build::<App>(p, viewport, col().key("home-content").w_full().items_center().child(grid))
         .grow(1.0);
     let mut page = col().key("home-page").grow(1.0).w_full().h_full();
-    if tier == Tier::Narrow && !scope {
+    if tier == Tier::Narrow && !project_scope {
         // `relative z-40 -mb-3 shrink-0 px-3 pt-3`.
         // Stacks over the Home scroller only, not over the shell's drawer scrim.
         page = page.child(row().key("home-projects-bar").w_full().px(12.0).pt(12.0).mb(-12.0).child(projects::dropdown_trigger(s, p, selected)).paint_order(1));
     }
     // The scroller takes what the dropdown and the foot leave; the provider tip floats over its foot (#64885).
     page = page.child(col().key("home-body").w_full().grow(1.0).shrink().min_h(0.0).child(scroller).children(tip::tip(s, p)));
-    if tier == Tier::Medium && !scope {
+    if tier == Tier::Medium && !project_scope {
         // `hidden shrink-0 px-3 py-2 md:block lg:hidden`: a row, Settings and Help at its ends.
         page = page.child(projects::utility(p, false).key("home-utility-foot").px(12.0).py(8.0));
     }
@@ -130,7 +148,7 @@ fn gutter_end(panel: f32, grid_max: f32, pad: f32) -> f32 {
 }
 
 /// `HomeSessionsView`: the sticky search header, then the sessions grouped by day.
-fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Tier, width: f32, window_h: f32) -> El {
+fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Tier, scoped: bool, width: f32, window_h: f32) -> El {
     let show_project = selected.is_none();
     let can_create = selected.is_some() || !s.used_projects().is_empty();
     let open = s.kernel.slots.get(&crate::restore::RESTORE).inbox.home_automations;
@@ -139,15 +157,15 @@ fn sessions_column(s: &App, p: &Pal, selected: Option<&model::Project>, tier: Ti
     // Each row: `ps-3 pe-3`, the 16 pt avatar and `gap-1.5` before its labels.
     let labels_w = (width - 12.0 - 12.0 - 16.0 - ROW_GAP).max(0.0);
 
-    // `sticky top-0 bg-base pb-1 pt-6 md:pb-3 lg:pt-12`.
+    // `sticky top-0 bg-base pb-1 pt-6 md:pb-3 md:pt-12`.
     let mut header = col()
         .key("home-sessions-header")
         .w_full()
-        .pt(if tier == Tier::Wide { 48.0 } else { 24.0 })
+        .pt(if tier == Tier::Narrow { 24.0 } else { 48.0 })
         .pb(if tier == Tier::Narrow { 4.0 } else { 12.0 })
         .fill(p.bg_base)
         .sticky_top(0.0);
-    header = header.child(search::field(s, p, selected, width, window_h, tier == Tier::Narrow));
+    header = header.child(search::field(s, p, selected, width, window_h, tier == Tier::Narrow, scoped));
     if !groups.is_empty() && can_create {
         // `absolute right-0 top-[108px] z-20`: on the first group's line, staying while the list
         // scrolls, under the search's results (`z-30`), and after the search in Tab order, as in

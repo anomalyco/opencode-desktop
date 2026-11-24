@@ -5,7 +5,7 @@ use super::*;
 // it has focus and text, its results in a floating panel that holds the field 6 in from its top.
 
 /// `h-9 rounded-[6px] py-1 ps-3 pe-2 gap-2`, `bg-layer-02/60`, `bg-layer-02` hovered or focused.
-pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window_h: f32, narrow: bool) -> El {
+pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: f32, window_h: f32, narrow: bool, scoped: bool) -> El {
     let open = s.home_search_open();
     let placeholder = placeholder(s, selected);
     // Not `search`: that key is the titlebar's and the sidebar's Search sessions button.
@@ -62,7 +62,8 @@ pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: 
                 .child(icon(&ic::CLOSE, glyph).color(p.icon_muted)),
         );
     }
-    if s.home_project_scope() {
+    // searchScope: the project picker in the field (oute.tsx scoped).
+    if scoped {
         if !s.search.text.is_empty() {
             field = field.child(el().key("scope-divider").mx(2.0).w(1.0).h(16.0).fill(p.border_muted).a11y_hidden());
         }

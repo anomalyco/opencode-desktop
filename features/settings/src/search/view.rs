@@ -74,7 +74,9 @@ pub fn field<H: SettingsHost + 'static>(s: &H, p: &Pal, narrow: bool) -> El {
         .hover(p.hover);
     let field = if q.focused { field.border(1.0, p.v2.border_focus) } else { field };
     field
-        .child(el().pl(8.0).child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted)))
+        // `search.css`: the page rows below inset their icons 6; the other 2 goes after the icon,
+        // so the text still starts where it did.
+        .child(el().pl(6.0).pr(2.0).child(icon(&ic::MAGNIFYING_GLASS, 16.0).color(p.icon_muted)))
         .child(
             opencode_ui::style::field(q, if narrow { NARROW_INPUT } else { ROW })
                 .key("settings-search-input")
