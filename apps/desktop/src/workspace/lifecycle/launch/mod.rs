@@ -24,6 +24,9 @@ pub mod trace;
 pub use boot::start_first_reads;
 pub use saved::{catalog as saved_catalog, gutters as saved_gutters, list as saved_list};
 #[cfg(windows)]
+#[cfg(windows)]
+pub use boot::leave_install_folder;
+#[cfg(windows)]
 pub use boot::warm_gpu_if_asked;
 pub use boot::{
     Accepted, FIRST_PATIENCE, First, GRACE, Ready, defer, deferred, initial_server, window_title,
