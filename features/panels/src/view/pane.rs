@@ -176,7 +176,7 @@ fn render_selected_panel(
     let side = host.side();
     let vctx = PanelViewCtx {
         plugin: selected.plugin,
-        session_id: &reg.session_id,
+        session_id: &reg.view_session,
         directory: &reg.directory,
         project_id: &reg.project_id,
         pane,

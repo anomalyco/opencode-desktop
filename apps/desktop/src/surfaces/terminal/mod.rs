@@ -247,7 +247,7 @@ impl TerminalSurfaceHost for App {
             .slots
             .get(&crate::panels::SIDE)
             .sessions
-            .get(sid)
+            .get(self.panel_root(sid))
             .is_some_and(|st| st.tab_state.tabs.all.iter().any(|k| k.starts_with("terminal:")))
     }
 

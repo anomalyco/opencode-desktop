@@ -420,7 +420,7 @@ fn focus_side_body(host: &mut dyn PanelsHost) {
 
 fn on_split_resize_drag(host: &mut dyn PanelsHost, col_h: f32, split_h: f32, d: &Drag, tx: &mut Tx) {
     tx.instant();
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     let stored = host.side().sessions.get(&sid).and_then(|st| st.split_ratio);
     let event = match d.phase {
         Phase::Down => ResizeEvent::Down { size: split_h, stored, clicks: d.clicks },
@@ -439,7 +439,7 @@ fn on_split_resize_drag(host: &mut dyn PanelsHost, col_h: f32, split_h: f32, d: 
 
 fn on_chat_resize_drag(host: &mut dyn PanelsHost, chat: f32, max: f32, d: &Drag, tx: &mut Tx) {
     tx.instant();
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     let stored = host.side().sessions.get(&sid).and_then(|st| st.session_width);
     let event = match d.phase {
         Phase::Down => ResizeEvent::Down { size: chat, stored, clicks: d.clicks },

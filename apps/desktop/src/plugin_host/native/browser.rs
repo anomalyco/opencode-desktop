@@ -142,10 +142,11 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         let scope = scope::TabScope::capture(lua);
         let found = with_app("Browser:Selected", |app| {
             let Some(sid) = scope.target_session(app, sid.as_deref()) else { return Ok(None) };
-            let open = app.kernel.slots.get(&crate::panels::SIDE).sessions.get(&sid).is_some_and(|st| st.visibility.open()) && !app.narrow();
-            Ok(app.active_browser_tab_for_session(&sid).filter(|&id| {
-                open && app.workspace_panes.browser.host.tab(id).is_some() && scope.check_tab(app, id, false).is_ok()
-            }))
+            let open = app.kernel.slots.get(&crate::panels::SIDE).sessions.get(app.panel_root(&sid)).is_some_and(|st| st.visibility.open()) && !app.narrow();
+            // An agent's tool hears of its own session's tab; the pane's chrome of the tab on the page,
+            // whichever session of the family owns it (a subagent draws on its root's strip).
+            let selected = if scope.tool_sid.is_some() { app.active_browser_tab_for_session(&sid) } else { app.shown_browser_tab_for_session(&sid) };
+            Ok(selected.filter(|&id| open && app.workspace_panes.browser.host.tab(id).is_some() && scope.check_tab(app, id, false).is_ok()))
         })?;
         match found {
             Some(id) => Ok(Value::Table(tab(lua, id)?)),
@@ -617,7 +618,7 @@ pub fn version(app: &App) -> u64 {
     // The side region passes it in (`panels::view::side_region`).
     let side = app.kernel.slots.get(&crate::panels::SIDE);
     (rune::Tracked::untracked(&app.composer).focused, side.focus.is_focused(), format!("{:?}", side.active_pane_focus), app.active_browser_tab_id()).hash(&mut h);
-    app.active_session_id().and_then(|sid| side.sessions.get(sid)).map(|st| st.visibility.open()).hash(&mut h);
+    app.panel_session_id().and_then(|sid| side.sessions.get(sid)).map(|st| st.visibility.open()).hash(&mut h);
     h.finish()
 }
 

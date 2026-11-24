@@ -135,7 +135,8 @@ impl PanelsHost for App {
         use rune::Tracked;
         let slots = &self.kernel.slots;
         let mut h = DefaultHasher::new();
-        self.active_session_id().hash(&mut h);
+        // The strip's session and the routed one, which its panels list for.
+        (self.panel_session_id(), self.active_session_id()).hash(&mut h);
         crate::servers::runtime::active(self).hash(&mut h);
         let server_base = match Tracked::untracked(&self.source) {
             crate::Source::Live { server, allow_send, .. } => {
@@ -147,7 +148,7 @@ impl PanelsHost for App {
                 "fixture"
             }
         };
-        if let Some(sid) = self.active_session_id() {
+        if let Some(sid) = self.panel_session_id() {
             let wk = crate::terminal::workspace_key(server_base, sid);
             match slots.untracked(&crate::terminal::TERMINAL).workspaces.get(&wk) {
                 Some(ws) => {
@@ -321,6 +322,32 @@ impl App {
             Route::Session { id, .. } => Some(id.as_str()),
             _ => None,
         }
+    }
+
+    /// The session whose side panel strip the routed session shows: its root's when a tab holds
+    /// that root, so a subagent's page shows its parent's tabs and a tab picked there is the
+    /// parent's too (official `session-layout.ts` `panelKey`, opencode#65957).
+    pub fn panel_session_id(&self) -> Option<&str> {
+        self.active_session_id().map(|id| self.panel_root(id))
+    }
+
+    /// [`Self::panel_session_id`] for session `sid` of the server the window works against
+    /// (official `host-apis.tsx` `panelSessionID`: the root of the tab that holds it). A session
+    /// whose parents aren't loaded, or whose root has no tab, keeps its own.
+    pub fn panel_root<'a>(&'a self, sid: &'a str) -> &'a str {
+        let server = crate::servers::runtime::active(self);
+        let tab = |id: &str| self.tabs.iter().any(|t| t.id == id && !t.is_draft() && t.server == *server);
+        // A tab's own session, the usual page, with no look at its family.
+        if tab(sid) {
+            return sid;
+        }
+        let root = crate::launch::saved::page_tab::root_of(self, sid);
+        if root != sid && tab(root) { root } else { sid }
+    }
+
+    /// Whether session `sid`'s side panel is the one on the page (`AppEnv::panel_shows`).
+    pub fn panel_shows(&self, sid: &str) -> bool {
+        opencode_kernel::AppEnv::panel_shows(self, sid)
     }
 
     pub fn side_open(&self) -> bool {

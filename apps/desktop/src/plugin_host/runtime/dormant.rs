@@ -464,6 +464,8 @@ fn push_once(list: &mut Vec<(String, Wait)>, id: &str, to: Wait) {
 /// Whether session `session`'s side region is open on New tab (empty side strip, or adding a tab).
 pub(super) fn shows_launchers(app: &App, session: &str) -> bool {
     let side_state = app.kernel.slots.get(&crate::panels::SIDE);
+    // A subagent's page draws its root's strip (`App::panel_root`).
+    let session = app.panel_root(session);
     let st = side_state.sessions.get(session);
     let side_open = if app.settings.shared_side_panel {
         side_state.shared_open.unwrap_or(false)
@@ -484,7 +486,7 @@ pub(super) fn shows_launchers(app: &App, session: &str) -> bool {
 /// the session, and the file viewers when it has a Files tab. A code block a plugin draws asks for
 /// it as it shows ([`want_now`]); a link handler answers when a link is opened.
 fn for_session(app: &App, session: &str) -> Vec<String> {
-    let side = app.kernel.slots.get(&crate::panels::SIDE).sessions.get(session);
+    let side = app.kernel.slots.get(&crate::panels::SIDE).sessions.get(app.panel_root(session));
     let with_tabs: Vec<&str> = side.map(|side| side.tab_state.tabs.all.iter().filter_map(|k| crate::panels::tabs::split_panel_key(k).map(|(plugin, _)| plugin)).collect()).unwrap_or_default();
     let files = with_tabs.contains(&"file");
     let on_new_tab = shows_launchers(app, session);

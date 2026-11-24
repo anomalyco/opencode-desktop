@@ -13,11 +13,32 @@ those exported the linker also drops the code nothing reaches.
 
 link-order.sh kept each library's link (its arguments and the objects rustc deletes afterwards) in
 <library>.relink/. The exe is not linked again: the names it takes are all still there.
+
+The names are also made short. dyld's look-up walks the name, and a Rust name is 100 characters
+and more: a toy that takes 2,763 names from a library pays 2.0 ms a launch for long names and
+0.5 ms for short ones. The library exports each taken name under a short alias only (the linker's
+-alias_list), and short_names.py writes the alias over the long name in the files that take it.
+OPENCODE_RUNE_LAYER_NAMES=long keeps the names as they are.
 """
 import os
 import re
 import subprocess
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from short_names import rename_imports  # noqa: E402
+
+DIGITS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
+def short_name(index):
+    """_oc and the index in base 62: unlike any name a compiler makes."""
+    text = DIGITS[index % 62]
+    while index >= 62:
+        index //= 62
+        text = DIGITS[index % 62] + text
+    return "_oc" + text
+
 
 TAKES = re.compile(r"\(undefined\) (?:weak )?external (\S+) \(from (libopencode_layer_[a-z0-9]+)\)")
 
@@ -73,7 +94,18 @@ def main():
         # rustc's two helper objects: one refers to every name of its own export list (it would keep
         # all the code), the other is the crate metadata the compiler reads, which no launch needs.
         args = [a for a in args if not a.endswith(("-symbols.o", "-rmeta.o"))]
-        run("cc", *args, "-Wl,-exported_symbols_list," + listed, "-Wl,-dead_strip", cwd=cwd)
+        short = {}
+        extra = []
+        if os.environ.get("OPENCODE_RUNE_LAYER_NAMES") != "long":
+            short = {name: short_name(i) for i, name in enumerate(sorted(wanted))}
+            aliases = os.path.join(kept, "aliases")
+            with open(aliases, "w", encoding="utf-8", newline="\n") as f:
+                f.write("".join("%s %s\n" % pair for pair in sorted(short.items())))
+            with open(listed, "w", encoding="utf-8", newline="\n") as f:
+                f.write("\n".join(sorted(short.values())) + "\n")
+            extra = ["-Wl,-alias_list," + aliases]
+            wanted = set(short.values())
+        run("cc", *args, "-Wl,-exported_symbols_list," + listed, "-Wl,-dead_strip", *extra, cwd=cwd)
         missing = wanted - exported(built)
         if missing:
             fail("%s lost %d names another file takes, for example %s" % (library, len(missing), sorted(missing)[0]))
@@ -83,6 +115,18 @@ def main():
             os.remove(beside)
         run("cp", built, beside)
         print("layers-exports.py: %s: %d -> %d bytes, %d -> %d exported names" % (library, before[0], os.path.getsize(built), before[1], len(wanted)), file=sys.stderr)
+        if short:
+            for path in above:
+                if not takes(path).get(library):
+                    continue
+                count = rename_imports(path, library + ".dylib", short)
+                # The file changed after the linker signed it: an Apple silicon Mac would not run it.
+                run("codesign", "--force", "--sign", "-", path)
+                print("layers-exports.py: %s: %d names it takes from %s are short now" % (os.path.basename(path), count, library), file=sys.stderr)
+                copy = os.path.join(folder, os.path.basename(path))
+                if path != exe and os.path.exists(copy):
+                    os.remove(copy)
+                    run("cp", path, copy)
         above.append(built)
 
 

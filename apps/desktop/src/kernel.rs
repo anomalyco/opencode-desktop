@@ -53,6 +53,10 @@ impl AppEnv for App {
             _ => None,
         }
     }
+
+    fn panel_root<'a>(&'a self, sid: &'a str) -> &'a str {
+        App::panel_root(self, sid)
+    }
 }
 
 impl AppFeedback for App {

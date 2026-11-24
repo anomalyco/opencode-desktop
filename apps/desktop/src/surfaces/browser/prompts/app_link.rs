@@ -28,7 +28,7 @@ const TARGET_MAX_H: f32 = 80.0;
 /// Renders the active app-link review bar for browser tab `tab_id` when the window is focused and
 /// the tab is owned by the active session.
 pub fn app_link_review_bar(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
-    if s.plugins.window_blurred.get() || s.browser_tab_session(tab_id) != s.active_session_id() {
+    if s.plugins.window_blurred.get() || !s.browser_tab_session(tab_id).is_some_and(|owner| s.panel_shows(owner)) {
         return None;
     }
     let review = s.workspace_panes.browser.active_app_reviews.borrow().get(&tab_id)?.clone();
