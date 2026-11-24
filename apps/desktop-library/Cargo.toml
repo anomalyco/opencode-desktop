@@ -18,5 +18,9 @@ mimalloc = { version = "0.1", default-features = false }
 opencode-desktop = { path = "../desktop" }
 procwatch.workspace = true
 
+[build-dependencies]
+# The library's version information on Windows.
+win-install = { path = "../../crates/win-install", features = ["resources"] }
+
 [lints]
 workspace = true

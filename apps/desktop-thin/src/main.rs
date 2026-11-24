@@ -10,6 +10,10 @@
 //! where one 160 MiB exe took 5,563-6,987 ms (a folder Defender scans, new files every trial; the
 //! pull request that added this file has the table).
 //!
+//! This exe is the same bytes in every build of a channel (`build.rs`), so Defender has seen a
+//! new build's exe already on a machine that ran an earlier one: 25-48 ms where a never-seen
+//! small exe took 391-1,654 ms.
+//!
 //! The library is this file's own path with `.dll` for `.exe`: `opencode-desktop.dll` beside
 //! `opencode-desktop.exe` in an install, and the same for a copy under another name (the
 //! uninstaller's in the temp folder, which the app copies with its library).
