@@ -228,6 +228,12 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
             // 2.2.7 Tabs through Home, Search sessions, New session, a reply's buttons and the
             // prompt, where AppKit's rule left only the prompt and the tab strip.
             .tab_visits_controls(true)
+            // The app's only blurs are two frosted surfaces: the timeline's jump-to-latest button
+            // and the composer's drop zone. Their pipelines compile on a low-priority thread once
+            // the window rests, so the button's first showing in the middle of a scroll does not
+            // stall while the GPU driver compiles them. Nothing else is named: no other effect
+            // (layer blur, a blend) is compiled ahead.
+            .prewarm_effects(rune::PrewarmEffects::BACKDROP_BLUR)
             .titlebar(rune::Titlebar::new(view::TITLEBAR_H))
             .chrome(rune::Chrome {
                 full_size_content: true,
