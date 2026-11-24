@@ -48,7 +48,6 @@ pub const EXE: &str = "opencode-desktop.exe";
 pub const EXPECTED_PUBLISHER: &str = "Anomaly Innovations, Inc https://anoma.ly/";
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-const CREATE_SUSPENDED: u32 = 0x0000_0004;
 const DETACHED_PROCESS: u32 = 0x0000_0008;
 const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
 const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
@@ -287,29 +286,44 @@ impl Windows {
     }
 }
 
-/// Makes a process from the staged executable and ends it before a line of it runs.
+/// Runs the staged build once, with `--version`, where nobody waits for it: so Windows has made
+/// a process from its exe AND has loaded its library before the person clicks.
 ///
-/// Windows Defender checks a new executable the first time a process is made from it, inside
-/// `CreateProcess`, before that process exists: 276,941-423,602 us for the signed 162 MB exe of
-/// dev-476 and 641,632-868,502 us for an unsigned one, in a folder it scans (n = 3 and 8). It
-/// keeps the answer for that file, also through a hard link and a renamed folder, so the next
-/// process from it is made in 2,000-3,500 us; opening, reading or mapping the file does not
-/// get the answer early. Done here, while the update is staged in the background, the helper
-/// that "Install and restart" starts doesn't wait for it (342,661-568,149 us without, 2,730-
-/// 3,520 us with, n = 4, the updater's file steps repeated from outside).
+/// A packaged build is a thin exe that loads the app from a library beside it
+/// (`apps/desktop-thin`). Two things are slow the first time and not after, and both were paid
+/// between the click and the new window:
+/// - Windows Defender checks a new exe the first time a process is made from it, inside
+///   `CreateProcess` (391-1,654 ms for a thin exe it has not seen; 25-48 ms for one it has). It
+///   keeps the answer for the file, also through a hard link and a renamed folder.
+/// - Windows makes the image of a file that was just written the first time it is loaded: the
+///   146 MiB library's first load took 87-492 ms right after the unpack (60-182 ms when the
+///   file was flushed first), and 1-4 ms once its image had been made.
+///
+/// A suspended process that is ended before it runs (what this did while the app was one exe:
+/// 694,598 -> 2,280 us at the click) pays the first only: the library is loaded by the exe's own
+/// code. `--version` prints and exits before storage, the instance claim or a window
+/// (`launch::print_version_if_asked`). A build that doesn't exit is ended after ten seconds.
 fn first_start(exe: &Path) {
     let started = rune::time::Instant::now();
-    let child = Command::new(exe).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).creation_flags(CREATE_SUSPENDED | CREATE_NO_WINDOW).spawn();
+    let child = Command::new(exe).arg("--version").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).creation_flags(CREATE_NO_WINDOW).spawn();
     match child {
         Ok(mut child) => {
-            child.kill().ok();
-            child.wait().ok();
-            log(&format!("updater: Windows checked the staged {EXE} in {} us", started.elapsed().as_micros()));
+            let exited = (0..1_000).any(|_| {
+                let done = matches!(child.try_wait(), Ok(Some(_)));
+                if !done {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                done
+            });
+            if !exited {
+                child.kill().ok();
+                child.wait().ok();
+            }
+            log(&format!("updater: the staged {EXE} ran once ({}) in {} us", if exited { "its library loaded" } else { "ended after 10 s" }, started.elapsed().as_micros()));
         }
-        Err(e) => log(&format!("updater: the staged {EXE} could not be checked ahead: {e}")),
+        Err(e) => log(&format!("updater: the staged {EXE} could not be run ahead: {e}")),
     }
 }
-
 /// `<root's parent>\.<root's name>.<what>`: beside the install, on its volume.
 pub fn beside(root: &Path, what: &str) -> PathBuf {
     let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
