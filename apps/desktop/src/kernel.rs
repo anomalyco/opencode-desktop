@@ -108,6 +108,7 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::files::FilesFeature);
     b.with_feature(&crate::find::FindFeature);
     b.with_feature(&crate::free_limit::FreeLimitFeature);
+    b.with_feature(&crate::location_missing::LocationMissingFeature);
     b.with_feature(&crate::message_nav::HistoryFeature);
     b.with_feature(&crate::queue::InboxFeature);
     b.with_feature(&crate::mcp::McpFeature);

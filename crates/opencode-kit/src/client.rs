@@ -566,6 +566,12 @@ impl Server {
         self.write_within("DELETE", "/api/worktree", Some(body), Duration::from_secs(120)).map(|_| ())
     }
 
+    /// Moves `session` to `directory` (`POST /api/session/:id/move`), waiting up to 30 s
+    /// (Desktop's `WORKSPACE_MOVE_TIMEOUT_MS`).
+    pub fn move_session(&self, session: &str, directory: &str) -> Result<(), WireError> {
+        self.write_within("POST", &format!("/api/session/{session}/move"), Some(serde_json::json!({ "directory": directory })), Duration::from_secs(30)).map(|_| ())
+    }
+
     /// `StartInNewWorktree`: the worktree, then `start_as` in it.
     #[allow(clippy::too_many_arguments)]
     pub fn start_in_new_worktree(&self, id: &str, project: &str, from: &str, branch: Option<&str>, prompt: &Prompt, made: impl FnOnce(), after_create: impl FnOnce(&SessionInfo)) -> Result<SessionInfo, WireError> {

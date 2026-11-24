@@ -3,10 +3,10 @@
 //! how long it took, and the way back (Esc with nothing typed).
 //!
 //! A reply goes to the subagent's session as its own agent and model. A builder whose worktree
-//! was removed still hears it: the server moves the session to its project's checkout first
-//! (`Server::send_moving_home`). A reply is an outbox prompt like any other
-//! (`send_failed::Phase`, `Operation::MovingHome`): kept across a lost connection or a restart,
-//! and one the server refuses comes back out of the timeline into the composer.
+//! was removed shows the "Session location unavailable" card in its composer's place
+//! (`location_missing`), so the person says where it goes on before it hears anything. A reply
+//! is an outbox prompt like any other (`send_failed::Phase`): kept across a lost connection or a
+//! restart, and one the server refuses comes back out of the timeline into the composer.
 
 use opencode_kit::client::{Prompt, Write};
 use opencode_kit::model::SessionInfo;
@@ -24,13 +24,9 @@ pub fn subagent_page(host: &dyn SubagentsHost) -> Option<&SessionInfo> {
     host.session_info(id).filter(|i| i.parent.is_some())
 }
 
-/// The write that sends `prompt` to `session`. A subagent's moves home first when its folder is
-/// gone.
-pub fn send_write(host: &dyn SubagentsHost, session: &str, prompt: Prompt) -> Write {
-    if !host.session_info(session).is_some_and(|i| i.parent.is_some()) {
-        return Write::Send { session: session.to_owned(), prompt };
-    }
-    Write::SendMovingHome { session: session.to_owned(), prompt }
+/// The write that sends `prompt` to `session`, a subagent's as any other.
+pub fn send_write(_host: &dyn SubagentsHost, session: &str, prompt: Prompt) -> Write {
+    Write::Send { session: session.to_owned(), prompt }
 }
 
 /// Whether the open page is a subagent's with nothing typed in its composer.

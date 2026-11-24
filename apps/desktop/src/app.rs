@@ -424,6 +424,8 @@ impl App {
             launch::saved_catalog::restore(self);
             launch::saved_gutters::restore(self);
         }
+        // After the saved list: a restored session's folder is its info's.
+        crate::location_missing::restore(self);
         *self.diag.status = self.live_status();
         self.resume_settings_page();
         true

@@ -58,6 +58,7 @@ fn message(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
             crate::connect::picker_reads::refresh(s);
             s.windows_forgotten();
             crate::session_state::reconnected(s, tx);
+            crate::location_missing::reconnected(s, tx);
             let active_server = crate::servers::runtime::active(s).clone();
             s.sidebar_inbox.branches.reconnected(&active_server);
             reconnect::back(s);
