@@ -1,6 +1,7 @@
 # Builds OpenCode (Rune)'s Windows artifacts into -Out:
 #
-#   OpenCode-Rune-<version>-windows-<arch>.zip        the install folder, the updater's windows-<arch> target
+#   OpenCode-Rune-<version>-windows-<arch>.zip        the install folder (opencode-desktop.exe, opencode-desktop.dll,
+#                                                     the toasts' icon, the licences), the updater's windows-<arch> target
 #   OpenCode-Rune-<version>-windows-<arch>-setup.exe  the setup, with that zip inside
 #
 #   pwsh apps/installer/scripts/package.ps1 -Out <folder> [-Profile release|dev] [-Arch x64|arm64] [-Cargo <command>] [-Payload <zip>]
@@ -65,18 +66,22 @@ if ($Payload) {
         # source (perf/README.md). Only the debug directory of the exe differs from a build without:
         # release.ps1 asks for the line tables, in a way that keeps every symbol's name.
         $symbols = $env:OPENCODE_RUNE_SYMBOLS -eq '1' -or $env:GITHUB_HEAD_REF -match 'symbols'
-        & (Join-Path $root 'apps/desktop/scripts/release.ps1') -Cargo $Cargo -Target $triple
+        # The shipped app is two files: a thin opencode-desktop.exe (apps/desktop-thin) that loads the
+        # app from opencode-desktop.dll beside it (apps/desktop-library: the same code, allocator and
+        # profile as the one-file exe). Windows Defender checks a new exe before its first process
+        # exists at 30-36 ms per MiB of the exe, and does not check a library that way
+        # (apps/desktop-thin/src/main.rs has the numbers). A build that records a profile
+        # (release.ps1's `pgo-train/` branches) stays one file, as its training run drives it.
+        $thin = -not ($env:OPENCODE_RUNE_PGO_GENERATE -eq '1' -or $env:GITHUB_HEAD_REF -match '^pgo-train/' -or $env:OPENCODE_RUNE_ONE_FILE -eq '1')
+        & (Join-Path $root 'apps/desktop/scripts/release.ps1') -Cargo $Cargo -Target $triple -Package $(if ($thin) { 'opencode-desktop-library' } else { 'opencode-desktop' })
         if ($LASTEXITCODE -ne 0) { throw 'the release build failed' }
+        if ($thin) { Invoke-Cargo @('build', '--release', '-p', 'opencode-desktop-thin', '--target', $triple) }
         # release.ps1 always names the target, so the app is under target/<triple>/ even when native.
         $appBin = if ($cross) { $bin } else { Join-Path $target "$triple/release" }
     } else {
+        $thin = $false
         Invoke-Cargo (@('build', '-p', 'opencode-desktop') + $flags)
         $appBin = $bin
-    }
-    $exe = Join-Path $appBin 'opencode-desktop.exe'
-    if (-not $cross) {
-        $reported = (& $exe --version | Out-String).Trim()
-        if ($reported -ne "opencode-rune $version ($channel)") { throw "opencode-desktop --version reported '$reported', expected 'opencode-rune $version ($channel)'" }
     }
 
     # The install folder: the app and its toasts' icon, which the setup registers from there
@@ -84,7 +89,17 @@ if ($Payload) {
     $stage = Join-Path $Out 'stage'
     Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
     New-Item -ItemType Directory $stage | Out-Null
-    Copy-Item $exe $stage
+    $exe = Join-Path $stage 'opencode-desktop.exe'
+    if ($thin) {
+        Copy-Item (Join-Path $appBin 'opencode-desktop-thin.exe') $exe
+        Copy-Item (Join-Path $appBin 'opencode_desktop_app.dll') (Join-Path $stage 'opencode-desktop.dll')
+    } else {
+        Copy-Item (Join-Path $appBin 'opencode-desktop.exe') $exe
+    }
+    if (-not $cross) {
+        $reported = (& $exe --version | Out-String).Trim()
+        if ($reported -ne "opencode-rune $version ($channel)") { throw "opencode-desktop --version reported '$reported', expected 'opencode-rune $version ($channel)'" }
+    }
     Copy-Item (Join-Path $root 'apps/desktop/assets/icon/art-512.png') (Join-Path $stage 'notification-icon.png')
     Copy-Item (Join-Path $root 'LICENSE') (Join-Path $stage 'LICENSE')
     Copy-Item (Join-Path $root 'THIRD_PARTY_NOTICES.md') (Join-Path $stage 'THIRD_PARTY_NOTICES.md')
@@ -92,8 +107,8 @@ if ($Payload) {
     Remove-Item -Force $zip -ErrorAction SilentlyContinue
     Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
     Remove-Item -Recurse -Force $stage
-    # The PDB keeps the name the exe looks for beside itself.
-    if ($Profile -eq 'release' -and $symbols) { Copy-Item (Join-Path $appBin 'opencode_desktop.pdb') $Out }
+    # The PDB keeps the name its image looks for beside itself: the library's, which holds the app.
+    if ($Profile -eq 'release' -and $symbols) { Copy-Item (Join-Path $appBin $(if ($thin) { 'opencode_desktop_app.pdb' } else { 'opencode_desktop.pdb' })) $Out }
 }
 
 $env:OPENCODE_RUNE_SETUP_PAYLOAD = $zip

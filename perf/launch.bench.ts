@@ -94,6 +94,13 @@ async function template(exe: string, env: Record<string, string>, from: string, 
   return dir
 }
 
+/** The files that hold the app's code: the exe, and beside a packaged Windows build's thin exe the library it
+ *  loads the app from (the exe's name with `.dll`; apps/desktop-thin). Cold and warm are about both. */
+function images(exe: string) {
+  const library = exe.replace(/\.exe$/i, ".dll")
+  return process.platform === "win32" && library !== exe && existsSync(library) ? [exe, library] : [exe]
+}
+
 /** The exe as a new file with the same bytes, at the same path: nothing of it is in memory, and
  *  what Windows keeps per file (its mapping, a scanner's verdict) starts again. The copy is
  *  unbuffered, so the file cache holds none of it either. */
@@ -207,9 +214,9 @@ async function before(ctx: Before) {
     for (const name of readdirSync(tpl)) if (name !== "ready" && name !== "home" && name !== "tmp" && !(ctx.case === "first-new-build" && name === "cache")) cpSync(join(tpl, name), join(ctx.home, name), { recursive: true })
   }
   if (ctx.case === "cold" || ctx.case === "first-new-build") {
-    coldExe(ctx.exe)
+    images(ctx.exe).forEach(coldExe)
     staged(ctx.exe)
-  } else if (process.env.OPENCODE_LAUNCH_WARM_EXE !== "0") warmExe(ctx.exe)
+  } else if (process.env.OPENCODE_LAUNCH_WARM_EXE !== "0") images(ctx.exe).forEach(warmExe)
 }
 
 // Each milestone is a line the app prints with the mark's own time (epoch ms, to the microsecond in builds from 24 Nov).

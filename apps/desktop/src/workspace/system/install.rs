@@ -173,6 +173,14 @@ fn start_cleanup(root: &Path, caches: bool, delete_data: bool, log: Option<&Path
     let temp = std::env::temp_dir();
     let copy = temp.join(format!("opencode-rune-uninstall-{}.exe", std::process::id()));
     std::fs::copy(std::env::current_exe()?, &copy)?;
+    // A packaged build's exe loads the app from the library that carries its own name
+    // (`apps/desktop-thin`): the copy gets one too. A hard link where it can be one: the library
+    // is the app's whole size, and a link of a loaded file can be removed with the install.
+    if let Some(library) = library() {
+        let beside = copy.with_extension("dll");
+        std::fs::remove_file(&beside).ok();
+        std::fs::hard_link(&library, &beside).or_else(|_| std::fs::copy(&library, &beside).map(drop))?;
+    }
     let mut cmd = Command::new(&copy);
     cmd.arg("--uninstall-cleanup").arg("--wait").arg(std::process::id().to_string()).arg("--root").arg(root);
     if caches {
@@ -370,20 +378,36 @@ fn updater_folders(root: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// The temp copy deletes itself once it has exited. Its path reaches `cmd.exe` through the
-/// environment, read with delayed expansion after the line is parsed, so no character in the
-/// temp folder's name can run a command.
+/// The temp copy deletes itself, and its library, once it has exited. The paths reach `cmd.exe`
+/// through the environment, read with delayed expansion after the line is parsed, so no
+/// character in the temp folder's name can run a command.
 fn delete_self() {
     let Ok(exe) = std::env::current_exe() else { return };
     let Some(system) = system_folder() else { return };
     Command::new(system.join("cmd.exe"))
         .args(["/d", "/v:on", "/c"])
-        .raw_arg("ping -n 3 127.0.0.1 >nul & del /f /q \"!OPENCODE_UNINSTALL_SELF!\"")
+        .raw_arg("ping -n 3 127.0.0.1 >nul & del /f /q \"!OPENCODE_UNINSTALL_SELF!\" & if defined OPENCODE_UNINSTALL_LIBRARY del /f /q \"!OPENCODE_UNINSTALL_LIBRARY!\"")
         .env("OPENCODE_UNINSTALL_SELF", &exe)
+        .envs(library().map(|library| ("OPENCODE_UNINSTALL_LIBRARY", library)))
         .current_dir(&system)
         .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW)
         .spawn()
         .ok();
+}
+
+/// The app's library, when a thin exe loaded the app from one (a packaged build:
+/// `apps/desktop-thin`): the file of the image this code is in, unless that is the exe.
+pub fn library() -> Option<PathBuf> {
+    use std::os::windows::ffi::OsStringExt as _;
+    use windows_sys::Win32::System::LibraryLoader::GetModuleFileNameW;
+    let mut name = [0u16; 1024];
+    // SAFETY: the image's base is its module handle; the buffer is `name` with its length.
+    let len = unsafe { GetModuleFileNameW(crate::launch::image_pages::base() as _, name.as_mut_ptr(), name.len() as u32) } as usize;
+    if len == 0 || len >= name.len() {
+        return None;
+    }
+    let path = PathBuf::from(std::ffi::OsString::from_wide(&name[..len]));
+    (std::env::current_exe().ok()? != path).then_some(path)
 }
 
 /// `System32`, where Windows says it is.
