@@ -42,8 +42,13 @@ for arg in "${args[@]}"; do
   esac
 done
 link=("$@")
+# In a build with code libraries a call from one file into another is bound when it is first made
+# (the linker's older fixup format: chained fixups bind every name before `main`, 12,600 of them
+# here, at every launch). Names taken as data (function tables) are still bound at load.
+lazy=()
+[ "${OPENCODE_RUNE_LAYERS:-0}" != 1 ] || lazy=(-Wl,-no_fixup_chains)
 case "$(basename "${out:-none}")" in
-  opencode-desktop | opencode_desktop-*) ;;
+  opencode-desktop | opencode_desktop-*) link+=(${lazy[@]+"${lazy[@]}"}) ;;
   libopencode_layer_*.dylib)
     # One of the app's code libraries (build-app.sh, OPENCODE_RUNE_LAYERS). rustc exports a
     # library's Rust names only, but a higher library also calls the C code linked into this one
@@ -67,6 +72,7 @@ case "$(basename "${out:-none}")" in
     visible=()
     while IFS= read -r arg; do visible+=("$arg"); done < <(python3 "$(dirname "$0")/c-names.py" "$out.c-names" "${link[@]}")
     [ "${#visible[@]}" -eq 0 ] || link=("${visible[@]}")
+    link+=(${lazy[@]+"${lazy[@]}"})
     ;;
   *) exec cc "$@" ;;
 esac

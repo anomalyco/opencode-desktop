@@ -12,16 +12,17 @@
 # 1 file 1,424 ms, 4 files 599, 8 files 426). So the sizes should be alike: move a name to
 # another line when one file outgrows the rest (the build prints each file's size).
 #
+# Few libraries, not many: every launch pays dyld about 0.7 ms per library and for each name one
+# file takes from another (measured: 8 libraries and 12,600 names cost 17 ms before `main`), so
+# the lines follow the places where few calls cross, and no file needs to be smaller than the
+# office library (26 MiB), which the first launch waits for anyway.
+#
 # `base` must stay the first line: it holds the standard library and the allocator every other
 # file uses (layers/base.rs).
-base: procwatch mimalloc serde_json tracing smol_str zeroize blake3 linkme portable-atomic stacker rustc-demangle unicode-segmentation pollster cursor-icon dpi objc2-app-kit core-graphics
-text: parley swash icu_decimal icu_list icu_locale taffy pulldown-cmark
-media: resvg avif-decode arboard symphonia wasmi mlua opuscule rfd accesskit_consumer objc2-av-foundation
-gpu: wgpu
+base: procwatch mimalloc serde_json tracing smol_str zeroize blake3 linkme portable-atomic stacker rustc-demangle unicode-segmentation pollster cursor-icon dpi objc2-app-kit core-graphics parley swash icu_decimal icu_list icu_locale taffy pulldown-cmark wgpu
+deps: resvg avif-decode arboard symphonia wasmi mlua opuscule rfd accesskit_consumer objc2-av-foundation @third
 rune: @rune
-deps: @third
-kit: @app
-features: @features
+kit: @app @features
 # The office engines are a library of their own with a C interface, loaded at the first office
 # file (crates/office-library, #945): the linker keeps only what that library uses of them, where
 # a library of this file keeps every public function (78 MiB against 28). So their host crate and
