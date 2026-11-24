@@ -2,26 +2,26 @@
   "generated_at": "2026-11-24",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "c94ff33f5684105ae277a17d0771e8277cfad4d5",
+  "upstream_head": "40b6e9cdf8f16c987589863500c5201cf4033c97",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "98f18e5a8",
-  "post_1114_commit_count": 573,
-  "post_1114_in_ledger": 205,
-  "post_1114_skipped": 368,
+  "rune_desktop_head": "d6da8b224",
+  "post_1114_commit_count": 585,
+  "post_1114_in_ledger": 207,
+  "post_1114_skipped": 378,
   "post_1114_skipped_breakdown": {
-    "test-only": 24,
+    "test-only": 25,
     "ci-bench-deps": 22,
     "docs-site-data": 57,
     "tui-only": 28,
     "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 226
+    "server-core-ai-codemode-internal": 235
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 226,
+  "total_ledger_rows": 228,
   "status_counts": {
-    "have it": 189,
-    "not applicable": 30,
+    "have it": 190,
+    "not applicable": 31,
     "differs on purpose": 1,
     "partly": 2,
     "missing": 4
@@ -5700,6 +5700,53 @@
       "risks": "none",
       "workstream": "UPSTREAM",
       "rune_pr": "#984"
+    },
+    {
+      "id": "UP-206",
+      "window": "post-1120",
+      "pr": 65982,
+      "sha": "f176d3b0c6",
+      "title": "fix(tui,app): keep variants saved for a model speed",
+      "merged": "2026-11-24",
+      "packages": [
+        "app",
+        "tui"
+      ],
+      "main_files": [
+        "packages/app/src/providers/models/models.tsx",
+        "packages/app/test-browser/fixtures/model-selection.ts",
+        "packages/tui/src/context/local.tsx"
+      ],
+      "summary": "A model's speeds share its effort (variant), saved under the standard model; an effort saved before speeds existed may be stored under one of the speeds, and is still read (models.tsx getVariant looks at the standard model, the model itself, then its speeds).",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "rune-desktop #991 (d6da8b22): Pickers::saved_effort (crates/session-view/src/pickers/speed.rs) reads the standard model, the model, then its speeds, as getVariant. Found with it and closed: ours kept the per-model effort in memory only; ModelPrefs (pickers/prefs.rs) now reads and writes official's `variant` map (provider/model -> effort id or `default`) with favourites, recents and speeds, so an effort is kept across launches. By reading, compiled by CI; not run.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#991"
+    },
+    {
+      "id": "UP-207",
+      "window": "post-1120",
+      "pr": 66034,
+      "sha": "40b6e9cdf8",
+      "title": "fix(app): write the scroll position once for each batch of measured rows",
+      "merged": "2026-11-24",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/AGENTS.md",
+        "packages/app/src/session/timeline/virtualizer.tsx"
+      ],
+      "summary": "Performance only: while a batch of measured timeline rows is applied, TanStack's per-row scroll corrections are held and the last one is written once, so the batch forces one browser layout instead of one per row.",
+      "size": "XS",
+      "status": "not applicable",
+      "status_evidence": "By reading: this is about native DOM scroll writes forcing layout in official's TanStack virtualizer (session/timeline/virtualizer.tsx scrollToFn). Ours' timeline is Rune's virtual list: measured row sizes and the scroll anchor are applied in the frame's single layout pass, with no per-row scroll write to batch. Nothing a user sees differs.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
     }
   ],
   "browser_security_review": {

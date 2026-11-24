@@ -22,6 +22,9 @@ pub struct ModelPrefs {
     /// The speed last chosen for each model, by `provider:id`; a model without one runs at its
     /// standard speed (`ModelState.speed`, keyed `provider/model` there).
     speeds: BTreeMap<String, String>,
+    /// The effort last chosen for each model, by `provider:id`: one of its efforts, or
+    /// `default` for none (`ModelState.variant`, keyed `provider/model` there).
+    variants: BTreeMap<String, String>,
     write: Option<Write>,
 }
 
@@ -46,7 +49,10 @@ impl ModelPrefs {
         let speeds = v["speed"].as_object().into_iter().flatten()
             .filter_map(|(k, speed)| Some((k.split_once('/').map(|(p, m)| format!("{p}:{m}"))?, speed.as_str()?.to_owned())))
             .collect();
-        ModelPrefs { favorites: keys(&v["favorite"]), recent, user, speeds, write }
+        let variants = v["variant"].as_object().into_iter().flatten()
+            .filter_map(|(k, variant)| Some((k.split_once('/').map(|(p, m)| format!("{p}:{m}"))?, variant.as_str()?.to_owned())))
+            .collect();
+        ModelPrefs { favorites: keys(&v["favorite"]), recent, user, speeds, variants, write }
     }
 
     pub fn is_favorite(&self, key: &str) -> bool {
@@ -101,6 +107,21 @@ impl ModelPrefs {
         self.save();
     }
 
+    /// The effort saved under the model `key` itself: an effort's id, or `default`.
+    pub fn variant(&self, key: &str) -> Option<&str> {
+        self.variants.get(key).map(String::as_str)
+    }
+
+    /// Remembers the model `key`'s effort; "" is its default (`models.tsx` `setVariant`).
+    pub fn set_variant(&mut self, key: &str, variant: &str) {
+        let variant = if variant.is_empty() { "default" } else { variant };
+        if self.variants.get(key).is_some_and(|v| v == variant) {
+            return;
+        }
+        self.variants.insert(key.to_owned(), variant.to_owned());
+        self.save();
+    }
+
     fn save(&self) {
         let Some(write) = self.write else { return };
         let user: Vec<Value> = self.user.iter().filter_map(|(k, shown)| {
@@ -110,7 +131,10 @@ impl ModelPrefs {
         let speed: serde_json::Map<String, Value> = self.speeds.iter()
             .filter_map(|(k, speed)| Some((k.split_once(':').map(|(p, m)| format!("{p}/{m}"))?, json!(speed))))
             .collect();
-        let body = json!({ "favorite": refs(&self.favorites), "recent": refs(&self.recent), "user": user, "speed": speed }).to_string();
+        let variant: serde_json::Map<String, Value> = self.variants.iter()
+            .filter_map(|(k, variant)| Some((k.split_once(':').map(|(p, m)| format!("{p}/{m}"))?, json!(variant))))
+            .collect();
+        let body = json!({ "favorite": refs(&self.favorites), "recent": refs(&self.recent), "user": user, "speed": speed, "variant": variant }).to_string();
         write(body);
     }
 }
