@@ -82,6 +82,7 @@ pub(crate) const ORDER: &[&str] = &[
     "Projects/Open project",
     "Projects/Project switcher",
     "Projects/Quick open (⌘O)",
+    "Search/Message matches",
     "Dev/Rewind",
     "Timeline/Event marks",
     "Settings/Appearance",

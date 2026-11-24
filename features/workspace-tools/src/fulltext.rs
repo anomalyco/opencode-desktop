@@ -249,6 +249,12 @@ impl Surfaces {
         }
     }
 
+    /// Shows `rows` on `which` as the whole answer for `query`, as if storage had found them
+    /// (stories and fixtures, which have no search tables).
+    pub fn stage(&mut self, which: Surface, query: &str, rows: Vec<Row>) {
+        self.get_mut(which).state = State::Answered { query: query.to_owned(), rows: Arc::new(rows), coverage: Coverage::Complete };
+    }
+
     pub fn row(&self, which: Surface, id: &str) -> Option<(Arc<Vec<Row>>, usize)> {
         let Shown::Rows(rows) = self.shown(which) else { return None };
         let at = rows.iter().position(|r| r.session == id)?;
