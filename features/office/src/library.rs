@@ -42,6 +42,11 @@ impl Drop for Library {
     }
 }
 
+/// Loads the library now; the error says what is wrong with it.
+pub fn ready() -> Result<(), String> {
+    API.get_or_init(load).clone().map(|_| ())
+}
+
 /// Starts the document's thread in the library, loading the library first when this is the
 /// first file. Blocking (a first load after an install is checked by the system).
 pub fn start(start: Start) -> Result<Library, String> {

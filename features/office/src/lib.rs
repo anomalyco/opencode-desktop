@@ -78,6 +78,15 @@ pub(crate) fn wall_ms() -> i64 {
     rune::time::SystemTime::now().duration_since(rune::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
+/// Whether the engines are a library of their own in this build (`library` feature), loading it
+/// now if they are: the error says what is wrong with the library. Blocking.
+pub fn engines_library() -> Result<bool, String> {
+    #[cfg(feature = "library")]
+    return library::ready().map(|()| true);
+    #[cfg(not(feature = "library"))]
+    Ok(false)
+}
+
 /// Takes the file threads' and the font fetch's news, and does what a sheet's grid asked of the
 /// window (a copy, a toast, a scroll); true when a view should draw again.
 pub fn poll(app: &mut dyn OfficeHost, tx: &mut rune::Tx) -> bool {
