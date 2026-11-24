@@ -159,6 +159,12 @@ if [ "${OPENCODE_RUNE_SKIP_CARGO_BUILD:-0}" != "1" ]; then
   fi
 fi
 
+# Each code library again, exporting only the names another file takes (layers-exports.py): dyld
+# walks every exported name and looks up every taken one at each launch.
+if [ "$LAYERS" = 1 ] && [ "${OPENCODE_RUNE_SKIP_CARGO_BUILD:-0}" != "1" ]; then
+  python3 "$ROOT/apps/desktop/scripts/layers-exports.py" "$(dirname "$BIN")" "$BIN"
+fi
+
 # What the link said about the order (nothing when cargo had no link to do).
 cat "$(dirname "$BIN")"/deps/opencode_desktop-*.link-order.txt 2>/dev/null >&2 || true
 

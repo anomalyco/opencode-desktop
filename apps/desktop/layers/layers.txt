@@ -12,10 +12,11 @@
 # 1 file 1,424 ms, 4 files 599, 8 files 426). So the sizes should be alike: move a name to
 # another line when one file outgrows the rest (the build prints each file's size).
 #
-# Few libraries, not many: every launch pays dyld about 0.7 ms per library and for each name one
-# file takes from another (measured: 8 libraries and 12,600 names cost 17 ms before `main`), so
-# the lines follow the places where few calls cross, and no file needs to be smaller than the
-# office library (26 MiB), which the first launch waits for anyway.
+# Few libraries, not many: at every launch dyld looks up each name one file takes from another
+# and walks each library's exported names (measured: 12,600 taken and 51,700 exported names cost
+# 15 ms before `main`, with 8 libraries as with 4), so the lines follow the places where few
+# calls cross, and no file needs to be smaller than the office library (26 MiB), which the first
+# launch waits for anyway. layers-exports.py then cuts each library's exports to the taken names.
 #
 # `base` must stay the first line: it holds the standard library and the allocator every other
 # file uses (layers/base.rs).

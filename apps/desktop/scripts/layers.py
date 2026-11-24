@@ -9,6 +9,7 @@ apps/desktop/layers/gen/ (never checked in):
 
   <name>/Cargo.toml, src/lib.rs   a `dylib` crate per line: it names the line's crates, so the
                                   library holds them and all they need that no lower library holds
+  names.txt                       the libraries, lowest first (layers-exports.py)
   all.rs                          `extern crate` for each, which `main.rs` includes (cfg code_layers)
 
 then names them as dependencies at the end of apps/desktop/Cargo.toml and lets cargo add them to
@@ -188,6 +189,8 @@ def main():
         with open(os.path.join(folder, "src", "lib.rs"), "w", encoding="utf-8", newline="\n") as f:
             f.write("// " + MARK[2:] + "#![allow(unused_extern_crates)]\n" + "\n".join(source) + "\n" + (base if layer["name"] == "base" else ""))
         previous = layer["name"]
+    with open(os.path.join(GEN, "names.txt"), "w", encoding="utf-8", newline="\n") as f:
+        f.write("".join(layer["name"] + "\n" for layer in layers))
     with open(os.path.join(GEN, "all.rs"), "w", encoding="utf-8", newline="\n") as f:
         f.write("".join("extern crate opencode_layer_%s;\n" % layer["name"] for layer in layers))
 
