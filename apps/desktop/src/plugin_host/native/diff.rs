@@ -25,13 +25,23 @@ fn saved_review_mode(app: &App, sid: &str) -> ChangeMode {
     if let Some(sr) = app.kernel.slots.get(&crate::review::REVIEW).sessions.get(sid) {
         return sr.mode;
     }
+    stored_mode(app, sid).unwrap_or_default()
+}
+
+/// The source the bundled Review keeps for session `sid` in its store, when it kept one.
+fn stored_mode(app: &App, sid: &str) -> Option<ChangeMode> {
     use crate::plugin_host::{services::store, stores};
     let ns = opencode_storage::plugin_namespace("review");
     let key = stores::key("session", &store::scope_session(app, sid));
     store::session_text("review", &ns, "session", sid, &key)
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
         .and_then(|v| ChangeMode::parse(v.get("mode")?.as_str()?))
-        .unwrap_or_default()
+}
+
+/// [`stored_mode`] for the review engine (`ReviewHost::saved_mode`): only the bundled Review's
+/// store is read, as in [`prepare_route`].
+pub(crate) fn stored_review_mode(app: &App, sid: &str) -> Option<ChangeMode> {
+    app.plugins.running().any(|(_, p)| p.tier == super::super::Tier::Bundled && p.manifest.id == "review").then(|| stored_mode(app, sid)).flatten()
 }
 
 /// A routed session with the built-in Review already on screen needs its saved source in

@@ -516,6 +516,14 @@ pub trait ReviewHost: opencode_kernel::AppEnv {
         None
     }
 
+    /// The source session `sid` last chose, where the host keeps one (Desktop's stored review
+    /// state). Asked when a session the engine waited for is listed: it's kept under the
+    /// session's folder, which nothing knew before.
+    fn saved_mode(&self, sid: &str) -> Option<ChangeMode> {
+        let _ = sid;
+        None
+    }
+
     /// Whether the changes surface is currently visible (side panel open or narrow Changes view).
     fn review_shown(&self) -> bool;
     /// Whether a due refresh on [`poll`] should fetch changes (defaults to [`Self::review_shown`];
