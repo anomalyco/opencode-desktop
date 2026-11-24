@@ -231,3 +231,4 @@ PLIST
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 codesign --force --sign - "$APP"
 echo "$APP"
+# (the base build of #974: never merged)
