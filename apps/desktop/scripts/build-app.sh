@@ -60,7 +60,7 @@ if [ "${OPENCODE_RUNE_SKIP_CARGO_BUILD:-0}" != "1" ]; then
       echo "profile-guided: $target_triple ($(head -n 1 "${profile%.profdata}.txt"))" >&2
       # rustc for a dependency may run in that dependency's directory.
       export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS }-Cprofile-use=$ROOT/$profile -Cllvm-args=-no-pgo-warn-mismatch"
-      cargo build --release --locked --target "$target_triple" -p opencode-desktop
+      cargo build --release --locked --target "$target_triple" -p opencode-desktop --no-default-features --features knobs,stories
     )
   else
     cargo_args=(build --profile "$PROFILE" --locked -p opencode-desktop --manifest-path "$ROOT/Cargo.toml")
