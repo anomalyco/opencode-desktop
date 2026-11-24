@@ -55,6 +55,13 @@ pub fn land<S: TimelineHost>(s: &mut S, session: &str, local: &str, from: &str, 
     }
 }
 
+/// Like [`land`], but keeps a scrolled-up timeline where it is instead of jumping to the end.
+pub fn land_in_place<S: TimelineHost>(s: &mut S, session: &str, local: &str, from: &str, tx: &mut Tx) {
+    if s.ends().at_end(session) && shows_whole_prompt() {
+        tx.launch(from, format!("u-{local}/bubble"));
+    }
+}
+
 /// The composer box's corner radius: Desktop's form is `rounded-xl`, 10 px (`editor.tsx:254`).
 /// The new-session Easter egg's paddle grows out of the composer from this radius.
 pub use opencode_ui::style::COMPOSER_RADIUS as RADIUS;
@@ -228,6 +235,12 @@ pub trait ComposerHost: TimelineHost {
         self.active_session_id().is_some_and(|id| self.is_session_live(id))
     }
     fn composer_send(&mut self, tx: &mut Tx);
+    fn composer_send_in_place(&mut self, tx: &mut Tx) {
+        self.composer_send(tx);
+    }
+    fn composer_shift_held(&self) -> bool {
+        false
+    }
     fn composer_stop(&mut self, tx: &mut Tx);
 
     fn composer_attachments(&self) -> &[Attachment] {
@@ -436,6 +449,8 @@ pub fn composer_in<S: ComposerHost>(s: &S, p: &Pal, scope: &str) -> El {
             b.help(label).help_above().on_press_tx(move |s: &mut S, tx: &mut Tx| {
                 if stop {
                     s.composer_stop(tx);
+                } else if s.composer_shift_held() {
+                    s.composer_send_in_place(tx);
                 } else {
                     s.composer_send(tx);
                 }
