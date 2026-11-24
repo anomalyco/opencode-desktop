@@ -123,3 +123,4 @@ bun perf/linux-launch.ts /usr/bin/opencode-rune        # or the path of an unpac
 - The first launch of the home downloads the browser engine in the background (350 MB) and keeps it for the later ones. `OPENCODE_LAUNCH_SCRATCH` moves the home.
 - The app's clock on Linux starts at `/proc/self/stat`'s start time, which has 10 ms steps; the script counts from its own spawn call and `main.entered`'s wall-clock time instead.
 - `launch.bench.ts` on Linux: `cold` and `first-new-build` drop the new file's pages (`linux-pages.ts`), `warm` and `first` read the exe into the page cache. Not run under strobe on Linux yet (24 Nov 2026): no Linux machine with a display; the published build starts under headless weston, headless sway and Xvfb, where the GPU is llvmpipe and nothing after `gpu.begin` says anything about a real GPU.
+<!-- a second commit, built to show the thin exe's bytes do not change with the app's -->
