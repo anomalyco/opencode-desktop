@@ -83,7 +83,7 @@ mod workspace;
 use rune::AppSpec;
 
 pub use app::{App, Source, TabStatus};
-pub(crate) use app::{FIXTURE, arg, attended, auto_focus_composer, flag, harness_writes, headless};
+pub(crate) use app::{FIXTURE, arg, attended, auto_focus_composer, flag, harness_writes, headless, realtime};
 pub use shell::nav::route::Route;
 pub use shell::panels;
 pub use surfaces::code_view;
@@ -389,7 +389,7 @@ pub fn run_native() {
     }
     // The harness's `--realtime` probes launch as a window does: the server's first reads
     // wait for `on_ready`, which only a realtime run calls (after its first frame).
-    if harness_writes() && std::env::args().any(|a| a == "--realtime") {
+    if harness_writes() && realtime() {
         launch::defer();
     }
     let app = rune_app(AppSpec { families: appearance::launch_families(), ..spec(App::new) });

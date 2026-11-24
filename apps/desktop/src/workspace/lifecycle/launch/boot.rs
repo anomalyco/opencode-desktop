@@ -708,8 +708,13 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
     for session in recent.into_iter().take(session_pages::WARM) {
         s.prefetch_page(&session.id);
     }
-    // Deterministic headless snapshots have no wall-clock event loop to await the worker.
-    if headless()
+    // Deterministic headless snapshots have no wall-clock event loop to await the worker, so
+    // they read the open session inline. A `--realtime` probe stands in for a window and has
+    // one: `open` above already asked for both on the fetch thread, and a read here held its
+    // frame for a whole round trip, twice (5 and 10 s behind a server that answers in 5 s),
+    // which no window does.
+    let inline = headless() && !crate::realtime();
+    if inline
         && let (Route::Session { id, server: on }, Source::Live { server, .. }) = (&*s.route, &*s.source)
         && on == crate::servers::runtime::active(s)
         && !s.transcripts.contains_key(id)
@@ -718,7 +723,7 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
         s.transcripts.insert(id.clone(), Transcript { session: id.clone(), messages: opencode_kit::model::parse_messages(&v) });
     }
     // And what waits in its inbox: steers, and shells and subagents that came back.
-    if headless()
+    if inline
         && let (Route::Session { id, server: on }, Source::Live { server, .. }) = (&*s.route, &*s.source)
         && on == crate::servers::runtime::active(s)
         && let Ok(v) = server.read(&format!("/api/session/{id}/inbox"))
