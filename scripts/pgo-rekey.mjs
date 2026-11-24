@@ -319,7 +319,9 @@ export function read(file, tool = profdata()) {
   const head = []
   const records = []
   let at = 0
-  while (at < lines.length && (lines[at].startsWith("#") || lines[at].startsWith(":") || lines[at] === "")) head.push(lines[at++])
+  // The header also holds bare numbers: a profile with `:temporal_prof_traces` (the Apple silicon one) lists its trace
+  // count and stream size, each on its own line, before the first function. No function is named by digits alone.
+  while (at < lines.length && (lines[at].startsWith("#") || lines[at].startsWith(":") || lines[at] === "" || /^\d+$/.test(lines[at]))) head.push(lines[at++])
   while (at < lines.length) {
     if (lines[at] === "") {
       at++
