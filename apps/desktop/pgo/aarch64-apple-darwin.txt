@@ -1,5 +1,7 @@
-commit 1ba5b5414c2f20fb819711a8f8fad415cdc81781
-rune 95b6ecc1699c65feb50991d002c2ac8f632d2a95
+commit 30e182f162ade389f71c84af16df2b7a384b8354
+rune 02042d8e7cf1dea94eb3e84879b228e8de6b8324
 rustc rustc 1.99.1 (58cf8f9c3 2026-10-13)
-processes 12
-Total functions: 8969
+processes 19
+parts 5 with a window (the first launch, two later launches, two with scrolling and typing; against a server), 14 headless (Home, session typing and scrolling, demo, queue, Settings, tab badges; English and German)
+instrumented build by PR CI: #1002 at 30e182f162ade389f71c84af16df2b7a384b8354
+Total functions: 16406
