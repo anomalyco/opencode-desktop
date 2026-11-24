@@ -115,6 +115,19 @@ pub(crate) struct Writer {
     written: usize,
     reservation: Reservation,
     origin: super::search::Origin,
+    stamp: Stamp,
+}
+
+/// Whether the stored boot record may still carry the header's generation, which is what a raw
+/// read trusts it by (`boot_record::unstamp`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stamp {
+    /// It may (a rebuild since, or this run hasn't looked): the next commit that changes what
+    /// the record holds moves the generation on in its own transaction.
+    Carried,
+    /// The generation moved on since the last rebuild: no raw read trusts the record until the
+    /// next one, and later commits leave the header alone.
+    Moved,
 }
 
 /// Steps one buffer's machine: timers and reports are carried out here, write batches returned.
@@ -168,6 +181,7 @@ impl Writer {
             touched: HashMap::new(),
             written: 0,
             wal_file: WalFile::Unopened,
+            stamp: Stamp::Carried,
         };
         if wal_dirty || boot_stale {
             writer.wal_event(WalEvent::OpenedDirty { boot_stale, now: Instant::now() });
@@ -389,9 +403,13 @@ impl Writer {
         // held the writer (and every commit behind it) for seconds. The synced checkpoint every
         // 30 s / 16 MB (`bound_unsynced`), when writes go quiet and at quit bounds a power cut's
         // loss as before.
+        let unstamp = boot && self.stamp == Stamp::Carried;
         self.conn.execute_batch(UNSYNCED).ok();
         let result = (|| -> rusqlite::Result<()> {
             let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+            if unstamp {
+                super::boot_record::unstamp(&tx)?;
+            }
             for b in &batches {
                 apply(&tx, b, now, &self.touched, &mut fresh)?;
             }
@@ -399,6 +417,9 @@ impl Writer {
         })();
         self.conn.execute_batch(SYNCED).ok();
         if result.is_ok() {
+            if unstamp {
+                self.stamp = Stamp::Moved;
+            }
             self.wal_unsynced(boot);
         }
         note(&result);
@@ -441,14 +462,21 @@ impl Writer {
                 let n = name.clone();
                 self.state_event(WriteBehindEvent::Drop(Box::new(move |k: &StateKey, _: &Value| k.0 == n)));
                 let boot = crate::in_boot_record(&name, "");
+                let unstamp = boot && self.stamp == Stamp::Carried;
                 let done = (|| -> rusqlite::Result<usize> {
                     let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
                     let deleted = tx.execute("DELETE FROM state WHERE name = ?1", [&name])?;
+                    if unstamp && deleted > 0 {
+                        super::boot_record::unstamp(&tx)?;
+                    }
                     tx.commit()?;
                     Ok(deleted)
                 })();
                 note(&done);
                 if matches!(done, Ok(n) if n > 0) {
+                    if unstamp {
+                        self.stamp = Stamp::Moved;
+                    }
                     self.wal_unsynced(boot);
                 }
             }
@@ -572,6 +600,16 @@ impl Writer {
         if !self.deferred.pending() { ran(done); return }
         let seeded = import::after_first_frame(&mut self.conn, &mut self.deferred, now);
         let boot = seeded.iter().any(|(name, key, _)| crate::in_boot_record(name, key));
+        // The import commits on its own (and may rebuild the record): what the record carries
+        // now is unknown, and rows it seeded that the record holds move the generation on at once.
+        self.stamp = Stamp::Carried;
+        if boot {
+            self.conn.execute_batch(UNSYNCED).ok();
+            if super::boot_record::unstamp(&self.conn).is_ok() {
+                self.stamp = Stamp::Moved;
+            }
+            self.conn.execute_batch(SYNCED).ok();
+        }
         if !seeded.is_empty() {
             let mut cache = self.cache();
             for (name, key, value) in seeded {

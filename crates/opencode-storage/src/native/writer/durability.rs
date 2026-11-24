@@ -9,7 +9,7 @@ use rusqlite::{Connection, Transaction, TransactionBehavior};
 use super::reserve::Reservation;
 use super::rows::{note, slow};
 use super::{
-    Batch, CACHES_MS, DOCS_MS, PREVIEWS_MS, STATE_MS, WINDOWS_MS, Writer, step_buffer,
+    Batch, CACHES_MS, DOCS_MS, PREVIEWS_MS, STATE_MS, Stamp, WINDOWS_MS, Writer, step_buffer,
 };
 use crate::machine::checkpoint::IDLE_CHECKPOINT_MS;
 use crate::machine::draft_gc::{self, DraftGcEffect, DraftGcEvent};
@@ -265,9 +265,13 @@ impl Writer {
     pub(super) fn durable(&mut self, boot: bool, f: impl FnOnce(&Connection, i64) -> rusqlite::Result<()>) -> Result<(), StorageError> {
         let now = (self.clock)();
         let changes_before = self.conn.total_changes();
+        let unstamp = boot && self.stamp == Stamp::Carried;
         let result = (|| {
             self.conn.execute_batch(DURABLE)?;
             let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+            if unstamp {
+                boot_record::unstamp(&tx)?;
+            }
             f(&tx, now)?;
             tx.commit()
         })();
@@ -275,6 +279,9 @@ impl Writer {
         self.conn.execute_batch(SYNCED).ok();
         match result {
             Ok(()) => {
+                if unstamp {
+                    self.stamp = Stamp::Moved;
+                }
                 // SQLite's `sqlite3PagerCommitPhaseOne` returns early without writing WAL frames
                 // or calling `xSync` when a transaction modifies zero rows; do not clear
                 // `WalSync::Unsynced` for a no-op commit that never synced `-wal`.
@@ -463,13 +470,7 @@ impl Writer {
                 WalEffect::Checkpoint { rebuild_boot } => {
                     // The record goes current in the transaction right before the checkpoint, so
                     // whenever the WAL is empty the record on page 2 is the truth.
-                    let rebuilt = !rebuild_boot
-                        || (|| -> rusqlite::Result<()> {
-                            let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
-                            boot_record::rebuild(&tx)?;
-                            tx.commit()
-                        })()
-                        .is_ok();
+                    let rebuilt = !rebuild_boot || self.rebuild_record().is_ok();
                     rune::marks::mark("writer.rebuilt");
                     let complete = rebuilt
                         && matches!(
