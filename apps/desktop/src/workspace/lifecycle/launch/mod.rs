@@ -9,6 +9,9 @@ mod boot;
 pub mod compat_layer;
 #[cfg(target_os = "windows")]
 pub mod image_pages;
+#[cfg(target_os = "linux")]
+#[path = "image_pages_linux.rs"]
+pub mod image_pages;
 #[cfg(target_os = "windows")]
 pub mod io_trace;
 pub mod last_exit;
@@ -27,7 +30,7 @@ pub use boot::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use boot::{
-    apply_app_icon, attach_console, head_start, instance_id, print_version_if_asked, product, write_profile,
+    apply_app_icon, attach_console, head_start, instance_id, print_version_if_asked, product, unwind_check_if_asked, write_profile,
 };
 
 use std::sync::mpsc::{Receiver, TryRecvError};
