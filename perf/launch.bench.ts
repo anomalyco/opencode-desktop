@@ -27,6 +27,7 @@ import { basename, dirname, join } from "node:path"
 import { bench, native } from "@hona/strobe"
 
 import { desktopProfile } from "./desktop-profile"
+import { evict, warm } from "./linux-pages"
 
 // The OpenCode server the app talks to: a fixture that answers the v2 API with a profile's worth of
 // data. It is not in this repository yet. Give running servers (OPENCODE_LAUNCH_SERVER_SMALL, _BIG:
@@ -115,12 +116,16 @@ function coldExe(exe: string) {
     }
   }
   rmSync(aside, { recursive: true, force: true })
+  // Linux keeps a file written a moment ago in its page cache: dropped, so the launch reads the disk.
+  if (process.platform === "linux") evict(exe)
 }
 
 /** Every page of the exe's image in memory, as after a launch a moment ago (Windows). A machine
  *  short of memory drops them between launches, and a "warm" launch then reads them again before
- *  `main`: 85-1,873 ms to `main` instead of 20 in 5 of 24 launches on a busy machine (exp_9fb654). */
+ *  `main`: 85-1,873 ms to `main` instead of 20 in 5 of 24 launches on a busy machine (exp_9fb654). On Linux the
+ *  file is read into the page cache. */
 function warmExe(exe: string) {
+  if (process.platform === "linux") warm(exe)
   if (process.platform !== "win32") return
   const k32 = dlopen("kernel32.dll", {
     CreateFileW: { args: [FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.ptr], returns: FFIType.u64 },

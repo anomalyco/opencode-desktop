@@ -104,3 +104,21 @@ strobe run --base "bun perf/macos-open.ts /path/Old.app" --head "bun perf/macos-
 - The fixture server must already answer at `OPENCODE_LAUNCH_SERVER_SMALL`: a run that started one and left it behind is refused by strobe.
 - The bundle must be signed (ad hoc is enough). A file added inside a signed bundle makes every later start from that path hang before `main`.
 - For stacks, record the child launch (`strobe record --bench perf/launch.bench.ts#warm --head exe:<.app>/Contents/MacOS/opencode-desktop`) with the dSYM beside the bundle. macOS samples are untimed snapshots: rows are counts, not ms, and the sampler inflates `dlopen`.
+## Linux, on a desktop session
+
+`perf/linux-launch.ts` is the launch on a Linux desktop in one command, for a machine that has no strobe set up. It starts the app on the session it is run from (the real compositor and GPU), in a home of its own under the temporary folder, and prints each stage in µs from the spawn call: the app's own marks (`main.entered`, `window.create`, `window.native`, `gpu.adapter`, `gpu.device`, `renderer.ready`, `window.created`, `frame.first.presented`, `input.ready`).
+
+```sh
+bun perf/linux-launch.ts /usr/bin/opencode-rune        # or the path of an unpacked build; a second argument is the launches per case (5)
+```
+
+| Case | The launch |
+|---|---|
+| `first` | A fresh home: the first launch ever (that home's GPU shader cache and font cache cold). |
+| `cold` | A later launch with the exe's pages dropped from the page cache first (`posix_fadvise`, no root): the first launch after a boot or an update. |
+| `warm` | A later launch, everything in memory. |
+
+- With no OpenCode server at `OPENCODE_LAUNCH_SERVER_SMALL` the app has nothing to list: `content.live` is left out and each launch ends by the app's own fallback, about 12 s after it starts (the whole run takes about 4 minutes).
+- The first launch of the home downloads the browser engine in the background (350 MB) and keeps it for the later ones. `OPENCODE_LAUNCH_SCRATCH` moves the home.
+- The app's clock on Linux starts at `/proc/self/stat`'s start time, which has 10 ms steps; the script counts from its own spawn call and `main.entered`'s wall-clock time instead.
+- `launch.bench.ts` on Linux: `cold` and `first-new-build` drop the new file's pages (`linux-pages.ts`), `warm` and `first` read the exe into the page cache. Not run under strobe on Linux yet (24 Nov 2026): no Linux machine with a display; the published build starts under headless weston, headless sway and Xvfb, where the GPU is llvmpipe and nothing after `gpu.begin` says anything about a real GPU.
