@@ -167,11 +167,23 @@ local function sourceLabel(env: Env, mode: DiffSource): string
     return env.I18n:T("ui.sessionReview.title.lastTurn")
 end
 
+-- Whether session `sid`'s saved source can't be read yet: the server hasn't listed the session,
+-- and its choice is kept under its folder. Desktop's `canReview` (`model.ts`: "the mode picker
+-- waits for the stored mode").
+function panel.held(env: Env, sid: string): boolean
+    return env.Sessions:Get(sid) == nil
+end
+
 -- The source picker (`ReviewTitle`: select-v2 inline, 24 tall, 8 4 in, 4 round): the source in
 -- 13 / 16 at 530 in select-v2's text-text-base and its 16 pt chevron, which lists the sources
 -- this folder has; with one source, just its name (`ps-2 pe-1`).
 function panel.title(env: Env, view: View, sid: string, key: string): ui.Node
     local doc = panel.doc(env, sid)
+    -- No source shows before the saved one can be read (`ReviewTitle`, `parts.tsx`): naming the
+    -- default here would name a source the session may not be in.
+    if panel.held(env, sid) then
+        return ui.row({ key = `{key}-held`, h = 24 }, {})
+    end
     local sources = doc:Sources()
     local current = doc:Source()
     local label = ui.text(sourceLabel(env, current), { size = 13, weight = "medium", lineHeight = 16, tracking = -0.04, color = "text-chrome", fadeOut = true })
@@ -301,7 +313,7 @@ local function sidebar(env: Env, view: View, sid: string, doc: DiffDocument, mar
     local status = doc:Status()
     local query = env.filter:Text()
     local look = `{env.I18n:Locale().id}:{tostring(view.dark)}`
-    local titleNode = view:Memo("review-title-sidebar-slot", `{sid}:{doc:Source()}:{#doc:Sources()}:{look}`, function()
+    local titleNode = view:Memo("review-title-sidebar-slot", `{sid}:{doc:Source()}:{#doc:Sources()}:{tostring(panel.held(env, sid))}:{look}`, function()
         return ui.row({ align = "center", shrink = true, minW = 0 }, {
             panel.title(env, view, sid, "review-mode-btn"),
         })
@@ -383,7 +395,7 @@ local function toolbar(env: Env, view: View, sid: string, doc: DiffDocument, ord
     local shutMeta = ""
     if not opened then
         local totals = doc:Totals()
-        shutMeta = `{doc:Source()}:{#doc:Sources()}:{totals.added}:{totals.removed}`
+        shutMeta = `{doc:Source()}:{#doc:Sources()}:{tostring(panel.held(env, sid))}:{totals.added}:{totals.removed}`
     end
     return view:Memo("review-toolbar-slot", `{sid}:{active or ""}:{#order}:{index}:{treeVer}:{tostring(opened)}:{side}:{expandMode}:{diffStyle}:{shutMeta}:{look}`, function()
         local start: { ui.Node } = {}
