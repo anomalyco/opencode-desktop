@@ -205,6 +205,14 @@ impl PinsDoc {
         })
     }
 
+    /// Every pinned session in the pins' order, a group's among them (`pins.ts` `pinnedRefs`).
+    pub fn refs(&self) -> impl Iterator<Item = &PinRef> {
+        self.items.iter().flat_map(|item| match item {
+            PinItem::Session(r) => std::slice::from_ref(r),
+            PinItem::Group(g) => g.sessions.as_slice(),
+        })
+    }
+
     pub fn group_of(&self, r: &PinRef) -> Option<&PinGroup> {
         self.items.iter().find_map(|item| match item {
             PinItem::Group(g) if g.sessions.contains(r) => Some(g),

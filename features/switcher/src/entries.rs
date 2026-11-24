@@ -272,7 +272,7 @@ pub(crate) fn matches_for(host: &dyn SwitcherHost, q: &str) -> Vec<Entry> {
     }
     let archived = sw.mode == SwitcherMode::Archived;
     let group = match () {
-        _ if archived => opencode_i18n::t!("sidebar.inbox.archived.title"),
+        _ if archived => opencode_i18n::t!("sidebar.inbox.section.archived"),
         _ if q.is_empty() => opencode_i18n::t!("palette.group.recentSessions"),
         _ => opencode_i18n::t!("command.category.session"),
     };
