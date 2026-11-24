@@ -91,7 +91,17 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         with_app("Diff:Open", |app| {
             if !app.kernel.slots.get(&crate::review::REVIEW).has_read(&sid, mode) {
                 let id = sid.clone();
-                app.later(Box::new(move |s: &mut App, _: &mut Tx| s.set_session_change_mode(&id, mode)));
+                // The plugin read its saved source before the server listed the session, so under
+                // a key without the session's folder: `mode` is its default, not its choice. The
+                // engine waits for the listing and then reads the saved one itself, whether the
+                // listing is seconds away or already in when this runs.
+                let unlisted = app.live() && app.session(&sid).is_none_or(|s| s.directory.is_empty());
+                app.later(Box::new(move |s: &mut App, _: &mut Tx| {
+                    if unlisted {
+                        s.kernel.slots.get_mut(&crate::review::REVIEW).wait_for_listing(&id);
+                    }
+                    s.set_session_change_mode(&id, mode);
+                }));
             }
             Ok(())
         })?;
