@@ -89,7 +89,9 @@ impl PanelSidebar {
     }
 
     fn save(&self) {
-        if !crate::headless() {
+        // As the app's other preferences: a person's run, or a harness run that may write
+        // (`--harness-writes` in a root of its own).
+        if crate::attended() {
             crate::storage::set_json("opencode.global.dat", "review-panel-v2", &serde_json::json!({ "sidebarOpened": self.opened, "sidebarWidth": self.width.unwrap_or(DEFAULT_W), "sidebarSide": self.side.name() }));
         }
     }
