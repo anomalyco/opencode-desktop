@@ -124,6 +124,14 @@ mod imp {
         Some(counters.PeakWorkingSetSize as u64)
     }
 
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        fn NtSetInformationThread(thread: windows::Win32::Foundation::HANDLE, class: u32, information: *const core::ffi::c_void, length: u32) -> i32;
+    }
+    /// THREADINFOCLASS `ThreadIoPriority`, and `IoPriorityNormal`.
+    const IO_PRIORITY: u32 = 22;
+    const IO_NORMAL: u32 = 2;
+
     /// The threads now in background mode, by id.
     static LOW: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
 
@@ -132,6 +140,17 @@ mod imp {
         // SAFETY: the pseudo-handle names the calling thread; background mode also lowers its
         // I/O and memory priority, and only the thread itself may enter or leave it.
         unsafe { SetThreadPriority(GetCurrentThread(), mode) }.ok();
+        // Background mode's I/O priority is the lowest there is: Windows holds such a write
+        // back for as long as anything else uses the disk, and the thread is inside the call
+        // meanwhile. A process ends only once each of its threads has left the kernel, so a
+        // quit beside an update's own writes ended 0.5 to 7 s late with the download's thread in
+        // `NtWriteFile` (`download.rs` `read_source`, the partial file). The thread keeps
+        // background mode's processor and memory priority and writes at normal priority.
+        if background {
+            let io = IO_NORMAL;
+            // SAFETY: the pseudo-handle names the calling thread; the value outlives the call.
+            unsafe { NtSetInformationThread(GetCurrentThread(), IO_PRIORITY, (&raw const io).cast(), 4) };
+        }
         // SAFETY: no arguments.
         let id = unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
         let mut low = LOW.lock().unwrap_or_else(|e| e.into_inner());
@@ -146,17 +165,11 @@ mod imp {
     /// the kernel. `THREAD_MODE_BACKGROUND_END` is the thread's own to ask, so its I/O and
     /// memory priority are set back from here, as the kernel's own call for it allows.
     pub(super) fn lift_for_quit() {
-        use windows::Win32::Foundation::{CloseHandle, HANDLE};
+        use windows::Win32::Foundation::CloseHandle;
         use windows::Win32::System::Threading::{OpenThread, THREAD_PRIORITY_NORMAL, THREAD_SET_INFORMATION};
-        #[link(name = "ntdll")]
-        unsafe extern "system" {
-            fn NtSetInformationThread(thread: HANDLE, class: u32, information: *const core::ffi::c_void, length: u32) -> i32;
-        }
-        // THREADINFOCLASS `ThreadIoPriority` and `ThreadPagePriority`; `IoPriorityNormal` and the
-        // default page priority.
-        const IO_PRIORITY: u32 = 22;
+        // THREADINFOCLASS `ThreadPagePriority`, and the default page priority.
         const PAGE_PRIORITY: u32 = 24;
-        let (io, page) = (2u32, 5u32);
+        let (io, page) = (IO_NORMAL, 5u32);
         let low = std::mem::take(&mut *LOW.lock().unwrap_or_else(|e| e.into_inner()));
         for id in low {
             // SAFETY: the handle is this process's own thread's (or none, when it has ended),
