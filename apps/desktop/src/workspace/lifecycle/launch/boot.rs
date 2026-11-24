@@ -87,6 +87,47 @@ pub fn print_version_if_asked() {
     }
 }
 
+/// `opencode-desktop --unwind-check`: panics 17 frames deep, each frame holding a destructor,
+/// once under `catch_unwind` and once on a thread, and says whether both ended as panics do and
+/// every destructor ran; exit 0 when they did. The packaged macOS build changes how its
+/// functions' unwind entries are stored (`scripts/rustc-compact-unwind.sh`), and the app relies
+/// on a panic staying where it is caught; `smoke-app.sh` runs this on every packaged build.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn unwind_check_if_asked() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    if std::env::args().nth(1).as_deref() != Some("--unwind-check") {
+        return;
+    }
+    static DROPPED: AtomicUsize = AtomicUsize::new(0);
+    struct Guard;
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            DROPPED.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+    #[inline(never)]
+    fn deep(level: usize) -> usize {
+        let _guard = Guard;
+        let below = if std::hint::black_box(level) == 0 { panic!("the unwind check's own panic") } else { deep(level - 1) };
+        std::hint::black_box(below + 1)
+    }
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let caught = std::panic::catch_unwind(|| deep(16)).is_err();
+    let alone = std::thread::spawn(|| deep(16)).join().is_err();
+    std::panic::set_hook(hook);
+    let dropped = DROPPED.load(Ordering::Relaxed);
+    std::io::Write::write_fmt(
+        &mut std::io::stdout(),
+        format_args!(
+            "unwind: a panic 17 frames deep was {}, a panicking thread {}, {dropped} of 34 destructors ran\n",
+            if caught { "caught" } else { "not caught" },
+            if alone { "ended alone" } else { "did not end as a panic" }
+        ),
+    )
+    .ok();
+    std::process::exit(if caught && alone && dropped == 34 { 0 } else { 1 });
+}
 /// Window title (`"OpenCode (Rune)"` on `main`, `"OpenCode (Rune) · <branch>"` on PR builds).
 pub fn window_title() -> &'static str {
     // Stable and beta builds name themselves after their channel (`win_install::default_name`).
