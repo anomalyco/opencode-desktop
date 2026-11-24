@@ -14,7 +14,11 @@ use serde_json::{Map, Value, json};
 
 use super::{Effort, Pickers, Selection};
 
-/// The scope of a new session's picks ([`super::PickerHost::picker_scope`]).
+/// The scope of the picks of a page that is neither a session nor a draft tab
+/// ([`super::PickerHost::picker_scope`]). Each draft tab keeps its own picks under its own id,
+/// as Desktop's drafts do (`composer/persistence.tsx`: the tab's own composer state;
+/// `selection.tsx`: "A draft's selection is this provider's own, so two drafts on one workspace
+/// choose independently").
 pub const DRAFT: &str = "draft";
 
 /// A model an agent had, and whether its effort was chosen (`selection-machine.ts`
@@ -83,30 +87,31 @@ impl Pickers {
 
     /// A model was picked for the draft's agent: the draft remembers it, with no effort of its
     /// own (`composer/selection.ts` `remembered`: `variant: INHERIT_VARIANT`).
-    pub(crate) fn remember_draft_pick(&mut self, pick: &Selection) {
+    pub(crate) fn remember_draft_pick(&mut self, draft: &str, pick: &Selection) {
         let choice = Choice { model: ModelRef { variant: String::new(), ..pick.model.clone() }, effort: Effort::Inherited };
-        self.choices.entry(DRAFT.to_owned()).or_default().insert(pick.agent.clone(), choice);
+        self.choices.entry(draft.to_owned()).or_default().insert(pick.agent.clone(), choice);
     }
 
-    /// A pick made outside the pickers (a model connected or offered in a dialog) for `scope`.
-    pub fn pick(&mut self, scope: String, pick: Selection) {
-        if scope == DRAFT { self.remember_draft_pick(&pick); }
+    /// A pick made outside the pickers (a model connected or offered in a dialog) for `scope`,
+    /// a `draft`'s or a session's.
+    pub fn pick(&mut self, scope: String, pick: Selection, draft: bool) {
+        if draft { self.remember_draft_pick(&scope, &pick); }
         self.selections.insert(scope, pick);
     }
 
-    /// The draft became the session `id`: the models picked for its agents go with the session,
-    /// and the next draft starts with none (`selection.tsx` `promote`; official's test "new-session
-    /// drafts remember each agent's model and hand off inactive choices").
-    pub fn promote_draft(&mut self, id: &str) {
-        if let Some(choices) = self.choices.remove(DRAFT).filter(|c| !c.is_empty()) {
+    /// The draft `draft` became the session `id`: the models picked for its agents go with the
+    /// session (`selection.tsx` `promote`; official's test "new-session drafts remember each
+    /// agent's model and hand off inactive choices").
+    pub fn promote_draft(&mut self, draft: &str, id: &str) {
+        if let Some(choices) = self.choices.remove(draft).filter(|c| !c.is_empty()) {
             self.choices.insert(id.to_owned(), choices);
         }
     }
 
-    /// The session `id` could not start and its draft is back: its agents' models with it.
-    pub fn demote_session(&mut self, id: &str) {
+    /// The session `id` could not start and its draft `draft` is back: its agents' models with it.
+    pub fn demote_session(&mut self, id: &str, draft: &str) {
         if let Some(choices) = self.choices.remove(id) {
-            self.choices.insert(DRAFT.to_owned(), choices);
+            self.choices.insert(draft.to_owned(), choices);
         }
     }
 }

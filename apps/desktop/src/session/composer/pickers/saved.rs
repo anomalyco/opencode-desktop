@@ -5,12 +5,13 @@
 //! session id, each entry in Desktop's shape with the time it was written.
 //!
 //! The row is read at launch from the app-wide keys the boot record already holds, so it stays
-//! small: the sessions written longest ago go once it holds more than [`LIMIT`]. A new session's
-//! draft keeps nothing (Desktop's draft selection is its provider's own signal).
+//! small: the entries written longest ago go once it holds more than [`LIMIT`]. A new session's
+//! draft keeps its picks the same way, by its draft id (Desktop keeps a draft's model with the
+//! draft's prompt, `composer/state.ts` `Persist.draft(draftID, "prompt")`), until it starts its
+//! session.
 
 use serde_json::{Value, json};
 
-use super::DRAFT;
 use crate::App;
 
 const GLOBAL: &str = "opencode.global.dat";
@@ -28,7 +29,7 @@ pub(crate) fn restore(s: &mut App) {
 
 /// The picks of `scope` changed: its entry is written, or goes when it holds nothing now.
 pub(crate) fn save(s: &App, scope: &str) {
-    if scope == DRAFT || !s.persists() {
+    if !s.persists() {
         return;
     }
     let entry = s.composer_ext.pickers.stored(scope);

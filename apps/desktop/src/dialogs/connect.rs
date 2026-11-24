@@ -106,7 +106,8 @@ impl ConnectHost for App {
             variant: String::new(),
         };
         self.composer_ext.pickers.prefs.picked(&key);
-        self.composer_ext.pickers.pick(scope.clone(), selection);
+        let draft = self.session(&scope).is_none();
+        self.composer_ext.pickers.pick(scope.clone(), selection, draft);
         crate::pickers::saved::save(self, &scope);
     }
 
@@ -144,7 +145,8 @@ impl ConnectHost for App {
         let mut selection = self.selection();
         selection.model = opencode_kit::model::ModelRef { id: m.id, provider: m.provider, variant: String::new() };
         self.composer_ext.pickers.prefs.picked(key);
-        self.composer_ext.pickers.pick(scope.clone(), selection);
+        let draft = self.session(&scope).is_none();
+        self.composer_ext.pickers.pick(scope.clone(), selection, draft);
         crate::pickers::saved::save(self, &scope);
     }
 
