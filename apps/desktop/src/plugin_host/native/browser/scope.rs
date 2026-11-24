@@ -5,10 +5,12 @@
 //!   mutation, lookup (`Browser:Get`/`Tabs`/`Active`/`Selected`), URL normalization, and tab open
 //!   is confined strictly to `caller`.
 //! - Outside MCP tool coroutines, third-party plugins (`!is_builtin_browser`) are confined to the
-//!   active session's tabs and blocked whenever an in-flight MCP tool belongs to another session
-//!   (preventing `task.spawn` escapes).
+//!   tabs of the side panel on the page and blocked whenever an in-flight MCP tool belongs to
+//!   another session (preventing `task.spawn` escapes).
 //! - The built-in `browser` plugin's UI outside tool coroutines may read background tabs (for
-//!   `Browser.Changed` epochs/history) and mutate tabs of the active session.
+//!   `Browser.Changed` epochs/history) and mutate tabs of the side panel on the page.
+//! - The side panel on the page is the routed session's family's (`App::panel_shows`): a subagent
+//!   draws on its root's strip, so the person acts there on the root's tabs and its subagents'.
 
 use mlua::Lua;
 
@@ -147,7 +149,7 @@ impl TabScope {
                 if !mutate && self.is_builtin_browser {
                     true
                 } else {
-                    app.active_session_id() == Some(owner)
+                    app.panel_shows(owner)
                         && (self.is_builtin_browser || self.in_flight.iter().all(|sid| sid == owner))
                 }
             }
@@ -189,8 +191,8 @@ impl TabScope {
 }
 
 /// Whether a third-party plugin may hear passive signals (`Browser.Changed` / `Browser.Picked`)
-/// about `tab_id`: strictly limited to non-isolated tabs owned by the currently active session.
+/// about `tab_id`: strictly limited to non-isolated tabs of the side panel on the page.
 pub(super) fn tab_visible_to_third_party(app: &App, tab_id: u64) -> bool {
-    app.active_session_id().is_some_and(|sid| app.browser_tab_session(tab_id) == Some(sid))
+    app.browser_tab_session(tab_id).is_some_and(|owner| app.panel_shows(owner))
         && app.workspace_panes.browser.host.tab(tab_id).is_some_and(|t| !t.context.is_isolated())
 }

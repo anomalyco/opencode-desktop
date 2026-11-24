@@ -11,7 +11,7 @@ use opencode_ui::palette::Pal;
 
 use crate::{
     PaneTarget, TAB_UI, TerminalSurfaceHost, find, grid, input, ops, panel_key, persist, poll,
-    rename, workspace_key,
+    rename,
 };
 
 /// Every terminal tab's key starts so: `terminal:{pty id}`.
@@ -69,7 +69,7 @@ pub fn surface<H: TerminalSurfaceHost + 'static>(
     focused: bool,
 ) -> El {
     s.terminal().painted_dark.set(Some(p.dark));
-    let ws_key = workspace_key(ops::server_id_str(s), sid);
+    let ws_key = ops::terminal_workspace_key_for_session(s, sid);
     let shown = s.side_tab_visible(&panel_key(id));
     grid::render_terminal_pane(s, p, &ws_key, Some(id), size, scale, focused && !s.is_composer_focused(), shown)
 }

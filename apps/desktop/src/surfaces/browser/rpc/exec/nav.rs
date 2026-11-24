@@ -137,7 +137,13 @@ fn start_tabs_open(
             Some(app.open_new_agent_browser_tab_for_session(Some(&sid), &target_url, None, focus))
         }
     };
-    let opened = if focus { open(app) } else { open_in_background(app, &sid, open) };
+    let opened = if !focus {
+        open_in_background(app, &sid, open)
+    } else if shows_on_request(app, &sid) {
+        open(app)
+    } else {
+        open_in_background(app, &sid, |app| app.keeping_keyboard(open))
+    };
     let Some(host_id) = opened else {
         return StepOutcome::Done(Outcome::fail(
             failure_code::NAVIGATION_FAILED,
@@ -176,14 +182,24 @@ fn start_tabs_open(
     }))
 }
 
+/// Whether an agent's show request (`tabs.open` with `focus`, `tabs.focus`) selects its tab. Not
+/// while the strip is on the page for another session of its family (the person reads the parent,
+/// or a sibling subagent): Desktop shows for the routed session only (`presentation.onScreen`,
+/// `packages/gui-plugins/src/browser/model.ts`), and the strip is the whole family's here.
+fn shows_on_request(app: &App, sid: &str) -> bool {
+    app.active_session_id() == Some(sid) || !app.panel_shows(sid)
+}
+
 /// `tabs.open` with `focus: false` keeps the new tab in the background (`agentTabShow`,
 /// `packages/gui-plugins/src/browser/policy.ts:146-150` at `b9a60d9d`): it joins the session's
-/// strip, while the pane's open state, the tab it shows and the focused page stay as they were.
+/// strip (its family's: `App::panel_root`), while the pane's open state, the tab it shows and the
+/// focused page stay as they were.
 fn open_in_background(app: &mut App, sid: &str, open: impl FnOnce(&mut App) -> Option<u64>) -> Option<u64> {
     let focused = app.workspace_panes.browser.host.focused_tab_id();
+    let strip = app.panel_root(sid).to_owned();
     let (before, shared_open, pane_focus) = {
         let side = app.kernel.slots.get(&crate::panels::SIDE);
-        (side.sessions.get(sid).cloned(), side.shared_open, side.active_pane_focus)
+        (side.sessions.get(&strip).cloned(), side.shared_open, side.active_pane_focus)
     };
     // `focus: false` already opens it keeping the keyboard (`attach_browser_tab_to_session`).
     let id = open(app)?;
@@ -195,7 +211,7 @@ fn open_in_background(app: &mut App, sid: &str, open: impl FnOnce(&mut App) -> O
     if !kept.tab_state.tabs.all.contains(&key) {
         kept.tab_state.tabs.all.push(key);
     }
-    side.sessions.insert(sid.to_owned(), kept);
+    side.sessions.insert(strip, kept);
     if let Some(prev) = focused.filter(|prev| *prev != id) {
         app.workspace_panes.browser.host.focus_tab(prev);
     }
@@ -215,7 +231,9 @@ fn exec_tabs_focus(att: &mut SessionAttachment, app: &mut App, cmd: &Command) ->
     app.workspace_panes.browser.host.focus_tab(host_id);
     let key = crate::panels::panel_key(crate::surfaces::browser::PLUGIN, &host_id.to_string());
     let sid = att.session_id.clone();
-    app.keeping_keyboard(|s| s.open_side_tab_for_session(&sid, &key, None, false, false));
+    if shows_on_request(app, &sid) {
+        app.keeping_keyboard(|s| s.open_side_tab_for_session(&sid, &key, None, false, false));
+    }
     att.agent_tab_id = Some(wire_id.to_owned());
     let _ = att.sync_tabs(app);
     let Some(tab) = att.wire_tab(app, host_id) else {

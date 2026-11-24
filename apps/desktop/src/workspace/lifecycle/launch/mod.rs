@@ -263,6 +263,9 @@ pub struct Launch {
     pub early_page: Option<crate::session_pages::Early>,
     /// The session list the first frame drew from the saved state, until the server's lands.
     pub saved_list: Option<saved_list::SavedList>,
+    /// The restored page's session and the session of the tab it was saved in, until the page's
+    /// family is loaded up to its root or the route leaves it (`saved::page_tab`).
+    pub page_tab: Option<saved::page_tab::PageTab>,
     /// The first reads' thread `setup` started before the first frame, for `on_ready`'s Start.
     #[cfg(not(target_arch = "wasm32"))]
     early: Option<Early>,

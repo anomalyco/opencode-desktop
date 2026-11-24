@@ -11,7 +11,7 @@ use crate::closing::{Effect, Event};
 use crate::host::PanelsHost;
 use crate::state::{
     CloseTabGuardEffect, CloseTabGuardEvent, EdgeFlightEffect, EdgeFlightEvent, ResolvedEntry, ResolvedRegion,
-    SideMenu, all_panels, bottom_open, close_side_tab, dismiss_side_new_tab, open_side_new_tab,
+    SideMenu, adopt_child_strip, all_panels, bottom_open, close_side_tab, dismiss_side_new_tab, open_side_new_tab,
     reopen_closed_side_tab, resolve_side_region, select_side_tab, shown_new_tab, side_open, sync_empty_side,
     toggle_bottom_region, toggle_side_region,
 };
@@ -60,7 +60,7 @@ fn side_region_shut(host: &dyn PanelsHost, sid: &str, reg: Option<&ResolvedRegio
             resolved.as_deref()
         }
     };
-    host.active_session_id() == Some(sid)
+    host.panel_session_id() == Some(sid)
         && !side_open(host)
         && reg.is_none_or(|r| r.strip.iter().all(|e| e.pane == SessionPane::Bottom))
         && !host.side().adding.iter().any(|n| n.session_id == sid && n.pane != SessionPane::Bottom)
@@ -87,10 +87,13 @@ fn tabs_check_stamp(host: &dyn PanelsHost) -> u64 {
 /// Polls panel animations, stored-tab rekeying/pruning (when any tab/panel input moved),
 /// and empty-side New tab sync. Native panels and plugins run as their own scheduled systems.
 pub fn poll_panels(host: &mut dyn PanelsHost, tx: &mut Tx) -> bool {
-    let mut changed = false;
+    // A subagent's page reached with a strip of its own from an older build.
+    let own = |routed: &&str| host.panel_session_id() != Some(*routed) && host.side().sessions.get(*routed).is_some_and(|st| !st.tab_state.tabs.all.is_empty());
+    let adopt = host.active_session_id().filter(own).map(str::to_owned);
+    let mut changed = adopt.is_some_and(|routed| adopt_child_strip(host, &routed));
     if host.shared_side_panel()
         && host.side().shared_open == Some(true)
-        && let Some(sid) = host.active_session_id().map(str::to_owned)
+        && let Some(sid) = host.panel_session_id().map(str::to_owned)
         && !host.side().shared_mounted.contains(&sid)
     {
         host.side_mut().shared_mounted.insert(sid);
@@ -110,11 +113,11 @@ pub fn poll_panels(host: &mut dyn PanelsHost, tx: &mut Tx) -> bool {
         changed |= run_closing(effects, tx);
     }
     let has_stored_tabs = host
-        .active_session_id()
+        .panel_session_id()
         .and_then(|sid| host.side().sessions.get(sid))
         .is_some_and(|st| !st.tab_state.tabs.all.is_empty());
     if has_stored_tabs
-        && let Some(sid) = host.active_session_id().map(str::to_owned)
+        && let Some(sid) = host.panel_session_id().map(str::to_owned)
     {
         let stamp = tabs_check_stamp(host);
         if host.side().tabs_stamp.get() != Some(stamp) {
@@ -233,7 +236,7 @@ pub fn panels_key(host: &mut dyn PanelsHost, ev: &KeyEvent, tx: &mut Tx) -> bool
 
     // 5. Side-region tab strip shortcuts when focus is in the side/bottom tab strip.
     if is_close_key {
-        let Some(sid) = host.active_session_id().map(str::to_owned) else { return false };
+        let Some(sid) = host.panel_session_id().map(str::to_owned) else { return false };
         let pane = host.side().active_pane_focus;
         let pane_act = resolve_side_region(host).and_then(|reg| {
             let empty = SessionTabs::default();
