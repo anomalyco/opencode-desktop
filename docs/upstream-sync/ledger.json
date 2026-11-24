@@ -2,28 +2,28 @@
   "generated_at": "2026-11-24",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "af54caef70f9bc1d700d9bfd5b4f2f7471deadd8",
+  "upstream_head": "3281a5db1b36f04edfc0d7591135e20626672d74",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "a942fe8d2",
-  "post_1114_commit_count": 599,
+  "rune_desktop_head": "c638a6c79",
+  "post_1114_commit_count": 602,
   "post_1114_in_ledger": 214,
-  "post_1114_skipped": 385,
+  "post_1114_skipped": 388,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
     "ci-bench-deps": 22,
-    "docs-site-data": 58,
+    "docs-site-data": 59,
     "tui-only": 28,
     "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 241
+    "server-core-ai-codemode-internal": 243
   },
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 235,
   "status_counts": {
-    "have it": 196,
+    "have it": 197,
     "not applicable": 31,
     "differs on purpose": 1,
-    "partly": 3,
+    "partly": 2,
     "missing": 4
   },
   "rows": [
@@ -5595,11 +5595,11 @@
       "summary": "A subagent (a child session a tab routes to) shows its root session's side panel tabs: the strip and the plugins' panel state go by the tab's session, not the routed child's.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "rune-desktop #1020 (a942fe8d, by the agent UP-201): a subagent's page shows its root session's side panel: one strip, one selection, one pane split, open state and widths for a tab's family, on the root's page and every subagent's page; Review, Context and Details show the routed session's own; the family's terminals and browser tabs show on every page of the family. RUN on both commits' CI builds and next to official in Electron (678621a5df; notes/upstream-sync/up-201-official.md): the same on strip, selection and routed panels. Different on purpose in one thing: official drops the parent's terminal tab for good after one visit to a subagent's page (an official fault, not copied; an upstream draft is being prepared). Not run: a real window's first frame on a subagent's page; an agent's focus request while the person reads the parent.",
+      "status_evidence": "rune-desktop #1020 (a942fe8d, by the agent UP-201): a subagent's page shows its root session's side panel: one strip, one selection, one pane split, open state and widths for a tab's family; Review, Context and Details show the routed session's own; the family's terminals and browser tabs show on every page of the family. RUN on both commits' CI builds and next to official in Electron (678621a5df; notes/upstream-sync/up-201-official.md): the same on strip, selection and routed panels. Different on purpose in one thing: official drops the parent's terminal tab for good after one visit to a subagent's page (an official fault, not copied). Follow-up #1028 (b5c5701d): a subagent keeps its browser after the person leaves its page (run: #1020's build answered Unknown tool for browser.tabs.list there, #1028's answers its tab). Not run: a real window's first frame on a subagent's page; an agent's focus request while the person reads the parent.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
-      "rune_pr": "#1020"
+      "rune_pr": "#1020, #1028"
     },
     {
       "id": "UP-202",
@@ -5724,11 +5724,11 @@
       "summary": "A model's speeds share its effort (variant), saved under the standard model; an effort saved before speeds existed may be stored under one of the speeds, and is still read (models.tsx getVariant looks at the standard model, the model itself, then its speeds).",
       "size": "S",
       "status": "have it",
-      "status_evidence": "rune-desktop #991 (d6da8b22): Pickers::saved_effort (crates/session-view/src/pickers/speed.rs) reads the standard model, the model, then its speeds, as getVariant. Found with it and closed: ours kept the per-model effort in memory only; ModelPrefs (pickers/prefs.rs) now reads and writes official's `variant` map (provider/model -> effort id or `default`) with favourites, recents and speeds, so an effort is kept across launches. By reading, compiled by CI; not run.",
+      "status_evidence": "rune-desktop #991 (d6da8b22): Pickers::saved_effort reads the standard model, the model, then its speeds, as getVariant, and ModelPrefs reads and writes official's variant map. RUN by UP-EFFORT on published dev-482: a profile in official's shape is read and an effort saved under a speed applies when the model is picked from the list; but a fresh draft showed Default with an effort saved (official shows it), and the write was skipped in every headless run. Both fixed in #1026 (c638a6c7): the saved effort shows in a fresh draft, and pick High, relaunch, the new draft shows High at once (run on its CI build with --harness-writes). Not run: a person's window.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
-      "rune_pr": "#991"
+      "rune_pr": "#991, #1026"
     },
     {
       "id": "UP-207",
@@ -5884,11 +5884,12 @@
       ],
       "summary": "Which effort (variant) a model runs with at a chosen speed: a saved effort is read from the standard model, then the model itself, and from its other speeds only when no agent or config names an effort for it; an agent's or the config's effort for a model applies at its speeds too; switching to another speed of the same model keeps an effort the person chose, and resolves an inherited one for the new speed.",
       "size": "S",
-      "status": "partly",
-      "status_evidence": "By reading, not run. Have: the order of the saved effort (Pickers::saved_effort, #991: the standard model, the model, then its speeds), and a speed switch keeps the selection's effort (pickers/host.rs Kind::Speed). Not ported: (1) no sibling fallback when an agent or the config names an effort for the model (ours has no such test in saved_effort); (2) the agent's / config's effort applying at a model's speeds (getConfiguredAgentVariant's baseModelID: ours' configured ModelRef is matched by key only); (3) an inherited (not chosen) effort being resolved again for the target speed (ours' selection holds one string and does not tell chosen from inherited). Each needs ours' effort resolution read end to end and a run with a config that names a variant.",
+      "status": "have it",
+      "status_evidence": "rune-desktop #1026 (c638a6c7, by the agent UP-EFFORT): a model with no effort chosen runs with its saved effort, else its agent's or the config's, at every speed; a speed switch keeps a chosen effort and resolves an inherited one for the new speed. RUN before merge on its CI build next to official's own selection code under its test fixture at 4bb997ea44: 58 of 58 observations the same (25 cases, the 9 that #66107 changed among them); a sent prompt carries the inherited effort. Official's Electron window not run; ours headless only.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "rune_pr": "#1026"
     },
     {
       "id": "UP-214",
