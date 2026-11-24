@@ -71,8 +71,10 @@ if ($Payload) {
         # profile as the one-file exe). Windows Defender checks a new exe before its first process
         # exists at 30-36 ms per MiB of the exe, and does not check a library that way
         # (apps/desktop-thin/src/main.rs has the numbers). A build that records a profile
-        # (release.ps1's `pgo-train/` branches) stays one file, as its training run drives it.
-        $thin = -not ($env:OPENCODE_RUNE_PGO_GENERATE -eq '1' -or $env:GITHUB_HEAD_REF -match '^pgo-train/' -or $env:OPENCODE_RUNE_ONE_FILE -eq '1')
+        # (release.ps1's `pgo-train/` branches) stays one file, as its training run drives it; so does a
+        # pull request from a branch with "one-file" in its name (or OPENCODE_RUNE_ONE_FILE=1): the same
+        # code in one exe, to time against.
+        $thin = -not ($env:OPENCODE_RUNE_PGO_GENERATE -eq '1' -or $env:GITHUB_HEAD_REF -match '^pgo-train/' -or $env:OPENCODE_RUNE_ONE_FILE -eq '1' -or $env:GITHUB_HEAD_REF -match 'one-file')
         & (Join-Path $root 'apps/desktop/scripts/release.ps1') -Cargo $Cargo -Target $triple -Package $(if ($thin) { 'opencode-desktop-library' } else { 'opencode-desktop' })
         if ($LASTEXITCODE -ne 0) { throw 'the release build failed' }
         if ($thin) { Invoke-Cargo @('build', '--release', '-p', 'opencode-desktop-thin', '--target', $triple) }
