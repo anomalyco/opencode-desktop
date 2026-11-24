@@ -89,6 +89,8 @@ Host shells, installer, and sidecar binary.
 | `apps/desktop` | `opencode-desktop` | Shared desktop library (`opencode_desktop`) plus thin native binary (`src/main.rs`) |
 | `apps/web` | `opencode-web` | Thin `wasm32`/WebGPU browser entrypoint depending directly on `opencode-desktop` (`src/lib.rs`, `src/web.rs`, `src/browser_history.rs`) with zero duplicated `features/*` dependencies |
 | `apps/installer` | `opencode-rune-setup` | Windows per-user setup bootstrapper |
+| `apps/desktop-thin` | `opencode-desktop-thin` | The exe of a packaged Windows build (`opencode-desktop.exe` in an install): loads the app from the library beside it. Windows Defender checks a new exe before its first process exists at 30-36 ms per MiB, and a library not at all |
+| `apps/desktop-library` | `opencode-desktop-library` | `opencode-desktop` as a library (`opencode-desktop.dll` in an install): `apps/desktop/src/main.rs` with an export in place of `main`. Empty off Windows |
 | `apps/browser-engine` | `opencode-browser-engine` | Standalone out-of-process CEF sidecar bundle (`OpenCode Browser Engine`), excluded from the Cargo workspace in root `Cargo.toml` |
 
 Inside `apps/desktop/src/`:

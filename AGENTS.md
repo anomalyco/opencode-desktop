@@ -13,6 +13,7 @@ Start at the top and go deeper only when a feature needs lower-level control. Se
   - `apps/desktop` (`opencode-desktop`): shared desktop library (`opencode_desktop`) plus thin native binary (`main.rs`), organized into root entry/wiring files and domain folders (`shell/`, `session/`, `workspace/`, `surfaces/`, `dialogs/`, `plugin_host/`, `stories/`). Legacy `App` fields are clustered in `shell/app_state.rs`; new feature state goes in `opencode_kernel::StateSlots` and modal dialogs, Escape layers, commands, and per-frame polls register in `Feature::register`.
   - `apps/web` (`opencode-web`): thin `wasm32`/WebGPU browser entrypoint depending directly on `opencode-desktop` with zero duplicated `features/*` dependencies.
   - `apps/installer` (`opencode-rune-setup`): Windows per-user setup bootstrapper.
+  - `apps/desktop-thin` + `apps/desktop-library`: a packaged Windows build is a thin `opencode-desktop.exe` that loads the app from `opencode-desktop.dll` beside it (`apps/installer/scripts/package.ps1`); `cargo run` and the other platforms build the one-file exe of `apps/desktop`.
   - `apps/browser-engine` (`opencode-browser-engine`): standalone out-of-process CEF sidecar bundle, excluded from the Cargo workspace in root `Cargo.toml`.
 
 Rune comes from `anomalyco/rune` as a git dependency pinned in the root `Cargo.toml`. Keep every `anomalyco/rune` dependency and patch on the same rev (enforced by `scripts/arch-check.sh`); pin only revs on Rune's `dev` branch and land upstream fixes in `anomalyco/rune` first (convention).
