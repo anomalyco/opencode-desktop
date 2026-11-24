@@ -151,6 +151,7 @@
   "rune.command.file.tab.previous": "Previous tab in the pane",
   "rune.command.prompt.dictate": "Dictate with Hex",
   "rune.command.prompt.submitAlternate": "Send the other way (steer or queue)",
+  "rune.command.prompt.submitInPlace": "Send without scrolling to bottom",
   "rune.command.question.submit": "Next question or submit",
   "rune.command.session.find": "Find in session",
   "rune.command.session.stop": "Stop the session",

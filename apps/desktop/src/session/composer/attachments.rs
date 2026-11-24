@@ -113,6 +113,9 @@ fn agent_shown(s: &App) -> bool {
     s.has_composer() && s.picker_show_agent()
 }
 
+/// Live Shift key state for `Shift+Click` on the composer's Send button.
+pub(crate) static SHIFT_HELD: opencode_kernel::Slot<bool> = opencode_kernel::Slot::new();
+
 /// Kernel feature registration for composer attachments, dropzone, slash commands, and suggestions.
 pub struct ComposerInputFeature;
 
@@ -122,6 +125,7 @@ impl Feature<App> for ComposerInputFeature {
     }
 
     fn register(&self, builder: &mut KernelBuilder<App>) {
+        builder.register_slot(&SHIFT_HELD);
         // The composer's commands, after the session's, as Desktop registers them (`composer/commands.tsx:111-161`,
         // mounted after `use-session-commands.tsx`): a palette query lists them in that order.
         builder.add_command(

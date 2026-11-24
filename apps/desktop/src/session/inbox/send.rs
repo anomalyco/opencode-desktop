@@ -16,6 +16,9 @@ pub enum SubmitMode {
     /// `Alt+Enter`: queues the prompt at the front of the queue while the session is busy, without
     /// steering, regardless of the follow-up preference (`#63109`).
     QueueFirst,
+    /// `Ctrl+Enter` on macOS (`Alt+Shift+Enter` elsewhere), or `Shift+Click` on Send: submits
+    /// with default delivery without scrolling a scrolled-up timeline back to the bottom.
+    InPlace,
 }
 
 impl App {
@@ -87,7 +90,7 @@ impl App {
         if self.kernel.slots.get(&crate::add_menu::ADD_MENU).shell() {
             return self.submit_shell(alternate, tx);
         }
-        if mode == SubmitMode::Default && self.retry_restored() { return; }
+        if matches!(mode, SubmitMode::Default | SubmitMode::InPlace) && self.retry_restored() { return; }
         let wire = self.mention_wire();
         if wire.text.is_empty() && !self.composer_ext.attach.any() && !self.kernel.slots.get(&crate::quote::QUOTE).any() {
             return;
@@ -162,6 +165,8 @@ impl App {
                 if crate::view::shows_whole_prompt() {
                     tx.launch("prompt", format!("queued-{local}"));
                 }
+            } else if mode == SubmitMode::InPlace {
+                session_view::composer::land_in_place(self, &id, &local, &from, tx);
             } else {
                 session_view::composer::land(self, &id, &local, &from, tx);
             }
@@ -260,7 +265,11 @@ impl App {
         self.kernel.slots.get_mut(&crate::quote::QUOTE).take();
         // Like the TUI, sent comments go with the prompt (`submit.ts:413-417`).
         self.clear_line_comments(&id);
-        session_view::composer::land(self, &id, &local, &from, tx);
+        if mode == SubmitMode::InPlace {
+            session_view::composer::land_in_place(self, &id, &local, &from, tx);
+        } else {
+            session_view::composer::land(self, &id, &local, &from, tx);
+        }
         let t = self.transcripts.entry(id.clone()).or_insert_with(|| Transcript { session: id.clone(), messages: vec![] });
         // As the server's copy will read, so a session mention's badge stays put when it lands.
         t.messages.push(Message::User { id: local, text: wire.text });
