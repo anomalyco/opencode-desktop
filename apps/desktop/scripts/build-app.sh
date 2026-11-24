@@ -225,3 +225,4 @@ PLIST
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 codesign --force --sign - "$APP"
 echo "$APP"
+# (a base build for timing: no change)
