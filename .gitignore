@@ -4,6 +4,8 @@
 __pycache__/
 *.pyc
 /apps/browser-engine/target
+# The macOS build's library crates (apps/desktop/scripts/layers.py writes them for a build).
+/apps/desktop/layers/gen/
 
 # perf/ pins strobe (bun add -d @hona/strobe); its packages are not checked in.
 perf/node_modules/

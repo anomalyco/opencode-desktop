@@ -287,7 +287,7 @@ pub fn dep_version(app: &App, dep: &Dep) -> u64 {
         Dep::FilesDoc(session, path) => super::native::files::doc_version(app, session, path).hash(&mut h),
         Dep::Terminals(session) => super::native::terminal::version(app, session).hash(&mut h),
         Dep::TerminalScreen(session) => super::native::terminal::screen_version(app, session).hash(&mut h),
-        Dep::Sidebar => (app.workspace_panes.panel_sidebar.opened, app.workspace_panes.panel_sidebar.width.map(f32::to_bits)).hash(&mut h),
+        Dep::Sidebar => (app.workspace_panes.panel_sidebar.opened, app.workspace_panes.panel_sidebar.width.map(f32::to_bits), app.workspace_panes.panel_sidebar.side).hash(&mut h),
         Dep::Plugin(id) => app.plugins.list.iter().find(|p| p.half.id == *id).map(|p| p.half.surface_version(p.script())).hash(&mut h),
         Dep::Updater => crate::updater::revision(app).hash(&mut h),
         Dep::Image(plugin, id) => app.plugins.shared.images.borrow().get(plugin, *id).map(crate::plugin_host::images::load::Load::status).hash(&mut h),

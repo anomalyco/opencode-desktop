@@ -259,7 +259,7 @@ fn layout(lua: &Lua, p: &Rc<str>, t: &Table) -> mlua::Result<()> {
         with_app("Layout:PanelSidebar", |app| {
             let s = &app.workspace_panes.panel_sidebar;
             let width = s.width.unwrap_or(crate::plugin_host::native::sidebar::DEFAULT_W);
-            mlua::IntoLua::into_lua(super::map([("opened", Data::Bool(s.opened)), ("width", Data::Number(f64::from(width)))]), lua)
+            mlua::IntoLua::into_lua(super::map([("opened", Data::Bool(s.opened)), ("width", Data::Number(f64::from(width))), ("side", Data::String(s.side.name().into()))]), lua)
         })
     })?;
     method(lua, t, "RegionOpen", |_, session: Option<String>| {
@@ -282,6 +282,17 @@ fn layout(lua: &Lua, p: &Rc<str>, t: &Table) -> mlua::Result<()> {
             app.later(Box::new(|s: &mut App, tx: &mut rune::Tx| {
                 tx.instant();
                 s.workspace_panes.panel_sidebar.toggle();
+                crate::plugin_host::bump();
+            }));
+            Ok(())
+        })
+    })?;
+    // `PanelSidebar.move` (`packages/plugin/src/gui/solid.ts`): one edge for every side panel.
+    method(lua, t, "MovePanelSidebar", |_, side: String| {
+        with_app("Layout:MovePanelSidebar", |app| {
+            app.later(Box::new(move |s: &mut App, tx: &mut rune::Tx| {
+                tx.instant();
+                s.workspace_panes.panel_sidebar.move_to(crate::plugin_host::native::sidebar::Side::parse(&side));
                 crate::plugin_host::bump();
             }));
             Ok(())

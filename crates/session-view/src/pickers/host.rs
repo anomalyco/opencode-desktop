@@ -148,7 +148,7 @@ pub trait PickerHost: ComposerHost {
         let current = pk.standard_key(&s.model.key()) == key;
         Some(pk.staged.get(key).cloned()
             .or_else(|| current.then(|| s.model.variant.clone()))
-            .or_else(|| pk.efforts.get(key).filter(|v| m.variants.contains(v)).cloned())
+            .or_else(|| pk.saved_effort(key).filter(|v| m.variants.contains(v)))
             // A session can say "default" for no choice, as the effort trigger reads it.
             .filter(|v| v != "default")
             .unwrap_or_default())
@@ -311,10 +311,10 @@ pub trait PickerHost: ComposerHost {
                 let variant = if pk.standard_key(&selected.model.key()) == *key {
                     staged.clone().unwrap_or(selected.model.variant)
                 } else {
-                    staged.clone().or_else(|| pk.efforts.get(key).filter(|v| m.variants.contains(v)).cloned()).unwrap_or_default()
+                    staged.clone().or_else(|| pk.saved_effort(key).filter(|v| m.variants.contains(v))).unwrap_or_default()
                 };
                 selected.model = ModelRef { id: m.id.clone(), provider: m.provider.clone(), variant };
-                if let Some(v) = staged { pk.efforts.insert(key.to_owned(), v); }
+                if let Some(v) = staged { pk.prefs.set_variant(key, &v); }
             }
             Kind::Agent => {
                 if selected.agent != key {
@@ -325,7 +325,8 @@ pub trait PickerHost: ComposerHost {
             }
             Kind::Effort => {
                 selected.model.variant = if key == "default" { String::new() } else { key.into() };
-                pk.efforts.insert(pk.standard_key(&selected.model.key()), selected.model.variant.clone());
+                let standard = pk.standard_key(&selected.model.key());
+                pk.prefs.set_variant(&standard, &selected.model.variant);
             }
             // The same model at another speed, remembered for when it is picked again
             // (`composer/selection.ts` `speed.set`).

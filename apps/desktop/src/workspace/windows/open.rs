@@ -226,6 +226,9 @@ fn window(mut w: Window, frame: Option<Frame>, diagnostics: &crate::diagnostics:
     let ready = handle.clone();
     let mut motion_log = crate::motion_log::Log::default();
     let (encoded, drawn) = (diagnostics.clone(), diagnostics);
+    // The first frame draws with the appearance the last run saw; the portal's answer follows.
+    #[cfg(target_os = "linux")]
+    rune::last_appearance(store::load_appearance(), store::save_appearance);
     let app = match layout {
         Some((seed, id)) => app.layout_seed(seed, move |seed| store::save_layout(&id, &seed)),
         None => app,

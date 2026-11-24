@@ -41,10 +41,12 @@ static CHEVRON_RIGHT: Icon = Icon {
     body: r#"<path d="M6.5 5L9.5 8L6.5 11" stroke="currentColor" fill="none"/>"#,
 };
 
-fn sidebar_toggle_shell(p: &Pal, key: &'static str, open: bool, disabled: bool) -> El {
-    let b = el()
+fn sidebar_toggle_shell(p: &Pal, key: &'static str, open: bool, disabled: bool, end: bool) -> El {
+    // `session-review-v2-sidebar-toggle`: 8 from the inline start, or from the inline end with
+    // the sidebar on the end edge (`data-sidebar-side="end"`).
+    let b = if end { el().pin(None, Some(9.5), Some(8.0), None) } else { el().absolute(8.0, 9.5) };
+    let b = b
         .key(key)
-        .absolute(8.0, 9.5)
         .size(36.0, 28.0)
         .radius(6.0)
         .center()
@@ -64,16 +66,17 @@ fn sidebar_toggle_shell(p: &Pal, key: &'static str, open: bool, disabled: bool) 
         .hover_motion(INSTANT, INSTANT)
 }
 
-/// The tree toggle (`SessionReviewV2SidebarToggle`): 36 × 28 at 8, 9.5 from the panel's corner,
-/// on `layer-02` while the tree shows.
+/// The tree toggle (`SessionReviewV2SidebarToggle`): 36 × 28 at 8, 9.5 from the panel's corner
+/// at its start, or at its `end` with the sidebar there, on `layer-02` while the tree shows.
 pub fn sidebar_toggle<S: 'static>(
     p: &Pal,
     key: &'static str,
     open: bool,
     disabled: bool,
+    end: bool,
     press: impl Fn(&mut S, &mut Tx) + 'static,
 ) -> El {
-    let b = sidebar_toggle_shell(p, key, open, disabled);
+    let b = sidebar_toggle_shell(p, key, open, disabled, end);
     if disabled {
         return b;
     }

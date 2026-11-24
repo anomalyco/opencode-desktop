@@ -105,17 +105,20 @@ local function title(env: Env, directory: string): ui.Node
 end
 
 -- `session-review-v2-sidebar`: its header 48 tall, 54 in past the toggle (gap 10), Open in at its
--- end for a file (not the launcher), the filter, then the tree or what the filter finds.
-local function sidebar(env: Env, view: View, props: PanelProps, tree: FileTreeModel, path: string?): ui.Node
+-- end for a file (not the launcher), the filter, then the tree or what the filter finds. With the
+-- sidebar on the end edge the toggle is at the header's end (`data-sidebar-side="end"`: `8px 54px`,
+-- and the title, no select, 8 further in).
+local function sidebar(env: Env, view: View, props: PanelProps, tree: FileTreeModel, path: string?, side: PanelSidebarSide): ui.Node
     local locale = env.I18n:Locale().id
     local look = `{locale}:{tostring(view.dark)}`
-    local header = view:Memo("files-sidebar-header-slot", `{props.directory}:{path or ""}:{look}`, function()
+    local atEnd = side == "end"
+    local header = view:Memo("files-sidebar-header-slot", `{props.directory}:{path or ""}:{side}:{look}`, function()
         local items: { ui.Node } = { title(env, props.directory), ui.spacer() }
         if path then
             table.insert(items, ui.openInButton({ key = "files-open-in", path = path }))
         end
         return ui.col({ w = "full" }, {
-            ui.row({ key = "files-sidebar-header", w = "full", h = 48, pl = 54, pr = 16, gap = 8, align = "center" }, items),
+            ui.row({ key = "files-sidebar-header", w = "full", h = 48, pl = if atEnd then 16 else 54, pr = if atEnd then 54 else 16, gap = 8, align = "center" }, items),
         })
     end)
     local filter = view:Memo("files-filter-slot", `{env.filter:Version()}:{look}`, function()
@@ -155,14 +158,17 @@ function panel.wide(env: Env, view: View, props: PanelProps): ui.Node
     local path = panel.path(id)
     local launcher = path == nil
     local tree = env.Workspace:OpenTree(props.directory)
-    local opened = env.Layout:PanelSidebar().opened or launcher
+    local bar = env.Layout:PanelSidebar()
+    local opened = bar.opened or launcher
+    local atEnd = bar.side == "end"
     local main: { ui.Node } = {}
-    -- `session-review-v2-toolbar` while the sidebar is shut: the name and Open in, 54 in.
+    -- `session-review-v2-toolbar` while the sidebar is shut: the name and Open in, 54 in past the
+    -- toggle, which is at its end with the sidebar on the end edge (`8px 54px`).
     if not opened then
         local look = `{env.I18n:Locale().id}:{tostring(view.dark)}`
-        table.insert(main, view:Memo("files-shut-toolbar-slot", `{props.directory}:{path or ""}:{look}`, function()
+        table.insert(main, view:Memo("files-shut-toolbar-slot", `{props.directory}:{path or ""}:{bar.side}:{look}`, function()
             return ui.col({ w = "full" }, {
-                ui.row({ key = "files-toolbar", w = "full", h = 47, pl = 54, pr = 12, gap = 8, align = "center" }, {
+                ui.row({ key = "files-toolbar", w = "full", h = 47, pl = if atEnd then 8 else 54, pr = if atEnd then 54 else 12, gap = 8, align = "center" }, {
                     title(env, props.directory),
                     ui.spacer(),
                     ui.openInButton({ key = "files-open-in", path = path :: string }),
@@ -178,7 +184,7 @@ function panel.wide(env: Env, view: View, props: PanelProps): ui.Node
     end
     local maxW = math.clamp(props.width * 0.6, 200, 480)
     return ui.panelSidebar({ id = "files", maxWidth = maxW, locked = launcher }, {
-        if opened then sidebar(env, view, props, tree, path) else ui.col({}, {}),
+        if opened then sidebar(env, view, props, tree, path, bar.side) else ui.col({}, {}),
         ui.col({ key = "files-main", w = "full", h = "full" }, main),
     })
 end

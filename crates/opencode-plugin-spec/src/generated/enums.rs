@@ -284,6 +284,16 @@ string_enum! {
 }
 
 string_enum! {
+    /// The edge of a panel its file sidebar sits on.
+    pub enum PanelSidebarSide {
+        /// The inline start: left in a left-to-right layout.
+        Start = "start",
+        /// The inline end: right in a left-to-right layout.
+        End = "end",
+    }
+}
+
+string_enum! {
     /// Which picker overlay the composer currently has open.
     pub enum ComposerPicker {
         /// The agent picker.

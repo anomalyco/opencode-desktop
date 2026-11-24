@@ -295,6 +295,12 @@ mod imp {
 
     pub struct OomGuard<A>(pub A);
 
+    /// What `OomGuard` does with a null allocation, for a build whose allocator is not in this
+    /// crate's exe (macOS with the code as several libraries: `apps/desktop/layers/base.rs`).
+    pub fn alloc_failed(requested: usize) {
+        on_alloc_oom(requested);
+    }
+
     // SAFETY: delegates every operation unchanged to `A`; `on_alloc_oom` never touches the heap.
     unsafe impl<A: GlobalAlloc> GlobalAlloc for OomGuard<A> {
         #[inline(always)]
@@ -658,6 +664,6 @@ mod imp {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use imp::{
-    OomGuard, init_hooks, mark_clean, mark_restore_settled, note_restoring_session,
+    OomGuard, alloc_failed, init_hooks, mark_clean, mark_restore_settled, note_restoring_session,
     poll_debug_drill, poll_previous, presented, set_active_session, take_skip_restore,
 };

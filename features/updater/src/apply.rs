@@ -32,7 +32,10 @@ const DETACHED_PROCESS: u32 = 0x0000_0008;
 /// How long the app has to exit after asking for the update.
 const EXIT_WAIT_MS: u32 = 120_000;
 /// How long a rename keeps trying while a scanner or a straggling child holds a file.
-const RENAME_TRIES: u32 = 80;
+const RENAME_TRIES: u32 = 128;
+/// How many of the swap's tries come 10 ms apart (half a second), before the 250 ms ones (about
+/// 20 s more, as before).
+const QUICK_TRIES: u32 = 50;
 
 /// Applies the update and exits, when this run is the update helper. `product` supplies the
 /// build's Windows install identity for refreshing the Apps & features uninstall entry.
@@ -83,13 +86,16 @@ fn parse() -> Option<Args> {
 
 fn run(product: &win_install::Product) -> i32 {
     let Some(a) = parse() else { return 2 };
+    // Every line ends with the microseconds since this code began, so a slow update names its step
+    // (a real one took 4.5 s between the old app's exit and the new process, and the log had no times).
+    let began = rune::time::Instant::now();
     let log = |line: &str| {
         std::fs::create_dir_all(&a.updates).ok();
         if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(a.updates.join("apply.log")) {
-            writeln!(f, "[pid {}] {line}", std::process::id()).ok();
+            writeln!(f, "[pid {}] {line} [+{} us]", std::process::id(), began.elapsed().as_micros()).ok();
         }
     };
-    log(&format!("installing {} from {} into {}", a.version, a.staged.display(), a.root.display()));
+    log(&format!("installing {} from {} into {} (this process was made {} us ago: its exe linked and loaded the app's library first)", a.version, a.staged.display(), a.root.display(), process_age_us()));
     if a.wait != 0 && !wait_for_exit(a.wait) {
         log(&format!("process {} didn't exit; nothing changed", a.wait));
         super::windows::receipt::record_apply_failure(&a.updates, &a.version, "the previous process did not exit");
@@ -106,7 +112,8 @@ fn run(product: &win_install::Product) -> i32 {
             return 1;
         }
     };
-    let mode = match publish(&a.root, &a.staged, &old) {
+    log("the staged build is identified");
+    let mode = match publish(&a.root, &a.staged, &old, &log) {
         Ok(mode) => mode,
         Err(e) => {
             log(&format!("couldn't publish {}: {e}; previous install and stage unchanged", a.version));
@@ -127,6 +134,7 @@ fn run(product: &win_install::Product) -> i32 {
         Ok(changed) => changed.iter().for_each(|line| log(line)),
         Err(e) => log(&format!("couldn't update the uninstall entry: {e}")),
     }
+    log("the uninstall entry is looked at");
     start(&a, &log);
     match super::windows::bundle::retire(&old) {
         Ok(m) => log(&format!("retired previous bundle ({})", m.label())),
@@ -142,8 +150,9 @@ fn start(a: &Args, log: &dyn Fn(&str)) {
     let exe = a.root.join(&a.exe);
     let cwd = if a.cwd.is_dir() { &a.cwd } else { &a.root };
     // Stripped again here: the app that handed these over may predate the strip.
+    let began = rune::time::Instant::now();
     match Command::new(&exe).args(rune::tooling::without_relaunch_drops(a.rest.iter().map(std::ffi::OsString::from).collect())).current_dir(cwd).creation_flags(DETACHED_PROCESS).spawn() {
-        Ok(child) => log(&format!("started {} (pid {})", exe.display(), child.id())),
+        Ok(child) => log(&format!("started {} (pid {}); making its process took {} us", exe.display(), child.id(), began.elapsed().as_micros())),
         Err(e) => log(&format!("couldn't start {}: {e}", exe.display())),
     }
 }
@@ -162,21 +171,52 @@ fn wait_for_exit(pid: u32) -> bool {
     }
 }
 
-fn publish(root: &Path, staged: &Path, old: &Path) -> std::io::Result<super::windows::bundle::Mode> {
+/// Swaps the folders, trying again while something still holds the old one after its app exited
+/// (a child process of it that is still ending, a scanner's look at one of its files). The first
+/// [`QUICK_TRIES`] come 10 ms apart, the rest 250 ms: each wait here is between the old window
+/// closing and the new one, and a hold is usually gone in tens of milliseconds. The log names
+/// the first refusal and every tenth, with Windows' error.
+fn publish(root: &Path, staged: &Path, old: &Path, log: &dyn Fn(&str)) -> std::io::Result<super::windows::bundle::Mode> {
     let mut last = None;
-    for _ in 0..RENAME_TRIES {
+    for attempt in 0..RENAME_TRIES {
         match super::windows::bundle::publish(root, staged, old) {
-            Ok(mode) => return Ok(mode),
+            Ok(mode) => {
+                if attempt > 0 {
+                    log(&format!("the folders swapped at try {}", attempt + 1));
+                }
+                return Ok(mode);
+            }
             Err(e) => {
+                if attempt % 10 == 0 {
+                    log(&format!("the swap was refused at try {}: {e}", attempt + 1));
+                }
                 last = Some(e);
                 if !root.exists() {
                     break;
                 }
             }
         }
-        std::thread::sleep(Duration::from_millis(250));
+        std::thread::sleep(Duration::from_millis(if attempt < QUICK_TRIES { 10 } else { 250 }));
     }
     Err(last.unwrap_or_else(|| std::io::Error::other("rename failed")))
+}
+
+/// Microseconds since this process was made. A helper's exe links the staged library beside
+/// itself and loads it before any of this code runs (`apps/desktop-thin`): that time is here.
+#[allow(unsafe_code, clippy::disallowed_methods)]
+fn process_age_us() -> u64 {
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
+    let zero = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+    let (mut made, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
+    // SAFETY: the pseudo-handle of this process and four out-values of the documented type.
+    if unsafe { GetProcessTimes(GetCurrentProcess(), &mut made, &mut exited, &mut kernel, &mut user) } == 0 {
+        return 0;
+    }
+    // A FILETIME counts 100 ns from 1601; the system clock is read as time since 1970.
+    let made = ((u64::from(made.dwHighDateTime) << 32) | u64::from(made.dwLowDateTime)) / 10;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_micros() as u64) + 11_644_473_600_000_000;
+    now.saturating_sub(made)
 }
 
 fn beside(root: &Path, what: &str) -> PathBuf {

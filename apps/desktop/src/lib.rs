@@ -92,7 +92,7 @@ pub(crate) use tick::{poll, setup, visibility};
 #[allow(unused_imports)]
 pub(crate) use exports::*;
 #[cfg(not(target_arch = "wasm32"))]
-pub use workspace::lifecycle::launch::last_exit::OomGuard;
+pub use workspace::lifecycle::launch::last_exit::{OomGuard, alloc_failed};
 
 /// Configures extracted feature crates once per process (native and wasm32).
 pub(crate) fn init_features() {
@@ -283,6 +283,9 @@ pub fn run_native() {
     // Before anything is started: what this process starts doesn't inherit the installer's layer.
     #[cfg(windows)]
     launch::compat_layer::shed();
+    // And none of them holds the install folder as its working folder (an update renames it).
+    #[cfg(windows)]
+    launch::leave_install_folder();
     // The setup's run of a new install: the GPU's cache is made and nothing else starts.
     #[cfg(windows)]
     launch::warm_gpu_if_asked();
