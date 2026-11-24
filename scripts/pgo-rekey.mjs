@@ -24,16 +24,20 @@
 // --min-kept   fails (exit 1, nothing written) when fewer than this share of the functions, in
 //              percent, keep their counts: the code has moved too far, train again.
 //
-// The instrumented exe is a Windows one (PE): LLVM keeps every instrumented function's profile name
-// in `.lprfn` and a record per function in `.lprfd`, which the Windows runtime merges into `.data`.
+// The instrumented exe is a Windows one (PE) or a macOS one (Mach-O): LLVM keeps every instrumented
+// function's profile name in `.lprfn` / `__llvm_prf_names` and a record per function in `.lprfd` (which
+// the Windows runtime merges into `.data`) / `__llvm_prf_data`.
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { closeSync, openSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import { inflateSync } from "node:zlib"
 
 const opt = (n) => (process.argv.includes(`--${n}`) ? process.argv[process.argv.indexOf(`--${n}`) + 1] : undefined)
 
 function profdata() {
+  // LLVM_PROFDATA names the tool where the toolchain has no llvm-tools component (it must be the toolchain's LLVM).
+  if (process.env.LLVM_PROFDATA) return process.env.LLVM_PROFDATA
   const run = (args) => spawnSync("rustc", args, { encoding: "utf8" }).stdout ?? ""
   const host = (run(["-vV"]).match(/^host: (.*)$/m)?.[1] ?? "").trim()
   return join(run(["--print", "sysroot"]).trim(), "lib", "rustlib", host, "bin", process.platform === "win32" ? "llvm-profdata.exe" : "llvm-profdata")
@@ -330,8 +334,10 @@ export function read(file, tool = profdata()) {
   return { head: head.filter((l) => l !== ""), records }
 }
 
-/** The functions of an instrumented Windows exe, read from the file itself: the names from `.lprfn`, and each
- *  function's record (the name's MD5, then its control-flow hash) found in `.data` by that MD5. */
+/** The functions of an instrumented build, read from the file itself (no run): the names from the names section,
+ *  and each function's record (the name's MD5, then its control-flow hash) found in the data section by that MD5.
+ *  A Windows exe (PE) keeps them in `.lprfn` and, merged by the Windows runtime, `.data`; a macOS exe (Mach-O,
+ *  one architecture) in `__DATA,__llvm_prf_names` and `__DATA,__llvm_prf_data`. */
 export function readExe(file) {
   const fd = openSync(file, "r")
   const at = (offset, size) => {
@@ -339,17 +345,33 @@ export function readExe(file) {
     readSync(fd, b, 0, size, offset)
     return b
   }
-  const head = at(0, 4096)
-  const pe = head.readUInt32LE(0x3c)
   const sections = new Map()
-  for (let i = 0, t = pe + 24 + head.readUInt16LE(pe + 20); i < head.readUInt16LE(pe + 6); i++, t += 40) {
-    const name = head.subarray(t, t + 8).toString("latin1").replace(/\0+$/, "")
-    if (name === ".lprfn" || name === ".data") sections.set(name, at(head.readUInt32LE(t + 20), Math.min(head.readUInt32LE(t + 8), head.readUInt32LE(t + 16))))
+  const magic = at(0, 4).readUInt32LE(0)
+  if (magic === 0xfeedfacf) {
+    const head = at(0, 32)
+    const commands = at(32, head.readUInt32LE(20))
+    for (let i = 0, c = 0; i < head.readUInt32LE(16); i++, c += commands.readUInt32LE(c + 4)) {
+      if (commands.readUInt32LE(c) !== 0x19) continue
+      for (let s = 0, t = c + 72; s < commands.readUInt32LE(c + 64); s++, t += 80) {
+        const name = commands.subarray(t, t + 16).toString("latin1").replace(/\0+$/, "")
+        if (name === "__llvm_prf_names" || name === "__llvm_prf_data") sections.set(name === "__llvm_prf_names" ? "names" : "data", at(commands.readUInt32LE(t + 48), Number(commands.readBigUInt64LE(t + 40))))
+      }
+    }
+  } else if ((magic & 0xffff) === 0x5a4d) {
+    const head = at(0, 4096)
+    const pe = head.readUInt32LE(0x3c)
+    for (let i = 0, t = pe + 24 + head.readUInt16LE(pe + 20); i < head.readUInt16LE(pe + 6); i++, t += 40) {
+      const name = head.subarray(t, t + 8).toString("latin1").replace(/\0+$/, "")
+      if (name === ".lprfn" || name === ".data") sections.set(name === ".lprfn" ? "names" : "data", at(head.readUInt32LE(t + 20), Math.min(head.readUInt32LE(t + 8), head.readUInt32LE(t + 16))))
+    }
+  } else {
+    closeSync(fd)
+    throw new Error(`${file} is neither a Windows exe nor a macOS exe of one architecture`)
   }
   closeSync(fd)
-  const names = sections.get(".lprfn")
-  const data = sections.get(".data")
-  if (!names || !data) throw new Error(`${file} has no .lprfn section: it is not an instrumented build`)
+  const names = sections.get("names")
+  const data = sections.get("data")
+  if (!names || !data) throw new Error(`${file} has no profile names section: it is not an instrumented build`)
   const all = []
   for (let i = 0; i < names.length; ) {
     if (names[i] === 0) {
@@ -364,10 +386,11 @@ export function readExe(file) {
         if (!(b & 0x80)) return v
       }
     }
+    // Each block: its size, its size compressed (0: not compressed), the names joined by \x01.
     const size = leb()
-    if (leb()) throw new Error(`${file}: its names are compressed (an LLVM built with zlib): give a run's profile, merged without --sparse, instead`)
-    all.push(...names.subarray(i, i + size).toString("utf8").split("\x01"))
-    i += size
+    const packed = leb()
+    all.push(...(packed ? inflateSync(names.subarray(i, i + packed)) : names.subarray(i, i + size)).toString("utf8").split("\x01"))
+    i += packed || size
   }
   const byRef = new Map(all.map((n) => [createHash("md5").update(n).digest().readBigUInt64LE(0), n]))
   const records = []
@@ -381,6 +404,14 @@ export function readExe(file) {
   return { head: [], records }
 }
 
+/** Whether a file is an exe (Windows or macOS) and not a profile, by its first bytes. */
+function isExe(file) {
+  const fd = openSync(file, "r")
+  const b = Buffer.alloc(4)
+  readSync(fd, b, 0, 4, 0)
+  closeSync(fd)
+  return b.readUInt32LE(0) === 0xfeedfacf || b.readUInt16LE(0) === 0x5a4d
+}
 function main() {
   const countsFile = opt("counts")
   const namesFile = opt("names")
@@ -390,7 +421,7 @@ function main() {
     process.exit(2)
   }
   const tool = profdata()
-  const readAny = (file) => (/\.exe$/i.test(file) ? readExe(file) : read(file, tool))
+  const readAny = (file) => (isExe(file) ? readExe(file) : read(file, tool))
   const old = read(countsFile, tool)
   const now = readAny(namesFile)
   const oldList = opt("old-names") ? readAny(opt("old-names")).records : old.records
