@@ -75,6 +75,9 @@ pub fn poll(host: &mut dyn ReviewHost, tx: &mut Tx) -> bool {
             changed = true;
         }
     }
+    if !host.review().waiting.is_empty() {
+        ask_known(host);
+    }
     let now = Instant::now();
     let effect = match host.review().refresh {
         Refresh::Idle => RefreshEffect::None,
@@ -97,6 +100,26 @@ pub fn poll(host: &mut dyn ReviewHost, tx: &mut Tx) -> bool {
         RefreshEffect::None | RefreshEffect::WakeNow => {}
     }
     changed
+}
+
+/// Ends the wait of the sessions whose folder the server has listed since (Desktop's
+/// `context.changed` from `waiting` to `ready`, `machine.ts:196-216`). The routed session's
+/// changes are asked for at once; another session's are asked for when it next shows them, so it
+/// can't take the one request in flight from the page on screen.
+fn ask_known(host: &mut dyn ReviewHost) {
+    let known: Vec<String> = host
+        .review()
+        .waiting
+        .iter()
+        .filter(|sid| host.session_directory(sid).is_some_and(|d| !d.is_empty()))
+        .cloned()
+        .collect();
+    for sid in known {
+        host.review_mut().waiting.remove(&sid);
+        if host.active_session_id() == Some(sid.as_str()) {
+            ensure_session(host, &sid);
+        }
+    }
 }
 
 /// Opens the review tab, and the side region with it (Desktop's `show`): added to the strip
@@ -216,9 +239,21 @@ pub fn ensure_session(host: &mut dyn ReviewHost, session_id: &str) {
     let directory = host.session_directory(session_id).unwrap_or_default().to_owned();
     let wrap = host.wrap_lines();
     let live_server = host.live_server().cloned();
+    // Desktop's `waiting` (`packages/gui-plugins/src/review/machine.ts:22-28, 50, 92`): a session
+    // the server hasn't listed yet (a subagent's page at launch) has no folder to ask about, and
+    // the server answers a request without one for its own folder. It stays loading; `poll`
+    // asks once its folder is known.
+    if live_server.is_some() && directory.is_empty() {
+        let review = host.review_mut();
+        review.refresh.step(RefreshEvent::Clear);
+        review.sessions.entry(session_id.to_owned()).or_default();
+        review.waiting.insert(session_id.to_owned());
+        return;
+    }
     let (diff_mode, expand_mode, rev, mode, already_loaded, hydrated) = {
         let review = host.review_mut();
         review.refresh.step(RefreshEvent::Clear);
+        review.waiting.remove(session_id);
         let diff_mode = review.diff_mode;
         let expand_mode = review.expand_mode;
         let rev = review.revision;
@@ -408,6 +443,21 @@ fn apply_fetched_diffs(host: &mut dyn ReviewHost, fetched: FetchedDiffs) -> Opti
         if let Ok(prepared) = fetched.changes {
             opencode_code_view::prepared::drop_off_ui(prepared);
         }
+        return None;
+    }
+    // Desktop drops the answer of a target it no longer waits for (`machine.ts:137, 212`): a
+    // folder's changes aren't the session's once the session is in another folder, or unlisted.
+    let other_folder = fetched.mode != ChangeMode::Turn
+        && host.session_directory(&fetched.session_id).is_none_or(|d| dir_key(d) != dir_key(&fetched.directory));
+    if other_folder {
+        if let Ok(prepared) = fetched.changes {
+            opencode_code_view::prepared::drop_off_ui(prepared);
+        }
+        let review = host.review_mut();
+        if review.asked.as_ref().is_some_and(|(sid, ..)| *sid == fetched.session_id) {
+            review.asked = None;
+        }
+        review.refresh.step(RefreshEvent::Immediate);
         return None;
     }
     let diff_mode = host.review().diff_mode;
