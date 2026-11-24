@@ -66,6 +66,7 @@ pub enum SubmitKind {
     Default,
     Alternate,
     QueueFirst,
+    InPlace,
 }
 
 /// Host state and callbacks required by Hex voice dictation in the composer.
