@@ -2,6 +2,8 @@
 resolver = "3"
 members = [
     "apps/desktop",
+    "apps/desktop-library",
+    "apps/desktop-thin",
     "apps/installer",
     "apps/web",
     "features/annotations",

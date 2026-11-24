@@ -187,6 +187,10 @@ if [ "$OFFICE_LIBRARY" = 1 ]; then
 fi
 cp "$ICON_PATH" "$APP/Contents/Resources/icon.icns"
 cp -R "$ROOT/apps/desktop/assets/fonts" "$ROOT/apps/desktop/assets/sounds" "$APP/Contents/Resources/"
+# Every language but English: the i18n crate's build wrote them beside the exe (crates/opencode-i18n/build.rs).
+rm -rf "$APP/Contents/Resources/i18n"
+cp -R "$(dirname "$BIN")/i18n" "$APP/Contents/Resources/i18n"
+ls "$APP/Contents/Resources/i18n"/*.spans > /dev/null || { echo "no language files in $(dirname "$BIN")/i18n" >&2; exit 1; }
 cp "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE"
 cp "$ROOT/THIRD_PARTY_NOTICES.md" "$APP/Contents/Resources/THIRD_PARTY_NOTICES.md"
 
