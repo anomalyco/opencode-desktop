@@ -304,7 +304,9 @@ pub(super) fn artifact_toolbar<H: FilesHost + PopupHost + 'static>(
         .pr(12.0)
         .gap(12.0)
         .center_y()
-        .fill(p.layer1)
+        // Plain text and code sit on the code view's ground, not the artifact surface
+        // (`artifact-view.css`'s `[data-source-only]`, opencode#65976).
+        .fill(if source && !previewable { p.code_bg } else { p.layer1 })
         .hover_group_focus()
         .hover_motion(INSTANT, INSTANT)
         .child(text(name).font(NAME).color(p.text).grow(1.0).shrink().min_w(0.0).truncate())
