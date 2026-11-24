@@ -72,6 +72,28 @@ pub fn warm_gpu_if_asked() {
     };
     std::process::exit(code);
 }
+/// Windows: the app does not keep its own install folder as its working folder.
+///
+/// A process holds its working folder open, and so does every child that inherits it (the
+/// server, the browser engine, a shell). Started with the install folder as the working folder
+/// (a double-click on the exe of an unpacked build; a script), the app and the children that
+/// outlive it kept that folder from being renamed, which is how an update swaps it: the update's
+/// helper was refused (`ERROR_SHARING_VIOLATION`) for as long as one of them lived, 0.30, 0.55
+/// and 4.55 s from the old app's exit to the swap for holds of 0.12, 0.3 and 4.3 s, and never
+/// when the child stayed (the update then fails after its last try). The Start menu shortcut
+/// starts the app in the home folder; here any start from inside the install folder goes there.
+#[cfg(windows)]
+pub fn leave_install_folder() {
+    let (Ok(cwd), Ok(exe)) = (std::env::current_dir(), std::env::current_exe()) else { return };
+    let Some(root) = exe.parent() else { return };
+    let inside = |path: &std::path::Path| path.to_string_lossy().to_lowercase().starts_with(&root.to_string_lossy().to_lowercase());
+    if !inside(&cwd) {
+        return;
+    }
+    if let Some(home) = std::env::var_os("USERPROFILE").map(std::path::PathBuf::from).filter(|home| home.is_dir() && !inside(home)) {
+        std::env::set_current_dir(home).ok();
+    }
+}
 /// `opencode-desktop --version`: the version and the release channel it was built for.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn print_version_if_asked() {
