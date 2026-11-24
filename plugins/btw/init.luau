@@ -42,13 +42,31 @@ return plugin.defineWindow(function(ctx)
 
     local dispatch: (session: string, event: machine.Event) -> ()
 
+    -- Tabs whose answer or failure arrived while they were open but not shown (`model.ts`'s
+    -- `unread`), by `{session}\n{tab id}`.
+    local unread: { [string]: boolean } = {}
+
+    -- A request's answer, failure or timeout. A closed tab or a superseded retry no longer runs
+    -- this attempt, so only a current attempt marks its tab.
+    local function settle(session: string, id: string, attempt: number, event: machine.Event)
+        local chat = state.sessions[session] and state.sessions[session][id]
+        local current = chat ~= nil and chat.status.kind == "running" and chat.status.attempt == attempt
+        dispatch(session, event)
+        if current and Layout:PanelState(id, session) ~= "visible" then
+            unread[`{session}\n{id}`] = true
+            refresh()
+        end
+    end
+
     local function generate(session: string, id: string, attempt: number, question: string)
         local settled = false
         task.delay(machine.GENERATE_TIMEOUT, function()
             if not settled then
                 settled = true
-                dispatch(
+                settle(
                     session,
+                    id,
+                    attempt,
                     { type = "failed", session = session, id = id, attempt = attempt, failure = { reason = "timeout" } }
                 )
             end
@@ -65,8 +83,10 @@ return plugin.defineWindow(function(ctx)
             settled = true
             if not res.ok then
                 local message = if res.error then res.error:match("^%s*(.-)%s*$") else nil
-                dispatch(
+                settle(
                     session,
+                    id,
+                    attempt,
                     {
                         type = "failed",
                         session = session,
@@ -81,8 +101,10 @@ return plugin.defineWindow(function(ctx)
             local text = if type(json.data) == "table" and type(json.data.text) == "string"
                 then json.data.text
                 else json.text
-            dispatch(
+            settle(
                 session,
+                id,
+                attempt,
                 {
                     type = "succeeded",
                     session = session,
@@ -166,6 +188,9 @@ return plugin.defineWindow(function(ctx)
         saved = saved,
         copied = {},
         refresh = refresh,
+        unread = function(session, id)
+            return unread[`{session}\n{id}`] == true
+        end,
         retry = function(session, id)
             local _, agent, model = routed()
             dispatch(
@@ -240,6 +265,14 @@ return plugin.defineWindow(function(ctx)
             return tabs
         end,
         render = function(view, props)
+            -- Shown on screen, the tab's answer is read (`renderer.tsx`: `btw.seen` while the panel
+            -- is visible).
+            local id = props.instance or ""
+            local key = `{props.sessionId}\n{id}`
+            if unread[key] and Layout:PanelState(id, props.sessionId) == "visible" then
+                unread[key] = nil
+                task.defer(refresh)
+            end
             return panel.render(env, view, props)
         end,
         label = function(view, props)
@@ -248,6 +281,7 @@ return plugin.defineWindow(function(ctx)
         onClose = function(props)
             if props.instance then
                 env.copied[props.instance] = nil
+                unread[`{props.sessionId}\n{props.instance}`] = nil
                 dispatch(props.sessionId, { type = "removed", session = props.sessionId, id = props.instance })
             end
         end,

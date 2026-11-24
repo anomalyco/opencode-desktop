@@ -8,5 +8,6 @@
   "modelVariant": "{{model}}（{{variant}}）",
   "question.required": "請在 /btw 後加入問題",
   "retry": "重試",
-  "tab.title": "/btw"
+  "tab.title": "/btw",
+  "tab.unread": "新回答"
 }

@@ -8,5 +8,6 @@
   "modelVariant": "⁨{{model}}⁩ (⁨{{variant}}⁩)",
   "question.required": "أضف سؤالاً بعد /btw",
   "retry": "إعادة المحاولة",
-  "tab.title": "/btw"
+  "tab.title": "/btw",
+  "tab.unread": "إجابة جديدة"
 }
