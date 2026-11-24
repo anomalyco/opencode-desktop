@@ -84,7 +84,7 @@ async function settle(exe: string, env: Record<string, string>, from: string, ho
  *  opens the session and one that settles its caches. Kept per exe (path, size, time) and size. */
 async function template(exe: string, env: Record<string, string>, from: string, shape: Shape) {
   const st = statSync(exe)
-  const dir = join(SCRATCH, "profiles", `${basename(dirname(exe))}-${st.size}-${Math.round(st.mtimeMs)}-${shape}`)
+  const dir = join(SCRATCH, "profiles", `${basename(dirname(exe))}-${st.size}-${Math.round(st.mtimeMs)}-${shape}-noengine`)
   if (existsSync(join(dir, "ready"))) return dir
   rmSync(dir, { recursive: true, force: true })
   mkdirSync(dir, { recursive: true })
