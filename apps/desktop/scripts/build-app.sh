@@ -51,9 +51,11 @@ case "$OPENCODE_RUNE_VERSION" in
 esac
 
 # The office viewer's engines (Word, Excel, PowerPoint: 24 MiB of code and fonts no launch runs)
-# as a library in the bundle. macOS reads every byte of a new exe before its first run, and a
-# library when it is first loaded: the first office file after an install pays for it, not every
-# first launch.
+# as a library in the bundle. At a bundle's first run macOS reads every Mach-O file in it side by
+# side and the launch waits for the largest one (5.5 ms per MiB on an M4, plus 250 ms once for
+# code it has never seen): what leaves the exe for a second library is no longer waited for
+# (a build never seen: 1,225 -> 1,004 ms thin, 1,057 -> 911 ms fat). One big library in place of
+# the exe changes nothing (#958); a file that is not Mach-O is not read at all.
 OFFICE_LIBRARY=${OPENCODE_RUNE_OFFICE_LIBRARY:-0}
 case "${GITHUB_HEAD_REF:-}" in *office-library*) OFFICE_LIBRARY=1 ;; esac
 office_args=()

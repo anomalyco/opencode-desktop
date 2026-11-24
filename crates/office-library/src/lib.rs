@@ -1,8 +1,11 @@
 //! The office viewer's engines as a library the app loads at the first Word, Excel or PowerPoint
 //! file (`features/office` with its `library` feature), instead of code and fonts in the app's exe.
-//! The system reads every byte of a new exe before its first run (macOS 5.9 ms per MiB, Windows
-//! Defender likewise), on every install and update; the engines are a quarter of the exe and a
-//! launch runs none of them. As a library they are read when they are first loaded.
+//! On every install and update the system reads a new build before its first run. On macOS it
+//! reads every Mach-O file of the bundle side by side and the launch waits for the largest one
+//! (5.5 ms per MiB on an M4), so what leaves the exe for a second library is no longer waited
+//! for: with the engines here a build the system had never seen first ran in 1,004 ms against
+//! 1,225 (thin LTO) and 911 against 1,057 (fat), 10 of 10 rounds. The engines are a quarter of
+//! the exe and a launch runs none of them.
 //!
 //! It exports one function, `opencode_office_v1` (`office_preview::engine::Entry`). Rust values
 //! cross the line (a `Start`, `Job`s, `Reply`s with Vello scenes), so the library and the app must
