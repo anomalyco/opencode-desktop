@@ -283,6 +283,8 @@ fn percent_decode_ascii(s: &str) -> String {
     while i < b.len() {
         if b[i] == b'%'
             && i + 2 < b.len()
+            && b[i + 1].is_ascii_hexdigit()
+            && b[i + 2].is_ascii_hexdigit()
             && let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16)
         {
             out.push(v);

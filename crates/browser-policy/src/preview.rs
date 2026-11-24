@@ -157,7 +157,7 @@ pub fn relative_to_root(target: &str, root: &str) -> Option<String> {
     let matches_prefix = if is_win {
         t.as_bytes()[..r.len()].eq_ignore_ascii_case(r.as_bytes())
     } else {
-        &t[..r.len()] == r
+        t.as_bytes()[..r.len()] == *r.as_bytes()
     };
     if !matches_prefix || t.as_bytes().get(r.len()) != Some(&b'/') {
         return None;

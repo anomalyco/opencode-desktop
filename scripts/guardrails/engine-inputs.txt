@@ -1,6 +1,6 @@
 # Written by scripts/guardrails/engine-revision.mjs --write: the engine's inputs at this ENGINE_REVISION.
 # Inputs: apps/browser-engine, crates/browser-policy, crates/browser-pane/src/device.rs
-revision 22
+revision 23
 0a006ceedcb72b86a2aa4d7497ff9a21fddfd428 apps/browser-engine/Cargo.lock
 784fa46ca9b85a0557f8bd2dc55362cbd3298682 apps/browser-engine/Cargo.toml
 528bfc2bc7bfcd5183505505f91f9750e57e325b apps/browser-engine/build.rs
@@ -81,8 +81,8 @@ ed9a384447d525c9d51fa16f3b927233937a90a6 crates/browser-policy/src/lib.rs
 b5d2e32df27694341c1c45caffb8adf2b1dad86b crates/browser-policy/src/local_fs/mod.rs
 6185e07e55c858834736c72f0308453015708126 crates/browser-policy/src/local_fs/unix.rs
 9f57c89d038979b14076e71054f5e3af297dc6a3 crates/browser-policy/src/local_fs/windows.rs
-5cb37f24a1204d81405c5226bac2223b28e7245f crates/browser-policy/src/local_path.rs
+75417878741befdb4603ceeb4f5e97a9a5325664 crates/browser-policy/src/local_path.rs
 08f9a47f1bbc112c5035414eb15c6ba0892aaa65 crates/browser-policy/src/network.rs
 4c61a651fc8347ba785ed76afaa33c12a83e0981 crates/browser-policy/src/osc8_display.rs
-76c0559a385eeb5dd7c5c5265e7c1c9678a15c62 crates/browser-policy/src/preview.rs
-b2eb28afa94c9cc6a62e5d6169dbf52e946e45c1 crates/browser-policy/src/workspace_root.rs
+3602ad7a6838e3f6b93a0cc95f996f1b460ab7f5 crates/browser-policy/src/preview.rs
+446af72e1d7925513dcadf8132e7b06296ba2d5e crates/browser-policy/src/workspace_root.rs
