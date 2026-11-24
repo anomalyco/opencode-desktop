@@ -1,5 +1,5 @@
 commit 6acacef2d1ba4d1bc3b4254255eab1e6491c3433
-rune 3fe36ad89fcf8f5abe7ec315c9cd98862b2ab827
+rune 12bd4638c817de62a3c87fef6bcc4840437ceffb
 rustc rustc 1.99.1 (58cf8f9c3 2026-10-13)
 processes 47
 launches 26 of the 47 (6 first, 7 small profile, 7 big profile, 3 after an update, 3 from a new exe copy)
