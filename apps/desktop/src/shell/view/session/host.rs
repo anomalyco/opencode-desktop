@@ -333,6 +333,10 @@ impl session_view::TimelineHost for App {
     fn user_menu_open_on(&self, id: &str) -> bool {
         self.kernel.slots.get(&crate::rewind::REWIND).menu_open_on(id)
     }
+    fn inline_quotes(&self) -> bool {
+        // Local and dev builds first, as Desktop (`inline-quotes.ts`).
+        !matches!(crate::updater::build_channel(), "stable" | "prod" | "latest" | "beta")
+    }
     fn quote_more_open(&self, id: &str) -> bool {
         self.kernel.slots.get(&crate::quote::QUOTE).more.contains(id)
     }
