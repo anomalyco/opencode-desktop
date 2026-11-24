@@ -219,6 +219,7 @@ fn focus(s: &mut App, key: &ServerKey, tx: &mut Tx) {
         return;
     }
     home_state::focus(s, key);
+    super::picked(s, tx);
 }
 
 /// An added server that rejects its saved sign-in opens its Edit server dialog, for a new

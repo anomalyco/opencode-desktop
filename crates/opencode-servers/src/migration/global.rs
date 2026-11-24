@@ -21,6 +21,9 @@ pub struct Legacy<'a> {
 pub struct Inbox {
     pub working: bool,
     pub recent: bool,
+    pub archived: bool,
+    /// Working is a group in the list (`workingPlacement` `inline`), not the shelf below it.
+    pub working_inline: bool,
     pub home_automations: bool,
 }
 
@@ -29,12 +32,20 @@ impl Inbox {
         Inbox {
             working: v["workingExpanded"].as_bool().unwrap_or(true),
             recent: v["recentExpanded"].as_bool().unwrap_or(false),
+            archived: v["archivedExpanded"].as_bool().unwrap_or(false),
+            working_inline: v["workingPlacement"].as_str() == Some("inline"),
             home_automations: v["homeAutomationsExpanded"].as_bool().unwrap_or(false),
         }
     }
 
     fn to_json(self) -> Value {
-        json!({ "workingExpanded": self.working, "recentExpanded": self.recent, "homeAutomationsExpanded": self.home_automations })
+        json!({
+            "workingExpanded": self.working,
+            "recentExpanded": self.recent,
+            "archivedExpanded": self.archived,
+            "workingPlacement": if self.working_inline { "inline" } else { "shelf" },
+            "homeAutomationsExpanded": self.home_automations,
+        })
     }
 }
 

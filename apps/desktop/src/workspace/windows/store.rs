@@ -94,3 +94,22 @@ pub fn save_layout(id: &str, seed: &rune::LayoutSeed) {
 pub fn save_frame(id: &str, frame: Frame) {
     crate::storage::set_frame(id, frame);
 }
+
+#[cfg(target_os = "linux")]
+const APPEARANCE: &str = "rune.appearance";
+
+/// The desktop's light or dark and reduced motion as the last run saw them
+/// (`rune::last_appearance`). Linux asks the desktop portal for them over D-Bus, and a window's
+/// first frame draws with these instead of waiting for its answer (a portal that never
+/// answered held the first frame for 100 ms).
+#[cfg(target_os = "linux")]
+pub fn load_appearance() -> Option<rune::Appearance> {
+    let v = crate::storage::json("opencode.global.dat", APPEARANCE)?;
+    Some(rune::Appearance { dark: v.get("dark")?.as_bool(), reduced_motion: v.get("reducedMotion")?.as_bool()? })
+}
+
+/// Rune hands over each answer of the portal's that isn't what it last had, on its own thread.
+#[cfg(target_os = "linux")]
+pub fn save_appearance(seen: rune::Appearance) {
+    crate::storage::set_json("opencode.global.dat", APPEARANCE, &serde_json::json!({ "dark": seen.dark, "reducedMotion": seen.reduced_motion }));
+}

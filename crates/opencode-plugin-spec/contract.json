@@ -1,6 +1,6 @@
 {
   "$comment": "The OpenCode plugin contract: the single source of truth for plugin types, the plugin.toml schema, the selene std, the API docs and the host's Rust decoders. Edit this file, then run `cargo run -p opencode-plugin-spec -- --write`. Type strings use Luau syntax; `integer` is a whole number (Luau `number`).",
-  "contract": "1.8",
+  "contract": "1.9",
   "versioning": {
     "format": "MAJOR.MINOR",
     "rules": [
@@ -184,6 +184,10 @@
       { "value": "col", "doc": "A vertical stack. The default." },
       { "value": "row", "doc": "A horizontal stack." },
       { "value": "box", "doc": "No axis: children stack on top of each other." }
+    ] },
+    { "name": "PanelSidebarSide", "rust": true, "doc": "The edge of a panel its file sidebar sits on.", "values": [
+      { "value": "start", "doc": "The inline start: left in a left-to-right layout." },
+      { "value": "end", "doc": "The inline end: right in a left-to-right layout." }
     ] },
     { "name": "ComposerPicker", "rust": true, "doc": "Which picker overlay the composer currently has open.", "values": [
       { "value": "agent", "doc": "The agent picker." },
@@ -823,7 +827,7 @@
       { "name": "narrow", "type": "boolean?", "doc": "A workspace tree as the narrow Files view: All files and the open files' tabs over the tree, or the open file." },
       { "name": "width", "type": "number?", "doc": "The narrow Files view's width." }
     ] },
-    { "name": "UiPanelSidebarProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.panelSidebar(props, { sidebar, main })` props: a panel's frame with the file sidebar at its start, resized by its end edge (a double click resets it), and the sidebar toggle pinned at the panel's top left. Whether the sidebar shows and its width are one preference every panel shares (`Layout:PanelSidebar`); the toggle and Mod+\\ flip it.", "fields": [
+    { "name": "UiPanelSidebarProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.panelSidebar(props, { sidebar, main })` props: a panel's frame with the file sidebar at its start or end, resized by its inner edge (a double click resets it), and the sidebar toggle pinned at the panel's top corner on the sidebar's side. Whether the sidebar shows, its width and the edge it sits on are one preference every panel shares (`Layout:PanelSidebar`); the toggle and Mod+\\ flip it, and a right-click on the sidebar or the toggle offers Sidebar position.", "fields": [
       { "name": "id", "type": "string", "doc": "Prefixes its parts' keys: `<id>-sidebar`, `<id>-sidebar-resize`, `<id>-tree-toggle`." },
       { "name": "width", "type": "number?", "doc": "Its width until the user drags it. Defaults to 240." },
       { "name": "minWidth", "type": "number?", "doc": "The narrowest it gets. Defaults to 200." },
@@ -832,7 +836,8 @@
     ] },
     { "name": "PanelSidebarInfo", "kind": "record", "rust": true, "doc": "The panels' shared file sidebar.", "fields": [
       { "name": "opened", "type": "boolean", "doc": "It shows." },
-      { "name": "width", "type": "number", "doc": "Its width in points." }
+      { "name": "width", "type": "number", "doc": "Its width in points." },
+      { "name": "side", "type": "PanelSidebarSide", "since": "1.9", "doc": "The edge of the panel it sits on. With `end`, the toggle is at the panel's top end corner: leave it room at the end of a header or toolbar under it, not at the start." }
     ] },
     { "name": "UiOpenInButtonProps", "kind": "record", "extends": ["UiLayoutProps"], "doc": "`ui.openInButton` props: the app's Open in split button. Its mark opens the path in the app the user chose last; its chevron lists the installed apps and Copy path. Nothing where the server's files aren't on this machine.", "fields": [
       { "name": "path", "type": "string", "doc": "A workspace path, or empty for the workspace folder." }
@@ -1819,6 +1824,7 @@
       { "name": "Narrow", "kind": "method", "sig": "() -> boolean", "doc": "The window is narrow-screen sized." },
       { "name": "PanelSidebar", "kind": "method", "sig": "() -> PanelSidebarInfo", "doc": "The file sidebar `ui.panelSidebar` draws." },
       { "name": "TogglePanelSidebar", "kind": "method", "sig": "() -> ()", "doc": "Shows or hides it." },
+      { "name": "MovePanelSidebar", "kind": "method", "sig": "(side: PanelSidebarSide) -> ()", "since": "1.9", "doc": "Puts it on an edge of the panel, for every side panel." },
       { "name": "OpenDrawerView", "kind": "method", "sig": "(title: string, data: { [string]: any }?) -> ()", "doc": "From a `drawer` kind panel's view in a narrow window's More drawer: shows a nested view in the drawer in its place (Desktop's `useDrawer().open`), with a back button named after the panel's view. The panel's render draws it, with `props.drawer` set to `data`. Does nothing elsewhere." },
       { "name": "RegionOpen", "kind": "method", "sig": "(sessionId: string?) -> boolean", "doc": "A session's side region is open. Defaults to the routed session." },
       { "name": "RegionFocused", "kind": "method", "sig": "() -> boolean", "doc": "The side region has the keyboard: the last focus, click or key was in it, as Desktop's side focus reads (`#review-panel[data-focused]`). Read it when a command runs: Desktop's Open browser shortcut focuses the new tab's address only from inside the region." },
@@ -2006,7 +2012,7 @@
     { "name": "codeView", "category": "native", "sig": "(props: UiCodeViewProps) -> UiNode", "props": "UiCodeViewProps", "doc": "A highlighted file.", "native": { "engine": "Code view with an asynchronous highlighter", "native": "Highlighting, the line buffer, the virtualized gutter, selection, find in file", "luau": "Tab routing, breadcrumb header, line links, viewer choice, MCP tools" } },
     { "name": "diffView", "category": "native", "sig": "(props: UiDiffViewProps) -> UiNode", "props": "UiDiffViewProps", "doc": "Changes, split or unified.", "native": { "engine": "Diff engine and code view", "native": "Hunk layout, intraline diffing, highlighting, virtualized hunks, comment anchors", "luau": "Source switcher, totals, split and unified toggle, contracts, MCP tools" } },
     { "name": "fileTree", "category": "native", "sig": "(props: UiFileTreeProps) -> UiNode", "props": "UiFileTreeProps", "doc": "A folder's file tree.", "native": { "engine": "Tree model", "native": "Tree flattening, file icons, keyboard navigation", "luau": "Folder loading, filter input, expanded state, open and context menus" } },
-    { "name": "panelSidebar", "category": "native", "sig": "(props: UiPanelSidebarProps, children: { UiNode }?) -> UiNode", "props": "UiPanelSidebarProps", "doc": "A resizable sidebar at a panel's start, its children stacked in it.", "native": { "engine": "Pointer capture", "native": "The resize drag and the width it leaves", "luau": "Whether it shows and what it holds" } },
+    { "name": "panelSidebar", "category": "native", "sig": "(props: UiPanelSidebarProps, children: { UiNode }?) -> UiNode", "props": "UiPanelSidebarProps", "doc": "A resizable sidebar at a panel's start or end, its children stacked in it.", "native": { "engine": "Pointer capture", "native": "The resize drag and the width it leaves", "luau": "Whether it shows and what it holds" } },
     { "name": "openInButton", "category": "native", "sig": "(props: UiOpenInButtonProps) -> UiNode", "props": "UiOpenInButtonProps", "doc": "The app's Open in split button for a path.", "native": { "engine": "The system's app registry", "native": "Finding installed apps and their marks, launching them, the remembered choice", "luau": "Which path it opens" } },
     { "name": "officePages", "category": "native", "sig": "(props: UiOfficePagesProps) -> UiNode", "props": "UiOfficePagesProps", "doc": "A Word document's pages or a deck's slides, fit to the pane's width, with zoom controls.", "native": { "engine": "Office engines and a GPU vector renderer", "native": "Layout, the page column, scenes drawn at the display's scale, near-viewport loading, zoom", "luau": "Opening the file, its binary placeholder, the words" } },
     { "name": "officeSheet", "category": "native", "sig": "(props: UiOfficeSheetProps) -> UiNode", "props": "UiOfficeSheetProps", "doc": "A workbook's sheet: its headers and the cells under the scroll position.", "native": { "engine": "Office engines and a GPU vector renderer", "native": "Frames of the sheet drawn as it scrolls, headers, the selection (click, Shift-click, drag, header and corner presses, Excel's keys), copying cells as tab-separated text and an HTML table, and the cell text screen readers read", "luau": "Opening the file, the sheet tabs, the words" } },

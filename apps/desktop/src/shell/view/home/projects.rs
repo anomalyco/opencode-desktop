@@ -166,6 +166,7 @@ pub(super) fn project_row(s: &App, p: &Pal, server: &ServerKey, proj: &model::Pr
             tx.instant();
             crate::projects::home::toggle(s, &server, &dir);
             s.project_state.home_menu_open = false;
+            super::picked(s, tx);
         })
     };
     let mut r = row()
@@ -394,7 +395,7 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
         return None;
     }
     let selected_id = s.home_selected().map(|p| p.id.as_str());
-    let scope = s.home_project_scope();
+    let scope = super::scoped(s);
     let width = if scope { 280.0 } else { s.project_state.trigger_w.max(160.0) };
     let server = crate::servers::runtime::active(s);
     let failed = s.kernel.slots.get(&crate::projects::HOME_STATE).servers.iter().any(|v| v.key == *server && v.failed());
@@ -409,7 +410,10 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
         let window_h = rune::memo::layout_with("window", |r| r[3]).unwrap_or(800.0);
         (None, scroll(viewport.max_h(0.6 * window_h - 12.0), super::servers::groups(s, p, true, row_w)), None)
     } else {
-        let mut all = nav_row(p, "hpm-all", &ic::FOLDER, t!("home.projects.all")).w_full().mb(4.0).on_press_tx(|s: &mut App, tx: &mut Tx| s.clear_home_project(tx));
+        let mut all = nav_row(p, "hpm-all", &ic::FOLDER, t!("home.projects.all")).w_full().mb(4.0).on_press_tx(|s: &mut App, tx: &mut Tx| {
+            s.clear_home_project(tx);
+            super::picked(s, tx);
+        });
         if selected_id.is_none() {
             all = all.fill(p.layer3);
         }

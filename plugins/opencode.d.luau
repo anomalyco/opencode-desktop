@@ -1,4 +1,4 @@
--- OpenCode plugin contract 1.8: global types for luau-lsp.
+-- OpenCode plugin contract 1.9: global types for luau-lsp.
 -- Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit.
 -- Load it with `luau-lsp analyze --definitions=@opencode=plugins/opencode.d.luau`.
 
@@ -122,6 +122,9 @@ export type UiJustify = "start" | "center" | "end" | "between"
 
 --- How a `ui.frame` container arranges its children.
 export type UiDirection = "col" | "row" | "box"
+
+--- The edge of a panel its file sidebar sits on.
+export type PanelSidebarSide = "start" | "end"
 
 --- Which picker overlay the composer currently has open.
 export type ComposerPicker = "agent" | "model" | "effort" | "speed" | "project"
@@ -3079,7 +3082,7 @@ export type UiFileTreeProps = {
     width: number?,
 }
 
---- `ui.panelSidebar(props, { sidebar, main })` props: a panel's frame with the file sidebar at its start, resized by its end edge (a double click resets it), and the sidebar toggle pinned at the panel's top left. Whether the sidebar shows and its width are one preference every panel shares (`Layout:PanelSidebar`); the toggle and Mod+\ flip it.
+--- `ui.panelSidebar(props, { sidebar, main })` props: a panel's frame with the file sidebar at its start or end, resized by its inner edge (a double click resets it), and the sidebar toggle pinned at the panel's top corner on the sidebar's side. Whether the sidebar shows, its width and the edge it sits on are one preference every panel shares (`Layout:PanelSidebar`); the toggle and Mod+\ flip it, and a right-click on the sidebar or the toggle offers Sidebar position.
 export type UiPanelSidebarProps = {
     --- Identity among siblings across renders, and the anchor key for popovers and menus.
     key: string?,
@@ -3161,6 +3164,8 @@ export type PanelSidebarInfo = {
     opened: boolean,
     --- Its width in points.
     width: number,
+    --- The edge of the panel it sits on. With `end`, the toggle is at the panel's top end corner: leave it room at the end of a header or toolbar under it, not at the start.
+    side: PanelSidebarSide,
 }
 
 --- `ui.openInButton` props: the app's Open in split button. Its mark opens the path in the app the user chose last; its chevron lists the installed apps and Copy path. Nothing where the server's files aren't on this machine.
@@ -5375,6 +5380,8 @@ export type LayoutService = {
     PanelSidebar: (self: LayoutService) -> PanelSidebarInfo,
     --- Shows or hides it.
     TogglePanelSidebar: (self: LayoutService) -> (),
+    --- Puts it on an edge of the panel, for every side panel.
+    MovePanelSidebar: (self: LayoutService, side: PanelSidebarSide) -> (),
     --- From a `drawer` kind panel's view in a narrow window's More drawer: shows a nested view in the drawer in its place (Desktop's `useDrawer().open`), with a back button named after the panel's view. The panel's render draws it, with `props.drawer` set to `data`. Does nothing elsewhere.
     OpenDrawerView: (self: LayoutService, title: string, data: { [string]: any }?) -> (),
     --- A session's side region is open. Defaults to the routed session.
@@ -5931,7 +5938,7 @@ export type UiLibrary = {
     diffView: (props: UiDiffViewProps) -> UiNode,
     --- A folder's file tree. Native: the host renders it.
     fileTree: (props: UiFileTreeProps) -> UiNode,
-    --- A resizable sidebar at a panel's start, its children stacked in it. Native: the host renders it.
+    --- A resizable sidebar at a panel's start or end, its children stacked in it. Native: the host renders it.
     panelSidebar: (props: UiPanelSidebarProps, children: { UiNode }?) -> UiNode,
     --- The app's Open in split button for a path. Native: the host renders it.
     openInButton: (props: UiOpenInButtonProps) -> UiNode,

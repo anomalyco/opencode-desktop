@@ -478,7 +478,15 @@ impl<S: 'static> Inner<S> {
                     notes.plus(s, &path, Some(side), n, tx);
                     return true;
                 }
-                get_mut(s).line_key(ev, tx)
+                let st = get_mut(s);
+                // As in the file viewer: a line focused by a press becomes the cursor's line before
+                // Tab leaves it, so Tab goes from this line, not from the old cursor line.
+                if ev.key == rune::Key::Tab && st.cursor != Some(i as u32) {
+                    st.cursor = Some(i as u32);
+                    tx.send_key(ev.clone());
+                    return true;
+                }
+                st.line_key(ev, tx)
             })
     }
 

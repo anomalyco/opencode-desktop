@@ -8,5 +8,6 @@
   "modelVariant": "{{model}} ({{variant}})",
   "question.required": "Fügen Sie nach /btw eine Frage hinzu",
   "retry": "Erneut versuchen",
-  "tab.title": "/btw"
+  "tab.title": "/btw",
+  "tab.unread": "Neue Antwort"
 }

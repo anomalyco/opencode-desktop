@@ -279,7 +279,7 @@ impl RowSpec {
                 Message::User { id, text, .. } => {
                     let glow = s.user_glow_at(id).map_or(0.0, |at| crate::knobs::glow(k, s.clock() - at));
                     let run = Place { tight: *tight, above: *above, below: *below, reply: *reply, fold: *fold };
-                    let bubble = user_bubble(s, p, &t.session, id, text, run, glow, false, crate::user_parts::quotes_on_message(s, p, id, text), &prompt_meta(s, t, Some(*message)));
+                    let bubble = user_bubble(s, p, &t.session, id, text, run, glow, false, crate::user_parts::quotes_on_message(s, p, id, text, false), &prompt_meta(s, t, Some(*message)));
                     if !s.assistive() {
                         return self.wrap(s, bubble);
                     }
@@ -291,7 +291,7 @@ impl RowSpec {
                 let item = s.inbox_for(&t.session).and_then(|i| i.items.iter().find(|i| &i.id == id));
                 match item {
                     Some(item) => {
-                        let cards = crate::user_parts::quotes_on_message(s, p, id, &item.text);
+                        let cards = crate::user_parts::quotes_on_message(s, p, id, &item.text, true);
                         let label = if cards.is_some() { item.text.clone() } else { s.pending_steer_label(item) };
                         let run = Place { tight: *tight, above: *above, below: *below, reply: *reply, fold: *fold };
                         user_bubble(s, p, &t.session, id, &label, run, 0.0, true, cards, &prompt_meta(s, t, None))

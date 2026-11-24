@@ -84,8 +84,10 @@ pub struct PanelSidebarInfo {
     pub opened: bool,
     /// Its width in points.
     pub width: f64,
+    /// The edge of the panel it sits on. With `end`, the toggle is at the panel's top end corner: leave it room at the end of a header or toolbar under it, not at the start.
+    pub side: PanelSidebarSide,
 }
-impl_record!(PanelSidebarInfo, ["opened", "width"], [], []);
+impl_record!(PanelSidebarInfo, ["opened", "width", "side"], [], []);
 
 /// The interface language.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

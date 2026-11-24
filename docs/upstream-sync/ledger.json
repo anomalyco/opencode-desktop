@@ -1,29 +1,30 @@
 {
-  "generated_at": "2026-11-23",
+  "generated_at": "2026-11-24",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "d1f98703ab254ca80b85b70caea5d33130604fa2",
+  "upstream_head": "40b6e9cdf8f16c987589863500c5201cf4033c97",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "ffbffe88f4ea34d7cc3a6d22cb03058e352294f7",
-  "post_1114_commit_count": 514,
-  "post_1114_in_ledger": 194,
-  "post_1114_skipped": 320,
+  "rune_desktop_head": "d6da8b224",
+  "post_1114_commit_count": 585,
+  "post_1114_in_ledger": 207,
+  "post_1114_skipped": 378,
   "post_1114_skipped_breakdown": {
-    "test-only": 24,
-    "ci-bench-deps": 18,
-    "docs-site-data": 50,
-    "tui-only": 20,
-    "cli-acp-only": 8,
-    "server-core-ai-codemode-internal": 200
+    "test-only": 25,
+    "ci-bench-deps": 22,
+    "docs-site-data": 57,
+    "tui-only": 28,
+    "cli-acp-only": 11,
+    "server-core-ai-codemode-internal": 235
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 215,
+  "total_ledger_rows": 228,
   "status_counts": {
-    "have it": 182,
-    "not applicable": 30,
+    "have it": 190,
+    "not applicable": 31,
     "differs on purpose": 1,
-    "partly": 2
+    "partly": 2,
+    "missing": 4
   },
   "rows": [
     {
@@ -5399,6 +5400,353 @@
       "risks": "none",
       "workstream": "UPSTREAM",
       "rune_pr": "#882"
+    },
+    {
+      "id": "UP-195",
+      "window": "post-1120",
+      "pr": 65821,
+      "sha": "9b03fe1f65",
+      "title": "fix(app): mark /btw tabs answered in the background as unread",
+      "merged": "2026-11-23",
+      "packages": [
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/btw/i18n/en.ts",
+        "packages/gui-plugins/src/btw/model.ts",
+        "packages/gui-plugins/src/btw/renderer.tsx"
+      ],
+      "summary": "A /btw tab whose answer or failure arrives while the tab is open but not shown gets a small blue dot named \"New answer\" until the tab is shown; closing the tab or the session forgets it.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "rune-desktop #897 (8f6a4b6e): plugins/btw/init.luau marks the tab when a request settles its current attempt while Layout:PanelState(<tab id>, session) is not visible, and clears the mark when the tab renders visible or closes; plugins/btw/panel.luau draws the 6 pt status-info dot (role img, tab.unread) after the question in the tab's label; tab.unread in locales/en.json with fills for seven languages. Ported by reading; run owed (official's e2e case: btw-sidebar.spec.ts \"marks a side question answered behind another tab until it is shown\").",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#897"
+    },
+    {
+      "id": "UP-196",
+      "window": "post-1120",
+      "pr": 65649,
+      "sha": "3bae667b6f",
+      "title": "fix(app): keep the model list in place when unfavoriting with the mouse",
+      "merged": "2026-11-23",
+      "packages": [
+        "app",
+        "ui"
+      ],
+      "main_files": [
+        "packages/app/src/providers/models/select-dialog.tsx",
+        "packages/ui/src/forms/search-list/search-list.tsx"
+      ],
+      "summary": "Unfavoriting a model with the mouse no longer scrolls the model list: a row the pointer made active is not scrolled to when the list reorders (search-list.tsx setActive(key, \"pointer\")).",
+      "size": "XS",
+      "status": "missing",
+      "status_evidence": "Not compared yet: needs a run of ours' model picker (a long list, unfavorite a row far down with the mouse, see whether the list jumps). No code changed.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-197",
+      "window": "post-1120",
+      "pr": 65848,
+      "sha": "472d9f8e2e",
+      "title": "release: v2.4.1",
+      "merged": "2026-11-23",
+      "packages": [
+        "ai",
+        "app",
+        "cli",
+        "client",
+        "codemode",
+        "core",
+        "data",
+        "desktop",
+        "gui-plugins",
+        "http-recorder",
+        "httpapi-codegen",
+        "latex",
+        "merman",
+        "nav-menus",
+        "patchmark",
+        "plugin-browser",
+        "plugin",
+        "plugins",
+        "protocol",
+        "schema",
+        "sdk",
+        "server",
+        "session-ui",
+        "simulation",
+        "theme",
+        "tui",
+        "ui",
+        "util"
+      ],
+      "main_files": [
+        "packages/ai/package.json",
+        "packages/app/package.json",
+        "packages/cli/package.json",
+        "packages/client/package.json"
+      ],
+      "summary": "Release v2.4.1 (version bumps and the changelog entry).",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "Prod check of the v2.4.1 entry (prod-check.ts): 6 Desktop items, every PR they name is in the ledger. 4 items: all rows have it / not applicable (#65749, #65757 + #65800, #65821, #65225). 2 items (Tab stops; focus rings) name #65785 = UP-193, which is partly: the ring is gone in ours, the open part is the owner question on the file viewer's Tab stop. No port missing for the release.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-198",
+      "window": "post-1120",
+      "pr": 65897,
+      "sha": "9a8a656e96",
+      "title": "feat(session-ui): show quotes inline in user messages",
+      "merged": "2026-11-23",
+      "packages": [
+        "app",
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/app/src/session/route.tsx",
+        "packages/app/src/session/timeline/inline-quotes.ts",
+        "packages/app/src/session/timeline/message-timeline.tsx",
+        "packages/session-ui/src/components/message-part.css"
+      ],
+      "summary": "A sent prompt's quotes and comments show inline in its bubble after its words (a quote behind a bar, three lines until pressed open, its comment under it; file and note references as one line), instead of as comment cards. Local and dev builds only; beta and prod keep the cards.",
+      "size": "M",
+      "status": "have it",
+      "status_evidence": "rune-desktop #976 (cc75fab1): crates/session-view/src/user_quotes.rs draws them; TimelineHost::inline_quotes gates them (off by default; the app turns it on for the local and dev channels, as inline-quotes.ts); the bubble holds them 8 pt under the words inside the fold, and a prompt with only quotes gets a bubble. Not ported: a quote's source icon (ours' Quote carries no source). Ported by reading; run owed in both apps.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#976"
+    },
+    {
+      "id": "UP-199",
+      "window": "post-1120",
+      "pr": 65912,
+      "sha": "7599851add",
+      "title": "fix(app): show app menu in side tabs header on Linux",
+      "merged": "2026-11-23",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/e2e/utils/windows-menu.fixture.tsx",
+        "packages/app/e2e/utils/windows-menu.html",
+        "packages/app/src/shell/titlebar/titlebar.tsx"
+      ],
+      "summary": "Linux only: with side tabs, the app menu button shows in the side tabs header (it was hidden with the vertical titlebar).",
+      "size": "XS",
+      "status": "missing",
+      "status_evidence": "Not compared yet: ours on Linux with Side tabs not looked at. No code changed.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-200",
+      "window": "post-1120",
+      "pr": 65921,
+      "sha": "8d9e096e8c",
+      "title": "fix(app): keep the timeline still when a focused row scrolls out of range",
+      "merged": "2026-11-23",
+      "packages": [
+        "app",
+        "gui-plugins",
+        "session-ui",
+        "ui"
+      ],
+      "main_files": [
+        "packages/app/AGENTS.md",
+        "packages/app/src/session/timeline/virtualizer.tsx",
+        "packages/gui-plugins/AGENTS.md",
+        "packages/session-ui/AGENTS.md"
+      ],
+      "summary": "When a timeline row holding the focused control scrolls out of the mounted range, focus goes to the timeline viewport without scrolling, instead of being rescued to a control in another row (which scrolled the timeline to it).",
+      "size": "XS",
+      "status": "missing",
+      "status_evidence": "Not compared yet: needs a run of ours (focus a Copy button in a long timeline, scroll far, see whether the timeline jumps and where focus lands). No code changed.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-201",
+      "window": "post-1120",
+      "pr": 65957,
+      "sha": "6e2289bc94",
+      "title": "fix(app): show the parent session's side panel tabs in subagents",
+      "merged": "2026-11-24",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/plugin/host-apis.tsx",
+        "packages/app/src/session/session-layout.ts"
+      ],
+      "summary": "A subagent (a child session a tab routes to) shows its root session's side panel tabs: the strip and the plugins' panel state go by the tab's session, not the routed child's.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Not ported: read and planned (notes/upstream-sync/status-upstream-f.md). Ours keys the side panel by the routed session in every store (features/panels, terminals, browser tab owners, open files: about 150 call sites), and an agent's browser tabs are owned by the agent's own session, so this is a cross-feature change that needs runs, not official's two lines. A WIP branch upstream-f/panel-session holds the mechanical part (AppEnv::panel_session_id / panel_root; not compiled, not merged). Today a subagent page shows a side panel of its own.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-202",
+      "window": "post-1120",
+      "pr": 65998,
+      "sha": "f824eb3589",
+      "title": "fix(app): line up settings with home and keep home steady at medium widths",
+      "merged": "2026-11-24",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/home/projects/region.tsx",
+        "packages/app/src/home/route.tsx",
+        "packages/app/src/home/sessions/view.css",
+        "packages/app/src/home/sessions/view.tsx"
+      ],
+      "summary": "Settings lines up with Home (same column and search field placement) and Home keeps its layout steady at medium window widths.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "rune-desktop #985 (98f18e5a): features/settings/src/shell.rs lays Settings in Home's 1056 box with 24 gutters (rail 256 with 0 / 12 padding, content max 728 with margins 28 / -4, the wide tier from 1008; 240 rail from 800 to 1007), page rows and Back at radius 6 with the layer-01 hover (rows over 120 ms, base ink), the search icon 6 / 2; apps/desktop/src/shell/view/home.rs: grid 1056, projects column 256, and from 768 to 1023 the picker sits in the search field in one 768 column with the header 48 from the top (header top 108), a pick closing a search that is not inline. By reading, compiled by CI; not run. To measure in a run: the page rows' icon-to-name gap (ours 8 -> 10 where official went 6 -> 8).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#985"
+    },
+    {
+      "id": "UP-203",
+      "window": "post-1120",
+      "pr": 65961,
+      "sha": "b5948e5229",
+      "title": "feat(app): pin inbox sessions and list archived ones in the sidebar",
+      "merged": "2026-11-24",
+      "packages": [
+        "app",
+        "plugin",
+        "ui"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/i18n/am.ts",
+        "packages/app/src/runtime/i18n/ar.ts",
+        "packages/app/src/runtime/i18n/az.ts",
+        "packages/app/src/runtime/i18n/bg.ts"
+      ],
+      "summary": "Inbox sessions can be pinned, and archived sessions are listed in the sidebar (shell/titlebar/inbox.tsx, session search, the palette; a new icon; strings in every language).",
+      "size": "L",
+      "status": "have it",
+      "status_evidence": "rune-desktop #982 (ffbd2b68): the Inbox sidebar's sections follow inbox.tsx: pinned sessions (the shared navigation.pins) lead Recent in the pins' order with Desktop's pin glyph after the title, and a card's menu starts with Pin / Unpin; archived sessions are entries of the list (the newest 50 per server, read apart from the session list) under an Archived header that folds (archivedExpanded, shut at first), the last archived first; the Unread group and Recent's header are gone (done / failed / ready sort together, so reading one does not move it); the list's own right-click menu places Working on the shelf or in the list above Archived (workingPlacement). Official's catalogs synced to f25b09005e. By reading, compiled by CI; not run (handed to UPSTREAM-PROOF). Not removed yet: the archived search dialog's code, which has no entry point now.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#982"
+    },
+    {
+      "id": "UP-204",
+      "window": "post-1120",
+      "pr": 65976,
+      "sha": "18c9719c3c",
+      "title": "fix(app): keep text and code files off the artifact background",
+      "merged": "2026-11-24",
+      "packages": [
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/file/artifact-view.css",
+        "packages/gui-plugins/src/file/artifact-view.tsx"
+      ],
+      "summary": "Plain text and code files sit on the code view's background (background-stronger), toolbar included, not on the artifact surface (layer-01).",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "rune-desktop #977 (0fb66039): features/files/src/viewer/toolbar.rs fills a fixed-source file's toolbar with code_bg; previews, tables, pictures and video keep layer-01. The code itself already drew on background-stronger. Not checked: the ground under a file shorter than the pane. Ported by reading; run owed.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#977"
+    },
+    {
+      "id": "UP-205",
+      "window": "post-1120",
+      "pr": 66012,
+      "sha": "f25b09005e",
+      "title": "feat(app): move the file tree to the right from its context menu",
+      "merged": "2026-11-24",
+      "packages": [
+        "app",
+        "gui-plugins",
+        "plugin",
+        "session-ui",
+        "ui"
+      ],
+      "main_files": [
+        "packages/app/component-tests/plugin-host.fixture.tsx",
+        "packages/app/src/runtime/plugin/panels.tsx",
+        "packages/gui-plugins/src/browser/panel.fixture.tsx",
+        "packages/gui-plugins/src/file/browser.tsx"
+      ],
+      "summary": "The file tree of the Files and Review panels moves to the right (or back) from a context menu on the sidebar or its toggle: Sidebar position > Left / Right; one preference for every side panel; the toggle, border and resize handle swap sides.",
+      "size": "M",
+      "status": "have it",
+      "status_evidence": "rune-desktop #984 (60b2784d): apps/desktop/src/plugin_host/native/sidebar.rs keeps sidebarSide (start / end) in review-panel-v2 beside sidebarOpened / sidebarWidth; a right-click on the sidebar or its toggle opens Sidebar position > Left / Right (physical: right is the end edge left to right); on the end edge the body's order, the sidebar's border, the resize handle and the toggle (8 from the inline end) swap sides, and plugins/review and plugins/file leave the toggle room at the end of the sidebar header and the shut toolbar (8 / 46, 8 / 54). Plugin contract 1.9: PanelSidebarInfo.side and Layout:MovePanelSidebar, as PanelSidebar.side() / move(). By reading, compiled by CI; not run (handed to UPSTREAM-PROOF).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#984"
+    },
+    {
+      "id": "UP-206",
+      "window": "post-1120",
+      "pr": 65982,
+      "sha": "f176d3b0c6",
+      "title": "fix(tui,app): keep variants saved for a model speed",
+      "merged": "2026-11-24",
+      "packages": [
+        "app",
+        "tui"
+      ],
+      "main_files": [
+        "packages/app/src/providers/models/models.tsx",
+        "packages/app/test-browser/fixtures/model-selection.ts",
+        "packages/tui/src/context/local.tsx"
+      ],
+      "summary": "A model's speeds share its effort (variant), saved under the standard model; an effort saved before speeds existed may be stored under one of the speeds, and is still read (models.tsx getVariant looks at the standard model, the model itself, then its speeds).",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "rune-desktop #991 (d6da8b22): Pickers::saved_effort (crates/session-view/src/pickers/speed.rs) reads the standard model, the model, then its speeds, as getVariant. Found with it and closed: ours kept the per-model effort in memory only; ModelPrefs (pickers/prefs.rs) now reads and writes official's `variant` map (provider/model -> effort id or `default`) with favourites, recents and speeds, so an effort is kept across launches. By reading, compiled by CI; not run.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#991"
+    },
+    {
+      "id": "UP-207",
+      "window": "post-1120",
+      "pr": 66034,
+      "sha": "40b6e9cdf8",
+      "title": "fix(app): write the scroll position once for each batch of measured rows",
+      "merged": "2026-11-24",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/AGENTS.md",
+        "packages/app/src/session/timeline/virtualizer.tsx"
+      ],
+      "summary": "Performance only: while a batch of measured timeline rows is applied, TanStack's per-row scroll corrections are held and the last one is written once, so the batch forces one browser layout instead of one per row.",
+      "size": "XS",
+      "status": "not applicable",
+      "status_evidence": "By reading: this is about native DOM scroll writes forcing layout in official's TanStack virtualizer (session/timeline/virtualizer.tsx scrollToFn). Ours' timeline is Rune's virtual list: measured row sizes and the scroll anchor are applied in the frame's single layout pass, with no per-row scroll write to batch. Nothing a user sees differs.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
     }
   ],
   "browser_security_review": {

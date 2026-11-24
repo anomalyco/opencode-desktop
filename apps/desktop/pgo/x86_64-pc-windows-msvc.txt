@@ -1,9 +1,9 @@
-commit e39c8d316fe2c07bc9a5f37c2edcf10d30773cc4
-rune aa9a0b9155f40d33dfe2e823a5c139a0f63804c4
+commit 5b6482abfbd9eadd2b33eef3d597dd3f703d9587
+rune 02042d8e7cf1dea94eb3e84879b228e8de6b8324
 rustc rustc 1.99.1 (58cf8f9c3 2026-10-13)
 processes 47
 launches 26 of the 47 (6 first, 7 small profile, 7 big profile, 3 after an update, 3 from a new exe copy)
 trained at 39c7c01d455686b33ae90676d2d1201b12a6524b with rune 16422c7e33e5febe0381d830f458a42bd8a4c97d (16292 functions), then re-keyed to this commit's symbol names: 16287 kept, 5 dropped (their code changed)
 instrumented builds by PR CI: #869 at c5e1704888550581d4b40307b70b21137325560b (training), #887 at caa77affcfadf3ef3d1c3cbe0d934fcd3a75d8d1 (names)
-Total functions: 15736
-re-keyed: 15736 of 15752 functions kept, 12 dropped (their code changed), 4 gone
+Total functions: 15724
+re-keyed: 15724 of 15736 functions kept, 9 dropped (their code changed), 3 gone

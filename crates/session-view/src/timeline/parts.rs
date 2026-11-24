@@ -182,9 +182,20 @@ pub fn user_bubble<S: TimelineHost>(s: &S, p: &Pal, session: &str, id: &str, bod
     // Each line reads in the direction of its own words, inside the bubble's
     // (`message-part.css:176`, `:224`: `unicode-bidi: plaintext`).
     let words = readable(p, words).dir_by_paragraph();
-    let words = crate::fold::view(s, p, id, &shown, words, fold, quotes.is_some() && !body.trim().is_empty());
+    let inline = quotes.is_some() && s.inline_quotes();
+    let has_body = !body.trim().is_empty();
+    // Inline quotes follow the words inside the fold, 8 pt under them, so Collapse long messages
+    // folds the whole bubble; without words they give the message a bubble of its own
+    // (`message-content.tsx` `renderBody`, `bubble`).
+    let (words, quotes) = if inline && has_body {
+        (col().key("body").min_w(0.0).child(words).children(quotes.map(|q| q.mt(8.0))), None)
+    } else {
+        (words, quotes)
+    };
+    let words = crate::fold::view(s, p, id, &shown, words, fold, quotes.is_some() && has_body);
     let mut face = match quotes {
-        Some(cards) if body.trim().is_empty() => cards.key("bubble"),
+        Some(quotes) if inline => bubble.child(quotes),
+        Some(cards) if !has_body => cards.key("bubble"),
         Some(cards) => bubble.w(342.0).pb(12.0).children(words).child(cards),
         None => bubble.children(words),
     };

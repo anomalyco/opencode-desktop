@@ -16,7 +16,7 @@ pub const KEYS: &[Trigger] = &[
 ];
 
 fn view(s: &App, p: &Pal) -> El {
-    col().key("settings-story").w(1048.0).h(640.0).fill(p.bg_base).child(crate::settings::page(s, p, (1048.0, 640.0)))
+    col().key("settings-story").w(1056.0).h(640.0).fill(p.bg_base).child(crate::settings::page(s, p, (1056.0, 640.0)))
 }
 
 /// Settings › Interface layout over the whole window, at rest in top tabs: S and T switch to

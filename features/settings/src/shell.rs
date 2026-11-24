@@ -1,7 +1,7 @@
 //! The Settings screen (`settings/shell.tsx`, `navigation.tsx`, `settings.css`): the rail of
-//! pages beside the open page. At 1048 pt and wider the two sit centred in 1048 (a 328 pt rail,
-//! 24 in and 64 before the page, and a 720 pt page column); from 800 the rail narrows to 240
-//! with 24 pt gutters; below that the rail gives way to a bar with Back and the page menu. The
+//! pages beside the open page. At 1008 pt and wider the two sit where Home's columns do, centred
+//! in 1056 with 24 pt gutters (a 256 pt rail, and a 728 pt page column 28 past it whose cards
+//! are Home's 720); from 800 the rail narrows to 240; below that the rail gives way to a bar with Back and the page menu. The
 //! whole screen scrolls, the rail holding at its top, so the wheel anywhere moves the page.
 
 use opencode_i18n::t;
@@ -18,6 +18,8 @@ use crate::search;
 /// `tabs-v2-trigger`: 13 on 16 at 440, -0.04 tracking.
 const TAB: rune::TextStyle = rune::TextStyle::new(13.0, 440.0).lh(16.0).tracking(-0.04);
 const BACK: rune::TextStyle = rune::TextStyle::new(13.0, 440.0).lh(16.0);
+/// A page row's hover (`settings-nav-groups` `tabs-v2-trigger-wrapper`: 120 ms ease-in-out).
+const NAV_FADE: rune::Anim = rune::Anim::new(rune::Curve::tween(0.12, rune::Easing::EASE_IN_OUT));
 
 /// `RootSettings`'s groups: client preferences, server pages, plugin pages and about.
 pub fn groups(s: &dyn SettingsHost) -> Vec<Vec<Page>> {
@@ -98,8 +100,13 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, (width, heigh
             // keyboard focus while a layout switch or zoom moves the screen across 800.
             .child(screen(row().w_full().px(inset).child(row().w_full().child(col().key("settings-content").w_full().min_w(0.0).child(content)))));
     }
-    let wide = width <= 0.0 || width >= 1048.0;
-    let (rail_w, pad_start, pad_end, gutter) = if wide { (328.0, 24.0, 64.0, 0.0) } else { (240.0, 16.0, 24.0, 24.0) };
+    // `settings.css` (opencode#65998): Settings lines up with Home. The layout is Home's 1056 box
+    // centred with 24 of padding each side: the sidebar is Home's 256 projects column, and the
+    // content starts 28 past it and runs 4 into the end gutter, so its panels' 4 of shadow room
+    // sits in Home's 32 column gap and the cards span Home's 720 sessions column. From 800 to
+    // 1007 the sidebar is 240 and the content has no margins.
+    let wide = width <= 0.0 || width >= 1008.0;
+    let (rail_w, pad_start, pad_end, margin) = if wide { (256.0, 0.0, 12.0, (28.0, -4.0)) } else { (240.0, 16.0, 24.0, (0.0, 0.0)) };
     let rail = col()
         .key("settings-sidebar")
         .w(rail_w)
@@ -109,14 +116,15 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, (width, heigh
         .pr(pad_end)
         .sticky_top(0.0)
         .child(nav(s, p, rail_w - pad_start - pad_end, height));
-    let page = col().key("settings-content").grow(1.0).shrink().min_w(0.0).max_w(720.0).child(content);
+    let page = col().key("settings-content").grow(1.0).shrink().min_w(0.0).max_w(728.0).ml(margin.0).mr(margin.1).child(content);
     col()
         .key("settings-page")
         .w_full()
         .grow(1.0)
         .shrink()
         .min_h(0.0)
-        .child(screen(row().w_full().px(gutter).justify_center().child(row().w_full().max_w(1048.0).items_start().child(rail).child(page))))
+        // `padding-inline: max(24px, calc((100% - 1056px) / 2 + 24px))`.
+        .child(screen(row().w_full().px(24.0).justify_center().child(row().w_full().max_w(1056.0 - 48.0).items_start().child(rail).child(page))))
 }
 
 /// `.settings-nav`: Back, the search, then the page groups (or the search's results). A
@@ -191,15 +199,20 @@ fn nav_item<H: SettingsHost + 'static>(s: &H, p: &Pal, page: &Page) -> El {
         .w_full()
         .h(28.0)
         .px(6.0)
-        .gap(8.0)
+        // `tabs-v2-trigger`'s gap went from 6 to 8 (opencode#65998): 2 more here.
+        .gap(10.0)
         .center_y()
-        .radius(4.0)
+        .radius(6.0)
         .fill(if on { p.layer3 } else { Color::TRANSPARENT })
-        .hover(if on { p.layer3 } else { p.hover })
+        // Under the pointer a row that isn't the open page takes `bg-layer-01` and the base ink,
+        // over 120 ms (`transition: background-color, color 120ms ease-in-out`).
+        .hover(if on { p.layer3 } else { p.layer1 })
+        .hover_group()
+        .hover_motion(NAV_FADE, NAV_FADE)
         .on_press_tx(move |s: &mut H, tx: &mut Tx| press_nav_item(s, &to, tx))
         .on_drag(move |s: &mut H, d: &mut Drag, tx: &mut Tx| drag_nav_item(s, &pressed, d, tx))
-        .child(icon(glyph(s, page), 16.0).color(ink))
-        .child(text(label).font(TAB).color(ink).truncate())
+        .child(icon(glyph(s, page), 16.0).color(ink).group_color(p.text))
+        .child(text(label).font(TAB).color(ink).group_color(p.text).truncate())
 }
 
 fn press_back(host: &mut dyn SettingsHost, project: bool, tx: &mut Tx) {
@@ -221,14 +234,14 @@ fn back_button<H: SettingsHost + 'static>(p: &Pal, project: bool) -> El {
         .help(format!("{words} Esc"))
         .h(28.0)
         .px(6.0)
-        .gap(6.0)
+        .gap(8.0)
         .center_y()
-        .radius(4.0)
+        .radius(6.0)
         .self_start()
         .cursor(Cursor::Pointer)
         .focus_default(p)
         .hover_group_focus()
-        .hover(p.layer3)
+        .hover(p.layer1)
         .on_press_tx(move |s: &mut H, tx: &mut Tx| press_back(s, project, tx))
         .child(icon(&ic::ARROW_LEFT, 16.0).mirror_in_rtl().color(p.muted).group_color(p.text))
         .child(text(words).font(BACK).color(p.muted).group_color(p.text))
