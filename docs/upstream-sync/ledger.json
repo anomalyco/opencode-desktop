@@ -1,29 +1,30 @@
 {
-  "generated_at": "2026-11-23",
+  "generated_at": "2026-11-24",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "d1f98703ab254ca80b85b70caea5d33130604fa2",
+  "upstream_head": "f25b09005e1b1559146e1bd164284c6ec8599959",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "ffbffe88f4ea34d7cc3a6d22cb03058e352294f7",
-  "post_1114_commit_count": 514,
-  "post_1114_in_ledger": 194,
-  "post_1114_skipped": 320,
+  "rune_desktop_head": "0fb660396bbba1e55ad12158abab837038ac1e94",
+  "post_1114_commit_count": 571,
+  "post_1114_in_ledger": 205,
+  "post_1114_skipped": 366,
   "post_1114_skipped_breakdown": {
     "test-only": 24,
-    "ci-bench-deps": 18,
-    "docs-site-data": 50,
-    "tui-only": 20,
-    "cli-acp-only": 8,
-    "server-core-ai-codemode-internal": 200
+    "ci-bench-deps": 22,
+    "docs-site-data": 55,
+    "tui-only": 28,
+    "cli-acp-only": 11,
+    "server-core-ai-codemode-internal": 226
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 215,
+  "total_ledger_rows": 226,
   "status_counts": {
-    "have it": 182,
+    "have it": 186,
     "not applicable": 30,
     "differs on purpose": 1,
-    "partly": 2
+    "partly": 2,
+    "missing": 7
   },
   "rows": [
     {
@@ -5399,6 +5400,303 @@
       "risks": "none",
       "workstream": "UPSTREAM",
       "rune_pr": "#882"
+    },
+    {
+      "id": "UP-195",
+      "window": "post-1120",
+      "pr": 65821,
+      "sha": "9b03fe1f65",
+      "title": "fix(app): mark /btw tabs answered in the background as unread",
+      "merged": "2026-11-23",
+      "packages": [
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/btw/i18n/en.ts",
+        "packages/gui-plugins/src/btw/model.ts",
+        "packages/gui-plugins/src/btw/renderer.tsx"
+      ],
+      "summary": "A /btw tab whose answer or failure arrives while the tab is open but not shown gets a small blue dot named \"New answer\" until the tab is shown; closing the tab or the session forgets it.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "rune-desktop #897 (8f6a4b6e): plugins/btw/init.luau marks the tab when a request settles its current attempt while Layout:PanelState(<tab id>, session) is not visible, and clears the mark when the tab renders visible or closes; plugins/btw/panel.luau draws the 6 pt status-info dot (role img, tab.unread) after the question in the tab's label; tab.unread in locales/en.json with fills for seven languages. Ported by reading; run owed (official's e2e case: btw-sidebar.spec.ts \"marks a side question answered behind another tab until it is shown\").",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#897"
+    },
+    {
+      "id": "UP-196",
+      "window": "post-1120",
+      "pr": 65649,
+      "sha": "3bae667b6f",
+      "title": "fix(app): keep the model list in place when unfavoriting with the mouse",
+      "merged": "2026-11-23",
+      "packages": [
+        "app",
+        "ui"
+      ],
+      "main_files": [
+        "packages/app/src/providers/models/select-dialog.tsx",
+        "packages/ui/src/forms/search-list/search-list.tsx"
+      ],
+      "summary": "Unfavoriting a model with the mouse no longer scrolls the model list: a row the pointer made active is not scrolled to when the list reorders (search-list.tsx setActive(key, \"pointer\")).",
+      "size": "XS",
+      "status": "missing",
+      "status_evidence": "Not compared yet: needs a run of ours' model picker (a long list, unfavorite a row far down with the mouse, see whether the list jumps). No code changed.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-197",
+      "window": "post-1120",
+      "pr": 65848,
+      "sha": "472d9f8e2e",
+      "title": "release: v2.4.1",
+      "merged": "2026-11-23",
+      "packages": [
+        "ai",
+        "app",
+        "cli",
+        "client",
+        "codemode",
+        "core",
+        "data",
+        "desktop",
+        "gui-plugins",
+        "http-recorder",
+        "httpapi-codegen",
+        "latex",
+        "merman",
+        "nav-menus",
+        "patchmark",
+        "plugin-browser",
+        "plugin",
+        "plugins",
+        "protocol",
+        "schema",
+        "sdk",
+        "server",
+        "session-ui",
+        "simulation",
+        "theme",
+        "tui",
+        "ui",
+        "util"
+      ],
+      "main_files": [
+        "packages/ai/package.json",
+        "packages/app/package.json",
+        "packages/cli/package.json",
+        "packages/client/package.json"
+      ],
+      "summary": "Release v2.4.1 (version bumps and the changelog entry).",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "Prod check of the v2.4.1 entry (prod-check.ts): 6 Desktop items, every PR they name is in the ledger. 4 items: all rows have it / not applicable (#65749, #65757 + #65800, #65821, #65225). 2 items (Tab stops; focus rings) name #65785 = UP-193, which is partly: the ring is gone in ours, the open part is the owner question on the file viewer's Tab stop. No port missing for the release.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-198",
+      "window": "post-1120",
+      "pr": 65897,
+      "sha": "9a8a656e96",
+      "title": "feat(session-ui): show quotes inline in user messages",
+      "merged": "2026-11-23",
+      "packages": [
+        "app",
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/app/src/session/route.tsx",
+        "packages/app/src/session/timeline/inline-quotes.ts",
+        "packages/app/src/session/timeline/message-timeline.tsx",
+        "packages/session-ui/src/components/message-part.css"
+      ],
+      "summary": "A sent prompt's quotes and comments show inline in its bubble after its words (a quote behind a bar, three lines until pressed open, its comment under it; file and note references as one line), instead of as comment cards. Local and dev builds only; beta and prod keep the cards.",
+      "size": "M",
+      "status": "have it",
+      "status_evidence": "rune-desktop #976 (cc75fab1): crates/session-view/src/user_quotes.rs draws them; TimelineHost::inline_quotes gates them (off by default; the app turns it on for the local and dev channels, as inline-quotes.ts); the bubble holds them 8 pt under the words inside the fold, and a prompt with only quotes gets a bubble. Not ported: a quote's source icon (ours' Quote carries no source). Ported by reading; run owed in both apps.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#976"
+    },
+    {
+      "id": "UP-199",
+      "window": "post-1120",
+      "pr": 65912,
+      "sha": "7599851add",
+      "title": "fix(app): show app menu in side tabs header on Linux",
+      "merged": "2026-11-23",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/e2e/utils/windows-menu.fixture.tsx",
+        "packages/app/e2e/utils/windows-menu.html",
+        "packages/app/src/shell/titlebar/titlebar.tsx"
+      ],
+      "summary": "Linux only: with side tabs, the app menu button shows in the side tabs header (it was hidden with the vertical titlebar).",
+      "size": "XS",
+      "status": "missing",
+      "status_evidence": "Not compared yet: ours on Linux with Side tabs not looked at. No code changed.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-200",
+      "window": "post-1120",
+      "pr": 65921,
+      "sha": "8d9e096e8c",
+      "title": "fix(app): keep the timeline still when a focused row scrolls out of range",
+      "merged": "2026-11-23",
+      "packages": [
+        "app",
+        "gui-plugins",
+        "session-ui",
+        "ui"
+      ],
+      "main_files": [
+        "packages/app/AGENTS.md",
+        "packages/app/src/session/timeline/virtualizer.tsx",
+        "packages/gui-plugins/AGENTS.md",
+        "packages/session-ui/AGENTS.md"
+      ],
+      "summary": "When a timeline row holding the focused control scrolls out of the mounted range, focus goes to the timeline viewport without scrolling, instead of being rescued to a control in another row (which scrolled the timeline to it).",
+      "size": "XS",
+      "status": "missing",
+      "status_evidence": "Not compared yet: needs a run of ours (focus a Copy button in a long timeline, scroll far, see whether the timeline jumps and where focus lands). No code changed.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-201",
+      "window": "post-1120",
+      "pr": 65957,
+      "sha": "6e2289bc94",
+      "title": "fix(app): show the parent session's side panel tabs in subagents",
+      "merged": "2026-11-24",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/plugin/host-apis.tsx",
+        "packages/app/src/session/session-layout.ts"
+      ],
+      "summary": "A subagent (a child session a tab routes to) shows its root session's side panel tabs: the strip and the plugins' panel state go by the tab's session, not the routed child's.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Not ported. By reading, ours keys the side region by the routed session (features/panels/src/state/resolve.rs resolve_side_region_now and state/mod.rs tab_state use host.active_session_id()), so a child session has a strip of its own. Needs a panel-session id (the tab's root session) through the panels feature, and a run.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-202",
+      "window": "post-1120",
+      "pr": 65998,
+      "sha": "f824eb3589",
+      "title": "fix(app): line up settings with home and keep home steady at medium widths",
+      "merged": "2026-11-24",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/home/projects/region.tsx",
+        "packages/app/src/home/route.tsx",
+        "packages/app/src/home/sessions/view.css",
+        "packages/app/src/home/sessions/view.tsx"
+      ],
+      "summary": "Settings lines up with Home (same column and search field placement) and Home keeps its layout steady at medium window widths.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Not read against ours yet (home/route.tsx, home/sessions/view.css, home/projects/region.tsx, settings/search.css, settings/settings.css).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-203",
+      "window": "post-1120",
+      "pr": 65961,
+      "sha": "b5948e5229",
+      "title": "feat(app): pin inbox sessions and list archived ones in the sidebar",
+      "merged": "2026-11-24",
+      "packages": [
+        "app",
+        "plugin",
+        "ui"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/i18n/am.ts",
+        "packages/app/src/runtime/i18n/ar.ts",
+        "packages/app/src/runtime/i18n/az.ts",
+        "packages/app/src/runtime/i18n/bg.ts"
+      ],
+      "summary": "Inbox sessions can be pinned, and archived sessions are listed in the sidebar (shell/titlebar/inbox.tsx, session search, the palette; a new icon; strings in every language).",
+      "size": "L",
+      "status": "missing",
+      "status_evidence": "Not read against ours yet. The largest open port.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-204",
+      "window": "post-1120",
+      "pr": 65976,
+      "sha": "18c9719c3c",
+      "title": "fix(app): keep text and code files off the artifact background",
+      "merged": "2026-11-24",
+      "packages": [
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/file/artifact-view.css",
+        "packages/gui-plugins/src/file/artifact-view.tsx"
+      ],
+      "summary": "Plain text and code files sit on the code view's background (background-stronger), toolbar included, not on the artifact surface (layer-01).",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "rune-desktop #977 (0fb66039): features/files/src/viewer/toolbar.rs fills a fixed-source file's toolbar with code_bg; previews, tables, pictures and video keep layer-01. The code itself already drew on background-stronger. Not checked: the ground under a file shorter than the pane. Ported by reading; run owed.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM",
+      "rune_pr": "#977"
+    },
+    {
+      "id": "UP-205",
+      "window": "post-1120",
+      "pr": 66012,
+      "sha": "f25b09005e",
+      "title": "feat(app): move the file tree to the right from its context menu",
+      "merged": "2026-11-24",
+      "packages": [
+        "app",
+        "gui-plugins",
+        "plugin",
+        "session-ui",
+        "ui"
+      ],
+      "main_files": [
+        "packages/app/component-tests/plugin-host.fixture.tsx",
+        "packages/app/src/runtime/plugin/panels.tsx",
+        "packages/gui-plugins/src/browser/panel.fixture.tsx",
+        "packages/gui-plugins/src/file/browser.tsx"
+      ],
+      "summary": "The file tree of the Files and Review panels moves to the right (or back) from a context menu on the sidebar or its toggle: Sidebar position > Left / Right; one preference for every side panel; the toggle, border and resize handle swap sides.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Not ported; read, with a port plan in notes (apps/desktop/src/plugin_host/native/sidebar.rs holds the state and the frame; Layout:PanelSidebar needs a side, a plugin contract change; three new strings). Needs a run.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
     }
   ],
   "browser_security_review": {
