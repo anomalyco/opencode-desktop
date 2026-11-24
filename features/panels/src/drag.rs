@@ -255,7 +255,7 @@ pub fn side_tab_gesture(
     tx: &mut Tx,
 ) {
     let at = d.window_point();
-    let session = host.active_session_id().unwrap_or_default().to_owned();
+    let session = host.panel_session_id().unwrap_or_default().to_owned();
     let drawn = match d.phase {
         Phase::Down => {
             let selects = !opencode_ui::style::touch_controls();

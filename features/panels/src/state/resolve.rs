@@ -50,7 +50,7 @@ pub fn resolve_side_region(host: &dyn PanelsHost) -> Option<Rc<ResolvedRegion>> 
 }
 
 fn resolve_side_region_now(host: &dyn PanelsHost) -> Option<ResolvedRegion> {
-    let session_id = host.active_session_id()?.to_owned();
+    let session_id = host.panel_session_id()?.to_owned();
     let directory = host.session_directory(&session_id).unwrap_or_default().to_owned();
     let project_id = host.session_project_id(&session_id);
     let empty_tabs = SessionTabs::default();

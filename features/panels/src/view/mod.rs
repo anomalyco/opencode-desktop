@@ -135,7 +135,7 @@ fn side_region_in<H: PanelsHost + 'static>(
     scale: f32,
     cx: &mut Cx<H>,
 ) -> El {
-    let on_session = host.active_session_id().is_some() && !host.settings_open();
+    let on_session = host.panel_session_id().is_some() && !host.settings_open();
     let w = side_width(host, laid_w);
 
     let col_open = on_session && side_open(host);
@@ -346,7 +346,7 @@ pub(crate) fn toggle_in_strip(host: &dyn PanelsHost) -> bool {
 
 fn side_toggle_shell(host: &dyn PanelsHost, p: &Pal, pinned: bool) -> Option<El> {
     // A narrow window has none (`screen.tsx:456`).
-    let sid = host.active_session_id()?;
+    let sid = host.panel_session_id()?;
     if host.settings_open() || host.narrow() || !host.session_has_header(sid) {
         return None;
     }
@@ -392,7 +392,7 @@ fn side_toggle_shell(host: &dyn PanelsHost, p: &Pal, pinned: bool) -> Option<El>
 /// leaves the side region `SIDE_PANE_MIN_W`; the side region takes the rest. A double press
 /// does nothing, as Desktop's handle ignores one.
 pub fn resize_handle<H: PanelsHost + 'static>(host: &H, p: &Pal, zoomed_w: f32) -> Option<El> {
-    if host.active_session_id().is_none() || host.settings_open() || !side_open(host) || zoomed_w <= 0.0 {
+    if host.panel_session_id().is_none() || host.settings_open() || !side_open(host) || zoomed_w <= 0.0 {
         return None;
     }
     let x = (zoomed_w - side_width(host, zoomed_w) - 16.0).max(0.0);
@@ -420,7 +420,7 @@ fn focus_side_body(host: &mut dyn PanelsHost) {
 
 fn on_split_resize_drag(host: &mut dyn PanelsHost, col_h: f32, split_h: f32, d: &Drag, tx: &mut Tx) {
     tx.instant();
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     let stored = host.side().sessions.get(&sid).and_then(|st| st.split_ratio);
     let event = match d.phase {
         Phase::Down => ResizeEvent::Down { size: split_h, stored, clicks: d.clicks },
@@ -439,7 +439,7 @@ fn on_split_resize_drag(host: &mut dyn PanelsHost, col_h: f32, split_h: f32, d: 
 
 fn on_chat_resize_drag(host: &mut dyn PanelsHost, chat: f32, max: f32, d: &Drag, tx: &mut Tx) {
     tx.instant();
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     let stored = host.side().sessions.get(&sid).and_then(|st| st.session_width);
     let event = match d.phase {
         Phase::Down => ResizeEvent::Down { size: chat, stored, clicks: d.clicks },

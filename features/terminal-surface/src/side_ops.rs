@@ -178,7 +178,7 @@ pub fn terminal_focus(host: &dyn TerminalSurfaceHost) -> Option<(String, String)
     if !host.is_side_focused() || host.is_composer_focused() {
         return None;
     }
-    let sid = host.active_session_id()?;
+    let sid = host.panel_session_id()?;
     let key = host.focused_pane_shown_tab()?;
     let id = key.strip_prefix(PLUGIN)?.strip_prefix(':')?;
     Some((ops::terminal_workspace_key_for_session(host, sid), id.to_owned()))
@@ -187,7 +187,7 @@ pub fn terminal_focus(host: &dyn TerminalSurfaceHost) -> Option<(String, String)
 /// Starts a terminal in the routed session and opens its tab, in `pane` or beside its other
 /// terminals (Desktop's `create`).
 pub fn create_terminal_tab(host: &mut dyn TerminalSurfaceHost, pane: Option<PaneTarget>, tx: &mut Tx) {
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     let wk = ops::terminal_workspace_key_for_session(host, &sid);
     persist::ensure_terminal_workspace_hydrated(host, &wk);
     let Some(id) = ops::new_terminal_in(host, &wk) else { return };
@@ -199,7 +199,7 @@ pub fn create_terminal_tab(host: &mut dyn TerminalSurfaceHost, pane: Option<Pane
 /// `terminal.toggle` (⌃`): a new terminal when the session has none; its active terminal's
 /// pane hides while that tab shows; otherwise the tab opens and shows.
 pub fn toggle_terminal(host: &mut dyn TerminalSurfaceHost, tx: &mut Tx) {
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     let wk = ops::terminal_workspace_key_for_session(host, &sid);
     persist::ensure_terminal_workspace_hydrated(host, &wk);
     let active = host

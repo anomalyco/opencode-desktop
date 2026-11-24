@@ -60,7 +60,7 @@ fn side_region_shut(host: &dyn PanelsHost, sid: &str, reg: Option<&ResolvedRegio
             resolved.as_deref()
         }
     };
-    host.active_session_id() == Some(sid)
+    host.panel_session_id() == Some(sid)
         && !side_open(host)
         && reg.is_none_or(|r| r.strip.iter().all(|e| e.pane == SessionPane::Bottom))
         && !host.side().adding.iter().any(|n| n.session_id == sid && n.pane != SessionPane::Bottom)
@@ -90,7 +90,7 @@ pub fn poll_panels(host: &mut dyn PanelsHost, tx: &mut Tx) -> bool {
     let mut changed = false;
     if host.shared_side_panel()
         && host.side().shared_open == Some(true)
-        && let Some(sid) = host.active_session_id().map(str::to_owned)
+        && let Some(sid) = host.panel_session_id().map(str::to_owned)
         && !host.side().shared_mounted.contains(&sid)
     {
         host.side_mut().shared_mounted.insert(sid);
@@ -110,11 +110,11 @@ pub fn poll_panels(host: &mut dyn PanelsHost, tx: &mut Tx) -> bool {
         changed |= run_closing(effects, tx);
     }
     let has_stored_tabs = host
-        .active_session_id()
+        .panel_session_id()
         .and_then(|sid| host.side().sessions.get(sid))
         .is_some_and(|st| !st.tab_state.tabs.all.is_empty());
     if has_stored_tabs
-        && let Some(sid) = host.active_session_id().map(str::to_owned)
+        && let Some(sid) = host.panel_session_id().map(str::to_owned)
     {
         let stamp = tabs_check_stamp(host);
         if host.side().tabs_stamp.get() != Some(stamp) {
@@ -192,7 +192,7 @@ pub fn panels_key(host: &mut dyn PanelsHost, ev: &KeyEvent, tx: &mut Tx) -> bool
         return true;
     }
 
-    let on_session = host.active_session_id().is_some() && !host.settings_open();
+    let on_session = host.panel_session_id().is_some() && !host.settings_open();
     if !on_session {
         return false;
     }
@@ -233,7 +233,7 @@ pub fn panels_key(host: &mut dyn PanelsHost, ev: &KeyEvent, tx: &mut Tx) -> bool
 
     // 5. Side-region tab strip shortcuts when focus is in the side/bottom tab strip.
     if is_close_key {
-        let Some(sid) = host.active_session_id().map(str::to_owned) else { return false };
+        let Some(sid) = host.panel_session_id().map(str::to_owned) else { return false };
         let pane = host.side().active_pane_focus;
         let pane_act = resolve_side_region(host).and_then(|reg| {
             let empty = SessionTabs::default();

@@ -323,6 +323,21 @@ impl App {
         }
     }
 
+    /// The session whose side panels the routed session shows: the root session of the tab that
+    /// holds it, so a subagent shows its parent's panels and a tab picked there is the parent's
+    /// too (official `session-layout.ts` `panelKey`, `host-apis.tsx` `panelSessionID`,
+    /// opencode#65957). The routed session itself when no tab holds its root.
+    pub fn panel_session_id(&self) -> Option<&str> {
+        self.active_session_id().map(|id| self.panel_root(id))
+    }
+
+    /// [`Self::panel_session_id`] for session `sid` of the server the window works against.
+    pub fn panel_root<'a>(&'a self, sid: &'a str) -> &'a str {
+        let root = self.root_of(sid);
+        let server = crate::servers::runtime::active(self);
+        if root != sid && self.tabs.iter().any(|t| t.id == root && !t.is_draft() && t.server == *server) { root } else { sid }
+    }
+
     pub fn side_open(&self) -> bool {
         side_open(self)
     }

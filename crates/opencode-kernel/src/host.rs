@@ -44,6 +44,20 @@ pub trait AppEnv {
     fn active_session_id(&self) -> Option<&str> {
         None
     }
+
+    /// The session whose side panels the routed session shows. A child session (a subagent) a
+    /// tab routes to shares its root session's panels, so both go by the root (official
+    /// `packages/app/src/session/session-layout.ts` `panelKey`, opencode#65957). What a panel
+    /// shows of the session (a review's own diff, the context) still follows
+    /// [`Self::active_session_id`].
+    fn panel_session_id(&self) -> Option<&str> {
+        self.active_session_id()
+    }
+
+    /// [`Self::panel_session_id`] for session `sid`: the session its side panels are kept under.
+    fn panel_root<'a>(&'a self, sid: &'a str) -> &'a str {
+        sid
+    }
 }
 
 /// Shared toast feedback capability provided once by the host shell.

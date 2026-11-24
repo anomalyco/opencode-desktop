@@ -131,7 +131,7 @@ impl Renames {
 
 /// Turns tab `id`'s title into a field holding it, all of it selected.
 pub fn start(host: &mut dyn TerminalSurfaceHost, id: &str, _source: Source, tx: &mut Tx) {
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     let ws = ops::terminal_workspace_key_for_session(host, &sid);
     let Some(title) = host
         .terminal()

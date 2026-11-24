@@ -53,6 +53,14 @@ impl AppEnv for App {
             _ => None,
         }
     }
+
+    fn panel_session_id(&self) -> Option<&str> {
+        App::panel_session_id(self)
+    }
+
+    fn panel_root<'a>(&'a self, sid: &'a str) -> &'a str {
+        App::panel_root(self, sid)
+    }
 }
 
 impl AppFeedback for App {

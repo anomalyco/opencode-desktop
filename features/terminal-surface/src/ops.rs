@@ -66,7 +66,7 @@ pub fn active_terminal_workspace_key(host: &dyn TerminalSurfaceHost) -> Option<S
     if host.is_story_stage() {
         return Some(host.story_workspace_key().to_owned());
     }
-    let sid = host.active_session_id()?;
+    let sid = host.panel_session_id()?;
     Some(terminal_workspace_key_for_session(host, sid))
 }
 
@@ -115,7 +115,7 @@ pub fn open_terminal_for_session(host: &mut dyn TerminalSurfaceHost, sid: &str, 
 
 /// The keyboard goes to the routed session's active terminal, in the pane showing its tab.
 pub fn focus_terminal_surface(host: &mut dyn TerminalSurfaceHost) {
-    let active_tab = match host.active_session_id().map(str::to_owned) {
+    let active_tab = match host.panel_session_id().map(str::to_owned) {
         Some(sid) => {
             let wk = terminal_workspace_key_for_session(host, &sid);
             host.terminal()

@@ -15,7 +15,7 @@ use crate::width::bottom_height;
 /// therefore be stored in that pane, or be a New tab in it. Only ask providers then;
 /// an empty dock doesn't need the Review file count or a terminal's title.
 pub fn bottom_has_candidate(host: &dyn PanelsHost) -> bool {
-    let Some(id) = host.active_session_id() else { return false };
+    let Some(id) = host.panel_session_id() else { return false };
     let side = host.side();
     side.adding.iter().any(|n| n.session_id == id && n.pane == SessionPane::Bottom)
         || side.sessions.get(id).is_some_and(|s| {
@@ -28,7 +28,7 @@ pub fn bottom_has_candidate(host: &dyn PanelsHost) -> bool {
 /// `side-column` sit cleanly above it without changing `window/panel`'s element path. `reg` is the
 /// routed session's side region, resolved once per view for this and [`bottom_dock`].
 pub fn bottom_reserve_height(host: &dyn PanelsHost, reg: Option<&ResolvedRegion>) -> f32 {
-    if host.active_session_id().is_none() || host.settings_open() {
+    if host.panel_session_id().is_none() || host.settings_open() {
         return 0.0;
     }
     if let Some(reg) = reg {
@@ -57,7 +57,7 @@ pub fn bottom_dock<H: PanelsHost + 'static>(
     p: &Pal,
     cx: &mut Cx<H>,
 ) -> Option<El> {
-    if host.active_session_id().is_none() || host.settings_open() {
+    if host.panel_session_id().is_none() || host.settings_open() {
         return None;
     }
 
@@ -118,7 +118,7 @@ pub fn bottom_dock<H: PanelsHost + 'static>(
 
 fn on_bottom_resize_drag(host: &mut dyn PanelsHost, h: f32, max_h: f32, d: &Drag, tx: &mut Tx) {
     tx.instant();
-    let Some(sid) = host.active_session_id().map(str::to_owned) else { return };
+    let Some(sid) = host.panel_session_id().map(str::to_owned) else { return };
     let stored = host.side().sessions.get(&sid).and_then(|st| st.bottom_height);
     let event = match d.phase {
         Phase::Down => ResizeEvent::Down { size: h, stored, clicks: d.clicks },

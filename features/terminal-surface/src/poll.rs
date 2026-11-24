@@ -101,7 +101,7 @@ pub fn poll_terminal(host: &mut dyn TerminalSurfaceHost, tx: &mut Tx) -> bool {
 
     // A session whose strip holds terminal tabs loads its terminals, so the tabs can show.
     let stored_tabs = !host.is_story_stage()
-        && match host.active_session_id() {
+        && match host.panel_session_id() {
             Some(id) => host.session_has_terminal_tabs(id),
             None => false,
         };
