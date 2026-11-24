@@ -36,8 +36,8 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, id: &str, pending: bool) -> Option<
     for (i, c) in comments.iter().enumerate() {
         let (quoted, comment) = match c {
             PromptComment::Quote(q) => (quote::<S>(s, p, id, i, q, pending, width), q.comment().map(str::to_owned)),
-            PromptComment::File(f) => (Some(behind_bar(p, pending, file(p, f))), Some(f.comment.clone())),
-            PromptComment::Note(n) => (Some(behind_bar(p, pending, note(p, n))), Some(n.comment.clone())),
+            PromptComment::File(f) => (Some(behind_bar(p, pending, file(p, f), true)), Some(f.comment.clone())),
+            PromptComment::Note(n) => (Some(behind_bar(p, pending, note(p, n), true)), Some(n.comment.clone())),
         };
         let comment = comment.filter(|c| !c.trim().is_empty()).map(|c| remark(p, pending, c.trim()));
         out = out.child(col().key(format!("quote-{i}")).gap(4.0).min_w(0.0).children(quoted).children(comment));
@@ -46,8 +46,13 @@ pub fn view<S: TimelineHost>(s: &S, p: &Pal, id: &str, pending: bool) -> Option<
 }
 
 /// `user-message-quote`: `inner` behind the 2 pt `border-strong` bar (`border-base` while pending).
-fn behind_bar(p: &Pal, pending: bool, inner: El) -> El {
+/// A quote of one line (`single`) has its bar run 1 past the line (`[data-single-line]`:
+/// `padding-bottom: 1px`, opencode#66149): Inter centres capitals on the line, so lowercase
+/// reads about 1 low against the bar, and this puts the text half a point above the bar's
+/// middle, between the two. A wrapped quote sits evenly between the bar's ends already.
+fn behind_bar(p: &Pal, pending: bool, inner: El, single: bool) -> El {
     let bar = el().key("bar").w(BAR).self_stretch().fill(if pending { p.border } else { p.q.border_strong });
+    let inner = if single { el().key("line").min_w(0.0).shrink().pb(1.0).child(inner) } else { inner };
     row().key("quote").gap(BAR_GAP).min_w(0.0).child(bar).child(inner)
 }
 
@@ -61,14 +66,15 @@ fn quote<S: TimelineHost>(s: &S, p: &Pal, id: &str, i: usize, q: &Quote, pending
     }
     let key = open_key(id, i);
     let open = s.expanded().contains(&key);
-    let expandable = open || crate::fold::lines(quoted, width) > CLAMP;
+    let lines = laid_out_lines(quoted, width);
+    let expandable = open || lines > CLAMP;
     let ink = if pending { p.faint } else { p.muted };
     let mut words = readable(p, text(quoted.to_owned()).key("text").font(BUBBLE).color(ink).wrap_anywhere()).dir_by_paragraph().shrink().min_w(0.0);
     if !open {
         words = words.max_lines(CLAMP);
     }
     if !expandable {
-        return Some(behind_bar(p, pending, words));
+        return Some(behind_bar(p, pending, words, lines <= 1));
     }
     // `[data-expandable]:hover, :focus-visible`: the words take the base ink.
     let row_key = format!("u-{id}");
@@ -90,7 +96,42 @@ fn quote<S: TimelineHost>(s: &S, p: &Pal, id: &str, i: usize, q: &Quote, pending
             tx.keep_on_screen(row_key.clone());
         })
         .child(words.group_color(p.text));
-    Some(behind_bar(p, pending, button))
+    Some(behind_bar(p, pending, button, false))
+}
+
+thread_local! {
+    /// How many lines a quote lays out to, by its text and the width it wraps at.
+    static LINES: std::cell::RefCell<std::collections::HashMap<(u64, u32), usize>> = std::cell::RefCell::default();
+}
+
+/// How many lines the quote `text` lays out to at `width`. Laid out, not `fold::lines`: that
+/// answers its hard line breaks alone for a text too short to pass the prompt's twelve-line
+/// fold, and a quote of four wrapped lines is one such. The answer is kept by text and width,
+/// so a row built again (a streaming turn builds its rows each commit) lays nothing out: only
+/// a new quote or a new width does, once. A quote past the clamp by its line breaks alone is
+/// never laid out.
+fn laid_out_lines(text: &str, width: f32) -> usize {
+    use std::hash::{Hash, Hasher};
+    let hard = text.split('\n').count();
+    if hard > CLAMP {
+        return hard;
+    }
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut hasher);
+    let key = (hasher.finish(), width.to_bits());
+    if let Some(lines) = LINES.with_borrow(|kept| kept.get(&key).copied()) {
+        return lines;
+    }
+    let (_, height) = crate::fold::measure(text, width);
+    let lines = hard.max((height / BUBBLE.line_px()).round() as usize);
+    LINES.with_borrow_mut(|kept| {
+        // A window being resized asks at each width: start over rather than grow without end.
+        if kept.len() >= 1024 {
+            kept.clear();
+        }
+        kept.insert(key, lines);
+    });
+    lines
 }
 
 /// `user-message-quote-reference` for a file: its icon, then its name and lines (`:118-124`,
