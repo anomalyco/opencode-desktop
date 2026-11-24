@@ -4,7 +4,7 @@
 use opencode_kit::model::{ModelRef, capitalize};
 use rune::{El, Key, KeyEvent, TextEdit, Tx};
 
-use super::{ADD_PROJECT_KEY, Effort, FAVORITES, Item, Kind, Model, ModelAction, Pickers, RECENT, Selection, grouped, hover, menu, search, speed};
+use super::{ADD_PROJECT_KEY, Choice, Effort, FAVORITES, Item, Kind, Model, ModelAction, Pickers, RECENT, Selection, grouped, hover, menu, search, speed};
 use super::hover::ModelHover;
 use crate::composer::ComposerHost;
 use crate::palette::Pal;
@@ -35,6 +35,9 @@ pub trait PickerHost: ComposerHost {
     fn picker_subagent(&self) -> Option<(String, Selection)> {
         None
     }
+    /// The picks kept for `scope` changed: a host that keeps them across a relaunch writes
+    /// them (`selection-machine.ts` `persist.write`).
+    fn picker_changed(&mut self, _scope: &str) {}
     /// Whether the toolbar shows the agent's picker.
     fn picker_show_agent(&self) -> bool {
         true
@@ -350,15 +353,21 @@ pub trait PickerHost: ComposerHost {
                 // Picking the agent already shown changes nothing (`selection-machine.ts`
                 // `editSelection`).
                 if selected.agent == key { return true; }
-                // The agent it leaves keeps the model it had, for when it is picked again
-                // (`selection-machine.ts` `editSelection`).
-                pk.choices.entry(session.clone()).or_default().insert(selected.agent.clone(), selected.model.clone());
+                // In an open session the agent it leaves keeps the model and effort it showed,
+                // for when it is picked again (`selection-machine.ts` `editSelection`). A draft
+                // keeps only a model that was picked for the agent, which the pick remembered
+                // (`composer/selection.ts`: the agent's `prompt.model`, none when nothing was).
+                if !draft {
+                    let left = Choice { model: selected.model.clone(), effort: Effort::Chosen };
+                    pk.choices.entry(session.clone()).or_default().insert(selected.agent.clone(), left);
+                }
                 match pk.choices.get(&session).and_then(|c| c.get(key)).cloned() {
-                    // The model the agent last had here comes back as it was; a draft
-                    // remembers only the model (`composer/selection.ts` `remembered`).
-                    Some(m) => {
-                        selected.model = m;
-                        if draft { selected.effort = Effort::Inherited; }
+                    // The model the agent last had here comes back as it was. One a draft
+                    // remembered has no effort of its own, also in the session the draft
+                    // started (`composer/selection.ts` `remembered`).
+                    Some(c) => {
+                        selected.model = c.model;
+                        selected.effort = if draft { Effort::Inherited } else { c.effort };
                     }
                     // An agent new here runs with its own model, else with the one a session
                     // nobody chose a model for starts with: the config's, a recent one or the
@@ -397,11 +406,12 @@ pub trait PickerHost: ComposerHost {
             // selection owns its variant even when preferences change in another session").
             if !draft { selected.effort = Effort::Chosen; }
         }
-        pk.choices.entry(session.clone()).or_default().insert(selected.agent.clone(), selected.model.clone());
+        if draft && kind != Kind::Agent { pk.remember_draft_pick(&selected); }
         let live = !self.picker_draft();
         let durable = self.durable();
         let pk = self.pickers_mut();
-        if live && selected == durable { pk.selections.remove(&session); } else { pk.selections.insert(session, selected); }
+        if live && selected == durable { pk.selections.remove(&session); } else { pk.selections.insert(session.clone(), selected); }
+        self.picker_changed(&session);
         true
     }
 

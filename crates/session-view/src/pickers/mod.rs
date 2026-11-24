@@ -9,6 +9,7 @@
 //! The state is [`Pickers`]; a host implements [`PickerHost`] for the session it shows, mounts
 //! [`view::layer`] over its window and calls [`hover::poll`] each frame.
 
+pub mod choices;
 pub mod dialog;
 pub mod drawer;
 pub mod effort;
@@ -33,6 +34,7 @@ use serde_json::Value;
 
 use crate::popover::Highlight;
 
+pub use choices::{Choice, DRAFT};
 pub use effort::Effort;
 pub use flyout::EffortFlyout;
 pub use host::PickerHost;
@@ -172,9 +174,9 @@ pub struct Pickers {
     pub(crate) active: Highlight,
     /// Picks by session id ("draft" for a new session), until the server runs with them.
     pub selections: Selections,
-    /// The model each agent last had in a session, by session then agent, so switching back to
-    /// an agent brings its model back (Desktop's `choices`).
-    pub(crate) choices: HashMap<String, HashMap<String, ModelRef>>,
+    /// The model each agent last had, by session ("draft" for a new one) then agent, so
+    /// switching back to an agent brings its model back ([`choices`]).
+    pub(crate) choices: HashMap<String, HashMap<String, Choice>>,
 
     /// Efforts chosen with ← → on a model's row in the open list, which picking it applies
     /// (Desktop's staged variant). Opening the list clears them.
