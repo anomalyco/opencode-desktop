@@ -389,7 +389,15 @@ impl Writer {
     pub(super) fn quit_checkpoint(&mut self, reason: FlushReason) {
         match reason {
             FlushReason::Quit | FlushReason::SessionEnd => self.wal_event(WalEvent::QuitRequested),
-            FlushReason::UpdateRestart => self.wal_event(WalEvent::RestartRequested),
+            FlushReason::UpdateRestart => {
+                // SQLite checkpoints the WAL itself when its last connection closes (the writer's
+                // end): the same two syncs a moment later (22.8 to 164.4 ms in 12 restarts), and
+                // with the record not rebuilt, an empty WAL over a stale record: the next launch
+                // then drew the window as it was before its last change (12 of 12). Told not to,
+                // it leaves the WAL as it is. If it can't be told, the quit checkpoints as usual.
+                let kept = self.conn.set_db_config(rusqlite::config::DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, true).is_ok();
+                self.wal_event(if kept { WalEvent::RestartRequested } else { WalEvent::QuitRequested });
+            }
             FlushReason::Hide | FlushReason::Close => {}
         }
     }
