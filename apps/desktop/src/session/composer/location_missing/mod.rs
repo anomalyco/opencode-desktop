@@ -258,7 +258,11 @@ fn poll(s: &mut App, _now: f64, tx: &mut Tx) -> bool {
     if let Some(came) = mount(s) {
         tx.instant();
         if came {
-            // No composer under the card takes keys.
+            // No composer under the card takes keys: the focus it had goes with it, to nothing
+            // (Desktop unmounts the composer), not to the control before it.
+            if s.composer.focused || tx.focused() == Some("prompt") {
+                tx.blur();
+            }
             s.composer.focused = false;
         } else if shown.as_deref() == s.active_session_id() && s.has_composer() && !dialog_open(s) && crate::auto_focus_composer(tx) {
             // The session moved, or its folder is back: its composer takes the keys, as a page
