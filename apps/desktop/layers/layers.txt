@@ -3,8 +3,9 @@
 # One line per library, lowest first: `name: crate crate ...`. A library holds the named crates and
 # everything they need that no lower library holds; each library links the ones below it, so a
 # crate is in exactly one file. What no line names stays in the exe. Names are package names;
-# `@rune` is every crate of the Rune repository, `@office` the office viewer's engines, `@third`
-# every other crate that is not ours, `@app` our crates outside `features/` and `apps/`.
+# `@rune` is every crate of the Rune repository, `@third` every crate that is not ours and that
+# something other than the office engines needs, `@app` our crates in `crates/`, `@features`
+# the ones in `features/`. The line `exe:` names crates that must stay in the exe.
 #
 # Why: at the first run of a new build macOS reads every file of the bundle, 8 at a time, and
 # `main` waits for the largest (proof/launch/mac-first-run-law.md: the same 112 MiB of our code as
@@ -19,5 +20,10 @@ media: resvg avif-decode arboard symphonia wasmi mlua opuscule rfd accesskit_con
 gpu: wgpu
 rune: @rune
 deps: @third
-office: @office
 kit: @app
+features: @features
+# The office engines are a library of their own with a C interface, loaded at the first office
+# file (crates/office-library, #945): the linker keeps only what that library uses of them, where
+# a library of this file keeps every public function (78 MiB against 28). So their host crate and
+# the engines stay out of these libraries; in the exe nothing calls them and the linker drops them.
+exe: office-preview opencode-feature-office

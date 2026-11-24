@@ -69,13 +69,13 @@ office_args=()
 # build macOS reads every file of the bundle, 8 at a time, before `main` runs, and waits for the
 # largest (proof/launch/mac-first-run-law.md: the same 112 MiB of our code as 1 file 1,424 ms, as
 # 4 files 599, as 8 files 426). apps/desktop/layers/layers.txt says which crates go where; the
-# office engines are one of the libraries then, not the on-demand library above.
+# office engines are then always the library above (one more file of the same size class).
 LAYERS=${OPENCODE_RUNE_LAYERS:-0}
 case "${GITHUB_HEAD_REF:-}" in *code-layers*) LAYERS=1 ;; esac
 if [ "$LAYERS" = 1 ]; then
   export OPENCODE_RUNE_LAYERS=1
-  OFFICE_LIBRARY=0
-  office_args=()
+  OFFICE_LIBRARY=1
+  office_args=(-p office-library --features opencode-desktop/office-library)
 fi
 # A training build records which functions run, how often and in which order (temporal
 # instrumentation), for the release profile and the link order. It keeps its names.

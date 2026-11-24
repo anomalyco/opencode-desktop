@@ -78,7 +78,7 @@ def main():
     def family(i):
         source = packages[i]["source"] or ""
         if not source:
-            return "third" if under(i, "vendor") else ("exe" if under(i, "features") or under(i, "apps") else "app")
+            return "third" if under(i, "vendor") else ("feature" if under(i, "features") else "app")
         if re.search(r"anomalyco/rune([?#]|$)", source):
             return "rune"
         if re.search(r"betteroffice", source, re.I):
@@ -94,39 +94,41 @@ def main():
         "@rune": [i for i in graph if family(i) == "rune"],
         "@office": [i for i in graph if family(i) == "office"],
         "@third": [i for i in graph if family(i) == "third" and i not in office_only],
-        "@app": [i for i in graph if family(i) == "app"],
+        "@app": [i for i in graph if family(i) == "app" and i != app],
+        "@features": [i for i in graph if family(i) == "feature"],
     }
     by_name = {}
     for i in graph:
         by_name.setdefault(packages[i]["name"], []).append(i)
 
-    layers, placed = [], set()
     with open(os.path.join(LAYERS, "layers.txt"), encoding="utf-8") as f:
-        for line in f:
-            line = line.split("#")[0].strip()
-            if not line:
+        lines = [line.split("#")[0].strip().partition(":") for line in f]
+    # `exe:` names crates that stay in the exe, with what only they need.
+    kept = {app} | {i for name, _, names in lines if name.strip() == "exe" for word in names.split() for i in by_name.get(word, [])}
+    layers, placed = [], set()
+    for name, _, names in lines:
+        name = name.strip()
+        if not name or name == "exe":
+            continue
+        if not re.fullmatch(r"[a-z][a-z0-9]*", name):
+            fail("a library's name is lower-case letters and digits: %r" % name)
+        wanted = []
+        for word in names.split():
+            found = tokens[word] if word in tokens else by_name.get(word)
+            if found is None:
+                # A crate this build does not have (another platform's, a feature that is off) is nothing to place.
+                print("layers.py: %s: no crate named %s in this build" % (name, word), file=sys.stderr)
                 continue
-            name, _, names = line.partition(":")
-            name = name.strip()
-            if not re.fullmatch(r"[a-z][a-z0-9]*", name):
-                fail("a library's name is lower-case letters and digits: %r" % name)
-            wanted = []
-            for word in names.split():
-                found = tokens[word] if word in tokens else by_name.get(word)
-                if found is None:
-                    # A crate this build does not have (another platform's, a feature that is off) is nothing to place.
-                    print("layers.py: %s: no crate named %s in this build" % (name, word), file=sys.stderr)
-                    continue
-                wanted.extend(found)
-            inside = closure(wanted) - placed
-            if any(family(i) == "exe" for i in inside):
-                fail("%s would hold %s, which must stay in the exe" % (name, ", ".join(sorted(packages[i]["name"] for i in inside if family(i) == "exe"))))
-            # The crates to name: the line's own, and any other that nothing else in the library needs.
-            needed = {d for i in inside for d in needs(i)}
-            named = sorted({i for i in wanted if i in inside} | {i for i in inside if i not in needed}, key=lambda i: (packages[i]["name"], packages[i]["version"]))
-            if inside:
-                layers.append({"name": name, "inside": inside, "named": named})
-                placed |= inside
+            wanted.extend(i for i in found if i not in kept)
+        inside = closure(wanted) - placed
+        if inside & kept:
+            fail("%s would hold %s, which must stay in the exe" % (name, ", ".join(sorted(packages[i]["name"] for i in inside & kept))))
+        # The crates to name: the line's own, and any other that nothing else in the library needs.
+        needed = {d for i in inside for d in needs(i)}
+        named = sorted({i for i in wanted if i in inside} | {i for i in inside if i not in needed}, key=lambda i: (packages[i]["name"], packages[i]["version"]))
+        if inside:
+            layers.append({"name": name, "inside": inside, "named": named})
+            placed |= inside
     if not layers or layers[0]["name"] != "base":
         fail("the first library must be `base` (the standard library and the allocator)")
     for want in ("procwatch", "mimalloc"):
