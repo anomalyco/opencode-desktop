@@ -290,8 +290,12 @@ pub fn quote_card(p: &Pal, q: &Quote, hint: bool, active: bool, wide: bool) -> E
     if comment.is_some() && !active { c.help(tip) } else { c }
 }
 
-/// A sent prompt's comment cards (`UserMessageComments`), when it has any; under its words.
-pub fn quotes_on_message<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str) -> Option<El> {
+/// A sent prompt's comment cards (`UserMessageComments`), when it has any; under its words. Where
+/// the host shows quotes inline (`TimelineHost::inline_quotes`), those instead.
+pub fn quotes_on_message<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str, pending: bool) -> Option<El> {
+    if s.inline_quotes() {
+        return crate::user_quotes::view(s, p, id, pending);
+    }
     let quotes = opencode_kit::model::user_comments(id);
     if quotes.is_empty() {
         return None;

@@ -48,6 +48,7 @@ pub mod turn_errors;
 pub mod turns;
 pub mod usage;
 pub mod user_parts;
+pub mod user_quotes;
 pub mod working;
 
 use std::ops::Range;
@@ -258,6 +259,12 @@ pub trait TimelineHost: Sized + 'static {
 
     fn fold_user_messages(&self) -> bool {
         true
+    }
+    /// A sent prompt shows its quotes and comments inline in its bubble (`user_quotes`) instead of
+    /// as comment cards. Desktop turns it on in local and dev builds only
+    /// (`packages/app/src/session/timeline/inline-quotes.ts`).
+    fn inline_quotes(&self) -> bool {
+        false
     }
     /// Desktop supplies contextual actions and resolves media on the session's own machine.
     fn reply_link_menu(&mut self, _url: &str, _press: rune::PointerPress, _tx: &mut Tx) -> bool { false }
