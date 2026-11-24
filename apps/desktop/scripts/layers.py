@@ -113,7 +113,7 @@ def main():
             continue
         if not re.fullmatch(r"[a-z][a-z0-9]*", name):
             fail("a library's name is lower-case letters and digits: %r" % name)
-        wanted = []
+        wanted, typed = [], set()
         for word in names.split():
             found = tokens[word] if word in tokens else by_name.get(word)
             if found is None:
@@ -121,12 +121,17 @@ def main():
                 print("layers.py: %s: no crate named %s in this build" % (name, word), file=sys.stderr)
                 continue
             wanted.extend(i for i in found if i not in kept)
+            if word not in tokens:
+                typed.update(found)
         inside = closure(wanted) - placed
         if inside & kept:
             fail("%s would hold %s, which must stay in the exe" % (name, ", ".join(sorted(packages[i]["name"] for i in inside & kept))))
-        # The crates to name: the line's own, and any other that nothing else in the library needs.
+        # The crates to name: the ones the line spells out, and any other that nothing else in the
+        # library needs. Not every crate of a family: `cargo metadata` also lists crates that this
+        # build never compiles (behind a feature another platform turns on), and naming one of
+        # those would build it, with no features.
         needed = {d for i in inside for d in needs(i)}
-        named = sorted({i for i in wanted if i in inside} | {i for i in inside if i not in needed}, key=lambda i: (packages[i]["name"], packages[i]["version"]))
+        named = sorted({i for i in typed if i in inside} | {i for i in inside if i not in needed}, key=lambda i: (packages[i]["name"], packages[i]["version"]))
         if inside:
             layers.append({"name": name, "inside": inside, "named": named})
             placed |= inside
