@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The macOS link of opencode-desktop with the functions a launch runs laid out first and together,
 # so a launch whose exe is not in memory reads few pages of it. Cargo calls this as the linker
-# (build-app.sh sets CARGO_TARGET_<TRIPLE>_LINKER); every other link goes to cc untouched.
+# (build-app.sh sets CARGO_TARGET_<TRIPLE>_LINKER); so are the app's code libraries when a build
+# has them (see below); every other link goes to cc untouched.
 #
 # apps/desktop/pgo/startup-order.txt lists those functions in the order a training launch ran them
 # (apps/desktop/scripts/startup-order.sh makes it), with the crate hashes taken out of the names:
@@ -40,11 +41,33 @@ for arg in "${args[@]}"; do
     *.o | *.rlib | *.a) [ -f "$arg" ] && objects+=("$arg") ;;
   esac
 done
+link=("$@")
 case "$(basename "${out:-none}")" in
   opencode-desktop | opencode_desktop-*) ;;
+  libopencode_layer_*.dylib)
+    # One of the app's code libraries (build-app.sh, OPENCODE_RUNE_LAYERS). rustc exports a
+    # library's Rust names only, but a higher library also calls the C code linked into this one
+    # (Luau, SQLite, zstd: generic Rust wrappers are compiled where they are used). So every global
+    # name is exported (rustc's list is dropped) and the C archives are loaded whole: a function
+    # only a higher library calls would otherwise not be in the file at all.
+    link=()
+    skip=0
+    for arg in "${args[@]}"; do
+      if [ "$skip" = 1 ]; then
+        skip=0
+        continue
+      fi
+      case "$arg" in
+        -Wl,-exported_symbols_list) skip=1 ;;
+        -Wl,-exported_symbols_list,*) ;;
+        *) link+=("$arg") ;;
+      esac
+    done
+    link+=(-Wl,-all_load)
+    ;;
   *) exec cc "$@" ;;
 esac
-[ -n "$list" ] && [ -s "$list" ] && [ "${#objects[@]}" -gt 0 ] || exec cc "$@"
+[ -n "$list" ] && [ -s "$list" ] && [ "${#objects[@]}" -gt 0 ] || exec cc "${link[@]}"
 
 order=$(mktemp -t opencode-order)
 trap 'rm -f "$order"' EXIT
@@ -68,8 +91,8 @@ found=$(cut -f1 "$order.ranked" | uniq | wc -l | tr -d ' ')
 listed=$(grep -c -v -e '^#' -e '^$' "$list")
 rm -f "$order.ranked"
 echo "link order: $found of $listed listed functions are in this build ($(wc -l < "$order" | tr -d ' ') symbols)" | tee "$out.link-order.txt" >&2
-[ -s "$order" ] || exec cc "$@"
+[ -s "$order" ] || exec cc "${link[@]}"
 # The order is an optimisation: a link that fails with it is made again without it.
-cc "$@" -Wl,-order_file,"$order" && exit 0
+cc "${link[@]}" -Wl,-order_file,"$order" && exit 0
 echo "link order: the link failed with the order file; linking without it" | tee -a "$out.link-order.txt" >&2
-exec cc "$@"
+exec cc "${link[@]}"

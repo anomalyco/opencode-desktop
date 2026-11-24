@@ -110,6 +110,8 @@ if [ "${OPENCODE_RUNE_SKIP_CARGO_BUILD:-0}" != "1" ]; then
     export "CARGO_TARGET_$(printf '%s' "$target_triple" | tr 'a-z-' 'A-Z_')_LINKER=$ROOT/apps/desktop/scripts/link-order.sh"
     rm -f "$(dirname "$BIN")"/deps/opencode_desktop-*.link-order.txt
   fi
+  # The code libraries are linked by the same script, with or without the order (link-order.sh).
+  [ "$LAYERS" != 1 ] || export "CARGO_TARGET_$(printf '%s' "$target_triple" | tr 'a-z-' 'A-Z_')_LINKER=$ROOT/apps/desktop/scripts/link-order.sh"
   if [ "$LAYERS" = 1 ]; then
     # Rust's standard library goes into the lowest library, with the allocator (layers/base.rs). The
     # toolchain also has it as a library of its own, which a `dylib` crate links by preference, and
