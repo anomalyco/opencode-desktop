@@ -26,6 +26,7 @@ pub use saved::{catalog as saved_catalog, gutters as saved_gutters, list as save
 #[cfg(windows)]
 #[cfg(windows)]
 pub use boot::leave_install_folder;
+#[cfg(windows)]
 pub use boot::warm_gpu_if_asked;
 pub use boot::{
     Accepted, FIRST_PATIENCE, First, GRACE, Ready, defer, deferred, initial_server, window_title,
