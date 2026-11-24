@@ -193,6 +193,10 @@ fn contents(s: &App, p: &Pal, top: f32) -> El {
                 .window_drag()
                 // The lights' end, less the sidebar's start padding.
                 .child(el().key("lights").w((chrome.lights_end - INSET_START).max(0.0)).h(28.0))
+                // Linux has no titlebar row with side tabs, so its app menu leads this header
+                // (official `titlebar.tsx`'s `linux()` branch, opencode#65912): its glyph sits 2
+                // further into its slot than the sidebar's icons sit into their rows (`-ms-0.5`).
+                .children(cfg!(target_os = "linux").then(|| crate::app_menu::button(s, p).ml(-2.0)))
                 .child(spacer())
                 // The toggle floats above (see `sidebar_toggle`); its slot keeps the row's shape.
                 .child(el().key("toggle-slot").size(28.0, 28.0))
