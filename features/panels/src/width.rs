@@ -71,7 +71,7 @@ pub fn chat_width_max(host: &dyn PanelsHost, zoomed_w: f32) -> f32 {
 }
 
 fn routed_side(host: &dyn PanelsHost) -> Option<&SessionSideState> {
-    host.active_session_id().and_then(|id| host.side().sessions.get(id))
+    host.panel_session_id().and_then(|id| host.side().sessions.get(id))
 }
 
 /// The side pane's share of the side region's height while a pane splits below it.

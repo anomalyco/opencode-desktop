@@ -58,8 +58,13 @@ pub fn terminal_waker(host: &dyn TerminalSurfaceHost) -> Waker {
     })
 }
 
+/// The workspace session `session_id`'s terminals are in: its side panel's (`AppEnv::panel_root`),
+/// so a subagent's page shows its root's terminals, as it shows the rest of its root's strip
+/// (opencode#65957). Desktop's terminal model loads the routed session's own terminals
+/// (`packages/gui-plugins/src/terminal/model.ts` `load`), which on a subagent's page drops the
+/// root's terminal tabs from the shared strip: not copied.
 pub fn terminal_workspace_key_for_session(host: &dyn TerminalSurfaceHost, session_id: &str) -> String {
-    workspace_key(server_id_str(host), session_id)
+    workspace_key(server_id_str(host), host.panel_root(session_id))
 }
 
 pub fn active_terminal_workspace_key(host: &dyn TerminalSurfaceHost) -> Option<String> {

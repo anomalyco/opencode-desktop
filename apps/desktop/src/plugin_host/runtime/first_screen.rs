@@ -60,7 +60,8 @@ pub fn plugins(app: &App, record: impl Fn(&str) -> Option<opencode_plugin_runtim
     // A link handler draws nothing: it answers when a link is opened, which starts it (`commands::open_link`).
     out.extend(sources::builtin_ids().filter(|id| (*id != "debug" && has(id, &["Slot"])) || (has(id, &["CodeBlock"]) && draws_block(id))));
     let side_state = app.kernel.slots.get(&crate::panels::SIDE);
-    let side = side_state.sessions.get(session);
+    // A subagent's page draws its root's strip (`App::panel_root`).
+    let side = side_state.sessions.get(app.panel_root(session));
     let side_open = if app.settings.shared_side_panel {
         side_state.shared_open.unwrap_or(false)
     } else {

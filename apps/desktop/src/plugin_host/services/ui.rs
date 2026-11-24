@@ -266,7 +266,7 @@ fn layout(lua: &Lua, p: &Rc<str>, t: &Table) -> mlua::Result<()> {
         cx::read(Dep::Browser);
         with_app("Layout:RegionOpen", |app| {
             let session = session.as_deref().or(app.active_session_id()).unwrap_or_default();
-            Ok(app.kernel.slots.get(&crate::panels::SIDE).sessions.get(session).is_some_and(|st| st.visibility.open()))
+            Ok(app.kernel.slots.get(&crate::panels::SIDE).sessions.get(app.panel_root(session)).is_some_and(|st| st.visibility.open()))
         })
     })?;
     method(lua, t, "RegionFocused", |_, ()| {

@@ -242,11 +242,13 @@ impl App {
         }
 
         let key = panel_key(PLUGIN, &id.to_string());
+        // The strip is the family's (`App::panel_root`); the tab stays `sid`'s own.
+        let strip = self.panel_root(sid).to_owned();
         if front {
             let focused_tab = self.workspace_panes.browser.host.focused_tab_id();
             let shared = self.settings.shared_side_panel;
             let side = self.kernel.slots.get_mut(&crate::panels::SIDE);
-            let st = side.sessions.entry(sid.to_owned()).or_default();
+            let st = side.sessions.entry(strip.clone()).or_default();
             st.tab_state = crate::panels::tabs::open_session_tab_after(
                 &st.tab_state,
                 &key,
@@ -267,7 +269,7 @@ impl App {
             if focused_tab != Some(id) {
                 self.workspace_panes.browser.host.focus_tab(id);
             }
-            self.workspace_panes.browser.openers.last_selected.insert(sid.to_owned(), id);
+            self.workspace_panes.browser.openers.last_selected.insert(strip, id);
         } else {
             // Background tab stays behind the current tab without changing selection or focus.
             let prev_focused = self.workspace_panes.browser.host.focused_tab_id();
@@ -309,7 +311,7 @@ impl App {
 
     pub(crate) fn sync_browser_openers(&mut self) -> bool {
         let mut changed = self.sync_browser_strip_tabs();
-        if let Some(sid) = self.active_session_id().map(str::to_owned)
+        if let Some(sid) = self.panel_session_id().map(str::to_owned)
             && let Some(active) = self.active_browser_tab_id()
         {
             let prev = self.workspace_panes.browser.openers.last_selected.insert(sid, active);
@@ -322,43 +324,37 @@ impl App {
         changed
     }
 
-    /// `UP-148` (`#65322`): keeps every live open browser tab for the active session present in
-    /// its side-panel strip, restoring any tab the strip lost without an explicit close in exact
-    /// relative order after its predecessor.
+    /// `UP-148` (`#65322`): keeps every live open browser tab of the page's strip present in it
+    /// (the routed session's, and those of the rest of its family: `App::panel_root`), restoring
+    /// any tab the strip lost without an explicit close in exact relative order after its
+    /// predecessor among its session's tabs.
     fn sync_browser_strip_tabs(&mut self) -> bool {
-        let Some(sid) = self.active_session_id().map(str::to_owned) else {
-            return false;
-        };
-        let live_ids: Vec<u64> = {
-            let browser = &self.workspace_panes.browser;
-            let Some(ids) = browser.session_tabs.get(&sid) else {
-                return false;
-            };
-            ids.iter()
-                .copied()
-                .filter(|id| !browser.closing_tabs.contains(id) && browser.host.tab(*id).is_some())
-                .collect()
-        };
-        if live_ids.is_empty() {
+        if self.workspace_panes.browser.session_tabs.is_empty() {
             return false;
         }
+        let Some(sid) = self.panel_session_id().map(str::to_owned) else {
+            return false;
+        };
         let missing: Vec<(u64, Option<u64>)> = {
+            let browser = &self.workspace_panes.browser;
             let side = self.kernel.slots.get(&crate::panels::SIDE);
             let stored = side.sessions.get(&sid).map(|st| &st.tab_state.tabs.all);
-            live_ids
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, &id)| {
-                    let key = panel_key(PLUGIN, &id.to_string());
-                    let present = stored.is_some_and(|all| all.contains(&key));
-                    if present {
-                        None
-                    } else {
-                        let after = idx.checked_sub(1).and_then(|prev| live_ids.get(prev).copied());
-                        Some((id, after))
+            let mut owners: Vec<&String> = browser.session_tabs.keys().filter(|owner| self.panel_root(owner) == sid).collect();
+            owners.sort_unstable();
+            let mut missing = Vec::new();
+            for owner in owners {
+                let live_ids: Vec<u64> = browser.session_tabs[owner]
+                    .iter()
+                    .copied()
+                    .filter(|id| !browser.closing_tabs.contains(id) && browser.host.tab(*id).is_some())
+                    .collect();
+                for (idx, &id) in live_ids.iter().enumerate() {
+                    if !stored.is_some_and(|all| all.contains(&panel_key(PLUGIN, &id.to_string()))) {
+                        missing.push((id, idx.checked_sub(1).and_then(|prev| live_ids.get(prev).copied())));
                     }
-                })
-                .collect()
+                }
+            }
+            missing
         };
         if missing.is_empty() {
             return false;

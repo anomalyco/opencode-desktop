@@ -8,6 +8,7 @@ impl crate::App {
     /// session's mark goes when the route leaves it or its messages land, so coming back to it, or
     /// its pages being evicted, reads it again instead of leaving the page without messages.
     pub(super) fn read_shown_session(&mut self, tx: &mut rune::Tx) -> bool {
+        crate::launch::saved::page_tab::left(self);
         let shown = match &*self.route {
             crate::Route::Session { id, .. } => Some(id.as_str()),
             _ => None,

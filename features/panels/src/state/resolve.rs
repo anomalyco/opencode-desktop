@@ -50,9 +50,13 @@ pub fn resolve_side_region(host: &dyn PanelsHost) -> Option<Rc<ResolvedRegion>> 
 }
 
 fn resolve_side_region_now(host: &dyn PanelsHost) -> Option<ResolvedRegion> {
-    let session_id = host.active_session_id()?.to_owned();
-    let directory = host.session_directory(&session_id).unwrap_or_default().to_owned();
-    let project_id = host.session_project_id(&session_id);
+    // The strip is the root's; its panels list and draw for the routed session, as Desktop's
+    // `layout.tabs(panelKey)` beside `panelInput(view)` (`session-layout.ts`, `panels.tsx`).
+    let session_id = host.panel_session_id()?.to_owned();
+    let view_session = host.active_session_id()?.to_owned();
+    // A subagent whose own record a launch hasn't read yet works where its root does.
+    let directory = host.session_directory(&view_session).or_else(|| host.session_directory(&session_id)).unwrap_or_default().to_owned();
+    let project_id = Some(host.session_project_id(&view_session)).filter(|p| !p.is_empty()).unwrap_or_else(|| host.session_project_id(&session_id));
     let empty_tabs = SessionTabs::default();
     let stored = host
         .side()
@@ -73,7 +77,7 @@ fn resolve_side_region_now(host: &dyn PanelsHost) -> Option<ResolvedRegion> {
             .collect();
         let ctx = PanelSessionCtx {
             plugin: p.plugin,
-            session_id: &session_id,
+            session_id: &view_session,
             directory: &directory,
             project_id: &project_id,
             open_ids: &open_ids,
@@ -136,6 +140,7 @@ fn resolve_side_region_now(host: &dyn PanelsHost) -> Option<ResolvedRegion> {
 
     Some(ResolvedRegion {
         session_id,
+        view_session,
         directory,
         project_id,
         entries,

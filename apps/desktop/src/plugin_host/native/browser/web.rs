@@ -182,7 +182,7 @@ pub fn version(app: &App) -> u64 {
         format!("{:?}", side.active_pane_focus),
     )
         .hash(&mut h);
-    app.active_session_id()
+    app.panel_session_id()
         .and_then(|sid| side.sessions.get(sid))
         .map(|st| st.visibility.open())
         .hash(&mut h);
