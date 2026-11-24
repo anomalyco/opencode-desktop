@@ -113,3 +113,5 @@ pages and few others. Without it the same functions lie spread over the whole of
      Commit `startup-order.txt` from a branch of `dev` and close the draft.
 - `OPENCODE_RUNE_LINK_ORDER=0` links without it. A failure to make the order never fails a link.
 - The same raw profiles, merged with `--sparse`, are a fresh `aarch64-apple-darwin.profdata`.
+
+<!-- symbols 463b535aee: the shipped code with line tables and the PDB in the artifact, for one recording; never merged -->
