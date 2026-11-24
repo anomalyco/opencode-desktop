@@ -129,7 +129,7 @@ pub(crate) fn init_features() {
 /// in its Bold cut (`index.css`), which a Markdown heading in a diff takes, and italic Plex in its
 /// Text Italic cut (inline code in emphasis). JetBrains Mono is desktop's terminal face
 /// (`terminalDefault`), Nerd Font glyphs included for prompts.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(bundle_assets)))]
 const FONTS: &[&[u8]] = &[
     include_bytes!("../assets/fonts/InterVariable.ttf"),
     include_bytes!("../assets/fonts/IBMPlexMono-Text.ttf"),
@@ -142,6 +142,30 @@ const FONTS: &[&[u8]] = &[
     include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf"),
     include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Bold.ttf"),
 ];
+/// A packaged macOS app's fonts are files in its bundle (`bundle`), mapped: 7.1 MiB the system does
+/// not read before the exe's first run. A font whose file is missing is left out.
+#[cfg(bundle_assets)]
+const FONT_FILES: &[&str] = &[
+    "InterVariable.ttf",
+    "IBMPlexMono-Text.ttf",
+    "IBMPlexMono-Bold.ttf",
+    "IBMPlexMono-TextItalic.ttf",
+    "CommitMono-400-Regular.otf",
+    "CommitMono-700-Regular.otf",
+    "CommitMono-400-Italic.otf",
+    "CommitMono-700-Italic.otf",
+    "JetBrainsMonoNerdFontMono-Regular.ttf",
+    "JetBrainsMonoNerdFontMono-Bold.ttf",
+];
+#[cfg(bundle_assets)]
+fn fonts() -> &'static [&'static [u8]] {
+    static MAPPED: std::sync::OnceLock<Vec<&'static [u8]>> = std::sync::OnceLock::new();
+    MAPPED.get_or_init(|| FONT_FILES.iter().filter_map(|file| crate::bundle::map(&format!("fonts/{file}"))).collect())
+}
+#[cfg(not(bundle_assets))]
+fn fonts() -> &'static [&'static [u8]] {
+    FONTS
+}
 /// In a browser, only the fonts the default appearance draws in: the page fetches Plex's italic and
 /// Commit Mono once its first frame is up (`LATE_FONTS`), and JetBrains Mono, the terminal's (4.8 MB), when a
 /// terminal first attaches (`TERMINAL_FONTS`).
@@ -173,7 +197,7 @@ pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
     rune::text::set_pretty_wrap(true);
     AppSpec {
         scenes: stories::scenes(),
-        fonts: FONTS,
+        fonts: fonts(),
         families: (appearance::UI_FONTS[0].family, appearance::CODE_FONTS[0].family),
         setup: Some(setup),
         poll: Some(poll),

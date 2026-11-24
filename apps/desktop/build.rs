@@ -37,6 +37,13 @@ fn main() {
     // before the fast exit (`launch::write_profile`).
     println!("cargo:rustc-check-cfg=cfg(pgo_generate)");
     println!("cargo:rustc-check-cfg=cfg(disk_builtins)");
+    // A packaged macOS app carries its fonts and sounds as files in its bundle (`system::bundle`):
+    // `build-app.sh` sets the variable and copies the files.
+    println!("cargo:rustc-check-cfg=cfg(bundle_assets)");
+    println!("cargo:rerun-if-env-changed=OPENCODE_RUNE_BUNDLE_ASSETS");
+    if env("OPENCODE_RUNE_BUNDLE_ASSETS").as_deref() == Some("1") && env("CARGO_CFG_TARGET_OS").as_deref() == Some("macos") {
+        println!("cargo:rustc-cfg=bundle_assets");
+    }
     println!("cargo:rerun-if-env-changed=CARGO_ENCODED_RUSTFLAGS");
     println!("cargo:rerun-if-env-changed=OPENCODE_RUNE_EMBED_PLUGINS");
     if env("CARGO_ENCODED_RUSTFLAGS").is_some_and(|flags| flags.split('\x1f').any(|f| f.contains("profile-generate"))) {

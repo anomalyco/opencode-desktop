@@ -4,18 +4,19 @@
 //! a preview when picked. The clips ship as 22 kHz mono WAV (`assets/sounds`, converted from
 //! Desktop's MP3s). Only a window with a person at it plays (`App::persists`). In a browser the
 //! clips aren't in the module: the page plays them from `sounds/` beside it (`scripts/web.ps1`).
+//! A packaged macOS app plays them from its bundle (`bundle`).
 
 
 use crate::App;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(bundle_assets)))]
 macro_rules! clips {
     ($($id:literal),+ $(,)?) => {
         &[$(($id, include_bytes!(concat!("../../../assets/sounds/", $id, ".wav")))),+]
     };
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", bundle_assets))]
 macro_rules! clips {
     ($($id:literal),+ $(,)?) => {
         &[$(($id, &[])),+]
@@ -118,8 +119,10 @@ mod platform {
 
 #[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
 mod platform {
-    /// The clip from the app's cache folder through the system's player: `afplay` on macOS,
-    /// PulseAudio's `paplay` (or ALSA's `aplay`) elsewhere.
+    /// The clip through the system's player: `afplay` on macOS, PulseAudio's `paplay` (or ALSA's
+    /// `aplay`) elsewhere. It plays from the app's cache folder, written there on first use; a
+    /// packaged macOS app plays the file in its bundle.
+    #[cfg(not(bundle_assets))]
     pub fn play(id: &str, wav: &'static [u8]) {
         let Some(dir) = crate::dirs::data().map(|d| d.join("sounds")) else { return };
         let path = dir.join(format!("{id}.wav"));
@@ -130,12 +133,22 @@ mod platform {
                     return;
                 }
             }
-            let players: &[&str] = if cfg!(target_os = "macos") { &["afplay"] } else { &["paplay", "aplay"] };
-            for player in players {
-                if std::process::Command::new(player).arg(&path).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success()) {
-                    return;
-                }
-            }
+            run(&path);
         });
+    }
+
+    #[cfg(bundle_assets)]
+    pub fn play(id: &str, _: &'static [u8]) {
+        let Some(path) = crate::bundle::path(&format!("sounds/{id}.wav")) else { return };
+        std::thread::spawn(move || run(&path));
+    }
+
+    fn run(path: &std::path::Path) {
+        let players: &[&str] = if cfg!(target_os = "macos") { &["afplay"] } else { &["paplay", "aplay"] };
+        for player in players {
+            if std::process::Command::new(player).arg(path).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success()) {
+                return;
+            }
+        }
     }
 }

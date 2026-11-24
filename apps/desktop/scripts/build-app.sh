@@ -27,6 +27,10 @@ BUNDLE_ID=${OPENCODE_RUNE_BUNDLE_ID:-anomaly.opencode-rune}
 ICON_PATH=${OPENCODE_RUNE_ICON:-$ROOT/apps/desktop/assets/icon.icns}
 URL_SCHEME=${OPENCODE_RUNE_URL_SCHEME:-opencode-rune}
 PROFILE=${OPENCODE_RUNE_PROFILE:-release}
+# The fonts and sounds are files in the bundle, not bytes in the exe (apps/desktop/build.rs:
+# cfg(bundle_assets); src/workspace/system/bundle.rs): macOS reads a new exe whole before its
+# first run, and a file in Resources only when the app opens it.
+export OPENCODE_RUNE_BUNDLE_ASSETS=1
 
 case "$OPENCODE_RUNE_VERSION" in
   0.0.0-dev-[0-9]*) BUILD=${OPENCODE_RUNE_VERSION#0.0.0-dev-} ;;
@@ -118,6 +122,7 @@ if [ "${OPENCODE_RUNE_KEEP_SYMBOLS:-0}" != "1" ]; then
   echo "opencode-desktop: $(stat -f %z "$BIN") -> $(stat -f %z "$APP/Contents/MacOS/opencode-desktop") bytes without symbol names; they are in $SYMBOLS/opencode-desktop.dSYM.zip" >&2
 fi
 cp "$ICON_PATH" "$APP/Contents/Resources/icon.icns"
+cp -R "$ROOT/apps/desktop/assets/fonts" "$ROOT/apps/desktop/assets/sounds" "$APP/Contents/Resources/"
 cp "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE"
 cp "$ROOT/THIRD_PARTY_NOTICES.md" "$APP/Contents/Resources/THIRD_PARTY_NOTICES.md"
 
