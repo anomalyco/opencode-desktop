@@ -66,10 +66,7 @@ fn quote<S: TimelineHost>(s: &S, p: &Pal, id: &str, i: usize, q: &Quote, pending
     }
     let key = open_key(id, i);
     let open = s.expanded().contains(&key);
-    // Laid out, not `fold::lines`: that answers its hard line breaks alone for a text too short
-    // to pass the prompt's twelve-line fold, and a quote of four wrapped lines is one such.
-    let (_, height) = crate::fold::measure(quoted, width);
-    let lines = quoted.split('\n').count().max((height / BUBBLE.line_px()).round() as usize);
+    let lines = laid_out_lines(quoted, width);
     let expandable = open || lines > CLAMP;
     let ink = if pending { p.faint } else { p.muted };
     let mut words = readable(p, text(quoted.to_owned()).key("text").font(BUBBLE).color(ink).wrap_anywhere()).dir_by_paragraph().shrink().min_w(0.0);
@@ -100,6 +97,41 @@ fn quote<S: TimelineHost>(s: &S, p: &Pal, id: &str, i: usize, q: &Quote, pending
         })
         .child(words.group_color(p.text));
     Some(behind_bar(p, pending, button, false))
+}
+
+thread_local! {
+    /// How many lines a quote lays out to, by its text and the width it wraps at.
+    static LINES: std::cell::RefCell<std::collections::HashMap<(u64, u32), usize>> = std::cell::RefCell::default();
+}
+
+/// How many lines the quote `text` lays out to at `width`. Laid out, not `fold::lines`: that
+/// answers its hard line breaks alone for a text too short to pass the prompt's twelve-line
+/// fold, and a quote of four wrapped lines is one such. The answer is kept by text and width,
+/// so a row built again (a streaming turn builds its rows each commit) lays nothing out: only
+/// a new quote or a new width does, once. A quote past the clamp by its line breaks alone is
+/// never laid out.
+fn laid_out_lines(text: &str, width: f32) -> usize {
+    use std::hash::{Hash, Hasher};
+    let hard = text.split('\n').count();
+    if hard > CLAMP {
+        return hard;
+    }
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut hasher);
+    let key = (hasher.finish(), width.to_bits());
+    if let Some(lines) = LINES.with_borrow(|kept| kept.get(&key).copied()) {
+        return lines;
+    }
+    let (_, height) = crate::fold::measure(text, width);
+    let lines = hard.max((height / BUBBLE.line_px()).round() as usize);
+    LINES.with_borrow_mut(|kept| {
+        // A window being resized asks at each width: start over rather than grow without end.
+        if kept.len() >= 1024 {
+            kept.clear();
+        }
+        kept.insert(key, lines);
+    });
+    lines
 }
 
 /// `user-message-quote-reference` for a file: its icon, then its name and lines (`:118-124`,
