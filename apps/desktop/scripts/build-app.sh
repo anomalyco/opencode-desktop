@@ -18,6 +18,10 @@
 #                                 from a branch with "thin-build" in its name builds release-thin)
 #   OPENCODE_RUNE_SYMBOLS        (folder for opencode-desktop.dSYM.zip; default: $RUNNER_TEMP/macos, else OUT)
 #   OPENCODE_RUNE_KEEP_SYMBOLS   (1 ships the exe with its symbol names and writes no dSYM)
+#   OPENCODE_RUNE_OFFICE_LIBRARY (1 ships the office viewer's engines as Contents/Frameworks/libopencode_office.dylib,
+#                                 loaded at the first office file, instead of in the exe; so does a pull request
+#                                 from a branch with "office-library" in its name. 0 until the release's signing
+#                                 step signs a second Mach-O file.)
 #   OPENCODE_RUNE_COMPACT_UNWIND (0 keeps a DWARF unwind entry per function; see rustc-compact-unwind.sh)
 #   OPENCODE_RUNE_LINK_ORDER     (0 links without apps/desktop/pgo/startup-order.txt; see link-order.sh)
 #   OPENCODE_RUNE_PGO_TRAIN      (1 builds the training exe; so does a pull request from a branch
@@ -46,6 +50,16 @@ case "$OPENCODE_RUNE_VERSION" in
   *) BUILD=$(printf '%s\n' "${OPENCODE_RUNE_VERSION%%-*}" | awk -F. '{ print ($1 * 10000) + ($2 * 100) + $3 }') ;;
 esac
 
+# The office viewer's engines (Word, Excel, PowerPoint: 24 MiB of code and fonts no launch runs)
+# as a library in the bundle. At a bundle's first run macOS reads every Mach-O file in it side by
+# side and the launch waits for the largest one (5.5 ms per MiB on an M4, plus 250 ms once for
+# code it has never seen): what leaves the exe for a second library is no longer waited for
+# (a build never seen: 1,225 -> 1,004 ms thin, 1,057 -> 911 ms fat). One big library in place of
+# the exe changes nothing (#958); a file that is not Mach-O is not read at all.
+OFFICE_LIBRARY=${OPENCODE_RUNE_OFFICE_LIBRARY:-0}
+case "${GITHUB_HEAD_REF:-}" in *office-library*) OFFICE_LIBRARY=1 ;; esac
+office_args=()
+[ "$OFFICE_LIBRARY" != 1 ] || office_args=(-p office-library --features opencode-desktop/office-library)
 # A training build records which functions run, how often and in which order (temporal
 # instrumentation), for the release profile and the link order. It keeps its names.
 TRAIN=${OPENCODE_RUNE_PGO_TRAIN:-0}
@@ -94,14 +108,14 @@ if [ "${OPENCODE_RUNE_SKIP_CARGO_BUILD:-0}" != "1" ]; then
         # rustc for a dependency may run in that dependency's directory.
         export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS }-Cprofile-use=$ROOT/$profile -Cllvm-args=-no-pgo-warn-mismatch"
       fi
-      cargo build --release --locked --target "$target_triple" -p opencode-desktop
+      cargo build --release --locked --target "$target_triple" -p opencode-desktop ${office_args[@]+"${office_args[@]}"}
     )
   else
     cargo_args=(build --profile "$PROFILE" --locked -p opencode-desktop --manifest-path "$ROOT/Cargo.toml")
     if [ -n "${OPENCODE_RUNE_TARGET:-}" ]; then
       cargo_args+=(--target "$target_triple")
     fi
-    cargo "${cargo_args[@]}"
+    cargo "${cargo_args[@]}" ${office_args[@]+"${office_args[@]}"}
   fi
 fi
 
@@ -157,6 +171,19 @@ if [ "${OPENCODE_RUNE_KEEP_SYMBOLS:-0}" != "1" ]; then
     exit 1
   }
   echo "opencode-desktop: $(stat -f %z "$BIN") -> $(stat -f %z "$APP/Contents/MacOS/opencode-desktop") bytes without symbol names; they are in $SYMBOLS/opencode-desktop.dSYM.zip" >&2
+fi
+if [ "$OFFICE_LIBRARY" = 1 ]; then
+  LIBRARY="$APP/Contents/Frameworks/libopencode_office.dylib"
+  mkdir -p "$APP/Contents/Frameworks"
+  cp "$(dirname "$BIN")/libopencode_office.dylib" "$LIBRARY"
+  # Its one exported name stays (the app looks it up); the local names go, as the exe's do.
+  strip -x "$LIBRARY" 2>&1 | grep -v 'will invalidate the code signature' >&2 || true
+  nm -gU "$LIBRARY" | grep -q ' _opencode_office_v1$' || {
+    echo "libopencode_office.dylib does not export opencode_office_v1" >&2
+    exit 1
+  }
+  codesign --force --sign - "$LIBRARY"
+  echo "office viewer: $(stat -f %z "$LIBRARY") bytes in Contents/Frameworks/libopencode_office.dylib, exe $(stat -f %z "$APP/Contents/MacOS/opencode-desktop") bytes" >&2
 fi
 cp "$ICON_PATH" "$APP/Contents/Resources/icon.icns"
 cp -R "$ROOT/apps/desktop/assets/fonts" "$ROOT/apps/desktop/assets/sounds" "$APP/Contents/Resources/"

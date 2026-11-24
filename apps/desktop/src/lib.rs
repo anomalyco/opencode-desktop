@@ -308,6 +308,8 @@ pub fn run_native() {
     #[cfg(windows)]
     install::run_if_asked();
     launch::print_version_if_asked();
+    #[cfg(feature = "office")]
+    office::check_if_asked();
     launch::unwind_check_if_asked();
     if plugin_host::types::from_args() {
         return;
@@ -317,7 +319,7 @@ pub fn run_native() {
     }
     // The exe's own pages for this launch, asked for at once on a thread instead of one disk
     // read per page fault (a new build's first start, or memory pressure since the last one).
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     launch::image_pages::ask();
     // The app's state, read on its own thread beside the instance claim (`storage::start`). A
     // launch while the app runs hands its links (`deep_links`) to it and ends here.
