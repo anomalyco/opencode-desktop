@@ -112,7 +112,12 @@ pub fn install(p: &Product, root: &Path, desktop_shortcut: bool, log: &dyn Fn(&s
     // A version the updater staged for the install it replaced would go back in on the next restart.
     win_install::remove_dir(&beside(root, "staged"));
     let unpacked = started.elapsed();
-    let changed = win_install::register(p, root, desktop_shortcut)?;
+    let (changed, flushed) = std::thread::scope(|scope| {
+        let writing = scope.spawn(|| flush(root));
+        (win_install::register(p, root, desktop_shortcut), writing.join().unwrap_or_default())
+    });
+    let changed = changed?;
+    log(&format!("Windows wrote {} programs to the disk in {} µs", flushed.0, flushed.1.as_micros()));
     log(&format!("registered {} (Start menu{}, Apps & features, {}://, notification identity)", p.name(), if desktop_shortcut { ", desktop" } else { "" }, p.scheme()));
     changed.iter().for_each(|line| log(line));
     log(&format!("installed in {} µs ({} µs to put the files in place, {} µs to register)", started.elapsed().as_micros(), unpacked.as_micros(), (started.elapsed() - unpacked).as_micros()));
@@ -148,6 +153,29 @@ fn unpack(staging: &Path) -> Result<PathBuf, String> {
         [one] if one.join(EXE).is_file() => Ok(one.clone()),
         _ => Err(format!("The app in this setup has no {EXE}.")),
     }
+}
+
+/// Has Windows write every program and library of the new install to the disk now, while the
+/// Installing page still shows; returns how many and how long it took.
+///
+/// Windows doesn't map a file as an image while bytes of it are only in its file cache: the
+/// first run of a build `tar` had just unpacked waited 775 to 1,481 ms for that (the 146 MiB
+/// library, n = 8, a folder Windows Defender doesn't scan), against 26 to 29 ms once the files
+/// were flushed, and it is per file, not per MiB. Left alone it takes Windows 20 to 60 s.
+/// The setup's own first start (`first_start`) begins when the last page shows, so a Launch
+/// within a second of that page waited with it: 1,030 to 1,454 ms, against 15 to 80 ms after
+/// a flush. The flush takes 1 to 2 s of the Installing page instead.
+fn flush(root: &Path) -> (usize, Duration) {
+    let started = std::time::Instant::now();
+    let programs = std::fs::read_dir(root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|x| x.eq_ignore_ascii_case("exe") || x.eq_ignore_ascii_case("dll")))
+        .filter(|path| OpenOptions::new().write(true).open(path).and_then(|file| file.sync_all()).is_ok())
+        .count();
+    (programs, started.elapsed())
 }
 
 /// Puts `app` at `root` with renames on one volume; a previous install goes aside first and comes

@@ -22,6 +22,11 @@
 #                                 loaded at the first office file, instead of in the exe; so does a pull request
 #                                 from a branch with "office-library" in its name. 0 until the release's signing
 #                                 step signs a second Mach-O file.)
+#   OPENCODE_RUNE_LAYERS         (1 ships part of the app's code as a library in Contents/Frameworks beside a
+#                                 smaller exe (apps/desktop/layers/layers.txt), so the first launch of a new
+#                                 build waits for the largest file and not for all the code; so does a pull
+#                                 request from a branch with "code-layers" in its name. 0 until the release's
+#                                 signing step signs every Contents/Frameworks/*.dylib.)
 #   OPENCODE_RUNE_COMPACT_UNWIND (0 keeps a DWARF unwind entry per function; see rustc-compact-unwind.sh)
 #   OPENCODE_RUNE_LINK_ORDER     (0 links without apps/desktop/pgo/startup-order.txt; see link-order.sh)
 #   OPENCODE_RUNE_PGO_TRAIN      (1 builds the training exe; so does a pull request from a branch
@@ -51,15 +56,30 @@ case "$OPENCODE_RUNE_VERSION" in
 esac
 
 # The office viewer's engines (Word, Excel, PowerPoint: 24 MiB of code and fonts no launch runs)
-# as a library in the bundle. At a bundle's first run macOS reads every Mach-O file in it side by
-# side and the launch waits for the largest one (5.5 ms per MiB on an M4, plus 250 ms once for
-# code it has never seen): what leaves the exe for a second library is no longer waited for
-# (a build never seen: 1,225 -> 1,004 ms thin, 1,057 -> 911 ms fat). One big library in place of
-# the exe changes nothing (#958); a file that is not Mach-O is not read at all.
+# as a library in the bundle. At a bundle's first run macOS reads every file in it, of any kind,
+# 8 files at a time, and the launch waits for the largest one (5.5 ms per MiB on an M4, plus 250 ms
+# once for code it has never seen): what leaves the exe for a second library is no longer waited
+# for (a build never seen: 1,225 -> 1,004 ms thin, 1,057 -> 911 ms fat). One big library in place
+# of the exe changes nothing (#958). A file that is not code is read too: it is free only while a
+# larger file is read beside it.
 OFFICE_LIBRARY=${OPENCODE_RUNE_OFFICE_LIBRARY:-0}
 case "${GITHUB_HEAD_REF:-}" in *office-library*) OFFICE_LIBRARY=1 ;; esac
 office_args=()
 [ "$OFFICE_LIBRARY" != 1 ] || office_args=(-p office-library --features opencode-desktop/office-library)
+# Part of the app's code as a library beside a smaller exe (apps/desktop/layers/layers.txt says
+# which crates; the office engines are then always the library above). The first launch of a new
+# build waits for the largest file, not for all the code. Measured on the Air, dev as the dev
+# channel builds it: one exe of 119.6 MiB against exe 41.1 + library 38.0 + office 25.7 MiB:
+# first launch of a new install, click -> window on screen 1,093 -> 713 ms; the everyday launch
+# 130.4 -> 133.5 ms (exp_728bd8: dyld looks up the 2,800 names the exe takes from the library at
+# every launch). More libraries cost more at every launch: 4 of them +6 ms, 8 +17 ms.
+LAYERS=${OPENCODE_RUNE_LAYERS:-0}
+case "${GITHUB_HEAD_REF:-}" in *code-layers*) LAYERS=1 ;; esac
+if [ "$LAYERS" = 1 ]; then
+  export OPENCODE_RUNE_LAYERS=1
+  OFFICE_LIBRARY=1
+  office_args=(-p office-library --features opencode-desktop/office-library)
+fi
 # A training build records which functions run, how often and in which order (temporal
 # instrumentation), for the release profile and the link order. It keeps its names.
 TRAIN=${OPENCODE_RUNE_PGO_TRAIN:-0}
@@ -79,7 +99,7 @@ if [ "${OPENCODE_RUNE_COMPACT_UNWIND:-1}" = 1 ] && [ "$target_triple" = aarch64-
   export RUSTC_WRAPPER="$ROOT/apps/desktop/scripts/rustc-compact-unwind.sh"
 fi
 
-if [ -n "${OPENCODE_RUNE_TARGET:-}" ] || { [ "$target_triple" = aarch64-apple-darwin ] && [ "$PROFILE" = release ]; }; then
+if [ -n "${OPENCODE_RUNE_TARGET:-}" ] || [ "$LAYERS" = 1 ] || { [ "$target_triple" = aarch64-apple-darwin ] && [ "$PROFILE" = release ]; }; then
   BIN="${CARGO_TARGET_DIR:-$ROOT/target}/$target_triple/$PROFILE/opencode-desktop"
 else
   BIN="${CARGO_TARGET_DIR:-$ROOT/target}/$PROFILE/opencode-desktop"
@@ -92,6 +112,29 @@ if [ "${OPENCODE_RUNE_SKIP_CARGO_BUILD:-0}" != "1" ]; then
     export OPENCODE_RUNE_ORDER_LIST="$ROOT/apps/desktop/pgo/startup-order.txt"
     export "CARGO_TARGET_$(printf '%s' "$target_triple" | tr 'a-z-' 'A-Z_')_LINKER=$ROOT/apps/desktop/scripts/link-order.sh"
     rm -f "$(dirname "$BIN")"/deps/opencode_desktop-*.link-order.txt
+  fi
+  # The code libraries are linked by the same script, with or without the order (link-order.sh).
+  [ "$LAYERS" != 1 ] || export "CARGO_TARGET_$(printf '%s' "$target_triple" | tr 'a-z-' 'A-Z_')_LINKER=$ROOT/apps/desktop/scripts/link-order.sh"
+  if [ "$LAYERS" = 1 ]; then
+    # Rust's standard library goes into the lowest library, with the allocator (layers/base.rs). The
+    # toolchain also has it as a library of its own, which a `dylib` crate links by preference, and
+    # that one allocates from the system heap whatever the app says. A sysroot of links without
+    # that one file leaves rustc the static one. It is given to the target's units only (the build
+    # names its target), so build scripts and macros keep the toolchain's own.
+    sysroot=$(rustc --print sysroot)
+    shadow="${CARGO_TARGET_DIR:-$ROOT/target}/layers-sysroot"
+    rm -rf "$shadow"
+    mkdir -p "$shadow/lib/rustlib/$target_triple/lib"
+    for entry in "$sysroot"/*; do [ "${entry##*/}" = lib ] || ln -s "$entry" "$shadow/"; done
+    for entry in "$sysroot"/lib/*; do [ "${entry##*/}" = rustlib ] || ln -s "$entry" "$shadow/lib/"; done
+    for entry in "$sysroot"/lib/rustlib/*; do [ "${entry##*/}" = "$target_triple" ] || ln -s "$entry" "$shadow/lib/rustlib/"; done
+    for entry in "$sysroot/lib/rustlib/$target_triple"/*; do [ "${entry##*/}" = lib ] || ln -s "$entry" "$shadow/lib/rustlib/$target_triple/"; done
+    for entry in "$sysroot/lib/rustlib/$target_triple/lib"/*; do
+      case "${entry##*/}" in libstd-*.dylib) ;; *) ln -s "$entry" "$shadow/lib/rustlib/$target_triple/lib/" ;; esac
+    done
+    flags="CARGO_TARGET_$(printf '%s' "$target_triple" | tr 'a-z-' 'A-Z_')_RUSTFLAGS"
+    export "$flags=${!flags:+${!flags} }--sysroot $shadow"
+    python3 "$ROOT/apps/desktop/scripts/layers.py" "$target_triple"
   fi
   if [ "$target_triple" = aarch64-apple-darwin ] && [ "$PROFILE" = release ]; then
     # The training build names its target. Keep the same crate identities here and leave
@@ -112,11 +155,17 @@ if [ "${OPENCODE_RUNE_SKIP_CARGO_BUILD:-0}" != "1" ]; then
     )
   else
     cargo_args=(build --profile "$PROFILE" --locked -p opencode-desktop --manifest-path "$ROOT/Cargo.toml")
-    if [ -n "${OPENCODE_RUNE_TARGET:-}" ]; then
+    if [ -n "${OPENCODE_RUNE_TARGET:-}" ] || [ "$LAYERS" = 1 ]; then
       cargo_args+=(--target "$target_triple")
     fi
     cargo "${cargo_args[@]}" ${office_args[@]+"${office_args[@]}"}
   fi
+fi
+
+# Each code library again, exporting only the names another file takes (layers-exports.py): dyld
+# walks every exported name and looks up every taken one at each launch.
+if [ "$LAYERS" = 1 ] && [ "${OPENCODE_RUNE_SKIP_CARGO_BUILD:-0}" != "1" ]; then
+  python3 "$ROOT/apps/desktop/scripts/layers-exports.py" "$(dirname "$BIN")" "$BIN"
 fi
 
 # What the link said about the order (nothing when cargo had no link to do).
@@ -185,6 +234,43 @@ if [ "$OFFICE_LIBRARY" = 1 ]; then
   codesign --force --sign - "$LIBRARY"
   echo "office viewer: $(stat -f %z "$LIBRARY") bytes in Contents/Frameworks/libopencode_office.dylib, exe $(stat -f %z "$APP/Contents/MacOS/opencode-desktop") bytes" >&2
 fi
+if [ "$LAYERS" = 1 ]; then
+  mkdir -p "$APP/Contents/Frameworks"
+  libraries=()
+  for built in "$(dirname "$BIN")"/libopencode_layer_*.dylib; do
+    [ -f "$built" ] || { echo "no code libraries beside $BIN" >&2; exit 1; }
+    libraries+=("${built##*/}")
+    cp "$built" "$APP/Contents/Frameworks/"
+  done
+  # Each file names the libraries it links where cargo built them: in the bundle they are in Frameworks.
+  for file in "$APP/Contents/MacOS/opencode-desktop" "${libraries[@]/#/$APP/Contents/Frameworks/}"; do
+    for name in "${libraries[@]}"; do
+      [ "${file##*/}" != "$name" ] || continue
+      old=$(otool -L "$file" | awk -v n="/$name" 'NR > 1 && length($1) >= length(n) && substr($1, length($1) - length(n) + 1) == n && !found { found = $1 } END { if (found) print found }')
+      [ -z "$old" ] || install_name_tool -change "$old" "@executable_path/../Frameworks/$name" "$file" 2>&1 | grep -v 'will invalidate the code signature' >&2 || true
+    done
+  done
+  if [ "${OPENCODE_RUNE_KEEP_SYMBOLS:-0}" != "1" ]; then
+    rm -rf "$OUT/opencode-desktop-libraries" "$SYMBOLS/opencode-desktop-libraries.dSYM.zip"
+    mkdir -p "$OUT/opencode-desktop-libraries"
+  fi
+  for name in "${libraries[@]}"; do
+    library="$APP/Contents/Frameworks/$name"
+    install_name_tool -id "@executable_path/../Frameworks/$name" "$library" 2>&1 | grep -v 'will invalidate the code signature' >&2 || true
+    if [ "${OPENCODE_RUNE_KEEP_SYMBOLS:-0}" != "1" ]; then
+      # The names the other files bind to stay; the local ones go into a dSYM, as the exe's do.
+      dsymutil "$(dirname "$BIN")/$name" -o "$OUT/opencode-desktop-libraries/$name.dSYM" 2>&1 | grep -v 'no debug symbols in executable' >&2 || true
+      strip -x "$library" 2>&1 | grep -v 'will invalidate the code signature' >&2 || true
+    fi
+    codesign --force --sign - "$library"
+    echo "code library: $(stat -f %z "$library") bytes in Contents/Frameworks/$name" >&2
+  done
+  if [ "${OPENCODE_RUNE_KEEP_SYMBOLS:-0}" != "1" ]; then
+    /usr/bin/ditto -c -k --keepParent "$OUT/opencode-desktop-libraries" "$SYMBOLS/opencode-desktop-libraries.dSYM.zip"
+    rm -rf "$OUT/opencode-desktop-libraries"
+  fi
+  echo "code libraries: ${#libraries[@]} beside an exe of $(stat -f %z "$APP/Contents/MacOS/opencode-desktop") bytes" >&2
+fi
 cp "$ICON_PATH" "$APP/Contents/Resources/icon.icns"
 cp -R "$ROOT/apps/desktop/assets/fonts" "$ROOT/apps/desktop/assets/sounds" "$APP/Contents/Resources/"
 # Every language but English: the i18n crate's build wrote them beside the exe (crates/opencode-i18n/build.rs).
@@ -230,4 +316,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 codesign --force --sign - "$APP"
+if [ "$LAYERS" = 1 ] && [ "$cross" = "0" ]; then
+  # The packaged exe finds its libraries in the bundle (the check above ran it where cargo built it).
+  [ "$("$APP/Contents/MacOS/opencode-desktop" --version)" = "opencode-rune $OPENCODE_RUNE_VERSION ($OPENCODE_RUNE_BUILD_CHANNEL)" ] || {
+    echo "the packaged opencode-desktop does not run with its libraries in Contents/Frameworks" >&2
+    exit 1
+  }
+fi
 echo "$APP"

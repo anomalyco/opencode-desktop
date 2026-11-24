@@ -48,7 +48,9 @@ pub fn view<S: PopupHost + 'static>(s: &S, p: &Pal) -> Vec<El> {
             }
         }
     }
-    let scrim = scrim::<S>();
+    // Desktop's context menu is not modal (Kobalte `ContextMenu`: `body` keeps `pointer-events: auto`), so
+    // what the pointer rests on beside it stays hovered: a tab keeps its close button under its own menu.
+    let scrim = scrim::<S>(matches!(shown.anchor, PopupAnchor::Point(..)) && !shown.menu.pointer_trigger);
     // The pointer's spot is physical, so it stays unmirrored in a right-to-left window.
     let rtl = opencode_i18n::direction() == opencode_i18n::Direction::Rtl;
     let (anchor, point, align, side) = match &shown.anchor {
@@ -296,7 +298,7 @@ pub(super) fn takes_focus(row: El) -> El {
 }
 
 /// A window-sized dismiss layer under the popup (`popover::scrim` generalized over [`PopupHost`]).
-fn scrim<S: PopupHost + 'static>() -> El {
+fn scrim<S: PopupHost + 'static>(hover_passes: bool) -> El {
     // A press outside focuses the scroll region it lands on ("scrollable content"), as one
     // outside Desktop's context menu does; a dropdown then hands focus back to its trigger.
     // Kobalte's menus dismiss on a press outside as the button goes down; a tap on the release.
@@ -312,5 +314,6 @@ fn scrim<S: PopupHost + 'static>() -> El {
         })
         .press_focuses_below()
         .on_secondary_press(|s: &mut S, _: rune::PointerPress, tx: &mut Tx| close(s, None, focus::Reason::Outside, tx));
+    let base = if hover_passes { base.hover_passes_below() } else { base };
     if PRESS_ON_DOWN { base.press_on_down() } else { base }
 }

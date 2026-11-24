@@ -361,8 +361,15 @@ pub fn code_area<H: FilesHost + PopupHost + 'static>(
         viewer = viewer.notes(notes);
     }
     // An artifact view draws its code on `bg-layer-01`, under the rows and past the last
-    // (`--opencode-diffs-bg`, `gui-plugins/src/file/artifact-view.css:3-7`).
-    let code_pal = if artifact { Pal { code_bg: p.layer1, bg_base: p.layer1, ..*p } } else { *p };
+    // (`--opencode-diffs-bg`, `gui-plugins/src/file/artifact-view.css:3-7`). Plain text and code,
+    // which have no preview to switch to, stay on the code view's own ground with their toolbar
+    // (`[data-source-only]`, opencode#65976).
+    let code_pal = match (artifact, previewable) {
+        (true, true) => Pal { code_bg: p.layer1, bg_base: p.layer1, ..*p },
+        // Under the rows and past the last too, not the panel's base.
+        (true, false) => Pal { bg_base: p.code_bg, ..*p },
+        (false, _) => *p,
+    };
 
     out.child(over(viewer.build(s, &code_pal), bar))
 }

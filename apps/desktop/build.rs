@@ -20,6 +20,13 @@ fn main() {
     if env("OPENCODE_RUNE_BUNDLE_ASSETS").as_deref() == Some("1") && env("CARGO_CFG_TARGET_OS").as_deref() == Some("macos") {
         println!("cargo:rustc-cfg=bundle_assets");
     }
+    // A macOS build with its code as several libraries beside a small exe (`build-app.sh`,
+    // `OPENCODE_RUNE_LAYERS`; `scripts/layers.py` writes the library crates `main.rs` then names).
+    println!("cargo:rustc-check-cfg=cfg(code_layers)");
+    println!("cargo:rerun-if-env-changed=OPENCODE_RUNE_LAYERS");
+    if env("OPENCODE_RUNE_LAYERS").as_deref() == Some("1") && env("CARGO_CFG_TARGET_OS").as_deref() == Some("macos") {
+        println!("cargo:rustc-cfg=code_layers");
+    }
     println!("cargo:rerun-if-env-changed=CARGO_ENCODED_RUSTFLAGS");
     println!("cargo:rerun-if-env-changed=OPENCODE_RUNE_EMBED_PLUGINS");
     if env("CARGO_ENCODED_RUSTFLAGS").is_some_and(|flags| flags.split('\x1f').any(|f| f.contains("profile-generate"))) {
