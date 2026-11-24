@@ -14,7 +14,8 @@
 #   OPENCODE_RUNE_ICON           (default: "$ROOT/apps/desktop/assets/icon.icns")
 #   OPENCODE_RUNE_URL_SCHEME     (default: "opencode-rune")
 #   OPENCODE_RUNE_TARGET         (optional Cargo target triple, e.g. x86_64-apple-darwin)
-#   OPENCODE_RUNE_PROFILE        (default: "release"; e.g. "release-thin" for faster dev CI)
+#   OPENCODE_RUNE_PROFILE        (default: "release"; e.g. "release-thin" for faster dev CI; a pull request
+#                                 from a branch with "thin-build" in its name builds release-thin)
 #   OPENCODE_RUNE_SYMBOLS        (folder for opencode-desktop.dSYM.zip; default: $RUNNER_TEMP/macos, else OUT)
 #   OPENCODE_RUNE_KEEP_SYMBOLS   (1 ships the exe with its symbol names and writes no dSYM)
 #   OPENCODE_RUNE_LINK_ORDER     (0 links without apps/desktop/pgo/startup-order.txt; see link-order.sh)
@@ -30,6 +31,9 @@ BUNDLE_ID=${OPENCODE_RUNE_BUNDLE_ID:-anomaly.opencode-rune}
 ICON_PATH=${OPENCODE_RUNE_ICON:-$ROOT/apps/desktop/assets/icon.icns}
 URL_SCHEME=${OPENCODE_RUNE_URL_SCHEME:-opencode-rune}
 PROFILE=${OPENCODE_RUNE_PROFILE:-release}
+# A pull request from a branch with "thin-build" in its name is built as the dev channel builds
+# (release-thin: thin LTO, no profile), so a change can be sized and timed as that channel ships it.
+case "${GITHUB_HEAD_REF:-}" in *thin-build*) PROFILE=release-thin ;; esac
 # The fonts and sounds are files in the bundle, not bytes in the exe (apps/desktop/build.rs:
 # cfg(bundle_assets); src/workspace/system/bundle.rs): macOS reads a new exe whole before its
 # first run, and a file in Resources only when the app opens it.
