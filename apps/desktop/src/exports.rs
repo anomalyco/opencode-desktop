@@ -63,6 +63,8 @@ pub(crate) use crate::workspace::{
 };
 #[cfg(windows)]
 pub(crate) use crate::workspace::system::install;
+#[cfg(bundle_assets)]
+pub(crate) use crate::workspace::system::bundle;
 
 #[allow(unused_imports)]
 pub(crate) use crate::surfaces::{browser, egg, files, glitch, review, terminal, updater};
