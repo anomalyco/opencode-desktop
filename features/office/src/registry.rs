@@ -160,7 +160,7 @@ pub struct Snapshot {
 
 /// Starts opening `bytes` (`size` bytes long, for the answer) and answers `done` once it opened.
 pub fn open(kind: Kind, bytes: Vec<u8>, size: usize, waker: Option<rune::Waker>, done: impl FnOnce(OpenAnswer) + 'static) {
-    let packs = super::cjk::packs();
+    let cjk = super::cjk::pack_dir();
     let (tx, replies) = std::sync::mpsc::channel();
     if let (Some(w), Ok(mut all)) = (waker.clone(), WAKERS.lock()) {
         all.push(w);
@@ -169,7 +169,7 @@ pub fn open(kind: Kind, bytes: Vec<u8>, size: usize, waker: Option<rune::Waker>,
         Some(w) => Arc::new(move || w()),
         None => Arc::new(|| {}),
     };
-    let Some(jobs) = worker::start(kind, bytes, packs, tx, wake) else {
+    let Some(jobs) = worker::start(kind, bytes, cjk, tx, wake) else {
         done(OpenAnswer { size, document: None, error: Some("The file could not be opened".to_owned()) });
         return;
     };
@@ -443,10 +443,10 @@ pub fn zoom(id: u64, f: impl FnOnce(f32) -> f32) -> bool {
 /// Every open file opens again with the faces the CJK pack brings.
 pub fn reopen_all() {
     REGISTRY.with_borrow_mut(|r| {
-        let packs = super::cjk::packs();
+        let cjk = super::cjk::pack_dir();
         for doc in r.docs.values() {
             if matches!(doc.state, State::Open(_)) {
-                doc.jobs.send(Job::Reopen(packs.clone())).ok();
+                doc.jobs.send(Job::Reopen { cjk: cjk.clone(), now_serial: worker::now_serial() }).ok();
             }
         }
     });

@@ -8,6 +8,8 @@ extern crate ureq_web as ureq;
 
 mod cjk;
 mod compositor;
+#[cfg(feature = "library")]
+mod library;
 pub mod pages;
 pub mod registry;
 pub mod sheet;

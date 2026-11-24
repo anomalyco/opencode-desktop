@@ -2,6 +2,7 @@
 //! sheet is a frame, a display list of the cells in that viewport with the grid that places them,
 //! drawn as a scene.
 
+pub mod copy;
 mod links;
 mod scene;
 mod text;

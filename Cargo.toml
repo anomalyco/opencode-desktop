@@ -39,6 +39,7 @@ members = [
     "crates/browser-policy",
     "crates/harness-log",
     "crates/hex-client",
+    "crates/office-library",
     "crates/office-preview",
     "crates/opencode-code-view",
     "crates/opencode-i18n",
@@ -212,6 +213,8 @@ opt-level = "s"
 [profile.release.package.betteroffice-xlsx-raster]
 opt-level = "s"
 [profile.release.package.betteroffice-xlsx-render]
+opt-level = "s"
+[profile.release.package.office-library]
 opt-level = "s"
 [profile.release.package.office-preview]
 opt-level = "s"

@@ -22,6 +22,9 @@ default = ["knobs", "office", "stories"]
 # their display lists on the GPU. About 6 MB of font packs and the engines; a build without it
 # shows Office files as binary.
 office = ["dep:office-preview", "dep:opencode-feature-office"]
+# The office engines in a library beside the app (`crates/office-library`), loaded at the first
+# office file, instead of in the exe: 24 MiB the system does not read before a first launch. The
+# build must ship the library (macOS: `build-app.sh` with `OPENCODE_RUNE_OFFICE_LIBRARY=1`).-library = ["office", "opencode-feature-office/library"]
 # Standalone storybook modules under `stories/{composer,shell,timeline}/`.
 stories = []
 # The embedded browser's engine. Enabled on macOS, Windows and Linux below.

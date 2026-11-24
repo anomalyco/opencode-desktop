@@ -17,6 +17,10 @@
 #   OPENCODE_RUNE_PROFILE        (default: "release"; e.g. "release-thin" for faster dev CI)
 #   OPENCODE_RUNE_SYMBOLS        (folder for opencode-desktop.dSYM.zip; default: $RUNNER_TEMP/macos, else OUT)
 #   OPENCODE_RUNE_KEEP_SYMBOLS   (1 ships the exe with its symbol names and writes no dSYM)
+#   OPENCODE_RUNE_OFFICE_LIBRARY (1 ships the office viewer's engines as Contents/Frameworks/libopencode_office.dylib,
+#                                 loaded at the first office file, instead of in the exe; so does a pull request
+#                                 from a branch with "office-library" in its name. 0 until the release's signing
+#                                 step signs a second Mach-O file.)
 set -euo pipefail
 OUT=${1:?usage: build-app.sh OUT}
 : "${OPENCODE_RUNE_VERSION:?Set OPENCODE_RUNE_VERSION}"
@@ -37,6 +41,15 @@ case "$OPENCODE_RUNE_VERSION" in
   0.0.0-pr-[0-9]*-[0-9]*) BUILD=${OPENCODE_RUNE_VERSION##*-} ;;
   *) BUILD=$(printf '%s\n' "${OPENCODE_RUNE_VERSION%%-*}" | awk -F. '{ print ($1 * 10000) + ($2 * 100) + $3 }') ;;
 esac
+
+# The office viewer's engines (Word, Excel, PowerPoint: 24 MiB of code and fonts no launch runs)
+# as a library in the bundle. macOS reads every byte of a new exe before its first run, and a
+# library when it is first loaded: the first office file after an install pays for it, not every
+# first launch.
+OFFICE_LIBRARY=${OPENCODE_RUNE_OFFICE_LIBRARY:-0}
+case "${GITHUB_HEAD_REF:-}" in *office-library*) OFFICE_LIBRARY=1 ;; esac
+office_args=()
+[ "$OFFICE_LIBRARY" != 1 ] || office_args=(-p office-library --features opencode-desktop/office-library)
 
 host_triple=$(rustc -vV | sed -n 's/^host: //p')
 target_triple=${OPENCODE_RUNE_TARGET:-$host_triple}
@@ -60,14 +73,14 @@ if [ "${OPENCODE_RUNE_SKIP_CARGO_BUILD:-0}" != "1" ]; then
       echo "profile-guided: $target_triple ($(head -n 1 "${profile%.profdata}.txt"))" >&2
       # rustc for a dependency may run in that dependency's directory.
       export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS }-Cprofile-use=$ROOT/$profile -Cllvm-args=-no-pgo-warn-mismatch"
-      cargo build --release --locked --target "$target_triple" -p opencode-desktop
+      cargo build --release --locked --target "$target_triple" -p opencode-desktop ${office_args[@]+"${office_args[@]}"}
     )
   else
     cargo_args=(build --profile "$PROFILE" --locked -p opencode-desktop --manifest-path "$ROOT/Cargo.toml")
     if [ -n "${OPENCODE_RUNE_TARGET:-}" ]; then
       cargo_args+=(--target "$target_triple")
     fi
-    cargo "${cargo_args[@]}"
+    cargo "${cargo_args[@]}" ${office_args[@]+"${office_args[@]}"}
   fi
 fi
 
@@ -120,6 +133,19 @@ if [ "${OPENCODE_RUNE_KEEP_SYMBOLS:-0}" != "1" ]; then
     exit 1
   }
   echo "opencode-desktop: $(stat -f %z "$BIN") -> $(stat -f %z "$APP/Contents/MacOS/opencode-desktop") bytes without symbol names; they are in $SYMBOLS/opencode-desktop.dSYM.zip" >&2
+fi
+if [ "$OFFICE_LIBRARY" = 1 ]; then
+  LIBRARY="$APP/Contents/Frameworks/libopencode_office.dylib"
+  mkdir -p "$APP/Contents/Frameworks"
+  cp "$(dirname "$BIN")/libopencode_office.dylib" "$LIBRARY"
+  # Its one exported name stays (the app looks it up); the local names go, as the exe's do.
+  strip -x "$LIBRARY" 2>&1 | grep -v 'will invalidate the code signature' >&2 || true
+  nm -gU "$LIBRARY" | grep -q ' _opencode_office_v1$' || {
+    echo "libopencode_office.dylib does not export opencode_office_v1" >&2
+    exit 1
+  }
+  codesign --force --sign - "$LIBRARY"
+  echo "office viewer: $(stat -f %z "$LIBRARY") bytes in Contents/Frameworks/libopencode_office.dylib, exe $(stat -f %z "$APP/Contents/MacOS/opencode-desktop") bytes" >&2
 fi
 cp "$ICON_PATH" "$APP/Contents/Resources/icon.icns"
 cp -R "$ROOT/apps/desktop/assets/fonts" "$ROOT/apps/desktop/assets/sounds" "$APP/Contents/Resources/"
