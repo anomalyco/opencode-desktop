@@ -7,7 +7,8 @@
 //! (`tools\launch-bench.ts --fresh-exe`, 23 Nov: 207,000 us against 37,000 us, 88,000 us of it
 //! CPU). [`ask`], before the launch reads anything else, starts a thread that asks Windows for all of them
 //! at once (`PrefetchVirtualMemory`: a few large reads into the standby list, nothing added to
-//! the working set), while the launch goes on:
+//! the working set), while the launch goes on. Windows reads one call's runs one after the other,
+//! so the runs are shared out over up to [`ASK_THREADS`] threads that ask at the same time:
 //!
 //! - the pages the earlier launches of this very exe used, from `<cache>/launch-pages.bin`;
 //! - with no list for this exe yet (its first start), its code and constants in address order.
@@ -32,6 +33,7 @@
 //!
 //! `OPENCODE_RUNE_IMAGE_PAGES=off` skips all of it; `=all` asks for the whole code and
 //! constants and `=listed` for a list's pages, both without looking first (a bench's arms).
+//! `OPENCODE_RUNE_IMAGE_PAGES_ASK=1` asks from one thread (a bench's arm).
 // Reading this process's own image headers and working set is Win32; each block says what it relies on.
 #![allow(unsafe_code)]
 
@@ -48,13 +50,22 @@ const MAGIC: u32 = u32::from_le_bytes(*b"RLP1");
 /// Runs of pages at most this far apart are listed as one. A later launch holds 6,500 pages
 /// (26 MB) in 1,800 runs; joined at 2 they are 1,000 runs and 30 MB, at 16, 285 runs and 49 MB.
 const JOIN: u32 = 2;
-/// Runs at most this far apart are asked for as one read. The ask is bound by how many reads it
-/// makes, not by their bytes: the whole 160 MB in one read takes 38 ms, the list's 30 MB in 1,000
-/// reads 23 ms. A cold launch's first frame by gap, pages (medians of 8, twice): 2: 76,850 and
-/// 74,690 us; 16: 66,852 and 68,148; 32: 70,889; 64: 75,425; 256: 82,550. The list itself stays
-/// joined at [`JOIN`], so what is looked at to learn whether the exe is in memory is what a
-/// launch reads.
-const ASK_JOIN: u32 = 16;
+/// Runs at most this far apart are asked for as one read, by how many threads ask. One call
+/// reads its runs one after the other (`MiPrefetchVirtualMemory` takes a hard fault per run and
+/// waits for it: 9.7 ms of that thread's CPU in a cold launch), so one thread is bound by how many
+/// reads it makes, not by their bytes: the whole 160 MB in one read takes 38 ms, the list's 30 MB
+/// in 1,000 reads 23 ms, and a cold launch's first frame by gap, pages (medians of 8, twice), was
+/// 2: 76,850 and 74,690 us; 16: 66,852 and 68,148; 32: 70,889; 64: 75,425; 256: 82,550. Several
+/// threads read at the same time, and fewer bytes then win over fewer reads. The list's 27.5 MB,
+/// the exe a new file, the ask alone (medians of 4 or 5): one thread at 16 (248 reads, 46.6 MB)
+/// 16.0 ms; two 10.9; four 10.1; four at 6 (529 reads, 35.2 MB) 7.8; four at 2 (1,012 reads) 9.4;
+/// four at 32 10.8. The list itself stays joined at [`JOIN`], so what is looked at to learn
+/// whether the exe is in memory is what a launch reads.
+const ASK_JOIN_ONE: u32 = 16;
+const ASK_JOIN_MANY: u32 = 6;
+/// How many threads ask at most: half the processors the process may run on, so the launch's
+/// own threads keep theirs. Eight asked in 7.3 ms where four took 7.8.
+const ASK_THREADS: usize = 4;
 /// How many of the wanted pages are read to learn whether they are in memory, how long a read
 /// of one that isn't takes at least, and how many such reads say the exe is away.
 const SAMPLES: u32 = 16;
@@ -101,7 +112,11 @@ pub fn ask() {
         Some("2") => 2,
         _ => 1,
     };
-    std::thread::Builder::new().name("image-pages".into()).spawn(move || run(mode, threads)).ok();
+    let ask = match std::env::var_os("OPENCODE_RUNE_IMAGE_PAGES_ASK").as_deref().and_then(|v| v.to_str()) {
+        Some("1") => 1,
+        _ => (processors() / 2).clamp(1, ASK_THREADS),
+    };
+    std::thread::Builder::new().name("image-pages".into()).spawn(move || run(mode, threads, ask)).ok();
 }
 
 /// The update helper: asks for the whole code and constants of its own image, which is the new
@@ -116,7 +131,7 @@ pub fn warm() {
         .name("image-pages".into())
         .spawn(|| {
             if let Some(image) = image() {
-                prefetch(&image, &image.sections);
+                prefetch(&image, &image.sections, 1);
             }
         })
         .ok();
@@ -135,7 +150,7 @@ fn processors() -> usize {
     std::thread::available_parallelism().map_or(1, |n| n.get())
 }
 
-fn run(mode: Mode, threads: usize) {
+fn run(mode: Mode, threads: usize, ask: usize) {
     let Some(image) = image() else { return };
     let path = crate::dirs::cache().map(|dir| dir.join("launch-pages.bin"));
     let listed = path.as_deref().and_then(|p| std::fs::read(p).ok()).and_then(|bytes| decode(&bytes, &image));
@@ -146,7 +161,7 @@ fn run(mode: Mode, threads: usize) {
     };
     if let Some(runs) = &wanted {
         if mode != Mode::Auto || away(&image, runs) {
-            prefetch(&image, runs);
+            prefetch(&image, runs, ask);
             rune::marks::mark("image.pages.asked");
         } else {
             rune::marks::mark("image.pages.present");
@@ -249,22 +264,37 @@ fn away(image: &Image, runs: &[(u32, u32)]) -> bool {
     slow >= AWAY_SAMPLES
 }
 
-/// Asks Windows to bring `runs` into memory.
-fn prefetch(image: &Image, runs: &[(u32, u32)]) {
-    let mut ranges: Vec<WIN32_MEMORY_RANGE_ENTRY> = join(runs.to_vec(), ASK_JOIN)
+/// Asks Windows to bring `runs` into memory, from this thread and `threads - 1` more, each with
+/// a share of the runs that lie next to each other in the file.
+fn prefetch(image: &Image, runs: &[(u32, u32)], threads: usize) {
+    let gap = if threads > 1 { ASK_JOIN_MANY } else { ASK_JOIN_ONE };
+    // As (address, bytes): a range entry holds a pointer, which no thread may be handed.
+    let ranges: Vec<(usize, usize)> = join(runs.to_vec(), gap)
         .into_iter()
         .filter(|&(first, pages)| (first as usize + pages as usize) * PAGE <= image.size as usize)
-        .map(|(first, pages)| WIN32_MEMORY_RANGE_ENTRY { VirtualAddress: (image.base + first as usize * PAGE) as *mut _, NumberOfBytes: pages as usize * PAGE })
+        .map(|(first, pages)| (image.base + first as usize * PAGE, pages as usize * PAGE))
         .collect();
     if ranges.is_empty() {
         return;
     }
-    // SAFETY: every range lies inside this process's own image (checked against its size above),
-    // and the array outlives the call. A failure (an OS without the call's support for images)
-    // leaves the launch as it was.
-    unsafe { PrefetchVirtualMemory(GetCurrentProcess(), ranges.len(), ranges.as_mut_ptr(), 0) };
+    let ask_for = |part: &[(usize, usize)]| {
+        let mut entries: Vec<WIN32_MEMORY_RANGE_ENTRY> = part.iter().map(|&(at, bytes)| WIN32_MEMORY_RANGE_ENTRY { VirtualAddress: at as *mut _, NumberOfBytes: bytes }).collect();
+        // SAFETY: every range lies inside this process's own image (checked against its size above),
+        // and the array outlives the call. A failure (an OS without the call's support for images)
+        // leaves the launch as it was.
+        unsafe { PrefetchVirtualMemory(GetCurrentProcess(), entries.len(), entries.as_mut_ptr(), 0) };
+    };
+    std::thread::scope(|scope| {
+        let mut parts = ranges.chunks(ranges.len().div_ceil(threads.max(1)));
+        let first = parts.next();
+        for part in parts {
+            scope.spawn(move || ask_for(part));
+        }
+        if let Some(part) = first {
+            ask_for(part);
+        }
+    });
 }
-
 /// Reads one byte of each of `runs`' pages that lies in the code or constants, on this thread and
 /// `threads - 1` more. A page in memory still costs the thread that first touches it a soft
 /// fault, which maps it into the process for every thread: taken here, the launch's own threads
