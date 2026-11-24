@@ -94,7 +94,7 @@ pub fn view<S: PickerHost>(s: &S, p: &Pal) -> Option<El> {
     list = list.child(item::<S>(p, lit, "effort-favorite", "menuitem", None, favorite, keycaps(p), move |s: &mut S, tx: &mut Tx| {
         tx.instant();
         // The row moves between Favorites and its group, so the flyout would be left beside nothing.
-        s.toggle_favorite(&key);
+        s.toggle_favorite(&key, true);
         s.model_flyout_dismissed(tx);
     }));
     list = list.child(separator(p, "details-separator"));

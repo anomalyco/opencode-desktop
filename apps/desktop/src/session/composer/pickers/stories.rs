@@ -17,7 +17,7 @@ pub const KEYS: &[Trigger] = &[
     Trigger { key: 'e', label: "Next effort", run: |s, _| cycle(s, Kind::Effort) },
     Trigger { key: 'a', label: "Next agent", run: |s, _| cycle(s, Kind::Agent) },
     Trigger { key: 'f', label: "Star or unstar the lit model", run: |s, _| {
-        if let Some(key) = s.picker_active() { s.toggle_favorite(&key); }
+        if let Some(key) = s.picker_active() { s.toggle_favorite(&key, false); }
     } },
     Trigger { key: 't', label: "Search a typo (gemiin)", run: |s, _| search(s, "gemiin") },
 ];

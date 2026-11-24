@@ -270,9 +270,13 @@ pub fn poll<S: PickerHost + 'static>(s: &mut S, now: f64, tx: &mut Tx) -> bool {
         tx.scroll_to_y("picker-scroll", 0.0);
     } else if changed {
         // Results that land later for the same query bring the lit row back into view, unless
-        // it's the first, which shows from the top.
+        // it's the first, which shows from the top. A row the pointer lit leaves the list where
+        // it is (`search-list.tsx`: `pointed === key`, opencode#65649): the flyout's Unfavorite
+        // moves its row to its group, and the list does not follow it.
         let active = s.picker_active();
+        let pointed = active.as_deref().is_some_and(|a| s.pickers().active.pointed(a));
         match active.filter(|a| items.first().is_some_and(|i| i.key != *a)) {
+            _ if pointed => {}
             Some(key) => tx.scroll_into_view_in("picker-scroll", format!("option-{key}")),
             None => tx.scroll_to_y("picker-scroll", 0.0),
         }
