@@ -3493,6 +3493,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencode-desktop-library"
+version = "0.0.1"
+dependencies = [
+ "mimalloc",
+ "opencode-desktop",
+ "procwatch",
+]
+
+[[package]]
+name = "opencode-desktop-thin"
+version = "0.0.1"
+dependencies = [
+ "win-install",
+]
+
+[[package]]
 name = "opencode-feature-annotations"
 version = "0.0.1"
 dependencies = [

@@ -39,12 +39,23 @@
 
 use std::time::{Duration, Instant};
 
-use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Memory::{PrefetchVirtualMemory, WIN32_MEMORY_RANGE_ENTRY};
 use windows_sys::Win32::System::ProcessStatus::{PSAPI_WORKING_SET_EX_INFORMATION, QueryWorkingSetEx};
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetCurrentThread, GetProcessAffinityMask, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL};
 
 const PAGE: usize = 4096;
+
+unsafe extern "C" {
+    /// The linker's name for the first byte of the image this code is linked into.
+    static __ImageBase: u8;
+}
+
+/// Where the image that holds the app's code and constants is mapped: the exe, or in a packaged
+/// build the app's library, which a thin exe loads (`apps/desktop-library`, `apps/desktop-thin`).
+/// Everything here lists and asks for that image's pages.
+pub(crate) fn base() -> usize {
+    &raw const __ImageBase as usize
+}
 /// The list file's first four bytes.
 const MAGIC: u32 = u32::from_le_bytes(*b"RLP1");
 /// Runs of pages at most this far apart are listed as one. A later launch holds 6,500 pages
@@ -202,16 +213,13 @@ fn run(mode: Mode, threads: usize, ask: usize) {
     rune::marks::mark("image.pages.listed");
 }
 
-/// This process's exe, from its headers in memory.
+/// The app's image ([`base`]), from its headers in memory.
 fn image() -> Option<Image> {
-    // SAFETY: a null name asks for the exe's own module, mapped for the life of the process; its
-    // first page holds the DOS and PE headers and the section table (the loader read them from
+    let base = base();
+    // SAFETY: the image this code runs from is mapped for the life of the process; its first
+    // page holds the DOS and PE headers and the section table (the loader read them from
     // there), read unaligned and inside that page.
     unsafe {
-        let base = GetModuleHandleW(std::ptr::null()) as usize;
-        if base == 0 {
-            return None;
-        }
         let u16_at = |at: usize| std::ptr::read_unaligned((base + at) as *const u16);
         let u32_at = |at: usize| std::ptr::read_unaligned((base + at) as *const u32);
         let pe = u32_at(0x3c) as usize;
