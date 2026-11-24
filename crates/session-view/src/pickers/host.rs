@@ -167,11 +167,14 @@ pub trait PickerHost: ComposerHost {
     }
 
     /// Stars or unstars a model (⌘F on the highlighted row, or Favorite in its flyout).
-    fn toggle_favorite(&mut self, key: &str) {
+    fn toggle_favorite(&mut self, key: &str, by_pointer: bool) {
         let pk = self.pickers_mut();
         pk.prefs.toggle_favorite(key);
         // The row moves between groups; the highlight goes with it, and typing still searches.
-        pk.activate(key.to_owned());
+        // From the keys the list follows the row to its new place; a press in the flyout
+        // leaves the list where it is, as a row the pointer lit is not scrolled to when the
+        // list reorders (official `search-list.tsx` `setActive(key, "pointer")`, opencode#65649).
+        if by_pointer { pk.point(key.to_owned()) } else { pk.activate(key.to_owned()) }
         pk.search.focused = pk.open() == Some(Kind::Model);
     }
 
@@ -489,7 +492,7 @@ fn picker_keys<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
                 s.apply_menu_effect(eff, tx);
             }
             None if crate::keymap::Bind::Favorite.matches(ev) && open == Kind::Model => {
-                if let Some(key) = s.picker_active() { s.toggle_favorite(&key); }
+                if let Some(key) = s.picker_active() { s.toggle_favorite(&key, false); }
                 s.model_list_keyed();
             }
             // As in Desktop's list: ← → change the lit model's effort, or while searching edit
@@ -553,7 +556,7 @@ fn flyout_key<S: PickerHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
         Key::Up => Some((index + count - 1) % count),
         key if *key == backward || *key == Key::Escape => None,
         Key::Enter => {
-            if index == count - 1 { s.toggle_favorite(&id); s.model_flyout_dismissed(tx); }
+            if index == count - 1 { s.toggle_favorite(&id, false); s.model_flyout_dismissed(tx); }
             else {
                 let effort = index.checked_sub(1).and_then(|i| model.variants.get(i)).cloned().unwrap_or_default();
                 s.choose_effort(&id, &effort, tx);

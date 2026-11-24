@@ -48,8 +48,44 @@ trained on (commit, Rune rev, rustc, processes, functions that ran).
   follows LLVM's): `pwsh apps/desktop/scripts/pgo.ps1 -Train "<training command>"`, then commit both
   files. A stale profile is never wrong: a function whose code changed since loses its counts and
   builds as it would without a profile.
-- **Apple silicon:** `build-app.sh` uses the native `aarch64-apple-darwin` profile. Its training run captured Home, session, demo, queue, settings and tab badges, in English and German. The profile-use build drew the same session capture. There is no measured Mac speed-up here. Intel macOS, Windows ARM64 and Linux do not use a profile.
+- **Apple silicon** has a profile of its own, `aarch64-apple-darwin.profdata`: see below. Intel macOS,
+  Windows ARM64 and Linux do not use a profile.
 
+## The Apple silicon profile
+
+`build-app.sh` builds the `release` profile (fat LTO: every pull request's build and the stable
+channel) with `aarch64-apple-darwin.profdata`. The dev channel builds `release-thin`, whose symbols
+no profile of a fat build names, so it uses none. `OPENCODE_RUNE_PGO_USE=0` (or a pull request from a
+branch with "no-profile" in its name) builds the release without it, to time what it is worth.
+
+- **What it is worth (an M4 Air, CI builds of one commit, 24 Nov):** against the profile of 14 Nov, dead by then, the frames of a streaming turn cost 5 % less
+  CPU (270 -> 255 ms, strobe `exp_52cd93`) and a scrolled session's 3 % less (`exp_599ca2`); the
+  everyday launch is the same (125.8 -> 124.7 ms, `exp_ee155c`), with 5 % less CPU in the app's
+  first 1.2 s; the exe is 105.4 -> 98.0 MiB. Against the dev channel's kind of build (thin LTO,
+  no profile) the everyday launch is 134.2 -> 129.5 ms (`exp_3a1676`), the frames cost 7 % less
+  (`exp_1f661c`) and the exe is 119.8 -> 98.0 MiB.
+- **It dies in two ways, and both happened:** a Rune pin bump or a dependency bump renames almost
+  every function (the profile of 14 Nov named 741 of today's functions ten days later), and the code
+  moves (re-keyed to today's names, that profile would still have kept only 3,071 of its 8,969
+  functions; one pin bump alone left 2,681 of 16,407). A dead profile is not harmless: it grows the
+  exe (105.4 MiB against 97.2 without one) and speeds nothing (`exp_f68148`, `exp_5bd528`).
+- **After a pin bump, re-key it with the Windows one.** Name the names-draft
+  `pgo-train/order-train-<sha>`: that one pull request builds both training exes (`release.ps1` looks
+  for `pgo-train/` at the start, `build-app.sh` for "order-train" anywhere). Take
+  `Contents/MacOS/opencode-desktop` out of the `build-opencode-rune-pr-macos-arm64` artifact's zip and
+  run `node scripts/pgo-rekey.mjs --counts apps/desktop/pgo/aarch64-apple-darwin.profdata --names <that exe>`
+  `--out apps/desktop/pgo/aarch64-apple-darwin.profdata --stamp apps/desktop/pgo/aarch64-apple-darwin.txt`
+  `--commit <sha> --rune <rev> --min-kept 90`. The tool reads the names and control-flow hashes from
+  the Mach-O file (`__llvm_prf_names`, `__llvm_prf_data`): no Mac and no run are needed.
+- **Train it again** when the re-key's report says `code_changed` or `no_such_function` grew (or
+  weekly): on a Mac, with the training app from the same kind of draft unzipped,
+  `apps/desktop/scripts/pgo-train-macos.sh <the .app> [<server URL>]` from a checkout of the draft's
+  commit. About four minutes, no build: five launches with a window (the first launch of a new
+  profile, two later ones, two that replay `pgo-train-window.json`: scrolling, typing, undo, the model
+  picker) and fourteen headless scenes in English and German (Home, a session typed in and scrolled,
+  the demo's streaming turn, the queue, Settings, tab badges). It writes the profile, its stamp and
+  `startup-order.txt`; commit the three from a branch of `dev` and close the draft. Office previews,
+  the terminal and the browser pane are not in the training, so they build as cold code.
 ## The link order (`startup-order.txt`)
 
 `startup-order.txt` lists the functions a launch runs, in the order it first runs them. The macOS
@@ -65,7 +101,7 @@ pages and few others. Without it the same functions lie spread over the whole of
   in this build`, in the build log and in `<exe>.link-order.txt`).
 - **It only names instrumented code:** Rust crates built from source. std, C and C++ (Luau, SQLite,
   zstd, the terminal) are not in it.
-- **Make it again** when that share drops, or with a profile refresh:
+- **Make it again** when that share drops, or with a profile refresh (`pgo-train-macos.sh` above does all of this and the profile in one run):
   1. Open a draft pull request from a branch with `order-train` in its name (or build with
      `OPENCODE_RUNE_PGO_TRAIN=1`). `build-app.sh` then builds Apple silicon with
      `-Cprofile-generate -Cllvm-args=-pgo-temporal-instrumentation`; the run's
