@@ -95,11 +95,12 @@ pub(crate) fn card(p: &Pal, key: &'static str, label: &'static str, sketch: Sket
 }
 
 /// `mode-option-check`: the chosen card's 16 pt check outside its top end corner, the accent blue
-/// with `text-contrast` inked, in a 2 pt ring of `layer-01` (opencode#65757).
+/// with `text-contrast` inked, in a 2 pt ring of `layer-01` (opencode#65757). Official's `-7px` counts from
+/// inside the card's 1 px border, so the badge sits 6 pt outside the card's edge (measured in both apps).
 fn check_badge(p: &Pal) -> El {
     let c = &kit(p).c;
     el().key("check")
-        .pin(None, Some(-7.0), Some(-7.0), None)
+        .pin(None, Some(-6.0), Some(-6.0), None)
         .size(16.0, 16.0)
         .radius(8.0)
         .center()
