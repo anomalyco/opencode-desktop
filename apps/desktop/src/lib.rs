@@ -229,11 +229,11 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
             // prompt, where AppKit's rule left only the prompt and the tab strip.
             .tab_visits_controls(true)
             // The timeline's jump-to-latest button and the composer's drop zone blur what is behind
-            // them. Rune compiles its effect pipelines on a background thread after the first frame
-            // only for an app that asks (rune#2006); without it the button's first showing in a
-            // scroll waits for the GPU driver to compile the blur (about 80 to 120 ms on a cold
-            // shader cache). The switch is all four effects or none at this pin.
-            .prewarm_effects(true)
+            // them: the app's only effect. Rune compiles that pipeline on a low-priority thread once
+            // the window rests (opt-in since rune#2006, per effect since rune#2011), so the button's
+            // first showing in a scroll does not wait for the GPU driver (about 80 to 100 ms on a
+            // cold shader cache). Nothing else is named: no layer blur, no blend is compiled ahead.
+            .prewarm_effects(rune::PrewarmEffects::BACKDROP_BLUR)
             .titlebar(rune::Titlebar::new(view::TITLEBAR_H))
             .chrome(rune::Chrome {
                 full_size_content: true,
