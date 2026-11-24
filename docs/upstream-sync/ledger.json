@@ -2,17 +2,17 @@
   "generated_at": "2026-11-24",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "40b6e9cdf8f16c987589863500c5201cf4033c97",
+  "upstream_head": "adc958a7d7976e0b89d4678f0364eaf972411108",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "d6da8b224",
-  "post_1114_commit_count": 585,
+  "rune_desktop_head": "b1cb9124f",
+  "post_1114_commit_count": 586,
   "post_1114_in_ledger": 207,
-  "post_1114_skipped": 378,
+  "post_1114_skipped": 379,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
     "ci-bench-deps": 22,
-    "docs-site-data": 57,
+    "docs-site-data": 58,
     "tui-only": 28,
     "cli-acp-only": 11,
     "server-core-ai-codemode-internal": 235
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 228,
   "status_counts": {
-    "have it": 190,
+    "have it": 193,
     "not applicable": 31,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 4
+    "missing": 1
   },
   "rows": [
     {
@@ -5442,11 +5442,12 @@
       ],
       "summary": "Unfavoriting a model with the mouse no longer scrolls the model list: a row the pointer made active is not scrolled to when the list reorders (search-list.tsx setActive(key, \"pointer\")).",
       "size": "XS",
-      "status": "missing",
-      "status_evidence": "Not compared yet: needs a run of ours' model picker (a long list, unfavorite a row far down with the mouse, see whether the list jumps). No code changed.",
+      "status": "have it",
+      "status_evidence": "Run by UPSTREAM-PROOF (a fixture with 28 models): ours differed, the list jumped to the row's new place when Unfavorite was pressed in its flyout (first row 179 -> -408). Ported in rune-desktop #1008 (b1cb9124): the flyout's press lights the row as the pointer does (Pickers::point) and hover::poll leaves the list where it is for a row the pointer lit (Highlight::pointed), as search-list.tsx setActive(key, \"pointer\"); Ctrl+F and Return on the flyout's item still follow the row. Run on its CI build: the first row stays at 179; the keys follow; Favorite pressed at the list's end leaves it at the end. Official side by its test.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "rune_pr": "#1008"
     },
     {
       "id": "UP-197",
@@ -5542,11 +5543,12 @@
       ],
       "summary": "Linux only: with side tabs, the app menu button shows in the side tabs header (it was hidden with the vertical titlebar).",
       "size": "XS",
-      "status": "missing",
-      "status_evidence": "Not compared yet: ours on Linux with Side tabs not looked at. No code changed.",
+      "status": "have it",
+      "status_evidence": "By reading (UPSTREAM-PROOF): outside Windows the titlebar row has no height with side tabs, and the app menu's button was only put in that row, so ours on Linux had no app menu with Side tabs or the Inbox layout. Ported in rune-desktop #1009 (8bc31926): on Linux the app menu's button leads the sidebar's header, 2 before its start, as titlebar.tsx's linux() branch. Type-checked for Linux x64 by LAUNCH-LINUX-d (cargo check, exit 0); compiled on macOS and Windows by CI; NOT run on Linux.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "rune_pr": "#1009"
     },
     {
       "id": "UP-200",
@@ -5569,11 +5571,12 @@
       ],
       "summary": "When a timeline row holding the focused control scrolls out of the mounted range, focus goes to the timeline viewport without scrolling, instead of being rescued to a control in another row (which scrolled the timeline to it).",
       "size": "XS",
-      "status": "missing",
-      "status_evidence": "Not compared yet: needs a run of ours (focus a Copy button in a long timeline, scroll far, see whether the timeline jumps and where focus lands). No code changed.",
+      "status": "have it",
+      "status_evidence": "Run by UPSTREAM-PROOF next to official on the head's build: with Copy response focused and the timeline wheeled to its top, the timeline stays still in both apps. One difference found and ported in rune-desktop #999 (a8b84776): ours moved focus to the header's Session details button when the focused row left the built range; each timeline row now returns focus to the timeline's scroll area (El::focus_return to scroll-<session>), as official's listRoot().focus({ preventScroll: true }). Run on #999's CI build: focus on the scroll region, no ring drawn, the timeline still. Not run: Page Up / Down from the region.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "rune_pr": "#999"
     },
     {
       "id": "UP-201",
