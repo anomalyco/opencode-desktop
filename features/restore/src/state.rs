@@ -121,18 +121,39 @@ pub enum StorageNotice {
     SeedDroppedDrafts { count: usize, official_dir: String },
 }
 
+/// Where the inbox lists its working sessions (`sidebar.inbox`'s `workingPlacement`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum WorkingPlacement {
+    /// A shelf pinned below the scrolling list.
+    #[default]
+    Shelf,
+    /// A group in the list, between the active and the archived sessions.
+    Inline,
+}
+
+impl WorkingPlacement {
+    pub fn name(self) -> &'static str {
+        match self {
+            WorkingPlacement::Shelf => "shelf",
+            WorkingPlacement::Inline => "inline",
+        }
+    }
+}
+
 /// The inbox's disclosures, as Desktop's `sidebar.inbox` (`inbox.tsx`): Working open, Recent
-/// showing its first ten; and Home's automation folds, shut.
+/// showing its first ten, Archived shut, Working on its shelf; and Home's automation folds, shut.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct InboxUi {
     pub working_expanded: bool,
     pub recent_expanded: bool,
+    pub archived_expanded: bool,
+    pub working_placement: WorkingPlacement,
     pub home_automations: bool,
 }
 
 impl Default for InboxUi {
     fn default() -> Self {
-        InboxUi { working_expanded: true, recent_expanded: false, home_automations: false }
+        InboxUi { working_expanded: true, recent_expanded: false, archived_expanded: false, working_placement: WorkingPlacement::Shelf, home_automations: false }
     }
 }
 
@@ -141,6 +162,8 @@ impl InboxUi {
         json!({
             "workingExpanded": self.working_expanded,
             "recentExpanded": self.recent_expanded,
+            "archivedExpanded": self.archived_expanded,
+            "workingPlacement": self.working_placement.name(),
             "homeAutomationsExpanded": self.home_automations,
         })
     }
@@ -150,6 +173,8 @@ impl InboxUi {
         InboxUi {
             working_expanded: v["workingExpanded"].as_bool().unwrap_or(d.working_expanded),
             recent_expanded: v["recentExpanded"].as_bool().unwrap_or(d.recent_expanded),
+            archived_expanded: v["archivedExpanded"].as_bool().unwrap_or(d.archived_expanded),
+            working_placement: if v["workingPlacement"].as_str() == Some("inline") { WorkingPlacement::Inline } else { WorkingPlacement::Shelf },
             home_automations: v["homeAutomationsExpanded"].as_bool().unwrap_or(d.home_automations),
         }
     }

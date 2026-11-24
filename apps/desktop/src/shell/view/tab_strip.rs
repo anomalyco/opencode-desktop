@@ -265,7 +265,7 @@ pub(crate) fn tab_words() -> rune_kit::shell::TabWords {
         close: t!("common.closeTab"),
         busy: t!("sidebar.inbox.status.working"),
         attention: t!("sidebar.inbox.section.needsAttention"),
-        unread: t!("sidebar.inbox.section.unread"),
+        unread: t!("sidebar.recent.group.status.unread"),
         failed: t!("sidebar.inbox.status.failed"),
     }
 }

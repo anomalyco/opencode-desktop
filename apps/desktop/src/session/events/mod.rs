@@ -610,9 +610,18 @@ impl App {
         if !matches!(ty, "session.archived" | "session.unarchived" | "session.metadata.updated") {
             return false;
         }
+        if ty == "session.unarchived" && self.session(sid).is_none() {
+            // Archived before this window read its sessions: it comes back from the inbox's archived list.
+            self.unarchive_session_locally(sid);
+            return self.session(sid).is_some();
+        }
         let Some(i) = self.sessions.iter_mut().find(|i| i.id == sid) else { return false };
         match ty {
-            "session.archived" => i.archived = Some(data["eventCreated"].as_i64().unwrap_or(*self.now_ms)),
+            "session.archived" => {
+                i.archived = Some(data["eventCreated"].as_i64().unwrap_or(*self.now_ms));
+                let info = i.clone();
+                self.inbox_file(info);
+            }
             "session.unarchived" => i.archived = None,
             "session.metadata.updated" => i.metadata = data["metadata"].clone(),
             _ => return false,
