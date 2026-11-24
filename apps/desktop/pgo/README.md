@@ -49,3 +49,31 @@ trained on (commit, Rune rev, rustc, processes, functions that ran).
   files. A stale profile is never wrong: a function whose code changed since loses its counts and
   builds as it would without a profile.
 - **Apple silicon:** `build-app.sh` uses the native `aarch64-apple-darwin` profile. Its training run captured Home, session, demo, queue, settings and tab badges, in English and German. The profile-use build drew the same session capture. There is no measured Mac speed-up here. Intel macOS, Windows ARM64 and Linux do not use a profile.
+
+## The link order (`startup-order.txt`)
+
+`startup-order.txt` lists the functions a launch runs, in the order it first runs them. The macOS
+link puts them first in the exe and together (`apps/desktop/scripts/link-order.sh`, which
+`build-app.sh` hands to Cargo as the linker), so a launch whose exe is not in memory reads those
+pages and few others. Without it the same functions lie spread over the whole of the code: on
+`dev-478` 9.5 MiB of launch code touched 2,569 pages of 16 KB (40 MiB).
+
+- **Names carry no crate hashes.** A hash changes with every Rune pin and every dependency bump;
+  the list stores `Cs<hash>_` as `C` and back references as `B_`, and `link-order.sh` takes the same
+  out of the names in the objects it links before it looks them up. So a pin bump does not empty
+  the list. The link says how much of it this build has (`link order: N of M listed functions are
+  in this build`, in the build log and in `<exe>.link-order.txt`).
+- **It only names instrumented code:** Rust crates built from source. std, C and C++ (Luau, SQLite,
+  zstd, the terminal) are not in it.
+- **Make it again** when that share drops, or with a profile refresh:
+  1. Open a draft pull request from a branch with `order-train` in its name (or build with
+     `OPENCODE_RUNE_PGO_TRAIN=1`). `build-app.sh` then builds Apple silicon with
+     `-Cprofile-generate -Cllvm-args=-pgo-temporal-instrumentation`; the run's
+     `build-opencode-rune-pr-macos-arm64` artifact is the training exe. Never install that build.
+  2. Launch it a few times to its content, each with `LLVM_PROFILE_FILE=<dir>/launch-%p.profraw`,
+     and quit it (the profile is written at exit).
+  3. `apps/desktop/scripts/startup-order.sh <dir>/launch-*.profraw`, with the `llvm-profdata` of the
+     toolchain that built the exe (`rustup component add llvm-tools`; Xcode's cannot read the file).
+     Commit `startup-order.txt` from a branch of `dev` and close the draft.
+- `OPENCODE_RUNE_LINK_ORDER=0` links without it. A failure to make the order never fails a link.
+- The same raw profiles, merged with `--sparse`, are a fresh `aarch64-apple-darwin.profdata`.
