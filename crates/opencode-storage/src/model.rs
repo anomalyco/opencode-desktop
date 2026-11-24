@@ -96,7 +96,10 @@ pub enum FlushReason {
     Quit,
     /// Windows logoff or shutdown (`WM_ENDSESSION`).
     SessionEnd,
-    /// The updater restarts the app.
+    /// The updater restarts the app: pending rows land in the WAL and nothing is checkpointed or
+    /// synced. The app the update starts opens a moment later, reads the WAL as it would after a
+    /// kill, and checkpoints it at its first quiet spell: the person waits for that app's window,
+    /// and the quit's checkpoint (two disk syncs) stood between the click and it.
     UpdateRestart,
 }
 

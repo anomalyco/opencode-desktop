@@ -790,7 +790,8 @@ pub fn flush(reason: FlushReason, wait: bool) {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn close() {
     crate::launch::last_exit::mark_clean();
-    flush(FlushReason::Quit, true);
+    let reason = crate::windows::quit_reason();
+    flush(reason, true);
     let storage = match &*lock() { Some(Phase::Ready(s) | Phase::Early { storage: s, .. }) => s.clone(), _ => return };
-    storage.close();
+    storage.close_for(reason);
 }

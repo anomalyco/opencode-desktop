@@ -323,7 +323,13 @@ impl Storage {
 
     /// Flushes and stops the writer. The database closes; later writes stay in memory only.
     pub fn close(&self) -> FlushReport {
-        self.inner.backend.close()
+        self.close_for(FlushReason::Quit)
+    }
+
+    /// [`Storage::close`] for a quit of this kind: `FlushReason::UpdateRestart` leaves the WAL to
+    /// the app the update starts.
+    pub fn close_for(&self, reason: FlushReason) -> FlushReport {
+        self.inner.backend.close(reason)
     }
 
     pub(crate) fn cache(&self) -> MutexGuard<'_, cache::Cache> {

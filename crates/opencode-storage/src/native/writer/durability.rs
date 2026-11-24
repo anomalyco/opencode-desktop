@@ -101,6 +101,10 @@ pub(super) enum Wal {
         boot_stale: bool,
         sync: WalSync,
     },
+    /// An update's restart took the WAL as it is (`FlushReason::UpdateRestart`): the app the
+    /// update starts checkpoints it, as it would after a kill. Nothing is checkpointed or synced
+    /// here any more, whatever this run still commits.
+    HandedOn,
 }
 
 impl Wal {
@@ -131,6 +135,8 @@ pub(super) enum WalEvent {
     WalSyncFailed { now: Instant },
     TimerFired { attempt: Attempt },
     QuitRequested,
+    /// The app quits into an update's restart: the WAL goes to the next process as it is.
+    RestartRequested,
     Checkpointed,
     /// `boot_rebuilt`: `boot_record::rebuild` committed new unsynced frames to `-wal` before
     /// `PRAGMA wal_checkpoint(TRUNCATE)` failed.
@@ -151,6 +157,12 @@ pub(super) enum WalEffect {
 
 fn wal_step(seq: &mut Seq, state: &mut Wal, event: WalEvent) -> Effects<WalEffect> {
     match (*state, event) {
+        (Wal::HandedOn, _) => Effects::none(),
+        // From `Clean` too: a row this run still commits stays in the WAL for the next process.
+        (_, WalEvent::RestartRequested) => {
+            *state = Wal::HandedOn;
+            Effects::one(WalEffect::CancelTimer)
+        }
         (Wal::Clean, WalEvent::OpenedDirty { boot_stale, now }) => {
             let attempt = seq.next();
             *state = Wal::Dirty { attempt, boot_stale, sync: WalSync::Unsynced { since: now, base_bytes: 0 } };
@@ -159,7 +171,7 @@ fn wal_step(seq: &mut Seq, state: &mut Wal, event: WalEvent) -> Effects<WalEffec
         // Marks the boot record stale without recording a new commit; preserves sync status.
         (s, WalEvent::BootStale) => {
             let sync = match s {
-                Wal::Clean => WalSync::Synced { base_bytes: 0 },
+                Wal::Clean | Wal::HandedOn => WalSync::Synced { base_bytes: 0 },
                 Wal::Dirty { sync, .. } => sync,
             };
             let attempt = seq.next();
@@ -176,7 +188,7 @@ fn wal_step(seq: &mut Seq, state: &mut Wal, event: WalEvent) -> Effects<WalEffec
             let (prev_boot, since, base_bytes) = match s {
                 Wal::Dirty { boot_stale, sync: WalSync::Unsynced { since, base_bytes }, .. } => (boot_stale, since, base_bytes),
                 Wal::Dirty { boot_stale, sync: WalSync::Synced { base_bytes }, .. } => (boot_stale, now, base_bytes),
-                Wal::Clean => (false, now, 0),
+                Wal::Clean | Wal::HandedOn => (false, now, 0),
             };
             // If `-wal` wrapped or truncated below the previous sync baseline, every byte now in
             // `-wal` belongs to the new cycle; reset `base_bytes` so growth past the old baseline
@@ -310,8 +322,14 @@ impl Writer {
         // a clean/checkpointed answer while frames are still unsynced in the WAL.
         let had_wal = !self.wal.is_clean();
         self.quit_checkpoint(reason);
-        if quit {
-            rune::marks::mark("writer.checkpointed");
+        match reason {
+            FlushReason::Quit | FlushReason::SessionEnd => {
+                rune::marks::mark("writer.checkpointed");
+            }
+            FlushReason::UpdateRestart => {
+                rune::marks::mark("writer.handed_on");
+            }
+            FlushReason::Hide | FlushReason::Close => {}
         }
         let checkpointed = quit && had_wal && self.wal.is_clean();
         FlushReport { clean: false, rows: self.written, micros: super::super::micros(started), checkpointed, timed_out: false }
@@ -369,10 +387,13 @@ impl Writer {
     }
 
     /// The quit's checkpoint, after its flush answered: the next open finds the WAL empty and
-    /// reads the boot record raw.
+    /// reads the boot record raw. An update's restart leaves the WAL to the app it starts
+    /// (`FlushReason::UpdateRestart`): the files are then what a kill after the last commit leaves.
     pub(super) fn quit_checkpoint(&mut self, reason: FlushReason) {
-        if matches!(reason, FlushReason::Quit | FlushReason::SessionEnd | FlushReason::UpdateRestart) {
-            self.wal_event(WalEvent::QuitRequested);
+        match reason {
+            FlushReason::Quit | FlushReason::SessionEnd => self.wal_event(WalEvent::QuitRequested),
+            FlushReason::UpdateRestart => self.wal_event(WalEvent::RestartRequested),
+            FlushReason::Hide | FlushReason::Close => {}
         }
     }
 

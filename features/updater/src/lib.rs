@@ -286,6 +286,16 @@ pub fn finish_quit() {
     }
 }
 
+/// Set when an install handed off and the app quits for it (`poll`): the update's new version
+/// starts as soon as this process is gone.
+static RESTARTS: OnceLock<()> = OnceLock::new();
+
+/// Whether the app's quit is an update's restart: someone waits for the next version's window,
+/// so the quit keeps only what a restart needs (the storage leaves its checkpoint to that app).
+pub fn restarts_on_quit() -> bool {
+    RESTARTS.get().is_some()
+}
+
 /// Whether the shared updater service is attached and active (not disabled).
 ///
 /// Used by menu builders (`commands::menubar_items`) so dormant plugin caches never serve a stale
@@ -443,6 +453,9 @@ pub fn poll(s: &mut dyn UpdaterHost, tx: &mut Tx) -> bool {
     answer_waiting(&service);
     if let Some(err) = service.borrow_mut().take_apply_error() {
         s.toast_fail(opencode_i18n::t!("common.requestFailed").into(), err);
+    }
+    if quit {
+        RESTARTS.set(()).ok();
     }
     match (quit, relaunch) {
         (true, true) => tx.relaunch(),

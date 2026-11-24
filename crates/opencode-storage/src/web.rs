@@ -157,8 +157,8 @@ impl Backend {
         }
     }
 
-    pub(crate) fn close(&self) -> FlushReport {
-        self.flush(FlushReason::Quit, std::time::Duration::ZERO)
+    pub(crate) fn close(&self, reason: FlushReason) -> FlushReport {
+        self.flush(reason, std::time::Duration::ZERO)
     }
 }
 

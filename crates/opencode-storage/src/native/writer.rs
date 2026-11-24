@@ -37,7 +37,8 @@ pub(crate) enum Msg {
     Wake,
     Flush { reason: FlushReason, started: Instant, reply: SyncSender<FlushReport> },
     FirstFrame { done: Option<Loaded> },
-    Stop,
+    /// The storage closes, for this reason (`FlushReason::Quit`, or an update's restart).
+    Stop(FlushReason),
 }
 
 type StateKey = (String, String);
@@ -291,10 +292,10 @@ impl Writer {
                     self.first_frame(done);
                     slow("the work that waited for the first frame", t);
                 }
-                Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => {
+                stop @ (Ok(Msg::Stop(_)) | Err(RecvTimeoutError::Disconnected)) => {
                     rune::marks::mark("writer.stop");
                     self.reserve_stopped();
-                    self.flush(FlushReason::Quit, Instant::now());
+                    self.flush(if let Ok(Msg::Stop(reason)) = stop { reason } else { FlushReason::Quit }, Instant::now());
                     self.repage();
                     self.close_machines();
                     rune::marks::mark("writer.stopped");

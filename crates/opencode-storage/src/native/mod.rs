@@ -256,13 +256,18 @@ impl Backend {
         // Nothing was ever written (and the WAL holds nothing to checkpoint): nothing to land,
         // check or sync, and no thread is started for it.
         let quit = matches!(reason, FlushReason::Quit | FlushReason::SessionEnd | FlushReason::UpdateRestart);
-        let parked_work = match &*self.lock() {
-            Writer::Running { .. } => true,
-            Writer::Parked(w) => quit && w.wal_dirty(),
-            Writer::Off => false,
+        let (running, parked_work) = match &*self.lock() {
+            Writer::Running { .. } => (true, false),
+            Writer::Parked(w) => (false, quit && w.wal_dirty()),
+            Writer::Off => (false, false),
         };
-        if !parked_work {
+        if !running && !parked_work {
             return FlushReport { clean: true, ..FlushReport::default() };
+        }
+        // An update's restart leaves the WAL to the app it starts: no thread is started to
+        // checkpoint a parked writer's. Not clean: the draft journal stays as it is.
+        if !running && reason == FlushReason::UpdateRestart {
+            return FlushReport { clean: false, micros: micros(started), ..FlushReport::default() };
         }
         // `parked_work` was true (a running writer or dirty WAL), so failing to spawn or reach the
         // writer means durability is unconfirmed; never return `clean: true` so `close()` keeps
@@ -285,14 +290,14 @@ impl Backend {
         }
     }
 
-    pub(crate) fn close(&self) -> FlushReport {
-        let report = self.flush(FlushReason::Quit, Duration::from_secs(2));
+    pub(crate) fn close(&self, reason: FlushReason) -> FlushReport {
+        let report = self.flush(reason, Duration::from_secs(2));
         // Before the writer stops (its repage may move pages): the journal is clean only once
         // every draft it holds is checkpointed into the database (or the database was clean).
         journal::finish(!report.timed_out && crate::write_trouble().is_none() && (report.clean || report.checkpointed));
         let w = std::mem::replace(&mut *self.lock(), Writer::Off);
         if let Writer::Running { tx, join } = w {
-            tx.send(writer::Msg::Stop).ok();
+            tx.send(writer::Msg::Stop(reason)).ok();
             join.join().ok();
         }
         // The writer's last write and its repage are done: another process may have the profile.

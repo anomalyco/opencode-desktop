@@ -169,8 +169,22 @@ pub fn quit_saved(id: &str) {
         effect
     });
     if effect == QuitEffect::Flush {
-        crate::storage::flush(opencode_storage::FlushReason::Quit, true);
+        crate::storage::flush(quit_reason(), true);
     }
+}
+
+/// What the quit's flush is for. On Windows an update's restart
+/// (`opencode_feature_updater::restarts_on_quit`) leaves the database's checkpoint to the app the
+/// update starts: the helper swaps the folders only once this process is gone, and the
+/// checkpoint's two disk syncs (24 to 481 ms for one 16 KiB page in 55 quits on a busy machine)
+/// stood between the click and the new window. Every other quit checkpoints, so the next launch
+/// reads the boot record raw.
+pub fn quit_reason() -> opencode_storage::FlushReason {
+    #[cfg(windows)]
+    if opencode_feature_updater::restarts_on_quit() || crate::launch::trace::quits_as_update() {
+        return opencode_storage::FlushReason::UpdateRestart;
+    }
+    opencode_storage::FlushReason::Quit
 }
 
 /// Window `id` is on screen: other windows can reach it from now on.

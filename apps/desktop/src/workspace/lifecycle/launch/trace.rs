@@ -23,6 +23,10 @@
 //! `--launch-trace-quit <ms>` quits the app as its Quit command does, `ms` after the window
 //! shows live content (or after the first frame, when no server answers within
 //! [`CONTENT_WAIT`]), so a bench times the quit of a launch that settled.
+//!
+//! `--launch-trace-quit-update` makes that quit an update's restart to the storage
+//! (`storage::quit_reason`): a bench times it in a build no update replaces (a pull request's
+//! build is unsigned, so its updater is off).
 
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -373,6 +377,12 @@ pub fn held() -> Option<Duration> {
 fn quit_after() -> Option<Duration> {
     static AFTER: OnceLock<Option<Duration>> = OnceLock::new();
     *AFTER.get_or_init(|| crate::arg("--launch-trace-quit").and_then(|ms| ms.parse().ok()).map(Duration::from_millis))
+}
+
+/// `--launch-trace-quit-update`: the traced quit is an update's restart to the storage.
+#[cfg(windows)]
+pub fn quits_as_update() -> bool {
+    quit_after().is_some() && crate::flag("--launch-trace-quit-update")
 }
 
 /// The text renderer the run draws with, named for the trace (`text_rendering::poll`).
