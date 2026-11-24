@@ -475,7 +475,7 @@ fn trace(live: &Live, now: f64) {
         );
         let [poll_us, prepare_us] = COST.with(Cell::get);
         let (heap, footprint) = memory_stats();
-        line += &format!(",\"heap\":{heap},\"footprint\":{footprint}");
+        line += &format!(",\"look\":[{},{}],\"heap\":{heap},\"footprint\":{footprint}", c.look_x, c.look_y);
         line += &format!(",\"sink\":{},\"draws\":{},\"poll_us\":{poll_us:.1},\"prepare_us\":{prepare_us:.1}", live.sink.value(now), rng::drawn());
         if let Some(b) = live.board.as_deref() {
             line += &format!(",\"home\":{},\"tilt\":[{},{}]", b.pins.left(), b.pins.tilt[0], b.pins.tilt[1]);
