@@ -1,7 +1,7 @@
 [package]
 name = "opencode-desktop-launcher"
 version = "0.0.1"
-description = "The small exe of a packaged macOS build whose app is a library in the bundle (apps/desktop-app): it loads the library and runs it"
+description = "The small exe of a packaged macOS build whose app is a library in the bundle (apps/desktop/library): it loads the library and runs it"
 edition.workspace = true
 license.workspace = true
 publish = false

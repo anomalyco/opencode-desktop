@@ -1,6 +1,6 @@
 //! OpenCode (Rune) as a library: the whole app, with one exported function that runs it. The
 //! packaged macOS build can ship this in `Contents/Frameworks` behind a small exe
-//! (`apps/desktop-launcher`) in place of the one big exe (`apps/desktop/src/main.rs`).
+//! (`apps/desktop/launcher`) in place of the one big exe (`apps/desktop/src/main.rs`).
 //!
 //! Why: macOS reads every byte of an exe it has not seen before its first run (5.4 ms per MiB on an
 //! M4: 1.2 s for the dev channel's 136 MiB exe), on every install and update. A library in the

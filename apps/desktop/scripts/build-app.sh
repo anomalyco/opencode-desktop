@@ -58,7 +58,7 @@ esac
 # 143 MiB of this app's code in libraries beside it first ran in 551 ms, with none in 254 ms;
 # builds of this app with and without the office library, code never seen, 5 rounds: 1,225 against
 # 1,004 ms). Two switches move code out of the exe into Contents/Frameworks:
-#   the app itself (apps/desktop-app) behind a small exe (apps/desktop-launcher);
+#   the app itself (apps/desktop/library) behind a small exe (apps/desktop/launcher);
 #   the office viewer's engines (crates/office-library), loaded at the first office file.
 APP_LIBRARY=${OPENCODE_RUNE_APP_LIBRARY:-0}
 case "${GITHUB_HEAD_REF:-}" in *app-library*) APP_LIBRARY=1 ;; esac

@@ -1,4 +1,4 @@
-//! The exe of a packaged macOS build whose app is a library (`apps/desktop-app`): it loads
+//! The exe of a packaged macOS build whose app is a library (`apps/desktop/library`): it loads
 //! `Contents/Frameworks/libopencode_desktop_app.dylib` and runs it. `build-app.sh` ships it as
 //! `Contents/MacOS/opencode-desktop`. It stays small on purpose: the system reads a new exe whole
 //! before its first run, and this is the only file it reads that way.
@@ -44,7 +44,7 @@ fn main() {
     if entry.is_null() {
         fail(format!("{} is not this app's library", library.display()));
     }
-    // SAFETY: the library exports this name as `extern "C" fn() -> i32` (`apps/desktop-app`).
+    // SAFETY: the library exports this name as `extern "C" fn() -> i32` (`apps/desktop/library`).
     let run = unsafe { std::mem::transmute::<*mut c_void, extern "C" fn() -> i32>(entry) };
     std::process::exit(run());
 }
