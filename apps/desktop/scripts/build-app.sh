@@ -31,6 +31,11 @@ PROFILE=${OPENCODE_RUNE_PROFILE:-release}
 # cfg(bundle_assets); src/workspace/system/bundle.rs): macOS reads a new exe whole before its
 # first run, and a file in Resources only when the app opens it.
 export OPENCODE_RUNE_BUNDLE_ASSETS=1
+# Functions unwind by the linker's compact table instead of a DWARF entry each
+# (rustc-compact-unwind.sh): the exe loses most of __eh_frame. OPENCODE_RUNE_COMPACT_UNWIND=0 builds as before.
+if [ "${OPENCODE_RUNE_COMPACT_UNWIND:-1}" = 1 ]; then
+  export RUSTC_WRAPPER="$ROOT/apps/desktop/scripts/rustc-compact-unwind.sh"
+fi
 
 case "$OPENCODE_RUNE_VERSION" in
   0.0.0-dev-[0-9]*) BUILD=${OPENCODE_RUNE_VERSION#0.0.0-dev-} ;;
