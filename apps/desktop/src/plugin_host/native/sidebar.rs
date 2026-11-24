@@ -1,15 +1,18 @@
 //! `ui.panelSidebar`: the frame Review and Files share (`SessionReviewV2`, `SessionFilePanelV2`):
-//! the file sidebar at the panel's start, resized by a 5 pt handle on its end edge (a double
+//! the file sidebar at the panel's start or end, resized by a handle on its inner edge (a double
 //! click resets it), the panel's content beside it, and the tree toggle pinned at the panel's
-//! top left. Whether the sidebar shows and how wide it is are one preference every panel shares,
-//! as Desktop's `PanelSidebar` (`createPanelSidebar`, `review-panel-v2`), which ⌘\ toggles.
+//! top corner on the sidebar's side. Whether the sidebar shows, how wide it is and which edge it
+//! sits on are one preference every panel shares, as Desktop's `PanelSidebar`
+//! (`createPanelSidebar`, `review-panel-v2`), which ⌘\ toggles.
 
-use rune::{Cursor, Drag, El, KeyEvent, Phase, Tx, col, el, row};
+use opencode_i18n::t;
+use rune::{Cursor, Drag, El, KeyEvent, Phase, PointerPress, Tx, col, el, row};
 use rune_luau::NodeArgs;
 
 use super::p;
 use crate::App;
 use crate::keymap::Bind;
+use crate::popup::{self, Item, Menu};
 use crate::review::chrome;
 
 /// `SESSION_REVIEW_V2_SIDEBAR_WIDTH_*`.
@@ -35,41 +38,73 @@ pub enum ResizeEvent {
     Reset,
 }
 
+/// The edge of the panel the sidebar sits on (`sidebarSide`): the inline start (left in a
+/// left-to-right layout) or the inline end.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Side {
+    #[default]
+    Start,
+    End,
+}
+
+impl Side {
+    pub fn name(self) -> &'static str {
+        match self {
+            Side::Start => "start",
+            Side::End => "end",
+        }
+    }
+
+    pub fn parse(name: &str) -> Side {
+        if name == "end" { Side::End } else { Side::Start }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct PanelSidebar {
     pub opened: bool,
     /// The width the user dragged it to; the default until then.
     pub width: Option<f32>,
+    pub side: Side,
     pub resize: Resize,
 }
 
 impl Default for PanelSidebar {
     fn default() -> Self {
-        Self { opened: true, width: None, resize: Resize::Idle }
+        Self { opened: true, width: None, side: Side::Start, resize: Resize::Idle }
     }
 }
 
 impl PanelSidebar {
     /// The preference kept across launches (Desktop's `Persist.global("review-panel-v2")`:
-    /// `sidebarOpened`, and `sidebarWidth` within its bounds).
+    /// `sidebarOpened`, `sidebarWidth` within its bounds, and `sidebarSide`).
     pub fn load() -> Self {
         let v = crate::storage::json("opencode.global.dat", "review-panel-v2").unwrap_or_default();
         Self {
             opened: v["sidebarOpened"].as_bool().unwrap_or(true),
             width: v["sidebarWidth"].as_f64().map(|w| (w as f32).clamp(MIN_W, MAX_W)),
+            side: Side::parse(v["sidebarSide"].as_str().unwrap_or_default()),
             resize: Resize::Idle,
         }
     }
 
     fn save(&self) {
         if !crate::headless() {
-            crate::storage::set_json("opencode.global.dat", "review-panel-v2", &serde_json::json!({ "sidebarOpened": self.opened, "sidebarWidth": self.width.unwrap_or(DEFAULT_W) }));
+            crate::storage::set_json("opencode.global.dat", "review-panel-v2", &serde_json::json!({ "sidebarOpened": self.opened, "sidebarWidth": self.width.unwrap_or(DEFAULT_W), "sidebarSide": self.side.name() }));
         }
     }
 
     pub fn toggle(&mut self) {
         self.opened = !self.opened;
         self.save();
+    }
+
+    /// Puts the sidebar on `side`, for every side panel (`PanelSidebar.move`).
+    pub fn move_to(&mut self, side: Side) {
+        if self.side != side {
+            self.side = side;
+            self.save();
+        }
     }
 
     /// Steps the resize gesture; a width it settles on is kept.
@@ -107,6 +142,29 @@ fn toggle(s: &mut App, tx: &mut Tx) {
     crate::plugin_host::bump();
 }
 
+/// "Sidebar position" on a right-click of the sidebar or its toggle
+/// (`SessionFilePanelV2SideMenu`): Left and Right, the physical edges, so right is the end edge
+/// left to right and the start edge right to left. A text field in the sidebar keeps its own menu.
+fn open_side_menu(s: &mut App, at: PointerPress, tx: &mut Tx) {
+    let rtl = opencode_i18n::direction() == opencode_i18n::Direction::Rtl;
+    let right = (s.workspace_panes.panel_sidebar.side == Side::End) != rtl;
+    let edges = Menu::new(t!("ui.sessionReviewV2.sidebarPosition"))
+        .item(Item::new("left", t!("ui.sessionReviewV2.sidebarPosition.left")).radio(!right))
+        .item(Item::new("right", t!("ui.sessionReviewV2.sidebarPosition.right")).radio(right));
+    let menu = Menu::new(t!("ui.sessionReviewV2.sidebarPosition")).submenu("position", t!("ui.sessionReviewV2.sidebarPosition"), edges);
+    tx.instant();
+    popup::open(s, menu, at, tx, move |s: &mut App, picked, tx| {
+        let right = match picked {
+            Some("left") => false,
+            Some("right") => true,
+            _ => return,
+        };
+        tx.instant();
+        s.workspace_panes.panel_sidebar.move_to(if right != rtl { Side::End } else { Side::Start });
+        crate::plugin_host::bump();
+    });
+}
+
 /// ⌘\ while a panel with the sidebar shows (Review, a file).
 pub fn key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if !Bind::TreeToggle.matches_tx(ev, tx) || !(app.is_review_active() || app.active_file_tab().is_some()) {
@@ -131,18 +189,29 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
         let locked = a.flag("locked");
         let opened = st.opened || locked;
         let w = st.width.unwrap_or(default).clamp(min, max);
+        let at = st.side;
         let mut body = row().key(format!("{id}-body")).w_full().grow(1.0).min_h(0.0);
-        if opened {
-            // `session-review-v2-sidebar`: its width holds its 1 pt `border-base` end edge, which takes
-            // its room from the contents (`border-right`, border-box), so the tree ends inside it.
-            body = body.child(col().key(format!("{id}-sidebar")).w(w).h_full().fill(pal.bg_base).border_sides([0.0, 1.0, 0.0, 0.0], pal.border).border_layout().child(side));
-        }
-        body = body.child(col().key(format!("{id}-main")).grow(1.0).min_w(0.0).h_full().child(main));
+        let main = col().key(format!("{id}-main")).grow(1.0).min_w(0.0).h_full().child(main);
+        // `session-review-v2-sidebar`: its width holds its 1 pt `border-base` inner edge, which takes
+        // its room from the contents (`border-inline-end`, border-box; `border-inline-start` on the
+        // end edge), so the tree ends inside it.
+        let edge = match at {
+            Side::Start => [0.0, 1.0, 0.0, 0.0],
+            Side::End => [0.0, 0.0, 0.0, 1.0],
+        };
+        let sidebar = opened.then(|| {
+            col().key(format!("{id}-sidebar")).w(w).h_full().fill(pal.bg_base).border_sides(edge, pal.border).border_layout().on_secondary_press(open_side_menu).child(side)
+        });
+        // On the end edge the body is `row-reverse`: tree, toggle, border and handle all swap sides.
+        body = match at {
+            Side::Start => body.children(sidebar).child(main),
+            Side::End => body.child(main).children(sidebar),
+        };
         // The resize handle lies over the edge, above the content beside it.
         if opened {
             let dragging = st.resize != Resize::Idle;
-            let resize_inputs = ((pal.theme, pal.generation, pal.dark), w.to_bits(), min.to_bits(), max.to_bits(), dragging);
-            body = body.child(rune::memo(format!("{id}-sidebar-resize"), resize_inputs, || handle(&pal, w, min, max, dragging)));
+            let resize_inputs = ((pal.theme, pal.generation, pal.dark), w.to_bits(), min.to_bits(), max.to_bits(), dragging, at);
+            body = body.child(rune::memo(format!("{id}-sidebar-resize"), resize_inputs, || handle(&pal, w, min, max, dragging, at)));
         }
         let toggle_key = crate::plugin_host::icons::intern(&format!("{id}-tree-toggle"));
         col()
@@ -152,18 +221,22 @@ pub fn view(a: &mut NodeArgs) -> Result<El, String> {
             .min_h(0.0)
             .fill(pal.bg_base)
             .child(body)
-            .child(chrome::sidebar_toggle(&pal, toggle_key, opened, locked, toggle))
+            .child(chrome::sidebar_toggle(&pal, toggle_key, opened, locked, at == Side::End, toggle).on_secondary_press(open_side_menu))
     })
     .ok_or_else(|| "ui.panelSidebar draws only in a render".into())
 }
 
-/// Desktop's `ResizeHandle` over the sidebar's end edge: 8 pt wide, centred on the edge, its
-/// 4 × 40 pill (`border-muted`, as the review sidebar colours it) showing under the pointer and
-/// while dragging.
-fn handle(p: &crate::palette::Pal, width: f32, min: f32, max: f32, dragging: bool) -> El {
+/// Desktop's `ResizeHandle` over the sidebar's inner edge (the one facing away from the panel's
+/// edge it sits on): 8 pt wide, centred on the edge, its 4 × 40 pill (`border-muted`, as the
+/// review sidebar colours it) showing under the pointer and while dragging.
+fn handle(p: &crate::palette::Pal, width: f32, min: f32, max: f32, dragging: bool, at: Side) -> El {
     let pill = el().key("pill").size(4.0, 40.0).radius(2.0).fill(p.border_muted);
     let pill = if dragging { pill } else { pill.group_opacity(0.0, 1.0) };
-    el().pin(Some(width - 4.0), Some(0.0), None, Some(0.0))
+    let pinned = match at {
+        Side::Start => el().pin(Some(width - 4.0), Some(0.0), None, Some(0.0)),
+        Side::End => el().pin(None, Some(0.0), Some(width - 4.0), Some(0.0)),
+    };
+    pinned
         .w(8.0)
         .center()
         .cursor(Cursor::ResizeColumn)
@@ -175,9 +248,13 @@ fn handle(p: &crate::palette::Pal, width: f32, min: f32, max: f32, dragging: boo
         })
         .on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| {
             tx.instant();
+            // The pointer's travel towards the panel's middle widens it: left to right from the
+            // start edge, and the other way from the end edge or in a right-to-left layout.
+            let rtl = opencode_i18n::direction() == opencode_i18n::Direction::Rtl;
+            let dx = if (at == Side::End) != rtl { -d.dx } else { d.dx };
             let event = match d.phase {
                 Phase::Down => ResizeEvent::Down { width },
-                Phase::Move => ResizeEvent::Move { dx: d.dx, min, max },
+                Phase::Move => ResizeEvent::Move { dx, min, max },
                 Phase::Up => ResizeEvent::Up { cancelled: d.cancelled() },
             };
             s.workspace_panes.panel_sidebar.step(event);

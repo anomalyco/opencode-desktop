@@ -1,4 +1,4 @@
-# OpenCode plugin API reference (contract 1.8)
+# OpenCode plugin API reference (contract 1.9)
 
 > Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit. For a walkthrough, read [Writing a plugin](writing-a-plugin.md).
 
@@ -6,7 +6,7 @@ Contents: [Versioning](#versioning) · [Modules and globals](#modules-and-global
 
 ## Versioning
 
-Contract versions are `MAJOR.MINOR`. This is contract `1.8`.
+Contract versions are `MAJOR.MINOR`. This is contract `1.9`.
 
 - A plugin names the contract it targets in plugin.toml: `contract = "1.0"`.
 - Minor versions (1.1, 1.2, …) only add: new optional properties on `ui.*` nodes and specs, new semantic tokens (each with a 1.0 fallback token), new services, methods, signals, contribution kinds and enum values. A plugin that targets 1.0 runs unchanged on every 1.x host.
@@ -291,6 +291,7 @@ Panels, settings and drafts in this window. Halves: window.
 | `:Narrow` | `() -> boolean` | The window is narrow-screen sized. |
 | `:PanelSidebar` | `() -> PanelSidebarInfo` | The file sidebar `ui.panelSidebar` draws. |
 | `:TogglePanelSidebar` | `() -> ()` | Shows or hides it. |
+| `:MovePanelSidebar` | `(side: PanelSidebarSide) -> ()` | Puts it on an edge of the panel, for every side panel. Since 1.9. |
 | `:OpenDrawerView` | `(title: string, data: { [string]: any }?) -> ()` | From a `drawer` kind panel's view in a narrow window's More drawer: shows a nested view in the drawer in its place (Desktop's `useDrawer().open`), with a back button named after the panel's view. The panel's render draws it, with `props.drawer` set to `data`. Does nothing elsewhere. |
 | `:RegionOpen` | `(sessionId: string?) -> boolean` | A session's side region is open. Defaults to the routed session. |
 | `:RegionFocused` | `() -> boolean` | The side region has the keyboard: the last focus, click or key was in it, as Desktop's side focus reads (`#review-panel[data-focused]`). Read it when a command runs: Desktop's Open browser shortcut focuses the new tab's address only from inside the region. |
@@ -573,7 +574,7 @@ The plugin's own messages in the interface language, and numbers, dates and list
 | `ui.codeView(props: UiCodeViewProps) -> UiNode` | native | [`UiCodeViewProps`](#uicodeviewprops) | A highlighted file. |
 | `ui.diffView(props: UiDiffViewProps) -> UiNode` | native | [`UiDiffViewProps`](#uidiffviewprops) | Changes, split or unified. |
 | `ui.fileTree(props: UiFileTreeProps) -> UiNode` | native | [`UiFileTreeProps`](#uifiletreeprops) | A folder's file tree. |
-| `ui.panelSidebar(props: UiPanelSidebarProps, children: { UiNode }?) -> UiNode` | native | [`UiPanelSidebarProps`](#uipanelsidebarprops) | A resizable sidebar at a panel's start, its children stacked in it. |
+| `ui.panelSidebar(props: UiPanelSidebarProps, children: { UiNode }?) -> UiNode` | native | [`UiPanelSidebarProps`](#uipanelsidebarprops) | A resizable sidebar at a panel's start or end, its children stacked in it. |
 | `ui.openInButton(props: UiOpenInButtonProps) -> UiNode` | native | [`UiOpenInButtonProps`](#uiopeninbuttonprops) | The app's Open in split button for a path. |
 | `ui.officePages(props: UiOfficePagesProps) -> UiNode` | native | [`UiOfficePagesProps`](#uiofficepagesprops) | A Word document's pages or a deck's slides, fit to the pane's width, with zoom controls. |
 | `ui.officeSheet(props: UiOfficeSheetProps) -> UiNode` | native | [`UiOfficeSheetProps`](#uiofficesheetprops) | A workbook's sheet: its headers and the cells under the scroll position. |
@@ -882,6 +883,15 @@ How a `ui.frame` container arranges its children.
 | `"col"` | A vertical stack. The default. |
 | `"row"` | A horizontal stack. |
 | `"box"` | No axis: children stack on top of each other. |
+
+### PanelSidebarSide
+
+The edge of a panel its file sidebar sits on.
+
+| Value | Meaning |
+|---|---|
+| `"start"` | The inline start: left in a left-to-right layout. |
+| `"end"` | The inline end: right in a left-to-right layout. |
 
 ### ComposerPicker
 
@@ -2042,7 +2052,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 
 ### UiPanelSidebarProps
 
-`ui.panelSidebar(props, { sidebar, main })` props: a panel's frame with the file sidebar at its start, resized by its end edge (a double click resets it), and the sidebar toggle pinned at the panel's top left. Whether the sidebar shows and its width are one preference every panel shares (`Layout:PanelSidebar`); the toggle and Mod+\ flip it.
+`ui.panelSidebar(props, { sidebar, main })` props: a panel's frame with the file sidebar at its start or end, resized by its inner edge (a double click resets it), and the sidebar toggle pinned at the panel's top corner on the sidebar's side. Whether the sidebar shows, its width and the edge it sits on are one preference every panel shares (`Layout:PanelSidebar`); the toggle and Mod+\ flip it, and a right-click on the sidebar or the toggle offers Sidebar position.
 
 Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 
@@ -2062,6 +2072,7 @@ The panels' shared file sidebar.
 |---|---|---|
 | `opened` | `boolean` | It shows. |
 | `width` | `number` | Its width in points. |
+| `side` | `PanelSidebarSide` | The edge of the panel it sits on. With `end`, the toggle is at the panel's top end corner: leave it room at the end of a header or toolbar under it, not at the start. Since 1.9. |
 
 ### UiOpenInButtonProps
 
