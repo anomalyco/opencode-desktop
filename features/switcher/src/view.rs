@@ -42,9 +42,14 @@ fn entry_height(stacked: bool) -> f32 {
     }
 }
 
-/// A session only its messages matched: its title, and under it the line of context (6 above
-/// and below, the title's 18 and the line's 16).
-const SNIPPET_H: f32 = 46.0;
+/// A session only its messages matched: its title's line, and under it the line of context, each
+/// 16 tall and 2 apart, with 7 above and below.
+const SNIPPET_H: f32 = SNIPPET_PAD + LINE_H + SNIPPET_GAP + LINE_H + SNIPPET_PAD;
+const SNIPPET_PAD: f32 = 7.0;
+const SNIPPET_GAP: f32 = 2.0;
+const LINE_H: f32 = 16.0;
+/// A row's avatar and the 8 after it: the line of context starts under the title.
+const LEAD_W: f32 = 16.0 + 8.0;
 
 /// `e`'s row height: with its line of context, stacked, or one line.
 fn height(s: &dyn SwitcherHost, e: &Entry, q: &str, fulltext: &[FullTextRow]) -> f32 {
@@ -416,33 +421,53 @@ fn entry_row_shell(s: &dyn SwitcherHost, p: &Pal, e: &Entry, active: bool, q: &s
         Action::File(_) | Action::Setting(_) => (None, None),
     };
     let found_snippet = snippet(e, q, fulltext);
+    let unhide_w = unhide.as_ref().map_or(0.0, |(_, uw)| uw + 8.0);
+    let indent = if lead.is_some() { LEAD_W } else { 0.0 };
     let main = match &e.action {
         Action::File(path) => file_main(p, path, q),
         _ => {
             // The row's text: the row less its 8/6 pt sides, the lead and the trailing parts.
-            let trailing_w = trailing.as_ref().map_or(0.0, |(_, tw)| tw + 8.0) + unhide.as_ref().map_or(0.0, |(_, uw)| uw + 8.0);
-            let text_w = w - 12.0 - 14.0 - trailing_w - if lead.is_some() { 24.0 } else { 0.0 };
+            let trailing_w = trailing.as_ref().map_or(0.0, |(_, tw)| tw + 8.0) + unhide_w;
+            let text_w = w - 12.0 - 14.0 - trailing_w - indent;
             let archived = sw.mode == SwitcherMode::Archived;
-            let words = row_text(p, e, q, text_w, archived, stacked(s, e));
-            let words = match found_snippet {
-                Some(r) => col().key("found").grow(1.0).shrink().min_w(0.0).gap(0.0).child(words).child(snippet_line(p, r)),
-                None => words,
+            // A row with its line of context keeps to one line: its description beside the title,
+            // or none where it would stack.
+            let words = match (found_snippet.is_some(), stacked(s, e)) {
+                (false, true) => Words::Stacked,
+                (true, true) => Words::Title,
+                _ => Words::Beside,
             };
+            let words = row_text(p, e, q, text_w, archived, words);
             row().key("main").grow(1.0).shrink().min_w(0.0).gap(8.0).center_y().children(lead).child(words)
         }
     };
-    let r = row()
+    let ends = |line: El| line.children(trailing.map(|(el, _)| el)).children(unhide.map(|(el, _)| el));
+    let Some(found) = found_snippet else {
+        return ends(option_shell(p, e, active, row().h(height(s, e, q, fulltext)).gap(8.0).center_y()).child(main));
+    };
+    // Two lines on one grid: the title's line is a one-line row's (avatar, words, then the age or
+    // the ring at the end), and the line of context starts under the title, its "+n" under the
+    // age. A reader hears what matched with the row.
+    let title_line = ends(row().key("line").w_full().h(LINE_H).gap(8.0).center_y().child(main));
+    let context = snippet_line(p, found).pl(indent).pr(unhide_w);
+    option_shell(p, e, active, col().h(SNIPPET_H).pt(SNIPPET_PAD).gap(SNIPPET_GAP))
+        .description(found.snippet.text.clone())
+        .child(title_line)
+        .child(context)
+}
+
+/// A row's own parts (`PaletteRow`): an option 6 pt round, 8 and 6 in, with the hover overlay
+/// while highlighted.
+fn option_shell(p: &Pal, e: &Entry, active: bool, shell: El) -> El {
+    shell
         .key(format!("sw-{}", e.key))
         .role("option")
         .label(e.title.clone())
         // Selected while highlighted, as official's `aria-selected` option is.
         .focus_selected(active)
         .w_full()
-        .h(height(s, e, q, fulltext))
         .pl(8.0)
         .pr(6.0)
-        .gap(8.0)
-        .center_y()
         .radius(6.0)
         .cursor(rune::Cursor::Pointer)
         .fill(if active { p.hover } else { Color::TRANSPARENT })
@@ -456,13 +481,6 @@ fn entry_row_shell(s: &dyn SwitcherHost, p: &Pal, e: &Entry, active: bool, q: &s
         .no_focus_ring()
         .transition(Transition::none())
         .motion(Spring::NONE)
-        .child(main);
-    // A reader hears what matched in a session only its messages matched.
-    let r = match found_snippet {
-        Some(row) => r.description(row.snippet.text.clone()),
-        None => r,
-    };
-    r.children(trailing.map(|(el, _)| el)).children(unhide.map(|(el, _)| el))
 }
 
 /// Project `id` on `server`: the window's own, or another server's the search read.
@@ -516,7 +534,7 @@ fn unhide_button<H: SwitcherHost + 'static>(s: &H, p: &Pal, e: &Entry) -> Option
 
 /// A full text row's line of context (`UI_SMALL`, `text-faint`): what matched in the accent, an
 /// ellipsis where it was cut, "Draft" before a draft's, and the session's other matches as "+n"
-/// at its end.
+/// at its end, in the age's figures. Too long, it fades out before the "+n".
 pub fn snippet_line(p: &Pal, r: &FullTextRow) -> El {
     snippet_line_parts(p, r.kind, &r.snippet, r.more)
 }
@@ -524,32 +542,61 @@ pub fn snippet_line(p: &Pal, r: &FullTextRow) -> El {
 /// Renders a full-text snippet line from its individual parts so external surfaces (such as
 /// Home search) can draw snippets without converting row wrappers.
 pub fn snippet_line_parts(p: &Pal, kind: FullTextKind, snippet: &Snippet, more: usize) -> El {
-    let lead = if snippet.cut_before { "\u{2026}" } else { "" };
-    let tail = if snippet.cut_after { "\u{2026}" } else { "" };
-    let body = format!("{lead}{}{tail}", snippet.text);
-    let spans: Vec<Span> = snippet.marks.iter().map(|m| Span::new(m.start + lead.len(), m.end + lead.len()).color(p.accent)).collect();
-    let mut line = row().key("snippet").w_full().min_w(0.0).h(16.0).gap(6.0).center_y();
+    let (body, spans) = context_text(snippet);
+    let spans: Vec<Span> = spans.into_iter().map(|(start, end)| Span::new(start, end).color(p.accent)).collect();
+    let mut line = row().key("snippet").w_full().min_w(0.0).h(LINE_H).gap(6.0).center_y();
     if kind == FullTextKind::Draft {
         line = line.child(text(t!("rune.search.draft")).key("kind").font(UI_SMALL).color(p.muted));
     }
-    line = line.child(text(body).key("context").font(UI_SMALL).color(p.faint).spans(spans).truncate().grow(1.0).shrink().min_w(0.0).dir(Direction::Auto));
+    line = line.child(text(body).key("context").font(UI_SMALL).color(p.faint).spans(spans).truncate_fade().grow(1.0).shrink().min_w(0.0).dir(Direction::Auto));
     if more > 0 {
-        line = line.child(text(format!("+{more}")).key("more").font(UI_SMALL.features("\"tnum\"")).color(p.muted));
+        line = line.child(text(format!("+{more}")).key("more").ml(2.0).font(META).color(p.muted));
     }
     line
+}
+
+/// A snippet's words with one ellipsis at each end it was cut (dots of its own there give way to
+/// it), and its marks' byte ranges in them.
+fn context_text(snippet: &Snippet) -> (String, Vec<(usize, usize)>) {
+    let dots = ['.', '\u{2026}', ' '];
+    let mut words = snippet.text.as_str();
+    if snippet.cut_after {
+        words = words.trim_end_matches(dots);
+    }
+    let skip = if snippet.cut_before { words.len() - words.trim_start_matches(dots).len() } else { 0 };
+    let words = &words[skip..];
+    let lead = if snippet.cut_before { "\u{2026}" } else { "" };
+    let tail = if snippet.cut_after { "\u{2026}" } else { "" };
+    let marks = snippet
+        .marks
+        .iter()
+        .filter_map(|m| {
+            let (start, end) = (m.start.max(skip) - skip, m.end.min(skip + words.len()).saturating_sub(skip));
+            (start < end).then(|| (start + lead.len(), end + lead.len()))
+        })
+        .collect();
+    (format!("{lead}{words}{tail}"), marks)
 }
 
 /// `command-palette-row-text`: the title (`palette-menu-title`, 13 at 530) and, 6 after it, the
 /// description in `text-faint` taking what is left; with a description the title keeps at most
 /// 60% (`dialog.css:217-229`). Both end in an ellipsis. An archived session's are at 70%.
-fn row_text(p: &Pal, e: &Entry, q: &str, w: f32, archived: bool, stacked: bool) -> El {
+/// Where a row's description goes.
+#[derive(Clone, Copy, PartialEq)]
+enum Words {
+    Beside,
+    Stacked,
+    Title,
+}
+
+fn row_text(p: &Pal, e: &Entry, q: &str, w: f32, archived: bool, words: Words) -> El {
     let fade = |c: Color| if archived { c.alpha(c.a * 0.7) } else { c };
     // Each in its own direction (`dialog.tsx:166-171`, `:236-243`); a project's folder reads left
     // to right, as a file's path does.
     let title = highlighted(&e.title, q, UI, fade(p.text), p.accent).truncate().dir(Direction::Auto);
     let described = if matches!(e.action, Action::Project { .. }) { Direction::Ltr } else { Direction::Auto };
     // At 640 pt or narrower the description goes under the title (`dialog.css:127-138`).
-    if stacked {
+    if words == Words::Stacked {
         return col()
             .key("words")
             .grow(1.0)
@@ -559,8 +606,9 @@ fn row_text(p: &Pal, e: &Entry, q: &str, w: f32, archived: bool, stacked: bool) 
             .child(title.shrink().min_w(0.0))
             .child(highlighted(&e.description, q, UI, fade(p.faint), p.accent).truncate().shrink().min_w(0.0).dir(described));
     }
+    let bare = words == Words::Title;
     let mut words = row().key("words").grow(1.0).shrink().min_w(0.0).gap(6.0).center_y();
-    if e.description.is_empty() {
+    if e.description.is_empty() || bare {
         return words.child(title.shrink().min_w(0.0));
     }
     words = words.child(row().key("title").max_w((w * 0.6).max(0.0)).center_y().child(title.shrink().min_w(0.0)));
