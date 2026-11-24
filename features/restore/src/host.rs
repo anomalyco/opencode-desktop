@@ -64,6 +64,12 @@ pub trait RestoreHost: opencode_kernel::AppEnv {
     fn home_return_tab(&self) -> Option<&str> { None }
     /// Sets the tab UID Home returns to (`tabs.recent`).
     fn set_home_return_tab(&mut self, _uid: Option<String>) {}
+    /// The tab the page is in (its UID) and the page's session, when the page is a child session
+    /// that tab routes to (a subagent's page) and the sessions the server listed say so.
+    fn routed_child(&self) -> Option<(String, String)> { None }
+    /// What the window saved of [`Self::routed_child`]: the session that was routed in the tab
+    /// `tabs.recent` names (`tabs.recent.routeSessionId`), if it said one.
+    fn set_saved_routed_child(&mut self, _session: Option<String>) {}
     /// Looks up a tab's [`TabKey`] by its unique tab UID.
     fn tab_key_by_uid(&self, uid: &str) -> Option<TabKey> {
         self.tabs().into_iter().find(|t| t.uid == uid).map(|t| t.key())
