@@ -713,7 +713,7 @@ pub(super) fn connect(s: &mut App, tx: &mut Tx) {
     // one: `open` above already asked for both on the fetch thread, and a read here held its
     // frame for a whole round trip, twice (5 and 10 s behind a server that answers in 5 s),
     // which no window does.
-    let inline = headless() && !crate::flag("--realtime");
+    let inline = headless() && !crate::realtime();
     if inline
         && let (Route::Session { id, server: on }, Source::Live { server, .. }) = (&*s.route, &*s.source)
         && on == crate::servers::runtime::active(s)
