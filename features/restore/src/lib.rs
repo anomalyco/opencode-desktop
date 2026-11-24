@@ -47,7 +47,7 @@ pub use persist::{draft_document_of, draft_documents, draft_tab_key, poll_restor
 pub use places::{Kept as KeptPlaces, land_place, poll_places, restore_places};
 pub use preview::{Previews, encode as encode_preview, poll_preview, preview_place, stamp as preview_stamp};
 pub use state::{
-    Hydration, InboxUi, OrganizeState, Restore, RestoreRoute, RestoreTab, StorageNotice, draft_key, organize_json,
+    Hydration, InboxUi, OrganizeState, Restore, RestoreRoute, RestoreTab, StorageNotice, WorkingPlacement, draft_key, organize_json,
     parse_organize,
 };
 pub use undo::{Kept as KeptUndo, poll_undo, undo_document};
