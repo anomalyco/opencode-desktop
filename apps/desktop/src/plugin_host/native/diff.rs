@@ -39,6 +39,7 @@ fn saved_review_mode(app: &App, sid: &str) -> ChangeMode {
 /// or apply the bundled plugin's store schema to a third-party panel.
 pub(crate) fn prepare_route(app: &mut App, sid: &str) {
     if !app.review_shown() { return; }
+    eprintln!("DBG prepare_route sid={sid} review_running={} listed={}", app.plugins.running().any(|(_, p)| p.manifest.id == "review"), app.session(sid).is_some());
     if !app.plugins.running().any(|(_, p)| p.tier == super::super::Tier::Bundled && p.manifest.id == "review") {
         // Other providers keep their own choice of source and their existing refresh timing.
         if app.side_open() { app.kernel.slots.get_mut(&crate::review::REVIEW).refresh.step(crate::review::RefreshEvent::Immediate); }
@@ -52,6 +53,7 @@ pub(crate) fn prepare_route(app: &mut App, sid: &str) {
 /// reopens (`Request::OpenPanel`/`TogglePanel`), eliminating the one-frame delay before firing
 /// `/api/vcs/diff` and refreshing cached diffs in the background as Desktop's `side.opened` does.
 pub(crate) fn open_review(app: &mut App, sid: &str) {
+    eprintln!("DBG open_review sid={sid} listed={}", app.session(sid).is_some());
     if !app.plugins.running().any(|(_, p)| p.tier == super::super::Tier::Bundled && p.manifest.id == "review") {
         app.refresh_review_on_open(sid);
         return;
@@ -79,6 +81,7 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         let mode = ChangeMode::parse(s.source.as_str()).unwrap_or_default();
         let sid = s.session_id;
         with_app("Diff:Open", |app| {
+            eprintln!("DBG Diff:Open sid={sid} source={} has_read={} listed={}", mode.name(), app.kernel.slots.get(&crate::review::REVIEW).has_read(&sid, mode), app.session(&sid).is_some());
             if !app.kernel.slots.get(&crate::review::REVIEW).has_read(&sid, mode) {
                 let id = sid.clone();
                 app.later(Box::new(move |s: &mut App, _: &mut Tx| s.set_session_change_mode(&id, mode)));

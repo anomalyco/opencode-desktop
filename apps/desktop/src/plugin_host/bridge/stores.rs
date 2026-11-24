@@ -166,6 +166,7 @@ fn loaded(boot_done: bool) {
         }
         std::mem::take(&mut s.provisional)
     });
+    eprintln!("DBG stores loaded boot_done={boot_done} provisional={provisional:?}");
     for (plugin, key) in provisional {
         crate::plugin_host::services::store::store_changed(&plugin, &key);
     }

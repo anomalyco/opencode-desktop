@@ -121,6 +121,9 @@ fn value(lua: &Lua, vmx: &Rc<Vmx>, name: String, default: Value, per_session: bo
             }
             // A value saved before values were kept per server is under the bare session id.
             let text = if per_session { session_text(&plugin, &ns, &name, session, &key) } else { stores::text(&plugin, &ns, &key) };
+            if per_session {
+                eprintln!("DBG store read plugin={plugin} key={:?} found={} loaded={} listed={} version={version}", &*key, text.is_some(), crate::storage::is_loaded(&ns), with_app("Store", |app| Ok(app.session(session).is_some_and(|s| !s.directory.is_empty()))).unwrap_or(false));
+            }
             if per_session && text.is_some() {
                 stores::touch(&plugin, &ns, &name, &key);
             }
@@ -134,6 +137,9 @@ fn value(lua: &Lua, vmx: &Rc<Vmx>, name: String, default: Value, per_session: bo
         move |lua: &Lua, session: &str, value: Value| -> mlua::Result<()> {
             let json = Data::from_lua(value, lua)?.to_json().to_string();
             let key = if per_session { with_app("Store", |app| Ok(stores::key(&name, &scope_session(app, session))))? } else { name.to_string() };
+            if per_session {
+                eprintln!("DBG store write plugin={plugin} key={key:?} value={json}");
+            }
             stores::set(&ns, &key, json);
             if per_session {
                 stores::touch(&plugin, &ns, &name, &key);
