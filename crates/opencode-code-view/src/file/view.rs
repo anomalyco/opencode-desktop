@@ -273,6 +273,14 @@ impl<S: 'static> Inner<S> {
                     return true;
                 }
                 let st = get_mut(s);
+                // A line focused by a press is not the cursor's line yet, so it is not the viewer's
+                // Tab stop: Tab would leave from the old cursor line's place (Shift+Tab from a
+                // pressed line 2 landed on line 1). The cursor comes here first, then the key again.
+                if ev.key == rune::Key::Tab && st.cursor != n {
+                    st.cursor = n;
+                    tx.send_key(ev.clone());
+                    return true;
+                }
                 st.cursor = n;
                 st.line_key(ev, tx)
             })
