@@ -22,7 +22,7 @@
 
 use std::collections::HashSet;
 
-use opencode_kit::model::{Project, SessionInfo};
+use opencode_kit::model::{BrowserGrant, Project, SessionInfo};
 use serde_json::{Value, json};
 
 use crate::App;
@@ -60,10 +60,12 @@ pub(crate) fn restore(s: &mut App) -> bool {
     }
     let Some(saved) = crate::storage::json(GLOBAL, KEY).filter(|v| v["v"].as_u64() == Some(VERSION)) else { return false };
     let projects = opencode_kit::model::parse_projects(&saved["projects"]);
-    let sessions = opencode_kit::model::parse_sessions(&saved["sessions"]);
+    let mut sessions = opencode_kit::model::parse_sessions(&saved["sessions"]);
     if sessions.is_empty() {
         return false;
     }
+    // A saved row says nothing about who holds the session's browser now.
+    sessions.iter_mut().for_each(|x| x.browser = BrowserGrant::Unread);
     rune::marks::mark("state.list");
     let ids = sessions.iter().map(|x| x.id.clone()).collect();
     *s.projects = projects;

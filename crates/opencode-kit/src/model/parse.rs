@@ -3,7 +3,7 @@
 use serde_json::Value;
 
 use super::{
-    Assistant, Compaction, Message, ModelRef, Part, Project, PromptComment, Retry, SessionInfo,
+    Assistant, BrowserGrant, Compaction, Message, ModelRef, Part, Project, PromptComment, Retry, SessionInfo,
     StepError, Tokens, ToolStatus, i, keep_tool_error, keep_tool_output, keep_tool_ran, model_of,
     notice, parse_attachments, s, set_user_comments, set_user_created, set_user_files, strings,
     tool,
@@ -33,6 +33,7 @@ pub fn parse_session(p: &Value) -> SessionInfo {
         revert: p["revert"]["messageID"].as_str().map(str::to_owned),
         archived: p["time"]["archived"].as_i64(),
         metadata: p["metadata"].clone(),
+        browser: BrowserGrant::of(&p["permissions"]),
     }
 }
 
