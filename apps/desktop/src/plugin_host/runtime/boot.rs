@@ -44,7 +44,7 @@ pub fn setup(app: &mut App, waker: Waker) {
     // Non-realtime headless runs (`--script`/`--snap`/`--tree` with `--harness-writes`) have no
     // `on_ready` hook to call `storage::presented()`, so join stage B here rather than stranding
     // `start_later` in `Phase::Booted` until process exit when SQLite WAL init is still running.
-    if crate::headless() && !crate::flag("--realtime") {
+    if crate::headless() && !crate::realtime() {
         crate::storage::join_for_headless();
     }
     // What the user turned off and trusted: in memory, or in the boot record. A launch whose
