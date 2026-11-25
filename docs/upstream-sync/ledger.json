@@ -5,7 +5,7 @@
   "upstream_head": "5050225a097af2a3ffd5c9b6e39d53ba3d69eeec",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "b33dd0fb0",
+  "rune_desktop_head": "74e81e515",
   "post_1114_commit_count": 663,
   "post_1114_in_ledger": 236,
   "post_1114_skipped": 427,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 257,
   "status_counts": {
-    "have it": 206,
+    "have it": 207,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 11
+    "missing": 10
   },
   "rows": [
     {
@@ -6359,8 +6359,8 @@
       ],
       "summary": "Keyboard focus in two dialogs. The worktree picker (the new session's location dialog): its rows are no longer Tab stops, the search field keeps the focus and names the active row, and a row lights under the pointer only; typing on a focused row no longer has to be sent back to the search field. What's New: its wrapper is no longer a Tab stop, and Next and Get started are one button that takes the focus when the dialog opens and keeps it on the last page.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "What's New's half is ported in draft opencode-rune #1200 (plugins/updater/view.luau: one button, release-primary, with autofocus, in place of two with two keys; official packages/gui-plugins/src/updater/whats-new.tsx:239-247); not run yet. The worktree picker's half was already so in ours: its rows are options of a listbox, and an option is not a Tab stop in this app (only button-like roles are), so Tab stops on the rows' step-in buttons and never on a row, as official's now (packages/app/src/new-session/location/dialog.tsx:472-473); a tree of an earlier build shows it. An earlier text of this row said the rows were Tab stops: that was wrong. Ours' wrapper in What's New never was a Tab stop (whats-new.tsx:221-222), and ours has no handler that sends typing on a row back to the search field.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1200 (74e81e51): What's New's Next and Get started are one button, release-primary, which takes the focus as the dialog opens and keeps it on the last page (plugins/updater/view.luau; official packages/gui-plugins/src/updater/whats-new.tsx:239-247). The worktree picker's half was already so in ours: its rows are options of a listbox, and an option is not a Tab stop in this app (only button-like roles are), so Tab stops on the rows' step-in buttons and never on a row, as official's now (packages/app/src/new-session/location/dialog.tsx:472-473). Run headless on its own Windows x64 CI build, a fixture server, What's New opened from a scratch copy of the Updater plugin given with --plugin-dir, holding this change and then dev's view, on the one build: with the change the button has the focus as the dialog opens and through all three pages, and Return on the last page closes the dialog; before, the focus was on the dialog itself and Return did nothing; the picker's Tab order is as described. Not run: a real window, What's New after a real update, its dots, Don't show these in the future, a click on a picker row, macOS, Linux. Seen in the run, not part of the port and open: the focused button draws no ring; ours rings a dialog's first focus only when the keyboard moved focus last (Rune runtime/input/modal_focus.rs:218, focus.rs:50-53), for every dialog; whether official's button shows one there (packages/ui/src/overlays/dialog/dialog.tsx:164-183, button.css :focus-visible) is the browser engine's rule for a script focus and needs a look at the official app.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
