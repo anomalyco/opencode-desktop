@@ -290,6 +290,9 @@ unsafe extern "system" fn unhandled_filter(info: *const ExceptionPointers) -> i3
                 _ => TAG_FATAL,
             };
             record_fault(tag, FLAG_OS_EXCEPTION, code, 0, avail, true);
+            // Where it happened, as `library+offset` (`place`): the record above holds the code only.
+            // SAFETY: `rec` is the non-null `EXCEPTION_RECORD` Windows passed this filter.
+            unsafe { super::place::write(rec.cast()) };
             let prev = PREV_FILTER.load(Ordering::Acquire);
             if prev.is_null() {
                 // End at once with `code` rather than unwinding/detaching DLLs or spawning WerFault on an exhausted stack.

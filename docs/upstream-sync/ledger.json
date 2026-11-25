@@ -2,29 +2,29 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "2b296cabc843fb76e7d65c53e10ce29833630aa1",
+  "upstream_head": "c85b83eb08c3d2666b842848215325acb282d92b",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "62bf130d4",
-  "post_1114_commit_count": 685,
-  "post_1114_in_ledger": 240,
-  "post_1114_skipped": 445,
+  "rune_desktop_head": "7d6d45518",
+  "post_1114_commit_count": 694,
+  "post_1114_in_ledger": 242,
+  "post_1114_skipped": 452,
   "post_1114_skipped_breakdown": {
-    "test-only": 26,
+    "test-only": 28,
     "ci-bench-deps": 26,
     "docs-site-data": 70,
     "tui-only": 31,
     "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 281
+    "server-core-ai-codemode-internal": 286
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 261,
+  "total_ledger_rows": 263,
   "status_counts": {
-    "have it": 213,
+    "have it": 216,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 8
+    "missing": 7
   },
   "rows": [
     {
@@ -5860,8 +5860,8 @@
       ],
       "summary": "The elevation shadows' layers are listed in Figma's order (the 0.5 px ring first, then the soft shadows; for the contrast button the insets before the ring and the drop shadow), which changes which layer paints over which.",
       "size": "XS",
-      "status": "missing",
-      "status_evidence": "Not ported, not compared. The tokens are Rune's (rune-theme-opencode): official reversed the layer lists of eight elevation tokens in both themes (raised, floating, overlay, input, button-neutral, button-contrast, switch-off, switch-on), and in Rune that is data only (themes/opencode/assets/theme.json holds each list and the kit paints a list in CSS order, the first layer on top), so the port is a Rune PR and a pin. What can differ, by reading: in the light theme black layers over black composite the same in any order, so only the contrast button (an opaque grey ring) can; in the dark theme raised, floating, overlay, button-neutral and button-contrast mix a light ring and top line with dark drops, so the 0.5 px ring of cards, popovers, menus, dialogs and neutral buttons is a little lighter where the drop lies on it (the ring now paints over the drop); dark input (its drop has no alpha) and both switches (one colour each) cannot differ. It is to ride the pin bump after the next one, alone, so that the pin's picture walk shows it as its one meant difference. 26 Nov: the Rune change is merged (rune#2187, 85466cc98) and is not in the pin of opencode-rune #1192 (d5c7a5ad): it reaches the app with the bump after it.",
+      "status": "have it",
+      "status_evidence": "By the Rune pin 5342f14d (opencode-rune #1257, affe876f), which holds rune#2187 (85466cc98): every `v2-elevation-*` token of the OpenCode theme lists its layers in official's order, the 0.5 pt ring before the drop shadows, and the kit paints a list's first layer on top, as CSS does. Official: packages/ui/src/styles/tokens/theme.css:220-234 (dark: the top line, the ring, then the two drops), :106-124 (light), commit 0c2e204eaa. Seen in the pin's walk (headless, Windows x64, the pin's build beside a build of dev without it): in the dark theme the outline of a raised surface (a Markdown table, a tooltip, a raised Settings button) is lighter on its lower and side edges and unchanged on its top edge, in 106 of the walk's 168 pictures; on one picture the sides read 42 to 47 and the bottom 32 to 40 of 255. That is the ring now painted over the drops, which fall downward: the direction and the edges are official's by its file. Not compared: the amount, with a render of official's surface beside ours. Not looked at: the light theme, where by the same file only the contrast button's opaque grey ring can differ.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6007,8 +6007,8 @@
       ],
       "summary": "A skill's file opened in the file viewer (`skill://<id>/<file>`) is read through the server (`GET /api/experimental/skill/:skillID/file/*`), which loads a file a skill serves on demand; before, the viewer took the text from the inline content of `/api/skill`, which is empty for such a skill. The server side: behind the `mcp_skills` flag, skills an MCP server offers are listed as `<server>:<skill>`.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "In work: draft opencode-rune #1226 (not compiled, not run). By reading: ours' file tab reads no `skill://` path at all, neither the inline content official read before nor the new endpoint (no `skill://` in apps/desktop/src/surfaces/files or plugin_host/native/files.rs; crates/opencode-kit/src/model/plugin.rs SkillInfo takes id, name and path only). The lists that name skills (mentions, Settings, Details) take what `/api/skill` lists, so an MCP skill shows there as the server names it. Not run: what a read row with a `skill://` path opens in ours; a server with the endpoint.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1226 (7c3c9ed5), with the two older official changes it stands on, which ours never had (#60464 78f8dffd48, #60921 69269e4ebe): a skill's virtual file, `skill://<id>/<file>`, opens in the file tab. It is read with `GET /api/experimental/skill/<id>/file/<path>` (features/files/src/data.rs fetch_skill_file; official packages/app/src/workspaces/files/model.tsx:257-264); a link to such a path is a file link, with a line or a line range (features/files/src/links.rs Link::Skill); the tab has no Open in and no Show in folder, and the file is no row of the file tree and is not watched. Ours only: on a server that has no such route (older than 24 Nov) the read falls back to the inline body of `/api/skill`, where official itself read it before #66201; on a server with the route a skill or file the server does not have reads as not found. Run headless on its own Windows x64 CI build (head 043c15009) beside a build of dev on the same Rune pin. With a test server from before the new route: a built-in skill pressed in Details > Skills opens a tab with the skill's text (before: no tab); a reply's link with `:3` opens the tab in the source view with line 3 marked; a file that is not there gives a toast and no tab; in each the server was asked the file route once (404) and then the skills list (200), so the fallback read is proved by a run. With a fixture file and no server: the link opens the tab, with no `skill:` row in the tree and no Open in; a relative link inside a skill's file opens the skill's other file under one tab id; a missing file gives the toast. By reading only: the new route answering 200, and an MCP server's skill (its body is not in the list), since the server the cases ran on is from before df79010bc6. Seen at the server, by reading, not in a pass: in its first second for a folder the skills list is empty and the fallback reads it once, so a skill opened in that second reads as not found and opens on the next press. Not run: a real window; macOS; Linux. The server side of #66201 (the `mcp_skills` flag, the `<server>:<skill>` names) is the server's and needs nothing of ours: the lists that name skills take what `/api/skill` lists.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6523,8 +6523,57 @@
       ],
       "summary": "The Rename session command is also the slash command /rename: with words after it, the session takes them as its title; bare, it asks the server to generate a new title from the conversation so far. A new command, Generate session title, does the same from the palette. While a title is being generated the session's title in the header shimmers, and a second ask does nothing. Rename session gains a description that says both. A refusal shows as a Request failed toast.",
       "size": "S",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1249 (fce76a1c): `/rename` is a slash command: with words after it the open session takes them as its title once the server's rename event comes; bare, it asks the server to generate a title (an empty title in the session's update is the ask, as in official), and the header's title shimmers until the answer; a second ask for the same session does nothing meanwhile. A new command, Generate session title, does the same from the palette and is not offered on a subagent's page, while the title is edited or while a title is on its way. Rename session has official's description. One small explicit machine (features/session-menu/src/generate_title.rs); a command's `/name` can take words (crates/opencode-kernel/src/commands.rs CommandEntry::words). Official: packages/app/src/session/timeline/message-timeline.tsx:300-319, :702-704, packages/app/src/session/timeline/controller.tsx:455-494, packages/app/src/runtime/i18n/en.ts:129-131. Run headless on its own Windows x64 CI builds beside a build of dev on the same Rune pin, the app's fixture file and no server: the `/` list has `/rename` with its description and Ctrl+R (before: no such row); picking it leaves `/rename ` in the composer; the palette lists Generate session title on a session's page and not on a subagent's; a bare `/rename` leaves the title as it was with no shimmer and one toast that nothing was sent; `/rename New words` clears the composer, keeps the title in the header and the tab, and shows the same one toast (on the first head it kept the unsent words as the title: a fault of the port, corrected before the merge and run again on the merged head). Not run (each needs a server): a generated title arriving and the shimmer; Generate session title from the palette with a server; `/rename words` taken by a server; a server's refusal. Not run: a real window; macOS; Linux. Differences, each by reading: a refused `/rename words` is titled Failed to rename session where official's reads Request failed (controller.tsx:481), which a follow-up to the in-place rename's failure toast changes; a long title is not cut short while it shimmers, where official's sits in a truncating button (message-timeline.tsx:699); the place of `/rename` in the `/` list (official lists later registrations first, shell/commands/command.tsx:133-134; ours lists it after the commands whose order is known).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-241",
+      "window": "post-1120",
+      "pr": 66402,
+      "sha": "dfce18305d",
+      "title": "fix(app): keep a running script's shells out of the background pill",
+      "merged": "2026-11-25",
+      "packages": [
+        "app",
+        "core"
+      ],
+      "main_files": [
+        "packages/app/src/session/requests/background.ts",
+        "packages/core/src/codemode/tool.ts",
+        "packages/core/src/tool/plugin/shell.ts"
+      ],
+      "summary": "A shell a running Code Mode script started is kept out of the background pill by the call it names: the server puts the script's `execute` call in the shell's metadata (`callID`), and the app holds every running shell that names a running script's call, unless that shell has a running job of its own (its own call ended while it runs). A server that names no call is matched as before, by the calls the script lists.",
+      "size": "S",
       "status": "missing",
-      "status_evidence": "Port in a draft, opencode-rune #1249, not run yet: a command's /name can take words (crates/opencode-kernel/src/commands.rs CommandEntry::words), /rename with words renames and bare asks the server with an empty title, one ask per session at a time, the title shimmering in the header meanwhile (features/session-menu/src/generate_title.rs, apps/desktop/src/session/menu.rs, shell/view/header.rs). Official: packages/app/src/session/timeline/message-timeline.tsx:300-319 (the slash command with arguments, the new command and when each is disabled), :703 (the shimmer), packages/app/src/session/timeline/controller.tsx:455-495 (set: an empty title is the ask to generate; one ask per session at a time; the session is read again after the answer), packages/app/src/runtime/i18n/en.ts:129-131. Ours on dev: Rename session edits the title in place in the header (apps/desktop/src/session/menu.rs:336-349, features/session-menu/src/rename.rs); there is no /rename and nothing asks the server for a title.",
+      "status_evidence": "Port in a draft, opencode-rune #1273, not run: features/subagents/src/shells/mod.rs running_for takes the shell's `metadata.callID` and holds a running shell that names a running `execute` call, unless a running shell job names that shell; the match by the script's listed calls stays for a server that names none. Official: packages/app/src/session/requests/background.ts:196-210. Before, by reading: ours matched a script's shell only by start time and the commands the script's call list shows (the same function on dev). Every case needs a server at or past dfce18305d (shells reach the app only from a server): a running script's shell stays out of the pill; a shell that names no call still shows; a shell left running by a call that timed out shows; an older server behaves as before.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-242",
+      "window": "post-1120",
+      "pr": 66169,
+      "sha": "028cd6ce91",
+      "title": "feat(app): submit question answers with Enter, with a setting for Cmd/Ctrl+Enter",
+      "merged": "2026-11-25",
+      "packages": [
+        "app",
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/i18n/en.ts",
+        "packages/app/src/session/requests/question-keys.ts",
+        "packages/app/src/session/requests/question-submit.ts",
+        "packages/app/src/session/requests/session-question-dock-classic.tsx"
+      ],
+      "summary": "In the question dock the key that moves to the next question, or submits on the last, is Enter by default, with a setting (Settings > General, \"Submit question answers with\": Enter or Cmd/Ctrl+Enter). The other Enter selects the highlighted answer (Shift+Enter when Enter submits; Enter with or without Shift when Cmd/Ctrl+Enter submits); Cmd/Ctrl+Enter always submits. The submit key on an answer picks it first on a single-choice question. The custom answer is a field of several lines that grows with its text: the other Enter starts a new line in it, the arrow keys and End land in the field itself, and Up from its start goes back to the answers. The Next and Submit buttons show the chosen key.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Port in a draft, opencode-rune #1275, not run: the setting (Settings > General, Submit question answers with: Enter or Cmd/Ctrl+Enter; features/settings/src/prefs.rs QuestionSubmitKey, pages/general.rs), the key rule (crates/session-view/src/dock/question/mod.rs enter, intent: the submit key commits and moves on, the other Enter marks, Cmd/Ctrl+Enter always moves on), the default dock's answers, mark and typed answer (classic.rs: the submit key on an answer picks it first on a single choice; the typed answer is a field of several lines, the other Enter a new line, Up at its start back to the answers, arrows and End land in the field; the picked wash and the hover fill change places), the typed answer's cap in both docks (six 18 px lines, then it scrolls inside itself), the new dock's 18 px lines, and the buttons' key. Official: packages/app/src/session/requests/question-keys.ts:29-37, :95-101, question-submit.ts:4-8, session-question-dock-classic.tsx:236-248, :440-457, :738-771, session-question-dock-experimental.tsx:1365-1369, packages/session-ui/src/components/question-prompt.css:361-430, question-prompt-experimental.css:392-453, packages/app/src/settings/general/general.tsx:140-168. The two new strings are English in every language, as in official (en.ts alone holds them). By reading no difference is left; not checked: that the field keeps the caret's line in sight once it scrolls. Fourteen cases with no server are in the draft; none has run.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
