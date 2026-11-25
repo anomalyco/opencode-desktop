@@ -1,7 +1,7 @@
 //! App-scheme link validation matching official `origin/dev` `b9a60d9d`
 //! (`packages/app/src/runtime/plugin/app-links.ts:22-29, 35-88` and
 //! `packages/gui-plugins/src/browser/refusal-notice.ts:3-36, 44-55`), plus two stricter
-//! `opencode-desktop` rules (`ours.md`):
+//! Rune-desktop rules (`ours.md`):
 //! 1. Strict RFC 3986 URI character confinement (`is_strict_rfc3986_uri`) refusing `"`, spaces,
 //!    `\`, `< > ` ^ { | }`, controls, bidi, non-ASCII, and malformed `%XX` before any OS handoff or
 //!    review bar (`mailto:` included — no exemption).
