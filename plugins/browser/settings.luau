@@ -184,7 +184,7 @@ local MUTED: UiTextProps = table.freeze({ size = 13, weight = "regular", lineHei
 local HEADING: UiTextProps = table.freeze({ size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", noWrap = true } :: UiTextProps)
 -- A settings row's title (`SettingsRow`), for rows that draw their own subject.
 local ROW_TITLE: UiTextProps = table.freeze({ size = 13, weight = "medium", lineHeight = 16, tracking = -0.04, color = "text-chrome", truncate = true } :: UiTextProps)
-local ASIDE: UiTextProps = table.freeze({ size = 13, weight = "regular", lineHeight = 16, color = "text-muted", truncate = true, shrink = true, minW = 0 } :: UiTextProps)
+
 local SUBLINE: UiTextProps = table.freeze({ size = 13, weight = "regular", lineHeight = 20, color = "text-muted", wrap = true } :: UiTextProps)
 
 -- Official's summary names the remote-server and cookie-file rows too; it is shown only once both exist.
@@ -206,8 +206,9 @@ local function glyph(name: string, image: ImageId?): ui.Node
     })
 end
 
--- `settings.tsx` `Identity` in a row of its own: the icon, the name with an optional muted aside on
--- its line, and under them a detail or what the last action did. Search reveals it by `id`.
+-- `settings.tsx` `Identity` in a row of its own: the icon, the name with an optional aside as a
+-- badge on its line (`settings.tsx:887-895`), and under them a detail or what the last action did.
+-- Search reveals it by `id`.
 local function identityRow(
     key: string,
     id: string?,
@@ -220,7 +221,7 @@ local function identityRow(
 ): ui.Node
     local line: { ui.Node } = { ui.text(name, ROW_TITLE, { shrink = true, minW = 0 }) }
     if aside ~= nil then
-        table.insert(line, ui.text(aside, ASIDE))
+        table.insert(line, ui.badge({ text = aside }))
     end
     local words: { ui.Node } = { ui.row({ gap = 6, align = "center", minW = 0 }, line) }
     if detail ~= nil then
@@ -627,17 +628,25 @@ function settings.renderClearConfirm(i18n: I18nService, view: View, onCancel: ()
     })
 end
 
--- What the import dialog brings: both boxes ticked until the person unticks one (`site-chooser.tsx:80-81`).
+-- What the import dialog brings: both boxes ticked until the person unticks one (`site-chooser.tsx:86-87`).
 export type ImportBoxes = { signins: boolean, history: boolean }
 
 -- One registrable domain the browser profile has cookies for (`profile/ipc.ts` `ProfileSite`).
 export type ProfileSite = { site: string, cookies: number }
 
--- "Choose sites" (`site-chooser.tsx:385-565`) as init.luau keeps it for the open dialog: the list
--- under the boxes once revealed, with the search, the profile, the count and Select all / none.
+-- The dialog's title (`site-chooser.tsx:358-373`): with one profile to offer, "Import from <browser>"
+-- and, for a browser that has several, the profile's name as a badge; with a profile picker, which
+-- names the browser itself, "Import from another browser".
+export type ImportTitle = { text: string, badge: string? }
+
+-- The "Sites" group (`site-chooser.tsx:443-660`) as init.luau keeps it for the open dialog: the
+-- choice between every site and the ticked ones, and under the second the search, the box that
+-- ticks every shown site with the count, and the list.
 export type SiteChooser = {
-    revealed: boolean,
-    -- The import brings every site: nothing was changed, or every site is ticked again.
+    -- Every site comes over (`all`), or only the ticked ones (`some`), which start with none
+    -- (`ChooserState.scope`).
+    scope: string,
+    -- The import brings every site: "All sites" is picked, or every site is ticked.
     everything: boolean,
     chosen: number,
     total: number,
@@ -646,11 +655,12 @@ export type SiteChooser = {
     isChosen: (site: string) -> boolean,
     query: string,
     editor: Editor,
-    -- The list was read and has sites; the count line shows only then.
+    -- The list was read and has sites; the count beside "All sites" and the list's header show only then.
     ready: boolean,
     -- In the list's place: loading, failed (with Try again), empty or unmatched.
     status: { text: string, error: boolean, loading: boolean?, retry: boolean? }?,
-    -- Every browser profile, for the profile menu; nil with just one.
+    -- Every browser profile, for the "From" picker: only where the dialog has several to offer, as
+    -- the pane's offer and a passkey notice do; nil from a Settings row, which picked its profile.
     profiles: { { value: string, label: string } }?,
     profile: string,
     -- Changes when the list's rows do.
@@ -658,34 +668,38 @@ export type SiteChooser = {
     -- Import may start as far as the sites go: some chosen, or every site and a list not read empty.
     canImport: boolean,
     Menu: MenuService,
-    onReveal: () -> (),
+    onScope: (scope: string) -> (),
     onToggle: (site: string) -> (),
     onSelectShown: () -> (),
     onClearShown: () -> (),
     onRetry: () -> (),
     onProfile: (value: string) -> (),
-    -- Opened for one site's sign-in, from a page's passkey notice: no boxes, and sign-ins only
-    -- (`site-chooser.tsx:352`, `:247-249`).
+    -- Opened for one site's sign-in, from a page's passkey notice: no boxes and no choice, only the
+    -- list, and sign-ins only (`site-chooser.tsx:404`, `:447`, `:259-261`).
     single: boolean,
     -- Searched for that site, which this profile has no cookies for: what the count line says while
-    -- sites that only contain its name show (`site-chooser.tsx:132-138`, `:457-468`).
+    -- sites that only contain its name show (`site-chooser.tsx:138-145`, `:539-556`).
     missing: string?,
 }
 
--- `site-chooser.tsx:20` `ROW_HEIGHT`.
+-- `site-chooser.tsx:27` `ROW_HEIGHT`.
 local SITE_ROW = 32
+-- `site-chooser.tsx:24` `HEADING`: a group's heading, 12 at 440 on a 20 line, muted.
+local GROUP_HEADING: UiTextProps = table.freeze({ size = 12, weight = "regular", lineHeight = 20, color = "text-muted", noWrap = true } :: UiTextProps)
 -- Set below the import dialog, which draws it.
 local siteList: (i18n: I18nService, view: View, chooser: SiteChooser, busy: boolean, onImport: () -> ()) -> ui.Node
 
--- "Import from <browser>" (`site-chooser.tsx:328-384`): what comes over, as two boxes, "Sign-ins" and
--- "Browsing history", then Cancel and Import. Import needs at least one box; while it runs the boxes
--- cannot change and Import shows it is busy. A clean import closes the dialog and its row says so;
--- a partial or failed one stays open and says why. A quiet "Choose sites" at the footer's start
--- reveals the sites under the boxes; the button then names how many sites it brings.
+-- "Import from <browser>" (`site-chooser.tsx:354-697`), in two groups: what comes over, as two boxes,
+-- "Sign-ins" and "Browsing history", and from which sites, "All sites" or "Only sites I choose"; the
+-- second shows the sites under it, none ticked, and the button then names how many sites it brings.
+-- Then Cancel and Import. Import needs at least one box; while it runs nothing can change and Import
+-- shows it is busy. A clean import closes the dialog and its row says so; a partial or failed one
+-- stays open and says why. The dialog is `tall` and fits: its top edge stays, and showing the sites
+-- only grows it downward, up to its size's height, where the list gives way and scrolls.
 function settings.renderImportDialog(
     i18n: I18nService,
     view: View,
-    browserLabel: string,
+    title: ImportTitle,
     message: ImportMessage?,
     boxes: ImportBoxes,
     busy: boolean,
@@ -695,14 +709,13 @@ function settings.renderImportDialog(
     chooser: SiteChooser?
 ): ui.Node
     local function box(which: string, label: string, checked: boolean): ui.Node
-        -- `site-chooser.tsx:361-381`: each box in a 28 row, on the dialog's layer-1 surface.
+        -- `site-chooser.tsx:417-438`: each box in a 28 row, on the dialog's bg-base.
         return ui.row({ key = `settings-import-{which}-row`, w = "full", h = 28, align = "center" }, {
             ui.checkbox({
                 key = `settings-import-{which}`,
                 text = label,
                 checked = checked,
-                -- The large dialog with the list sits on bg-base (`site-chooser.tsx:364`).
-                surface = if chooser and chooser.revealed then "base" else "layer-1",
+                surface = "base",
                 disabled = busy,
                 onChange = view:Handler(function(e: any)
                     onBox(which, e.checked == true)
@@ -712,115 +725,16 @@ function settings.renderImportDialog(
     end
     local single = chooser ~= nil and chooser.single
     local canImport = (single or boxes.signins or boxes.history) and not busy and (chooser == nil or chooser.canImport)
-    -- The body: the boxes, the sites once revealed, then how the last import went
-    -- (`site-chooser.tsx:566-576`, 13 on a 20 line).
-    local body: { ui.Node } = if single
-        then {}
-        else {
-            box("signins", i18n:T("import.signins"), boxes.signins),
-            box("history", i18n:T("import.history"), boxes.history),
-        }
-    if chooser and chooser.revealed then
-        table.insert(body, siteList(i18n, view, chooser, busy, function()
-            if canImport then
-                onImport()
-            end
-        end))
+    local function import()
+        if canImport then
+            onImport()
+        end
     end
-    if message ~= nil then
-        table.insert(body, ui.text(message.text, MUTED, {
-            key = "settings-import-status",
-            role = if message.error then "alert" else "status",
-            color = if message.error then "status-danger" else "text-muted",
-            py = 4,
-        }))
-    end
-    local footer: { ui.Node } = {}
-    if chooser then
-        -- Quiet, at the start of the footer: most people import everything and never open it.
-        -- A ghost-muted button flush with the body's start, its chevron after the label.
-        table.insert(footer, ui.row({
-            key = "settings-import-choose",
-            role = "button",
-            label = i18n:T("settings.import.choose"),
-            h = 32,
-            px = 8,
-            ml = -8,
-            gap = 4,
-            radius = 6,
-            align = "center",
-            hover = "surface-hover",
-            press = "surface-press",
-            onPress = view:Handler(function()
-                chooser.onReveal()
-            end),
-        }, {
-            ui.text(i18n:T("settings.import.choose"), { size = 13, weight = "medium", lineHeight = 16, color = "text-muted", noWrap = true }),
-            ui.icon(if chooser.revealed then "outline-chevron-down" else "outline-chevron-right", { size = 16, color = "icon-weak" }),
-        }))
-        table.insert(footer, ui.col({ key = "settings-import-footer-gap", grow = 1 }, {}))
-    end
-    local action = if chooser == nil or chooser.everything
-        then i18n:T("signins.action")
-        else i18n:T(if chooser.chosen == 1 then "import.some.one" else "import.some.other", { number = i18n:Number(chooser.chosen) })
-    table.insert(footer, ui.button({
-        key = "settings-import-cancel",
-        text = i18n:T("common.cancel"),
-        variant = "neutral",
-        onPress = view:Handler(function()
-            onClose()
-        end),
-    }))
-    table.insert(footer, ui.button({
-        key = "settings-import-start",
-        text = action,
-        variant = "contrast",
-        disabled = not canImport,
-        loading = busy,
-        onPress = view:Handler(function()
-            if canImport then
-                onImport()
-            end
-        end),
-    }))
-    local revealed = chooser ~= nil and chooser.revealed
-    -- `ui.Dialog`'s frame: the header with its close button, the body 16 in, the footer's buttons.
-    -- Revealed, the dialog is large and its body fills it, the list taking what the rest leaves.
-    return ui.col({ key = "settings-browser-import-dialog", w = "full", h = if revealed then "full" else nil }, {
-        ui.dialogHeader({
-            key = "settings-import-header",
-            title = i18n:T("signins.import", { browser = browserLabel }),
-            wrapTitle = false,
-        }),
-        ui.col({ key = "settings-import-body", w = "full", px = 16, pt = 4, grow = if revealed then 1 else nil, minH = 0 }, body),
-        ui.row({ key = "settings-import-footer", w = "full", px = 16, py = 12, gap = 8, justify = "end", align = "center" }, footer),
-    })
-end
-
--- The sites under the boxes (`site-chooser.tsx:385-565`): the search and, with several browser
--- profiles, the profile; the count with Select all / none for the sites shown; then the list, one
--- row per site with its box, or in its place what is going on (loading, failed, empty, unmatched).
-siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: boolean, onImport: () -> ()): ui.Node
-    local searching = chooser.query ~= ""
-    local top: { ui.Node } = {
-        ui.field({
-            key = "settings-import-search",
-            editor = chooser.editor,
-            label = i18n:T("sites.search"),
-            placeholder = i18n:T("sites.search"),
-            icon = "magnifying-glass",
-            clearable = searching,
-            -- Down goes on to the list, once it shows sites (`site-chooser.tsx:423-428`).
-            focusDown = if chooser.status == nil and #chooser.shown > 0 then "settings-import-sites" else nil,
-            size = "large",
-            grow = 1,
-            shrink = true,
-            minW = 160,
-            keys = if searching then { "Escape" } else nil,
-        }),
-    }
-    local profiles = chooser.profiles
-    if profiles then
+    -- The body's groups, 16 apart (`site-chooser.tsx:378`): where it comes from, what comes over,
+    -- which sites, then how the last import went.
+    local body: { ui.Node } = {}
+    local profiles = if chooser then chooser.profiles else nil
+    if chooser and profiles then
         local current = chooser.profile
         local currentLabel = ""
         for _, option in profiles do
@@ -829,74 +743,173 @@ siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: b
             end
         end
         local menuKey = "settings-import-profile"
-        -- The profile gives way before the search on a narrow window (`site-chooser.tsx:434`).
-        table.insert(top, ui.row({
-            key = menuKey,
-            role = "button",
-            label = i18n:T("sites.profile"),
-            w = 208,
-            minW = 112,
-            shrink = true,
-            h = 36,
-            px = 12,
-            gap = 4,
-            radius = 6,
-            align = "center",
-            border = "border-base",
-            hover = "surface-hover",
-            press = "surface-press",
-            menuTrigger = true,
-            onPress = view:Handler(function()
-                if busy then
-                    return
-                end
-                local items = {}
-                for _, option in profiles do
-                    table.insert(items, { id = option.value, title = option.label, checked = option.value == current })
-                end
-                local picked = chooser.Menu:OpenAsync({ anchorKey = menuKey, label = i18n:T("sites.profile"), align = "end", minWidth = 208, items = items })
-                if type(picked) == "string" and picked ~= current then
-                    chooser.onProfile(picked)
-                end
-            end),
-        }, {
-            ui.text(currentLabel, { size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", truncate = true, shrink = true, minW = 0, grow = 1 }),
-            ui.icon("select-chevron", { size = 16, color = "icon-weak" }),
+        -- `site-chooser.tsx:380-402`: "From", then the profile in a select as wide as its name.
+        table.insert(body, ui.row({ key = "settings-import-from", w = "full", gap = 8, align = "center" }, {
+            ui.text(i18n:T("import.from"), { size = 13, weight = "regular", lineHeight = 20, color = "text-muted", noWrap = true }),
+            ui.row({
+                key = menuKey,
+                role = "button",
+                label = i18n:T("sites.profile"),
+                h = 28,
+                pl = 8,
+                pr = 6,
+                gap = 8,
+                radius = 6,
+                align = "center",
+                shrink = true,
+                minW = 0,
+                fill = "bg-base",
+                border = "border-base",
+                hover = "surface-hover",
+                press = "surface-press",
+                menuTrigger = true,
+                onPress = view:Handler(function()
+                    if busy then
+                        return
+                    end
+                    local items = {}
+                    for _, option in profiles do
+                        table.insert(items, { id = option.value, title = option.label, checked = option.value == current })
+                    end
+                    local picked = chooser.Menu:OpenAsync({ anchorKey = menuKey, label = i18n:T("sites.profile"), align = "start", minWidth = 160, items = items })
+                    if type(picked) == "string" and picked ~= current then
+                        chooser.onProfile(picked)
+                    end
+                end),
+            }, {
+                ui.text(currentLabel, { size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", truncate = true, shrink = true, minW = 0 }),
+                ui.icon("select-chevron", { size = 16, color = "icon-weak" }),
+            }),
         }))
     end
+    if not single then
+        table.insert(body, ui.col({ key = "settings-import-what", w = "full", gap = 4 }, {
+            ui.text(i18n:T("import.what"), GROUP_HEADING, { key = "settings-import-what-title", role = "heading" }),
+            box("signins", i18n:T("import.signins"), boxes.signins),
+            box("history", i18n:T("import.history"), boxes.history),
+        }))
+    end
+    if chooser then
+        local group: { ui.Node } = {}
+        if not single then
+            table.insert(group, ui.text(i18n:T("import.sites"), GROUP_HEADING, { key = "settings-import-sites-title", role = "heading" }))
+            -- `site-chooser.tsx:451-469`: the two choices 8 apart, 4 above and under them; "All
+            -- sites" names how many once the list is read.
+            table.insert(group, ui.col({ key = "settings-import-scope", w = "full", py = 4, gap = 8 }, {
+                ui.row({ key = "settings-import-scope-all-row", gap = 6, align = "start" }, {
+                    ui.radio({
+                        key = "settings-import-scope-all",
+                        text = i18n:T("sites.every"),
+                        checked = chooser.scope == "all",
+                        disabled = busy,
+                        onChange = view:Handler(function()
+                            chooser.onScope("all")
+                        end),
+                    }),
+                    if chooser.ready
+                        then ui.text(i18n:Number(chooser.total), { key = "settings-import-scope-count", size = 13, weight = "regular", lineHeight = 20, color = "text-muted", noWrap = true })
+                        else nil,
+                } :: { any }),
+                ui.radio({
+                    key = "settings-import-scope-some",
+                    text = i18n:T("sites.only"),
+                    checked = chooser.scope == "some",
+                    disabled = busy,
+                    onChange = view:Handler(function()
+                        chooser.onScope("some")
+                    end),
+                }),
+            }))
+        end
+        if chooser.scope == "some" then
+            table.insert(group, siteList(i18n, view, chooser, busy, import))
+        end
+        table.insert(body, ui.col({ key = "settings-import-sites-group", w = "full", gap = 4, shrink = true, minH = 0 }, group))
+    end
+    if message ~= nil then
+        -- `site-chooser.tsx:661-674`: 13 on a 20 line, 4 above and under.
+        table.insert(body, ui.text(message.text, MUTED, {
+            key = "settings-import-status",
+            role = if message.error then "alert" else "status",
+            color = if message.error then "status-danger" else "text-muted",
+            py = 4,
+        }))
+    end
+    -- `site-chooser.tsx:691-693`: how many sites, once some but not all are chosen.
+    local action = if chooser == nil or chooser.everything or chooser.chosen == 0
+        then i18n:T("signins.action")
+        else i18n:T(if chooser.chosen == 1 then "import.some.one" else "import.some.other", { number = i18n:Number(chooser.chosen) })
+    -- The dialog's frame (`Dialog size="tall" fit`): the header with its close button, the body 16
+    -- in and 4 under the header, the footer's buttons 16 in on every side (`dialog.css:134-143`).
+    -- The body and what holds the list may shrink, so at the size's height the list gives way.
+    return ui.col({ key = "settings-browser-import-dialog", w = "full", shrink = true, minH = 0 }, {
+        ui.dialogHeader({
+            key = "settings-import-header",
+            title = title.text,
+            badge = title.badge,
+            wrapTitle = false,
+        }),
+        ui.col({ key = "settings-import-body", w = "full", px = 16, pt = 4, gap = 16, shrink = true, minH = 0 }, body),
+        ui.row({ key = "settings-import-footer", w = "full", pad = 16, gap = 8, justify = "end", align = "center" }, {
+            ui.button({
+                key = "settings-import-cancel",
+                text = i18n:T("common.cancel"),
+                variant = "neutral",
+                onPress = view:Handler(function()
+                    onClose()
+                end),
+            }),
+            ui.button({
+                key = "settings-import-start",
+                text = action,
+                variant = "primary",
+                disabled = not canImport,
+                loading = busy,
+                onPress = view:Handler(import),
+            }),
+        }),
+    })
+end
+
+-- The sites under "Only sites I choose" (`site-chooser.tsx:471-659`): the search, then in one frame
+-- the box that ticks or clears every shown site beside the count, and the list, one row per site
+-- with its box, or in its place what is going on (loading, failed, empty, unmatched). Under the
+-- choice it starts at the choice's label, 24 in; opened for one site it starts at the body's edge.
+siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: boolean, onImport: () -> ()): ui.Node
+    local searching = chooser.query ~= ""
     local shown = chooser.shown
     local count = if chooser.missing ~= nil and #shown > 0
         then chooser.missing
         elseif searching
         then i18n:T("sites.selected.shown", { shown = i18n:Number(#shown), selected = i18n:Number(chooser.chosen) })
         else i18n:T("sites.selected", { selected = i18n:Number(chooser.chosen), total = i18n:Number(chooser.total) })
-    -- The count alone is announced, so Select all and Select none say what they did.
-    local counts = ui.row({ key = "settings-import-counts", w = "full", h = 28, gap = 4, align = "center", opacity = if chooser.ready then 1 else 0 }, {
-        ui.text(count, { key = "settings-import-count", size = 13, weight = "regular", lineHeight = 20, color = "text-muted", truncate = true, shrink = true, minW = 0, grow = 1, role = "status" }),
-        ui.button({
+    -- `site-chooser.tsx:347-348`, `:523-533`: ticked when every shown site is, a dash when some are;
+    -- a press ticks every shown site, or clears them when all are ticked. It is named by what it
+    -- does, so the count beside it, which alone is announced, is not its name.
+    local allChosen = #shown > 0 and chooser.shownChosen == #shown
+    local someChosen = chooser.shownChosen > 0 and not allChosen
+    local header = ui.row({ key = "settings-import-counts", w = "full", h = 36, px = 12, gap = 8, align = "center", opacity = if chooser.ready then 1 else 0 }, {
+        ui.checkbox({
             key = "settings-import-all",
-            text = if searching then i18n:T("sites.all.shown", { count = i18n:Number(#shown) }) else i18n:T("sites.all"),
-            size = "small",
-            variant = "ghost",
-            disabled = not chooser.ready or chooser.shownChosen == #shown,
-            onPress = view:Handler(function()
-                chooser.onSelectShown()
+            text = "",
+            label = if searching then i18n:T("sites.all.shown", { count = i18n:Number(#shown) }) else i18n:T("sites.all"),
+            checked = allChosen,
+            indeterminate = someChosen,
+            surface = "layer-1",
+            disabled = busy or not chooser.ready or #shown == 0,
+            onChange = view:Handler(function()
+                if allChosen then
+                    chooser.onClearShown()
+                else
+                    chooser.onSelectShown()
+                end
             end),
         }),
-        ui.button({
-            key = "settings-import-none",
-            text = if searching then i18n:T("sites.none.shown", { count = i18n:Number(#shown) }) else i18n:T("sites.none"),
-            size = "small",
-            variant = "ghost",
-            disabled = not chooser.ready or chooser.shownChosen == 0,
-            onPress = view:Handler(function()
-                chooser.onClearShown()
-            end),
-        }),
+        ui.text(count, { key = "settings-import-count", size = 13, weight = "regular", lineHeight = 20, color = "text-muted", truncate = true, shrink = true, minW = 0, grow = 1, role = "status" }),
     })
     local status = chooser.status
     local inner: ui.Node = if status
-        then ui.col({ key = "settings-import-sites-status", w = "full", grow = 1, minH = 0, px = 24, gap = 12, align = "center", justify = "center" }, {
+        then ui.col({ key = "settings-import-sites-status", w = "full", px = 24, gap = 12, align = "center", justify = "center" }, {
             ui.row({ key = "settings-import-sites-status-line", gap = 8, align = "center" }, {
                 if status.loading then ui.loader({ key = "settings-import-sites-loader", size = "small" }) else nil,
                 ui.text(status.text, {
@@ -921,9 +934,10 @@ siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: b
                 })
                 else nil,
         } :: { any })
-        -- One Tab stop, as official's listbox (`site-chooser.tsx:295-324`): Up and Down move between the
+        -- One Tab stop, as official's listbox (`site-chooser.tsx:309-343`): Up and Down move between the
         -- sites' boxes and stop at the ends, Home and End go to the ends, a typed name moves to its site,
-        -- Space ticks or unticks the focused one, and Return imports.
+        -- Space ticks or unticks the focused one, and Return imports. The list is as tall as its
+        -- rows (`:576`, the virtualizer's total with 4 above and under) and gives way from there.
         else ui.frame({
             key = "settings-import-sites",
             role = "list",
@@ -934,12 +948,13 @@ siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: b
                 onImport()
             end),
             w = "full",
-            grow = 1,
+            shrink = true,
             minH = 0,
         }, { ui.virtualList({
             key = "settings-import-sites-rows",
             w = "full",
-            grow = 1,
+            h = #shown * SITE_ROW + 8,
+            shrink = true,
             minH = 0,
             px = 4,
             py = 4,
@@ -975,20 +990,36 @@ siteList = function(i18n: I18nService, view: View, chooser: SiteChooser, busy: b
                 })
             end,
         }) })
-    return ui.col({ key = "settings-import-sites-area", w = "full", grow = 1, minH = 0, gap = 12, pt = if chooser.single then 4 else 8, pb = 4 }, {
-        ui.row({ key = "settings-import-sites-top", w = "full", gap = 8, align = "center" }, top),
-        ui.col({ key = "settings-import-sites-body", w = "full", grow = 1, minH = 0, gap = 0 }, {
-            counts,
-            ui.col({
-                key = "settings-import-sites-frame",
-                w = "full",
-                grow = 1,
-                minH = 0,
-                radius = 8,
-                fill = "surface-1",
-                border = "border-weak",
-                clip = true,
-            }, { inner }),
+    return ui.col({ key = "settings-import-sites-area", w = "full", shrink = true, minH = 0, gap = 8, pb = 2, pl = if chooser.single then 0 else 24 }, {
+        ui.field({
+            key = "settings-import-search",
+            editor = chooser.editor,
+            label = i18n:T("sites.search"),
+            placeholder = i18n:T("sites.search"),
+            icon = "magnifying-glass",
+            clearable = searching,
+            -- Down goes on to the list, once it shows sites (`site-chooser.tsx:507-512`).
+            focusDown = if chooser.status == nil and #shown > 0 then "settings-import-sites" else nil,
+            size = "large",
+            w = "full",
+            mt = 4,
+            keys = if searching then { "Escape" } else nil,
+        }),
+        -- `site-chooser.tsx:516-518`: the frame on layer-01 with a hairline, its header 36 over a
+        -- hairline of its own.
+        ui.col({
+            key = "settings-import-sites-frame",
+            w = "full",
+            shrink = true,
+            minH = 0,
+            radius = 8,
+            fill = "surface-1",
+            border = "border-weak",
+            clip = true,
+        }, {
+            header,
+            ui.divider({ key = "settings-import-counts-rule" }),
+            inner,
         }),
     })
 end
