@@ -67,8 +67,11 @@ impl Projection {
         // lands above it brings the room between them (`rhythm::space_at`), so the first row is
         // the same row before and after (official `packages/app/AGENTS.md`, "Rows that load
         // above the reader"). The session's first row keeps the room it starts the timeline with.
-        if older && let Some(mut first) = p.get(0).cloned() && let Some(top) = rhythm::top_of(&mut first.content) {
-            *top = 0.0;
+        if older && let Some(mut first) = p.get(0).cloned() {
+            if let Some(top) = rhythm::top_of(&mut first.content) {
+                *top = 0.0;
+            }
+            dividers::wait(&mut first.content);
             match p.seams.first_mut().filter(|(at, _)| *at == 0) {
                 Some(seam) => seam.1 = first,
                 None => p.seams.insert(0, (0, first)),

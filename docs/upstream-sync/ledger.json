@@ -2,12 +2,12 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "b5dba31bf20d758d86871af65d206a197d411a0c",
+  "upstream_head": "acce96c36e7a90c5b28eb106e628e84cba86d61d",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "50fefd969",
-  "post_1114_commit_count": 653,
-  "post_1114_in_ledger": 229,
+  "rune_desktop_head": "312f8b182",
+  "post_1114_commit_count": 654,
+  "post_1114_in_ledger": 230,
   "post_1114_skipped": 424,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
@@ -18,13 +18,13 @@
     "server-core-ai-codemode-internal": 274
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 250,
+  "total_ledger_rows": 251,
   "status_counts": {
     "have it": 203,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 7
+    "missing": 8
   },
   "rows": [
     {
@@ -6134,7 +6134,7 @@
       "summary": "In official's New timeline the rows a reader is looking at stay still when an older page of history lands above them: they moved down 16 to 32 px on every page, because a row took the gap over it from the row before it and so grew on top when that row arrived. The row directly above now holds the gap, below its own content, and a turn's first row gets a turn gap row of its own. Also: collapsing a group from its stuck header leaves the header where it was (it moved up 6 px on every collapse).",
       "size": "M",
       "status": "have it",
-      "status_evidence": "opencode-rune #1160 (50fefd96): the upper row of two holds the room between them (crates/session-view/src/timeline/mod.rs, parts.rs, rhythm.rs, projection.rs, span.rs, delivery.rs; features/history/src/message_nav/mod.rs), so rows a reader looks at no longer move when an older page lands: the first loaded row 74 -> 80 high and +6 px on every row under it before, 51 -> 51 and +0 px after. Run headless on its CI build: an older page held 3 s then landed (both trees); a 15-pass walk at rest against published dev-489: 14 sessions 0 px different, Home the same but for a scratch path. Not run: the walk's passes with a menu or panel over the timeline; the stuck group header (by reading: ours measures no stuck distance, so official's 6 px has no counterpart); Previous / Next message onto a prompt with pictures. Differs from official: no turn-gap row (the last row of the turn above holds the turn's room: the same picture). Open remainder: a divider (a switch notice, a compaction) still takes the room over its own line from the row before, so a divider that is the first loaded row can still move by that when the page above lands.",
+      "status_evidence": "opencode-rune #1160 (50fefd96): the upper row of two holds the room between them (crates/session-view/src/timeline/mod.rs, parts.rs, rhythm.rs, projection.rs, span.rs, delivery.rs; features/history/src/message_nav/mod.rs), so rows a reader looks at no longer move when an older page lands: the first loaded row 74 -> 80 high and +6 px on every row under it before, 51 -> 51 and +0 px after. Run headless on its CI build: an older page held 3 s then landed (both trees); a 15-pass walk at rest against published dev-489: 14 sessions 0 px different, Home the same but for a scratch path. Not run: the walk's passes with a menu or panel over the timeline; the stuck group header (by reading: ours measures no stuck distance, so official's 6 px has no counterpart); Previous / Next message onto a prompt with pictures. Differs from official: no turn-gap row (the last row of the turn above holds the turn's room: the same picture). The row above a divider (a switched agent or model, a move, a compaction, Interrupted) holds the room over the divider's words too, as official's timelineGaps gives it to the row before, since opencode-rune #1178 (312f8b18); run headless on its CI build: a session whose first loaded row is a divider, the older page held 3 s then landed: the divider and the rows under it moved 10 px up before, not at all after. Not run: an open compaction summary whose header is stuck; a real window.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6156,7 +6156,7 @@
       "summary": "A prompt's quotes reach the model as plain reply-style blockquotes before the user's own words, like an email reply: each quote a block of `> ` lines (an empty line is `>`), named by a line `From <subject>:` only when it came from another source such as the terminal, its comment under it; then the user's words, the `Attached file:` lines, notes and file comments. Before, a quote came after the words under the sentence `The user quoted the following from ...` with its comment under `The user made the following comment regarding this quote:`. The bubble and its quote cards are unchanged.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "opencode-rune #1119 (c7d9d177): a prompt's quotes go first, each as official's reply-style blockquote (`From <subject>:` when it has a source, the text with `> ` on every line, the comment below), then the user's words (crates/opencode-kit/src/quote.rs model_text / prompt_text; apps/desktop/src/session/inbox/send.rs); both the new and the old shape are read back out of a stored prompt (model/parse.rs quoted_text), and mentions are recorded against the user's own words. Run on its Windows x64 CI build by the app's headless runner (a scripted pointer and keyboard, no window on a display) against a private server (docs/upstream-sync/ported-runs.md): a lone quote; a quote with a comment, words and an attached file, the stored text line for line; the same after a new launch; a session stored in the old shape (seeded by script); a quote beside a session mention; a quote beside an @file mention (the file part's mention offsets count from the user's own words). Not run: a real window. Still differs: official's terminal names itself as a quote's source (packages/gui-plugins/src/terminal/panel.tsx:60), so the model reads `From the terminal:`; a quote ours takes from its terminal carries no source. opencode#66248 (a4bea47aa5) only rewords the plugin API's comment for the new text.",
+      "status_evidence": "opencode-rune #1119 (c7d9d177): a prompt's quotes go first, each as official's reply-style blockquote (`From <subject>:` when it has a source, the text with `> ` on every line, the comment below), then the user's words (crates/opencode-kit/src/quote.rs model_text / prompt_text; apps/desktop/src/session/inbox/send.rs); both the new and the old shape are read back out of a stored prompt (model/parse.rs quoted_text), and mentions are recorded against the user's own words. Run on its Windows x64 CI build by the app's headless runner (a scripted pointer and keyboard, no window on a display) against a private server (docs/upstream-sync/ported-runs.md): a lone quote; a quote with a comment, words and an attached file, the stored text line for line; the same after a new launch; a session stored in the old shape (seeded by script); a quote beside a session mention; a quote beside an @file mention (the file part's mention offsets count from the user's own words). Not run: a real window. A quote taken from the terminal names its source since opencode-rune #1148 (a7f2e08b): its card shows the terminal's icon and Terminal, the model reads `From the terminal:` over the quoted lines, the icon leads the quote inside the bubble, and the terminal's Quote button opens the comment editor unless Alt is held (packages/gui-plugins/src/terminal/panel.tsx:52-62, quote.tsx; packages/session-ui/src/message/comment-card.tsx:135-137, user-message-quotes.tsx:76); run headless on its Windows x64 CI build (a plain press and an Alt press, the stored text and source, the bubble after the send and a new launch with a one-line and a two-line quote, a conversation quote unchanged). Open differences: the comment editor of a terminal quote opens at the composer, official's beside the selected text in the terminal (panel.tsx:52-62, packages/app/src/composer/editor/quote-comment.tsx:55-61); the source's icon in the bubble has no name or hover title of its own (user-message-quotes.tsx:76; the quote carries the name as its accessibility description). Ours only: a right-click menu in the terminal, whose Quote adds without the comment editor. opencode#66248 (a4bea47aa5) only rewords the plugin API's comment for the new text.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6267,6 +6267,30 @@
       "size": "S",
       "status": "missing",
       "status_evidence": "Not ported. The glyph is Rune's (rune-theme-opencode, themes/opencode/src/icons.rs, SETTINGS_GEAR, still the old outline at the pinned rev 4d8df909), so the change is a one-path Rune PR and a pin; asked of the pin's owner. Ours draws it in apps/desktop/src/shell/view/sidebar.rs, home/projects.rs, location_card.rs and features/narrow/src/tabs.rs. The glyph is changed in Rune (rune#2183, 36a50e613: the line Rune's icon generator writes from the official catalog at e54fbacb3d); it reaches the app with the next pin bump. Not seen drawn yet.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-230",
+      "window": "post-1120",
+      "pr": 66327,
+      "sha": "acce96c36e",
+      "title": "fix(app): inbox sidebar — archived sessions needing attention, archive toggle, session shortcuts",
+      "merged": "2026-11-25",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/i18n/en.ts",
+        "packages/app/src/session/commands/use-session-commands.tsx",
+        "packages/app/src/shell/titlebar/inbox-model.ts",
+        "packages/app/src/shell/titlebar/inbox.tsx"
+      ],
+      "summary": "Inbox sidebar: an archived session that waits on a person (a permission to decide, a question to answer) joins Needs attention until it is answered, is left out of Archived meanwhile and is not dimmed; Archive session (mod+shift+s) toggles, so the same shortcut brings an archived session back, and there is a new command Unarchive session; the tab strip's session shortcuts (mod+1..9, alt+up / alt+down, shift+alt+up / shift+alt+down) work over the Inbox's session rows in the order they show.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Ported in draft opencode-rune #1189 (apps/desktop/src/session/inbox/model.rs inbox_sections_with and Entry::waiting; shell/view/inbox.rs the card's dim and reveal; session/menu.rs the toggle and session.unarchive; shell/commands/mod.rs open_root_archived; shell/tabs/actions.rs the Inbox's keys, unread and the numbered pick's reveal); compiled by CI only, not run: it merges after a run on its build. Official: packages/app/src/shell/titlebar/inbox.tsx:142, :157, :178-210, :895; inbox-model.ts:523; packages/app/src/session/commands/use-session-commands.tsx:609-617; tab-strip.tsx:379, :392, :452.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
