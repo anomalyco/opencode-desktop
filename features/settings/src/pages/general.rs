@@ -118,6 +118,9 @@ fn interface_rows<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> Vec<
         let title = t!("settings.general.row.tabPosition.title");
         let control = select(s, p, "settings-tab-position", title, crate::navigation_mode::positions(), st.tab_position().name(), crate::navigation_mode::pick_position);
         rows.push(("settings-tab-position", setting(p, "settings-tab-position", title, "", control)));
+        let title = t!("settings.general.row.tabGrouping.title");
+        let control = select(s, p, "settings-tab-grouping", title, crate::navigation_mode::groupings(), st.tab_grouping().name(), crate::navigation_mode::pick_grouping);
+        rows.push(("settings-tab-grouping", setting(p, "settings-tab-grouping", title, "", control)));
     }
     rows
 }

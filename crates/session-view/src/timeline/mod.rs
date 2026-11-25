@@ -247,8 +247,12 @@ impl RowSpec {
                 {
                     let fold = crate::disclosure::fold(k).duration.to_bits();
                     let detail = s.timeline_detail();
+                    // A group of thoughts alone is a thought row (`turns::group`), which opens by
+                    // its first thought's key and not by the group's: the row is shut as a
+                    // group and may be open as a thought, so the thoughts' toggles are part of it.
+                    let thoughts = s.expanded().stamp("r-");
                     let look = (p.theme, p.generation, p.dark, opencode_i18n::locale().id(), crate::style::hover_none());
-                    let ver = (&t.session, group_hash(&t.messages[*start..*end], &detail), *block, *live, [pt.to_bits(), self.room_under(s).to_bits()], look, self.streaming, (fold, crate::style::content_w().to_bits(), crate::scroller::device_scale().to_bits(), detail, s.shell_output_version(), crate::style::sticky_top().to_bits(), s.reduced_motion()));
+                    let ver = (&t.session, group_hash(&t.messages[*start..*end], &detail), *block, *live, [pt.to_bits(), self.room_under(s).to_bits()], look, self.streaming, (fold, crate::style::content_w().to_bits(), crate::scroller::device_scale().to_bits(), detail, s.shell_output_version(), crate::style::sticky_top().to_bits(), s.reduced_motion(), thoughts));
                     return rune::memo(self.key.clone(), ver, || {
                         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                         let blocks = turns::fold_with(&entries(&t.messages[*start..*end], &detail), *live, &detail);
@@ -379,7 +383,7 @@ impl RowSpec {
                     Some(Block::Subagent { step, .. }) => turns::subagent_row(s, p, &t.session, step).pt(*pt),
                     Some(Block::Question { id, status, input, metadata }) =>
                         crate::question_row::view(s, p, &t.session, id, status, input, metadata).pt(*pt),
-                    Some(Block::Thought { step, live: streaming, .. }) => turns::thought(s, p, step, *live && *streaming, fade).pt(*pt),
+                    Some(Block::Thought { steps, live: thinking, .. }) => turns::thoughts(s, p, steps, *live, *live && *thinking, fade).pt(*pt),
                     Some(Block::Calls { kind, steps, .. }) => turns::calls(s, p, &t.session, *kind, steps, *live).pt(*pt),
                     None => col(),
                 }

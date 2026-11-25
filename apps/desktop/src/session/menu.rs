@@ -70,6 +70,20 @@ impl SessionMenuHost for App {
         self.tab_summaries()
     }
 
+    /// Consolidated's strip leaves out the tabs its pinned area holds (`tab-strip.tsx:715-719`),
+    /// and under Settings › Group tabs shows each group's tabs in the groups' order, a collapsed
+    /// group's hidden tabs not among them (`auto-tab-groups.ts:72`). A narrow window's drawer
+    /// shows every tab (`titlebar.tsx:840-855`).
+    fn strip_tabs(&self) -> Vec<TabSummary> {
+        if self.narrow() {
+            return self.tab_summaries();
+        }
+        match crate::tabs::auto_groups::groups(self) {
+            Some(groups) => groups.iter().flat_map(|g| g.tabs.iter()).map(|&i| self.tabs[i].summary()).collect(),
+            None => self.tabs.iter().filter(|t| !crate::tabs::pins::holds(self, t)).map(crate::tabs::Tab::summary).collect(),
+        }
+    }
+
     fn layout_has_sidebar(&self) -> bool {
         self.tab_layout().has_sidebar()
     }
@@ -153,6 +167,10 @@ impl SessionMenuHost for App {
         crate::status_toast::from_wire(self, error);
     }
 
+    fn toast_wire_error_titled(&mut self, title: &str, error: WireError) {
+        crate::status_toast::failed_wire(self, title, &error);
+    }
+
     fn offer_delete_undo(&mut self, title: &str, server: ServerKey, session: String, hidden: Vec<SessionInfo>) {
         crate::undo::offer(self, title, crate::undo::Undoable::Deleted { server, session, hidden });
     }
@@ -213,6 +231,14 @@ impl SessionMenuHost for App {
         App::close_tab(self, uid, tx);
     }
 
+    fn shown_tab(&self) -> Option<String> {
+        App::current_tab(self)
+    }
+
+    fn show_tab(&mut self, uid: &str, tx: &mut Tx) {
+        App::select_tab(self, uid, tx);
+    }
+
     fn is_session_pinned(&self, server: &ServerKey, id: &str) -> bool {
         let key = crate::view::sidebar::state::key(server.as_str(), id);
         self.project_state.recent.pins.contains(&key)
@@ -247,7 +273,12 @@ impl SessionMenuHost for App {
         App::save_tabs(self);
     }
 
+    fn on_archive_replied(&mut self, session: String, ok: bool, tx: &mut Tx) {
+        self.archive_move_replied(&session, true, ok, tx);
+    }
+
     fn on_unarchive_replied(&mut self, session: String, ok: bool, why: &str, tx: &mut Tx) {
+        self.archive_move_replied(&session, false, ok, tx);
         self.switcher_restore_replied(session, ok, why, tx);
     }
 
@@ -367,19 +398,35 @@ impl Feature<App> for SessionMenuFeature {
             .when(|s| s.active_session_id().is_some()),
         );
         // Archive session (`use-session-commands.tsx` `session.archive`, opencode#65428): the open root
-        // session, not one already archived; its tab closes, as archiving it from the sidebar does.
+        // session; its tab closes, as archiving it from the sidebar does. It toggles, so the one
+        // shortcut archives a session and brings an archived one back (opencode#66327).
         builder.add_command(
             CommandEntry::<App>::from_key(
                 "session.archive",
                 opencode_i18n::key!("command.session.archive"),
                 crate::commands::order::SESSION_ARCHIVE,
-                |s, tx| {
-                    let Some(id) = s.open_root_session().filter(|id| s.session(id).is_some_and(|i| i.archived.is_none())) else { return };
-                    App::archive_session(s, &id, tx);
+                |s, tx| match s.open_root_archived() {
+                    Some((id, false)) => App::archive_session(s, &id, tx),
+                    Some((id, true)) => App::unarchive_session(s, &id),
+                    None => {}
                 },
             )
             .bind_id(Bind::ArchiveSession.id())
-            .when(|s| s.open_root_session().is_some_and(|id| s.session(&id).is_some_and(|i| i.archived.is_none()))),
+            .when(|s| s.open_root_archived().is_some()),
+        );
+        // Unarchive session (`session.unarchive`, opencode#66327): the open root session, archived.
+        builder.add_command(
+            CommandEntry::<App>::from_key(
+                "session.unarchive",
+                opencode_i18n::key!("command.session.unarchive"),
+                crate::commands::order::SESSION_UNARCHIVE,
+                |s, _| {
+                    if let Some((id, true)) = s.open_root_archived() {
+                        App::unarchive_session(s, &id);
+                    }
+                },
+            )
+            .when(|s| matches!(s.open_root_archived(), Some((_, true)))),
         );
         // Delete session (`message-timeline.tsx:268-277`): the open root session's confirmation.
         builder.add_command(

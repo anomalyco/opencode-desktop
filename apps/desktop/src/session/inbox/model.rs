@@ -59,6 +59,12 @@ impl Entry<'_> {
     pub fn key(&self) -> String {
         crate::tabs::session_uid(self.server, &self.session.id)
     }
+
+    /// Waiting on a person: a permission to decide or a question to answer (`inboxWaiting`,
+    /// `inbox-model.ts`).
+    pub fn waiting(&self) -> bool {
+        matches!(self.status, InboxStatus::Approval | InboxStatus::Input)
+    }
 }
 
 /// A root session of a server the window isn't checked out on, as of its last checkout.
@@ -130,7 +136,12 @@ impl App {
         list.extend(self.sidebar_inbox.servers.iter().filter(|(key, _)| shown(key)).flat_map(|(server, rows)| {
             rows.iter().map(move |r| Entry { server, session: &r.session, active_ms: r.session.updated, status: r.status, since: r.since, project: r.project.as_ref(), worktree: r.worktree, branch: r.branch.as_deref() })
         }));
-        list.sort_by_key(|e| std::cmp::Reverse(e.active_ms));
+        // Rows whose times tie stand in the servers' listed order, whichever server the window
+        // works against (`inbox-model.ts:164-166`, `:228`: each connection's sessions in
+        // `servers.visible`'s order, then a stable sort by time): a step from one server's row to
+        // another's doesn't reorder the rows under it.
+        let place = |e: &Entry<'_>| listed.iter().position(|l| l.key == *e.server).unwrap_or(usize::MAX);
+        list.sort_by_key(|e| (std::cmp::Reverse(e.active_ms), place(e)));
         list
     }
 
@@ -214,7 +225,9 @@ impl App {
         // An automation's sessions (Flow's) stay out of it; the open one still shows, as `current`.
         let rest: Vec<Entry<'_>> = list.iter().filter(|e| rank(e).is_none() && !crate::view::is_automation(&e.session.title)).copied().collect();
         let active = || rest.iter().filter(|e| e.session.archived.is_none()).copied();
-        let mut needs: Vec<_> = active().filter(|e| matches!(e.status, InboxStatus::Approval | InboxStatus::Input)).collect();
+        // An archived session that asks for something joins Needs attention until it's answered,
+        // then goes back to Archived (`inbox.tsx` `sections`, opencode#66327).
+        let mut needs: Vec<_> = rest.iter().filter(|e| e.waiting()).copied().collect();
         needs.sort_by_key(|e| e.since.unwrap_or(i64::MAX));
         let mut settled: Vec<_> = active().filter(|e| matches!(e.status, InboxStatus::Done | InboxStatus::Failed | InboxStatus::Ready)).collect();
         settled.sort_by_key(|e| std::cmp::Reverse(e.since.unwrap_or(0)));
@@ -230,7 +243,7 @@ impl App {
             let start = |e: &Entry<'_>| working_since(e.session).unwrap_or(i64::MAX);
             start(a).cmp(&start(b)).then_with(|| a.session.id.cmp(&b.session.id))
         });
-        let mut filed: Vec<_> = rest.iter().filter(|e| e.session.archived.is_some()).copied().collect();
+        let mut filed: Vec<_> = rest.iter().filter(|e| e.session.archived.is_some() && !e.waiting()).copied().collect();
         filed.sort_by_key(|e| std::cmp::Reverse(e.session.archived.unwrap_or(0)));
         let listed: &[Entry<'_>] = if archived { &filed } else { &[] };
         let shown = |e: &Entry<'_>| [&needs[..], &recent[..], &working[..], listed].iter().any(|g| g.iter().any(|x| x.server == e.server && x.session.id == e.session.id));
@@ -274,22 +287,14 @@ impl App {
         self.open(&id, tx);
     }
 
-    /// Whether another server's inbox row `key` shows a dot (it waits on you, or something new
-    /// came), as its server last showed it.
-    pub fn inbox_row_dotted(&self, key: &str) -> bool {
-        let here = crate::servers::runtime::active(self);
-        self.sidebar_inbox.servers.iter().filter(|(server, _)| server != here).any(|(server, rows)| {
-            rows.iter().any(|r| crate::tabs::session_uid(server, &r.session.id) == key && !matches!(r.status, InboxStatus::Working | InboxStatus::Ready))
-        })
-    }
-
     /// Runs `f` on the server of inbox row `key`, with its session's id.
     pub fn on_inbox_row(&mut self, key: &str, f: impl FnOnce(&mut App, &str)) {
         let (server, id) = self.inbox_target(key);
         crate::servers::runtime::with_server(self, &server, |s| f(s, &id));
     }
 
-    /// Archive: the session leaves the list and its tabs at once (`inbox.archive`).
+    /// Archive (`inbox.archive`): beyond Desktop, which waits for the server, the session leaves
+    /// the list and its tabs at once; a refusal puts it back (`archive_moves`).
     pub fn archive_session(&mut self, id: &str, tx: &mut Tx) {
         let now = *self.now_ms;
         let Some(info) = self.sessions.iter_mut().find(|s| s.id == id) else { return };
@@ -297,12 +302,21 @@ impl App {
         let info = info.clone();
         self.inbox_file(info);
         let here = crate::servers::runtime::active(self).clone();
-        if let Some(uid) = self.tabs.iter().find(|t| t.is(&here, id) && !t.is_draft()).map(crate::tabs::Tab::uid) {
-            self.close_tab(&uid, tx);
+        let tab = self.tabs.iter().find(|t| t.is(&here, id) && !t.is_draft()).map(crate::tabs::Tab::uid);
+        let was = match &tab {
+            None => super::moves::TabWas::Absent,
+            Some(uid) if self.current_tab().as_deref() == Some(uid.as_str()) => super::moves::TabWas::Shown,
+            Some(_) => super::moves::TabWas::Behind,
+        };
+        if let Some(uid) = &tab {
+            self.close_tab(uid, tx);
         }
-        self.write(opencode_kit::client::Write::Archive(id.to_owned()));
-        // Beyond Desktop: the toast offers it back, tab and all.
-        crate::undo::offer(self, opencode_i18n::t!("rune.undo.sessionArchived"), crate::undo::Undoable::Archived { server: here, session: id.to_owned() });
+        let sent = self.write(opencode_kit::client::Write::Archive(id.to_owned()));
+        self.archive_move_sent(id, super::moves::Was::Listed { tab: was }, sent, tx);
+        if sent {
+            // Beyond Desktop: the toast offers it back, tab and all.
+            crate::undo::offer(self, opencode_i18n::t!("rune.undo.sessionArchived"), crate::undo::Undoable::Archived { server: here, session: id.to_owned() });
+        }
     }
 
     /// An archived session goes on the archived list, first: the session list drops it at its
@@ -314,10 +328,16 @@ impl App {
         filed.insert(0, info);
     }
 
-    /// Unarchive: it comes back to its group (`inbox.unarchive`).
+    /// Unarchive (`inbox.unarchive`): beyond Desktop, which waits for the server, it comes back
+    /// to its group at once; a refusal files it again (`archive_moves`).
     pub fn unarchive_session(&mut self, id: &str) {
+        let was = self.session(id).or_else(|| self.inbox_archived().iter().find(|a| a.id == id)).and_then(|i| i.archived);
         self.unarchive_session_locally(id);
-        self.write(opencode_kit::client::Write::Unarchive(id.to_owned()));
+        let sent = self.write(opencode_kit::client::Write::Unarchive(id.to_owned()));
+        if let Some(at) = was {
+            // Putting an archived session back opens no tab: nothing here acts on the window.
+            self.archive_move_sent(id, super::moves::Was::Archived(at), sent, &mut Tx::default());
+        }
     }
 
     /// Shows the session as restored: off the archived list, and among the sessions, not
@@ -346,6 +366,8 @@ pub struct SidebarInbox {
     /// Each server's newest archived root sessions (its session list leaves them out), read
     /// while the window works against it.
     pub(crate) archives: HashMap<ServerKey, Archive>,
+    /// The archives and unarchives sent and not answered yet.
+    pub(crate) moves: super::moves::Moves,
     pub branches: Branches,
     /// The root sessions of each server the window isn't checked out on, in listing order, as of
     /// its last checkout (`snap`).

@@ -132,6 +132,12 @@ choice! {
     Navigation { Tabs => "tabs", "settings.general.row.navigation.tabs", List => "list", "settings.general.row.navigation.list" } default Tabs
 }
 
+choice! {
+    /// How Consolidated's open tabs are grouped (`appearance.tabGrouping`, Settings > Preferences >
+    /// Group tabs, anomalyco/opencode#66350): not at all, by their project, or by their server.
+    TabGrouping { None => "none", "settings.general.row.tabGrouping.none", Project => "project", "settings.general.row.tabGrouping.project", Server => "server", "settings.general.row.tabGrouping.server" } default None
+}
+
 /// Desktop's sound effects (`shell/notifications/sound.ts`), by id and label key.
 pub const SOUNDS: &[(&str, opencode_i18n::Key)] = &[
     ("alert-01", opencode_i18n::key!("sound.option.alert01")), ("alert-02", opencode_i18n::key!("sound.option.alert02")), ("alert-03", opencode_i18n::key!("sound.option.alert03")), ("alert-04", opencode_i18n::key!("sound.option.alert04")), ("alert-05", opencode_i18n::key!("sound.option.alert05")),

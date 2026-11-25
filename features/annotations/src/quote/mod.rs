@@ -320,8 +320,8 @@ pub fn selection_changed(host: &mut dyn QuoteHost, change: &SelectionChange, tx:
     q.step(machine::Event::Changed { cleared: false, dragging: false, now }, tx);
 }
 
-/// The app's poll: reads a selection once it has settled, and closes what the route or a lost
-/// focus leaves behind.
+/// The app's poll: reads a selection once it has settled, and closes what the route leaves
+/// behind.
 pub fn poll(host: &mut dyn QuoteHost, now: f64, tx: &mut Tx) -> bool {
     let mut changed = false;
     // Every poll comes here: the session is compared in place, and copied only for a read.
@@ -408,7 +408,7 @@ pub fn typed(host: &mut dyn QuoteHost, tx: &mut Tx) {
 /// (`quote.tsx:343-395`).
 pub fn add(host: &mut dyn QuoteHost, comment: bool, tx: &mut Tx) {
     let Some(text) = host.quotes().offer().filter(|o| !o.truncated).map(|o| o.text.clone()) else { return };
-    add_text(host, text, None, comment, tx);
+    add_text(host, text, None, comment, None, tx);
 }
 
 /// The timeline's selection when it lies in message `message` (a selected text's path names
@@ -435,21 +435,22 @@ pub fn quote_selected(host: &mut dyn QuoteHost, selected: &str, tx: &mut Tx) {
     if host.quote_session().is_none() || truncated || text.is_empty() {
         return;
     }
-    add_text(host, text, None, false, tx);
+    add_text(host, text, None, false, None, tx);
 }
 
 /// [`quote_selected`] for text from outside the timeline, such as a terminal's output: the
 /// quote keeps `source` (`opencode_kit::quote::source`), which its card and the model name.
-/// With `comment` its comment editor opens, at the composer: it has no place in the timeline.
-pub fn quote_selected_from(host: &mut dyn QuoteHost, selected: &str, source: serde_json::Value, comment: bool, tx: &mut Tx) {
+/// With `comment` its comment editor opens, beside its source at `anchor` (`quote.tsx`'s
+/// anchor), else at the composer.
+pub fn quote_selected_from(host: &mut dyn QuoteHost, selected: &str, source: serde_json::Value, comment: bool, anchor: Option<comment::Anchor>, tx: &mut Tx) {
     let (text, truncated) = quote_text(selected);
     if host.quote_session().is_none() || truncated || text.is_empty() {
         return;
     }
-    add_text(host, text, Some(source), comment, tx);
+    add_text(host, text, Some(source), comment, anchor, tx);
 }
 
-fn add_text(host: &mut dyn QuoteHost, text: String, from: Option<serde_json::Value>, comment: bool, tx: &mut Tx) {
+fn add_text(host: &mut dyn QuoteHost, text: String, from: Option<serde_json::Value>, comment: bool, beside: Option<comment::Anchor>, tx: &mut Tx) {
     // Only a quote from the timeline has words there to mark.
     let outside = from.is_some();
     let quote = Quote { text, comment: None, source: from };
@@ -461,7 +462,7 @@ fn add_text(host: &mut dyn QuoteHost, text: String, from: Option<serde_json::Val
         let source = q.selection.take().filter(|_| !outside).map(|h| h.source).unwrap_or_default();
         q.step(machine::Event::Reset, tx);
         let key = q.push_from(quote.into(), source);
-        let anchor = (comment && !outside).then(|| q.placed.borrow_mut().take()).flatten();
+        let anchor = if outside { beside.filter(|_| comment) } else { comment.then(|| q.placed.borrow_mut().take()).flatten() };
         (key, anchor)
     };
     if comment {
@@ -524,7 +525,7 @@ fn place_toolbar(host: &dyn QuoteHost, m: ToolbarMeasure) -> Option<ToolbarPlace
     if let (Some(path), Some(origin)) = (m.first_path, m.first_origin.map(shell)) {
         let rel_rects = rects.iter().map(|r| [r[0] - origin[0], r[1] - origin[1], r[2], r[3]]).collect();
         *q.placed.borrow_mut() = Some(comment::Anchor {
-            session: offer.session.clone(),
+            bounds: comment::Bounds::Timeline(offer.session.clone()),
             path,
             rects: rel_rects,
             short,

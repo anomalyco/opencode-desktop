@@ -49,6 +49,7 @@ pub const EXPORT: u16 = 220;
 pub const FILE_OPEN: u16 = 230;
 pub const COPY_SESSION: u16 = 240;
 pub const SESSION_ARCHIVE: u16 = 245;
+pub const SESSION_UNARCHIVE: u16 = 247;
 pub const SESSION_DELETE: u16 = 250;
 pub const COPY_PROJECT: u16 = 260;
 pub const SIDE: u16 = 270;

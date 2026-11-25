@@ -115,7 +115,8 @@ pub fn urls(text: &str) -> Vec<Range<usize>> {
 
 /// `body` in `font` and `ink`, wrapping anywhere, its URLs underlined links that open in the
 /// browser (`linked-text-link`: an underline at 40% of the text's colour, the base text colour
-/// and a full underline under the pointer).
+/// and a full underline under the pointer). The pointer keeps the arrow over them: official's is
+/// a plain `<a>`, and `packages/ui/src/styles/base.css:84` gives every `a` `cursor: default`.
 pub fn linked<S: TimelineHost>(p: &Pal, body: &str, font: rune::TextStyle, ink: rune::Color) -> El {
     let ranges = urls(body);
     let mut t = text(body.to_owned()).font(font).color(ink).wrap_anywhere();
@@ -128,7 +129,7 @@ pub fn linked<S: TimelineHost>(p: &Pal, body: &str, font: rune::TextStyle, ink: 
         let url = &body[r.clone()];
         t = t.link(Link::new(r.clone(), url).hover(LinkPaint::new().color(p.text).underline(p.text)).help(url));
     }
-    t.on_link(|s: &mut S, url: &str, tx: &mut Tx| {
+    t.link_cursor(rune::Cursor::Default).on_link(|s: &mut S, url: &str, tx: &mut Tx| {
         tx.instant();
         s.open_link(url, tx);
     })
