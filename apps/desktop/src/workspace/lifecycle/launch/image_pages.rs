@@ -201,6 +201,7 @@ fn run(mode: Mode, threads: usize, ask: usize) {
         rune::marks::mark("image.pages.packed");
         Some(runs)
     });
+    let from_package = first && listed.is_some();
     let wanted = match (&listed, mode) {
         (Some(runs), Mode::Auto | Mode::Listed) => Some(runs.clone()),
         (None, Mode::Listed) => None,
@@ -211,6 +212,25 @@ fn run(mode: Mode, threads: usize, ask: usize) {
         if mode != Mode::Auto || away(&image, runs, samples, slow) {
             prefetch(&image, runs, ask);
             rune::marks::mark("image.pages.asked");
+            // The packed list is one launch's pages on the machine that built the app: it names
+            // about four fifths of what a launch here uses. With the image away, each page it
+            // lacks is a read from the disk on the thread that runs it: a never-started build with
+            // only such a list asked for reached its first frame at 98.8 ms and content live at
+            // 137 ms, against 80.9 and 98 ms with no list at all (which asks for the whole code)
+            // and 61 and 78 ms with a list of its own (8 launches each in turn, 26 Nov). So the
+            // rest of the code follows the list's pages, asked for on a thread of its own while
+            // this one maps the list.
+            if from_package && mode == Mode::Auto {
+                std::thread::Builder::new()
+                    .name("image-pages-rest".into())
+                    .spawn(|| {
+                        if let Some(image) = image() {
+                            prefetch(&image, &image.sections, 1);
+                            rune::marks::mark("image.pages.rest");
+                        }
+                    })
+                    .ok();
+            }
         } else {
             rune::marks::mark("image.pages.present");
         }
