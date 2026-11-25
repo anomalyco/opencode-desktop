@@ -197,8 +197,10 @@ pub fn instance_id() -> String {
     format!("{}-{tag}", product().family())
 }
 
-/// Windows: the windows' title bar, taskbar and Alt+Tab icon, from the exe's own icon resource
-/// (`build.rs`), so nothing is decoded or resized at launch.
+/// Windows: the windows' title bar, taskbar and Alt+Tab icon, from icon resource 1 of the module
+/// this code is linked into, so nothing is decoded or resized at launch: the one-file exe
+/// (`build.rs`), or a packaged build's library (`apps/desktop-library/build.rs`, which carries the
+/// icon for this: the thin exe's own is not the one a window loads).
 #[cfg(target_os = "windows")]
 pub fn apply_app_icon() {
     rune::set_app_icon_resource(1);
