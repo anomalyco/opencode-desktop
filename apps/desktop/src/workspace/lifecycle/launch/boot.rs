@@ -198,9 +198,7 @@ pub fn instance_id() -> String {
 }
 
 /// Windows: the windows' title bar, taskbar and Alt+Tab icon, from icon resource 1 of the module
-/// this code is linked into, so nothing is decoded or resized at launch: the one-file exe
-/// (`build.rs`), or a packaged build's library (`apps/desktop-library/build.rs`, which carries the
-/// icon for this: the thin exe's own is not the one a window loads).
+/// this code is linked into: the one-file exe, or a packaged build's library (its `build.rs`).
 #[cfg(target_os = "windows")]
 pub fn apply_app_icon() {
     rune::set_app_icon_resource(1);
@@ -214,12 +212,8 @@ pub fn apply_app_icon() {
 /// A packaged macOS app (`cfg(bundle_assets)`) is always in its bundle and carries no second copy
 /// of the icon in its exe (1.4 MiB).
 ///
-/// Linux: a window has no icon of its own. The desktop finds the app's icon, name and launcher by
-/// the window's application id (Wayland `app_id`, X11 `WM_CLASS`), matched to the installed
-/// `opencode-rune.desktop` (`apps/desktop/scripts/package-linux.sh`: `Icon=opencode-rune`).
-/// Without an id a Wayland window names none, and the switcher and dock draw a generic icon; X11
-/// fell back to the binary's name, which an AppImage does not keep. Desktop names its id the same
-/// way (`packages/desktop/electron-builder.config.ts`: `StartupWMClass: appId`).
+/// Linux: the desktop finds the app's icon by the window's application id (Wayland `app_id`, X11
+/// `WM_CLASS`), matched to `opencode-rune.desktop`, as Desktop's `StartupWMClass: appId` does.
 #[cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))]
 pub fn apply_app_icon() {
     #[cfg(target_os = "linux")]
