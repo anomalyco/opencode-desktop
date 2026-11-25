@@ -824,6 +824,10 @@ return plugin.defineWindow(function(ctx)
             device.toggle(tab)
         elseif what == "edit" then
             edit(tab)
+        elseif what == "focus" then
+            -- A press on the edited field's own box: the input takes the keyboard again, its text and
+            -- selection as they are (`panel.tsx:1000-1006`; `edit` would select the whole address).
+            editor:Focus()
         elseif what == "go" then
             dispatch({ type = "navigated", tab = tab.Id, url = arg :: string, epoch = epoch(tab) })
         elseif what == "forget" then

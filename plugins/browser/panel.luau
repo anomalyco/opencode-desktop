@@ -283,7 +283,8 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
     local editingPage = bar.editing and not bar.typed and bar.field ~= ""
     return ui.row({
         key = "browser-address",
-        -- `bar.css:22`: the whole field shows the I-beam, at rest too.
+        -- `bar.css:22`: the whole field shows the I-beam, at rest and while it is edited (the field keeps a
+        -- press handler then, so its own box, not only the input in it, is under the pointer).
         cursor = "text",
         dir = "ltr",
         grow = 1,
@@ -300,8 +301,10 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
         hoverTransition = "instant",
         border = if bar.editing then "border-focus" else nil,
         borderWidth = if bar.editing then 1 else nil,
-        onPress = if bar.editing then nil else view:Handler(function()
-            env.act("edit", tab)
+        -- A press on the edited field's own box (its padding, its icon) keeps the keyboard in the input
+        -- (`panel.tsx:1000-1006`); at rest a press starts the edit.
+        onPress = view:Handler(function()
+            env.act(if bar.editing then "focus" else "edit", tab)
         end),
     }, items)
 end

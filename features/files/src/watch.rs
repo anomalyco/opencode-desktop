@@ -171,7 +171,7 @@ pub fn open_tabs(host: &dyn FilesHost) -> Vec<(String, String)> {
 
 /// The folder `sid`'s file `path` is in, when the server can watch it.
 fn directory(host: &dyn FilesHost, sid: &str, path: &str) -> Option<String> {
-    if !host.is_live() || path.is_empty() || opencode_kit::path::is_absolute(path) {
+    if !host.is_live() || path.is_empty() || crate::data::is_outside(path) {
         return None;
     }
     host.session_directory(sid)

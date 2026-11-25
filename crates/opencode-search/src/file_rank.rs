@@ -9,7 +9,18 @@ pub const OPEN_TAB_KEY: &str = "file:open";
 
 /// Normalizes a workspace-relative path: backslashes become `/`, leading/trailing slashes are
 /// stripped, and repeated `/` runs collapse to a single `/`.
+///
+/// A skill's virtual file, `skill://<id>/<file>` (official
+/// `packages/app/src/workspaces/files/model.tsx:245`), keeps its two slashes: it is no path of
+/// the folder, and a file tab's id carries it whole (`file_tab_id`, `file_tab_path`).
 pub fn normalize_path(value: &str) -> String {
+    if let Some(scheme) = value.get(..8).filter(|scheme| scheme.eq_ignore_ascii_case("skill://")) {
+        return format!("{scheme}{}", segments(&value[8..]));
+    }
+    segments(value)
+}
+
+fn segments(value: &str) -> String {
     let replaced = value.replace('\\', "/");
     let trimmed = replaced.trim_matches('/');
     let mut out = String::with_capacity(trimmed.len());

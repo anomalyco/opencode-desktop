@@ -90,8 +90,9 @@ pub(super) fn open_in_button<H: FilesHost + PopupHost + 'static>(
     key: &'static str,
     rel: &str,
 ) -> Option<El> {
-    // No app opens a file outside the session's folder; its menu still shows it in the file manager.
-    if !s.can_open_in() || opencode_kit::path::is_absolute(rel) {
+    // No app opens a file outside the session's folder; its menu still shows it in the file
+    // manager. A skill's virtual file is on no disk (official `gui-plugins/src/file/open-in-app.tsx:101-107`).
+    if !s.can_open_in() || crate::data::is_outside(rel) {
         return None;
     }
     let cur = s.open_in_current()?;
@@ -217,13 +218,13 @@ fn open_artifact_menu(
                 Some("reveal") if opencode_kit::path::is_absolute(&at) => crate::links::reveal_outside_file(h, &at),
                 Some("reveal") => h.open_in_reveal(&at),
                 Some("copy") => {
-                    let full = if opencode_kit::path::is_absolute(&at) { Some(at.clone()) } else { h.open_in_path(&at) };
+                    let full = if crate::data::is_outside(&at) { Some(at.clone()) } else { h.open_in_path(&at) };
                     if let Some(full) = full {
                         tx.copy(full);
                         h.toast_succeed(opencode_i18n::t!("common.copied").to_owned(), String::new());
                     }
                 }
-                Some(id) if id.starts_with("app:") && !opencode_kit::path::is_absolute(&at) => h.open_in_pick(&at, id, false, tx),
+                Some(id) if id.starts_with("app:") && !crate::data::is_outside(&at) => h.open_in_pick(&at, id, false, tx),
                 _ => {}
             }
         }),
@@ -341,11 +342,13 @@ fn artifact_menu(host: &dyn FilesHost, path: &str, source: bool, previewable: bo
     // A file outside the session's folder (`links::open_outside_file`) can be shown in the file
     // manager where the server shares this machine's files, and nothing else: no app opens it
     // and the browser pane does not take it.
-    let outside = opencode_kit::path::is_absolute(path);
+    let outside = crate::data::is_outside(path);
     if !outside && host.opens_as_page(path) {
         menu = menu.item(Item::new("open-browser", opencode_i18n::t!("plugin.file.view.openInBrowser")));
     }
-    if if outside { host.can_reveal_outside() } else { host.can_open_in() } {
+    // A skill's virtual file is in no folder to show.
+    let reveals = !crate::data::is_virtual_skill(path) && if outside { host.can_reveal_outside() } else { host.can_open_in() };
+    if reveals {
         menu = menu.item(Item::new(
             "reveal",
             opencode_i18n::t!("plugin.file.view.reveal", app = host.open_in_finder_label()),
