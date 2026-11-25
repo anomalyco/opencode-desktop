@@ -783,11 +783,18 @@ function settings.renderImportDialog(
         }))
     end
     if not single then
-        table.insert(body, ui.col({ key = "settings-import-what", w = "full", gap = 4 }, {
+        -- `site-chooser.tsx:405-439`: the heading and the two boxes, 4 apart; Return on a box
+        -- imports, as it does on the list.
+        table.insert(body, ui.frame({
+            key = "settings-import-what",
+            w = "full",
+            keys = { "Enter" },
+            onKey = view:Handler(import),
+        }, { ui.col({ key = "settings-import-what-rows", w = "full", gap = 4 }, {
             ui.text(i18n:T("import.what"), GROUP_HEADING, { key = "settings-import-what-title", role = "heading" }),
             box("signins", i18n:T("import.signins"), boxes.signins),
             box("history", i18n:T("import.history"), boxes.history),
-        }))
+        }) }))
     end
     if chooser then
         local group: { ui.Node } = {}
