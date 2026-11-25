@@ -178,6 +178,18 @@ jobs:
         with:
           path: ~/.cache/seer/ghostty-vt
           key: ghostty-vt-macos-${{ matrix.arch }}-${{ hashFiles('crates/terminal/build.rs', 'crates/terminal/build_support.rs') }}
+      - id: zig
+        name: Zig version
+        run: |
+          version=$(sed -n 's/^pub const ZIG_VERSION: &str = "\(.*\)";$/\1/p' crates/terminal/build_support.rs)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Could not read ZIG_VERSION from crates/terminal/build_support.rs." >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # The Zig toolchain on its own, keyed on its version alone: ghostty-vt's key follows
+      # build.rs and build_support.rs, so without this every change there downloads Zig again.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/seer/ghostty-vt/zig-*-${{ steps.zig.outputs.version }}
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ steps.zig.outputs.version }}
       - name: Install NASM for the x86 video decoder
         if: matrix.arch == 'x64'
         run: brew install nasm
@@ -236,6 +248,18 @@ jobs:
         with:
           path: ~/.cache/seer/ghostty-vt
           key: ghostty-vt-linux-${{ matrix.arch }}-${{ hashFiles('crates/terminal/build.rs', 'crates/terminal/build_support.rs') }}
+      - id: zig
+        name: Zig version
+        run: |
+          version=$(sed -n 's/^pub const ZIG_VERSION: &str = "\(.*\)";$/\1/p' crates/terminal/build_support.rs)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Could not read ZIG_VERSION from crates/terminal/build_support.rs." >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # The Zig toolchain on its own, keyed on its version alone: ghostty-vt's key follows
+      # build.rs and build_support.rs, so without this every change there downloads Zig again.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/seer/ghostty-vt/zig-*-${{ steps.zig.outputs.version }}
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ steps.zig.outputs.version }}
       - id: engine-trust
         name: Resolve Linux ${{ matrix.arch }} browser engine sha256 pin
         env:
@@ -294,6 +318,18 @@ jobs:
         with:
           path: ~/AppData/Local/seer/ghostty-vt
           key: ghostty-vt-windows-${{ matrix.arch }}-${{ hashFiles('crates/terminal/build.rs', 'crates/terminal/build_support.rs') }}
+      - id: zig
+        name: Zig version
+        run: |
+          version=$(sed -n 's/^pub const ZIG_VERSION: &str = "\(.*\)";$/\1/p' crates/terminal/build_support.rs)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Could not read ZIG_VERSION from crates/terminal/build_support.rs." >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # The Zig toolchain on its own, keyed on its version alone: ghostty-vt's key follows
+      # build.rs and build_support.rs, so without this every change there downloads Zig again.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/AppData/Local/seer/ghostty-vt/zig-*-${{ steps.zig.outputs.version }}
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ steps.zig.outputs.version }}
       - name: Build the setup and the update zip
         shell: pwsh
         run: apps/installer/scripts/package.ps1 -Out "$env:RUNNER_TEMP/windows" -Arch ${{ matrix.arch }}

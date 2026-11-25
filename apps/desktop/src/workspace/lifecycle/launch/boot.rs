@@ -197,8 +197,8 @@ pub fn instance_id() -> String {
     format!("{}-{tag}", product().family())
 }
 
-/// Windows: the windows' title bar, taskbar and Alt+Tab icon, from the exe's own icon resource
-/// (`build.rs`), so nothing is decoded or resized at launch.
+/// Windows: the windows' title bar, taskbar and Alt+Tab icon, from icon resource 1 of the module
+/// this code is linked into: the one-file exe, or a packaged build's library (its `build.rs`).
 #[cfg(target_os = "windows")]
 pub fn apply_app_icon() {
     rune::set_app_icon_resource(1);
@@ -211,8 +211,13 @@ pub fn apply_app_icon() {
 /// (21,400 µs; a bare AppKit app with one window, M4: its window came 19,000 µs later).
 /// A packaged macOS app (`cfg(bundle_assets)`) is always in its bundle and carries no second copy
 /// of the icon in its exe (1.4 MiB).
+///
+/// Linux: the desktop finds the app's icon by the window's application id (Wayland `app_id`, X11
+/// `WM_CLASS`), matched to `opencode-rune.desktop`, as Desktop's `StartupWMClass: appId` does.
 #[cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))]
 pub fn apply_app_icon() {
+    #[cfg(target_os = "linux")]
+    rune::set_app_id("opencode-rune");
     #[cfg(not(bundle_assets))]
     {
         let bundled = std::env::current_exe()

@@ -247,7 +247,6 @@ fn general<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, x: &Project) -
             .label(server_name.clone())
             .self_start()
             .radius(4.0)
-            .cursor(Cursor::Pointer)
             .focus_default(p)
             .hover_group_focus()
             .on_press_tx(|s: &mut H, tx: &mut Tx| super::open_page(s, Page::Servers, tx))
@@ -383,7 +382,6 @@ pub fn options_with<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, x: &P
         .size(size, size)
         .center()
         .radius(if size > 24.0 { 6.0 } else { 4.0 })
-        .cursor(Cursor::Pointer)
         .focus_default(p)
         .fill(if open { p.pressed } else { Color::TRANSPARENT })
         .hover(if open { p.pressed } else { p.hover })
@@ -422,7 +420,6 @@ fn icon_button<H: SettingsHost + 'static>(s: &H, p: &Pal, x: &Project) -> El {
         .size(32.0, 32.0)
         .radius(6.0)
         .clip_rounded(6.0)
-        .cursor(Cursor::Pointer)
         .focus_default(p)
         .hover_group_focus()
         .hover_motion(opencode_ui::style::HOVER_FADE, opencode_ui::style::HOVER_FADE)
@@ -461,7 +458,6 @@ fn colors<H: SettingsHost + 'static>(p: &Pal, x: &Project) -> El {
             .expanded(selected)
             .size(20.0, 20.0)
             .radius(6.0)
-            .cursor(Cursor::Pointer)
             .focus_default(p)
             .on_press_tx(move |s: &mut H, tx: &mut Tx| pick_color(s, &id, i, selected, tx));
         // Selection is a neutral ring and focus the shared outline, so the two stay apart (`project.css`, opencode#64909);

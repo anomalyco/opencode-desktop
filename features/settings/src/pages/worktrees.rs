@@ -216,7 +216,7 @@ fn toolbar<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, list: &[Worktr
         .focus_default(p)
         .child(icon(&ic::OUTLINE_DOTS, 16.0).color(p.icon_muted));
     let dots = if busy {
-        dots.disabled(true).opacity(0.5)
+        dots.disabled(true).opacity(0.5).hit().cursor(rune::Cursor::NotAllowed)
     } else {
         let dots = if open { dots.fill(p.pressed) } else { dots.hover(p.hover) };
         dots.press(p.pressed).menu_button("settings-workspaces-more", move |s: &mut H, tx: &mut Tx| {
@@ -323,7 +323,7 @@ fn worktree_row<H: SettingsHost + 'static>(s: &H, p: &Pal, w: &Worktree, active:
     let target = w.target();
     let active_dir = active.map(str::to_owned);
     let delete = if busy {
-        delete.disabled(true).opacity(0.5)
+        delete.disabled(true).opacity(0.5).hit().cursor(rune::Cursor::NotAllowed)
     } else {
         delete.hover(p.hover).press(p.pressed).on_press_tx(move |s: &mut H, tx: &mut Tx| open_delete_one(s, active_dir.clone(), target.clone(), tx))
     };

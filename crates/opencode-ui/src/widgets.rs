@@ -29,6 +29,14 @@ pub fn button(label: impl Into<String>, variant: ButtonVariant) -> Button {
         .label_with(move |font, ink| text(label).key("label").font(font.features("\"tnum\"")).color(ink))
 }
 
+/// A disabled control under the pointer: official's `cursor: not-allowed` (`button.css:112-344`,
+/// `submit.css:79`, `icon-button.css:74-126`), which Desktop's cursor reset leaves alone
+/// (`packages/desktop/src/renderer/styles.css:44`, `:not(:disabled)`). A `loading` button is not
+/// one: it keeps the arrow (`button.css:232`). The control takes the pointer so the cursor shows.
+pub fn not_allowed(control: El, disabled: bool) -> El {
+    if disabled { control.hit().cursor(rune::Cursor::NotAllowed) } else { control }
+}
+
 pub fn badge(p: &Pal, label: impl Into<String>) -> El {
     // `badge.css:2-13` uses CSS `border: 0.5px` which snaps to 1 device px in layout (`+2 px` width).
     Badge::new(label).build(kit(p)).border_layout()

@@ -237,7 +237,6 @@ pub fn remove_button<S: 'static>(
         .size(16.0, 16.0)
         .radius(8.0)
         .center()
-        .cursor(rune::Cursor::Pointer)
         .focus_default(p)
         .fill(p.icon_muted)
         .outline(1.0, 0.0, p.icon_contrast)

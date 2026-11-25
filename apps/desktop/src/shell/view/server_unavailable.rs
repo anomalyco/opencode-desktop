@@ -123,7 +123,6 @@ pub fn signed_out_status(p: &Pal, server: &ServerKey) -> El {
             .key("connection-sign-in")
             .font(crate::view::UI_SMALL)
             .color(p.text)
-            .cursor(rune::Cursor::Pointer)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| crate::servers::dialog::open(s, Some(&url), tx))
     });
     rune::row().key("connection-status").gap(6.0).center_y().child(label).children(link)

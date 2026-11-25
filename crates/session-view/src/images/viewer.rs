@@ -81,7 +81,7 @@ pub fn opens<S: TimelineHost>(s: &S, thumb: El, held: El, strip: Strip, image: I
     let f = &strip.files[strip.at];
     let (name, dragged) = (f.name.clone(), Dragged::File(f.clone()));
     let thumb = super::menu::on_image::<S>(draggable::<S>(thumb, dragged.clone()), dragged.clone(), message);
-    thumb.cursor(rune::Cursor::Pointer).matched(id.clone()).token_motion(flight(s)).on_press_tx(move |s: &mut S, tx: &mut Tx| {
+    thumb.matched(id.clone()).token_motion(flight(s)).on_press_tx(move |s: &mut S, tx: &mut Tx| {
         open(s, Viewing { id: id.clone(), name: name.clone(), image: image.clone(), dragged: dragged.clone(), strip: Some(strip.clone()) }, tx);
     })
 }
