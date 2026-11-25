@@ -324,6 +324,9 @@ fn vertical_group(s: &App, p: &Pal, g: &PinGroup, nav_order: &[String], show_hin
         .radius(6.0)
         .focus_inset(p)
         .hover(p.hover)
+        // The toggle is the chevron's hover group: an element with a hover colour is the group of
+        // what it holds, and only a group lights for the keyboard's focus on it.
+        .hover_group()
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             pins::update(s, |d| d.toggle_group(&toggle_id));
@@ -332,9 +335,11 @@ fn vertical_group(s: &App, p: &Pal, g: &PinGroup, nav_order: &[String], show_hin
         .on_secondary_press(move |s: &mut App, _: rune::PointerPress, tx: &mut Tx| open_group_menu(s, &ctx_id, ctx_key.clone().into(), rune::Align::End, tx))
         .child(marker)
         .child(label_el)
-        // The chevron shows with the pointer over the row or the keyboard's focus in it
-        // (`opacity-0 group-hover/row:opacity-100 group-focus-visible/toggle:opacity-100`,
-        // opencode#66265), and always where the pointer cannot hover.
+        // The chevron shows with the pointer over the toggle or the keyboard's focus on it
+        // (`pinned-area.tsx:376`: `opacity-0 group-hover/row:opacity-100
+        // group-focus-visible/toggle:opacity-100`, opencode#66265), and always where the
+        // pointer cannot hover. Official's also shows with the pointer over the row's menu
+        // button, and fades over 150 ms.
         .child(session_view::style::hover_reveal(icon(&ic::FILL_TRIANGLE_DOWN, 14.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 }).mirror_in_rtl()));
 
     let dots = super::super::home::projects::icon_button(p, &menu_key, t!("navigation.group.options"), &ic::OUTLINE_DOTS, menu_open)
