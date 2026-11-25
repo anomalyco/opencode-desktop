@@ -100,6 +100,19 @@ impl Disclosures {
         self.get(key) == Some(Disclosure::Open)
     }
 
+    /// What the reader toggled among the keys that start with `prefix`, as a number that moves
+    /// when one of them opens, shuts or follows its default again: for a memo whose row draws
+    /// such a disclosure (`rune::memo` builds again only when its version moves).
+    pub fn stamp(&self, prefix: &str) -> u64 {
+        use std::hash::{DefaultHasher, Hash, Hasher};
+        // The map has no order, so the sum of each one's hash.
+        self.0.iter().filter(|(key, _)| key.starts_with(prefix)).fold(0, |sum, (key, state)| {
+            let mut h = DefaultHasher::new();
+            (key, std::mem::discriminant(state)).hash(&mut h);
+            sum.wrapping_add(h.finish())
+        })
+    }
+
     /// Opens `key`; true when it wasn't open.
     pub fn insert(&mut self, key: String) -> bool {
         let was = self.contains(&key);
