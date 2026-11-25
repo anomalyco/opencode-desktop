@@ -282,7 +282,6 @@ impl App {
         self.open(&id, tx);
     }
 
-
     /// Runs `f` on the server of inbox row `key`, with its session's id.
     pub fn on_inbox_row(&mut self, key: &str, f: impl FnOnce(&mut App, &str)) {
         let (server, id) = self.inbox_target(key);
