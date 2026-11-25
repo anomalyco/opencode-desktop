@@ -97,11 +97,11 @@ pub fn dialog<H: SettingsHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> Vec<El> 
             .build(k)
             .key("worktree-delete-retry")
     });
-    let delete = widgets::button(label, ButtonVariant::Danger)
+    let delete = opencode_ui::widgets::not_allowed(widgets::button(label, ButtonVariant::Danger)
         .disabled(!can_delete)
         .on_press_tx(move |s: &mut H, tx: &mut Tx| accept_confirm(s, attempt, tx))
         .build(k)
-        .key("worktree-delete-confirm");
+        .key("worktree-delete-confirm"), !can_delete);
     let delete = if p.dark && p.theme == 0 && can_delete {
         delete.fill(opencode_ui::palette::flat(Color::WHITE.alpha(0.06), p.layer1))
     } else {

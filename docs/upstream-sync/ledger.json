@@ -2,29 +2,29 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "4c2977b82ece65dfebc4c25058f76e4f8a241c61",
+  "upstream_head": "b5dba31bf20d758d86871af65d206a197d411a0c",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "2f7e5747b",
-  "post_1114_commit_count": 635,
-  "post_1114_in_ledger": 225,
-  "post_1114_skipped": 410,
+  "rune_desktop_head": "eab4de4be",
+  "post_1114_commit_count": 653,
+  "post_1114_in_ledger": 229,
+  "post_1114_skipped": 424,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
     "ci-bench-deps": 24,
     "docs-site-data": 62,
     "tui-only": 28,
     "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 260
+    "server-core-ai-codemode-internal": 274
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 246,
+  "total_ledger_rows": 250,
   "status_counts": {
-    "have it": 200,
-    "not applicable": 36,
+    "have it": 202,
+    "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 7
+    "missing": 8
   },
   "rows": [
     {
@@ -5861,7 +5861,7 @@
       "summary": "The elevation shadows' layers are listed in Figma's order (the 0.5 px ring first, then the soft shadows; for the contrast button the insets before the ring and the drop shadow), which changes which layer paints over which.",
       "size": "XS",
       "status": "missing",
-      "status_evidence": "Not ported, not compared. The tokens are Rune's (rune-theme-opencode), so a change is a Rune PR and a pin. Black layers over black composite the same in any order, so raised / floating / overlay / input / neutral button cannot differ; the contrast button (an opaque grey ring, light and dark insets) can. Needs a pixel comparison of the contrast button next to official.",
+      "status_evidence": "Not ported, not compared. The tokens are Rune's (rune-theme-opencode): official reversed the layer lists of eight elevation tokens in both themes (raised, floating, overlay, input, button-neutral, button-contrast, switch-off, switch-on), and in Rune that is data only (themes/opencode/assets/theme.json holds each list and the kit paints a list in CSS order, the first layer on top), so the port is a Rune PR and a pin. What can differ, by reading: in the light theme black layers over black composite the same in any order, so only the contrast button (an opaque grey ring) can; in the dark theme raised, floating, overlay, button-neutral and button-contrast mix a light ring and top line with dark drops, so the 0.5 px ring of cards, popovers, menus, dialogs and neutral buttons is a little lighter where the drop lies on it (the ring now paints over the drop); dark input (its drop has no alpha) and both switches (one colour each) cannot differ. It is to ride the pin bump after the next one, alone, so that the pin's picture walk shows it as its one meant difference.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6155,8 +6155,8 @@
       ],
       "summary": "A prompt's quotes reach the model as plain reply-style blockquotes before the user's own words, like an email reply: each quote a block of `> ` lines (an empty line is `>`), named by a line `From <subject>:` only when it came from another source such as the terminal, its comment under it; then the user's words, the `Attached file:` lines, notes and file comments. Before, a quote came after the words under the sentence `The user quoted the following from ...` with its comment under `The user made the following comment regarding this quote:`. The bubble and its quote cards are unchanged.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Being ported in draft opencode-rune #1119 (compiled by CI only, NOT RUN): crates/opencode-kit/src/quote.rs Quote::prompt_text, model_text and typed_text, crates/opencode-kit/src/model/parse.rs quoted_text (reads the new shape and the one sent before, and records mentions against the user's own words), apps/desktop/src/session/inbox/send.rs. Needs a run: the request's text for a quote with a comment, words and a path attachment, and for a lone quote; the bubble after a reload; a session whose quoted prompt an older build sent. Found while porting: official's terminal names itself as a quote's source (packages/gui-plugins/src/terminal/panel.tsx:60: subject \the terminal), so the model reads From the terminal: over such a quote; a quote ours takes from its terminal carries no source and reads as one from the conversation (before this change too, under the old sentence). A follow-up after #1119. opencode#66248 (a4bea47aa5) only rewords the plugin API's comment for the new text.",
+      "status": "have it",
+      "status_evidence": "opencode-rune #1119 (c7d9d177): a prompt's quotes go first, each as official's reply-style blockquote (`From <subject>:` when it has a source, the text with `> ` on every line, the comment below), then the user's words (crates/opencode-kit/src/quote.rs model_text / prompt_text; apps/desktop/src/session/inbox/send.rs); both the new and the old shape are read back out of a stored prompt (model/parse.rs quoted_text), and mentions are recorded against the user's own words. Run on its Windows x64 CI build by the app's headless runner (a scripted pointer and keyboard, no window on a display) against a private server (docs/upstream-sync/ported-runs.md): a lone quote; a quote with a comment, words and an attached file, the stored text line for line; the same after a new launch; a session stored in the old shape (seeded by script); a quote beside a session mention; a quote beside an @file mention (the file part's mention offsets count from the user's own words). Not run: a real window. Still differs: official's terminal names itself as a quote's source (packages/gui-plugins/src/terminal/panel.tsx:60), so the model reads `From the terminal:`; a quote ours takes from its terminal carries no source. opencode#66248 (a4bea47aa5) only rewords the plugin API's comment for the new text.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6178,6 +6178,95 @@
       "size": "S",
       "status": "not applicable",
       "status_evidence": "By reading: ours has no Sentry client and sends a crash to no service (a search of apps/desktop/src, crates and features for `sentry` finds none); after an unexpected close the next launch shows a notice with Export logs (apps/desktop/src/workspace/system/crash_notice.rs), which writes a file and uploads nothing. So there is nothing to gate by channel. Ours has no Report button either: that is a difference older than this commit, not part of it.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-226",
+      "window": "post-1120",
+      "pr": 66265,
+      "sha": "13d601e31f",
+      "title": "feat(app): fill Consolidated gaps in pins, sidebar and Home picker",
+      "merged": "2026-11-25",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/home/projects/region.tsx",
+        "packages/app/src/home/projects/view.tsx",
+        "packages/app/src/shell/titlebar/pinned-area.tsx",
+        "packages/app/src/shell/titlebar/recent-sessions.tsx"
+      ],
+      "summary": "Four gaps of the Consolidated navigation: a middle click on a pinned session unpins it and closes its tab; a pin group's chevron (vertical) and, under Consolidated, a Recent group header's chevron show only on hover or keyboard focus; Home's project picker names the focused server, with the server glyph, in place of All projects when there are several servers and no project is chosen.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Ported in draft opencode-rune #1144 (apps/desktop/src/shell/tabs/pins.rs close, shell/view/sidebar/pinned_area.rs, sidebar/recent.rs, shell/view/home/projects.rs); compiled by CI only, not run: it merges after a run on its build. Two differences stated there: the chevron's fade follows the row's hover track, not official's 150 ms; a pin group's chevron also shows for focus on the row's options button.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-227",
+      "window": "post-1120",
+      "pr": 66279,
+      "sha": "b19812f0f5",
+      "title": "fix(desktop): use VITE_OPENCODE_CHANNEL in renderer",
+      "merged": "2026-11-25",
+      "packages": [
+        "desktop"
+      ],
+      "main_files": [
+        "packages/desktop/src/renderer/startup/sentry.ts"
+      ],
+      "summary": "Official's renderer reads the build's channel from VITE_OPENCODE_CHANNEL when it decides which Sentry integrations to leave out on the production channel, and leaves out the browser-session one there as well.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "By reading: the change is in official's Sentry start-up alone (packages/desktop/src/renderer/startup/sentry.ts). Ours has no Sentry client and sends a crash to no service (see UP-225), so there is nothing to configure.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-228",
+      "window": "post-1120",
+      "pr": 66295,
+      "sha": "546a44d8fa",
+      "title": "fix(session-ui): simplify execute details dialog",
+      "merged": "2026-11-25",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/components/message-part.css",
+        "packages/session-ui/src/pierre/index.ts",
+        "packages/session-ui/src/tools/tool-renderer.tsx"
+      ],
+      "summary": "The Execute details dialog (View code on a Code Mode call) is simpler: the status is a Badge (danger for a failed run) and the call count is gone; the line counts after Code and Output are gone; a failed run's error is a numbered text view in the danger colour sharing the code's number gutter, in place of a padded block; lines no longer light under the pointer.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "opencode-rune #1158 (eab4de4b): crates/session-view/src/tools/details.rs (the status is the Badge, danger for a failed run; the call count and the line counts are gone; the error is a numbered text view in the danger colour sharing the code's number gutter) and tools/diff.rs code (an ink for plain lines; no line hover). Run headless on its Windows x64 CI build beside a PR build without the change, trees and pictures read: a completed call and a failed call with a twelve-line error (the badge, no counts, the error numbered and red, the gutter sized for two digits in both blocks), and the pointer over a code line (a hover before, none after). Not run: a real window, a running call, an output over 4096 bytes, macOS and Linux. Not ported, older than this commit: official indents compact JSON output there (formatExecuteOutput).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-229",
+      "window": "post-1120",
+      "pr": 66308,
+      "sha": "e54fbacb3d",
+      "title": "fix(ui): update settings icon hexagon",
+      "merged": "2026-11-25",
+      "packages": [
+        "ui"
+      ],
+      "main_files": [
+        "packages/ui/src/icons/catalog.ts"
+      ],
+      "summary": "The Settings icon's hexagon is taller: its top and bottom points move from y 1.5 and 14.5 to y 1 and 15 (`settings-gear` in packages/ui/src/icons/catalog.ts); the circle inside is unchanged. Drawn on the sidebar's and Home's Settings rows, the narrow window's tabs page and a project's menu.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Not ported. The glyph is Rune's (rune-theme-opencode, themes/opencode/src/icons.rs, SETTINGS_GEAR, still the old outline at the pinned rev 4d8df909), so the change is a one-path Rune PR and a pin; asked of the pin's owner. Ours draws it in apps/desktop/src/shell/view/sidebar.rs, home/projects.rs, location_card.rs and features/narrow/src/tabs.rs. The glyph is changed in Rune (rune#2183, 36a50e613: the line Rune's icon generator writes from the official catalog at e54fbacb3d); it reaches the app with the next pin bump. Not seen drawn yet.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"

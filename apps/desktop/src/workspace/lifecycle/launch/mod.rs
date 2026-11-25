@@ -506,6 +506,10 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     last_exit::presented();
     if s.persists() {
         crate::windows::reopen::expire(*s.now_ms);
+        // Windows an earlier build lost (rows, and no place in the saved list) leave the boot
+        // record for Reopen closed window: the first frame is up, and the storage thread does it.
+        #[cfg(not(target_arch = "wasm32"))]
+        crate::windows::reopen::sweep_lost(*s.now_ms);
     }
     // The window's other servers start from its next poll (`servers::runtime::poll`).
     s.checkout.boot = crate::servers::runtime::Boot::Ready;
@@ -718,7 +722,10 @@ fn first_reads(s: &mut App, tx: &mut Tx) -> bool {
     let reached = ready.first.as_ref().map(Result::is_ok);
     let refused = ready.refused;
     s.launch.early_page = ready.page;
-    rune::marks::mark("server.answered");
+    // A launch that reached nobody must not read as one whose server answered: the reads that
+    // failed (no connection, a refused or failed TLS handshake, a bad answer) or found no server
+    // are their own mark.
+    rune::marks::mark(if reached == Some(true) { "server.answered" } else { "server.failed" });
     tx.instant();
     let Some(result) = ready.first else {
         step(s, LaunchEvent::Landed { reached, refused, now }, tx);

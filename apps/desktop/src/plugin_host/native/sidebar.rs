@@ -169,7 +169,8 @@ fn open_side_menu(s: &mut App, at: PointerPress, tx: &mut Tx) {
 
 /// ⌘\ while a panel with the sidebar shows (Review, a file).
 pub fn key(app: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    if !Bind::TreeToggle.matches_tx(ev, tx) || !(app.is_review_active() || app.active_file_tab().is_some()) {
+    // Under a New tab page the tab is still the active one, but its tree isn't drawn.
+    if !Bind::TreeToggle.matches_tx(ev, tx) || !(app.is_review_active() || app.active_file_tab().is_some()) || app.new_tab_covers_active() {
         return false;
     }
     toggle(app, tx);

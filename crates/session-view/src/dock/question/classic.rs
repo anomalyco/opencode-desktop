@@ -252,7 +252,7 @@ fn progress<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, live: bool) -> El
                 }
             })
         } else {
-            seg.disabled(true).focusable(false)
+            seg.disabled(true).focusable(false).hit().cursor(rune::Cursor::NotAllowed)
         }
     }))
 }

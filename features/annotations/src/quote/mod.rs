@@ -439,7 +439,7 @@ pub fn quote_selected(host: &mut dyn QuoteHost, selected: &str, tx: &mut Tx) {
 }
 
 fn add_text(host: &mut dyn QuoteHost, text: String, comment: bool, tx: &mut Tx) {
-    let quote = Quote { text, comment: None };
+    let quote = Quote { text, comment: None, source: None };
     tx.clear_text_selection();
     // The card lands in the click, with nothing moving, as in Desktop.
     tx.instant();

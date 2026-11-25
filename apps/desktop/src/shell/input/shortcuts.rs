@@ -78,6 +78,10 @@ const TABLE: &[Entry] = &[
         s.close_window(tx);
         true
     }),
+    direct(Bind::WindowFullScreen, Phase::WindowAccelerator, false, |_, tx| {
+        tx.toggle_full_screen();
+        true
+    }),
     // ── BeforePlugins (dispatched inside `App::shortcut` before plugin shortcuts) ────────────────
     cmd(Bind::FocusInput, Phase::BeforePlugins, false),
     cmd(Bind::AddSelection, Phase::BeforePlugins, false),
