@@ -496,6 +496,8 @@ pub fn session_write_replied(host: &mut dyn SessionMenuHost, data: &serde_json::
             // The reply comes in on its own server, checked out for it (`servers::runtime::poll`).
             let server = host.active_server();
             let current = host.session(&session).map(|i| i.title.clone());
+            // The server's words are shown at the end; a failure without any is the edit's to say.
+            let said = if why.is_empty() { rename::Why::Unsaid } else { rename::Why::Refused };
             // A save this window already gave up on (and said so) says nothing more when it fails late.
             if host.menus().gave_up.as_ref().is_some_and(|(s, t)| *s == session && *t == title) {
                 host.menus_mut().gave_up = None;
@@ -503,7 +505,7 @@ pub fn session_write_replied(host: &mut dyn SessionMenuHost, data: &serde_json::
                     rename::dispatch(
                         host,
                         rename::Event::Replied { session: &session, server: &server, title: &title, ok, current: current.as_deref() },
-                        why,
+                        said,
                     );
                     return;
                 }
@@ -511,7 +513,7 @@ pub fn session_write_replied(host: &mut dyn SessionMenuHost, data: &serde_json::
             rename::dispatch(
                 host,
                 rename::Event::Replied { session: &session, server: &server, title: &title, ok, current: current.as_deref() },
-                why,
+                said,
             );
             let draft = host.menus().dialog_edit.text.clone();
             rename_dialog::dispatch(

@@ -16,9 +16,16 @@ use crate::{Spot, Target};
 /// `TAB_RENAME_SAVE_TIMEOUT_MS`.
 pub const SAVE_TIMEOUT: f64 = 15.0;
 
-/// What a save that could not be sent is answered with, where a server's refusal carries the
-/// server's words and a time-out carries none.
-const NOT_SENT: &str = "\u{0}not sent";
+/// What a failed save has to say, which decides who shows its one toast.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Why {
+    /// Nothing: no answer in time, or a failure that came without words.
+    Unsaid,
+    /// The write never left this machine.
+    NotSent,
+    /// The server refused, in its words: `session_write_replied` shows them.
+    Refused,
+}
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum Edit {
@@ -167,7 +174,7 @@ pub fn begin_rename(host: &mut dyn SessionMenuHost, t: &Target) {
         return;
     };
     finish_rename(host, true);
-    dispatch(host, Event::Start { target: t.clone(), title }, "");
+    dispatch(host, Event::Start { target: t.clone(), title }, Why::Unsaid);
 }
 
 /// Ends the edit: with `save`, a changed, non-empty title is sent. Nothing when none is open.
@@ -178,11 +185,12 @@ pub fn finish_rename(host: &mut dyn SessionMenuHost, save: bool) {
     let draft = host.menus().edit.text.clone();
     let now = host.clock();
     let event = if save { Event::Submit { draft: &draft, now } } else { Event::Cancel };
-    dispatch(host, event, "");
+    dispatch(host, event, Why::Unsaid);
 }
 
-/// Runs `event` through the rename machine and carries out what it asks.
-pub(crate) fn dispatch(host: &mut dyn SessionMenuHost, event: Event<'_>, why: &str) {
+/// Runs `event` through the rename machine and carries out what it asks. `why` is what a
+/// failure in `event` has to say.
+pub(crate) fn dispatch(host: &mut dyn SessionMenuHost, event: Event<'_>, why: Why) {
     let waiting = match &host.menus().save {
         Save::Saving { session, optimistic, .. } => Some((session.clone(), optimistic.clone())),
         _ => None,
@@ -225,7 +233,7 @@ pub(crate) fn dispatch(host: &mut dyn SessionMenuHost, event: Event<'_>, why: &s
                 })
                 .unwrap_or((false, None));
                 if host.stage_active() || !sent {
-                    let why = if sent { why } else { NOT_SENT };
+                    let why = if sent { why } else { Why::NotSent };
                     return dispatch(
                         host,
                         Event::Replied { session: &session, server: &server, title: &title, ok: sent, current: current.as_deref() },
@@ -236,19 +244,20 @@ pub(crate) fn dispatch(host: &mut dyn SessionMenuHost, event: Event<'_>, why: &s
             // `poll_rename` keeps the save's deadline.
             Effect::WakeAt(_) => {}
             // One toast for a failed save, Desktop's (`tab-rename-machine.ts:274-283`,
-            // `tab-nav.tsx:354-357`: `common.requestFailed`, the error's words under it). A refusal
-            // in the server's words has it in `session_write_replied`; this says the rest.
-            // No answer in time: no words under it (`tab-rename-machine.ts:282`).
-            Effect::Failed if why.is_empty() => {
-                host.menus_mut().gave_up = waiting.clone();
-                host.toast_fail(opencode_i18n::t!("common.requestFailed"), "");
-            }
-            // Not sent: Desktop rejects with an error of the same words (`tab-nav.tsx:321-327`).
-            Effect::Failed if why == NOT_SENT => {
-                let failed = opencode_i18n::t!("common.requestFailed");
-                host.toast_fail(failed, failed);
-            }
-            Effect::Failed => {}
+            // `tab-nav.tsx:354-357`: `common.requestFailed`, the error's words under it).
+            Effect::Failed => match why {
+                // No answer in time: no words under it (`tab-rename-machine.ts:282`).
+                Why::Unsaid => {
+                    host.menus_mut().gave_up = waiting.clone();
+                    host.toast_fail(opencode_i18n::t!("common.requestFailed"), "");
+                }
+                // Not sent: Desktop rejects with an error of the same words (`tab-nav.tsx:321-327`).
+                Why::NotSent => {
+                    let failed = opencode_i18n::t!("common.requestFailed");
+                    host.toast_fail(failed, failed);
+                }
+                Why::Refused => {}
+            },
         }
     }
 }
@@ -283,17 +292,17 @@ pub fn poll_rename(host: &mut dyn SessionMenuHost, now: f64, tx: &mut Tx) -> boo
     let arming = matches!(host.menus().rename, Edit::Arming { .. });
     let editing = matches!(host.menus().rename, Edit::Editing { .. });
     if arming && focused {
-        dispatch(host, Event::Armed, "");
+        dispatch(host, Event::Armed, Why::Unsaid);
     } else if editing && !focused {
         let draft = host.menus().edit.text.clone();
-        dispatch(host, Event::Blurred { draft: &draft, now }, "");
+        dispatch(host, Event::Blurred { draft: &draft, now }, Why::Unsaid);
     }
     if let Save::Saving { session, server, due, .. } = &host.menus().save {
         let (session, server, due) = (session.clone(), server.clone(), *due);
         // Only the deadline needs the title: another server is checked out just for it.
         if now + 1e-9 >= due {
             let title = on_server(host, &server, |h| h.session(&session).map(|i| i.title.clone())).flatten();
-            dispatch(host, Event::Tick { now, current: title.as_deref() }, "");
+            dispatch(host, Event::Tick { now, current: title.as_deref() }, Why::Unsaid);
         }
         if matches!(host.menus().save, Save::Saving { .. }) {
             tx.wake_at(due);
