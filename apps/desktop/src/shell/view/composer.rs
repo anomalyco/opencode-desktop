@@ -92,6 +92,12 @@ impl session_view::dock::DockHost for App {
     fn dock_new_question_ui(&self) -> bool {
         self.settings.new_question_ui
     }
+    fn dock_question_submit(&self) -> session_view::dock::question::SubmitKey {
+        match self.settings.question_submit {
+            crate::settings::QuestionSubmitKey::Enter => session_view::dock::question::SubmitKey::Enter,
+            crate::settings::QuestionSubmitKey::ModEnter => session_view::dock::question::SubmitKey::ModEnter,
+        }
+    }
     fn dock_reply_permission(&mut self, id: &str, decision: &str) {
         self.reply_permission(id, decision);
     }

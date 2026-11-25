@@ -378,6 +378,7 @@ const ROWS: &[Row] = &[
     (Page::General, "settings-wrap-code-blocks", key!("settings.timeline.row.wrapCodeBlocks.title"), TIMELINE, Some(key!("settings.timeline.row.wrapCodeBlocks.description")), "code wrap lines horizontal scroll"),
     (Page::General, "settings-show-custom-agents", key!("settings.general.row.showCustomAgents.title"), Some(key!("settings.general.section.general")), None, ""),
     (Page::General, "settings-follow-up-behavior", key!("settings.general.row.followUpBehavior.title"), None, None, "queue steer follow up"),
+    (Page::General, "settings-question-submit-key", key!("settings.general.row.questionSubmitKey.title"), None, None, "question answer enter shift submit send keyboard newline multiline custom"),
     (Page::General, "settings-pinch-zoom", key!("settings.general.row.pinchZoom.title"), None, None, ""),
     (Page::General, "settings-spellcheck", key!("settings.general.row.spellcheck.title"), None, None, "spelling spell check dictionary"),
     (Page::General, "settings-mobile-diff-wrap", key!("plugin.review.settings.wrapLines.title"), None, None, "diff wrap lines"),

@@ -162,8 +162,51 @@ pub(super) fn focus_in_options(focused: Option<&str>) -> bool {
     }
 }
 
+/// The key that moves the dock on, or submits it on the last question: Enter, or ⌘↵ / Ctrl+↵
+/// (`QuestionSubmitKey`, `question-keys.ts:24`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SubmitKey {
+    #[default]
+    Enter,
+    ModEnter,
+}
+
+/// What an Enter does in the dock: `Submit` moves on; `Select` picks the highlighted answer, or
+/// in the typed answer starts a new line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Enter {
+    Submit,
+    Select,
+}
+
+/// Desktop's `questionEnter` (`question-keys.ts:29-37`): ⌘↵ / Ctrl+↵ always submits. With Enter
+/// submitting, Shift+Enter selects; with ⌘↵ submitting, Enter selects with or without Shift.
+pub fn enter(ev: &KeyEvent, submit: SubmitKey) -> Option<Enter> {
+    let m = ev.mods;
+    if ev.key != Key::Enter || m.alt {
+        return None;
+    }
+    if m.cmd || m.ctrl {
+        return Some(Enter::Submit);
+    }
+    if submit == SubmitKey::ModEnter {
+        return Some(Enter::Select);
+    }
+    Some(if m.shift { Enter::Select } else { Enter::Submit })
+}
+
+/// How the Next and Submit buttons show the submit key (`questionSubmitShortcuts`,
+/// `question-submit.ts:4-8`): ⏎ alone, or ⌘⏎ on a Mac and Ctrl+⏎ elsewhere.
+pub(super) fn submit_hint(submit: SubmitKey) -> String {
+    match submit {
+        SubmitKey::Enter => "⏎".to_owned(),
+        SubmitKey::ModEnter if cfg!(target_os = "macos") => "⌘⏎".to_owned(),
+        SubmitKey::ModEnter => format!("{}+⏎", opencode_i18n::t!("common.key.ctrl")),
+    }
+}
+
 /// Desktop's `questionKey`: `count` answers including the typed one.
-pub fn intent(ev: &KeyEvent, zone: Zone, count: usize) -> Intent {
+pub fn intent(ev: &KeyEvent, zone: Zone, count: usize, submit: SubmitKey) -> Intent {
     let m = ev.mods;
     match &ev.key {
         Key::Escape => return Intent::Dismiss,
@@ -212,7 +255,13 @@ pub fn intent(ev: &KeyEvent, zone: Zone, count: usize) -> Intent {
         Key::Home => Intent::First,
         Key::End => Intent::Last,
         Key::Text(s) if s == " " => Intent::Activate,
-        Key::Enter if !m.shift => Intent::Commit,
+        // The submit key commits the highlighted answer and moves on; the other Enter marks it
+        // (`question-keys.ts:95-101`).
+        Key::Enter => match enter(ev, submit) {
+            Some(Enter::Submit) => Intent::Commit,
+            Some(Enter::Select) => Intent::Activate,
+            None => Intent::None,
+        },
         _ => Intent::None,
     }
 }
@@ -489,7 +538,7 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     } else {
         Zone::Option
     };
-    let intent = intent(ev, zone, count(field));
+    let intent = intent(ev, zone, count(field), s.dock_question_submit());
     // A reply on its way: the dock's keys do nothing (Desktop's `nav` while `sending`).
     if busy(s, &f) {
         return intent != Intent::None;
@@ -546,7 +595,9 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
 }
 
 /// Keys in "Type your own answer": Esc leaves the field, ↑ on its first line goes to the answer
-/// above, ↵ moves on, ⌘↵ and ⌘[ as anywhere. Everything else types.
+/// above, the submit key moves on, ⌘↵ and ⌘[ as anywhere. Everything else types: the other
+/// Enter starts a new line, as the field does by itself
+/// (`session-question-dock-experimental.tsx:1363-1369`).
 fn typed_key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let Some(f) = asking(s) else { return false };
     let (tab, _) = place(s, &f);
@@ -567,7 +618,7 @@ fn typed_key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
             reveal_focus(s, tx);
             true
         }
-        Key::Enter if !ev.mods.shift && !ev.mods.cmd && !ev.mods.ctrl => {
+        Key::Enter if !m.cmd && !m.ctrl && enter(ev, s.dock_question_submit()) == Some(Enter::Submit) => {
             if answered(s, &f, tab) {
                 next(s, &f, tx);
             }

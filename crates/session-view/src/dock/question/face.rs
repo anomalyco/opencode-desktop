@@ -264,7 +264,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 }))
                 .child({
                     let ready = answered(s, &f, tab) && live;
-                    let b = button(p, "q-next", if last { opencode_i18n::t!("ui.common.submit") } else { opencode_i18n::t!("ui.common.next") }, if last { Variant::Submit } else { Variant::Neutral }, Some(&crate::keymap::Bind::QuestionAdvance.label()), ready);
+                    let b = button(p, "q-next", if last { opencode_i18n::t!("ui.common.submit") } else { opencode_i18n::t!("ui.common.next") }, if last { Variant::Submit } else { Variant::Neutral }, Some(&submit_hint(s.dock_question_submit())), ready);
                     if ready { b.on_press_tx(|s: &mut S, tx: &mut Tx| if let Some(f) = asking(s) { next(s, &f, tx) }) } else { b }
                 }),
         );
