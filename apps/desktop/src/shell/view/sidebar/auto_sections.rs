@@ -104,9 +104,8 @@ fn grouped_scene(s: &mut App, layout: crate::layout_state::TabLayout) {
     s.settings.tab_layout = layout;
     s.settings.tab_grouping = crate::settings::TabGrouping::Project;
     *s.layout = crate::layout_state::Shell::at_rest(s.settings.effective_tab_layout());
-    let server = crate::servers::runtime::active(s).clone();
-    if let Some(id) = s.sessions.iter().filter(|i| i.parent.is_none()).nth(1).map(|i| i.id.clone()) {
-        crate::tabs::pins::update(s, |d| d.pin(crate::tabs::pins::PinRef::new(server, id)));
+    if let Some(pin) = s.tabs.get(1).map(|t| crate::tabs::pins::PinRef::new(t.server.clone(), t.id.clone())) {
+        crate::tabs::pins::update(s, |d| d.pin(pin));
     }
     s.tabs.push(crate::tabs::Tab::session("ses_grouped_other", "A session with no project", "/Users/demo/notes"));
 }
