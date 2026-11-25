@@ -2,29 +2,29 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "57551d990d861720a39d1aba82d43023f9fad745",
+  "upstream_head": "028cd6ce910d9f9f946d8e32621b58a362537a93",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "fce76a1c8",
-  "post_1114_commit_count": 687,
-  "post_1114_in_ledger": 240,
-  "post_1114_skipped": 447,
+  "rune_desktop_head": "0e10a6370",
+  "post_1114_commit_count": 691,
+  "post_1114_in_ledger": 242,
+  "post_1114_skipped": 449,
   "post_1114_skipped_breakdown": {
     "test-only": 27,
     "ci-bench-deps": 26,
     "docs-site-data": 70,
     "tui-only": 31,
     "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 282
+    "server-core-ai-codemode-internal": 284
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 261,
+  "total_ledger_rows": 263,
   "status_counts": {
     "have it": 215,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 6
+    "missing": 8
   },
   "rows": [
     {
@@ -6525,6 +6525,55 @@
       "size": "S",
       "status": "have it",
       "status_evidence": "Ported in opencode-rune #1249 (fce76a1c): `/rename` is a slash command: with words after it the open session takes them as its title once the server's rename event comes; bare, it asks the server to generate a title (an empty title in the session's update is the ask, as in official), and the header's title shimmers until the answer; a second ask for the same session does nothing meanwhile. A new command, Generate session title, does the same from the palette and is not offered on a subagent's page, while the title is edited or while a title is on its way. Rename session has official's description. One small explicit machine (features/session-menu/src/generate_title.rs); a command's `/name` can take words (crates/opencode-kernel/src/commands.rs CommandEntry::words). Official: packages/app/src/session/timeline/message-timeline.tsx:300-319, :702-704, packages/app/src/session/timeline/controller.tsx:455-494, packages/app/src/runtime/i18n/en.ts:129-131. Run headless on its own Windows x64 CI builds beside a build of dev on the same Rune pin, the app's fixture file and no server: the `/` list has `/rename` with its description and Ctrl+R (before: no such row); picking it leaves `/rename ` in the composer; the palette lists Generate session title on a session's page and not on a subagent's; a bare `/rename` leaves the title as it was with no shimmer and one toast that nothing was sent; `/rename New words` clears the composer, keeps the title in the header and the tab, and shows the same one toast (on the first head it kept the unsent words as the title: a fault of the port, corrected before the merge and run again on the merged head). Not run (each needs a server): a generated title arriving and the shimmer; Generate session title from the palette with a server; `/rename words` taken by a server; a server's refusal. Not run: a real window; macOS; Linux. Differences, each by reading: a refused `/rename words` is titled Failed to rename session where official's reads Request failed (controller.tsx:481), which a follow-up to the in-place rename's failure toast changes; a long title is not cut short while it shimmers, where official's sits in a truncating button (message-timeline.tsx:699); the place of `/rename` in the `/` list (official lists later registrations first, shell/commands/command.tsx:133-134; ours lists it after the commands whose order is known).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-241",
+      "window": "post-1120",
+      "pr": 66402,
+      "sha": "dfce18305d",
+      "title": "fix(app): keep a running script's shells out of the background pill",
+      "merged": "2026-11-25",
+      "packages": [
+        "app",
+        "core"
+      ],
+      "main_files": [
+        "packages/app/src/session/requests/background.ts",
+        "packages/core/src/codemode/tool.ts",
+        "packages/core/src/tool/plugin/shell.ts"
+      ],
+      "summary": "A shell a running Code Mode script started is kept out of the background pill by the call it names: the server puts the script's `execute` call in the shell's metadata (`callID`), and the app holds every running shell that names a running script's call, unless that shell has a running job of its own (its own call ended while it runs). A server that names no call is matched as before, by the calls the script lists.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Port in a draft, opencode-rune #1273, not run: features/subagents/src/shells/mod.rs running_for takes the shell's `metadata.callID` and holds a running shell that names a running `execute` call, unless a running shell job names that shell; the match by the script's listed calls stays for a server that names none. Official: packages/app/src/session/requests/background.ts:196-210. Before, by reading: ours matched a script's shell only by start time and the commands the script's call list shows (the same function on dev). Every case needs a server at or past dfce18305d (shells reach the app only from a server): a running script's shell stays out of the pill; a shell that names no call still shows; a shell left running by a call that timed out shows; an older server behaves as before.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-242",
+      "window": "post-1120",
+      "pr": 66169,
+      "sha": "028cd6ce91",
+      "title": "feat(app): submit question answers with Enter, with a setting for Cmd/Ctrl+Enter",
+      "merged": "2026-11-25",
+      "packages": [
+        "app",
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/i18n/en.ts",
+        "packages/app/src/session/requests/question-keys.ts",
+        "packages/app/src/session/requests/question-submit.ts",
+        "packages/app/src/session/requests/session-question-dock-classic.tsx"
+      ],
+      "summary": "In the question dock the key that moves to the next question, or submits on the last, is Enter by default, with a setting (Settings > General, \"Submit question answers with\": Enter or Cmd/Ctrl+Enter). The other Enter selects the highlighted answer (Shift+Enter when Enter submits; Enter with or without Shift when Cmd/Ctrl+Enter submits); Cmd/Ctrl+Enter always submits. The submit key on an answer picks it first on a single-choice question. The custom answer is a field of several lines that grows with its text: the other Enter starts a new line in it, the arrow keys and End land in the field itself, and Up from its start goes back to the answers. The Next and Submit buttons show the chosen key.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Not ported yet: next in line. Official: packages/app/src/session/requests/question-keys.ts (questionEnter, questionKey's `submit`), question-submit.ts (the buttons' shortcut label; the field's fit), session-question-dock-classic.tsx and session-question-dock-experimental.tsx (the answers' and the custom field's keys, the field as a textarea), packages/app/src/settings/model.tsx (general.questionSubmitKey, default enter), settings/general/general.tsx (the row), settings/search-catalog.ts, runtime/i18n/en.ts (two strings). Ours, by reading: crates/session-view/src/dock/question/mod.rs:166-218 (`intent`): Enter without Shift on an answer commits it and moves on, Shift+Enter there does nothing, Cmd/Ctrl+Enter advances by its own binding; there is no setting. Not read yet: ours' custom answer field (one line or several) and what the classic dock's answers do on Enter.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
