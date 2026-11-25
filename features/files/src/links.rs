@@ -50,6 +50,19 @@ pub fn classify(href: &str, base: &str, directory: &str, home: &str) -> Link {
         return Link::Skill { path: format!("skill://{}", collapse(&decode(raw.get(8..).unwrap_or_default()))), lines };
     }
     let file_url = href.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("file://"));
+    // A relative link in a skill's own file names another file of that skill. Official joins the
+    // two into `skill:/<id>/...`, one slash (`gui-plugins/src/file/artifact.ts:123-143` from
+    // `renderer.tsx:708`), which reads as no skill's file: not copied.
+    if let Some(skill) = base.get(..8).filter(|s| s.eq_ignore_ascii_case("skill://")).map(|_| &base[8..])
+        && !file_url
+        && !scheme(href)
+        && !is_absolute(href)
+        && !href.starts_with('~')
+    {
+        let raw = href.split_once('#').map_or(href, |(path, _)| path);
+        let (raw, lines) = split_line_suffix(raw);
+        return Link::Skill { path: format!("skill://{}", collapse(&format!("{skill}/{}", decode(raw)))), lines };
+    }
     if !file_url && scheme(href) {
         return Link::Web(href.to_owned());
     }
