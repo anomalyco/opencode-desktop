@@ -33,7 +33,7 @@ pub(super) fn titlebar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .key("titlebar")
         .height(chrome.row_h)
         .top_padding(chrome.row_pad)
-        .leading_padding(leading_pad(top, insets.leading, *s.zoom))
+        .leading_padding(leading_pad(top, chrome.caption_row, insets.leading, *s.zoom))
         .fill(p.bg_deep)
         // Right to left the row runs from the caption buttons, which stay on the right
         // (`titlebar.tsx:192`), as the traffic lights stay on the left.
@@ -94,11 +94,12 @@ pub(super) fn titlebar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
 
 /// Points before the row's first control: `ps-3.5` on Windows, `ps-[sidebar-inset - 2]` beside
 /// side tabs (so the menu's glyph lines up with the sidebar's icons), past the traffic lights'
-/// 74pt and `pl-2.5` on macOS, and `px-2` elsewhere and in full screen.
-fn leading_pad(top: bool, lights: f32, zoom: f32) -> f32 {
+/// 74pt and `pl-2.5` on macOS, and `px-2` elsewhere and in full screen. Linux's row under Rune's
+/// own frame (`caption_row`) is Windows'.
+fn leading_pad(top: bool, caption_row: bool, lights: f32, zoom: f32) -> f32 {
     match () {
-        _ if cfg!(target_os = "windows") && top => 14.0,
-        _ if cfg!(target_os = "windows") => INSET_START - 2.0,
+        _ if caption_row && top => 14.0,
+        _ if caption_row => INSET_START - 2.0,
         // `WindowTitlebar` already keeps the lights' own width clear; `lights` is in the
         // view's points, the lights' 74 in the window's.
         _ if lights > 0.0 => (LIGHTS_W / zoom - lights).max(0.0) + 10.0,
