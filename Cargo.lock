@@ -2879,9 +2879,10 @@ name = "net-trust"
 version = "0.0.1"
 dependencies = [
  "rustls",
- "rustls-platform-verifier",
+ "rustls-native-certs",
  "ureq",
  "ureq-web",
+ "webpki-root-certs",
 ]
 
 [[package]]

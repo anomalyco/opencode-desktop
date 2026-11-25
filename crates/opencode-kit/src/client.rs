@@ -152,8 +152,9 @@ pub struct Server {
     /// Its files aren't this machine's even on a loopback address (a WSL distro's server, an SSH
     /// tunnel), as Desktop treats a contributed server.
     pub(crate) remote_files: bool,
-    /// Every request's connections, kept alive between them ([`http::agent_for`]).
-    pub(crate) agent: ureq::Agent,
+    /// Every request's connections, kept alive between them ([`http::agent_for`]), made on the
+    /// first request ([`Server::agent`]).
+    pub(crate) agent: std::sync::OnceLock<ureq::Agent>,
 }
 
 impl std::fmt::Debug for Server {
@@ -190,13 +191,13 @@ impl Server {
             .map(|p| p.trim().to_owned())
             .filter(|p| !p.is_empty())
             .map(|p| format!("Basic {}", base64(format!("opencode:{p}").as_bytes())));
-        Server { agent: http::agent_for(&clean), base: clean, auth, media_refs: false, remote_files: false }
+        Server { agent: std::sync::OnceLock::new(), base: clean, auth, media_refs: false, remote_files: false }
     }
 
     /// `base` with no password (not even the environment's), for a caller that brings its own.
     pub fn anonymous(base: &str) -> Server {
         let clean = base.trim_end_matches('/').to_owned();
-        Server { agent: http::agent_for(&clean), base: clean, auth: None, media_refs: false, remote_files: false }
+        Server { agent: std::sync::OnceLock::new(), base: clean, auth: None, media_refs: false, remote_files: false }
     }
 
     /// Uses `password` (a token from a connect link, say) in place of the one `new` found.
@@ -695,7 +696,7 @@ impl Server {
         use crate::wire_error::{read_failure, transport};
         use worker::{Handshake, StreamEffect, StreamEvent, stream_step};
         let down = |kind: WireKind| WireError::new("GET", "/api/event", kind);
-        let config = net_trust::agent_config().timeout_per_read(Some(stream.idle)).http_status_as_error(false).max_redirects(0);
+        let config = net_trust::agent_config_for(&self.base).timeout_per_read(Some(stream.idle)).http_status_as_error(false).max_redirects(0);
         let agent: ureq::Agent = if http::loopback(&self.base) { config.proxy(None) } else { config }.build().into();
         let mut req = agent.get(format!("{}/api/event", self.base)).header("Accept", "text/event-stream");
         if let Some(a) = &self.auth {

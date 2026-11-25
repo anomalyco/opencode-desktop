@@ -1,6 +1,6 @@
-// Checks that every HTTPS request and `wss://` socket checks certificates as the operating system
-// does (`crates/net-trust`), so a network that inspects TLS with a company root in the system store
-// works for every path, as it does in Desktop. Flags, outside the allowed files: a ureq agent not
+// Checks that every HTTPS request and `wss://` socket trusts the roots `crates/net-trust` gives it (the
+// compiled-in list and the operating system's store), so a network that inspects TLS with a company root
+// in the system store works for every path, as it does in Desktop. Flags, outside the allowed files: a ureq agent not
 // started from `net_trust::agent_config()` (`Agent::config_builder()`, `Agent::new_with_defaults`,
 // ureq's default agent `ureq::get(…)` and the like), a hand-made `RootCerts`, and a WebSocket opened
 // with the library's own roots (`tungstenite::connect(…)`, `tungstenite::client_tls(…)`, or
@@ -60,7 +60,7 @@ for (const f of files) {
     }
     const rule = RULES.find((r) => r.re.test(c));
     if (!rule) continue;
-    console.error(`  ERROR  ${f}:${i + 1}  use ${rule.use}, so the operating system checks the certificate: ${line.trim().replace(/\s+/g, " ")}`);
+    console.error(`  ERROR  ${f}:${i + 1}  use ${rule.use}, so the system store's roots are trusted too: ${line.trim().replace(/\s+/g, " ")}`);
     found++;
   }
 }
