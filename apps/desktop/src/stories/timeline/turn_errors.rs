@@ -153,3 +153,23 @@ rune_register::register!(crate::stories::STORY_LIST: Story = [
     Story::session("Timeline/Retry", RETRY_KEYS).knobs(crate::stories::ROW_KNOBS).variants(RETRY_VARIANTS),
     Story::session("Timeline/Notices", NOTICE_KEYS).knobs(crate::stories::ROW_KNOBS).variants(NOTICE_VARIANTS),
 ]);
+
+rune_register::register!(crate::stories::scenes::SCENE_LIST: crate::stories::scenes::Scene = [
+    // The open session waiting to try a step again: the Retry row, a minute on its countdown.
+    ("retry", |s| {
+        crate::stories::scenes::open_scene(s);
+        s.finish_stream();
+        let crate::Route::Session { id, .. } = (*s.route).clone() else { return };
+        let at = *s.now_ms + 60_000;
+        let event = |ty: &str, mut data: Value| {
+            data["sessionID"] = id.clone().into();
+            (0.2, ty.to_owned(), data)
+        };
+        *s.fixture_run.playback = [
+            event("session.prompted", json!({ "messageID": "msg_storyerrorprompt", "text": "Run the migration again" })),
+            event("session.step.started", json!({ "assistantMessageID": STEP })),
+            event("session.retry.scheduled", json!({ "assistantMessageID": STEP, "attempt": 2, "at": at, "error": { "type": "provider", "message": RATE } })),
+        ]
+        .into();
+    }),
+]);

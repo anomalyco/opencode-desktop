@@ -398,6 +398,7 @@ pub static UI_LAYOUT_PROPS: PropsSpec = PropsSpec::new("UiLayoutProps", None, &[
     PropSpec::new("helpSide", PropType::Enum("Side"), false),
     PropSpec::new("helpOpen", PropType::Bool, false),
     PropSpec::new("dir", PropType::Any, false),
+    PropSpec::new("cursor", PropType::Any, false),
 ]);
 
 /// `UiLoaderProps`.
