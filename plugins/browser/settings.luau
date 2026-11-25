@@ -807,7 +807,8 @@ function settings.renderImportDialog(
             -- `site-chooser.tsx:451-469`: the two choices 8 apart, 4 above and under them; "All
             -- sites" names how many once the list is read. Each choice is as wide as its words
             -- (`radio.css`: the item is a row of its control and label), so the row beside it
-            -- takes no press.
+            -- takes no press. Each stands in a row of its own: a choice set straight into this
+            -- column is laid out as wide as its ring, its words drawn outside its box.
             table.insert(group, ui.col({ key = "settings-import-scope", w = "full", py = 4, gap = 8, align = "start" }, {
                 ui.row({ key = "settings-import-scope-all-row", gap = 6, align = "start" }, {
                     ui.radio({
@@ -823,14 +824,16 @@ function settings.renderImportDialog(
                         then ui.text(i18n:Number(chooser.total), { key = "settings-import-scope-count", size = 13, weight = "regular", lineHeight = 20, color = "text-muted", noWrap = true })
                         else nil,
                 } :: { any }),
-                ui.radio({
-                    key = "settings-import-scope-some",
-                    text = i18n:T("sites.only"),
-                    checked = chooser.scope == "some",
-                    disabled = busy,
-                    onChange = view:Handler(function()
-                        chooser.onScope("some")
-                    end),
+                ui.row({ key = "settings-import-scope-some-row", align = "start" }, {
+                    ui.radio({
+                        key = "settings-import-scope-some",
+                        text = i18n:T("sites.only"),
+                        checked = chooser.scope == "some",
+                        disabled = busy,
+                        onChange = view:Handler(function()
+                            chooser.onScope("some")
+                        end),
+                    }),
                 }),
             }))
         end
