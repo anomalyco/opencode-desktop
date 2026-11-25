@@ -10,7 +10,7 @@ version=$2
 manifest="$root/apps/desktop/Cargo.toml"
 current=$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$manifest" | head -1)
 [ "$version" = "$current" ] && exit 0
-printf '%s\n' "$version" | grep -Eq "^(0\.0\.0-dev-[1-9][0-9]*|0\.0\.0-pr-[1-9][0-9]*-[1-9][0-9]*|[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?)\$" || {
+printf '%s\n' "$version" | grep -Eq "^(0\.0\.0-dev-[1-9][0-9]*|0\.0\.0-pr-[1-9][0-9]*-[1-9][0-9]*|0\.0\.0-branch-[1-9][0-9]*|[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?)\$" || {
   echo "Refusing unexpected version string: $version" >&2
   exit 1
 }
