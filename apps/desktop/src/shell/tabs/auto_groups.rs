@@ -173,8 +173,13 @@ fn grouped(s: &App, collapse: bool) -> Option<Vec<Group>> {
 }
 
 /// The groups as this window's layout shows them, or `None` while nothing groups the tabs. Side
-/// tabs collapse; top tabs never do (`topGroups`, `auto-tab-sections.tsx:66-68`).
+/// tabs collapse; top tabs never do (`topGroups`, `auto-tab-sections.tsx:66-68`). A narrow
+/// window shows no groups: its drawer lists every tab in the saved order
+/// (`titlebar.tsx:840-855`, a strip given no sections).
 pub fn groups(s: &App) -> Option<Vec<Group>> {
+    if s.narrow() {
+        return None;
+    }
     grouped(s, s.tab_layout() != TabLayout::Horizontal)
 }
 
