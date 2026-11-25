@@ -9,7 +9,7 @@ use serde_json::Value;
 
 #[allow(unused_imports)]
 pub use opencode_search::file_rank::{
-    OPEN_TAB_ID, OPEN_TAB_KEY, file_tab_id, file_tab_key, file_tab_path, normalize_path,
+    OPEN_TAB_ID, OPEN_TAB_KEY, document_path, file_tab_id, file_tab_key, file_tab_path, normalize_path,
     parse_path_and_line,
 };
 
@@ -171,9 +171,12 @@ pub fn load_fixture_workspace(fixture: &Value) -> (BTreeSet<String>, HashMap<Str
     let mut contents = HashMap::new();
     if let Some(obj) = fixture["file_contents"].as_object() {
         for (k, v) in obj {
-            let norm = normalize_path(k);
+            let norm = document_path(k);
             if !norm.is_empty() {
-                files.insert(norm.clone());
+                // A file outside the folder (an absolute path) has a body and is no row of the tree.
+                if !opencode_kit::path::is_absolute(&norm) {
+                    files.insert(norm.clone());
+                }
                 if let Some(s) = v.as_str() {
                     contents.insert(norm, s.to_owned());
                 }

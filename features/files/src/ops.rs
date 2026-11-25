@@ -160,7 +160,8 @@ pub fn ensure_file_loaded(host: &mut dyn FilesHost, session_id: &str, path: &str
         let wrap = pane.wrap;
         let waker = pane.waker.clone();
         let ws = pane.sessions.entry(session_id.to_owned()).or_default();
-        if ws.known_files.insert(path.to_owned()) {
+        // A file outside the folder is no row of the tree.
+        if !opencode_kit::path::is_absolute(path) && ws.known_files.insert(path.to_owned()) {
             ws.reindex(waker.as_ref());
         }
         let mut doc = wrap.doc(path, "");
