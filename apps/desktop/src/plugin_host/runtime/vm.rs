@@ -40,6 +40,20 @@ impl Vmx {
         }
     }
 
+    pub fn note_theme_mutation(&self, kind: opencode_plugin_spec::ContributionKind) {
+        if kind != opencode_plugin_spec::ContributionKind::Theme
+            || self.half.made.borrow().as_ref().is_some_and(|(vm, _)| *vm == self.vm.get())
+        {
+            return;
+        }
+        self.half.themes_changed.set(true);
+        cx::with_app(|app| {
+            if let Some(wake) = &app.plugins.waker {
+                wake();
+            }
+        });
+    }
+
     /// Writes `message` to the console once per VM.
     pub fn warn(&self, message: &str) {
         if self.warned.borrow_mut().insert(message.to_owned()) {

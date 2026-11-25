@@ -60,16 +60,23 @@ pub(crate) const GLIDE: Spring = rune::tok::motion::GLIDE;
 /// window's points over the zoom at its scale times the zoom (`Cx::zoom`), as Chromium folds a
 /// page zoom into the device scale, so every size, border, icon and motion is the zoomed one.
 pub fn app(s: &App, cx: &mut Cx<App>) -> El {
+    s.plugins.themes.with(&s.settings.theme, || draw(s, cx))
+}
+
+fn draw(s: &App, cx: &mut Cx<App>) -> El {
     s.bump_view_runs();
     cx.zoom(*s.zoom);
     session_view::scroller::set_device_scale(cx.env().scale);
     // A system contrast theme paints the app in its colours alone, whatever theme is picked.
-    match cx.system_contrast() {
+    let contrast = cx.system_contrast();
+    let raised = cx.system_increased_contrast();
+    s.plugins.themes.note_system(contrast.is_some(), raised);
+    match contrast {
         Some(c) => crate::themes::set_active(crate::themes::contrast(&c)),
         None => crate::themes::set_active(&s.settings.theme),
     }
     // macOS's Increase Contrast keeps the theme and draws its highlights as edges.
-    crate::themes::set_raised_contrast(cx.system_increased_contrast());
+    crate::themes::set_raised_contrast(raised);
     s.appearance_state.motion.note_system(cx.system_reduced_motion());
     let p = pal(s.dark(cx));
     // Pages draw in the app's scheme, as Desktop's follow its `nativeTheme.themeSource`.

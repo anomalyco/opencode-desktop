@@ -84,7 +84,8 @@ pub fn call(app: &mut App, key: &str, name: &str, settle: Option<Settle>, tx: &m
         return true;
     }
     let mut settle = settle;
-    let ran = crate::plugin_host::app_half::each(|a| {
+    crate::plugin_host::app_half::attach_dormant(app, &plugin);
+    let ran = crate::plugin_host::app_half::each_in(app, |a| {
         if *a.half.id != *plugin {
             return None;
         }

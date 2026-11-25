@@ -12,7 +12,7 @@ pub(crate) mod native;
 
 use crate::boot_packet::{BootPacket, Kind, Writer};
 use crate::cache::Lookup;
-use crate::{Cmd, Done, Storage};
+use crate::{Cmd, Done, Storage, StorageError};
 
 /// A value larger than this stays out of the boot record (it reads as omitted).
 pub(crate) const VALUE_CAP: usize = 8 * 1024;
@@ -56,19 +56,35 @@ impl PluginStore<'_> {
 
     /// Writes plugin `id`'s whole record in one durable transaction; `done` runs once it is
     /// (`synchronous = FULL`), or with why it isn't.
+    ///
+    /// The cache takes the record only through that callback, after the backend has it and before
+    /// the caller's own `done` runs: no reader (and no boot packet built from memory) sees a grant
+    /// still pending, an error leaves the cache as it was, and the writer's boot record is rebuilt
+    /// from the committed row. With no database behind it (memory) the callback is the caller's
+    /// thread, so the record is in memory before `record` returns, as before.
     pub fn record(&self, id: &str, record: PluginRecord, done: Option<Done>) {
-        {
-            let mut cache = self.storage.cache();
-            match record.enabled {
-                Some(on) => cache.plugins.insert(id.to_owned(), on),
-                None => cache.plugins.remove(id),
-            };
-            match &record.trusted {
-                Some(sha) => cache.trust.insert(id.to_owned(), sha.clone()),
-                None => cache.trust.remove(id),
-            };
-        }
-        self.storage.send(Cmd::PluginRecord { id: id.to_owned(), record, done });
+        let id = id.to_owned();
+        let cache = self.storage.inner.cache.clone();
+        let settled_id = id.clone();
+        let settled = record.clone();
+        let mut caller = done;
+        let done: Done = Box::new(move |result: Result<(), StorageError>| {
+            if result.is_ok() {
+                let mut cache = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                match settled.enabled {
+                    Some(on) => cache.plugins.insert(settled_id.clone(), on),
+                    None => cache.plugins.remove(&settled_id),
+                };
+                match &settled.trusted {
+                    Some(sha) => cache.trust.insert(settled_id, sha.clone()),
+                    None => cache.trust.remove(&settled_id),
+                };
+            }
+            if let Some(done) = caller.take() {
+                done(result);
+            }
+        });
+        self.storage.send(Cmd::PluginRecord { id, record, done: Some(done) });
     }
 }
 

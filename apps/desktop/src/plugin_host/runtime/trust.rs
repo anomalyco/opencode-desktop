@@ -3,12 +3,18 @@
 //! SHA-256 is remembered, and a changed plugin asks again. Built-ins and `--plugin-dir` don't ask.
 //! What the user chose is the plugin's record in the app's database (`super::boot::save_record`).
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use rune::{El, TextStyle, Tx, col, el, row, spacer, text};
 
 use crate::App;
 use crate::palette::Pal;
 use crate::plugin_host::{Life, Trust, TrustEvent, step_trust};
 use crate::view::{UI, UI_MED};
+
+/// The next `TrustEvent::Accept` attempt: unique across windows and slots, so a `Saved` that
+/// lands late answers only the click it belongs to.
+static NEXT_ATTEMPT: AtomicU64 = AtomicU64::new(1);
 
 /// The plugin whose prompt shows now: the first waiting one the user hasn't put off.
 fn shown(app: &App) -> Option<usize> {
@@ -48,7 +54,9 @@ pub fn dialog(s: &App, p: &Pal, cx: &rune::Cx<App>) -> Vec<El> {
             .mt(14.0)
             .child(spacer())
             .child(button("luau-trust-later", "Not now", p.text, None).on_press_tx(move |s: &mut App, tx: &mut Tx| answer(s, &later, TrustEvent::Later, tx)))
-            .child(button("luau-trust-enable", "Enable", p.on_fill, Some(p.bg_accent)).on_press_tx(move |s: &mut App, tx: &mut Tx| answer(s, &ok, TrustEvent::Accept, tx))),
+            .child(button("luau-trust-enable", "Enable", p.on_fill, Some(p.bg_accent)).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                answer(s, &ok, TrustEvent::Accept(NEXT_ATTEMPT.fetch_add(1, Ordering::Relaxed)), tx)
+            })),
     );
     // No Desktop counterpart: a confirmation, so the normal size.
     let card = crate::widgets::sized(card, crate::widgets::DialogSize::Normal, crate::widgets::Fit::Content, crate::widgets::dialog_window(cx, *s.zoom));

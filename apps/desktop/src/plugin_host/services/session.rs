@@ -522,8 +522,9 @@ fn servers(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
 fn theme(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
     method(lua, t, "Current", |lua, ()| {
         let dark = with_app("Theme:Current", |app| Ok(app.plugins.dark.get()))?;
-        let index = crate::palette::pal(dark).theme;
-        let theme = session_view::themes::all().get(index);
+        let index = session_view::themes::active();
+        let themes = session_view::themes::all();
+        let theme = themes.get(index);
         let mut h = std::hash::DefaultHasher::new();
         (index, dark, theme.map(|t| (&t.id, &t.name))).hash(&mut h);
         snapshot(lua, "theme", h.finish(), || {

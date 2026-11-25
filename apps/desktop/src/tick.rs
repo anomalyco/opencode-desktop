@@ -144,6 +144,15 @@ pub(crate) fn poll_submit(s: &mut App, tx: &mut Tx) -> bool {
 }
 
 pub(crate) fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
+    if s.plugins.themes.is_current() {
+        return poll_window(s, now, tx);
+    }
+    let themes = s.plugins.themes.clone();
+    let selected = s.settings.theme.clone();
+    themes.with(&selected, || poll_window(s, now, tx))
+}
+
+fn poll_window(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     session_view::scroller::set_device_scale(windows::view_scale(s));
     *s.clock = now;
     s.sync_history();

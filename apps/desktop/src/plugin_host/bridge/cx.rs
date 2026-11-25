@@ -29,7 +29,7 @@ pub fn enter<R>(app: &App, f: impl FnOnce() -> R) -> R {
         }
     }
     let _restore = Restore(APP.replace(std::ptr::from_ref(app)));
-    f()
+    app.plugins.themes.with(&app.settings.theme, f)
 }
 
 /// Runs `f` with the active entry's `&App`, or returns `None` outside [`enter`].

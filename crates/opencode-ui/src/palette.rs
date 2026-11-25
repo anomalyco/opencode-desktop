@@ -11,14 +11,15 @@ use rune_kit::syntax::SyntaxTheme;
 #[derive(Clone, Copy, Debug)]
 pub struct Pal {
     pub dark: bool,
-    /// The theme painted, as an index into `themes::all` (0 is OpenCode's default).
+    /// The palette slot. 0 is OpenCode's default; registered themes share a
+    /// slot and are distinguished by `generation`.
     pub theme: usize,
     /// The system's contrast theme paints the window (`themes::contrast`): where official's look
     /// shows a highlight only as a faint wash, the app adds an edge in the text colour so it
     /// stands out at least 3:1.
     pub forced: bool,
-    /// `themes::generation` when it was built: a plugin theme reloaded under the same index
-    /// builds a new palette, and what memoizes on the theme keys on both.
+    pub system_contrast: bool,
+    /// The selected theme's color revision, independent of changes to picker options.
     pub generation: u64,
     pub bg_base: Color,
     pub bg_deep: Color,
@@ -298,14 +299,15 @@ pub fn token(dark: bool, name: &str) -> Option<Color> {
     thread_local! {
         static THEMES: std::cell::RefCell<HashMap<(usize, u64, bool, bool), Theme>> = std::cell::RefCell::new(HashMap::new());
     }
-    let theme = crate::themes::active();
-    let key = (theme, crate::themes::generation(), dark, rune::theme::blends_srgb());
+    let (theme, info) = crate::themes::active_palette();
+    let generation = info.palette_revision();
+    let key = (theme, generation, dark, rune::theme::blends_srgb());
     THEMES.with(|t| {
         let mut t = t.borrow_mut();
         let read = match t.entry(key) {
             std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
             std::collections::hash_map::Entry::Vacant(v) => {
-                let src = crate::themes::json(theme, THEME);
+                let src = info.json(THEME);
                 v.insert(Theme::from_json(src.as_deref().unwrap_or(THEME), dark).ok()?)
             }
         };
@@ -313,8 +315,8 @@ pub fn token(dark: bool, name: &str) -> Option<Color> {
     })
 }
 
-fn build(theme: usize, dark: bool, raised: bool) -> Pal {
-    let src = crate::themes::json(theme, THEME);
+fn build(theme: usize, info: &crate::themes::Info, dark: bool, raised: bool) -> Pal {
+    let src = info.json(THEME);
     let t = Theme::from_json(src.as_deref().unwrap_or(THEME), dark).unwrap_or_else(|e| panic!("{e}"));
     let c = |n: &str| t.color(n);
     let avatar = |n: &str| (c(&format!("avatar-bg-{n}")), c(&format!("avatar-border-{n}")));
@@ -354,13 +356,15 @@ fn build(theme: usize, dark: bool, raised: bool) -> Pal {
         operator: c("syntax-operator"),
         regexp: t.try_color("syntax-regexp").unwrap_or(code_text_base),
     };
+    let system_contrast = info.id == crate::themes::CONTRAST;
     Pal {
         dark,
         theme,
         // The contrast theme's highlights (edges where official has only a wash), also over any
         // theme when the system asks for more contrast.
-        forced: raised || crate::themes::all().get(theme).is_some_and(|i| i.id == crate::themes::CONTRAST),
-        generation: crate::themes::generation(),
+        forced: raised || system_contrast,
+        system_contrast,
+        generation: info.palette_revision(),
         on_fill: Color::WHITE,
         dim: if themed { c("overlay-simple-overlay-scrim") } else { Color::BLACK.alpha(if dark { 0.5 } else { 0.25 }) },
         switch_thumb: if dark { rune::color::hex("#d9d9d9").unwrap_or(Color::WHITE) } else { Color::WHITE },
@@ -630,17 +634,18 @@ pub fn pal(dark: bool) -> &'static Pal {
     static PALS: [[[OnceLock<Pal>; 2]; 2]; 2] = [const { [const { [const { OnceLock::new() }; 2] }; 2] }; 2];
     static THEMED: Mutex<Vec<(PalKey, &'static Pal)>> = Mutex::new(Vec::new());
     let srgb = rune::theme::blends_srgb();
-    let theme = crate::themes::active();
+    let (theme, info) = crate::themes::active_palette();
+    let generation = info.palette_revision();
     let raised = crate::themes::raised_contrast();
     if theme == 0 {
-        return PALS[dark as usize][srgb as usize][raised as usize].get_or_init(|| rune::theme::with_blend(srgb, || build(0, dark, raised)));
+        return PALS[dark as usize][srgb as usize][raised as usize].get_or_init(|| rune::theme::with_blend(srgb, || build(0, &info, dark, raised)));
     }
-    let key = (theme, crate::themes::generation(), dark, srgb, raised);
+    let key = (theme, generation, dark, srgb, raised);
     let mut themed = THEMED.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((_, p)) = themed.iter().find(|(k, _)| *k == key) {
         return p;
     }
-    let p: &'static Pal = Box::leak(Box::new(rune::theme::with_blend(srgb, || build(theme, dark, raised))));
+    let p: &'static Pal = Box::leak(Box::new(rune::theme::with_blend(srgb, || build(theme, &info, dark, raised))));
     themed.push((key, p));
     p
 }
@@ -689,7 +694,6 @@ fn kit_from(p: &Pal) -> Kit {
     }
     // The system contrast theme (`forced-colors: active`): fields draw a text-colour edge and
     // focus as a ring in its highlight, the accent there (opencode#65100).
-    k.forced = crate::themes::all().get(p.theme).is_some_and(|i| i.id == crate::themes::CONTRAST).then_some(p.bg_accent);
+    k.forced = p.system_contrast.then_some(p.bg_accent);
     k
 }
-

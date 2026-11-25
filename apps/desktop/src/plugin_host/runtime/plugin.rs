@@ -25,6 +25,7 @@ pub struct Half {
     pub made: RefCell<Option<(u64, Contribs)>>,
     /// What the running VM contributed.
     pub contribs: RefCell<Contribs>,
+    pub themes_changed: Cell<bool>,
     /// Host signals by VM and name (`Sessions.Changed`), made as a field is first read.
     pub signals: RefCell<HashMap<(u64, String), Value>>,
     /// `Server:OnEvent(prefix)` signals, by VM.
@@ -63,6 +64,7 @@ impl Half {
             owns_redraw: super::redraw::explicit(tier, id),
             made: RefCell::default(),
             contribs: RefCell::default(),
+            themes_changed: Cell::default(),
             signals: RefCell::default(),
             events: RefCell::default(),
             fire: RefCell::default(),
