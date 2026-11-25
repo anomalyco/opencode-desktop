@@ -211,8 +211,17 @@ pub fn apply_app_icon() {
 /// (21,400 µs; a bare AppKit app with one window, M4: its window came 19,000 µs later).
 /// A packaged macOS app (`cfg(bundle_assets)`) is always in its bundle and carries no second copy
 /// of the icon in its exe (1.4 MiB).
+///
+/// Linux: a window has no icon of its own. The desktop finds the app's icon, name and launcher by
+/// the window's application id (Wayland `app_id`, X11 `WM_CLASS`), matched to the installed
+/// `opencode-rune.desktop` (`apps/desktop/scripts/package-linux.sh`: `Icon=opencode-rune`).
+/// Without an id a Wayland window names none, and the switcher and dock draw a generic icon; X11
+/// fell back to the binary's name, which an AppImage does not keep. Desktop names its id the same
+/// way (`packages/desktop/electron-builder.config.ts`: `StartupWMClass: appId`).
 #[cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))]
 pub fn apply_app_icon() {
+    #[cfg(target_os = "linux")]
+    rune::set_app_id("opencode-rune");
     #[cfg(not(bundle_assets))]
     {
         let bundled = std::env::current_exe()
