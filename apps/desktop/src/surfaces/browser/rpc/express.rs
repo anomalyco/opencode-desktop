@@ -1,6 +1,6 @@
 //! An agent's browser command, started the turn the server announces it. The window's stream
-//! events wait for its next frame (`launch::inbox_waker`), 5 ms median and 12 ms at p90 on
-//! blade, per command; the command frames also come to their own subscription here, woken by
+//! events wait for its next frame (`launch::inbox_waker`), 5 ms median and 12 ms at p90 as
+//! measured, per command; the command frames also come to their own subscription here, woken by
 //! the browser's quiet waker (`launch::browser_waker`). The frame's poll sees each again
 //! (`on_control_event`), where the attachment ignores a request it already took, as it ignores
 //! the server's replays. A cancel comes this way too, so it never overtakes its command, nor a
