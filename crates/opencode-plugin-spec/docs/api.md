@@ -1,4 +1,4 @@
-# OpenCode plugin API reference (contract 1.10)
+# OpenCode plugin API reference (contract 1.11)
 
 > Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit. For a walkthrough, read [Writing a plugin](writing-a-plugin.md).
 
@@ -6,7 +6,7 @@ Contents: [Versioning](#versioning) · [Modules and globals](#modules-and-global
 
 ## Versioning
 
-Contract versions are `MAJOR.MINOR`. This is contract `1.10`.
+Contract versions are `MAJOR.MINOR`. This is contract `1.11`.
 
 - A plugin names the contract it targets in plugin.toml: `contract = "1.0"`.
 - Minor versions (1.1, 1.2, …) only add: new optional properties on `ui.*` nodes and specs, new semantic tokens (each with a 1.0 fallback token), new services, methods, signals, contribution kinds and enum values. A plugin that targets 1.0 runs unchanged on every 1.x host.
@@ -562,7 +562,7 @@ The plugin's own messages in the interface language, and numbers, dates and list
 | `ui.progressCircle(props: UiProgressCircleProps) -> UiNode` | content | [`UiProgressCircleProps`](#uiprogresscircleprops) | The app's progress ring: a track and an arc from twelve o'clock, clockwise. |
 | `ui.serverIndicator(props: UiServerIndicatorProps) -> UiNode` | control | [`UiServerIndicatorProps`](#uiserverindicatorprops) | A server's health indicator, for a server source's row. |
 | `ui.pill(props: UiPillProps) -> UiNode` | control | [`UiPillProps`](#uipillprops) | A status capsule. |
-| `ui.badge(props: UiBadgeProps) -> UiNode` | control | [`UiBadgeProps`](#uibadgeprops) | Desktop's compact badge. Since 1.10. |
+| `ui.badge(props: UiBadgeProps) -> UiNode` | control | [`UiBadgeProps`](#uibadgeprops) | Desktop's compact badge. Since 1.11. |
 | `ui.settingsRow(props: UiSettingsRowProps, control: UiNode?) -> UiNode` | control | [`UiSettingsRowProps`](#uisettingsrowprops) | A settings row: title and description beside a control. |
 | `ui.settingsList(props: UiSettingsListProps, rows: { UiNode }) -> UiNode` | control | [`UiSettingsListProps`](#uisettingslistprops) | A card of settings rows. |
 | `ui.flyoutRow(props: UiFlyoutRowProps) -> UiNode` | control | [`UiFlyoutRowProps`](#uiflyoutrowprops) | A popover row that opens a nested popover. |
@@ -1219,7 +1219,7 @@ A dialog's size: one of Desktop's four presets, each clamped to the window.
 | Value | Meaning |
 |---|---|
 | `"normal"` | Confirmations, sign-ins and small forms: 480 points wide, as tall as its content. The default. |
-| `"tall"` | A short form that reveals a list under a choice: 480 points wide, as tall as its content up to 600 points, its top edge kept so that it only grows downward. Since 1.10. |
+| `"tall"` | A short form that reveals a list under a choice: 480 points wide, as tall as its content up to 600 points, its top edge kept so that it only grows downward. Since 1.11. |
 | `"large"` | Palettes, pickers and lists: 680 by 600 points. |
 | `"x-large"` | Long documents and settings-like panels: 880 by 680 points. |
 | `"small"` | Deprecated: the same as `normal`. |
@@ -1752,7 +1752,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 | `text` | `string` | The label, beside the box. |
 | `description` | `string?` | A line under the label. |
 | `checked` | `boolean` | Ticked. |
-| `indeterminate` | `boolean?` | Some of what it stands for is ticked: the box shows a dash, as Desktop's `indeterminate`. A press still reports the opposite of `checked`. Since 1.10. |
+| `indeterminate` | `boolean?` | Some of what it stands for is ticked: the box shows a dash, as Desktop's `indeterminate`. A press still reports the opposite of `checked`. Since 1.11. |
 | `surface` | `("base" \| "layer-1")?` | The background the box sits on: `base` (the default) or `layer-1`, as Desktop's `surface`; an unticked box takes its fill. |
 | `disabled` | `boolean?` | Cannot change; drawn at half opacity. |
 | `onChange` | `UiHandler?` | Runs with the new state in `event.checked`. |
@@ -1926,7 +1926,7 @@ Also takes every field of [`UiLayoutProps`](#uilayoutprops).
 |---|---|---|
 | `title` | `string` | The dialog's title: 15 pt, wrapping anywhere unless `wrapTitle` is false. |
 | `description` | `string?` | A muted line under the title. |
-| `badge` | `string?` | A badge after the title on its line, such as a profile's name. The title then stays on one line, and each is cut short where the line has no room for both. Since 1.10. |
+| `badge` | `string?` | A badge after the title on its line, such as a profile's name. The title then stays on one line, and each is cut short where the line has no room for both. Since 1.11. |
 | `hideClose` | `boolean?` | Leaves out the close button. |
 | `closeLabel` | `string?` | The close button's accessible name. Defaults to Close. |
 | `wrapTitle` | `boolean?` | Whether the title wraps across lines (breaking anywhere for long identifiers). Defaults to true; set false for short single-line dialog titles. Since 1.5. |

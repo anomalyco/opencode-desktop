@@ -1,6 +1,6 @@
 {
   "$comment": "The OpenCode plugin contract: the single source of truth for plugin types, the plugin.toml schema, the selene std, the API docs and the host's Rust decoders. Edit this file, then run `cargo run -p opencode-plugin-spec -- --write`. Type strings use Luau syntax; `integer` is a whole number (Luau `number`).",
-  "contract": "1.10",
+  "contract": "1.11",
   "versioning": {
     "format": "MAJOR.MINOR",
     "rules": [
@@ -369,7 +369,7 @@
     ] },
     { "name": "DialogSize", "rust": true, "doc": "A dialog's size: one of Desktop's four presets, each clamped to the window.", "values": [
       { "value": "normal", "doc": "Confirmations, sign-ins and small forms: 480 points wide, as tall as its content. The default." },
-      { "value": "tall", "since": "1.10", "doc": "A short form that reveals a list under a choice: 480 points wide, as tall as its content up to 600 points, its top edge kept so that it only grows downward." },
+      { "value": "tall", "since": "1.11", "doc": "A short form that reveals a list under a choice: 480 points wide, as tall as its content up to 600 points, its top edge kept so that it only grows downward." },
       { "value": "large", "doc": "Palettes, pickers and lists: 680 by 600 points." },
       { "value": "x-large", "doc": "Long documents and settings-like panels: 880 by 680 points." },
       { "value": "small", "doc": "Deprecated: the same as `normal`." },
@@ -671,7 +671,7 @@
       { "name": "text", "type": "string", "doc": "The label, beside the box." },
       { "name": "description", "type": "string?", "doc": "A line under the label." },
       { "name": "checked", "type": "boolean", "doc": "Ticked." },
-      { "name": "indeterminate", "type": "boolean?", "since": "1.10", "doc": "Some of what it stands for is ticked: the box shows a dash, as Desktop's `indeterminate`. A press still reports the opposite of `checked`." },
+      { "name": "indeterminate", "type": "boolean?", "since": "1.11", "doc": "Some of what it stands for is ticked: the box shows a dash, as Desktop's `indeterminate`. A press still reports the opposite of `checked`." },
       { "name": "surface", "type": "(\"base\" | \"layer-1\")?", "doc": "The background the box sits on: `base` (the default) or `layer-1`, as Desktop's `surface`; an unticked box takes its fill." },
       { "name": "disabled", "type": "boolean?", "doc": "Cannot change; drawn at half opacity." },
       { "name": "onChange", "type": "UiHandler?", "doc": "Runs with the new state in `event.checked`." }
@@ -756,7 +756,7 @@
     { "name": "UiDialogHeaderProps", "kind": "record", "extends": ["UiLayoutProps"], "official": "DialogHeader", "doc": "`ui.dialogHeader` props: the app's dialog header (`DialogHeader` with a `DialogTitleGroup`), 16 in from the frame, with its close button.", "fields": [
       { "name": "title", "type": "string", "doc": "The dialog's title: 15 pt, wrapping anywhere unless `wrapTitle` is false." },
       { "name": "description", "type": "string?", "doc": "A muted line under the title." },
-      { "name": "badge", "type": "string?", "since": "1.10", "doc": "A badge after the title on its line, such as a profile's name. The title then stays on one line, and each is cut short where the line has no room for both." },
+      { "name": "badge", "type": "string?", "since": "1.11", "doc": "A badge after the title on its line, such as a profile's name. The title then stays on one line, and each is cut short where the line has no room for both." },
       { "name": "hideClose", "type": "boolean?", "doc": "Leaves out the close button." },
       { "name": "closeLabel", "type": "string?", "doc": "The close button's accessible name. Defaults to Close." },
       { "name": "wrapTitle", "type": "boolean?", "since": "1.5", "doc": "Whether the title wraps across lines (breaking anywhere for long identifiers). Defaults to true; set false for short single-line dialog titles." }
@@ -2007,7 +2007,7 @@
     { "name": "progressCircle", "category": "content", "sig": "(props: UiProgressCircleProps) -> UiNode", "props": "UiProgressCircleProps", "doc": "The app's progress ring: a track and an arc from twelve o'clock, clockwise." },
     { "name": "serverIndicator", "category": "control", "sig": "(props: UiServerIndicatorProps) -> UiNode", "props": "UiServerIndicatorProps", "doc": "A server's health indicator, for a server source's row." },
     { "name": "pill", "category": "control", "sig": "(props: UiPillProps) -> UiNode", "props": "UiPillProps", "doc": "A status capsule." },
-    { "name": "badge", "category": "control", "since": "1.10", "sig": "(props: UiBadgeProps) -> UiNode", "props": "UiBadgeProps", "doc": "Desktop's compact badge." },
+    { "name": "badge", "category": "control", "since": "1.11", "sig": "(props: UiBadgeProps) -> UiNode", "props": "UiBadgeProps", "doc": "Desktop's compact badge." },
     { "name": "settingsRow", "category": "control", "sig": "(props: UiSettingsRowProps, control: UiNode?) -> UiNode", "props": "UiSettingsRowProps", "doc": "A settings row: title and description beside a control." },
     { "name": "settingsList", "category": "control", "sig": "(props: UiSettingsListProps, rows: { UiNode }) -> UiNode", "props": "UiSettingsListProps", "doc": "A card of settings rows." },
     { "name": "flyoutRow", "category": "control", "sig": "(props: UiFlyoutRowProps) -> UiNode", "props": "UiFlyoutRowProps", "doc": "A popover row that opens a nested popover." },
