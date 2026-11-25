@@ -95,7 +95,7 @@ pub(in crate::shell::view) fn location(s: &App, p: &Pal, width: f32) -> El {
 
 /// A picker in the row, before its look: Desktop's `TRIGGER` (`view.tsx:274-275`).
 fn trigger(p: &Pal, key: &str, label: &str) -> El {
-    row().key(key).role("button").label(label.to_owned()).cursor(rune::Cursor::Pointer).focus_default(p).hover_group_focus().h(28.0).pl(6.0).pr(8.0).gap(6.0).center_y().radius(4.0).shrink().min_w(0.0)
+    row().key(key).role("button").label(label.to_owned()).focus_default(p).hover_group_focus().h(28.0).pl(6.0).pr(8.0).gap(6.0).center_y().radius(4.0).shrink().min_w(0.0)
 }
 
 /// The folder at the row's end, as the server names it (`view.tsx:420-460`): it keeps at

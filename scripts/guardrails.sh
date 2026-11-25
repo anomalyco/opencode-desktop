@@ -8,6 +8,7 @@
 #   - scripts/guardrails/plugin-props.mjs (every ui.<node> prop under plugins/ is one the plugin contract gives it)
 #   - scripts/guardrails/net-trust.mjs (every ureq agent and wss:// socket checks certificates as the OS does)
 #   - scripts/guardrails/engine-revision.mjs (the browser engine's inputs change only together with ENGINE_REVISION)
+#   - scripts/guardrails/cursor-allow.mjs (every cursor the app sets is in scripts/cursor-allow.txt with the official line that justifies it)
 #
 # Slow compile/lint checks remain separate:
 #   - scripts/clippy.sh

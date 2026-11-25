@@ -22,6 +22,7 @@ const checks = [
   { name: "external-open", script: join(here, "external-open.mjs") },
   { name: "net-trust", script: join(here, "net-trust.mjs") },
   { name: "engine-revision", script: join(here, "engine-revision.mjs") },
+  { name: "cursor-allow", script: join(here, "cursor-allow.mjs") },
 ];
 
 const started = Date.now();

@@ -319,7 +319,6 @@ pub fn quotes_on_message<S: TimelineHost>(s: &S, p: &Pal, id: &str, body: &str, 
                 .px(9.0)
                 .center_y()
                 .radius(4.0)
-                .cursor(rune::Cursor::Pointer)
                 .focus_inset(p)
                 .hover(p.hover)
                 .press(p.pressed)

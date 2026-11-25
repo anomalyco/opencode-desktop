@@ -88,7 +88,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 .hover_motion(Anim::INSTANT, Anim::INSTANT)
                 .child(el().key("bar").size(14.0, 2.0).fill(color));
             if live {
-                seg.cursor(rune::Cursor::Pointer)
+                seg
                     .hover(p.hover)
                     .on_press_tx(move |s: &mut S, tx: &mut Tx| if let Some(f) = asking(s) { jump(s, &f, i, tx) })
             } else {
@@ -136,7 +136,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                     .children((!desc.is_empty()).then(|| text(desc.clone()).key("description").dir(rune::Direction::Auto).font(DESC).color(p.muted).wrap())),
             );
         let opt = if live {
-            opt.cursor(rune::Cursor::Pointer)
+            opt
                 .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| if inside { hover_answer(s, i, tx) })
                 .on_press_tx(move |s: &mut S, tx: &mut Tx| {
                     let Some(f) = asking(s) else { return };
@@ -211,7 +211,6 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
             .child(input);
         let custom_row = if live {
             custom_row
-                .cursor(rune::Cursor::Pointer)
                 .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| if inside { hover_answer(s, i, tx) })
                 .on_press_tx(|s: &mut S, tx: &mut Tx| {
                     let Some(f) = asking(s) else { return };

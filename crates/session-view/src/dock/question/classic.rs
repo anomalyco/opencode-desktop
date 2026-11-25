@@ -109,7 +109,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 )
                 .children((i < 9).then(|| shortcut(p, i + 1, picked, d.keyboard)));
             let card = if live {
-                card.cursor(rune::Cursor::Pointer).on_press_tx(move |s: &mut S, tx: &mut Tx| {
+                card.on_press_tx(move |s: &mut S, tx: &mut Tx| {
                     let Some(f) = asking(s) else { return };
                     let (tab, _) = place(s, &f);
                     select(s, &f, tab, i);
@@ -246,7 +246,7 @@ fn progress<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, live: bool) -> El
             .center()
             .child(el().key("bar").size(14.0, 2.0).fill(color));
         if live {
-            seg.cursor(rune::Cursor::Pointer).hover(p.hover).on_press_tx(move |s: &mut S, tx: &mut Tx| {
+            seg.hover(p.hover).on_press_tx(move |s: &mut S, tx: &mut Tx| {
                 if let Some(f) = asking(s) {
                     jump(s, &f, i, tx)
                 }
@@ -271,7 +271,7 @@ fn chevron<S: DockHost>(p: &Pal, minimized: bool, live: bool) -> El {
         .center()
         .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted).rotate(if minimized { PI } else { 0.0 }).rotate_motion(FOLD));
     if live {
-        b.cursor(rune::Cursor::Pointer).focus_default(p).help(label).help_above().hover(p.hover).press(p.pressed).on_press_tx(|s: &mut S, tx: &mut Tx| {
+        b.focus_default(p).help(label).help_above().hover(p.hover).press(p.pressed).on_press_tx(|s: &mut S, tx: &mut Tx| {
             let Some(f) = asking(s) else { return };
             tx.motion_curve(FOLD);
             let (tab, _) = place(s, &f);
@@ -398,7 +398,7 @@ fn custom<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, multi: bool, editin
         .child(input)
         .children((i < 9).then(|| shortcut(p, i + 1, on, keyboard)));
     if live {
-        row_card.cursor(rune::Cursor::Pointer).on_press_tx(|s: &mut S, _: &mut Tx| {
+        row_card.on_press_tx(|s: &mut S, _: &mut Tx| {
             let Some(f) = asking(s) else { return };
             let (tab, _) = place(s, &f);
             start_typing(s, &f, tab);

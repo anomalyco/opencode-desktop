@@ -142,7 +142,6 @@ pub fn chip<S: TimelineHost>(s: &S, p: &Pal, chip: &Chip) -> El {
         .gap(6.0)
         .center_y()
         .radius(10.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_default(p)
         .fill(p.hover)
         .hover(p.pressed)

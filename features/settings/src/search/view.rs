@@ -3,7 +3,7 @@
 use opencode_i18n::t;
 use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::Pal;
-use rune::{Cursor, El, Key, TextStyle, Tx, col, el, icon, row, text};
+use rune::{El, Key, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 
 use super::{Entry, active_index, category, category_label, clear, open, shown};
@@ -56,7 +56,6 @@ pub fn field<H: SettingsHost + 'static>(s: &H, p: &Pal, narrow: bool) -> El {
             .size(20.0, 20.0)
             .center()
             .radius(4.0)
-            .cursor(Cursor::Pointer)
             .focus_default(p)
             .hover_group_focus()
             .on_press_tx(|s: &mut H, tx: &mut Tx| clear_and_focus(s, tx))
@@ -148,7 +147,6 @@ pub fn results<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
                 .role("option")
                 .label(e.title.clone())
                 .focus_selected(at == active)
-                .cursor(Cursor::Pointer)
                 .w_full()
                 .h(36.0)
                 .px(12.0)

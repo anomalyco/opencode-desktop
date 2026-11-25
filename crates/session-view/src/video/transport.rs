@@ -4,7 +4,7 @@
 use std::rc::Rc;
 
 use opencode_ui::video_overlay::Event;
-use rune::{Align, Color, Cursor, El, Icon, SurfaceFit, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Align, Color, El, Icon, SurfaceFit, TextStyle, Tx, col, el, icon, row, text};
 
 use super::{Clip, seek};
 use crate::{TimelineHost, palette::Pal, style::{HOVER_FADE, INSTANT, UI_SMALL}};
@@ -36,7 +36,7 @@ fn button<S: TimelineHost>(key: &'static str, label: String, content: El, width:
     let clip = c.clone();
     let b = el().key(key).size(width, 44.0).center().role("button").label(label.clone()).help(label)
         .focusable(true).focus_ring(1.0, -3.0, Color::WHITE.alpha(0.9)).radius(22.0)
-        .cursor(Cursor::Pointer).hover(Color::WHITE.alpha(0.10)).press(Color::WHITE.alpha(0.16)).press_scale(0.96)
+        .hover(Color::WHITE.alpha(0.10)).press(Color::WHITE.alpha(0.16)).press_scale(0.96)
         .child(content);
     if delta.is_some() && c.player.duration().is_none() { return b.disabled(true).opacity(0.35); }
     b.on_press_tx(move |s: &mut S, tx: &mut Tx| {
@@ -90,7 +90,7 @@ pub(super) fn stage<S: TimelineHost>(p: &Pal, c: Rc<Clip>, name: &str) -> El {
     let moved = c.clone();
     let leave = c.clone();
     let picture = el().key("picture").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
-        .video(&c.player, SurfaceFit::Fit).label(name.to_owned()).cursor(Cursor::Pointer)
+        .video(&c.player, SurfaceFit::Fit).label(name.to_owned())
         .on_background_press_tx(move |s: &mut S, tx| { press.toggle(); press.refresh(s, tx); });
     el().w_full().max_w(420.0 * ratio).aspect_ratio(ratio).self_center()
         .fill(Color::BLACK).radius(10.0).clip_rounded(10.0).continuous_corners()
