@@ -69,7 +69,9 @@ chmod +x "$stem.AppImage"
 [[ $(cd "$work" && "$stem.AppImage" --appimage-extract-and-run --version) == "$expected" ]]
 
 # Tilde sorts prereleases before stable; the run number stays numeric for upgrades.
-pkg_version=${version/-dev-/~dev.}
+# deb and rpm versions can't carry '-': 0.0.0-dev-484 is 0.0.0~dev.484, 0.0.0-pr-12-3 is 0.0.0~pr.12.3.
+pkg_version=${version/-/\~}
+pkg_version=${pkg_version//-/.}
 mkdir -p "$work/rpm"
 cat > "$work/app.spec" <<EOF
 Name: opencode-rune
