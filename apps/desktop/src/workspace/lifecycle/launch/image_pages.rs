@@ -34,6 +34,9 @@
 //! `OPENCODE_RUNE_IMAGE_PAGES=off` skips all of it; `=all` asks for the whole code and
 //! constants and `=listed` for a list's pages, both without looking first (a bench's arms).
 //! `OPENCODE_RUNE_IMAGE_PAGES_ASK=1` asks from one thread (a bench's arm).
+//! `OPENCODE_RUNE_IMAGE_PAGES_LOOK=<n>` looks at `n` pages (16: as before 25 Nov), and
+//! `OPENCODE_RUNE_IMAGE_PAGES_NOLIST=ask` asks without a look when the exe has no list yet
+//! (a bench's arms: the two ways not to miss an exe that is partly out of memory).
 // Reading this process's own image headers and working set is Win32; each block says what it relies on.
 #![allow(unsafe_code)]
 
@@ -112,6 +115,16 @@ struct Image {
 /// Runs of pages, as (first page from the image's base, pages), in address order.
 type Runs = Vec<(u32, u32)>;
 
+/// What a launch with no list of its pages does before it asks for the whole code and constants.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NoList {
+    /// Looks first, as a launch with a list does.
+    Look,
+    /// Asks at once: it happens once per build and profile, and nothing reads the pages after a
+    /// look that missed.
+    Ask,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
     /// A list's pages, else the whole code and constants, when they aren't in memory.
@@ -137,7 +150,12 @@ pub fn ask() {
         Some("1") => 1,
         _ => (processors() / 2).clamp(1, ASK_THREADS),
     };
-    std::thread::Builder::new().name("image-pages".into()).spawn(move || run(mode, threads, ask)).ok();
+    let samples = std::env::var("OPENCODE_RUNE_IMAGE_PAGES_LOOK").ok().and_then(|v| v.parse::<u32>().ok()).filter(|n| (1..=4096).contains(n)).unwrap_or(SAMPLES);
+    let no_list = match std::env::var_os("OPENCODE_RUNE_IMAGE_PAGES_NOLIST").as_deref().and_then(|v| v.to_str()) {
+        Some("ask") => NoList::Ask,
+        _ => NoList::Look,
+    };
+    std::thread::Builder::new().name("image-pages".into()).spawn(move || run(mode, threads, ask, samples, no_list)).ok();
 }
 
 /// The update helper: asks for the whole code and constants of its own image, which is the new
@@ -171,7 +189,7 @@ fn processors() -> usize {
     std::thread::available_parallelism().map_or(1, |n| n.get())
 }
 
-fn run(mode: Mode, threads: usize, ask: usize) {
+fn run(mode: Mode, threads: usize, ask: usize, samples: u32, no_list: NoList) {
     let Some(image) = image() else { return };
     let path = crate::dirs::cache().map(|dir| dir.join("launch-pages.bin"));
     let listed = path.as_deref().and_then(|p| std::fs::read(p).ok()).and_then(|bytes| decode(&bytes, &image));
@@ -181,7 +199,8 @@ fn run(mode: Mode, threads: usize, ask: usize) {
         _ => Some(image.sections.clone()),
     };
     if let Some(runs) = &wanted {
-        if mode != Mode::Auto || away(&image, runs) {
+        let unseen = mode != Mode::Auto || (listed.is_none() && no_list == NoList::Ask);
+        if unseen || away(&image, runs, samples) {
             prefetch(&image, runs, ask);
             rune::marks::mark("image.pages.asked");
         } else {
@@ -253,13 +272,13 @@ fn image() -> Option<Image> {
     }
 }
 
-/// Whether `runs`' pages wait on the disk: up to [`SAMPLES`] of them, evenly spread, read one byte
+/// Whether `runs`' pages wait on the disk: up to `samples` of them, evenly spread, read one byte
 /// each, until [`AWAY_SAMPLES`] were slow.
-fn away(image: &Image, runs: &[(u32, u32)]) -> bool {
+fn away(image: &Image, runs: &[(u32, u32)], samples: u32) -> bool {
     let total: u64 = runs.iter().map(|&(_, pages)| u64::from(pages)).sum();
     let mut slow = 0;
-    for i in 0..u64::from(SAMPLES) {
-        let mut nth = total * (2 * i + 1) / (2 * u64::from(SAMPLES));
+    for i in 0..u64::from(samples) {
+        let mut nth = total * (2 * i + 1) / (2 * u64::from(samples));
         let Some(page) = runs.iter().find_map(|&(first, pages)| {
             if nth < u64::from(pages) {
                 return Some(u64::from(first) + nth);
