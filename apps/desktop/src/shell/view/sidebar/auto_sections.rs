@@ -35,7 +35,7 @@ pub(super) fn sections(s: &App, p: &Pal, groups: &[Group]) -> El {
         let rows = g.tabs.len() as f32;
         let h = rune::memo::layout_with(&format!("{key}-list"), |r| r[3]).unwrap_or(rows * 28.0 + (rows - 1.0) * 3.0);
         // A project's header names it, so its tabs leave out their avatar (`hideAvatars`,
-        // `auto-tab-sections.tsx:201`).
+        // `auto-tab-sections.tsx:202`).
         list = list.child(col().key(format!("{key}-box")).w_full().h(h).child(crate::view::tab_strip::group_strip(s, p, &key, &g.tabs, g.kind == Kind::Project)));
     }
     list

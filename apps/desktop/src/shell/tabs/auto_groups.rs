@@ -143,8 +143,11 @@ pub fn project_of<'a>(s: &'a App, t: &'a Tab) -> Option<&'a Project> {
     if t.is_draft() {
         return s.project_at(&t.directory);
     }
-    let info = s.session(&t.id);
-    info.and_then(|i| s.project_for_session(i)).or_else(|| s.project_at(info.map_or(t.directory.as_str(), |i| i.directory.as_str())))
+    match s.session(&t.id) {
+        Some(info) => s.project_for_session(info),
+        None if t.directory.is_empty() => None,
+        None => s.project_at(&t.directory),
+    }
 }
 
 fn grouped(s: &App, collapse: bool) -> Option<Vec<Group>> {
