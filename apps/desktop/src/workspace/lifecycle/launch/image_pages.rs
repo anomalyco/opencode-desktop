@@ -150,12 +150,18 @@ pub fn ask() {
         Some("1") => 1,
         _ => (processors() / 2).clamp(1, ASK_THREADS),
     };
-    let samples = std::env::var("OPENCODE_RUNE_IMAGE_PAGES_LOOK").ok().and_then(|v| v.parse::<u32>().ok()).filter(|n| (1..=4096).contains(n)).unwrap_or(SAMPLES);
-    let no_list = match std::env::var_os("OPENCODE_RUNE_IMAGE_PAGES_NOLIST").as_deref().and_then(|v| v.to_str()) {
-        Some("ask") => NoList::Ask,
-        _ => NoList::Look,
-    };
-    std::thread::Builder::new().name("image-pages".into()).spawn(move || run(mode, threads, ask, samples, no_list)).ok();
+    std::thread::Builder::new()
+        .name("image-pages".into())
+        .spawn(move || {
+            // The look's two arms are read here, on the thread: nothing more on `main`'s way.
+            let samples = std::env::var("OPENCODE_RUNE_IMAGE_PAGES_LOOK").ok().and_then(|v| v.parse::<u32>().ok()).filter(|n| (1..=4096).contains(n)).unwrap_or(SAMPLES);
+            let no_list = match std::env::var_os("OPENCODE_RUNE_IMAGE_PAGES_NOLIST").as_deref().and_then(|v| v.to_str()) {
+                Some("ask") => NoList::Ask,
+                _ => NoList::Look,
+            };
+            run(mode, threads, ask, samples, no_list);
+        })
+        .ok();
 }
 
 /// The update helper: asks for the whole code and constants of its own image, which is the new
