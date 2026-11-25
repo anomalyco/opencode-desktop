@@ -1602,7 +1602,6 @@ return plugin.defineWindow(function(ctx)
         selectedKey = nil,
         candidates = {},
         candidatesLoaded = false,
-        devOpen = false,
         review = nil,
         showAllSites = false,
         approving = false,
@@ -1993,7 +1992,6 @@ return plugin.defineWindow(function(ctx)
             selectedKey = if #choices > 0 then extensions.choiceKey(choices[1]) else nil,
             candidates = {},
             candidatesLoaded = false,
-            devOpen = false,
             review = nil,
             showAllSites = false,
             approving = false,
@@ -2165,16 +2163,15 @@ return plugin.defineWindow(function(ctx)
                     Popover:Toggle({
                         id = "ext-browser-profile",
                         anchorKey = "ext-browser-profile-btn",
+                        -- `settings.tsx:692` `placement="bottom-start"`; the select's gutter is 6
+                        -- (`runtime/plugin/ui.tsx:208`).
                         side = "bottom",
-                        align = "end",
-                        gap = 4,
+                        align = "start",
+                        gap = 6,
                     })
                 end,
                 onAddFromBrowser = startBrowserInstall,
-                onToggleDev = function()
-                    extDialogState.devOpen = not extDialogState.devOpen
-                    refreshExtDialog()
-                end,
+
                 onPickFolder = startFolderInstall,
                 onToggleSites = function()
                     extDialogState.showAllSites = not extDialogState.showAllSites
