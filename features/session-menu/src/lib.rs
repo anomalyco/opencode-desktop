@@ -438,6 +438,14 @@ pub fn run(host: &mut dyn SessionMenuHost, t: &Target, id: &str, tx: &mut Tx) {
                 .filter(|(i, x)| Some(x.uid.as_str()) != keep && (id == "close-others" || *i > at))
                 .map(|(_, x)| x.uid.clone())
                 .collect();
+            // The page's own tab is among the closed: the page goes to the tab the menu was on
+            // (official `packages/app/src/shell/tabs/tabs.tsx:671-680`), not to a neighbour of
+            // each closed tab in turn, which may be a tab the strip does not show.
+            if let Some(keep) = keep
+                && host.shown_tab().is_some_and(|shown| gone.contains(&shown))
+            {
+                host.show_tab(keep, tx);
+            }
             for g in gone {
                 host.close_tab(&g, tx);
             }

@@ -227,6 +227,14 @@ impl SessionMenuHost for App {
         App::close_tab(self, uid, tx);
     }
 
+    fn shown_tab(&self) -> Option<String> {
+        App::current_tab(self)
+    }
+
+    fn show_tab(&mut self, uid: &str, tx: &mut Tx) {
+        App::select_tab(self, uid, tx);
+    }
+
     fn is_session_pinned(&self, server: &ServerKey, id: &str) -> bool {
         let key = crate::view::sidebar::state::key(server.as_str(), id);
         self.project_state.recent.pins.contains(&key)

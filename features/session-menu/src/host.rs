@@ -236,6 +236,14 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     fn close_tab(&mut self, uid: &str, tx: &mut Tx) {
         let _ = (uid, tx);
     }
+    /// The window tab the open page belongs to (its `uid`), if any.
+    fn shown_tab(&self) -> Option<String> {
+        None
+    }
+    /// Shows window tab `uid`.
+    fn show_tab(&mut self, uid: &str, tx: &mut Tx) {
+        let _ = (uid, tx);
+    }
     /// Whether `(server, id)` is currently pinned in the Recent sidebar.
     fn is_session_pinned(&self, server: &ServerKey, id: &str) -> bool {
         let _ = (server, id);
