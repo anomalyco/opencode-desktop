@@ -395,8 +395,8 @@ pub struct TerminalTab {
     /// The cell under the pointer and whether the follow modifier (Ctrl, ⌘ on macOS) was held:
     /// the link there (`links::span`) is underlined, and followable with the modifier.
     pub hover: HoverLink,
-    /// The first row of the quote last taken with its comment editor (`grid::quote`).
-    pub quote_row: Option<u128>,
+    /// Where the quote last taken with its comment editor came from (`grid::quote`).
+    pub quote_source: Option<grid::QuoteSource>,
 }
 
 impl TerminalTab {

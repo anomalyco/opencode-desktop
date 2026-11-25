@@ -505,7 +505,7 @@ pub fn ensure_terminal_workspace_hydrated(host: &mut dyn TerminalSurfaceHost, ws
                 find: None,
                 focused: Cell::new(false),
                 hover: HoverLink::None,
-                quote_row: None,
+                quote_source: None,
             })
         })
         .collect();

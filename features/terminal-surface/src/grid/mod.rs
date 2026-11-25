@@ -20,7 +20,7 @@ use opencode_ui::style::{UI, UI_SMALL};
 use terminal::{CursorShape, TerminalSnapshot};
 
 pub(crate) use self::pointer::poll_edge_scroll;
-pub use self::quote::QuotePlace;
+pub use self::quote::{QuotePlace, QuoteSource};
 use self::pointer::{ViewportInput, attach_text_drag, attach_viewport_handlers, render_quote_bar, render_scrollbar};
 use self::rows::{build_rows, cell_fg_color};
 use crate::mount::TextDrag;
@@ -352,8 +352,8 @@ fn render_viewport<H: TerminalSurfaceHost + 'static>(
             el().key("terminal-quote").absolute(x, y).child(render_quote_bar::<H>(p, ws_key, &tab.id, (cell_w, cell_h))),
         );
     }
-    // The quote last taken: where its comment editor measures from, while its row is in view.
-    canvas_layer = canvas_layer.children(tab.quote_row.and_then(|row| quote::origin(snap, row, cell_h)));
+    // The quote last taken: where its comment editor measures from, while its rows still hold.
+    canvas_layer = canvas_layer.children(tab.quote_source.and_then(|source| quote::origin(snap, source, tab.session.cursor_offset(), cell_h)));
 
     let outer = row()
         .key(VIEWPORT_KEY)

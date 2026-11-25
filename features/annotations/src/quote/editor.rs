@@ -638,7 +638,8 @@ fn source_position(
         _ => preferred,
     };
     let Some(origin) = m.anchor_origin.map(&shell).filter(|_| !(element && a.rects.is_empty())) else {
-        // Its rows left the terminal's screen: at the composer (`quote-comment.tsx:96-101`).
+        // A write or a resize moved its rows, or the terminal is hidden: at the composer
+        // (`quote-machine.ts:258-281`, `quote-comment.tsx:96-101`).
         if element {
             return None;
         }

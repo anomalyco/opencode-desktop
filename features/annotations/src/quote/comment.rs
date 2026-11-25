@@ -27,7 +27,7 @@ pub enum Bounds {
     Timeline(String),
     /// The element with this key, whole (a terminal's pane: official `packages/gui-plugins/src/
     /// terminal/quote-machine.ts` `quotePosition`): the editor is pinned to its bottom edge
-    /// where neither side fits, and stands at the composer while the source isn't on screen.
+    /// where neither side fits, and stands at the composer once its source no longer holds.
     Element(String),
 }
 
