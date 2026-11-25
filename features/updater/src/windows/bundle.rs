@@ -370,6 +370,7 @@ fn read_dir_handle(h: &OwnedHandle) -> io::Result<Vec<OsString>> {
             }
             return Err(err);
         }
+        // SAFETY: `buf` owns `byte_len` initialized bytes and outlives `bytes`.
         let bytes: &[u8] = unsafe { std::slice::from_raw_parts(buf.as_ptr().cast::<u8>(), byte_len) };
         let mut off = 0usize;
         loop {
