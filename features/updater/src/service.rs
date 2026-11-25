@@ -55,7 +55,7 @@ pub struct Snapshot {
     pub progress: Option<Progress>,
     /// The running build's version, as the feed names releases.
     pub version: String,
-    /// The feed channel (`dev`, `stable`).
+    /// The feed channel (`dev`, the only one).
     pub channel: String,
 }
 
