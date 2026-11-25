@@ -1,29 +1,29 @@
 {
-  "generated_at": "2026-11-24",
+  "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "58473c4511b0eae637c966543db5f2b6bbd47ca9",
+  "upstream_head": "092c1161b7a20bfc023721cae16059301479af82",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "95913d07d",
-  "post_1114_commit_count": 611,
-  "post_1114_in_ledger": 217,
-  "post_1114_skipped": 394,
+  "rune_desktop_head": "66708c5b7",
+  "post_1114_commit_count": 617,
+  "post_1114_in_ledger": 221,
+  "post_1114_skipped": 396,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
     "ci-bench-deps": 23,
     "docs-site-data": 59,
     "tui-only": 28,
     "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 248
+    "server-core-ai-codemode-internal": 250
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 238,
+  "total_ledger_rows": 242,
   "status_counts": {
-    "have it": 198,
-    "not applicable": 32,
+    "have it": 199,
+    "not applicable": 34,
     "differs on purpose": 1,
-    "partly": 2,
+    "partly": 3,
     "missing": 5
   },
   "rows": [
@@ -5954,11 +5954,12 @@
       ],
       "summary": "The browser's attachment to sessions: (1) a session that runs in an open tab nobody has opened since the app started attaches as the routed one does, so its agent has the browser tools (a session the server resumed, or that an automation, a finished job or a subagent woke); (2) a session another window took comes back only when the person comes to it in this window (its route, a prompt, opening its browser), never on focus, a press, a key or an agent's edge; (3) when the window that took it lets it go (the server revokes the grant), the session attaches here again; (4) the browser can be opened here while another window holds it, which takes it back.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Not ported yet; the agent ATTACH has it since 25 Nov 08:17 (read: packages/gui-plugins/src/browser machine.ts `session.wake` takes / `session.released`, model.ts `unopened` + `openable`, prompt-gate.ts `attachesUnopened` / `unheld`). Ours' side is the browser attachment in apps/desktop/src/surfaces/browser/rpc and the browser plugin, where #1028 (a subagent keeps its browser after the person leaves its page) just changed the same machine. Needs runs with an agent that drives the browser in an unopened tab and with two windows.",
+      "status": "have it",
+      "status_evidence": "rune-desktop #1073 (66708c5b, by the agent ATTACH): the session's permissions (the browser grant) and the event session.permissions are read, which ours did not. RUN on its CI build next to dev's and next to official's own model under its test fixture, before and after official's commit: a session that runs in a tab nobody opened since launch: dev answers Unknown tool browser.tabs.list at every step (5 of 5); now attached 32 ms after its run starts, or at launch (1.02 s) when it already runs. A session another window took: dev never comes back; now it comes back when the person comes to its tab, sends a prompt (40 ms before the prompt's run) or opens its browser, and 7 ms after the other window lets go; not on a press, a key or leaving its tab, and a tab another window holds is not taken: every case as official after. Launch, same-tree pairs in turn (real windows, five tabs, 24 rounds a side): no row moves beyond the spread; one cost that shows: +0.45 ms from the server's answer to content live when a tab's session runs at launch (the frame that starts its attachment). Linux type-checked by LAUNCH-LINUX-d. Not run: official's Electron window (its model under its fixture stands in), two real windows of ours (the other window was a stand-in: one held attach request), the web check, macOS, a remote server.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "rune_pr": "#1073"
     },
     {
       "id": "UP-217",
@@ -5978,6 +5979,109 @@
       "size": "S",
       "status": "not applicable",
       "status_evidence": "By reading: ours never hid a working turn. The only a11y_hidden in crates/session-view/src/timeline are the meta lines (model and time, parts.rs), the pending label, and the Copy button while the turn is busy, which is also inert then, so it takes no focus; a reply's text, its links and tool headers are in the accessibility tree while the turn works. Not run with a screen reader.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-218",
+      "window": "post-1120",
+      "pr": 66201,
+      "sha": "df79010bc6",
+      "title": "feat(core): load skills from MCP servers",
+      "merged": "2026-11-24",
+      "packages": [
+        "app",
+        "client",
+        "core",
+        "protocol",
+        "schema",
+        "server"
+      ],
+      "main_files": [
+        "packages/app/e2e/utils/mock-api.ts",
+        "packages/app/e2e/utils/mock-server.ts",
+        "packages/app/src/workspaces/files/model.tsx",
+        "packages/client/src/promise/generated/client.ts"
+      ],
+      "summary": "A skill's file opened in the file viewer (`skill://<id>/<file>`) is read through the server (`GET /api/experimental/skill/:skillID/file/*`), which loads a file a skill serves on demand; before, the viewer took the text from the inline content of `/api/skill`, which is empty for such a skill. The server side: behind the `mcp_skills` flag, skills an MCP server offers are listed as `<server>:<skill>`.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "By reading: ours' file tab reads no `skill://` path at all, neither the inline content official read before nor the new endpoint (no `skill://` in apps/desktop/src/surfaces/files or plugin_host/native/files.rs; crates/opencode-kit/src/model/plugin.rs SkillInfo takes id, name and path only). The lists that name skills (mentions, Settings, Details) take what `/api/skill` lists, so an MCP skill shows there as the server names it. Not run: what a read row with a `skill://` path opens in ours; a server with the endpoint.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-219",
+      "window": "post-1120",
+      "pr": 66035,
+      "sha": "4e703db7a1",
+      "title": "fix(app): keep loaded history when the transcript is read again",
+      "merged": "2026-11-24",
+      "packages": [
+        "app",
+        "cli-rs",
+        "client"
+      ],
+      "main_files": [
+        "packages/app/AGENTS.md",
+        "packages/cli-rs/parity/deviations/O89-older-page.md",
+        "packages/cli-rs/parity/deviations/O89-transcript-refresh.md",
+        "packages/client/src/solid/data.ts"
+      ],
+      "summary": "A reader who scrolled back keeps their place when the transcript is read again (each reconnect of the event stream, and a turn that ends with a tool still running): the newest page no longer replaces the loaded history. When the newest page does not reach the loaded messages, up to three older pages (20, 40, 140 messages) are read until they meet; after a longer absence only the newest messages stay, so the transcript never skips messages. A kept message that was still running is read again by id. An older page is dropped when a newer read replaced the transcript it continues.",
+      "size": "M",
+      "status": "partly",
+      "status_evidence": "By reading, not run. HAVE: ours never replaced the transcript: the newest page read on a reconnect (session/meta/open.rs resync_view -> reload_session, 12 messages) is merged by id (crates/opencode-kit/src/model/transcript.rs merge), so loaded history and the reader's place stay. MISSING: (1) nothing closes a gap: when more than those 12 messages arrived while the stream was down, they go under the loaded ones with the messages between left out and nothing showing it (session/pages/mod.rs merge_page records a gap only for the boot preview, `cold`; crates/opencode-runtime/src/machines/pages.rs History takes `Latest` only from no state, so no older page is asked for below the loaded top); official's rule is that a transcript never skips messages. (2) a kept message older than the newest page that was running when the stream dropped is not read again, so it stays as it was. Needs a run behind a server whose stream is dropped while a session gains more than 12 messages.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-220",
+      "window": "post-1120",
+      "pr": 66026,
+      "sha": "d62d2db9bc",
+      "title": "fix(app): keep the command list and session header steady while the transcript changes",
+      "merged": "2026-11-24",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/AGENTS.md",
+        "packages/app/src/session/commands/use-session-commands.tsx",
+        "packages/app/src/shell/commands/command.tsx"
+      ],
+      "summary": "Official's session commands and the header's controls that show a keybind are no longer rebuilt on every transcript change (each message, tool update and history page): the command list reads the transcript through memos of single facts, and keybind labels through a map that changes only when a keybind does.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "By reading: this is Solid's reactivity (a memo that reads the transcript notified the command list, which registered every keybind again and re-rendered the header's controls). Ours has no such subscription: the header is drawn from state each frame and a command's enabled state is read where it shows. Nothing a user sees differs. Not measured.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-221",
+      "window": "post-1120",
+      "pr": 66066,
+      "sha": "092c1161b7",
+      "title": "fix(app): read only a history page's own messages in four transcript passes",
+      "merged": "2026-11-24",
+      "packages": [
+        "app",
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/app/AGENTS.md",
+        "packages/app/src/session/composer/region.tsx",
+        "packages/app/src/session/requests/background.ts",
+        "packages/session-ui/src/timeline/projection.ts"
+      ],
+      "summary": "A history page that lands costs official its own messages and not the loaded transcript in four passes: the todo pill reads the transcript only while a turn runs and todos are on, and the background jobs' history and the timeline's part lists read each message through its own memo.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "By reading: Solid memo granularity in packages/app/src/session/requests/background.ts and packages/session-ui/src/timeline/projection.ts; when the todo pill shows is unchanged. Ours has none of these memos. What a landed page costs ours is not compared here (the regression round's history rows measure it).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"

@@ -142,6 +142,12 @@ impl App {
             agent,
             model,
         };
+        // The person's prompt goes out from this window, so its session's browser is this
+        // window's (`packages/gui-plugins/src/browser/model.ts` `ready`).
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Route::Session { id, .. } = (*self.route).clone() {
+            crate::surfaces::browser::rpc::person_came(self, &id);
+        }
         if prompt.command.is_some() {
             return self.send_command(prompt, alternate, tx);
         }
