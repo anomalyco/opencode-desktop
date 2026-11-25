@@ -138,7 +138,7 @@ fn grouped_order(count: usize, groups: &[Group]) -> Vec<usize> {
 /// server the window is not working against has what that server last showed of it.
 pub fn project_of<'a>(s: &'a App, t: &'a Tab) -> Option<&'a Project> {
     if t.server != *crate::servers::runtime::active(s) {
-        return if t.is_draft() { None } else { s.checkout.project(&t.server, &t.id) };
+        return s.checkout.project(&t.server, &t.id);
     }
     if t.is_draft() {
         return s.project_at(&t.directory);

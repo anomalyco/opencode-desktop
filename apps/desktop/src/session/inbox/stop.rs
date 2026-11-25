@@ -156,6 +156,8 @@ impl App {
             };
             if asked {
                 self.running.remove(&sid);
+                // A stop that comes before the model has answered takes the prompt back.
+                crate::rewind::take_back::stopped(self, &sid);
             } else {
                 self.stops.step(&sid, Event::Forgotten);
             }
@@ -230,6 +232,7 @@ pub fn failed(s: &mut App, sid: &str, attempt: u32, e: &opencode_kit::wire_error
     for effect in s.stops.step(sid, Event::Failed { attempt: Attempt(attempt) }) {
         if effect == (Effect::Resume { failed: true }) {
             s.running.insert(sid.to_owned());
+            crate::rewind::take_back::forget(s, sid);
             crate::windows::peer::touch(s);
             crate::status_toast::failed_wire(s, opencode_i18n::t!("rune.stop.failed"), e);
         }
