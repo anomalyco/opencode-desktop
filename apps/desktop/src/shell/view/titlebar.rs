@@ -66,10 +66,14 @@ pub(super) fn titlebar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     let search = (!proto).then(|| search_button(p));
     let nav = row().key("titlebar-nav").gap(2.0).mr(-2.0).center_y().child(home_button(s, p)).children(search);
     let pinned_bar = super::sidebar::pinned_area::horizontal(s, p);
-    let visible_indices: Vec<usize> = if proto {
-        s.tabs.iter().enumerate().filter(|(_, t)| !crate::tabs::pins::holds(s, t)).map(|(i, _)| i).collect()
-    } else {
-        (0..s.tabs.len()).collect()
+    // Under Settings › Group tabs each project's or server's tabs stand together, the tabs with
+    // no project after them (`grouped.horizontal()`, `titlebar.tsx:922`). Official also draws a
+    // 16 × 1 divider between two groups (`tab-strip.tsx:1060-1068`), which the kit's strip has
+    // no place for yet.
+    let visible_indices: Vec<usize> = match crate::tabs::auto_groups::groups(s) {
+        Some(groups) => groups.iter().flat_map(|g| g.tabs.iter().copied()).collect(),
+        None if proto => s.tabs.iter().enumerate().filter(|(_, t)| !crate::tabs::pins::holds(s, t)).map(|(i, _)| i).collect(),
+        None => (0..s.tabs.len()).collect(),
     };
     // The strip's width matters only while the tabs can't all have their full 224 pt: below
     // that the tabs share it. Read through `layout_with`, a resize where every tab keeps its

@@ -158,6 +158,25 @@ fn long_command(s: &mut App) {
     }
 }
 
+/// The tour's last turn with a shell still running whose output starts with a URL: a link in a
+/// tool's output, which opens in the browser.
+fn shell_link(s: &mut App) {
+    tour(s, Some("c-call_shell_tour"), &[]);
+    let Some(t) = s.transcripts.get_mut(crate::stories::fixture_ids::TOUR) else { return };
+    let part = Part::Tool {
+        id: "call_link_shell".into(),
+        name: "shell".into(),
+        status: ToolStatus::Running,
+        title: String::new(),
+        input: serde_json::json!({ "command": "kiln publish --notes" }),
+        files: vec![],
+        metadata: serde_json::json!({ "output": "https://kiln.example.com/releases/2026.1.0\npublished kiln 2026.1.0, the notes are at the address above\n" }),
+    };
+    t.messages.push(Message::Assistant(Assistant { id: "msg_zztourlink".into(), parts: vec![part], ..Default::default() }));
+    s.running.insert(crate::stories::fixture_ids::TOUR.into());
+    s.timeline_fx.expanded.extend(["c-call_link_shell".to_owned(), "tool:call_link_shell".to_owned()]);
+}
+
 rune_register::register!(crate::stories::scenes::SCENE_LIST: crate::stories::scenes::Scene = [
     ("tools", |s| tour(s, None, &[])),
     ("tools-list", |s| tour(s, Some("c-call_list_tour"), &["tool:call_list_tour"])),
@@ -179,4 +198,5 @@ rune_register::register!(crate::stories::scenes::SCENE_LIST: crate::stories::sce
     }),
     ("tools-error", |s| tour(s, Some("c-call_shellerr_tour"), &["tool:call_shellerr_tour"])),
     ("tools-running", tour_running),
+    ("tools-shell-link", shell_link),
 ]);

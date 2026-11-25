@@ -325,11 +325,12 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         Write::Form { form, .. } | Write::CancelForm { form, .. } => Some(form.clone()),
                         _ => None,
                     };
-                    // A rename, delete or restore: its answer goes back to the machine that sent it
-                    // (`client.session.write`), failures included.
+                    // A rename, delete, archive or restore: its answer goes back to the machine that
+                    // sent it (`client.session.write`), failures included.
                     let session_write = match &w {
                         Write::Rename { session, title } => Some(serde_json::json!({ "kind": "rename", "sessionID": session, "title": title })),
                         Write::Delete(session) => Some(serde_json::json!({ "kind": "delete", "sessionID": session })),
+                        Write::Archive(session) => Some(serde_json::json!({ "kind": "archive", "sessionID": session })),
                         Write::Unarchive(session) => Some(serde_json::json!({ "kind": "unarchive", "sessionID": session })),
                         _ => None,
                     };
@@ -419,6 +420,7 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         }
                         Write::RevertClear(session) => server.revert_clear(&session),
                         Write::RevertCommit(session) => server.revert_commit(&session),
+                        Write::TakeBack { session, message } => server.take_back(&session, &message),
                         Write::SendFromRevert { session, prompt } => server.send_from_revert(&session, &prompt).map(|_| ()),
                         Write::Fork { session, before } => server.fork_session(&session, before.as_deref()).map(|session| forked = Some(session)),
                         Write::Tracked { .. } => Err("a tracked write can't track another".into()),

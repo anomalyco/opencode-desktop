@@ -19,6 +19,7 @@
 
 pub mod delete;
 pub mod export;
+pub mod generate_title;
 pub mod host;
 pub mod preferences;
 pub mod rename;
@@ -112,6 +113,8 @@ pub struct Menus {
     /// failure says nothing more.
     pub(crate) gave_up: Option<(String, String)>,
     pub(crate) seq: Seq,
+    /// The sessions whose generated title is being asked for (`generate_title`).
+    pub(crate) generating: generate_title::Generating,
     /// The inbox's and the project sidebar's Rename dialog, and its field.
     pub(crate) dialog: rename_dialog::State,
     pub dialog_edit: TextEdit,
@@ -130,6 +133,11 @@ impl Menus {
             rename::Edit::Arming { target, .. } | rename::Edit::Editing { target, .. } => Some(target.clone()),
             rename::Edit::Idle => None,
         }
+    }
+
+    /// Whether `session` on `server` waits for a title the server is generating.
+    pub fn generating(&self, server: &ServerKey, session: &str) -> bool {
+        self.generating.has(server, session)
     }
 
     /// Whether `t`'s title is being edited.
@@ -204,6 +212,14 @@ fn asks(word: &str) -> String {
     format!("{word}\u{2026}")
 }
 
+/// The tabs Close other tabs and Close tabs below count and close for tab `t`: the ones its strip
+/// shows, in the strip's order (`tab-strip.tsx:946-954`), or every tab when the strip does not
+/// show `t` itself.
+fn closable(host: &dyn SessionMenuHost, t: &Target) -> Vec<TabSummary> {
+    let shown = host.strip_tabs();
+    if shown.iter().any(|x| t.matches_tab(x)) { shown } else { host.tabs() }
+}
+
 /// The menu for `t`, as Desktop lists it. A tab's Rename and Delete wait for its session to
 /// load, and its Close other tabs and Close tabs to the right for tabs to close; a subagent's
 /// header has no menu.
@@ -235,11 +251,12 @@ pub fn lines(host: &dyn SessionMenuHost, t: &Target) -> Vec<Line> {
     match t.spot {
         Spot::Tab => {
             let uid = tab.map(|x| x.uid.as_str()).unwrap_or_default();
-            let at = tabs.iter().position(|x| x.uid == uid);
+            let shown = closable(host, t);
+            let at = shown.iter().position(|x| x.uid == uid);
             let known = known.is_some() || known_elsewhere;
             let close = [
                 item("close", opencode_i18n::t!("common.closeTab"), true),
-                item("close-others", opencode_i18n::t!("common.closeOtherTabs"), tabs.iter().any(|x| x.uid != uid)),
+                item("close-others", opencode_i18n::t!("common.closeOtherTabs"), shown.iter().any(|x| x.uid != uid)),
                 // Side tabs run down the sidebar; horizontal tabs invert under RTL (`TabCloseMenuItems`, `tab-nav.tsx:52-58`).
                 item(
                     "close-right",
@@ -250,7 +267,7 @@ pub fn lines(host: &dyn SessionMenuHost, t: &Target) -> Vec<Line> {
                     } else {
                         opencode_i18n::t!("common.closeTabsToRight")
                     },
-                    at.is_some_and(|i| i + 1 < tabs.len()),
+                    at.is_some_and(|i| i + 1 < shown.len()),
                 ),
             ];
             let extra = host.tab_menu_extra(uid);
@@ -420,7 +437,7 @@ pub fn run(host: &mut dyn SessionMenuHost, t: &Target, id: &str, tx: &mut Tx) {
             }
         }
         "close-others" | "close-right" => {
-            let tabs = host.tabs();
+            let tabs = closable(host, t);
             let at = tabs.iter().position(|x| t.matches_tab(x)).unwrap_or(0);
             let keep = tabs.get(at).map(|x| x.uid.as_str());
             let gone: Vec<String> = tabs
@@ -429,6 +446,14 @@ pub fn run(host: &mut dyn SessionMenuHost, t: &Target, id: &str, tx: &mut Tx) {
                 .filter(|(i, x)| Some(x.uid.as_str()) != keep && (id == "close-others" || *i > at))
                 .map(|(_, x)| x.uid.clone())
                 .collect();
+            // The page's own tab is among the closed: the page goes to the tab the menu was on
+            // (official `packages/app/src/shell/tabs/tabs.tsx:671-680`), not to a neighbour of
+            // each closed tab in turn, which may be a tab the strip does not show.
+            if let Some(keep) = keep
+                && host.shown_tab().is_some_and(|shown| gone.contains(&shown))
+            {
+                host.show_tab(keep, tx);
+            }
             for g in gone {
                 host.close_tab(&g, tx);
             }
@@ -452,7 +477,8 @@ pub fn run(host: &mut dyn SessionMenuHost, t: &Target, id: &str, tx: &mut Tx) {
     }
 }
 
-/// The server answered a rename, a delete or a restore this window sent (`client.session.write`).
+/// The server answered a rename, a delete, an archive or a restore this window sent
+/// (`client.session.write`).
 pub fn session_write_replied(host: &mut dyn SessionMenuHost, data: &serde_json::Value, error: Option<WireError>, tx: &mut Tx) {
     let session = data["sessionID"].as_str().unwrap_or_default().to_owned();
     let ok = data["ok"].as_bool() == Some(true);
@@ -463,6 +489,10 @@ pub fn session_write_replied(host: &mut dyn SessionMenuHost, data: &serde_json::
     match data["kind"].as_str() {
         Some("rename") => {
             let title = data["title"].as_str().unwrap_or_default().to_owned();
+            // An empty title was the ask to generate one: no edit or dialog waits on it.
+            if title.is_empty() {
+                return generate_title::replied(host, &session, error);
+            }
             // The reply comes in on its own server, checked out for it (`servers::runtime::poll`).
             let server = host.active_server();
             let current = host.session(&session).map(|i| i.title.clone());
@@ -494,11 +524,17 @@ pub fn session_write_replied(host: &mut dyn SessionMenuHost, data: &serde_json::
             let server = host.active_server();
             delete::sent_event(host, delete::SentEvent::Replied { session, server, ok }, why, tx);
         }
+        Some("archive") => host.on_archive_replied(session, ok, tx),
         Some("unarchive") => host.on_unarchive_replied(session, ok, why, tx),
         _ => {}
     }
-    if let Some(e) = error {
-        host.toast_wire_error(e);
+    match (error, data["kind"].as_str()) {
+        // An archive and a restore go as the session's PATCH, which a rename is too: the call
+        // alone would name them a failed rename. Desktop's title for both is
+        // `common.requestFailed` (`session/commands/use-session-commands.tsx:367`, `:383`).
+        (Some(e), Some("archive" | "unarchive")) => host.toast_wire_error_titled(opencode_i18n::t!("common.requestFailed"), e),
+        (Some(e), _) => host.toast_wire_error(e),
+        (None, _) => {}
     }
 }
 
