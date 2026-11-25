@@ -8,7 +8,7 @@ name: OpenCode (Rune) Release
 # - sign and publish jobs run in the `release` environment (deployment branch: dev only), check
 #   out only /.github/release/ at github.sha, run only those scripts and SHA-pinned actions, and
 #   treat artifacts strictly as SHA-256-verified data. Their secrets come from AWS Secrets Manager
-#   through GitHub OIDC (role github/opencode-desktop-release, anomalyco/secrets), step-scoped: the
+#   through GitHub OIDC (role github/opencode-rune-release, anomalyco/secrets), step-scoped: the
 #   AWS session is only a step output of configure-aws-credentials, passed to the one step that
 #   reads secrets (.github/release/with-secrets.sh). The environment holds only non-secret
 #   variables (AZURE_*, APPLE_NOTARY_KEY_ID, APPLE_NOTARY_ISSUER_ID).
@@ -17,7 +17,7 @@ name: OpenCode (Rune) Release
 #
 # This file and .github/release/ are the security boundary for releases; changing .github/ needs
 # Dax (.github/CODEOWNERS and the `release boundary (.github needs Dax)` ruleset). The release
-# service authorizes publish jobs by their OIDC token: anomalyco/opencode-desktop, this file,
+# service authorizes publish jobs by their OIDC token: anomalyco/opencode-rune, this file,
 # refs/heads/dev, environment release (anomalyco/release registry/opencode.json for desktop and
 # registry/opencode-rune.json for browser-engine).
 #
@@ -425,7 +425,7 @@ jobs:
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
           description: OpenCode (Rune)
-          description-url: https://github.com/anomalyco/opencode-desktop
+          description-url: https://github.com/anomalyco/opencode-rune
           exclude-environment-credential: true
           exclude-workload-identity-credential: true
           exclude-managed-identity-credential: true
@@ -528,8 +528,8 @@ jobs:
         name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: arn:aws:iam::604439173067:role/github/opencode-desktop-release
-          role-session-name: opencode-desktop-${{ github.run_id }}
+          role-to-assume: arn:aws:iam::604439173067:role/github/opencode-rune-release
+          role-session-name: opencode-rune-${{ github.run_id }}
           role-duration-seconds: 900
           aws-region: us-east-1
           output-env-credentials: false
@@ -850,7 +850,7 @@ jobs:
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
           description: OpenCode Browser Engine
-          description-url: https://github.com/anomalyco/opencode-desktop
+          description-url: https://github.com/anomalyco/opencode-rune
           exclude-environment-credential: true
           exclude-workload-identity-credential: true
           exclude-managed-identity-credential: true
@@ -910,8 +910,8 @@ jobs:
         name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: arn:aws:iam::604439173067:role/github/opencode-desktop-release
-          role-session-name: opencode-desktop-engine-${{ matrix.arch }}-${{ github.run_id }}
+          role-to-assume: arn:aws:iam::604439173067:role/github/opencode-rune-release
+          role-session-name: opencode-rune-engine-${{ matrix.arch }}-${{ github.run_id }}
           role-duration-seconds: 900
           aws-region: us-east-1
           output-env-credentials: false

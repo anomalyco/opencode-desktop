@@ -19,7 +19,7 @@ PR builds (`opencode-rune-pr-build.yml`) are separate: each open PR has an `open
 
 ## Latest downloads
 
-Each link redirects to the dev channel's current file. Append `/info` to a link for its version, byte size and SHA-256. The same files are on the newest [GitHub release](https://github.com/anomalyco/opencode-desktop/releases/latest).
+Each link redirects to the dev channel's current file. Append `/info` to a link for its version, byte size and SHA-256. The same files are on the newest [GitHub release](https://github.com/anomalyco/opencode-rune/releases/latest).
 
 | Platform | Dev |
 | --- | --- |
@@ -75,6 +75,6 @@ Dispatch `release.yml` from `dev` with `channel=engine-linux` to build the x86_6
 - Sign and publish jobs use the protected `release` environment, which can deploy only from `dev`. They sparse-check out only `.github/release/` at `github.sha` and treat artifacts as data, checked against the SHA256SUMS digest the job that built them reported.
 - Signing credentials are stored outside the repository and fetched via GitHub OIDC only inside the step that uses them (`.github/release/with-secrets.sh`), never exported into `$GITHUB_ENV`.
 - The `release` environment holds only non-secret identifiers (`AZURE_*` and Apple notary IDs); repository and environment secrets stay empty.
-- The release service authorizes publishes via GitHub OIDC restricted to `anomalyco/opencode-desktop`, `.github/workflows/release.yml`, `refs/heads/dev` and the `release` environment.
+- The release service authorizes publishes via GitHub OIDC restricted to `anomalyco/opencode-rune`, `.github/workflows/release.yml`, `refs/heads/dev` and the `release` environment.
 - Changes to `.github/` require code-owner approval (`.github/CODEOWNERS`).
 - PR builds are never signed with release credentials. Their macOS app is ad-hoc signed.
