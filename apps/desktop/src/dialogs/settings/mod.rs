@@ -28,7 +28,10 @@ use crate::pickers::PickerHost as _;
 /// Configures the extracted settings crate with desktop's build metadata.
 pub fn init() {
     opencode_feature_settings::configure(SettingsConfig {
-        build_channel: crate::updater::build_channel(),
+        // NEVER MERGE: this build tells Settings it is a `dev` build, so the Consolidated and Recent
+        // arrangements are offered and #1144 can be run on a PR build. The updater, the folders
+        // and the app's identity keep the PR build's own channel.
+        build_channel: "dev",
         build_version: crate::updater::build_version(),
     });
 }
