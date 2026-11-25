@@ -2,8 +2,11 @@
 //! answered (`shell/titlebar/inbox-model.ts:476-492`, `session/commands/use-session-commands.tsx:
 //! 359-391`, `shell/titlebar/recent-sessions.tsx:914`), so a session the server refuses to move
 //! stays where it is, with a toast. Beyond Desktop the window shows the move at once, so a move
-//! the server refuses is put back: the session where it was, its tab open again, the Undo offer
-//! gone, and Desktop's toast.
+//! the server refuses is put back: the session where it was, its tab in its place again, the
+//! page it showed back on it, the Undo offer gone, and Desktop's toast. A session that was not the
+//! page shown comes back without being shown: Desktop, which moved nothing, leaves the page
+//! where it is (`inbox-model.ts:476-487`: the move and the tabs' removal run only once the server
+//! has answered).
 //!
 //! One machine for the moves in flight. A session's writes reach its server in the order they
 //! were made (`opencode-kit`'s write lanes), so its answers come back in the order its moves went.
@@ -16,10 +19,21 @@ use crate::App;
 /// Where a session stood before a move, for putting it back.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Was {
-    /// Listed, and archived by the move. `tab`: its tab closed with it.
-    Listed { tab: bool },
+    /// Listed, and archived by the move, which closed its tab.
+    Listed { tab: TabWas },
     /// Archived at this time (wall-clock ms), and listed again by the move.
     Archived(i64),
+}
+
+/// The window's tab for a session when its archive closed it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TabWas {
+    /// It had none.
+    Absent,
+    /// One that was not the page shown.
+    Behind,
+    /// The page shown.
+    Shown,
 }
 
 /// A move the window made and asked `server` for.
@@ -78,8 +92,10 @@ impl App {
             Was::Listed { tab } => {
                 s.unarchive_session_locally(&session);
                 crate::undo::withdraw_archived(s, &server, &session);
-                if tab {
-                    s.reopen_closed(Some(&session), false, tx);
+                match tab {
+                    TabWas::Absent => {}
+                    TabWas::Behind => s.put_back_closed(&session),
+                    TabWas::Shown => s.reopen_closed(Some(&session), false, tx),
                 }
             }
             Was::Archived(at) => {

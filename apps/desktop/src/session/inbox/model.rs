@@ -303,11 +303,16 @@ impl App {
         self.inbox_file(info);
         let here = crate::servers::runtime::active(self).clone();
         let tab = self.tabs.iter().find(|t| t.is(&here, id) && !t.is_draft()).map(crate::tabs::Tab::uid);
+        let was = match &tab {
+            None => super::moves::TabWas::Absent,
+            Some(uid) if self.current_tab().as_deref() == Some(uid.as_str()) => super::moves::TabWas::Shown,
+            Some(_) => super::moves::TabWas::Behind,
+        };
         if let Some(uid) = &tab {
             self.close_tab(uid, tx);
         }
         let sent = self.write(opencode_kit::client::Write::Archive(id.to_owned()));
-        self.archive_move_sent(id, super::moves::Was::Listed { tab: tab.is_some() }, sent, tx);
+        self.archive_move_sent(id, super::moves::Was::Listed { tab: was }, sent, tx);
         if sent {
             // Beyond Desktop: the toast offers it back, tab and all.
             crate::undo::offer(self, opencode_i18n::t!("rune.undo.sessionArchived"), crate::undo::Undoable::Archived { server: here, session: id.to_owned() });
