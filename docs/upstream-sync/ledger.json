@@ -2,29 +2,29 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "acce96c36e7a90c5b28eb106e628e84cba86d61d",
+  "upstream_head": "64324cf3e41bd51886ad897f35ec65251de2e667",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "312f8b182",
-  "post_1114_commit_count": 654,
-  "post_1114_in_ledger": 230,
-  "post_1114_skipped": 424,
+  "rune_desktop_head": "dbc5a7f71",
+  "post_1114_commit_count": 659,
+  "post_1114_in_ledger": 233,
+  "post_1114_skipped": 426,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
-    "ci-bench-deps": 24,
-    "docs-site-data": 62,
+    "ci-bench-deps": 25,
+    "docs-site-data": 63,
     "tui-only": 28,
     "cli-acp-only": 11,
     "server-core-ai-codemode-internal": 274
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 251,
+  "total_ledger_rows": 254,
   "status_counts": {
-    "have it": 203,
+    "have it": 204,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 8
+    "missing": 10
   },
   "rows": [
     {
@@ -6200,8 +6200,8 @@
       ],
       "summary": "Four gaps of the Consolidated navigation: a middle click on a pinned session unpins it and closes its tab; a pin group's chevron (vertical) and, under Consolidated, a Recent group header's chevron show only on hover or keyboard focus; Home's project picker names the focused server, with the server glyph, in place of All projects when there are several servers and no project is chosen.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Ported in draft opencode-rune #1144 (apps/desktop/src/shell/tabs/pins.rs close, shell/view/sidebar/pinned_area.rs, sidebar/recent.rs, shell/view/home/projects.rs); compiled by CI only, not run: it merges after a run on its build. Two differences stated there: the chevron's fade follows the row's hover track, not official's 150 ms; a pin group's chevron also shows for focus on the row's options button.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1144 (2e0d7d31): a middle click on a pinned session unpins it (apps/desktop/src/shell/tabs/pins.rs), a pin group's and a Recent group header's chevron show only under the pointer or keyboard focus (shell/view/sidebar/pinned_area.rs, recent.rs), Home's picker names the focused server when no project is chosen (shell/view/home/projects.rs). Run headless on its own Windows x64 CI build beside a build without it: the chevron at rest / pointer on the toggle / pointer away / keyboard focus on the toggle and on the menu button, the Recent header the same, the middle click with and without an open tab, Home's picker with one and two servers in a narrow and a 900-wide window. Not run: a real window, a pin group in top tabs under the keyboard, the Recent arrangement's own grouped header, macOS, Linux. Open differences, all four removed by Rune's rune#2231 (merged on Rune dev, not pinned yet), then one app change: (A) the chevron's fade: ours at once in and 0.1 s out, official 150 ms (packages/app/src/shell/titlebar/pinned-area.tsx:376); (B) with the pointer over the row's menu button official still shows the chevron (the row is hovered), ours does not; (C) with keyboard focus on the toggle ours also draws the toggle's hover fill, official the focus ring alone (seen in the run); (D) the menu button shows for keyboard focus anywhere in the row, official only for its own focus (pinned-area.tsx:417; recent-sessions.tsx:1225, :1231).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6291,6 +6291,76 @@
       "size": "M",
       "status": "missing",
       "status_evidence": "Ported in draft opencode-rune #1189 (apps/desktop/src/session/inbox/model.rs inbox_sections_with and Entry::waiting; shell/view/inbox.rs the card's dim and reveal; session/menu.rs the toggle and session.unarchive; shell/commands/mod.rs open_root_archived; shell/tabs/actions.rs the Inbox's keys, unread and the numbered pick's reveal); compiled by CI only, not run: it merges after a run on its build. Official: packages/app/src/shell/titlebar/inbox.tsx:142, :157, :178-210, :895; inbox-model.ts:523; packages/app/src/session/commands/use-session-commands.tsx:609-617; tab-strip.tsx:379, :392, :452.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-231",
+      "window": "post-1120",
+      "pr": 66343,
+      "sha": "31459a2c9e",
+      "title": "fix(app): remove the gap inside top tab groups",
+      "merged": "2026-11-25",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/titlebar/pinned-area.tsx"
+      ],
+      "summary": "Top tabs: a pin group's square and its sessions stand with no gap between them (the horizontal group's row lost its 4 px gap).",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Not ported yet: in work. Official: packages/app/src/shell/titlebar/pinned-area.tsx:390 (the horizontal group's classes: 'flex-row items-center', no 'gap-1'). Ours: apps/desktop/src/shell/view/sidebar/pinned_area.rs horizontal_group still has gap 4.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-232",
+      "window": "post-1120",
+      "pr": 66339,
+      "sha": "eec153e79a",
+      "title": "fix(app): split the browser import dialog into what to import and which sites",
+      "merged": "2026-11-25",
+      "packages": [
+        "gui-plugins",
+        "ui"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/i18n/en.ts",
+        "packages/gui-plugins/src/browser/settings.tsx",
+        "packages/gui-plugins/src/browser/site-chooser.tsx",
+        "packages/ui/src/overlays/dialog/dialog.css"
+      ],
+      "summary": "The browser's import dialog in two groups: what comes over (Sign-ins, Browsing history) and from which sites: a radio choice 'All sites' (with the count) or 'Only sites I choose', which shows the search and the site list under it with nothing ticked; one box in the list's header ticks or clears every shown site (mixed when some are ticked) in place of the Select all / Select none buttons; the 'Choose sites' disclosure in the footer is gone; a profile picker ('From') shows only where the dialog has several profiles to offer, and a Settings row opens it for its own profile, named in the title with the profile as a badge; a new dialog size 'tall' (480 x 600, fixed top edge); the Settings row's button says 'Import', not 'Import...', and a browser's profile name beside it is a badge.",
+      "size": "L",
+      "status": "missing",
+      "status_evidence": "Not ported yet: in work. Official: packages/gui-plugins/src/browser/site-chooser.tsx (the whole dialog), settings.tsx:71-73 (choices = [choice]), :884-896 (the badge), i18n/en.ts:204-208 and :439, packages/ui/src/overlays/dialog/dialog.css:163-180 and dialog.tsx:28 (size 'tall'). Ours: plugins/browser/settings.luau and init.luau (the dialog as it was: two boxes, a 'Choose sites' disclosure, every site ticked), opencode_ui::dialog::DialogSize (no tall preset).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-233",
+      "window": "post-1120",
+      "pr": 66340,
+      "sha": "64324cf3e4",
+      "title": "fix(app): show keyboard focus in the worktree picker and What's New",
+      "merged": "2026-11-25",
+      "packages": [
+        "app",
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/app/src/new-session/location/dialog.css",
+        "packages/app/src/new-session/location/dialog.tsx",
+        "packages/gui-plugins/src/updater/whats-new.tsx"
+      ],
+      "summary": "Keyboard focus in two dialogs. The worktree picker (the new session's location dialog): its rows are no longer Tab stops, the search field keeps the focus and names the active row, and a row lights under the pointer only; typing on a focused row no longer has to be sent back to the search field. What's New: its wrapper is no longer a Tab stop, and Next and Get started are one button that takes the focus when the dialog opens and keeps it on the last page.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Not ported yet: in work. Official: packages/app/src/new-session/location/dialog.tsx:472-473 (tabIndex -1 on a row), dialog.css:32-34 (hover only), packages/gui-plugins/src/updater/whats-new.tsx:221-222 (the wrapper) and :239-247 (the one button, autofocus). Ours, by reading: features/switcher/src/project/view.rs row_shell rows take a press and are not marked unfocusable; plugins/updater/view.luau draws two buttons with two keys (release-next, release-get-started) and none takes the focus on opening.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
