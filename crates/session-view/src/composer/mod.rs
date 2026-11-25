@@ -398,8 +398,9 @@ pub fn submit_surface(base: El, p: &Pal, live: bool) -> El {
         .motion(Spring::NONE)
         .motion_intent(MotionIntent::CUT);
     if !live {
-        // Disabled, so neither clickable nor a Tab stop (`editor.tsx:1548`).
-        return b.opacity(0.4).disabled(true).focusable(false);
+        // Disabled, so neither clickable nor a Tab stop (`editor.tsx:1548`), under the not-allowed cursor
+        // (`packages/ui/src/actions/submit.css:79`; Desktop's cursor reset leaves `:disabled` alone).
+        return b.opacity(0.4).disabled(true).focusable(false).hit().cursor(rune::Cursor::NotAllowed);
     }
     let (hover, pressed) = if p.dark { (black.alpha(0.08), black.alpha(0.4)) } else { (white.alpha(0.12), white.alpha(0.24)) };
     b.hover(hover).press(pressed).focus_default(p)
