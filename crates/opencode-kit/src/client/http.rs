@@ -44,7 +44,7 @@ pub(crate) fn loopback(base: &str) -> bool {
 
 /// The agent a server's requests share (connections kept alive between them).
 pub(crate) fn agent_for(base: &str) -> ureq::Agent {
-    let config = ureq::Agent::config_builder().http_status_as_error(false).max_redirects(0).max_idle_age(IDLE_REUSE);
+    let config = net_trust::agent_config().http_status_as_error(false).max_redirects(0).max_idle_age(IDLE_REUSE);
     let config = if loopback(base) { config.proxy(None) } else { config };
     config.build().into()
 }

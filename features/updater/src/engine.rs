@@ -103,7 +103,7 @@ impl Engine {
     }
 
     fn agent(timeout: Duration, https_only: bool) -> ureq::Agent {
-        ureq::Agent::config_builder()
+        net_trust::agent_config()
             .timeout_global(Some(timeout))
             .http_status_as_error(false)
             .https_only(https_only)

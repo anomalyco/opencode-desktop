@@ -695,7 +695,7 @@ impl Server {
         use crate::wire_error::{read_failure, transport};
         use worker::{Handshake, StreamEffect, StreamEvent, stream_step};
         let down = |kind: WireKind| WireError::new("GET", "/api/event", kind);
-        let config = ureq::Agent::config_builder().timeout_per_read(Some(stream.idle)).http_status_as_error(false).max_redirects(0);
+        let config = net_trust::agent_config().timeout_per_read(Some(stream.idle)).http_status_as_error(false).max_redirects(0);
         let agent: ureq::Agent = if http::loopback(&self.base) { config.proxy(None) } else { config }.build().into();
         let mut req = agent.get(format!("{}/api/event", self.base)).header("Accept", "text/event-stream");
         if let Some(a) = &self.auth {

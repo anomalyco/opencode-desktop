@@ -41,6 +41,7 @@ members = [
     "crates/browser-policy",
     "crates/harness-log",
     "crates/hex-client",
+    "crates/net-trust",
     "crates/office-library",
     "crates/office-preview",
     "crates/opencode-code-view",
