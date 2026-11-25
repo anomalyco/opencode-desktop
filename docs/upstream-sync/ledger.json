@@ -2,29 +2,29 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "2b296cabc843fb76e7d65c53e10ce29833630aa1",
+  "upstream_head": "57551d990d861720a39d1aba82d43023f9fad745",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "62bf130d4",
-  "post_1114_commit_count": 685,
+  "rune_desktop_head": "7c3c9ed56",
+  "post_1114_commit_count": 687,
   "post_1114_in_ledger": 240,
-  "post_1114_skipped": 445,
+  "post_1114_skipped": 447,
   "post_1114_skipped_breakdown": {
-    "test-only": 26,
+    "test-only": 27,
     "ci-bench-deps": 26,
     "docs-site-data": 70,
     "tui-only": 31,
     "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 281
+    "server-core-ai-codemode-internal": 282
   },
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 261,
   "status_counts": {
-    "have it": 213,
+    "have it": 214,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 8
+    "missing": 7
   },
   "rows": [
     {
@@ -6007,8 +6007,8 @@
       ],
       "summary": "A skill's file opened in the file viewer (`skill://<id>/<file>`) is read through the server (`GET /api/experimental/skill/:skillID/file/*`), which loads a file a skill serves on demand; before, the viewer took the text from the inline content of `/api/skill`, which is empty for such a skill. The server side: behind the `mcp_skills` flag, skills an MCP server offers are listed as `<server>:<skill>`.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "In work: draft opencode-rune #1226 (not compiled, not run). By reading: ours' file tab reads no `skill://` path at all, neither the inline content official read before nor the new endpoint (no `skill://` in apps/desktop/src/surfaces/files or plugin_host/native/files.rs; crates/opencode-kit/src/model/plugin.rs SkillInfo takes id, name and path only). The lists that name skills (mentions, Settings, Details) take what `/api/skill` lists, so an MCP skill shows there as the server names it. Not run: what a read row with a `skill://` path opens in ours; a server with the endpoint.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1226 (7c3c9ed5), with the two older official changes it stands on, which ours never had (#60464 78f8dffd48, #60921 69269e4ebe): a skill's virtual file, `skill://<id>/<file>`, opens in the file tab. It is read with `GET /api/experimental/skill/<id>/file/<path>` (features/files/src/data.rs fetch_skill_file; official packages/app/src/workspaces/files/model.tsx:257-264); a link to such a path is a file link, with a line or a line range (features/files/src/links.rs Link::Skill); the tab has no Open in and no Show in folder, and the file is no row of the file tree and is not watched. Ours only: on a server that has no such route (older than 24 Nov) the read falls back to the inline body of `/api/skill`, where official itself read it before #66201; on a server with the route a skill or file the server does not have reads as not found. Run headless on its own Windows x64 CI build (head 043c15009) beside a build of dev on the same Rune pin. With a test server from before the new route: a built-in skill pressed in Details > Skills opens a tab with the skill's text (before: no tab); a reply's link with `:3` opens the tab in the source view with line 3 marked; a file that is not there gives a toast and no tab; in each the server was asked the file route once (404) and then the skills list (200), so the fallback read is proved by a run. With a fixture file and no server: the link opens the tab, with no `skill:` row in the tree and no Open in; a relative link inside a skill's file opens the skill's other file under one tab id; a missing file gives the toast. By reading only: the new route answering 200, and an MCP server's skill (its body is not in the list), since the server the cases ran on is from before df79010bc6. Seen at the server, by reading, not in a pass: in its first second for a folder the skills list is empty and the fallback reads it once, so a skill opened in that second reads as not found and opens on the next press. Not run: a real window; macOS; Linux. The server side of #66201 (the `mcp_skills` flag, the `<server>:<skill>` names) is the server's and needs nothing of ours: the lists that name skills take what `/api/skill` lists.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
