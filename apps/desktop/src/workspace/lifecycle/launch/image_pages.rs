@@ -13,10 +13,10 @@
 //! - the pages the earlier launches of this very exe used, from `<cache>/launch-pages.bin`;
 //! - with no list for this exe yet (its first start), its code and constants in address order.
 //!
-//! It asks only when the pages are away: it reads one byte of sixteen of them first, and a page
-//! in memory answers in a few microseconds where one on the disk takes fifty or more. With the
-//! exe in memory (most launches) nothing is asked for: the call would take the locks the
-//! launch's own page faults need.
+//! It asks only when the pages are away: it reads one byte of [`SAMPLES`] of them first (of
+//! [`SAMPLES_NO_LIST`] with no list yet), and a page in memory answers in a few microseconds
+//! where one on the disk takes fifty or more. With the exe in memory (most launches) nothing is
+//! asked for: the call would take the locks the launch's own page faults need.
 //!
 //! Then, with a list, the thread reads one byte of each listed page. A page in memory is still
 //! not in the process: the first thread to touch it takes a soft fault that maps it in, and a
@@ -77,11 +77,35 @@ const ASK_JOIN_MANY: u32 = 6;
 /// How many threads ask at most: half the processors the process may run on, so the launch's
 /// own threads keep theirs. Eight asked in 7.3 ms where four took 7.8.
 const ASK_THREADS: usize = 4;
-/// How many of the wanted pages are read to learn whether they are in memory, how long a read
-/// of one that isn't takes at least, and how many such reads say the exe is away.
+/// How many of a list's pages are read to learn whether they are in memory, how long a read
+/// of one that isn't takes at least, and how many such reads say the exe is away. With a list
+/// a look that misses costs little: the thread reads every listed page next, off the launch's
+/// threads (at most about 4 ms later at the first frame), and 128 samples made the everyday
+/// launch about 1 ms later (36 rounds in turn: first frame +0.9 ms, content live +1.45 ms).
 const SAMPLES: u32 = 16;
+/// The same look with NO list (a new profile, or a build's first launch on a profile: after
+/// every update): then nothing reads the pages after a look that missed, so each page that is
+/// away is a fault of the thread that runs its code, the UI thread first.
+///
+/// Memory pressure pushes out some of an exe's pages, not all. With a share `f` of them away
+/// the look finds fewer than two with chance `(1-f)^n + n*f*(1-f)^(n-1)`: at 16 samples that is
+/// 96 % for 2 % away, 81 % for 5 % and 51 % for 10 %. 512 samples hold about ten pages that are
+/// away at 2 %, and fewer than [`AWAY_SAMPLES_NO_LIST`] of them in under 1 % of launches.
+/// Measured on a fresh profile (25 Nov, first frame / content live, ms): with 2 % of the image
+/// away 16 samples said "present" in 16 of 16 launches (60-71 / 85-94, against 35-39 / 49-51
+/// with all of it in memory); 128 missed 2 of 15 (one of them: 62 / 94); 512 missed 0 of 6
+/// (50 / 66); asking with no look at all cost the launch whose exe IS in memory 5-6 ms of first
+/// frame and 5-13 ms of content live. In memory a sample costs a few microseconds on this
+/// thread, beside the launch: with 512 the first frame was 39.3 against 38.9 ms and content
+/// live 54.4 against 51.1 ms (7 a side: not told apart), once per build and profile.
+const SAMPLES_NO_LIST: u32 = 512;
 const AWAY: Duration = Duration::from_micros(25);
 const AWAY_SAMPLES: u32 = 2;
+/// How many slow reads of [`SAMPLES_NO_LIST`] say the exe is away. Two were enough to be wrong:
+/// with the library whole in memory, two of 512 reads were slowed by the launch's own first
+/// milliseconds in 4 of 32 launches, and each then asked for the whole 148 MB beside the launch
+/// (`main` to the first frame 23-32 ms against 20-21 ms; 16 samples: 0 of 16).
+const AWAY_SAMPLES_NO_LIST: u32 = 4;
 /// How long after the first input the launch counts as settled.
 const SETTLED: Duration = Duration::from_millis(750);
 /// How often the thread looks for the first input, and for how long at most.
@@ -171,7 +195,8 @@ fn run(mode: Mode, threads: usize, ask: usize) {
         _ => Some(image.sections.clone()),
     };
     if let Some(runs) = &wanted {
-        if mode != Mode::Auto || away(&image, runs) {
+        let (samples, slow) = if listed.is_some() { (SAMPLES, AWAY_SAMPLES) } else { (SAMPLES_NO_LIST, AWAY_SAMPLES_NO_LIST) };
+        if mode != Mode::Auto || away(&image, runs, samples, slow) {
             prefetch(&image, runs, ask);
             rune::marks::mark("image.pages.asked");
         } else {
@@ -243,13 +268,13 @@ fn image() -> Option<Image> {
     }
 }
 
-/// Whether `runs`' pages wait on the disk: up to [`SAMPLES`] of them, evenly spread, read one byte
-/// each, until [`AWAY_SAMPLES`] were slow.
-fn away(image: &Image, runs: &[(u32, u32)]) -> bool {
+/// Whether `runs`' pages wait on the disk: up to `samples` of them, evenly spread, read one byte
+/// each, until `enough` of them were slow.
+fn away(image: &Image, runs: &[(u32, u32)], samples: u32, enough: u32) -> bool {
     let total: u64 = runs.iter().map(|&(_, pages)| u64::from(pages)).sum();
     let mut slow = 0;
-    for i in 0..u64::from(SAMPLES) {
-        let mut nth = total * (2 * i + 1) / (2 * u64::from(SAMPLES));
+    for i in 0..u64::from(samples) {
+        let mut nth = total * (2 * i + 1) / (2 * u64::from(samples));
         let Some(page) = runs.iter().find_map(|&(first, pages)| {
             if nth < u64::from(pages) {
                 return Some(u64::from(first) + nth);
@@ -270,7 +295,7 @@ fn away(image: &Image, runs: &[(u32, u32)]) -> bool {
             slow += 1;
             // Enough to say so: each further sample of an exe that is away waits on the disk
             // (a read of its own, 200-400 us), before the ask that would bring it in.
-            if slow >= AWAY_SAMPLES {
+            if slow >= enough {
                 return true;
             }
         }
