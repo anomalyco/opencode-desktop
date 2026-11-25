@@ -15,6 +15,11 @@ use crate::style::{BUBBLE, readable};
 /// `-webkit-line-clamp: 3`.
 const CLAMP: usize = 3;
 
+/// A source's icon before the quoted words and the room after it (`message-part.css:2058-2068`:
+/// a 14 px glyph, `margin-inline-end: 6px`).
+const ICON: f32 = 14.0;
+const ICON_GAP: f32 = 6.0;
+
 /// The bar and the room after it (`border-inline-start: 2px`, `padding-inline-start: 8px`).
 const BAR: f32 = 2.0;
 const BAR_GAP: f32 = 8.0;
@@ -66,20 +71,30 @@ fn quote<S: TimelineHost>(s: &S, p: &Pal, id: &str, i: usize, q: &Quote, pending
     }
     let key = open_key(id, i);
     let open = s.expanded().contains(&key);
-    let lines = laid_out_lines(quoted, width);
+    // A source's icon leads the quote, inline, so wrapped lines return to the bar
+    // (`user-message-quotes.tsx:76`, `message-part.css:2058` `user-message-quote-icon`: 14 px in
+    // icon-muted, 6 before the words). The clamp counts the lines with the icon's room taken.
+    let glyph = crate::user_parts::source_glyph(q);
+    let lines = laid_out_lines(quoted, width, glyph.is_some());
     let expandable = open || lines > CLAMP;
     let ink = if pending { p.faint } else { p.muted };
     let mut words = text(quoted.to_owned()).key("text").font(BUBBLE).color(ink).wrap_anywhere();
-    // A source's icon leads the quote, inline, so wrapped lines return to the bar
-    // (`user-message-quote-icon`: 14 px in icon-muted, 6 before the words).
-    if let Some(glyph) = crate::user_parts::source_glyph(q) {
-        words = words.inline_icon(0, rune::InlineIcon::glyph(glyph).size(14.0).gap(6.0).color(p.icon_muted));
+    if let Some(glyph) = glyph {
+        words = words.inline_icon(0, rune::InlineIcon::glyph(glyph).size(ICON).gap(ICON_GAP).color(p.icon_muted));
     }
     let mut words = readable(p, words).dir_by_paragraph().shrink().min_w(0.0);
     if !open {
         words = words.max_lines(CLAMP);
     }
+    // The source's name for assistive technology. Official names the icon itself (`aria-label`,
+    // `user-message-quotes.tsx:76`); an inline icon here has no name of its own, so the quote
+    // carries it as its description.
+    let source = glyph.and(q.source_label()).map(str::to_owned);
     if !expandable {
+        let words = match source {
+            Some(name) => words.description(name),
+            None => words,
+        };
         return Some(behind_bar(p, pending, words, lines <= 1));
     }
     // `[data-expandable]:hover, :focus-visible`: the words take the base ink.
@@ -102,6 +117,10 @@ fn quote<S: TimelineHost>(s: &S, p: &Pal, id: &str, i: usize, q: &Quote, pending
             tx.keep_on_screen(row_key.clone());
         })
         .child(words.group_color(p.text));
+    let button = match source {
+        Some(name) => button.description(name),
+        None => button,
+    };
     Some(behind_bar(p, pending, button, false))
 }
 
@@ -115,8 +134,10 @@ thread_local! {
 /// fold, and a quote of four wrapped lines is one such. The answer is kept by text and width,
 /// so a row built again (a streaming turn builds its rows each commit) lays nothing out: only
 /// a new quote or a new width does, once. A quote past the clamp by its line breaks alone is
-/// never laid out.
-fn laid_out_lines(text: &str, width: f32) -> usize {
+/// never laid out. With `icon`, a source's icon leads the first line: the text is laid out behind
+/// no-break spaces as wide as the icon and its gap (rounded up to a whole space), which stay
+/// with the first word as the icon does.
+fn laid_out_lines(text: &str, width: f32, icon: bool) -> usize {
     use std::hash::{Hash, Hasher};
     let hard = text.split('\n').count();
     if hard > CLAMP {
@@ -124,10 +145,19 @@ fn laid_out_lines(text: &str, width: f32) -> usize {
     }
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     text.hash(&mut hasher);
+    icon.hash(&mut hasher);
     let key = (hasher.finish(), width.to_bits());
     if let Some(lines) = LINES.with_borrow(|kept| kept.get(&key).copied()) {
         return lines;
     }
+    let led;
+    let text = if icon {
+        let space = rune::text::measure("\u{a0}", &[], BUBBLE, None).0.max(1.0);
+        led = format!("{}{text}", "\u{a0}".repeat(((ICON + ICON_GAP) / space).ceil() as usize));
+        led.as_str()
+    } else {
+        text
+    };
     let (_, height) = crate::fold::measure(text, width);
     let lines = hard.max((height / BUBBLE.line_px()).round() as usize);
     LINES.with_borrow_mut(|kept| {
