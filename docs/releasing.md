@@ -9,7 +9,7 @@
 - **stable**: dispatch from `dev` with a bump (`patch`, `minor` or `major`). The version is the latest `vX.Y.Z` tag bumped (`0.0.0` when there is none). After publishing the same target set as dev, the last job tags `v<version>` on the released commit and mirrors the packages to the GitHub release.
 
 ```sh
-gh workflow run release.yml -R anomalyco/opencode-desktop --ref dev -f channel=stable -f bump=patch
+gh workflow run release.yml -R anomalyco/opencode-rune --ref dev -f channel=stable -f bump=patch
 ```
 
 Tags start nothing, and the workflow has no ref input: a run always releases `github.sha` on `dev`.
