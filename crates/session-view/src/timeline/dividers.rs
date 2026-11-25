@@ -1,11 +1,12 @@
 //! Dividers back to back sit as one tight group, and a group sits the turn's usual gap from the
-//! rows around it (p265): each divider row learns what's above and below it.
+//! rows around it (p265): each divider row learns what's above and below it, and the row above a
+//! divider learns to hold the room over the divider's words (`compaction::Over`).
 
 use opencode_kit::model::{Message, Transcript};
 
 use super::{RowContent, RowSpec};
 use crate::TimelineHost;
-use crate::compaction::{Beside, Run};
+use crate::compaction::{Beside, Over, Run};
 
 /// Notes on each divider row in `out` what sits beside it.
 pub(super) fn stack(t: &Transcript, out: &mut [RowSpec]) {
@@ -25,10 +26,15 @@ pub(super) fn stack(t: &Transcript, out: &mut [RowSpec]) {
             Some(Kind::Prompt | Kind::Roomy) | None => Beside::Spaced,
             Some(Kind::Other) => Beside::Other,
         };
-        let run = Run { above, below };
+        // The row above holds the room over the divider's words (`Over`).
+        let over = if k > 0 { Over::Above } else { Over::Own };
+        let run = Run { above, below, over };
         match &mut out[i].content {
             RowContent::Notice(_, r, _) | RowContent::Compaction { run: r, .. } | RowContent::CompactionQueued(r) | RowContent::TurnDivider(r) => *r = run,
             _ => {}
+        }
+        if k > 0 {
+            out[shown[k - 1]].divider = Some(above);
         }
     }
 }
@@ -50,10 +56,22 @@ pub(super) fn stack_at(t: &Transcript, out: &mut [RowSpec], at: std::ops::Range<
             Some(Kind::Prompt | Kind::Roomy) | None => Beside::Spaced,
             Some(Kind::Other) => Beside::Other,
         };
+        let over = if i > 0 { Over::Above } else { Over::Own };
         match &mut out[i].content {
-            RowContent::Notice(_, r, _) | RowContent::Compaction { run: r, .. } | RowContent::CompactionQueued(r) | RowContent::TurnDivider(r) => *r = Run { above, below },
+            RowContent::Notice(_, r, _) | RowContent::Compaction { run: r, .. } | RowContent::CompactionQueued(r) | RowContent::TurnDivider(r) => *r = Run { above, below, over },
             _ => {}
         }
+        if i > 0 {
+            out[i - 1].divider = Some(above);
+        }
+    }
+}
+
+/// `row` is the first row with messages still to load above it: a divider takes no room over
+/// its words, since the row that lands above it brings that room (`Over::Waiting`).
+pub(super) fn wait(row: &mut RowContent) {
+    if let RowContent::Notice(_, r, _) | RowContent::Compaction { run: r, .. } | RowContent::CompactionQueued(r) | RowContent::TurnDivider(r) = row {
+        r.over = Over::Waiting;
     }
 }
 

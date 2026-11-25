@@ -15,7 +15,7 @@ use session_view::palette::{Elevate as _, Pal, kit};
 
 use super::QuoteHost;
 use super::cards::chip_key;
-use super::comment::{self, Anchor, Comment, Config, Event, FieldEffect, FieldEvent, FieldKey, Mention};
+use super::comment::{self, Anchor, Bounds, Comment, Config, Event, FieldEffect, FieldEvent, FieldKey, Mention};
 use super::place::{self, Place, Placing};
 
 /// `quote-comment.tsx` `GAP`, `WIDTH`.
@@ -372,7 +372,7 @@ fn resolve_editor_layout(host: &dyn QuoteHost, m: &ViewMeasure) -> EditorLayout 
     let opening = q.opening.get();
     let height = m.measured.unwrap_or(0.0);
     let rect = m.chip.map(shell).unwrap_or([GAP, m.vh - GAP, 0.0, 0.0]);
-    let header = if host.narrow() { 0.0 } else { session_view::style::HEADER_H };
+    let header = if host.narrow() || !matches!(q.comment.anchor().map(|a| &a.bounds), Some(Bounds::Timeline(_))) { 0.0 } else { session_view::style::HEADER_H };
     let was = q.placing.get();
     let spot = q
         .comment
@@ -382,7 +382,8 @@ fn resolve_editor_layout(host: &dyn QuoteHost, m: &ViewMeasure) -> EditorLayout 
     // the timeline's band, so it goes out under the header or the composer with the text.
     let (band, left, bottom, available, place) = match spot {
         Some(spot) => {
-            let bottom = spot.top + opening;
+            // Drawn over the whole window (a terminal's), it stays inside it (`quote-comment.tsx:101-106`).
+            let bottom = if spot.band[0] == 0.0 { (m.vh - GAP).min((GAP + opening).max(spot.top + opening)) } else { spot.top + opening };
             ([0.0, spot.band[0], m.vw, spot.band[1]], spot.left, bottom, (bottom - spot.band[0] - GAP).max(opening), spot.place)
         }
         None => {
@@ -393,7 +394,7 @@ fn resolve_editor_layout(host: &dyn QuoteHost, m: &ViewMeasure) -> EditorLayout 
         }
     };
     let left = left.max(GAP).min(m.vw - width - GAP);
-    let top = if place == Place::Card { GAP.max(bottom - height) } else { bottom - height };
+    let top = if band[1] == 0.0 { GAP.max(bottom - height) } else { bottom - height };
     let mut next = was;
     for effect in place::step(&mut next, place::Event::Placed { place, at: [left - band[0], top - band[1]] }) {
         place::AT.with(|at| match effect {
@@ -519,11 +520,15 @@ pub fn view<H: QuoteHost + 'static>(s: &H, p: &Pal, cx: &mut Cx<H>) -> Option<El
     let chip = cx.window_layout(&chip_key(key));
     let opening = if q.opening.get() == 0.0 { measured.unwrap_or(0.0) } else { q.opening.get() };
     let (scroll, dock, anchor_origin) = match q.comment.anchor().filter(|_| opening > 0.0) {
-        Some(a) => (
-            cx.window_layout(&format!("scroll-{}", a.session)),
-            cx.window_layout("composer-dock").or_else(|| cx.window_layout("dock")),
-            cx.window_layout(&a.path),
-        ),
+        // The timeline runs on under the composer; a terminal's pane is its own.
+        Some(a) => match &a.bounds {
+            Bounds::Timeline(session) => (
+                cx.window_layout(&format!("scroll-{session}")),
+                cx.window_layout("composer-dock").or_else(|| cx.window_layout("dock")),
+                cx.window_layout(&a.path),
+            ),
+            Bounds::Element(key) => (cx.window_layout(key), None, cx.window_layout(&a.path)),
+        },
         None => (None, None, None),
     };
     let layout = resolve_editor_layout(
@@ -619,7 +624,10 @@ fn source_position(
     let dock = m.dock.map(&shell).map_or(b_bottom, |d| d[1]);
     let band = [b_top + header, (b_bottom.min(dock) - b_top - header).max(0.0)];
     let (high, low) = (band[0] + GAP, band[0] + band[1] - GAP - height);
-    let spot = |top: f32, left: f32, place: Place| Some(Spot { top, left, place, band });
+    // A terminal's editor is drawn over the whole window, as official's (`fixed`, clamped to the
+    // viewport): only its place is kept inside the pane.
+    let element = matches!(a.bounds, Bounds::Element(_));
+    let spot = |top: f32, left: f32, place: Place| Some(Spot { top, left, place, band: if element { [0.0, m.vh] } else { band } });
     if m.hover_none {
         return spot(low.max(high), (b_left + b_right - width) * 0.5, Place::Pinned);
     }
@@ -629,7 +637,12 @@ fn source_position(
         Some(side @ (Place::Above | Place::Below)) => side,
         _ => preferred,
     };
-    let Some(origin) = m.anchor_origin.map(&shell) else {
+    let Some(origin) = m.anchor_origin.map(&shell).filter(|_| !(element && a.rects.is_empty())) else {
+        // A write or a resize moved its rows, or the terminal is hidden: at the composer
+        // (`quote-machine.ts:258-281`, `quote-comment.tsx:96-101`).
+        if element {
+            return None;
+        }
         let left = was.at().map_or_else(|| centred(b_left, b_right), |[x, _]| x);
         let gone_up = was.at().is_some_and(|[_, y]| y < band[1] / 2.0);
         return spot(if gone_up { band[0] - height * 2.0 - GAP } else { band[0] + band[1] + GAP }, left, side);
@@ -644,7 +657,10 @@ fn source_position(
     let y = |place: Place| if place == Place::Above { top - height - GAP } else { bottom + GAP };
     let other = if preferred == Place::Above { Place::Below } else { Place::Above };
     let fits = |place: Place| (high..=low).contains(&y(place));
-    let place = [preferred, other].into_iter().find(|&p| fits(p)).unwrap_or(side);
+    let Some(place) = [preferred, other].into_iter().find(|&p| fits(p)).or((!element).then_some(side)) else {
+        // `quotePosition`: where neither side fits, at the pane's bottom edge.
+        return spot(low, centred(left, right), Place::Pinned);
+    };
     spot(y(place), centred(left, right), place)
 }
 
