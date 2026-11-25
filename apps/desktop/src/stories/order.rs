@@ -101,6 +101,7 @@ pub(crate) const ORDER: &[&str] = &[
     "Popover/Open and close",
     "Question dock/Long question",
     "Composer/Queue row width",
+    "Composer/Queue row sending",
     "Composer/Quote cards",
     "Timeline/Quote scrolls away",
     "Harness/Raster probe",
