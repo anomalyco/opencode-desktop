@@ -31,6 +31,9 @@ pub struct RowSpec {
     pub streaming: bool,
     /// The room it holds under what it shows, which sets the row below apart (`rhythm`).
     pub under: f32,
+    /// A divider stands under it, this beside it above: the row holds the room over the
+    /// divider's words too (`dividers`, `compaction::Over`).
+    pub divider: Option<crate::compaction::Beside>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -73,6 +76,11 @@ pub enum RowContent {
 }
 
 impl RowSpec {
+    /// The room under what the row shows: to the row below, and over a divider's words.
+    fn room_under<S: TimelineHost>(&self, s: &S) -> f32 {
+        self.under + self.divider.map_or(0.0, |beside| crate::compaction::side(s, beside))
+    }
+
     /// A row that folds open and shut under its header, keyed in `expanded` by its row key:
     /// a tool group, or the quiet Compacted divider's summary.
     fn folds(&self) -> bool {
@@ -107,7 +115,7 @@ impl RowSpec {
     /// grow by many lines in one build.
     fn wrap_paced<S: TimelineHost>(&self, s: &S, heading: Option<El>, el: El, paced: bool) -> El {
         // The room between two rows is the upper row's, under what it shows (`rhythm`).
-        let row = col().w_full().max_w(crate::style::content_w()).pb(self.under).children(heading).child(el);
+        let row = col().w_full().max_w(crate::style::content_w()).pb(self.room_under(s)).children(heading).child(el);
         let row = if matches!(self.content, RowContent::User { .. } | RowContent::Pending { .. }) && s.smooth_timeline() {
             row.joined_row_face("bubble")
         } else { row };
@@ -224,7 +232,7 @@ impl RowSpec {
                         let videos = (!*live && opencode_kit::path::mentions_video(body)).then(|| (s.media_store().videos.version(), s.active_session_id().and_then(|id| s.session_directory(id))));
                         let scale_bits = crate::scroller::device_scale().to_bits();
                         let look = (p.theme, p.generation, p.dark, opencode_i18n::locale().id(), crate::style::hover_none());
-                        let ver = (&t.session, body.as_str(), *live, [pt.to_bits(), self.under.to_bits()], fade.to_bits(), look, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, wrap, math_gen, pictures, footer, crate::style::content_w().to_bits(), scale_bits, chips, own, (code, videos)));
+                        let ver = (&t.session, body.as_str(), *live, [pt.to_bits(), self.room_under(s).to_bits()], fade.to_bits(), look, self.streaming, find_ver, dw, s.diagrams().hidden_in(body), line, (copied, wrap, math_gen, pictures, footer, crate::style::content_w().to_bits(), scale_bits, chips, own, (code, videos)));
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                             if has_math {
@@ -240,7 +248,7 @@ impl RowSpec {
                     let fold = crate::disclosure::fold(k).duration.to_bits();
                     let detail = s.timeline_detail();
                     let look = (p.theme, p.generation, p.dark, opencode_i18n::locale().id(), crate::style::hover_none());
-                    let ver = (&t.session, group_hash(&t.messages[*start..*end], &detail), *block, *live, [pt.to_bits(), self.under.to_bits()], look, self.streaming, (fold, crate::style::content_w().to_bits(), crate::scroller::device_scale().to_bits(), detail, s.shell_output_version(), crate::style::sticky_top().to_bits(), s.reduced_motion()));
+                    let ver = (&t.session, group_hash(&t.messages[*start..*end], &detail), *block, *live, [pt.to_bits(), self.room_under(s).to_bits()], look, self.streaming, (fold, crate::style::content_w().to_bits(), crate::scroller::device_scale().to_bits(), detail, s.shell_output_version(), crate::style::sticky_top().to_bits(), s.reduced_motion()));
                     return rune::memo(self.key.clone(), ver, || {
                         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                         let blocks = turns::fold_with(&entries(&t.messages[*start..*end], &detail), *live, &detail);
@@ -265,7 +273,7 @@ impl RowSpec {
                         // A turn's place is only for its heading, which only a reader gets.
                         let (turn, more) = if s.assistive() { (turn_of(t, *message), s.more_above(&t.session)) } else { ((0, 0), false) };
                         let look = (p.theme, p.generation, p.dark, opencode_i18n::locale().id(), crate::style::hover_none());
-                        let ver = (&t.session, id.as_str(), text.as_str(), [*above, *below, fold.past, s.fold_user_messages(), open, self.streaming, s.smooth_timeline()], (look, fold.viewport.to_bits(), [top.to_bits(), self.under.to_bits()], crate::scroller::device_scale().to_bits()), find_ver, s.user_status_version(id), &meta, crate::style::content_w().to_bits(), turn, more, s.assistive());
+                        let ver = (&t.session, id.as_str(), text.as_str(), [*above, *below, fold.past, s.fold_user_messages(), open, self.streaming, s.smooth_timeline()], (look, fold.viewport.to_bits(), [top.to_bits(), self.room_under(s).to_bits()], crate::scroller::device_scale().to_bits()), find_ver, s.user_status_version(id), &meta, crate::style::content_w().to_bits(), turn, more, s.assistive());
                         return rune::memo(self.key.clone(), ver, || {
                             ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                             let run = Place { above: *above, below: *below, top: *top, fold: *fold };
@@ -518,7 +526,7 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
     // The pills' lane ends the rows, apart from the projection it doesn't change.
     let specs = Shown {
         rows: t.map(|t| rows(s, t)).unwrap_or_default(),
-        lane: (t.is_some() && lane > 0.0).then(|| std::rc::Rc::new(RowSpec { key: "pill-lane".into(), content: RowContent::Lane(lane), streaming: false, under: 0.0 })),
+        lane: (t.is_some() && lane > 0.0).then(|| std::rc::Rc::new(RowSpec { key: "pill-lane".into(), content: RowContent::Lane(lane), streaming: false, under: 0.0, divider: None })),
     };
     let tail_extra = t.map_or(0.0, |t| rhythm::tail_extra(t, &s.timeline_detail(), &specs.rows));
     let mut stack = col()
@@ -697,7 +705,7 @@ pub fn prompt_images(out: &mut Vec<RowSpec>, id: &str, older: bool, above: bool)
     let gallery = attachments::any(id);
     if gallery {
         let pt = if start { 8.0 } else { 16.0 };
-        out.push(RowSpec { key: format!("ui-{id}"), content: RowContent::UserImages { id: id.to_owned(), pt }, streaming: false, under: 0.0 });
+        out.push(RowSpec { key: format!("ui-{id}"), content: RowContent::UserImages { id: id.to_owned(), pt }, streaming: false, under: 0.0, divider: None });
     }
     if above { 4.0 } else if start || gallery { 8.0 } else { 16.0 }
 }
@@ -728,24 +736,24 @@ pub fn turn_rows(out: &mut Vec<RowSpec>, steps: &[Entry], start: usize, end: usi
             Block::Group { key, steps, .. } => {
                 // An open group's steps arrive whole: as a streaming row, opening one paced its
                 // height at text-reveal speeds (seconds for a long group) and shutting snapped.
-                out.push(RowSpec { streaming: false, content, key, under: 0.0 });
+                out.push(RowSpec { streaming: false, content, key, under: 0.0, divider: None });
                 // An image a tool returned shows even while its group is closed.
                 for st in &steps {
                     if let Step::Tool { id, files, .. } = st
                         && crate::images::shows(files)
                     {
                         let content = RowContent::ToolImages { start, end, tool: id.to_string() };
-                        out.push(RowSpec { key: format!("ti-{id}"), content, streaming: false, under: 0.0 });
+                        out.push(RowSpec { key: format!("ti-{id}"), content, streaming: false, under: 0.0, divider: None });
                     }
                 }
             }
             Block::Text { key, msg, part, live, .. } => {
                 let content = if end - start == steps.len() { RowContent::TurnText { message: start + msg, part, live, pt } } else { content };
-                out.push(RowSpec { content, key, streaming: live, under: 0.0 });
+                out.push(RowSpec { content, key, streaming: live, under: 0.0, divider: None });
             }
-            Block::Events { key, .. } | Block::Subagent { key, .. } => out.push(RowSpec { key, content, streaming: false, under: 0.0 }),
-            Block::Question { id, .. } => out.push(RowSpec { key: format!("q-{id}"), content, streaming: false, under: 0.0 }),
-            Block::Thought { key, .. } | Block::Calls { key, .. } => out.push(RowSpec { key, content, streaming: false, under: 0.0 }),
+            Block::Events { key, .. } | Block::Subagent { key, .. } => out.push(RowSpec { key, content, streaming: false, under: 0.0, divider: None }),
+            Block::Question { id, .. } => out.push(RowSpec { key: format!("q-{id}"), content, streaming: false, under: 0.0, divider: None }),
+            Block::Thought { key, .. } | Block::Calls { key, .. } => out.push(RowSpec { key, content, streaming: false, under: 0.0, divider: None }),
         }
         prev = Some(tool);
     }
@@ -758,10 +766,10 @@ pub fn turn_rows(out: &mut Vec<RowSpec>, steps: &[Entry], start: usize, end: usi
     let message = start + at;
     let pt = if prev.is_some() { 24.0 } else { 0.0 };
     if live && a.retry.is_some() {
-        out.push(RowSpec { key: format!("r-{}", a.id), content: RowContent::Retry { message, pt }, streaming: false, under: 0.0 });
+        out.push(RowSpec { key: format!("r-{}", a.id), content: RowContent::Retry { message, pt }, streaming: false, under: 0.0, divider: None });
     } else if a.error.is_some() && !a.failure.as_ref().is_some_and(|f| interrupted(&f.kind)) {
         // 24 below what's above it (`pt-6`), until `rhythm` respaces it.
-        out.push(RowSpec { key: format!("e-{}", a.id), content: RowContent::Error { message, pt: 24.0 }, streaming: false, under: 0.0 });
+        out.push(RowSpec { key: format!("e-{}", a.id), content: RowContent::Error { message, pt: 24.0 }, streaming: false, under: 0.0, divider: None });
     }
 }
 
