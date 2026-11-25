@@ -127,6 +127,8 @@ const TABLE: &[Entry] = &[
         s.close_tab_key(tx);
         true
     }),
+    // Archive session, which toggles (`use-session-commands.tsx:609-614`, `keybind: "mod+shift+s"`).
+    cmd(Bind::ArchiveSession, Phase::AfterPlugins, true),
     // Desktop numbers the first nine it shows (`titlebar-tab-numbers`).
     direct(Bind::Tab1, Phase::AfterPlugins, true, |s, tx| {
         s.select_nth(0, tx);
