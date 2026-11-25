@@ -20,27 +20,65 @@ pub const DEFAULT: &str = "oc-2";
 pub struct Info {
     pub id: String,
     pub name: String,
-    /// The theme's tokens for light and dark, laid over `assets/theme.json`'s.
-    tokens: [Map<String, Value>; 2],
+    tokens: Tokens,
+}
+
+/// A theme's tokens for light and dark, laid over `assets/theme.json`'s.
+enum Tokens {
+    /// One of Desktop's: its object in `themes.json`, read when the theme is first painted or
+    /// compared. Reading every theme at start kept 1 MB that only the theme in use needs.
+    Asset { json: &'static str, read: OnceLock<[Map<String, Value>; 2]> },
+    /// A registered theme's own.
+    Given([Map<String, Value>; 2]),
+}
+
+impl Info {
+    fn tokens(&self) -> &[Map<String, Value>; 2] {
+        match &self.tokens {
+            Tokens::Given(tokens) => tokens,
+            Tokens::Asset { json, read } => read.get_or_init(|| {
+                let t: Value = serde_json::from_str(json).unwrap_or_else(|e| panic!("themes.json: {}: {e}", self.id));
+                ["light", "dark"].map(|m| t[m].as_object().cloned().unwrap_or_default())
+            }),
+        }
+    }
+}
+
+/// A theme's id and name in `themes.json`; its modes are skipped, not built.
+#[derive(serde::Deserialize)]
+struct Head {
+    id: String,
+    name: String,
 }
 
 fn desktop() -> &'static [Info] {
     static ALL: OnceLock<Vec<Info>> = OnceLock::new();
     ALL.get_or_init(|| {
-        let list: Vec<Value> = serde_json::from_str(THEMES).unwrap_or_else(|e| panic!("themes.json: {e}"));
-        let mode = |t: &Value, m: &str| t[m].as_object().cloned().unwrap_or_default();
-        let default = list.iter().find(|t| t["id"] == DEFAULT);
-        let tokens = default.map(|t| [mode(t, "light"), mode(t, "dark")]).unwrap_or_default();
-        std::iter::once(Info { id: DEFAULT.into(), name: "OpenCode".into(), tokens })
-            .chain(list.iter().filter(|t| t["id"] != DEFAULT).map(|t| Info {
-                id: t["id"].as_str().unwrap_or_default().to_owned(),
-                name: t["name"].as_str().unwrap_or_default().to_owned(),
-                tokens: [mode(t, "light"), mode(t, "dark")],
-            }))
+        // Each element's own text, so one theme can be read alone later.
+        let mut rest = THEMES.trim_start().strip_prefix('[').unwrap_or_else(|| panic!("themes.json: not a list"));
+        let mut list: Vec<(Head, &'static str)> = Vec::new();
+        loop {
+            rest = rest.trim_start().trim_start_matches(',').trim_start();
+            if rest.is_empty() || rest.starts_with(']') {
+                break;
+            }
+            let mut one = serde_json::Deserializer::from_str(rest).into_iter::<Head>();
+            let head = match one.next() {
+                Some(Ok(head)) => head,
+                Some(Err(e)) => panic!("themes.json: {e}"),
+                None => break,
+            };
+            let (json, after) = rest.split_at(one.byte_offset());
+            list.push((head, json));
+            rest = after;
+        }
+        let asset = |json| Tokens::Asset { json, read: OnceLock::new() };
+        let default = list.iter().find(|(h, _)| h.id == DEFAULT).map_or_else(|| Tokens::Given(Default::default()), |(_, json)| asset(*json));
+        std::iter::once(Info { id: DEFAULT.into(), name: "OpenCode".into(), tokens: default })
+            .chain(list.into_iter().filter(|(h, _)| h.id != DEFAULT).map(|(h, json)| Info { id: h.id, name: h.name, tokens: asset(json) }))
             .collect()
     })
 }
-
 /// The list, Desktop's themes then the ones the host registered. Each list is built once per
 /// registration and kept, so a `&'static` slice stays valid.
 static LIST: RwLock<Option<&'static [&'static Info]>> = RwLock::new(None);
@@ -64,17 +102,17 @@ pub fn register(id: &str, name: &str, tokens: [Map<String, Value>; 2]) {
     // Only colours: a token that doesn't read as one keeps OpenCode's, so a theme can't break
     // the palette.
     let over = |m: usize, own: Map<String, Value>| {
-        let mut full = desktop()[0].tokens[m].clone();
+        let mut full = desktop()[0].tokens()[m].clone();
         full.extend(own.into_iter().filter(|(_, v)| v.as_str().and_then(rune::color::hex).is_some()));
         full
     };
     let tokens = [over(0, light), over(1, dark)];
     let mut list: Vec<&'static Info> = all().to_vec();
     let at = list.iter().position(|t| t.id == id);
-    if at.is_some_and(|i| list[i].name == name && list[i].tokens == tokens) {
+    if at.is_some_and(|i| list[i].name == name && *list[i].tokens() == tokens) {
         return;
     }
-    let info: &'static Info = Box::leak(Box::new(Info { id: id.to_owned(), name: name.to_owned(), tokens }));
+    let info: &'static Info = Box::leak(Box::new(Info { id: id.to_owned(), name: name.to_owned(), tokens: Tokens::Given(tokens) }));
     match at {
         Some(i) => list[i] = info,
         None => list.push(info),
@@ -129,7 +167,7 @@ pub fn json(i: usize, base: &str) -> Option<String> {
     let t = all().get(i)?;
     let mut v: Value = serde_json::from_str(base).ok()?;
     v["name"] = Value::String(t.name.clone());
-    for (m, tokens) in ["light", "dark"].into_iter().zip(&t.tokens) {
+    for (m, tokens) in ["light", "dark"].into_iter().zip(t.tokens()) {
         let map = v[m].as_object_mut()?;
         map.extend(tokens.iter().map(|(k, val)| (k.clone(), val.clone())));
     }
