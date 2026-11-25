@@ -154,11 +154,11 @@ pub fn view<H: ProjectsHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> Vec<El> {
         .on_press_tx(|s: &mut H, tx: &mut Tx| super::close(s, tx))
         .build(k)
         .key("directory-picker-cancel");
-    let select = button(t!("dialog.directory.action.selectFolder"), ButtonVariant::Contrast)
+    let select = opencode_ui::widgets::not_allowed(button(t!("dialog.directory.action.selectFolder"), ButtonVariant::Contrast)
         .disabled(!picked)
         .on_press_tx(|s: &mut H, tx: &mut Tx| super::resolve_pick(s, tx))
         .build(k)
-        .key("directory-picker-select");
+        .key("directory-picker-select"), !picked);
     let footer = row()
         .key("directory-picker-footer")
         .w_full()

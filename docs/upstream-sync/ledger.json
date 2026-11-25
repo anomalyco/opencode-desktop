@@ -2,29 +2,29 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "f90047ff140fb4765963f5b17780eb2ed6356475",
+  "upstream_head": "20e7f000b39d4501af8d44b6705ba3d9fd7ebf6f",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "44e8353bf",
-  "post_1114_commit_count": 629,
-  "post_1114_in_ledger": 224,
-  "post_1114_skipped": 405,
+  "rune_desktop_head": "79bc78c02",
+  "post_1114_commit_count": 641,
+  "post_1114_in_ledger": 226,
+  "post_1114_skipped": 415,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
-    "ci-bench-deps": 23,
-    "docs-site-data": 61,
+    "ci-bench-deps": 24,
+    "docs-site-data": 62,
     "tui-only": 28,
     "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 257
+    "server-core-ai-codemode-internal": 265
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 245,
+  "total_ledger_rows": 247,
   "status_counts": {
     "have it": 200,
-    "not applicable": 35,
+    "not applicable": 36,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 7
+    "missing": 8
   },
   "rows": [
     {
@@ -6156,7 +6156,52 @@
       "summary": "A prompt's quotes reach the model as plain reply-style blockquotes before the user's own words, like an email reply: each quote a block of `> ` lines (an empty line is `>`), named by a line `From <subject>:` only when it came from another source such as the terminal, its comment under it; then the user's words, the `Attached file:` lines, notes and file comments. Before, a quote came after the words under the sentence `The user quoted the following from ...` with its comment under `The user made the following comment regarding this quote:`. The bubble and its quote cards are unchanged.",
       "size": "S",
       "status": "missing",
-      "status_evidence": "Being ported in draft opencode-rune #1119 (compiled by CI only, NOT RUN): crates/opencode-kit/src/quote.rs Quote::prompt_text, model_text and typed_text, crates/opencode-kit/src/model/parse.rs quoted_text (reads the new shape and the one sent before, and records mentions against the user's own words), apps/desktop/src/session/inbox/send.rs. Needs a run: the request's text for a quote with a comment, words and a path attachment, and for a lone quote; the bubble after a reload; a session whose quoted prompt an older build sent.",
+      "status_evidence": "Being ported in draft opencode-rune #1119 (compiled by CI only, NOT RUN): crates/opencode-kit/src/quote.rs Quote::prompt_text, model_text and typed_text, crates/opencode-kit/src/model/parse.rs quoted_text (reads the new shape and the one sent before, and records mentions against the user's own words), apps/desktop/src/session/inbox/send.rs. Needs a run: the request's text for a quote with a comment, words and a path attachment, and for a lone quote; the bubble after a reload; a session whose quoted prompt an older build sent. Found while porting: official's terminal names itself as a quote's source (packages/gui-plugins/src/terminal/panel.tsx:60: subject \the terminal), so the model reads From the terminal: over such a quote; a quote ours takes from its terminal carries no source and reads as one from the conversation (before this change too, under the old sentence). A follow-up after #1119. opencode#66248 (a4bea47aa5) only rewords the plugin API's comment for the new text.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-225",
+      "window": "post-1120",
+      "pr": 66257,
+      "sha": "58621ad6cc",
+      "title": "fix(app): send prod crashes to Sentry only when Report is clicked",
+      "merged": "2026-11-25",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/app.tsx"
+      ],
+      "summary": "A crash of official's page (its error boundary) is sent to Sentry as it happens only on the local, dev and beta channels; on the production channel it is sent only when the person clicks Report on the error page.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "By reading: ours has no Sentry client and sends a crash to no service (a search of apps/desktop/src, crates and features for `sentry` finds none); after an unexpected close the next launch shows a notice with Export logs (apps/desktop/src/workspace/system/crash_notice.rs), which writes a file and uploads nothing. So there is nothing to gate by channel. Ours has no Report button either: that is a difference older than this commit, not part of it.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-226",
+      "window": "post-1120",
+      "pr": 66265,
+      "sha": "13d601e31f",
+      "title": "feat(app): fill Consolidated gaps in pins, sidebar and Home picker",
+      "merged": "2026-11-25",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/home/projects/region.tsx",
+        "packages/app/src/home/projects/view.tsx",
+        "packages/app/src/shell/titlebar/pinned-area.tsx",
+        "packages/app/src/shell/titlebar/recent-sessions.tsx"
+      ],
+      "summary": "Four gaps of the Consolidated navigation: a middle click on a pinned session unpins it and closes its tab; a pin group's chevron (vertical) and, under Consolidated, a Recent group header's chevron show only on hover or keyboard focus; Home's project picker names the focused server, with the server glyph, in place of All projects when there are several servers and no project is chosen.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Ported in draft opencode-rune #1144 (apps/desktop/src/shell/tabs/pins.rs close, shell/view/sidebar/pinned_area.rs, sidebar/recent.rs, shell/view/home/projects.rs); compiled by CI only, not run: it merges after a run on its build. Two differences stated there: the chevron's fade follows the row's hover track, not official's 150 ms; a pin group's chevron also shows for focus on the row's options button.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"

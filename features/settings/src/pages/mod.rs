@@ -652,7 +652,7 @@ fn ghost_face(p: &Pal, key: &str, label: &str, glyph: Option<&'static Icon>, mut
         .child(text(label.to_owned()).font(if muted { UI } else { UI_MED }.features("\"tnum\"")).color(ink));
     if !enabled {
         // `[data-component="button-v2"][data-variant="ghost|ghost-muted"]:disabled` (`button.css:256-297`).
-        return b.disabled(true).opacity(0.5);
+        return b.disabled(true).opacity(0.5).hit().cursor(rune::Cursor::NotAllowed);
     }
     // `button.css:242-254, 273-287`: `[data-expanded]` suppresses `:hover` so an open menu trigger
     // does not double-composite the hover wash over `simple-overlay-pressed`.

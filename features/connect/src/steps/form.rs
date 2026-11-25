@@ -86,11 +86,11 @@ fn form_error_el(p: &Pal, f: &form::Form) -> Option<El> {
 }
 
 fn cont<H: ConnectHost + 'static>(p: &Pal, enabled: bool) -> El {
-    ui::button(opencode_i18n::t!("common.continue"), ButtonVariant::Submit)
+    opencode_ui::widgets::not_allowed(ui::button(opencode_i18n::t!("common.continue"), ButtonVariant::Submit)
         .disabled(!enabled)
         .on_press_tx(|s: &mut H, tx: &mut Tx| submit_continue(s, tx))
         .build(kit(p))
-        .key("connect-continue")
+        .key("connect-continue"), !enabled)
 }
 
 fn external<H: ConnectHost + 'static>(p: &Pal, f: &form::Form, url: &str, browser: &form::Browser) -> El {
@@ -113,11 +113,11 @@ fn external<H: ConnectHost + 'static>(p: &Pal, f: &form::Form, url: &str, browse
                     .busy(opening),
             )
             .child(
-                ui::button(opencode_i18n::t!("provider.connect.form.finished"), ButtonVariant::Submit)
+                opencode_ui::widgets::not_allowed(ui::button(opencode_i18n::t!("provider.connect.form.finished"), ButtonVariant::Submit)
                     .disabled(!f.can_finish())
                     .on_press_tx(|s: &mut H, tx: &mut Tx| form_input(s, form::Input::Submitted, tx))
                     .build(kit(p))
-                    .key("connect-finished"),
+                    .key("connect-finished"), !f.can_finish()),
             ),
     )
 }

@@ -224,11 +224,11 @@ pub fn view<H: SessionMenuHost + 'static>(s: &H, p: &Pal, cx: &Cx<H>) -> Vec<El>
         .build(k)
         .key("rename-dialog-cancel");
     let can_submit = !saving && !s.menus().dialog_edit.text.trim().is_empty();
-    let save_btn = button(t!("common.save"), if saving { ButtonVariant::Loading } else { ButtonVariant::Contrast })
+    let save_btn = opencode_ui::widgets::not_allowed(button(t!("common.save"), if saving { ButtonVariant::Loading } else { ButtonVariant::Contrast })
         .disabled(!can_submit)
         .on_press_tx(|s: &mut H, tx: &mut Tx| submit_from_ui(s, tx))
         .build(k)
-        .key("rename-dialog-save");
+        .key("rename-dialog-save"), !can_submit && !saving);
     let card = col()
         .key("rename-dialog")
         .role("dialog")

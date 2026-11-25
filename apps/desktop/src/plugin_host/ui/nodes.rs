@@ -62,7 +62,7 @@ fn switch(a: &mut NodeArgs) -> Result<El, String> {
     let key = a.string("key").unwrap_or("switch").to_owned();
     let s = crate::settings::switch(&p(a), &key, checked);
     if a.flag("disabled") {
-        return Ok(s.disabled(true).layer_opacity(0.5));
+        return Ok(s.disabled(true).layer_opacity(0.5).hit().cursor(rune::Cursor::NotAllowed));
     }
     Ok(a.on_press_with(s, "onChange", vec![("checked", Data::Bool(!checked))]))
 }

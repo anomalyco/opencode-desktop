@@ -117,6 +117,7 @@ pub enum Bind {
     DemoPause,
     WindowNew,
     WindowClose,
+    WindowFullScreen,
     McpToggle,
     BranchChoose,
     LocationSelect,
@@ -282,6 +283,10 @@ fn table() -> Vec<Binding> {
         // The app menu's accelerators off macOS (`desktop-menu.ts`), which no command binds.
         hidden(WindowNew, "window.new", key!("desktop.menu.newWindow"), General, on("ctrl+shift+n").on(Mac, "none")),
         hidden(WindowClose, "window.close", key!("desktop.menu.closeWindow"), General, on("ctrl+shift+w").on(Mac, "none")),
+        // Off macOS Desktop sets no menu, so Electron's default one stays in force with its roles'
+        // keys: Toggle Full Screen is F11 (electron 44 `menu-item-roles.ts` `togglefullscreen`;
+        // `native/menu.ts` builds only on macOS, where the View menu's item has Ctrl+Cmd+F).
+        hidden(WindowFullScreen, "window.toggleFullScreen", key!("desktop.menu.toggleFullScreen"), General, on("f11").on(Mac, "none")),
         row(McpToggle, "mcp.toggle", key!("command.mcp.toggle"), Models, on("mod+semicolon")),
         // The new-session page's (`new-session/{workspace/selector,view,commands}.tsx`). Off macOS
         // Ctrl+Alt+B is also the Browser's launcher, which only a session has.
