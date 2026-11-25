@@ -6,6 +6,7 @@ use super::*;
 use crate::layout_state::{PeekEvent, SidebarPeekState};
 use opencode_i18n::t;
 
+mod auto_sections;
 mod customized;
 mod menu;
 pub(crate) mod grouping;
