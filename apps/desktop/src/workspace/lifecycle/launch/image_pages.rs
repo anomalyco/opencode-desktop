@@ -13,10 +13,10 @@
 //! - the pages the earlier launches of this very exe used, from `<cache>/launch-pages.bin`;
 //! - with no list for this exe yet (its first start), its code and constants in address order.
 //!
-//! It asks only when the pages are away: it reads one byte of [`SAMPLES`] of them first, and a
-//! page in memory answers in a few microseconds where one on the disk takes fifty or more. With
-//! the exe in memory (most launches) nothing is asked for: the call would take the locks the
-//! launch's own page faults need.
+//! It asks only when the pages are away: it reads one byte of [`SAMPLES`] of them first (of
+//! [`SAMPLES_NO_LIST`] with no list yet), and a page in memory answers in a few microseconds
+//! where one on the disk takes fifty or more. With the exe in memory (most launches) nothing is
+//! asked for: the call would take the locks the launch's own page faults need.
 //!
 //! Then, with a list, the thread reads one byte of each listed page. A page in memory is still
 //! not in the process: the first thread to touch it takes a soft fault that maps it in, and a
@@ -34,9 +34,6 @@
 //! `OPENCODE_RUNE_IMAGE_PAGES=off` skips all of it; `=all` asks for the whole code and
 //! constants and `=listed` for a list's pages, both without looking first (a bench's arms).
 //! `OPENCODE_RUNE_IMAGE_PAGES_ASK=1` asks from one thread (a bench's arm).
-//! `OPENCODE_RUNE_IMAGE_PAGES_LOOK=<n>` looks at `n` pages (16: as before 25 Nov), and
-//! `OPENCODE_RUNE_IMAGE_PAGES_NOLIST=ask` asks without a look when the exe has no list yet
-//! (a bench's arms: the two ways not to miss an exe that is partly out of memory).
 // Reading this process's own image headers and working set is Win32; each block says what it relies on.
 #![allow(unsafe_code)]
 
@@ -80,19 +77,27 @@ const ASK_JOIN_MANY: u32 = 6;
 /// How many threads ask at most: half the processors the process may run on, so the launch's
 /// own threads keep theirs. Eight asked in 7.3 ms where four took 7.8.
 const ASK_THREADS: usize = 4;
-/// How many of the wanted pages are read to learn whether they are in memory, how long a read
-/// of one that isn't takes at least, and how many such reads say the exe is away.
+/// How many of a list's pages are read to learn whether they are in memory, how long a read
+/// of one that isn't takes at least, and how many such reads say the exe is away. With a list
+/// a look that misses costs little: the thread reads every listed page next, off the launch's
+/// threads (at most about 4 ms later at the first frame), and 128 samples made the everyday
+/// launch about 1 ms later (36 rounds in turn: first frame +0.9 ms, content live +1.45 ms).
+const SAMPLES: u32 = 16;
+/// The same look with NO list (a new profile, or a build's first launch on a profile: after
+/// every update): then nothing reads the pages after a look that missed, so each page that is
+/// away is a fault of the thread that runs its code, the UI thread first.
 ///
 /// Memory pressure pushes out some of an exe's pages, not all. With a share `f` of them away
 /// the look finds fewer than two with chance `(1-f)^n + n*f*(1-f)^(n-1)`: at 16 samples that is
-/// 81 % for 5 % away and 51 % for 10 %, at 128 it is 1 % and under 0.01 %. A miss asks for
-/// nothing, and with no list (a build's first launch on a profile) nothing reads the pages
-/// either, so each one away is a fault of the thread that runs its code, the UI thread first:
-/// the first frame of a fresh profile went from 38 ms to 71 ms (5 % of the image away, the look
-/// said "present" in 8 of 9 launches) and to 70-227 ms (10 %, 4 of 10), against 47-54 ms in the
-/// launches of the same states where it asked (published dev-483, 25 Nov). In memory a sample
-/// costs a few microseconds on this thread.
-const SAMPLES: u32 = 128;
+/// 96 % for 2 % away, 81 % for 5 % and 51 % for 10 %; at 512 it is under 0.1 % for 2 %.
+/// Measured on a fresh profile (25 Nov, first frame / content live, ms): with 2 % of the image
+/// away 16 samples said "present" in 16 of 16 launches (60-71 / 85-94, against 35-39 / 49-51
+/// with all of it in memory); 128 missed 2 of 15 (one of them: 62 / 94); 512 missed 0 of 6
+/// (50 / 66); asking with no look at all cost the launch whose exe IS in memory 5-6 ms of first
+/// frame and 5-13 ms of content live. In memory a sample costs a few microseconds on this
+/// thread, beside the launch: with 512 the first frame was 39.3 against 38.9 ms and content
+/// live 54.4 against 51.1 ms (7 a side: not told apart), once per build and profile.
+const SAMPLES_NO_LIST: u32 = 512;
 const AWAY: Duration = Duration::from_micros(25);
 const AWAY_SAMPLES: u32 = 2;
 /// How long after the first input the launch counts as settled.
@@ -114,16 +119,6 @@ struct Image {
 
 /// Runs of pages, as (first page from the image's base, pages), in address order.
 type Runs = Vec<(u32, u32)>;
-
-/// What a launch with no list of its pages does before it asks for the whole code and constants.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum NoList {
-    /// Looks first, as a launch with a list does.
-    Look,
-    /// Asks at once: it happens once per build and profile, and nothing reads the pages after a
-    /// look that missed.
-    Ask,
-}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
@@ -150,18 +145,7 @@ pub fn ask() {
         Some("1") => 1,
         _ => (processors() / 2).clamp(1, ASK_THREADS),
     };
-    std::thread::Builder::new()
-        .name("image-pages".into())
-        .spawn(move || {
-            // The look's two arms are read here, on the thread: nothing more on `main`'s way.
-            let samples = std::env::var("OPENCODE_RUNE_IMAGE_PAGES_LOOK").ok().and_then(|v| v.parse::<u32>().ok()).filter(|n| (1..=4096).contains(n)).unwrap_or(SAMPLES);
-            let no_list = match std::env::var_os("OPENCODE_RUNE_IMAGE_PAGES_NOLIST").as_deref().and_then(|v| v.to_str()) {
-                Some("ask") => NoList::Ask,
-                _ => NoList::Look,
-            };
-            run(mode, threads, ask, samples, no_list);
-        })
-        .ok();
+    std::thread::Builder::new().name("image-pages".into()).spawn(move || run(mode, threads, ask)).ok();
 }
 
 /// The update helper: asks for the whole code and constants of its own image, which is the new
@@ -195,7 +179,7 @@ fn processors() -> usize {
     std::thread::available_parallelism().map_or(1, |n| n.get())
 }
 
-fn run(mode: Mode, threads: usize, ask: usize, samples: u32, no_list: NoList) {
+fn run(mode: Mode, threads: usize, ask: usize) {
     let Some(image) = image() else { return };
     let path = crate::dirs::cache().map(|dir| dir.join("launch-pages.bin"));
     let listed = path.as_deref().and_then(|p| std::fs::read(p).ok()).and_then(|bytes| decode(&bytes, &image));
@@ -205,8 +189,8 @@ fn run(mode: Mode, threads: usize, ask: usize, samples: u32, no_list: NoList) {
         _ => Some(image.sections.clone()),
     };
     if let Some(runs) = &wanted {
-        let unseen = mode != Mode::Auto || (listed.is_none() && no_list == NoList::Ask);
-        if unseen || away(&image, runs, samples) {
+        let samples = if listed.is_some() { SAMPLES } else { SAMPLES_NO_LIST };
+        if mode != Mode::Auto || away(&image, runs, samples) {
             prefetch(&image, runs, ask);
             rune::marks::mark("image.pages.asked");
         } else {
