@@ -2,7 +2,7 @@
 
 Settings > Shortcuts read from both apps on Windows (official `dev` `23fd3da786`, ours `dev-ab9a472a2a`), command by command, on 23 Nov 2026. Official's page shows a command's first chord only; ours has the same second chords where official's source has them (`tab.new` Ctrl+N, `command.palette` Ctrl+Shift+P). WS-8 refreshes this with each keyboard sweep.
 
-- **Result:** every command both apps list has the same chord. Nine had other ids here and took official's in rune-desktop #778 (saved keybinds carry over).
+- **Result:** every command both apps list has the same chord. Nine had other ids here and took official's in opencode-rune #778 (saved keybinds carry over).
 - **Lists differ only by context:** official's list is the catalog of commands it has registered, so a command a page registers (the browser pane's, the new-session page's, the bottom pane's, vertical tabs' Toggle sidebar) appears there once that page has shown. Ours lists them always.
 - **Shared chord:** ours-only Dictate with Hex (Ctrl+Shift+M) and the browser pane's Toggle browser toolbar (official's Ctrl+Shift+M) share a chord; the toolbar's is scoped to the browser panel in both apps, so it wins there and Dictate everywhere else.
 - **macOS:** both use `mod` (Cmd on macOS, Ctrl elsewhere) with the same per-platform exceptions: Home is Cmd+B on macOS and Alt+Home elsewhere, the browser launcher Ctrl+Cmd+B on macOS and Ctrl+Alt+B elsewhere, its hard reload Cmd+Alt+R and Ctrl+F5.
