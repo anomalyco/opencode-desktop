@@ -55,6 +55,17 @@ impl Server {
         self.write("POST", &format!("/api/session/{session}/revert/commit"), None).map(|_| ())
     }
 
+    /// Desktop's take-back of an unanswered prompt after Stop (`session/revert.ts:293-304`): `wait`,
+    /// since the interrupt is acknowledged before the run settles and staging a busy session
+    /// fails; `revert/stage` at `message` with `files: false`, since the model called no tool
+    /// and any file that changed meanwhile is the user's own edit; then `revert/commit`.
+    pub fn take_back(&self, session: &str, message: &str) -> Result<(), WireError> {
+        self.wait(session)?;
+        let stage = serde_json::json!({ "messageID": message, "files": false });
+        self.write("POST", &format!("/api/session/{session}/revert/stage"), Some(stage))?;
+        self.revert_commit(session)
+    }
+
     /// Sends `prompt` from a staged revert (`composer/submit.ts`): switches agent, commits the
     /// staged revert, switches model, then sends the prompt or command.
     pub fn send_from_revert(&self, session: &str, prompt: &Prompt) -> Result<Option<String>, WireError> {

@@ -285,8 +285,7 @@ pub fn modifiers(host: &mut dyn QuoteHost, mods: Mods, tx: &mut Tx) -> bool {
     true
 }
 
-/// Each frame: an editor whose quote went closes, an unchanged one closes once its field lost
-/// focus to a press elsewhere, and the file search's answer or time-out lands.
+/// Each frame: an editor whose quote went closes, and the file search's answer or time-out lands.
 pub fn poll(host: &mut dyn QuoteHost, tx: &mut Tx) -> bool {
     let mut changed = false;
     let missing = {
@@ -297,10 +296,6 @@ pub fn poll(host: &mut dyn QuoteHost, tx: &mut Tx) -> bool {
         let q = host.quotes_mut();
         let keys: Vec<u64> = q.items.iter().map(|q| q.key).collect();
         comment::step(&mut q.comment_seq, &mut q.comment, Event::Retained(keys));
-        changed = true;
-    }
-    if host.quotes().comment.draft().is_some_and(|d| !d.focused) && can_dismiss(host) {
-        close(host, false);
         changed = true;
     }
     if let Some((attempt, items)) = host.quotes().mention_fetch.take() {
@@ -446,6 +441,16 @@ fn on_action_press(host: &mut dyn QuoteHost, tx: &mut Tx) {
     field(host, FieldEvent::Clicked { modified, config: cfg }, tx);
 }
 
+/// A press anywhere but on the editor (`size`, from its own corner) or on its quote's card closes
+/// an unchanged editor, whatever the press lands on; a key that moves focus doesn't (the
+/// document's `pointerdown`, `quote-comment.tsx:88-94`).
+fn on_press_anywhere(host: &mut dyn QuoteHost, size: [f32; 2], chip: Option<[f32; 4]>, at: rune::PointerEvent) {
+    let on = |r: [f32; 4], x: f32, y: f32| x >= r[0] && y >= r[1] && x <= r[0] + r[2] && y <= r[1] + r[3];
+    if !on([0.0, 0.0, size[0], size[1]], at.x, at.y) && !chip.is_some_and(|c| on(c, at.window_x, at.window_y)) && can_dismiss(host) {
+        close(host, false);
+    }
+}
+
 fn on_rested(host: &mut dyn QuoteHost, tx: &mut Tx) {
     let mut placing = host.quotes().placing.get();
     place::step(&mut placing, place::Event::Rested);
@@ -547,6 +552,7 @@ pub fn view<H: QuoteHost + 'static>(s: &H, p: &Pal, cx: &mut Cx<H>) -> Option<El
         },
     );
 
+    let size = [layout.width, measured.unwrap_or(0.0)];
     let preview = preview_shell(p, &quote.text, layout.preview_lines);
     let input = input_shell(s, p, draft)
         .on_edit(|s: &mut H| on_edit_draft(s))
@@ -586,6 +592,7 @@ pub fn view<H: QuoteHost + 'static>(s: &H, p: &Pal, cx: &mut Cx<H>) -> Option<El
         .preserve_focus_on_press(true)
         .keeps_text_selection()
         .on_press(|_: &mut H| {})
+        .on_any_press(move |s: &mut H, _, at, _: &mut Tx| on_press_anywhere(s, size, chip, at))
         .child(body);
     let layer = el().key("quote-comment-band").absolute(layout.band[0], layout.band[1]);
     let layer = if layout.place == Place::Card {

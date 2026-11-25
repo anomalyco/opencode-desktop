@@ -39,6 +39,7 @@ features/office/src/sheet/mod.rs | Pointer | 1 | a link in a cell: packages/gui-
 # Other cursors official has
 crates/session-view/src/images/mod.rs | ZoomIn | 2 | a Markdown image and a tool's image: packages/session-ui/src/components/markdown.css:604 and message-part.css:772 zoom-in
 features/inbox/src/queue/view.rs | Text | 1 | a queued message's words: packages/app/src/session/composer/queue-panel.tsx:229 cursor-text
+features/inbox/src/queue/view.rs | Progress | 1 | a queued message's words while it is being sent: packages/app/src/session/composer/queue-panel.tsx:228 cursor-progress
 features/office/src/sheet/mod.rs | Cell | 1 | the sheet's cells: packages/gui-plugins/src/microsoft-office/spreadsheet.tsx:870 cell
 features/office/src/sheet/mod.rs | Default | 2 | the sheet's headers, over its cell cursor: packages/gui-plugins/src/microsoft-office/spreadsheet.tsx:870 default outside the cells
 features/egg/src/view.rs | Hidden+Default | 1 | Brick Breaker hides the pointer while it plays: packages/app/src/new-session/brick-breaker.tsx:217
@@ -62,6 +63,7 @@ apps/desktop/src/plugin_host/ui/nodes.rs | NotAllowed | 1 | a plugin's disabled 
 
 # The arrow over what Rune would give the hand: a plain link in official has no cursor of its own
 crates/session-view/src/turn_errors.rs | Default | 1 | a limit notice's Switch model: a plain button, packages/session-ui/src/timeline-next/row.tsx:1536
+crates/session-view/src/turn_errors.rs | Help | 2 | a retry's message line and its text: packages/session-ui/src/components/session-retry.tsx:75 cursor-help
 features/connect/src/welcome.rs | Default | 1 | the usage link: an ExternalLink with no cursor rule, packages/app/src/providers/connect/chatgpt-welcome.tsx:24; base.css:84
 features/settings/src/pages/about/notices.rs | Default | 2 | a notice's name: an ExternalLink outside .settings-about-content, packages/app/src/settings/about/notices/dialog.tsx:34; base.css:84
 features/settings/src/pages/providers.rs | Default | 1 | View all providers: Desktop's reset names .settings-providers-view-all (styles.css:15)
@@ -69,7 +71,7 @@ features/settings/src/pages/providers.rs | Default | 1 | View all providers: Des
 # Text links (`.link`)
 crates/opencode-ui/src/style.rs | link | 1 | not a text link: the Markdown style's link ink
 crates/session-view/src/timeline/parts.rs | link | 1 | a link in a user message: packages/session-ui/src/components/message-part.css:200 [data-slot=user-message-link] pointer
-crates/session-view/src/tools/plain.rs | link | 1 | a URL in a tool's text: official's linked-text-link is a plain <a> (the arrow); the hand here is Rune's over a link in selectable text, which the app cannot change yet
+crates/session-view/src/tools/plain.rs | link | 1 | a URL in a tool's text: official's linked-text-link is a plain <a>, the arrow (packages/ui/src/styles/base.css:84): link_cursor(Cursor::Default) follows it
 crates/session-view/src/turn_errors.rs | link | 1 | Switch model, with the arrow (see its Default above)
 features/connect/src/welcome.rs | link | 1 | the usage link, with the arrow (see its Default above)
 features/settings/src/lib.rs | link | 1 | a.settings-link: packages/app/src/settings/settings.css:777 pointer

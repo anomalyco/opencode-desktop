@@ -38,8 +38,8 @@ pub enum Incoming {
     /// A prompt write (`Write::Send`, `SendMovingHome`, `SendFromRevert`, `StartAs`) that failed,
     /// with the id the prompt was sent under and its error.
     SendFailed { session: String, id: String, error: WireError },
-    /// A rename, delete or restore this window sent (`client.session.write`'s `data`), and its
-    /// error when it failed.
+    /// A rename, delete, archive or restore this window sent (`client.session.write`'s `data`),
+    /// and its error when it failed.
     SessionWrite { data: Value, error: Option<WireError> },
     /// A session's open permission requests and forms, reported separately so a transient HTTP
     /// error on one endpoint never prunes cached items, tagged with the fetch's `epoch` so a
@@ -101,6 +101,8 @@ pub enum TicketKind {
     Inbox,
     /// `Write::View`, reporting a session viewed.
     View,
+    /// `Write::TakeBack`, after a Stop that came before the model answered.
+    TakeBack,
 }
 
 pub enum Request {
@@ -193,6 +195,9 @@ pub enum Write {
     RevertClear(String),
     /// Commits a staged revert (`POST /api/session/:id/revert/commit`).
     RevertCommit(String),
+    /// Takes the unanswered prompt `message` back after a Stop, as Desktop's `revert.takeBack`
+    /// does: waits for the run to settle, stages the revert without its files, commits it.
+    TakeBack { session: String, message: String },
     /// Sends `prompt` while `session` has a staged revert, committing the revert after the agent
     /// switch and before the model switch and admission, as Desktop's `composer/submit.ts` does.
     SendFromRevert { session: String, prompt: Prompt },
@@ -227,6 +232,7 @@ impl Write {
             | Self::Rename { session, .. } | Self::View { session, .. }
             | Self::Metadata { session, .. } | Self::Background { session, .. }
             | Self::RevertStage { session, .. } | Self::SendFromRevert { session, .. }
+            | Self::TakeBack { session, .. }
             | Self::Fork { session, .. } | Self::StartInNewWorktree { session, .. }
             | Self::Interrupt(session) | Self::Delete(session) | Self::Archive(session)
             | Self::Unarchive(session) | Self::Compact(session) | Self::RevertClear(session)

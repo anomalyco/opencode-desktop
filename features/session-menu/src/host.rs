@@ -186,6 +186,11 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     fn toast_wire_error(&mut self, error: WireError) {
         let _ = error;
     }
+    /// The same toast under `title`, for a write its call doesn't name: a session's PATCH
+    /// renames, archives and restores.
+    fn toast_wire_error_titled(&mut self, title: &str, error: WireError) {
+        let _ = (title, error);
+    }
     /// Offers an undoable delete toast; when the toast expires or the app quits, the host calls
     /// [`crate::send_delete`], or [`crate::undelete`] if the user presses Undo.
     fn offer_delete_undo(&mut self, title: &str, server: ServerKey, session: String, hidden: Vec<SessionInfo>) {
@@ -212,6 +217,10 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     fn on_rename_focus_taken(&mut self) {}
     /// Persists updated tab metadata (titles, removed tabs).
     fn save_tabs(&mut self) {}
+    /// Reads session `id` from the server again.
+    fn refresh_session(&mut self, id: &str) {
+        let _ = id;
+    }
     /// Opens session `id` on `server`.
     fn open_session(&mut self, server: &ServerKey, id: &str, tx: &mut Tx) {
         let _ = (server, id, tx);
@@ -234,6 +243,14 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     }
     /// Closes window tab `uid`.
     fn close_tab(&mut self, uid: &str, tx: &mut Tx) {
+        let _ = (uid, tx);
+    }
+    /// The window tab the open page belongs to (its `uid`), if any.
+    fn shown_tab(&self) -> Option<String> {
+        None
+    }
+    /// Shows window tab `uid`.
+    fn show_tab(&mut self, uid: &str, tx: &mut Tx) {
         let _ = (uid, tx);
     }
     /// Whether `(server, id)` is currently pinned in the Recent sidebar.
@@ -266,6 +283,10 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     /// sessions `gone` were deleted (the session list itself has already been pruned).
     fn on_sessions_removed(&mut self, server: &ServerKey, gone: &[String]) {
         let _ = (server, gone);
+    }
+    /// Handles a server reply to an `archive` session write: a refusal puts the session back.
+    fn on_archive_replied(&mut self, session: String, ok: bool, tx: &mut Tx) {
+        let _ = (session, ok, tx);
     }
     /// Handles a server reply to an `unarchive` session write (e.g. switcher restore toast).
     fn on_unarchive_replied(&mut self, session: String, ok: bool, why: &str, tx: &mut Tx) {

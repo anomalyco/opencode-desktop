@@ -1,7 +1,8 @@
 --!strict
 -- Settings > Browser > Extensions section, "Add an extension" dialog, and InstallReview
 -- confirmation step matching upstream `packages/gui-plugins/src/browser/{settings.tsx,
--- settings-view.ts,choices.tsx}` (`b9a60d9d07`) and `proof/reference/e51247f626/ws9/`.
+-- settings-view.ts,choices.tsx}` (`b9a60d9d07`; the Add dialog as of `5050225a09`, opencode#66355)
+-- and `proof/reference/e51247f626/ws9/`.
 
 local ui = require("@opencode/ui")
 
@@ -92,7 +93,6 @@ export type DialogState = {
     selectedKey: string?,
     candidates: { BrowserCandidate },
     candidatesLoaded: boolean,
-    devOpen: boolean,
     review: InstallReview?,
     showAllSites: boolean,
     approving: boolean,
@@ -117,7 +117,6 @@ export type DialogEnv = {
     onSelectProfile: (key: string) -> (),
     onOpenProfileMenu: () -> (),
     onAddFromBrowser: (sourceId: string, profileId: string, extId: string) -> (),
-    onToggleDev: () -> (),
     onPickFolder: () -> (),
     onToggleSites: () -> (),
     onApprove: (token: string) -> (),
@@ -134,7 +133,14 @@ local SUB_WARN: UiTextProps = table.freeze({ size = 12, weight = "regular", line
 local WARN_LINE: UiTextProps = table.freeze({ size = 13, weight = "regular", lineHeight = 18, color = "status-warning", noWrap = true } :: UiTextProps)
 local DANGER_LINE: UiTextProps = table.freeze({ size = 13, weight = "regular", lineHeight = 18, color = "status-danger", wrap = true } :: UiTextProps)
 local DIALOG_TITLE: UiTextProps = table.freeze({ size = 15, weight = "medium", lineHeight = 20, color = "text-chrome", wrap = true } :: UiTextProps)
-local SECTION_LABEL: UiTextProps = table.freeze({ size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", noWrap = true } :: UiTextProps)
+-- The browser list's header (`settings.tsx:681`: 13 at 440, muted), its picked profile
+-- (`select.css:232-235`: 530) and the heading over the extensions that won't work (`:714`).
+local LIST_HEAD: UiTextProps = table.freeze({ size = 13, weight = "regular", lineHeight = 16, color = "text-muted", noWrap = true } :: UiTextProps)
+local LIST_HEAD_CUT: UiTextProps = table.freeze({ size = 13, weight = "regular", lineHeight = 16, color = "text-muted", truncate = true } :: UiTextProps)
+local PICKED: UiTextProps = table.freeze({ size = 13, weight = "medium", lineHeight = 16, color = "text-chrome", truncate = true } :: UiTextProps)
+local UNSUPPORTED_HEAD: UiTextProps = table.freeze({ size = 12, weight = "regular", lineHeight = 16, color = "text-faint", noWrap = true } :: UiTextProps)
+-- A button's words (`button.css:16-18`).
+local BUTTON_WORDS: UiTextProps = table.freeze({ size = 13, weight = "medium", lineHeight = 20, color = "text-chrome", noWrap = true } :: UiTextProps)
 local WARN_LABEL: UiTextProps = table.freeze({ size = 13, weight = "medium", lineHeight = 18, color = "status-warning", wrap = true } :: UiTextProps)
 local STRONG_LINE: UiTextProps = table.freeze({ size = 13, weight = "medium", lineHeight = 18, color = "text-chrome", wrap = true } :: UiTextProps)
 
@@ -630,7 +636,8 @@ local function renderInstallReview(env: DialogEnv, view: View, rev: InstallRevie
         then i18n:T("settings.extensions.anyway")
         else i18n:T("settings.extensions.add")
 
-    return ui.col({ key = "ext-review-dialog", w = "full" }, {
+    -- The dialog stands on bg-base in both steps (`settings.tsx:589` `containerClass`).
+    return ui.col({ key = "ext-review-dialog", w = "full", fill = "bg-base" }, {
         ui.row({ key = "ext-review-header", w = "full", px = 16, pt = 16, pb = 12, gap = 10, align = "center" }, {
             glyph(rev.icon, "puzzle"),
             ui.text(i18n:T("settings.extensions.confirm.title", { name = rev.name }), DIALOG_TITLE, {
@@ -671,7 +678,7 @@ local function renderInstallReview(env: DialogEnv, view: View, rev: InstallRevie
             ui.button({
                 key = "ext-review-approve",
                 text = confirmText,
-                variant = "contrast",
+                variant = "primary",
                 disabled = blocked or hardBlocked,
                 loading = st.approving,
                 onPress = view:Handler(function()
@@ -682,7 +689,53 @@ local function renderInstallReview(env: DialogEnv, view: View, rev: InstallRevie
     })
 end
 
--- Renders the "Add an extension" dialog, switching cleanly into InstallReview when confirming (`settings.tsx:432-720`).
+-- One extension of the chosen browser profile, with its Add button (`settings.tsx:511-539` `BrowserRow`).
+local function candidateRow(env: DialogEnv, view: View, selected: ProfileChoice, item: BrowserCandidate, blocked: boolean): ui.Node
+    local i18n = env.I18n
+    local st = env.state
+    local srcId = selected.sourceId
+    local profId = selected.profileId
+    local extId = item.id
+    local compat = item.compatibility
+    local textItems: { ui.Node } = { ui.text(item.name, TITLE) }
+    if compat ~= nil and compat.level ~= "supported" then
+        local noteStyle = if compat.level == "unsupported" then SUB_WARN else SUB_MUTED
+        table.insert(textItems, ui.text(verdictLabel(i18n, compat.level), noteStyle, {
+            help = compatTooltip(i18n, compat),
+        }))
+    end
+    local btnText = if item.installed
+        then i18n:T("settings.extensions.added")
+        elseif compat ~= nil and compat.level == "unsupported" then i18n:T("settings.extensions.anyway")
+        else i18n:T("settings.extensions.add")
+    local btnVariant: ButtonVariant = if item.installed then "ghost-muted" else "neutral"
+    return ui.row({
+        key = `ext-cand-{extId}`,
+        w = "full",
+        minH = 44,
+        py = 6,
+        gap = 12,
+        align = "center",
+    }, {
+        glyph(item.icon, "puzzle"),
+        ui.col({ grow = 1, shrink = true, minW = 0, gap = 2 }, textItems),
+        ui.button({
+            key = `ext-cand-btn-{extId}`,
+            text = btnText,
+            size = "small",
+            minW = 96,
+            variant = btnVariant,
+            disabled = blocked or item.installed,
+            loading = st.busy == "install-browser" and st.installingId == extId,
+            onPress = view:Handler(function()
+                env.onAddFromBrowser(srcId, profId, extId)
+            end),
+        }),
+    })
+end
+
+-- Renders the "Add an extension" dialog, switching cleanly into InstallReview when confirming
+-- (`settings.tsx:466-788`, opencode#66355).
 function extensions.renderAddDialog(env: DialogEnv, view: View): ui.Node
     local st = env.state
     if st.review ~= nil then
@@ -693,137 +746,6 @@ function extensions.renderAddDialog(env: DialogEnv, view: View): ui.Node
     local blocked = st.busy ~= nil
     local linkEmpty = string.match(env.linkEditor:Text(), "^%s*$") ~= nil
     local selected = extensions.findChoice(st.choices, st.selectedKey)
-
-    local middle: { ui.Node } = {}
-
-    if st.message ~= nil then
-        local msg = st.message
-        local style = if msg.error then DANGER_LINE else BODY
-        table.insert(middle, ui.text(msg.text, style, {
-            key = "ext-dialog-message",
-            role = if msg.error then "alert" else "status",
-            help = compatTooltip(i18n, msg.compatibility),
-        }))
-    end
-
-    if selected ~= nil then
-        local headerChildren: { ui.Node } = {
-            ui.text(i18n:T("settings.extensions.browser.title"), SECTION_LABEL),
-        }
-        if #st.choices > 1 then
-            table.insert(headerChildren, ui.row({
-                key = "ext-browser-profile-btn",
-                role = "button",
-                label = i18n:T("settings.extensions.browser.select"),
-                h = 24,
-                px = 6,
-                gap = 4,
-                radius = 4,
-                align = "center",
-                hover = "surface-hover",
-                press = "surface-press",
-                hoverTransition = "instant",
-                menuTrigger = true,
-                onPress = view:Handler(function()
-                    env.onOpenProfileMenu()
-                end),
-            }, {
-                ui.text(extensions.choiceLabel(selected), SECTION_LABEL),
-                ui.icon("chevron-down", { size = 14, color = "icon-weak" }),
-            }))
-        end
-
-        local listItems: { ui.Node } = {}
-        if #st.candidates == 0 then
-            if st.candidatesLoaded then
-                table.insert(listItems, ui.text(i18n:T("settings.extensions.browser.empty"), BODY, { key = "ext-browser-empty" }))
-            end
-        else
-            local srcId = selected.sourceId
-            local profId = selected.profileId
-            for _, item in st.candidates do
-                local extId = item.id
-                local compat = item.compatibility
-                local textItems: { ui.Node } = { ui.text(item.name, TITLE) }
-                if compat ~= nil and compat.level ~= "supported" then
-                    local noteStyle = if compat.level == "unsupported" then SUB_WARN else SUB_MUTED
-                    table.insert(textItems, ui.text(verdictLabel(i18n, compat.level), noteStyle, {
-                        help = compatTooltip(i18n, compat),
-                    }))
-                end
-                local btnText = if item.installed
-                    then i18n:T("settings.extensions.added")
-                    elseif compat ~= nil and compat.level == "unsupported" then i18n:T("settings.extensions.anyway")
-                    else i18n:T("settings.extensions.add")
-                local btnVariant: ButtonVariant = if item.installed then "ghost-muted" else "neutral"
-                local isBusyThis = st.busy == "install-browser" and st.installingId == extId
-                table.insert(listItems, ui.row({
-                    key = `ext-cand-{extId}`,
-                    w = "full",
-                    minH = 44,
-                    py = 6,
-                    gap = 12,
-                    align = "center",
-                }, {
-                    glyph(item.icon, "puzzle"),
-                    ui.col({ grow = 1, shrink = true, minW = 0, gap = 2 }, textItems),
-                    ui.button({
-                        key = `ext-cand-btn-{extId}`,
-                        text = btnText,
-                        size = "small",
-                        minW = 96,
-                        variant = btnVariant,
-                        disabled = blocked or item.installed,
-                        loading = isBusyThis,
-                        onPress = view:Handler(function()
-                            env.onAddFromBrowser(srcId, profId, extId)
-                        end),
-                    }),
-                }))
-            end
-        end
-
-        table.insert(middle, ui.col({ key = "ext-from-browsers", w = "full", gap = 4 }, {
-            ui.row({ w = "full", h = 28, align = "center", justify = "between", gap = 8 }, headerChildren),
-            ui.col({ w = "full", gap = 0 }, listItems),
-        }))
-    end
-
-    local devChildren: { ui.Node } = {
-        ui.row({
-            key = "ext-dev-toggle",
-            role = "button",
-            label = i18n:T("settings.developers"),
-            gap = 4,
-            py = 2,
-            radius = 4,
-            align = "center",
-            hover = "surface-hover",
-            hoverTransition = "instant",
-            onPress = view:Handler(function()
-                env.onToggleDev()
-            end),
-        }, {
-            ui.text(i18n:T("settings.developers"), BODY_SINGLE),
-            ui.icon(if st.devOpen then "chevron-up" else "chevron-down", { size = 14, color = "icon-weak" }),
-        }),
-    }
-    if st.devOpen then
-        table.insert(devChildren, ui.row({ key = "ext-dev-body", w = "full", pt = 4, gap = 12, align = "center" }, {
-            ui.text(i18n:T("settings.extensions.folder.description"), BODY, { grow = 1, shrink = true, minW = 0 }),
-            ui.button({
-                key = "ext-dev-folder-btn",
-                text = i18n:T("settings.extensions.folder.action"),
-                size = "small",
-                variant = "neutral",
-                disabled = blocked,
-                loading = st.busy == "install-folder",
-                onPress = view:Handler(function()
-                    env.onPickFolder()
-                end),
-            }),
-        }))
-    end
 
     local bodyChildren: { ui.Node } = {
         ui.row({ key = "ext-store-row", w = "full", align = "center", gap = 8 }, {
@@ -855,34 +777,164 @@ function extensions.renderAddDialog(env: DialogEnv, view: View): ui.Node
         }),
     }
 
-    if #middle > 0 then
-        table.insert(bodyChildren, ui.col({
-            key = "ext-dialog-scroll",
-            w = "full",
-            maxH = 280,
-            scrollY = true,
-            gap = 12,
-        }, middle))
+    -- What the last add did stands under the link field, 12 below it, and doesn't scroll
+    -- (`settings.tsx:642-671`: `-mt-3 shrink-0` in the 24 gap).
+    if st.message ~= nil then
+        local msg = st.message
+        local style = if msg.error then DANGER_LINE else BODY
+        table.insert(bodyChildren, ui.text(msg.text, style, {
+            key = "ext-dialog-message",
+            role = if msg.error then "alert" else "status",
+            help = compatTooltip(i18n, msg.compatibility),
+            mt = -12,
+        }))
     end
 
-    table.insert(bodyChildren, ui.col({ key = "ext-dev-section", w = "full", gap = 8 }, {
-        ui.divider(),
-        ui.col({ w = "full", pt = 4, gap = 4 }, devChildren),
-    }))
+    if selected ~= nil then
+        -- A bordered list with the profile picker as its header, so the picker reads as the list's
+        -- source and the scrolled rows end at the frame (`settings.tsx:672-727`).
+        local head: { ui.Node } = {
+            ui.text(i18n:T("settings.extensions.browser.from"), LIST_HEAD),
+        }
+        if #st.choices > 1 then
+            -- The inline select's trigger (`select.css:193-240`: 24 tall, 8 before and 4 after, a
+            -- 16 chevron, the value at 530).
+            table.insert(head, ui.row({
+                key = "ext-browser-profile-btn",
+                role = "button",
+                label = i18n:T("settings.extensions.browser.select"),
+                h = 24,
+                pl = 8,
+                pr = 4,
+                gap = 4,
+                radius = 4,
+                shrink = true,
+                minW = 0,
+                align = "center",
+                hover = "surface-hover",
+                press = "surface-press",
+                hoverTransition = "instant",
+                menuTrigger = true,
+                onPress = view:Handler(function()
+                    env.onOpenProfileMenu()
+                end),
+            }, {
+                ui.text(extensions.choiceLabel(selected), PICKED, { shrink = true, minW = 0 }),
+                ui.icon("chevron-down", { size = 16, color = "icon-weak" }),
+            }))
+        else
+            table.insert(head, ui.text(extensions.choiceLabel(selected), LIST_HEAD_CUT, { shrink = true, minW = 0 }))
+        end
 
-    return ui.col({ key = "ext-add-dialog", w = "full" }, {
+        -- Extensions that work, fully or in part, come first; those that won't work here follow
+        -- under their own heading (`settings.tsx:501-509`, `:709-722`).
+        local listItems: { ui.Node } = {}
+        local unsupported: { ui.Node } = {}
+        for _, item in st.candidates do
+            local row = candidateRow(env, view, selected, item, blocked)
+            if item.compatibility ~= nil and item.compatibility.level == "unsupported" then
+                table.insert(unsupported, row)
+            else
+                table.insert(listItems, row)
+            end
+        end
+        if #st.candidates == 0 then
+            if st.candidatesLoaded then
+                table.insert(listItems, ui.col({ key = "ext-browser-empty", w = "full", py = 12 }, {
+                    ui.text(i18n:T("settings.extensions.browser.empty"), BODY),
+                }))
+            end
+        elseif #unsupported > 0 then
+            local heading = i18n:T("settings.extensions.browser.unsupported")
+            table.insert(unsupported, 1, ui.text(heading, UNSUPPORTED_HEAD, { key = "ext-unsupported-heading", role = "heading", pt = 12, pb = 4 }))
+            table.insert(listItems, ui.col({ key = "ext-unsupported", role = "group", label = heading, w = "full" }, unsupported))
+        end
+
+        table.insert(bodyChildren, ui.col({
+            key = "ext-from-browsers",
+            role = "group",
+            label = i18n:T("settings.extensions.browser.list", { browser = extensions.choiceLabel(selected) }),
+            w = "full",
+            radius = 8,
+            clip = true,
+            fill = "surface-1",
+            border = "border-weak",
+            borderWidth = 0.5,
+        }, {
+            ui.frame({
+                key = "ext-from-head",
+                direction = "row",
+                w = "full",
+                h = 36,
+                px = 12,
+                gap = 4,
+                align = "center",
+                border = "border-weak",
+                borderSides = { 0, 0, 0.5, 0 },
+            }, head),
+            ui.col({
+                key = "ext-dialog-scroll",
+                w = "full",
+                maxH = 280,
+                scrollY = true,
+                px = 12,
+                py = 4,
+            }, listItems),
+        }))
+    end
+
+    -- Loading an extension from a folder is for people who build extensions: a quiet action at
+    -- the start of the footer, its label on the dialog's edge (`settings.tsx:740-760`; `flush`
+    -- pulls the button out by its own inset, `button.css:42`, `:62`). While the folder loads it
+    -- waits as official's loading button does: a spinner and the same words (`button.css:228-234`).
+    local folderText = i18n:T("settings.extensions.folder.action")
+    local folderAction: ui.Node
+    if st.busy == "install-folder" then
+        folderAction = ui.row({
+            key = "ext-folder-loading",
+            role = "status",
+            label = folderText,
+            h = 28,
+            pl = 6,
+            pr = 11,
+            gap = 6,
+            radius = 6,
+            align = "center",
+            fill = "surface-2",
+            border = "border-weak",
+            borderWidth = 0.5,
+        }, {
+            ui.loader({ size = 16 }),
+            ui.text(folderText, BUTTON_WORDS),
+        })
+    else
+        folderAction = ui.button({
+            key = "ext-folder-btn",
+            text = folderText,
+            variant = "ghost-muted",
+            ml = -11,
+            disabled = blocked,
+            onPress = view:Handler(function()
+                env.onPickFolder()
+            end),
+        })
+    end
+
+    return ui.col({ key = "ext-add-dialog", w = "full", fill = "bg-base" }, {
         ui.dialogHeader({
             key = "ext-add-header",
             title = i18n:T("settings.extensions.add.title"),
             description = i18n:T("settings.extensions.dialog.description"),
             wrapTitle = false,
         }),
-        ui.col({ key = "ext-add-body", w = "full", px = 16, pt = 4, pb = 8, gap = 16 }, bodyChildren),
-        ui.row({ key = "ext-add-footer", w = "full", px = 16, py = 12, justify = "end" }, {
+        ui.col({ key = "ext-add-body", w = "full", px = 16, pt = 4, pb = 8, gap = 24 }, bodyChildren),
+        ui.row({ key = "ext-add-footer", w = "full", px = 16, py = 12, justify = "between", align = "center" }, {
+            folderAction,
+            -- `variant="submit"`: this plugin API's `primary` is that look (the composer's send button).
             ui.button({
                 key = "ext-add-done",
                 text = i18n:T("settings.extensions.done"),
-                variant = "contrast",
+                variant = "primary",
                 onPress = view:Handler(function()
                     env.onClose()
                 end),
@@ -890,7 +942,6 @@ function extensions.renderAddDialog(env: DialogEnv, view: View): ui.Node
         }),
     })
 end
-
 function extensions.renderProfileMenu(
     choices: { ProfileChoice },
     selectedKey: string?,

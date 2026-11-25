@@ -334,6 +334,15 @@ impl App {
         self.save_tabs();
     }
 
+    /// Puts closed tab `target` back at its old index without showing it: the page stays where
+    /// it is.
+    pub(crate) fn put_back_closed(&mut self, target: &str) {
+        let Some(entry) = self.gestures.closed.take(&self.tabs, Some(target)) else { return };
+        let at = entry.index.min(self.tabs.len());
+        self.tabs.insert(at, entry.tab);
+        self.save_tabs();
+    }
+
     /// Whether session `id` had a prompt, so "Recently closed" lists it once closed (Desktop's
     /// `TabInfo.prompted`). One whose messages never loaded counts when the server has it.
     fn prompted(&self, id: &str) -> bool {
