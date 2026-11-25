@@ -5,7 +5,7 @@
   "upstream_head": "b5dba31bf20d758d86871af65d206a197d411a0c",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "cb767e1e4",
+  "rune_desktop_head": "eab4de4be",
   "post_1114_commit_count": 653,
   "post_1114_in_ledger": 229,
   "post_1114_skipped": 424,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 250,
   "status_counts": {
-    "have it": 201,
+    "have it": 202,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 9
+    "missing": 8
   },
   "rows": [
     {
@@ -6244,8 +6244,8 @@
       ],
       "summary": "The Execute details dialog (View code on a Code Mode call) is simpler: the status is a Badge (danger for a failed run) and the call count is gone; the line counts after Code and Output are gone; a failed run's error is a numbered text view in the danger colour sharing the code's number gutter, in place of a padded block; lines no longer light under the pointer.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Ported in draft opencode-rune #1158 (crates/session-view/src/tools/details.rs, tools/diff.rs code); compiled by CI only, not run: it merges after a run on its build (a completed call and a failed one).",
+      "status": "have it",
+      "status_evidence": "opencode-rune #1158 (eab4de4b): crates/session-view/src/tools/details.rs (the status is the Badge, danger for a failed run; the call count and the line counts are gone; the error is a numbered text view in the danger colour sharing the code's number gutter) and tools/diff.rs code (an ink for plain lines; no line hover). Run headless on its Windows x64 CI build beside a PR build without the change, trees and pictures read: a completed call and a failed call with a twelve-line error (the badge, no counts, the error numbered and red, the gutter sized for two digits in both blocks), and the pointer over a code line (a hover before, none after). Not run: a real window, a running call, an output over 4096 bytes, macOS and Linux. Not ported, older than this commit: official indents compact JSON output there (formatExecuteOutput).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
