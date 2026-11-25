@@ -14,9 +14,9 @@
 //! - with no list of its own for this exe yet (its first start on a profile: after an install and
 //!   after every update), its code and constants in address order.
 //!
-//! On that first start the list the build was packaged with, `launch-pages.bin` beside the exe
+//! On that first start a list the build was packaged with, `launch-pages.bin` beside the exe
 //! ([`packed`]), stands in for the profile's when the image is in memory: its pages are mapped
-//! (below), nothing is asked for. With the image away it is not used.
+//! (below), nothing is asked for. With the image away it is not used. No build ships one yet.
 //!
 //! It asks only when the pages are away: it reads one byte of [`SAMPLES`] of them first (of
 //! [`SAMPLES_NO_LIST`] with no list yet), and a page in memory answers in a few microseconds
@@ -291,15 +291,17 @@ fn run(mode: Mode, threads: usize, ask: usize) {
     }
 }
 
-/// The list the build was packaged with, `launch-pages.bin` beside the exe: what one launch of
-/// this very build used on the machine that packaged it (`apps/installer/scripts/package.ps1`
-/// runs `--record-launch-pages`, `record`). A build's first launch on a profile has no list of
-/// its own, so its main thread maps every page it runs: with the profile an update leaves and
-/// the image in memory, `main` to the first frame was 26.7 ms with no list, 23.2 ms with a list
-/// from one launch on another machine and 21.8 ms with the profile's own (16 launches each in
-/// turn, 26 Nov; the first frame 4.35 ms sooner than with no list in 13 of 16, the own list 4.7
-/// ms in 13 of 16). [`decode`] takes it only for the image it was made from, as it does the
-/// profile's; `run` uses it only while the image is in memory.
+/// A list the build was packaged with, `launch-pages.bin` beside the exe, for a build's first
+/// launch on a profile, which has no list of its own and whose main thread so maps every page
+/// it runs. No build ships one yet, because the one list tried did not earn it: what one
+/// `--record-launch-pages` launch (`record`) of the build used on the machine that packaged it,
+/// three quarters of the pages a real launch uses. With the profile an update leaves and the
+/// image in memory, the first frame came 1.1 ms sooner with it than with no list (9 of 16
+/// pairs) and content live 2.45 ms later (7 of 16 sooner), where the profile's own list gave
+/// 2.95 ms (12 of 16) and 3.2 ms (10 of 16); 26 Nov. A list that holds nearly all of the pages
+/// is what pays: the own list's 23 ms on a never-started build (`run`). [`decode`] takes a
+/// packed list only for the image it was made from, as it does the profile's; `run` uses it
+/// only while the image is in memory.
 fn packed() -> Option<Vec<u8>> {
     let exe = std::env::current_exe().ok()?;
     std::fs::read(exe.parent()?.join("launch-pages.bin")).ok()

@@ -1,10 +1,12 @@
 //! `opencode-desktop --record-launch-pages <out>`: one launch that nobody waits for, which writes
 //! the list of the image's pages a launch uses (`image_pages`) to `<out>` and ends by itself.
 //!
-//! The package step runs it once on the just-built app (`apps/installer/scripts/package.ps1`),
-//! and the list ships beside the exe for a build's first launch on a profile. The run is a
-//! launch as a person's is, with a window, so that it uses the pages theirs will; what makes it
-//! safe to start on a build machine is all here, so that no caller can ask for half of it:
+//! It is the tool that records what a launch uses, for a list a build can ship beside its exe
+//! (`image_pages::packed`). No build step runs it today: a list recorded this way holds about
+//! three quarters of the pages a real launch uses, and shipped as it is it gave a build's first
+//! launch nothing (`image_pages::run` has the numbers). The run is a launch as a person's is,
+//! with a window, so that it uses the pages theirs will; what makes it safe to start where
+//! nobody waits (a build machine, a setup) is all here, so that no caller can ask for half of it:
 //!
 //! - **Its own root.** [`begin`] makes a folder under the temporary folder and points
 //!   `RUNE_DIRS_ROOT` at it, so every folder the app reads and writes is in there, and the
@@ -24,7 +26,7 @@
 //! not start, 3 the app quit with no list written, 4 it ran past [`LIMIT`].
 //!
 //! Not the app's to decide: whether the window is seen. A caller that must show nothing starts
-//! this on a desktop of its own, as the package step does.
+//! this on a desktop of its own.
 #![cfg_attr(not(windows), allow(dead_code))]
 
 use std::path::PathBuf;
