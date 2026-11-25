@@ -1610,10 +1610,17 @@ return plugin.defineWindow(function(ctx)
         message = nil,
     }
 
+    -- Whether the host's first listing is in: before it, the page says nothing of other browsers
+    -- (`settings.tsx:151`, `jobs.ts:313` `sourcesLoaded`).
+    local importSourcesLoaded = false
+
     local function listImportSources(): { settings.ImportBrowser }
         -- The host lists them off the UI thread and keeps the last listing, so asking is cheap.
         local bAny = Browser :: any
-        importSources = if type(bAny.HistoryImportSources) == "function" then (bAny:HistoryImportSources() :: any) or {} else {}
+        -- Nothing until the first listing is in; a host without the method has none to list.
+        local listed: any = if type(bAny.HistoryImportSources) == "function" then bAny:HistoryImportSources() else {}
+        importSourcesLoaded = listed ~= nil
+        importSources = listed or {}
         return importSources
     end
 
@@ -2435,6 +2442,9 @@ return plugin.defineWindow(function(ctx)
             Dialog:Open("clear-data")
         end,
         importSources = listImportSources,
+        importSourcesLoaded = function(): boolean
+            return importSourcesLoaded
+        end,
         importIcon = importIcon,
         importMessage = function(browserId: string, profileId: string): settings.ImportMessage?
             return importResults[`{browserId}\n{profileId}`]

@@ -72,6 +72,9 @@ export type Env = {
     clearing: () -> boolean,
     requestClearBrowsingData: () -> (),
     importSources: () -> { ImportBrowser },
+    -- Whether the last `importSources` call had a listing to give: false until the host's first
+    -- one is in.
+    importSourcesLoaded: () -> boolean,
     importMessage: (browserId: string, profileId: string) -> ImportMessage?,
     openImport: (browserId: string, profileId: string) -> (),
     importIcon: (browserId: string) -> ImageId?,
@@ -309,7 +312,8 @@ function settings.create(env: Env, refresh: () -> ())
                         ))
                     end
                 end
-                if #rows == 0 then
+                -- `settings.tsx:151`: said only once the browsers are listed, not while they are.
+                if #rows == 0 and env.importSourcesLoaded() then
                     table.insert(rows, mutedRow("settings-browser-import", i18n:T("settings.import.none")))
                 end
                 table.insert(sections, ui.settingsList({
