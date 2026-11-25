@@ -115,9 +115,13 @@ fn ask_known(host: &mut dyn ReviewHost) {
         .cloned()
         .collect();
     for sid in known {
-        host.review_mut().waiting.remove(&sid);
         if host.active_session_id() == Some(sid.as_str()) {
             ensure_session(host, &sid);
+        } else {
+            // Read again, with its saved source, when a page next shows it.
+            let review = host.review_mut();
+            review.waiting.remove(&sid);
+            review.sessions.remove(&sid);
         }
     }
 }
@@ -249,6 +253,15 @@ pub fn ensure_session(host: &mut dyn ReviewHost, session_id: &str) {
         review.sessions.entry(session_id.to_owned()).or_default();
         review.waiting.insert(session_id.to_owned());
         return;
+    }
+    // Listed since it began to wait. The source it last chose is kept under its folder, so what
+    // was read before found none: it's read now, before anything is asked (Desktop asks for
+    // nothing until the stored state is in, `packages/gui-plugins/src/review/model.ts`).
+    if host.review_mut().waiting.remove(session_id)
+        && let Some(mode) = host.saved_mode(session_id)
+        && host.review().sessions.get(session_id).is_some_and(|sr| sr.mode != mode)
+    {
+        return set_session_mode(host, session_id, mode);
     }
     let (diff_mode, expand_mode, rev, mode, already_loaded, hydrated) = {
         let review = host.review_mut();

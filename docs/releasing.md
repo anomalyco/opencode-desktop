@@ -4,28 +4,31 @@
 
 ## Channels
 
-- **dev**: checks `dev` every six hours (`17 */6 * * *` UTC). A scheduled run skips the builds when no app files changed; dispatching `dev` builds immediately. Each release publishes `0.0.0-dev-<n>` with all 14 targets. A failed build, signing step or package check leaves the previous complete release available. The unsigned Windows setups also go to the rolling `opencode-rune-windows-dev` pre-release.
+**dev** is the only desktop channel. There is no stable channel.
+
+- **dev**: checks `dev` every six hours (`17 */6 * * *` UTC). A scheduled run skips the builds when no app files changed; dispatching `dev` builds immediately. Each release publishes `0.0.0-dev-<n>` with all 14 targets. A failed build, signing step or package check leaves the previous complete release available. Once the release service has it, the last job tags `v0.0.0-dev-<n>` on the released commit and mirrors the same signed files, byte for byte, to that tag's GitHub release, marked latest, with notes generated since the previous dev tag. The release's `notes_url` points at that GitHub release.
 - **check**: dispatch from `dev`. It builds, signs and verifies, and publishes nothing. Its last job pushes and deletes a throwaway `v0.0.0-test-<n>` tag.
-- **stable**: dispatch from `dev` with a bump (`patch`, `minor` or `major`). The version is the latest `vX.Y.Z` tag bumped (`0.0.0` when there is none). After publishing the same target set as dev, the last job tags `v<version>` on the released commit and mirrors the packages to the GitHub release.
 
 ```sh
-gh workflow run release.yml -R anomalyco/rune-desktop --ref dev -f channel=stable -f bump=patch
+gh workflow run release.yml -R anomalyco/opencode-rune --ref dev -f channel=dev
 ```
 
 Tags start nothing, and the workflow has no ref input: a run always releases `github.sha` on `dev`.
 
+PR builds (`opencode-rune-pr-build.yml`) are separate: each open PR has an `opencode-rune-pr-<n>` pre-release with ad-hoc signed and unsigned test builds, deleted when the PR closes.
+
 ## Latest downloads
 
-Each link redirects to the channel's current file. Append `/info` to a link for its version, byte size and SHA-256. The links resolve once that channel has published the target.
+Each link redirects to the dev channel's current file. Append `/info` to a link for its version, byte size and SHA-256. The same files are on the newest [GitHub release](https://github.com/anomalyco/opencode-rune/releases/latest).
 
-| Platform | Dev | Stable |
-| --- | --- | --- |
-| macOS Apple Silicon | [DMG](https://anoma.ly/release/opencode/desktop-rune/dev/macos-arm64-dmg) · [update ZIP](https://anoma.ly/release/opencode/desktop-rune/dev/macos-arm64) | [DMG](https://anoma.ly/release/opencode/desktop-rune/stable/macos-arm64-dmg) · [update ZIP](https://anoma.ly/release/opencode/desktop-rune/stable/macos-arm64) |
-| macOS Intel | [DMG](https://anoma.ly/release/opencode/desktop-rune/dev/macos-x64-dmg) · [update ZIP](https://anoma.ly/release/opencode/desktop-rune/dev/macos-x64) | [DMG](https://anoma.ly/release/opencode/desktop-rune/stable/macos-x64-dmg) · [update ZIP](https://anoma.ly/release/opencode/desktop-rune/stable/macos-x64) |
-| Windows x64 | [setup](https://anoma.ly/release/opencode/desktop-rune/dev/windows-x64-setup) · [update ZIP](https://anoma.ly/release/opencode/desktop-rune/dev/windows-x64) | [setup](https://anoma.ly/release/opencode/desktop-rune/stable/windows-x64-setup) · [update ZIP](https://anoma.ly/release/opencode/desktop-rune/stable/windows-x64) |
-| Windows arm64 | [setup](https://anoma.ly/release/opencode/desktop-rune/dev/windows-arm64-setup) · [update ZIP](https://anoma.ly/release/opencode/desktop-rune/dev/windows-arm64) | [setup](https://anoma.ly/release/opencode/desktop-rune/stable/windows-arm64-setup) · [update ZIP](https://anoma.ly/release/opencode/desktop-rune/stable/windows-arm64) |
-| Linux x64 | [AppImage](https://anoma.ly/release/opencode/desktop-rune/dev/linux-x64-appimage) · [DEB](https://anoma.ly/release/opencode/desktop-rune/dev/linux-x64-deb) · [RPM](https://anoma.ly/release/opencode/desktop-rune/dev/linux-x64-rpm) | [AppImage](https://anoma.ly/release/opencode/desktop-rune/stable/linux-x64-appimage) · [DEB](https://anoma.ly/release/opencode/desktop-rune/stable/linux-x64-deb) · [RPM](https://anoma.ly/release/opencode/desktop-rune/stable/linux-x64-rpm) |
-| Linux arm64 | [AppImage](https://anoma.ly/release/opencode/desktop-rune/dev/linux-arm64-appimage) · [DEB](https://anoma.ly/release/opencode/desktop-rune/dev/linux-arm64-deb) · [RPM](https://anoma.ly/release/opencode/desktop-rune/dev/linux-arm64-rpm) | [AppImage](https://anoma.ly/release/opencode/desktop-rune/stable/linux-arm64-appimage) · [DEB](https://anoma.ly/release/opencode/desktop-rune/stable/linux-arm64-deb) · [RPM](https://anoma.ly/release/opencode/desktop-rune/stable/linux-arm64-rpm) |
+| Platform | Dev |
+| --- | --- |
+| macOS Apple Silicon | [DMG](https://anoma.ly/release/opencode/desktop-rune/dev/macos-arm64-dmg) · [update ZIP](https://anoma.ly/release/opencode/desktop-rune/dev/macos-arm64) |
+| macOS Intel | [DMG](https://anoma.ly/release/opencode/desktop-rune/dev/macos-x64-dmg) · [update ZIP](https://anoma.ly/release/opencode/desktop-rune/dev/macos-x64) |
+| Windows x64 | [setup](https://anoma.ly/release/opencode/desktop-rune/dev/windows-x64-setup) · [update ZIP](https://anoma.ly/release/opencode/desktop-rune/dev/windows-x64) |
+| Windows arm64 | [setup](https://anoma.ly/release/opencode/desktop-rune/dev/windows-arm64-setup) · [update ZIP](https://anoma.ly/release/opencode/desktop-rune/dev/windows-arm64) |
+| Linux x64 | [AppImage](https://anoma.ly/release/opencode/desktop-rune/dev/linux-x64-appimage) · [DEB](https://anoma.ly/release/opencode/desktop-rune/dev/linux-x64-deb) · [RPM](https://anoma.ly/release/opencode/desktop-rune/dev/linux-x64-rpm) |
+| Linux arm64 | [AppImage](https://anoma.ly/release/opencode/desktop-rune/dev/linux-arm64-appimage) · [DEB](https://anoma.ly/release/opencode/desktop-rune/dev/linux-arm64-deb) · [RPM](https://anoma.ly/release/opencode/desktop-rune/dev/linux-arm64-rpm) |
 
 The Mac and Windows updaters read the bare `<os>-<arch>` ZIP targets. Linux uses manual downloads; its packages are built on Ubuntu 24.04. Set the AppImage's executable bit before launching it (`chmod +x`). The release registry authorizes the artifact and channels; adding a target requires no registry change.
 
@@ -35,12 +38,12 @@ Source: [official release workflow](https://github.com/anomalyco/opencode/blob/3
 
 | | Official | Rune |
 | --- | --- | --- |
-| Cadence | Six-hour dev schedule; beta on push; dispatch from dev for latest | Six-hour dev schedule with app-change gate; dispatch for dev, check or stable |
+| Cadence | Six-hour dev schedule; beta on push; dispatch from dev for latest | Six-hour dev schedule with app-change gate; dispatch for dev or check |
 | macOS | arm64 + x64 DMG and ZIP; legacy `.app.tar.gz` on latest | arm64 + x64 DMG and ZIP |
 | Windows | x64 + arm64 signed installer EXE | x64 + arm64 signed setup EXE and signed application ZIP |
 | Linux | x64 + arm64 AppImage, DEB, RPM; per-architecture Electron update feeds | Same architectures and packages; manual updates |
 | Signing | Apple Developer ID and notarization; Azure Authenticode; unsigned Linux packages | Same signing policy; every artifact checked against the producing job's SHA256SUMS digest |
-| Publishing | `opencode.ai/files` (R2); `desktop` / distribution `opencode` at `opencode.ai/update`; `dev`, `beta`, `latest` | `anoma.ly/release/opencode/desktop-rune`; `dev`, `stable`; target names in the links above |
+| Publishing | `opencode.ai/files` (R2); `desktop` / distribution `opencode` at `opencode.ai/update`; `dev`, `beta`, `latest` | `anoma.ly/release/opencode/desktop-rune`, `dev` only, mirrored to GitHub releases; target names in the links above |
 
 On a fully active day the schedule can build 24 OS/architecture combinations, up from seven (five Windows x64, one Windows arm64 and one Mac arm64). The change gate keeps idle runs to one Linux planning job, and concurrency lets the active release finish with only the newest pending run per channel. If runner spend exceeds budget, reduce the number of scheduled releases while retaining every target in each publish.
 
@@ -72,6 +75,6 @@ Dispatch `release.yml` from `dev` with `channel=engine-linux` to build the x86_6
 - Sign and publish jobs use the protected `release` environment, which can deploy only from `dev`. They sparse-check out only `.github/release/` at `github.sha` and treat artifacts as data, checked against the SHA256SUMS digest the job that built them reported.
 - Signing credentials are stored outside the repository and fetched via GitHub OIDC only inside the step that uses them (`.github/release/with-secrets.sh`), never exported into `$GITHUB_ENV`.
 - The `release` environment holds only non-secret identifiers (`AZURE_*` and Apple notary IDs); repository and environment secrets stay empty.
-- The release service authorizes publishes via GitHub OIDC restricted to `anomalyco/rune-desktop`, `.github/workflows/release.yml`, `refs/heads/dev` and the `release` environment.
+- The release service authorizes publishes via GitHub OIDC restricted to `anomalyco/opencode-rune`, `.github/workflows/release.yml`, `refs/heads/dev` and the `release` environment.
 - Changes to `.github/` require code-owner approval (`.github/CODEOWNERS`).
 - PR builds are never signed with release credentials. Their macOS app is ad-hoc signed.

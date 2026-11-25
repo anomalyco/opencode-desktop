@@ -154,6 +154,11 @@ end
 function panel.title(env: Env, view: View, sid: string, key: string): ui.Node
     local doc = panel.doc(env, sid)
     local sources = doc:Sources()
+    -- No source to name yet (`ReviewTitle`, `parts.tsx`: nothing until `canReview` and an option):
+    -- the session isn't listed, so its saved source can't be read.
+    if #sources == 0 then
+        return ui.row({ key = `{key}-held`, h = 24 }, {})
+    end
     local current = doc:Source()
     local label = ui.text(sourceLabel(env, current), { size = 13, weight = "medium", lineHeight = 16, tracking = -0.04, color = "text-chrome", fadeOut = true })
     if #sources <= 1 then

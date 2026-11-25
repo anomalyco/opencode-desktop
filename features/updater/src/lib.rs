@@ -16,7 +16,13 @@
 //!   then atomically replacing the AppImage or elevating `dpkg`/`apt`/`zypper`/`dnf`/`yum`/`rpm`
 //!   via `pkexec` and relaunching). Snap, Flatpak and distro packages disable the updater.
 //!
-//! All check ten seconds after launch and every ten minutes. The Updater plugin
+//! All follow the one channel this app ships on, `dev` (`https://anoma.ly/release/opencode/desktop-rune/dev.json`),
+//! and check ten seconds after launch and every ten minutes, also while an update is staged so a
+//! newer release replaces it. Only an install that is ours to replace updates itself (macOS: a
+//! writable, non-translocated team bundle; Windows: the setup's `install.json` receipt); any
+//! other copy keeps checking and links to the download. An administrator's `DisableUpdates`
+//! (macOS defaults key; Windows `SOFTWARE\Policies\Anomaly\OpenCode`) and source builds never
+//! check. The Updater plugin
 //! (`plugins/updater`) draws it, as Desktop's updater plugin does: the titlebar's Update pill while
 //! an update is ready, Settings > Updates, the toasts of a check the user asked for, and What's
 //! new. It reaches the service through the `Updater` Luau service, whose state, checks and
@@ -397,7 +403,7 @@ fn attach_service(s: &mut dyn UpdaterHost) {
             service
         }
         None => {
-            let service = Rc::new(RefCell::new(UpdaterService::start(Box::new(make_platform), build_version(), feed::feed_channel(build_channel()), waker)));
+            let service = Rc::new(RefCell::new(UpdaterService::start(Box::new(make_platform), build_version(), feed::feed_channel(), waker)));
             SHARED.with(|shared| *shared.borrow_mut() = Some(service.clone()));
             service
         }

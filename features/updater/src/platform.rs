@@ -67,8 +67,8 @@ pub trait Platform: Send + Sync + 'static {
 pub fn make(exe: &Path, version: &str, build_channel: &str, updates: PathBuf) -> Option<Arc<dyn Platform>> {
     #[cfg(target_os = "macos")]
     {
-        let _ = version;
-        super::mac::platform(exe, build_channel, updates).map(|p| Arc::new(p) as Arc<dyn Platform>)
+        let _ = (version, build_channel);
+        super::mac::platform(exe, updates).map(|p| Arc::new(p) as Arc<dyn Platform>)
     }
     #[cfg(windows)]
     {

@@ -6,7 +6,7 @@
 # deletes it again. Runs git only, with hooks off.
 . "$(dirname "$0")/lib.sh"
 
-[[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-test-[0-9]+)?$ ]] || die "Unexpected tag $TAG."
+[[ "$TAG" =~ ^v0\.0\.0-(dev|test)-[0-9]+$ ]] || die "Unexpected tag $TAG."
 [ "$(git rev-parse HEAD)" = "$SHA" ] || die "The checkout is not the released commit $SHA."
 git() { command git -c core.hooksPath=/dev/null "$@"; }
 

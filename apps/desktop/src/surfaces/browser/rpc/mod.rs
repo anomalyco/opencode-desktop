@@ -4,6 +4,7 @@
 //! Lives in `StateSlots` (`BROWSER_RPC`, zero fields on `struct App`), wakes zero Luau VMs, and
 //! keeps every session's tab namespace (`tab_<uuid>`) isolated by construction.
 
+mod comes_back;
 mod exec;
 pub mod express;
 mod frames;
@@ -26,6 +27,7 @@ use opencode_kit::servers::ServerKey;
 use rune::{Tx, Waker, time::Instant};
 use serde_json::Value;
 
+pub use self::comes_back::person_came;
 use self::session::SessionAttachment;
 use self::start_gate::{StartWaiter, drain_start_waiters};
 pub use self::start_gate::{hold_start_gate, release_start_waiters};
@@ -88,9 +90,11 @@ pub(super) enum ServerRpcVerdict {
 
 pub struct BrowserRpcState {
     sessions: BTreeMap<(ServerKey, String), SessionAttachment>,
-    /// Sessions the user actually routed into on this window (`model.ts:664-689`). Restored or
-    /// background tabs sitting in `app.tabs` are not attached until routed.
+    /// Sessions that attach while they stay open: the ones the person routed into on this window,
+    /// and the ones that ran in a tab nobody had opened (`comes_back::unopened`).
     routed_sessions: BTreeSet<(ServerKey, String)>,
+    /// The session on screen at the last poll: a change is the person coming to a session.
+    on_screen: Option<(ServerKey, String)>,
     /// Starts whose `POST /api/session` returned (`Incoming::PromptGate`), so `attach` never races
     /// the create into `Blocked::Missing`. Pruned once the start leaves `app.queue.starts`.
     created_starts: BTreeSet<(ServerKey, String)>,
@@ -118,6 +122,7 @@ impl Default for BrowserRpcState {
         Self {
             sessions: BTreeMap::new(),
             routed_sessions: BTreeSet::new(),
+            on_screen: None,
             created_starts: BTreeSet::new(),
             start_waiters: Vec::new(),
             sse_connected: BTreeMap::new(),
@@ -565,10 +570,9 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
     };
     let active_server = crate::servers::runtime::active(app).clone();
 
-    // Match official (`packages/gui-plugins/src/browser/model.ts:664-689`, `machine.ts:1000-1025`):
-    // attach a session only when it is routed on screen, and keep already-attached sessions alive
-    // while they stay open in `app.tabs` (never eagerly attaching restored or background tabs).
-    // Skip new-session starts until `POST /api/session` returns (`created_starts`).
+    // Match official (`packages/gui-plugins/src/browser/model.ts`, `machine.ts`): a session attaches
+    // when it is routed on screen or runs in a tab nobody has opened, and stays attached while it
+    // stays open. Skip new-session starts until `POST /api/session` returns (`created_starts`).
     let created_starts = {
         let st = app.kernel.slots.get_mut(&BROWSER_RPC);
         st.created_starts.retain(|(_, sid)| app.queue.starts.has(sid));
@@ -601,15 +605,8 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
         }
     }
 
-    // A subagent routed before stays attached while its root's tab does: official keeps a tab's
-    // refs, the routed child's too, until the tab closes (`host-apis.tsx` `sessions`).
-    let kept: Vec<(ServerKey, String)> = app.kernel.slots.get(&BROWSER_RPC).routed_sessions.iter().filter(|k| k.0 == active_server && !open_dirs.contains_key(*k)).cloned().collect();
-    for key in kept {
-        let root = app.panel_root(&key.1);
-        if root != key.1 && open_dirs.contains_key(&(active_server.clone(), root.to_owned())) && let Some(dir) = Some(session_directory(app, &key.1, "")).filter(|d| !d.is_empty()) {
-            open_dirs.insert(key, dir);
-        }
-    }
+    comes_back::keep_subagents(app, &active_server, &mut open_dirs);
+    let (unopened, released) = (comes_back::unopened(app, &open_dirs), comes_back::released(app));
     let engine_known = app.workspace_panes.browser.host.engine_caps_known();
     let engine_remote_proxy = app.workspace_panes.browser.host.engine_remote_proxy();
     let mut changed = false;
@@ -617,9 +614,8 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
     let mut disposed = Vec::new();
     {
         let st = app.kernel.slots.get_mut(&BROWSER_RPC);
-        if let Some(key) = routed_now {
-            st.routed_sessions.insert(key);
-        }
+        let came = comes_back::came_on_screen(st, routed_now.as_ref());
+        st.routed_sessions.extend(routed_now.into_iter().chain(unopened));
         st.routed_sessions
             .retain(|k| k.0 != active_server || open_dirs.contains_key(k));
         let wanted: BTreeMap<(ServerKey, String), String> = open_dirs
@@ -669,7 +665,7 @@ fn reconcile_sessions(app: &mut App, now: Instant) -> bool {
                     pending_effects.push((key, effs));
                 }
             } else if sse_ready {
-                let effs = att.attach.step(AttachEvent::EnsureAttached, now);
+                let effs = comes_back::wake(&mut att.attach, came.as_ref() == Some(&key), released.contains(&key), now);
                 if !effs.is_empty() {
                     pending_effects.push((key, effs));
                 }
