@@ -2,12 +2,12 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "f8fc24ea5c74b527244672a1bd3273f8d0cd296e",
+  "upstream_head": "5050225a097af2a3ffd5c9b6e39d53ba3d69eeec",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "80627ab6a",
-  "post_1114_commit_count": 662,
-  "post_1114_in_ledger": 235,
+  "rune_desktop_head": "b33dd0fb0",
+  "post_1114_commit_count": 663,
+  "post_1114_in_ledger": 236,
   "post_1114_skipped": 427,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
@@ -18,13 +18,13 @@
     "server-core-ai-codemode-internal": 275
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 256,
+  "total_ledger_rows": 257,
   "status_counts": {
     "have it": 206,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 10
+    "missing": 11
   },
   "rows": [
     {
@@ -6410,6 +6410,30 @@
       "size": "L",
       "status": "missing",
       "status_evidence": "Not ported yet: in work. Official: packages/app/src/shell/titlebar/auto-tab-groups.ts (autoTabGroups, groupedTabOrder), auto-tab-sections.tsx, tab-strip.tsx, titlebar.tsx, tab-nav.css, packages/app/src/settings/general/interface-mode.tsx:42-52, settings/model.tsx:159-160 and :538-543, runtime/i18n/en.ts:924-927. Ours: no such setting (apps/desktop/src and features have no tab grouping by project or server; the tab groups ours has are the user's own).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-236",
+      "window": "post-1120",
+      "pr": 66355,
+      "sha": "5050225a09",
+      "title": "fix(app): redesign the add extension dialog",
+      "merged": "2026-11-25",
+      "packages": [
+        "gui-plugins",
+        "plugin"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/i18n/en.ts",
+        "packages/gui-plugins/src/browser/settings.tsx",
+        "packages/plugin/src/gui/host-apis.ts"
+      ],
+      "summary": "The browser's Add extension dialog redesigned: a browser profile's extensions stand in a bordered list with the profile picker ('From') as its header; the ones that work here, fully or in part, come first, and the ones that will not follow under their own heading ('Won't work in OpenCode'); loading an extension from a folder is a quiet 'Load from folder' action at the start of the footer, in place of the closed 'For developers' disclosure; new words ('Not supported' for 'Probably won't work here', 'Partly supported' for 'May not fully work here'); the plugin API's button gains the variant 'submit' (styled like the composer's send button).",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Not ported yet: in work. Official: packages/gui-plugins/src/browser/settings.tsx (AddExtension, from :460), i18n/en.ts:134, :236-241, :384, packages/plugin/src/gui/host-apis.ts:1745-1750. Ours: the dialog is in plugins/browser/extensions.luau and its strings in plugins/browser/locales/en.json; ours' plugin button names that variant 'primary' (crates/opencode-plugin-runtime/src/ui_nodes.rs variant).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
