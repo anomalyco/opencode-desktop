@@ -320,8 +320,8 @@ pub fn selection_changed(host: &mut dyn QuoteHost, change: &SelectionChange, tx:
     q.step(machine::Event::Changed { cleared: false, dragging: false, now }, tx);
 }
 
-/// The app's poll: reads a selection once it has settled, and closes what the route or a lost
-/// focus leaves behind.
+/// The app's poll: reads a selection once it has settled, and closes what the route leaves
+/// behind.
 pub fn poll(host: &mut dyn QuoteHost, now: f64, tx: &mut Tx) -> bool {
     let mut changed = false;
     // Every poll comes here: the session is compared in place, and copied only for a read.

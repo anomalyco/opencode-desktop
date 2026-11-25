@@ -127,6 +127,8 @@ local function siteButton(view: View, iconName: IconName, tip: string, expanded:
         fill = if expanded then "surface-press" else nil,
         key = "browser-site",
         role = "button",
+        -- A button inside the address field: the arrow, not the field's I-beam.
+        cursor = "default",
         label = tip,
         help = tip,
         helpSide = "top",
@@ -260,6 +262,8 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
         table.insert(items, ui.row({
             key = "browser-address-zoom",
             role = "button",
+            -- `bar.css:137`: `cursor: default` inside the field.
+            cursor = "default",
             label = env.I18n:T("zoom.reset"),
             help = env.I18n:T("zoom.reset"),
             helpSide = "top",
@@ -279,6 +283,8 @@ local function field(env: Env, view: View, tab: BrowserTab, bar: address.View, z
     local editingPage = bar.editing and not bar.typed and bar.field ~= ""
     return ui.row({
         key = "browser-address",
+        -- `bar.css:22`: the whole field shows the I-beam, at rest too.
+        cursor = "text",
         dir = "ltr",
         grow = 1,
         shrink = true,

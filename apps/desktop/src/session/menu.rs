@@ -167,6 +167,10 @@ impl SessionMenuHost for App {
         crate::status_toast::from_wire(self, error);
     }
 
+    fn toast_wire_error_titled(&mut self, title: &str, error: WireError) {
+        crate::status_toast::failed_wire(self, title, &error);
+    }
+
     fn offer_delete_undo(&mut self, title: &str, server: ServerKey, session: String, hidden: Vec<SessionInfo>) {
         crate::undo::offer(self, title, crate::undo::Undoable::Deleted { server, session, hidden });
     }
@@ -269,7 +273,12 @@ impl SessionMenuHost for App {
         App::save_tabs(self);
     }
 
+    fn on_archive_replied(&mut self, session: String, ok: bool, tx: &mut Tx) {
+        self.archive_move_replied(&session, true, ok, tx);
+    }
+
     fn on_unarchive_replied(&mut self, session: String, ok: bool, why: &str, tx: &mut Tx) {
+        self.archive_move_replied(&session, false, ok, tx);
         self.switcher_restore_replied(session, ok, why, tx);
     }
 
