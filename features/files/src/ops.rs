@@ -343,7 +343,8 @@ pub fn open_workspace_file_for_session(
     steal_focus: bool,
     tx: &mut Tx,
 ) {
-    if lines.is_none() && host.opens_as_page(path) {
+    // A skill's virtual file is no file of the folder the browser pane can show.
+    if lines.is_none() && !crate::data::is_virtual_skill(path) && host.opens_as_page(path) {
         host.open_workspace_preview(sid, path, tx);
         return;
     }
@@ -376,9 +377,9 @@ fn open_workspace_file_in_viewer(
     tx: &mut Tx,
 ) {
     ensure_file_loaded(host, sid, path);
-    // A file outside the session's folder (`links::open_outside_file`) is not in its tree and
-    // is not watched.
-    let outside = opencode_kit::path::is_absolute(path);
+    // A file outside the session's folder (`links::open_outside_file`), and a skill's virtual
+    // file, is not in its tree and is not watched.
+    let outside = crate::data::is_outside(path);
     if !outside {
         watch::watch(host, sid, path);
     }
