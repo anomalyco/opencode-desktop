@@ -55,8 +55,7 @@ pub fn open(host: &mut dyn TerminalSurfaceHost, wk: &str, tid: &str, press: Poin
                     Some(text)
                 });
                 if let Some(text) = text {
-                    // As a click on the Quote button: the quote's comment editor opens.
-                    host.quote_terminal_selection(&text, true, tx);
+                    host.quote_terminal_selection(&text, false, tx);
                 }
             }
             // The screen stays; what scrolled off it goes (ED 3), as Windows Terminal's
