@@ -2,29 +2,29 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "45b5bd4694174b926df3adfedd722c19e1010a8a",
+  "upstream_head": "01328b65e92941f7d0eae67178275a5216f0ce8f",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "4a8ac0d4b",
-  "post_1114_commit_count": 678,
-  "post_1114_in_ledger": 239,
-  "post_1114_skipped": 439,
+  "rune_desktop_head": "984f92254",
+  "post_1114_commit_count": 683,
+  "post_1114_in_ledger": 240,
+  "post_1114_skipped": 443,
   "post_1114_skipped_breakdown": {
     "test-only": 26,
     "ci-bench-deps": 26,
-    "docs-site-data": 67,
-    "tui-only": 30,
+    "docs-site-data": 69,
+    "tui-only": 31,
     "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 279
+    "server-core-ai-codemode-internal": 280
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 260,
+  "total_ledger_rows": 261,
   "status_counts": {
-    "have it": 210,
+    "have it": 212,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 10
+    "missing": 9
   },
   "rows": [
     {
@@ -6290,7 +6290,7 @@
       "summary": "Inbox sidebar: an archived session that waits on a person (a permission to decide, a question to answer) joins Needs attention until it is answered, is left out of Archived meanwhile and is not dimmed; Archive session (mod+shift+s) toggles, so the same shortcut brings an archived session back, and there is a new command Unarchive session; the tab strip's session shortcuts (mod+1..9, alt+up / alt+down, shift+alt+up / shift+alt+down) work over the Inbox's session rows in the order they show.",
       "size": "M",
       "status": "have it",
-      "status_evidence": "Ported in opencode-rune #1189 (80627ab6): an archived session that waits on a person joins Needs attention, is left out of Archived and is not dimmed (apps/desktop/src/session/inbox/model.rs inbox_sections_with, Entry::waiting; shell/view/inbox.rs); Archive session (mod+shift+s) toggles and there is a command Unarchive session (session/menu.rs, shell/commands/mod.rs open_root_archived); in the Inbox the unread shortcuts stop on done or failed rows only, a numbered pick scrolls its row into view, and rows are named by their key across servers (shell/tabs/actions.rs). Official: packages/app/src/shell/titlebar/inbox.tsx:142, :157, :178-210, :895; inbox-model.ts:523; packages/app/src/session/commands/use-session-commands.tsx:609-617; tab-strip.tsx:379, :392, :452. Run headless on its own Windows x64 CI builds beside a build without it, a fixture server, a second server added by address for the shortcuts: the three cases hold (archived and waiting under Needs attention and back when answered; the shortcut and the palette's Unarchive session bring an archived session back; Next session, Next unread and the numbered pick's scroll on a second server). Two faults of ours fixed with it: the Inbox's rows were named by session id alone, so on a server that is not the app's own Next session jumped to the first row and Next unread did nothing (seen in the run's before passes); and the Archive session shortcut never reached its command (see UP-164). Not run: a real window, a refused archive or unarchive, the Undo in the toast, the upward shortcuts, a failed row, macOS, Linux. Open difference, with a follow-up PR (opencode-rune #1211): official asks the server before it moves a session and leaves it where it is on a refusal (use-session-commands.tsx:359-391, inbox-model.ts:476-492); ours moves it at once and does not put it back (the follow-up keeps the move at once and puts it back; waiting like official is the noted alternative). Closed since: rows whose times tie stood with the active server's first, official's in the servers' listed order (inbox-model.ts:164-166, :228); opencode-rune #1212 (ffb6d82b) sorts ties by the servers' listed order, run headless on its own Windows x64 CI build beside #1189's, with a second server that lists the same sessions: Next session pressed three times from a second-server row goes three rows down, where before two presses ended on the row they began on.",
+      "status_evidence": "Ported in opencode-rune #1189 (80627ab6): an archived session that waits on a person joins Needs attention, is left out of Archived and is not dimmed (apps/desktop/src/session/inbox/model.rs inbox_sections_with, Entry::waiting; shell/view/inbox.rs); Archive session (mod+shift+s) toggles and there is a command Unarchive session (session/menu.rs, shell/commands/mod.rs open_root_archived); in the Inbox the unread shortcuts stop on done or failed rows only, a numbered pick scrolls its row into view, and rows are named by their key across servers (shell/tabs/actions.rs). Official: packages/app/src/shell/titlebar/inbox.tsx:142, :157, :178-210, :895; inbox-model.ts:523; packages/app/src/session/commands/use-session-commands.tsx:609-617; tab-strip.tsx:379, :392, :452. Run headless on its own Windows x64 CI builds beside a build without it, a fixture server, a second server added by address for the shortcuts: the three cases hold (archived and waiting under Needs attention and back when answered; the shortcut and the palette's Unarchive session bring an archived session back; Next session, Next unread and the numbered pick's scroll on a second server). Two faults of ours fixed with it: the Inbox's rows were named by session id alone, so on a server that is not the app's own Next session jumped to the first row and Next unread did nothing (seen in the run's before passes); and the Archive session shortcut never reached its command (see UP-164). Not run: a real window, the Undo in the toast, the upward shortcuts, a failed row, macOS, Linux. Closed since: a refused archive or unarchive. Official asks the server before it moves a session and leaves it where it is on a refusal (use-session-commands.tsx:359-391, inbox-model.ts:476-492); ours moves it at once and did not put it back. opencode-rune #1211 (1c3fda14) keeps the move at once and puts a refused one back: the card where it was, its tab in its place, the page on it again only when it was the page, the Undo offer gone, the refusal's toast titled Request failed (apps/desktop/src/session/inbox/moves.rs). Run headless on its own Windows x64 CI builds beside a build of dev on the same Rune pin, a fixture file and no server, so each write is refused at once as one that could not be sent: an archive by the card's menu and by the keys and an unarchive are each put back where the before build shows the move; a tab that was behind, from Home and from another session's page, comes back without taking the page; a session with no tab comes back and the page stays. Not run for it: a server that refuses the write and the Request failed title, the answer reaching the right server, both moves on a server that takes them. Also closed since: rows whose times tie stood with the active server's first, official's in the servers' listed order (inbox-model.ts:164-166, :228); opencode-rune #1212 (ffb6d82b) sorts ties by the servers' listed order, run headless on its own Windows x64 CI build beside #1189's, with a second server that lists the same sessions: Next session pressed three times from a second-server row goes three rows down, where before two presses ended on the row they began on.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6408,8 +6408,8 @@
       ],
       "summary": "Consolidated navigation: a new setting 'Group tabs' (None, By project, By server) under the tab position. Open tabs then stand grouped by their project (or server), each group under a header that folds it to its current tab, groups in the order their first tab appears, tabs with no project last without a header; a project open on two servers names its server; the saved tab order keeps each group's tabs together. By server groups only with two servers or more.",
       "size": "L",
-      "status": "missing",
-      "status_evidence": "In work: draft opencode-rune #1215 (not run). Official: packages/app/src/shell/titlebar/auto-tab-groups.ts (autoTabGroups, groupedTabOrder), auto-tab-sections.tsx, tab-strip.tsx, titlebar.tsx, tab-nav.css, packages/app/src/settings/general/interface-mode.tsx:42-52, settings/model.tsx:159-160 and :538-543, runtime/i18n/en.ts:924-927. Ours: no such setting (apps/desktop/src and features have no tab grouping by project or server; the tab groups ours has are the user's own).",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1215 (3bdfea8f): Settings has Group tabs (None, By project, By server) under Tab position, default None, for Consolidated's open tabs with navigation Tabs. Groups stand in the order their first tab appears, the tabs with no project last under no header, pinned tabs in no group; by server only with two or more servers. Side tabs get a 28 pt header a group that collapses it (the open page's tab stays; a ring or a dot says what the hidden ones do); top tabs are ordered by group with no header; a tab moves only inside its group; the tab keys and Close other tabs / Close tabs below act on the tabs the strip shows, and leave the page on the menu's tab (features/settings/src, apps/desktop/src/shell/tabs/auto_groups.rs, shell/view/sidebar/auto_sections.rs, shell/view/tab_strip.rs, shell/tabs/actions.rs nav_order, features/session-menu/src strip_tabs). Official: packages/app/src/shell/titlebar/auto-tab-groups.ts:34-88, auto-tab-sections.tsx, tab-strip.tsx:715-719, :943, :948-954, :1060-1069, settings/general/interface-mode.tsx:42-52, settings/model.tsx:159-160 and :538-543. A fault of ours fixed with it: under Consolidated, Close other tabs also closed the open tabs of pinned sessions, which the strip does not show. Run headless on its own Windows x64 CI builds beside a build of dev on the same Rune pin, scenes and the app's fixture file, no server: the Settings row, its menu and its default; side tabs by project with their sizes; collapsed groups with their marks and the tab keys; top tabs in group order and the order kept when grouping is set to None; Close other tabs and Close tabs below; three drags; By server with one server on top tabs; Close other tabs leaving a pinned session's tab. Not run yet (each needs a server): By server with two servers; the choice and the collapsed groups kept across a restart. Not run: the chevrons under the pointer or Tab; a real window; macOS; Linux. Open differences, each in the PR's body with its official line: top tabs draw no divider between groups, a drag's look across groups, and the arrow keys stop at a group's last tab on side tabs (all three wait for the tab strip's section breaks in Rune, rune#2291, and the pin that holds them); the server's tag shrinks at the name's rate (auto-tab-sections.tsx:156); the chevron shows at once, not over 150 ms (:174); after Close other tabs from Home, Home's way back is not re-aimed at the kept tab (shell/tabs/tabs.tsx:673, :684).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6432,8 +6432,8 @@
       ],
       "summary": "The browser's Add extension dialog redesigned: a browser profile's extensions stand in a bordered list with the profile picker ('From') as its header; the ones that work here, fully or in part, come first, and the ones that will not follow under their own heading ('Won't work in OpenCode'); loading an extension from a folder is a quiet 'Load from folder' action at the start of the footer, in place of the closed 'For developers' disclosure; new words ('Not supported' for 'Probably won't work here', 'Partly supported' for 'May not fully work here'); the plugin API's button gains the variant 'submit' (styled like the composer's send button).",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Not ported yet: in work. Official: packages/gui-plugins/src/browser/settings.tsx (AddExtension, from :460), i18n/en.ts:134, :236-241, :384, packages/plugin/src/gui/host-apis.ts:1745-1750. Ours: the dialog is in plugins/browser/extensions.luau and its strings in plugins/browser/locales/en.json; ours' plugin button names that variant 'primary' (crates/opencode-plugin-runtime/src/ui_nodes.rs variant).",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1216 (6dce9f29): the other browser's extensions stand in a framed list whose head is From and the profile picker; the ones that work, fully or partly, come first and the ones that will not follow under Won't work in OpenCode; Load from folder is a quiet action at the start of the footer and the For developers disclosure is gone; what the last add did stands under the link field; the dialog is on the base background with the list one layer up, Done and the confirm step's Add in the send button's look (plugins/browser/extensions.luau renderAddDialog and candidateRow, init.luau, locales/en.json). A difference of ours closed with it: the picker listed browsers in a fixed order and only profiles that hold extensions; it now takes the page's import rows, the profile used last first, as official does (packages/gui-plugins/src/browser/settings.tsx:90, :474, profile/sources.ts:149-165). Official: settings.tsx:466-788, i18n/en.ts:134, :236-241, :384; its button variant submit (packages/plugin/src/gui/host-apis.ts:1745-1750) is this plugin API's primary, so the contract is not touched. Run headless on its own Windows x64 CI build beside a build of dev on the same Rune pin, sealed in a scratch root of made-up profiles and extensions checked in the app's own environment, no Add pressed, the root deleted: the framed list and its order by kind; the picker's menu under its start and the second profile's list; a profile with no extension; fourteen rows scrolling inside the frame with head and footer in place; the footer; both themes. Not run yet, to follow as one light run: one profile only (the head reads From and the browser's name, no picker) and a link that is not a store link (rejected before any download: crates/browser-extensions/src/crx.rs:84-112). Not reached by a run: the confirm step, the folder action's spinner; a real window; macOS; Linux. Open difference, with a follow-up owed: the list's height is a fixed 280 where official's is up to half the window's (settings.tsx:698); it needs an addition to the plugin contract (a greatest height as a share of the window).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6501,7 +6501,30 @@
       "summary": "Stop pressed before the model has answered a prompt with text or a tool call takes that prompt back, as an undo does: the message leaves the conversation and its words, files and quotes are in the composer again, with no Undo offer, since nothing of an answer is lost. It happens only when the composer is empty (no words, no attachments or context) and nothing is queued, and only when the server says the stop interrupted a run; a repeated Stop only stops. A shell command, a compaction or a synthetic prompt after the prompt counts as an answer. Files are not put back (the model called no tool).",
       "size": "M",
       "status": "missing",
-      "status_evidence": "Not ported yet: in work. Official: packages/app/src/session/composer/adapter.ts:57-70 (when a stop takes the prompt back; the interrupt's answer), packages/app/src/session/revert.ts:289-309 (takeBack: wait for the run to settle, the unanswered prompt, its media kept, revert staged with files false and committed, the draft restored, the cursor moved), packages/app/src/session/session-domain.ts:7-27 (selectUnansweredPrompt). Ours: Stop asks the server to interrupt with resume and does nothing to the prompt (apps/desktop/src/session/inbox/stop.rs:140-166, crates/opencode-kit/src/client.rs:484-486); the server's answer already reaches the window (crates/opencode-kit/src/client/worker.rs:341-345, InterruptAcknowledged), and the wait, the staged revert and its commit are calls the rewind already makes (crates/opencode-kit/src/session_ops.rs:31-56).",
+      "status_evidence": "Port in a draft, opencode-rune #1244, not run yet: a stop notes whether the composer was clear; the interrupt's answer and the run's end, in either order, decide; the latest prompt is read at the run's end and comes back only when nothing answered it; its revert is staged without its files and committed after a wait (crates/opencode-runtime/src/machines/take_back.rs, features/history/src/rewind/take_back.rs, crates/opencode-kit/src/session_ops.rs take_back). Official: packages/app/src/session/composer/adapter.ts:57-70 (when a stop takes the prompt back; the interrupt's answer), packages/app/src/session/revert.ts:289-309 (takeBack: wait for the run to settle, the unanswered prompt, its media kept, revert staged with files false and committed, the draft restored, the cursor moved), packages/app/src/session/session-domain.ts:7-27 (selectUnansweredPrompt). Ours: Stop asks the server to interrupt with resume and does nothing to the prompt (apps/desktop/src/session/inbox/stop.rs:140-166, crates/opencode-kit/src/client.rs:484-486); the server's answer already reaches the window (crates/opencode-kit/src/client/worker.rs:341-345, InterruptAcknowledged), and the wait, the staged revert and its commit are calls the rewind already makes (crates/opencode-kit/src/session_ops.rs:31-56).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-240",
+      "window": "post-1120",
+      "pr": 66396,
+      "sha": "3ac14c053c",
+      "title": "feat(app): regenerate session title with bare /rename",
+      "merged": "2026-11-25",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/i18n/en.ts",
+        "packages/app/src/session/timeline/controller.tsx",
+        "packages/app/src/session/timeline/message-timeline.tsx"
+      ],
+      "summary": "The Rename session command is also the slash command /rename: with words after it, the session takes them as its title; bare, it asks the server to generate a new title from the conversation so far. A new command, Generate session title, does the same from the palette. While a title is being generated the session's title in the header shimmers, and a second ask does nothing. Rename session gains a description that says both. A refusal shows as a Request failed toast.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Port in a draft, opencode-rune #1249, not run yet: a command's /name can take words (crates/opencode-kernel/src/commands.rs CommandEntry::words), /rename with words renames and bare asks the server with an empty title, one ask per session at a time, the title shimmering in the header meanwhile (features/session-menu/src/generate_title.rs, apps/desktop/src/session/menu.rs, shell/view/header.rs). Official: packages/app/src/session/timeline/message-timeline.tsx:300-319 (the slash command with arguments, the new command and when each is disabled), :703 (the shimmer), packages/app/src/session/timeline/controller.tsx:455-495 (set: an empty title is the ask to generate; one ask per session at a time; the session is read again after the answer), packages/app/src/runtime/i18n/en.ts:129-131. Ours on dev: Rename session edits the title in place in the header (apps/desktop/src/session/menu.rs:336-349, features/session-menu/src/rename.rs); there is no /rename and nothing asks the server for a title.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"

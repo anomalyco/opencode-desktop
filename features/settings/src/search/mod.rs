@@ -245,6 +245,14 @@ pub fn index(s: &dyn SettingsHost) -> Vec<Entry> {
                 None,
                 "top side tabs position vertical horizontal",
             );
+            add(
+                Page::General,
+                "settings-tab-grouping",
+                key!("settings.general.row.tabGrouping.title"),
+                None,
+                None,
+                "group tabs project server none",
+            );
         }
     }
     if cfg!(target_os = "macos") {
