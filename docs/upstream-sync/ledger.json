@@ -5,7 +5,7 @@
   "upstream_head": "092c1161b7a20bfc023721cae16059301479af82",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "13a11c1ee",
+  "rune_desktop_head": "66708c5b7",
   "post_1114_commit_count": 617,
   "post_1114_in_ledger": 221,
   "post_1114_skipped": 396,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 242,
   "status_counts": {
-    "have it": 198,
+    "have it": 199,
     "not applicable": 34,
     "differs on purpose": 1,
     "partly": 3,
-    "missing": 6
+    "missing": 5
   },
   "rows": [
     {
@@ -5954,11 +5954,12 @@
       ],
       "summary": "The browser's attachment to sessions: (1) a session that runs in an open tab nobody has opened since the app started attaches as the routed one does, so its agent has the browser tools (a session the server resumed, or that an automation, a finished job or a subagent woke); (2) a session another window took comes back only when the person comes to it in this window (its route, a prompt, opening its browser), never on focus, a press, a key or an agent's edge; (3) when the window that took it lets it go (the server revokes the grant), the session attaches here again; (4) the browser can be opened here while another window holds it, which takes it back.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Not ported yet; the agent ATTACH has it since 25 Nov 08:17 (read: packages/gui-plugins/src/browser machine.ts `session.wake` takes / `session.released`, model.ts `unopened` + `openable`, prompt-gate.ts `attachesUnopened` / `unheld`). Ours' side is the browser attachment in apps/desktop/src/surfaces/browser/rpc and the browser plugin, where #1028 (a subagent keeps its browser after the person leaves its page) just changed the same machine. Needs runs with an agent that drives the browser in an unopened tab and with two windows.",
+      "status": "have it",
+      "status_evidence": "rune-desktop #1073 (66708c5b, by the agent ATTACH): the session's permissions (the browser grant) and the event session.permissions are read, which ours did not. RUN on its CI build next to dev's and next to official's own model under its test fixture, before and after official's commit: a session that runs in a tab nobody opened since launch: dev answers Unknown tool browser.tabs.list at every step (5 of 5); now attached 32 ms after its run starts, or at launch (1.02 s) when it already runs. A session another window took: dev never comes back; now it comes back when the person comes to its tab, sends a prompt (40 ms before the prompt's run) or opens its browser, and 7 ms after the other window lets go; not on a press, a key or leaving its tab, and a tab another window holds is not taken: every case as official after. Launch, same-tree pairs in turn (real windows, five tabs, 24 rounds a side): no row moves beyond the spread; one cost that shows: +0.45 ms from the server's answer to content live when a tab's session runs at launch (the frame that starts its attachment). Linux type-checked by LAUNCH-LINUX-d. Not run: official's Electron window (its model under its fixture stands in), two real windows of ours (the other window was a stand-in: one held attach request), the web check, macOS, a remote server.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "rune_pr": "#1073"
     },
     {
       "id": "UP-217",
