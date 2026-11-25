@@ -45,6 +45,7 @@ pub const REDO: u16 = 180;
 pub const FORK: u16 = 190;
 pub const BACKGROUND: u16 = 200;
 pub const RENAME: u16 = 210;
+pub const TITLE_GENERATE: u16 = 215;
 pub const EXPORT: u16 = 220;
 pub const FILE_OPEN: u16 = 230;
 pub const COPY_SESSION: u16 = 240;
