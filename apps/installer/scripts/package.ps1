@@ -111,6 +111,11 @@ if ($Payload) {
     Remove-Item -Recurse -Force $stage
     # The PDB keeps the name its image looks for beside itself: the library's, which holds the app.
     if ($Profile -eq 'release' -and $symbols) { Copy-Item (Join-Path $appBin $(if ($thin) { 'opencode_desktop_app.pdb' } else { 'opencode_desktop.pdb' })) $Out }
+    # MEASURING BRANCH ONLY: the hello window (apps/hello-floor), built as the app is, beside the build.
+    if ($Profile -eq 'release') {
+        Invoke-Cargo @('build', '--release', '-p', 'hello-floor', '--target', $triple)
+        Copy-Item (Join-Path $appBin 'hello-floor.exe'), (Join-Path $appBin 'hello-floor-mi.exe') $Out
+    }
 }
 
 $env:OPENCODE_RUNE_SETUP_PAYLOAD = $zip
