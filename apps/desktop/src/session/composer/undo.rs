@@ -119,6 +119,17 @@ pub fn offer(s: &mut App, title: &str, what: Undoable) {
     let _ = s.composer_ext.undos.step(Event::Offered { toast, what });
 }
 
+/// The archive of `session` on `server` didn't hold (its server refused it): nothing is left to
+/// offer back, so its offer goes, with its toast.
+pub fn withdraw_archived(s: &mut App, server: &ServerKey, session: &str) {
+    let held = |o: &&Offer| matches!(&o.what, Undoable::Archived { server: on, session: id } if on == server && id == session);
+    let toasts: Vec<u64> = s.composer_ext.undos.offers.iter().filter(held).map(|o| o.toast).collect();
+    for toast in toasts {
+        let _ = s.composer_ext.undos.step(Event::ToastClosed(toast));
+        crate::status_toast::dismiss_id(s, toast);
+    }
+}
+
 /// Toast `toast`'s Undo.
 pub fn pressed(s: &mut App, toast: u64, tx: &mut Tx) {
     let Some(Effect::Run(what)) = s.composer_ext.undos.step(Event::UndoPressed(toast)) else { return };
