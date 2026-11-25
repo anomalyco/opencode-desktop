@@ -261,6 +261,7 @@ impl App {
         };
         // A prompt sent while a stop settles runs next, so its Working shows.
         self.stops.forget(&id);
+        crate::rewind::take_back::forget(self, &id);
         opencode_kit::model::set_user_files(&local, std::mem::take(&mut self.composer_ext.attach.files));
         opencode_kit::mention::set_user_path_attachments(&local, refs);
         self.echo_wire_mentions(&local, wire.marks);

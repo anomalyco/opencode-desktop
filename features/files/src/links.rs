@@ -8,6 +8,7 @@
 //! | `docs/plan.md`, `./x.md`, `../x.md`, `/abs/in/folder`, `~/…`, `file://…` | The file's tab, at `#L12`, `#L12-L20`, `:12` or `:12-20`; a `#heading` scrolls a rendered file to it |
 //! | An HTML file in the session's folder, on the app's own server with the browser on and the window wide | A page in the browser pane (`fileOrPage`, [`FilesHost::opens_as_page`]) |
 //! | A file outside the session's folder | Revealed in the file manager on a local fixed drive (never executed; UNC/device paths refused before touching disk) |
+//! | `skill://<id>/<file>`, a skill's virtual file | The file's tab, read through the server, at `:12` or `:12-20` |
 //! | A file that isn't there | A toast naming it |
 //! | A bare word (`link`, `Makefile`) that isn't a file there | A toast saying it points nowhere (a bare word that is a file opens it) |
 //!
@@ -30,6 +31,10 @@ pub enum Link {
     Inside { path: String, lines: Option<(u32, u32)>, heading: Option<String> },
     /// A file outside the session's folder, absolute (or as written, when there's no folder).
     Outside { path: String },
+    /// A skill's virtual file, `skill://<id>/<file>` (`data::is_virtual_skill`): read through
+    /// the server and shown in the viewer as any file (official
+    /// `gui-plugins/src/file/resolve-link.ts:27-29`, `:109-120`).
+    Skill { path: String, lines: Option<(u32, u32)> },
 }
 
 /// Classifies `href` from a document in folder `base` (relative to `directory`, the session's
@@ -39,7 +44,25 @@ pub fn classify(href: &str, base: &str, directory: &str, home: &str) -> Link {
     if let Some(frag) = href.strip_prefix('#') {
         return Link::Heading(decode(frag));
     }
+    if href.get(..8).is_some_and(|s| s.eq_ignore_ascii_case("skill://")) {
+        let raw = href.split_once('#').map_or(href, |(path, _)| path);
+        let (raw, lines) = split_line_suffix(raw);
+        return Link::Skill { path: format!("skill://{}", collapse(&decode(raw.get(8..).unwrap_or_default()))), lines };
+    }
     let file_url = href.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("file://"));
+    // A relative link in a skill's own file names another file of that skill. Official joins the
+    // two into `skill:/<id>/...`, one slash (`gui-plugins/src/file/artifact.ts:123-143` from
+    // `renderer.tsx:708`), which reads as no skill's file: not copied.
+    if let Some(skill) = base.get(..8).filter(|s| s.eq_ignore_ascii_case("skill://")).map(|_| &base[8..])
+        && !file_url
+        && !scheme(href)
+        && !is_absolute(href)
+        && !href.starts_with('~')
+    {
+        let raw = href.split_once('#').map_or(href, |(path, _)| path);
+        let (raw, lines) = split_line_suffix(raw);
+        return Link::Skill { path: format!("skill://{}", collapse(&format!("{skill}/{}", decode(raw)))), lines };
+    }
     if !file_url && scheme(href) {
         return Link::Web(href.to_owned());
     }
@@ -266,7 +289,7 @@ pub fn open_reply_link(host: &mut dyn FilesHost, href: &str, tx: &mut Tx) {
             reveal_outside_file(host, &abs);
         }
         Link::Outside { path } if !is_file_uri => reveal_outside_file(host, &path),
-        Link::Inside { .. } | Link::Outside { .. } => {
+        Link::Inside { .. } | Link::Outside { .. } | Link::Skill { .. } => {
             host.toast_say(opencode_i18n::t!("rune.files.link.outside").to_owned(), href.trim().to_owned());
         }
     }
@@ -339,6 +362,7 @@ pub fn open_link(host: &mut dyn FilesHost, sid: &str, from: Option<&str>, href: 
         // Never hand a file outside the workspace to the OS shell (`ours.md` §4): it opens in
         // the viewer, a raw `file://` URL too.
         Link::Outside { path } => open_outside_file(host, sid, &path, tx),
+        Link::Skill { path, lines } => open_file_link(host, sid, &path, lines, None, tx),
     }
 }
 

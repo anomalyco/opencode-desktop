@@ -82,6 +82,12 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     fn tabs(&self) -> Vec<TabSummary> {
         Vec::new()
     }
+    /// The tabs the strip shows, in its order: what Close other tabs and Close tabs below act on
+    /// (official's `visibleTabs`, `shell/titlebar/tab-strip.tsx:946-954`). Every open tab by
+    /// default.
+    fn strip_tabs(&self) -> Vec<TabSummary> {
+        self.tabs()
+    }
     /// Whether the active tab layout renders tabs down a sidebar (affects "Close tabs below" wording).
     fn layout_has_sidebar(&self) -> bool {
         false
@@ -211,6 +217,10 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     fn on_rename_focus_taken(&mut self) {}
     /// Persists updated tab metadata (titles, removed tabs).
     fn save_tabs(&mut self) {}
+    /// Reads session `id` from the server again.
+    fn refresh_session(&mut self, id: &str) {
+        let _ = id;
+    }
     /// Opens session `id` on `server`.
     fn open_session(&mut self, server: &ServerKey, id: &str, tx: &mut Tx) {
         let _ = (server, id, tx);
@@ -233,6 +243,14 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     }
     /// Closes window tab `uid`.
     fn close_tab(&mut self, uid: &str, tx: &mut Tx) {
+        let _ = (uid, tx);
+    }
+    /// The window tab the open page belongs to (its `uid`), if any.
+    fn shown_tab(&self) -> Option<String> {
+        None
+    }
+    /// Shows window tab `uid`.
+    fn show_tab(&mut self, uid: &str, tx: &mut Tx) {
         let _ = (uid, tx);
     }
     /// Whether `(server, id)` is currently pinned in the Recent sidebar.

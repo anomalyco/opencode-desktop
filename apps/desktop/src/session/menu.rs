@@ -70,6 +70,20 @@ impl SessionMenuHost for App {
         self.tab_summaries()
     }
 
+    /// Consolidated's strip leaves out the tabs its pinned area holds (`tab-strip.tsx:715-719`),
+    /// and under Settings › Group tabs shows each group's tabs in the groups' order, a collapsed
+    /// group's hidden tabs not among them (`auto-tab-groups.ts:72`). A narrow window's drawer
+    /// shows every tab (`titlebar.tsx:840-855`).
+    fn strip_tabs(&self) -> Vec<TabSummary> {
+        if self.narrow() {
+            return self.tab_summaries();
+        }
+        match crate::tabs::auto_groups::groups(self) {
+            Some(groups) => groups.iter().flat_map(|g| g.tabs.iter()).map(|&i| self.tabs[i].summary()).collect(),
+            None => self.tabs.iter().filter(|t| !crate::tabs::pins::holds(self, t)).map(crate::tabs::Tab::summary).collect(),
+        }
+    }
+
     fn layout_has_sidebar(&self) -> bool {
         self.tab_layout().has_sidebar()
     }
@@ -186,6 +200,10 @@ impl SessionMenuHost for App {
         App::save_tabs(self);
     }
 
+    fn refresh_session(&mut self, id: &str) {
+        self.fetch_info(id);
+    }
+
     fn open_session(&mut self, server: &ServerKey, id: &str, tx: &mut Tx) {
         crate::servers::runtime::with_server(self, server, |s| {
             s.clear_home_search(false, tx);
@@ -215,6 +233,14 @@ impl SessionMenuHost for App {
 
     fn close_tab(&mut self, uid: &str, tx: &mut Tx) {
         App::close_tab(self, uid, tx);
+    }
+
+    fn shown_tab(&self) -> Option<String> {
+        App::current_tab(self)
+    }
+
+    fn show_tab(&mut self, uid: &str, tx: &mut Tx) {
+        App::select_tab(self, uid, tx);
     }
 
     fn is_session_pinned(&self, server: &ServerKey, id: &str) -> bool {
@@ -344,8 +370,34 @@ impl Feature<App> for SessionMenuFeature {
                     s.begin_rename(&Target::active(s, &id, Spot::Header));
                 },
             )
+            // As in the TUI, `/rename <title>` renames and a bare `/rename` asks the server to
+            // generate a new title (`message-timeline.tsx:300-310`).
+            .describe(opencode_i18n::key!("command.session.rename.description"))
+            .slash("rename")
+            .slash_words(|s, words, _| {
+                let Some(id) = s.open_root_session() else { return };
+                generate_title::set_title(s, &id, words);
+            })
             .bind_id(Bind::Rename.id())
             .when(App::in_root_session),
+        );
+        builder.add_command(
+            CommandEntry::<App>::from_key(
+                "session.title.generate",
+                opencode_i18n::key!("command.session.title.generate"),
+                crate::commands::order::TITLE_GENERATE,
+                |s, _| {
+                    let Some(id) = s.open_root_session() else { return };
+                    generate_title::set_title(s, &id, "");
+                },
+            )
+            .describe(opencode_i18n::key!("command.session.title.generate.description"))
+            .section("session")
+            // Not while the title is edited or one is on its way (`message-timeline.tsx:317`).
+            .when(|s| {
+                let menus = s.kernel.slots.get(&MENUS);
+                s.open_root_session().is_some_and(|id| menus.renaming().is_none() && !menus.generating(crate::servers::runtime::active(s), &id))
+            }),
         );
         builder.add_command(
             CommandEntry::<App>::from_key(

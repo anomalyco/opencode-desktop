@@ -71,14 +71,22 @@ fn hidden_dot(p: &Pal, mark: HiddenMark, vertical: bool) -> El {
         .a11y_hidden()
 }
 
-/// Consolidated side tabs: pinned area above, divider, then unpinned open tabs.
+/// Consolidated side tabs: pinned area above, divider, then unpinned open tabs, in their groups
+/// under Settings › Group tabs (`titlebar.tsx:708-729`).
 pub(crate) fn side_tabs(s: &App, p: &Pal) -> El {
-    let Some(area) = vertical(s, p, true) else {
+    let area = vertical(s, p, true);
+    let groups = crate::tabs::auto_groups::groups(s);
+    if area.is_none() && groups.is_none() {
         return crate::view::tab_strip::tab_strip(s, p, "tabs", TabOrientation::Vertical, None, None);
+    }
+    let rest: Vec<usize> = match groups {
+        Some(_) => vec![],
+        None => s.tabs.iter().enumerate().filter(|(_, t)| !pins::holds(s, t)).map(|(i, _)| i).collect(),
     };
-    let rest: Vec<usize> = s.tabs.iter().enumerate().filter(|(_, t)| !pins::holds(s, t)).map(|(i, _)| i).collect();
-    let mut content = col().key("consolidated-content").w_full().child(area);
-    if !rest.is_empty() {
+    let mut content = col().key("consolidated-content").w_full().children(area);
+    if let Some(groups) = groups {
+        content = content.child(super::auto_sections::sections(s, p, &groups));
+    } else if !rest.is_empty() {
         let tabs_h = rune::memo::layout_with("tabs-list", |r| r[3]).unwrap_or(rest.len() as f32 * 30.0);
         let strip = col()
             .key("consolidated-tabs")
