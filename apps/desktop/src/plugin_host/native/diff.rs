@@ -157,7 +157,7 @@ fn document(lua: &Lua, vmx: &Rc<Vmx>, sid: &str) -> mlua::Result<Table> {
     })?;
     let id = sid.to_owned();
     method(lua, &m, "Sources", move |lua, ()| {
-        let modes = read_meta(&id, "DiffDocument:Sources", |app| Ok(app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&id).map_or_else(|| vec![ChangeMode::Git, ChangeMode::Turn], SessionReview::available_modes)))?;
+        let modes = read_meta(&id, "DiffDocument:Sources", |app| Ok(sources(app, &id)))?;
         lua_data(lua, Data::List(modes.into_iter().map(|m| Data::String(m.name().into())).collect()))
     })?;
     let id = sid.to_owned();
@@ -227,6 +227,19 @@ pub(super) fn lua_data(lua: &Lua, d: Data) -> mlua::Result<Value> {
     mlua::IntoLua::into_lua(d, lua)
 }
 
+/// The sources session `id` offers (`DiffDocument:Sources`). None while the engine waits for the
+/// server to list the session: its saved source can't be read yet, and naming the default would
+/// name a source it may not be in (Desktop's `canReview`: "the mode picker waits for the stored
+/// mode", `packages/gui-plugins/src/review/model.ts`).
+fn sources(app: &App, id: &str) -> Vec<ChangeMode> {
+    let review = app.kernel.slots.get(&crate::review::REVIEW);
+    // Not listed yet: also before the engine was first asked about it (the frame the panel opens in).
+    if review.waits(id) || (app.live() && app.session(id).is_none_or(|s| s.directory.is_empty())) {
+        return Vec::new();
+    }
+    review.sessions.get(id).map_or_else(|| vec![ChangeMode::Git, ChangeMode::Turn], SessionReview::available_modes)
+}
+
 /// How session `sr`'s read went (`DiffStatus`).
 pub fn status(sr: Option<&SessionReview>) -> &'static str {
     match sr {
@@ -274,7 +287,7 @@ pub fn meta_version(app: &App, session: &str) -> u64 {
         status(sr),
         sr.and_then(|r| r.load.failed()),
         sr.and_then(|r| r.active_path.as_deref()),
-        sr.map(SessionReview::available_modes),
+        sources(app, session),
     )
         .hash(&mut h);
     h.finish()
