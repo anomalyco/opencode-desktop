@@ -180,6 +180,11 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     fn toast_wire_error(&mut self, error: WireError) {
         let _ = error;
     }
+    /// The same toast under `title`, for a write its call doesn't name: a session's PATCH
+    /// renames, archives and restores.
+    fn toast_wire_error_titled(&mut self, title: &str, error: WireError) {
+        let _ = (title, error);
+    }
     /// Offers an undoable delete toast; when the toast expires or the app quits, the host calls
     /// [`crate::send_delete`], or [`crate::undelete`] if the user presses Undo.
     fn offer_delete_undo(&mut self, title: &str, server: ServerKey, session: String, hidden: Vec<SessionInfo>) {

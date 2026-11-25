@@ -153,6 +153,10 @@ impl SessionMenuHost for App {
         crate::status_toast::from_wire(self, error);
     }
 
+    fn toast_wire_error_titled(&mut self, title: &str, error: WireError) {
+        crate::status_toast::failed_wire(self, title, &error);
+    }
+
     fn offer_delete_undo(&mut self, title: &str, server: ServerKey, session: String, hidden: Vec<SessionInfo>) {
         crate::undo::offer(self, title, crate::undo::Undoable::Deleted { server, session, hidden });
     }

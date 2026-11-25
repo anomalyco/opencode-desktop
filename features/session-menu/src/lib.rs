@@ -499,8 +499,13 @@ pub fn session_write_replied(host: &mut dyn SessionMenuHost, data: &serde_json::
         Some("unarchive") => host.on_unarchive_replied(session, ok, why, tx),
         _ => {}
     }
-    if let Some(e) = error {
-        host.toast_wire_error(e);
+    match (error, data["kind"].as_str()) {
+        // An archive and a restore go as the session's PATCH, which a rename is too: the call
+        // alone would name them a failed rename. Desktop's title for both is
+        // `common.requestFailed` (`session/commands/use-session-commands.tsx:367`, `:383`).
+        (Some(e), Some("archive" | "unarchive")) => host.toast_wire_error_titled(opencode_i18n::t!("common.requestFailed"), e),
+        (Some(e), _) => host.toast_wire_error(e),
+        (None, _) => {}
     }
 }
 
