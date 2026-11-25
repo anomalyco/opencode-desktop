@@ -1,12 +1,12 @@
-# Upstream Sync Ledger: `anomalyco/opencode` -> `anomalyco/rune-desktop`
+# Upstream Sync Ledger: `anomalyco/opencode` -> `anomalyco/opencode-desktop`
 
 - **Updated:** 2026-11-25
-- **Upstream `origin/dev` audited:** `f6e0c2d083` -> `92e3e654f2` (**618** post-14 Nov commits: **222** in ledger + **396** skipped) plus **15** pre-14 Nov carry-over rows (`3751be8138..f6e0c2d083`) and 6 owner-split sub-rows of `UP-095`.
-- **`rune-desktop` `origin/dev` checked:** `d5301503a`.
+- **Upstream `origin/dev` audited:** `f6e0c2d083` -> `ba122767ce` (**621** post-14 Nov commits: **222** in ledger + **399** skipped) plus **15** pre-14 Nov carry-over rows (`3751be8138..f6e0c2d083`) and 6 owner-split sub-rows of `UP-095`.
+- **`opencode-desktop` `origin/dev` checked:** `a309f9e09`.
 - **Total ledger rows:** **243** - **199** have it · **35** not applicable · **1** differs on purpose · **3** partly · **5** missing.
 - **Machine-readable twin:** `docs/upstream-sync/ledger.json` (generated together; identical rows).
 - **Status vs. Reviewed:** a row is **have it** only when its code is merged on `dev`; security-review tracking for browser rows lives in the separate **Reviewed** column.
-- **Open PR note column:** informational only (lists unmerged open PRs on `anomalyco/rune-desktop` that touch the same upstream PR; does not change row status).
+- **Open PR note column:** informational only (lists unmerged open PRs on `anomalyco/opencode-desktop` that touch the same upstream PR; does not change row status).
 
 ## Actionable Remaining Rows by Owner
 
@@ -39,7 +39,7 @@
 
 ## Pre-14 Nov Carry-Over Rows (`3751be8138..f6e0c2d083`)
 
-| ID | PR / Commit | Date | Packages & Main Files | What User Sees / Client Must Do | Size | Status | Reviewed | Evidence in `rune-desktop` | Depends On | Risks | Stream | Open PR Note |
+| ID | PR / Commit | Date | Packages & Main Files | What User Sees / Client Must Do | Size | Status | Reviewed | Evidence in `opencode-desktop` | Depends On | Risks | Stream | Open PR Note |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | PRE-01 | #62572 (`088682cb1e`)<br>fix(desktop): show an error when opening a path in the default app fails | 2026-11-08 | **desktop**<br>`packages/desktop/src/main/files/index.ts` | Show an error toast if the OS fails to open a file or folder in its default application. | S | **have it** |  | features/open-in/src/lib.rs (`Launcher::open` returns `Result<(), String>`) and apps/desktop/src/workspace/system/open_in.rs surface errors as toasts (plus commit e48d1b6b for missing-folder toast on reveal). | none | none | none |  |
 | PRE-02 | #63083 (`d619c94090`)<br>feat(app): make session IDs easier to find and copy | 2026-11-10 | **app, gui-plugins, session-ui**<br>`packages/app/src/composer/editor/editor.tsx`, `packages/app/src/session/session-reference-menu.tsx`, `packages/gui-plugins/src/debug/bar.tsx`, `packages/session-ui/src/components/markdown-session-links.ts` | Add right-click session menus (Open Session, Copy Session Title, Copy Session ID) on composer @session mentions and transcript session links, style composer session mentions medium-weight, and display/copy the active session ID in the Debug bar. | M | **have it** |  | Debug bar SESSION cell + toast, 3-item SessionReferenceMenu + toasts, and transcript @Title/raw-ID session links landed in #257 (e3ceb010); composer @session pill right-click wired via Rune #1293 El::on_pill_secondary (ws3/pin-wrap-math). (PR #257) | none | none | WS-3 |  |
@@ -57,9 +57,9 @@
 | PRE-14 | #63744 (`46aefe3da3`)<br>fix(app): hide zero session cost for OpenCode Go | 2026-11-13 | **gui-plugins**<br>`packages/gui-plugins/src/context/indicator.tsx`, `packages/gui-plugins/src/context/tab.tsx` | Hide the $0.00 cost line in the session header indicator and omit the Total Cost row in the Context tab when spend is zero on an OpenCode Go model. | S | **have it** |  | Ported in rune-desktop #243 (4b5175ef): plugins/context/indicator.luau and plugins/context/tab.luau hide $0.00 cost for opencode-go and pad odd 2-column grid rows. (PR #243) | none | none | none |  |
 | PRE-15 | #63739 (`f352f5e875`)<br>fix(ui): switch submenus without blinking and keep them open on the way in | 2026-11-13 | **ui, app**<br>`patches/@kobalte%2Fcore@0.13.13.patch`, `packages/app/src/shell/titlebar/sidebar-view-menu.tsx` | Keep submenus open along the pointer aim corridor and avoid flashing when moving between sibling submenu triggers. | S | **have it** |  | Ported in rune-desktop #271 (08f28f82): explicit submenu pointer-corridor aiming + 150 ms leave delay machine in crates/opencode-ui/src/popup/submenu.rs. (PR #271) | none | none | none |  |
 
-## Post-14 Nov Rows (`f6e0c2d083..92e3e654f2`)
+## Post-14 Nov Rows (`f6e0c2d083..ba122767ce`)
 
-| ID | PR / Commit | Date | Packages & Main Files | What User Sees / Client Must Do | Size | Status | Reviewed | Evidence in `rune-desktop` | Depends On | Risks | Stream | Open PR Note |
+| ID | PR / Commit | Date | Packages & Main Files | What User Sees / Client Must Do | Size | Status | Reviewed | Evidence in `opencode-desktop` | Depends On | Risks | Stream | Open PR Note |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | UP-001 | #63663 (`083e3114a5`)<br>feat(app): find in side panel previews | 2026-11-13 | **app, gui-plugins**<br>`packages/gui-plugins/src/file/find.tsx`, `packages/gui-plugins/src/file/view.tsx`, `packages/gui-plugins/src/file/artifact-view.css`, `packages/gui-plugins/src/file/artifact-view.tsx` | Add Cmd/Ctrl+F find-in-preview with match highlighting across rendered side-panel previews (Markdown, HTML, tables, diagrams). | L | **have it** |  | features/files/src/{lib.rs,markdown.rs,html.rs,label_find.rs} + crates/opencode-code-view/src/data/label_find.rs (LabelFind, TableFind, html_find, mermaid_find, sync_rendered_find, a92f2709). | none | none | none |  |
 | UP-002 | #63829 (`f91b88efac`)<br>fix(app): polish the connect dialog sign-in steps | 2026-11-14 | **app, ui**<br>`packages/app/src/providers/connect/dialog.tsx`, `packages/app/src/components-lab/dialog-story-runtime.tsx`, `packages/app/src/providers/connect/dialog.standalone.stories.tsx`, `packages/app/src/providers/connect/console.tsx`, `packages/app/src/providers/connect/dialog-machine.ts`, `packages/app/src/providers/connect/machine.ts` | Polish the Connect provider dialog sign-in flows with clickable header breadcrumbs, consistent footer actions, and updated OAuth/Console/form steps. | L | **have it** |  | Ported in rune-desktop #253 (1b37bccd): unified right-aligned StepActions footers across failed/no-models/Claude/OAuth/form steps, 28 pt Console device code digits, 32 pt method rows with icons/chevrons, and OAuth paste toggle dividers. (PR #253) | none | none | none |  |
