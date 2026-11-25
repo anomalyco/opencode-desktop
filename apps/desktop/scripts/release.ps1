@@ -42,6 +42,7 @@ $triple = if ($Target) { $Target } else { $hostTriple }
 $profdata = Join-Path $root "apps/desktop/pgo/$triple.profdata"
 $name = 'CARGO_TARGET_' + ($triple.ToUpperInvariant() -replace '[-.]', '_') + '_RUSTFLAGS'
 $before = [Environment]::GetEnvironmentVariable($name)
+$linkBefore = $env:LINK
 # Only a target that has a profile is instrumented (Windows ARM64 has none and stays as it is).
 $instrument = ($env:OPENCODE_RUNE_PGO_GENERATE -eq '1' -or $env:GITHUB_HEAD_REF -match '^pgo-train/') -and (Test-Path $profdata)
 $symbols = $env:OPENCODE_RUNE_SYMBOLS -eq '1' -or $env:GITHUB_HEAD_REF -match 'symbols'
@@ -88,13 +89,16 @@ try {
         if ($instrument) { '-Cprofile-generate=target/pgo-raw' } elseif (Test-Path $profdata) { "-Cprofile-use=$profdata"; '-Cllvm-args=-no-pgo-warn-mismatch' }
         # After cargo's own flags, so these win over the release profile's "no debug info".
         if ($symbols) { '-Cdebuginfo=line-tables-only'; '-Cstrip=none' }
-        # Windows: the linker writes its map beside the image (`<image>.map` in `deps/`): every
-        # function's name and address in this very build, with nothing added to or changed in the
-        # image itself. A link argument here, like the flags above, is not in the hash cargo
-        # puts into every symbol's name, so the trained profile still names the code.
-        if ($triple -match '-windows-msvc$') { '-Clink-arg=/MAP' }
     )
     if ($flags) { [Environment]::SetEnvironmentVariable($name, (@($before) + $flags | Where-Object { $_ }) -join ' ') }
+    # Windows: the linker writes its map beside each image it links (`<image>.map` in `deps/`): every
+    # function's name and address in this very build. It is asked for through the `LINK` environment
+    # variable, which MSVC's `link.exe` reads before its command line, and not as a link argument in
+    # the flags above: a change to the compiler's flags lays the library out anew. Measured on CI
+    # builds of one tree: with `-Clink-arg=/MAP` in the flags 54,399,683 of the library's
+    # 156,345,856 bytes differed from the build without it; with `LINK=/MAP` only the link time
+    # stamp did (and what names the pull request); two builds with the same flags differ in 24.
+    if ($triple -match '-windows-msvc$') { $env:LINK = (@($linkBefore) + '/MAP' | Where-Object { $_ }) -join ' ' }
     $parts = $Cargo -split ' '
     $targetArgs = @('--target', $triple)
     $featureArgs = if ($Features) { @('--features', $Features) } else { @() }
@@ -102,4 +106,5 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "cargo build --release failed" }
 } finally {
     [Environment]::SetEnvironmentVariable($name, $before)
+    $env:LINK = $linkBefore
 }
