@@ -1,4 +1,4 @@
-// Workspace architecture guardrails for rune-desktop.
+// Workspace architecture guardrails for anomalyco/opencode-rune.
 // Runs on Bun or Node >= 18 (no Python dependency). Usage: scripts/arch-check.sh
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
