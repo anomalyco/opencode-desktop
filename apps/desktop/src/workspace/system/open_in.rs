@@ -324,7 +324,11 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        if !s.can_open_in() {
+        // No app is handed a file outside the session's folder (#294, #855), here as on the
+        // file's own toolbar (`features/files/src/viewer/toolbar.rs` `open_in_button`). Official
+        // offers Open in for such a file (`packages/gui-plugins/src/file/open-in-app.tsx:101-107`):
+        // ours' difference since #294, not a new one.
+        if !s.can_open_in() || opencode_kit::path::is_absolute(rel) {
             return None;
         }
         let label = s.kernel.slots.get(&OPEN_IN).current_label();
