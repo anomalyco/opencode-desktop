@@ -2,16 +2,16 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "eec153e79a271e2ab4dd671efafc966a2364156a",
+  "upstream_head": "fe4535adce5046eb0c59f7b1021773cd4dbfcac4",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "7167f5e39",
-  "post_1114_commit_count": 657,
+  "rune_desktop_head": "2e0d7d319",
+  "post_1114_commit_count": 658,
   "post_1114_in_ledger": 232,
-  "post_1114_skipped": 425,
+  "post_1114_skipped": 426,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
-    "ci-bench-deps": 24,
+    "ci-bench-deps": 25,
     "docs-site-data": 63,
     "tui-only": 28,
     "cli-acp-only": 11,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 253,
   "status_counts": {
-    "have it": 203,
+    "have it": 204,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 10
+    "missing": 9
   },
   "rows": [
     {
@@ -6200,8 +6200,8 @@
       ],
       "summary": "Four gaps of the Consolidated navigation: a middle click on a pinned session unpins it and closes its tab; a pin group's chevron (vertical) and, under Consolidated, a Recent group header's chevron show only on hover or keyboard focus; Home's project picker names the focused server, with the server glyph, in place of All projects when there are several servers and no project is chosen.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Ported in draft opencode-rune #1144 (apps/desktop/src/shell/tabs/pins.rs close, shell/view/sidebar/pinned_area.rs, sidebar/recent.rs, shell/view/home/projects.rs); compiled by CI only, not run: it merges after a run on its build. Two differences stated there: the chevron's fade follows the row's hover track, not official's 150 ms; a pin group's chevron also shows for focus on the row's options button.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1144 (2e0d7d31): a middle click on a pinned session unpins it (apps/desktop/src/shell/tabs/pins.rs), a pin group's and a Recent group header's chevron show only under the pointer or keyboard focus (shell/view/sidebar/pinned_area.rs, recent.rs), Home's picker names the focused server when no project is chosen (shell/view/home/projects.rs). Run headless on its own Windows x64 CI build beside a build without it: the chevron at rest / pointer on the toggle / pointer away / keyboard focus on the toggle and on the menu button, the Recent header the same, the middle click with and without an open tab, Home's picker with one and two servers in a narrow and a 900-wide window. Not run: a real window, a pin group in top tabs under the keyboard, the Recent arrangement's own grouped header, macOS, Linux. Open differences, all four removed by Rune's rune#2231 (merged on Rune dev, not pinned yet), then one app change: (A) the chevron's fade: ours at once in and 0.1 s out, official 150 ms (packages/app/src/shell/titlebar/pinned-area.tsx:376); (B) with the pointer over the row's menu button official still shows the chevron (the row is hovered), ours does not; (C) with keyboard focus on the toggle ours also draws the toggle's hover fill, official the focus ring alone (seen in the run); (D) the menu button shows for keyboard focus anywhere in the row, official only for its own focus (pinned-area.tsx:417; recent-sessions.tsx:1225, :1231).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
