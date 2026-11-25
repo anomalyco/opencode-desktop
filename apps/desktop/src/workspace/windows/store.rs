@@ -34,7 +34,9 @@ pub fn new_id() -> String {
 /// after the close hook had taken the window off it), and every launch after one opened a new
 /// window and left the last one's rows where they were. Such a launch takes back the window
 /// made last that has tabs ([`orphaned`]); the others are kept as closed windows, to reopen
-/// (`reopen::keep_orphans`), so none stays in the boot record.
+/// (`reopen::keep_orphans`), so none stays in the boot record. A profile whose list is not empty
+/// may hold lost windows too (its last quit kept the list): `reopen::sweep_lost` takes those
+/// once the first frame is up.
 pub fn launch_ids() -> (Vec<String>, bool) {
     let saved = saved_ids();
     let mut ids = saved.clone().unwrap_or_default();
@@ -66,7 +68,6 @@ fn orphaned() -> Vec<(String, usize)> {
     let mut names = boot.window_namespaces();
     names.sort_unstable();
     names.dedup();
-    let ours = |id: &str| id.len() == 26 && id.as_bytes()[..12].iter().all(u8::is_ascii_hexdigit);
     let mut windows: Vec<(String, usize)> = names
         .into_iter()
         .filter_map(|name| {
@@ -77,6 +78,18 @@ fn orphaned() -> Vec<(String, usize)> {
         .collect();
     windows.sort_by_key(|(id, _)| !ours(id));
     windows
+}
+
+/// Whether this app made window id `id` ([`new_id`]: 12 hex digits of its time, newest first,
+/// then 14 more characters). One imported from Desktop is a UUID.
+pub(super) fn ours(id: &str) -> bool {
+    id.len() == 26 && id.as_bytes()[..12].iter().all(u8::is_ascii_hexdigit)
+}
+
+/// Whether window `id` was made before the id `mark` was: ours sort newest first, and an
+/// imported one is older than any of ours.
+pub(super) fn made_before(id: &str, mark: &str) -> bool {
+    !ours(id) || id > mark
 }
 
 /// Window `w`'s namespace (`opencode.window.<id>.dat`).
