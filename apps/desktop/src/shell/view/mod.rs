@@ -4,7 +4,7 @@
 use crate::pickers::PickerHost as _;
 
 use rune::{
-    Color, Curve, Cursor, Cx, Drag, Easing, El, Icon, Key, Phase,
+    Color, Curve, Cursor, Cx, Drag, Easing, El, Icon, Key, Phase, SystemMaterial,
     Align, Side, Spring, TextStyle, Tx, col, el, icon, row, spacer, text,
 };
 
@@ -140,7 +140,12 @@ fn draw(s: &App, cx: &mut Cx<App>) -> El {
     // The app keeps clear of the safe area and the window's colour runs under it to the screen's
     // edge; the shell's surfaces reach under the side and bottom insets themselves (`shell`).
     let [top, right, bottom, left] = safe;
-    let root = if top + right + bottom + left > 0.0 { root.pt(top).pr(right).pb(bottom).pl(left).fill(p.bg_deep) } else { root };
+    let root = if top + right + bottom + left > 0.0 {
+        let root = root.pt(top).pr(right).pb(bottom).pl(left);
+        if panel_through(p) { root } else { root.fill(p.bg_deep) }
+    } else {
+        root
+    };
     // Arabic, Hebrew, Persian, Urdu… mirror the whole window, as Desktop's `dir` on the
     // document root does (`language.tsx:397`); the caption buttons Rune draws stay put.
     let root = root.dir(ui_direction());
@@ -182,6 +187,21 @@ fn draw(s: &App, cx: &mut Cx<App>) -> El {
         // Stays outside `OverlayDispatcher` and `glitch::wrap(zoomed(inner))`: the developer knobs
         // panel must draw above the paused glitch scrubber and outside the zoomed shell subtree.
         .child(crate::knobs::layer(s))
+}
+
+/// Whether a theme asks for the system material. Each region keeps its own alpha in its own
+/// token — `bg_deep` for the sidebar, tabs, titlebar and window ground, `bg_base` for the main
+/// panel and the status bar on it — so the theme edits one region without changing the others.
+/// Official OpenCode paints an opaque window and has no material option; Rune's macOS window
+/// draws the system blur behind translucent tokens.
+fn needs_backdrop(p: &Pal) -> bool {
+    cfg!(target_os = "macos") && (p.bg_deep.a < 1.0 || p.bg_base.a < 1.0)
+}
+
+/// The window ground sits under the panel. When the panel's own token is translucent it must
+/// stay unpainted, or the panel would composite against the window ground instead of the blur.
+fn panel_through(p: &Pal) -> bool {
+    cfg!(target_os = "macos") && p.bg_base.a < 1.0
 }
 
 fn shell(s: &App, cx: &mut Cx<App>) -> El {
@@ -284,9 +304,11 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     let mut root = row()
         .key("window")
         .role("window")
-        .fill(p.bg_deep)
         .w_full()
         .h_full();
+    if !panel_through(p) {
+        root = root.fill(p.bg_deep);
+    }
     // Desktop keeps its route history in memory (`titlebar.tsx:206-213`, UP-116 #65129), so mouse
     // Back/Forward side buttons step it on release; wasm32 lets the host browser traverse its own.
     #[cfg(not(target_arch = "wasm32"))]
@@ -364,11 +386,26 @@ fn shell(s: &App, cx: &mut Cx<App>) -> El {
     // One shape whether the foot holds anything or not: a plugin filling its slot at idle (after
     // the first frames) mustn't move the window's tree under a new path, which mounts every
     // element afresh and puts each scroll view back on its start or end.
-    let window = col()
+    let mut window = col()
         .key("window-column")
         .w_full()
-        .h_full()
-        .fill(p.bg_deep)
+        .h_full();
+    // The window ground and the panel ground must not both paint: a translucent panel shows the
+    // material only when the ground under it is clear. The chrome keeps its own `bg_deep` fill,
+    // so editing that token still changes the sidebar and titlebar independently.
+    if !panel_through(p) {
+        window = window.fill(p.bg_deep);
+    }
+    if needs_backdrop(p) {
+        window = window.child(
+            el().key("glass-backdrop")
+                .absolute(0.0, 0.0)
+                .w_full()
+                .h_full()
+                .system_material(SystemMaterial::Glass),
+        );
+    }
+    let window = window
         .child(el().key("window-main").w_full().grow(1.0).min_h(0.0).child(root))
         .children((!bottom.is_empty()).then(|| col().key("plugin-window-bottom").w_full().children(bottom)))
         .children(touch_bar)
