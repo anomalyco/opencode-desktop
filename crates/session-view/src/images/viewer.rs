@@ -189,6 +189,10 @@ pub fn viewer<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
         )
         .format_level(|n| opencode_i18n::percent(f64::from(n) / 100.0))
         .controls_transition(Transition::opacity().springs(fade))
+        // A zoomed image keeps the arrow: official's grab and grabbing there
+        // (`packages/ui/src/components/image-preview.css:134,139`) are reset to the default
+        // cursor (`packages/desktop/src/renderer/styles.css:7-8`). Dragging still pans.
+        .pan_cursors(false)
         .on_close(move |s: &mut S, tx: &mut Tx| {
             if unclipped {
                 tx.unclipped_flights();

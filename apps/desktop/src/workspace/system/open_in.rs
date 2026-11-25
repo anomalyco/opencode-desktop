@@ -324,7 +324,9 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        if !s.can_open_in() {
+        // A skill's virtual file is on no disk (official
+        // `packages/gui-plugins/src/file/open-in-app.tsx:101-107`).
+        if !s.can_open_in() || crate::files::data::is_virtual_skill(rel) {
             return None;
         }
         let label = s.kernel.slots.get(&OPEN_IN).current_label();
