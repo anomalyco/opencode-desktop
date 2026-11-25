@@ -229,6 +229,12 @@ pub fn toggle_side_region(host: &mut dyn PanelsHost, tx: &mut Tx) {
 /// strip, hidden tabs included, shows a New tab once per such span. That covers opening it
 /// empty and its last tab leaving without closing it (a terminal that exits). A side region
 /// whose only tabs are in the bottom pane shows the empty pane, as Desktop's does.
+/// Whether the server hasn't listed the routed session yet (a subagent's page at launch): what a
+/// plugin keeps for it can't be read, so the tabs it lists for it aren't known.
+pub fn routed_unlisted(host: &dyn PanelsHost) -> bool {
+    host.is_live() && host.active_session_id().is_some_and(|id| host.session_directory(id).is_none_or(str::is_empty))
+}
+
 pub fn sync_empty_side(host: &mut dyn PanelsHost) -> bool {
     let Some(id) = host.panel_session_id().map(str::to_owned) else { return false };
     let stored_empty = host.side().sessions.get(&id).is_none_or(|st| st.tab_state.tabs.all.is_empty());

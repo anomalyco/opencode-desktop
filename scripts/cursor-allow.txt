@@ -38,7 +38,6 @@ features/office/src/sheet/mod.rs | Pointer | 1 | a link in a cell: packages/gui-
 
 # Other cursors official has
 crates/session-view/src/images/mod.rs | ZoomIn | 2 | a Markdown image and a tool's image: packages/session-ui/src/components/markdown.css:604 and message-part.css:772 zoom-in
-crates/session-view/src/composer/mod.rs | NotAllowed | 1 | a disabled Send: packages/ui/src/actions/submit.css:79 not-allowed (Desktop's reset is `:not(:disabled)`)
 features/inbox/src/queue/view.rs | Text | 1 | a queued message's words: packages/app/src/session/composer/queue-panel.tsx:229 cursor-text
 features/office/src/sheet/mod.rs | Cell | 1 | the sheet's cells: packages/gui-plugins/src/microsoft-office/spreadsheet.tsx:870 cell
 features/office/src/sheet/mod.rs | Default | 2 | the sheet's headers, over its cell cursor: packages/gui-plugins/src/microsoft-office/spreadsheet.tsx:870 default outside the cells
@@ -47,6 +46,19 @@ features/terminal-surface/src/grid/mod.rs | Pointer+Text | 1 | the terminal: the
 features/terminal-surface/src/grid/pointer.rs | Default | 1 | the terminal's scroll bar, over the terminal's I-beam: packages/ui/src/components/scroll-view.css:34 default
 crates/browser-pane/src/surface.rs | dynamic | 1 | the web page's own cursor, as the engine reports it
 apps/desktop/src/surfaces/browser/comment.rs | Default | 1 | a page note's editor, over the page's cursor
+
+# not-allowed on a disabled control: Desktop's reset is `:not(:disabled)`, so official's `cursor: not-allowed` stays
+crates/session-view/src/composer/mod.rs | NotAllowed | 1 | a disabled Send: packages/ui/src/actions/submit.css:79
+crates/opencode-ui/src/widgets.rs | NotAllowed | 1 | `not_allowed`, for a disabled button-v2 that is not loading: packages/ui/src/actions/button/button.css:112-344, submit.css:79 (a loading one keeps the arrow, button.css:232)
+crates/session-view/src/dock/mod.rs | NotAllowed | 1 | a dock's disabled button (button-v2): packages/ui/src/actions/button/button.css:112-344, submit.css:79
+crates/session-view/src/dock/question/classic.rs | NotAllowed | 1 | a progress segment while sending (a disabled button): packages/session-ui/src/components/question-prompt.css:140
+crates/session-view/src/dock/question/face.rs | NotAllowed | 1 | a progress segment while sending (a disabled button): packages/session-ui/src/components/question-prompt-experimental.css:193
+features/settings/src/pages/mod.rs | NotAllowed | 1 | a disabled ghost button: packages/ui/src/actions/button/button.css:256-297
+features/settings/src/pages/worktrees.rs | NotAllowed | 2 | More options and Delete while busy (IconButton disabled, packages/app/src/settings/workspaces/workspaces.tsx:476,550): packages/ui/src/actions/icon-button/icon-button.css:126
+features/office/src/pages.rs | NotAllowed | 1 | a disabled preview control (ghost-muted IconButton): packages/ui/src/actions/icon-button/icon-button.css:126
+apps/desktop/src/shell/view/home/projects.rs | NotAllowed | 1 | Add project while the server is down (IconButton disabled, packages/app/src/home/projects/view.tsx:250): icon-button.css:126
+apps/desktop/src/shell/view/home/servers.rs | NotAllowed | 1 | a server row's Add project while it is down (IconButton disabled, packages/app/src/home/projects/view.tsx:541): icon-button.css:126
+apps/desktop/src/plugin_host/ui/nodes.rs | NotAllowed | 1 | a plugin's disabled switch: packages/ui/src/forms/switch/switch.css:146
 
 # The arrow over what Rune would give the hand: a plain link in official has no cursor of its own
 crates/session-view/src/turn_errors.rs | Default | 1 | a limit notice's Switch model: a plain button, packages/session-ui/src/timeline-next/row.tsx:1536

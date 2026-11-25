@@ -92,7 +92,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                     .hover(p.hover)
                     .on_press_tx(move |s: &mut S, tx: &mut Tx| if let Some(f) = asking(s) { jump(s, &f, i, tx) })
             } else {
-                seg.disabled(true).focusable(false)
+                seg.disabled(true).focusable(false).hit().cursor(rune::Cursor::NotAllowed)
             }
         }))
     });
