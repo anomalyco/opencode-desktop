@@ -16,7 +16,7 @@ On macOS and Windows, the `dev` app checks `https://anoma.ly/release` 10 seconds
 
 ## 2. Try a pull request side by side
 
-Every open pull request in `anomalyco/rune-desktop` that touches the desktop app posts a comment with links to a macOS Apple Silicon `.dmg` (`OpenCode-Rune-PR-<N>-macos-arm64.dmg`) and unsigned Windows setups (`OpenCode-Rune-PR-<N>-windows-x64-setup.exe`, `OpenCode-Rune-PR-<N>-windows-arm64-setup.exe`).
+Every open pull request in `anomalyco/opencode-desktop` that touches the desktop app posts a comment with links to a macOS Apple Silicon `.dmg` (`OpenCode-Rune-PR-<N>-macos-arm64.dmg`) and unsigned Windows setups (`OpenCode-Rune-PR-<N>-windows-x64-setup.exe`, `OpenCode-Rune-PR-<N>-windows-arm64-setup.exe`).
 
 ### macOS
 
