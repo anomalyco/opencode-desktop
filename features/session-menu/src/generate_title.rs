@@ -57,7 +57,10 @@ impl Generating {
 pub fn set_title(host: &mut dyn SessionMenuHost, id: &str, words: &str) {
     let words = words.trim();
     if !words.is_empty() {
-        crate::rename::rename_session(host, id, words);
+        // Sent, and shown when the server's own event names the session again
+        // (`controller.tsx:472-478`): nothing changes here before that, so a rename the server
+        // refuses, or one that could not be sent, leaves the title as it is.
+        host.write_server(Write::Rename { session: id.to_owned(), title: words.to_owned() });
         return;
     }
     let server = host.active_server();
