@@ -2,12 +2,12 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "8d7477816fe434605efaca155426025ab2a65543",
+  "upstream_head": "546a44d8fa8491e95cd014ec2fc8d2cdd75b1b59",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "226a6fddd",
-  "post_1114_commit_count": 645,
-  "post_1114_in_ledger": 227,
+  "rune_desktop_head": "3758162ce",
+  "post_1114_commit_count": 646,
+  "post_1114_in_ledger": 228,
   "post_1114_skipped": 418,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
@@ -18,13 +18,13 @@
     "server-core-ai-codemode-internal": 268
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 248,
+  "total_ledger_rows": 249,
   "status_counts": {
     "have it": 201,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 7
+    "missing": 8
   },
   "rows": [
     {
@@ -6223,6 +6223,29 @@
       "size": "S",
       "status": "not applicable",
       "status_evidence": "By reading: the change is in official's Sentry start-up alone (packages/desktop/src/renderer/startup/sentry.ts). Ours has no Sentry client and sends a crash to no service (see UP-225), so there is nothing to configure.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-228",
+      "window": "post-1120",
+      "pr": 66295,
+      "sha": "546a44d8fa",
+      "title": "fix(session-ui): simplify execute details dialog",
+      "merged": "2026-11-25",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/components/message-part.css",
+        "packages/session-ui/src/pierre/index.ts",
+        "packages/session-ui/src/tools/tool-renderer.tsx"
+      ],
+      "summary": "The Execute details dialog (View code on a Code Mode call) is simpler: the status is a Badge (danger for a failed run) and the call count is gone; the line counts after Code and Output are gone; a failed run's error is a numbered text view in the danger colour sharing the code's number gutter, in place of a padded block; lines no longer light under the pointer.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Ported in draft opencode-rune #1158 (crates/session-view/src/tools/details.rs, tools/diff.rs code); compiled by CI only, not run: it merges after a run on its build (a completed call and a failed one).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
