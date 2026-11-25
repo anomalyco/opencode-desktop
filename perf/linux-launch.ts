@@ -21,7 +21,7 @@
 // (its marks are on stdout) and whose quit then stalled or was cut is counted by those marks and
 // listed as such; one that printed no mark drew nothing and is not counted. Each line has how long
 // the process ran, how it ended and the app's last word on stderr (Rune says where a quit is stuck).
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { cpus, release, tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -35,6 +35,13 @@ const SERVER = process.env.OPENCODE_LAUNCH_SERVER_SMALL ?? "http://127.0.0.1:587
 const SCRATCH = process.env.OPENCODE_LAUNCH_SCRATCH ?? join(tmpdir(), "opencode-rune-launch-bench", "linux")
 const home = join(SCRATCH, "home")
 const engine = join(home, "state", "co.anomaly.opencode", "browser-engine")
+// One copy a scratch folder: a second one deletes the first one's profile under its running app, and
+// its launches find that app alive, hand over to it and end at once.
+const lock = join(SCRATCH, "running.pid")
+const other = existsSync(lock) ? Number(readFileSync(lock, "utf8")) : 0
+if (other && existsSync(`/proc/${other}`)) throw new Error(`another copy of this bench (pid ${other}) runs on ${SCRATCH}: give each its own OPENCODE_LAUNCH_SCRATCH`)
+mkdirSync(SCRATCH, { recursive: true })
+writeFileSync(lock, String(process.pid))
 const served = await fetch(`${SERVER}/api/info`, { signal: AbortSignal.timeout(1000) }).then((r) => r.ok).catch(() => false)
 
 /** The launch's own home (every folder the app reads or writes) on the session this was started from. */
@@ -136,3 +143,4 @@ for (const s of STAGES) console.log([s.padEnd(24), ...results.map((r) => (r.stag
 const lost = results.flatMap((r) => r.lost)
 if (lost.length) console.log(`\n${lost.length} launch(es) went wrong:\n${lost.join("\n")}`)
 console.log(`\nlinux-launch ${JSON.stringify({ machine, results })}`)
+rmSync(lock, { force: true })
