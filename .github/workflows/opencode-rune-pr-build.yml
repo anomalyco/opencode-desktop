@@ -3,12 +3,12 @@ name: OpenCode (Rune) PR Build
 # Builds every open PR touching apps/desktop (or its path crates) as a side-by-side
 # macOS app ("OpenCode (Rune) · <branch>.app", anomaly.opencode-rune.pr.<N>, badged icon)
 # (ad-hoc signed: PR code never reaches the release environment) and unsigned Windows setups
-# (x64, arm64) under the same name and id, posts/updates one
-# download comment on the PR, and retires the hosted build when the PR closes or merges.
+# (x64, arm64) under the same name and id, kept as workflow artifacts for 7 days. Nothing is
+# published as a GitHub release.
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, closed]
+    types: [opened, synchronize, reopened]
     branches: [dev]
     paths:
       - "apps/desktop/**"
@@ -29,7 +29,7 @@ permissions:
 
 concurrency:
   group: opencode-rune-pr-build-${{ github.event.pull_request.number }}
-  cancel-in-progress: ${{ github.event.action != 'closed' }}
+  cancel-in-progress: true
 
 defaults:
   run:
@@ -40,9 +40,7 @@ env:
 
 jobs:
   guardrails:
-    if: >-
-      github.event.action != 'closed'
-      && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 10
     steps:
@@ -56,9 +54,7 @@ jobs:
         run: bash scripts/guardrails.sh
 
   plan:
-    if: >-
-      github.event.action != 'closed'
-      && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: blacksmith-2vcpu-ubuntu-2404
     outputs:
       pr-number: ${{ steps.plan.outputs.pr-number }}
@@ -181,136 +177,3 @@ jobs:
           retention-days: "7"
       - id: digest
         run: echo "digest-${{ matrix.arch }}=${{ steps.upload.outputs.digest }}" >> "$GITHUB_OUTPUT"
-
-  # ---- Publish PR pre-release + sticky PR comment ----------------------------
-
-  publish-pr-build:
-    needs: [plan, build-macos, build-windows]
-    if: ${{ !cancelled() && needs.build-macos.result == 'success' }}
-    runs-on: blacksmith-2vcpu-ubuntu-2404
-    timeout-minutes: 20
-    permissions:
-      contents: write
-      pull-requests: write
-    # What it runs, which tag it moves and which PR it comments on come from the event, not plan
-    # outputs (as in retire-pr-build); plan only supplies display names and the build version.
-    env:
-      GH_TOKEN: ${{ github.token }}
-      PR_NUMBER: ${{ github.event.pull_request.number }}
-      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-      APP_NAME: ${{ needs.plan.outputs.app-name }}
-      BUNDLE_ID: ${{ needs.plan.outputs.bundle-id }}
-      VERSION: ${{ needs.plan.outputs.version }}
-      FILE_STEM: OpenCode-Rune-PR-${{ github.event.pull_request.number }}
-      RELEASE_TAG: opencode-rune-pr-${{ github.event.pull_request.number }}
-    steps:
-      - name: Check out the release helpers from the base branch
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          sparse-checkout: /.github/release/
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
-      - name: Download unsigned PR DMG
-        uses: ./.github/release/download
-        with:
-          pattern: build-opencode-rune-pr-macos-arm64
-          digests: build-opencode-rune-pr-macos-arm64=${{ needs.build-macos.outputs.digest }}
-      - name: Download PR Windows setups
-        if: needs.build-windows.outputs.digest-x64 != '' || needs.build-windows.outputs.digest-arm64 != ''
-        uses: ./.github/release/download
-        with:
-          pattern: build-opencode-rune-pr-windows-*
-          folder: in-windows
-          digests: >-
-            build-opencode-rune-pr-windows-x64=${{ needs.build-windows.outputs.digest-x64 }}
-            build-opencode-rune-pr-windows-arm64=${{ needs.build-windows.outputs.digest-arm64 }}
-      - name: Upload PR DMG and update sticky PR comment
-        run: |
-          SHORT_SHA=${HEAD_SHA:0:9}
-          mkdir -p "$RUNNER_TEMP/publish"
-          dmg_name="$FILE_STEM-macos-arm64.dmg"
-          dmg="$RUNNER_TEMP/publish/$dmg_name"
-          cp "$RUNNER_TEMP/in/build-opencode-rune-pr-macos-arm64/$FILE_STEM-unsigned-macos-arm64.dmg" "$dmg"
-          sha=$(sha256sum "$dmg" | awk '{ print $1 }')
-          windows=
-          for arch in x64 arm64; do
-            setup="$RUNNER_TEMP/in-windows/build-opencode-rune-pr-windows-$arch/OpenCode-Rune-$VERSION-windows-$arch-setup.exe"
-            [ -f "$setup" ] || continue
-            cp "$setup" "$RUNNER_TEMP/publish/$FILE_STEM-windows-$arch-setup.exe"
-            windows="$windows [\`$arch\`](https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$FILE_STEM-windows-$arch-setup.exe)"
-          done
-          notes="Side-by-side test build for #$PR_NUMBER (@ $SHORT_SHA). Retired automatically when the PR closes."
-
-          if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" \
-              -f sha="$HEAD_SHA" -f force=true >/dev/null || true
-            gh release upload "$RELEASE_TAG" "$RUNNER_TEMP"/publish/* --clobber -R "$GITHUB_REPOSITORY"
-            gh release edit "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --prerelease \
-              --title "$APP_NAME (#$PR_NUMBER)" --notes "$notes"
-          else
-            gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/publish/* -R "$GITHUB_REPOSITORY" \
-              --target "$HEAD_SHA" --prerelease \
-              --title "$APP_NAME (#$PR_NUMBER)" --notes "$notes"
-          fi
-
-          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$dmg_name"
-          trust_line="Ad-hoc signed preview (PR code is never signed with release credentials) — after dragging to \`/Applications\`, run \`xattr -cr \"/Applications/$APP_NAME.app\"\` once before first open."
-
-          cat > "$RUNNER_TEMP/comment.md" <<EOF
-          <!-- opencode-rune-pr-build -->
-          ### Test build ready — [Download \`$dmg_name\`]($url)
-
-          - **App:** \`$APP_NAME.app\` (badged \`#$PR_NUMBER\`, bundle ID \`$BUNDLE_ID\`)
-          - **Commit:** \`$SHORT_SHA\` (\`$VERSION\`, sha256 \`${sha:0:12}…\`)
-          - **Side-by-side:** installs alongside \`OpenCode (Rune).app\` without replacing your \`dev\` build; retired automatically when this PR closes.
-          - **Signing:** $trust_line
-          - **Windows:**${windows:- not built} — unsigned setup (\`$APP_NAME\`, installs side by side). SmartScreen asks once: More info, then Run anyway.
-          EOF
-          sed -i -E 's/^          //' "$RUNNER_TEMP/comment.md"
-
-          existing_id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
-            --jq '.[] | select(.body | contains("<!-- opencode-rune-pr-build -->")) | .id' | head -n 1 || true)
-          payload=$(jq -Rs '{body: .}' "$RUNNER_TEMP/comment.md")
-          if [ -n "$existing_id" ]; then
-            printf '%s' "$payload" | gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing_id" --input - >/dev/null
-          else
-            printf '%s' "$payload" | gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --input - >/dev/null
-          fi
-          echo "Published $url" >> "$GITHUB_STEP_SUMMARY"
-
-  # ---- Retire: delete hosted PR build + update sticky comment on close -------
-
-  retire-pr-build:
-    if: >-
-      github.event.action == 'closed'
-      && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: blacksmith-2vcpu-ubuntu-2404
-    timeout-minutes: 10
-    permissions:
-      contents: write
-      pull-requests: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-      PR_NUMBER: ${{ github.event.pull_request.number }}
-      MERGED: ${{ github.event.pull_request.merged }}
-      RELEASE_TAG: opencode-rune-pr-${{ github.event.pull_request.number }}
-    steps:
-      - name: Delete PR pre-release and update comment
-        run: |
-          if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release delete "$RELEASE_TAG" --cleanup-tag --yes -R "$GITHUB_REPOSITORY"
-          fi
-          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" >/dev/null 2>&1 || true
-
-          existing_id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
-            --jq '.[] | select(.body | contains("<!-- opencode-rune-pr-build -->")) | .id' | head -n 1 || true)
-          if [ -n "$existing_id" ]; then
-            if [ "$MERGED" = "true" ]; then
-              body=$'<!-- opencode-rune-pr-build -->\n**PR test build retired** — merged into `dev`. Install or auto-update **OpenCode (Rune)** from [`https://anoma.ly/release/opencode/desktop-rune/dev/macos-arm64-dmg`](https://anoma.ly/release/opencode/desktop-rune/dev/macos-arm64-dmg).'
-            else
-              body=$'<!-- opencode-rune-pr-build -->\n**PR test build retired** — this pull request is closed.'
-            fi
-            jq -n --arg body "$body" '{body: $body}' \
-              | gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing_id" --input - >/dev/null
-          fi
