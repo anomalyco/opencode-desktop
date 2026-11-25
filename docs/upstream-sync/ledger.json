@@ -2,12 +2,12 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "af4c115588aa0f012d1499476994fd3f63b9bf81",
+  "upstream_head": "e54fbacb3d3aebc85f0e5ada0a5c490cc9333a91",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "1805a6853",
-  "post_1114_commit_count": 650,
-  "post_1114_in_ledger": 228,
+  "rune_desktop_head": "019492a65",
+  "post_1114_commit_count": 651,
+  "post_1114_in_ledger": 229,
   "post_1114_skipped": 422,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
@@ -18,13 +18,13 @@
     "server-core-ai-codemode-internal": 272
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 249,
+  "total_ledger_rows": 250,
   "status_counts": {
     "have it": 201,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 8
+    "missing": 9
   },
   "rows": [
     {
@@ -6246,6 +6246,27 @@
       "size": "S",
       "status": "missing",
       "status_evidence": "Ported in draft opencode-rune #1158 (crates/session-view/src/tools/details.rs, tools/diff.rs code); compiled by CI only, not run: it merges after a run on its build (a completed call and a failed one).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-229",
+      "window": "post-1120",
+      "pr": 66308,
+      "sha": "e54fbacb3d",
+      "title": "fix(ui): update settings icon hexagon",
+      "merged": "2026-11-25",
+      "packages": [
+        "ui"
+      ],
+      "main_files": [
+        "packages/ui/src/icons/catalog.ts"
+      ],
+      "summary": "The Settings icon's hexagon is taller: its top and bottom points move from y 1.5 and 14.5 to y 1 and 15 (`settings-gear` in packages/ui/src/icons/catalog.ts); the circle inside is unchanged. Drawn on the sidebar's and Home's Settings rows, the narrow window's tabs page and a project's menu.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Not ported. The glyph is Rune's (rune-theme-opencode, themes/opencode/src/icons.rs, SETTINGS_GEAR, still the old outline at the pinned rev 4d8df909), so the change is a one-path Rune PR and a pin; asked of the pin's owner. Ours draws it in apps/desktop/src/shell/view/sidebar.rs, home/projects.rs, location_card.rs and features/narrow/src/tabs.rs.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
