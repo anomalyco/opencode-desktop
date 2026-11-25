@@ -198,6 +198,32 @@ pub struct SessionInfo {
     pub archived: Option<i64>,
     /// The session's `metadata`, which the server copies onto every child it starts.
     pub metadata: Value,
+    /// Whether a desktop holds the session's browser.
+    pub browser: BrowserGrant,
+}
+
+/// Whether a desktop holds a session's browser: the server writes a grant into the session's
+/// `permissions` (`browser` `*` `allow`) while a desktop is attached to it and revokes it when
+/// that attachment ends (`packages/plugin-browser/src/connection.ts`; event `session.permissions`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BrowserGrant {
+    /// Details this window has not read from the server (a saved row, a placeholder): they say
+    /// nothing about a grant (`packages/gui-plugins/src/browser/prompt-gate.ts` `unheld`).
+    #[default]
+    Unread,
+    /// A desktop is attached: this window or another.
+    Held,
+    /// No desktop is attached.
+    Free,
+}
+
+impl BrowserGrant {
+    /// What a session's `permissions`, as the server sends them, say: it leaves them out of a
+    /// session that has none.
+    pub fn of(permissions: &Value) -> Self {
+        let grant = |rule: &Value| rule["action"] == "browser" && rule["resource"] == "*" && rule["effect"] == "allow";
+        if permissions.as_array().is_some_and(|rules| rules.iter().any(grant)) { Self::Held } else { Self::Free }
+    }
 }
 
 impl SessionInfo {
