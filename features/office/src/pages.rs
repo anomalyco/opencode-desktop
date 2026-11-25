@@ -167,7 +167,7 @@ fn control<H: 'static>(p: &Pal, id: u64, key: &'static str, label: &str, icon: &
     let target = if opencode_ui::style::touch_controls() { 44.0 } else { 28.0 };
     let b = row().key(key).role("button").label(label.to_owned()).help(label.to_owned()).help_above().size(target, target).radius(6.0).center().child(rune::icon(icon, 16.0).color(p.icon_muted));
     if disabled {
-        return b.layer_opacity(0.5).disabled(true);
+        return b.layer_opacity(0.5).disabled(true).hit().cursor(rune::Cursor::NotAllowed);
     }
     b.hover(p.hover).press(p.pressed).hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT).on_press_tx(move |_: &mut H, tx: &mut Tx| {
         tx.instant();
