@@ -680,9 +680,10 @@ pub trait TerminalSurfaceHost: opencode_kernel::AppEnv + opencode_kernel::AppFee
         let _ = selected;
         false
     }
-    /// Adds `selected` terminal text to the composer as a quote.
-    fn quote_terminal_selection(&mut self, selected: &str, tx: &mut Tx) {
-        let _ = (selected, tx);
+    /// Adds `selected` terminal text to the composer as a quote; with `comment`, its comment
+    /// editor opens.
+    fn quote_terminal_selection(&mut self, selected: &str, comment: bool, tx: &mut Tx) {
+        let _ = (selected, comment, tx);
     }
     /// Notifies assistive speech tracking that a key/IME went to terminal `(ws_key, tab_id)`.
     fn speech_terminal_key(&mut self, ws_key: &str, tab_id: &str) {
