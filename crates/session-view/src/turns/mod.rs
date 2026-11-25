@@ -12,10 +12,12 @@
 //! group that launched it finishes there. The thought the model is writing stands at
 //! the turn's end as Thinking; finished, it settles where thoughts go. A group names what the
 //! agent did (`activity::label`); one of thoughts alone is those thoughts, without a group.
+//! Thoughts one after another with nothing between read as one thought (anomalyco/opencode#66349),
+//! and while the turn runs the thoughts it ends on read as Thinking until something else shows.
 
 mod view;
 
-pub use view::{calls, events as events_row, group, subagent as subagent_row, thought};
+pub use view::{calls, events as events_row, group, subagent as subagent_row, thoughts};
 
 use opencode_kit::model::{Assistant, Attachment, Notice, Part, ToolStatus};
 
@@ -37,7 +39,8 @@ pub enum Entry<'a> {
 /// One step inside a group, or on its own row.
 #[derive(Debug)]
 pub enum Step<'a> {
-    Thought { msg: &'a str, index: usize, body: &'a str, secs: Option<i64>, started: i64 },
+    /// `took_ms`: how long it took once finished, which a row of several adds up before rounding.
+    Thought { msg: &'a str, index: usize, body: &'a str, secs: Option<i64>, took_ms: Option<i64>, started: i64 },
     Tool { id: &'a str, name: &'a str, title: &'a str, status: &'a ToolStatus, files: &'a [Attachment], input: &'a serde_json::Value, metadata: &'a serde_json::Value },
     /// A notice folded into the turn's group.
     Notice(&'a Notice),
@@ -99,6 +102,7 @@ impl Loc {
                 index: self.n as usize,
                 body: text,
                 secs: completed.map(|c| ((c - started) as f64 / 1000.0).round().max(0.0) as i64),
+                took_ms: completed.map(|c| (c - started).max(0)),
                 started: *started,
             },
             Part::Tool { id, status, name, metadata, .. } if self.n > 0 => {
@@ -124,9 +128,12 @@ pub enum Block<'a> {
     Subagent { key: String, step: Step<'a> },
     /// A question call, once answered, dismissed or failed (`question_row`).
     Question { id: &'a str, status: &'a ToolStatus, input: &'a serde_json::Value, metadata: &'a serde_json::Value },
-    /// A thought on its own row: Thinking separately, or (`live`) the thought the model is writing,
-    /// which stands at the end of the turn in place of the status line (`TimelineRow.Thinking`).
-    Thought { key: String, step: Step<'a>, live: bool },
+    /// Thoughts on a row of their own, one after another with nothing between (`groupContent`'s
+    /// `thought`): Thinking separately, or (`live`) the row that stands at the end of a running
+    /// turn in place of the status line (`TimelineRow.Thinking`): the thought the model is
+    /// writing after the finished ones it follows (`before`), or the finished thoughts the turn
+    /// ends on. Its key is its first thought's, so a thought joining it keeps the row.
+    Thought { key: String, steps: Vec<Step<'a>>, live: bool },
     /// Calls on their own row (their kind shows separately).
     Calls { key: String, kind: Calls, steps: Vec<Step<'a>> },
 }
@@ -139,6 +146,36 @@ fn all_thoughts(group: &[Step]) -> bool {
 
 fn all_notices(group: &[Step]) -> bool {
     !group.is_empty() && group.iter().all(|s| matches!(s, Step::Notice(_)))
+}
+
+/// The finished thoughts the rows so far end on, with nothing after them, taken off: the open
+/// group's last steps, or the row of thoughts last pushed (`trailingThoughts`,
+/// `projection.ts:632-637`).
+fn take_tail<'a>(out: &mut Vec<Block<'a>>, group: &mut Vec<Step<'a>>, at: &mut Vec<Loc>, key: &mut Option<String>) -> Vec<Step<'a>> {
+    if group.is_empty() {
+        if !matches!(out.last(), Some(Block::Thought { live: false, .. })) {
+            return Vec::new();
+        }
+        return match out.pop() {
+            Some(Block::Thought { steps, .. }) => steps,
+            _ => Vec::new(),
+        };
+    }
+    let from = group.iter().rposition(|s| !matches!(s, Step::Thought { .. })).map_or(0, |i| i + 1);
+    at.truncate(from);
+    let tail = group.split_off(from);
+    if group.is_empty() {
+        *key = None;
+    }
+    tail
+}
+
+/// A row of thoughts' key: its first thought's.
+fn thought_row_key(steps: &[Step]) -> String {
+    match steps.first() {
+        Some(Step::Thought { msg, index, .. }) => format!("th-{msg}-{index}"),
+        _ => String::from("th-"),
+    }
 }
 
 /// Folds consecutive assistant messages (a turn's steps) as Desktop's timeline does, by the
@@ -254,12 +291,15 @@ pub fn fold_with<'a>(entries: &[Entry<'a>], live: bool, detail: &Detail) -> Vec<
                         continue;
                     }
                     let secs = completed.map(|c| ((c - started) as f64 / 1000.0).round().max(0.0) as i64);
-                    let step = Step::Thought { msg: &a.id, index: n, body: text, secs, started: *started };
+                    let step = Step::Thought { msg: &a.id, index: n, body: text, secs, took_ms: completed.map(|c| (c - started).max(0)), started: *started };
                     // The thought the model is writing stands at the end of the turn, even before
-                    // its first words (`textShows`, `stepEvent`'s `reasoning`).
+                    // its first words (`textShows`, `stepEvent`'s `reasoning`), after the finished
+                    // thoughts it follows with nothing between (`projection.ts:568-575`, `before`).
                     if is_last && completed.is_none() {
+                        let mut steps = take_tail(&mut out, &mut group, &mut at, &mut key);
                         flush(&mut out, &mut group, &mut at, &mut key);
-                        out.push(Block::Thought { key: format!("th-{}-{n}", a.id), step, live: true });
+                        steps.push(step);
+                        out.push(Block::Thought { key: thought_row_key(&steps), steps, live: true });
                         continue;
                     }
                     if text.trim().is_empty() {
@@ -272,9 +312,15 @@ pub fn fold_with<'a>(entries: &[Entry<'a>], live: bool, detail: &Detail) -> Vec<
                             }
                             fold_in(&mut group, &mut at, &mut key, &|| format!("c-{}-{n}", a.id), step, n)
                         }
+                        // A thought right after a row of thoughts joins it (`projection.ts:956-988`).
+                        _ if group.is_empty() && matches!(out.last(), Some(Block::Thought { live: false, .. })) => {
+                            if let Some(Block::Thought { steps, .. }) = out.last_mut() {
+                                steps.push(step);
+                            }
+                        }
                         _ => {
                             flush(&mut out, &mut group, &mut at, &mut key);
-                            out.push(Block::Thought { key: format!("th-{}-{n}", a.id), step, live: false });
+                            out.push(Block::Thought { key: format!("th-{}-{n}", a.id), steps: vec![step], live: false });
                         }
                     }
                 }
@@ -339,7 +385,13 @@ pub fn fold_with<'a>(entries: &[Entry<'a>], live: bool, detail: &Detail) -> Vec<
             }
         }
     }
+    // While the turn runs, the thoughts it ends on read as Thinking until something else shows,
+    // since the model may think again in its next step (`projection.ts:499-503`, `:525-530`).
+    let tail = if live { take_tail(&mut out, &mut group, &mut at, &mut key) } else { Vec::new() };
     flush(&mut out, &mut group, &mut at, &mut key);
+    if !tail.is_empty() {
+        out.push(Block::Thought { key: thought_row_key(&tail), steps: tail, live: true });
+    }
     out
 }
 
@@ -500,9 +552,11 @@ impl Label {
     }
 }
 
-/// "Used 2 Thoughts", or "Updates" (`usedLabel`).
+/// "Used 2 Thoughts", or "Updates" (`usedLabel`). Thoughts one after another count as one, as
+/// they show (`activity-label.ts:23-25`).
 pub fn label(steps: &[Step]) -> Label {
-    let thoughts = steps.iter().filter(|s| matches!(s, Step::Thought { .. })).count();
+    let is_thought = |s: &Step| matches!(s, Step::Thought { .. });
+    let thoughts = steps.iter().enumerate().filter(|(i, s)| is_thought(s) && !(*i > 0 && is_thought(&steps[i - 1]))).count();
     if thoughts == 0 {
         let updates = opencode_i18n::t!("ui.messagePart.context.updates");
         return Label { count: None, title: String::new(), before: updates.into(), between: String::new(), after: String::new(), text: updates.into() };
