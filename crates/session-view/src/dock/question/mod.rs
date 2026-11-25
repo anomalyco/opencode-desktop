@@ -37,7 +37,6 @@ pub fn face<S: DockHost>(s: &S, p: &crate::palette::Pal) -> Option<Vec<rune::El>
     if classic(s) { classic::face(s, p) } else { face::face(s, p) }
 }
 
-pub(super) const LINE: f32 = 20.0;
 /// The footer's height: its padding and the 32 pt buttons.
 const FOOTER_H: f32 = 47.0;
 /// How far the answers fade under the header and footer, and how clear of them a revealed one stops.
@@ -161,6 +160,13 @@ pub(super) fn focus_in_options(focused: Option<&str>) -> bool {
         Some(k) => k.starts_with("q-opt-"),
     }
 }
+
+/// The typed answer's line (`question-custom-input`: `line-height: 18px`).
+pub(super) const FIELD_LINE: f32 = 18.0;
+/// The typed answer grows to six lines, then scrolls inside itself (`question-prompt.css:398-409`
+/// and `question-prompt-experimental.css`: `max-block-size: 118px` with 5 over and under, and
+/// `overflow-y: auto`).
+pub(super) const FIELD_MAX_H: f32 = 6.0 * FIELD_LINE;
 
 /// The key that moves the dock on, or submits it on the last question: Enter, or ⌘↵ / Ctrl+↵
 /// (`QuestionSubmitKey`, `question-keys.ts:24`).

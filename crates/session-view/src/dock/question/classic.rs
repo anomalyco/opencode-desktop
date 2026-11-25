@@ -343,8 +343,7 @@ fn custom<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, multi: bool, editin
         .label(custom_label())
         // `dir="auto"` (`session-question-dock-classic.tsx:725`).
         .dir(rune::Direction::Auto)
-        .grow(1.0)
-        .min_w(0.0)
+        .w_full()
         .color(p.text)
         .placeholder(custom_label(), if editing { p.faint } else { p.text })
         .caret(p.text, p.selection).selection_style(p.field_selection)
@@ -360,6 +359,8 @@ fn custom<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, multi: bool, editin
             }
         })
         .on_input_key(|s: &mut S, ev, tx| typed_key(s, ev, tx));
+    // Six lines at most, then it scrolls inside itself, with a plain `overflow-y: auto` box's bar.
+    let input = crate::scroller::scroller(format!("q-input-scroll-{tab}")).build::<S>(p, col().grow(1.0).min_w(0.0).max_h(FIELD_MAX_H), input);
     // Open, the field gets a box of its own with the focus ring. 5 over and under its 18 pt
     // lines: 28 tall on one line, taller as it wraps or takes a new line.
     let input = if editing {

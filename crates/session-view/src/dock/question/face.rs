@@ -10,6 +10,10 @@ use crate::palette::Pal;
 use crate::style::readable;
 
 const TITLE: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
+/// The typed answer (`question-custom-input`, `question-prompt-experimental.css:432-453`): 13 px
+/// on an 18 px line; 530 until its field is open (`:398-400`).
+const FIELD: TextStyle = TextStyle::new(13.0, 440.0).lh(FIELD_LINE);
+const FIELD_CLOSED: TextStyle = TextStyle::new(13.0, 530.0).lh(FIELD_LINE);
 /// An answer's description: a little tighter than the question, so long answers stay compact.
 const DESC: TextStyle = TextStyle::new(13.0, 440.0).lh(18.0);
 const STRONG: TextStyle = TextStyle::new(13.0, 530.0).lh(20.0);
@@ -28,7 +32,7 @@ pub(super) fn on_first_line(t: &TextEdit, width: f32) -> bool {
     if head.contains('\n') {
         return false;
     }
-    width <= 0.0 || rune::text::measure(head, &[], TITLE, Some(width)).1 <= LINE * 1.5
+    width <= 0.0 || rune::text::measure(head, &[], FIELD, Some(width)).1 <= FIELD_LINE * 1.5
 }
 
 /// A new question's text and answers slide in from the side they come from (`arrive`) over the
@@ -157,14 +161,13 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         let (id, field_key) = (f.id.clone(), field.key.clone());
         // The typed answer is written where an answer's title is, in the same row: no box of its
         // own, wrapping inside the row as it grows.
-        let input = crate::style::field(&edit, if editing { TITLE } else { STRONG })
+        let input = crate::style::field(&edit, if editing { FIELD } else { FIELD_CLOSED })
             .key("q-input")
             .spellcheck(s.composer_spellcheck())
             .label(custom_label())
-            // `dir="auto"` (`session-question-dock-experimental.tsx:1321`).
+            // `dir="auto"` (`session-question-dock-experimental.tsx:1341`).
             .dir(rune::Direction::Auto)
-            .grow(1.0)
-            .min_w(0.0)
+            .w_full()
             .color(p.text)
             .placeholder(custom_label(), if editing { p.faint } else { p.text })
             .caret(p.text, p.selection).selection_style(p.field_selection)
@@ -186,7 +189,12 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
                 }
             })
             .on_input_key(|s: &mut S, ev, tx| typed_key(s, ev, tx));
-        let mark_el = mark(p, multi, on, i).role(if multi { "checkbox" } else { "radio" }).label(custom_label());
+        // Six lines at most, then it scrolls inside itself, with a plain `overflow-y: auto`
+        // box's bar; 5 over and under its lines, so 28 tall on one.
+        let input = crate::scroller::scroller(format!("q-input-scroll-{tab}")).build::<S>(p, col().grow(1.0).min_w(0.0).max_h(FIELD_MAX_H), input);
+        let input = row().key("q-field").grow(1.0).min_w(0.0).min_h(28.0).pt(5.0).pb(5.0).child(input);
+        // `question-custom-toggle`: 4 under the row's top, level with the field's first line.
+        let mark_el = mark(p, multi, on, i).mt(4.0).role(if multi { "checkbox" } else { "radio" }).label(custom_label());
         let mark_el = if live {
             mark_el.cursor(rune::Cursor::Pointer).on_press_tx(|s: &mut S, tx: &mut Tx| {
                 let Some(f) = asking(s) else { return };
@@ -200,7 +208,12 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         let custom_row = row()
             .key("q-custom")
             .w_full()
-            .padding(10.0)
+            // `padding-block: 6px; padding-inline: 10px; min-block-size: 40px`
+            // (`question-prompt-experimental.css:392-396`).
+            .px(10.0)
+            .pt(6.0)
+            .pb(6.0)
+            .min_h(40.0)
             .gap(8.0)
             .items_start()
             .radius(6.0)
