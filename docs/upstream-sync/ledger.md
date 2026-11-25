@@ -1,9 +1,9 @@
 # Upstream Sync Ledger: `anomalyco/opencode` -> `anomalyco/opencode-rune`
 
 - **Updated:** 2026-11-25
-- **Upstream `origin/dev` audited:** `f6e0c2d083` -> `8d7477816f` (**645** post-14 Nov commits: **227** in ledger + **418** skipped) plus **15** pre-14 Nov carry-over rows (`3751be8138..f6e0c2d083`) and 6 owner-split sub-rows of `UP-095`.
-- **`opencode-rune` `origin/dev` checked:** `226a6fddd`.
-- **Total ledger rows:** **248** - **201** have it · **37** not applicable · **1** differs on purpose · **2** partly · **7** missing.
+- **Upstream `origin/dev` audited:** `f6e0c2d083` -> `546a44d8fa` (**646** post-14 Nov commits: **228** in ledger + **418** skipped) plus **15** pre-14 Nov carry-over rows (`3751be8138..f6e0c2d083`) and 6 owner-split sub-rows of `UP-095`.
+- **`opencode-rune` `origin/dev` checked:** `3758162ce`.
+- **Total ledger rows:** **249** - **201** have it · **37** not applicable · **1** differs on purpose · **2** partly · **8** missing.
 - **Machine-readable twin:** `docs/upstream-sync/ledger.json` (generated together; identical rows).
 - **Status vs. Reviewed:** a row is **have it** only when its code is merged on `dev`; security-review tracking for browser rows lives in the separate **Reviewed** column.
 - **Open PR note column:** informational only (lists unmerged open PRs on `anomalyco/opencode-rune` that touch the same upstream PR; does not change row status).
@@ -27,8 +27,8 @@
 | **SCREENS-A** | 0 | 0 | 0 | _done_ |
 | **SCREENS-B** | 0 | 0 | 0 | _done_ |
 | **UPDATER** | 0 | 0 | 0 | _done_ |
-| **UPSTREAM** | 7 | 1 | 8 | `UP-193`, `UP-209`, `UP-211`, `UP-212`, `UP-214`, `UP-218`, `UP-223`, `UP-226` |
-| **Total** | **7** | **2** | **9** | |
+| **UPSTREAM** | 8 | 1 | 9 | `UP-193`, `UP-209`, `UP-211`, `UP-212`, `UP-214`, `UP-218`, `UP-223`, `UP-226`, `UP-228` |
+| **Total** | **8** | **2** | **10** | |
 
 ## Browser Security Review Status (Tracked Separately in `Reviewed` Column)
 
@@ -57,7 +57,7 @@
 | PRE-14 | #63744 (`46aefe3da3`)<br>fix(app): hide zero session cost for OpenCode Go | 2026-11-13 | **gui-plugins**<br>`packages/gui-plugins/src/context/indicator.tsx`, `packages/gui-plugins/src/context/tab.tsx` | Hide the $0.00 cost line in the session header indicator and omit the Total Cost row in the Context tab when spend is zero on an OpenCode Go model. | S | **have it** |  | Ported in opencode-rune #243 (4b5175ef): plugins/context/indicator.luau and plugins/context/tab.luau hide $0.00 cost for opencode-go and pad odd 2-column grid rows. (PR #243) | none | none | none |  |
 | PRE-15 | #63739 (`f352f5e875`)<br>fix(ui): switch submenus without blinking and keep them open on the way in | 2026-11-13 | **ui, app**<br>`patches/@kobalte%2Fcore@0.13.13.patch`, `packages/app/src/shell/titlebar/sidebar-view-menu.tsx` | Keep submenus open along the pointer aim corridor and avoid flashing when moving between sibling submenu triggers. | S | **have it** |  | Ported in opencode-rune #271 (08f28f82): explicit submenu pointer-corridor aiming + 150 ms leave delay machine in crates/opencode-ui/src/popup/submenu.rs. (PR #271) | none | none | none |  |
 
-## Post-14 Nov Rows (`f6e0c2d083..8d7477816f`)
+## Post-14 Nov Rows (`f6e0c2d083..546a44d8fa`)
 
 | ID | PR / Commit | Date | Packages & Main Files | What User Sees / Client Must Do | Size | Status | Reviewed | Evidence in `opencode-rune` | Depends On | Risks | Stream | Open PR Note |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -294,3 +294,4 @@
 | UP-225 | #66257 (`58621ad6cc`)<br>fix(app): send prod crashes to Sentry only when Report is clicked | 2026-11-25 | **app**<br>`packages/app/src/app.tsx` | A crash of official's page (its error boundary) is sent to Sentry as it happens only on the local, dev and beta channels; on the production channel it is sent only when the person clicks Report on the error page. | S | **not applicable** |  | By reading: ours has no Sentry client and sends a crash to no service (a search of apps/desktop/src, crates and features for `sentry` finds none); after an unexpected close the next launch shows a notice with Export logs (apps/desktop/src/workspace/system/crash_notice.rs), which writes a file and uploads nothing. So there is nothing to gate by channel. Ours has no Report button either: that is a difference older than this commit, not part of it. | none | none | UPSTREAM |  |
 | UP-226 | #66265 (`13d601e31f`)<br>feat(app): fill Consolidated gaps in pins, sidebar and Home picker | 2026-11-25 | **app**<br>`packages/app/src/home/projects/region.tsx`, `packages/app/src/home/projects/view.tsx`, `packages/app/src/shell/titlebar/pinned-area.tsx`, `packages/app/src/shell/titlebar/recent-sessions.tsx` | Four gaps of the Consolidated navigation: a middle click on a pinned session unpins it and closes its tab; a pin group's chevron (vertical) and, under Consolidated, a Recent group header's chevron show only on hover or keyboard focus; Home's project picker names the focused server, with the server glyph, in place of All projects when there are several servers and no project is chosen. | S | **missing** |  | Ported in draft opencode-rune #1144 (apps/desktop/src/shell/tabs/pins.rs close, shell/view/sidebar/pinned_area.rs, sidebar/recent.rs, shell/view/home/projects.rs); compiled by CI only, not run: it merges after a run on its build. Two differences stated there: the chevron's fade follows the row's hover track, not official's 150 ms; a pin group's chevron also shows for focus on the row's options button. | none | none | UPSTREAM |  |
 | UP-227 | #66279 (`b19812f0f5`)<br>fix(desktop): use VITE_OPENCODE_CHANNEL in renderer | 2026-11-25 | **desktop**<br>`packages/desktop/src/renderer/startup/sentry.ts` | Official's renderer reads the build's channel from VITE_OPENCODE_CHANNEL when it decides which Sentry integrations to leave out on the production channel, and leaves out the browser-session one there as well. | S | **not applicable** |  | By reading: the change is in official's Sentry start-up alone (packages/desktop/src/renderer/startup/sentry.ts). Ours has no Sentry client and sends a crash to no service (see UP-225), so there is nothing to configure. | none | none | UPSTREAM |  |
+| UP-228 | #66295 (`546a44d8fa`)<br>fix(session-ui): simplify execute details dialog | 2026-11-25 | **session-ui**<br>`packages/session-ui/src/components/message-part.css`, `packages/session-ui/src/pierre/index.ts`, `packages/session-ui/src/tools/tool-renderer.tsx` | The Execute details dialog (View code on a Code Mode call) is simpler: the status is a Badge (danger for a failed run) and the call count is gone; the line counts after Code and Output are gone; a failed run's error is a numbered text view in the danger colour sharing the code's number gutter, in place of a padded block; lines no longer light under the pointer. | S | **missing** |  | Ported in draft opencode-rune #1158 (crates/session-view/src/tools/details.rs, tools/diff.rs code); compiled by CI only, not run: it merges after a run on its build (a completed call and a failed one). | none | none | UPSTREAM |  |
