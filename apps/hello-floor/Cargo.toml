@@ -1,0 +1,27 @@
+[package]
+name = "hello-floor"
+version = "0.0.1"
+description = "A measuring instrument: one Rune window with one line of text, built as the desktop app is built"
+edition.workspace = true
+license.workspace = true
+
+# Two exes of the same window: `hello-floor` on the system allocator (what any Rune app pays),
+# `hello-floor-mi` on the desktop app's allocator (mimalloc with pages committed on demand, under
+# procwatch's counter).
+[[bin]]
+name = "hello-floor"
+path = "src/main.rs"
+test = false
+
+[[bin]]
+name = "hello-floor-mi"
+path = "src/mi.rs"
+test = false
+
+[dependencies]
+mimalloc = { version = "0.1", default-features = false }
+procwatch.workspace = true
+rune.workspace = true
+
+[lints]
+workspace = true
