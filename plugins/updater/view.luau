@@ -87,11 +87,22 @@ function view.highlights(i18n: I18n, v: View, input: { highlights: { whatsnew.Hi
         ui.spacer(),
         ui.col({ gap = 48 }, {
             ui.col({ gap = 12, align = "start" }, {
-                if last
-                    then ui.button({ key = "release-get-started", text = i18n:T("releaseNotes.action.getStarted"), variant = "contrast", size = "large", onPress = v:Handler(input.close) })
-                    else ui.button({ key = "release-next", text = i18n:T("releaseNotes.action.next"), size = "large", onPress = v:Handler(function()
-                        input.go(index + 1)
-                    end) }),
+                -- One button that becomes Get started on the last page, so the focus it takes as
+                -- the dialog opens stays on it (`whats-new.tsx:239-247`, opencode#66340).
+                ui.button({
+                    key = "release-primary",
+                    text = i18n:T(if last then "releaseNotes.action.getStarted" else "releaseNotes.action.next"),
+                    variant = if last then "contrast" else nil,
+                    size = "large",
+                    autofocus = true,
+                    onPress = v:Handler(function()
+                        if last then
+                            input.close()
+                        else
+                            input.go(index + 1)
+                        end
+                    end),
+                }),
                 ui.button({ key = "release-hide", text = i18n:T("releaseNotes.action.hideFuture"), variant = "ghost", size = "small", onPress = v:Handler(input.disable) }),
             }),
             if #dots > 0 then ui.row({ gap = 6, my = -10, align = "center" }, dots) else nil,

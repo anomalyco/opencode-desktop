@@ -452,6 +452,8 @@ export type UiLayoutProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
 }
 
 --- Offsets from the parent's edges for an out-of-flow node. Give one or two per axis.
@@ -530,6 +532,8 @@ export type UiBoxProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- Space between children.
     gap: number?,
     --- How children sit across the axis.
@@ -654,6 +658,8 @@ export type UiFrameProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- Space between children.
     gap: number?,
     --- How children sit across the axis.
@@ -790,6 +796,8 @@ export type UiTextProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- Font size in points. Defaults to 13.
     size: number?,
     --- Weight.
@@ -886,6 +894,8 @@ export type UiSpacerProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
 }
 
 --- `ui.divider` props.
@@ -952,6 +962,8 @@ export type UiDividerProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- A vertical rule. Defaults to horizontal.
     vertical: boolean?,
     --- Defaults to `border-weak`.
@@ -1022,6 +1034,8 @@ export type UiIconProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- Width and height in points. Defaults to 16.
     size: number?,
     --- Defaults to `icon-base`.
@@ -1098,6 +1112,8 @@ export type UiImageProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The image, from the `Images` service or an `Async` render.
     image: ImageId?,
     --- Instead of `image`: the source `Images:Load` takes (a URL, a server path, a data URL or a file of the plugin's folder).
@@ -1178,6 +1194,8 @@ export type UiVideoProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- An `https:` or `http:` URL of the video.
     src: string,
     --- How it fills its box: `contain` letterboxes it, `cover` crops it.
@@ -1250,6 +1268,8 @@ export type UiMetricProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The number the text stands for. Hosts that animate compare it with the last value.
     value: number,
     --- What it reads, such as `"12.4K"`.
@@ -1334,6 +1354,8 @@ export type UiButtonProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The visible label. Also the accessible name unless `label` is set.
     text: string?,
     --- A leading icon.
@@ -1422,6 +1444,8 @@ export type UiIconButtonProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The icon.
     icon: IconName,
     --- The look. Defaults to `ghost`.
@@ -1510,6 +1534,8 @@ export type UiSwitchProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- On.
     checked: boolean,
     --- Cannot change.
@@ -1582,6 +1608,8 @@ export type UiCheckboxProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The label, beside the box.
     text: string,
     --- A line under the label.
@@ -1662,6 +1690,8 @@ export type UiRadioProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The row's label.
     text: string,
     --- A line under the label.
@@ -1742,6 +1772,8 @@ export type UiFieldProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The field's content, from `ctx:CreateEditor`.
     editor: Editor,
     --- Shows while the field is empty.
@@ -1848,6 +1880,8 @@ export type UiSegmentedProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- Its items, in order.
     items: { UiSegmentedItem },
     --- The picked item's id.
@@ -1920,6 +1954,8 @@ export type UiLoaderProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- Width and height in points. Defaults to 16.
     size: number?,
 }
@@ -1988,6 +2024,8 @@ export type UiServerIndicatorProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- Its latest health check: a green dot once it answered, red when it didn't, a faint one when unknown.
     health: ServerHealth?,
     --- It waits for the user to sign in: a lock.
@@ -2060,6 +2098,8 @@ export type UiPillProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The capsule's label.
     text: string,
     --- A leading icon.
@@ -2136,6 +2176,8 @@ export type UiKeybindProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- A published command id. The chip shows the user's current binding.
     command: string?,
     --- A literal binding, such as `"mod+shift+t"`, when there is no command.
@@ -2206,6 +2248,8 @@ export type UiSettingsRowProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The row's search id: settings search scrolls to it.
     id: string,
     --- The row's title.
@@ -2278,6 +2322,8 @@ export type UiSettingsListProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- A section title above the card.
     title: string?,
     --- Desktop's catalog list (`data-variant="catalog"`): rows 16 in from the card's sides, for lists of entries rather than controls.
@@ -2348,6 +2394,8 @@ export type UiFlyoutRowProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The row's label.
     text: string,
     --- A leading icon.
@@ -2498,6 +2546,8 @@ export type UiDialogHeaderProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The dialog's title: 15 pt, wrapping anywhere unless `wrapTitle` is false.
     title: string,
     --- A muted line under the title.
@@ -2576,6 +2626,8 @@ export type UiMarkdownProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The Markdown.
     source: string,
     --- Body font size in points. Defaults to 14.
@@ -2654,6 +2706,8 @@ export type UiVirtualListProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- How many rows.
     count: number,
     --- A row's height before it is measured.
@@ -2738,6 +2792,8 @@ export type UiTerminalSurfaceProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The terminal session, from the `Terminal` service.
     session: PtySession?,
     --- A font family. Defaults to the user's code font.
@@ -2820,6 +2876,8 @@ export type UiTerminalTabLabelProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The terminal the tab shows.
     session: PtySession,
     --- Its label.
@@ -2892,6 +2950,8 @@ export type UiBrowserSurfaceProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- Available width of the device preview area.
     areaWidth: number?,
     --- Available height of the device preview area.
@@ -2980,6 +3040,8 @@ export type UiCodeViewProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The file, from `Workspace:OpenDocument`.
     doc: CodeDocument,
     --- Wraps long lines.
@@ -3054,6 +3116,8 @@ export type UiDiffViewProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The changes, from `Diff:Open`.
     diff: DiffDocument,
     --- Split or unified.
@@ -3132,6 +3196,8 @@ export type UiFileTreeProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The tree, from `Workspace:OpenTree`.
     tree: FileTreeModel,
     --- Shows only these workspace paths and the folders above them, all known at once: a change list rather than the folder's listing.
@@ -3218,6 +3284,8 @@ export type UiPanelSidebarProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- Prefixes its parts' keys: `<id>-sidebar`, `<id>-sidebar-resize`, `<id>-tree-toggle`.
     id: string,
     --- Its width until the user drags it. Defaults to 240.
@@ -3304,6 +3372,8 @@ export type UiOpenInButtonProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- A workspace path, or empty for the workspace folder.
     path: string,
 }
@@ -3372,6 +3442,8 @@ export type UiOfficePagesProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- A Word document or a deck, from `Office:OpenAsync`.
     document: OfficeDocument,
     --- The words it shows.
@@ -3442,6 +3514,8 @@ export type UiOfficeSheetProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- A workbook, from `Office:OpenAsync`; it shows the sheet `Office:SetSheet` chose.
     document: OfficeDocument,
     --- The words the grid says, in the plugin's language.
@@ -3512,6 +3586,8 @@ export type UiGenUiProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- The ```` ```ui ```` outline source.
     source: string,
     --- The source is still growing.
@@ -3582,6 +3658,8 @@ export type UiProgressCircleProps = {
     helpOpen: boolean?,
     --- Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's.
     dir: ("ltr" | "rtl" | "auto")?,
+    --- The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`).
+    cursor: ("default" | "pointer" | "text" | "grab" | "grabbing" | "not-allowed" | "move" | "col-resize" | "row-resize" | "ew-resize" | "ns-resize" | "nwse-resize" | "nesw-resize" | "crosshair" | "cell" | "zoom-in" | "zoom-out")?,
     --- How full, 0 to 100. The arc runs clockwise from twelve o'clock.
     percentage: number,
     --- Its look. Defaults to `compact`.
