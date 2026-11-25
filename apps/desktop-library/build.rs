@@ -20,7 +20,10 @@ fn main() {
     let env = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
     let title = env("OPENCODE_RUNE_WINDOW_TITLE").unwrap_or_else(|| win_install::default_name(env("OPENCODE_RUNE_BUILD_CHANNEL").as_deref()).into());
     let version = env("OPENCODE_RUNE_VERSION").or_else(|| env("CARGO_PKG_VERSION")).unwrap_or_default();
-    if let Err(e) = win_install::resources::embed_version("opencode-desktop.dll", &version, &title, &title) {
+    // The windows' icon is the library's too: `launch::apply_app_icon` names resource 1, and each
+    // window loads it from the module the window code is in, which is this library, not the exe.
+    let icon = std::path::PathBuf::from(env("CARGO_MANIFEST_DIR").unwrap_or_default()).join("../desktop/assets/icon.ico");
+    if let Err(e) = win_install::resources::embed_library(&icon, "opencode-desktop.dll", &version, &title, &title) {
         panic!("{e}");
     }
 }
