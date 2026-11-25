@@ -2,12 +2,12 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "092c1161b7a20bfc023721cae16059301479af82",
+  "upstream_head": "92e3e654f2a37d1afa18fc499e065396b36bf207",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/rune-desktop",
-  "rune_desktop_head": "66708c5b7",
-  "post_1114_commit_count": 617,
-  "post_1114_in_ledger": 221,
+  "rune_desktop_head": "d5301503a",
+  "post_1114_commit_count": 618,
+  "post_1114_in_ledger": 222,
   "post_1114_skipped": 396,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
@@ -18,10 +18,10 @@
     "server-core-ai-codemode-internal": 250
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 242,
+  "total_ledger_rows": 243,
   "status_counts": {
     "have it": 199,
-    "not applicable": 34,
+    "not applicable": 35,
     "differs on purpose": 1,
     "partly": 3,
     "missing": 5
@@ -6082,6 +6082,32 @@
       "size": "S",
       "status": "not applicable",
       "status_evidence": "By reading: Solid memo granularity in packages/app/src/session/requests/background.ts and packages/session-ui/src/timeline/projection.ts; when the todo pill shows is unchanged. Ours has none of these memos. What a landed page costs ours is not compared here (the regression round's history rows measure it).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-222",
+      "window": "post-1120",
+      "pr": 65631,
+      "sha": "92e3e654f2",
+      "title": "perf(app): remove forced layout from timeline scroll frames",
+      "merged": "2026-11-24",
+      "packages": [
+        "app",
+        "session-ui",
+        "ui"
+      ],
+      "main_files": [
+        "packages/app/AGENTS.md",
+        "packages/session-ui/src/components/basic-tool.css",
+        "packages/session-ui/src/components/file.tsx",
+        "packages/session-ui/src/components/markdown.tsx"
+      ],
+      "summary": "Official's timeline scroll frames no longer force a style or layout pass: the scroll view reads the thumb's geometry first and writes the thumb in the next animation frame, code blocks that do not wrap are measured without a style write, and a CSS rule for an attribute no element carries (`assistant-message`, with content-visibility) is removed.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "By reading: this is the browser's read-after-write layout cost inside a DOM scroll event (packages/ui/src/components/scroll-view.tsx readThumb / applyThumb, packages/session-ui/src/components/markdown.tsx measureCodeOverflow). Ours has no DOM: Rune lays the frame out once, and the scrollbar's thumb is drawn from that frame's scroll state. The removed rule matched nothing at the commit before (no element has the attribute), so nothing a user sees changes in official either. Not measured.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
