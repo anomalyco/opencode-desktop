@@ -13,17 +13,26 @@
 //! (the table exception dispatch read to get here) and named by the file its image is mapped from
 //! (`NtQueryVirtualMemory`), of which only the last path component is written: never a folder,
 //! so never a user's name. An offset is turned into a function with the build's debug file.
+//!
+//! The unhandled-exception filter is the last frame handler on a thread's stack, so Windows calls
+//! it only when it can walk that stack down to the thread's start. A fault that leaves the stack
+//! unwalkable (a jump through a bad pointer into the middle of code, a smashed stack) ends the
+//! process with its code and no call. `OPENCODE_RUNE_FAULT_FIRST_CHANCE=1` is a diagnostic arm for
+//! that: a vectored handler, which Windows calls before it walks anything, writes the same fields
+//! marked `first chance` for the codes that are fatal when unhandled, at most eight a process. It
+//! is off unless set, because a first-chance exception may be one that some frame then handles.
 #![allow(unsafe_code)]
 
 use core::cell::UnsafeCell;
 use core::ffi::c_void;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::Storage::FileSystem::{
-    CREATE_ALWAYS, CreateDirectoryW, CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, WriteFile,
+    CREATE_ALWAYS, CreateDirectoryW, CreateFileW, FILE_APPEND_DATA, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, OPEN_ALWAYS,
+    WriteFile,
 };
 use windows_sys::Win32::System::Console::{GetStdHandle, STD_ERROR_HANDLE};
 use windows_sys::Win32::System::Diagnostics::Debug::{RtlCaptureStackBackTrace, RtlPcToFileHeader};
@@ -39,6 +48,20 @@ unsafe extern "system" {
         length: usize,
         returned: *mut usize,
     ) -> i32;
+}
+
+/// `EXCEPTION_POINTERS`.
+#[repr(C)]
+struct Pointers {
+    record: *const c_void,
+    _context: *const c_void,
+}
+
+type Vectored = unsafe extern "system" fn(*const Pointers) -> i32;
+
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn AddVectoredExceptionHandler(first: u32, handler: Option<Vectored>) -> *mut c_void;
 }
 
 /// MEMORY_INFORMATION_CLASS `MemoryMappedFilenameInformation`: a `UNICODE_STRING`, then its text.
@@ -77,12 +100,20 @@ struct Scratch {
 }
 
 struct Shared(UnsafeCell<Scratch>);
-// SAFETY: only the one thread that wins `TAKEN` touches the scratch, for the rest of the process.
+// SAFETY: only the thread that holds `BUSY` (`take`) touches the scratch.
 unsafe impl Sync for Shared {}
 
 static SCRATCH: Shared =
     Shared(UnsafeCell::new(Scratch { text: [0; TEXT], frames: [core::ptr::null_mut(); FRAMES], name: [0; NAME_WORDS] }));
-static TAKEN: AtomicBool = AtomicBool::new(false);
+/// One writer at a time holds the scratch (`take`).
+static BUSY: AtomicBool = AtomicBool::new(false);
+/// The unhandled exception's record is written: the process ends on it and nothing follows.
+static DONE: AtomicBool = AtomicBool::new(false);
+/// First-chance records so far (`OPENCODE_RUNE_FAULT_FIRST_CHANCE=1`), of at most `FIRST_CHANCE_MOST`.
+static FIRST_CHANCE: AtomicU32 = AtomicU32::new(0);
+const FIRST_CHANCE_MOST: u32 = 8;
+/// This process has written the file once: what it writes later is added to it.
+static WROTE: AtomicBool = AtomicBool::new(false);
 /// `last-fault.txt` in the log folder, and that folder with the folders above it (outermost
 /// first), as NUL-terminated UTF-16, made when the hooks are armed.
 static PATHS: OnceLock<(Vec<u16>, Vec<Vec<u16>>)> = OnceLock::new();
@@ -90,6 +121,10 @@ static PATHS: OnceLock<(Vec<u16>, Vec<Vec<u16>>)> = OnceLock::new();
 /// Names the file a fault is written to. No file I/O: the folder is made, if it must be, by the fault.
 pub(super) fn arm(logs: Option<PathBuf>) {
     use std::os::windows::ffi::OsStrExt as _;
+    if std::env::var_os("OPENCODE_RUNE_FAULT_FIRST_CHANCE").is_some_and(|v| v == "1") {
+        // SAFETY: `first_chance` has the vectored handler's ABI and lives as long as the process.
+        unsafe { AddVectoredExceptionHandler(1, Some(first_chance)) };
+    }
     let Some(logs) = logs else { return };
     let wide = |path: &Path| path.as_os_str().encode_wide().chain([0]).collect::<Vec<u16>>();
     // A launch's first moments, or a headless run: the log folder may not be there yet, nor the
@@ -189,23 +224,71 @@ fn place(out: &mut Out<'_>, name: &mut [u64; NAME_WORDS], pc: *const c_void) {
     out.hex((pc as u64).wrapping_sub(base as u64), 1);
 }
 
+/// The scratch for this thread, or false when another writer has not let go of it in time.
+fn take() -> bool {
+    for _ in 0..50_000 {
+        if BUSY.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+            return true;
+        }
+        core::hint::spin_loop();
+    }
+    false
+}
+
 /// Writes where the exception of `record` (an `EXCEPTION_RECORD`) happened: once a process, by
 /// the unhandled-exception filter, on the faulting thread.
 ///
 /// # Safety
 /// `record` is null or the `EXCEPTION_RECORD` Windows passed the filter.
 pub(super) unsafe fn write(record: *const c_void) {
-    if record.is_null() || TAKEN.swap(true, Ordering::AcqRel) {
+    if record.is_null() || DONE.swap(true, Ordering::AcqRel) || !take() {
         return;
     }
-    // SAFETY: this thread took `TAKEN`: nothing else reads or writes the scratch from now on.
+    // The scratch is not given back: the process ends on this record.
+    // SAFETY: `take` gave this thread the scratch; `record` is valid by the caller's contract.
+    unsafe { describe(record, false) };
+}
+
+/// The vectored handler of `OPENCODE_RUNE_FAULT_FIRST_CHANCE=1`: called for every exception
+/// before any frame's handler. It writes and lets the search for a handler go on.
+unsafe extern "system" fn first_chance(info: *const Pointers) -> i32 {
+    const CONTINUE_SEARCH: i32 = 0;
+    if info.is_null() {
+        return CONTINUE_SEARCH;
+    }
+    // SAFETY: non-null (checked): the `EXCEPTION_POINTERS` Windows passes a vectored handler.
+    let record = unsafe { (*info).record };
+    if record.is_null() {
+        return CONTINUE_SEARCH;
+    }
+    // SAFETY: non-null (checked): the system's `EXCEPTION_RECORD` for this exception.
+    let code = unsafe { (*record.cast::<Record>()).code };
+    // The codes that end the process when nothing handles them.
+    if !matches!(code, 0xC000_0005 | 0xC000_001D | 0xC000_0409 | 0xC000_00FD) {
+        return CONTINUE_SEARCH;
+    }
+    if DONE.load(Ordering::Acquire) || FIRST_CHANCE.fetch_add(1, Ordering::AcqRel) >= FIRST_CHANCE_MOST || !take() {
+        return CONTINUE_SEARCH;
+    }
+    // SAFETY: `take` gave this thread the scratch; `record` is the system's valid record.
+    unsafe { describe(record, true) };
+    BUSY.store(false, Ordering::Release);
+    CONTINUE_SEARCH
+}
+
+/// The record's text, written out (`emit`).
+///
+/// # Safety
+/// `record` is a valid `EXCEPTION_RECORD`, and the calling thread holds the scratch (`take`).
+unsafe fn describe(record: *const c_void, first_chance: bool) {
+    // SAFETY: the caller holds the scratch: nothing else reads or writes it meanwhile.
     let Scratch { text, frames, name } = unsafe { &mut *SCRATCH.0.get() };
     // SAFETY: the caller's contract: a valid `EXCEPTION_RECORD`.
     let record = unsafe { &*record.cast::<Record>() };
     let mut out = Out { buf: &mut text[..], len: 0 };
     out.str("opencode-rune ");
     out.str(crate::updater::build_version());
-    out.str(": fatal exception 0x");
+    out.str(if first_chance { ": first chance: exception 0x" } else { ": fatal exception 0x" });
     out.hex(u64::from(record.code), 8);
     // An access violation or an in-page error says what it did to which address.
     if matches!(record.code, 0xC000_0005 | 0xC000_0006) && record.parameters >= 2 {
@@ -246,19 +329,21 @@ pub(super) unsafe fn write(record: *const c_void) {
     emit(&text[..len]);
 }
 
-/// To `<logs>/last-fault.txt` (replacing an older one), then to stderr when the starter gave one.
+/// To `<logs>/last-fault.txt` (replacing an older process's; added to this process's own), then
+/// to stderr when the starter gave one.
 fn emit(text: &[u8]) {
     let mut written = 0u32;
     if let Some((file, folders)) = PATHS.get() {
+        let fresh = !WROTE.swap(true, Ordering::AcqRel);
         let open = || {
             // SAFETY: `file` is a NUL-terminated UTF-16 path that lives as long as the process.
             unsafe {
                 CreateFileW(
                     file.as_ptr(),
-                    GENERIC_WRITE,
+                    if fresh { GENERIC_WRITE } else { FILE_APPEND_DATA },
                     FILE_SHARE_READ,
                     core::ptr::null(),
-                    CREATE_ALWAYS,
+                    if fresh { CREATE_ALWAYS } else { OPEN_ALWAYS },
                     FILE_ATTRIBUTE_NORMAL,
                     core::ptr::null_mut(),
                 )
