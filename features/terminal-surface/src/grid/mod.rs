@@ -354,7 +354,7 @@ fn render_viewport<H: TerminalSurfaceHost + 'static>(
     }
     // The quote last taken: where its comment editor measures from, while its rows still hold;
     // once they don't, its source is gone for good (`quote-machine.ts:258-270`).
-    let mark = tab.quote_source.get().and_then(|source| quote::origin(snap, source, tab.session.cursor_offset(), cell_h));
+    let mark = tab.quote_source.get().and_then(|source| quote::origin(snap, source, cell_h));
     if mark.is_none() {
         tab.quote_source.set(None);
     }

@@ -24,18 +24,18 @@ pub struct QuotePlace {
 }
 
 /// Where the quoted rows stood when they were read (`QuoteSource`, `quote-machine.ts:46-52`):
-/// the first row in the view, the rows scrolled above the view, the output written so far and
+/// the first row in the view, the rows scrolled above the view, the bytes written so far and
 /// the grid's size.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct QuoteSource {
     row: u16,
     offset: u64,
-    written: i64,
+    written: u64,
     grid: (u16, u16),
 }
 
-/// The selection's place in `snap`, with `written` bytes of output so far.
-pub(super) fn place(snap: &TerminalSnapshot, written: i64, cell_w: f32, cell_h: f32) -> Option<(QuoteSource, QuotePlace)> {
+/// The selection's place in `snap`.
+pub(super) fn place(snap: &TerminalSnapshot, cell_w: f32, cell_h: f32) -> Option<(QuoteSource, QuotePlace)> {
     let rows: Vec<(usize, u16, u16)> = snap.screen_rows.iter().enumerate()
         .filter_map(|(r, row)| {
             let mut selected = row.bg_spans.iter().filter(|s| s.selected);
@@ -51,7 +51,7 @@ pub(super) fn place(snap: &TerminalSnapshot, written: i64, cell_w: f32, cell_h: 
     } else {
         vec![[end_x, 0.0, 0.0, cell_h], [end_x, (bottom - top) as f32 * cell_h, 0.0, cell_h]]
     };
-    let source = QuoteSource { row: top as u16, offset: snap.scrollbar.offset, written, grid: (snap.cols, snap.rows) };
+    let source = QuoteSource { row: top as u16, offset: snap.scrollbar.offset, written: snap.written, grid: (snap.cols, snap.rows) };
     Some((source, QuotePlace { bounds: super::VIEWPORT_KEY, origin: ORIGIN_KEY, boxes, single }))
 }
 
@@ -59,8 +59,8 @@ pub(super) fn place(snap: &TerminalSnapshot, written: i64, cell_w: f32, cell_h: 
 /// once output was written or the grid resized since the read: either can move or evict the
 /// rows, and the editor then stands at the composer (`selectQuoteSourcePlace`,
 /// `quote-machine.ts:258-281`). Scrolling moves the rows by whole rows, and the mark with them.
-pub(super) fn origin(snap: &TerminalSnapshot, source: QuoteSource, written: i64, cell_h: f32) -> Option<El> {
-    if source.written != written || source.grid != (snap.cols, snap.rows) {
+pub(super) fn origin(snap: &TerminalSnapshot, source: QuoteSource, cell_h: f32) -> Option<El> {
+    if source.written != snap.written || source.grid != (snap.cols, snap.rows) {
         return None;
     }
     let row = i64::from(source.row) + source.offset as i64 - snap.scrollbar.offset as i64;
