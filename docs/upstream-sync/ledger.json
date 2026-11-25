@@ -5,7 +5,7 @@
   "upstream_head": "57551d990d861720a39d1aba82d43023f9fad745",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "7c3c9ed56",
+  "rune_desktop_head": "fce76a1c8",
   "post_1114_commit_count": 687,
   "post_1114_in_ledger": 240,
   "post_1114_skipped": 447,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 261,
   "status_counts": {
-    "have it": 214,
+    "have it": 215,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 7
+    "missing": 6
   },
   "rows": [
     {
@@ -6523,8 +6523,8 @@
       ],
       "summary": "The Rename session command is also the slash command /rename: with words after it, the session takes them as its title; bare, it asks the server to generate a new title from the conversation so far. A new command, Generate session title, does the same from the palette. While a title is being generated the session's title in the header shimmers, and a second ask does nothing. Rename session gains a description that says both. A refusal shows as a Request failed toast.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Port in a draft, opencode-rune #1249, not run yet: a command's /name can take words (crates/opencode-kernel/src/commands.rs CommandEntry::words), /rename with words renames and bare asks the server with an empty title, one ask per session at a time, the title shimmering in the header meanwhile (features/session-menu/src/generate_title.rs, apps/desktop/src/session/menu.rs, shell/view/header.rs). Official: packages/app/src/session/timeline/message-timeline.tsx:300-319 (the slash command with arguments, the new command and when each is disabled), :703 (the shimmer), packages/app/src/session/timeline/controller.tsx:455-495 (set: an empty title is the ask to generate; one ask per session at a time; the session is read again after the answer), packages/app/src/runtime/i18n/en.ts:129-131. Ours on dev: Rename session edits the title in place in the header (apps/desktop/src/session/menu.rs:336-349, features/session-menu/src/rename.rs); there is no /rename and nothing asks the server for a title.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1249 (fce76a1c): `/rename` is a slash command: with words after it the open session takes them as its title once the server's rename event comes; bare, it asks the server to generate a title (an empty title in the session's update is the ask, as in official), and the header's title shimmers until the answer; a second ask for the same session does nothing meanwhile. A new command, Generate session title, does the same from the palette and is not offered on a subagent's page, while the title is edited or while a title is on its way. Rename session has official's description. One small explicit machine (features/session-menu/src/generate_title.rs); a command's `/name` can take words (crates/opencode-kernel/src/commands.rs CommandEntry::words). Official: packages/app/src/session/timeline/message-timeline.tsx:300-319, :702-704, packages/app/src/session/timeline/controller.tsx:455-494, packages/app/src/runtime/i18n/en.ts:129-131. Run headless on its own Windows x64 CI builds beside a build of dev on the same Rune pin, the app's fixture file and no server: the `/` list has `/rename` with its description and Ctrl+R (before: no such row); picking it leaves `/rename ` in the composer; the palette lists Generate session title on a session's page and not on a subagent's; a bare `/rename` leaves the title as it was with no shimmer and one toast that nothing was sent; `/rename New words` clears the composer, keeps the title in the header and the tab, and shows the same one toast (on the first head it kept the unsent words as the title: a fault of the port, corrected before the merge and run again on the merged head). Not run (each needs a server): a generated title arriving and the shimmer; Generate session title from the palette with a server; `/rename words` taken by a server; a server's refusal. Not run: a real window; macOS; Linux. Differences, each by reading: a refused `/rename words` is titled Failed to rename session where official's reads Request failed (controller.tsx:481), which a follow-up to the in-place rename's failure toast changes; a long title is not cut short while it shimmers, where official's sits in a truncating button (message-timeline.tsx:699); the place of `/rename` in the `/` list (official lists later registrations first, shell/commands/command.tsx:133-134; ours lists it after the commands whose order is known).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
