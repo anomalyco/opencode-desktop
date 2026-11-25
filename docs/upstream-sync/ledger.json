@@ -2,25 +2,25 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "fd3c9c454f757b56c8ecec17b1df83d92be36027",
+  "upstream_head": "1b297d1a4958db26b5b4082ff13eef01d20eaaef",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "57c35c9cf",
-  "post_1114_commit_count": 668,
-  "post_1114_in_ledger": 237,
-  "post_1114_skipped": 431,
+  "rune_desktop_head": "4aa35489e",
+  "post_1114_commit_count": 675,
+  "post_1114_in_ledger": 238,
+  "post_1114_skipped": 437,
   "post_1114_skipped_breakdown": {
-    "test-only": 25,
+    "test-only": 26,
     "ci-bench-deps": 25,
-    "docs-site-data": 64,
+    "docs-site-data": 66,
     "tui-only": 30,
     "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 276
+    "server-core-ai-codemode-internal": 279
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 258,
+  "total_ledger_rows": 259,
   "status_counts": {
-    "have it": 207,
+    "have it": 208,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
@@ -6384,8 +6384,8 @@
       ],
       "summary": "New timeline: finished thoughts that follow one another with nothing between read as ONE thought row: one 'Thought' with the time of all of them, opening to the thoughts a paragraph (12 px) apart, opened and shut together by the first one's state; a single thought keeps its own row. While the turn runs, the thoughts it ends on read as one 'Thinking' row (the finished ones before the live one inside it) until something else shows. In a group's summary, thoughts one after another count as one ('Thought', not '2 Thoughts').",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Not ported yet: in work. Official: packages/session-ui/src/timeline-next/projection.ts:499-503, :525-530, :568-575, :632-637 (trailingThoughts), :956-988 (the 'thought' group), packages/session-ui/src/timeline/timeline-row.ts:21-23 and :56-61 (Thinking.before), timeline-next/tools/thought.tsx, tools/activity-label.ts:23-25, timeline-next.css:40-45 (12 px), packages/app/src/session/timeline/message-timeline.tsx:266-268. Ours: crates/session-view/src/turns/mod.rs and turns/view.rs list a stretch of thoughts alone as separate thought rows ('A group of thoughts alone is those thoughts, without a group around them').",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1209 (0067167f): finished thoughts that follow one another with nothing between read as one thought row with the time of all of them, added up before it is rounded; opened, they stand 12 apart, and the first one's state opens and shuts the row; a single thought keeps its row. While the turn runs, the thoughts it ends on read as Thinking with no time and the status line shows no Working (crates/session-view/src/turns/mod.rs Block::Thought and take_tail, turns/view.rs thoughts, style.rs reasoning, working.rs). Official: packages/session-ui/src/timeline-next/projection.ts:499-503, :525-530, :568-575, :632-637, :956-988, packages/session-ui/src/timeline/timeline-row.ts:21-23 and :56-61, timeline-next/tools/thought.tsx, tools/activity-label.ts:23-25, timeline-next.css:40-45, packages/app/src/session/timeline/message-timeline.tsx:266-268. Run headless on its own Windows x64 CI builds beside a build of dev, each given one fixture file (the app's fixture with three made-up sessions; no server): three thoughts are one 'Thought 4s' row (dev: three 'Thought 1s'); two thoughts between two searches are one item in the opened group; two thoughts across two steps are one row; a running turn that ends on a finished thought reads Thinking and shows no Working; a live thought after a finished one is one Thinking row, its two thoughts 12 apart when open; a single thought is as before. A fault of ours fixed with it, on dev too: a thought that stands alone in a closed group did not open on a press, because the closed group's row is kept between frames and the thought's open state was not among what rebuilds it (crates/session-view/src/timeline/mod.rs, Disclosures::stamp); the run shows it shut on dev and on the port's earlier head, and opening and shutting on the final head. Not run: a reader scrolled up inside a running turn while its trailing thoughts leave their group and go back (it needs a turn that moves, which a fixture file cannot give); a thought after a tool call at a turn's end turning from Thinking to Thought; a real window; macOS; Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6455,6 +6455,28 @@
       "size": "XS",
       "status": "missing",
       "status_evidence": "Not run: a run on a build of dev decides whether this is already so or a small port. By reading, ours opens it already: the toggle carries the menu on a secondary press (apps/desktop/src/plugin_host/native/sidebar.rs:227, open_side_menu), and Rune gives Shift+F10 or the Menu key that nothing else took to the focused element's secondary press, at that element's bottom-left corner (Rune runtime/input/secondary.rs:357-411, after the app's own keys, runtime/input/keys.rs:91-103); a focused text field gets its own menu (secondary.rs:394-396). Not known until run: that the focus returns to the toggle after Escape or a choice, the arrow keys into the submenu, and the corner in a right-to-left layout (Rune takes the left corner; official the right one, packages/session-ui/src/v2/components/session-file-panel-v2.tsx:96-118, :114). Official's test: packages/app/component-tests/panel-sidebar-side.spec.ts:62-91.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-238",
+      "window": "post-1120",
+      "pr": 66356,
+      "sha": "45277af6cf",
+      "title": "feat(app): show archived sessions dimmed in Search sessions",
+      "merged": "2026-11-25",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/commands/palette.ts",
+        "packages/app/src/shell/commands/session-search.tsx"
+      ],
+      "summary": "Search sessions (the titlebar's search dialog) also finds archived sessions once something is typed: their rows are dimmed (title and description at 70%) and open the session like any other; with nothing typed the recent rows never list an archived session. Each server is asked for two pages of 50, its sessions that are not archived and its archived ones, and a failed archived page drops only those rows.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "In work: draft opencode-rune #1232 (not compiled, not run). Official: packages/app/src/shell/commands/session-search.tsx:28-42 (includeArchived, the two pages), packages/app/src/shell/commands/palette.ts:272-274, :386, :401, :435-441, packages/app/src/shell/commands/dialog.tsx:261, :267 (the dim). Ours: features/switcher lists archived sessions only in a mode of its own that nothing opens any more (SwitcherMode::Archived, left from before UP-203); the session search asks for archived=false alone (features/switcher/src/poll.rs sessions_step, servers.rs run) and leaves loaded archived sessions out (session_index.rs, search_index.rs Scope::Palette).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
