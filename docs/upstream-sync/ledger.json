@@ -2,12 +2,12 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "ea8aa5b05ef49af86d6c78dad0a19e2877e034e0",
+  "upstream_head": "fd3c9c454f757b56c8ecec17b1df83d92be36027",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "4d2fb8e49",
-  "post_1114_commit_count": 667,
-  "post_1114_in_ledger": 236,
+  "rune_desktop_head": "57c35c9cf",
+  "post_1114_commit_count": 668,
+  "post_1114_in_ledger": 237,
   "post_1114_skipped": 431,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
@@ -18,13 +18,13 @@
     "server-core-ai-codemode-internal": 276
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 257,
+  "total_ledger_rows": 258,
   "status_counts": {
     "have it": 207,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 10
+    "missing": 11
   },
   "rows": [
     {
@@ -6008,7 +6008,7 @@
       "summary": "A skill's file opened in the file viewer (`skill://<id>/<file>`) is read through the server (`GET /api/experimental/skill/:skillID/file/*`), which loads a file a skill serves on demand; before, the viewer took the text from the inline content of `/api/skill`, which is empty for such a skill. The server side: behind the `mcp_skills` flag, skills an MCP server offers are listed as `<server>:<skill>`.",
       "size": "S",
       "status": "missing",
-      "status_evidence": "By reading: ours' file tab reads no `skill://` path at all, neither the inline content official read before nor the new endpoint (no `skill://` in apps/desktop/src/surfaces/files or plugin_host/native/files.rs; crates/opencode-kit/src/model/plugin.rs SkillInfo takes id, name and path only). The lists that name skills (mentions, Settings, Details) take what `/api/skill` lists, so an MCP skill shows there as the server names it. Not run: what a read row with a `skill://` path opens in ours; a server with the endpoint.",
+      "status_evidence": "In work: draft opencode-rune #1226 (not compiled, not run). By reading: ours' file tab reads no `skill://` path at all, neither the inline content official read before nor the new endpoint (no `skill://` in apps/desktop/src/surfaces/files or plugin_host/native/files.rs; crates/opencode-kit/src/model/plugin.rs SkillInfo takes id, name and path only). The lists that name skills (mentions, Settings, Details) take what `/api/skill` lists, so an MCP skill shows there as the server names it. Not run: what a read row with a `skill://` path opens in ours; a server with the endpoint.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6409,7 +6409,7 @@
       "summary": "Consolidated navigation: a new setting 'Group tabs' (None, By project, By server) under the tab position. Open tabs then stand grouped by their project (or server), each group under a header that folds it to its current tab, groups in the order their first tab appears, tabs with no project last without a header; a project open on two servers names its server; the saved tab order keeps each group's tabs together. By server groups only with two servers or more.",
       "size": "L",
       "status": "missing",
-      "status_evidence": "Not ported yet: in work. Official: packages/app/src/shell/titlebar/auto-tab-groups.ts (autoTabGroups, groupedTabOrder), auto-tab-sections.tsx, tab-strip.tsx, titlebar.tsx, tab-nav.css, packages/app/src/settings/general/interface-mode.tsx:42-52, settings/model.tsx:159-160 and :538-543, runtime/i18n/en.ts:924-927. Ours: no such setting (apps/desktop/src and features have no tab grouping by project or server; the tab groups ours has are the user's own).",
+      "status_evidence": "In work: draft opencode-rune #1215 (not run). Official: packages/app/src/shell/titlebar/auto-tab-groups.ts (autoTabGroups, groupedTabOrder), auto-tab-sections.tsx, tab-strip.tsx, titlebar.tsx, tab-nav.css, packages/app/src/settings/general/interface-mode.tsx:42-52, settings/model.tsx:159-160 and :538-543, runtime/i18n/en.ts:924-927. Ours: no such setting (apps/desktop/src and features have no tab grouping by project or server; the tab groups ours has are the user's own).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6434,6 +6434,27 @@
       "size": "M",
       "status": "missing",
       "status_evidence": "Not ported yet: in work. Official: packages/gui-plugins/src/browser/settings.tsx (AddExtension, from :460), i18n/en.ts:134, :236-241, :384, packages/plugin/src/gui/host-apis.ts:1745-1750. Ours: the dialog is in plugins/browser/extensions.luau and its strings in plugins/browser/locales/en.json; ours' plugin button names that variant 'primary' (crates/opencode-plugin-runtime/src/ui_nodes.rs variant).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-237",
+      "window": "post-1120",
+      "pr": 66372,
+      "sha": "fd3c9c454f",
+      "title": "fix(session-ui): open file tree position menu with Shift+F10",
+      "merged": "2026-11-25",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/v2/components/session-file-panel-v2.tsx"
+      ],
+      "summary": "In the Review and file panels, Shift+F10 with the focus on the file tree toggle opens the 'Sidebar position' menu (Left, Right) under the toggle, at its start corner; Escape or a choice gives the focus back to the toggle, and the arrow keys walk into the submenu, where Return picks. The file tree's filter field keeps its own menu. A patch to the menu library keeps a submenu's first item from taking the focus back after a key moved it.",
+      "size": "XS",
+      "status": "missing",
+      "status_evidence": "Not run: a run on a build of dev decides whether this is already so or a small port. By reading, ours opens it already: the toggle carries the menu on a secondary press (apps/desktop/src/plugin_host/native/sidebar.rs:227, open_side_menu), and Rune gives Shift+F10 or the Menu key that nothing else took to the focused element's secondary press, at that element's bottom-left corner (Rune runtime/input/secondary.rs:357-411, after the app's own keys, runtime/input/keys.rs:91-103); a focused text field gets its own menu (secondary.rs:394-396). Not known until run: that the focus returns to the toggle after Escape or a choice, the arrow keys into the submenu, and the corner in a right-to-left layout (Rune takes the left corner; official the right one, packages/session-ui/src/v2/components/session-file-panel-v2.tsx:96-118, :114). Official's test: packages/app/component-tests/panel-sidebar-side.spec.ts:62-91.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
