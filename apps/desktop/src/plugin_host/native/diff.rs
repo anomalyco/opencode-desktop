@@ -25,13 +25,23 @@ fn saved_review_mode(app: &App, sid: &str) -> ChangeMode {
     if let Some(sr) = app.kernel.slots.get(&crate::review::REVIEW).sessions.get(sid) {
         return sr.mode;
     }
+    stored_mode(app, sid).unwrap_or_default()
+}
+
+/// The source the bundled Review keeps for session `sid` in its store, when it kept one.
+fn stored_mode(app: &App, sid: &str) -> Option<ChangeMode> {
     use crate::plugin_host::{services::store, stores};
     let ns = opencode_storage::plugin_namespace("review");
     let key = stores::key("session", &store::scope_session(app, sid));
     store::session_text("review", &ns, "session", sid, &key)
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
         .and_then(|v| ChangeMode::parse(v.get("mode")?.as_str()?))
-        .unwrap_or_default()
+}
+
+/// [`stored_mode`] for the review engine (`ReviewHost::saved_mode`): only the bundled Review's
+/// store is read, as in [`prepare_route`].
+pub(crate) fn stored_review_mode(app: &App, sid: &str) -> Option<ChangeMode> {
+    app.plugins.running().any(|(_, p)| p.tier == super::super::Tier::Bundled && p.manifest.id == "review").then(|| stored_mode(app, sid)).flatten()
 }
 
 /// A routed session with the built-in Review already on screen needs its saved source in
@@ -81,7 +91,17 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         with_app("Diff:Open", |app| {
             if !app.kernel.slots.get(&crate::review::REVIEW).has_read(&sid, mode) {
                 let id = sid.clone();
-                app.later(Box::new(move |s: &mut App, _: &mut Tx| s.set_session_change_mode(&id, mode)));
+                // The plugin read its saved source before the server listed the session, so under
+                // a key without the session's folder: `mode` is its default, not its choice. The
+                // engine waits for the listing and then reads the saved one itself, whether the
+                // listing is seconds away or already in when this runs.
+                let unlisted = app.live() && app.session(&sid).is_none_or(|s| s.directory.is_empty());
+                app.later(Box::new(move |s: &mut App, _: &mut Tx| {
+                    if unlisted {
+                        s.kernel.slots.get_mut(&crate::review::REVIEW).wait_for_listing(&id);
+                    }
+                    s.set_session_change_mode(&id, mode);
+                }));
             }
             Ok(())
         })?;

@@ -436,6 +436,13 @@ impl ReviewPane {
         }) || self.asked.as_ref().is_some_and(|(id, m, rev)| id == sid && *m == mode && *rev == self.revision)
     }
 
+    /// Session `sid`'s changes were wanted before the server listed it: what was said about it
+    /// then (its source) was a default, and the engine reads its saved one once it's listed
+    /// ([`ensure_session`]).
+    pub fn wait_for_listing(&mut self, sid: &str) {
+        self.waiting.insert(sid.to_owned());
+    }
+
     pub fn set_waker(&mut self, waker: Waker) {
         self.diff_fetch.set_waker(waker.clone());
         self.vcs_fetch.set_waker(waker.clone());
@@ -513,6 +520,14 @@ pub trait ReviewHost: opencode_kernel::AppEnv {
     fn live_server(&self) -> Option<&Server>;
     /// Fixture JSON root used when [`Self::live_server`] is `None`.
     fn fixture_root(&self) -> Option<&Value> {
+        None
+    }
+
+    /// The source session `sid` last chose, where the host keeps one (Desktop's stored review
+    /// state). Asked when a session the engine waited for is listed: it's kept under the
+    /// session's folder, which nothing knew before.
+    fn saved_mode(&self, sid: &str) -> Option<ChangeMode> {
+        let _ = sid;
         None
     }
 

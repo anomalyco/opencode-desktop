@@ -111,7 +111,20 @@ fn value(lua: &Lua, vmx: &Rc<Vmx>, name: String, default: Value, per_session: bo
         // Each key's value as last parsed, by its version: a render reads it every time it runs.
         let parsed: Rc<std::cell::RefCell<ParsedCache>> = Rc::default();
         move |lua: &Lua, session: &str| -> mlua::Result<Value> {
-            let key: Rc<str> = if per_session { with_app("Store", |app| Ok(stores::key(&name, &scope_session(app, session)).into()))? } else { name.clone() };
+            let key: Rc<str> = if per_session {
+                with_app("Store", |app| {
+                    let (scope, folder_known) = session_scope(app, session);
+                    // A session the server hasn't listed yet (a subagent's page at launch) has no
+                    // folder, and its values are kept under its folder: what read this reads
+                    // again, under the session's own key, once the server lists it.
+                    if !folder_known {
+                        cx::read(Dep::Session(session.to_owned()));
+                    }
+                    Ok(stores::key(&name, &scope).into())
+                })?
+            } else {
+                name.clone()
+            };
             cx::read(Dep::Store(plugin.clone(), key.clone()));
             let version = store_version(&plugin, &key);
             if let Some((v, data)) = parsed.borrow().get(&key)
@@ -164,14 +177,20 @@ fn value(lua: &Lua, vmx: &Rc<Vmx>, name: String, default: Value, per_session: bo
 /// the app's own), then its folder in base64 and its id; the session of a tab on another server
 /// takes that tab's server. A global value (no session) stays as it is.
 pub(crate) fn scope_session(app: &crate::App, session: &str) -> String {
+    session_scope(app, session).0
+}
+
+/// [`scope_session`], and whether the session's folder is known: it isn't while the server
+/// hasn't listed the session and no tab holds it, and the scope then names no folder.
+fn session_scope(app: &crate::App, session: &str) -> (String, bool) {
     use opencode_kit::servers::key::{base64_url_encode, session_route_key, session_state_key};
     if session.is_empty() {
-        return String::new();
+        return (String::new(), true);
     }
     let tab = app.tabs.iter().find(|t| t.id == session && !t.is_draft());
     let server = tab.map_or_else(|| crate::servers::runtime::active(app).clone(), |t| t.server.clone());
     let directory = app.session(session).filter(|_| server == *crate::servers::runtime::active(app)).map(|s| s.directory.clone()).or_else(|| tab.map(|t| t.directory.clone())).unwrap_or_default();
-    session_state_key(&server.scope(), &session_route_key(Some(&base64_url_encode(directory.as_bytes())), Some(session)))
+    (session_state_key(&server.scope(), &session_route_key(Some(&base64_url_encode(directory.as_bytes())), Some(session))), !directory.is_empty())
 }
 
 /// A session value under its scoped key or, for an older save, its bare session id.
