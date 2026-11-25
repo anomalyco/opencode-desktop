@@ -139,7 +139,7 @@ fn server_row(s: &App, p: &Pal, v: &ServerView, selected: bool, collapsed: bool)
     let (menu_target, add_target) = (key.clone(), key.clone());
     let add_enabled = !v.failed() || auth;
     let mut add = super::projects::icon_button(p, &format!("home-server-add-{}", v.key), t!("home.project.add"), &ic::FOLDER_ADD_LEFT, false).help(t!("home.project.add"));
-    add = if add_enabled { add.on_press_tx(move |s: &mut App, tx: &mut Tx| choose_project(s, &add_target, tx)) } else { add.disabled(true).opacity(0.5) };
+    add = if add_enabled { add.on_press_tx(move |s: &mut App, tx: &mut Tx| choose_project(s, &add_target, tx)) } else { add.disabled(true).opacity(0.5).hit().cursor(rune::Cursor::NotAllowed) };
     let actions = row()
         .key("actions")
         // 2 clear of the row's top and bottom, where the row's inset focus ring runs.
