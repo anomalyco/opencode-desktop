@@ -1,6 +1,6 @@
 {
   "$comment": "The OpenCode plugin contract: the single source of truth for plugin types, the plugin.toml schema, the selene std, the API docs and the host's Rust decoders. Edit this file, then run `cargo run -p opencode-plugin-spec -- --write`. Type strings use Luau syntax; `integer` is a whole number (Luau `number`).",
-  "contract": "1.9",
+  "contract": "1.10",
   "versioning": {
     "format": "MAJOR.MINOR",
     "rules": [
@@ -367,10 +367,11 @@
       { "value": "group", "doc": "A group title over the rows that follow." },
       { "value": "separator", "doc": "A divider." }
     ] },
-    { "name": "DialogSize", "rust": true, "doc": "A dialog's size: one of Desktop's three presets, each clamped to the window.", "values": [
+    { "name": "DialogSize", "rust": true, "doc": "A dialog's size: one of Desktop's four presets, each clamped to the window.", "values": [
       { "value": "normal", "doc": "Confirmations, sign-ins and small forms: 480 points wide, as tall as its content. The default." },
-      { "value": "large", "doc": "Palettes, pickers and lists: 880 by 600 points." },
-      { "value": "x-large", "doc": "Long documents and settings-like panels: 1040 by 680 points." },
+      { "value": "tall", "since": "1.10", "doc": "A short form that reveals a list under a choice: 480 points wide, as tall as its content up to 600 points, its top edge kept so that it only grows downward." },
+      { "value": "large", "doc": "Palettes, pickers and lists: 680 by 600 points." },
+      { "value": "x-large", "doc": "Long documents and settings-like panels: 880 by 680 points." },
       { "value": "small", "doc": "Deprecated: the same as `normal`." },
       { "value": "medium", "doc": "Deprecated: the same as `normal`." }
     ] },
@@ -669,6 +670,7 @@
       { "name": "text", "type": "string", "doc": "The label, beside the box." },
       { "name": "description", "type": "string?", "doc": "A line under the label." },
       { "name": "checked", "type": "boolean", "doc": "Ticked." },
+      { "name": "indeterminate", "type": "boolean?", "since": "1.10", "doc": "Some of what it stands for is ticked: the box shows a dash, as Desktop's `indeterminate`. A press still reports the opposite of `checked`." },
       { "name": "surface", "type": "(\"base\" | \"layer-1\")?", "doc": "The background the box sits on: `base` (the default) or `layer-1`, as Desktop's `surface`; an unticked box takes its fill." },
       { "name": "disabled", "type": "boolean?", "doc": "Cannot change; drawn at half opacity." },
       { "name": "onChange", "type": "UiHandler?", "doc": "Runs with the new state in `event.checked`." }
@@ -747,9 +749,13 @@
       { "name": "side", "type": "Side?", "doc": "The side of the row the nested popover opens on. Defaults to `right`; a popover at the window's right edge opens its rows' lists on the `left`." },
       { "name": "radius", "type": "number?", "doc": "Corner radius of the row's hover and open fill. Defaults to 4." }
     ] },
+    { "name": "UiBadgeProps", "kind": "record", "extends": ["UiLayoutProps"], "official": "Badge", "doc": "`ui.badge` props: Desktop's compact badge, a short muted label in a 16-point tag.", "fields": [
+      { "name": "text", "type": "string", "doc": "Its label, on one line; cut short where it has no room." }
+    ] },
     { "name": "UiDialogHeaderProps", "kind": "record", "extends": ["UiLayoutProps"], "official": "DialogHeader", "doc": "`ui.dialogHeader` props: the app's dialog header (`DialogHeader` with a `DialogTitleGroup`), 16 in from the frame, with its close button.", "fields": [
       { "name": "title", "type": "string", "doc": "The dialog's title: 15 pt, wrapping anywhere unless `wrapTitle` is false." },
       { "name": "description", "type": "string?", "doc": "A muted line under the title." },
+      { "name": "badge", "type": "string?", "since": "1.10", "doc": "A badge after the title on its line, such as a profile's name. The title then stays on one line, and each is cut short where the line has no room for both." },
       { "name": "hideClose", "type": "boolean?", "doc": "Leaves out the close button." },
       { "name": "closeLabel", "type": "string?", "doc": "The close button's accessible name. Defaults to Close." },
       { "name": "wrapTitle", "type": "boolean?", "since": "1.5", "doc": "Whether the title wraps across lines (breaking anywhere for long identifiers). Defaults to true; set false for short single-line dialog titles." }
@@ -1674,9 +1680,9 @@
       { "name": "title", "type": "string?", "doc": "Its heading and accessible name." },
       { "name": "size", "type": "DialogSize?", "doc": "Its size preset." },
       { "name": "layer", "type": "DialogLayer?", "since": "1.5", "doc": "Which modal overlay layer the dialog draws in (`\"standard\"` beneath elevated recovery/server dialogs, or `\"elevated\"` above them). Defaults to `\"elevated\"`." },
-      { "name": "radius", "type": "number?", "since": "1.5", "doc": "Corner radius in points. Defaults to 6 for `normal` dialogs and 12 for `large` and `x-large`." },
+      { "name": "radius", "type": "number?", "since": "1.5", "doc": "Corner radius in points. Defaults to 6 for `normal` dialogs and 12 for `tall`, `large` and `x-large`." },
       { "name": "hideScrollbar", "type": "boolean?", "since": "1.5", "doc": "Hides the scroll bar when a `normal` dialog's content overflows, as Desktop's `dialog-content` does. Defaults to false." },
-      { "name": "render", "type": "(view: View, props: DialogProps) -> UiNode?", "doc": "Draws its body inside the host's dialog frame: Desktop's dialog with the overlay elevation. A normal one is as tall as its content on layer-01 with 6-point corners; a large or x-large one is its size's height on bg-base with 12-point corners, so its body can fill it (`h = \"full\"`)." },
+      { "name": "render", "type": "(view: View, props: DialogProps) -> UiNode?", "doc": "Draws its body inside the host's dialog frame: Desktop's dialog with the overlay elevation. A normal one is as tall as its content on layer-01 with 6-point corners; a tall one is as tall as its content up to its size's height on bg-base with 12-point corners, and what in it may shrink (`shrink = true`, `minH = 0`) gives way once it is that tall; a large or x-large one is its size's height on bg-base with 12-point corners, so its body can fill it (`h = \"full\"`)." },
       { "name": "onDismiss", "type": "(() -> ())?", "doc": "Runs when Esc or a click outside closes it." }
     ] },
     { "name": "PopoverProps", "kind": "record", "doc": "What a popover's render receives.", "fields": [
@@ -2000,6 +2006,7 @@
     { "name": "progressCircle", "category": "content", "sig": "(props: UiProgressCircleProps) -> UiNode", "props": "UiProgressCircleProps", "doc": "The app's progress ring: a track and an arc from twelve o'clock, clockwise." },
     { "name": "serverIndicator", "category": "control", "sig": "(props: UiServerIndicatorProps) -> UiNode", "props": "UiServerIndicatorProps", "doc": "A server's health indicator, for a server source's row." },
     { "name": "pill", "category": "control", "sig": "(props: UiPillProps) -> UiNode", "props": "UiPillProps", "doc": "A status capsule." },
+    { "name": "badge", "category": "control", "since": "1.10", "sig": "(props: UiBadgeProps) -> UiNode", "props": "UiBadgeProps", "doc": "Desktop's compact badge." },
     { "name": "settingsRow", "category": "control", "sig": "(props: UiSettingsRowProps, control: UiNode?) -> UiNode", "props": "UiSettingsRowProps", "doc": "A settings row: title and description beside a control." },
     { "name": "settingsList", "category": "control", "sig": "(props: UiSettingsListProps, rows: { UiNode }) -> UiNode", "props": "UiSettingsListProps", "doc": "A card of settings rows." },
     { "name": "flyoutRow", "category": "control", "sig": "(props: UiFlyoutRowProps) -> UiNode", "props": "UiFlyoutRowProps", "doc": "A popover row that opens a nested popover." },
