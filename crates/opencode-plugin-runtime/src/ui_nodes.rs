@@ -1,6 +1,6 @@
 //! `App`-independent contract `ui.*` host node builders over `opencode-ui` and `rune-kit`:
 //! `frame`, `divider`, `icon`, `loader`, `metric`, `keybind`, `button`, `iconButton`, `radio`, `checkbox`,
-//! `serverIndicator`, `dialogHeader`, `progressCircle`, and `segmented`.
+//! `badge`, `serverIndicator`, `dialogHeader`, `progressCircle`, and `segmented`.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -59,6 +59,7 @@ pub fn base_nodes<S: 'static>(
         node("iconButton", move |a| icon_button(a, command_chord)),
         node("radio", radio),
         node("checkbox", checkbox),
+        node("badge", |a| Ok(badge_widget(kit(&p(a)), a.string("text").unwrap_or_default()))),
         node("loader", |a| Ok(Loader::new().size(a.number("size").unwrap_or(16.0) as f32).build(kit(&p(a))))),
         node("serverIndicator", server_indicator),
         node("progressCircle", progress_circle),
@@ -344,15 +345,59 @@ fn checkbox(a: &mut NodeArgs) -> Result<El, String> {
     let checked = a.flag("checked");
     let disabled = a.flag("disabled");
     let layer = a.string("surface") == Some("layer-1");
-    let c = checkbox_widget(kit(&pal), a.string("text").unwrap_or_default(), a.string("description").unwrap_or_default(), checked, disabled, layer);
+    let mark = match (a.flag("indeterminate"), checked) {
+        (true, _) => Mark::Dash,
+        (false, true) => Mark::Check,
+        (false, false) => Mark::None,
+    };
+    let c = checkbox_widget(kit(&pal), a.string("text").unwrap_or_default(), a.string("description").unwrap_or_default(), mark, disabled, layer);
     Ok(if disabled { c } else { a.on_press_with(c, "onChange", vec![("checked", Data::Bool(!checked))]) })
+}
+
+/// What a checkbox's box shows: nothing, the check, or the dash of one whose set is ticked in
+/// part (`[data-indeterminate]`, `checkbox-compact.css`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mark {
+    None,
+    Check,
+    Dash,
+}
+
+/// `checkbox.tsx`'s `checkbox-v2-icon--minus`.
+static CHECKBOX_DASH: Icon = Icon {
+    name: "checkbox-dash",
+    view: 16.0,
+    body: r#"<path d="M12.75 8H3.25" stroke="currentColor" stroke-linejoin="round" stroke-width="1"/>"#,
+};
+
+/// Desktop's compact `Badge` (`data-display/badge/badge.css:1-23`): a 16 pt tag, 4 in, radius 2,
+/// on `bg-layer-02` with a 0.5 hairline, its label 11/530 muted with tabular figures. With no
+/// room it gives way and its label is cut short (`min-w-0 shrink` over a `truncate` label,
+/// `site-chooser.tsx:366-368`).
+fn badge_widget(k: &rune_kit::Kit, label: &str) -> El {
+    let c = &k.c;
+    row()
+        .key("badge")
+        .center()
+        .h(16.0)
+        .px(4.0)
+        .radius(2.0)
+        .fill(c.layer_02)
+        .border(0.5, c.border_base)
+        // CSS's 0.5 px border takes a device pixel of layout (`opencode_ui::widgets::badge`).
+        .border_layout()
+        .shrink()
+        .min_w(0.0)
+        .child(text(label.to_owned()).font(TextStyle::new(11.0, 530.0).lh(11.0).tracking(0.05).features("\"tnum\"")).color(c.text_muted).truncate().shrink().min_w(0.0))
 }
 
 /// A `checkbox-v2` (`checkbox-compact.css`, Desktop's `Checkbox appearance="compact"`): the 16 pt
 /// box 2 down in its 16 × 20 stack, radius 4, on `bg-base` (`layer-1` on that surface) with a
 /// 0.5 hairline, ticked the accent with its 20% white sheen and the 1 pt check; the 13/440 label on
 /// a 20 line, 8 after it, and the 11/440 description 6 under it. Disabled, the row is half opacity.
-fn checkbox_widget(k: &rune_kit::Kit, label: &str, description: &str, checked: bool, disabled: bool, layer: bool) -> El {
+/// With a dash it is filled as a ticked one is (`:where([data-checked], [data-indeterminate])`).
+fn checkbox_widget(k: &rune_kit::Kit, label: &str, description: &str, mark: Mark, disabled: bool, layer: bool) -> El {
+    let checked = mark != Mark::None;
     let c = &k.c;
     let base = if layer { c.layer_01 } else { c.bg_base };
     let hairline = Shadow { spread: 0.5, color: c.border_strong, inset: true, ..Shadow::default() };
@@ -365,7 +410,10 @@ fn checkbox_widget(k: &rune_kit::Kit, label: &str, description: &str, checked: b
     if !disabled {
         control = control.hover(if checked { over(k.on(c.contrast_hover, c.bg_accent), c.bg_accent) } else { over(c.hover, base) });
     }
-    control = control.child(rune_icon(&rune_theme_opencode::icons::CHECK, 16.0).key("check").color(c.icon_contrast).opacity(if checked { 1.0 } else { 0.0 }));
+    control = control.child(rune_icon(&rune_theme_opencode::icons::CHECK, 16.0).key("check").color(c.icon_contrast).opacity(if mark == Mark::Check { 1.0 } else { 0.0 }));
+    if mark == Mark::Dash {
+        control = control.child(rune_icon(&CHECKBOX_DASH, 16.0).key("dash").absolute(0.0, 0.0).color(c.icon_contrast));
+    }
     let mut words = col().key("text").gap(6.0).grow(1.0).shrink().min_w(0.0).child(text(label.to_owned()).key("label").font(TextStyle::new(13.0, 440.0).lh(20.0).tracking(-0.04)).color(c.text_base));
     if !description.is_empty() {
         words = words.child(text(description.to_owned()).key("description").font(TextStyle::new(11.0, 440.0).lh(16.0).tracking(0.05)).color(c.text_muted));
@@ -373,7 +421,7 @@ fn checkbox_widget(k: &rune_kit::Kit, label: &str, description: &str, checked: b
     let r = row()
         .role("checkbox")
         .label(label.to_owned())
-        .checked(checked)
+        .checked(mark == Mark::Check)
         .gap(8.0)
         .items_start()
         .disabled(disabled)
@@ -480,10 +528,26 @@ fn server_indicator(a: &mut NodeArgs) -> Result<El, String> {
 pub fn dialog_header(a: &mut NodeArgs, attach_close: impl FnOnce(El) -> El) -> Result<El, String> {
     let pal = p(a);
     let title = a.string("title").unwrap_or_default().to_owned();
+    let badge = a.string("badge").map(str::to_owned);
     let mut title_el = text(title).font(TextStyle::new(15.0, 530.0).lh(20.0).tracking(-0.13)).color(pal.text);
-    if a.get("wrapTitle").is_none() || a.flag("wrapTitle") {
-        title_el = title_el.wrap_anywhere().w_full();
-    }
+    // With a badge the title stays on its line beside it, and each is cut short where the line
+    // has no room for both (`site-chooser.tsx:363-369`: `truncate` beside a `min-w-0 shrink` badge).
+    let title_el = match badge {
+        Some(badge) => row()
+            .key("dialog-title-line")
+            .w_full()
+            .min_w(0.0)
+            .gap(6.0)
+            .center_y()
+            .child(title_el.truncate().shrink().min_w(0.0))
+            .child(badge_widget(kit(&pal), &badge)),
+        None => {
+            if a.get("wrapTitle").is_none() || a.flag("wrapTitle") {
+                title_el = title_el.wrap_anywhere().w_full();
+            }
+            title_el
+        }
+    };
     let mut group = col()
         .key("dialog-title-group")
         .grow(1.0)

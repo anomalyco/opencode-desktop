@@ -1,18 +1,20 @@
-//! Desktop's three dialog sizes (`overlays/dialog/dialog.css`, `dialog.tsx`; anomalyco/opencode
-//! #63432, #64206, #64882). Every dialog takes one; none sets its own width or height (`scripts/dialog-size.sh`).
+//! Desktop's four dialog sizes (`overlays/dialog/dialog.css`, `dialog.tsx`; anomalyco/opencode
+//! #63432, #64206, #64882, #66339). Every dialog takes one; none sets its own width or height (`scripts/dialog-size.sh`).
 //!
 //! - `Normal`: 480 wide, 368 tall, for confirmations, sign-ins and small forms.
+//! - `Tall`: 480 × 600, for a short form that reveals a list under a choice (`dialog.css:163-180`).
 //! - `Large`: 680 × 600, for palettes, pickers and lists.
 //! - `XLarge`: 880 × 680, for long documents and settings-like panels.
 //!
 //! Each clamps to the window. A dialog that fits its content grows up to its size's height; a
-//! large one, or an anchored normal one, keeps its top edge where the full height would put it,
-//! so only its bottom edge moves as the content changes.
+//! tall or larger one, or an anchored normal one, keeps its top edge where the full height would
+//! put it, so only its bottom edge moves as the content changes.
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DialogSize {
     #[default]
     Normal,
+    Tall,
     Large,
     XLarge,
 }
@@ -21,7 +23,7 @@ impl DialogSize {
     /// `width: min(calc(100vw - 32px), …)`.
     pub fn width(self, win_w: f32) -> f32 {
         let w = match self {
-            DialogSize::Normal => 480.0,
+            DialogSize::Normal | DialogSize::Tall => 480.0,
             DialogSize::Large => 680.0,
             DialogSize::XLarge => 880.0,
         };
@@ -32,7 +34,7 @@ impl DialogSize {
     pub fn height(self, win_h: f32) -> f32 {
         match self {
             DialogSize::Normal => (win_h - 32.0).min(368.0),
-            DialogSize::Large => (win_h - 96.0).min(600.0),
+            DialogSize::Tall | DialogSize::Large => (win_h - 96.0).min(600.0),
             DialogSize::XLarge => (win_h - 96.0).min(680.0),
         }
         .max(0.0)
