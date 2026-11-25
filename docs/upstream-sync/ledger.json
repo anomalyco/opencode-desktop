@@ -2,29 +2,29 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "028cd6ce910d9f9f946d8e32621b58a362537a93",
+  "upstream_head": "c85b83eb08c3d2666b842848215325acb282d92b",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "0e10a6370",
-  "post_1114_commit_count": 691,
+  "rune_desktop_head": "7d6d45518",
+  "post_1114_commit_count": 694,
   "post_1114_in_ledger": 242,
-  "post_1114_skipped": 449,
+  "post_1114_skipped": 452,
   "post_1114_skipped_breakdown": {
-    "test-only": 27,
+    "test-only": 28,
     "ci-bench-deps": 26,
     "docs-site-data": 70,
     "tui-only": 31,
     "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 284
+    "server-core-ai-codemode-internal": 286
   },
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 263,
   "status_counts": {
-    "have it": 215,
+    "have it": 216,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 8
+    "missing": 7
   },
   "rows": [
     {
@@ -5860,8 +5860,8 @@
       ],
       "summary": "The elevation shadows' layers are listed in Figma's order (the 0.5 px ring first, then the soft shadows; for the contrast button the insets before the ring and the drop shadow), which changes which layer paints over which.",
       "size": "XS",
-      "status": "missing",
-      "status_evidence": "Not ported, not compared. The tokens are Rune's (rune-theme-opencode): official reversed the layer lists of eight elevation tokens in both themes (raised, floating, overlay, input, button-neutral, button-contrast, switch-off, switch-on), and in Rune that is data only (themes/opencode/assets/theme.json holds each list and the kit paints a list in CSS order, the first layer on top), so the port is a Rune PR and a pin. What can differ, by reading: in the light theme black layers over black composite the same in any order, so only the contrast button (an opaque grey ring) can; in the dark theme raised, floating, overlay, button-neutral and button-contrast mix a light ring and top line with dark drops, so the 0.5 px ring of cards, popovers, menus, dialogs and neutral buttons is a little lighter where the drop lies on it (the ring now paints over the drop); dark input (its drop has no alpha) and both switches (one colour each) cannot differ. It is to ride the pin bump after the next one, alone, so that the pin's picture walk shows it as its one meant difference. 26 Nov: the Rune change is merged (rune#2187, 85466cc98) and is not in the pin of opencode-rune #1192 (d5c7a5ad): it reaches the app with the bump after it.",
+      "status": "have it",
+      "status_evidence": "By the Rune pin 5342f14d (opencode-rune #1257, affe876f), which holds rune#2187 (85466cc98): every `v2-elevation-*` token of the OpenCode theme lists its layers in official's order, the 0.5 pt ring before the drop shadows, and the kit paints a list's first layer on top, as CSS does. Official: packages/ui/src/styles/tokens/theme.css:220-234 (dark: the top line, the ring, then the two drops), :106-124 (light), commit 0c2e204eaa. Seen in the pin's walk (headless, Windows x64, the pin's build beside a build of dev without it): in the dark theme the outline of a raised surface (a Markdown table, a tooltip, a raised Settings button) is lighter on its lower and side edges and unchanged on its top edge, in 106 of the walk's 168 pictures; on one picture the sides read 42 to 47 and the bottom 32 to 40 of 255. That is the ring now painted over the drops, which fall downward: the direction and the edges are official's by its file. Not compared: the amount, with a render of official's surface beside ours. Not looked at: the light theme, where by the same file only the contrast button's opaque grey ring can differ.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6573,7 +6573,7 @@
       "summary": "In the question dock the key that moves to the next question, or submits on the last, is Enter by default, with a setting (Settings > General, \"Submit question answers with\": Enter or Cmd/Ctrl+Enter). The other Enter selects the highlighted answer (Shift+Enter when Enter submits; Enter with or without Shift when Cmd/Ctrl+Enter submits); Cmd/Ctrl+Enter always submits. The submit key on an answer picks it first on a single-choice question. The custom answer is a field of several lines that grows with its text: the other Enter starts a new line in it, the arrow keys and End land in the field itself, and Up from its start goes back to the answers. The Next and Submit buttons show the chosen key.",
       "size": "M",
       "status": "missing",
-      "status_evidence": "Not ported yet: next in line. Official: packages/app/src/session/requests/question-keys.ts (questionEnter, questionKey's `submit`), question-submit.ts (the buttons' shortcut label; the field's fit), session-question-dock-classic.tsx and session-question-dock-experimental.tsx (the answers' and the custom field's keys, the field as a textarea), packages/app/src/settings/model.tsx (general.questionSubmitKey, default enter), settings/general/general.tsx (the row), settings/search-catalog.ts, runtime/i18n/en.ts (two strings). Ours, by reading: crates/session-view/src/dock/question/mod.rs:166-218 (`intent`): Enter without Shift on an answer commits it and moves on, Shift+Enter there does nothing, Cmd/Ctrl+Enter advances by its own binding; there is no setting. Not read yet: ours' custom answer field (one line or several) and what the classic dock's answers do on Enter.",
+      "status_evidence": "Port in a draft, opencode-rune #1275, not run: the setting (Settings > General, Submit question answers with: Enter or Cmd/Ctrl+Enter; features/settings/src/prefs.rs QuestionSubmitKey, pages/general.rs), the key rule (crates/session-view/src/dock/question/mod.rs enter, intent: the submit key commits and moves on, the other Enter marks, Cmd/Ctrl+Enter always moves on), the default dock's answers, mark and typed answer (classic.rs: the submit key on an answer picks it first on a single choice; the typed answer is a field of several lines, the other Enter a new line, Up at its start back to the answers, arrows and End land in the field; the picked wash and the hover fill change places), the typed answer's cap in both docks (six 18 px lines, then it scrolls inside itself), the new dock's 18 px lines, and the buttons' key. Official: packages/app/src/session/requests/question-keys.ts:29-37, :95-101, question-submit.ts:4-8, session-question-dock-classic.tsx:236-248, :440-457, :738-771, session-question-dock-experimental.tsx:1365-1369, packages/session-ui/src/components/question-prompt.css:361-430, question-prompt-experimental.css:392-453, packages/app/src/settings/general/general.tsx:140-168. The two new strings are English in every language, as in official (en.ts alone holds them). By reading no difference is left; not checked: that the field keeps the caret's line in sight once it scrolls. Fourteen cases with no server are in the draft; none has run.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
