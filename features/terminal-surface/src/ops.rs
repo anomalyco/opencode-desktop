@@ -1,7 +1,6 @@
 //! Non-generic terminal workspace operations, PTY lifecycle, and off-thread job execution.
 
 use std::cell::Cell;
-use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -12,7 +11,7 @@ use terminal::{RestoreState, TerminalConfig, TerminalSession};
 
 use crate::{
     FocusClaimEvent, HoverLink, StoryStageEvent, TabBackend, TerminalJob, TerminalReply, TerminalSurfaceHost,
-    TerminalTab, TerminalWorkspace, dir_name, grid, integration, links, mount, panel_key, persist, rename, side_ops,
+    TerminalTab, TerminalWorkspace, calls, dir_name, grid, links, mount, panel_key, persist, rename, side_ops,
     workspace_key,
 };
 
@@ -90,7 +89,7 @@ pub fn select_session_terminal(host: &mut dyn TerminalSurfaceHost, sid: &str, id
 
 /// Loads a session's terminals and, when it has none, starts one, as opening Desktop's
 /// terminal panel does. A read-only window only shows the ones the server already has.
-pub fn ensure_workspace_ready(host: &mut dyn TerminalSurfaceHost, ws_key: &str) {
+pub fn ensure_workspace_ready(host: &mut dyn TerminalSurfaceHost, ws_key: &str, after: calls::After) {
     persist::ensure_terminal_workspace_hydrated(host, ws_key);
     let empty = host
         .terminal()
@@ -99,7 +98,7 @@ pub fn ensure_workspace_ready(host: &mut dyn TerminalSurfaceHost, ws_key: &str) 
         .is_none_or(|ws| ws.tabs.is_empty() && ws.failure.is_none());
     let watch_only = live_terminals(host).is_some_and(|(_, observer)| observer);
     if empty && !watch_only {
-        new_terminal_in(host, ws_key);
+        new_terminal_in(host, ws_key, after);
     }
 }
 
@@ -113,11 +112,18 @@ pub fn open_terminal_for_session(host: &mut dyn TerminalSurfaceHost, sid: &str, 
     let mut out = None;
     host.keeping_keyboard(&mut |h: &mut dyn TerminalSurfaceHost| {
         let ws_key = terminal_workspace_key_for_session(h, sid);
+        persist::ensure_terminal_workspace_hydrated(h, &ws_key);
+        // Which terminals it has isn't known yet: asked again when the server has listed them.
+        if calls::listing(h, &ws_key) {
+            h.terminal_mut().asked = Some(side_ops::Asked::Open { session: sid.to_owned(), new_tab });
+            return;
+        }
+        // On a live server the new one's tab shows when the server has started it (`calls::After`).
+        let after = calls::After::Side { session: sid.to_owned() };
         if new_tab {
-            persist::ensure_terminal_workspace_hydrated(h, &ws_key);
-            new_terminal_in(h, &ws_key);
+            new_terminal_in(h, &ws_key, after);
         } else {
-            ensure_workspace_ready(h, &ws_key);
+            ensure_workspace_ready(h, &ws_key, after);
         }
         let Some(id) = h.terminal().workspaces.get(&ws_key).and_then(|ws| ws.active.clone()) else {
             return;
@@ -236,7 +242,7 @@ pub fn close_terminal_tab(host: &mut dyn TerminalSurfaceHost, ws_key: &str, tab_
 
 /// Starts a terminal: on a live server, a session shell (`persistentPty.create`) named
 /// after the lowest free "Terminal N"; in a fixture scene, a recorded prompt.
-pub fn new_terminal_in(host: &mut dyn TerminalSurfaceHost, ws_key: &str) -> Option<String> {
+pub fn new_terminal_in(host: &mut dyn TerminalSurfaceHost, ws_key: &str, after: calls::After) -> Option<String> {
     let theme = host.terminal_theme(terminal_dark(host));
     let (session_id, directory) = terminal_session_dir(host, ws_key);
     // Never in a folder that isn't the session's: the callers ask again once it's listed.
@@ -269,49 +275,11 @@ pub fn new_terminal_in(host: &mut dyn TerminalSurfaceHost, ws_key: &str) -> Opti
                 |t| links::shell_folder(&t.session.peek(), if t.cwd.is_empty() { &directory } else { &t.cwd }),
             )
         };
-        let create = terminal_launch(
-            host,
-            &srv,
-            TerminalCreate::new(title).cwd(Some(directory)).size(Some((init_cols, init_rows))),
-            None,
-            Vec::new(),
-        );
-        let created = srv.terminal_create(&session_id, &create);
-        // A terminal started as the server's own: its program is that server's shell (which the
-        // marks then start, `server_shell`), whatever was guessed before.
-        if create.program().is_none()
-            && let Ok(info) = &created
-            && !info.command.is_empty()
-        {
-            host.terminal().server_shells.borrow_mut().insert(srv.base.clone(), Some(info.command.clone()));
-        }
-        let tab = match created {
-            Ok(info) => persistent_tab(host, srv, info),
-            Err(e) => Err(e.to_string()),
-        };
-        return match tab {
-            Ok(tab) => {
-                let id = tab.id.clone();
-                {
-                    let ws = host.terminal_mut().workspaces.get_mut(ws_key)?;
-                    ws.failure = None;
-                    ws.tabs.push(tab);
-                    ws.active = Some(id.clone());
-                }
-                focus_terminal_surface(host);
-                persist::queue_terminal_save(host);
-                Some(id)
-            }
-            Err(_) if host.terminal().workspaces.get(ws_key).is_some_and(|ws| !ws.tabs.is_empty()) => None,
-            Err(e) => {
-                if let Some(ws) = host.terminal_mut().workspaces.get_mut(ws_key) {
-                    ws.failure = Some(e);
-                }
-                None
-            }
-        };
+        // The server starts it off this thread: its tab shows when it has (`calls::created`).
+        let create = TerminalCreate::new(title).cwd(Some(directory)).size(Some((init_cols, init_rows)));
+        calls::create(host, &srv, ws_key, session_id, create, after);
+        return None;
     }
-
     let short_dir = dir_name(&directory);
     let prompt = format!(
         "\x1b[1;34m~/{short_dir}\x1b[0m \x1b[38;5;245mgit:(\x1b[1;36mmain\x1b[0;38;5;245m)\x1b[0m \x1b[1;32m\u{276f}\x1b[0m "
@@ -381,10 +349,7 @@ pub fn start_terminal(
     srv.terminal_create(sid, &create).map_err(|e| e.to_string())
 }
 
-/// What a new terminal on `srv` runs: `command` with `args`, or the server's own shell, with
-/// that shell's marks when the user turned them on (`integration`; bash's only from a
-/// server on this computer, which can read the script's file); and on this Windows computer
-/// `WSLENV` carrying `COLORTERM` into WSL.
+/// [`calls::launch`] on this thread, for a plugin's `Terminal:Create`, which answers at once.
 fn terminal_launch(
     host: &dyn TerminalSurfaceHost,
     srv: &Server,
@@ -392,70 +357,12 @@ fn terminal_launch(
     command: Option<String>,
     args: Vec<String>,
 ) -> TerminalCreate {
-    let local = srv.is_local();
-    let create = if local && cfg!(windows) {
-        create.env("WSLENV", integration::wslenv(&host.env_var("WSLENV").unwrap_or_default()))
-    } else {
-        create
-    };
-    let marks = host.terminal_marks();
-    if marks.is_empty() {
-        return create.command(command, args);
+    let (create, shell) = calls::launch(srv, &calls::launch_inputs(host, srv), create, command, args);
+    if let Some(shell) = shell {
+        host.terminal().server_shells.borrow_mut().insert(srv.base.clone(), shell);
     }
-    let program = match &command {
-        Some(c) if !c.is_empty() => args.is_empty().then(|| c.clone()),
-        _ => server_shell(host, srv),
-    };
-    let marked = program.as_deref().and_then(|p| {
-        let shell = integration::Shell::of(p).filter(|sh| marks.iter().any(|m| m == sh.id()))?;
-        if shell.reads_a_file() && !local {
-            return None;
-        }
-        integration::launch(shell, p, host.shell_integration_dir().as_deref())
-    });
-    match marked {
-        Some((command, args)) => create.command(Some(command), args),
-        None => create.command(command, args),
-    }
+    create
 }
-
-/// The shell `srv` starts a terminal in: the one it last started for a plain new terminal, else
-/// as its `ShellSelect.environment` picks it on Windows:
-/// `SHELL` when it names one (known only for a server on this computer, which shares this
-/// process's environment), else the first of its shells (`GET /api/config/shell`: PowerShell 7,
-/// Windows PowerShell, Git Bash, cmd). Asked once per server.
-fn server_shell(host: &dyn TerminalSurfaceHost, srv: &Server) -> Option<String> {
-    if let Some(known) = host.terminal().server_shells.borrow().get(&srv.base) {
-        return known.clone();
-    }
-    let listed = srv.get("/api/config/shell").ok().map(|v| {
-        let items = v["data"].as_array().or_else(|| v.as_array()).cloned().unwrap_or_default();
-        items
-            .iter()
-            .filter_map(|i| Some((i["name"].as_str()?.to_owned(), i["path"].as_str()?.to_owned())))
-            .collect::<Vec<_>>()
-    });
-    let listed: Vec<(String, String)> = listed
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|(_, path)| path.as_bytes().get(1) == Some(&b':'))
-        .collect();
-    let from_env = host
-        .env_var("SHELL")
-        .filter(|s| srv.is_local() && cfg!(windows) && !s.is_empty())
-        .and_then(|s| {
-            let path = Path::new(&s);
-            if path.is_absolute() {
-                return path.is_file().then_some(s);
-            }
-            let name = path.file_stem()?.to_string_lossy().to_ascii_lowercase();
-            listed.iter().find(|(n, _)| *n == name).map(|(_, p)| p.clone())
-        });
-    let shell = from_env.or_else(|| listed.first().map(|(_, p)| p.clone()));
-    host.terminal().server_shells.borrow_mut().insert(srv.base.clone(), shell.clone());
-    shell
-}
-
 /// A terminal [`start_terminal`] started joins session `sid`'s terminals and becomes
 /// its active one, unless the server's event already brought it.
 pub fn adopt_terminal(host: &mut dyn TerminalSurfaceHost, sid: &str, info: PersistentPtyInfo) {
@@ -599,6 +506,8 @@ pub fn execute_job(srv: &Server, job: TerminalJob) -> TerminalReply {
             drop(srv.terminal_remove(&pty_id));
             TerminalReply::Removed { pty_id }
         }
+        TerminalJob::List { ws, session, order, active } => calls::list_now(srv, ws, &session, order, active),
+        TerminalJob::Create { ws, session, create, launch, after } => calls::create_now(srv, ws, &session, create, &launch, after),
     }
 }
 
@@ -609,5 +518,7 @@ pub fn apply_reply(host: &mut dyn TerminalSurfaceHost, reply: TerminalReply, tx:
             rename::apply_rename_reply(host, &ws, &pty_id, attempt, result, tx);
         }
         TerminalReply::Removed { .. } => {}
+        TerminalReply::Listed { ws, order, active, result } => calls::listed(host, &ws, &order, active, result, tx),
+        TerminalReply::Created { ws, plain, shell, after, result } => calls::created(host, &ws, plain, shell, after, result, tx),
     }
 }
