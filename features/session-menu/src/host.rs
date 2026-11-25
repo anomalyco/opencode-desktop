@@ -82,6 +82,12 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     fn tabs(&self) -> Vec<TabSummary> {
         Vec::new()
     }
+    /// The tabs the strip shows, in its order: what Close other tabs and Close tabs below act on
+    /// (official's `visibleTabs`, `shell/titlebar/tab-strip.tsx:946-954`). Every open tab by
+    /// default.
+    fn strip_tabs(&self) -> Vec<TabSummary> {
+        self.tabs()
+    }
     /// Whether the active tab layout renders tabs down a sidebar (affects "Close tabs below" wording).
     fn layout_has_sidebar(&self) -> bool {
         false

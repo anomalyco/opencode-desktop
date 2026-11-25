@@ -70,6 +70,16 @@ impl SessionMenuHost for App {
         self.tab_summaries()
     }
 
+    /// Consolidated's strip leaves out the tabs its pinned area holds (`tab-strip.tsx:715-719`),
+    /// and under Settings › Group tabs shows each group's tabs in the groups' order, a collapsed
+    /// group's hidden tabs not among them (`auto-tab-groups.ts:72`).
+    fn strip_tabs(&self) -> Vec<TabSummary> {
+        match crate::tabs::auto_groups::groups(self) {
+            Some(groups) => groups.iter().flat_map(|g| g.tabs.iter()).map(|&i| self.tabs[i].summary()).collect(),
+            None => self.tabs.iter().filter(|t| !crate::tabs::pins::holds(self, t)).map(crate::tabs::Tab::summary).collect(),
+        }
+    }
+
     fn layout_has_sidebar(&self) -> bool {
         self.tab_layout().has_sidebar()
     }

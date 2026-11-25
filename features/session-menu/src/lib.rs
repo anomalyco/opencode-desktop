@@ -204,6 +204,14 @@ fn asks(word: &str) -> String {
     format!("{word}\u{2026}")
 }
 
+/// The tabs Close other tabs and Close tabs below count and close for tab `t`: the ones its strip
+/// shows, in the strip's order (`tab-strip.tsx:946-954`), or every tab when the strip does not
+/// show `t` itself.
+fn closable(host: &dyn SessionMenuHost, t: &Target) -> Vec<TabSummary> {
+    let shown = host.strip_tabs();
+    if shown.iter().any(|x| t.matches_tab(x)) { shown } else { host.tabs() }
+}
+
 /// The menu for `t`, as Desktop lists it. A tab's Rename and Delete wait for its session to
 /// load, and its Close other tabs and Close tabs to the right for tabs to close; a subagent's
 /// header has no menu.
@@ -235,11 +243,12 @@ pub fn lines(host: &dyn SessionMenuHost, t: &Target) -> Vec<Line> {
     match t.spot {
         Spot::Tab => {
             let uid = tab.map(|x| x.uid.as_str()).unwrap_or_default();
-            let at = tabs.iter().position(|x| x.uid == uid);
+            let shown = closable(host, t);
+            let at = shown.iter().position(|x| x.uid == uid);
             let known = known.is_some() || known_elsewhere;
             let close = [
                 item("close", opencode_i18n::t!("common.closeTab"), true),
-                item("close-others", opencode_i18n::t!("common.closeOtherTabs"), tabs.iter().any(|x| x.uid != uid)),
+                item("close-others", opencode_i18n::t!("common.closeOtherTabs"), shown.iter().any(|x| x.uid != uid)),
                 // Side tabs run down the sidebar; horizontal tabs invert under RTL (`TabCloseMenuItems`, `tab-nav.tsx:52-58`).
                 item(
                     "close-right",
@@ -250,7 +259,7 @@ pub fn lines(host: &dyn SessionMenuHost, t: &Target) -> Vec<Line> {
                     } else {
                         opencode_i18n::t!("common.closeTabsToRight")
                     },
-                    at.is_some_and(|i| i + 1 < tabs.len()),
+                    at.is_some_and(|i| i + 1 < shown.len()),
                 ),
             ];
             let extra = host.tab_menu_extra(uid);
@@ -420,7 +429,7 @@ pub fn run(host: &mut dyn SessionMenuHost, t: &Target, id: &str, tx: &mut Tx) {
             }
         }
         "close-others" | "close-right" => {
-            let tabs = host.tabs();
+            let tabs = closable(host, t);
             let at = tabs.iter().position(|x| t.matches_tab(x)).unwrap_or(0);
             let keep = tabs.get(at).map(|x| x.uid.as_str());
             let gone: Vec<String> = tabs

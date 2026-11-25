@@ -384,8 +384,13 @@ impl App {
                     }
                 }
             } else {
-                for tab in self.tabs.iter().filter(|t| !crate::tabs::pins::holds(self, t)) {
-                    let uid = tab.uid();
+                // Under Settings › Group tabs, the groups' shown tabs in the groups' order: a
+                // collapsed group's hidden tabs take no key (`tab-strip.tsx:715-719`, `:916-917`).
+                let shown: Vec<usize> = match crate::tabs::auto_groups::groups(self) {
+                    Some(groups) => groups.iter().flat_map(|g| g.tabs.iter().copied()).collect(),
+                    None => (0..self.tabs.len()).filter(|&i| !crate::tabs::pins::holds(self, &self.tabs[i])).collect(),
+                };
+                for uid in shown.into_iter().map(|i| self.tabs[i].uid()) {
                     if !order.contains(&uid) {
                         order.push(uid);
                     }
