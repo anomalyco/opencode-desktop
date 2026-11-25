@@ -5,7 +5,7 @@
   "upstream_head": "b5dba31bf20d758d86871af65d206a197d411a0c",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "eab4de4be",
+  "rune_desktop_head": "50fefd969",
   "post_1114_commit_count": 653,
   "post_1114_in_ledger": 229,
   "post_1114_skipped": 424,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 250,
   "status_counts": {
-    "have it": 202,
+    "have it": 203,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 8
+    "missing": 7
   },
   "rows": [
     {
@@ -6133,8 +6133,8 @@
       ],
       "summary": "In official's New timeline the rows a reader is looking at stay still when an older page of history lands above them: they moved down 16 to 32 px on every page, because a row took the gap over it from the row before it and so grew on top when that row arrived. The row directly above now holds the gap, below its own content, and a turn's first row gets a turn gap row of its own. Also: collapsing a group from its stuck header leaves the header where it was (it moved up 6 px on every collapse).",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Not ported yet and not started: the agent that measured it handed it over for a fresh one. Ours has the fault, MEASURED on dev's spacing code (25 Nov, headless, a paged server that holds the older page 3 s; a session of 123 items with 80 loaded, the reader wheeled to the top of the loaded history): with the page still held the first loaded row, a reply's text, is at y 101 and 74 high, and the rows under it are at y 175, 241, 321; after the page landed that row is still at y 101 but 80 high, and the rows under it are at 181, 247, 327: everything on screen under the first row moves down 6 px for each page that lands (official's was 16 to 32). Cause, by reading: crates/session-view/src/timeline/rhythm.rs `space_at` sets the room OVER each row from the row above it, as official's spacing.ts did before this commit, and the list holds the first row's top. Also seen: a prompt that is first of a page is 73 high where it is 66 elsewhere, and one kept 73 long after the page above it had landed. Only a reply's text as the first row was measured. Not read in ours: the stuck header's collapse.",
+      "status": "have it",
+      "status_evidence": "opencode-rune #1160 (50fefd96): the upper row of two holds the room between them (crates/session-view/src/timeline/mod.rs, parts.rs, rhythm.rs, projection.rs, span.rs, delivery.rs; features/history/src/message_nav/mod.rs), so rows a reader looks at no longer move when an older page lands: the first loaded row 74 -> 80 high and +6 px on every row under it before, 51 -> 51 and +0 px after. Run headless on its CI build: an older page held 3 s then landed (both trees); a 15-pass walk at rest against published dev-489: 14 sessions 0 px different, Home the same but for a scratch path. Not run: the walk's passes with a menu or panel over the timeline; the stuck group header (by reading: ours measures no stuck distance, so official's 6 px has no counterpart); Previous / Next message onto a prompt with pictures. Differs from official: no turn-gap row (the last row of the turn above holds the turn's room: the same picture). Open remainder: a divider (a switch notice, a compaction) still takes the room over its own line from the row before, so a divider that is the first loaded row can still move by that when the page above lands.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
