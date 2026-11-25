@@ -88,6 +88,11 @@ try {
         if ($instrument) { '-Cprofile-generate=target/pgo-raw' } elseif (Test-Path $profdata) { "-Cprofile-use=$profdata"; '-Cllvm-args=-no-pgo-warn-mismatch' }
         # After cargo's own flags, so these win over the release profile's "no debug info".
         if ($symbols) { '-Cdebuginfo=line-tables-only'; '-Cstrip=none' }
+        # Windows: the linker writes its map beside the image (`<image>.map` in `deps/`): every
+        # function's name and address in this very build, with nothing added to or changed in the
+        # image itself. A link argument here, like the flags above, is not in the hash cargo
+        # puts into every symbol's name, so the trained profile still names the code.
+        if ($triple -match '-windows-msvc$') { '-Clink-arg=/MAP' }
     )
     if ($flags) { [Environment]::SetEnvironmentVariable($name, (@($before) + $flags | Where-Object { $_ }) -join ' ') }
     $parts = $Cargo -split ' '

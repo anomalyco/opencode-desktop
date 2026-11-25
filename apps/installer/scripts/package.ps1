@@ -111,6 +111,19 @@ if ($Payload) {
     Remove-Item -Recurse -Force $stage
     # The PDB keeps the name its image looks for beside itself: the library's, which holds the app.
     if ($Profile -eq 'release' -and $symbols) { Copy-Item (Join-Path $appBin $(if ($thin) { 'opencode_desktop_app.pdb' } else { 'opencode_desktop.pdb' })) $Out }
+    # The linker's map of the image that holds the app (release.ps1 asks for it): never in the
+    # zip. A pull request's build (or OPENCODE_RUNE_MAP=1) leaves it in -Out beside the PDB, for
+    # whoever reads where this build's functions lie; a release's -Out is published file by file
+    # (.github/release/publish-github-release.sh), so a release build leaves none there.
+    if ($Profile -eq 'release' -and ($env:GITHUB_HEAD_REF -or $env:OPENCODE_RUNE_MAP -eq '1')) {
+        $map = Get-ChildItem (Join-Path $appBin 'deps') -Filter $(if ($thin) { 'opencode_desktop_app*.map' } else { 'opencode_desktop-*.map' }) -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
+        if ($map) {
+            Copy-Item $map.FullName (Join-Path $Out $(if ($thin) { 'opencode-desktop.dll.map' } else { 'opencode-desktop.exe.map' }))
+            Write-Host ('linker map: {0} ({1:n1} MiB)' -f $map.Name, ($map.Length / 1MB))
+        } else {
+            Write-Host 'linker map: none was written'
+        }
+    }
 }
 
 $env:OPENCODE_RUNE_SETUP_PAYLOAD = $zip
