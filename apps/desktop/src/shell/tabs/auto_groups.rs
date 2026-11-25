@@ -183,11 +183,6 @@ pub fn groups(s: &App) -> Option<Vec<Group>> {
     grouped(s, s.tab_layout() != TabLayout::Horizontal)
 }
 
-/// Whether the tabs at places `a` and `b` stand in one group, so a drag may move one to the
-/// other's place: a drop in another group puts the tab back (`tab-strip.tsx:1205-1206`).
-pub fn same_group(s: &App, a: usize, b: usize) -> bool {
-    grouped(s, false).is_none_or(|groups| groups.iter().any(|g| g.all.contains(&a) && g.all.contains(&b)))
-}
 
 /// What a collapsed group's header shows of its tabs (`status`, `auto-tab-sections.tsx:121-129`):
 /// one working, else one waiting on a person, else one unread. A permission or a question that

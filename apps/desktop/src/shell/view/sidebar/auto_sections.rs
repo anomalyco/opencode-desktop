@@ -5,42 +5,56 @@
 
 use super::*;
 use crate::tabs::auto_groups::{self, Group, Kind, Mark};
+use crate::view::tab_strip::Sections;
+use rune_kit::shell::TabBreak;
 
 /// `text-[13px] leading-[var(--line-height-compact)] [font-weight:440]`
 /// (`auto-tab-sections.tsx:143`).
 const HEADER: TextStyle = TextStyle::new(13.0, 440.0).lh(16.0);
 
-/// The groups down the sidebar, as official's one list has them (`tab-strip.tsx:1052-1073`): its
-/// rows 3 apart (`tab-nav.css:179-181`), a header 8 further from what is above it, and a divider
-/// before the tabs with no project when anything stands above them.
+/// The groups down the sidebar, as official's one list has them (`tab-strip.tsx:1052-1073`): one
+/// strip of every group's shown tabs, its rows 3 apart (`tab-nav.css:179-181`), each group's
+/// header before its first tab and 8 further from what is above it, and a divider before the
+/// tabs with no project when anything stands above them.
 pub(super) fn sections(s: &App, p: &Pal, groups: &[Group]) -> El {
-    let mut list = col().key("consolidated-tabs").w_full().gap(3.0).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
-        tx.live_only();
-        s.strip_laid_out(r);
-    });
-    let mut first = true;
+    let mut indices: Vec<usize> = vec![];
+    let mut sections = Sections::default();
+    // The breaks' lengths, for the strip's height before it has been laid out.
+    let mut room = 0.0;
     for g in groups {
+        let (at, first) = (indices.len(), sections.breaks.is_empty() && indices.is_empty());
         match g.kind {
             Kind::Other if g.tabs.is_empty() => continue,
             // `mx-2 my-2 h-px` (`tab-strip.tsx:1060-1068`).
-            Kind::Other if !first => list = list.child(el().key("auto-group-divider").mx(8.0).my(8.0).h(1.0).fill(p.border_muted).a11y_hidden()),
+            Kind::Other if !first => {
+                let line = col().key("auto-group-divider").w_full().child(el().mx(8.0).my(8.0).h(1.0).fill(p.border_muted)).a11y_hidden();
+                sections.breaks.push(TabBreak::new("divider", at, line, 17.0));
+                room += 17.0 + 3.0;
+            }
             Kind::Other => {}
-            Kind::Project | Kind::Server => list = list.child(header(s, p, g, first)),
+            Kind::Project | Kind::Server => {
+                // `h-7`, and `[&:not(:first-child)]:mt-2` (`auto-tab-sections.tsx:143`).
+                let length = if first { 28.0 } else { 36.0 };
+                sections.breaks.push(TabBreak::new(format!("head-{}", g.key), at, header(s, p, g, first), length));
+                room += length + 3.0;
+            }
         }
-        first = false;
-        if g.tabs.is_empty() {
-            continue;
-        }
-        let key = format!("auto-tabs-{}", g.key);
-        let rows = g.tabs.len() as f32;
-        let h = rune::memo::layout_with(&format!("{key}-list"), |r| r[3]).unwrap_or(rows * 28.0 + (rows - 1.0) * 3.0);
         // A project's header names it, so its tabs leave out their avatar (`hideAvatars`,
         // `auto-tab-sections.tsx:202`).
-        list = list.child(col().key(format!("{key}-box")).w_full().h(h).child(crate::view::tab_strip::group_strip(s, p, &key, &g.tabs, g.kind == Kind::Project)));
+        sections.bare.extend(g.tabs.iter().map(|_| g.kind == Kind::Project));
+        indices.extend(&g.tabs);
     }
-    list
+    let h = rune::memo::layout_with("tabs-list", |r| r[3]).unwrap_or(indices.len() as f32 * 31.0 + room + 16.0);
+    col()
+        .key("consolidated-tabs")
+        .w_full()
+        .h(h)
+        .on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
+            tx.live_only();
+            s.strip_laid_out(r);
+        })
+        .child(crate::view::tab_strip::grouped_strip(s, p, "tabs", &indices, sections))
 }
-
 /// `GroupHeader` (`auto-tab-sections.tsx:83-181`): one 28 pt button that collapses its group.
 /// The project's icon or the server glyph, the name, the server's tag where the same project has
 /// a group on another server, a collapsed group's mark, and the chevron, which shows with the
