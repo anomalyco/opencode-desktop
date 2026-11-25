@@ -299,7 +299,6 @@ pub fn from_wire(s: &mut App, e: opencode_kit::wire_error::WireError) {
     error(s, &crate::errors::UserError::from_wire(title, &server, &e));
 }
 
-
 /// Shows `e`: what happened, why and what to do, with Copy details, until dismissed.
 pub fn error(s: &mut App, e: &crate::errors::UserError) {
     let status_summary = e.description().replace('\n', " ");
