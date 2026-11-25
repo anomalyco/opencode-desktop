@@ -216,12 +216,12 @@ impl TerminalSurfaceHost for App {
         crate::quote::can_quote(self, selected)
     }
 
-    fn quote_terminal_selection(&mut self, selected: &str, tx: &mut Tx) {
+    fn quote_terminal_selection(&mut self, selected: &str, comment: bool, tx: &mut Tx) {
         // The terminal names itself as the quote's source (`packages/gui-plugins/src/terminal/
         // panel.tsx`): its card reads Terminal under the terminal's icon, and the model reads
         // `From the terminal:` over the quoted lines.
         let source = opencode_kit::quote::source(opencode_i18n::t!("plugin.terminal.quote.label"), "terminal", "the terminal");
-        crate::quote::quote_selected_from(self, selected, source, tx);
+        crate::quote::quote_selected_from(self, selected, source, comment, tx);
     }
 
     fn speech_terminal_key(&mut self, ws_key: &str, tab_id: &str) {

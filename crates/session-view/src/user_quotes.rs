@@ -69,7 +69,13 @@ fn quote<S: TimelineHost>(s: &S, p: &Pal, id: &str, i: usize, q: &Quote, pending
     let lines = laid_out_lines(quoted, width);
     let expandable = open || lines > CLAMP;
     let ink = if pending { p.faint } else { p.muted };
-    let mut words = readable(p, text(quoted.to_owned()).key("text").font(BUBBLE).color(ink).wrap_anywhere()).dir_by_paragraph().shrink().min_w(0.0);
+    let mut words = text(quoted.to_owned()).key("text").font(BUBBLE).color(ink).wrap_anywhere();
+    // A source's icon leads the quote, inline, so wrapped lines return to the bar
+    // (`user-message-quote-icon`: 14 px in icon-muted, 6 before the words).
+    if let Some(glyph) = crate::user_parts::source_glyph(q) {
+        words = words.inline_icon(0, rune::InlineIcon::glyph(glyph).size(14.0).gap(6.0).color(p.icon_muted));
+    }
+    let mut words = readable(p, words).dir_by_paragraph().shrink().min_w(0.0);
     if !open {
         words = words.max_lines(CLAMP);
     }

@@ -440,12 +440,13 @@ pub fn quote_selected(host: &mut dyn QuoteHost, selected: &str, tx: &mut Tx) {
 
 /// [`quote_selected`] for text from outside the timeline, such as a terminal's output: the
 /// quote keeps `source` (`opencode_kit::quote::source`), which its card and the model name.
-pub fn quote_selected_from(host: &mut dyn QuoteHost, selected: &str, source: serde_json::Value, tx: &mut Tx) {
+/// With `comment` its comment editor opens, at the composer: it has no place in the timeline.
+pub fn quote_selected_from(host: &mut dyn QuoteHost, selected: &str, source: serde_json::Value, comment: bool, tx: &mut Tx) {
     let (text, truncated) = quote_text(selected);
     if host.quote_session().is_none() || truncated || text.is_empty() {
         return;
     }
-    add_text(host, text, Some(source), false, tx);
+    add_text(host, text, Some(source), comment, tx);
 }
 
 fn add_text(host: &mut dyn QuoteHost, text: String, from: Option<serde_json::Value>, comment: bool, tx: &mut Tx) {
@@ -460,7 +461,7 @@ fn add_text(host: &mut dyn QuoteHost, text: String, from: Option<serde_json::Val
         let source = q.selection.take().filter(|_| !outside).map(|h| h.source).unwrap_or_default();
         q.step(machine::Event::Reset, tx);
         let key = q.push_from(quote.into(), source);
-        let anchor = comment.then(|| q.placed.borrow_mut().take()).flatten();
+        let anchor = (comment && !outside).then(|| q.placed.borrow_mut().take()).flatten();
         (key, anchor)
     };
     if comment {
