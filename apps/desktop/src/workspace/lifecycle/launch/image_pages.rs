@@ -12,9 +12,11 @@
 //!
 //! - the pages the earlier launches of this very exe used, from `<cache>/launch-pages.bin`;
 //! - with no list of its own for this exe yet (its first start on a profile: after an install and
-//!   after every update), the list the build was packaged with, `launch-pages.bin` beside the
-//!   exe ([`packed`]): one launch's pages, made at package time;
-//! - with neither, its code and constants in address order.
+//!   after every update), its code and constants in address order.
+//!
+//! On that first start the list the build was packaged with, `launch-pages.bin` beside the exe
+//! ([`packed`]), stands in for the profile's when the image is in memory: its pages are mapped
+//! (below), nothing is asked for. With the image away it is not used.
 //!
 //! It asks only when the pages are away: it reads one byte of [`SAMPLES`] of them first (of
 //! [`SAMPLES_NO_LIST`] with no list yet), and a page in memory answers in a few microseconds
@@ -129,6 +131,14 @@ struct Image {
 /// Runs of pages, as (first page from the image's base, pages), in address order.
 type Runs = Vec<(u32, u32)>;
 
+/// Whether the whole code was looked at before a list was chosen, and what the look said.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Look {
+    NotYet,
+    Away,
+    Present,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
     /// A list's pages, else the whole code and constants, when they aren't in memory.
@@ -200,19 +210,32 @@ fn run(mode: Mode, threads: usize, ask: usize) {
     };
     let path = record.clone().or_else(|| crate::dirs::cache().map(|dir| dir.join("launch-pages.bin")));
     let own = if record.is_some() { None } else { path.as_deref().and_then(|p| std::fs::read(p).ok()).and_then(|bytes| decode(&bytes, &image)) };
-    // No list of its own: this build's first launch on the profile. The packed list stands in for
-    // this launch, and the launch writes its own at the end whatever it adds, so the next one
-    // reads what this machine's launch used.
+    // No list of its own: this build's first launch on the profile. The launch writes its own at
+    // the end whatever it adds, so the next one reads what this machine's launch used.
     let first = own.is_none();
+    // The build's packed list stands in for that launch only while the image is in memory. It is
+    // one launch's pages from the machine that built the app, about three quarters of what a
+    // launch here uses, and with the image away every page it lacks is a read from the disk on
+    // the thread that runs it: a never-started build was then later with it than with no list
+    // (first frame 88.9 against 83.1 ms and content live 104.6 against 100.6 ms, with the rest of
+    // the code asked for behind the list; 98.8 against 80.9 ms without that; its own list 57.4
+    // ms; 8 launches each in turn, 26 Nov). So one look at the whole code decides, the look a
+    // launch with no list takes anyway: away, and the launch goes on as if there were no list.
+    let mut look = Look::NotYet;
     let listed = own.or_else(|| {
         if record.is_some() {
             return None;
         }
         let runs = packed().and_then(|bytes| decode(&bytes, &image))?;
+        if mode == Mode::Auto {
+            look = if away(&image, &image.sections, SAMPLES_NO_LIST, AWAY_SAMPLES_NO_LIST) { Look::Away } else { Look::Present };
+            if look == Look::Away {
+                return None;
+            }
+        }
         rune::marks::mark("image.pages.packed");
         Some(runs)
     });
-    let from_package = first && listed.is_some();
     let wanted = match (&listed, mode) {
         (Some(runs), Mode::Auto | Mode::Listed) => Some(runs.clone()),
         (None, Mode::Listed) => None,
@@ -220,28 +243,14 @@ fn run(mode: Mode, threads: usize, ask: usize) {
     };
     if let Some(runs) = &wanted {
         let (samples, slow) = if listed.is_some() { (SAMPLES, AWAY_SAMPLES) } else { (SAMPLES_NO_LIST, AWAY_SAMPLES_NO_LIST) };
-        if mode != Mode::Auto || away(&image, runs, samples, slow) {
+        let gone = match look {
+            Look::Away => true,
+            Look::Present => false,
+            Look::NotYet => mode != Mode::Auto || away(&image, runs, samples, slow),
+        };
+        if gone {
             prefetch(&image, runs, ask);
             rune::marks::mark("image.pages.asked");
-            // The packed list is one launch's pages on the machine that built the app: it names
-            // about four fifths of what a launch here uses. With the image away, each page it
-            // lacks is a read from the disk on the thread that runs it: a never-started build with
-            // only such a list asked for reached its first frame at 98.8 ms and content live at
-            // 137 ms, against 80.9 and 98 ms with no list at all (which asks for the whole code)
-            // and 61 and 78 ms with a list of its own (8 launches each in turn, 26 Nov). So the
-            // rest of the code follows the list's pages, asked for on a thread of its own while
-            // this one maps the list.
-            if from_package && mode == Mode::Auto {
-                std::thread::Builder::new()
-                    .name("image-pages-rest".into())
-                    .spawn(|| {
-                        if let Some(image) = self::image() {
-                            prefetch(&image, &image.sections, 1);
-                            rune::marks::mark("image.pages.rest");
-                        }
-                    })
-                    .ok();
-            }
         } else {
             rune::marks::mark("image.pages.present");
         }
@@ -283,13 +292,14 @@ fn run(mode: Mode, threads: usize, ask: usize) {
 }
 
 /// The list the build was packaged with, `launch-pages.bin` beside the exe: what one launch of
-/// this very build used on the machine that packaged it (`apps/installer/scripts/package.ps1`,
-/// a window on the software adapter, no server). A build's first launch on a profile has no list
-/// of its own, so its main thread maps every page it runs: with the profile an update leaves,
-/// `main` to the first frame was 26.7 ms with no list, 23.2 ms with a list made that way on
-/// another machine and 21.8 ms with the profile's own (16 launches each in turn, 26 Nov; the
-/// first frame 4.35 ms sooner than with no list in 13 of 16, the own list 4.7 ms in 13 of 16).
-/// [`decode`] takes it only for the image it was made from, as it does the profile's.
+/// this very build used on the machine that packaged it (`apps/installer/scripts/package.ps1`
+/// runs `--record-launch-pages`, `record`). A build's first launch on a profile has no list of
+/// its own, so its main thread maps every page it runs: with the profile an update leaves and
+/// the image in memory, `main` to the first frame was 26.7 ms with no list, 23.2 ms with a list
+/// from one launch on another machine and 21.8 ms with the profile's own (16 launches each in
+/// turn, 26 Nov; the first frame 4.35 ms sooner than with no list in 13 of 16, the own list 4.7
+/// ms in 13 of 16). [`decode`] takes it only for the image it was made from, as it does the
+/// profile's; `run` uses it only while the image is in memory.
 fn packed() -> Option<Vec<u8>> {
     let exe = std::env::current_exe().ok()?;
     std::fs::read(exe.parent()?.join("launch-pages.bin")).ok()
