@@ -2,29 +2,29 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "acce96c36e7a90c5b28eb106e628e84cba86d61d",
+  "upstream_head": "eec153e79a271e2ab4dd671efafc966a2364156a",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "312f8b182",
-  "post_1114_commit_count": 654,
-  "post_1114_in_ledger": 230,
-  "post_1114_skipped": 424,
+  "rune_desktop_head": "7167f5e39",
+  "post_1114_commit_count": 657,
+  "post_1114_in_ledger": 232,
+  "post_1114_skipped": 425,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
     "ci-bench-deps": 24,
-    "docs-site-data": 62,
+    "docs-site-data": 63,
     "tui-only": 28,
     "cli-acp-only": 11,
     "server-core-ai-codemode-internal": 274
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 251,
+  "total_ledger_rows": 253,
   "status_counts": {
     "have it": 203,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 8
+    "missing": 10
   },
   "rows": [
     {
@@ -6291,6 +6291,52 @@
       "size": "M",
       "status": "missing",
       "status_evidence": "Ported in draft opencode-rune #1189 (apps/desktop/src/session/inbox/model.rs inbox_sections_with and Entry::waiting; shell/view/inbox.rs the card's dim and reveal; session/menu.rs the toggle and session.unarchive; shell/commands/mod.rs open_root_archived; shell/tabs/actions.rs the Inbox's keys, unread and the numbered pick's reveal); compiled by CI only, not run: it merges after a run on its build. Official: packages/app/src/shell/titlebar/inbox.tsx:142, :157, :178-210, :895; inbox-model.ts:523; packages/app/src/session/commands/use-session-commands.tsx:609-617; tab-strip.tsx:379, :392, :452.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-231",
+      "window": "post-1120",
+      "pr": 66343,
+      "sha": "31459a2c9e",
+      "title": "fix(app): remove the gap inside top tab groups",
+      "merged": "2026-11-25",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/titlebar/pinned-area.tsx"
+      ],
+      "summary": "Top tabs: a pin group's square and its sessions stand with no gap between them (the horizontal group's row lost its 4 px gap).",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Not ported yet: in work. Official: packages/app/src/shell/titlebar/pinned-area.tsx:390 (the horizontal group's classes: 'flex-row items-center', no 'gap-1'). Ours: apps/desktop/src/shell/view/sidebar/pinned_area.rs horizontal_group still has gap 4.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-232",
+      "window": "post-1120",
+      "pr": 66339,
+      "sha": "eec153e79a",
+      "title": "fix(app): split the browser import dialog into what to import and which sites",
+      "merged": "2026-11-25",
+      "packages": [
+        "gui-plugins",
+        "ui"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/i18n/en.ts",
+        "packages/gui-plugins/src/browser/settings.tsx",
+        "packages/gui-plugins/src/browser/site-chooser.tsx",
+        "packages/ui/src/overlays/dialog/dialog.css"
+      ],
+      "summary": "The browser's import dialog in two groups: what comes over (Sign-ins, Browsing history) and from which sites: a radio choice 'All sites' (with the count) or 'Only sites I choose', which shows the search and the site list under it with nothing ticked; one box in the list's header ticks or clears every shown site (mixed when some are ticked) in place of the Select all / Select none buttons; the 'Choose sites' disclosure in the footer is gone; a profile picker ('From') shows only where the dialog has several profiles to offer, and a Settings row opens it for its own profile, named in the title with the profile as a badge; a new dialog size 'tall' (480 x 600, fixed top edge); the Settings row's button says 'Import', not 'Import...', and a browser's profile name beside it is a badge.",
+      "size": "L",
+      "status": "missing",
+      "status_evidence": "Not ported yet: in work. Official: packages/gui-plugins/src/browser/site-chooser.tsx (the whole dialog), settings.tsx:71-73 (choices = [choice]), :884-896 (the badge), i18n/en.ts:204-208 and :439, packages/ui/src/overlays/dialog/dialog.css:163-180 and dialog.tsx:28 (size 'tall'). Ours: plugins/browser/settings.luau and init.luau (the dialog as it was: two boxes, a 'Choose sites' disclosure, every site ticked), opencode_ui::dialog::DialogSize (no tall preset).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
