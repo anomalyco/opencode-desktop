@@ -1981,9 +1981,15 @@ return plugin.defineWindow(function(ctx)
     end
 
     local function openAddExtensionDialog()
-        local bAny = Browser :: any
-        local rawSources = if type(bAny.ExtBrowserSources) == "function" then bAny:ExtBrowserSources() else {}
-        local sources: { extensions.BrowserSource } = if type(rawSources) == "table" then rawSources :: any else {}
+        -- The browsers and profiles of the page's import rows, the one used last first, the
+        -- Chromium ones only (`settings.tsx:90`, `:474`; `profile/sources.ts:149-165`): the page
+        -- that opens the dialog already lists them. A profile without extensions says so.
+        local sources: { extensions.BrowserSource } = {}
+        for _, browser in listImportSources() do
+            if browser.engine == "chromium" then
+                table.insert(sources, { id = browser.id, name = browser.name, profiles = browser.profiles })
+            end
+        end
         local choices = extensions.flattenChoices(sources)
         extDialogState = {
             busy = nil,
