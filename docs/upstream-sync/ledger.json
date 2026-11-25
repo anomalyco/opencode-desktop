@@ -5,7 +5,7 @@
   "upstream_head": "b6973f1b7b98e3db575bdb4ecbba6884e6eef8c2",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "1a52806f6",
+  "rune_desktop_head": "3bdfea8fe",
   "post_1114_commit_count": 681,
   "post_1114_in_ledger": 240,
   "post_1114_skipped": 441,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 261,
   "status_counts": {
-    "have it": 211,
+    "have it": 212,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 10
+    "missing": 9
   },
   "rows": [
     {
@@ -6408,8 +6408,8 @@
       ],
       "summary": "Consolidated navigation: a new setting 'Group tabs' (None, By project, By server) under the tab position. Open tabs then stand grouped by their project (or server), each group under a header that folds it to its current tab, groups in the order their first tab appears, tabs with no project last without a header; a project open on two servers names its server; the saved tab order keeps each group's tabs together. By server groups only with two servers or more.",
       "size": "L",
-      "status": "missing",
-      "status_evidence": "In work: draft opencode-rune #1215 (not run). Official: packages/app/src/shell/titlebar/auto-tab-groups.ts (autoTabGroups, groupedTabOrder), auto-tab-sections.tsx, tab-strip.tsx, titlebar.tsx, tab-nav.css, packages/app/src/settings/general/interface-mode.tsx:42-52, settings/model.tsx:159-160 and :538-543, runtime/i18n/en.ts:924-927. Ours: no such setting (apps/desktop/src and features have no tab grouping by project or server; the tab groups ours has are the user's own).",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1215 (3bdfea8f): Settings has Group tabs (None, By project, By server) under Tab position, default None, for Consolidated's open tabs with navigation Tabs. Groups stand in the order their first tab appears, the tabs with no project last under no header, pinned tabs in no group; by server only with two or more servers. Side tabs get a 28 pt header a group that collapses it (the open page's tab stays; a ring or a dot says what the hidden ones do); top tabs are ordered by group with no header; a tab moves only inside its group; the tab keys and Close other tabs / Close tabs below act on the tabs the strip shows, and leave the page on the menu's tab (features/settings/src, apps/desktop/src/shell/tabs/auto_groups.rs, shell/view/sidebar/auto_sections.rs, shell/view/tab_strip.rs, shell/tabs/actions.rs nav_order, features/session-menu/src strip_tabs). Official: packages/app/src/shell/titlebar/auto-tab-groups.ts:34-88, auto-tab-sections.tsx, tab-strip.tsx:715-719, :943, :948-954, :1060-1069, settings/general/interface-mode.tsx:42-52, settings/model.tsx:159-160 and :538-543. A fault of ours fixed with it: under Consolidated, Close other tabs also closed the open tabs of pinned sessions, which the strip does not show. Run headless on its own Windows x64 CI builds beside a build of dev on the same Rune pin, scenes and the app's fixture file, no server: the Settings row, its menu and its default; side tabs by project with their sizes; collapsed groups with their marks and the tab keys; top tabs in group order and the order kept when grouping is set to None; Close other tabs and Close tabs below; three drags; By server with one server on top tabs; Close other tabs leaving a pinned session's tab. Not run yet (each needs a server): By server with two servers; the choice and the collapsed groups kept across a restart. Not run: the chevrons under the pointer or Tab; a real window; macOS; Linux. Open differences, each in the PR's body with its official line: top tabs draw no divider between groups, a drag's look across groups, and the arrow keys stop at a group's last tab on side tabs (all three wait for the tab strip's section breaks in Rune, rune#2291, and the pin that holds them); the server's tag shrinks at the name's rate (auto-tab-sections.tsx:156); the chevron shows at once, not over 150 ms (:174); after Close other tabs from Home, Home's way back is not re-aimed at the kept tab (shell/tabs/tabs.tsx:673, :684).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
