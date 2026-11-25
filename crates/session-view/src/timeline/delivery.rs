@@ -26,7 +26,7 @@ pub(super) fn rows(out: &mut Vec<RowSpec>, messages: &[Message], span: std::ops:
     older: bool, detail: &Detail, fold: &impl Fn(&str) -> Fold, pending: Option<&InboxItem>) {
     for i in span.clone() {
         if let Message::Notice(n) = &messages[i] && notice_placement(n, detail) == Placement::Separate {
-            out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::Notice(i, Run::default(), rhythm::NOTICE_PT), streaming: false });
+            out.push(RowSpec { key: format!("n-{}", n.id), content: RowContent::Notice(i, Run::default(), rhythm::NOTICE_PT), streaming: false, under: 0.0, divider: None });
         }
     }
     let at_end = span.end == messages.len();
@@ -37,9 +37,9 @@ pub(super) fn rows(out: &mut Vec<RowSpec>, messages: &[Message], span: std::ops:
         let Message::User { id, text } = m else { continue };
         let above = prev.is_some_and(|p| joins(p, m));
         let below = prompts.peek().map_or_else(|| at_end && pending.is_some_and(|n| prompts_join(text, n)), |n| joins(m, &messages[*n]));
-        let tight = prompt_images(out, id, older);
+        let top = prompt_images(out, id, older, above);
         if !text.trim().is_empty() || !model::user_comments(id).is_empty() {
-            out.push(RowSpec { key: format!("u-{id}"), content: RowContent::User { message: i, tight, above, below, reply: 0.0, fold: fold(id) }, streaming: false });
+            out.push(RowSpec { key: format!("u-{id}"), content: RowContent::User { message: i, above, below, top, fold: fold(id) }, streaming: false, under: 0.0, divider: None });
         }
         prev = Some(m);
     }

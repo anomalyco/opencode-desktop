@@ -11,9 +11,11 @@
 //! | two of the same kind (words, or lines of activity), in a block  | `S` 16  |
 //!
 //! Dividers, compactions, Changed files, a reply's footer and a tool's pictures keep their own
-//! room; a row under one of them keeps the room it was built with. A finished turn a later
-//! prompt follows holds its footer under its words (`parts::turn_footer`, shown under the
+//! room; a row under one of them stands the room it was built with below it. A finished turn a
+//! later prompt follows holds its footer under its words (`parts::turn_footer`, shown under the
 //! pointer): its room counts toward the gap under them.
+//!
+//! The upper row of two holds the room between them, under what it shows ([`space_at`]).
 
 use opencode_kit::model::{Message, Part, Transcript};
 
@@ -184,35 +186,61 @@ fn gap(above: Edges, below: Edges) -> f32 {
     }
 }
 
-/// Sets the room over each row in `out` from the row above it (see the table above).
+/// Sets the room between each row in `out` and the row above it (see the table above), which
+/// the row above holds under what it shows (`RowSpec::under`).
 pub(super) fn space(t: &Transcript, detail: &crate::detail::Detail, out: &mut [RowSpec]) {
     space_at(t, detail, out, 0..out.len());
 }
 
 /// [`space`] for rows `at` alone, from the row above them: where two spans of a projection meet
 /// (`projection`).
+///
+/// The row directly above holds the room between two rows, never the lower row
+/// (`timeline-next/spacing.ts` `timelineGaps`, official `packages/app/AGENTS.md` "Rows that load
+/// above the reader", opencode#66014): older history loads above rows a reader is looking at,
+/// and a row that took its room on top would grow there when the row before it arrived and move
+/// what is on screen. Official gives a turn's first row a turn gap row for it; here the last row
+/// of the turn above holds it, which arrives with that turn all the same. The room is whole
+/// points, as rows stack (`virtualizer.tsx:362`), so a row is as tall as before with it.
 pub(super) fn space_at(t: &Transcript, detail: &crate::detail::Detail, out: &mut [RowSpec], at: std::ops::Range<usize>) {
     let mut folded: Folded = None;
-    let mut above: Option<Option<Edges>> = out[..at.start.min(out.len())].iter().rev()
-        .find(|r| !matches!(r.content, RowContent::Lane(_)))
-        .map(|r| edges_of(t, detail, &r.content, &mut folded));
+    let mut above: Option<(usize, Option<Edges>)> = out[..at.start.min(out.len())].iter().enumerate().rev()
+        .find(|(_, r)| !matches!(r.content, RowContent::Lane(_)))
+        .map(|(i, r)| (i, edges_of(t, detail, &r.content, &mut folded)));
     let end = at.end.min(out.len());
-    for row in out[at.start.min(end)..end].iter_mut() {
-        if matches!(row.content, RowContent::Lane(_)) {
+    for i in at.start.min(end)..end {
+        if matches!(out[i].content, RowContent::Lane(_)) {
             continue;
         }
-        let here = edges_of(t, detail, &row.content, &mut folded);
-        if let (Some(Some(prev)), Some(h)) = (above, here) {
+        let here = edges_of(t, detail, &out[i].content, &mut folded);
+        let Some((up, prev)) = above.replace((i, here)) else { continue };
+        if let (Some(prev), Some(h)) = (prev, here) {
             let room = (gap(prev, h) - prev.bottom - prev.footer - h.top).max(0.0);
-            match &mut row.content {
+            match &mut out[i].content {
                 // Consecutive prompts hold together as a run (`TurnGap`), which spaces them.
-                RowContent::User { reply, .. } | RowContent::Pending { reply, .. } => *reply = if prev.who != Who::User { (L - prev.bottom - prev.footer).max(0.0) } else { 0.0 },
+                RowContent::User { top, .. } | RowContent::Pending { top, .. } => if prev.who != Who::User && room > 0.0 { *top = room },
                 RowContent::Notice(_, _, pt) | RowContent::PendingNotice(_, pt) => *pt = room,
                 RowContent::Error { pt, .. } | RowContent::Retry { pt, .. } | RowContent::TurnText { pt, .. } | RowContent::Turn { pt, .. } => *pt = room,
                 _ => {}
             }
         }
-        above = Some(here);
+        // Whatever room the row stands under, the one rhythm set or the one it was built with
+        // under a row rhythm doesn't know, goes to the row above.
+        if let Some(room) = top_of(&mut out[i].content).map(std::mem::take) {
+            out[up].under = room.round();
+        }
+    }
+}
+
+/// The room a row takes over what it shows, where the row above can hold it. Dividers, a tool's
+/// pictures and the turn's footer keep their own.
+pub(super) fn top_of(row: &mut RowContent) -> Option<&mut f32> {
+    match row {
+        RowContent::User { top, .. } | RowContent::Pending { top, .. } => Some(top),
+        RowContent::Notice(_, _, pt) | RowContent::PendingNotice(_, pt) => Some(pt),
+        RowContent::Error { pt, .. } | RowContent::Retry { pt, .. } | RowContent::TurnText { pt, .. } | RowContent::Turn { pt, .. } => Some(pt),
+        RowContent::UserImages { pt, .. } | RowContent::TurnDiff { pt, .. } => Some(pt),
+        _ => None,
     }
 }
 
