@@ -55,10 +55,13 @@ pub const PEEK_KNOBS: Group = Group::new("Sidebar peek", "window", &[PEEK_EDGE, 
 rune_register::register!(crate::knobs::GROUP_LIST: Group = [PEEK_KNOBS]);
 
 /// Home, Search sessions and New session (`data-titlebar-tab-action`): 28pt rows, `px-2 gap-2`,
-/// faint until hovered or pressed, their keys showing on hover.
-pub(super) fn action_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str, hint: &str, pressed: bool) -> El {
+/// faint until hovered or pressed, their keys as keycap chips at the row's end on hover or
+/// keyboard focus (`titlebar.tsx` SidebarAction, `recently-closed-tabs-menu.tsx`).
+pub(super) fn action_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str, keys: Vec<String>, pressed: bool) -> El {
     let ink = if pressed { p.text } else { p.faint };
-    let mut r = row()
+    // `text-[13px] leading-[var(--line-height-compact)]` (no negative tracking), `min-w-0 truncate`.
+    let name = || text(label).font(TextStyle::new(13.0, 440.0).lh(16.0)).color(ink).group_color(p.text).truncate();
+    let r = row()
         .key(key)
         .role("button")
         .label(label)
@@ -74,17 +77,35 @@ pub(super) fn action_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str, 
         .hover(if pressed { Color::TRANSPARENT } else { p.hover })
         .press(if pressed { Color::TRANSPARENT } else { p.pressed })
         .hover_motion(INSTANT, INSTANT)
-        .child(icon(glyph, 16.0).color(ink).group_color(p.text))
-        // `titlebar.tsx` SidebarAction: `text-[13px] leading-[var(--line-height-compact)]` (no negative tracking).
-        .child(text(label).font(TextStyle::new(13.0, 440.0).lh(16.0)).color(ink).group_color(p.text).truncate_fade());
-    if pressed {
-        r = r.fill(p.pressed);
+        .child(icon(glyph, 16.0).color(ink).group_color(p.text));
+    let r = if pressed { r.fill(p.pressed) } else { r };
+    if keys.is_empty() {
+        return r.child(name());
     }
-    if !hint.is_empty() {
-        // `hidden group-hover:block`: no room is kept for it at rest, so the label never fades early.
-        r = r.child(row().key("hint").pin(None, Some(0.0), Some(8.0), Some(0.0)).center_y().child(text(hint).font(UI).color(p.faint)).group_opacity(0.0, 1.0));
-    }
-    r
+    // `ms-auto hidden shrink-0 group-hover:block group-focus-visible:block`: the keys take room
+    // only while they show, and the label shortens for them. A group's styles paint and lay
+    // nothing out, so the row holds both layouts and shows one.
+    let whole = Some(0.0);
+    r.child(
+        el().key("name")
+            .grow(1.0)
+            .min_w(0.0)
+            .h(28.0)
+            .child(row().key("rest").pin(whole, whole, whole, whole).center_y().child(name()).group_opacity(1.0, 0.0))
+            .child(
+                // Desktop's keys never shrink, so in a sidebar too narrow for them they run past
+                // the row's end. Here they wrap out of sight instead and the label keeps the row.
+                row().key("keyed")
+                    .pin(whole, whole, whole, whole)
+                    .flex_wrap()
+                    .gap(8.0)
+                    .clip_soft(0.0)
+                    .a11y_hidden()
+                    .group_opacity(0.0, 1.0)
+                    .child(row().grow(1.0).min_w(0.0).h(28.0).center_y().child(name()))
+                    .child(row().key("hint").h(28.0).center_y().child(crate::keymap::chips(p, keys))),
+            ),
+    )
 }
 
 /// The docked sidebar: its aside's width moves the panel's edge while its contents keep their
@@ -170,7 +191,7 @@ fn surface_width(s: &App) -> f32 {
 fn contents(s: &App, p: &Pal, top: f32) -> El {
     let chrome = chrome();
     let home = s.route == Route::Home && !s.settings_open();
-    let new = || action_row(p, "new", &ic::EDIT, t!("command.session.new"), &crate::keymap::Bind::TabNew.label(), false)
+    let new = || action_row(p, "new", &ic::EDIT, t!("command.session.new"), crate::keymap::Bind::TabNew.keycaps(), false)
         .matched(super::titlebar::NAV_NEW).matched_crop().motion(GLIDE)
         .on_press_tx(|s: &mut App, tx: &mut Tx| s.new_session(tx))
         .on_secondary_press(|s: &mut App, press, tx| crate::recently_closed::open(s, press, tx));
@@ -212,14 +233,14 @@ fn contents(s: &App, p: &Pal, top: f32) -> El {
 fn actions(s: &App, p: &Pal, home: bool, new: impl Fn() -> El) -> Vec<El> {
     let home_row = || {
         let (label, glyph) = pinned_area::home_label(s);
-        action_row(p, "home", glyph, label, &crate::keymap::Bind::Home.label(), home)
+        action_row(p, "home", glyph, label, crate::keymap::Bind::Home.keycaps(), home)
             .matched(super::titlebar::NAV_HOME).matched_crop().motion(GLIDE)
             .on_press_tx(|s: &mut App, tx: &mut Tx| {
                 s.toggle_home(tx);
             })
     };
     let search = || {
-        action_row(p, "search", &ic::MAGNIFYING_GLASS, t!("command.session.search"), &crate::keymap::Bind::SessionSearch.label(), false)
+        action_row(p, "search", &ic::MAGNIFYING_GLASS, t!("command.session.search"), crate::keymap::Bind::SessionSearch.keycaps(), false)
             .matched(super::titlebar::NAV_SEARCH).matched_crop().motion(GLIDE)
             .on_press_tx(|s: &mut App, tx: &mut Tx| {
                 s.close_settings();
@@ -227,7 +248,7 @@ fn actions(s: &App, p: &Pal, home: bool, new: impl Fn() -> El) -> Vec<El> {
             })
     };
     let settings = || {
-        action_row(p, "sidebar-settings", &ic::SETTINGS_GEAR, t!("sidebar.settings"), &crate::keymap::Bind::Settings.label(), s.settings_open())
+        action_row(p, "sidebar-settings", &ic::SETTINGS_GEAR, t!("sidebar.settings"), crate::keymap::Bind::Settings.keycaps(), s.settings_open())
             .on_press_tx(|s: &mut App, tx| s.toggle_settings(tx))
     };
     if s.settings.navigation_prototype() {
