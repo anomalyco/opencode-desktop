@@ -408,7 +408,7 @@ pub fn typed(host: &mut dyn QuoteHost, tx: &mut Tx) {
 /// (`quote.tsx:343-395`).
 pub fn add(host: &mut dyn QuoteHost, comment: bool, tx: &mut Tx) {
     let Some(text) = host.quotes().offer().filter(|o| !o.truncated).map(|o| o.text.clone()) else { return };
-    add_text(host, text, comment, tx);
+    add_text(host, text, None, comment, tx);
 }
 
 /// The timeline's selection when it lies in message `message` (a selected text's path names
@@ -435,17 +435,29 @@ pub fn quote_selected(host: &mut dyn QuoteHost, selected: &str, tx: &mut Tx) {
     if host.quote_session().is_none() || truncated || text.is_empty() {
         return;
     }
-    add_text(host, text, false, tx);
+    add_text(host, text, None, false, tx);
 }
 
-fn add_text(host: &mut dyn QuoteHost, text: String, comment: bool, tx: &mut Tx) {
-    let quote = Quote { text, comment: None, source: None };
+/// [`quote_selected`] for text from outside the timeline, such as a terminal's output: the
+/// quote keeps `source` (`opencode_kit::quote::source`), which its card and the model name.
+pub fn quote_selected_from(host: &mut dyn QuoteHost, selected: &str, source: serde_json::Value, tx: &mut Tx) {
+    let (text, truncated) = quote_text(selected);
+    if host.quote_session().is_none() || truncated || text.is_empty() {
+        return;
+    }
+    add_text(host, text, Some(source), false, tx);
+}
+
+fn add_text(host: &mut dyn QuoteHost, text: String, from: Option<serde_json::Value>, comment: bool, tx: &mut Tx) {
+    // Only a quote from the timeline has words there to mark.
+    let outside = from.is_some();
+    let quote = Quote { text, comment: None, source: from };
     tx.clear_text_selection();
     // The card lands in the click, with nothing moving, as in Desktop.
     tx.instant();
     let (key, anchor) = {
         let q = host.quotes_mut();
-        let source = q.selection.take().map(|h| h.source).unwrap_or_default();
+        let source = q.selection.take().filter(|_| !outside).map(|h| h.source).unwrap_or_default();
         q.step(machine::Event::Reset, tx);
         let key = q.push_from(quote.into(), source);
         let anchor = comment.then(|| q.placed.borrow_mut().take()).flatten();
