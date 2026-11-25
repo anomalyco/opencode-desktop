@@ -5,7 +5,7 @@
   "upstream_head": "f8fc24ea5c74b527244672a1bd3273f8d0cd296e",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "54dd095c3",
+  "rune_desktop_head": "80627ab6a",
   "post_1114_commit_count": 662,
   "post_1114_in_ledger": 235,
   "post_1114_skipped": 427,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 256,
   "status_counts": {
-    "have it": 205,
+    "have it": 206,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 11
+    "missing": 10
   },
   "rows": [
     {
@@ -4632,7 +4632,7 @@
       "summary": "A session command \"Archive session\" (mod+shift+s), for root sessions not yet archived: archives on the server, refreshes Home/inbox lists and removes the tab (the view moves to the next open session); a failure toasts.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "opencode-rune #740 (a4bdc387a4): session.archive (Mod+Shift+S, Settings > Shortcuts row) archives the open root session not yet archived through the session menu's archive_session: lists update, its tab closes, Undo toast kept.",
+      "status_evidence": "opencode-rune #740 (a4bdc387a4): session.archive (Mod+Shift+S, Settings > Shortcuts row) archives the open root session not yet archived through the session menu's archive_session: lists update, its tab closes, Undo toast kept. Correction, 25 Nov: the command and its entry in the palette were there, but the shortcut never reached the command: apps/desktop/src/shell/input/shortcuts.rs TABLE had no line for Bind::ArchiveSession, and a pressed key reaches a command only through that table or the command's own default key. A run pressed Ctrl+Shift+S on a build of dev and nothing happened. Fixed in opencode-rune #1189 (80627ab6), where the same run shows it archive the open session.",
       "depends_on": "none",
       "risks": "mod+shift+s must not collide with an existing binding.",
       "workstream": "WS-8"
@@ -6289,8 +6289,8 @@
       ],
       "summary": "Inbox sidebar: an archived session that waits on a person (a permission to decide, a question to answer) joins Needs attention until it is answered, is left out of Archived meanwhile and is not dimmed; Archive session (mod+shift+s) toggles, so the same shortcut brings an archived session back, and there is a new command Unarchive session; the tab strip's session shortcuts (mod+1..9, alt+up / alt+down, shift+alt+up / shift+alt+down) work over the Inbox's session rows in the order they show.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Ported in draft opencode-rune #1189 (apps/desktop/src/session/inbox/model.rs inbox_sections_with and Entry::waiting; shell/view/inbox.rs the card's dim and reveal; session/menu.rs the toggle and session.unarchive; shell/commands/mod.rs open_root_archived; shell/tabs/actions.rs the Inbox's keys, unread and the numbered pick's reveal); compiled by CI only, not run: it merges after a run on its build. Official: packages/app/src/shell/titlebar/inbox.tsx:142, :157, :178-210, :895; inbox-model.ts:523; packages/app/src/session/commands/use-session-commands.tsx:609-617; tab-strip.tsx:379, :392, :452.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1189 (80627ab6): an archived session that waits on a person joins Needs attention, is left out of Archived and is not dimmed (apps/desktop/src/session/inbox/model.rs inbox_sections_with, Entry::waiting; shell/view/inbox.rs); Archive session (mod+shift+s) toggles and there is a command Unarchive session (session/menu.rs, shell/commands/mod.rs open_root_archived); in the Inbox the unread shortcuts stop on done or failed rows only, a numbered pick scrolls its row into view, and rows are named by their key across servers (shell/tabs/actions.rs). Official: packages/app/src/shell/titlebar/inbox.tsx:142, :157, :178-210, :895; inbox-model.ts:523; packages/app/src/session/commands/use-session-commands.tsx:609-617; tab-strip.tsx:379, :392, :452. Run headless on its own Windows x64 CI builds beside a build without it, a fixture server, a second server added by address for the shortcuts: the three cases hold (archived and waiting under Needs attention and back when answered; the shortcut and the palette's Unarchive session bring an archived session back; Next session, Next unread and the numbered pick's scroll on a second server). Two faults of ours fixed with it: the Inbox's rows were named by session id alone, so on a server that is not the app's own Next session jumped to the first row and Next unread did nothing (seen in the run's before passes); and the Archive session shortcut never reached its command (see UP-164). Not run: a real window, a refused archive or unarchive, the Undo in the toast, the upward shortcuts, a failed row, macOS, Linux. Open differences, each with a follow-up PR: official asks the server before it moves a session and leaves it where it is on a refusal (use-session-commands.tsx:359-391, inbox-model.ts:476-492); ours moves it at once and does not put it back (the follow-up keeps the move at once and puts it back; waiting like official is the noted alternative); rows whose times tie stand with the active server's first, official's in the servers' listed order (inbox-model.ts:164-228).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
