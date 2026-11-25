@@ -381,9 +381,9 @@ fn horizontal_group(s: &App, p: &Pal, g: &PinGroup, nav_order: &[String], show_h
         .on_secondary_press(move |s: &mut App, _: rune::PointerPress, tx: &mut Tx| open_group_menu(s, &ctx_id, ctx_key.clone().into(), rune::Align::Start, tx))
         .child(marker);
     let trigger = if menu_open { trigger.fill(p.pressed) } else { trigger.help(g.name.clone()) };
+    // No gap between the group's square and its sessions (`pinned-area.tsx:390`, opencode#66343).
     let mut r = row()
         .key(format!("pin-group-h-{}", g.id))
-        .gap(4.0)
         .center_y()
         .radius(8.0)
         .box_shadow(Pal::ring_in(outline))
