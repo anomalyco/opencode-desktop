@@ -452,7 +452,8 @@ pub fn run(host: &mut dyn SessionMenuHost, t: &Target, id: &str, tx: &mut Tx) {
     }
 }
 
-/// The server answered a rename, a delete or a restore this window sent (`client.session.write`).
+/// The server answered a rename, a delete, an archive or a restore this window sent
+/// (`client.session.write`).
 pub fn session_write_replied(host: &mut dyn SessionMenuHost, data: &serde_json::Value, error: Option<WireError>, tx: &mut Tx) {
     let session = data["sessionID"].as_str().unwrap_or_default().to_owned();
     let ok = data["ok"].as_bool() == Some(true);
@@ -494,11 +495,17 @@ pub fn session_write_replied(host: &mut dyn SessionMenuHost, data: &serde_json::
             let server = host.active_server();
             delete::sent_event(host, delete::SentEvent::Replied { session, server, ok }, why, tx);
         }
+        Some("archive") => host.on_archive_replied(session, ok, tx),
         Some("unarchive") => host.on_unarchive_replied(session, ok, why, tx),
         _ => {}
     }
-    if let Some(e) = error {
-        host.toast_wire_error(e);
+    match (error, data["kind"].as_str()) {
+        // An archive and a restore go as the session's PATCH, which a rename is too: the call
+        // alone would name them a failed rename. Desktop's title for both is
+        // `common.requestFailed` (`session/commands/use-session-commands.tsx:367`, `:383`).
+        (Some(e), Some("archive" | "unarchive")) => host.toast_wire_error_titled(opencode_i18n::t!("common.requestFailed"), e),
+        (Some(e), _) => host.toast_wire_error(e),
+        (None, _) => {}
     }
 }
 
