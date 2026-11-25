@@ -216,8 +216,21 @@ impl TerminalSurfaceHost for App {
         crate::quote::can_quote(self, selected)
     }
 
-    fn quote_terminal_selection(&mut self, selected: &str, tx: &mut Tx) {
-        crate::quote::quote_selected(self, selected, tx);
+    fn quote_terminal_selection(&mut self, selected: &str, comment: Option<opencode_feature_terminal_surface::grid::QuotePlace>, tx: &mut Tx) {
+        // The terminal names itself as the quote's source (`packages/gui-plugins/src/terminal/
+        // panel.tsx`): its card reads Terminal under the terminal's icon, and the model reads
+        // `From the terminal:` over the quoted lines.
+        let source = opencode_kit::quote::source(opencode_i18n::t!("plugin.terminal.quote.label"), "terminal", "the terminal");
+        // Its comment editor opens beside the rows it came from, inside the terminal's pane
+        // (`panel.tsx:52-62`: `composer.focus(commentID, { anchor })`).
+        let anchor = comment.as_ref().filter(|place| !place.boxes.is_empty()).map(|place| crate::quote::comment::Anchor {
+            bounds: crate::quote::comment::Bounds::Element(place.bounds.to_owned()),
+            path: place.origin.to_owned(),
+            rects: place.boxes.clone(),
+            short: place.single,
+            backward: false,
+        });
+        crate::quote::quote_selected_from(self, selected, source, comment.is_some(), anchor, tx);
     }
 
     fn speech_terminal_key(&mut self, ws_key: &str, tab_id: &str) {

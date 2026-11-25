@@ -2,29 +2,29 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "b5dba31bf20d758d86871af65d206a197d411a0c",
+  "upstream_head": "d06f869560b894e23400d88d1afa765cb04381d6",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "eab4de4be",
-  "post_1114_commit_count": 653,
-  "post_1114_in_ledger": 229,
-  "post_1114_skipped": 424,
+  "rune_desktop_head": "d4c692d3a",
+  "post_1114_commit_count": 666,
+  "post_1114_in_ledger": 236,
+  "post_1114_skipped": 430,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
-    "ci-bench-deps": 24,
-    "docs-site-data": 62,
-    "tui-only": 28,
+    "ci-bench-deps": 25,
+    "docs-site-data": 64,
+    "tui-only": 29,
     "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 274
+    "server-core-ai-codemode-internal": 276
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 250,
+  "total_ledger_rows": 257,
   "status_counts": {
-    "have it": 202,
+    "have it": 207,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 8
+    "missing": 10
   },
   "rows": [
     {
@@ -4632,7 +4632,7 @@
       "summary": "A session command \"Archive session\" (mod+shift+s), for root sessions not yet archived: archives on the server, refreshes Home/inbox lists and removes the tab (the view moves to the next open session); a failure toasts.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "opencode-rune #740 (a4bdc387a4): session.archive (Mod+Shift+S, Settings > Shortcuts row) archives the open root session not yet archived through the session menu's archive_session: lists update, its tab closes, Undo toast kept.",
+      "status_evidence": "opencode-rune #740 (a4bdc387a4): session.archive (Mod+Shift+S, Settings > Shortcuts row) archives the open root session not yet archived through the session menu's archive_session: lists update, its tab closes, Undo toast kept. Correction, 25 Nov: the command and its entry in the palette were there, but the shortcut never reached the command: apps/desktop/src/shell/input/shortcuts.rs TABLE had no line for Bind::ArchiveSession, and a pressed key reaches a command only through that table or the command's own default key. A run pressed Ctrl+Shift+S on a build of dev and nothing happened. Fixed in opencode-rune #1189 (80627ab6), where the same run shows it archive the open session.",
       "depends_on": "none",
       "risks": "mod+shift+s must not collide with an existing binding.",
       "workstream": "WS-8"
@@ -6133,8 +6133,8 @@
       ],
       "summary": "In official's New timeline the rows a reader is looking at stay still when an older page of history lands above them: they moved down 16 to 32 px on every page, because a row took the gap over it from the row before it and so grew on top when that row arrived. The row directly above now holds the gap, below its own content, and a turn's first row gets a turn gap row of its own. Also: collapsing a group from its stuck header leaves the header where it was (it moved up 6 px on every collapse).",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Not ported yet and not started: the agent that measured it handed it over for a fresh one. Ours has the fault, MEASURED on dev's spacing code (25 Nov, headless, a paged server that holds the older page 3 s; a session of 123 items with 80 loaded, the reader wheeled to the top of the loaded history): with the page still held the first loaded row, a reply's text, is at y 101 and 74 high, and the rows under it are at y 175, 241, 321; after the page landed that row is still at y 101 but 80 high, and the rows under it are at 181, 247, 327: everything on screen under the first row moves down 6 px for each page that lands (official's was 16 to 32). Cause, by reading: crates/session-view/src/timeline/rhythm.rs `space_at` sets the room OVER each row from the row above it, as official's spacing.ts did before this commit, and the list holds the first row's top. Also seen: a prompt that is first of a page is 73 high where it is 66 elsewhere, and one kept 73 long after the page above it had landed. Only a reply's text as the first row was measured. Not read in ours: the stuck header's collapse.",
+      "status": "have it",
+      "status_evidence": "opencode-rune #1160 (50fefd96): the upper row of two holds the room between them (crates/session-view/src/timeline/mod.rs, parts.rs, rhythm.rs, projection.rs, span.rs, delivery.rs; features/history/src/message_nav/mod.rs), so rows a reader looks at no longer move when an older page lands: the first loaded row 74 -> 80 high and +6 px on every row under it before, 51 -> 51 and +0 px after. Run headless on its CI build: an older page held 3 s then landed (both trees); a 15-pass walk at rest against published dev-489: 14 sessions 0 px different, Home the same but for a scratch path. Not run: the walk's passes with a menu or panel over the timeline; the stuck group header (by reading: ours measures no stuck distance, so official's 6 px has no counterpart); Previous / Next message onto a prompt with pictures. Differs from official: no turn-gap row (the last row of the turn above holds the turn's room: the same picture). The row above a divider (a switched agent or model, a move, a compaction, Interrupted) holds the room over the divider's words too, as official's timelineGaps gives it to the row before, since opencode-rune #1178 (312f8b18); run headless on its CI build: a session whose first loaded row is a divider, the older page held 3 s then landed: the divider and the rows under it moved 10 px up before, not at all after. Not run: an open compaction summary whose header is stuck; a real window.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6156,7 +6156,7 @@
       "summary": "A prompt's quotes reach the model as plain reply-style blockquotes before the user's own words, like an email reply: each quote a block of `> ` lines (an empty line is `>`), named by a line `From <subject>:` only when it came from another source such as the terminal, its comment under it; then the user's words, the `Attached file:` lines, notes and file comments. Before, a quote came after the words under the sentence `The user quoted the following from ...` with its comment under `The user made the following comment regarding this quote:`. The bubble and its quote cards are unchanged.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "opencode-rune #1119 (c7d9d177): a prompt's quotes go first, each as official's reply-style blockquote (`From <subject>:` when it has a source, the text with `> ` on every line, the comment below), then the user's words (crates/opencode-kit/src/quote.rs model_text / prompt_text; apps/desktop/src/session/inbox/send.rs); both the new and the old shape are read back out of a stored prompt (model/parse.rs quoted_text), and mentions are recorded against the user's own words. Run on its Windows x64 CI build by the app's headless runner (a scripted pointer and keyboard, no window on a display) against a private server (docs/upstream-sync/ported-runs.md): a lone quote; a quote with a comment, words and an attached file, the stored text line for line; the same after a new launch; a session stored in the old shape (seeded by script); a quote beside a session mention; a quote beside an @file mention (the file part's mention offsets count from the user's own words). Not run: a real window. Still differs: official's terminal names itself as a quote's source (packages/gui-plugins/src/terminal/panel.tsx:60), so the model reads `From the terminal:`; a quote ours takes from its terminal carries no source. opencode#66248 (a4bea47aa5) only rewords the plugin API's comment for the new text.",
+      "status_evidence": "opencode-rune #1119 (c7d9d177): a prompt's quotes go first, each as official's reply-style blockquote (`From <subject>:` when it has a source, the text with `> ` on every line, the comment below), then the user's words (crates/opencode-kit/src/quote.rs model_text / prompt_text; apps/desktop/src/session/inbox/send.rs); both the new and the old shape are read back out of a stored prompt (model/parse.rs quoted_text), and mentions are recorded against the user's own words. Run on its Windows x64 CI build by the app's headless runner (a scripted pointer and keyboard, no window on a display) against a private server (docs/upstream-sync/ported-runs.md): a lone quote; a quote with a comment, words and an attached file, the stored text line for line; the same after a new launch; a session stored in the old shape (seeded by script); a quote beside a session mention; a quote beside an @file mention (the file part's mention offsets count from the user's own words). Not run: a real window. A quote taken from the terminal names its source since opencode-rune #1148 (a7f2e08b): its card shows the terminal's icon and Terminal, the model reads `From the terminal:` over the quoted lines, the icon leads the quote inside the bubble, and the terminal's Quote button opens the comment editor unless Alt is held (packages/gui-plugins/src/terminal/panel.tsx:52-62, quote.tsx; packages/session-ui/src/message/comment-card.tsx:135-137, user-message-quotes.tsx:76); run headless on its Windows x64 CI build (a plain press and an Alt press, the stored text and source, the bubble after the send and a new launch with a one-line and a two-line quote, a conversation quote unchanged). Open differences: the source's icon in the bubble has no name or hover title of its own (user-message-quotes.tsx:76; the quote carries the name as its accessibility description). The comment editor of a terminal quote opens beside the quoted rows inside the terminal's pane, as official's (quote-machine.ts:258-298), since opencode-rune #1182 (fd054049): run headless on its CI build (one row, two rows, a narrow window, a scroll and a write after the quote); not run: a grid resize after the quote, a real window; its open difference: official keeps an unchanged editor open until a pointer press outside it, ours closes it on any focus loss. Ours only: a right-click menu in the terminal, whose Quote adds without the comment editor. opencode#66248 (a4bea47aa5) only rewords the plugin API's comment for the new text.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6200,8 +6200,8 @@
       ],
       "summary": "Four gaps of the Consolidated navigation: a middle click on a pinned session unpins it and closes its tab; a pin group's chevron (vertical) and, under Consolidated, a Recent group header's chevron show only on hover or keyboard focus; Home's project picker names the focused server, with the server glyph, in place of All projects when there are several servers and no project is chosen.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Ported in draft opencode-rune #1144 (apps/desktop/src/shell/tabs/pins.rs close, shell/view/sidebar/pinned_area.rs, sidebar/recent.rs, shell/view/home/projects.rs); compiled by CI only, not run: it merges after a run on its build. Two differences stated there: the chevron's fade follows the row's hover track, not official's 150 ms; a pin group's chevron also shows for focus on the row's options button.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1144 (2e0d7d31): a middle click on a pinned session unpins it (apps/desktop/src/shell/tabs/pins.rs), a pin group's and a Recent group header's chevron show only under the pointer or keyboard focus (shell/view/sidebar/pinned_area.rs, recent.rs), Home's picker names the focused server when no project is chosen (shell/view/home/projects.rs). Run headless on its own Windows x64 CI build beside a build without it: the chevron at rest / pointer on the toggle / pointer away / keyboard focus on the toggle and on the menu button, the Recent header the same, the middle click with and without an open tab, Home's picker with one and two servers in a narrow and a 900-wide window. Not run: a real window, a pin group in top tabs under the keyboard, the Recent arrangement's own grouped header, macOS, Linux. Open differences, all four removed by Rune's rune#2231 (merged on Rune dev, not pinned yet), then one app change: (A) the chevron's fade: ours at once in and 0.1 s out, official 150 ms (packages/app/src/shell/titlebar/pinned-area.tsx:376); (B) with the pointer over the row's menu button official still shows the chevron (the row is hovered), ours does not; (C) with keyboard focus on the toggle ours also draws the toggle's hover fill, official the focus ring alone (seen in the run); (D) the menu button shows for keyboard focus anywhere in the row, official only for its own focus (pinned-area.tsx:417; recent-sessions.tsx:1225, :1231).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6267,6 +6267,173 @@
       "size": "S",
       "status": "missing",
       "status_evidence": "Not ported. The glyph is Rune's (rune-theme-opencode, themes/opencode/src/icons.rs, SETTINGS_GEAR, still the old outline at the pinned rev 4d8df909), so the change is a one-path Rune PR and a pin; asked of the pin's owner. Ours draws it in apps/desktop/src/shell/view/sidebar.rs, home/projects.rs, location_card.rs and features/narrow/src/tabs.rs. The glyph is changed in Rune (rune#2183, 36a50e613: the line Rune's icon generator writes from the official catalog at e54fbacb3d); it reaches the app with the next pin bump. Not seen drawn yet.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-230",
+      "window": "post-1120",
+      "pr": 66327,
+      "sha": "acce96c36e",
+      "title": "fix(app): inbox sidebar — archived sessions needing attention, archive toggle, session shortcuts",
+      "merged": "2026-11-25",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/i18n/en.ts",
+        "packages/app/src/session/commands/use-session-commands.tsx",
+        "packages/app/src/shell/titlebar/inbox-model.ts",
+        "packages/app/src/shell/titlebar/inbox.tsx"
+      ],
+      "summary": "Inbox sidebar: an archived session that waits on a person (a permission to decide, a question to answer) joins Needs attention until it is answered, is left out of Archived meanwhile and is not dimmed; Archive session (mod+shift+s) toggles, so the same shortcut brings an archived session back, and there is a new command Unarchive session; the tab strip's session shortcuts (mod+1..9, alt+up / alt+down, shift+alt+up / shift+alt+down) work over the Inbox's session rows in the order they show.",
+      "size": "M",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1189 (80627ab6): an archived session that waits on a person joins Needs attention, is left out of Archived and is not dimmed (apps/desktop/src/session/inbox/model.rs inbox_sections_with, Entry::waiting; shell/view/inbox.rs); Archive session (mod+shift+s) toggles and there is a command Unarchive session (session/menu.rs, shell/commands/mod.rs open_root_archived); in the Inbox the unread shortcuts stop on done or failed rows only, a numbered pick scrolls its row into view, and rows are named by their key across servers (shell/tabs/actions.rs). Official: packages/app/src/shell/titlebar/inbox.tsx:142, :157, :178-210, :895; inbox-model.ts:523; packages/app/src/session/commands/use-session-commands.tsx:609-617; tab-strip.tsx:379, :392, :452. Run headless on its own Windows x64 CI builds beside a build without it, a fixture server, a second server added by address for the shortcuts: the three cases hold (archived and waiting under Needs attention and back when answered; the shortcut and the palette's Unarchive session bring an archived session back; Next session, Next unread and the numbered pick's scroll on a second server). Two faults of ours fixed with it: the Inbox's rows were named by session id alone, so on a server that is not the app's own Next session jumped to the first row and Next unread did nothing (seen in the run's before passes); and the Archive session shortcut never reached its command (see UP-164). Not run: a real window, a refused archive or unarchive, the Undo in the toast, the upward shortcuts, a failed row, macOS, Linux. Open differences, each with a follow-up PR: official asks the server before it moves a session and leaves it where it is on a refusal (use-session-commands.tsx:359-391, inbox-model.ts:476-492); ours moves it at once and does not put it back (the follow-up keeps the move at once and puts it back; waiting like official is the noted alternative); rows whose times tie stand with the active server's first, official's in the servers' listed order (inbox-model.ts:164-228).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-231",
+      "window": "post-1120",
+      "pr": 66343,
+      "sha": "31459a2c9e",
+      "title": "fix(app): remove the gap inside top tab groups",
+      "merged": "2026-11-25",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/titlebar/pinned-area.tsx"
+      ],
+      "summary": "Top tabs: a pin group's square and its sessions stand with no gap between them (the horizontal group's row lost its 4 px gap).",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1197 (54dd095c): apps/desktop/src/shell/view/sidebar/pinned_area.rs horizontal_group has no gap between the group's square and its sessions (official packages/app/src/shell/titlebar/pinned-area.tsx:390). Run headless on its own Windows x64 CI build beside a build without it, scene top-consolidated: the square stays, the first session 4 px nearer, the second 8, the outline 92 to 84, what follows 8 left, the tabs after it share the freed 8 px. Not run: a real window, a group of three or more, a collapsed group, macOS, Linux.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-232",
+      "window": "post-1120",
+      "pr": 66339,
+      "sha": "eec153e79a",
+      "title": "fix(app): split the browser import dialog into what to import and which sites",
+      "merged": "2026-11-25",
+      "packages": [
+        "gui-plugins",
+        "ui"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/i18n/en.ts",
+        "packages/gui-plugins/src/browser/settings.tsx",
+        "packages/gui-plugins/src/browser/site-chooser.tsx",
+        "packages/ui/src/overlays/dialog/dialog.css"
+      ],
+      "summary": "The browser's import dialog in two groups: what comes over (Sign-ins, Browsing history) and from which sites: a radio choice 'All sites' (with the count) or 'Only sites I choose', which shows the search and the site list under it with nothing ticked; one box in the list's header ticks or clears every shown site (mixed when some are ticked) in place of the Select all / Select none buttons; the 'Choose sites' disclosure in the footer is gone; a profile picker ('From') shows only where the dialog has several profiles to offer, and a Settings row opens it for its own profile, named in the title with the profile as a badge; a new dialog size 'tall' (480 x 600, fixed top edge); the Settings row's button says 'Import', not 'Import...', and a browser's profile name beside it is a badge.",
+      "size": "L",
+      "status": "missing",
+      "status_evidence": "Not ported yet: in work. Official: packages/gui-plugins/src/browser/site-chooser.tsx (the whole dialog), settings.tsx:71-73 (choices = [choice]), :884-896 (the badge), i18n/en.ts:204-208 and :439, packages/ui/src/overlays/dialog/dialog.css:163-180 and dialog.tsx:28 (size 'tall'). Ours: plugins/browser/settings.luau and init.luau (the dialog as it was: two boxes, a 'Choose sites' disclosure, every site ticked), opencode_ui::dialog::DialogSize (no tall preset).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-233",
+      "window": "post-1120",
+      "pr": 66340,
+      "sha": "64324cf3e4",
+      "title": "fix(app): show keyboard focus in the worktree picker and What's New",
+      "merged": "2026-11-25",
+      "packages": [
+        "app",
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/app/src/new-session/location/dialog.css",
+        "packages/app/src/new-session/location/dialog.tsx",
+        "packages/gui-plugins/src/updater/whats-new.tsx"
+      ],
+      "summary": "Keyboard focus in two dialogs. The worktree picker (the new session's location dialog): its rows are no longer Tab stops, the search field keeps the focus and names the active row, and a row lights under the pointer only; typing on a focused row no longer has to be sent back to the search field. What's New: its wrapper is no longer a Tab stop, and Next and Get started are one button that takes the focus when the dialog opens and keeps it on the last page.",
+      "size": "S",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1200 (74e81e51): What's New's Next and Get started are one button, release-primary, which takes the focus as the dialog opens and keeps it on the last page (plugins/updater/view.luau; official packages/gui-plugins/src/updater/whats-new.tsx:239-247). The worktree picker's half was already so in ours: its rows are options of a listbox, and an option is not a Tab stop in this app (only button-like roles are), so Tab stops on the rows' step-in buttons and never on a row, as official's now (packages/app/src/new-session/location/dialog.tsx:472-473). Run headless on its own Windows x64 CI build, a fixture server, What's New opened from a scratch copy of the Updater plugin given with --plugin-dir, holding this change and then dev's view, on the one build: with the change the button has the focus as the dialog opens and through all three pages, and Return on the last page closes the dialog; before, the focus was on the dialog itself and Return did nothing; the picker's Tab order is as described. Not run: a real window, What's New after a real update, its dots, Don't show these in the future, a click on a picker row, macOS, Linux. Seen in the run, not part of the port and open: the focused button draws no ring; ours rings a dialog's first focus only when the keyboard moved focus last (Rune runtime/input/modal_focus.rs:218, focus.rs:50-53), for every dialog; whether official's button shows one there (packages/ui/src/overlays/dialog/dialog.tsx:164-183, button.css :focus-visible) is the browser engine's rule for a script focus and needs a look at the official app.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-234",
+      "window": "post-1120",
+      "pr": 66349,
+      "sha": "59a7e1cccc",
+      "title": "feat(app): join consecutive thoughts in the new timeline",
+      "merged": "2026-11-25",
+      "packages": [
+        "app",
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/app/src/session/timeline/message-timeline.tsx",
+        "packages/session-ui/src/message/message-content.tsx",
+        "packages/session-ui/src/timeline-next/projection.ts",
+        "packages/session-ui/src/timeline-next/row.tsx"
+      ],
+      "summary": "New timeline: finished thoughts that follow one another with nothing between read as ONE thought row: one 'Thought' with the time of all of them, opening to the thoughts a paragraph (12 px) apart, opened and shut together by the first one's state; a single thought keeps its own row. While the turn runs, the thoughts it ends on read as one 'Thinking' row (the finished ones before the live one inside it) until something else shows. In a group's summary, thoughts one after another count as one ('Thought', not '2 Thoughts').",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Not ported yet: in work. Official: packages/session-ui/src/timeline-next/projection.ts:499-503, :525-530, :568-575, :632-637 (trailingThoughts), :956-988 (the 'thought' group), packages/session-ui/src/timeline/timeline-row.ts:21-23 and :56-61 (Thinking.before), timeline-next/tools/thought.tsx, tools/activity-label.ts:23-25, timeline-next.css:40-45 (12 px), packages/app/src/session/timeline/message-timeline.tsx:266-268. Ours: crates/session-view/src/turns/mod.rs and turns/view.rs list a stretch of thoughts alone as separate thought rows ('A group of thoughts alone is those thoughts, without a group around them').",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-235",
+      "window": "post-1120",
+      "pr": 66350,
+      "sha": "204d38da8d",
+      "title": "feat(app): group tabs by project or server in Consolidated",
+      "merged": "2026-11-25",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/i18n/en.ts",
+        "packages/app/src/settings/general/interface-mode.tsx",
+        "packages/app/src/settings/model.tsx",
+        "packages/app/src/shell/titlebar/auto-tab-groups.ts"
+      ],
+      "summary": "Consolidated navigation: a new setting 'Group tabs' (None, By project, By server) under the tab position. Open tabs then stand grouped by their project (or server), each group under a header that folds it to its current tab, groups in the order their first tab appears, tabs with no project last without a header; a project open on two servers names its server; the saved tab order keeps each group's tabs together. By server groups only with two servers or more.",
+      "size": "L",
+      "status": "missing",
+      "status_evidence": "Not ported yet: in work. Official: packages/app/src/shell/titlebar/auto-tab-groups.ts (autoTabGroups, groupedTabOrder), auto-tab-sections.tsx, tab-strip.tsx, titlebar.tsx, tab-nav.css, packages/app/src/settings/general/interface-mode.tsx:42-52, settings/model.tsx:159-160 and :538-543, runtime/i18n/en.ts:924-927. Ours: no such setting (apps/desktop/src and features have no tab grouping by project or server; the tab groups ours has are the user's own).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-236",
+      "window": "post-1120",
+      "pr": 66355,
+      "sha": "5050225a09",
+      "title": "fix(app): redesign the add extension dialog",
+      "merged": "2026-11-25",
+      "packages": [
+        "gui-plugins",
+        "plugin"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/i18n/en.ts",
+        "packages/gui-plugins/src/browser/settings.tsx",
+        "packages/plugin/src/gui/host-apis.ts"
+      ],
+      "summary": "The browser's Add extension dialog redesigned: a browser profile's extensions stand in a bordered list with the profile picker ('From') as its header; the ones that work here, fully or in part, come first, and the ones that will not follow under their own heading ('Won't work in OpenCode'); loading an extension from a folder is a quiet 'Load from folder' action at the start of the footer, in place of the closed 'For developers' disclosure; new words ('Not supported' for 'Probably won't work here', 'Partly supported' for 'May not fully work here'); the plugin API's button gains the variant 'submit' (styled like the composer's send button).",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Not ported yet: in work. Official: packages/gui-plugins/src/browser/settings.tsx (AddExtension, from :460), i18n/en.ts:134, :236-241, :384, packages/plugin/src/gui/host-apis.ts:1745-1750. Ours: the dialog is in plugins/browser/extensions.luau and its strings in plugins/browser/locales/en.json; ours' plugin button names that variant 'primary' (crates/opencode-plugin-runtime/src/ui_nodes.rs variant).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"

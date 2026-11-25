@@ -488,6 +488,17 @@ pub fn open_pin(s: &mut App, r: &PinRef, tx: &mut Tx) {
     s.open(&r.session_id, tx);
 }
 
+/// A middle click on a pinned session (`pinned-area.tsx`'s `close`, opencode#66265): unpins it
+/// and closes its tab, if one is open.
+pub fn close(s: &mut App, r: &PinRef, tx: &mut Tx) {
+    tx.instant();
+    update(s, |d| d.unpin(r));
+    let open = s.tabs.iter().find(|t| !t.is_draft() && t.is(&r.server, &r.session_id)).map(Tab::uid);
+    if let Some(uid) = open {
+        s.close_tab(&uid, tx);
+    }
+}
+
 pub fn open_by_uid(s: &mut App, uid: &str, tx: &mut Tx) -> bool {
     let found = visible_refs(s).into_iter().find(|r| r.uid() == uid);
     if let Some(r) = found {

@@ -294,6 +294,16 @@ impl Quote {
         self.source.as_ref()?["subject"].as_str()
     }
 
+    /// The source's name on the card while the quote has no comment (`source.label`).
+    pub fn source_label(&self) -> Option<&str> {
+        self.source.as_ref()?["label"].as_str()
+    }
+
+    /// The source's icon on the card, by Desktop's icon name (`source.icon`).
+    pub fn source_icon(&self) -> Option<&str> {
+        self.source.as_ref()?["icon"].as_str()
+    }
+
     /// The trimmed comment, when there's one to send.
     pub fn comment(&self) -> Option<&str> {
         self.comment.as_deref().map(str::trim).filter(|c| !c.is_empty())
@@ -318,6 +328,13 @@ impl Quote {
         let text = v["text"].as_str()?.to_owned();
         Some(Quote { text, comment: v["comment"].as_str().map(str::to_owned), source: v["source"].is_object().then(|| v["source"].clone()) })
     }
+}
+
+/// Where a quote from outside the timeline came from, as Desktop keeps it with the draft and the
+/// sent message (`QuoteSource`, `ComposerQuote.source`): `label` and `icon` for its card,
+/// `subject` for the model's `From <subject>:` line, which isn't localized.
+pub fn source(label: &str, icon: &str, subject: &str) -> Value {
+    serde_json::json!({ "label": label, "icon": icon, "subject": subject })
 }
 
 /// A prompt's `text` as the model reads it (Desktop's `buildPromptRequest`, `composer/request.ts`):

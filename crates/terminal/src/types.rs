@@ -164,6 +164,9 @@ pub struct TerminalSnapshot {
     pub find: Option<FindView>,
     /// Finished commands on the rows in view (OSC 133): each its prompt's row and how it ended.
     pub marks: Vec<(u16, crate::CommandMark)>,
+    /// Bytes written to the terminal so far: a view tells a write from a scroll or a selection
+    /// by it.
+    pub written: u64,
 }
 
 /// What finding shows: the matches in all, which one is selected (0 is the newest), and the
@@ -207,6 +210,7 @@ impl TerminalSnapshot {
             bell_count: 0,
             find: None,
             marks: Vec::new(),
+            written: 0,
         }
     }
 

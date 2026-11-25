@@ -48,7 +48,8 @@ pub struct Projection {
 
 impl Projection {
     /// `same`: the rows' keys are the previous projection's (`generation`), in the same order.
-    fn new(spans: Vec<Rc<Vec<RowSpec>>>, t: &Transcript, detail: &crate::detail::Detail, same: Option<u64>) -> Projection {
+    /// `older`: messages are still to land above the first row.
+    fn new(spans: Vec<Rc<Vec<RowSpec>>>, t: &Transcript, detail: &crate::detail::Detail, same: Option<u64>, older: bool) -> Projection {
         let mut starts = Vec::with_capacity(spans.len());
         let mut len = 0;
         for s in &spans {
@@ -62,6 +63,20 @@ impl Projection {
         });
         let mut p = Projection { spans, starts, len, seams: Vec::new(), generation };
         p.seams = p.space_seams(t, detail);
+        // The first row with messages still to land above takes no room over it: the row that
+        // lands above it brings the room between them (`rhythm::space_at`), so the first row is
+        // the same row before and after (official `packages/app/AGENTS.md`, "Rows that load
+        // above the reader"). The session's first row keeps the room it starts the timeline with.
+        if older && let Some(mut first) = p.get(0).cloned() {
+            if let Some(top) = rhythm::top_of(&mut first.content) {
+                *top = 0.0;
+            }
+            dividers::wait(&mut first.content);
+            match p.seams.first_mut().filter(|(at, _)| *at == 0) {
+                Some(seam) => seam.1 = first,
+                None => p.seams.insert(0, (0, first)),
+            }
+        }
         p
     }
 
@@ -91,9 +106,10 @@ impl Projection {
     }
 
     /// Where two spans meet, each span spaced its rows among themselves: the last row of the one
-    /// above and the first of the one below learn what's beside them (`dividers`, `rhythm`).
+    /// above and the first of the one below learn what's beside them (`dividers`, `rhythm`): the
+    /// upper one takes the room between them, which the lower one was built with over it.
     fn space_seams(&self, t: &Transcript, detail: &crate::detail::Detail) -> Vec<(usize, RowSpec)> {
-        let mut out = Vec::new();
+        let mut out: Vec<(usize, RowSpec)> = Vec::new();
         for &seam in self.starts.iter().skip(1).filter(|&&s| s > 0 && s < self.len) {
             let from = seam.saturating_sub(2);
             let to = (seam + 2).min(self.len);
@@ -101,6 +117,10 @@ impl Projection {
             let at = seam - 1 - from..seam + 1 - from;
             dividers::stack_at(t, &mut window, at.clone());
             rhythm::space_at(t, detail, &mut window, at.clone());
+            // A span of one row meets a span on both sides: the seam under it knows its room.
+            if out.last().is_some_and(|(i, _)| *i == seam - 1) {
+                out.pop();
+            }
             out.extend(at.map(|j| (from + j, window[j].clone())));
         }
         out
@@ -189,7 +209,7 @@ thread_local! {
 
 /// Transcript `t`'s rows: kept while what they read holds, projected only where it doesn't.
 pub fn rows<S: TimelineHost>(s: &S, t: &Transcript) -> Rc<Projection> {
-    let whole = |s: &S| Rc::new(Projection::new(vec![Rc::new(super::project(s, t))], t, &s.timeline_detail(), None));
+    let whole = |s: &S| Rc::new(Projection::new(vec![Rc::new(super::project(s, t))], t, &s.timeline_detail(), None, s.more_above(&t.session)));
     let Some(version) = s.transcript_version(&t.session) else { return whole(s) };
     let fold_user = s.fold_user_messages();
     // An opened prompt folds by where it stands on screen (`fold::place`): its rows move with the
@@ -312,6 +332,14 @@ fn update<S: TimelineHost>(s: &S, t: &Transcript, inp: &Inputs, mut k: Session, 
         }
         k.top = messages.get(k.top()).map(|m| m.id().to_owned());
     }
+    // Whether older messages remain above is the transcript's first span's to read (its first
+    // row starts the session, or stands under what is still to land): it projects again when
+    // that changes, whether or not a message did. Kept, a newest page's first prompt stayed the
+    // session's start (8 over it) under the page that later landed above it.
+    if k.tail.older != tail.older && let Some(sp) = k.spans.first_mut().filter(|sp| sp.range.start == 0) {
+        sp.rows = Rc::new(span::project(s, t, inp, sp.range.clone(), false));
+        stamp_all(t, inp, &mut k.spans[..1]);
+    }
     // The newest span starts where the spans above end, and splits at each prompt since.
     let mut from = k.spans.last().map_or(k.newest.0.start, |sp| sp.range.end);
     if from > messages.len() || (from > 0 && !span::boundary(messages, from)) {
@@ -389,7 +417,7 @@ fn assemble(t: &Transcript, inp: &Inputs, mut k: Session) -> Session {
         && old.iter().zip(&spans).rev().skip(1).all(|(a, b)| Rc::ptr_eq(a, b))
         && old.last().zip(spans.last()).is_some_and(|(a, b)| a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.key == y.key)))
         .then_some(k.rows.generation);
-    k.rows = Rc::new(Projection::new(spans, t, &inp.detail, same));
+    k.rows = Rc::new(Projection::new(spans, t, &inp.detail, same, inp.older || k.top() > 0));
     k
 }
 
@@ -428,13 +456,13 @@ fn stamps_of(t: &Transcript, inp: &Inputs, ranges: &[Range<usize>], from: usize,
     for (k, r) in ranges.iter().enumerate() {
         // A span's rows read the prompts that start the next one (the turn above runs to their
         // end), the run under way where it starts, and, the transcript's first, whether older
-        // messages remain above it.
+        // messages remain above it: a span that stood first and no longer does projects again.
         let end = if r.end < messages.len() { super::delivery::end(&[], messages, r.end) } else { r.end };
         if end <= from {
             continue;
         }
         let mut h = hasher();
-        (span::run_at(messages, r.start), r.start == 0 && inp.older).hash(&mut h);
+        (span::run_at(messages, r.start), (r.start == 0).then_some(inp.older)).hash(&mut h);
         for m in &messages[r.start..end.min(messages.len())] {
             shape(m, &inp.detail).hash(&mut h);
         }

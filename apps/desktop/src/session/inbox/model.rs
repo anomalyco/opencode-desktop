@@ -59,6 +59,12 @@ impl Entry<'_> {
     pub fn key(&self) -> String {
         crate::tabs::session_uid(self.server, &self.session.id)
     }
+
+    /// Waiting on a person: a permission to decide or a question to answer (`inboxWaiting`,
+    /// `inbox-model.ts`).
+    pub fn waiting(&self) -> bool {
+        matches!(self.status, InboxStatus::Approval | InboxStatus::Input)
+    }
 }
 
 /// A root session of a server the window isn't checked out on, as of its last checkout.
@@ -214,7 +220,9 @@ impl App {
         // An automation's sessions (Flow's) stay out of it; the open one still shows, as `current`.
         let rest: Vec<Entry<'_>> = list.iter().filter(|e| rank(e).is_none() && !crate::view::is_automation(&e.session.title)).copied().collect();
         let active = || rest.iter().filter(|e| e.session.archived.is_none()).copied();
-        let mut needs: Vec<_> = active().filter(|e| matches!(e.status, InboxStatus::Approval | InboxStatus::Input)).collect();
+        // An archived session that asks for something joins Needs attention until it's answered,
+        // then goes back to Archived (`inbox.tsx` `sections`, opencode#66327).
+        let mut needs: Vec<_> = rest.iter().filter(|e| e.waiting()).copied().collect();
         needs.sort_by_key(|e| e.since.unwrap_or(i64::MAX));
         let mut settled: Vec<_> = active().filter(|e| matches!(e.status, InboxStatus::Done | InboxStatus::Failed | InboxStatus::Ready)).collect();
         settled.sort_by_key(|e| std::cmp::Reverse(e.since.unwrap_or(0)));
@@ -230,7 +238,7 @@ impl App {
             let start = |e: &Entry<'_>| working_since(e.session).unwrap_or(i64::MAX);
             start(a).cmp(&start(b)).then_with(|| a.session.id.cmp(&b.session.id))
         });
-        let mut filed: Vec<_> = rest.iter().filter(|e| e.session.archived.is_some()).copied().collect();
+        let mut filed: Vec<_> = rest.iter().filter(|e| e.session.archived.is_some() && !e.waiting()).copied().collect();
         filed.sort_by_key(|e| std::cmp::Reverse(e.session.archived.unwrap_or(0)));
         let listed: &[Entry<'_>] = if archived { &filed } else { &[] };
         let shown = |e: &Entry<'_>| [&needs[..], &recent[..], &working[..], listed].iter().any(|g| g.iter().any(|x| x.server == e.server && x.session.id == e.session.id));
@@ -272,15 +280,6 @@ impl App {
             self.save_tabs();
         }
         self.open(&id, tx);
-    }
-
-    /// Whether another server's inbox row `key` shows a dot (it waits on you, or something new
-    /// came), as its server last showed it.
-    pub fn inbox_row_dotted(&self, key: &str) -> bool {
-        let here = crate::servers::runtime::active(self);
-        self.sidebar_inbox.servers.iter().filter(|(server, _)| server != here).any(|(server, rows)| {
-            rows.iter().any(|r| crate::tabs::session_uid(server, &r.session.id) == key && !matches!(r.status, InboxStatus::Working | InboxStatus::Ready))
-        })
     }
 
     /// Runs `f` on the server of inbox row `key`, with its session's id.
