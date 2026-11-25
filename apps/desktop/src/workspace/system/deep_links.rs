@@ -17,7 +17,10 @@
 //! before the server connects (one that started the app) waits for it.
 //!
 //! Windows registers the scheme at install (`win_install`) and hands each link to the running app
-//! through `rune::single_instance`; macOS gets it from the bundle's `CFBundleURLTypes`.
+//! through `rune::single_instance`; macOS gets it from the bundle's `CFBundleURLTypes`. On Linux
+//! the installed desktop file claims it (`scripts/package-linux.sh`: `MimeType`, `Exec .. %u`),
+//! as Desktop's does (`electron-builder.config.ts` `protocols`), and `rune::single_instance`
+//! hands a link to the running app the same way.
 
 use rune::Tx;
 use rune::machine::Effects;

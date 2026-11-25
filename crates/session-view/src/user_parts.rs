@@ -245,12 +245,25 @@ fn file_card(p: &Pal, f: &FileComment, active: bool, wide: bool) -> El {
     c.help(f.comment.clone()).help_above()
 }
 
+/// The icon of the source a quote came from (`source.icon`, an icon name of Desktop's). Ours
+/// knows the terminal's by name; a quote from the conversation, or from a source whose icon
+/// ours doesn't have, has none.
+pub fn source_glyph(q: &Quote) -> Option<&'static Icon> {
+    match q.source_icon() {
+        Some("terminal") => Some(&rune_theme_opencode::icons::TERMINAL),
+        _ => None,
+    }
+}
+
 /// A quote's two-line card.
 pub fn quote_card(p: &Pal, q: &Quote, hint: bool, active: bool, wide: bool) -> El {
     let comment = q.comment();
     let quote = quote_preview(&q.text);
     let title = comment.map_or_else(|| quote.clone(), one_line);
-    let label = if comment.is_some() { quote } else { opencode_i18n::t!("ui.commentCard.quote").to_owned() };
+    // A quote from outside the timeline names its source (`comment-card.tsx:135-137`): the
+    // source's icon in place of the quote glyph, and its label while there's no comment.
+    let glyph: &Icon = source_glyph(q).unwrap_or(&OUTLINE_QUOTE);
+    let label = if comment.is_some() { quote } else { q.source_label().unwrap_or(opencode_i18n::t!("ui.commentCard.quote")).to_owned() };
     let cut = starts_cut(&q.text);
     let mut title = text(title).key("title").font(CARD_TITLE).color(p.text).truncate_fade().w_full();
     let tip = tooltip(q);
@@ -271,11 +284,11 @@ pub fn quote_card(p: &Pal, q: &Quote, hint: bool, active: bool, wide: bool) -> E
         subtitle = if crate::style::hover_none() && comment.is_none() {
             subtitle.child(line("comment-line", &COMMENT, edit.to_owned(), p.text, false))
         } else {
-            subtitle.child(line("quote-line", &OUTLINE_QUOTE, label, p.muted, quoted).group_opacity(1.0, 0.0))
+            subtitle.child(line("quote-line", glyph, label, p.muted, quoted).group_opacity(1.0, 0.0))
                 .child(line("comment-line", &COMMENT, edit.to_owned(), p.text, false).absolute(0.0, 0.0).group_opacity(0.0, 1.0))
         };
     } else {
-        subtitle = subtitle.child(line("quote-line", &OUTLINE_QUOTE, label, p.muted, quoted));
+        subtitle = subtitle.child(line("quote-line", glyph, label, p.muted, quoted));
     }
     let mut c = col()
         .key("card")

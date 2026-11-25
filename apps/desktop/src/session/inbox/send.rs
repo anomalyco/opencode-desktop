@@ -116,10 +116,7 @@ impl App {
         let context: Vec<_> = if command.is_none() { commented.chain(crate::add_selection::take(self)).collect() } else { Vec::new() };
         let text = match &command {
             Some((_, args)) => args.clone(),
-            None => {
-                let quoted = quotes.iter().map(opencode_kit::model::PromptComment::prompt_text);
-                std::iter::once(attachments::path_lines(&wire.text, &refs)).filter(|t| !t.is_empty()).chain(quoted).collect::<Vec<_>>().join("\n")
-            }
+            None => opencode_kit::quote::model_text(&attachments::path_lines(&wire.text, &refs), &quotes),
         };
         // A prompt of only quotes leaves from its first quote's chip; any other from its words.
         let from = match self.kernel.slots.get(&crate::quote::QUOTE).items.first() {

@@ -55,7 +55,7 @@ pub fn open(host: &mut dyn TerminalSurfaceHost, wk: &str, tid: &str, press: Poin
                     Some(text)
                 });
                 if let Some(text) = text {
-                    host.quote_terminal_selection(&text, tx);
+                    host.quote_terminal_selection(&text, false, tx);
                 }
             }
             // The screen stays; what scrolled off it goes (ED 3), as Windows Terminal's

@@ -357,7 +357,10 @@ fn handle_quote_press(host: &mut dyn TerminalSurfaceHost, ws_key: &str, tab_id: 
         t.session.select(SelectionOp::Clear);
         text
     };
-    host.quote_terminal_selection(&text, tx);
+    // The button's click opens the quote's comment editor; with Alt held it skips the comment,
+    // as its tooltip says (`quote.tsx`: `skipComment: event.altKey`).
+    let comment = !tx.mods().alt;
+    host.quote_terminal_selection(&text, comment, tx);
 }
 
 pub(super) fn attach_viewport_handlers<H: TerminalSurfaceHost + 'static>(outer: El, input: ViewportInput) -> El {
