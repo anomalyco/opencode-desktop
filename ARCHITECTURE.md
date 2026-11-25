@@ -1,6 +1,6 @@
 # Architecture
 
-`rune-desktop` uses **progressive disclosure** in its folder layout so contributors and agents can ship features without navigating core internals.
+`anomalyco/opencode-rune` uses **progressive disclosure** in its folder layout so contributors and agents can ship features without navigating core internals.
 
 ## 1. Progressive-Disclosure Layout
 

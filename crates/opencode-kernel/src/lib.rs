@@ -1,4 +1,4 @@
-//! Lightweight Shell Kernel for Rune apps (`rune-desktop` and other embedder hosts).
+//! Lightweight Shell Kernel for Rune apps (`opencode-desktop` and other embedder hosts).
 //!
 //! Unites four orthogonal decoupling registries so features never add fields to the host `App`
 //! struct or edit central switchboards:

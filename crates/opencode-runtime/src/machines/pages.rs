@@ -152,6 +152,9 @@ pub enum HistoryEvent<'a> {
     /// A history page landed with `cursor` above it (`None`: the start), adding `added` messages.
     Landed { cursor: Option<String>, added: usize },
     Failed { now: Instant },
+    /// The transcript was replaced by a newer read that does not adjoin what was loaded, leaving
+    /// `cursor` above it (`None`: the start): older pages continue from there.
+    Replaced { cursor: Option<String> },
 }
 
 #[derive(Debug, PartialEq)]
@@ -173,6 +176,7 @@ impl History {
         use HistoryEffect::*;
         let keep = || state.cloned();
         match (state, event) {
+            (_, HistoryEvent::Replaced { cursor }) => (Some(cursor.map_or(History::Exhausted, |cursor| History::Idle { cursor })), Effects::none()),
             (None, HistoryEvent::Latest { key, cursor, now }) => {
                 (Some(History::Expanding { due: now + EXPAND_AFTER, key, cursor: cursor.to_owned() }), Effects::one(WakeAfter(EXPAND_AFTER)))
             }
@@ -217,6 +221,55 @@ fn above(cursor: Option<String>, added: usize) -> History {
     match cursor.filter(|_| added > 0) {
         Some(cursor) => History::Idle { cursor },
         None => History::Exhausted,
+    }
+}
+
+/// Sizes of the older pages a new read of the newest page may read to reach the loaded messages
+/// (`packages/client/src/solid/data.ts` `bridgePageLimits`). They grow: a short gap costs one
+/// small page, and the longest gap that is closed costs three requests.
+pub const BRIDGE: [usize; 3] = [20, 40, 140];
+
+/// A newest page read again (every reconnect of the event stream) that does not reach the
+/// loaded messages: more than a page arrived while its events were missed. Older pages are read
+/// until they meet what is loaded; after a longer absence only the newest messages stay, as on
+/// a first read. A transcript never skips messages (`data.ts` `session.message.sync`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Bridge {
+    /// The older page number `step`, before `cursor`, is on its way.
+    Reading { step: usize, cursor: String },
+}
+
+pub enum BridgeEvent {
+    /// The newest page landed apart from the loaded messages, leaving `cursor` above it.
+    Apart { cursor: Option<String> },
+    /// An older page landed, leaving `cursor` above it: `meets` when the pages read so far
+    /// reach the loaded messages.
+    Landed { meets: bool, cursor: Option<String> },
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum BridgeEffect {
+    /// Read `limit` messages before `cursor`.
+    Read { cursor: String, limit: usize },
+    /// The pages read reach the loaded messages: join them.
+    Join,
+    /// They do not: keep the pages read only.
+    Replace,
+}
+
+impl Bridge {
+    pub fn step(state: Option<&Bridge>, event: BridgeEvent) -> (Option<Bridge>, Effects<BridgeEffect>) {
+        use BridgeEffect::*;
+        let read = |step: usize, cursor: String| (Some(Bridge::Reading { step, cursor: cursor.clone() }), Effects::one(Read { cursor, limit: BRIDGE[step] }));
+        match (state, event) {
+            (_, BridgeEvent::Apart { cursor: Some(cursor) }) => read(0, cursor),
+            // Nothing older on the server, and still apart: what was loaded is no longer there.
+            (_, BridgeEvent::Apart { cursor: None }) => (None, Effects::one(Replace)),
+            (Some(Bridge::Reading { .. }), BridgeEvent::Landed { meets: true, .. }) => (None, Effects::one(Join)),
+            (Some(Bridge::Reading { step, .. }), BridgeEvent::Landed { meets: false, cursor: Some(cursor) }) if step + 1 < BRIDGE.len() => read(step + 1, cursor),
+            (Some(Bridge::Reading { .. }), BridgeEvent::Landed { meets: false, .. }) => (None, Effects::one(Replace)),
+            (None, BridgeEvent::Landed { .. }) => (None, Effects::none()),
+        }
     }
 }
 

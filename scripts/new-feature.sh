@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Zero-thought feature scaffolder for rune-desktop (Lane A Luau plugin or Lane B Rust feature).
+# Zero-thought feature scaffolder for anomalyco/opencode-rune (Lane A Luau plugin or Lane B Rust feature).
 #
 # Usage:
 #   scripts/new-feature.sh plugin <id> [Title]   # Lane A (default): Luau plugin under plugins/<id>/

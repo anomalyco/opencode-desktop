@@ -443,6 +443,12 @@ impl ReviewPane {
         self.waiting.insert(sid.to_owned());
     }
 
+    /// Whether session `sid` waits for the server to list it (Desktop's `waiting`): nothing is
+    /// known about it yet, its saved source included.
+    pub fn waits(&self, sid: &str) -> bool {
+        self.waiting.contains(sid)
+    }
+
     pub fn set_waker(&mut self, waker: Waker) {
         self.diff_fetch.set_waker(waker.clone());
         self.vcs_fetch.set_waker(waker.clone());

@@ -1,6 +1,10 @@
 //! The part of checking and downloading every platform shares: read the channel's manifest,
 //! decide (`protocol::decide`), and stream the chosen archive to disk, hashing it as it lands
 //! and reporting its progress. Runs on the updater's worker thread.
+//!
+//! Every request names itself `User-Agent: opencode/<channel>/<version>` and nothing else about
+//! the install (no query string, no install id), and the manifest is revalidated with
+//! `If-None-Match` and the last `ETag` (`release:docs/protocol.md`, "URLs").
 
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
@@ -36,9 +40,20 @@ pub struct Engine {
     pub facts: Facts,
     rollout_bucket: u8,
     found: Mutex<Option<Found>>,
+    cache: Mutex<ManifestCache>,
+}
+
+/// The last manifest the service sent and its `ETag`, sent back as `If-None-Match` so an
+/// unchanged manifest comes back as `304 Not Modified`.
+#[derive(Default)]
+struct ManifestCache {
+    url: String,
+    etag: Option<String>,
+    body: Option<String>,
 }
 
 const MANIFEST_TIMEOUT: Duration = Duration::from_secs(60);
+const MAX_MANIFEST_BYTES: u64 = 256 * 1024;
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(3600);
 
 fn manifest_timeout() -> Duration {
@@ -54,11 +69,37 @@ fn manifest_timeout() -> Duration {
 impl Engine {
     pub fn new(facts: Facts) -> Self {
         let rollout_bucket = load_or_create_rollout_bucket();
-        Engine { facts, rollout_bucket, found: Mutex::new(None) }
+        Engine { facts, rollout_bucket, found: Mutex::new(None), cache: Mutex::new(ManifestCache::default()) }
     }
 
+    /// `<app>/<channel>/<version>`: the app, the channel this build was published on and its
+    /// version, e.g. `opencode/dev/0.0.0-dev-171`.
     fn user_agent(&self) -> String {
-        format!("opencode-rune/{} ({}; channel={})", self.facts.version, feed::target_name(), self.facts.channel)
+        format!("{}/{}/{}", protocol::APP_NAME, self.facts.channel, self.facts.version)
+    }
+
+    /// The manifest's text: fresh, or the cached one when the service answers 304.
+    fn fetch_manifest(&self, url: &str) -> Result<String, String> {
+        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        if cache.url != url {
+            *cache = ManifestCache { url: url.to_owned(), ..ManifestCache::default() };
+        }
+        let mut request = Self::agent(manifest_timeout(), feed::requires_https(url)).get(url).header("User-Agent", &self.user_agent()).header("Accept", "application/json");
+        if let (Some(etag), Some(_)) = (&cache.etag, &cache.body) {
+            request = request.header("If-None-Match", etag);
+        }
+        let mut resp = request.call().map_err(|e| e.to_string())?;
+        match resp.status().as_u16() {
+            304 => cache.body.clone().ok_or_else(|| "HTTP 304 for a manifest never received".to_owned()),
+            200..300 => {
+                let etag = resp.headers().get("etag").and_then(|v| v.to_str().ok()).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty() && !v.chars().any(char::is_control));
+                let text = resp.body_mut().with_config().limit(MAX_MANIFEST_BYTES).read_to_string().map_err(|e| format!("could not read manifest: {e}"))?;
+                cache.etag = etag;
+                cache.body = Some(text.clone());
+                Ok(text)
+            }
+            status => Err(format!("HTTP {status}")),
+        }
     }
 
     fn agent(timeout: Duration, https_only: bool) -> ureq::Agent {
@@ -87,17 +128,7 @@ impl Engine {
         if !feed::allowed_update_url(&url) {
             return Err(fail("refusing insecure manifest URL"));
         }
-        let mut resp = Self::agent(manifest_timeout(), feed::requires_https(&url))
-            .get(&url)
-            .header("User-Agent", &self.user_agent())
-            .header("Accept", "application/json")
-            .call()
-            .map_err(|e| fail(&e.to_string()))?;
-        let status = resp.status().as_u16();
-        if !(200..300).contains(&status) {
-            return Err(fail(&format!("HTTP {status}")));
-        }
-        let text = resp.body_mut().read_to_string().map_err(|e| fail(&format!("could not read manifest: {e}")))?;
+        let text = self.fetch_manifest(&url).map_err(|e| fail(&e))?;
         let manifest = protocol::parse_manifest(&text, &url, target_name).map_err(|e| fail(&e))?;
         let installed = read_installed_sha(&self.facts.version);
         let decision = protocol::decide(&manifest, &self.facts.channel, &self.facts.version, installed.as_deref(), self.rollout_bucket).map_err(|e| fail(&e))?;

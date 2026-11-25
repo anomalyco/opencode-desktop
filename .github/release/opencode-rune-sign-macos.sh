@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # opencode-rune-sign-macos.sh <unsigned app zip> <out dir> <arch>: signs "OpenCode (Rune).app"
-# inside-out with Anomaly's Developer ID identity (hardened runtime, secure timestamp, microphone
-# entitlement), notarizes and staples it, then writes:
+# inside-out (each Contents/Frameworks/*.dylib, then the app) with Anomaly's Developer ID identity
+# (hardened runtime, secure timestamp, microphone entitlement on the app), notarizes and staples
+# it, then writes:
 #   OpenCode-Rune-<version>-macos-<arch>.zip  (root "OpenCode (Rune).app", for the auto-updater)
 #   OpenCode-Rune-<version>-macos-<arch>.dmg  (signed, notarized, stapled, with /Applications link)
 #
@@ -35,9 +36,22 @@ fi
 [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$OPENCODE_RUNE_VERSION" ] ||
   die "$app_name.app is not version $OPENCODE_RUNE_VERSION."
 
-expected=$(printf '%s\n' Contents/MacOS/opencode-desktop | LC_ALL=C sort)
+# The bundle's code: the app's executable, plus any dylibs directly in Contents/Frameworks (the
+# executable split into libraries). Anything else that is Mach-O fails the release.
 found=$(cd "$app" && find . -type f -exec sh -c 'file -b "$1" | grep -q Mach-O && printf "%s\n" "${1#./}"' _ {} \; | LC_ALL=C sort)
-[ "$found" = "$expected" ] || die "Unexpected Mach-O code in $app_name.app: $(diff <(echo "$expected") <(echo "$found") | grep '^[<>]' | tr '\n' ' ')"
+grep -Fxq Contents/MacOS/opencode-desktop <<< "$found" || die "$app_name.app has no Contents/MacOS/opencode-desktop."
+dylibs=()
+unexpected=""
+while IFS= read -r path; do
+  case "$path" in
+    Contents/MacOS/opencode-desktop) ;;
+    Contents/Frameworks/*.dylib)
+      if [ "${path#Contents/Frameworks/}" = "${path##*/}" ]; then dylibs+=("$path"); else unexpected+=" $path"; fi
+      ;;
+    *) unexpected+=" $path" ;;
+  esac
+done <<< "$found"
+[ -z "$unexpected" ] || die "Unexpected Mach-O code in $app_name.app:$unexpected"
 
 sign() {
   codesign --force --timestamp --options runtime --keychain "$SEER_KEYCHAIN" --sign "$SEER_SIGNING_IDENTITY" "$@"
@@ -46,6 +60,10 @@ notarize() {
   xcrun notarytool submit "$1" --key "$SEER_NOTARY_KEY" --key-id "$SEER_NOTARY_KEY_ID" --issuer "$SEER_NOTARY_ISSUER" --wait --timeout 45m
 }
 
+# Inside out: every dylib first (no entitlements: they belong to the app), then the app.
+for lib in ${dylibs[@]+"${dylibs[@]}"}; do
+  sign "$app/$lib"
+done
 sign --entitlements "$release/opencode-rune.entitlements" "$app"
 codesign --verify --deep --strict --verbose=2 "$app"
 

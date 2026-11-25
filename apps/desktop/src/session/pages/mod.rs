@@ -17,6 +17,7 @@ const MEMORY_BYTES: usize = 64 << 20;
 pub const WARM: usize = 6;
 const NEAR_TOP: f32 = 200.0;
 
+mod bridge;
 mod cache_ref;
 mod early;
 mod machines;
@@ -44,6 +45,8 @@ pub struct State {
     /// the way to the end; `restore::preview`), by the island's last message: history fills
     /// the gap under it before it reads above it.
     gaps: std::collections::HashMap<String, String>,
+    /// The newest pages read again that do not reach what is loaded yet (`bridge`).
+    bridges: HashMap<String, bridge::Held>,
 }
 
 /// How long the server may stay silent before the app says so.
@@ -131,6 +134,8 @@ pub struct Page {
     /// How many messages the read asked for: a page with fewer is the session's first.
     pub asked: usize,
     pub history: bool,
+    /// Which read it answers (`history` for every one but the newest page's).
+    pub read_of: bridge::ReadOf,
     pub images: Vec<crate::attachments::PreparedImage>,
     pub(crate) bytes: usize,
     /// How the reader got it, for the open's trace.
@@ -138,7 +143,7 @@ pub struct Page {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-struct Job { key: Key, cursor: Option<String>, limit: usize, foreground: bool }
+struct Job { key: Key, cursor: Option<String>, limit: usize, foreground: bool, one: bool }
 
 
 /// Whether the open lane's reads are getting answers, or since when they began failing.
@@ -270,12 +275,12 @@ impl Pages {
     }
 
     pub fn request(&self, key: Key, foreground: bool) {
-        self.enqueue(Job { key, foreground, cursor: None, limit: LATEST });
+        self.enqueue(Job { key, foreground, cursor: None, limit: LATEST, one: false });
     }
 
     /// The `limit` messages before `cursor`.
     pub fn history(&self, key: Key, cursor: String, limit: usize) {
-        self.enqueue(Job { key, foreground: false, cursor: Some(cursor), limit });
+        self.enqueue(Job { key, foreground: false, cursor: Some(cursor), limit, one: false });
     }
 
     fn enqueue(&self, job: Job) {
@@ -361,7 +366,7 @@ fn read(q: &Shared, fetch: &Fetch, out: &Sender<PageResult>, wake: &Waker, image
     {
         let publish = |value: &Value, mut read: crate::telemetry::Read| {
             let parsing = Instant::now();
-            let messages = model::parse_messages(value);
+            let messages = if job.one { model::parse_message(&value["data"]).into_iter().collect() } else { model::parse_messages(value) };
             let preparing = Instant::now();
             let prepared = if job.cursor.is_none() { crate::attachments::prepare_images(&messages, images) } else { vec![] };
             let done = Instant::now();
@@ -371,7 +376,7 @@ fn read(q: &Shared, fetch: &Fetch, out: &Sender<PageResult>, wake: &Waker, image
             read.thread = std::thread::current().name().unwrap_or("").to_owned();
             let page = Arc::new(Page {
                 key: job.key.clone(), messages, stubs: crate::context_window::stubs(value), asked: job.limit,
-                cursor: value["cursor"]["next"].as_str().map(str::to_owned), history: job.cursor.is_some(),
+                cursor: value["cursor"]["next"].as_str().map(str::to_owned), history: job.cursor.is_some(), read_of: bridge::ReadOf::of(job.cursor.as_deref(), job.one),
                 bytes: serde_json::to_vec(value).map_or(0, |v| v.len()) + prepared.iter().map(|p| p.weight()).sum::<usize>(),
                 images: prepared,
                 read,
@@ -391,6 +396,7 @@ fn read(q: &Shared, fetch: &Fetch, out: &Sender<PageResult>, wake: &Waker, image
             if out.send(Ok(page)).is_ok() { wake(); }
         };
         let path = match &job.cursor {
+            Some(message) if job.one => format!("/api/session/{}/message/{message}", job.key.id),
             Some(cursor) => format!("/api/session/{}/message?limit={}&cursor={}", job.key.id, job.limit, crate::switcher::encode(cursor)),
             None => format!("/api/session/{}/message?limit={}&order=desc", job.key.id, job.limit),
         };
@@ -583,7 +589,7 @@ impl crate::App {
         crate::telemetry::page(&page.key.id, page.history, &page.read, (shown, Instant::now()));
     }
 
-    fn merge_page(&mut self, page: &Page, tx: &mut rune::Tx) {
+    pub(super) fn merge_joined(&mut self, page: &Page, tx: &mut rune::Tx) {
         // A page this window read goes into the server's copy, for its other windows too.
         crate::windows::peer::touch(self);
         if let Some(o) = &mut *self.opening && o.id == page.key.id && !page.history { o.step(OpenEvent::Received); }

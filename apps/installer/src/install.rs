@@ -111,6 +111,11 @@ pub fn install(p: &Product, root: &Path, desktop_shortcut: bool, log: &dyn Fn(&s
     result?;
     // A version the updater staged for the install it replaced would go back in on the next restart.
     win_install::remove_dir(&beside(root, "staged"));
+    // The receipt that makes this install the app's own to update (the updater writes it too, for
+    // a setup's install that lacks it).
+    if let Err(e) = win_install::write_receipt(root) {
+        log(&e);
+    }
     let unpacked = started.elapsed();
     let (changed, flushed) = std::thread::scope(|scope| {
         let writing = scope.spawn(|| flush(root));
