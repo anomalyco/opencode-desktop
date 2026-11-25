@@ -233,7 +233,8 @@ pub(super) fn lua_data(lua: &Lua, d: Data) -> mlua::Result<Value> {
 /// mode", `packages/gui-plugins/src/review/model.ts`).
 fn sources(app: &App, id: &str) -> Vec<ChangeMode> {
     let review = app.kernel.slots.get(&crate::review::REVIEW);
-    if review.waits(id) {
+    // Not listed yet: also before the engine was first asked about it (the frame the panel opens in).
+    if review.waits(id) || (app.live() && app.session(id).is_none_or(|s| s.directory.is_empty())) {
         return Vec::new();
     }
     review.sessions.get(id).map_or_else(|| vec![ChangeMode::Git, ChangeMode::Turn], SessionReview::available_modes)
