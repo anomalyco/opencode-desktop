@@ -309,6 +309,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>$ESC_ID</string><key>CFBundleURLSchemes</key><array><string>$ESC_SCHEME</string></array></dict></array>
+  <key>NSAppleEventsUsageDescription</key><string>OpenCode (Rune) uses Apple Events when tools you run need to control another app.</string>
   <key>NSMicrophoneUsageDescription</key><string>OpenCode (Rune) uses the microphone when you dictate prompts or join voice sessions.</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>

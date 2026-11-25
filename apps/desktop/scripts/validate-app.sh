@@ -29,6 +29,8 @@ plist_value() {
 [ "$(plist_value CFBundleName)" = "$expected_name" ] || fail "wrong bundle name"
 [ "$(plist_value CFBundleShortVersionString)" = "$version" ] || fail "wrong version"
 plist_value NSMicrophoneUsageDescription > /dev/null || fail "no microphone usage description"
+apple_events_usage=$(plutil -extract NSAppleEventsUsageDescription raw -expect string -o - "$plist" 2>/dev/null || true)
+[ -n "$apple_events_usage" ] || fail "no Apple Events usage description"
 [ -x "$bundle/Contents/MacOS/opencode-desktop" ] || fail "packaged executable is missing"
 [ "$(lipo -archs "$bundle/Contents/MacOS/opencode-desktop")" = "$(uname -m)" ] || fail "packaged executable does not match the native verify runner"
 [ "$("$bundle/Contents/MacOS/opencode-desktop" --version)" = "opencode-rune $version ($channel)" ] || fail "opencode-desktop --version is not $version ($channel)"
@@ -53,8 +55,10 @@ printf '%s\n' "$signature" | grep -Fq "Identifier=$expected_id" || fail "code si
 printf '%s\n' "$signature" | grep -Fq "TeamIdentifier=$team_id" || fail "code signature has the wrong team"
 printf '%s\n' "$signature" | grep -Fq 'Authority=Developer ID Application:' || fail "not signed for Developer ID distribution"
 printf '%s\n' "$signature" | grep -Eq 'flags=.*runtime' || fail "not signed with the hardened runtime"
-entitlements=$(codesign -d --entitlements - "$bundle" 2>/dev/null)
+entitlements=$(codesign -d --entitlements :- "$bundle" 2>/dev/null)
 printf '%s\n' "$entitlements" | grep -Fq 'com.apple.security.device.audio-input' || fail "microphone entitlement is missing"
+apple_events=$(printf '%s\n' "$entitlements" | plutil -extract 'com\.apple\.security\.automation\.apple-events' raw -expect bool -o - - 2>/dev/null || true)
+[ "$apple_events" = true ] || fail "Apple Events entitlement is missing"
 if printf '%s\n' "$entitlements" | grep -Fq 'com.apple.security.app-sandbox'; then
   fail "OpenCode (Rune) must not be sandboxed"
 fi
