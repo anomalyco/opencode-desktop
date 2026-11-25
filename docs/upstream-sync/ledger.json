@@ -5,7 +5,7 @@
   "upstream_head": "e54fbacb3d3aebc85f0e5ada0a5c490cc9333a91",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "019492a65",
+  "rune_desktop_head": "1dfd0c9a2",
   "post_1114_commit_count": 651,
   "post_1114_in_ledger": 229,
   "post_1114_skipped": 422,
@@ -5861,7 +5861,7 @@
       "summary": "The elevation shadows' layers are listed in Figma's order (the 0.5 px ring first, then the soft shadows; for the contrast button the insets before the ring and the drop shadow), which changes which layer paints over which.",
       "size": "XS",
       "status": "missing",
-      "status_evidence": "Not ported, not compared. The tokens are Rune's (rune-theme-opencode), so a change is a Rune PR and a pin. Black layers over black composite the same in any order, so raised / floating / overlay / input / neutral button cannot differ; the contrast button (an opaque grey ring, light and dark insets) can. Needs a pixel comparison of the contrast button next to official.",
+      "status_evidence": "Not ported, not compared. The tokens are Rune's (rune-theme-opencode): official reversed the layer lists of eight elevation tokens in both themes (raised, floating, overlay, input, button-neutral, button-contrast, switch-off, switch-on), and in Rune that is data only (themes/opencode/assets/theme.json holds each list and the kit paints a list in CSS order, the first layer on top), so the port is a Rune PR and a pin. What can differ, by reading: in the light theme black layers over black composite the same in any order, so only the contrast button (an opaque grey ring) can; in the dark theme raised, floating, overlay, button-neutral and button-contrast mix a light ring and top line with dark drops, so the 0.5 px ring of cards, popovers, menus, dialogs and neutral buttons is a little lighter where the drop lies on it (the ring now paints over the drop); dark input (its drop has no alpha) and both switches (one colour each) cannot differ. It is to ride the pin bump after the next one, alone, so that the pin's picture walk shows it as its one meant difference.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6266,7 +6266,7 @@
       "summary": "The Settings icon's hexagon is taller: its top and bottom points move from y 1.5 and 14.5 to y 1 and 15 (`settings-gear` in packages/ui/src/icons/catalog.ts); the circle inside is unchanged. Drawn on the sidebar's and Home's Settings rows, the narrow window's tabs page and a project's menu.",
       "size": "S",
       "status": "missing",
-      "status_evidence": "Not ported. The glyph is Rune's (rune-theme-opencode, themes/opencode/src/icons.rs, SETTINGS_GEAR, still the old outline at the pinned rev 4d8df909), so the change is a one-path Rune PR and a pin; asked of the pin's owner. Ours draws it in apps/desktop/src/shell/view/sidebar.rs, home/projects.rs, location_card.rs and features/narrow/src/tabs.rs.",
+      "status_evidence": "Not ported. The glyph is Rune's (rune-theme-opencode, themes/opencode/src/icons.rs, SETTINGS_GEAR, still the old outline at the pinned rev 4d8df909), so the change is a one-path Rune PR and a pin; asked of the pin's owner. Ours draws it in apps/desktop/src/shell/view/sidebar.rs, home/projects.rs, location_card.rs and features/narrow/src/tabs.rs. The glyph is changed in Rune (rune#2183, 36a50e613: the line Rune's icon generator writes from the official catalog at e54fbacb3d); it reaches the app with the next pin bump. Not seen drawn yet.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
