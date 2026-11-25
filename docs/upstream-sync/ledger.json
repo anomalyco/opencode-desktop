@@ -2,29 +2,29 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "6d2cb07f17e6acd17cd7560adc189281f186a237",
+  "upstream_head": "1b297d1a4958db26b5b4082ff13eef01d20eaaef",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "0067167f6",
-  "post_1114_commit_count": 671,
+  "rune_desktop_head": "866dd4ec7",
+  "post_1114_commit_count": 675,
   "post_1114_in_ledger": 238,
-  "post_1114_skipped": 433,
+  "post_1114_skipped": 437,
   "post_1114_skipped_breakdown": {
-    "test-only": 25,
+    "test-only": 26,
     "ci-bench-deps": 25,
-    "docs-site-data": 64,
+    "docs-site-data": 66,
     "tui-only": 30,
     "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 278
+    "server-core-ai-codemode-internal": 279
   },
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 259,
   "status_counts": {
-    "have it": 208,
+    "have it": 210,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 11
+    "missing": 9
   },
   "rows": [
     {
@@ -5861,7 +5861,7 @@
       "summary": "The elevation shadows' layers are listed in Figma's order (the 0.5 px ring first, then the soft shadows; for the contrast button the insets before the ring and the drop shadow), which changes which layer paints over which.",
       "size": "XS",
       "status": "missing",
-      "status_evidence": "Not ported, not compared. The tokens are Rune's (rune-theme-opencode): official reversed the layer lists of eight elevation tokens in both themes (raised, floating, overlay, input, button-neutral, button-contrast, switch-off, switch-on), and in Rune that is data only (themes/opencode/assets/theme.json holds each list and the kit paints a list in CSS order, the first layer on top), so the port is a Rune PR and a pin. What can differ, by reading: in the light theme black layers over black composite the same in any order, so only the contrast button (an opaque grey ring) can; in the dark theme raised, floating, overlay, button-neutral and button-contrast mix a light ring and top line with dark drops, so the 0.5 px ring of cards, popovers, menus, dialogs and neutral buttons is a little lighter where the drop lies on it (the ring now paints over the drop); dark input (its drop has no alpha) and both switches (one colour each) cannot differ. It is to ride the pin bump after the next one, alone, so that the pin's picture walk shows it as its one meant difference.",
+      "status_evidence": "Not ported, not compared. The tokens are Rune's (rune-theme-opencode): official reversed the layer lists of eight elevation tokens in both themes (raised, floating, overlay, input, button-neutral, button-contrast, switch-off, switch-on), and in Rune that is data only (themes/opencode/assets/theme.json holds each list and the kit paints a list in CSS order, the first layer on top), so the port is a Rune PR and a pin. What can differ, by reading: in the light theme black layers over black composite the same in any order, so only the contrast button (an opaque grey ring) can; in the dark theme raised, floating, overlay, button-neutral and button-contrast mix a light ring and top line with dark drops, so the 0.5 px ring of cards, popovers, menus, dialogs and neutral buttons is a little lighter where the drop lies on it (the ring now paints over the drop); dark input (its drop has no alpha) and both switches (one colour each) cannot differ. It is to ride the pin bump after the next one, alone, so that the pin's picture walk shows it as its one meant difference. 26 Nov: the Rune change is merged (rune#2187, 85466cc98) and is not in the pin of opencode-rune #1192 (d5c7a5ad): it reaches the app with the bump after it.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -5908,8 +5908,8 @@
       ],
       "summary": "The radio control's look, as in Figma: an unselected control is flat (the base background, no top-light gradient), its hover is an inset overlay; a new `surface=\"layer-1\"` puts the controls on layer-01; the invalid ring takes the danger foreground; the disabled control and the selected dot's ring and shadow change. Used in the provider connect dialog and the WSL dialog.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Not ported, not compared. Ours' radios in the connect and WSL dialogs come from the shared kit; a change to their look is likely a Rune change and a pin. Needs a pixel comparison of an unselected, hovered, selected and disabled radio next to official a44675ecee first.",
+      "status": "have it",
+      "status_evidence": "Ported in Rune (rune#2198, fe1f10014: the kit's radio is flat when not selected and takes a surface) and pinned by opencode-rune #1192 (866dd4ec), which the connect dialog's radios follow; the plugin API's ui.radio, which the WSL dialog draws, follows it in opencode-rune #1175 (7ff893d8). Official: packages/ui/src/forms/radio/radio.css at a44675ecee. Seen in pictures, headless at 2x, in both themes: the connect dialog's choice step on the pin before and on the new pin differs only in the column of its two radios (the one that is not selected is flat, with no top light; the selected one's dot has its gradient and ring); ui.radio in a scratch plugin's dialog differs from the published build only in its controls' column and is the same on both pins. Official's surface='layer-1' has no radio that sets it at that commit (none in packages/app/src or packages/gui-plugins/src), so nothing in ours sets it. Not done: a picture beside official's own radio; the WSL dialog itself, which lists the machine's distros; a real window.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6265,8 +6265,8 @@
       ],
       "summary": "The Settings icon's hexagon is taller: its top and bottom points move from y 1.5 and 14.5 to y 1 and 15 (`settings-gear` in packages/ui/src/icons/catalog.ts); the circle inside is unchanged. Drawn on the sidebar's and Home's Settings rows, the narrow window's tabs page and a project's menu.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Not ported. The glyph is Rune's (rune-theme-opencode, themes/opencode/src/icons.rs, SETTINGS_GEAR, still the old outline at the pinned rev 4d8df909), so the change is a one-path Rune PR and a pin; asked of the pin's owner. Ours draws it in apps/desktop/src/shell/view/sidebar.rs, home/projects.rs, location_card.rs and features/narrow/src/tabs.rs. The glyph is changed in Rune (rune#2183, 36a50e613: the line Rune's icon generator writes from the official catalog at e54fbacb3d); it reaches the app with the next pin bump. Not seen drawn yet.",
+      "status": "have it",
+      "status_evidence": "Ported in Rune (rune#2183, 36a50e613: the glyph as Rune's icon generator writes it from official's catalog at e54fbacb3d) and pinned by opencode-rune #1192 (866dd4ec). Ours draws it on the sidebar's and Home's Settings rows, the narrow window's tabs page and a project's menu (apps/desktop/src/shell/view/sidebar.rs, home/projects.rs, location_card.rs, features/narrow/src/tabs.rs). Seen once, as a difference only: pictures of the app on the pin before and on the new pin (headless, at 2x) differ in one place outside the dialog they were taken for, the Settings gear on Home (192 pixels in dark, 188 in light). Not done: a look at the glyph beside official's; the other three places it is drawn.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
