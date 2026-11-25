@@ -2,12 +2,12 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "b5dba31bf20d758d86871af65d206a197d411a0c",
+  "upstream_head": "acce96c36e7a90c5b28eb106e628e84cba86d61d",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "a7f2e08b4",
-  "post_1114_commit_count": 653,
-  "post_1114_in_ledger": 229,
+  "rune_desktop_head": "e167d6218",
+  "post_1114_commit_count": 654,
+  "post_1114_in_ledger": 230,
   "post_1114_skipped": 424,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
@@ -18,13 +18,13 @@
     "server-core-ai-codemode-internal": 274
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 250,
+  "total_ledger_rows": 251,
   "status_counts": {
     "have it": 203,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 7
+    "missing": 8
   },
   "rows": [
     {
@@ -6267,6 +6267,30 @@
       "size": "S",
       "status": "missing",
       "status_evidence": "Not ported. The glyph is Rune's (rune-theme-opencode, themes/opencode/src/icons.rs, SETTINGS_GEAR, still the old outline at the pinned rev 4d8df909), so the change is a one-path Rune PR and a pin; asked of the pin's owner. Ours draws it in apps/desktop/src/shell/view/sidebar.rs, home/projects.rs, location_card.rs and features/narrow/src/tabs.rs. The glyph is changed in Rune (rune#2183, 36a50e613: the line Rune's icon generator writes from the official catalog at e54fbacb3d); it reaches the app with the next pin bump. Not seen drawn yet.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-230",
+      "window": "post-1120",
+      "pr": 66327,
+      "sha": "acce96c36e",
+      "title": "fix(app): inbox sidebar — archived sessions needing attention, archive toggle, session shortcuts",
+      "merged": "2026-11-25",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/i18n/en.ts",
+        "packages/app/src/session/commands/use-session-commands.tsx",
+        "packages/app/src/shell/titlebar/inbox-model.ts",
+        "packages/app/src/shell/titlebar/inbox.tsx"
+      ],
+      "summary": "Inbox sidebar: an archived session that waits on a person (a permission to decide, a question to answer) joins Needs attention until it is answered, is left out of Archived meanwhile and is not dimmed; Archive session (mod+shift+s) toggles, so the same shortcut brings an archived session back, and there is a new command Unarchive session; the tab strip's session shortcuts (mod+1..9, alt+up / alt+down, shift+alt+up / shift+alt+down) work over the Inbox's session rows in the order they show.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Not ported yet: in work. Official: packages/app/src/shell/titlebar/inbox.tsx (the sections and navigationKeys), inbox-model.ts (inboxWaiting), packages/app/src/session/commands/use-session-commands.tsx (the toggle and session.unarchive), en.ts (command.session.unarchive). Ours: apps/desktop/src/shell/view/inbox.rs and the session commands.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
