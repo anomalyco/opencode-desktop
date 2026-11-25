@@ -665,7 +665,7 @@ fn images_open(s: &mut App, tx: &mut Play<App>) {
         let id = format!("{ARRIVED}img");
         opencode_kit::model::set_user_files(&id, pictures().to_vec());
         let quote = "One call for you: the sidebar reconnects on wake, but it drops the first heartbeat after the socket comes back";
-        opencode_kit::model::set_user_comments(&id, vec![opencode_kit::model::Quote { text: quote.into(), comment: None }.into()]);
+        opencode_kit::model::set_user_comments(&id, vec![opencode_kit::model::Quote { text: quote.into(), comment: None, source: None }.into()]);
         emit(s, "session.prompted", json!({ "messageID": id, "text": "Here's the sidebar after a wake, and the reconnect log" }), tx);
     });
     tx.after(0.7, |s, tx| {
