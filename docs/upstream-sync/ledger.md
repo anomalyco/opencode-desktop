@@ -1,8 +1,8 @@
 # Upstream Sync Ledger: `anomalyco/opencode` -> `anomalyco/opencode-rune`
 
 - **Updated:** 2026-11-25
-- **Upstream `origin/dev` audited:** `f6e0c2d083` -> `58621ad6cc` (**631** post-14 Nov commits: **225** in ledger + **406** skipped) plus **15** pre-14 Nov carry-over rows (`3751be8138..f6e0c2d083`) and 6 owner-split sub-rows of `UP-095`.
-- **`opencode-rune` `origin/dev` checked:** `966090842`.
+- **Upstream `origin/dev` audited:** `f6e0c2d083` -> `4c2977b82e` (**635** post-14 Nov commits: **225** in ledger + **410** skipped) plus **15** pre-14 Nov carry-over rows (`3751be8138..f6e0c2d083`) and 6 owner-split sub-rows of `UP-095`.
+- **`opencode-rune` `origin/dev` checked:** `2f7e5747b`.
 - **Total ledger rows:** **246** - **200** have it · **36** not applicable · **1** differs on purpose · **2** partly · **7** missing.
 - **Machine-readable twin:** `docs/upstream-sync/ledger.json` (generated together; identical rows).
 - **Status vs. Reviewed:** a row is **have it** only when its code is merged on `dev`; security-review tracking for browser rows lives in the separate **Reviewed** column.
@@ -57,7 +57,7 @@
 | PRE-14 | #63744 (`46aefe3da3`)<br>fix(app): hide zero session cost for OpenCode Go | 2026-11-13 | **gui-plugins**<br>`packages/gui-plugins/src/context/indicator.tsx`, `packages/gui-plugins/src/context/tab.tsx` | Hide the $0.00 cost line in the session header indicator and omit the Total Cost row in the Context tab when spend is zero on an OpenCode Go model. | S | **have it** |  | Ported in opencode-rune #243 (4b5175ef): plugins/context/indicator.luau and plugins/context/tab.luau hide $0.00 cost for opencode-go and pad odd 2-column grid rows. (PR #243) | none | none | none |  |
 | PRE-15 | #63739 (`f352f5e875`)<br>fix(ui): switch submenus without blinking and keep them open on the way in | 2026-11-13 | **ui, app**<br>`patches/@kobalte%2Fcore@0.13.13.patch`, `packages/app/src/shell/titlebar/sidebar-view-menu.tsx` | Keep submenus open along the pointer aim corridor and avoid flashing when moving between sibling submenu triggers. | S | **have it** |  | Ported in opencode-rune #271 (08f28f82): explicit submenu pointer-corridor aiming + 150 ms leave delay machine in crates/opencode-ui/src/popup/submenu.rs. (PR #271) | none | none | none |  |
 
-## Post-14 Nov Rows (`f6e0c2d083..58621ad6cc`)
+## Post-14 Nov Rows (`f6e0c2d083..4c2977b82e`)
 
 | ID | PR / Commit | Date | Packages & Main Files | What User Sees / Client Must Do | Size | Status | Reviewed | Evidence in `opencode-rune` | Depends On | Risks | Stream | Open PR Note |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
