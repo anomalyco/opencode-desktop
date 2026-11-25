@@ -2,12 +2,12 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "fe4535adce5046eb0c59f7b1021773cd4dbfcac4",
+  "upstream_head": "64324cf3e41bd51886ad897f35ec65251de2e667",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "2e0d7d319",
-  "post_1114_commit_count": 658,
-  "post_1114_in_ledger": 232,
+  "rune_desktop_head": "dbc5a7f71",
+  "post_1114_commit_count": 659,
+  "post_1114_in_ledger": 233,
   "post_1114_skipped": 426,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
@@ -18,13 +18,13 @@
     "server-core-ai-codemode-internal": 274
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 253,
+  "total_ledger_rows": 254,
   "status_counts": {
     "have it": 204,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 9
+    "missing": 10
   },
   "rows": [
     {
@@ -6337,6 +6337,30 @@
       "size": "L",
       "status": "missing",
       "status_evidence": "Not ported yet: in work. Official: packages/gui-plugins/src/browser/site-chooser.tsx (the whole dialog), settings.tsx:71-73 (choices = [choice]), :884-896 (the badge), i18n/en.ts:204-208 and :439, packages/ui/src/overlays/dialog/dialog.css:163-180 and dialog.tsx:28 (size 'tall'). Ours: plugins/browser/settings.luau and init.luau (the dialog as it was: two boxes, a 'Choose sites' disclosure, every site ticked), opencode_ui::dialog::DialogSize (no tall preset).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-233",
+      "window": "post-1120",
+      "pr": 66340,
+      "sha": "64324cf3e4",
+      "title": "fix(app): show keyboard focus in the worktree picker and What's New",
+      "merged": "2026-11-25",
+      "packages": [
+        "app",
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/app/src/new-session/location/dialog.css",
+        "packages/app/src/new-session/location/dialog.tsx",
+        "packages/gui-plugins/src/updater/whats-new.tsx"
+      ],
+      "summary": "Keyboard focus in two dialogs. The worktree picker (the new session's location dialog): its rows are no longer Tab stops, the search field keeps the focus and names the active row, and a row lights under the pointer only; typing on a focused row no longer has to be sent back to the search field. What's New: its wrapper is no longer a Tab stop, and Next and Get started are one button that takes the focus when the dialog opens and keeps it on the last page.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Not ported yet: in work. Official: packages/app/src/new-session/location/dialog.tsx:472-473 (tabIndex -1 on a row), dialog.css:32-34 (hover only), packages/gui-plugins/src/updater/whats-new.tsx:221-222 (the wrapper) and :239-247 (the one button, autofocus). Ours, by reading: features/switcher/src/project/view.rs row_shell rows take a press and are not marked unfocusable; plugins/updater/view.luau draws two buttons with two keys (release-next, release-get-started) and none takes the focus on opening.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
