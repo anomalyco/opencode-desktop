@@ -2,26 +2,26 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "20e7f000b39d4501af8d44b6705ba3d9fd7ebf6f",
+  "upstream_head": "b19812f0f52f46574195041a9bef6ea93e39b8f4",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "c7d9d1776",
-  "post_1114_commit_count": 641,
-  "post_1114_in_ledger": 226,
-  "post_1114_skipped": 415,
+  "rune_desktop_head": "0caf82963",
+  "post_1114_commit_count": 643,
+  "post_1114_in_ledger": 227,
+  "post_1114_skipped": 416,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
     "ci-bench-deps": 24,
     "docs-site-data": 62,
     "tui-only": 28,
     "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 265
+    "server-core-ai-codemode-internal": 266
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 247,
+  "total_ledger_rows": 248,
   "status_counts": {
     "have it": 201,
-    "not applicable": 36,
+    "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
     "missing": 7
@@ -6156,7 +6156,7 @@
       "summary": "A prompt's quotes reach the model as plain reply-style blockquotes before the user's own words, like an email reply: each quote a block of `> ` lines (an empty line is `>`), named by a line `From <subject>:` only when it came from another source such as the terminal, its comment under it; then the user's words, the `Attached file:` lines, notes and file comments. Before, a quote came after the words under the sentence `The user quoted the following from ...` with its comment under `The user made the following comment regarding this quote:`. The bubble and its quote cards are unchanged.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "opencode-rune #1119 (c7d9d177): a prompt's quotes go first, each as official's reply-style blockquote (`From <subject>:` when it has a source, the text with `> ` on every line, the comment below), then the user's words (crates/opencode-kit/src/quote.rs model_text / prompt_text; apps/desktop/src/session/inbox/send.rs); both the new and the old shape are read back out of a stored prompt (model/parse.rs quoted_text), and mentions are recorded against the user's own words. Run on its Windows x64 CI build by the app's headless runner (a scripted pointer and keyboard, no window on a display) against a private server (docs/upstream-sync/ported-runs.md): a lone quote; a quote with a comment, words and an attached file, the stored text line for line; the same after a new launch; a session stored in the old shape (seeded by script); a quote beside a session mention. Not run: an @file mention beside a quote (by reading, the same offsets). Still differs: official's terminal names itself as a quote's source (packages/gui-plugins/src/terminal/panel.tsx:60), so the model reads `From the terminal:`; a quote ours takes from its terminal carries no source. opencode#66248 (a4bea47aa5) only rewords the plugin API's comment for the new text.",
+      "status_evidence": "opencode-rune #1119 (c7d9d177): a prompt's quotes go first, each as official's reply-style blockquote (`From <subject>:` when it has a source, the text with `> ` on every line, the comment below), then the user's words (crates/opencode-kit/src/quote.rs model_text / prompt_text; apps/desktop/src/session/inbox/send.rs); both the new and the old shape are read back out of a stored prompt (model/parse.rs quoted_text), and mentions are recorded against the user's own words. Run on its Windows x64 CI build by the app's headless runner (a scripted pointer and keyboard, no window on a display) against a private server (docs/upstream-sync/ported-runs.md): a lone quote; a quote with a comment, words and an attached file, the stored text line for line; the same after a new launch; a session stored in the old shape (seeded by script); a quote beside a session mention; a quote beside an @file mention (the file part's mention offsets count from the user's own words). Not run: a real window. Still differs: official's terminal names itself as a quote's source (packages/gui-plugins/src/terminal/panel.tsx:60), so the model reads `From the terminal:`; a quote ours takes from its terminal carries no source. opencode#66248 (a4bea47aa5) only rewords the plugin API's comment for the new text.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6202,6 +6202,27 @@
       "size": "S",
       "status": "missing",
       "status_evidence": "Ported in draft opencode-rune #1144 (apps/desktop/src/shell/tabs/pins.rs close, shell/view/sidebar/pinned_area.rs, sidebar/recent.rs, shell/view/home/projects.rs); compiled by CI only, not run: it merges after a run on its build. Two differences stated there: the chevron's fade follows the row's hover track, not official's 150 ms; a pin group's chevron also shows for focus on the row's options button.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-227",
+      "window": "post-1120",
+      "pr": 66279,
+      "sha": "b19812f0f5",
+      "title": "fix(desktop): use VITE_OPENCODE_CHANNEL in renderer",
+      "merged": "2026-11-25",
+      "packages": [
+        "desktop"
+      ],
+      "main_files": [
+        "packages/desktop/src/renderer/startup/sentry.ts"
+      ],
+      "summary": "Official's renderer reads the build's channel from VITE_OPENCODE_CHANNEL when it decides which Sentry integrations to leave out on the production channel, and leaves out the browser-session one there as well.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "By reading: the change is in official's Sentry start-up alone (packages/desktop/src/renderer/startup/sentry.ts). Ours has no Sentry client and sends a crash to no service (see UP-225), so there is nothing to configure.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
