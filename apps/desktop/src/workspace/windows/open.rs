@@ -159,22 +159,14 @@ pub fn open_rest(s: &App) -> Option<std::time::Duration> {
 /// Opens the first window saved at the last quit, or one for a new profile, where it was, and
 /// leaves the other saved windows to [`open_rest`]. The list and the frames come from the boot
 /// packet, taken once the event loop is up (so the storage's read runs under it); a list that
-/// didn't change isn't written again. Returns when the app quits, unless it ends at once
-/// (`rune::fast_exit`).
+/// didn't change isn't written again (`store::launch_ids`). Returns when the app quits, unless
+/// it ends at once (`rune::fast_exit`).
 #[cfg(not(target_arch = "wasm32"))]
 pub fn launch(diagnostics: crate::diagnostics::Diagnostics) {
     rune::run_windows(move |displays: &[Display]| {
         *DISPLAYS.lock().unwrap_or_else(|e| e.into_inner()) = displays.to_vec();
-        let saved = store::saved_ids();
-        let mut ids = saved.clone().unwrap_or_default();
-        if ids.is_empty() {
-            ids.push(store::new_id());
-        }
-        if saved.as_ref() != Some(&ids) {
-            store::save_ids(&ids);
-        }
+        let (ids, fresh) = store::launch_ids();
         OPENED.store(ids.len(), std::sync::atomic::Ordering::Relaxed);
-        let fresh = saved.is_none();
         // Nothing saved (a new profile): where Desktop's first window opens.
         let frame = |id: &str| store::load_frame(id).and_then(|f| super::placement::fit(f, displays)).or_else(|| super::placement::first(displays));
         *REST.lock().unwrap_or_else(|e| e.into_inner()) = ids.iter().skip(1).map(|id| (id.clone(), frame(id))).collect();

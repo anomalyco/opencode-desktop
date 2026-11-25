@@ -26,6 +26,59 @@ pub fn new_id() -> String {
     id.strip_prefix("ses_").unwrap_or(&id).to_owned()
 }
 
+/// The windows a launch opens, in order, and whether the profile is new (no list was ever
+/// saved): the ids saved at the last quit, else one new id.
+///
+/// A list saved EMPTY is a profile that lost its windows. The builds of 23 to 25 Nov 2026 wrote
+/// it when the last window closed by its close button or Alt+F4 (the quit hook wrote the list
+/// after the close hook had taken the window off it), and every launch after one opened a new
+/// window and left the last one's rows where they were. Such a launch takes back the window
+/// made last that has tabs ([`orphaned`]); the others are kept as closed windows, to reopen
+/// (`reopen::keep_orphans`), so none stays in the boot record.
+pub fn launch_ids() -> (Vec<String>, bool) {
+    let saved = saved_ids();
+    let mut ids = saved.clone().unwrap_or_default();
+    if saved.is_some() && ids.is_empty() {
+        let mut left = orphaned();
+        if let Some(at) = left.iter().position(|(_, tabs)| *tabs > 0) {
+            ids.push(left.remove(at).0);
+            rune::marks::mark("window.adopted");
+        }
+        if !left.is_empty() {
+            super::reopen::keep_orphans(left.into_iter().map(|(id, _)| id).collect(), crate::wall_ms());
+        }
+    }
+    if ids.is_empty() {
+        ids.push(new_id());
+    }
+    if saved.as_ref() != Some(&ids) {
+        save_ids(&ids);
+    }
+    (ids, saved.is_none())
+}
+
+/// Every window the boot packet has rows for, with how many tabs each holds, the one made last
+/// first: an id of ours starts with its time, newest first ([`new_id`]), and one imported from
+/// Desktop (a UUID) is older than any of ours. Only asked when the saved list is empty, so each
+/// is a window no launch opened again: the one made last is the last run's.
+fn orphaned() -> Vec<(String, usize)> {
+    let Some(boot) = crate::storage::boot_packet() else { return Vec::new() };
+    let mut names = boot.window_namespaces();
+    names.sort_unstable();
+    names.dedup();
+    let ours = |id: &str| id.len() == 26 && id.as_bytes()[..12].iter().all(u8::is_ascii_hexdigit);
+    let mut windows: Vec<(String, usize)> = names
+        .into_iter()
+        .filter_map(|name| {
+            let id = name.strip_prefix("opencode.window.")?.strip_suffix(".dat")?;
+            let tabs = boot.state(name, "tabs").and_then(|t| serde_json::from_str::<Vec<Value>>(t).ok()).map_or(0, |t| t.len());
+            Some((id.to_owned(), tabs))
+        })
+        .collect();
+    windows.sort_by_key(|(id, _)| !ours(id));
+    windows
+}
+
 /// Window `w`'s namespace (`opencode.window.<id>.dat`).
 fn namespace(w: &Window) -> String {
     opencode_storage::window_namespace(&w.id)

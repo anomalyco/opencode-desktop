@@ -81,13 +81,8 @@ impl Window {
 /// that writes (`--harness-writes`) reads and writes the rows the app's first window keeps
 /// (`opencode.window.<id>.dat`): its tabs, page and drafts.
 pub fn first_saved() -> Window {
-    let saved = store::saved_ids();
-    let mut ids = saved.clone().unwrap_or_default();
-    if ids.is_empty() {
-        ids.push(store::new_id());
-        store::save_ids(&ids);
-    }
-    Window::new(ids.swap_remove(0), saved.is_none())
+    let (mut ids, fresh) = store::launch_ids();
+    Window::new(ids.swap_remove(0), fresh)
 }
 
 /// An open window: its handles, where its strip is, and its life.
@@ -114,7 +109,8 @@ struct Open {
 }
 
 thread_local! {
-    /// Every open window, in the order they opened (the UI thread's, which all windows share).
+    /// Every open window, in the order they opened (the UI thread's, which all windows share),
+    /// and a window kept at its close while the app ends.
     static OPEN: RefCell<Vec<Open>> = const { RefCell::new(Vec::new()) };
     /// Counts windows coming to the front.
     static FOCUSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
@@ -278,14 +274,17 @@ pub fn life(id: &str, event: life::LifeEvent) -> life::LifeEffect {
     effect
 }
 
-/// The windows that open again next launch: the open ones, in the order they opened.
+/// The windows that open again next launch, in the order they opened: the open ones, and one
+/// kept at its close (`Life::Kept`: the last window's close button or Alt+F4, which the app's
+/// quit follows).
 fn saved_ids() -> Vec<String> {
-    OPEN.with(|o| o.borrow().iter().filter(|w| w.life.saved()).map(|w| w.id.clone()).collect())
+    OPEN.with(|o| o.borrow().iter().filter(|w| w.life.listed()).map(|w| w.id.clone()).collect())
 }
 
-/// Window `id`'s native handle, while it's open.
+/// Window `id`'s native handle, while it's open (a kept window has closed: its frame was saved
+/// as it did).
 pub fn handle(id: &str) -> Option<WindowHandle> {
-    OPEN.with(|o| o.borrow().iter().find(|w| w.id == id).map(|w| w.handle.clone()))
+    OPEN.with(|o| o.borrow().iter().find(|w| w.id == id && w.life != life::Life::Kept).map(|w| w.handle.clone()))
 }
 
 /// Window `s`'s view scale (`device_scale`) before or outside `view`: its live OS window's
