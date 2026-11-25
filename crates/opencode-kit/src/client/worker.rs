@@ -420,6 +420,7 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                         }
                         Write::RevertClear(session) => server.revert_clear(&session),
                         Write::RevertCommit(session) => server.revert_commit(&session),
+                        Write::TakeBack { session, message } => server.take_back(&session, &message),
                         Write::SendFromRevert { session, prompt } => server.send_from_revert(&session, &prompt).map(|_| ()),
                         Write::Fork { session, before } => server.fork_session(&session, before.as_deref()).map(|session| forked = Some(session)),
                         Write::Tracked { .. } => Err("a tracked write can't track another".into()),
