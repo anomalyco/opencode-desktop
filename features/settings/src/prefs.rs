@@ -97,9 +97,14 @@ choice! {
 
 impl Organize {
     /// What Settings offers (`sidebarOrganizeOptions`, `settings/model.tsx`): Recent and
-    /// Consolidated only in local and dev desktop builds (`recentSessionsAvailable`).
+    /// Consolidated only in local and dev desktop builds (`recentSessionsAvailable`). A PR
+    /// build (channel `pr-<n>`) offers what a dev build does: it is an internal build of a
+    /// change on its way to `dev`, and it has to be able to show what that change does there.
+    /// Official has no such channel. This is Settings' own copy of the channel
+    /// (`SettingsConfig`); the updater and the app's folders read theirs and are not asked here.
     pub fn options() -> &'static [Organize] {
-        if !cfg!(target_arch = "wasm32") && matches!(crate::build_channel(), "local" | "dev") {
+        let channel = crate::build_channel();
+        if !cfg!(target_arch = "wasm32") && (matches!(channel, "local" | "dev") || channel.starts_with("pr-")) {
             &[Organize::List, Organize::Customize, Organize::Recent, Organize::Consolidated]
         } else {
             &[Organize::List, Organize::Customize]
