@@ -83,15 +83,20 @@ unsafe impl Sync for Shared {}
 static SCRATCH: Shared =
     Shared(UnsafeCell::new(Scratch { text: [0; TEXT], frames: [core::ptr::null_mut(); FRAMES], name: [0; NAME_WORDS] }));
 static TAKEN: AtomicBool = AtomicBool::new(false);
-/// The log folder and `last-fault.txt` in it, as NUL-terminated UTF-16, made when the hooks are armed.
-static PATHS: OnceLock<(Vec<u16>, Vec<u16>)> = OnceLock::new();
+/// `last-fault.txt` in the log folder, and that folder with the folders above it (outermost
+/// first), as NUL-terminated UTF-16, made when the hooks are armed.
+static PATHS: OnceLock<(Vec<u16>, Vec<Vec<u16>>)> = OnceLock::new();
 
 /// Names the file a fault is written to. No file I/O: the folder is made, if it must be, by the fault.
 pub(super) fn arm(logs: Option<PathBuf>) {
     use std::os::windows::ffi::OsStrExt as _;
     let Some(logs) = logs else { return };
     let wide = |path: &Path| path.as_os_str().encode_wide().chain([0]).collect::<Vec<u16>>();
-    PATHS.set((wide(&logs), wide(&logs.join("last-fault.txt")))).ok();
+    // A launch's first moments, or a headless run: the log folder may not be there yet, nor the
+    // one above it. The drive itself is left out.
+    let mut folders: Vec<Vec<u16>> = logs.ancestors().filter(|folder| folder.parent().is_some()).map(wide).collect();
+    folders.reverse();
+    PATHS.set((wide(&logs.join("last-fault.txt")), folders)).ok();
 }
 
 /// Text into a fixed buffer; what does not fit is dropped.
@@ -244,7 +249,7 @@ pub(super) unsafe fn write(record: *const c_void) {
 /// To `<logs>/last-fault.txt` (replacing an older one), then to stderr when the starter gave one.
 fn emit(text: &[u8]) {
     let mut written = 0u32;
-    if let Some((folder, file)) = PATHS.get() {
+    if let Some((file, folders)) = PATHS.get() {
         let open = || {
             // SAFETY: `file` is a NUL-terminated UTF-16 path that lives as long as the process.
             unsafe {
@@ -261,9 +266,12 @@ fn emit(text: &[u8]) {
         };
         let mut handle = open();
         if handle == INVALID_HANDLE_VALUE {
-            // A launch's first moments: the log folder may not be there yet.
-            // SAFETY: `folder` is a NUL-terminated UTF-16 path that lives as long as the process.
-            unsafe { CreateDirectoryW(folder.as_ptr(), core::ptr::null()) };
+            // The log folder is not there yet: it is made, with what is missing above it (a
+            // folder that exists answers with an error, which is ignored).
+            for folder in folders {
+                // SAFETY: `folder` is a NUL-terminated UTF-16 path that lives as long as the process.
+                unsafe { CreateDirectoryW(folder.as_ptr(), core::ptr::null()) };
+            }
             handle = open();
         }
         if handle != INVALID_HANDLE_VALUE && !handle.is_null() {
