@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
-// Lightweight upstream sync radar for anomalyco/rune-desktop.
+// Lightweight upstream sync radar for anomalyco/opencode-rune.
 // Reads docs/upstream-sync/ledger.json, compares against anomalyco/opencode dev (via local
 // --opencode clone or `gh api`), classifies touched paths by watched surface and workstream,
-// flags high-risk areas, and lists open PRs on anomalyco/rune-desktop by author with any
+// flags high-risk areas, and lists open PRs on anomalyco/opencode-rune by author with any
 // upstream PR numbers referenced in their titles or bodies.
 //
 // Zero external dependencies, zero builds, runs in seconds.
@@ -10,7 +10,7 @@
 // Usage:
 //   bun scripts/upstream-sync-check.ts [--ledger docs/upstream-sync/ledger.json]
 //     [--opencode <path-to-local-opencode-clone>] [--since <sha>]
-//     [--repo anomalyco/rune-desktop] [--no-open-prs]
+//     [--repo anomalyco/opencode-rune] [--no-open-prs]
 //     [--append-draft] [--markdown-out <file>] [--json-out <file>]
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
@@ -261,7 +261,7 @@ function extractUpstreamPrRefs(title: string, body: string): number[] {
   const text = `${title}\n${body}`
   const found = new Set<number>()
   for (const m of text.matchAll(/anomalyco\/opencode#(\d+)/gi)) found.add(Number(m[1]))
-  // Upstream opencode PRs are 5+ digits (60000+); rune-desktop PRs are 1-4 digits.
+  // Upstream opencode PRs are 5+ digits (60000+); opencode-rune PRs are 1-4 digits.
   for (const m of text.matchAll(/(?<![A-Za-z0-9/])#(\d{5,})\b/g)) found.add(Number(m[1]))
   return [...found].sort((a, b) => a - b)
 }
@@ -405,7 +405,7 @@ function main() {
   const ledger = JSON.parse(readFileSync(ledgerPath, "utf8")) as Ledger
   const sinceSha = argVal(argv, "--since") ?? ledger.upstream_head
   const upstreamRepo = ledger.upstream_repo || "anomalyco/opencode"
-  const runeRepo = argVal(argv, "--repo") ?? ledger.rune_desktop_repo ?? "anomalyco/rune-desktop"
+  const runeRepo = argVal(argv, "--repo") ?? ledger.rune_desktop_repo ?? "anomalyco/opencode-rune"
 
   const { headSha, commits } = opencodeDir
     ? loadUpstreamFromLocal(resolve(opencodeDir), sinceSha)
