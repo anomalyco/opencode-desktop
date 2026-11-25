@@ -529,10 +529,11 @@ pub fn session_write_replied(host: &mut dyn SessionMenuHost, data: &serde_json::
         _ => {}
     }
     match (error, data["kind"].as_str()) {
-        // An archive and a restore go as the session's PATCH, which a rename is too: the call
-        // alone would name them a failed rename. Desktop's title for both is
-        // `common.requestFailed` (`session/commands/use-session-commands.tsx:367`, `:383`).
-        (Some(e), Some("archive" | "unarchive")) => host.toast_wire_error_titled(opencode_i18n::t!("common.requestFailed"), e),
+        // Desktop's title for a refused rename, archive or restore is `common.requestFailed`, the
+        // server's words under it (`shell/titlebar/tab-nav.tsx:354-357`, `project-session-row.tsx:
+        // 276-279`, `session/timeline/controller.tsx:480-482`,
+        // `session/commands/use-session-commands.tsx:367`, `:383`).
+        (Some(e), Some("rename" | "archive" | "unarchive")) => host.toast_wire_error_titled(opencode_i18n::t!("common.requestFailed"), e),
         (Some(e), _) => host.toast_wire_error(e),
         (None, _) => {}
     }

@@ -16,6 +16,10 @@ use crate::{Spot, Target};
 /// `TAB_RENAME_SAVE_TIMEOUT_MS`.
 pub const SAVE_TIMEOUT: f64 = 15.0;
 
+/// What a save that could not be sent is answered with, where a server's refusal carries the
+/// server's words and a time-out carries none.
+const NOT_SENT: &str = "\u{0}not sent";
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum Edit {
     #[default]
@@ -214,13 +218,14 @@ pub(crate) fn dispatch(host: &mut dyn SessionMenuHost, event: Event<'_>, why: &s
             Effect::Save { session, server, title } => {
                 // A story's write goes nowhere and a build that can't write sends none: each
                 // answers at once.
+                // The write says nothing itself when it can't go: this machine's one toast does.
                 let (sent, current) = on_server(host, &server, |h| {
-                    let sent = h.write_server(Write::Rename { session: session.clone(), title: title.clone() });
+                    let sent = h.write_server_quiet(Write::Rename { session: session.clone(), title: title.clone() });
                     (sent, h.session(&session).map(|i| i.title.clone()))
                 })
                 .unwrap_or((false, None));
                 if host.stage_active() || !sent {
-                    let why = if sent { why } else { opencode_i18n::t!("rune.send.disconnected") };
+                    let why = if sent { why } else { NOT_SENT };
                     return dispatch(
                         host,
                         Event::Replied { session: &session, server: &server, title: &title, ok: sent, current: current.as_deref() },
@@ -230,14 +235,18 @@ pub(crate) fn dispatch(host: &mut dyn SessionMenuHost, event: Event<'_>, why: &s
             }
             // `poll_rename` keeps the save's deadline.
             Effect::WakeAt(_) => {}
-            // A refusal in the server's words has its own toast (`from_server`, in
-            // `session_write_replied`); this says the rest: not sent, or no answer in time.
+            // One toast for a failed save, Desktop's (`tab-rename-machine.ts:274-283`,
+            // `tab-nav.tsx:354-357`: `common.requestFailed`, the error's words under it). A refusal
+            // in the server's words has it in `session_write_replied`; this says the rest.
+            // No answer in time: no words under it (`tab-rename-machine.ts:282`).
             Effect::Failed if why.is_empty() => {
                 host.menus_mut().gave_up = waiting.clone();
-                host.toast_fail(opencode_i18n::t!("rune.toast.renameFailed"), opencode_i18n::t!("rune.toast.renameNoAnswer"));
+                host.toast_fail(opencode_i18n::t!("common.requestFailed"), "");
             }
-            Effect::Failed if why == opencode_i18n::t!("rune.send.disconnected") => {
-                host.toast_fail(opencode_i18n::t!("rune.toast.renameFailed"), why);
+            // Not sent: Desktop rejects with an error of the same words (`tab-nav.tsx:321-327`).
+            Effect::Failed if why == NOT_SENT => {
+                let failed = opencode_i18n::t!("common.requestFailed");
+                host.toast_fail(failed, failed);
             }
             Effect::Failed => {}
         }

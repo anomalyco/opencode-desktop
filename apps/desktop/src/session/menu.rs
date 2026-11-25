@@ -135,6 +135,10 @@ impl SessionMenuHost for App {
         App::write(self, write)
     }
 
+    fn write_server_quiet(&mut self, write: Write) -> bool {
+        App::write_quiet(self, write)
+    }
+
     fn mark_viewed(&mut self, root: &str) {
         crate::session_viewed::mark(self, root);
     }

@@ -336,24 +336,52 @@ impl App {
         self.session(id).and_then(|i| i.revert.as_ref()).is_none() && self.inbox_for(id).is_some_and(|i| i.steering().next().is_some())
     }
 
-    /// Queues a write to the server; false (with a status line) when this build can't write.
+    /// Queues a write to the server; false (with a toast that says why) when this build can't write.
     pub fn write(&mut self, w: Write) -> bool {
+        match self.offer(w) {
+            Ok(sent) => sent,
+            Err(Unsent::ReadOnly) => {
+                crate::status_toast::fail(self, opencode_i18n::t!("rune.send.nothingSent"), opencode_i18n::t!("rune.jobs.readOnly"));
+                false
+            }
+            Err(Unsent::NoWriter) => {
+                crate::status_toast::fail(self, opencode_i18n::t!("rune.send.disconnected"), opencode_i18n::t!("rune.send.nothingSentSentence"));
+                false
+            }
+        }
+    }
+
+    /// [`Self::write`] that says nothing itself when the write can't go: for a write whose own
+    /// machine says so, once, in its own words.
+    pub(crate) fn write_quiet(&mut self, w: Write) -> bool {
+        self.offer(w).unwrap_or(false)
+    }
+
+    /// Hands `w` to the server's writer: whether it went, or why this window has none to hand it to.
+    fn offer(&mut self, w: Write) -> Result<bool, Unsent> {
         if self.fixture_run.stage.is_some() {
             // A story's answers go nowhere; it acts as if they were sent.
             *self.diag.status = "Storybook: not sent".into();
-            return true;
+            return Ok(true);
         }
         match &*self.source {
-            Source::Live { allow_send: false, .. } => crate::status_toast::fail(self, opencode_i18n::t!("rune.send.nothingSent"), opencode_i18n::t!("rune.jobs.readOnly")),
+            Source::Live { allow_send: false, .. } => Err(Unsent::ReadOnly),
             Source::Live { writes: Some(tx), .. } => {
                 // What a write asks the server for, the window has shown already: the server's
                 // other windows draw it too.
                 let sent = tx.send(w).is_ok();
                 crate::windows::peer::touch(self);
-                return sent;
+                Ok(sent)
             }
-            _ => crate::status_toast::fail(self, opencode_i18n::t!("rune.send.disconnected"), opencode_i18n::t!("rune.send.nothingSentSentence")),
+            _ => Err(Unsent::NoWriter),
         }
-        false
     }
+}
+
+/// Why a write could not be handed to a server.
+enum Unsent {
+    /// The build may not send.
+    ReadOnly,
+    /// The window has no writer: no server, or one whose writer isn't attached yet.
+    NoWriter,
 }

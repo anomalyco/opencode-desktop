@@ -138,6 +138,11 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
         let _ = (server, f);
         false
     }
+    /// [`Self::write_server`] without the host's own word when the write can't go: the caller's
+    /// machine says so itself.
+    fn write_server_quiet(&mut self, write: Write) -> bool {
+        self.write_server(write)
+    }
     /// Sends a session write (`Rename`, `Delete`, `View`, ...) to the currently checked-out server.
     fn write_server(&mut self, write: Write) -> bool {
         let _ = write;
