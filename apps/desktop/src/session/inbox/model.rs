@@ -136,7 +136,12 @@ impl App {
         list.extend(self.sidebar_inbox.servers.iter().filter(|(key, _)| shown(key)).flat_map(|(server, rows)| {
             rows.iter().map(move |r| Entry { server, session: &r.session, active_ms: r.session.updated, status: r.status, since: r.since, project: r.project.as_ref(), worktree: r.worktree, branch: r.branch.as_deref() })
         }));
-        list.sort_by_key(|e| std::cmp::Reverse(e.active_ms));
+        // Rows whose times tie stand in the servers' listed order, whichever server the window
+        // works against (`inbox-model.ts:164-166`, `:228`: each connection's sessions in
+        // `servers.visible`'s order, then a stable sort by time): a step from one server's row to
+        // another's doesn't reorder the rows under it.
+        let place = |e: &Entry<'_>| listed.iter().position(|l| l.key == *e.server).unwrap_or(usize::MAX);
+        list.sort_by_key(|e| (std::cmp::Reverse(e.active_ms), place(e)));
         list
     }
 

@@ -18,6 +18,16 @@ pub use opencode_ui::style::*;
 /// A thought's Markdown: 13/20 at the body weight (`message-part.css:677-682`).
 const THOUGHT: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
 
+/// Between the thoughts of one row (`timeline-next.css:40-45`: `gap: 12px`).
+const THOUGHT_RUN_GAP: f32 = 12.0;
+
+/// One thought of a row of thoughts ([`reasoning`]): its words, and whether the model is still
+/// writing it.
+pub struct ThoughtPart<'a> {
+    pub body: &'a str,
+    pub streaming: bool,
+}
+
 /// A thought in a tool group, as Desktop's `AssistantReasoningContent` (`message-content.tsx`)
 /// draws it in a compact `BasicTool`: a 28 pt trigger reading "Thought" and how long it took
 /// ("0s", faint), or "Thinking" shimmering with its latest heading while it streams shut, the
@@ -29,10 +39,15 @@ const THOUGHT: TextStyle = TextStyle::new(13.0, 440.0).lh(20.0);
 /// The New timeline's `ThoughtRow` (`timeline-next/tools/thought.tsx`) reads like a row of
 /// activity: "Thought" and how long it took, both muted at 440, or "Thinking" shimmering while it
 /// streams, and opening shows the thought hung from the nested rail ([`nested`]).
+///
+/// Thoughts one after another are one such row (anomalyco/opencode#66349): `parts` in order,
+/// `secs` what they took together, and opening shows each in turn, a paragraph (12) apart
+/// (`timeline-next.css:40-45`, `reasoning-part-run`). `thinking`: the row reads Thinking.
 #[allow(clippy::too_many_arguments)]
-pub fn reasoning<S: TimelineHost>(s: &S, p: &Pal, key: &str, body: &str, secs: Option<i64>, live: bool, open: bool, fade: f32) -> El {
-    let streaming = live && secs.is_none();
-    let has_details = !body.trim().is_empty();
+pub fn reasoning<S: TimelineHost>(s: &S, p: &Pal, key: &str, parts: &[ThoughtPart], secs: Option<i64>, thinking: bool, open: bool, fade: f32) -> El {
+    let streaming = thinking;
+    // `hideDetails={props.parts.every((part) => !part.text.trim())}` (`thought.tsx:50`).
+    let has_details = parts.iter().any(|part| !part.body.trim().is_empty());
     let title = if streaming { crate::working::shimmer(s, p, opencode_i18n::t!("ui.sessionTurn.status.thinking"), UI, 0.0) } else { text(opencode_i18n::t!("ui.message.thought")).font(UI).color(p.muted) };
     let subtitle = match (streaming, secs) {
         (false, Some(secs)) => Some(crate::turns::elapsed(secs * 1000)),
@@ -57,8 +72,7 @@ pub fn reasoning<S: TimelineHost>(s: &S, p: &Pal, key: &str, body: &str, secs: O
         .animate_layout()
         .child(title.key(if streaming { "thinking" } else { "thought" }))
         .children(subtitle.map(|t| text(t).key("subtitle").font(UI.features("'tnum' 1")).color(p.muted).shrink().min_w(0.0).truncate_fade()));
-    // Official `ThoughtRow` sets `hideDetails={!props.content.text.trim()}` (`thought.tsx:39`):
-    // an empty thought is neither expandable nor clickable.
+    // A row whose thoughts are all empty is neither expandable nor clickable (`hideDetails`).
     let trigger = if has_details {
         let a = el().key("arrow").w(16.0).h(24.0).center().child(arrow(p, open));
         trigger
@@ -75,11 +89,21 @@ pub fn reasoning<S: TimelineHost>(s: &S, p: &Pal, key: &str, body: &str, secs: O
     };
     let mut c = col().w_full().child(trigger);
     if open && has_details {
-        let style = markdown_style(p, p.muted, content_w() - 48.0).body_font(THOUGHT).heading_font(1, THOUGHT).heading_font(2, THOUGHT).heading_font(3, THOUGHT).heading_font(4, THOUGHT);
-        let md = markdown_styled::<S, (&[Range<usize>], rune_kit::Highlight)>(p, body, fade, streaming, style, Vec::new(), Vec::new(), None, &[], None, None);
+        let md = |part: &ThoughtPart| {
+            let style = markdown_style(p, p.muted, content_w() - 48.0).body_font(THOUGHT).heading_font(1, THOUGHT).heading_font(2, THOUGHT).heading_font(3, THOUGHT).heading_font(4, THOUGHT);
+            markdown_styled::<S, (&[Range<usize>], rune_kit::Highlight)>(p, part.body, fade, part.streaming, style, Vec::new(), Vec::new(), None, &[], None, None)
+        };
+        // One thought is its words; several stand a paragraph apart, an empty one left out unless
+        // the model is writing it (`thought.tsx:73-83`).
+        let body = match parts {
+            [one] => col().key("thought").w_full().child(md(one)),
+            _ => col().key("thought").w_full().gap(THOUGHT_RUN_GAP).children(
+                parts.iter().enumerate().filter(|(_, part)| part.streaming || !part.body.trim().is_empty()).map(|(i, part)| col().key(format!("part-{i}")).w_full().child(md(part))),
+            ),
+        };
         c = c.child(crate::disclosure::reveal(
             s.knobs(),
-            nested_collapsible(p, NESTED_GAP, col().key("thought").w_full().child(md), crate::disclosure::set::<S>(key.to_owned(), true, format!("{key}/trigger"))),
+            nested_collapsible(p, NESTED_GAP, body, crate::disclosure::set::<S>(key.to_owned(), true, format!("{key}/trigger"))),
         ));
     }
     c
