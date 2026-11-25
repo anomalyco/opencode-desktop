@@ -70,6 +70,20 @@ impl SessionMenuHost for App {
         self.tab_summaries()
     }
 
+    /// Consolidated's strip leaves out the tabs its pinned area holds (`tab-strip.tsx:715-719`),
+    /// and under Settings › Group tabs shows each group's tabs in the groups' order, a collapsed
+    /// group's hidden tabs not among them (`auto-tab-groups.ts:72`). A narrow window's drawer
+    /// shows every tab (`titlebar.tsx:840-855`).
+    fn strip_tabs(&self) -> Vec<TabSummary> {
+        if self.narrow() {
+            return self.tab_summaries();
+        }
+        match crate::tabs::auto_groups::groups(self) {
+            Some(groups) => groups.iter().flat_map(|g| g.tabs.iter()).map(|&i| self.tabs[i].summary()).collect(),
+            None => self.tabs.iter().filter(|t| !crate::tabs::pins::holds(self, t)).map(crate::tabs::Tab::summary).collect(),
+        }
+    }
+
     fn layout_has_sidebar(&self) -> bool {
         self.tab_layout().has_sidebar()
     }
@@ -153,6 +167,10 @@ impl SessionMenuHost for App {
         crate::status_toast::from_wire(self, error);
     }
 
+    fn toast_wire_error_titled(&mut self, title: &str, error: WireError) {
+        crate::status_toast::failed_wire(self, title, &error);
+    }
+
     fn offer_delete_undo(&mut self, title: &str, server: ServerKey, session: String, hidden: Vec<SessionInfo>) {
         crate::undo::offer(self, title, crate::undo::Undoable::Deleted { server, session, hidden });
     }
@@ -213,6 +231,14 @@ impl SessionMenuHost for App {
         App::close_tab(self, uid, tx);
     }
 
+    fn shown_tab(&self) -> Option<String> {
+        App::current_tab(self)
+    }
+
+    fn show_tab(&mut self, uid: &str, tx: &mut Tx) {
+        App::select_tab(self, uid, tx);
+    }
+
     fn is_session_pinned(&self, server: &ServerKey, id: &str) -> bool {
         let key = crate::view::sidebar::state::key(server.as_str(), id);
         self.project_state.recent.pins.contains(&key)
@@ -247,7 +273,12 @@ impl SessionMenuHost for App {
         App::save_tabs(self);
     }
 
+    fn on_archive_replied(&mut self, session: String, ok: bool, tx: &mut Tx) {
+        self.archive_move_replied(&session, true, ok, tx);
+    }
+
     fn on_unarchive_replied(&mut self, session: String, ok: bool, why: &str, tx: &mut Tx) {
+        self.archive_move_replied(&session, false, ok, tx);
         self.switcher_restore_replied(session, ok, why, tx);
     }
 

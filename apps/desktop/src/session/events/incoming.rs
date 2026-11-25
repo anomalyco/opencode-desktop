@@ -128,6 +128,7 @@ fn settled(s: &mut App, ticket: Ticket, result: Result<Option<SessionInfo>, open
         TicketKind::Fork => fork::settled(s, attempt, result, tx),
         TicketKind::Inbox => s.queue_settled(session, attempt, result.map(|_| ()).map_err(Some)),
         TicketKind::View => crate::session_viewed::settled(s, session, attempt, result),
+        TicketKind::TakeBack => crate::rewind::take_back::settled(s, session, attempt, result.is_ok()),
     }
 }
 
@@ -234,6 +235,7 @@ fn reply(s: &mut App, m: Incoming, tx: &mut Tx) -> bool {
         Incoming::Branches { directory, search, result } => return s.branches_listed(&directory, &search, result.ok()),
         Incoming::InterruptAcknowledged { session, interrupted } => {
             if !interrupted { stop::confirmed(s, &session); }
+            crate::rewind::take_back::acknowledged(s, &session, interrupted);
         }
         Incoming::WorktreeCreated { project } => s.worktree_updated(&project),
         Incoming::RequestReplied(id) => s.reply_answered(&id, Ok(())),

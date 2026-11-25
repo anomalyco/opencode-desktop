@@ -3,7 +3,7 @@
 //! over one tab store, so a tab is the same element in either place and flies between them
 //! when the layout changes (`El::matched`, `shell-tab-{id}`).
 
-use rune_kit::shell::{TabItem, TabItemStatus, TabOrientation, TabSlot, TabStrip, TearOutSpec};
+use rune_kit::shell::{TabDragMode, TabDragPhase, TabDragState, TabItem, TabItemStatus, TabOrientation, TabOverflow, TabSlot, TabStrip, TearOutSpec};
 
 use super::*;
 use crate::session_menu::{Spot, Target};
@@ -38,7 +38,7 @@ pub(crate) fn tab_strip_filtered(
     trailing: Option<El>,
     indices: &[usize],
 ) -> El {
-    strip(s, p, key, orientation, viewport, trailing, indices, false).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
+    strip(s, p, key, orientation, viewport, trailing, indices, false, false).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
         tx.live_only();
         s.strip_laid_out(r);
     })
@@ -48,11 +48,19 @@ pub(crate) fn tab_strip_filtered(
 /// draw theirs (`verticalTabStrip(…, grouped)`, `sidebar-customized.tsx`). A drag reorders them
 /// among themselves; `hide_avatars` drops their project avatars under a project's header.
 pub(crate) fn section_strip(s: &App, p: &Pal, key: &str, indices: &[usize], hide_avatars: bool) -> El {
-    strip(s, p, key, TabOrientation::Vertical, None, None, indices, hide_avatars)
+    strip(s, p, key, TabOrientation::Vertical, None, None, indices, hide_avatars, false)
+}
+
+/// A side strip of one group's tabs under Consolidated's Group tabs
+/// (`shell/titlebar/auto-tab-sections.tsx:196-204`, anomalyco/opencode#66350): a
+/// [`section_strip`] that keeps no room under its last tab, as official's groups are rows of one
+/// list (`tab-strip.tsx:1052-1073`) and the list around them scrolls.
+pub(crate) fn group_strip(s: &App, p: &Pal, key: &str, indices: &[usize], hide_avatars: bool) -> El {
+    strip(s, p, key, TabOrientation::Vertical, None, None, indices, hide_avatars, true)
 }
 
 #[allow(clippy::too_many_arguments)]
-fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Option<f32>, trailing: Option<El>, indices: &[usize], hide_avatars: bool) -> El {
+fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Option<f32>, trailing: Option<El>, indices: &[usize], hide_avatars: bool, flush: bool) -> El {
     // Every server's tabs mix in one strip, each named by its `Tab::uid`.
     let current = if s.settings_open() { None } else { s.current_tab() };
     let vertical = orientation == TabOrientation::Vertical;
@@ -79,6 +87,17 @@ fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Opt
         .map(|uid| nav_order.iter().position(|u| u == uid).filter(|&i| i < 9).map(|i| i + 1))
         .collect();
     let order: Vec<usize> = indices.to_vec();
+    // The groups' strips share the window's one gesture, which names its tab by its place in a
+    // strip: only the strip whose tab at that place was pressed draws it. A press selects its tab
+    // as the button goes down, so that tab is the open page's.
+    let pressed = match s.gestures.tab_drag.phase() {
+        TabDragPhase::Idle => None,
+        TabDragPhase::Pressed { index, .. } => Some(index),
+        TabDragPhase::Dragging(TabDragMode::Reorder { from, .. } | TabDragMode::TearOut { from, .. }) | TabDragPhase::Dropping { from, .. } => Some(from),
+    };
+    let own = !flush || pressed.is_none_or(|i| uids.get(i).is_some_and(|uid| s.current_tab().as_deref() == Some(uid.as_str())));
+    let idle = TabDragState::default();
+    let gesture: &TabDragState = if own { &s.gestures.tab_drag } else { &idle };
     let mut strip = TabStrip::new(key, orientation)
         .words(tab_words())
         .lazy_tabs(slots, move |index| {
@@ -93,7 +112,7 @@ fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Opt
         .busy_indicator(|k| session_view::style::tab_busy_glyph(k, 14.0))
         .matched_prefix(Some(MATCHED))
         .label(if vertical { opencode_i18n::t!("settings.general.row.interfaceMode.side") } else { opencode_i18n::t!("titlebar.tabs") })
-        .drag_state(&s.gestures.tab_drag, |s: &mut App| &mut s.gestures.tab_drag)
+        .drag_state(gesture, |s: &mut App| &mut s.gestures.tab_drag)
         // A mouse selects a tab as its button goes down, top or side, as Desktop's do
         // (`tab-nav.tsx`'s `onMouseDown`); a finger only on a tap, so a long press opens the
         // tab's menu and selects nothing.
@@ -116,10 +135,17 @@ fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Opt
             s.preview_hover(id, inside, tx);
         })
         .on_reorder(move |s: &mut App, r, _| {
-            if let (Some(&from), Some(&to)) = (order.get(r.from), order.get(r.to)) {
+            // Under Group tabs a tab moves only among its group's: dropped in another group it
+            // goes back (`tab-strip.tsx:1205-1206`).
+            if let (Some(&from), Some(&to)) = (order.get(r.from), order.get(r.to))
+                && crate::tabs::auto_groups::same_group(s, from, to)
+            {
                 s.move_tab(from, to);
             }
         });
+    if flush {
+        strip = strip.overflow(TabOverflow::Scroll { fade_width: 0.0 });
+    }
     // A tab pulled off the strip opens in a window of its own (`windows::tear`): 36 across a
     // horizontal strip, 48 out of a vertical one. The only tab goes too while another window can
     // take it.
