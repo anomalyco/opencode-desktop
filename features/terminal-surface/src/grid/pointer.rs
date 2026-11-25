@@ -350,17 +350,23 @@ fn handle_scrollbar_drag(
     }
 }
 
-fn handle_quote_press(host: &mut dyn TerminalSurfaceHost, ws_key: &str, tab_id: &str, tx: &mut Tx) {
-    let text = {
-        let Some(t) = ops::terminal_tab_mut(host, ws_key, tab_id) else { return };
-        let Some(text) = t.session.selected_text() else { return };
-        t.session.select(SelectionOp::Clear);
-        text
-    };
+fn handle_quote_press(host: &mut dyn TerminalSurfaceHost, ws_key: &str, tab_id: &str, cell: (f32, f32), tx: &mut Tx) {
     // The button's click opens the quote's comment editor; with Alt held it skips the comment,
     // as its tooltip says (`quote.tsx`: `skipComment: event.altKey`).
     let comment = !tx.mods().alt;
-    host.quote_terminal_selection(&text, comment, tx);
+    let (text, place) = {
+        let Some(t) = ops::terminal_tab_mut(host, ws_key, tab_id) else { return };
+        let Some(text) = t.session.selected_text() else { return };
+        // The editor opens beside the rows the quote came from (`quote.tsx`'s anchor): read
+        // where they are before the selection goes.
+        let place = comment.then(|| super::quote::place(&t.session.snapshot(), cell.0, cell.1)).flatten();
+        t.quote_row = place.as_ref().map(|(row, _)| *row);
+        t.session.select(SelectionOp::Clear);
+        (text, place.map(|(_, place)| place))
+    };
+    // A selection whose rows can't be read still opens its editor, at the composer.
+    let place = comment.then(|| place.unwrap_or_else(|| super::quote::QuotePlace { bounds: super::VIEWPORT_KEY, origin: super::quote::ORIGIN_KEY, boxes: Vec::new(), single: true }));
+    host.quote_terminal_selection(&text, place, tx);
 }
 
 pub(super) fn attach_viewport_handlers<H: TerminalSurfaceHost + 'static>(outer: El, input: ViewportInput) -> El {
@@ -425,10 +431,10 @@ fn scrollbar_shell(p: &Pal, track_h: f32, thumb_y: f32, thumb_h: f32) -> El {
 }
 
 /// Floating Quote button matching Desktop's `TerminalQuote` toolbar.
-pub(super) fn render_quote_bar<H: TerminalSurfaceHost + 'static>(p: &Pal, ws_key: &str, tab_id: &str) -> El {
+pub(super) fn render_quote_bar<H: TerminalSurfaceHost + 'static>(p: &Pal, ws_key: &str, tab_id: &str, cell: (f32, f32)) -> El {
     let (wk, tid) = (ws_key.to_owned(), tab_id.to_owned());
     let button = quote_button_shell(p)
-        .on_press_tx(move |app: &mut H, tx: &mut Tx| handle_quote_press(app, &wk, &tid, tx));
+        .on_press_tx(move |app: &mut H, tx: &mut Tx| handle_quote_press(app, &wk, &tid, cell, tx));
     quote_toolbar_shell(p, button)
 }
 

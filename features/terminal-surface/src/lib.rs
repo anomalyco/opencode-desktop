@@ -395,6 +395,8 @@ pub struct TerminalTab {
     /// The cell under the pointer and whether the follow modifier (Ctrl, ⌘ on macOS) was held:
     /// the link there (`links::span`) is underlined, and followable with the modifier.
     pub hover: HoverLink,
+    /// The first row of the quote last taken with its comment editor (`grid::quote`).
+    pub quote_row: Option<u128>,
 }
 
 impl TerminalTab {
@@ -681,8 +683,8 @@ pub trait TerminalSurfaceHost: opencode_kernel::AppEnv + opencode_kernel::AppFee
         false
     }
     /// Adds `selected` terminal text to the composer as a quote; with `comment`, its comment
-    /// editor opens.
-    fn quote_terminal_selection(&mut self, selected: &str, comment: bool, tx: &mut Tx) {
+    /// editor opens, beside the rows the quote came from.
+    fn quote_terminal_selection(&mut self, selected: &str, comment: Option<grid::QuotePlace>, tx: &mut Tx) {
         let _ = (selected, comment, tx);
     }
     /// Notifies assistive speech tracking that a key/IME went to terminal `(ws_key, tab_id)`.
