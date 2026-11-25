@@ -160,7 +160,8 @@ pub fn ensure_file_loaded(host: &mut dyn FilesHost, session_id: &str, path: &str
         let wrap = pane.wrap;
         let waker = pane.waker.clone();
         let ws = pane.sessions.entry(session_id.to_owned()).or_default();
-        if ws.known_files.insert(path.to_owned()) {
+        // A skill's virtual file is in no folder: not a row of the tree.
+        if !crate::data::is_virtual_skill(path) && ws.known_files.insert(path.to_owned()) {
             ws.reindex(waker.as_ref());
         }
         let mut doc = wrap.doc(path, "");

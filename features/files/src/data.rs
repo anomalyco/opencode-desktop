@@ -230,7 +230,10 @@ pub fn load_fixture_workspace(fixture: &Value) -> (BTreeSet<String>, HashMap<Str
         for (k, v) in obj {
             let norm = normalize_path(k);
             if !norm.is_empty() {
-                files.insert(norm.clone());
+                // A skill's virtual file has a body and is no file of the folder.
+                if !is_virtual_skill(&norm) {
+                    files.insert(norm.clone());
+                }
                 if let Some(s) = v.as_str() {
                     contents.insert(norm, s.to_owned());
                 }
