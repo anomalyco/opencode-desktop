@@ -64,7 +64,7 @@ pub fn platform(exe: &Path, version: &str, build_channel: &str, updates: PathBuf
     let target = format!("{}-{}", feed::target_name(), format.suffix());
     eprintln!("updater: linux {format:?} install, following {target} (download link)");
     sweep_old_stages(&updates);
-    let facts = Facts { version: version.to_owned(), channel: feed::feed_channel(build_channel), service, updates };
+    let facts = Facts { version: version.to_owned(), channel: feed::feed_channel(), service, updates };
     Some(Linux { engine: Engine::new(facts), version: version.to_owned(), target })
 }
 

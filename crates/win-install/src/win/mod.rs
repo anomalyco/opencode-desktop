@@ -8,11 +8,13 @@ use crate::{EXE, Product};
 
 pub(crate) mod folders;
 mod process;
+mod receipt;
 mod registry;
 mod scheme;
 mod shortcut;
 
 pub use process::{close_running, running_under};
+pub use receipt::{RECEIPT, has_receipt, installed_by_setup, write_receipt};
 use scheme::{SchemeWrite, may_write_scheme, same_path};
 
 /// Where the setup installs `p` by default: `%LOCALAPPDATA%\Programs\<folder>`.
