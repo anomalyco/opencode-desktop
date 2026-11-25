@@ -367,19 +367,35 @@ impl Feature<App> for SessionMenuFeature {
             .when(|s| s.active_session_id().is_some()),
         );
         // Archive session (`use-session-commands.tsx` `session.archive`, opencode#65428): the open root
-        // session, not one already archived; its tab closes, as archiving it from the sidebar does.
+        // session; its tab closes, as archiving it from the sidebar does. It toggles, so the one
+        // shortcut archives a session and brings an archived one back (opencode#66327).
         builder.add_command(
             CommandEntry::<App>::from_key(
                 "session.archive",
                 opencode_i18n::key!("command.session.archive"),
                 crate::commands::order::SESSION_ARCHIVE,
-                |s, tx| {
-                    let Some(id) = s.open_root_session().filter(|id| s.session(id).is_some_and(|i| i.archived.is_none())) else { return };
-                    App::archive_session(s, &id, tx);
+                |s, tx| match s.open_root_archived() {
+                    Some((id, false)) => App::archive_session(s, &id, tx),
+                    Some((id, true)) => App::unarchive_session(s, &id),
+                    None => {}
                 },
             )
             .bind_id(Bind::ArchiveSession.id())
-            .when(|s| s.open_root_session().is_some_and(|id| s.session(&id).is_some_and(|i| i.archived.is_none()))),
+            .when(|s| s.open_root_archived().is_some()),
+        );
+        // Unarchive session (`session.unarchive`, opencode#66327): the open root session, archived.
+        builder.add_command(
+            CommandEntry::<App>::from_key(
+                "session.unarchive",
+                opencode_i18n::key!("command.session.unarchive"),
+                crate::commands::order::SESSION_UNARCHIVE,
+                |s, _| {
+                    if let Some((id, true)) = s.open_root_archived() {
+                        App::unarchive_session(s, &id);
+                    }
+                },
+            )
+            .when(|s| matches!(s.open_root_archived(), Some((_, true)))),
         );
         // Delete session (`message-timeline.tsx:268-277`): the open root session's confirmation.
         builder.add_command(

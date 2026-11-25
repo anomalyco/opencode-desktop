@@ -2,7 +2,7 @@
 id = "updater"
 name = "Updater"
 version = "1.0.0"
-contract = "1.0"
+contract = "1.7"
 description = "Keeps OpenCode current: the titlebar's Update pill, Settings > Updates, Check for Updates…, and What's new after an update"
 app = "app.luau"
 
