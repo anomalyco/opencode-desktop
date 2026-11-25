@@ -13,7 +13,7 @@
 use browser_policy::{AppSchemeAction, AppSchemeSource};
 use opencode_i18n::t;
 use rune::time::Instant;
-use rune::{Cursor, Direction, El, Family, TextStyle, Tx, col, icon, row, text};
+use rune::{Direction, El, Family, TextStyle, Tx, col, icon, row, text};
 use rune_kit::{ButtonVariant, ControlSize};
 use rune_theme_opencode::icons as ic;
 
@@ -71,7 +71,6 @@ pub fn app_link_review_bar(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
         .h(24.0)
         .center()
         .radius(4.0)
-        .cursor(Cursor::Pointer)
         .hover(p.hover)
         .on_drag(move |app: &mut App, d: &mut rune::Drag, tx: &mut Tx| {
             app.note_app_link_pointer(&dismiss_down_token, false, d.phase, d.cancelled(), tx);

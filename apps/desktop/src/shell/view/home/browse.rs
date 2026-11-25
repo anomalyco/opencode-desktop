@@ -258,7 +258,6 @@ fn option(p: &Pal, key: String, label: String, active: bool) -> El {
         .px(8.0)
         .center_y()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .hover(if active { rune::Color::TRANSPARENT } else { p.hover })
         .child(text(label).font(UI).color(p.text).truncate());
     if active {

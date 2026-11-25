@@ -9,7 +9,7 @@ use opencode_kit::path;
 use opencode_ui::focus::FocusExt;
 use opencode_ui::popup::PopupHost;
 use opencode_ui::widgets;
-use rune::{Align, Color, Cursor, El, Key, KeyEvent, TextEdit, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Align, Color, El, Key, KeyEvent, TextEdit, TextStyle, Tx, col, el, icon, row, text};
 use rune_kit::ButtonVariant;
 use rune_theme_opencode::icons as ic;
 use opencode_ui::palette::{Pal, kit};
@@ -143,7 +143,6 @@ fn fold<H: SettingsHost + 'static>(p: &Pal, count: usize, open: bool) -> El {
         .center_y()
         .radius(4.0)
         .self_start()
-        .cursor(Cursor::Pointer)
         .focus_default(p)
         .hover(p.layer2)
         .on_press_tx(|s: &mut H, tx: &mut Tx| toggle_others(s, tx))
@@ -240,7 +239,6 @@ fn card<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, x: &Project, _oth
         .pl(if alone { 16.0 } else { 12.0 })
         .pr(if alone { 16.0 } else { 12.0 } + 20.0 + 8.0)
         .radius(if alone { 8.0 } else { 4.0 })
-        .cursor(Cursor::Pointer)
         .focus_inset(p)
         .gap(8.0)
         .center_y()

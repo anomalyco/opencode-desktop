@@ -28,6 +28,8 @@ fn cancel_button_shell(p: &Pal, name: &str) -> El {
         .size(16.0, 16.0)
         .radius(4.0)
         .center()
+        // `cursor: pointer` (`attachments.css:85`), which Desktop's cursor reset does not name.
+        .cursor(rune::Cursor::Pointer)
         .hover(p.hover)
         .hover_group()
         .hover_motion(INSTANT, INSTANT)

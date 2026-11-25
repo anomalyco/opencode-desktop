@@ -371,7 +371,6 @@ pub fn trigger<S: TimelineHost>(s: &S, p: &Pal, cx: Ctx, c: &Call, d: Display, t
             .label(t.title.into_owned())
             .expanded(d.open())
             .radius(4.0)
-            .cursor(rune::Cursor::Pointer)
             .focus_default(p)
             .hover_group_focus()
             // The arrow fades in under the pointer (`collapsible.css:26-29`).

@@ -147,7 +147,7 @@ pub fn button(p: &Pal, key: &str, label: &str, variant: Variant, hint: Option<&s
         Variant::Submit | Variant::Contrast => (p.v2.contrast_hover, p.v2.contrast_pressed),
         Variant::Ghost | Variant::GhostMuted | Variant::Neutral => (p.hover, p.pressed),
     };
-    b = if live { b.cursor(rune::Cursor::Pointer).focus_default(p).hover(hover).press(pressed) } else { b.opacity(dim).disabled(true).focusable(false) };
+    b = if live { b.focus_default(p).hover(hover).press(pressed) } else { b.opacity(dim).disabled(true).focusable(false) };
     match variant {
         Variant::Ghost | Variant::GhostMuted => {}
         Variant::Neutral => b = b.elevate(opencode_ui::toast::neutral_lift(p)),

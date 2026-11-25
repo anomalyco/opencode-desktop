@@ -78,7 +78,6 @@ fn build_back_shell(p: &Pal, show_esc: bool) -> El {
         .gap(6.0)
         .center_y()
         .radius(4.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_default(p)
         .hover(p.hover)
         .press(p.pressed)

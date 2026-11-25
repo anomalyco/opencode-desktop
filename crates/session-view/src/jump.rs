@@ -268,7 +268,6 @@ pub fn face(p: &Pal, radius: f32) -> El {
         .box_shadow(ring)
         .box_shadow(near)
         .box_shadow(far)
-        .cursor(rune::Cursor::Pointer)
         .focus_default(p)
         .hover(p.hover)
         .press(p.pressed)

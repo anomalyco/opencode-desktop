@@ -186,7 +186,7 @@ pub fn search_row(p: &Pal, key: &str, field: El, trailing: Vec<El>) -> El {
 /// `icon.tsx:59`): a muted 16 pt icon on the hover and pressed overlays, its name in a tooltip.
 pub fn search_button<S: 'static>(p: &Pal, key: &str, glyph: &'static rune::Icon, label: &str, press: impl Fn(&mut S, &mut Tx) + 'static) -> El {
     row().key(key.to_owned()).role("button").label(label.to_owned()).help(label.to_owned())
-        .size(24.0, 24.0).center().radius(6.0).cursor(rune::Cursor::Pointer).hover(p.hover).press(p.pressed)
+        .size(24.0, 24.0).center().radius(6.0).hover(p.hover).press(p.pressed)
         .on_press_tx(press)
         .child(icon(glyph, SLOT).color(p.icon_muted))
 }
@@ -282,7 +282,7 @@ pub fn option_tx<S: 'static>(p: &Pal, look: Look, o: Opt, hover: impl Fn(&mut S,
         // `[data-component="menu-v2-item"][data-disabled]` (`menu.css:157-160`): fades the whole row to 0.5.
         r.disabled(true).opacity(0.5)
     } else {
-        r.cursor(rune::Cursor::Pointer)
+        r
             .press(p.pressed)
             // Not `on_hover`: its commit would animate the highlight's fill from row to row.
             .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| {
