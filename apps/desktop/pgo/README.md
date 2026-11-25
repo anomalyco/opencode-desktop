@@ -121,3 +121,4 @@ pages and few others. Without it the same functions lie spread over the whole of
 - The same raw profiles, merged with `--sparse`, are a fresh `aarch64-apple-darwin.profdata`.
 
 Base build of `dev` `a2f2d9e55d` with the committed profile (the before side of the Rune d5c7a5ad pin's pairs; never merged).
+Symbols build of `dev` `a2f2d9e55d` (line tables and a PDB, the profile applied as in the build that ships; for recordings; never merged).
