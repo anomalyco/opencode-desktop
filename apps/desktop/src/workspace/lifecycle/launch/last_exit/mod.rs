@@ -17,6 +17,11 @@
 //! consecutive close of the same reason while restoring the same session, `record_fault` writes a
 //! 16-byte `<data>/skip-restore.bin` sentinel so the next launch opens Home instead of looping.
 //!
+//! On Windows an unhandled exception also says where it happened: the faulting instruction and
+//! the frames above it as `library+offset`, in `<logs>/last-fault.txt` and on stderr (`place`).
+//! That needs neither the profile nor a window, so a headless run and a fault before the first
+//! frame write it too.
+//!
 //! Explicit lifecycle machine matching Official's
 //! `packages/desktop/src/main/windows/recovery-machine.ts` (`RecoveryIncident` `terminated`).
 #![cfg_attr(not(target_arch = "wasm32"), allow(unsafe_code))]
@@ -24,6 +29,8 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 mod os;
+#[cfg(windows)]
+mod place;
 
 const MAGIC: u32 = 0x4558_5431; // "EXT1"
 pub(super) const SKIP_MAGIC: u32 = 0x534B_4950; // "SKIP"
@@ -355,6 +362,13 @@ mod imp {
     pub fn init_hooks() {
         static ARMED: std::sync::Once = std::sync::Once::new();
         if crate::headless() {
+            // A headless run keeps no exit record (no path is set, so `record_fault` writes
+            // none), but a fatal exception in it still says where it happened (`place`).
+            #[cfg(windows)]
+            ARMED.call_once(|| {
+                super::place::arm(crate::dirs::logs());
+                install_os_hooks();
+            });
             return;
         }
         ARMED.call_once(|| {
@@ -362,6 +376,8 @@ mod imp {
             if let Some(dir) = crate::dirs::data() {
                 PATHS.set(EncodedPaths::new(dir.join("last-exit.bin"), dir.join("skip-restore.bin"))).ok();
             }
+            #[cfg(windows)]
+            super::place::arm(crate::dirs::logs());
             reserve_main_stack_guarantee();
             install_panic_hook();
             install_os_hooks();
