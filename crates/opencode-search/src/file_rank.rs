@@ -39,8 +39,19 @@ fn segments(value: &str) -> String {
     out
 }
 
+/// The path a file's tab and its document go by: a file of the folder by its normalized path
+/// (`normalize_path`), a file outside it by its absolute path with the `/` it starts at kept
+/// (`/Users/kit/notes.md`; a drive path, `C:/notes.md`, has none to lose).
+pub fn document_path(value: &str) -> String {
+    let path = normalize_path(value);
+    if value.starts_with('/') && !path.is_empty() { format!("/{path}") } else { path }
+}
+
+/// A file tab's id: `//` and the file's path, whole, so the path read back from it
+/// (`file_tab_path`) is the one the file was opened by: `///Users/kit/notes.md` for a file
+/// outside the folder (official `packages/gui-plugins/src/file/path.ts:9-11`).
 pub fn file_tab_id(path: &str) -> String {
-    format!("//{}", normalize_path(path))
+    format!("//{}", document_path(path))
 }
 
 pub fn file_tab_key(path: &str) -> String {
@@ -48,9 +59,8 @@ pub fn file_tab_key(path: &str) -> String {
 }
 
 pub fn file_tab_path(tab_id: &str) -> Option<String> {
-    let rest = tab_id.strip_prefix("//")?;
-    let norm = normalize_path(rest);
-    (!norm.is_empty()).then_some(norm)
+    let path = document_path(tab_id.strip_prefix("//")?);
+    (!path.is_empty()).then_some(path)
 }
 
 /// Splits `"src/net/stream.ts:24"` or `"src/net/stream.ts#L24"` into `("src/net/stream.ts", Some(24))`.
