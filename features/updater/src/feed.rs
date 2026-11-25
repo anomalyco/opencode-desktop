@@ -5,7 +5,6 @@
 //! | --- | --- | --- |
 //! | `OPENCODE_RUNE_UPDATE_FEED` | debug | The feed's base URL, such as a local loopback feed served by `bun`; turns the updater on in a development build, and on Windows lets an unsigned update from a loopback feed (`http://127.0.0.1:`, `localhost`, `[::1]`) install. Non-loopback `http://` is always refused. |
 //! | `OPENCODE_RUNE_RELEASE_URL` | debug (macOS, Linux) | Legacy alias for `OPENCODE_RUNE_UPDATE_FEED`; ignored in release builds. |
-//! | `OPENCODE_RUNE_UPDATE_CHANNEL` | all | The feed channel (`dev`, `stable`). |
 //! | `OPENCODE_RUNE_UPDATE_INITIAL_DELAY_MS` | all | How long after launch the first check waits (10 s). |
 //! | `OPENCODE_RUNE_AUTO_INSTALL_ON_READY` | all (macOS) | `1`: install as soon as an update is ready. |
 //! | `OPENCODE_RUNE_ALLOW_HARNESS_UPDATES` | all | `1`: opt in to running the updater in an isolated `RUNE_DIRS_ROOT` / `--harness-writes` window (needed on signed release/dev builds, where `OPENCODE_RUNE_UPDATE_FEED` is ignored). Has no effect on normal or headless runs, and never weakens feed URL or signature checks. |
@@ -45,10 +44,13 @@ pub fn target_name() -> &'static str {
     }
 }
 
-/// The feed channel for build channel `build`: stable builds follow stable, every other build
-/// follows dev.
-pub fn feed_channel(build: &str) -> String {
-    env("OPENCODE_RUNE_UPDATE_CHANNEL").unwrap_or_else(|| if build == "stable" { "stable" } else { "dev" }.to_owned())
+/// The one channel this app ships on: `https://anoma.ly/release/opencode/desktop-rune/dev.json`.
+/// There is no stable channel, so no build switches channels by itself.
+pub const CHANNEL: &str = "dev";
+
+/// The feed channel every build follows.
+pub fn feed_channel() -> String {
+    CHANNEL.to_owned()
 }
 
 pub fn initial_delay() -> Duration {

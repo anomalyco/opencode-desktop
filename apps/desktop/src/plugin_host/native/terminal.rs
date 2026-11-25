@@ -22,6 +22,8 @@ pub fn build(lua: &Lua, vmx: &std::rc::Rc<super::super::vm::Vmx>, t: &Table) -> 
             let row = |id: &str, title: String, number: usize, hidden: bool| map([("id", Data::String(id.to_owned())), ("title", Data::String(title)), ("number", Data::Integer(number as i64)), ("hidden", Data::Bool(hidden))]);
             let ws = app.kernel.slots.get(&crate::terminal::TERMINAL).workspaces.get(&app.terminal_workspace_key_for_session(&sid));
             Ok(match ws {
+                // Still being listed by the server: the tabs the strip holds stay, as before it was asked.
+                Some(ws) if ws.call == crate::terminal::calls::Call::Listing => open.iter().map(|id| row(id, String::new(), 0, true)).collect(),
                 Some(ws) if !ws.tabs.is_empty() || ws.failure.is_none() => ws.tabs.iter().map(|t| row(&t.id, t.title.trim().to_owned(), t.title_number, false)).collect(),
                 Some(_) => open.iter().map(|id| row(id, String::new(), 0, false)).collect(),
                 None => open.iter().map(|id| row(id, String::new(), 0, true)).collect(),
@@ -163,7 +165,7 @@ pub fn version(app: &App, session: &str) -> u64 {
     let mut h = std::hash::DefaultHasher::new();
     match app.kernel.slots.get(&crate::terminal::TERMINAL).workspaces.get(&app.terminal_workspace_key_for_session(session)) {
         Some(ws) => {
-            (&ws.active, &ws.failure).hash(&mut h);
+            (&ws.active, &ws.failure, ws.call == crate::terminal::calls::Call::Listing).hash(&mut h);
             ws.tabs.iter().for_each(|t| (&t.id, &t.title, t.title_number).hash(&mut h));
         }
         None => 0u8.hash(&mut h),

@@ -25,13 +25,23 @@ fn saved_review_mode(app: &App, sid: &str) -> ChangeMode {
     if let Some(sr) = app.kernel.slots.get(&crate::review::REVIEW).sessions.get(sid) {
         return sr.mode;
     }
+    stored_mode(app, sid).unwrap_or_default()
+}
+
+/// The source the bundled Review keeps for session `sid` in its store, when it kept one.
+fn stored_mode(app: &App, sid: &str) -> Option<ChangeMode> {
     use crate::plugin_host::{services::store, stores};
     let ns = opencode_storage::plugin_namespace("review");
     let key = stores::key("session", &store::scope_session(app, sid));
     store::session_text("review", &ns, "session", sid, &key)
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
         .and_then(|v| ChangeMode::parse(v.get("mode")?.as_str()?))
-        .unwrap_or_default()
+}
+
+/// [`stored_mode`] for the review engine (`ReviewHost::saved_mode`): only the bundled Review's
+/// store is read, as in [`prepare_route`].
+pub(crate) fn stored_review_mode(app: &App, sid: &str) -> Option<ChangeMode> {
+    app.plugins.running().any(|(_, p)| p.tier == super::super::Tier::Bundled && p.manifest.id == "review").then(|| stored_mode(app, sid)).flatten()
 }
 
 /// A routed session with the built-in Review already on screen needs its saved source in
@@ -81,7 +91,17 @@ pub fn build(lua: &Lua, vmx: &Rc<Vmx>, t: &Table) -> mlua::Result<()> {
         with_app("Diff:Open", |app| {
             if !app.kernel.slots.get(&crate::review::REVIEW).has_read(&sid, mode) {
                 let id = sid.clone();
-                app.later(Box::new(move |s: &mut App, _: &mut Tx| s.set_session_change_mode(&id, mode)));
+                // The plugin read its saved source before the server listed the session, so under
+                // a key without the session's folder: `mode` is its default, not its choice. The
+                // engine waits for the listing and then reads the saved one itself, whether the
+                // listing is seconds away or already in when this runs.
+                let unlisted = app.live() && app.session(&sid).is_none_or(|s| s.directory.is_empty());
+                app.later(Box::new(move |s: &mut App, _: &mut Tx| {
+                    if unlisted {
+                        s.kernel.slots.get_mut(&crate::review::REVIEW).wait_for_listing(&id);
+                    }
+                    s.set_session_change_mode(&id, mode);
+                }));
             }
             Ok(())
         })?;
@@ -137,7 +157,7 @@ fn document(lua: &Lua, vmx: &Rc<Vmx>, sid: &str) -> mlua::Result<Table> {
     })?;
     let id = sid.to_owned();
     method(lua, &m, "Sources", move |lua, ()| {
-        let modes = read_meta(&id, "DiffDocument:Sources", |app| Ok(app.kernel.slots.get(&crate::review::REVIEW).sessions.get(&id).map_or_else(|| vec![ChangeMode::Git, ChangeMode::Turn], SessionReview::available_modes)))?;
+        let modes = read_meta(&id, "DiffDocument:Sources", |app| Ok(sources(app, &id)))?;
         lua_data(lua, Data::List(modes.into_iter().map(|m| Data::String(m.name().into())).collect()))
     })?;
     let id = sid.to_owned();
@@ -207,6 +227,19 @@ pub(super) fn lua_data(lua: &Lua, d: Data) -> mlua::Result<Value> {
     mlua::IntoLua::into_lua(d, lua)
 }
 
+/// The sources session `id` offers (`DiffDocument:Sources`). None while the engine waits for the
+/// server to list the session: its saved source can't be read yet, and naming the default would
+/// name a source it may not be in (Desktop's `canReview`: "the mode picker waits for the stored
+/// mode", `packages/gui-plugins/src/review/model.ts`).
+fn sources(app: &App, id: &str) -> Vec<ChangeMode> {
+    let review = app.kernel.slots.get(&crate::review::REVIEW);
+    // Not listed yet: also before the engine was first asked about it (the frame the panel opens in).
+    if review.waits(id) || (app.live() && app.session(id).is_none_or(|s| s.directory.is_empty())) {
+        return Vec::new();
+    }
+    review.sessions.get(id).map_or_else(|| vec![ChangeMode::Git, ChangeMode::Turn], SessionReview::available_modes)
+}
+
 /// How session `sr`'s read went (`DiffStatus`).
 pub fn status(sr: Option<&SessionReview>) -> &'static str {
     match sr {
@@ -254,7 +287,7 @@ pub fn meta_version(app: &App, session: &str) -> u64 {
         status(sr),
         sr.and_then(|r| r.load.failed()),
         sr.and_then(|r| r.active_path.as_deref()),
-        sr.map(SessionReview::available_modes),
+        sources(app, session),
     )
         .hash(&mut h);
     h.finish()

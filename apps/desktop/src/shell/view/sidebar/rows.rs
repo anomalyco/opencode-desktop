@@ -54,7 +54,6 @@ pub(super) fn session_row(s: &App, p: &Pal, key: String, r: SessionRow) -> El {
         .gap(8.0)
         .center_y()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .hover(if r.active { Color::TRANSPARENT } else { p.hover })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.open(&open, tx));
@@ -108,7 +107,6 @@ pub(super) fn group_header(s: &App, p: &Pal, key: &str, label: String, lead: Lea
         .gap(8.0)
         .center_y()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
@@ -157,7 +155,6 @@ pub(super) fn ghost_button(p: &Pal, key: &str, label: &str, small: bool) -> El {
         .px(8.0)
         .center_y()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .hover(p.hover)
         .press(p.pressed)

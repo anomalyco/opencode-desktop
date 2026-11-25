@@ -35,7 +35,7 @@ The same pages, run in official's real desktop app and in our browser engine, an
 | Navigation | HTTP 500 with a body | the body is shown | the body is shown | |
 | Navigation | Basic auth (401) | sign-in prompt with the site's realm | sign-in prompt (`auth_request` with the realm) | |
 | Notifications | A site the person allowed | system notification under the app's name | system notification through the app's sink | #809 |
-| Permissions | `navigator.permissions.query` for location, notifications, camera, microphone and clipboard read on a site not yet asked | `denied` (a request still prompts) | `prompt` (a request prompts) | kept on purpose: `notes/upstream-sync/ours.md` |
+| Permissions | `navigator.permissions.query` for location, notifications, camera, microphone and clipboard read on a site not yet asked | `denied` (a request still prompts) | `prompt` (a request prompts) | kept on purpose (`ours.md`, kept outside the repo) |
 
 ## Not run yet
 

@@ -211,7 +211,7 @@ pub(super) fn view<S: TimelineHost>(c: &Rc<Clip>, name: &str) -> El {
     // A message row may spring its children into place; the rail belongs to the
     // pointer, so never add that row motion to its live rects.
     let mut slider = el().key("seek").w_full().h(44.0).instant_changes().role("slider").focusable(true)
-        .label(format!("{}: {name}", opencode_i18n::t!("rune.video.seek"))).cursor(rune::Cursor::Pointer)
+        .label(format!("{}: {name}", opencode_i18n::t!("rune.video.seek")))
         .range_value(t.position(&c.player), 0.0, c.player.duration().unwrap_or_default()).range_step(1.0)
         .focus_ring(1.0, -3.0, Color::WHITE.alpha(0.8))
         .child(line("rail", Color::WHITE.alpha(0.28), &t.rail, 2.0))

@@ -329,7 +329,7 @@ impl App {
     }
 
     pub fn ensure_workspace_ready(&mut self, ws_key: &str) {
-        ensure_workspace_ready(self, ws_key);
+        ensure_workspace_ready(self, ws_key, calls::After::Nothing);
     }
 
     pub fn open_terminal_for_session(&mut self, sid: &str, new_tab: bool) -> Option<String> {
@@ -357,7 +357,7 @@ impl App {
     }
 
     pub fn new_terminal_in(&mut self, ws_key: &str) -> Option<String> {
-        new_terminal_in(self, ws_key)
+        new_terminal_in(self, ws_key, calls::After::Nothing)
     }
 
     pub(crate) fn start_terminal(
@@ -403,6 +403,10 @@ impl App {
 
     pub(crate) fn toggle_terminal(&mut self, tx: &mut Tx) {
         toggle_terminal(self, tx);
+    }
+
+    pub(crate) fn first_terminal(&mut self, tx: &mut Tx) {
+        side_ops::first_terminal(self, tx);
     }
 
     pub fn apply_pty_event(&mut self, ty: &str, data: &Value) -> bool {

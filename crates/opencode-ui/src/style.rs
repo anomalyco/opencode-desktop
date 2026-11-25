@@ -270,7 +270,6 @@ pub fn nested_rail<S: 'static>(
     el().key("rail")
         .pin(Some(0.0), Some(top), None, Some(bottom))
         .w(14.0)
-        .cursor(rune::Cursor::Pointer)
         .hover_group()
         .hover_motion(INSTANT, INSTANT)
         .focusable(false)

@@ -5,6 +5,7 @@
 //! ```text
 //! %LOCALAPPDATA%\Programs\OpenCode Rune\               the install root (the updater swaps it whole)
 //!   opencode-desktop.exe                               icon, version and manifest resources inside
+//!   install.json                                       the setup's receipt: the updater replaces only this install
 //! Start menu\Programs\OpenCode (Rune).lnk              AppUserModelID set, so a pin and the
 //! Desktop\OpenCode (Rune).lnk (optional)               window share one taskbar button
 //! HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\<app id>    Apps & features
@@ -25,6 +26,6 @@ mod win;
 
 pub use product::{EXE, HOMEPAGE, OPENCODE_SCHEME, PUBLISHER, Product, default_name, side_by_side};
 #[cfg(target_os = "windows")]
-pub use win::{Identity, close_running, default_root, installed_root, other_installs, refresh, register, remove_dir, repair_scheme, running_under, settle_identity, unregister};
+pub use win::{Identity, RECEIPT, close_running, has_receipt, installed_by_setup, write_receipt, default_root, installed_root, other_installs, refresh, register, remove_dir, repair_scheme, running_under, settle_identity, unregister};
 #[cfg(target_os = "windows")]
 pub use win::folders::{documents, local_app_data, protected_folders, roaming_app_data};

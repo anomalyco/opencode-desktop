@@ -243,7 +243,6 @@ pub fn more<H: NarrowHost + 'static>(s: &H, p: &Pal) -> El {
             .gap(8.0)
             .center_y()
             .radius(4.0)
-            .cursor(rune::Cursor::Pointer)
             .hover(if current && !drawer { rune::Color::TRANSPARENT } else { p.hover })
             .hover_motion(INSTANT, INSTANT)
             .on_press_tx(move |s: &mut H, tx: &mut Tx| pick_more_row(s, &view, drawer, tx))

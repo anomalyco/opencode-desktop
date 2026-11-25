@@ -529,7 +529,6 @@ pub fn filter_field<H: SettingsHost + 'static>(
             .mr(-4.0)
             .center()
             .radius(4.0)
-            .cursor(rune::Cursor::Pointer)
             .hover(p.hover)
             .press(p.pressed)
             .focus_inset(p)
@@ -653,11 +652,11 @@ fn ghost_face(p: &Pal, key: &str, label: &str, glyph: Option<&'static Icon>, mut
         .child(text(label.to_owned()).font(if muted { UI } else { UI_MED }.features("\"tnum\"")).color(ink));
     if !enabled {
         // `[data-component="button-v2"][data-variant="ghost|ghost-muted"]:disabled` (`button.css:256-297`).
-        return b.disabled(true).opacity(0.5);
+        return b.disabled(true).opacity(0.5).hit().cursor(rune::Cursor::NotAllowed);
     }
     // `button.css:242-254, 273-287`: `[data-expanded]` suppresses `:hover` so an open menu trigger
     // does not double-composite the hover wash over `simple-overlay-pressed`.
-    let b = b.cursor(rune::Cursor::Pointer).focus_default(p);
+    let b = b.focus_default(p);
     if open { b.fill(p.pressed) } else { b.hover(p.hover).press(p.pressed) }
 }
 

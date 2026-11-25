@@ -6,7 +6,7 @@
 use opencode_i18n::t;
 use opencode_ui::focus::FocusExt;
 use opencode_ui::popup::PopupHost;
-use rune::{Color, Cursor, Drag, El, Key, KeyEvent, Phase, Span, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Color, Drag, El, Key, KeyEvent, Phase, Span, TextStyle, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use opencode_runtime::detail::{Activity, Category, Detail, PRESETS, Placement, preset_description};
 use opencode_ui::palette::{Elevate as _, Pal};
@@ -261,7 +261,6 @@ fn scale<H: SettingsHost + 'static>(p: &Pal, at: Option<usize>) -> El {
         .range_step(1.0)
         .focusable(true)
         .focus_default(p)
-        .cursor(Cursor::Pointer)
         .radius(4.0)
         .w_full()
         .h(28.0)
@@ -283,7 +282,6 @@ fn advanced<H: SettingsHost + 'static>(s: &H, p: &Pal, d: &Detail, custom: bool)
         .label_static(t!("settings.timeline.advanced"))
         .expanded(open)
         .focus_default(p)
-        .cursor(Cursor::Pointer)
         .radius(4.0)
         .h(24.0)
         .gap(6.0)
@@ -333,7 +331,6 @@ fn category<H: SettingsHost + 'static>(p: &Pal, d: &Detail, c: Category, last: b
         .center()
         .radius(4.0)
         .focus_default(p)
-        .cursor(Cursor::Pointer)
         .fill(p.q.neutral)
         .elevate(neutral_lift(p))
         .hover(p.hover)

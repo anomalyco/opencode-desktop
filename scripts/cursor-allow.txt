@@ -1,0 +1,98 @@
+# Every place the app sets the pointer's cursor, a text link (the hand, unless a `.cursor` follows), or selectable
+# text (the I-beam): `path | kind | count | the official line that justifies it`.
+# scripts/guardrails/cursor-allow.mjs fails on a call that is not here, on a count that differs, and on a line whose
+# calls are gone. Official paths are in github.com/anomalyco/opencode. "Desktop's reset" is
+# packages/desktop/src/renderer/styles.css:1-45: controls and drag handles use the default cursor; the pointer
+# cursor is reserved for links. A plain `<a>` is the arrow too (packages/ui/src/styles/base.css:84), and the shell
+# is `select-none` outside inputs (packages/app/src/shell/shell.tsx:216), so text is the arrow unless a rule gives
+# it `user-select: text`. Print the current calls with `node scripts/guardrails/cursor-allow.mjs --list`.
+
+# Resize edges
+apps/desktop/src/plugin_host/native/browser/viewport.rs | ResizeEw | 1 | the device frame's width grip: packages/gui-plugins/src/browser/bar.css:243 ew-resize
+apps/desktop/src/plugin_host/native/browser/viewport.rs | ResizeNs | 1 | the device frame's height grip: packages/gui-plugins/src/browser/bar.css:256 ns-resize
+apps/desktop/src/plugin_host/native/browser/viewport.rs | ResizeNwse+ResizeNesw | 1 | the device frame's corner grip: packages/gui-plugins/src/browser/bar.css:268-271 nwse-resize, nesw-resize right to left
+apps/desktop/src/plugin_host/native/sidebar.rs | ResizeColumn | 1 | a plugin panel's sidebar edge: packages/ui/src/components/resize-handle.css:41 col-resize (session-review-v2.tsx:186)
+apps/desktop/src/shell/view/sidebar.rs | ResizeColumn | 1 | the sidebar's edge: packages/ui/src/components/resize-handle.css:41 col-resize (packages/app/src/shell/shell.tsx:300)
+features/panels/src/view/mod.rs | ResizeColumn | 1 | the side panel's edge: packages/ui/src/components/resize-handle.css:41 col-resize (packages/app/src/runtime/plugin/side-region.tsx:143)
+features/panels/src/view/mod.rs | ResizeRow | 1 | the splitter between the side panel's two panes: packages/ui/src/components/resize-handle.css:68 row-resize (packages/app/src/session/screen.tsx:574)
+features/panels/src/dock.rs | ResizeRow | 1 | the bottom dock's (terminal's) top edge: packages/ui/src/components/resize-handle.css:68 row-resize (packages/app/src/session/screen.tsx:505)
+features/annotations/src/line_comments/view.rs | ResizeRow | 1 | the v1 comment field's grip: a textarea with resize: vertical (packages/ui/src/styles/base.css:332); Chromium shows a vertical resize cursor on its resizer
+features/settings/src/pages/project.rs | ResizeRow | 1 | the startup script field's grip: a textarea with resize: vertical (packages/ui/src/forms/textarea/textarea.css:60)
+
+# The hand official keeps: its CSS says pointer and Desktop's reset does not name the element
+crates/session-view/src/compaction.rs | Pointer | 1 | the quiet compaction divider: packages/session-ui/src/components/session-compaction.css:38
+crates/session-view/src/dock/question/classic.rs | Pointer | 1 | the custom answer's mark: packages/session-ui/src/components/question-prompt.css:390 [data-slot=question-custom-toggle]
+crates/session-view/src/dock/question/face.rs | Pointer | 1 | the custom answer's mark: packages/session-ui/src/components/question-prompt-experimental.css:425
+crates/session-view/src/fold.rs | Pointer | 1 | a user message's Read more: packages/session-ui/src/components/message-part.css:248 [data-slot=user-message-fold-toggle]
+crates/session-view/src/tools/execute.rs | Pointer | 3 | Execute's call rows and its more button: packages/session-ui/src/components/message-part.css:1052 and :1071
+crates/session-view/src/tools/lists.rs | Pointer | 1 | a long Read group: packages/session-ui/src/components/message-part.css:1900 [data-component=read-tool-group][role=button]
+crates/session-view/src/user_quotes.rs | Pointer | 1 | a quote that expands: packages/session-ui/src/components/message-part.css:2071 [data-expandable]
+features/composer-input/src/attachments/toast.rs | Pointer | 1 | an upload's cancel: packages/app/src/composer/attachments/attachments.css:85
+features/settings/src/mode_card.rs | Pointer | 1 | the layout and navigation cards: packages/app/src/settings/general/interface-mode.css:23
+features/settings/src/pages/about.rs | Pointer | 1 | the version that copies: packages/app/src/settings/settings.css:313 .settings-about-version
+features/settings/src/pages/about/notices.rs | Pointer | 1 | a notice's License disclosure: packages/app/src/settings/settings.css:466 .settings-notice summary
+features/settings/src/pages/console_link.rs | Pointer | 2 | Console's name and "replaced" links: packages/app/src/settings/settings.css:2359 and :2390
+features/settings/src/pages/project.rs | Pointer | 1 | Retry after a failed save: packages/app/src/settings/workspaces/project.css:298
+features/settings/src/pages/providers.rs | Pointer | 2 | Console's provider toggle and items: packages/app/src/settings/settings.css:1138 and :1185
+features/office/src/sheet/mod.rs | Pointer | 1 | a link in a cell: packages/gui-plugins/src/microsoft-office/spreadsheet.tsx:870
+
+# Other cursors official has
+crates/session-view/src/images/mod.rs | ZoomIn | 2 | a Markdown image and a tool's image: packages/session-ui/src/components/markdown.css:604 and message-part.css:772 zoom-in
+features/inbox/src/queue/view.rs | Text | 1 | a queued message's words: packages/app/src/session/composer/queue-panel.tsx:229 cursor-text
+features/office/src/sheet/mod.rs | Cell | 1 | the sheet's cells: packages/gui-plugins/src/microsoft-office/spreadsheet.tsx:870 cell
+features/office/src/sheet/mod.rs | Default | 2 | the sheet's headers, over its cell cursor: packages/gui-plugins/src/microsoft-office/spreadsheet.tsx:870 default outside the cells
+features/egg/src/view.rs | Hidden+Default | 1 | Brick Breaker hides the pointer while it plays: packages/app/src/new-session/brick-breaker.tsx:217
+features/terminal-surface/src/grid/mod.rs | Pointer+Text | 1 | the terminal: the I-beam over its text, the hand over a link it will follow (official's is the ghostty-web widget's own)
+features/terminal-surface/src/grid/pointer.rs | Default | 1 | the terminal's scroll bar, over the terminal's I-beam: packages/ui/src/components/scroll-view.css:34 default
+crates/browser-pane/src/surface.rs | dynamic | 1 | the web page's own cursor, as the engine reports it
+apps/desktop/src/surfaces/browser/comment.rs | Default | 1 | a page note's editor, over the page's cursor
+
+# not-allowed on a disabled control: Desktop's reset is `:not(:disabled)`, so official's `cursor: not-allowed` stays
+crates/session-view/src/composer/mod.rs | NotAllowed | 1 | a disabled Send: packages/ui/src/actions/submit.css:79
+crates/opencode-ui/src/widgets.rs | NotAllowed | 1 | `not_allowed`, for a disabled button-v2 that is not loading: packages/ui/src/actions/button/button.css:112-344, submit.css:79 (a loading one keeps the arrow, button.css:232)
+crates/session-view/src/dock/mod.rs | NotAllowed | 1 | a dock's disabled button (button-v2): packages/ui/src/actions/button/button.css:112-344, submit.css:79
+crates/session-view/src/dock/question/classic.rs | NotAllowed | 1 | a progress segment while sending (a disabled button): packages/session-ui/src/components/question-prompt.css:140
+crates/session-view/src/dock/question/face.rs | NotAllowed | 1 | a progress segment while sending (a disabled button): packages/session-ui/src/components/question-prompt-experimental.css:193
+features/settings/src/pages/mod.rs | NotAllowed | 1 | a disabled ghost button: packages/ui/src/actions/button/button.css:256-297
+features/settings/src/pages/worktrees.rs | NotAllowed | 2 | More options and Delete while busy (IconButton disabled, packages/app/src/settings/workspaces/workspaces.tsx:476,550): packages/ui/src/actions/icon-button/icon-button.css:126
+features/office/src/pages.rs | NotAllowed | 1 | a disabled preview control (ghost-muted IconButton): packages/ui/src/actions/icon-button/icon-button.css:126
+apps/desktop/src/shell/view/home/projects.rs | NotAllowed | 1 | Add project while the server is down (IconButton disabled, packages/app/src/home/projects/view.tsx:250): icon-button.css:126
+apps/desktop/src/shell/view/home/servers.rs | NotAllowed | 1 | a server row's Add project while it is down (IconButton disabled, packages/app/src/home/projects/view.tsx:541): icon-button.css:126
+apps/desktop/src/plugin_host/ui/nodes.rs | NotAllowed | 1 | a plugin's disabled switch: packages/ui/src/forms/switch/switch.css:146
+
+# The arrow over what Rune would give the hand: a plain link in official has no cursor of its own
+crates/session-view/src/turn_errors.rs | Default | 1 | a limit notice's Switch model: a plain button, packages/session-ui/src/timeline-next/row.tsx:1536
+features/connect/src/welcome.rs | Default | 1 | the usage link: an ExternalLink with no cursor rule, packages/app/src/providers/connect/chatgpt-welcome.tsx:24; base.css:84
+features/settings/src/pages/about/notices.rs | Default | 2 | a notice's name: an ExternalLink outside .settings-about-content, packages/app/src/settings/about/notices/dialog.tsx:34; base.css:84
+features/settings/src/pages/providers.rs | Default | 1 | View all providers: Desktop's reset names .settings-providers-view-all (styles.css:15)
+
+# Text links (`.link`)
+crates/opencode-ui/src/style.rs | link | 1 | not a text link: the Markdown style's link ink
+crates/session-view/src/timeline/parts.rs | link | 1 | a link in a user message: packages/session-ui/src/components/message-part.css:200 [data-slot=user-message-link] pointer
+crates/session-view/src/tools/plain.rs | link | 1 | a URL in a tool's text: official's linked-text-link is a plain <a> (the arrow); the hand here is Rune's over a link in selectable text, which the app cannot change yet
+crates/session-view/src/turn_errors.rs | link | 1 | Switch model, with the arrow (see its Default above)
+features/connect/src/welcome.rs | link | 1 | the usage link, with the arrow (see its Default above)
+features/settings/src/lib.rs | link | 1 | a.settings-link: packages/app/src/settings/settings.css:777 pointer
+features/settings/src/pages/about.rs | link | 3 | .settings-about-content a and .settings-about-link: packages/app/src/settings/settings.css:395 and :410 pointer
+features/settings/src/pages/about/notices.rs | link | 2 | a notice's name, with the arrow (see its Default above)
+features/settings/src/pages/appearance.rs | link | 1 | a.settings-link (the themes docs): packages/app/src/settings/settings.css:777 pointer
+features/settings/src/pages/extensions.rs | link | 1 | .settings-extension-link: packages/desktop/src/renderer/styles.css:47-49 pointer
+features/settings/src/pages/project_extensions.rs | link | 1 | .settings-extension-link: packages/desktop/src/renderer/styles.css:47-49 pointer
+features/settings/src/pages/providers.rs | link | 1 | View all providers, with the arrow (see its Default above)
+
+# Selectable text (`.selectable`): the I-beam, as over `user-select: text` in official
+crates/opencode-ui/src/style.rs | selectable | 1 | the transcript's readable text: packages/session-ui/src/components/markdown.css:72 and message-part.css:1536-1547 user-select: text
+crates/session-view/src/style.rs | selectable | 1 | a code block's text: inside Markdown, packages/session-ui/src/components/markdown.css:72
+crates/opencode-code-view/src/diff/chrome.rs | selectable | 1 | a diff's text: packages/session-ui/src/components/session-review.css:71 user-select: text
+crates/opencode-code-view/src/file/view.rs | selectable | 1 | a file's text: packages/gui-plugins/src/file/view.tsx:525 select-text
+features/files/src/html.rs | selectable | 1 | a file's source text: packages/gui-plugins/src/file/view.tsx:525 select-text
+features/files/src/markdown.rs | selectable | 1 | a Markdown file's text: packages/session-ui/src/components/markdown.css:72
+features/files/src/table_view.rs | selectable | 1 | a table file's cells: packages/gui-plugins/src/file/artifact-view.css:171 user-select: text
+features/office/src/pages.rs | selectable | 1 | a slide's notes: packages/gui-plugins/src/microsoft-office/presentation.tsx:247 select-text
+apps/desktop/src/plugin_host/ui/office_nodes.rs | selectable | 1 | an Office file's failure reason: packages/ui/src/components/error-details.css:23 user-select: text
+apps/desktop/src/shell/view/move_recovery.rs | selectable | 1 | an error's text: packages/ui/src/components/error-details.css:23 user-select: text
+features/mcp/src/view.rs | selectable | 1 | a server's error text: packages/ui/src/components/error-details.css:23 user-select: text
+features/connect/src/steps/auth.rs | selectable | 2 | the code and the command's output a person copies: packages/app/src/servers/connect/screen.css:106 user-select: all
+features/connect/src/usage_limit.rs | selectable | 1 | the usage limit's detail: packages/app/src/providers/connect/chatgpt-usage-limit.tsx:73 select-text
+apps/desktop/src/plugin_host/runtime/trust.rs | selectable | 1 | a plugin's origin in the trust prompt: ours only (no official counterpart); kept so the path can be copied
+apps/desktop/src/surfaces/browser/prompts/view.rs | selectable | 1 | a page prompt's message: packages/gui-plugins/src/browser/refusal-bar.tsx:102 select-text

@@ -169,7 +169,6 @@ pub fn alternate_hint<H: QueueHost + 'static>(p: &Pal, room: f32, sm: bool, stee
         .gap(6.0)
         .center_y()
         .radius(4.0)
-        .cursor(rune::Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         .transition(rune::Transition::opacity())
@@ -323,7 +322,6 @@ fn icon_button<H: QueueHost + 'static>(p: &Pal, key: &str, label: &str, glyph: &
         .size(side, side)
         .center()
         .radius(4.0)
-        .cursor(rune::Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         // The row it takes away goes at once (rows enter and leave on `SpringPair::NONE`), and the
@@ -369,7 +367,6 @@ fn queue_row<H: QueueHost + 'static>(p: &Pal, session: &str, r: &QueueRow, ids: 
         .gap(2.0)
         .center_y()
         .radius(4.0)
-        .cursor(rune::Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         .on_press(move |s: &mut H| super::steer_queued(s, &ss, &is))
@@ -471,8 +468,8 @@ fn handle<H: QueueHost + 'static>(p: &Pal, session: &str, id: &str, ids: &[Strin
     }
     let (sd, idd, idsd) = (session.to_owned(), id.to_owned(), ids.to_vec());
     let (sk, idk, idsk) = (session.to_owned(), id.to_owned(), ids.to_vec());
-    h.cursor(rune::Cursor::Grab)
-        .focusable(true)
+    // No grab cursor: Desktop forces `.cursor-grab` back to the arrow (`packages/desktop/src/renderer/styles.css:4`).
+    h.focusable(true)
         .on_drag(move |s: &mut H, d: &mut rune::Drag, tx: &mut Tx| on_handle_drag(s, &sd, &idd, &idsd, d, tx))
         .on_key(move |s: &mut H, ev: &KeyEvent, tx: &mut Tx| on_handle_key(s, &sk, &idk, &idsk, ev, tx))
 }

@@ -11,7 +11,7 @@ pub const HOMEPAGE: &str = "https://opencode.ai";
 /// opens the project here; OpenCode Desktop takes it back each time it starts.
 pub const OPENCODE_SCHEME: &str = "opencode";
 /// The id every build's own id starts with (`anomaly.opencode-rune.dev`, `….pr.12`).
-const FAMILY: &str = "anomaly.opencode-rune";
+pub(crate) const FAMILY: &str = "anomaly.opencode-rune";
 
 /// The release channel `channel` names when it is an app of its own beside dev's: `stable` or
 /// `beta`, as OpenCode Desktop ships Dev, Beta and its production app side by side, each under

@@ -4,6 +4,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod calls;
 pub mod draw;
 pub mod find;
 pub mod grid;
@@ -30,7 +31,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use opencode_kit::client::Server;
-use opencode_kit::persistent_pty::PersistentPtyInfo;
+use opencode_kit::persistent_pty::{PersistentPtyInfo, TerminalCreate};
 use rune::machine::{Attempt, Effects};
 use rune::{Drag, KeyEvent, PointerPress, TextEdit, TextStyle, Tx};
 use rune_knobs::{Group, Knob, Knobs};
@@ -126,6 +127,10 @@ pub enum TerminalJob {
     Remove {
         pty_id: String,
     },
+    /// Lists `session`'s terminals (`GET /api/experimental/session/:id/terminal`) for workspace `ws`.
+    List { ws: String, session: String, order: Vec<String>, active: Option<String> },
+    /// Starts a terminal for `session` (`POST /api/experimental/session/:id/terminal`).
+    Create { ws: String, session: String, create: TerminalCreate, launch: calls::Launch, after: calls::After },
 }
 
 /// Result of a [`TerminalJob`], delivered back on the UI thread via [`apply_reply`].
@@ -140,6 +145,8 @@ pub enum TerminalReply {
     Removed {
         pty_id: String,
     },
+    Listed { ws: String, order: Vec<String>, active: Option<String>, result: Result<Vec<PersistentPtyInfo>, String> },
+    Created { ws: String, plain: bool, shell: Option<Option<String>>, after: calls::After, result: Result<PersistentPtyInfo, String> },
 }
 
 /// Link hover state on a terminal grid cell, replacing `Option<(u16, u16, bool)>`.
@@ -418,6 +425,8 @@ pub struct TerminalWorkspace {
     pub tabs: Vec<TerminalTab>,
     /// Why the server's terminals couldn't be listed or started; shown instead of a shell.
     pub failure: Option<String>,
+    /// The server call these terminals wait for (`calls`).
+    pub call: calls::Call,
 }
 
 impl TerminalWorkspace {

@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use rune::{Cursor, El, Icon, Key, KeyEvent, Tx, el, icon};
+use rune::{El, Icon, Key, KeyEvent, Tx, el, icon};
 use rune_kit::{DiagramFrame, MarkdownStyle};
 
 use crate::TimelineHost;
@@ -210,7 +210,6 @@ fn button<S: TimelineHost>(p: &Pal, id: u64) -> El {
             .size(25.0, 25.0)
             .radius(5.0)
             .center()
-            .cursor(Cursor::Pointer)
             .focus_default(p)
             .fill(p.bg_base)
             .border(0.5, p.border_muted)

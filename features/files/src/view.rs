@@ -9,7 +9,7 @@ use std::rc::Rc;
 use opencode_ui::keymap::Bind;
 use opencode_ui::panel_chrome as chrome;
 use opencode_ui::popup::{Item, Menu};
-use rune::{Anim, Color, Cursor, El, GrowthSpec, KeyEvent, PointerPress, ScrollPos, TextEdit, Tx, col, el, icon, row, text};
+use rune::{Anim, Color, El, GrowthSpec, KeyEvent, PointerPress, ScrollPos, TextEdit, Tx, col, el, icon, row, text};
 use rune_kit::diff::FileStatus;
 use rune_theme_opencode::icons as ic;
 use rune_theme_opencode::tree_icons;
@@ -371,7 +371,6 @@ pub fn filtered_files_view<H: FilesHost + 'static>(
                     .fill(if on { pal.pressed } else { Color::TRANSPARENT })
                     .hover(if on { pal.pressed } else { pal.hover })
                     .hover_motion(INSTANT, INSTANT)
-                    .cursor(Cursor::Pointer)
                     .role("option")
                     .checked(highlighted)
                     .on_press_tx(move |s: &mut H, tx: &mut Tx| ops::open_workspace_file_or_page(s, &click_p, true, tx))

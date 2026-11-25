@@ -9,13 +9,12 @@ use std::cell::Cell;
 use std::collections::HashSet;
 use std::time::Duration;
 
-use opencode_kit::client::Server;
 use serde_json::{Value, json};
 use terminal::{RestoreState, SessionPersistHandle, TerminalConfig, TerminalSession};
 
 use crate::{
-    HoverLink, MAX_TERMINAL_WORKSPACES, TabBackend, TerminalSurfaceHost, TerminalTab, TerminalWorkspace, mount, ops,
-    workspace_key,
+    HoverLink, MAX_TERMINAL_WORKSPACES, TabBackend, TerminalSurfaceHost, TerminalTab, TerminalWorkspace, calls, mount,
+    ops, workspace_key,
 };
 
 /// The storage namespace the workspaces live in (Desktop's terminal plugin's), one row each.
@@ -462,8 +461,8 @@ pub fn ensure_terminal_workspace_hydrated(host: &mut dyn TerminalSurfaceHost, ws
         return false;
     }
     take_stored_terminals(host);
-    if let Some((srv, _)) = ops::live_terminals(host) {
-        return hydrate_from_server(host, ws_key, &srv);
+    if ops::live_terminals(host).is_some() {
+        return hydrate_from_server(host, ws_key);
     }
     let Some(stored) = host.terminal_mut().stored.remove(ws_key) else {
         return false;
@@ -519,30 +518,17 @@ pub fn ensure_terminal_workspace_hydrated(host: &mut dyn TerminalSurfaceHost, ws
         .or_else(|| tabs.first().map(|t| t.id.clone()));
     host.terminal_mut()
         .workspaces
-        .insert(ws_key.to_owned(), TerminalWorkspace { directory, active, tabs, failure: None });
+        .insert(ws_key.to_owned(), TerminalWorkspace { directory, active, tabs, ..TerminalWorkspace::default() });
     true
 }
 
-fn hydrate_from_server(host: &mut dyn TerminalSurfaceHost, ws_key: &str, srv: &Server) -> bool {
+fn hydrate_from_server(host: &mut dyn TerminalSurfaceHost, ws_key: &str) -> bool {
     let stored = host.terminal_mut().stored.remove(ws_key).unwrap_or_default();
     let (session_id, directory) = ops::terminal_session_dir(host, ws_key);
     host.terminal_mut().touch_lru(ws_key);
-    let mut ws = TerminalWorkspace { directory, ..TerminalWorkspace::default() };
-    match srv.terminal_list(&session_id) {
-        Err(e) => ws.failure = Some(e.to_string()),
-        Ok(mut list) => {
-            list.retain(|info| info.status == opencode_kit::pty::PtyStatus::Running);
-            let rank = |id: &str| stored.all.iter().position(|p| p.id == id).unwrap_or(usize::MAX);
-            list.sort_by_key(|info| rank(&info.id));
-            let h: &dyn TerminalSurfaceHost = &*host;
-            ws.tabs = list.into_iter().filter_map(|info| ops::persistent_tab(h, srv.clone(), info).ok()).collect();
-            ws.active = stored
-                .active
-                .filter(|id| ws.tabs.iter().any(|t| &t.id == id))
-                .or_else(|| ws.tabs.first().map(|t| t.id.clone()));
-        }
-    }
-    let loaded = !ws.tabs.is_empty();
+    // The server lists them off this thread (`calls::listed` takes the answer): none shows yet.
+    let ws = TerminalWorkspace { directory, call: calls::Call::Listing, ..TerminalWorkspace::default() };
     host.terminal_mut().workspaces.insert(ws_key.to_owned(), ws);
-    loaded
+    calls::list(host, ws_key, session_id, stored);
+    false
 }

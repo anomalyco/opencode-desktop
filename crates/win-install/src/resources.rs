@@ -43,10 +43,19 @@ pub fn embed(r: &Resources) -> Result<(), String> {
     res.compile().map_err(|e| format!("windows resources: {e}"))
 }
 
-/// Compiles version information alone into the library being built (Properties > Details): a
-/// library has no icon, and Windows reads the application manifest from the exe.
-pub fn embed_version(file_name: &str, version_text: &str, description: &str, product: &str) -> Result<(), String> {
+/// Compiles the icon and version information (Properties > Details) into the library being built;
+/// Windows reads the application manifest from the exe.
+///
+/// The icon is the windows': a window's icons load from the module its window code is linked
+/// into (`rune::set_app_icon_resource`: winit's `Icon::from_resource` passes that module's own
+/// handle to `LoadImageW`), which is the library when the app is one. The exe's icon alone leaves
+/// every window without one: the taskbar then draws the exe's icon, and Alt+Tab, which asks only
+/// the window, the system's default program icon. `icon` is the exe's `.ico`, under the same
+/// resource id (1).
+pub fn embed_library(icon: &Path, file_name: &str, version_text: &str, description: &str, product: &str) -> Result<(), String> {
+    println!("cargo:rerun-if-changed={}", icon.display());
     let mut res = winresource::WindowsResource::new();
+    res.set_icon(&icon.to_string_lossy());
     version(&mut res, file_name, version_text, description, product);
     res.compile().map_err(|e| format!("windows resources: {e}"))
 }

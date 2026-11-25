@@ -461,7 +461,7 @@ pub fn inbox_waker(handle: rune::AppHandle<App>) -> rune::Waker {
 /// What the browser engine's messages wake: a quiet poll that reads them and steps the agent's
 /// browser commands waiting on them, in the turn they arrive. Woken like any other thread, a
 /// shown window would poll only in its next frame, so each DevTools round trip of a command
-/// waited a frame (17-45 ms on blade); a frame now follows only when the pane changed. The
+/// waited a frame (17-45 ms as measured); a frame now follows only when the pane changed. The
 /// server's announcements of an agent's commands wake it too (`rpc::express`).
 #[cfg(not(target_arch = "wasm32"))]
 pub fn browser_waker(handle: rune::AppHandle<App>) -> rune::Waker {
@@ -506,6 +506,10 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     last_exit::presented();
     if s.persists() {
         crate::windows::reopen::expire(*s.now_ms);
+        // Windows an earlier build lost (rows, and no place in the saved list) leave the boot
+        // record for Reopen closed window: the first frame is up, and the storage thread does it.
+        #[cfg(not(target_arch = "wasm32"))]
+        crate::windows::reopen::sweep_lost(*s.now_ms);
     }
     // The window's other servers start from its next poll (`servers::runtime::poll`).
     s.checkout.boot = crate::servers::runtime::Boot::Ready;

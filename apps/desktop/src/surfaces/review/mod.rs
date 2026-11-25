@@ -47,6 +47,10 @@ impl ReviewHost for App {
         Some(&self.fixture_run.fixture)
     }
 
+    fn saved_mode(&self, sid: &str) -> Option<ChangeMode> {
+        crate::plugin_host::native::diff::stored_review_mode(self, sid)
+    }
+
     fn review_shown(&self) -> bool {
         App::review_shown(self)
     }

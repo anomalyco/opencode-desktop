@@ -38,7 +38,8 @@ pub enum PluginsPoll {
 /// Why a session is blocked from automatic re-attach until an explicit wake event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BlockReason {
-    /// Another desktop window replaced this attachment (`output: "replaced"`).
+    /// Another desktop window replaced this attachment (`output: "replaced"`), until the person
+    /// comes to the session here again or no desktop holds it.
     Replaced,
     /// Server reported `SessionNotFoundError`; wait for `session.created` or session refresh.
     Missing,
@@ -95,7 +96,7 @@ pub enum AttachState {
     /// Server lacks `experimental.browser` v4 (`404`/`405`/`501`/`rpc.not_found`/incompatible v).
     /// Keeps `rune_mcp` fallback active; re-probed on `ServerConnected` or `PluginUpdated`.
     Unsupported,
-    /// Blocked until an explicit wake (`SessionCreated`, `UserWake`, or engine capability update).
+    /// Blocked until an explicit wake (`SessionCreated`, `Take`, `Released`, or engine capability update).
     Blocked { reason: BlockReason },
     /// Final disposed state for a closed/deleted session.
     Closed,
@@ -129,8 +130,14 @@ pub enum AttachEvent {
     SessionCreated,
     /// Session moved directory (`session.moved`): tear down and re-attach under the new location.
     SessionMoved,
-    /// User interacted with the browser pane in this window (wakes `Replaced` / `Backoff`).
-    UserWake,
+    /// The person came to the session in this window (its route, a prompt, opening its browser),
+    /// so one another window took comes back here (`machine.ts` `session.wake` with `takes`,
+    /// opencode#65969). Focus, a press, a key and an agent's edges are no such event: taking
+    /// the session would fail the commands an agent has in flight in the window that holds it.
+    Take,
+    /// No desktop holds the session's browser any more: the window that took it let it go
+    /// (`machine.ts` `session.released`).
+    Released,
     /// Session deleted or window disposed.
     Dispose,
 }
@@ -277,10 +284,10 @@ impl AttachMachine {
                 }
                 _ => Vec::new(),
             },
-            AttachEvent::UserWake => match &self.state {
-                AttachState::Idle
-                | AttachState::Backoff { .. }
-                | AttachState::Blocked { reason: BlockReason::Replaced } => self.start_attach(now),
+            // Only these lift `Replaced`: the other window may be long closed, and a block
+            // nothing lifts leaves the session without a browser for as long as the app runs.
+            AttachEvent::Take | AttachEvent::Released => match &self.state {
+                AttachState::Blocked { reason: BlockReason::Replaced } => self.start_attach(now),
                 _ => Vec::new(),
             },
             AttachEvent::SessionMoved => match &self.state {

@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use windows_registry::CURRENT_USER;
 
+use crate::product::FAMILY;
 use crate::{EXE, HOMEPAGE, OPENCODE_SCHEME, PUBLISHER, Product};
 
 /// The toast icon the install folder ships (the release zip carries it beside the app).
@@ -49,6 +50,15 @@ pub fn other_entries(p: &Product) -> Vec<String> {
     let Ok(key) = CURRENT_USER.open(UNINSTALL) else { return Vec::new() };
     let Ok(names) = key.keys() else { return Vec::new() };
     names.filter(|name| name != p.id() && (name == family || name.starts_with(&format!("{family}.")))).collect()
+}
+
+/// Whether an uninstall entry of any build of the app names `root` as its install location.
+pub fn entry_at(root: &Path) -> bool {
+    let Ok(key) = CURRENT_USER.open(UNINSTALL) else { return false };
+    let Ok(names) = key.keys() else { return false };
+    names
+        .filter(|name| name == FAMILY || name.starts_with(&format!("{FAMILY}.")))
+        .any(|name| key.open(&name).and_then(|entry| entry.get_string("InstallLocation")).is_ok_and(|location| super::scheme::same_path(Path::new(&location), root)))
 }
 
 pub fn entry_root(p: &Product) -> Option<PathBuf> {

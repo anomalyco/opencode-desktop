@@ -11,7 +11,7 @@
 //! lies, a remote one over the server's file route. Nothing of it is downloaded first.
 
 use rune::{
-    Anim, Color, Curve, Cursor, Easing, El, Family, Icon, Phase, Player, PlayerState, Shadow,
+    Anim, Color, Curve, Easing, El, Family, Icon, Phase, Player, PlayerState, Shadow,
     SurfaceFit, TextStyle, Tx, el, icon, row, text,
 };
 use rune_theme_opencode::icons as ic;
@@ -507,7 +507,6 @@ fn button_shell(key: &'static str, glyph: &'static Icon, label: &'static str) ->
     el().key(key)
         .size(BUTTON, BUTTON)
         .center()
-        .cursor(Cursor::Pointer)
         .role("button")
         .label(label)
         .child(
@@ -550,7 +549,6 @@ fn timeline_shell(track: f32, played: f32, scrubbing: bool) -> El {
     el().key("media-timeline")
         .pin(Some(0.0), None, Some(0.0), Some(0.0))
         .h(TIMELINE)
-        .cursor(Cursor::Pointer)
         .role("slider")
         .label("Video time scrubber")
         .child(
@@ -594,7 +592,6 @@ fn expand_button(p: &Pal, shown: bool) -> El {
         .size(BUTTON, BUTTON)
         .center()
         .opacity(if shown { 1.0 } else { 0.0 })
-        .cursor(Cursor::Pointer)
         .role("button")
         .label_static(opencode_i18n::t!("plugin.file.view.fullscreen"))
         .help(opencode_i18n::t!("plugin.file.view.fullscreen").to_owned())

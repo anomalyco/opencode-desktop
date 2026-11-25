@@ -52,7 +52,7 @@ We appreciate your efforts to responsibly disclose your findings, and will make
 every effort to acknowledge your contributions.
 
 To report a security issue in OpenCode (Rune), please use the GitHub Security
-Advisory ["Report a Vulnerability"](https://github.com/anomalyco/rune-desktop/security/advisories/new)
+Advisory ["Report a Vulnerability"](https://github.com/anomalyco/opencode-rune/security/advisories/new)
 tab. For vulnerabilities in the OpenCode server or CLI itself, report them via
 [`anomalyco/opencode`](https://github.com/anomalyco/opencode/security/advisories/new).
 

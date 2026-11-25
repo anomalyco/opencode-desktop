@@ -3,7 +3,7 @@
 use std::ops::Range;
 use std::rc::Rc;
 
-use rune::{Color, Cursor, Drag, El, Icon, Phase, Span, TextStyle, Tx, col, el, icon, rich, row, text};
+use rune::{Color, Drag, El, Icon, Phase, Span, TextStyle, Tx, col, el, icon, rich, row, text};
 use rune_kit::diff::{DiffMode, EXPAND_STEP, Expand, FileStatus, LineKind, LineRef, Side};
 use opencode_ui::palette::Pal;
 use opencode_ui::style::{INSTANT, UI};
@@ -194,7 +194,6 @@ fn gap_step_button_base(p: &Pal, look: &CodeLook, how: Expand, glyph: &'static I
         .fill(fill)
         .hover_group()
         .hover_motion(INSTANT, INSTANT)
-        .cursor(Cursor::Pointer)
         .role("button")
         .label(label)
         .child(icon(glyph, 16.0).color(p.faint).group_color(look.plain).absolute((w - 16.0) / 2.0, (h - 16.0) / 2.0))
@@ -205,7 +204,6 @@ fn gap_words_base(p: &Pal, count: &str) -> El {
         .key("words")
         .role("button")
         .label(count.to_owned())
-        .cursor(Cursor::Pointer)
         .child(text(count.to_owned()).key("count").font(SEPARATOR_TEXT).color(p.faint).group_opacity(1.0, 0.0))
         .child(
             rich(count.to_owned(), vec![Span::new(0, count.len()).underline(p.faint)])
@@ -233,7 +231,6 @@ fn gap_row_expandable(look: &CodeLook, st: &DiffDocState, fill: Color, count: St
                 .center_y()
                 .hover_group()
                 .hover_motion(INSTANT, INSTANT)
-                .cursor(Cursor::Pointer)
                 .child(words),
         );
     gap_row_finish(st, fill, count, inner)
@@ -326,7 +323,7 @@ impl<S: 'static> Inner<S> {
         // Capture the row's stable key, not its index `i`: expanding or collapsing a fold above
         // shifts `st.rows` while the row's memo reuses this handler (`rune::memo` contract).
         let row_key = st.keys[i].clone();
-        c.cursor(Cursor::Pointer).on_drag(move |s: &mut S, d: &mut Drag, tx: &mut Tx| {
+        c.on_drag(move |s: &mut S, d: &mut Drag, tx: &mut Tx| {
             tx.instant();
             let st = get_mut(s);
             let before = st.selection();

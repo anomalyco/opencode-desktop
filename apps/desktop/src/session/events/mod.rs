@@ -341,6 +341,11 @@ impl App {
             session.title = title.to_owned();
             done.renamed = true;
         }
+        // A desktop attached to the session's browser, or the last one let it go (`data.ts`).
+        if ty == "session.permissions"
+            && let Some(session) = self.sessions.iter_mut().find(|s| s.id == sid) {
+            session.browser = opencode_kit::model::BrowserGrant::of(&data["permissions"]);
+        }
         if crate::recent_page::reloads_on(ty, data) {
             self.schedule_recent_reload();
         }

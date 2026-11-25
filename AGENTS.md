@@ -1,6 +1,6 @@
-# OpenCode (Rune) (`rune-desktop`)
+# OpenCode (Rune) (`opencode-rune`)
 
-`anomalyco/rune-desktop` houses **OpenCode (Rune)** (`apps/desktop`, `apps/web`, `apps/installer`) and the shared Rust crates (`crates/*`) that any Rune app can embed by git dependency.
+`anomalyco/opencode-rune` houses **OpenCode (Rune)** (`apps/desktop`, `apps/web`, `apps/installer`) and the shared Rust crates (`crates/*`) that any Rune app can embed by git dependency.
 
 ## Layout (Progressive Disclosure)
 
@@ -34,6 +34,7 @@ Application code only. This repo has no automated tests of any kind, and none ge
   - `scripts/folder-shape.sh`: enforces prefix-family subfolders and folder breadth (`> 40` warn, `> 60` error).
   - `scripts/dialog-size.sh`: every dialog takes an `opencode_ui::dialog::DialogSize` preset (re-exported as `session_view::dialog::DialogSize`; `Normal` 480 × 368, `Large` 680 × 600, `XLarge` 880 × 680; `opencode_ui::widgets::{sized, sized_modal}`, re-exported as `crate::widgets` in `apps/desktop`), never its own width or height.
   - `scripts/tables-check.sh`: checks `apps/desktop/src/stories/order.rs` against `STORY_LIST`, `apps/desktop/src/shell/commands/order.rs` against registered built-in commands, `crates/opencode-i18n/locales/rune/*.json` coverage and unknown keys against `en.json`, and `cargo run -q -p opencode-plugin-spec -- --check` against `contract.json`.
+  - `scripts/guardrails/cursor-allow.mjs`: the pointer's cursor follows the official app element by element (the arrow on controls; another cursor only where official's source gives one). Every `.cursor(...)` call, text link (`.link`) and selectable text (`.selectable`) under `apps/`, `crates/` and `features/` is listed in `scripts/cursor-allow.txt` (`path | kind | count | the official line that justifies it`); a call that is not listed, a count that differs and a stale line all fail.
 - **Slow / compile checks (run separately):**
   - `scripts/clippy.sh`: zero clippy diagnostics (`-D warnings`) across the workspace and each feature set that compiles different code.
   - `cargo check -p session-view --examples`: keep `session-view`'s standalone examples building.

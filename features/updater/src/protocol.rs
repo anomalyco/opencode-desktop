@@ -105,8 +105,8 @@ pub fn parse_manifest(text: &str, manifest_url: &str, target_name: &str) -> Resu
         .ok_or_else(|| "manifest rollout_percent out of range".to_owned())?;
     let required = match rel.get("required") {
         None => false,
-        Some(Value::Bool(true)) => true,
-        _ => return Err("manifest release.required must be true when present".into()),
+        Some(Value::Bool(b)) => *b,
+        _ => return Err("manifest release.required must be a boolean".into()),
     };
     let notes_url = rel.get("notes_url").and_then(Value::as_str).map(str::to_owned);
     let target = match rel.get("targets").and_then(|t| t.get(target_name)) {

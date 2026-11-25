@@ -1,6 +1,7 @@
 //! A window's life as the app's window list sees it: open, a torn-out tab's window still
-//! following the pointer, closing, closed. Only open windows are in the list saved for the next
-//! launch, so a quit mid-tear doesn't bring the tab back twice.
+//! following the pointer, closing, closed, kept. The list saved for the next launch holds the
+//! open windows, so a quit mid-tear doesn't bring the tab back twice, and a window kept at its
+//! close: the app ends with it, and the quit that follows saves the list again.
 
 /// Where a window is in its life.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -15,6 +16,11 @@ pub enum Life {
     Closing,
     /// Gone from the list.
     Closed,
+    /// Closed as the app ends (its last window, or a quit): off the screen and still in the
+    /// list. Rune runs the last window's `App::on_quit` after its `on_close` (rune#1773), and
+    /// that quit writes the list: without this state it wrote an empty one, and the next launch
+    /// opened a new window with none of the tabs.
+    Kept,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,14 +51,21 @@ impl Life {
         match (self, event) {
             (Life::Torn, LifeEvent::Kept) => (Life::Open, LifeEffect::SaveIds),
             (Life::Torn, LifeEvent::Closing { .. }) | (Life::Open, LifeEvent::Closing { keep: false }) => (Life::Closing, LifeEffect::Forget),
-            (Life::Open, LifeEvent::Closing { keep: true }) => (Life::Closing, LifeEffect::Keep),
+            (Life::Open, LifeEvent::Closing { keep: true }) => (Life::Kept, LifeEffect::Keep),
             (Life::Closing, LifeEvent::Closed) => (Life::Closed, LifeEffect::None),
             (state, _) => (state, LifeEffect::None),
         }
     }
 
-    /// Whether the window is in the list saved for the next launch.
+    /// Whether the window is open and a window of its own (in the list saved for the next
+    /// launch, and one the other windows count and reach).
     pub fn saved(self) -> bool {
         self == Life::Open
+    }
+
+    /// Whether the window is in the list saved for the next launch: the open ones and one kept
+    /// at its close.
+    pub fn listed(self) -> bool {
+        matches!(self, Life::Open | Life::Kept)
     }
 }
