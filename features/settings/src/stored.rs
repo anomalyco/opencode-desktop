@@ -35,6 +35,7 @@ const SHARED: [(&str, &str, &str); 26] = [
     ("wrapCodeBlocks", "general", "wrapCodeBlocks"),
     ("tabLayout", "appearance", "tabLayout"),
     ("navigation", "appearance", "navigation"),
+    ("tabGrouping", "appearance", "tabGrouping"),
     ("reduceMotion", "appearance", "reduceMotion"),
     ("uiFont", "appearance", "sans"),
     ("codeFont", "appearance", "mono"),
