@@ -5,7 +5,7 @@
   "upstream_head": "2b296cabc843fb76e7d65c53e10ce29833630aa1",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "c8bd4807a",
+  "rune_desktop_head": "62bf130d4",
   "post_1114_commit_count": 685,
   "post_1114_in_ledger": 240,
   "post_1114_skipped": 445,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 261,
   "status_counts": {
-    "have it": 212,
+    "have it": 213,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 9
+    "missing": 8
   },
   "rows": [
     {
@@ -6500,8 +6500,8 @@
       ],
       "summary": "Stop pressed before the model has answered a prompt with text or a tool call takes that prompt back, as an undo does: the message leaves the conversation and its words, files and quotes are in the composer again, with no Undo offer, since nothing of an answer is lost. It happens only when the composer is empty (no words, no attachments or context) and nothing is queued, and only when the server says the stop interrupted a run; a repeated Stop only stops. A shell command, a compaction or a synthetic prompt after the prompt counts as an answer. Files are not put back (the model called no tool).",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Port in a draft, opencode-rune #1244, not run yet: a stop notes whether the composer was clear; the interrupt's answer and the run's end, in either order, decide; the latest prompt is read at the run's end and comes back only when nothing answered it; its revert is staged without its files and committed after a wait (crates/opencode-runtime/src/machines/take_back.rs, features/history/src/rewind/take_back.rs, crates/opencode-kit/src/session_ops.rs take_back). Official: packages/app/src/session/composer/adapter.ts:57-70 (when a stop takes the prompt back; the interrupt's answer), packages/app/src/session/revert.ts:289-309 (takeBack: wait for the run to settle, the unanswered prompt, its media kept, revert staged with files false and committed, the draft restored, the cursor moved), packages/app/src/session/session-domain.ts:7-27 (selectUnansweredPrompt). Ours: Stop asks the server to interrupt with resume and does nothing to the prompt (apps/desktop/src/session/inbox/stop.rs:140-166, crates/opencode-kit/src/client.rs:484-486); the server's answer already reaches the window (crates/opencode-kit/src/client/worker.rs:341-345, InterruptAcknowledged), and the wait, the staged revert and its commit are calls the rewind already makes (crates/opencode-kit/src/session_ops.rs:31-56).",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1244 (62bf130d): a Stop made while the composer holds nothing and nothing is queued or pending takes the session's latest prompt back when the server says the stop interrupted a run and nothing has answered the prompt: text that is not blank, a tool call, a shell command, a compaction or a background job's report each count as an answer, a thought alone does not. The prompt's revert is staged without its files and committed after a wait, and once the server has agreed the prompt, with its files and quotes, is the composer's draft again; there is no Undo offer and a failure says nothing. One explicit machine a session (crates/opencode-runtime/src/machines/take_back.rs), carried out in features/history/src/rewind/take_back.rs, with one new write in crates/opencode-kit (session_ops.rs take_back: wait, revert/stage with files false, revert/commit). Official: packages/app/src/session/composer/adapter.ts:57-70, packages/app/src/session/revert.ts:289-309, packages/app/src/session/session-domain.ts:7-27. Run headless on its own Windows x64 CI builds beside a build of dev on the same Rune pin, the app's fixture file and no server (the fixture's reply thinks, then writes, then calls a tool): Stop while it has only thought puts the prompt in the composer and takes its row and the thought away, with no toast, where the before build keeps the row with Interrupted; Stop after its first words, and Stop with a letter typed in the composer, only stop, on both builds; the prompt that came back is sent again and answered. The first case was repeated on the merged head, which took in a change to two of its files. Not run (each needs a server): the four requests in order; Stop after a tool call on a live run; Stop with a queued prompt; a prompt with an image and a quote. Not run: a real window; macOS; Linux. Differences, each by reading: ours reads the latest prompt when the run's end comes on the event stream and waits first thing in the commit, where official waits and then reads (revert.ts:296-297), so with the stream down ours takes nothing back; a background job's report the timeline shows nothing for is not in ours' conversation and cannot count as an answer (session-domain.ts:18), which needs the conversation to keep a mark for it: a follow-up; official moves the timeline's active message to the one before the prompt (revert.ts:307-308) and ours sets no such cursor, here or in its rewind; official takes local copies of the prompt's media before the commit (revert.ts:300-301), ours puts back the files the window kept for the message.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
