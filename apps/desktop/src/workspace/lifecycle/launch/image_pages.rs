@@ -13,9 +13,9 @@
 //! - the pages the earlier launches of this very exe used, from `<cache>/launch-pages.bin`;
 //! - with no list for this exe yet (its first start), its code and constants in address order.
 //!
-//! It asks only when the pages are away: it reads one byte of sixteen of them first, and a page
-//! in memory answers in a few microseconds where one on the disk takes fifty or more. With the
-//! exe in memory (most launches) nothing is asked for: the call would take the locks the
+//! It asks only when the pages are away: it reads one byte of [`SAMPLES`] of them first, and a
+//! page in memory answers in a few microseconds where one on the disk takes fifty or more. With
+//! the exe in memory (most launches) nothing is asked for: the call would take the locks the
 //! launch's own page faults need.
 //!
 //! Then, with a list, the thread reads one byte of each listed page. A page in memory is still
@@ -79,7 +79,17 @@ const ASK_JOIN_MANY: u32 = 6;
 const ASK_THREADS: usize = 4;
 /// How many of the wanted pages are read to learn whether they are in memory, how long a read
 /// of one that isn't takes at least, and how many such reads say the exe is away.
-const SAMPLES: u32 = 16;
+///
+/// Memory pressure pushes out some of an exe's pages, not all. With a share `f` of them away
+/// the look finds fewer than two with chance `(1-f)^n + n*f*(1-f)^(n-1)`: at 16 samples that is
+/// 81 % for 5 % away and 51 % for 10 %, at 128 it is 1 % and under 0.01 %. A miss asks for
+/// nothing, and with no list (a build's first launch on a profile) nothing reads the pages
+/// either, so each one away is a fault of the thread that runs its code, the UI thread first:
+/// the first frame of a fresh profile went from 38 ms to 71 ms (5 % of the image away, the look
+/// said "present" in 8 of 9 launches) and to 70-227 ms (10 %, 4 of 10), against 47-54 ms in the
+/// launches of the same states where it asked (published dev-483, 25 Nov). In memory a sample
+/// costs a few microseconds on this thread.
+const SAMPLES: u32 = 128;
 const AWAY: Duration = Duration::from_micros(25);
 const AWAY_SAMPLES: u32 = 2;
 /// How long after the first input the launch counts as settled.
