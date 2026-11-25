@@ -5,7 +5,7 @@
   "upstream_head": "acce96c36e7a90c5b28eb106e628e84cba86d61d",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "e167d6218",
+  "rune_desktop_head": "312f8b182",
   "post_1114_commit_count": 654,
   "post_1114_in_ledger": 230,
   "post_1114_skipped": 424,
@@ -6134,7 +6134,7 @@
       "summary": "In official's New timeline the rows a reader is looking at stay still when an older page of history lands above them: they moved down 16 to 32 px on every page, because a row took the gap over it from the row before it and so grew on top when that row arrived. The row directly above now holds the gap, below its own content, and a turn's first row gets a turn gap row of its own. Also: collapsing a group from its stuck header leaves the header where it was (it moved up 6 px on every collapse).",
       "size": "M",
       "status": "have it",
-      "status_evidence": "opencode-rune #1160 (50fefd96): the upper row of two holds the room between them (crates/session-view/src/timeline/mod.rs, parts.rs, rhythm.rs, projection.rs, span.rs, delivery.rs; features/history/src/message_nav/mod.rs), so rows a reader looks at no longer move when an older page lands: the first loaded row 74 -> 80 high and +6 px on every row under it before, 51 -> 51 and +0 px after. Run headless on its CI build: an older page held 3 s then landed (both trees); a 15-pass walk at rest against published dev-489: 14 sessions 0 px different, Home the same but for a scratch path. Not run: the walk's passes with a menu or panel over the timeline; the stuck group header (by reading: ours measures no stuck distance, so official's 6 px has no counterpart); Previous / Next message onto a prompt with pictures. Differs from official: no turn-gap row (the last row of the turn above holds the turn's room: the same picture). Open remainder: a divider (a switch notice, a compaction) still takes the room over its own line from the row before, so a divider that is the first loaded row can still move by that when the page above lands.",
+      "status_evidence": "opencode-rune #1160 (50fefd96): the upper row of two holds the room between them (crates/session-view/src/timeline/mod.rs, parts.rs, rhythm.rs, projection.rs, span.rs, delivery.rs; features/history/src/message_nav/mod.rs), so rows a reader looks at no longer move when an older page lands: the first loaded row 74 -> 80 high and +6 px on every row under it before, 51 -> 51 and +0 px after. Run headless on its CI build: an older page held 3 s then landed (both trees); a 15-pass walk at rest against published dev-489: 14 sessions 0 px different, Home the same but for a scratch path. Not run: the walk's passes with a menu or panel over the timeline; the stuck group header (by reading: ours measures no stuck distance, so official's 6 px has no counterpart); Previous / Next message onto a prompt with pictures. Differs from official: no turn-gap row (the last row of the turn above holds the turn's room: the same picture). The row above a divider (a switched agent or model, a move, a compaction, Interrupted) holds the room over the divider's words too, as official's timelineGaps gives it to the row before, since opencode-rune #1178 (312f8b18); run headless on its CI build: a session whose first loaded row is a divider, the older page held 3 s then landed: the divider and the rows under it moved 10 px up before, not at all after. Not run: an open compaction summary whose header is stuck; a real window.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6290,7 +6290,7 @@
       "summary": "Inbox sidebar: an archived session that waits on a person (a permission to decide, a question to answer) joins Needs attention until it is answered, is left out of Archived meanwhile and is not dimmed; Archive session (mod+shift+s) toggles, so the same shortcut brings an archived session back, and there is a new command Unarchive session; the tab strip's session shortcuts (mod+1..9, alt+up / alt+down, shift+alt+up / shift+alt+down) work over the Inbox's session rows in the order they show.",
       "size": "M",
       "status": "missing",
-      "status_evidence": "Not ported yet: in work. Official: packages/app/src/shell/titlebar/inbox.tsx (the sections and navigationKeys), inbox-model.ts (inboxWaiting), packages/app/src/session/commands/use-session-commands.tsx (the toggle and session.unarchive), en.ts (command.session.unarchive). Ours: apps/desktop/src/shell/view/inbox.rs and the session commands.",
+      "status_evidence": "Ported in draft opencode-rune #1189 (apps/desktop/src/session/inbox/model.rs inbox_sections_with and Entry::waiting; shell/view/inbox.rs the card's dim and reveal; session/menu.rs the toggle and session.unarchive; shell/commands/mod.rs open_root_archived; shell/tabs/actions.rs the Inbox's keys, unread and the numbered pick's reveal); compiled by CI only, not run: it merges after a run on its build. Official: packages/app/src/shell/titlebar/inbox.tsx:142, :157, :178-210, :895; inbox-model.ts:523; packages/app/src/session/commands/use-session-commands.tsx:609-617; tab-strip.tsx:379, :392, :452.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
