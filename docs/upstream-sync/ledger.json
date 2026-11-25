@@ -2,29 +2,29 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "a75fcac14c583ff4c5c83a27cec5a0872c9f771a",
+  "upstream_head": "45b5bd4694174b926df3adfedd722c19e1010a8a",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "d64163b48",
-  "post_1114_commit_count": 676,
-  "post_1114_in_ledger": 238,
-  "post_1114_skipped": 438,
+  "rune_desktop_head": "4a8ac0d4b",
+  "post_1114_commit_count": 678,
+  "post_1114_in_ledger": 239,
+  "post_1114_skipped": 439,
   "post_1114_skipped_breakdown": {
     "test-only": 26,
-    "ci-bench-deps": 25,
+    "ci-bench-deps": 26,
     "docs-site-data": 67,
     "tui-only": 30,
     "cli-acp-only": 11,
     "server-core-ai-codemode-internal": 279
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 259,
+  "total_ledger_rows": 260,
   "status_counts": {
     "have it": 210,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 9
+    "missing": 10
   },
   "rows": [
     {
@@ -6454,7 +6454,7 @@
       "summary": "In the Review and file panels, Shift+F10 with the focus on the file tree toggle opens the 'Sidebar position' menu (Left, Right) under the toggle, at its start corner; Escape or a choice gives the focus back to the toggle, and the arrow keys walk into the submenu, where Return picks. The file tree's filter field keeps its own menu. A patch to the menu library keeps a submenu's first item from taking the focus back after a key moved it.",
       "size": "XS",
       "status": "missing",
-      "status_evidence": "Not run: a run on a build of dev decides whether this is already so or a small port. By reading, ours opens it already: the toggle carries the menu on a secondary press (apps/desktop/src/plugin_host/native/sidebar.rs:227, open_side_menu), and Rune gives Shift+F10 or the Menu key that nothing else took to the focused element's secondary press, at that element's bottom-left corner (Rune runtime/input/secondary.rs:357-411, after the app's own keys, runtime/input/keys.rs:91-103); a focused text field gets its own menu (secondary.rs:394-396). Not known until run: that the focus returns to the toggle after Escape or a choice, the arrow keys into the submenu, and the corner in a right-to-left layout (Rune takes the left corner; official the right one, packages/session-ui/src/v2/components/session-file-panel-v2.tsx:96-118, :114). Official's test: packages/app/component-tests/panel-sidebar-side.spec.ts:62-91.",
+      "status_evidence": "Run on a build of dev on the Rune pin d5c7a5ad (opencode-rune #1192's own Windows x64 PR build, head cc991c65; headless, the app's fixture file, no server), the toggle focused by pressing it twice: Shift+F10 opens the menu with its one row, Sidebar position, and the focus is on that row; Escape closes it and the toggle has the focus again, with its ring; Shift+F10, Down, Right opens the submenu with Left checked and the focus on it, and Down, Return puts the tree on the right, both menus gone and the focus on the toggle. What differs, and keeps this missing: the menu opens at the window's bottom-left corner, over the composer, where official opens it at the toggle's own corner (its left and bottom, its right in a right-to-left page: packages/session-ui/src/v2/components/session-file-panel-v2.tsx:101-115). The app passes the point it is given through unchanged (apps/desktop/src/plugin_host/native/sidebar.rs:150-158, crates/opencode-ui/src/popup/view.rs:62-64), so the point Rune handed it was the window's corner, where Rune's rule as written gives the focused element's left and bottom (Rune runtime/input/secondary.rs:446-498, selection/links.rs:203, at the pin); why it did not is not determined: a pass on another focused control decides whether every keyboard menu opens there. Not run: Shift+F10 in the filter field, which has its own menu; a right-to-left layout; a real window. Official's test: packages/app/component-tests/panel-sidebar-side.spec.ts:62-91.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6477,6 +6477,31 @@
       "size": "S",
       "status": "missing",
       "status_evidence": "In work: draft opencode-rune #1232 (not compiled, not run). Official: packages/app/src/shell/commands/session-search.tsx:28-42 (includeArchived, the two pages), packages/app/src/shell/commands/palette.ts:272-274, :386, :401, :435-441, packages/app/src/shell/commands/dialog.tsx:261, :267 (the dim). Ours: features/switcher lists archived sessions only in a mode of its own that nothing opens any more (SwitcherMode::Archived, left from before UP-203); the session search asks for archived=false alone (features/switcher/src/poll.rs sessions_step, servers.rs run) and leaves loaded archived sessions out (session_index.rs, search_index.rs Scope::Palette).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-239",
+      "window": "post-1120",
+      "pr": 65505,
+      "sha": "45b5bd4694",
+      "title": "feat: undo when interrupting before the model answers",
+      "merged": "2026-11-25",
+      "packages": [
+        "app",
+        "tui"
+      ],
+      "main_files": [
+        "packages/app/e2e/utils/mock-server.ts",
+        "packages/app/src/session/composer/adapter.ts",
+        "packages/app/src/session/composer/controller.ts",
+        "packages/app/src/session/composer/region.tsx"
+      ],
+      "summary": "Stop pressed before the model has answered a prompt with text or a tool call takes that prompt back, as an undo does: the message leaves the conversation and its words, files and quotes are in the composer again, with no Undo offer, since nothing of an answer is lost. It happens only when the composer is empty (no words, no attachments or context) and nothing is queued, and only when the server says the stop interrupted a run; a repeated Stop only stops. A shell command, a compaction or a synthetic prompt after the prompt counts as an answer. Files are not put back (the model called no tool).",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Not ported yet: in work. Official: packages/app/src/session/composer/adapter.ts:57-70 (when a stop takes the prompt back; the interrupt's answer), packages/app/src/session/revert.ts:289-309 (takeBack: wait for the run to settle, the unanswered prompt, its media kept, revert staged with files false and committed, the draft restored, the cursor moved), packages/app/src/session/session-domain.ts:7-27 (selectUnansweredPrompt). Ours: Stop asks the server to interrupt with resume and does nothing to the prompt (apps/desktop/src/session/inbox/stop.rs:140-166, crates/opencode-kit/src/client.rs:484-486); the server's answer already reaches the window (crates/opencode-kit/src/client/worker.rs:341-345, InterruptAcknowledged), and the wait, the staged revert and its commit are calls the rewind already makes (crates/opencode-kit/src/session_ops.rs:31-56).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
