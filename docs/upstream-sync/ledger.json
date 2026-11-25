@@ -5,7 +5,7 @@
   "upstream_head": "4aa115738a3edeb497a022df3f84780f9e69ffc3",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "06b242404",
+  "rune_desktop_head": "f4956843b",
   "post_1114_commit_count": 625,
   "post_1114_in_ledger": 223,
   "post_1114_skipped": 402,
@@ -988,10 +988,11 @@
       "summary": "Replace Home with a project browser modal and landing screen in the desktop Projects sidebar mode.",
       "size": "L",
       "status": "have it",
-      "status_evidence": "Ported in opencode-rune #161 (80ae157e): apps/desktop/src/shell/view/home/browse.rs, sidebar_organized.rs, nav/history.rs. Note: Projects mode is later retired in #64727 (WS-2) while Browse projects stays for Customize/Consolidated.",
+      "status_evidence": "Ported in opencode-rune #161 (80ae157e): apps/desktop/src/shell/view/home/browse.rs, sidebar_organized.rs, nav/history.rs. Note: Projects mode is later retired in #64727 (WS-2) while Browse projects stays for Customize/Consolidated. A fault of ours on the sidebar's action rows (Home, Search sessions, New session, Settings), fixed in opencode-rune #1102 (f4956843): the row's shortcut was drawn as plain text that ran over the label in a narrow sidebar; it is now official's keycap chips at the row's end, shown under the pointer or keyboard focus, with the label cut by an ellipsis (packages/app/src/shell/titlebar/titlebar.tsx SidebarAction). RUN on its CI build next to published dev-484, headless and in a real window, at sidebar widths 136 to 340: at 208 the text ran 21.4 over the label before; after, the label is cut and the chips follow it. One difference kept on purpose pending the owner: under the width the chips need (157.7 for three keys), ours drops the chips and the label keeps the row; official's chips never shrink and run past the row's end (by reading). Not run: macOS, Linux, the light theme, official's window.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "none"
+      "workstream": "none",
+      "rune_pr": "#161, #1102"
     },
     {
       "id": "UP-026",
