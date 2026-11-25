@@ -19,6 +19,7 @@
 
 pub mod delete;
 pub mod export;
+pub mod generate_title;
 pub mod host;
 pub mod preferences;
 pub mod rename;
@@ -112,6 +113,8 @@ pub struct Menus {
     /// failure says nothing more.
     pub(crate) gave_up: Option<(String, String)>,
     pub(crate) seq: Seq,
+    /// The sessions whose generated title is being asked for (`generate_title`).
+    pub(crate) generating: generate_title::Generating,
     /// The inbox's and the project sidebar's Rename dialog, and its field.
     pub(crate) dialog: rename_dialog::State,
     pub dialog_edit: TextEdit,
@@ -130,6 +133,11 @@ impl Menus {
             rename::Edit::Arming { target, .. } | rename::Edit::Editing { target, .. } => Some(target.clone()),
             rename::Edit::Idle => None,
         }
+    }
+
+    /// Whether `session` on `server` waits for a title the server is generating.
+    pub fn generating(&self, server: &ServerKey, session: &str) -> bool {
+        self.generating.has(server, session)
     }
 
     /// Whether `t`'s title is being edited.
@@ -464,6 +472,10 @@ pub fn session_write_replied(host: &mut dyn SessionMenuHost, data: &serde_json::
     match data["kind"].as_str() {
         Some("rename") => {
             let title = data["title"].as_str().unwrap_or_default().to_owned();
+            // An empty title was the ask to generate one: no edit or dialog waits on it.
+            if title.is_empty() {
+                return generate_title::replied(host, &session, error);
+            }
             // The reply comes in on its own server, checked out for it (`servers::runtime::poll`).
             let server = host.active_server();
             let current = host.session(&session).map(|i| i.title.clone());

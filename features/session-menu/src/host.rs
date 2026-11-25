@@ -211,6 +211,10 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     fn on_rename_focus_taken(&mut self) {}
     /// Persists updated tab metadata (titles, removed tabs).
     fn save_tabs(&mut self) {}
+    /// Reads session `id` from the server again.
+    fn refresh_session(&mut self, id: &str) {
+        let _ = id;
+    }
     /// Opens session `id` on `server`.
     fn open_session(&mut self, server: &ServerKey, id: &str, tx: &mut Tx) {
         let _ = (server, id, tx);
