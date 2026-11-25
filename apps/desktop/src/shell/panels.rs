@@ -394,6 +394,12 @@ impl App {
         shown_new_tab(self, session_id, pane, pane_active)
     }
 
+    /// A New tab page is drawn in place of the side region's active tab: the tab is still the
+    /// strip's active one, but nothing of it shows, so its own keys have nothing to act on.
+    pub fn new_tab_covers_active(&self) -> bool {
+        self.resolve_side_region().is_some_and(|reg| self.shown_new_tab(&reg.session_id, reg.active_pane, reg.active.as_deref()).is_some())
+    }
+
     pub fn live_new_tabs<'a>(
         &'a self,
         session_id: &str,
