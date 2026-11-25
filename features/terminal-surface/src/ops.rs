@@ -431,7 +431,7 @@ pub fn persistent_tab(
         find: None,
         focused: Cell::new(false),
         hover: HoverLink::None,
-        quote_source: None,
+        quote_source: Cell::new(None),
     })
 }
 
@@ -491,7 +491,7 @@ fn insert_stream_with(
         find: None,
         focused: Cell::new(false),
         hover: HoverLink::None,
-        quote_source: None,
+        quote_source: Cell::new(None),
     });
     ws.active = Some(id.to_owned());
     Some(id.to_owned())

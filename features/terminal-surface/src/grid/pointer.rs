@@ -360,7 +360,7 @@ fn handle_quote_press(host: &mut dyn TerminalSurfaceHost, ws_key: &str, tab_id: 
         // The editor opens beside the rows the quote came from (`quote.tsx`'s anchor): read
         // where they are before the selection goes.
         let place = comment.then(|| super::quote::place(&t.session.snapshot(), t.session.cursor_offset(), cell.0, cell.1)).flatten();
-        t.quote_source = place.as_ref().map(|(source, _)| *source);
+        t.quote_source.set(place.as_ref().map(|(source, _)| *source));
         t.session.select(SelectionOp::Clear);
         (text, place.map(|(_, place)| place))
     };

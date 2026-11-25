@@ -396,7 +396,7 @@ pub struct TerminalTab {
     /// the link there (`links::span`) is underlined, and followable with the modifier.
     pub hover: HoverLink,
     /// Where the quote last taken with its comment editor came from (`grid::quote`).
-    pub quote_source: Option<grid::QuoteSource>,
+    pub(crate) quote_source: Cell<Option<grid::QuoteSource>>,
 }
 
 impl TerminalTab {

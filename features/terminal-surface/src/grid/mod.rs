@@ -352,8 +352,13 @@ fn render_viewport<H: TerminalSurfaceHost + 'static>(
             el().key("terminal-quote").absolute(x, y).child(render_quote_bar::<H>(p, ws_key, &tab.id, (cell_w, cell_h))),
         );
     }
-    // The quote last taken: where its comment editor measures from, while its rows still hold.
-    canvas_layer = canvas_layer.children(tab.quote_source.and_then(|source| quote::origin(snap, source, tab.session.cursor_offset(), cell_h)));
+    // The quote last taken: where its comment editor measures from, while its rows still hold;
+    // once they don't, its source is gone for good (`quote-machine.ts:258-270`).
+    let mark = tab.quote_source.get().and_then(|source| quote::origin(snap, source, tab.session.cursor_offset(), cell_h));
+    if mark.is_none() {
+        tab.quote_source.set(None);
+    }
+    canvas_layer = canvas_layer.children(mark);
 
     let outer = row()
         .key(VIEWPORT_KEY)
