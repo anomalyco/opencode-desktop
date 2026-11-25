@@ -8,7 +8,7 @@ name: OpenCode (Rune) Release
 # - sign and publish jobs run in the `release` environment (deployment branch: dev only), check
 #   out only /.github/release/ at github.sha, run only those scripts and SHA-pinned actions, and
 #   treat artifacts strictly as SHA-256-verified data. Their secrets come from AWS Secrets Manager
-#   through GitHub OIDC (role github/rune-desktop-release, anomalyco/secrets), step-scoped: the
+#   through GitHub OIDC (role github/opencode-rune-release, anomalyco/secrets), step-scoped: the
 #   AWS session is only a step output of configure-aws-credentials, passed to the one step that
 #   reads secrets (.github/release/with-secrets.sh). The environment holds only non-secret
 #   variables (AZURE_*, APPLE_NOTARY_KEY_ID, APPLE_NOTARY_ISSUER_ID).
@@ -17,7 +17,7 @@ name: OpenCode (Rune) Release
 #
 # This file and .github/release/ are the security boundary for releases; changing .github/ needs
 # Dax (.github/CODEOWNERS and the `release boundary (.github needs Dax)` ruleset). The release
-# service authorizes publish jobs by their OIDC token: anomalyco/rune-desktop, this file,
+# service authorizes publish jobs by their OIDC token: anomalyco/opencode-rune, this file,
 # refs/heads/dev, environment release (anomalyco/release registry/opencode.json for desktop and
 # registry/opencode-rune.json for browser-engine).
 #
@@ -25,10 +25,11 @@ name: OpenCode (Rune) Release
 # no app or engine files changed and the live browser-engine index already serves this commit's
 # engines. Each desktop or engine publish replaces the whole channel in one request.
 # - workflow_dispatch from dev builds now, whatever changed: check (build, sign, verify desktop
-#   and browser engines; publish nothing), dev, stable with a bump, or engine (browser engines
-#   only; refuses if this commit's version is already complete in the live index). Stable computes
-#   vX.Y.Z from the latest tag, publishes every platform, then tags v<version> and creates the
-#   GitHub release. Tags start nothing.
+#   and browser engines; publish nothing), dev, or engine (browser engines only; refuses if this
+#   commit's version is already complete in the live index).
+# - dev is the only desktop channel; there is no stable. Every dev release, once it is on the
+#   release service, is tagged v0.0.0-dev-<n> and mirrored byte for byte to a GitHub release
+#   marked latest. Tags start nothing.
 #
 # A run always releases the commit it runs on (github.sha): there is no ref input, every job
 # checks out github.sha, and the plan fails unless that is the commit it checked out on dev.
@@ -39,20 +40,14 @@ on:
   workflow_dispatch:
     inputs:
       channel:
-        description: Run from dev. check (build and verify), dev or stable (desktop), or engine (browser engines)
+        description: Run from dev. check (build and verify), dev (desktop), or engine (browser engines)
         type: choice
-        options: [check, dev, stable, engine]
+        options: [check, dev, engine]
         default: check
-      bump:
-        description: Stable only. Raises the latest vX.Y.Z tag by patch, minor or major
-        type: choice
-        options: [patch, minor, major]
-        default: patch
 
 run-name: >-
   ${{ (github.event_name == 'schedule' || inputs.channel == 'dev') && 'dev: full desktop matrix'
   || inputs.channel == 'engine' && 'browser engine release'
-  || inputs.channel == 'stable' && format('stable: {0} bump (dispatched)', inputs.bump)
   || 'check: full desktop matrix' }}
 
 permissions:
@@ -109,7 +104,6 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
           CHANNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.channel || 'dev' }}
-          BUMP: ${{ inputs.bump || 'patch' }}
           GH_TOKEN: ${{ github.token }}
 
   # Which signing values the release environment holds, read on Linux, so a Windows or macOS
@@ -160,7 +154,7 @@ jobs:
       OPENCODE_RUNE_VERSION: ${{ needs.plan.outputs.release-version }}
       OPENCODE_RUNE_BUILD_CHANNEL: ${{ needs.plan.outputs.release-channel }}
       OPENCODE_RUNE_TARGET: ${{ matrix.arch == 'x64' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin' }}
-      OPENCODE_RUNE_PROFILE: ${{ needs.plan.outputs.channel == 'stable' && 'release' || 'release-thin' }}
+      OPENCODE_RUNE_PROFILE: release-thin
     outputs: &arch-digests
       digest-x64: ${{ steps.digest.outputs.digest-x64 }}
       digest-arm64: ${{ steps.digest.outputs.digest-arm64 }}
@@ -350,7 +344,7 @@ jobs:
         run: |
           $zip = "$env:RUNNER_TEMP/in/sign-opencode-rune-windows-app/OpenCode-Rune-$env:OPENCODE_RUNE_VERSION-windows-${{ matrix.arch }}.zip"
           apps/installer/scripts/package.ps1 -Out "$env:RUNNER_TEMP/setup" -Arch ${{ matrix.arch }} -Payload $zip
-      # Not build-opencode-rune-windows-*: publish-windows-dev downloads that pattern.
+      # Not build-opencode-rune-windows-*: that pattern names the unsigned builds.
       - id: upload
         uses: ./.github/release/upload
         with:
@@ -431,7 +425,7 @@ jobs:
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
           description: OpenCode (Rune)
-          description-url: https://github.com/anomalyco/rune-desktop
+          description-url: https://github.com/anomalyco/opencode-rune
           exclude-environment-credential: true
           exclude-workload-identity-credential: true
           exclude-managed-identity-credential: true
@@ -534,8 +528,8 @@ jobs:
         name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: arn:aws:iam::604439173067:role/github/rune-desktop-release
-          role-session-name: rune-desktop-${{ github.run_id }}
+          role-to-assume: arn:aws:iam::604439173067:role/github/opencode-rune-release
+          role-session-name: opencode-rune-${{ github.run_id }}
           role-duration-seconds: 900
           aws-region: us-east-1
           output-env-credentials: false
@@ -856,7 +850,7 @@ jobs:
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
           description: OpenCode Browser Engine
-          description-url: https://github.com/anomalyco/rune-desktop
+          description-url: https://github.com/anomalyco/opencode-rune
           exclude-environment-credential: true
           exclude-workload-identity-credential: true
           exclude-managed-identity-credential: true
@@ -916,8 +910,8 @@ jobs:
         name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: arn:aws:iam::604439173067:role/github/rune-desktop-release
-          role-session-name: rune-desktop-engine-${{ matrix.arch }}-${{ github.run_id }}
+          role-to-assume: arn:aws:iam::604439173067:role/github/opencode-rune-release
+          role-session-name: opencode-rune-engine-${{ matrix.arch }}-${{ github.run_id }}
           role-duration-seconds: 900
           aws-region: us-east-1
           output-env-credentials: false
@@ -1173,7 +1167,7 @@ jobs:
     needs: [plan, build-engine-linux, publish-engine, build-linux]
     if: >-
       ${{ !cancelled()
-      && (needs.plan.outputs.channel == 'dev' || needs.plan.outputs.channel == 'stable')
+      && needs.plan.outputs.channel == 'dev'
       && needs.plan.outputs.build-desktop == 'true'
       && needs.build-linux.result == 'success'
       && (needs.plan.outputs.build-engine != 'true' || needs.publish-engine.result == 'success') }}
@@ -1230,7 +1224,7 @@ jobs:
     # implicit success() would skip this job too because a skipped job is among its ancestors.
     if: >-
       ${{ !cancelled()
-      && (needs.plan.outputs.channel == 'dev' || needs.plan.outputs.channel == 'stable')
+      && needs.plan.outputs.channel == 'dev'
       && needs.plan.result == 'success'
       && needs.build-linux.result == 'success'
       && needs.sign-macos.result == 'success'
@@ -1299,66 +1293,10 @@ jobs:
             echo '### Desktop Manifest'; echo '```json'; cat "$RUNNER_TEMP/manifest.json"; echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ---- Publish Windows dev: rolling GitHub pre-release of the unsigned setups --
-  # Every dev build replaces the setups it built on opencode-rune-windows-dev, under names that stay
-  # the same, after the full release reaches the service.
-  publish-windows-dev:
-    needs: [plan, build-windows, publish-desktop]
-    if: >-
-      ${{ !cancelled()
-      && needs.plan.outputs.channel == 'dev'
-      && needs.build-windows.result == 'success'
-      && needs.publish-desktop.result == 'success' }}
-    environment: release
-    runs-on: blacksmith-2vcpu-ubuntu-2404
-    timeout-minutes: 20
-    permissions:
-      contents: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-      SHA: ${{ github.sha }}
-      VERSION: ${{ needs.plan.outputs.release-version }}
-      RELEASE_TAG: opencode-rune-windows-dev
-    steps:
-      - *checkout-release
-      - uses: ./.github/release/download
-        with:
-          pattern: build-opencode-rune-windows-*
-          digests: >-
-            build-opencode-rune-windows-x64=${{ needs.build-windows.outputs.digest-x64 }}
-            build-opencode-rune-windows-arm64=${{ needs.build-windows.outputs.digest-arm64 }}
-      - name: Replace the setups on the rolling pre-release
-        run: |
-          mkdir -p "$RUNNER_TEMP/publish"
-          for arch in x64 arm64; do
-            setup="$RUNNER_TEMP/in/build-opencode-rune-windows-$arch/OpenCode-Rune-$VERSION-windows-$arch-setup.exe"
-            cp "$setup" "$RUNNER_TEMP/publish/OpenCode-Rune-windows-$arch-setup.exe"
-          done
-          (cd "$RUNNER_TEMP/publish" && sha256sum -- *.exe > SHA256SUMS)
-          exists=false
-          if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then exists=true; fi
-          title="OpenCode (Rune) for Windows, dev ($VERSION)"
-          notes="Unsigned Windows x64 and arm64 setups from ${SHA:0:9} ($VERSION). SHA256SUMS covers both setups. Signed installers are available from the desktop-rune dev channel."
-
-          # The tag stays where it is; the notes name the build's commit. GITHUB_TOKEN can't move a
-          # ref across commits that change .github/workflows/ (it has no `workflows` permission),
-          # so moving it failed with 403 whenever the workflows changed in between.
-          if [ "$exists" = true ]; then
-            gh release upload "$RELEASE_TAG" "$RUNNER_TEMP"/publish/* --clobber -R "$GITHUB_REPOSITORY"
-            gh release edit "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --prerelease --title "$title" --notes "$notes"
-          else
-            gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/publish/* -R "$GITHUB_REPOSITORY" \
-              --target "$SHA" --prerelease --title "$title" --notes "$notes"
-          fi
-
-          for file in "$RUNNER_TEMP"/publish/*.exe; do
-            echo "Published https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$(basename "$file")" >> "$GITHUB_STEP_SUMMARY"
-          done
-
   # ---- Tag and GitHub release: last, once the release service published ------
-  # Tags v<version> on the released commit and mirrors the signed files to its GitHub release, with
-  # the built-in token; a failed run leaves no tag. Tags start nothing. A check run pushes and
-  # deletes a throwaway v0.0.0-test-<run> tag to prove the token can tag.
+  # Tags v0.0.0-dev-<n> on the released commit and mirrors the signed files to its GitHub release,
+  # marked latest, with the built-in token; a failed run leaves no tag. Tags start nothing. A check
+  # run pushes and deletes a throwaway v0.0.0-test-<run> tag to prove the token can tag.
 
   github:
     name: Tag and GitHub release
@@ -1366,7 +1304,7 @@ jobs:
     needs: [plan, build-linux, publish-desktop, sign-macos, verify-macos, sign-windows-setup, verify-windows, build-engine-linux, verify-engine-macos, verify-engine-windows]
     if: >-
       ${{ !cancelled() && (
-        (needs.plan.outputs.channel == 'stable' && needs.publish-desktop.result == 'success')
+        (needs.plan.outputs.channel == 'dev' && needs.publish-desktop.result == 'success')
         || (needs.plan.outputs.channel == 'check' && needs.verify-windows.result == 'success'
             && needs.verify-macos.result == 'success' && needs.build-linux.result == 'success'
             && needs.build-engine-linux.result == 'success'
@@ -1392,15 +1330,15 @@ jobs:
         env:
           TAG_TEST: ${{ needs.plan.outputs.channel == 'check' && '1' || '' }}
         run: bash .github/release/tag-release.sh
-      - if: needs.plan.outputs.channel == 'stable'
+      - if: needs.plan.outputs.channel == 'dev'
         uses: ./.github/release/download
         with: *download-macos
-      - if: needs.plan.outputs.channel == 'stable'
+      - if: needs.plan.outputs.channel == 'dev'
         uses: ./.github/release/download
         with: *download-linux
-      - if: needs.plan.outputs.channel == 'stable'
+      - if: needs.plan.outputs.channel == 'dev'
         uses: ./.github/release/download
         with: *download-windows
       - name: GitHub release
-        if: needs.plan.outputs.channel == 'stable'
+        if: needs.plan.outputs.channel == 'dev'
         run: bash .github/release/publish-github-release.sh "$RUNNER_TEMP"/macos/sign-opencode-rune-macos-{x64,arm64} "$RUNNER_TEMP/windows/sign-opencode-rune-windows" "$RUNNER_TEMP"/linux/build-opencode-rune-linux-{x64,arm64}

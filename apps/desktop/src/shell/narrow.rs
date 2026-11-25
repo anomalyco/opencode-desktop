@@ -150,13 +150,8 @@ impl NarrowHost for App {
     }
 
     fn on_enter_narrow_view(&mut self, session_id: &str, view: &str, tx: &mut Tx) {
-        if view == "terminal:main" {
-            let wk = self.terminal_workspace_key_for_session(session_id);
-            self.ensure_terminal_workspace_hydrated(&wk);
-            let empty = self.kernel.slots.get(&crate::terminal::TERMINAL).workspaces.get(&wk).is_none_or(|w| w.tabs.is_empty() && w.failure.is_none());
-            if empty && self.live_terminals().is_some_and(|(_, observer)| !observer) {
-                self.create_terminal_tab(None, tx);
-            }
+        if view == "terminal:main" && self.active_session_id() == Some(session_id) {
+            self.first_terminal(tx);
         }
     }
 

@@ -401,7 +401,7 @@ fn refresh_settled(meta: &Meta, version: &str, refresh: &Refresh, state: &State,
     let ready = State::Ready { meta: meta.clone(), version: version.to_owned(), refresh: None };
     match (refresh, event) {
         (Refresh::Checking { waiters, .. }, Event::CheckSucceeded(_, target)) => {
-            if keeps_staged(meta, version, target.as_ref()) {
+            if keeps_staged(version, target.as_ref()) {
                 return with_checks(ready, waiters.clone(), Vec::new());
             }
             let Some(Target::Restart(next)) = target else { return discovered(state, target, waiters.clone()) };
@@ -422,7 +422,7 @@ fn refresh_settled(meta: &Meta, version: &str, refresh: &Refresh, state: &State,
 fn restart_settled(meta: &Meta, version: &str, plan: &Plan, installs: &[Waiter], state: &State, event: Event) -> Transition {
     match (plan, event) {
         (Plan::Checking { waiters, .. }, Event::CheckSucceeded(_, target)) => {
-            if keeps_staged(meta, version, target.as_ref()) {
+            if keeps_staged(version, target.as_ref()) {
                 return restart(state, version, waiters.clone(), Vec::new());
             }
             // A check that finds an external download instead cancels the restart, so the app
@@ -486,7 +486,10 @@ fn discovered(state: &State, target: Option<Target>, waiters: Vec<Waiter>) -> Tr
     let m = meta(state);
     match target {
         Some(Target::Installed(version)) => with_checks(State::Installed { meta: m, version }, waiters, vec![Effect::PersistClear]),
-        Some(Target::Restart(version)) if version != m.current => {
+        // The engine already decided this is another build (by its SHA-256 when known), so a
+        // release with the running version's text still installs (`release:docs/protocol.md`,
+        // "Client rules" 4).
+        Some(Target::Restart(version)) => {
             let (meta, attempt) = issue(state);
             (State::Downloading { meta, attempt, version, waiters }, vec![Effect::Stage(attempt)])
         }
@@ -515,10 +518,10 @@ fn restart(state: &State, version: &str, waiters: Vec<Waiter>, mut effects: Vec<
     with_checks(State::Installing { meta, version: version.to_owned(), plan: Plan::Restarting { attempt }, installs }, waiters, effects)
 }
 
-fn keeps_staged(meta: &Meta, staged: &str, target: Option<&Target>) -> bool {
+fn keeps_staged(staged: &str, target: Option<&Target>) -> bool {
     match target {
         None => true,
-        Some(Target::Restart(t)) => t == staged || *t == meta.current,
+        Some(Target::Restart(t)) => t == staged,
         Some(Target::External { .. } | Target::Installed(_)) => false,
     }
 }
