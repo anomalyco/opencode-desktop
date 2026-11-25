@@ -16,7 +16,7 @@ use opencode_kit::servers::ServerKey;
 use opencode_search::query::upsert_latest;
 use rune::{Latest, Tx};
 
-use crate::entries::{Action, Entry, MATCHES, RECENT_SESSIONS, asks_sessions};
+use crate::entries::{Action, Entry, Listed, MATCHES, RECENT_SESSIONS, asks_sessions};
 use crate::{Reply, SwitcherHost, SwitcherMode, clean_dir, encode, is_automation, project_or_dir, search, title_of};
 
 /// Another server's initial snapshot supplied by the host when opening a cross-server session search.
@@ -52,8 +52,8 @@ pub(crate) struct Remote {
     /// Its used projects and the others, for Quick Open.
     pub used: Vec<Project>,
     pub other: Vec<Project>,
-    /// It lists archived sessions (the Inbox's Archived).
-    archived: bool,
+    /// Which of its sessions its server is asked for.
+    asked: Listed,
     source: search::Source<()>,
     fetch: Latest<Reply<SessionInfo>>,
 }
@@ -91,12 +91,12 @@ pub(crate) fn open(host: &mut dyn SwitcherHost) -> Vec<Remote> {
     if !matches!(mode, SwitcherMode::Sessions | SwitcherMode::Archived | SwitcherMode::QuickOpen) || host.live_server().is_none() {
         return Vec::new();
     }
-    let archived = mode == SwitcherMode::Archived;
+    let asked = Listed::asked(mode);
     let waker = host.waker();
-    host.remote_server_seeds(archived).into_iter().map(|seed| remote(seed, archived, waker.clone())).collect()
+    host.remote_server_seeds(mode == SwitcherMode::Archived).into_iter().map(|seed| remote(seed, asked, waker.clone())).collect()
 }
 
-fn remote(seed: RemoteSeed, archived: bool, waker: Option<rune::Waker>) -> Remote {
+fn remote(seed: RemoteSeed, asked: Listed, waker: Option<rune::Waker>) -> Remote {
     Remote {
         server: seed.server,
         tag: seed.tag,
@@ -106,7 +106,7 @@ fn remote(seed: RemoteSeed, archived: bool, waker: Option<rune::Waker>) -> Remot
         projects: seed.projects,
         used: seed.used,
         other: seed.other,
-        archived,
+        asked,
         source: search::Source::default(),
         fetch: waker.map_or_else(Latest::default, Latest::new),
     }
@@ -114,8 +114,8 @@ fn remote(seed: RemoteSeed, archived: bool, waker: Option<rune::Waker>) -> Remot
 
 /// Stories: an open search reads `seeds` as its other servers, without asking them anything.
 pub fn stage_remotes(host: &mut dyn SwitcherHost, seeds: Vec<RemoteSeed>) {
-    let archived = host.switcher().mode == SwitcherMode::Archived;
-    host.switcher_mut().remotes = seeds.into_iter().map(|seed| remote(seed, archived, None)).collect();
+    let asked = Listed::asked(host.switcher().mode);
+    host.switcher_mut().remotes = seeds.into_iter().map(|seed| remote(seed, asked, None)).collect();
 }
 
 /// What the window's own server's rows add: its name, once two servers or more are searched.
@@ -134,12 +134,12 @@ pub(crate) fn located(project: &str, tag: Option<&str>) -> String {
 }
 
 /// The other servers' sessions for `q`, as the palette's own rows (`createServerSessionEntries`).
-pub(crate) fn remote_matches(host: &dyn SwitcherHost, q: &str, group: &'static str, archived: bool) -> Vec<Entry> {
+pub(crate) fn remote_matches(host: &dyn SwitcherHost, q: &str, group: &'static str, listed: Listed) -> Vec<Entry> {
     let needle = q.trim().to_lowercase();
     let remotes = &host.switcher().remotes;
     let mut out = Vec::new();
     for r in remotes {
-        let mut rows: Vec<&SessionInfo> = r.known.iter().filter(|i| i.archived.is_some() == archived && !(needle.is_empty() && is_automation(&i.title))).collect();
+        let mut rows: Vec<&SessionInfo> = r.known.iter().filter(|i| listed.has(i.archived.is_some()) && !(needle.is_empty() && is_automation(&i.title))).collect();
         rows.sort_by_key(|a| std::cmp::Reverse(r.active_ms(a)));
         for ses in rows {
             let (project_id, project) = project_of(r, ses);
@@ -159,6 +159,7 @@ pub(crate) fn remote_matches(host: &dyn SwitcherHost, q: &str, group: &'static s
                 group,
                 updated: Some(r.active_ms(ses)),
                 open: host.is_tab_open(Some(&r.server), &ses.id),
+                archived: ses.archived.is_some(),
             });
             if out.len() >= if needle.is_empty() { RECENT_SESSIONS } else { MATCHES } * remotes.len() {
                 break;
@@ -228,26 +229,56 @@ fn run(r: &mut Remote, fx: rune::machine::Effects<search::Effect>, tx: &mut Tx) 
             search::Effect::Cancel => r.fetch.cancel(),
             search::Effect::Fetch { attempt, query } => {
                 let server = r.conn.clone();
-                let archived = r.archived;
-                r.fetch.request(query, move |q| {
-                    let path = format!("/api/session?parentID=null&archived={archived}&limit=50&search={}", encode(&q));
-                    let listed = server.get(&path);
-                    let exact = (q.len() > 20 && q.starts_with("ses_"))
-                        .then(|| server.get(&format!("/api/session/{q}")).ok())
-                        .flatten()
-                        .map(|v| model::parse_session(v.get("data").unwrap_or(&v)));
-                    if listed.is_err() && exact.is_none() {
-                        return Reply { attempt, items: Err(()) };
-                    }
-                    let mut sessions: Vec<SessionInfo> = exact.into_iter().collect();
-                    if let Ok(v) = &listed {
-                        sessions.extend(model::parse_sessions(v));
-                    }
-                    Reply { attempt, items: Ok(sessions) }
-                });
+                let asked = r.asked;
+                r.fetch.request(query, move |q| Reply { attempt, items: found(&server, &q, asked) });
             }
         }
     }
+}
+
+/// What `server` finds for `q` among the sessions `asked` for: its root sessions whose titles
+/// match, 50 of them, and the session a pasted id names (`looksLikeSessionID`), which finds its
+/// session even when no title matches. Asked for both, the archived ones are a page of their own:
+/// archiving moves a session's time, so one list would let sessions archived lately crowd the
+/// others out of its 50; and that page failing drops only the archived rows
+/// (`session-search.tsx:34-42`). Err when the list failed and no id was found
+/// (`palette.ts:344-347`).
+pub(crate) fn found(server: &Server, q: &str, asked: Listed) -> Result<Vec<SessionInfo>, ()> {
+    let page = |archived: bool| server.get(&format!("/api/session?parentID=null&archived={archived}&limit=50&search={}", encode(q))).map(|v| model::parse_sessions(&v)).map_err(|_| ());
+    let exact = || {
+        (q.len() > 20 && q.starts_with("ses_"))
+            .then(|| server.get(&format!("/api/session/{q}")).ok())
+            .flatten()
+            .map(|v| model::parse_session(v.get("data").unwrap_or(&v)))
+    };
+    let (listed, exact) = match asked {
+        Listed::Active => (page(false), exact()),
+        Listed::Archived => (page(true), exact()),
+        // A page has no threads: one request after another.
+        #[cfg(target_arch = "wasm32")]
+        Listed::Both => (page(false).map(|mut active| {
+            active.extend(page(true).unwrap_or_default());
+            active
+        }), exact()),
+        // Both pages and the id at once, as official's `Promise.all`.
+        #[cfg(not(target_arch = "wasm32"))]
+        Listed::Both => std::thread::scope(|scope| {
+            let archived = scope.spawn(|| page(true));
+            let named = scope.spawn(exact);
+            let active = page(false);
+            let archived = archived.join().unwrap_or(Err(())).unwrap_or_default();
+            (active.map(|mut active| {
+                active.extend(archived);
+                active
+            }), named.join().unwrap_or(None))
+        }),
+    };
+    if listed.is_err() && exact.is_none() {
+        return Err(());
+    }
+    let mut sessions: Vec<SessionInfo> = exact.into_iter().collect();
+    sessions.extend(listed.unwrap_or_default());
+    Ok(sessions)
 }
 
 /// The project a row names: one rooted at the session's folder, else the session's own project,

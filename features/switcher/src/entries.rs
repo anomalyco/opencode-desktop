@@ -61,6 +61,47 @@ pub struct Entry {
     pub updated: Option<i64>,
     /// The session is open as a tab.
     pub open: bool,
+    /// The session is archived: its row dims (`shell/commands/dialog.tsx:261`, `:267`).
+    pub archived: bool,
+}
+
+/// Which of a server's sessions a search lists (`createServerSessionEntries`' `includeArchived`,
+/// `shell/commands/palette.ts:272-274`, `:386`, `:435-441`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Listed {
+    /// The sessions that aren't archived: the palette, and a session search with nothing typed
+    /// (its recent rows never list an archived session).
+    Active,
+    /// The archived ones alone (the Inbox's former Archived search).
+    Archived,
+    /// Both: a typed session search also finds archived sessions
+    /// (`session-search.tsx:30`, anomalyco/opencode#66356).
+    Both,
+}
+
+impl Listed {
+    /// What the list shows for `q` typed in `mode`.
+    pub(crate) fn of(mode: SwitcherMode, q: &str) -> Listed {
+        if q.trim().is_empty() && mode != SwitcherMode::Archived { Listed::Active } else { Listed::asked(mode) }
+    }
+
+    /// What a server is asked for in `mode` (it is asked once something is typed).
+    pub(crate) fn asked(mode: SwitcherMode) -> Listed {
+        match mode {
+            SwitcherMode::Archived => Listed::Archived,
+            SwitcherMode::Sessions | SwitcherMode::QuickOpen => Listed::Both,
+            SwitcherMode::All | SwitcherMode::Commands => Listed::Active,
+        }
+    }
+
+    /// Whether a session that is `archived` or not is among them.
+    pub(crate) fn has(self, archived: bool) -> bool {
+        match self {
+            Listed::Active => !archived,
+            Listed::Archived => archived,
+            Listed::Both => true,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -266,6 +307,7 @@ pub(crate) fn matches_for(host: &dyn SwitcherHost, q: &str) -> Vec<Entry> {
         group: opencode_i18n::t!("palette.group.commands"),
         updated: None,
         open: false,
+        archived: false,
     };
     if sw.mode == SwitcherMode::Commands {
         return all.iter().filter(|c| c.id != COMMAND_SEARCH_ID).map(command).filter(|e| matches(e, q)).collect();
@@ -276,12 +318,13 @@ pub(crate) fn matches_for(host: &dyn SwitcherHost, q: &str) -> Vec<Entry> {
         _ if q.is_empty() => opencode_i18n::t!("palette.group.recentSessions"),
         _ => opencode_i18n::t!("command.category.session"),
     };
+    let listed = Listed::of(sw.mode, q);
     // A project's tasks live in its inbox.
-    let sessions = session_index::session_matches(host, q, group, archived);
+    let sessions = session_index::session_matches(host, q, group, listed);
     match sw.mode {
-        SwitcherMode::Sessions | SwitcherMode::Archived => return searched_sessions(host, q, group, archived, sessions),
+        SwitcherMode::Sessions | SwitcherMode::Archived => return searched_sessions(host, q, group, listed, sessions),
         // Projects ahead of the sessions (`DialogSessionSearch`'s `items`).
-        SwitcherMode::QuickOpen => return quick_open::projects(host, q).into_iter().chain(searched_sessions(host, q, group, archived, sessions)).collect(),
+        SwitcherMode::QuickOpen => return quick_open::projects(host, q).into_iter().chain(searched_sessions(host, q, group, listed, sessions)).collect(),
         SwitcherMode::All | SwitcherMode::Commands => {}
     }
     if q.is_empty() {
@@ -306,14 +349,14 @@ pub(crate) fn matches_for(host: &dyn SwitcherHost, q: &str) -> Vec<Entry> {
 }
 
 /// The session search's rows: every server's, newest first, or the first few with no query.
-fn searched_sessions(host: &dyn SwitcherHost, q: &str, group: &'static str, archived: bool, sessions: Vec<Entry>) -> Vec<Entry> {
+fn searched_sessions(host: &dyn SwitcherHost, q: &str, group: &'static str, listed: Listed, sessions: Vec<Entry>) -> Vec<Entry> {
     if !host.switcher().remotes.is_empty() {
         // Every server's sessions, newest first (`session-search.tsx:73-79`).
         let tag = servers::own_tag(host);
         let mut all_rows: Vec<Entry> = sessions
             .into_iter()
             .map(|e| Entry { description: servers::located(&e.description, tag.as_deref()), ..e })
-            .chain(servers::remote_matches(host, q, group, archived))
+            .chain(servers::remote_matches(host, q, group, listed))
             .collect();
         all_rows.sort_by_key(|a| std::cmp::Reverse(a.updated));
         return all_rows.into_iter().take(if q.is_empty() { RECENT_SESSIONS } else { usize::MAX }).collect();
@@ -344,6 +387,7 @@ fn settings_entries(host: &dyn SwitcherHost, q: &str) -> Vec<Entry> {
             group: opencode_i18n::t!("palette.group.settings"),
             updated: None,
             open: false,
+            archived: false,
         })
         .collect()
 }
@@ -394,5 +438,6 @@ fn file_entry(path: String) -> Entry {
         group: opencode_i18n::t!("palette.group.files"),
         updated: None,
         open: false,
+        archived: false,
     }
 }

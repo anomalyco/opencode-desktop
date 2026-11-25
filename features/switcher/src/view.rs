@@ -429,7 +429,7 @@ fn entry_row_shell(s: &dyn SwitcherHost, p: &Pal, e: &Entry, active: bool, q: &s
             // The row's text: the row less its 8/6 pt sides, the lead and the trailing parts.
             let trailing_w = trailing.as_ref().map_or(0.0, |(_, tw)| tw + 8.0) + unhide_w;
             let text_w = w - 12.0 - 14.0 - trailing_w - indent;
-            let archived = sw.mode == SwitcherMode::Archived;
+            let archived = e.archived;
             // A row with its line of context keeps to one line: its description beside the title,
             // or none where it would stack.
             let words = match (found_snippet.is_some(), stacked(s, e)) {
