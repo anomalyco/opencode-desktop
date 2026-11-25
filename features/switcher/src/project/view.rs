@@ -223,10 +223,7 @@ fn draw_row<H: ProjectSwitcherHost + 'static>(s: &H, p: &Pal, r: &SwitcherRow, a
         // Only a moving pointer takes the row (`dialog.tsx:395-399`), so rows the keys scroll
         // under a still one leave the highlight alone.
         .on_pointer_move_local(move |s: &mut H, ev: PointerEvent, tx: &mut Tx| super::row_pointer_move(s, &hover, ev, tx))
-        .on_press_tx(move |s: &mut H, tx: &mut Tx| super::choose(s, &key, tx))
-        // The search field keeps the focus and names the active row, so a row is not a Tab stop
-        // (`dialog.tsx:472-473`, opencode#66340).
-        .focusable(false);
+        .on_press_tx(move |s: &mut H, tx: &mut Tx| super::choose(s, &key, tx));
     match &r.kind {
         RowKind::Add if multi => line
             .child(keycaps(p, Bind::OpenProject))
