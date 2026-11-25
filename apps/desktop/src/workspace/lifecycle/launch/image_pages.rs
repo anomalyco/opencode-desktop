@@ -16,7 +16,9 @@
 //!
 //! On that first start a list the build was packaged with, `launch-pages.bin` beside the exe
 //! ([`packed`]), stands in for the profile's when the image is in memory: its pages are mapped
-//! (below), nothing is asked for. With the image away it is not used. No build ships one yet.
+//! (below), nothing is asked for. With the image away it is not used, unless it is a list in two
+//! tiers ([`Packed::Tiered`]): then the first tier is the launch's list in both states, and the
+//! second is asked for behind it. No build ships one yet.
 //!
 //! It asks only when the pages are away: it reads one byte of [`SAMPLES`] of them first (of
 //! [`SAMPLES_NO_LIST`] with no list yet), and a page in memory answers in a few microseconds
@@ -63,6 +65,9 @@ pub(crate) fn base() -> usize {
 }
 /// The list file's first four bytes.
 const MAGIC: u32 = u32::from_le_bytes(*b"RLP1");
+/// A packed list in two tiers ([`Packed::Tiered`]): after the stamp and size, the count of each
+/// tier's runs, then the first tier's runs and the second's.
+const MAGIC_TIERS: u32 = u32::from_le_bytes(*b"RLP2");
 /// Runs of pages at most this far apart are listed as one. A later launch holds 6,500 pages
 /// (26 MB) in 1,800 runs; joined at 2 they are 1,000 runs and 30 MB, at 16, 285 runs and 49 MB.
 const JOIN: u32 = 2;
@@ -222,19 +227,30 @@ fn run(mode: Mode, threads: usize, ask: usize) {
     // ms; 8 launches each in turn, 26 Nov). So one look at the whole code decides, the look a
     // launch with no list takes anyway: away, and the launch goes on as if there were no list.
     let mut look = Look::NotYet;
+    let mut rest = None;
     let listed = own.or_else(|| {
         if record.is_some() {
             return None;
         }
-        let runs = packed().and_then(|bytes| decode(&bytes, &image))?;
-        if mode == Mode::Auto {
-            look = if away(&image, &image.sections, SAMPLES_NO_LIST, AWAY_SAMPLES_NO_LIST) { Look::Away } else { Look::Present };
-            if look == Look::Away {
-                return None;
+        match packed().and_then(|bytes| decode_packed(&bytes, &image))? {
+            Packed::Recorded(runs) => {
+                if mode == Mode::Auto {
+                    look = if away(&image, &image.sections, SAMPLES_NO_LIST, AWAY_SAMPLES_NO_LIST) { Look::Away } else { Look::Present };
+                    if look == Look::Away {
+                        return None;
+                    }
+                }
+                rune::marks::mark("image.pages.packed");
+                Some(runs)
+            }
+            // A list made from names is used in both states: its first tier is this launch's
+            // list, and its second is asked for behind it (below).
+            Packed::Tiered { first, rest: after } => {
+                rune::marks::mark("image.pages.packed");
+                rest = Some(after);
+                Some(first)
             }
         }
-        rune::marks::mark("image.pages.packed");
-        Some(runs)
     });
     let wanted = match (&listed, mode) {
         (Some(runs), Mode::Auto | Mode::Listed) => Some(runs.clone()),
@@ -251,6 +267,20 @@ fn run(mode: Mode, threads: usize, ask: usize) {
         if gone {
             prefetch(&image, runs, ask);
             rune::marks::mark("image.pages.asked");
+            // The second tier, once the first is read: what the first lacks is then in memory long
+            // before the whole code would be, and nothing of it is mapped ahead (`touch` below maps
+            // the first tier only).
+            if let (Some(after), Mode::Auto) = (rest.take(), mode) {
+                std::thread::Builder::new()
+                    .name("image-pages-rest".into())
+                    .spawn(move || {
+                        if let Some(image) = self::image() {
+                            prefetch(&image, &after, 1);
+                            rune::marks::mark("image.pages.rest");
+                        }
+                    })
+                    .ok();
+            }
         } else {
             rune::marks::mark("image.pages.present");
         }
@@ -493,6 +523,45 @@ fn encode(runs: &[(u32, u32)], image: &Image) -> Vec<u8> {
         out.extend_from_slice(&pages.to_le_bytes());
     }
     out
+}
+
+/// A list a build was packaged with ([`packed`]).
+enum Packed {
+    /// The pages one launch used that was not this user's (`record`): about three quarters of
+    /// what a launch here uses, so it stands in only while the image is in memory (`run`).
+    Recorded(Runs),
+    /// Made at package time from the names of the functions a real launch ran, turned into this
+    /// build's pages. `first`: the parts of those functions the launch touched and its constants;
+    /// `rest`: the rest of those functions and the constants around. Whole functions reach 98 %
+    /// of a launch's pages across a pin bump but are 2.3 times the pages of a list of its own,
+    /// and a never-started build with such a list in one tier reached its first frame 13 ms
+    /// sooner than with no list where its own list gave 22 ms (16 launches each in turn, 26 Nov:
+    /// 66.2 against 77.1 and 55.3 ms): the launch's own pages wait behind the rest of what was
+    /// asked for. So the small part is asked for and mapped first, and the rest behind it.
+    Tiered { first: Runs, rest: Runs },
+}
+
+/// The packed list in `bytes`, when it is this exe's and whole.
+fn decode_packed(bytes: &[u8], image: &Image) -> Option<Packed> {
+    let word = |i: usize| bytes.get(i * 4..i * 4 + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+    if word(0)? != MAGIC_TIERS {
+        return decode(bytes, image).map(Packed::Recorded);
+    }
+    if word(1)? != image.stamp || word(2)? != image.size {
+        return None;
+    }
+    let (first, rest) = (word(3)? as usize, word(4)? as usize);
+    if bytes.len() != 20 + (first + rest) * 8 {
+        return None;
+    }
+    let pages = image.size / PAGE as u32;
+    let runs = |from: usize, count: usize| -> Option<Runs> {
+        (from..from + count)
+            .map(|i| Some((word(5 + i * 2)?, word(6 + i * 2)?)))
+            .map(|run| run.filter(|&(first, len)| len > 0 && first.checked_add(len).is_some_and(|end| end <= pages)))
+            .collect()
+    };
+    Some(Packed::Tiered { first: runs(0, first)?, rest: runs(first, rest)? })
 }
 
 /// The list in `bytes`, when it is this exe's and whole.
