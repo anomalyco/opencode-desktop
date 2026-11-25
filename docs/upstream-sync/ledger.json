@@ -2,29 +2,29 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "4c2977b82ece65dfebc4c25058f76e4f8a241c61",
+  "upstream_head": "20e7f000b39d4501af8d44b6705ba3d9fd7ebf6f",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "2f7e5747b",
-  "post_1114_commit_count": 635,
-  "post_1114_in_ledger": 225,
-  "post_1114_skipped": 410,
+  "rune_desktop_head": "79bc78c02",
+  "post_1114_commit_count": 641,
+  "post_1114_in_ledger": 226,
+  "post_1114_skipped": 415,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
     "ci-bench-deps": 24,
     "docs-site-data": 62,
     "tui-only": 28,
     "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 260
+    "server-core-ai-codemode-internal": 265
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 246,
+  "total_ledger_rows": 247,
   "status_counts": {
     "have it": 200,
     "not applicable": 36,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 7
+    "missing": 8
   },
   "rows": [
     {
@@ -6178,6 +6178,30 @@
       "size": "S",
       "status": "not applicable",
       "status_evidence": "By reading: ours has no Sentry client and sends a crash to no service (a search of apps/desktop/src, crates and features for `sentry` finds none); after an unexpected close the next launch shows a notice with Export logs (apps/desktop/src/workspace/system/crash_notice.rs), which writes a file and uploads nothing. So there is nothing to gate by channel. Ours has no Report button either: that is a difference older than this commit, not part of it.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-226",
+      "window": "post-1120",
+      "pr": 66265,
+      "sha": "13d601e31f",
+      "title": "feat(app): fill Consolidated gaps in pins, sidebar and Home picker",
+      "merged": "2026-11-25",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/home/projects/region.tsx",
+        "packages/app/src/home/projects/view.tsx",
+        "packages/app/src/shell/titlebar/pinned-area.tsx",
+        "packages/app/src/shell/titlebar/recent-sessions.tsx"
+      ],
+      "summary": "Four gaps of the Consolidated navigation: a middle click on a pinned session unpins it and closes its tab; a pin group's chevron (vertical) and, under Consolidated, a Recent group header's chevron show only on hover or keyboard focus; Home's project picker names the focused server, with the server glyph, in place of All projects when there are several servers and no project is chosen.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Ported in draft opencode-rune #1144 (apps/desktop/src/shell/tabs/pins.rs close, shell/view/sidebar/pinned_area.rs, sidebar/recent.rs, shell/view/home/projects.rs); compiled by CI only, not run: it merges after a run on its build. Two differences stated there: the chevron's fade follows the row's hover track, not official's 150 ms; a pin group's chevron also shows for focus on the row's options button.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
