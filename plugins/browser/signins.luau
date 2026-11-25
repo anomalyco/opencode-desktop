@@ -14,6 +14,8 @@ export type Choice = {
     sourceName: string,
     profileId: string,
     label: string,
+    -- The profile's name, for a browser that has several (`choices.tsx` `choiceLabel`); else nil.
+    profileName: string?,
 }
 
 export type Message = {
@@ -49,6 +51,7 @@ function signins.choices(sources: { any }): { Choice }
                 sourceName = source.name,
                 profileId = profile.id,
                 label = if #source.profiles > 1 then `{source.name} · {profile.name}` else source.name,
+                profileName = if #source.profiles > 1 then profile.name else nil,
             })
         end
     end

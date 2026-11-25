@@ -4,6 +4,12 @@
 //! start. Side tabs and the inbox keep the row on Windows only, with the sidebar toggle in it;
 //! elsewhere the traffic lights share the sidebar's header line. Below a Windows row the shell
 //! sits 1pt down, elsewhere 8pt.
+//!
+//! Linux takes Windows' row where the window has no frame but Rune's (a Wayland compositor that
+//! draws none, GNOME's: `Cx::chrome_insets` then has a height): the window's controls sit in the
+//! row, in place of a second bar above it. Desktop itself keeps the system's frame on Linux, so
+//! this row is ours alone (#1146). Under X11 and compositors that draw the frame, Linux is as
+//! before.
 
 use std::cell::Cell;
 
@@ -12,8 +18,9 @@ use rune::{ChromeInsets, Color, Titlebar};
 use crate::layout_state::TabLayout;
 
 /// The titlebar the window declares at launch (`App::titlebar`): Desktop's 44pt on Windows
-/// (`defaults.ts`'s `titlebarHeight`), the session header's 48pt line elsewhere.
-pub(crate) const TITLEBAR_H: f32 = if cfg!(target_os = "windows") { 44.0 } else { 48.0 };
+/// (`defaults.ts`'s `titlebarHeight`) and on Linux, where it is the row Rune's own frame puts the
+/// window's controls in and nothing under a native frame; the session header's 48pt line on macOS.
+pub(crate) const TITLEBAR_H: f32 = if cfg!(any(target_os = "windows", target_os = "linux")) { 44.0 } else { 48.0 };
 
 /// Windows keeps a titlebar row of its own above the sidebar and panels in every layout.
 const WINDOWS: bool = cfg!(target_os = "windows");
@@ -31,14 +38,15 @@ const TOP_INSET_UNDER_ROW: f32 = 1.0;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct WindowChrome {
     /// Where the traffic lights end, from the window's leading edge; 0 without them (full
-    /// screen, Windows, Linux).
+    /// screen, Windows, Linux). Under Rune's own frame on a desktop that puts the window's
+    /// buttons at the left, where they end.
     pub lights_end: f32,
     /// The titlebar row's height; 0 where the shell has none.
     pub row_h: f32,
     /// Points above the row's controls: 8 in a 36pt row, 0 in Windows' 44pt one.
     pub row_pad: f32,
     /// What the caption buttons take of the row's trailing end; 0 without them (full screen,
-    /// macOS, Linux).
+    /// macOS, Linux under a native frame).
     pub caption_w: f32,
     /// One device pixel in shell points, as Chromium draws a 1px CSS rule at this scale and zoom.
     pub hairline: f32,
@@ -48,11 +56,14 @@ pub(crate) struct WindowChrome {
     pub narrow: bool,
     /// A narrow window keeps its titlebar row along its foot (Settings › Bottom navigation).
     pub bottom: bool,
+    /// The window's own controls sit in a titlebar row every layout keeps: Windows, and Linux
+    /// where the window's frame is Rune's.
+    pub caption_row: bool,
 }
 
 thread_local! {
     static CHROME: Cell<WindowChrome> = const {
-        Cell::new(WindowChrome { lights_end: 0.0, row_h: 0.0, row_pad: 0.0, caption_w: 0.0, hairline: 1.0, layout: TabLayout::Horizontal, narrow: false, bottom: false })
+        Cell::new(WindowChrome { lights_end: 0.0, row_h: 0.0, row_pad: 0.0, caption_w: 0.0, hairline: 1.0, layout: TabLayout::Horizontal, narrow: false, bottom: false, caption_row: WINDOWS })
     };
 }
 
@@ -99,9 +110,12 @@ pub(crate) fn saved_mac_titlebar() -> Titlebar {
 /// points zoomed in.
 /// `notch`: the browser reports a top safe area (a phone's status bar or camera housing).
 pub(crate) fn set_chrome(insets: ChromeInsets, zoom: f32, scale: f32, layout: TabLayout, narrow: bool, bottom: bool, notch: bool) {
+    // Rune's own frame on Linux reports the titlebar's height, as Windows' does; a native frame
+    // reports none.
+    let caption_row = WINDOWS || (cfg!(target_os = "linux") && insets.height > 0.0);
     let (row_h, row_pad) = match () {
         // Full screen hides the caption buttons, not the row.
-        _ if WINDOWS => (titlebar_height(zoom) / zoom, 0.0),
+        _ if caption_row => (titlebar_height(zoom) / zoom, 0.0),
         // A narrow page's top row keeps 16 under a top safe area, 8 without one (`titlebar.tsx`'s
         // `mobileTopClearance`: `max(8px, min(16px, env(safe-area-inset-top) * 1000))`).
         _ if layout == TabLayout::Horizontal && narrow && !bottom && notch => (TOP_ROW_H + 8.0, TOP_ROW_PAD + 8.0),
@@ -109,7 +123,10 @@ pub(crate) fn set_chrome(insets: ChromeInsets, zoom: f32, scale: f32, layout: Ta
         _ => (0.0, 0.0),
     };
     let hairline = scale.floor().max(1.0) / scale;
-    let chrome = WindowChrome { lights_end: insets.leading, row_h, row_pad, caption_w: insets.trailing, hairline, layout, narrow, bottom: narrow && bottom };
+    // Linux's controls are in the row, so it stays at the window's top: along the foot they
+    // would sit over the panels with nothing to move the window by.
+    let bottom = narrow && bottom && (WINDOWS || !caption_row);
+    let chrome = WindowChrome { lights_end: insets.leading, row_h, row_pad, caption_w: insets.trailing, hairline, layout, narrow, bottom, caption_row };
     CHROME.with(|c| c.set(chrome));
 }
 
