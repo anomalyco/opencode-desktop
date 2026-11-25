@@ -132,7 +132,13 @@ pub fn poll_panels(host: &mut dyn PanelsHost, tx: &mut Tx) -> bool {
                     changed |= rekey_luau(&mut st.tab_state.tabs, prov.plugin);
                 }
             }
-            if panels.iter().any(|p| p.transient)
+            // A plugin lists its tabs from what it kept for the session, and that is kept under
+            // the session's folder: while the server hasn't listed the routed session (a
+            // subagent's page at launch) its list is empty, and a tab it doesn't name isn't a
+            // closed one. The check runs again when the session is listed (`tabs_check_stamp`).
+            let unlisted = host.is_live() && host.active_session_id().is_some_and(|id| host.session_directory(id).is_none_or(str::is_empty));
+            if !unlisted
+                && panels.iter().any(|p| p.transient)
                 && let Some(reg) = resolve_side_region(host)
             {
                 let listed: HashSet<&str> = reg.entries.iter().map(|e| e.key.as_str()).collect();

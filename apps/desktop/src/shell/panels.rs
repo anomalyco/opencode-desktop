@@ -152,7 +152,8 @@ impl PanelsHost for App {
             let wk = crate::terminal::workspace_key(server_base, sid);
             match slots.untracked(&crate::terminal::TERMINAL).workspaces.get(&wk) {
                 Some(ws) => {
-                    (1u8, &ws.active, &ws.failure, ws.tabs.len()).hash(&mut h);
+                    // Listed or still being listed (#1089): the strip's check runs again when the list lands.
+                    (1u8, &ws.active, &ws.failure, ws.tabs.len(), ws.call == crate::terminal::calls::Call::Listing).hash(&mut h);
                     ws.tabs.iter().for_each(|t| (&t.id, &t.title, t.title_number).hash(&mut h));
                 }
                 None => 0u8.hash(&mut h),
