@@ -372,6 +372,7 @@ impl App {
                     self.fetch_info(&missing);
                 }
                 self.stops.forget(sid);
+                crate::rewind::take_back::forget(self, sid);
                 // The run's start, as the server stamps `time.busy`: the inbox's Working age.
                 if let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
                     s.busy = Some(data["eventCreated"].as_i64().unwrap_or(*self.now_ms));
@@ -382,6 +383,7 @@ impl App {
                 self.stops.active_sync.note_execution(sid, false);
                 let was = self.running.remove(sid);
                 crate::stop::confirmed(self, sid);
+                crate::rewind::take_back::run_ended(self, sid);
                 if ty == "session.execution.interrupted" && data["reason"] == "shutdown" {
                     return was;
                 }

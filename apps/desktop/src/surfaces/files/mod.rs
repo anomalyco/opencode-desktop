@@ -485,7 +485,7 @@ impl App {
         let dir = link_directory(self, &sid);
         let home = FilesHost::home_directory(self).into_owned();
         match crate::files::links::classify(trimmed, "", &dir, &home) {
-            crate::files::links::Link::Inside { path, lines, .. } => {
+            crate::files::links::Link::Inside { path, lines, .. } | crate::files::links::Link::Skill { path, lines } => {
                 self.open_workspace_file_source(&sid, &path, false, lines, true, tx);
             }
             crate::files::links::Link::Web(url) => {
