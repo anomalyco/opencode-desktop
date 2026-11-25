@@ -116,7 +116,7 @@ impl crate::App {
     pub(crate) fn show_fixture_page(&mut self, sid: &str, tx: &mut rune::Tx) {
         let Some(t) = self.transcripts.get(sid) else { return };
         let messages = self.fixture_run.served.page(t);
-        let page = crate::session_pages::Page { key: self.page_key(sid), messages, cursor: None, stubs: Vec::new(), asked: 0, history: false, images: Vec::new(), bytes: 0, read: Default::default() };
+        let page = crate::session_pages::Page { key: self.page_key(sid), messages, cursor: None, stubs: Vec::new(), asked: 0, history: false, read_of: Default::default(), images: Vec::new(), bytes: 0, read: Default::default() };
         self.show_page(&page, tx);
     }
 }

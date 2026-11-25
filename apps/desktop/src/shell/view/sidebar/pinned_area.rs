@@ -222,7 +222,6 @@ fn vertical_session(s: &App, p: &Pal, r: &PinRef, nav_order: &[String], show_hin
         .gap(8.0)
         .center_y()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .fill(if d.active { p.pressed } else if marked { p.hover } else { Color::TRANSPARENT })
         .hover(if d.active || marked { Color::TRANSPARENT } else { p.hover })
@@ -270,7 +269,6 @@ fn horizontal_session(s: &App, p: &Pal, r: &PinRef, nav_order: &[String], show_h
         .size(28.0, 28.0)
         .center()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .fill(if d.active { p.pressed } else if marked { p.hover } else { Color::TRANSPARENT })
         .hover(if d.active || marked { Color::TRANSPARENT } else { p.hover })
@@ -320,7 +318,6 @@ fn vertical_group(s: &App, p: &Pal, g: &PinGroup, nav_order: &[String], show_hin
         .gap(8.0)
         .center_y()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .hover(p.hover)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
@@ -374,7 +371,6 @@ fn horizontal_group(s: &App, p: &Pal, g: &PinGroup, nav_order: &[String], show_h
         .size(28.0, 28.0)
         .center()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .hover(if menu_open { Color::TRANSPARENT } else { p.hover })
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {

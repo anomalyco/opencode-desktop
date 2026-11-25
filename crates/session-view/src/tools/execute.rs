@@ -244,7 +244,6 @@ fn view_code_button<S: TimelineHost>(p: &Pal, session: &str, id: &str) -> El {
         .size(24.0, 24.0)
         .center()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_default(p)
         .hover(p.hover)
         .press(p.pressed)

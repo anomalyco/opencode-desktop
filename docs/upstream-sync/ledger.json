@@ -2,29 +2,29 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "4aa115738a3edeb497a022df3f84780f9e69ffc3",
+  "upstream_head": "f90047ff140fb4765963f5b17780eb2ed6356475",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "06b242404",
-  "post_1114_commit_count": 625,
-  "post_1114_in_ledger": 223,
-  "post_1114_skipped": 402,
+  "rune_desktop_head": "44e8353bf",
+  "post_1114_commit_count": 629,
+  "post_1114_in_ledger": 224,
+  "post_1114_skipped": 405,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
     "ci-bench-deps": 23,
-    "docs-site-data": 60,
+    "docs-site-data": 61,
     "tui-only": 28,
     "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 255
+    "server-core-ai-codemode-internal": 257
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 244,
+  "total_ledger_rows": 245,
   "status_counts": {
-    "have it": 199,
+    "have it": 200,
     "not applicable": 35,
     "differs on purpose": 1,
-    "partly": 3,
-    "missing": 6
+    "partly": 2,
+    "missing": 7
   },
   "rows": [
     {
@@ -988,10 +988,11 @@
       "summary": "Replace Home with a project browser modal and landing screen in the desktop Projects sidebar mode.",
       "size": "L",
       "status": "have it",
-      "status_evidence": "Ported in opencode-rune #161 (80ae157e): apps/desktop/src/shell/view/home/browse.rs, sidebar_organized.rs, nav/history.rs. Note: Projects mode is later retired in #64727 (WS-2) while Browse projects stays for Customize/Consolidated.",
+      "status_evidence": "Ported in opencode-rune #161 (80ae157e): apps/desktop/src/shell/view/home/browse.rs, sidebar_organized.rs, nav/history.rs. Note: Projects mode is later retired in #64727 (WS-2) while Browse projects stays for Customize/Consolidated. A fault of ours on the sidebar's action rows (Home, Search sessions, New session, Settings), fixed in opencode-rune #1102 (f4956843): the row's shortcut was drawn as plain text that ran over the label in a narrow sidebar; it is now official's keycap chips at the row's end, shown under the pointer or keyboard focus, with the label cut by an ellipsis (packages/app/src/shell/titlebar/titlebar.tsx SidebarAction). RUN on its CI build next to published dev-484, headless and in a real window, at sidebar widths 136 to 340: at 208 the text ran 21.4 over the label before; after, the label is cut and the chips follow it. One difference kept on purpose pending the owner: under the width the chips need (157.7 for three keys), ours drops the chips and the label keeps the row; official's chips never shrink and run past the row's end (by reading). Not run: macOS, Linux, the light theme, official's window.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "none"
+      "workstream": "none",
+      "rune_pr": "#161, #1102"
     },
     {
       "id": "UP-026",
@@ -6032,11 +6033,12 @@
       ],
       "summary": "A reader who scrolled back keeps their place when the transcript is read again (each reconnect of the event stream, and a turn that ends with a tool still running): the newest page no longer replaces the loaded history. When the newest page does not reach the loaded messages, up to three older pages (20, 40, 140 messages) are read until they meet; after a longer absence only the newest messages stay, so the transcript never skips messages. A kept message that was still running is read again by id. An older page is dropped when a newer read replaced the transcript it continues.",
       "size": "M",
-      "status": "partly",
-      "status_evidence": "By reading, not run. HAVE: ours never replaced the transcript: the newest page read on a reconnect (session/meta/open.rs resync_view -> reload_session, 12 messages) is merged by id (crates/opencode-kit/src/model/transcript.rs merge), so loaded history and the reader's place stay. MISSING: (1) nothing closes a gap: when more than those 12 messages arrived while the stream was down, they go under the loaded ones with the messages between left out and nothing showing it (session/pages/mod.rs merge_page records a gap only for the boot preview, `cold`; crates/opencode-runtime/src/machines/pages.rs History takes `Latest` only from no state, so no older page is asked for below the loaded top); official's rule is that a transcript never skips messages. (2) a kept message older than the newest page that was running when the stream dropped is not read again, so it stays as it was. Needs a run behind a server whose stream is dropped while a session gains more than 12 messages.",
+      "status": "have it",
+      "status_evidence": "opencode-rune #1090 (07b38b7b, by the agent ATTACH): a transcript read again never skips messages. The newest page read after a reconnect is followed by older pages of 20, 40 and 140 until it meets the loaded messages; past that the loaded history goes and the newest stay, as official. RUN on its CI build next to dev's, behind a simulated server whose network is taken away: messages gained while the stream was down and shown after the reconnect, dev -> this: 16 gained: 8 -> 16; 30: 8 -> 30; 60: 8 -> 60 (dev read the newest 12 once and never asked for the rest); nothing new, or fewer than 12 new: one read; 225 gained (too long to close): the newest stay with no hole in the rows built; a tool running when the stream dropped: dev lost its turn's closing reply and the next turn, this shows all; a reader 400 px up while it reconnects: the same seven rows at the same place. Ours never replaced the transcript, so the reader's place was already kept. Not ported: official's guard that drops an older page landing after a newer read replaced the transcript. Not run: official's app for these cases, the single-message read of a loaded message that was still running (the gap's page covered it in the run), a real window, macOS, Linux, a remote server.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "rune_pr": "#1090"
     },
     {
       "id": "UP-220",
@@ -6132,7 +6134,29 @@
       "summary": "In official's New timeline the rows a reader is looking at stay still when an older page of history lands above them: they moved down 16 to 32 px on every page, because a row took the gap over it from the row before it and so grew on top when that row arrived. The row directly above now holds the gap, below its own content, and a turn's first row gets a turn gap row of its own. Also: collapsing a group from its stuck header leaves the header where it was (it moved up 6 px on every collapse).",
       "size": "M",
       "status": "missing",
-      "status_evidence": "Not ported yet; the port is with the agent ATTACH. Ours has the fault, MEASURED on dev's spacing code (25 Nov, headless, a paged server that holds the older page 3 s; a session of 123 items with 80 loaded, the reader wheeled to the top of the loaded history): with the page still held the first loaded row, a reply's text, is at y 101 and 74 high, and the rows under it are at y 175, 241, 321; after the page landed that row is still at y 101 but 80 high, and the rows under it are at 181, 247, 327: everything on screen under the first row moves down 6 px for each page that lands (official's was 16 to 32). Cause, by reading: crates/session-view/src/timeline/rhythm.rs `space_at` sets the room OVER each row from the row above it, as official's spacing.ts did before this commit, and the list holds the first row's top. Also seen: a prompt that is first of a page is 73 high where it is 66 elsewhere, and one kept 73 long after the page above it had landed. Only a reply's text as the first row was measured. Not read in ours: the stuck header's collapse.",
+      "status_evidence": "Not ported yet and not started: the agent that measured it handed it over for a fresh one. Ours has the fault, MEASURED on dev's spacing code (25 Nov, headless, a paged server that holds the older page 3 s; a session of 123 items with 80 loaded, the reader wheeled to the top of the loaded history): with the page still held the first loaded row, a reply's text, is at y 101 and 74 high, and the rows under it are at y 175, 241, 321; after the page landed that row is still at y 101 but 80 high, and the rows under it are at 181, 247, 327: everything on screen under the first row moves down 6 px for each page that lands (official's was 16 to 32). Cause, by reading: crates/session-view/src/timeline/rhythm.rs `space_at` sets the room OVER each row from the row above it, as official's spacing.ts did before this commit, and the list holds the first row's top. Also seen: a prompt that is first of a page is 73 high where it is 66 elsewhere, and one kept 73 long after the page above it had landed. Only a reply's text as the first row was measured. Not read in ours: the stuck header's collapse.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-224",
+      "window": "post-1120",
+      "pr": 66247,
+      "sha": "f90047ff14",
+      "title": "fix(app): send quotes as plain reply-style blockquotes",
+      "merged": "2026-11-24",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/composer/comment-note.ts",
+        "packages/app/src/composer/request.ts"
+      ],
+      "summary": "A prompt's quotes reach the model as plain reply-style blockquotes before the user's own words, like an email reply: each quote a block of `> ` lines (an empty line is `>`), named by a line `From <subject>:` only when it came from another source such as the terminal, its comment under it; then the user's words, the `Attached file:` lines, notes and file comments. Before, a quote came after the words under the sentence `The user quoted the following from ...` with its comment under `The user made the following comment regarding this quote:`. The bubble and its quote cards are unchanged.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Being ported in draft opencode-rune #1119 (compiled by CI only, NOT RUN): crates/opencode-kit/src/quote.rs Quote::prompt_text, model_text and typed_text, crates/opencode-kit/src/model/parse.rs quoted_text (reads the new shape and the one sent before, and records mentions against the user's own words), apps/desktop/src/session/inbox/send.rs. Needs a run: the request's text for a quote with a comment, words and a path attachment, and for a lone quote; the bubble after a reload; a session whose quoted prompt an older build sent.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"

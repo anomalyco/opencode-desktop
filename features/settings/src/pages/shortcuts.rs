@@ -9,7 +9,7 @@
 use opencode_i18n::t;
 use opencode_ui::focus::FocusExt;
 use opencode_ui::keymap::{Section, all, overrides, sequence};
-use rune::{Chord, ChordKey, ChordMod, Cursor, El, Key, KeyEvent, KeyPlatform, Keybind, TextEdit, TextStyle, Tx, col, icon, row, text};
+use rune::{Chord, ChordKey, ChordMod, El, Key, KeyEvent, KeyPlatform, Keybind, TextEdit, TextStyle, Tx, col, icon, row, text};
 use opencode_ui::palette::Pal;
 use rune_theme_opencode::icons as ic;
 
@@ -325,7 +325,6 @@ fn controls<H: SettingsHost + 'static>(s: &H, p: &Pal, e: &Entry) -> El {
         .px(9.0)
         .center_y()
         .radius(4.0)
-        .cursor(Cursor::Pointer)
         .focus_default(p)
         .fill(if recording { p.pressed } else { rune::Color::TRANSPARENT })
         .hover(if recording { p.pressed } else { p.hover })
@@ -342,7 +341,6 @@ fn controls<H: SettingsHost + 'static>(s: &H, p: &Pal, e: &Entry) -> El {
             .px(9.0)
             .center_y()
             .radius(4.0)
-            .cursor(Cursor::Pointer)
             .focus_default(p)
             .hover(p.danger_bg)
             .press(p.pressed)
@@ -361,7 +359,6 @@ fn controls<H: SettingsHost + 'static>(s: &H, p: &Pal, e: &Entry) -> El {
             .h(24.0)
             .center()
             .radius(4.0)
-            .cursor(Cursor::Pointer)
             .focus_default(p)
             .hover(p.hover)
             .press(p.pressed)

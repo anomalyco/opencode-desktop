@@ -1,7 +1,7 @@
 //! File viewer toolbars, picture metadata badges, Open-in split button, and the artifact `...` menu.
 
 use opencode_ui::popup::{Item, Menu, MenuButton as _, PopupHost};
-use rune::{Align, Anim, Color, Cursor, El, Icon, Shadow, TextStyle, Tx, el, icon, row, text};
+use rune::{Align, Anim, Color, El, Icon, Shadow, TextStyle, Tx, el, icon, row, text};
 use rune_kit::Loader;
 use rune_theme_opencode::icons as ic;
 use opencode_ui::palette::{Pal, kit};
@@ -18,7 +18,6 @@ fn tool_shell(p: &Pal, key: &'static str, glyph: &'static Icon, on: bool, label:
         .size(25.0, 25.0)
         .radius(5.0)
         .center()
-        .cursor(Cursor::Pointer)
         .fill(if on { p.row_active } else { Color::TRANSPARENT })
         .hover(p.hover)
         .hover_motion(INSTANT, INSTANT)
@@ -108,7 +107,6 @@ pub(super) fn open_in_button<H: FilesHost + PopupHost + 'static>(
         .key(format!("{key}-run"))
         .size(28.0, 28.0)
         .center()
-        .cursor(Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
@@ -128,7 +126,6 @@ pub(super) fn open_in_button<H: FilesHost + PopupHost + 'static>(
         .key(chevron_key)
         .size(20.0, 28.0)
         .center()
-        .cursor(Cursor::Pointer)
         .fill(if open { p.hover } else { Color::TRANSPARENT })
         .hover(p.hover)
         .press(p.pressed)
@@ -388,7 +385,6 @@ fn action_face(p: &Pal, key: &'static str, glyph: &'static Icon, label: &'static
         .size(28.0, 28.0)
         .radius(6.0)
         .center()
-        .cursor(Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)

@@ -514,7 +514,7 @@ fn trigger_shell(host: &dyn NewWorktreeHost, p: &Pal, current: &str) -> El {
     let branch = draft_base(host).unwrap_or(current);
     let el = row()
         .key(TRIGGER).role("button").label_static(opencode_i18n::t!("rune.branch.choose")).expanded(open)
-        .cursor(rune::Cursor::Pointer).focus_inset(p)
+        .focus_inset(p)
         .hover_group().h(28.0).max_w(220.0).shrink().min_w(0.0).px(6.0).gap(6.0).center_y().radius(4.0)
         .fill(if open { p.pressed } else { Color::TRANSPARENT })
         .hover(if open { Color::TRANSPARENT } else { p.hover })
@@ -546,7 +546,7 @@ fn picker_input_shell(edit: &TextEdit, p: &Pal) -> El {
 
 fn picker_clear_shell(p: &Pal) -> El {
     el().key("branch-picker-clear").role("button").label_static(opencode_i18n::t!("ui.list.clearFilter"))
-        .size(20.0, 20.0).radius(4.0).center().cursor(rune::Cursor::Pointer).focus_inset(p).hover(p.hover)
+        .size(20.0, 20.0).radius(4.0).center().focus_inset(p).hover(p.hover)
         .child(icon(&ic::CIRCLE_XMARK, 14.0).color(p.icon_faint))
 }
 
@@ -555,7 +555,7 @@ fn picker_row_shell(p: &Pal, b: &str, active: Option<&str>, stale: bool, selecte
     let title = if checkout { opencode_i18n::t!("session.new.workspace.useMainCheckout") } else { b };
     row()
         .key(format!("branch-{b}")).role("option").label(title.to_owned())
-        .w_full().h(28.0).px(8.0).gap(8.0).center_y().radius(4.0).cursor(rune::Cursor::Pointer)
+        .w_full().h(28.0).px(8.0).gap(8.0).center_y().radius(4.0)
         .fill(if active == Some(b) { p.hover } else { Color::TRANSPARENT })
         // Rows the pending query hasn't confirmed (`opacity-50`).
         .opacity(if stale { 0.5 } else { 1.0 })

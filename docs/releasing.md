@@ -15,7 +15,13 @@ gh workflow run release.yml -R anomalyco/opencode-rune --ref dev -f channel=dev
 
 Tags start nothing, and the workflow has no ref input: a run always releases `github.sha` on `dev`.
 
-PR builds (`opencode-rune-pr-build.yml`) are separate: each open PR has an `opencode-rune-pr-<n>` pre-release with ad-hoc signed and unsigned test builds, deleted when the PR closes.
+PR builds (`opencode-rune-pr-build.yml`) are separate: each PR run keeps an ad-hoc signed macOS app and unsigned Windows and Linux x64 builds as workflow artifacts for 7 days, and publishes nothing.
+
+To build Linux packages of any branch or commit without a PR or a publish (x64, and arm64 when asked), run `opencode-rune-linux-build.yml`; its artifact is kept for 7 days:
+
+```sh
+gh workflow run opencode-rune-linux-build.yml -R anomalyco/opencode-rune -f ref=<branch> [-f arm64=true]
+```
 
 ## Latest downloads
 

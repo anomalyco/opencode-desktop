@@ -150,7 +150,6 @@ fn item<S: PickerHost>(
     let option = id.to_owned();
     let lit = lit == Some(id);
     let mut r = row().key(id.to_owned()).role(role).label(label.to_owned()).h(MENU.row_h).w_full().pl(MENU.pad_l).pr(MENU.pad_r).gap(8.0).center_y().radius(MENU.row_radius)
-        .cursor(rune::Cursor::Pointer)
         .fill(if lit { p.hover } else { Color::TRANSPARENT })
         .transition(Transition::none())
         .on_hover_change(move |s: &mut S, inside, tx: &mut Tx| {

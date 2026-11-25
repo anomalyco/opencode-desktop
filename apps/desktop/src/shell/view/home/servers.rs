@@ -95,7 +95,7 @@ fn server_row(s: &App, p: &Pal, v: &ServerView, selected: bool, collapsed: bool)
         .opacity(if can_toggle { 1.0 } else { 0.4 })
         .child(icon(&ic::CHEVRON_DOWN, 14.0).color(p.icon_muted).rotate(if collapsed || !can_toggle { -std::f32::consts::FRAC_PI_2 } else { 0.0 }).mirror_in_rtl().rotate_motion(TURN));
     let chevron = if can_toggle {
-        chevron.cursor(rune::Cursor::Pointer).hover(p.hover).expanded(!collapsed).on_press_tx(move |_: &mut App, tx: &mut Tx| home_state::toggle_collapsed(&chevron_key, tx))
+        chevron.hover(p.hover).expanded(!collapsed).on_press_tx(move |_: &mut App, tx: &mut Tx| home_state::toggle_collapsed(&chevron_key, tx))
     } else {
         chevron.disabled(true).on_press(|_: &mut App| {})
     };
@@ -131,7 +131,7 @@ fn server_row(s: &App, p: &Pal, v: &ServerView, selected: bool, collapsed: bool)
         .child(chevron)
         .child(el().key("status").size(16.0, 16.0).mr(-2.0).center().child(indicator(p, crate::servers::health::indicator(&v.key))))
         .child(label);
-    let nav = if healthy || auth { nav.cursor(rune::Cursor::Pointer).on_press_tx(move |s: &mut App, tx: &mut Tx| focus(s, &focus_key, tx)) } else { nav };
+    let nav = if healthy || auth { nav.on_press_tx(move |s: &mut App, tx: &mut Tx| focus(s, &focus_key, tx)) } else { nav };
 
     // `pl-2`, two 20 pt buttons `gap-1`, `right-1`: the fade runs over the first 8.
     let actions_w = 8.0 + 20.0 + 4.0 + 20.0;
@@ -139,7 +139,7 @@ fn server_row(s: &App, p: &Pal, v: &ServerView, selected: bool, collapsed: bool)
     let (menu_target, add_target) = (key.clone(), key.clone());
     let add_enabled = !v.failed() || auth;
     let mut add = super::projects::icon_button(p, &format!("home-server-add-{}", v.key), t!("home.project.add"), &ic::FOLDER_ADD_LEFT, false).help(t!("home.project.add"));
-    add = if add_enabled { add.on_press_tx(move |s: &mut App, tx: &mut Tx| choose_project(s, &add_target, tx)) } else { add.cursor(rune::Cursor::Default).disabled(true).opacity(0.5) };
+    add = if add_enabled { add.on_press_tx(move |s: &mut App, tx: &mut Tx| choose_project(s, &add_target, tx)) } else { add.disabled(true).opacity(0.5) };
     let actions = row()
         .key("actions")
         // 2 clear of the row's top and bottom, where the row's inset focus ring runs.
