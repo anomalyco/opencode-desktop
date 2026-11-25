@@ -5,7 +5,7 @@
 //! memory pressure has pushed them out of the standby list) each is a fault that waits on the
 //! disk, one small read at a time, and the first frame comes five times later
 //! (`tools\launch-bench.ts --fresh-exe`, 23 Nov: 207,000 us against 37,000 us, 88,000 us of it
-//! CPU). [`ask`], before the launch reads anything else, starts a thread that asks Windows for all of them
+//! CPU). [`ask`], at the top of `main`, starts a thread that asks Windows for all of them
 //! at once (`PrefetchVirtualMemory`: a few large reads into the standby list, nothing added to
 //! the working set), while the launch goes on. Windows reads one call's runs one after the other,
 //! so the runs are shared out over up to [`ASK_THREADS`] threads that ask at the same time:
@@ -33,7 +33,8 @@
 //!
 //! `OPENCODE_RUNE_IMAGE_PAGES=off` skips all of it; `=all` asks for the whole code and
 //! constants and `=listed` for a list's pages, both without looking first (a bench's arms).
-//! `OPENCODE_RUNE_IMAGE_PAGES_ASK=1` asks from one thread (a bench's arm).
+//! `OPENCODE_RUNE_IMAGE_PAGES_ASK=1` asks from one thread, and `OPENCODE_RUNE_IMAGE_PAGES_AT=launch`
+//! starts the thread only where `main` knows the run is a launch (a bench's arms).
 // Reading this process's own image headers and working set is Win32; each block says what it relies on.
 #![allow(unsafe_code)]
 
@@ -134,8 +135,47 @@ enum Mode {
     Listed,
 }
 
-/// First thing in `main`: starts the thread that asks for the launch's pages.
+/// How `main` tells the asking thread that this run is the app's window ([`launch`]). The thread
+/// asks before `main` knows that, and does the rest of its work only once told.
+static LAUNCH: std::sync::Mutex<Option<std::sync::mpsc::Sender<()>>> = std::sync::Mutex::new(None);
+
+/// `OPENCODE_RUNE_IMAGE_PAGES_AT=launch`: the thread starts where `main` knows this run is a
+/// launch ([`launch`]), as it did before it started at the top of `main` (a bench's arm).
+fn at_launch() -> bool {
+    std::env::var_os("OPENCODE_RUNE_IMAGE_PAGES_AT").is_some_and(|v| v == "launch")
+}
+
+/// The top of `main`, as soon as its clock runs (`trace::begin`): starts the thread that asks for
+/// the launch's pages.
+///
+/// That is before `main` has looked at what this run is for (`--version`, the uninstaller, a
+/// check: each ends the process). Where it stood, after those looks and the features' start, a
+/// never-started build ran 5.55 ms of `main` from the disk, a fault at a time, before anything
+/// was asked for (medians of 16 launches, 26 Nov: `main` entered 19.85 ms after the process
+/// started, the ask began 5.55 ms later and ended 7.3 ms after that). So the thread only asks
+/// here, which costs a run that is not a launch one look ([`away`]) when its image is in memory,
+/// and waits for [`launch`] before it maps pages or writes a list.
+///
+/// The update's helper asks for its own image, the new version's, by itself ([`warm`]).
 pub fn ask() {
+    if at_launch() || std::env::args().nth(1).as_deref() == Some("--apply-update") {
+        return;
+    }
+    start();
+}
+
+/// `main`, once this run is a launch: the asking thread goes on to map the list's pages and,
+/// when the launch has settled, to write the list.
+pub fn launch() {
+    if at_launch() {
+        start();
+    }
+    if let Some(told) = LAUNCH.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
+        told.send(()).ok();
+    }
+}
+
+fn start() {
     let mode = match std::env::var_os("OPENCODE_RUNE_IMAGE_PAGES").as_deref().and_then(|v| v.to_str()) {
         Some("off") => return,
         Some("all") => Mode::All,
@@ -151,7 +191,10 @@ pub fn ask() {
         Some("1") => 1,
         _ => (processors() / 2).clamp(1, ASK_THREADS),
     };
-    std::thread::Builder::new().name("image-pages".into()).spawn(move || run(mode, threads, ask)).ok();
+    let (told, launch) = std::sync::mpsc::channel();
+    if std::thread::Builder::new().name("image-pages".into()).spawn(move || run(mode, threads, ask, launch)).is_ok() {
+        *LAUNCH.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(told);
+    }
 }
 
 /// The update helper: asks for the whole code and constants of its own image, which is the new
@@ -185,7 +228,7 @@ fn processors() -> usize {
     std::thread::available_parallelism().map_or(1, |n| n.get())
 }
 
-fn run(mode: Mode, threads: usize, ask: usize) {
+fn run(mode: Mode, threads: usize, ask: usize, launch: std::sync::mpsc::Receiver<()>) {
     let Some(image) = image() else { return };
     let path = crate::dirs::cache().map(|dir| dir.join("launch-pages.bin"));
     let listed = path.as_deref().and_then(|p| std::fs::read(p).ok()).and_then(|bytes| decode(&bytes, &image));
@@ -202,6 +245,10 @@ fn run(mode: Mode, threads: usize, ask: usize) {
         } else {
             rune::marks::mark("image.pages.present");
         }
+    }
+    // The rest is a launch's: a run that is something else ends before `main` says so.
+    if launch.recv().is_err() {
+        return;
     }
     // With fewer than four processors the reads would take the launch's own time.
     let room = processors() >= 4;

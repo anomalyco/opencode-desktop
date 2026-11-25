@@ -315,6 +315,13 @@ pub fn run_native() {
         unsafe { std::env::set_var("RUNE_DIRS_ROOT", root) };
     }
     launch::trace::begin();
+    // The app's own pages for this launch, asked for at once on a thread instead of one disk
+    // read per page fault (a new build's first start, or memory pressure since the last one).
+    // Here, with every write to the environment behind (`compat_layer::shed` and the debug
+    // root above: no thread may exist beside one) and the launch's clock running, and before
+    // the looks below run code of their own from the disk (`image_pages::ask` has the times).
+    #[cfg(windows)]
+    launch::image_pages::ask();
     telemetry::launched();
     launch::attach_console();
     askpass::run_if_asked();
@@ -333,9 +340,12 @@ pub fn run_native() {
     if genui::skill::maybe_cli() {
         return;
     }
+    // This run is a launch: the thread that asked for the image's pages goes on with them.
+    #[cfg(windows)]
+    launch::image_pages::launch();
     // The exe's own pages for this launch, asked for at once on a thread instead of one disk
     // read per page fault (a new build's first start, or memory pressure since the last one).
-    #[cfg(any(windows, target_os = "linux"))]
+    #[cfg(target_os = "linux")]
     launch::image_pages::ask();
     // The app's state, read on its own thread beside the instance claim (`storage::start`). A
     // launch while the app runs hands its links (`deep_links`) to it and ends here.
