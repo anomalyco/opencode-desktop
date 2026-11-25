@@ -247,7 +247,12 @@ impl SessionMenuHost for App {
         App::save_tabs(self);
     }
 
+    fn on_archive_replied(&mut self, session: String, ok: bool, tx: &mut Tx) {
+        self.archive_move_replied(&session, true, ok, tx);
+    }
+
     fn on_unarchive_replied(&mut self, session: String, ok: bool, why: &str, tx: &mut Tx) {
+        self.archive_move_replied(&session, false, ok, tx);
         self.switcher_restore_replied(session, ok, why, tx);
     }
 

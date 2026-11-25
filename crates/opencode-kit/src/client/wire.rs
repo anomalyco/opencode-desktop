@@ -38,8 +38,8 @@ pub enum Incoming {
     /// A prompt write (`Write::Send`, `SendMovingHome`, `SendFromRevert`, `StartAs`) that failed,
     /// with the id the prompt was sent under and its error.
     SendFailed { session: String, id: String, error: WireError },
-    /// A rename, delete or restore this window sent (`client.session.write`'s `data`), and its
-    /// error when it failed.
+    /// A rename, delete, archive or restore this window sent (`client.session.write`'s `data`),
+    /// and its error when it failed.
     SessionWrite { data: Value, error: Option<WireError> },
     /// A session's open permission requests and forms, reported separately so a transient HTTP
     /// error on one endpoint never prunes cached items, tagged with the fetch's `epoch` so a

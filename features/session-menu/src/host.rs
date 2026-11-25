@@ -261,6 +261,10 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
     fn on_sessions_removed(&mut self, server: &ServerKey, gone: &[String]) {
         let _ = (server, gone);
     }
+    /// Handles a server reply to an `archive` session write: a refusal puts the session back.
+    fn on_archive_replied(&mut self, session: String, ok: bool, tx: &mut Tx) {
+        let _ = (session, ok, tx);
+    }
     /// Handles a server reply to an `unarchive` session write (e.g. switcher restore toast).
     fn on_unarchive_replied(&mut self, session: String, ok: bool, why: &str, tx: &mut Tx) {
         let _ = (session, ok, why, tx);
