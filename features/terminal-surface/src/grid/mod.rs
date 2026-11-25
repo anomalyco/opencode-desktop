@@ -4,6 +4,7 @@
 mod cell;
 mod edge;
 mod pointer;
+mod quote;
 mod rows;
 
 use std::cell::{Cell, RefCell};
@@ -19,6 +20,7 @@ use opencode_ui::style::{UI, UI_SMALL};
 use terminal::{CursorShape, TerminalSnapshot};
 
 pub(crate) use self::pointer::poll_edge_scroll;
+pub use self::quote::{QuotePlace, QuoteSource};
 use self::pointer::{ViewportInput, attach_text_drag, attach_viewport_handlers, render_quote_bar, render_scrollbar};
 use self::rows::{build_rows, cell_fg_color};
 use crate::mount::TextDrag;
@@ -347,9 +349,16 @@ fn render_viewport<H: TerminalSurfaceHost + 'static>(
         let y = if below + 28.0 > avail_h { (f32::from(last) * cell_h - 34.0).max(0.0) } else { below };
         let x = (f32::from(left) * cell_w).min((clip_w - 90.0).max(0.0));
         canvas_layer = canvas_layer.child(
-            el().key("terminal-quote").absolute(x, y).child(render_quote_bar::<H>(p, ws_key, &tab.id)),
+            el().key("terminal-quote").absolute(x, y).child(render_quote_bar::<H>(p, ws_key, &tab.id, (cell_w, cell_h))),
         );
     }
+    // The quote last taken: where its comment editor measures from, while its rows still hold;
+    // once they don't, its source is gone for good (`quote-machine.ts:258-270`).
+    let mark = tab.quote_source.get().and_then(|source| quote::origin(snap, source, cell_h));
+    if mark.is_none() {
+        tab.quote_source.set(None);
+    }
+    canvas_layer = canvas_layer.children(mark);
 
     let outer = row()
         .key(VIEWPORT_KEY)

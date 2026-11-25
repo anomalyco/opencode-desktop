@@ -199,6 +199,7 @@ impl VtCore {
             bell_count: self.cb().bell_count,
             find,
             marks,
+            written: self.written,
         })
     }
 
