@@ -805,8 +805,10 @@ function settings.renderImportDialog(
         if not single then
             table.insert(group, ui.text(i18n:T("import.sites"), GROUP_HEADING, { key = "settings-import-sites-title", role = "heading" }))
             -- `site-chooser.tsx:451-469`: the two choices 8 apart, 4 above and under them; "All
-            -- sites" names how many once the list is read.
-            table.insert(group, ui.col({ key = "settings-import-scope", w = "full", py = 4, gap = 8 }, {
+            -- sites" names how many once the list is read. Each choice is as wide as its words
+            -- (`radio.css`: the item is a row of its control and label), so the row beside it
+            -- takes no press.
+            table.insert(group, ui.col({ key = "settings-import-scope", w = "full", py = 4, gap = 8, align = "start" }, {
                 ui.row({ key = "settings-import-scope-all-row", gap = 6, align = "start" }, {
                     ui.radio({
                         key = "settings-import-scope-all",
