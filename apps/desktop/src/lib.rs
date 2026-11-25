@@ -334,6 +334,9 @@ pub fn run_native() {
     // The app's state, read on its own thread beside the instance claim (`storage::start`). A
     // launch while the app runs hands its links (`deep_links`) to it and ends here.
     storage::start();
+    // Only an argument on the app's own scheme is a link (`deep_links`): the value of
+    // `--server http://…` isn't one, and a second launch with it still brings the window forward.
+    rune::url_schemes([launch::product().scheme()]);
     if !headless() && !rune::single_instance(&launch::instance_id()) {
         return launch::trace::finish(0);
     }
