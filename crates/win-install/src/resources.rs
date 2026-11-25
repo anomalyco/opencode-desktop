@@ -44,7 +44,7 @@ pub fn embed(r: &Resources) -> Result<(), String> {
 }
 
 /// Compiles version information alone into the library being built (Properties > Details): a
-/// library has no icon, and Windows reads the application manifest from the exe.
+/// library has no icon (see #1104), and Windows reads the application manifest from the exe.
 pub fn embed_version(file_name: &str, version_text: &str, description: &str, product: &str) -> Result<(), String> {
     let mut res = winresource::WindowsResource::new();
     version(&mut res, file_name, version_text, description, product);
