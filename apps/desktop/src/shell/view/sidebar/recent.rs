@@ -295,7 +295,10 @@ fn group_header(
             let dot_color = if m == RecentStatus::Attention { p.warning } else { p.accent };
             btn = btn.child(el().key("group-dot").size(6.0, 6.0).radius(3.0).fill(dot_color).a11y_hidden());
         }
-        btn.child(icon(&ic::FILL_TRIANGLE_DOWN, 14.0).color(p.icon_muted).rotate(if collapsed { -std::f32::consts::FRAC_PI_2 } else { 0.0 }).mirror_in_rtl())
+        let chevron = icon(&ic::FILL_TRIANGLE_DOWN, 14.0).color(p.icon_muted).rotate(if collapsed { -std::f32::consts::FRAC_PI_2 } else { 0.0 }).mirror_in_rtl();
+        // Under Consolidated the chevron shows with the pointer over the header or the keyboard's
+        // focus in it (`GroupHeader`'s `hoverReveal`, opencode#66265).
+        btn.child(if s.settings.navigation_prototype() { session_view::style::hover_reveal(chevron) } else { chevron })
     } else {
         row()
             .key(format!("recent-header-{group_key}"))

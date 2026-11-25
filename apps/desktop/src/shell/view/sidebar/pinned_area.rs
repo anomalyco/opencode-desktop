@@ -211,6 +211,7 @@ fn vertical_session(s: &App, p: &Pal, r: &PinRef, nav_order: &[String], show_hin
     };
     let pin_click = r.clone();
     let pin_ctx = r.clone();
+    let pin_close = r.clone();
     let mut item = row()
         .key(format!("pin-{}", r.key()))
         .role("tab")
@@ -227,7 +228,8 @@ fn vertical_session(s: &App, p: &Pal, r: &PinRef, nav_order: &[String], show_hin
         .hover(if d.active || marked { Color::TRANSPARENT } else { p.hover })
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| pins::open_pin(s, &pin_click, tx))
-        .non_closable_tab::<App>()
+        // A middle click unpins it and closes its tab (`onMiddleClick`, opencode#66265).
+        .closable_tab(move |s: &mut App, tx: &mut Tx| pins::close(s, &pin_close, tx))
         .on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| open_pin_menu(s, &pin_ctx, press, tx))
         .child(el().size(16.0, 16.0).center().child(avatar))
         .child(title_el);
@@ -260,6 +262,7 @@ fn horizontal_session(s: &App, p: &Pal, r: &PinRef, nav_order: &[String], show_h
     }
     let pin_click = r.clone();
     let pin_ctx = r.clone();
+    let pin_close = r.clone();
     let mut slot = row()
         .key(format!("pin-h-{}", r.key()))
         .role("tab")
@@ -274,7 +277,8 @@ fn horizontal_session(s: &App, p: &Pal, r: &PinRef, nav_order: &[String], show_h
         .hover(if d.active || marked { Color::TRANSPARENT } else { p.hover })
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| pins::open_pin(s, &pin_click, tx))
-        .non_closable_tab::<App>()
+        // A middle click unpins it and closes its tab (`onMiddleClick`, opencode#66265).
+        .closable_tab(move |s: &mut App, tx: &mut Tx| pins::close(s, &pin_close, tx))
         .on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| open_pin_menu(s, &pin_ctx, press, tx))
         .child(lead);
     if d.muted {
@@ -328,7 +332,10 @@ fn vertical_group(s: &App, p: &Pal, g: &PinGroup, nav_order: &[String], show_hin
         .on_secondary_press(move |s: &mut App, _: rune::PointerPress, tx: &mut Tx| open_group_menu(s, &ctx_id, ctx_key.clone().into(), rune::Align::End, tx))
         .child(marker)
         .child(label_el)
-        .child(icon(&ic::FILL_TRIANGLE_DOWN, 14.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 }).mirror_in_rtl());
+        // The chevron shows with the pointer over the row or the keyboard's focus in it
+        // (`opacity-0 group-hover/row:opacity-100 group-focus-visible/toggle:opacity-100`,
+        // opencode#66265), and always where the pointer cannot hover.
+        .child(session_view::style::hover_reveal(icon(&ic::FILL_TRIANGLE_DOWN, 14.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 }).mirror_in_rtl()));
 
     let dots = super::super::home::projects::icon_button(p, &menu_key, t!("navigation.group.options"), &ic::OUTLINE_DOTS, menu_open)
         .menu_button(menu_key.clone(), move |s: &mut App, tx: &mut Tx| open_group_menu(s, &trigger_id, trigger_key.clone().into(), rune::Align::End, tx));
