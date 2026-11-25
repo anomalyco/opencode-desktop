@@ -224,7 +224,7 @@ fn run(mode: Mode, threads: usize, ask: usize) {
                 std::thread::Builder::new()
                     .name("image-pages-rest".into())
                     .spawn(|| {
-                        if let Some(image) = image() {
+                        if let Some(image) = self::image() {
                             prefetch(&image, &image.sections, 1);
                             rune::marks::mark("image.pages.rest");
                         }
