@@ -2,29 +2,29 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "64324cf3e41bd51886ad897f35ec65251de2e667",
+  "upstream_head": "f8fc24ea5c74b527244672a1bd3273f8d0cd296e",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "dbc5a7f71",
-  "post_1114_commit_count": 659,
-  "post_1114_in_ledger": 233,
-  "post_1114_skipped": 426,
+  "rune_desktop_head": "54dd095c3",
+  "post_1114_commit_count": 662,
+  "post_1114_in_ledger": 235,
+  "post_1114_skipped": 427,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
     "ci-bench-deps": 25,
     "docs-site-data": 63,
     "tui-only": 28,
     "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 274
+    "server-core-ai-codemode-internal": 275
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 254,
+  "total_ledger_rows": 256,
   "status_counts": {
-    "have it": 204,
+    "have it": 205,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 10
+    "missing": 11
   },
   "rows": [
     {
@@ -6156,7 +6156,7 @@
       "summary": "A prompt's quotes reach the model as plain reply-style blockquotes before the user's own words, like an email reply: each quote a block of `> ` lines (an empty line is `>`), named by a line `From <subject>:` only when it came from another source such as the terminal, its comment under it; then the user's words, the `Attached file:` lines, notes and file comments. Before, a quote came after the words under the sentence `The user quoted the following from ...` with its comment under `The user made the following comment regarding this quote:`. The bubble and its quote cards are unchanged.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "opencode-rune #1119 (c7d9d177): a prompt's quotes go first, each as official's reply-style blockquote (`From <subject>:` when it has a source, the text with `> ` on every line, the comment below), then the user's words (crates/opencode-kit/src/quote.rs model_text / prompt_text; apps/desktop/src/session/inbox/send.rs); both the new and the old shape are read back out of a stored prompt (model/parse.rs quoted_text), and mentions are recorded against the user's own words. Run on its Windows x64 CI build by the app's headless runner (a scripted pointer and keyboard, no window on a display) against a private server (docs/upstream-sync/ported-runs.md): a lone quote; a quote with a comment, words and an attached file, the stored text line for line; the same after a new launch; a session stored in the old shape (seeded by script); a quote beside a session mention; a quote beside an @file mention (the file part's mention offsets count from the user's own words). Not run: a real window. A quote taken from the terminal names its source since opencode-rune #1148 (a7f2e08b): its card shows the terminal's icon and Terminal, the model reads `From the terminal:` over the quoted lines, the icon leads the quote inside the bubble, and the terminal's Quote button opens the comment editor unless Alt is held (packages/gui-plugins/src/terminal/panel.tsx:52-62, quote.tsx; packages/session-ui/src/message/comment-card.tsx:135-137, user-message-quotes.tsx:76); run headless on its Windows x64 CI build (a plain press and an Alt press, the stored text and source, the bubble after the send and a new launch with a one-line and a two-line quote, a conversation quote unchanged). Open differences: the comment editor of a terminal quote opens at the composer, official's beside the selected text in the terminal (panel.tsx:52-62, packages/app/src/composer/editor/quote-comment.tsx:55-61); the source's icon in the bubble has no name or hover title of its own (user-message-quotes.tsx:76; the quote carries the name as its accessibility description). Ours only: a right-click menu in the terminal, whose Quote adds without the comment editor. opencode#66248 (a4bea47aa5) only rewords the plugin API's comment for the new text.",
+      "status_evidence": "opencode-rune #1119 (c7d9d177): a prompt's quotes go first, each as official's reply-style blockquote (`From <subject>:` when it has a source, the text with `> ` on every line, the comment below), then the user's words (crates/opencode-kit/src/quote.rs model_text / prompt_text; apps/desktop/src/session/inbox/send.rs); both the new and the old shape are read back out of a stored prompt (model/parse.rs quoted_text), and mentions are recorded against the user's own words. Run on its Windows x64 CI build by the app's headless runner (a scripted pointer and keyboard, no window on a display) against a private server (docs/upstream-sync/ported-runs.md): a lone quote; a quote with a comment, words and an attached file, the stored text line for line; the same after a new launch; a session stored in the old shape (seeded by script); a quote beside a session mention; a quote beside an @file mention (the file part's mention offsets count from the user's own words). Not run: a real window. A quote taken from the terminal names its source since opencode-rune #1148 (a7f2e08b): its card shows the terminal's icon and Terminal, the model reads `From the terminal:` over the quoted lines, the icon leads the quote inside the bubble, and the terminal's Quote button opens the comment editor unless Alt is held (packages/gui-plugins/src/terminal/panel.tsx:52-62, quote.tsx; packages/session-ui/src/message/comment-card.tsx:135-137, user-message-quotes.tsx:76); run headless on its Windows x64 CI build (a plain press and an Alt press, the stored text and source, the bubble after the send and a new launch with a one-line and a two-line quote, a conversation quote unchanged). Open differences: the source's icon in the bubble has no name or hover title of its own (user-message-quotes.tsx:76; the quote carries the name as its accessibility description). The comment editor of a terminal quote opens beside the quoted rows inside the terminal's pane, as official's (quote-machine.ts:258-298), since opencode-rune #1182 (fd054049): run headless on its CI build (one row, two rows, a narrow window, a scroll and a write after the quote); not run: a grid resize after the quote, a real window; its open difference: official keeps an unchanged editor open until a pointer press outside it, ours closes it on any focus loss. Ours only: a right-click menu in the terminal, whose Quote adds without the comment editor. opencode#66248 (a4bea47aa5) only rewords the plugin API's comment for the new text.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6310,8 +6310,8 @@
       ],
       "summary": "Top tabs: a pin group's square and its sessions stand with no gap between them (the horizontal group's row lost its 4 px gap).",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Not ported yet: in work. Official: packages/app/src/shell/titlebar/pinned-area.tsx:390 (the horizontal group's classes: 'flex-row items-center', no 'gap-1'). Ours: apps/desktop/src/shell/view/sidebar/pinned_area.rs horizontal_group still has gap 4.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1197 (54dd095c): apps/desktop/src/shell/view/sidebar/pinned_area.rs horizontal_group has no gap between the group's square and its sessions (official packages/app/src/shell/titlebar/pinned-area.tsx:390). Run headless on its own Windows x64 CI build beside a build without it, scene top-consolidated: the square stays, the first session 4 px nearer, the second 8, the outline 92 to 84, what follows 8 left, the tabs after it share the freed 8 px. Not run: a real window, a group of three or more, a collapsed group, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6360,7 +6360,56 @@
       "summary": "Keyboard focus in two dialogs. The worktree picker (the new session's location dialog): its rows are no longer Tab stops, the search field keeps the focus and names the active row, and a row lights under the pointer only; typing on a focused row no longer has to be sent back to the search field. What's New: its wrapper is no longer a Tab stop, and Next and Get started are one button that takes the focus when the dialog opens and keeps it on the last page.",
       "size": "S",
       "status": "missing",
-      "status_evidence": "Not ported yet: in work. Official: packages/app/src/new-session/location/dialog.tsx:472-473 (tabIndex -1 on a row), dialog.css:32-34 (hover only), packages/gui-plugins/src/updater/whats-new.tsx:221-222 (the wrapper) and :239-247 (the one button, autofocus). Ours, by reading: features/switcher/src/project/view.rs row_shell rows take a press and are not marked unfocusable; plugins/updater/view.luau draws two buttons with two keys (release-next, release-get-started) and none takes the focus on opening.",
+      "status_evidence": "What's New's half is ported in draft opencode-rune #1200 (plugins/updater/view.luau: one button, release-primary, with autofocus, in place of two with two keys; official packages/gui-plugins/src/updater/whats-new.tsx:239-247); not run yet. The worktree picker's half was already so in ours: its rows are options of a listbox, and an option is not a Tab stop in this app (only button-like roles are), so Tab stops on the rows' step-in buttons and never on a row, as official's now (packages/app/src/new-session/location/dialog.tsx:472-473); a tree of an earlier build shows it. An earlier text of this row said the rows were Tab stops: that was wrong. Ours' wrapper in What's New never was a Tab stop (whats-new.tsx:221-222), and ours has no handler that sends typing on a row back to the search field.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-234",
+      "window": "post-1120",
+      "pr": 66349,
+      "sha": "59a7e1cccc",
+      "title": "feat(app): join consecutive thoughts in the new timeline",
+      "merged": "2026-11-25",
+      "packages": [
+        "app",
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/app/src/session/timeline/message-timeline.tsx",
+        "packages/session-ui/src/message/message-content.tsx",
+        "packages/session-ui/src/timeline-next/projection.ts",
+        "packages/session-ui/src/timeline-next/row.tsx"
+      ],
+      "summary": "New timeline: finished thoughts that follow one another with nothing between read as ONE thought row: one 'Thought' with the time of all of them, opening to the thoughts a paragraph (12 px) apart, opened and shut together by the first one's state; a single thought keeps its own row. While the turn runs, the thoughts it ends on read as one 'Thinking' row (the finished ones before the live one inside it) until something else shows. In a group's summary, thoughts one after another count as one ('Thought', not '2 Thoughts').",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Not ported yet: in work. Official: packages/session-ui/src/timeline-next/projection.ts:499-503, :525-530, :568-575, :632-637 (trailingThoughts), :956-988 (the 'thought' group), packages/session-ui/src/timeline/timeline-row.ts:21-23 and :56-61 (Thinking.before), timeline-next/tools/thought.tsx, tools/activity-label.ts:23-25, timeline-next.css:40-45 (12 px), packages/app/src/session/timeline/message-timeline.tsx:266-268. Ours: crates/session-view/src/turns/mod.rs and turns/view.rs list a stretch of thoughts alone as separate thought rows ('A group of thoughts alone is those thoughts, without a group around them').",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-235",
+      "window": "post-1120",
+      "pr": 66350,
+      "sha": "204d38da8d",
+      "title": "feat(app): group tabs by project or server in Consolidated",
+      "merged": "2026-11-25",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/i18n/en.ts",
+        "packages/app/src/settings/general/interface-mode.tsx",
+        "packages/app/src/settings/model.tsx",
+        "packages/app/src/shell/titlebar/auto-tab-groups.ts"
+      ],
+      "summary": "Consolidated navigation: a new setting 'Group tabs' (None, By project, By server) under the tab position. Open tabs then stand grouped by their project (or server), each group under a header that folds it to its current tab, groups in the order their first tab appears, tabs with no project last without a header; a project open on two servers names its server; the saved tab order keeps each group's tabs together. By server groups only with two servers or more.",
+      "size": "L",
+      "status": "missing",
+      "status_evidence": "Not ported yet: in work. Official: packages/app/src/shell/titlebar/auto-tab-groups.ts (autoTabGroups, groupedTabOrder), auto-tab-sections.tsx, tab-strip.tsx, titlebar.tsx, tab-nav.css, packages/app/src/settings/general/interface-mode.tsx:42-52, settings/model.tsx:159-160 and :538-543, runtime/i18n/en.ts:924-927. Ours: no such setting (apps/desktop/src and features have no tab grouping by project or server; the tab groups ours has are the user's own).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
