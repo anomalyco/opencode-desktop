@@ -26,7 +26,7 @@ pub(crate) mod home;
 pub(crate) mod location;
 pub(crate) mod location_card;
 pub(crate) mod move_recovery;
-mod inbox;
+pub(crate) mod inbox;
 mod narrow;
 mod narrow_story;
 mod peek_story;

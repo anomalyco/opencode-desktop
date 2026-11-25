@@ -221,6 +221,20 @@ fn end_key(s: &App, last: bool) -> Option<(String, String)> {
         items.iter().find_map(reach).or_else(|| shelf.first().map(shelved))
     }
 }
+/// Scrolls the inbox's row of the session keyed `key` (`Entry::key`) into view, just far enough
+/// (`inbox.tsx` `navigate`'s `reveal`: `scrollIntoView({ block: "nearest" })`): a row of the
+/// list by the list's own key for it, built or not, else the card on the Working shelf.
+pub(crate) fn reveal(s: &App, key: &str, tx: &mut Tx) {
+    let order = s.inbox_order();
+    let drafts = draft_ids(s);
+    let ui = s.kernel.slots.get(&crate::restore::RESTORE).inbox;
+    let items = items(&order, ui, drafts.len());
+    let epoch = epoch(&items, &order);
+    let card = format!("ib-{key}");
+    let row = items.iter().find(|l| matches!(l, Line::Card { at, .. } if order.rows[*at].key == card)).map(|l| l.key(&order, &drafts, &epoch));
+    tx.scroll_into_view(row.unwrap_or(card));
+}
+
 /// The room above row `i`, as the groups' gaps and padding laid it out.
 fn space_above(items: &[Line], i: usize) -> f32 {
     let Some(prev) = i.checked_sub(1).map(|j| items[j]) else { return 0.0 };
@@ -508,7 +522,9 @@ fn card(s: &App, p: &Pal, e: &Entry<'_>) -> El {
     } else {
         card = card.hover(p.hover);
     }
-    if archived && !selected {
+    // An archived session is dimmed, but not while it waits on a person: it stands in Needs
+    // attention then (`inbox.tsx` `InboxSessionCard`, opencode#66327).
+    if archived && !selected && !e.waiting() {
         card = card.opacity(0.5);
     }
     card
