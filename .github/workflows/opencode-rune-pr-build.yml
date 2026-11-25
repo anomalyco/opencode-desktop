@@ -2,9 +2,10 @@ name: OpenCode (Rune) PR Build
 
 # Builds every open PR touching apps/desktop (or its path crates) as a side-by-side
 # macOS app ("OpenCode (Rune) · <branch>.app", anomaly.opencode-rune.pr.<N>, badged icon)
-# (ad-hoc signed: PR code never reaches the release environment) and unsigned Windows setups
-# (x64, arm64) under the same name and id, kept as workflow artifacts for 7 days. Nothing is
-# published as a GitHub release.
+# (ad-hoc signed: PR code never reaches the release environment), unsigned Windows setups
+# (x64, arm64) under the same name and id, and unsigned Linux x64 packages
+# (opencode-rune-linux-build.yml, as release.yml builds them), kept as workflow artifacts for
+# 7 days. Nothing is published as a GitHub release.
 
 on:
   pull_request:
@@ -22,6 +23,7 @@ on:
       - "rust-toolchain.toml"
       - ".cargo/**"
       - ".github/workflows/opencode-rune-pr-build.yml"
+      - ".github/workflows/opencode-rune-linux-build.yml"
       - ".github/release/**"
 
 permissions:
@@ -106,6 +108,17 @@ jobs:
       # rust-toolchain.toml picks the toolchain.
       - name: Rust toolchain
         run: rustup toolchain install
+      - id: zig
+        name: Zig version
+        run: |
+          version=$(sed -n 's/^pub const ZIG_VERSION: &str = "\(.*\)";$/\1/p' crates/terminal/build_support.rs)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Could not read ZIG_VERSION from crates/terminal/build_support.rs." >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # The Zig toolchain from dev's cache, keyed on its version alone (it outlives ghostty-vt's key).
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/seer/ghostty-vt/zig-*-${{ steps.zig.outputs.version }}
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ steps.zig.outputs.version }}
       - name: Build side-by-side badged PR app
         run: |
           apps/desktop/scripts/set-crate-version.sh "$PWD" "$OPENCODE_RUNE_VERSION"
@@ -166,6 +179,16 @@ jobs:
         with:
           path: ~/AppData/Local/seer/ghostty-vt
           key: ghostty-vt-windows-${{ matrix.arch }}-${{ hashFiles('crates/terminal/build.rs', 'crates/terminal/build_support.rs') }}
+      - id: zig
+        name: Zig version
+        run: |
+          version=$(sed -n 's/^pub const ZIG_VERSION: &str = "\(.*\)";$/\1/p' crates/terminal/build_support.rs)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Could not read ZIG_VERSION from crates/terminal/build_support.rs." >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/AppData/Local/seer/ghostty-vt/zig-*-${{ steps.zig.outputs.version }}
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ steps.zig.outputs.version }}
       - name: Build side-by-side PR setup
         shell: pwsh
         run: apps/installer/scripts/package.ps1 -Out "$env:RUNNER_TEMP/windows" -Arch ${{ matrix.arch }}
@@ -177,3 +200,12 @@ jobs:
           retention-days: "7"
       - id: digest
         run: echo "digest-${{ matrix.arch }}=${{ steps.upload.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+  build-linux:
+    needs: plan
+    uses: ./.github/workflows/opencode-rune-linux-build.yml
+    with:
+      ref: ${{ needs.plan.outputs.head-sha }}
+      version: ${{ needs.plan.outputs.version }}
+      channel: ${{ needs.plan.outputs.channel }}
+      artifact: build-opencode-rune-pr-linux
