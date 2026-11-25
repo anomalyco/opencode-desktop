@@ -58,7 +58,6 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
         .gap(4.0)
         .center_y()
         .radius(4.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_default(p)
         .hover_group_focus()
         // The arrow fades in under the pointer (`collapsible.css:26-29`).

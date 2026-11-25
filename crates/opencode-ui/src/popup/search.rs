@@ -69,7 +69,6 @@ pub(super) fn search_field<S: PopupHost + 'static>(s: &S, p: &Pal, placeholder: 
                 .size(16.0, 16.0)
                 .radius(4.0)
                 .center()
-                .cursor(rune::Cursor::Pointer)
                 .focus_inset(p)
                 .hover_group()
                 .on_press_tx(|s: &mut S, tx: &mut Tx| {

@@ -81,6 +81,8 @@ fn build_card(p: &Pal, confirm: El) -> El {
         .font(BODY)
         .color(p.muted)
         .link(Link::new(0..words.len(), USAGE_URL).role("link").label(words).hover(LinkPaint::new().color(p.text)))
+        // An `ExternalLink` with no cursor of its own: `a { cursor: default }` (`packages/ui/src/styles/base.css:84`).
+        .cursor(rune::Cursor::Default)
         .mt(4.0);
     ui::overlay(p, col())
         .key("chatgpt-welcome")

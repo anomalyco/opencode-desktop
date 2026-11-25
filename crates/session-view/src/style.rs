@@ -64,7 +64,6 @@ pub fn reasoning<S: TimelineHost>(s: &S, p: &Pal, key: &str, body: &str, secs: O
         trigger
             .role("button")
             .expanded(open)
-            .cursor(rune::Cursor::Pointer)
             .focus_default(p)
             .hover_group_focus()
             // The triangle fades in under the pointer or keyboard focus (`collapsible.css:26-29`).
@@ -290,7 +289,6 @@ fn wrap_button<S: TimelineHost>(p: &Pal, key: String, wrapped: bool, wrap_defaul
         .size(24.0, 24.0)
         .center()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_default(p)
         .hover(p.hover)
         .press(p.pressed)
@@ -328,7 +326,6 @@ fn copy_button<S: TimelineHost>(p: &Pal, text: &str, key: String, label: &'stati
         .size(24.0, 24.0)
         .center()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_default(p)
         .hover(p.hover)
         .press(p.pressed)

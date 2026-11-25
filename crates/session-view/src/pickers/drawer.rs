@@ -118,7 +118,6 @@ fn provider<S: PickerHost>(s: &S, p: &Pal, items: &[Item], selected: &str) -> El
                 .gap(16.0)
                 .center_y()
                 .corners(corners)
-                .cursor(rune::Cursor::Pointer)
                 .hover(p.hover)
                 .hover_motion(INSTANT, INSTANT)
                 .on_press_tx(move |s: &mut S, tx: &mut Tx| s.choose_picker_tx(&pick, tx))
@@ -155,7 +154,6 @@ fn action<S: PickerHost>(p: &Pal, a: ModelAction) -> El {
         .gap(6.0)
         .center_y()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .hover(p.hover)
         .hover_motion(INSTANT, INSTANT)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
@@ -191,7 +189,6 @@ fn menu<S: PickerHost>(s: &S, p: &Pal, kind: Kind) -> El {
                     .gap(8.0)
                     .center_y()
                     .radius(4.0)
-                    .cursor(rune::Cursor::Pointer)
                     .fill(if on { p.pressed } else { rune::Color::TRANSPARENT })
                     .hover(if on { rune::Color::TRANSPARENT } else { p.hover })
                     .hover_motion(INSTANT, INSTANT)

@@ -142,7 +142,7 @@ pub fn mark(p: &Pal, m: Mark, word: &str) -> El {
 /// An interactive event row's hover: a quiet fill that comes and goes at once, 6 past its words
 /// each side with a 4 radius, and the shared ring 2 outside it while the keyboard has it. No underline.
 fn hoverable(p: &Pal, row: El) -> El {
-    row.ml(-6.0).px(6.0).radius(4.0).cursor(rune::Cursor::Pointer).hover(p.hover).hover_group_focus()
+    row.ml(-6.0).px(6.0).radius(4.0).hover(p.hover).hover_group_focus()
         .hover_motion(INSTANT, INSTANT)
         .focus_default(p)
 }
@@ -222,7 +222,7 @@ pub fn subagent<S: TimelineHost>(s: &S, p: &Pal, session: &str, e: &Event) -> El
         .children((!title.is_empty()).then(|| text(title.clone()).key("title").dir(rune::Direction::Auto).font(UI).color(p.text).truncate_fade().shrink().min_w(0.0)));
     let Some(child) = child else { return row().w_full().child(line.role("group")) };
     let (parent, agent) = (session.to_owned(), e.agent.clone().unwrap_or_default());
-    let line = line.role("link").radius(4.0).cursor(rune::Cursor::Pointer).focus_default(p)
+    let line = line.role("link").radius(4.0).focus_default(p)
         .on_press_tx(move |s: &mut S, tx: &mut Tx| {
             // A click with a modifier opens nothing (`event-row.tsx`).
             if crate::plain_click(tx) {

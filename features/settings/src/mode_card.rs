@@ -85,6 +85,8 @@ pub(crate) fn card(p: &Pal, key: &'static str, label: &'static str, sketch: Sket
         .min_w(0.0)
         .radius(8.0)
         .fill(c.bg_base)
+        // `cursor: pointer` (`interface-mode.css:23`), which Desktop's cursor reset does not name.
+        .cursor(rune::Cursor::Pointer)
         .hover_group()
         .hover_motion(ease, ease)
         .child(body)

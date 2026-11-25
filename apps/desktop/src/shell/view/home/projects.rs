@@ -30,7 +30,7 @@ pub(super) fn column(s: &App, p: &Pal, selected: Option<&model::Project>, wide: 
     let mut header = row().key("home-projects-header").w_full().h(28.0).pl(6.0).pr(12.0).center_y().child(text(t!("home.projects")).font(HOME_MED).color(p.muted)).child(spacer());
     if s.kernel.slots.get(&crate::projects::HOME_STATE).servers.len() <= 1 {
         let add = el().key("home-add-project").role("button").label_static(t!("home.project.add")).help(t!("home.project.add")).size(28.0, 28.0).radius(6.0).focus_inset(p).center();
-        let add = if failed { add.opacity(0.5).disabled(true) } else { add.cursor(rune::Cursor::Pointer).hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| add_project(s, tx)) };
+        let add = if failed { add.opacity(0.5).disabled(true) } else { add.hover(p.hover).press(p.pressed).on_press_tx(|s: &mut App, tx: &mut Tx| add_project(s, tx)) };
         header = header.child(add.child(icon(&ic::FOLDER_ADD_LEFT, 16.0).color(p.icon_muted)));
     }
     // `pr-3`, rows `gap-1`; a row is as wide as the list leaves it, less the scroll bar's gutter
@@ -43,7 +43,7 @@ pub(super) fn column(s: &App, p: &Pal, selected: Option<&model::Project>, wide: 
         // `HomeProjectEmpty`: Add project, disabled (60%) while the server is down (`view.tsx:619`).
         let add = nav_row(p, "home-add-project-empty", &ic::FOLDER_ADD_LEFT, t!("home.project.add")).w_full();
         rows = rows.child(if failed {
-            add.opacity(0.6).disabled(true).cursor(rune::Cursor::Default)
+            add.opacity(0.6).disabled(true)
         } else {
             add.on_press_tx(|s: &mut App, tx: &mut Tx| add_project(s, tx))
         });
@@ -96,7 +96,6 @@ fn nav_row(p: &Pal, key: &str, glyph: &'static Icon, label: &str) -> El {
         .gap(8.0)
         .center_y()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .hover_group()
         .hover(p.layer1)
@@ -160,9 +159,9 @@ pub(super) fn project_row(s: &App, p: &Pal, server: &ServerKey, proj: &model::Pr
         .child(crate::icons::badge(s, p, Some(proj), &proj.name))
         .child(text(proj.name.clone()).key("label").font(HOME).color(if active { p.text } else { p.muted }).group_color(p.text).grow(1.0).shrink().truncate().align(text_left()));
     let nav = if failed {
-        nav.opacity(0.6).disabled(true).cursor(rune::Cursor::Default)
+        nav.opacity(0.6).disabled(true)
     } else {
-        nav.cursor(rune::Cursor::Pointer).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        nav.on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             crate::projects::home::toggle(s, &server, &dir);
             s.project_state.home_menu_open = false;
@@ -197,7 +196,6 @@ pub(crate) fn icon_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon,
         .size(20.0, 20.0)
         .radius(4.0)
         .center()
-        .cursor(rune::Cursor::Pointer)
         .hover_motion(INSTANT, INSTANT)
         .child(icon(glyph, 16.0).color(if expanded { p.icon } else { p.icon_muted }));
     if expanded { b.fill(p.pressed) } else { b.hover(p.hover).press(p.pressed) }
@@ -331,7 +329,6 @@ pub(super) fn dropdown_trigger(s: &App, p: &Pal, selected: Option<&model::Projec
         .gap(8.0)
         .center_y()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .fill(if open { p.layer1 } else { p.bg_base })
         .hover(p.layer1)
@@ -373,7 +370,6 @@ pub(super) fn scope_trigger(s: &App, p: &Pal, selected: Option<&model::Project>)
         .gap(6.0)
         .center_y()
         .radius(4.0)
-        .cursor(rune::Cursor::Pointer)
         .preserve_focus_on_press(true)
         .focus_inset(p)
         .fill(if open { p.pressed } else { rune::Color::TRANSPARENT })
@@ -423,7 +419,7 @@ pub(crate) fn home_projects_popover(s: &App, p: &Pal) -> Option<[El; 2]> {
         }
         let add = nav_row(p, "hpm-add", &ic::FOLDER_ADD_LEFT, t!("home.project.add")).w_full().mt(4.0);
         let add = if failed {
-            add.opacity(0.6).disabled(true).cursor(rune::Cursor::Default)
+            add.opacity(0.6).disabled(true)
         } else {
             add.on_press_tx(|s: &mut App, tx: &mut Tx| add_project(s, tx))
         };

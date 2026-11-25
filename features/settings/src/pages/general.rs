@@ -7,7 +7,7 @@ use opencode_i18n::t;
 use opencode_ui::focus::FocusExt;
 use opencode_ui::keymap::Bind;
 use opencode_ui::popup::PopupHost;
-use rune::{Color, Cursor, El, Tx, col, row, text};
+use rune::{Color, El, Tx, col, row, text};
 use opencode_ui::palette::Pal;
 use opencode_ui::style::UI;
 
@@ -282,7 +282,6 @@ fn help_feedback_link<H: SettingsHost + 'static>(p: &Pal) -> El {
         .gap(6.0)
         .center_y()
         .radius(4.0)
-        .cursor(Cursor::Pointer)
         .focus_default(p)
         .hover_group_focus()
         .on_press_tx(|s: &mut H, tx: &mut Tx| crate::open_external(s, URL, tx))
@@ -324,7 +323,6 @@ fn placement<H: SettingsHost + 'static>(s: &H, p: &Pal) -> El {
                 .role("radio")
                 .focus_selected(on)
                 .focus_default(p)
-                .cursor(Cursor::Pointer)
                 .h(24.0)
                 .px(10.0)
                 .center()

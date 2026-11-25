@@ -21,6 +21,7 @@ const checks = [
   { name: "plugin-props", script: join(here, "plugin-props.mjs") },
   { name: "external-open", script: join(here, "external-open.mjs") },
   { name: "engine-revision", script: join(here, "engine-revision.mjs") },
+  { name: "cursor-allow", script: join(here, "cursor-allow.mjs") },
 ];
 
 const started = Date.now();

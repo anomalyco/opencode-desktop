@@ -14,7 +14,7 @@ use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::{Pal, kit};
 use opencode_ui::popup::PopupHost;
 use opencode_ui::widgets;
-use rune::{Cursor, El, TextStyle, Tx, col, icon, row, rule, text};
+use rune::{El, TextStyle, Tx, col, icon, row, rule, text};
 use rune_kit::{ButtonVariant, ControlSize};
 use rune_theme_opencode::icons as ic;
 
@@ -204,7 +204,6 @@ fn tabs<H: SettingsHost + 'static>(p: &Pal, on: ExtensionsTab) -> El {
             .focusable(true)
             .focus_selected(picked)
             .focus_default(p)
-            .cursor(Cursor::Pointer)
             .hover_group_focus()
             .h(24.0)
             .center()
