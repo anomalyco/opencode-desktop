@@ -11,7 +11,10 @@
 //! so the runs are shared out over up to [`ASK_THREADS`] threads that ask at the same time:
 //!
 //! - the pages the earlier launches of this very exe used, from `<cache>/launch-pages.bin`;
-//! - with no list for this exe yet (its first start), its code and constants in address order.
+//! - with no list of its own for this exe yet (its first start on a profile: after an install and
+//!   after every update), the list the build was packaged with, `launch-pages.bin` beside the
+//!   exe ([`packed`]): one launch's pages, made at package time;
+//! - with neither, its code and constants in address order.
 //!
 //! It asks only when the pages are away: it reads one byte of [`SAMPLES`] of them first (of
 //! [`SAMPLES_NO_LIST`] with no list yet), and a page in memory answers in a few microseconds
@@ -188,7 +191,16 @@ fn processors() -> usize {
 fn run(mode: Mode, threads: usize, ask: usize) {
     let Some(image) = image() else { return };
     let path = crate::dirs::cache().map(|dir| dir.join("launch-pages.bin"));
-    let listed = path.as_deref().and_then(|p| std::fs::read(p).ok()).and_then(|bytes| decode(&bytes, &image));
+    let own = path.as_deref().and_then(|p| std::fs::read(p).ok()).and_then(|bytes| decode(&bytes, &image));
+    // No list of its own: this build's first launch on the profile. The packed list stands in for
+    // this launch, and the launch writes its own at the end whatever it adds, so the next one
+    // reads what this machine's launch used.
+    let first = own.is_none();
+    let listed = own.or_else(|| {
+        let runs = packed().and_then(|bytes| decode(&bytes, &image))?;
+        rune::marks::mark("image.pages.packed");
+        Some(runs)
+    });
     let wanted = match (&listed, mode) {
         (Some(runs), Mode::Auto | Mode::Listed) => Some(runs.clone()),
         (None, Mode::Listed) => None,
@@ -223,7 +235,7 @@ fn run(mode: Mode, threads: usize, ask: usize) {
     let used = held(&image);
     let known = listed.unwrap_or_default();
     let new: u32 = used.iter().map(|&(first, pages)| (first..first + pages).filter(|page| !covers(&known, *page)).count() as u32).sum();
-    if new < WORTH_WRITING {
+    if !first && new < WORTH_WRITING {
         return;
     }
     let all = join(known.into_iter().chain(used).collect(), JOIN);
@@ -236,6 +248,19 @@ fn run(mode: Mode, threads: usize, ask: usize) {
         std::fs::rename(&partial, &path).ok();
     }
     rune::marks::mark("image.pages.listed");
+}
+
+/// The list the build was packaged with, `launch-pages.bin` beside the exe: what one launch of
+/// this very build used on the machine that packaged it (`apps/installer/scripts/package.ps1`,
+/// a window on the software adapter, no server). A build's first launch on a profile has no list
+/// of its own, so its main thread maps every page it runs: with the profile an update leaves,
+/// `main` to the first frame was 26.7 ms with no list, 23.2 ms with a list made that way on
+/// another machine and 21.8 ms with the profile's own (16 launches each in turn, 26 Nov; the
+/// first frame 4.35 ms sooner than with no list in 13 of 16, the own list 4.7 ms in 13 of 16).
+/// [`decode`] takes it only for the image it was made from, as it does the profile's.
+fn packed() -> Option<Vec<u8>> {
+    let exe = std::env::current_exe().ok()?;
+    std::fs::read(exe.parent()?.join("launch-pages.bin")).ok()
 }
 
 /// The app's image ([`base`]), from its headers in memory.
