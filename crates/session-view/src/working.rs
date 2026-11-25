@@ -66,14 +66,21 @@ pub fn status<S: TimelineHost>(s: &S, session: &str) -> &'static str {
     if shell == Some(true) { opencode_i18n::t!("session.timeline.status.waitingShell") } else { opencode_i18n::t!("session.timeline.status.working") }
 }
 
-/// Whether the turn ends in the thought the model is writing, which stands in for the status
-/// line's Working (`timelineThinking`, `liveThought`).
+/// Whether the running turn ends in its Thinking row, which stands in for the status line's
+/// Working (`message-timeline.tsx:495-500` `liveThought`: the turn has a `Thinking` row): the
+/// thought the model is writing, or the finished thoughts the turn ends on while nothing else
+/// shows after them (`turns::fold_with`, anomalyco/opencode#66349). For a session that is busy.
 pub fn thinking<S: TimelineHost>(s: &S, session: &str) -> bool {
-    if s.timeline_detail().placement(crate::detail::Category::Thinking) == crate::detail::Placement::Hidden {
+    use opencode_kit::model::Message;
+    let detail = s.timeline_detail();
+    if detail.placement(crate::detail::Category::Thinking) == crate::detail::Placement::Hidden {
         return false;
     }
     s.with_transcript(session, |t| {
-        matches!(t.messages.last(), Some(opencode_kit::model::Message::Assistant(a)) if a.completed.is_none() && matches!(a.parts.last(), Some(opencode_kit::model::Part::Reasoning { completed: None, .. })))
+        // The turn's work: what follows the last message that is neither a step nor a notice.
+        let start = t.messages.iter().rposition(|m| !matches!(m, Message::Assistant(_) | Message::Notice(_))).map_or(0, |i| i + 1);
+        let entries = crate::timeline::entries(&t.messages[start..], &detail);
+        matches!(crate::turns::fold_with(&entries, true, &detail).last(), Some(crate::turns::Block::Thought { live: true, .. }))
     }) == Some(true)
 }
 

@@ -300,20 +300,37 @@ impl App {
     }
 }
 
+/// The focused server's name, when the picker names it in place of "All projects": under
+/// Consolidated, with several servers and no project chosen (`scopedServer`, opencode#66265).
+fn scoped_server(s: &App, selected: Option<&model::Project>) -> Option<String> {
+    if selected.is_some() || !s.settings.navigation_prototype() {
+        return None;
+    }
+    let servers = &s.kernel.slots.get(&crate::projects::HOME_STATE).servers;
+    let key = crate::projects::home::server(s);
+    (servers.len() > 1).then(|| servers.iter().find(|v| v.key == key).map(|v| v.label.clone())).flatten()
+}
+
+/// The picker's label (`label()`): the chosen project, else the scoped server, else All projects.
+fn picker_label(selected: Option<&model::Project>, scoped: Option<&str>) -> String {
+    selected.map(|proj| proj.name.as_str()).or(scoped).unwrap_or(t!("home.projects.all")).to_owned()
+}
+
 /// The narrow window's projects dropdown (`home-projects-dropdown`): 40 tall and full width,
 /// `px-1.5 gap-2`, bg-base going to layer-01 hovered; the selected project's avatar (a small
 /// folder for all of them), its name, and a small chevron in icon-muted.
 pub(super) fn dropdown_trigger(s: &App, p: &Pal, selected: Option<&model::Project>) -> El {
     let open = s.project_state.home_menu_open;
+    let scoped = scoped_server(s, selected);
     let lead = match selected {
         Some(proj) => crate::icons::badge(s, p, Some(proj), &proj.name),
-        None => icon(&ic::FOLDER, 16.0).color(p.text),
+        None => icon(if scoped.is_some() { &ic::SERVER } else { &ic::FOLDER }, 16.0).color(p.text),
     };
-    let label = selected.map_or(t!("home.projects.all"), |proj| proj.name.as_str());
+    let label = picker_label(selected, scoped.as_deref());
     // With several servers, the focused one's name under it, muted at 70%
-    // (`leading-[var(--line-height-compact)]`).
-    let name = text(label.to_owned()).key("name").font(UI).color(p.text).truncate().dir(rune::Direction::Auto);
-    let server = (s.kernel.slots.get(&crate::projects::HOME_STATE).servers.len() > 1).then(|| {
+    // (`leading-[var(--line-height-compact)]`); not when the first line already names it.
+    let name = text(label).key("name").font(UI).color(p.text).truncate().dir(rune::Direction::Auto);
+    let server = (scoped.is_none() && s.kernel.slots.get(&crate::projects::HOME_STATE).servers.len() > 1).then(|| {
         let key = crate::projects::home::server(s);
         s.kernel.slots.get(&crate::projects::HOME_STATE).servers.iter().find(|v| v.key == key).map(|v| text(v.label.clone()).key("server").font(UI).color(p.muted).opacity(0.7).truncate().dir(rune::Direction::Auto))
     });
@@ -353,8 +370,12 @@ pub(super) fn dropdown_trigger(s: &App, p: &Pal, selected: Option<&model::Projec
 /// label and exposes `aria-expanded`.
 pub(super) fn scope_trigger(s: &App, p: &Pal, selected: Option<&model::Project>) -> El {
     let open = s.project_state.home_menu_open;
-    let label = selected.map_or(t!("home.projects.all"), |proj| proj.name.as_str());
-    let lead = selected.map(|proj| crate::icons::badge(s, p, Some(proj), &proj.name));
+    let scoped = scoped_server(s, selected);
+    let label = picker_label(selected, scoped.as_deref());
+    let lead = match selected {
+        Some(proj) => Some(crate::icons::badge(s, p, Some(proj), &proj.name)),
+        None => scoped.is_some().then(|| icon(&ic::SERVER, 16.0).color(p.icon_muted)),
+    };
     row()
         .key("home-projects-trigger")
         .role("button")
@@ -380,7 +401,7 @@ pub(super) fn scope_trigger(s: &App, p: &Pal, selected: Option<&model::Project>)
             s.project_state.home_menu_open = !s.project_state.home_menu_open;
         })
         .children(lead)
-        .child(text(label.to_owned()).key("name").font(UI).color(if open { p.text } else { p.muted }).group_color(p.text).truncate().dir(rune::Direction::Auto))
+        .child(text(label).key("name").font(UI).color(if open { p.text } else { p.muted }).group_color(p.text).truncate().dir(rune::Direction::Auto))
         .child(icon(&ic::CHEVRON_DOWN, 16.0).color(p.icon_muted))
 }
 
