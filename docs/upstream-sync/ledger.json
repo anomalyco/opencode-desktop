@@ -2,12 +2,12 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "a4bea47aa5d250098db42fbfa8c1f3bdb7e3b8ec",
+  "upstream_head": "58621ad6ccb90696459dea06de9a0c7a2a4e795f",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "b95c52054",
-  "post_1114_commit_count": 630,
-  "post_1114_in_ledger": 224,
+  "rune_desktop_head": "966090842",
+  "post_1114_commit_count": 631,
+  "post_1114_in_ledger": 225,
   "post_1114_skipped": 406,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
@@ -18,10 +18,10 @@
     "server-core-ai-codemode-internal": 257
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 245,
+  "total_ledger_rows": 246,
   "status_counts": {
     "have it": 200,
-    "not applicable": 35,
+    "not applicable": 36,
     "differs on purpose": 1,
     "partly": 2,
     "missing": 7
@@ -6157,6 +6157,27 @@
       "size": "S",
       "status": "missing",
       "status_evidence": "Being ported in draft opencode-rune #1119 (compiled by CI only, NOT RUN): crates/opencode-kit/src/quote.rs Quote::prompt_text, model_text and typed_text, crates/opencode-kit/src/model/parse.rs quoted_text (reads the new shape and the one sent before, and records mentions against the user's own words), apps/desktop/src/session/inbox/send.rs. Needs a run: the request's text for a quote with a comment, words and a path attachment, and for a lone quote; the bubble after a reload; a session whose quoted prompt an older build sent. Found while porting: official's terminal names itself as a quote's source (packages/gui-plugins/src/terminal/panel.tsx:60: subject \the terminal), so the model reads From the terminal: over such a quote; a quote ours takes from its terminal carries no source and reads as one from the conversation (before this change too, under the old sentence). A follow-up after #1119. opencode#66248 (a4bea47aa5) only rewords the plugin API's comment for the new text.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-225",
+      "window": "post-1120",
+      "pr": 66257,
+      "sha": "58621ad6cc",
+      "title": "fix(app): send prod crashes to Sentry only when Report is clicked",
+      "merged": "2026-11-25",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/app.tsx"
+      ],
+      "summary": "A crash of official's page (its error boundary) is sent to Sentry as it happens only on the local, dev and beta channels; on the production channel it is sent only when the person clicks Report on the error page.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "By reading: ours has no Sentry client and sends a crash to no service (a search of apps/desktop/src, crates and features for `sentry` finds none); after an unexpected close the next launch shows a notice with Export logs (apps/desktop/src/workspace/system/crash_notice.rs), which writes a file and uploads nothing. So there is nothing to gate by channel. Ours has no Report button either: that is a difference older than this commit, not part of it.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
