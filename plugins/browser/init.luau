@@ -1603,7 +1603,6 @@ return plugin.defineWindow(function(ctx)
         selectedKey = nil,
         candidates = {},
         candidatesLoaded = false,
-        devOpen = false,
         review = nil,
         showAllSites = false,
         approving = false,
@@ -1995,9 +1994,15 @@ return plugin.defineWindow(function(ctx)
     end
 
     local function openAddExtensionDialog()
-        local bAny = Browser :: any
-        local rawSources = if type(bAny.ExtBrowserSources) == "function" then bAny:ExtBrowserSources() else {}
-        local sources: { extensions.BrowserSource } = if type(rawSources) == "table" then rawSources :: any else {}
+        -- The browsers and profiles of the page's import rows, the one used last first, the
+        -- Chromium ones only (`settings.tsx:90`, `:474`; `profile/sources.ts:149-165`): the page
+        -- that opens the dialog already lists them. A profile without extensions says so.
+        local sources: { extensions.BrowserSource } = {}
+        for _, browser in listImportSources() do
+            if browser.engine == "chromium" then
+                table.insert(sources, { id = browser.id, name = browser.name, profiles = browser.profiles })
+            end
+        end
         local choices = extensions.flattenChoices(sources)
         extDialogState = {
             busy = nil,
@@ -2006,7 +2011,6 @@ return plugin.defineWindow(function(ctx)
             selectedKey = if #choices > 0 then extensions.choiceKey(choices[1]) else nil,
             candidates = {},
             candidatesLoaded = false,
-            devOpen = false,
             review = nil,
             showAllSites = false,
             approving = false,
@@ -2178,16 +2182,15 @@ return plugin.defineWindow(function(ctx)
                     Popover:Toggle({
                         id = "ext-browser-profile",
                         anchorKey = "ext-browser-profile-btn",
+                        -- `settings.tsx:692` `placement="bottom-start"`; the select's gutter is 6
+                        -- (`runtime/plugin/ui.tsx:208`).
                         side = "bottom",
-                        align = "end",
-                        gap = 4,
+                        align = "start",
+                        gap = 6,
                     })
                 end,
                 onAddFromBrowser = startBrowserInstall,
-                onToggleDev = function()
-                    extDialogState.devOpen = not extDialogState.devOpen
-                    refreshExtDialog()
-                end,
+
                 onPickFolder = startFolderInstall,
                 onToggleSites = function()
                     extDialogState.showAllSites = not extDialogState.showAllSites
