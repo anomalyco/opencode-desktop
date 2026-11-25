@@ -342,7 +342,7 @@ pub struct Checkout {
     meta: Meta,
     parked: Vec<(ServerKey, Meta, Half)>,
     /// Each tab's mark and project on a server the window isn't checked out on, as of its last
-    /// checkout.
+    /// checkout; of a draft's tab, its project alone.
     snaps: HashMap<(ServerKey, String), Snap>,
     pub boot: Boot,
     synced: u64,
@@ -619,6 +619,14 @@ fn snap(s: &mut App) {
         let marks = s.marks(s.root_of(&id));
         let read_menu = (!marks.attention && !marks.busy && (marks.unread || s.session(&id).is_some_and(|i| i.idle.is_some()))).then_some(marks.unread);
         s.checkout.snaps.insert((key.clone(), id.clone()), Snap { status, project, known, read_menu });
+    }
+    // A draft's project is its folder's on its own server (official
+    // `packages/app/src/shell/titlebar/auto-tab-sections.tsx:39-42`): kept too, so its tab stays
+    // in its group while the window works against another server.
+    let drafts: Vec<(String, String)> = s.tabs.iter().filter(|t| t.is_draft() && t.server == key).map(|t| (t.id.clone(), t.directory.clone())).collect();
+    for (id, dir) in drafts {
+        let project = s.project_at(&dir).cloned();
+        s.checkout.snaps.insert((key.clone(), id), Snap { project, ..Snap::default() });
     }
     crate::inbox_model::snap(s);
 }

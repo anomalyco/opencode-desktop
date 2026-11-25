@@ -228,6 +228,12 @@ pub(crate) fn rune_app(spec: AppSpec<App>) -> rune::App<App> {
             // 2.2.7 Tabs through Home, Search sessions, New session, a reply's buttons and the
             // prompt, where AppKit's rule left only the prompt and the tab strip.
             .tab_visits_controls(true)
+            // The timeline's jump-to-latest button and the composer's drop zone blur what is behind
+            // them: the app's only effect. Rune compiles that pipeline on a low-priority thread once
+            // the window rests (opt-in since rune#2006, per effect since rune#2011), so the button's
+            // first showing in a scroll does not wait for the GPU driver (about 80 to 100 ms on a
+            // cold shader cache). Nothing else is named: no layer blur, no blend is compiled ahead.
+            .prewarm_effects(rune::PrewarmEffects::BACKDROP_BLUR)
             .titlebar(rune::Titlebar::new(view::TITLEBAR_H))
             .chrome(rune::Chrome {
                 full_size_content: true,
@@ -334,6 +340,9 @@ pub fn run_native() {
     // The app's state, read on its own thread beside the instance claim (`storage::start`). A
     // launch while the app runs hands its links (`deep_links`) to it and ends here.
     storage::start();
+    // Only an argument on the app's own scheme is a link (`deep_links`): the value of
+    // `--server http://…` isn't one, and a second launch with it still brings the window forward.
+    rune::url_schemes([launch::product().scheme()]);
     if !headless() && !rune::single_instance(&launch::instance_id()) {
         return launch::trace::finish(0);
     }

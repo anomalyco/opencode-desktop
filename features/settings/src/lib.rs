@@ -35,7 +35,7 @@ pub use host::{
     build_version, configure,
 };
 pub use jobs::{SettingsJob, SettingsReply, SettingsRequest, apply_reply, execute_request};
-pub use prefs::{BackgroundActivity, Choice, FollowUp, Navigation, Organize, SOUNDS, Sounds, StartIn, TimelineWidth, TitlebarPosition, Worktree};
+pub use prefs::{BackgroundActivity, Choice, FollowUp, Navigation, Organize, SOUNDS, Sounds, StartIn, TabGrouping, TimelineWidth, TitlebarPosition, Worktree};
 pub use types::{
     CODE_FONTS, DockPlacement, Font, NotifyKind, NotifyKinds, ReduceMotion, Scheme, TERMINAL_FONTS, TabLayout, TerminalMarkShell, TextRenderer, UI_FONTS, ZOOM_LEVELS, ZOOM_MAX, ZOOM_MIN,
     css_family, custom_name, font_index, step_zoom,
@@ -105,6 +105,9 @@ pub struct Settings {
     pub tab_layout: TabLayout,
     /// The navigation prototype's Tabs or List (`appearance.navigation`, #64668).
     pub navigation: Navigation,
+    /// The navigation prototype's Group tabs (`appearance.tabGrouping`, anomalyco/opencode#66350).
+    /// The shell reads [`Settings::tab_grouping`].
+    pub tab_grouping: TabGrouping,
     /// One side panel open state for every session tab instead of one per tab (`general.sharedSidePanel`, #64950).
     pub shared_side_panel: bool,
     /// Questions take the keyboard-first dock instead of Classic (Desktop's `general.newQuestionUI`,
@@ -190,6 +193,7 @@ impl Default for Settings {
             record_glitches: true,
             tab_layout: TabLayout::default(),
             navigation: Navigation::default(),
+            tab_grouping: TabGrouping::default(),
             shared_side_panel: false,
             new_question_ui: false,
             tab_groups: None,
@@ -254,6 +258,7 @@ impl Settings {
             "developer": { "rewind": self.record_glitches },
             "tabLayout": self.tab_layout.name(),
             "navigation": self.navigation.name(),
+            "tabGrouping": self.tab_grouping.name(),
             "sharedSidePanel": self.shared_side_panel,
             "newQuestionUI": self.new_question_ui,
             "smoothTimeline": self.smooth_timeline,
@@ -306,6 +311,7 @@ impl Settings {
             // `appearance`, which here is the colour scheme.
             tab_layout: TabLayout::parse(v["tabLayout"].as_str().or_else(|| v["appearance"]["tabLayout"].as_str())),
             navigation: Navigation::parse(v["navigation"].as_str().or_else(|| v["appearance"]["navigation"].as_str())),
+            tab_grouping: TabGrouping::parse(v["tabGrouping"].as_str().or_else(|| v["appearance"]["tabGrouping"].as_str())),
             shared_side_panel: v["sharedSidePanel"].as_bool().unwrap_or(false),
             new_question_ui: v["newQuestionUI"].as_bool().unwrap_or(false),
             tab_groups: v["tabGroups"].as_bool(),
@@ -370,6 +376,12 @@ impl Settings {
     /// The navigation prototype's List, else Tabs (`navigation`, `settings/model.tsx`).
     pub fn navigation(&self) -> Navigation {
         if self.navigation_prototype() { self.navigation } else { Navigation::Tabs }
+    }
+
+    /// How open tabs are grouped: only under Consolidated, else not at all (`tabGrouping`,
+    /// `settings/model.tsx:538-540`).
+    pub fn tab_grouping(&self) -> TabGrouping {
+        if self.navigation_prototype() { self.tab_grouping } else { TabGrouping::None }
     }
 
     /// The shell layout (`tabLayout`, `settings/model.tsx`): List always uses the sidebar, and the

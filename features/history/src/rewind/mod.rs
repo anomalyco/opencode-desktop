@@ -11,6 +11,7 @@
 //! it go.
 
 pub mod machine;
+pub mod take_back;
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -64,6 +65,8 @@ pub struct RewindState {
     pub menu: Option<(String, String)>,
     /// Each session's rewinds, undos and redos (`machine.rs`).
     sessions: HashMap<String, SessionRevert>,
+    /// Each session's prompt on its way back after a Stop (`take_back.rs`).
+    taking: HashMap<String, take_back::TakeBack>,
 }
 
 impl RewindState {

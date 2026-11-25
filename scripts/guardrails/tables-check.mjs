@@ -294,7 +294,14 @@ const desktopRs = gitLsFiles(root, "apps/desktop/src/*.rs");
 
 // ── 4. Plugin contract bindings: opencode-plugin-spec -- --check ──────────────
 
-{
+// The one step here that starts cargo, and so a compiler whenever the spec crate or its contract
+// changed since its last run. OPENCODE_GUARDRAILS_NO_CARGO=1 skips it on a machine that must not
+// compile; CI never sets it, so the check on a pull request's head always runs.
+const skipCargo = process.env.OPENCODE_GUARDRAILS_NO_CARGO === "1";
+
+if (skipCargo) {
+  console.log("  SKIP   step 4 skipped locally (plugin-spec check runs in CI)");
+} else {
   const res = spawnSync("cargo", ["run", "-q", "-p", "opencode-plugin-spec", "--", "--check"], {
     cwd: root,
     encoding: "utf8",
@@ -320,4 +327,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log("tables check: ok");
+console.log(skipCargo ? "tables check: ok for 3 of 4 steps (step 4 not run)" : "tables check: ok");

@@ -1,4 +1,4 @@
-# OpenCode plugin API reference (contract 1.9)
+# OpenCode plugin API reference (contract 1.10)
 
 > Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit. For a walkthrough, read [Writing a plugin](writing-a-plugin.md).
 
@@ -6,7 +6,7 @@ Contents: [Versioning](#versioning) · [Modules and globals](#modules-and-global
 
 ## Versioning
 
-Contract versions are `MAJOR.MINOR`. This is contract `1.9`.
+Contract versions are `MAJOR.MINOR`. This is contract `1.10`.
 
 - A plugin names the contract it targets in plugin.toml: `contract = "1.0"`.
 - Minor versions (1.1, 1.2, …) only add: new optional properties on `ui.*` nodes and specs, new semantic tokens (each with a 1.0 fallback token), new services, methods, signals, contribution kinds and enum values. A plugin that targets 1.0 runs unchanged on every 1.x host.
@@ -1520,6 +1520,7 @@ Size, spacing, position and accessibility: every `ui.*` node takes these. A prop
 | `helpSide` | `Side?` | Where the tooltip shows. Defaults to below. |
 | `helpOpen` | `boolean?` | Keeps the tooltip showing while true, whatever the pointer does, as Desktop's `Tooltip forceOpen`: a Copy button's "Copied" for a moment after the press. Since 1.7. |
 | `dir` | `("ltr" \| "rtl" \| "auto")?` | Which way the subtree reads, as HTML's `dir` does: `ltr` or `rtl` keeps a figure or a path in that order inside a window running the other way, `auto` takes a text's first strong direction (a name). On `ui.field` it is the value's direction, as on an `input`: `auto` starts an Arabic name at the right, `ltr` keeps an address or a host left to right. Defaults to the window's. |
+| `cursor` | `("default" \| "pointer" \| "text" \| "grab" \| "grabbing" \| "not-allowed" \| "move" \| "col-resize" \| "row-resize" \| "ew-resize" \| "ns-resize" \| "nwse-resize" \| "nesw-resize" \| "crosshair" \| "cell" \| "zoom-in" \| "zoom-out")?` | The pointer's shape over the node and over what is inside it that sets none, by its CSS `cursor` name. Desktop shows the arrow on controls; set this only where its style sheet names another cursor, as the browser's address field does (`text`). Since 1.10. |
 
 ### UiPin
 
