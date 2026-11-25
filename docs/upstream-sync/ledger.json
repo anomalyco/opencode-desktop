@@ -2,25 +2,25 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "f8fc24ea5c74b527244672a1bd3273f8d0cd296e",
+  "upstream_head": "d06f869560b894e23400d88d1afa765cb04381d6",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "80627ab6a",
-  "post_1114_commit_count": 662,
-  "post_1114_in_ledger": 235,
-  "post_1114_skipped": 427,
+  "rune_desktop_head": "d4c692d3a",
+  "post_1114_commit_count": 666,
+  "post_1114_in_ledger": 236,
+  "post_1114_skipped": 430,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
     "ci-bench-deps": 25,
-    "docs-site-data": 63,
-    "tui-only": 28,
+    "docs-site-data": 64,
+    "tui-only": 29,
     "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 275
+    "server-core-ai-codemode-internal": 276
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 256,
+  "total_ledger_rows": 257,
   "status_counts": {
-    "have it": 206,
+    "have it": 207,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
@@ -6359,8 +6359,8 @@
       ],
       "summary": "Keyboard focus in two dialogs. The worktree picker (the new session's location dialog): its rows are no longer Tab stops, the search field keeps the focus and names the active row, and a row lights under the pointer only; typing on a focused row no longer has to be sent back to the search field. What's New: its wrapper is no longer a Tab stop, and Next and Get started are one button that takes the focus when the dialog opens and keeps it on the last page.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "What's New's half is ported in draft opencode-rune #1200 (plugins/updater/view.luau: one button, release-primary, with autofocus, in place of two with two keys; official packages/gui-plugins/src/updater/whats-new.tsx:239-247); not run yet. The worktree picker's half was already so in ours: its rows are options of a listbox, and an option is not a Tab stop in this app (only button-like roles are), so Tab stops on the rows' step-in buttons and never on a row, as official's now (packages/app/src/new-session/location/dialog.tsx:472-473); a tree of an earlier build shows it. An earlier text of this row said the rows were Tab stops: that was wrong. Ours' wrapper in What's New never was a Tab stop (whats-new.tsx:221-222), and ours has no handler that sends typing on a row back to the search field.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1200 (74e81e51): What's New's Next and Get started are one button, release-primary, which takes the focus as the dialog opens and keeps it on the last page (plugins/updater/view.luau; official packages/gui-plugins/src/updater/whats-new.tsx:239-247). The worktree picker's half was already so in ours: its rows are options of a listbox, and an option is not a Tab stop in this app (only button-like roles are), so Tab stops on the rows' step-in buttons and never on a row, as official's now (packages/app/src/new-session/location/dialog.tsx:472-473). Run headless on its own Windows x64 CI build, a fixture server, What's New opened from a scratch copy of the Updater plugin given with --plugin-dir, holding this change and then dev's view, on the one build: with the change the button has the focus as the dialog opens and through all three pages, and Return on the last page closes the dialog; before, the focus was on the dialog itself and Return did nothing; the picker's Tab order is as described. Not run: a real window, What's New after a real update, its dots, Don't show these in the future, a click on a picker row, macOS, Linux. Seen in the run, not part of the port and open: the focused button draws no ring; ours rings a dialog's first focus only when the keyboard moved focus last (Rune runtime/input/modal_focus.rs:218, focus.rs:50-53), for every dialog; whether official's button shows one there (packages/ui/src/overlays/dialog/dialog.tsx:164-183, button.css :focus-visible) is the browser engine's rule for a script focus and needs a look at the official app.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6410,6 +6410,30 @@
       "size": "L",
       "status": "missing",
       "status_evidence": "Not ported yet: in work. Official: packages/app/src/shell/titlebar/auto-tab-groups.ts (autoTabGroups, groupedTabOrder), auto-tab-sections.tsx, tab-strip.tsx, titlebar.tsx, tab-nav.css, packages/app/src/settings/general/interface-mode.tsx:42-52, settings/model.tsx:159-160 and :538-543, runtime/i18n/en.ts:924-927. Ours: no such setting (apps/desktop/src and features have no tab grouping by project or server; the tab groups ours has are the user's own).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-236",
+      "window": "post-1120",
+      "pr": 66355,
+      "sha": "5050225a09",
+      "title": "fix(app): redesign the add extension dialog",
+      "merged": "2026-11-25",
+      "packages": [
+        "gui-plugins",
+        "plugin"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/i18n/en.ts",
+        "packages/gui-plugins/src/browser/settings.tsx",
+        "packages/plugin/src/gui/host-apis.ts"
+      ],
+      "summary": "The browser's Add extension dialog redesigned: a browser profile's extensions stand in a bordered list with the profile picker ('From') as its header; the ones that work here, fully or in part, come first, and the ones that will not follow under their own heading ('Won't work in OpenCode'); loading an extension from a folder is a quiet 'Load from folder' action at the start of the footer, in place of the closed 'For developers' disclosure; new words ('Not supported' for 'Probably won't work here', 'Partly supported' for 'May not fully work here'); the plugin API's button gains the variant 'submit' (styled like the composer's send button).",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Not ported yet: in work. Official: packages/gui-plugins/src/browser/settings.tsx (AddExtension, from :460), i18n/en.ts:134, :236-241, :384, packages/plugin/src/gui/host-apis.ts:1745-1750. Ours: the dialog is in plugins/browser/extensions.luau and its strings in plugins/browser/locales/en.json; ours' plugin button names that variant 'primary' (crates/opencode-plugin-runtime/src/ui_nodes.rs variant).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
