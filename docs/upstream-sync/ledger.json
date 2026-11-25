@@ -5,7 +5,7 @@
   "upstream_head": "20e7f000b39d4501af8d44b6705ba3d9fd7ebf6f",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "79bc78c02",
+  "rune_desktop_head": "c7d9d1776",
   "post_1114_commit_count": 641,
   "post_1114_in_ledger": 226,
   "post_1114_skipped": 415,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 247,
   "status_counts": {
-    "have it": 200,
+    "have it": 201,
     "not applicable": 36,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 8
+    "missing": 7
   },
   "rows": [
     {
@@ -6155,8 +6155,8 @@
       ],
       "summary": "A prompt's quotes reach the model as plain reply-style blockquotes before the user's own words, like an email reply: each quote a block of `> ` lines (an empty line is `>`), named by a line `From <subject>:` only when it came from another source such as the terminal, its comment under it; then the user's words, the `Attached file:` lines, notes and file comments. Before, a quote came after the words under the sentence `The user quoted the following from ...` with its comment under `The user made the following comment regarding this quote:`. The bubble and its quote cards are unchanged.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Being ported in draft opencode-rune #1119 (compiled by CI only, NOT RUN): crates/opencode-kit/src/quote.rs Quote::prompt_text, model_text and typed_text, crates/opencode-kit/src/model/parse.rs quoted_text (reads the new shape and the one sent before, and records mentions against the user's own words), apps/desktop/src/session/inbox/send.rs. Needs a run: the request's text for a quote with a comment, words and a path attachment, and for a lone quote; the bubble after a reload; a session whose quoted prompt an older build sent. Found while porting: official's terminal names itself as a quote's source (packages/gui-plugins/src/terminal/panel.tsx:60: subject \the terminal), so the model reads From the terminal: over such a quote; a quote ours takes from its terminal carries no source and reads as one from the conversation (before this change too, under the old sentence). A follow-up after #1119. opencode#66248 (a4bea47aa5) only rewords the plugin API's comment for the new text.",
+      "status": "have it",
+      "status_evidence": "opencode-rune #1119 (c7d9d177): a prompt's quotes go first, each as official's reply-style blockquote (`From <subject>:` when it has a source, the text with `> ` on every line, the comment below), then the user's words (crates/opencode-kit/src/quote.rs model_text / prompt_text; apps/desktop/src/session/inbox/send.rs); both the new and the old shape are read back out of a stored prompt (model/parse.rs quoted_text), and mentions are recorded against the user's own words. Run on its Windows x64 CI build by the app's headless runner (a scripted pointer and keyboard, no window on a display) against a private server (docs/upstream-sync/ported-runs.md): a lone quote; a quote with a comment, words and an attached file, the stored text line for line; the same after a new launch; a session stored in the old shape (seeded by script); a quote beside a session mention. Not run: an @file mention beside a quote (by reading, the same offsets). Still differs: official's terminal names itself as a quote's source (packages/gui-plugins/src/terminal/panel.tsx:60), so the model reads `From the terminal:`; a quote ours takes from its terminal carries no source. opencode#66248 (a4bea47aa5) only rewords the plugin API's comment for the new text.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
