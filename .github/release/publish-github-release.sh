@@ -21,8 +21,15 @@ tagged=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)
 
 if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json name > /dev/null 2>&1; then
   previous=$(previous_tag)
+  # With no earlier dev tag, generated notes would list every PR in the repo, past GitHub's 125,000
+  # character limit, so the first one names its commit instead.
+  if [ -n "$previous" ]; then
+    notes=(--generate-notes --notes-start-tag "$previous")
+  else
+    notes=(--notes "Dev build $VERSION from https://github.com/$GITHUB_REPOSITORY/commit/$SHA.")
+  fi
   gh release create "$TAG" -R "$GITHUB_REPOSITORY" --verify-tag --title "OpenCode (Rune) $VERSION" \
-    --generate-notes --latest=true ${previous:+--notes-start-tag "$previous"}
+    --latest=true "${notes[@]}"
 fi
 mirror=$(mktemp -d)
 trap 'rm -rf "$mirror"' EXIT
