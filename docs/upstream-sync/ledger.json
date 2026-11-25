@@ -2,12 +2,12 @@
   "generated_at": "2026-11-25",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "fd3c9c454f757b56c8ecec17b1df83d92be36027",
+  "upstream_head": "45277af6cf203c9d9b30ad5dd8f10d8cc1d6bb5e",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "57c35c9cf",
-  "post_1114_commit_count": 668,
-  "post_1114_in_ledger": 237,
+  "rune_desktop_head": "5e5d40f81",
+  "post_1114_commit_count": 669,
+  "post_1114_in_ledger": 238,
   "post_1114_skipped": 431,
   "post_1114_skipped_breakdown": {
     "test-only": 25,
@@ -18,13 +18,13 @@
     "server-core-ai-codemode-internal": 276
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 258,
+  "total_ledger_rows": 259,
   "status_counts": {
     "have it": 207,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 2,
-    "missing": 11
+    "missing": 12
   },
   "rows": [
     {
@@ -6455,6 +6455,28 @@
       "size": "XS",
       "status": "missing",
       "status_evidence": "Not run: a run on a build of dev decides whether this is already so or a small port. By reading, ours opens it already: the toggle carries the menu on a secondary press (apps/desktop/src/plugin_host/native/sidebar.rs:227, open_side_menu), and Rune gives Shift+F10 or the Menu key that nothing else took to the focused element's secondary press, at that element's bottom-left corner (Rune runtime/input/secondary.rs:357-411, after the app's own keys, runtime/input/keys.rs:91-103); a focused text field gets its own menu (secondary.rs:394-396). Not known until run: that the focus returns to the toggle after Escape or a choice, the arrow keys into the submenu, and the corner in a right-to-left layout (Rune takes the left corner; official the right one, packages/session-ui/src/v2/components/session-file-panel-v2.tsx:96-118, :114). Official's test: packages/app/component-tests/panel-sidebar-side.spec.ts:62-91.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-238",
+      "window": "post-1120",
+      "pr": 66356,
+      "sha": "45277af6cf",
+      "title": "feat(app): show archived sessions dimmed in Search sessions",
+      "merged": "2026-11-25",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/commands/palette.ts",
+        "packages/app/src/shell/commands/session-search.tsx"
+      ],
+      "summary": "Search sessions (the titlebar's search dialog) also finds archived sessions once something is typed: their rows are dimmed (title and description at 70%) and open the session like any other; with nothing typed the recent rows never list an archived session. Each server is asked for two pages of 50, its sessions that are not archived and its archived ones, and a failed archived page drops only those rows.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Not ported yet: in work. Official: packages/app/src/shell/commands/session-search.tsx:28-42 (includeArchived, the two pages), packages/app/src/shell/commands/palette.ts:272-274, :386, :401, :435-441, packages/app/src/shell/commands/dialog.tsx:261, :267 (the dim). Ours: features/switcher lists archived sessions only in a mode of its own that nothing opens any more (SwitcherMode::Archived, left from before UP-203); the session search asks for archived=false alone (features/switcher/src/poll.rs sessions_step, servers.rs run) and leaves loaded archived sessions out (session_index.rs, search_index.rs Scope::Palette).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
