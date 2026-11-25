@@ -2,7 +2,7 @@ commit 60eda7d4039b1f0a738de5e1b65095f72d31c6a7
 rune d5c7a5ad2c98d861640086fd8b94d7f9b9eff8d8
 rustc rustc 1.99.1 (58cf8f9c3 2026-10-13)
 processes 53
-launches 26 (weight 1)
+launches 26 (weight 7)
 built by PR CI: #1139 at 1a64f00ce62d57d6ca981467e9dcb29d38b95dec
 Total functions: 17961
 re-keyed: 17961 of 18439 functions kept, 337 dropped (their code changed), 141 gone
