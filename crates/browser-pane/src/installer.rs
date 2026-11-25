@@ -323,6 +323,29 @@ pub fn set_home(dirs: rune::dirs::AppDirs) {
     HOME.set(dirs).ok();
 }
 
+/// The app quits: an engine download that runs in the background stops where it is, its threads
+/// get normal priority back for what they still do, and it closes the files it writes
+/// ([`quit_wait`] waits for that).
+pub fn quit() {
+    #[cfg(feature = "engine")]
+    crate::prefetch::Prefetch::global().quit();
+}
+
+/// The quit's last step, after [`quit`]: waits, half a second at most, until the engine's download
+/// has closed the files it writes, so the process's end has none of them to close (Windows
+/// Defender scans a half-written DLL inside that close, for seconds). False when they are still
+/// open.
+pub fn quit_wait() -> bool {
+    #[cfg(feature = "engine")]
+    {
+        crate::prefetch::Prefetch::global().wait_closed()
+    }
+    #[cfg(not(feature = "engine"))]
+    {
+        true
+    }
+}
+
 #[cfg(feature = "engine")]
 pub(crate) fn engine_dirs() -> Option<rune::dirs::AppDirs> {
     HOME.get().cloned().or_else(|| rune::dirs::AppDirs::new("co.anomaly.opencode"))
