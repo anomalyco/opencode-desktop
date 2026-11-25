@@ -36,6 +36,16 @@ const MAX_TITLE: usize = 200;
 
 type Read = Result<CookieRead, ImportFailure>;
 
+/// Removes the working copies of another browser's databases that a read left in the app's own
+/// state folder when the app ended during it, as Desktop does once at its start
+/// (`packages/gui-plugins/src/browser/profile/index.ts:102`). On a thread of its own: it reads a
+/// folder and may delete files. Called once the launch is over (`launch::engine_fetch`).
+pub(crate) fn sweep_left_copies() {
+    let _ = std::thread::Builder::new().name("browser-import-sweep".into()).spawn(|| {
+        browser_pane::cookies::database::sweep_snapshots(&SnapshotScratch::new(SnapshotScratch::default_dir()));
+    });
+}
+
 /// What the import brings: still being read on the worker, or read and waiting to be sent.
 enum Reading {
     Pending(Arc<Mutex<Option<Read>>>),
