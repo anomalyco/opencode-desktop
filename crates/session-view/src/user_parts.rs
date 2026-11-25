@@ -163,7 +163,7 @@ fn note_card(p: &Pal, n: &opencode_kit::model::NoteComment, active: bool, wide: 
         Some("select-element") => &rune_theme_opencode::icons::SELECT_ELEMENT,
         _ => &rune_theme_opencode::icons::GLOBE,
     };
-    let title = text(heading).key("title").font(CARD_TITLE).color(p.text).truncate_fade().w_full();
+    let title = text(heading).key("title").font(CARD_TITLE).color(p.text).truncate().w_full();
     let subtitle = row()
         .key("subtitle")
         .w_full()
@@ -172,7 +172,7 @@ fn note_card(p: &Pal, n: &opencode_kit::model::NoteComment, active: bool, wide: 
         .center_y()
         .min_w(0.0)
         .child(icon(glyph, 12.0).color(p.muted))
-        .child(text(sub_label.to_owned()).font(CARD_SUBTITLE).color(p.muted).truncate_fade());
+        .child(text(sub_label.to_owned()).font(CARD_SUBTITLE).color(p.muted).truncate());
     let c = col()
         .key("card")
         .padding(8.0)
@@ -208,7 +208,7 @@ pub fn filename_truncated(path: &str, max: usize) -> String {
 }
 
 fn file_card(p: &Pal, f: &FileComment, active: bool, wide: bool) -> El {
-    let title = text(one_line(&f.comment)).key("title").font(CARD_TITLE).color(p.text).truncate_fade().w_full();
+    let title = text(one_line(&f.comment)).key("title").font(CARD_TITLE).color(p.text).truncate().w_full();
     let subtitle = row()
         .key("subtitle")
         .w_full()
@@ -218,7 +218,7 @@ fn file_card(p: &Pal, f: &FileComment, active: bool, wide: bool) -> El {
         .center_y()
         .min_w(0.0)
         .child(icon(rune_theme_opencode::file_icons::file(&f.path), 12.0))
-        .child(text(format!("{}{}", filename_truncated(&f.path, 14), f.lines_label())).font(CARD_SUBTITLE).color(p.muted).truncate_fade());
+        .child(text(format!("{}{}", filename_truncated(&f.path, 14), f.lines_label())).font(CARD_SUBTITLE).color(p.muted).truncate());
     let c = col()
         .key("card")
         .padding(8.0)
@@ -254,7 +254,7 @@ pub fn quote_card(p: &Pal, q: &Quote, hint: bool, active: bool, wide: bool) -> E
     // The quoted text starts as it is, whatever its first letter: official's card draws it as
     // plain text (`packages/session-ui/src/message/attachment-card.css`,
     // `attachment-card-title`; `comment-card.tsx:54`), with nothing over its start.
-    let mut title = text(title).key("title").font(CARD_TITLE).color(p.text).truncate_fade().w_full();
+    let mut title = text(title).key("title").font(CARD_TITLE).color(p.text).truncate().w_full();
     let tip = tooltip(q);
     if comment.is_none() {
         title = title.help_when_truncated(tip.clone());
@@ -263,7 +263,7 @@ pub fn quote_card(p: &Pal, q: &Quote, hint: bool, active: bool, wide: bool) -> E
     let line = |key: &str, glyph, label: String, color| {
         row().key(key).w_full().h(16.0).gap(4.0).center_y().min_w(0.0)
             .child(icon(glyph, 12.0).color(color))
-            .child(text(label).font(CARD_SUBTITLE).color(color).truncate_fade())
+            .child(text(label).font(CARD_SUBTITLE).color(color).truncate())
     };
     let mut subtitle = el().key("subtitle").w_full().h(16.0);
     if hint {
