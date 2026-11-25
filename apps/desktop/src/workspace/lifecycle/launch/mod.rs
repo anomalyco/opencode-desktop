@@ -16,6 +16,8 @@ pub mod image_pages;
 pub mod io_trace;
 pub mod last_exit;
 mod network;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod record;
 pub mod saved;
 mod shifts;
 pub mod trace;
@@ -484,6 +486,18 @@ pub fn browser_waker(handle: rune::AppHandle<App>) -> rune::Waker {
     })
 }
 
+/// Whether this run only records a launch's pages ([`record`]): it makes no request of any kind.
+pub fn recording() -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        record::on()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        false
+    }
+}
+
 /// `on_ready`, after the first frame: starts the probe, Beta tab read and first server reads once.
 pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     if s.live() {
@@ -493,16 +507,24 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     crate::plugin_host::doze_owed(s);
     // The menu bar was built before the saved shortcuts loaded.
     crate::menubar::refresh();
-    crate::updater::start_if_packaged(s);
+    let recording = recording();
+    if recording {
+        // No update service, no engine fetch, no toast activator: said once, for whoever reads the marks.
+        rune::marks::mark("record.offline");
+    } else {
+        crate::updater::start_if_packaged(s);
+    }
     // The browser engine, when this build's isn't installed, downloads in the background: not
     // from here, but once the launch is over (`engine_fetch`).
     #[cfg(not(target_arch = "wasm32"))]
-    if !s.use_mock_browser() {
+    if !recording && !s.use_mock_browser() {
         s.launch.engine_fetch = EngineFetch::Owed { since: *s.clock };
         tx.wake_after(ENGINE_FETCH_LATEST);
     }
     // Which install this is, for the toasts' clicks; it reads the registry, so after the first frame and off the UI thread.
-    crate::notifications::settle_identity();
+    if !recording {
+        crate::notifications::settle_identity();
+    }
     last_exit::presented();
     if s.persists() {
         crate::windows::reopen::expire(*s.now_ms);

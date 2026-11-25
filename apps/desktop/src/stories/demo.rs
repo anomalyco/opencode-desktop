@@ -22,9 +22,10 @@ pub struct Demo {
     paused: Option<(i64, Vec<demo_script::Event>)>,
 }
 
-/// `--scene demo`: the run never reads or writes Kit's server (`App::load`).
+/// `--scene demo`: the run never reads or writes Kit's server (`App::load`). A run that only
+/// records a launch's pages (`launch::record`) is one too: `App::new_window` starts the scene.
 pub fn requested() -> bool {
-    crate::arg("--scene").as_deref() == Some("demo")
+    crate::launch::recording() || crate::arg("--scene").as_deref() == Some("demo")
 }
 
 /// The scene: a fresh session in the fixture's first project, and the script queued from now.

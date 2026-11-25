@@ -330,6 +330,17 @@ pub fn poll(tx: &mut Tx) {
         settle(tx);
     }
     echo();
+    // `--record-launch-pages`: the app quits once its list is written, and looks for it until then.
+    #[cfg(not(target_arch = "wasm32"))]
+    match super::record::turn() {
+        super::record::Effect::Quit => {
+            mark("quit.requested");
+            tx.quit();
+            return;
+        }
+        super::record::Effect::Look => arm(&QUIT_WAKE, Instant::now() + LIVE_LOOK, tx),
+        super::record::Effect::None | super::record::Effect::Leave { .. } => {}
+    }
     let Some(after) = quit_after() else { return };
     if QUIT_SENT.load(Ordering::Relaxed) {
         return;

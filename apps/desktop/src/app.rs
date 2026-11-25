@@ -317,6 +317,11 @@ impl App {
             knobs::apply_arg(&mut app, pair);
         }
         session_view::scroller::set_device_scale(windows::view_scale(&app));
+        // `--record-launch-pages`: the demo's session and its scripted reply, as `--scene demo`
+        // opens them, so the launch draws a session with no server behind it.
+        if launch::recording() {
+            demo::start(&mut app);
+        }
         rune::marks::mark("state.restored");
         app
     }

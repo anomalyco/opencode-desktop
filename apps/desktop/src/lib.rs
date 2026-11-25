@@ -288,6 +288,8 @@ fn quit_last() {
     rune::marks::mark("quit.update_handed_off");
     launch::trace::finish(windows::opened());
     launch::write_profile();
+    // `--record-launch-pages`: its root goes, and a run with no list ends non-zero.
+    launch::record::ended();
 }
 
 /// Runs the native desktop application entrypoint.
@@ -314,6 +316,10 @@ pub fn run_native() {
         #[allow(unsafe_code)]
         unsafe { std::env::set_var("RUNE_DIRS_ROOT", root) };
     }
+    // `--record-launch-pages <out>`: a launch in a root of its own that makes no request, writes
+    // the list of its pages and ends (`launch::record`). Here, before a thread exists or a folder
+    // is read.
+    launch::record::begin();
     launch::trace::begin();
     telemetry::launched();
     launch::attach_console();
@@ -349,7 +355,10 @@ pub fn run_native() {
         launch::head_start();
     }
     launch::last_exit::init_hooks();
-    notifications::take_activation(rune::extra_args());
+    // A run that only records a launch's pages is not the app a toast's button means.
+    if !launch::recording() {
+        notifications::take_activation(rune::extra_args());
+    }
     glyph_masks::start();
     // The first view's theme tokens (OpenCode's kit and the default theme's palette, both
     // appearances from one parse), built while the window is made rather than in its first frame.
@@ -380,7 +389,9 @@ pub fn run_native() {
         browser_pane::installer::set_home(engine);
     }
     telemetry::startup("launch.platform", rune_mac::launch);
-    telemetry::startup("launch.notifications", notifications::identify);
+    if !launch::recording() {
+        telemetry::startup("launch.notifications", notifications::identify);
+    }
     telemetry::startup("launch.gpu", rune::prewarm_gpu);
     // Windows: no GPU before the first frame. Rune paints it on the CPU and makes the window's GPU
     // on a below-normal thread once it's on screen, then hands over. Warming the GPU here put its

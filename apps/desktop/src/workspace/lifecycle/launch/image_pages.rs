@@ -140,7 +140,7 @@ enum Mode {
 /// First thing in `main`: starts the thread that asks for the launch's pages.
 pub fn ask() {
     let mode = match std::env::var_os("OPENCODE_RUNE_IMAGE_PAGES").as_deref().and_then(|v| v.to_str()) {
-        Some("off") => return,
+        Some("off") => return super::record::listed(Some("OPENCODE_RUNE_IMAGE_PAGES is off")),
         Some("all") => Mode::All,
         Some("listed") => Mode::Listed,
         _ => Mode::Auto,
@@ -189,14 +189,25 @@ fn processors() -> usize {
 }
 
 fn run(mode: Mode, threads: usize, ask: usize) {
-    let Some(image) = image() else { return };
-    let path = crate::dirs::cache().map(|dir| dir.join("launch-pages.bin"));
-    let own = path.as_deref().and_then(|p| std::fs::read(p).ok()).and_then(|bytes| decode(&bytes, &image));
+    // `--record-launch-pages <out>` (`record`): the list of this one launch goes to `<out>`, made
+    // from no list at all, so it names what this launch used and nothing an older list carried.
+    let record = super::record::out();
+    let Some(image) = image() else {
+        if record.is_some() {
+            super::record::listed(Some("the app's image could not be read"));
+        }
+        return;
+    };
+    let path = record.clone().or_else(|| crate::dirs::cache().map(|dir| dir.join("launch-pages.bin")));
+    let own = if record.is_some() { None } else { path.as_deref().and_then(|p| std::fs::read(p).ok()).and_then(|bytes| decode(&bytes, &image)) };
     // No list of its own: this build's first launch on the profile. The packed list stands in for
     // this launch, and the launch writes its own at the end whatever it adds, so the next one
     // reads what this machine's launch used.
     let first = own.is_none();
     let listed = own.or_else(|| {
+        if record.is_some() {
+            return None;
+        }
         let runs = packed().and_then(|bytes| decode(&bytes, &image))?;
         rune::marks::mark("image.pages.packed");
         Some(runs)
@@ -264,10 +275,11 @@ fn run(mode: Mode, threads: usize, ask: usize) {
     }
     // Written beside and renamed: a launch that reads it meanwhile gets the old list or the new.
     let partial = path.with_extension("bin.new");
-    if std::fs::write(&partial, encode(&all, &image)).is_ok() {
-        std::fs::rename(&partial, &path).ok();
-    }
+    let written = std::fs::write(&partial, encode(&all, &image)).is_ok() && std::fs::rename(&partial, &path).is_ok();
     rune::marks::mark("image.pages.listed");
+    if record.is_some() {
+        super::record::listed((!written).then_some("the list's file could not be written"));
+    }
 }
 
 /// The list the build was packaged with, `launch-pages.bin` beside the exe: what one launch of

@@ -78,6 +78,11 @@ fn request(lua: &Lua, a: MultiValue, done: Completer, app_half: bool) -> mlua::R
         Value::Nil => None,
         other => Some(Data::from_lua(other, lua)?.to_json()),
     };
+    // A run that only records a launch's pages makes no request (`launch::record`).
+    if crate::launch::recording() {
+        done.complete(map([("ok", Data::Bool(false)), ("status", Data::Integer(0)), ("text", Data::String(String::new())), ("error", Data::String("This run makes no request".into()))]));
+        return Ok(());
+    }
     cx::with_app(|app| {
         // A window without a server (a fixture) runs no jobs: answer at once rather than never. A
         // `local:` request goes to the app's own server, and without one it would wait on those jobs.
@@ -129,6 +134,10 @@ fn request(lua: &Lua, a: MultiValue, done: Completer, app_half: bool) -> mlua::R
 fn fetch(lua: &Lua, a: MultiValue, done: Completer) -> mlua::Result<()> {
     let (req,): (Value,) = args(lua, a)?;
     let req: spec::HttpRequest = Data::from_lua(req, lua)?.decode().map_err(|e| mlua::Error::runtime(format!("HttpRequest: {e}")))?;
+    // A run that only records a launch's pages makes no request (`launch::record`).
+    if crate::launch::recording() {
+        return Err(mlua::Error::runtime("Http:FetchAsync: this run makes no request"));
+    }
     crate::plugin_host::tasks::run(move || done.complete(send(&req)));
     Ok(())
 }

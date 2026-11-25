@@ -64,14 +64,18 @@ function Invoke-Cargo([string[]] $Arguments) {
 # (after an install, and after every update). Returns the list's path, or nothing with a warning:
 # a build never fails for it, it ships without the list and its first launch is as before.
 #
-# The app is started once from a copy of the install folder, in a scratch home (every profile,
-# temp and app folder variable under it), on a desktop of its own so no window shows on the
-# build machine's, on the software adapter (a build machine's GPU is not a user's), with no server.
-# It quits by itself. Three placeholders named `wsl.exe`, `ssh.exe` and `opencode.exe` stand
-# beside the copy, so nothing this launch might start by name is the build machine's own; the
-# copy and the home are deleted afterwards.
+# The app is started once, as `opencode-desktop --record-launch-pages <file>`
+# (`apps/desktop/src/workspace/lifecycle/launch/record.rs`): a launch in a root of its own that
+# opens the built-in demo session, makes no request of any kind (no server, no update check, no
+# browser engine download), writes the list and ends by itself. This step adds what only a
+# caller can: a copy of the install folder to start it from, a scratch home (every profile and
+# temp folder variable under it), a desktop of its own so no window shows on the build machine's,
+# and the software adapter (a build machine's GPU is not a user's). Three placeholders named
+# `wsl.exe`, `ssh.exe` and `opencode.exe` stand beside the copy, so nothing this launch might
+# start by name is the build machine's own; the copy and the home are deleted afterwards.
 function New-LaunchPageList([string] $Stage, [string] $Image, [string] $Scratch) {
-    $run = Join-Path $Scratch 'page-list'
+    # Absolute: the app is given the list's path, and it leaves its working folder as it starts.
+    $run = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath((Join-Path $Scratch 'page-list'))
     try {
         Remove-Item -Recurse -Force $run -ErrorAction SilentlyContinue
         $app = Join-Path $run 'app'
@@ -85,9 +89,9 @@ function New-LaunchPageList([string] $Stage, [string] $Image, [string] $Scratch)
             SystemRoot = $env:SystemRoot; windir = $env:SystemRoot; SystemDrive = $env:SystemDrive; PATH = "$env:SystemRoot\System32;$env:SystemRoot"
             ProgramData = $env:ProgramData; ProgramFiles = $env:ProgramFiles; CommonProgramFiles = $env:CommonProgramFiles
             COMPUTERNAME = $env:COMPUTERNAME; USERNAME = $env:USERNAME; NUMBER_OF_PROCESSORS = $env:NUMBER_OF_PROCESSORS
-            RUNE_DIRS_ROOT = $userHome; OPENCODE_RUNE_HOME = $userHome; HOME = "$userHome\home"; USERPROFILE = "$userHome\home"
+            HOME = "$userHome\home"; USERPROFILE = "$userHome\home"
             APPDATA = "$userHome\home\AppData\Roaming"; LOCALAPPDATA = "$userHome\home\AppData\Local"; TEMP = "$userHome\tmp"; TMP = "$userHome\tmp"
-            OPENCODE_RUNE_OTEL = '0'; WGPU_ADAPTER_NAME = 'Microsoft Basic Render Driver'
+            WGPU_ADAPTER_NAME = 'Microsoft Basic Render Driver'
         }
         $environment = (($block.Keys | Sort-Object { $_.ToUpperInvariant() } | ForEach-Object { "$_=$($block[$_])" }) -join "`0") + "`0"
         if (-not ('OpenCodeRune.HiddenLaunch' -as [type])) {
@@ -125,17 +129,19 @@ namespace OpenCodeRune {
 }
 '@
         }
-        $trace = Join-Path $userHome 'launch-trace.jsonl'
-        $command = "`"$exe`" --server http://127.0.0.1:9 --launch-trace `"$trace`" --launch-trace-quit 2000"
+        $made = Join-Path $run 'launch-pages.bin'
+        $command = "`"$exe`" --record-launch-pages `"$made`""
         $clock = [Diagnostics.Stopwatch]::StartNew()
         $code = [OpenCodeRune.HiddenLaunch]::Run($exe, $command, $app, $environment, "opencode-rune-package-$PID", 90000)
         $took = '{0:n1} s' -f $clock.Elapsed.TotalSeconds
-        if ($code -ne 0) { throw "the launch did not end well ($(switch ($code) { -1 { 'no desktop of its own could be made' } -2 { 'the process could not be made' } -3 { 'still running after 90 s' } default { "exit code $code" } }), after $took)" }
-        $made = Get-ChildItem -LiteralPath $userHome -Recurse -File -Filter 'launch-pages.bin' | Select-Object -First 1
-        if (-not $made) { throw "the launch wrote no list ($took)" }
+        # The app's own codes (record.rs): 2 it did not start, 3 it quit with no list, 4 it ran past its own limit.
+        if ($code -ne 0) { throw "the launch did not end well ($(switch ($code) { -1 { 'no desktop of its own could be made' } -2 { 'the process could not be made' } -3 { 'still running after 90 s' } 2 { 'exit code 2: the app refused to start the run' } 3 { 'exit code 3: the app quit with no list written' } 4 { 'exit code 4: the app was still running after its own 45 s' } default { "exit code $code" } }), after $took)" }
+        if (-not (Test-Path -LiteralPath $made)) { throw "the launch wrote no list ($took)" }
+        # The app's own root for the run is under the scratch home's temp folder, and the app removes it.
+        $kept = @(Get-ChildItem -LiteralPath (Join-Path $userHome 'tmp') -Directory -Filter 'opencode-rune-pages-*' -ErrorAction SilentlyContinue).Count
         # The list must name the image it ships beside: `RLP1`, the image's link time stamp and its
         # size (which signing leaves as they are), the count of runs, then (first page, pages) each.
-        $bytes = [IO.File]::ReadAllBytes($made.FullName)
+        $bytes = [IO.File]::ReadAllBytes($made)
         $file = [IO.File]::OpenRead((Join-Path $Stage $Image))
         try {
             $reader = [IO.BinaryReader]::new($file)
@@ -151,7 +157,7 @@ namespace OpenCodeRune {
         for ($i = 0; $i -lt $runs; $i++) { $pages += [BitConverter]::ToUInt32($bytes, 20 + $i * 8) }
         $list = Join-Path $Scratch 'launch-pages.bin'
         [IO.File]::WriteAllBytes($list, $bytes)
-        Write-Host ('page list: {0:n0} runs, {1:n0} pages ({2:n1} MiB) of {3}, from one launch ({4})' -f $runs, $pages, ($pages * 4096 / 1MB), $Image, $took)
+        Write-Host ('page list: {0:n0} runs, {1:n0} pages ({2:n1} MiB) of {3}, from one launch ({4}; its own root {5})' -f $runs, $pages, ($pages * 4096 / 1MB), $Image, $took, $(if ($kept) { 'was NOT removed by the app' } else { 'removed by the app' }))
         return $list
     } catch {
         $why = "$_" -replace '\s+', ' '
