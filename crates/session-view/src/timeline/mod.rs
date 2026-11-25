@@ -379,7 +379,7 @@ impl RowSpec {
                     Some(Block::Subagent { step, .. }) => turns::subagent_row(s, p, &t.session, step).pt(*pt),
                     Some(Block::Question { id, status, input, metadata }) =>
                         crate::question_row::view(s, p, &t.session, id, status, input, metadata).pt(*pt),
-                    Some(Block::Thought { step, live: streaming, .. }) => turns::thought(s, p, step, *live && *streaming, fade).pt(*pt),
+                    Some(Block::Thought { steps, live: thinking, .. }) => turns::thoughts(s, p, steps, *live, *live && *thinking, fade).pt(*pt),
                     Some(Block::Calls { kind, steps, .. }) => turns::calls(s, p, &t.session, *kind, steps, *live).pt(*pt),
                     None => col(),
                 }

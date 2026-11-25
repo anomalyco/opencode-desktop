@@ -1,6 +1,6 @@
 //! How a turn's blocks draw (`timeline-next/tools/context-group.tsx`, `assistant-content.tsx`):
-//! an activity group, the thoughts a group of thoughts alone is, an events row, a thought, and
-//! calls on their own row.
+//! an activity group, the one thought a group of thoughts alone reads as, an events row, a row
+//! of thoughts, and calls on their own row.
 
 use rune::{El, col, el, row, text};
 
@@ -10,7 +10,7 @@ use crate::activity::{event_row, events, label as activity};
 use crate::detail::Category;
 use crate::focus::FocusExt;
 use crate::palette::Pal;
-use crate::style::{HOVER_FADE, ROW_GAP, UI, arrow, reasoning};
+use crate::style::{HOVER_FADE, ROW_GAP, ThoughtPart, UI, arrow, reasoning};
 
 /// Between an open group's label and its first step, and between its steps: 16 from text to
 /// text (`--timeline-gap-s`, `--tool-content-gap`), the rows 28 tall around 16 pt lines.
@@ -21,8 +21,9 @@ const GROUP_GAP: f32 = ROW_GAP;
 /// line, edits, writes and patches in a row share one card of files, named skills in a row share
 /// one "Loaded" line, and shells reporting back in a row share one nested events row.
 /// The label only records what happened: what is live is the status line's (`StatusLane`), so
-/// it never shimmers. A group of thoughts alone is those thoughts, without a group around them;
-/// one of shell reports alone is the events row it is. The row springs open and
+/// it never shimmers. A group of thoughts alone is one thought row, without a group around it
+/// (`context-group.tsx:166-176`), and thoughts one after another in an opened group are one too
+/// (`ThoughtRun`); one of shell reports alone is the events row it is. The row springs open and
 /// shut on the timeline's growth, the timeline holding as Desktop's does
 /// (`disclosure::toggle_group`), and while open the header sticks to the timeline's top until
 /// the group scrolls past. `live`: the turn is still running, so a step still under way
@@ -31,7 +32,7 @@ const GROUP_GAP: f32 = ROW_GAP;
 pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &[Step], at: &[Loc], turn: std::ops::Range<usize>, live: bool, fade: f32) -> El {
     let open = s.expanded().contains(key);
     if steps.iter().all(|st| matches!(st, Step::Thought { .. })) {
-        return col().w_full().gap(ROW_GAP).children(steps.iter().map(|st| thought(s, p, st, live, fade)));
+        return thoughts(s, p, steps, live, false, fade);
     }
     let work = activity::work_events(steps);
     let work_only = !work.is_empty() && steps.iter().all(is_work);
@@ -179,6 +180,7 @@ fn plan(steps: &[Step]) -> Vec<(usize, usize)> {
         let run = |f: fn(&Step) -> bool| steps[i..].iter().take_while(|st| f(st)).count();
         let n = match &steps[i] {
             st if is_work(st) => run(is_work),
+            Step::Thought { .. } => run(|st| matches!(st, Step::Thought { .. })),
             st @ Step::Tool { .. } if grouped_read(st) => run(grouped_read),
             st if file_like(st) => run(file_like),
             st @ Step::Tool { .. } if named_skill(st) => run(named_skill),
@@ -216,8 +218,8 @@ fn step_foot<S: TimelineHost>(s: &S, session: &str, live: bool, steps: &[Step]) 
     let Some(first) = steps.first() else { return 6.0 };
     match first {
         st if is_work(st) => 6.0,
-        Step::Thought { msg, index, secs, .. } => {
-            let open = crate::disclosure::is_open(s, &format!("r-{msg}-{index}"), live && secs.is_none() && s.timeline_detail().expanded(Category::Thinking));
+        Step::Thought { msg, index, .. } => {
+            let open = crate::disclosure::is_open(s, &format!("r-{msg}-{index}"), live && unfinished(steps) && s.timeline_detail().expanded(Category::Thinking));
             if open { crate::timeline::rhythm::prose_insets().1 } else { 6.0 }
         }
         Step::Notice(_) => 4.0,
@@ -254,7 +256,7 @@ fn step_item<S: TimelineHost>(s: &S, p: &Pal, cx: crate::tools::Ctx, group: &str
                 crate::disclosure::set::<S>(key.clone(), true, String::new()),
             ))
         }
-        st @ Step::Thought { .. } => thought(s, p, st, live, fade),
+        Step::Thought { .. } => thoughts(s, p, steps, live, false, fade),
         // 28 high like the steps around it (`py-1`).
         Step::Notice(n) => col().key(format!("notice-{}", n.id)).w_full().py(4.0).child(crate::turn_errors::notice(s, p, n, crate::compaction::Run::default())),
         // Commentary is keyed by its place among the group's steps, as it has no id.
@@ -284,16 +286,41 @@ fn step_item<S: TimelineHost>(s: &S, p: &Pal, cx: crate::tools::Ctx, group: &str
     }
 }
 
-/// A thought (`ThoughtRow`): "Thought" and how long it took, opening to the thought. A settled
-/// thought starts shut; the one the model is writing (`live`, unfinished) streams in view
-/// where Timeline detail expands thinking (`thoughtOpens`). Its key holds it open or shut in a
-/// group and on its own row alike.
-pub fn thought<S: TimelineHost>(s: &S, p: &Pal, st: &Step, live: bool, fade: f32) -> El {
-    let Step::Thought { msg, index, body, secs, .. } = st else { return col() };
+/// Whether the model hasn't finished one of the thoughts in `steps`.
+fn unfinished(steps: &[Step]) -> bool {
+    steps.iter().any(|st| matches!(st, Step::Thought { secs: None, .. }))
+}
+
+/// Thoughts one after another (`ThoughtRow`, anomalyco/opencode#66349): "Thought" and how long
+/// they took together, opening to each in turn; one thought is the same row. Settled, it starts
+/// shut. It reads Thinking and streams in view where Timeline detail expands thinking
+/// (`thoughtOpens`) while the model is writing one of them (`live`, the turn runs), or while the
+/// row stands at the end of a running turn (`thinking`: `TimelineRow.Thinking`). Its first
+/// thought's key holds it open or shut (`row.tsx`: `group.refs[0].partID`), in a group and on
+/// its own row alike.
+pub fn thoughts<S: TimelineHost>(s: &S, p: &Pal, steps: &[Step], live: bool, thinking: bool, fade: f32) -> El {
+    let Some(Step::Thought { msg, index, .. }) = steps.first() else { return col() };
     let key = format!("r-{msg}-{index}");
-    let streaming = live && secs.is_none();
-    let open = crate::disclosure::is_open(s, &key, streaming && s.timeline_detail().expanded(Category::Thinking));
-    reasoning::<S>(s, p, &key, body, *secs, live, open, fade).key(key)
+    let thinking = thinking || (live && unfinished(steps));
+    let parts: Vec<ThoughtPart> = steps
+        .iter()
+        .filter_map(|st| match st {
+            Step::Thought { body, secs, .. } => Some(ThoughtPart { body: *body, streaming: live && secs.is_none() }),
+            _ => None,
+        })
+        .collect();
+    // What they took together, added up before it's rounded (`thought.tsx:24-31`); none until
+    // every one is finished.
+    let took: Option<i64> = steps
+        .iter()
+        .map(|st| match st {
+            Step::Thought { took_ms, .. } => *took_ms,
+            _ => None,
+        })
+        .sum();
+    let secs = took.filter(|_| !thinking).map(|ms| (ms as f64 / 1000.0).round() as i64);
+    let open = crate::disclosure::is_open(s, &key, thinking && s.timeline_detail().expanded(Category::Thinking));
+    reasoning::<S>(s, p, &key, &parts, secs, thinking, open, fade).key(key)
 }
 
 /// An events row on its own (`TimelineEventRow`), keyed `key`: subagents and background shells
