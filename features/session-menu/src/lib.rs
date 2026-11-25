@@ -37,7 +37,7 @@ use rune::{El, Key, KeyEvent, PointerPress, PopupAnchor, TextEdit, Tx};
 
 pub use delete::{ask_delete, ask_delete_on, cancel_delete, delete_session, poll_delete, send_delete, undelete};
 pub use export::{export_session_on, exporting};
-pub use host::{HostAction, HostDeliverer, MenuPick, SaveFileDone, SessionMarks, SessionMenuHost, TabSummary};
+pub use host::{HostAction, HostDeliverer, MenuPick, Offered, SaveFileDone, SessionMarks, SessionMenuHost, TabSummary};
 pub use rename::{begin_rename, finish_rename, poll_rename, rename_session};
 pub use rename_dialog::{cancel as close_rename_dialog, open as open_rename_dialog};
 

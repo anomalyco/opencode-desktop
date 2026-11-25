@@ -10,7 +10,7 @@ use opencode_kit::servers::ServerKey;
 use rune::machine::{Attempt, Effects, Seq};
 use rune::{TextEdit, Tx};
 
-use crate::host::{SessionMenuHost, on_server};
+use crate::host::{Offered, SessionMenuHost, on_server};
 use crate::{Spot, Target};
 
 /// `TAB_RENAME_SAVE_TIMEOUT_MS`.
@@ -23,6 +23,8 @@ pub(crate) enum Why {
     Unsaid,
     /// The write never left this machine.
     NotSent,
+    /// The build may not send: ours only, so it says so in our words.
+    ReadOnly,
     /// The server refused, in its words: `session_write_replied` shows them.
     Refused,
 }
@@ -227,13 +229,18 @@ pub(crate) fn dispatch(host: &mut dyn SessionMenuHost, event: Event<'_>, why: Wh
                 // A story's write goes nowhere and a build that can't write sends none: each
                 // answers at once.
                 // The write says nothing itself when it can't go: this machine's one toast does.
-                let (sent, current) = on_server(host, &server, |h| {
-                    let sent = h.write_server_quiet(Write::Rename { session: session.clone(), title: title.clone() });
-                    (sent, h.session(&session).map(|i| i.title.clone()))
+                let (offered, current) = on_server(host, &server, |h| {
+                    let offered = h.write_server_quiet(Write::Rename { session: session.clone(), title: title.clone() });
+                    (offered, h.session(&session).map(|i| i.title.clone()))
                 })
-                .unwrap_or((false, None));
+                .unwrap_or((Offered::NoWriter, None));
+                let sent = offered == Offered::Sent;
                 if host.stage_active() || !sent {
-                    let why = if sent { why } else { Why::NotSent };
+                    let why = match offered {
+                        Offered::Sent => why,
+                        Offered::NoWriter => Why::NotSent,
+                        Offered::ReadOnly => Why::ReadOnly,
+                    };
                     return dispatch(
                         host,
                         Event::Replied { session: &session, server: &server, title: &title, ok: sent, current: current.as_deref() },
@@ -256,6 +263,8 @@ pub(crate) fn dispatch(host: &mut dyn SessionMenuHost, event: Event<'_>, why: Wh
                     let failed = opencode_i18n::t!("common.requestFailed");
                     host.toast_fail(failed, failed);
                 }
+                // A read-only build is ours alone: it says what any write says there.
+                Why::ReadOnly => host.toast_fail(opencode_i18n::t!("rune.send.nothingSent"), opencode_i18n::t!("rune.jobs.readOnly")),
                 Why::Refused => {}
             },
         }

@@ -351,10 +351,10 @@ impl App {
         }
     }
 
-    /// [`Self::write`] that says nothing itself when the write can't go: for a write whose own
-    /// machine says so, once, in its own words.
-    pub(crate) fn write_quiet(&mut self, w: Write) -> bool {
-        self.offer(w).unwrap_or(false)
+    /// [`Self::write`] that says nothing itself when the write can't go, and hands back why: for
+    /// a write whose own machine says so, once, in its own words.
+    pub(crate) fn write_quiet(&mut self, w: Write) -> Result<bool, Unsent> {
+        self.offer(w)
     }
 
     /// Hands `w` to the server's writer: whether it went, or why this window has none to hand it to.
@@ -379,7 +379,7 @@ impl App {
 }
 
 /// Why a write could not be handed to a server.
-enum Unsent {
+pub(crate) enum Unsent {
     /// The build may not send.
     ReadOnly,
     /// The window has no writer: no server, or one whose writer isn't attached yet.
