@@ -8,6 +8,7 @@
 //! process) so the two show the same tabs; without Desktop it starts with none.
 
 pub mod actions;
+pub mod auto_groups;
 pub mod badges;
 pub mod groups;
 pub mod hints;
