@@ -275,7 +275,6 @@ fn button(a: &mut NodeArgs) -> Result<El, String> {
     let k = kit(&pal);
     let words = a.string("text").unwrap_or_default().to_owned();
     let (disabled, loading) = (a.flag("disabled"), a.flag("loading"));
-    let small = a.string("size") == Some("small");
     // Desktop's button sizes (`button.css`): small 24 tall, normal 28, large 32 with 15 a side.
     #[allow(deprecated)]
     let size = match a.string("size") {
@@ -283,19 +282,18 @@ fn button(a: &mut NodeArgs) -> Result<El, String> {
         Some("large") => rune_kit::ButtonSize::Large,
         _ => rune_kit::ButtonSize::Normal,
     };
-    let v = if loading && !small { ButtonVariant::Loading } else { variant(a.string("variant")) };
-    let mut b = widgets::button(words.clone(), v).size(size).disabled(disabled);
-    if let Some(lead) = a.string("icon") {
+    // A busy button keeps its look and its words at every size: it is disabled, drops its icon
+    // and shows a 14 loader before the words, in their color and at the button's own 6 gap
+    // (`packages/app/src/runtime/plugin/ui.tsx:25-41`: `disabled={props.disabled || props.busy}`,
+    // `icon={props.busy ? undefined : props.icon}`, `<Loader width={14} height={14} />`;
+    // `button.css:13`). The SSH cover's and row's own buttons do the same (`ssh/cover.tsx:46-59`).
+    let mut b = widgets::button(words.clone(), variant(a.string("variant"))).size(size).disabled(disabled || loading);
+    if let Some(lead) = a.string("icon").filter(|_| !loading) {
         b = b.icon(named_icon(lead));
     }
-    if loading && small {
-        // `<Loader class="size-3.5" />` before the label, in the label's color.
+    if loading {
         let spinner = Loader::new().size(14.0).build(k);
-        b = b.label_with(move |style, ink| row().gap(4.0).center_y().child(spinner).child(text(words).font(style).color(ink)));
-    } else if loading {
-        // Desktop's `variant="loading"` button holds only `<Loader />`.
-        let spinner = Loader::new().size(16.0).build(k);
-        b = b.label_with(move |_, _| spinner);
+        b = b.label_with(move |style, ink| row().gap(6.0).center_y().child(spinner).child(text(words).font(style).color(ink)));
     }
     let el = focus(a, b.build(k));
     Ok(if disabled || loading { el } else { a.on_press(el, "onPress") })
