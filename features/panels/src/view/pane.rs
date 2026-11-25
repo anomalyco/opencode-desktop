@@ -9,7 +9,7 @@ use opencode_ui::palette::Pal;
 use crate::host::PanelsHost;
 use crate::keys::closing_side_entry;
 use crate::menus::new_tab_view;
-use crate::state::{NewTabEntry, ResolvedEntry, ResolvedRegion, bottom_open, live_new_tabs, shown_new_tab, side_open};
+use crate::state::{NewTabEntry, ResolvedEntry, ResolvedRegion, bottom_open, live_new_tabs, routed_unlisted, shown_new_tab, side_open};
 use crate::tabs::SessionTabs;
 use crate::{PanelViewCtx, SessionPane};
 
@@ -76,6 +76,10 @@ pub(crate) fn pane_box<H: PanelsHost + 'static>(
         new_tab_view(host, p, reg, pane)
     } else if let Some(selected) = held.or_else(|| pane_active.as_deref().and_then(|k| reg.entry(k))) {
         render_selected_panel(host, p, reg, pane, pane_size, env_scale, selected)
+    } else if !stored.all.is_empty() && routed_unlisted(host) {
+        // Desktop lists a restored tab hidden while its plugin loads the session's store (`btw/renderer.tsx`):
+        // no tab is drawn and the pane stays blank; the placeholder is for a strip that stores no tab.
+        col().key("side-pending").w_full().grow(1.0).min_h(0.0)
     } else {
         empty_pane_view(p)
     };

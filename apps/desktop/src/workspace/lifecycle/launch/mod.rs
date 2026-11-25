@@ -506,6 +506,10 @@ pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     last_exit::presented();
     if s.persists() {
         crate::windows::reopen::expire(*s.now_ms);
+        // Windows an earlier build lost (rows, and no place in the saved list) leave the boot
+        // record for Reopen closed window: the first frame is up, and the storage thread does it.
+        #[cfg(not(target_arch = "wasm32"))]
+        crate::windows::reopen::sweep_lost(*s.now_ms);
     }
     // The window's other servers start from its next poll (`servers::runtime::poll`).
     s.checkout.boot = crate::servers::runtime::Boot::Ready;

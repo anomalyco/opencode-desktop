@@ -216,6 +216,20 @@ impl WindowStore<'_> {
         self.storage.state().set_json("opencode.settings", "windowIds", ids);
     }
 
+    /// The id of every window that has rows of its own (`opencode.window.<id>.dat`), in the
+    /// saved list or not, in id order.
+    pub fn stored(&self) -> Vec<String> {
+        let cache = self.storage.cache();
+        let mut ids: Vec<String> = cache
+            .state
+            .iter()
+            .filter(|(_, ns)| matches!(ns, crate::cache::Namespace::Loaded { rows, .. } if !rows.is_empty()))
+            .filter_map(|(name, _)| Some(name.strip_prefix("opencode.window.")?.strip_suffix(".dat")?.to_owned()))
+            .collect();
+        ids.sort_unstable();
+        ids
+    }
+
     /// Window `id` closed for good while others stay: its frame, state and drafts go
     /// (Desktop's `registry.closed`).
     pub fn forget(&self, id: &str) {

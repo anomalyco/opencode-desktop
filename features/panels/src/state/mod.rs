@@ -19,7 +19,7 @@ use crate::{Launch, PanelLauncherDesc, PanelRegistration, PanelTabDesc, SessionP
 pub use actions::{
     adopt_child_strip, begin_keeping_keyboard, close_side_tab, dismiss_side_new_tab, end_keeping_keyboard, finish_show_pane_tab,
     hide_side_tab, keeping_keyboard, move_side_tab, open_side_new_tab, open_side_tab, open_side_tab_for_session,
-    promote_preview_tab, reopen_closed_side_tab, select_side_tab, show_pane_tab, show_side_tab, sync_empty_side,
+    promote_preview_tab, reopen_closed_side_tab, routed_unlisted, select_side_tab, show_pane_tab, show_side_tab, sync_empty_side,
     toggle_bottom_region, toggle_side_region,
 };
 pub use resolve::resolve_side_region;

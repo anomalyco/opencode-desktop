@@ -372,11 +372,11 @@ fn claude<H: ConnectHost + 'static>(s: &H, p: &Pal, checking: bool, can_check: b
         } else {
             opencode_i18n::t!("provider.connect.claudeAgent.connect")
         };
-        ui::button(submit_label, ButtonVariant::Submit)
+        opencode_ui::widgets::not_allowed(ui::button(submit_label, ButtonVariant::Submit)
             .disabled(!can_check)
             .on_press_tx(|s: &mut H, tx: &mut Tx| trigger_claude_check(s, tx))
             .build(kit(p))
-            .key("connect-submit")
+            .key("connect-submit"), !can_check)
     };
     e.child(ui::step_actions().child(install).child(primary))
 }
