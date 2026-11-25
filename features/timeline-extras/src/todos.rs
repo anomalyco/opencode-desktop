@@ -391,7 +391,7 @@ fn default_chip(knobs: &Knobs, p: &Pal, key: &str, label: String, open: bool) ->
         (true, true) => p.layer2,
     };
     let [far, near, ring, edge] = p.raised;
-    let chip = row().key(key).role("button").label(label).expanded(open).cursor(rune::Cursor::Pointer).focus_default(p)
+    let chip = row().key(key).role("button").label(label).expanded(open).focus_default(p)
         .h(session_view::jump::chip_height())
         .px(10.0).gap(8.0).center_y().radius(knobs.get(&session_view::knobs::CAPSULE_RADIUS)).fill(bg)
         .box_shadow(edge).box_shadow(ring).box_shadow(near).box_shadow(far).hover_motion(INSTANT, INSTANT);

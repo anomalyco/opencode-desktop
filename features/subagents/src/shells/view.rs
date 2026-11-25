@@ -28,7 +28,7 @@ pub fn row_of<H: SubagentsHost + 'static>(host: &H, p: &Pal, sh: &Shell, span: f
     let open = sh.clone();
     let stop_key = sh.id.clone();
     let end_el = end(host, p, &sh.id, Kind::Shell, (sh.started > 0).then(|| panel_clock(host) - sh.started), time_w);
-    build_row_shell(p, &format!("shell-{}", sh.id), &ic::CONSOLE, &sh.command, span, end_el, true)
+    build_row_shell(p, &format!("shell-{}", sh.id), &ic::CONSOLE, &sh.command, span, end_el)
         .on_press_tx(move |s: &mut H, tx: &mut Tx| select_shell(s, open.clone(), tx))
         .on_key(move |s: &mut H, ev: &KeyEvent, tx: &mut Tx| stop_on_delete(s, &stop_key, Kind::Shell, ev, tx))
 }
@@ -39,7 +39,7 @@ pub fn row_of<H: SubagentsHost + 'static>(host: &H, p: &Pal, sh: &Shell, span: f
 pub fn script_row<H: SubagentsHost + 'static>(host: &H, p: &Pal, sc: &Script, span: f32, time_w: f32) -> El {
     let stop_key = sc.id.clone();
     let end_el = end(host, p, &sc.id, Kind::Script, (sc.started > 0).then(|| panel_clock(host) - sc.started), time_w);
-    build_row_shell(p, &format!("script-{}", sc.id), &ic::CODE, &sc.label, span, end_el, false)
+    build_row_shell(p, &format!("script-{}", sc.id), &ic::CODE, &sc.label, span, end_el)
         .on_key(move |s: &mut H, ev: &KeyEvent, tx: &mut Tx| stop_on_delete(s, &stop_key, Kind::Script, ev, tx))
 }
 
@@ -114,8 +114,8 @@ fn back_pressed(host: &mut dyn SubagentsHost, tx: &mut Tx) {
     dispatch(host, Event::Back);
 }
 
-fn build_row_shell(p: &Pal, key: &str, mark: &'static rune::Icon, command: &str, span: f32, end_el: El, clickable: bool) -> El {
-    let r = row()
+fn build_row_shell(p: &Pal, key: &str, mark: &'static rune::Icon, command: &str, span: f32, end_el: El) -> El {
+    row()
         .key(key)
         .role("menuitem")
         .label(command.to_owned())
@@ -131,8 +131,7 @@ fn build_row_shell(p: &Pal, key: &str, mark: &'static rune::Icon, command: &str,
         .hover_group_focus()
         .child(icon(mark, 16.0).key("mark").color(p.icon_muted))
         .child(text(one_line(command)).key("command").font(COMMAND).color(p.text).truncate_fade().w(span).grow(1.0).shrink().min_w(0.0))
-        .child(end_el);
-    if clickable { r.cursor(rune::Cursor::Pointer) } else { r }
+        .child(end_el)
 }
 
 /// A command as its row shows it, on one line as the subagents' titles are: each run of
@@ -161,7 +160,7 @@ fn build_stop_button_shell(p: &Pal, kind: Kind, stopping: bool) -> El {
     if stopping {
         b.disabled(true).busy(true)
     } else {
-        b.cursor(rune::Cursor::Pointer).focus_default(p).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
+        b.focus_default(p).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
     }
 }
 
@@ -190,7 +189,6 @@ fn build_back_button_shell(p: &Pal, back_lit: bool) -> El {
         .size(28.0, 28.0)
         .center()
         .radius(4.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_default(p)
         .fill(if back_lit { p.hover } else { p.hover.alpha(0.0) })
         .hover(p.hover)
@@ -224,7 +222,7 @@ fn build_panel_stop_shell(p: &Pal, stopping: bool, disabled: bool) -> El {
     if disabled {
         stop.disabled(true).busy(stopping)
     } else {
-        stop.cursor(rune::Cursor::Pointer).focus_default(p).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
+        stop.focus_default(p).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
     }
 }
 

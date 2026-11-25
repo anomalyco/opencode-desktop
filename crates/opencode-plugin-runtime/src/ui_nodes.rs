@@ -9,7 +9,7 @@ use std::rc::Rc;
 use opencode_plugin_spec::NodeKind;
 use opencode_ui::palette::{Pal, kit, pal, token};
 use opencode_ui::{keymap, odometer, widgets};
-use rune::{Chord, Color, Cursor, Direction, El, Icon, Shadow, Spring, TextStyle, col, el, icon as rune_icon, row, text};
+use rune::{Chord, Color, Direction, El, Icon, Shadow, Spring, TextStyle, col, el, icon as rune_icon, row, text};
 use rune_kit::{ButtonVariant, Loader};
 use rune_luau::{Data, HostNode, NodeArgs};
 
@@ -589,7 +589,6 @@ fn segmented_button(p: &Pal, key: String, glyph: &'static Icon, active: bool, he
         .size(40.0, 28.0)
         .radius(6.0)
         .center()
-        .cursor(Cursor::Pointer)
         .motion(Spring::NONE)
         .fill(if active { p.bg_base } else { Color::TRANSPARENT })
         .box_shadow(Pal::ring_out(if active { p.q.border_strong } else { Color::TRANSPARENT }))

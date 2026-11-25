@@ -38,7 +38,6 @@ fn close_button_shell(p: &Pal) -> El {
         .size(20.0, 20.0)
         .center()
         .radius(4.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .hover(p.hover)
         .press(p.pressed)
@@ -67,7 +66,7 @@ fn step_button_shell(p: &Pal, up: bool, enabled: bool) -> El {
         .preserve_focus_on_press(true)
         .child(glyph);
     if enabled {
-        b.cursor(rune::Cursor::Pointer).hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
+        b.hover(p.hover).press(p.pressed).hover_motion(INSTANT, INSTANT)
     } else {
         b.opacity(0.4).disabled(true).focusable(false)
     }

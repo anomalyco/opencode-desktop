@@ -9,7 +9,7 @@ use opencode_i18n::t;
 use opencode_ui::focus::FocusExt;
 use opencode_ui::popup::{self, Item, Menu, MenuButton as _, PopupHost};
 use opencode_ui::widgets::{self, badge};
-use rune::{Align, Color, Cursor, El, Tx, col, el, icon, row, rule, text};
+use rune::{Align, Color, El, Tx, col, el, icon, row, rule, text};
 use rune_kit::Switch;
 use rune_theme_opencode::icons as ic;
 use serde_json::{Value, json};
@@ -310,7 +310,7 @@ fn section_header_trigger<H: SettingsHost + 'static>(
     if searching {
         trigger.disabled(true)
     } else {
-        trigger.cursor(Cursor::Pointer).hover(p.layer2).on_press_tx(move |s: &mut H, tx: &mut Tx| toggle_provider_fold(s, &fold_key, tx))
+        trigger.hover(p.layer2).on_press_tx(move |s: &mut H, tx: &mut Tx| toggle_provider_fold(s, &fold_key, tx))
     }
 }
 
@@ -356,7 +356,7 @@ fn console_section<H: SettingsHost + PopupHost + 'static>(
             .hover_group()
             .child(el().pin(Some(4.0), Some(0.0), None, Some(0.0)).w(1.0).fill(p.border).group_opacity(0.5, 1.0));
         if !searching {
-            rail = rail.cursor(Cursor::Pointer).on_press_tx(|s: &mut H, tx: &mut Tx| toggle_provider_fold(s, CONSOLE_GROUP_KEY, tx));
+            rail = rail.on_press_tx(|s: &mut H, tx: &mut Tx| toggle_provider_fold(s, CONSOLE_GROUP_KEY, tx));
         }
         section = section.child(col().key("settings-models-console-groups").w_full().ml(14.0).pl(16.0).child(rail).child(cards));
     }
@@ -405,7 +405,7 @@ fn console_provider_card<H: SettingsHost + PopupHost + 'static>(
     let trigger = if searching {
         trigger.disabled(true)
     } else {
-        trigger.cursor(Cursor::Pointer).on_press_tx(move |s: &mut H, tx: &mut Tx| toggle_provider_fold(s, &fold, tx))
+        trigger.on_press_tx(move |s: &mut H, tx: &mut Tx| toggle_provider_fold(s, &fold, tx))
     };
     let provider_for_menu = provider.to_owned();
     let anchor_click = anchor.clone();
@@ -417,7 +417,6 @@ fn console_provider_card<H: SettingsHost + PopupHost + 'static>(
         .size(24.0, 24.0)
         .radius(4.0)
         .center()
-        .cursor(Cursor::Pointer)
         .focus_default(p)
         .fill(if menu_open { p.pressed } else { Color::TRANSPARENT })
         .hover(if menu_open { p.pressed } else { p.hover })

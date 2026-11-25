@@ -127,7 +127,7 @@ pub(super) fn frame(a: &NodeArgs, app: &App, id: u64, surface: El) -> El {
                 .w(GRIP)
                 .h(44.0_f32.min(frame_h))
                 .pin(None, Some(((frame_h - 44.0_f32.min(frame_h)) * 0.5).max(0.0)), Some(-GRIP), None)
-                .cursor(Cursor::ResizeColumn)
+                .cursor(Cursor::ResizeEw)
                 .child(el().w(3.0).h(24.0_f32.min(frame_h * 0.75)).radius(1.5).fill(p.icon_faint)),
             GripAxis::Height => base
                 .key("browser-device-height-grip")
@@ -135,14 +135,18 @@ pub(super) fn frame(a: &NodeArgs, app: &App, id: u64, surface: El) -> El {
                 .w(44.0_f32.min(frame_w))
                 .h(GRIP)
                 .pin(Some(((frame_w - 44.0_f32.min(frame_w)) * 0.5).max(0.0)), None, None, Some(-GRIP))
-                .cursor(Cursor::ResizeRow)
+                .cursor(Cursor::ResizeNs)
                 .child(el().w(24.0_f32.min(frame_w * 0.75)).h(3.0).radius(1.5).fill(p.icon_faint)),
             GripAxis::Corner => base
                 .key("browser-device-corner-grip")
                 .label_static(opencode_i18n::t!("plugin.browser.viewport.dimensions"))
                 .size(GRIP, GRIP)
                 .pin(None, None, Some(-GRIP), Some(-GRIP))
-                .cursor(Cursor::ResizeColumn)
+                // `nwse-resize`, `nesw-resize` right to left (`packages/gui-plugins/src/browser/bar.css:268-271`).
+                .cursor(match opencode_i18n::direction() {
+                    opencode_i18n::Direction::Ltr => Cursor::ResizeNwse,
+                    opencode_i18n::Direction::Rtl => Cursor::ResizeNesw,
+                })
                 .child(
                     el().size(7.0, 7.0)
                         .child(el().pin(None, Some(0.0), Some(0.0), Some(0.0)).w(2.0).fill(p.icon_faint))

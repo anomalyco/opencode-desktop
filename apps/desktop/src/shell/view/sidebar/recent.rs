@@ -281,7 +281,6 @@ fn group_header(
             .gap(4.0)
             .center_y()
             .radius(6.0)
-            .cursor(rune::Cursor::Pointer)
             .focus_inset(p)
             .hover(p.hover)
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {

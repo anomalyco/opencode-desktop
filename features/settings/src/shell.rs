@@ -7,7 +7,7 @@
 use opencode_i18n::t;
 use opencode_ui::focus::FocusExt;
 use opencode_ui::popup::{self, Item, Menu, MenuButton as _, PopupHost};
-use rune::{Color, Cursor, Drag, El, Icon, Phase, PointerButton, Tx, col, icon, row, text};
+use rune::{Color, Drag, El, Icon, Phase, PointerButton, Tx, col, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use opencode_ui::palette::Pal;
 
@@ -238,7 +238,6 @@ fn back_button<H: SettingsHost + 'static>(p: &Pal, project: bool) -> El {
         .center_y()
         .radius(6.0)
         .self_start()
-        .cursor(Cursor::Pointer)
         .focus_default(p)
         .hover_group_focus()
         .hover(p.layer1)

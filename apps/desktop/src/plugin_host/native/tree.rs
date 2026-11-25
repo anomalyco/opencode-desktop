@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use mlua::{Lua, Table, Value};
-use rune::{Color, Cursor, El, GrowthSpec, Tx, col, el, icon, row, text};
+use rune::{Color, El, GrowthSpec, Tx, col, el, icon, row, text};
 use rune_kit::diff::FileStatus;
 use rune_luau::{Data, NodeArgs, Press};
 use rune_theme_opencode::tree_icons;
@@ -350,7 +350,6 @@ fn filtered(app: &App, p: &Pal, sid: &str, query: &str, _kinds: Rc<HashMap<Strin
                 .fill(if on { pal.row_active } else { Color::TRANSPARENT })
                 .hover(pal.hover)
                 .hover_motion(rune::Anim::INSTANT, rune::Anim::INSTANT)
-                .cursor(Cursor::Pointer)
                 .role("option")
                 .checked(is_highlighted)
                 .child(icon(t.icon(), 16.0).color(if on { t.color(pal.dark) } else { pal.icon_muted }))

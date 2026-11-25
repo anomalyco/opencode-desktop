@@ -53,7 +53,6 @@ pub(super) fn field(s: &App, p: &Pal, selected: Option<&model::Project>, width: 
                 .size(size, size)
                 .center()
                 .radius(4.0)
-                .cursor(rune::Cursor::Pointer)
                 .focus_inset(p)
                 .hover(p.hover)
                 .press(p.pressed)
@@ -189,7 +188,6 @@ fn result_row(s: &App, p: &Pal, ses: &SessionInfo, selected: bool, show_project:
         .pr(24.0)
         .gap(if cfg!(target_arch = "wasm32") { 8.0 } else { 6.0 })
         .center_y()
-        .cursor(rune::Cursor::Pointer)
         .hover_group()
         .hover(if selected { rune::Color::TRANSPARENT } else { p.hover })
         .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {

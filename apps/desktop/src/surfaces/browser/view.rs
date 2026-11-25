@@ -3,7 +3,7 @@
 //! that this build has none).
 
 use browser_pane::{Distrust, ENGINE_DOWNLOAD_MB, EngineStatus, Fault, Net};
-use rune::{Anim, Cursor, El, Spring, Tx, col, el, icon, row, text};
+use rune::{Anim, El, Spring, Tx, col, el, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use session_view::palette::Elevate;
 
@@ -27,7 +27,6 @@ fn open_external_btn(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
             .px(14.0)
             .radius(6.0)
             .center()
-            .cursor(Cursor::Pointer)
             .fill(p.q.neutral)
             .box_shadow(Pal::ring_out(p.q.neutral_ring))
             .hover(p.hover)
@@ -66,7 +65,6 @@ pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
                 .px(14.0)
                 .radius(6.0)
                 .center()
-                .cursor(Cursor::Pointer)
                 .fill(p.q.submit)
                 .box_shadow(Pal::ring_out(p.q.submit_ring))
                 .hover_motion(INSTANT, INSTANT)
@@ -92,7 +90,6 @@ pub fn surface(s: &App, p: &Pal, tab_id: u64, scale: f32) -> Option<El> {
                     .px(14.0)
                     .radius(6.0)
                     .center()
-                    .cursor(Cursor::Pointer)
                     .fill(p.q.neutral)
                     .box_shadow(Pal::ring_out(p.q.neutral_ring))
                     .hover(p.hover)

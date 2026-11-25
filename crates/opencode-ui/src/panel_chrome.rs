@@ -2,7 +2,7 @@
 //! `session-review-v2.css`, `file-tree.css`): the tree toggle pinned at the panel's top left, the
 //! 48 px sidebar header and toolbar, the borderless filter field, and 28 px tree rows.
 
-use rune::{Anim, Color, Cursor, El, Icon, KeyEvent, TextEdit, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Anim, Color, El, Icon, KeyEvent, TextEdit, TextStyle, Tx, col, el, icon, row, text};
 use rune_kit::diff::FileStatus;
 use rune_theme_opencode::icons as ic;
 use rune_theme_opencode::tree_icons::TreeIcon;
@@ -60,7 +60,7 @@ fn sidebar_toggle_shell(p: &Pal, key: &'static str, open: bool, disabled: bool, 
     if disabled {
         return b.opacity(0.5).inert();
     }
-    b.cursor(Cursor::Pointer)
+    b
         .hover(if open { p.layer2 } else { p.hover })
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
@@ -116,7 +116,6 @@ fn filter_clear_shell(p: &Pal) -> El {
         .size(20.0, 20.0)
         .radius(4.0)
         .center()
-        .cursor(Cursor::Pointer)
         .hover(p.hover)
         .hover_motion(INSTANT, INSTANT)
         .role("button")
@@ -203,7 +202,6 @@ pub fn tree_row_in(p: &Pal, name: &str, depth: u32, expanded: Option<bool>, file
         .fill(if selected { p.pressed } else { Color::TRANSPARENT })
         .hover(if selected { p.pressed } else { p.hover })
         .hover_motion(INSTANT, INSTANT)
-        .cursor(Cursor::Pointer)
         .role("treeitem")
         .label(name.to_owned())
         .level(depth + 1)

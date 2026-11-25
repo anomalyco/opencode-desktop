@@ -148,7 +148,6 @@ fn glyph_button(s: &App, p: &Pal) -> El {
         .expanded(open)
         .size(28.0, 28.0)
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .center()
         .fill(if open { p.pressed } else { rune::Color::TRANSPARENT })

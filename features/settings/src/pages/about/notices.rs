@@ -195,6 +195,8 @@ fn render_entry<H: SettingsHost + 'static>(
                 .color(p.faint)
                 .spans(vec![Span::new(0, end).color(p.text).underline(p.text)])
                 .link(Link::new(0..end, href).role("link").label(name).hover(LinkPaint::new().color(p.text).underline(p.text)))
+                // An `ExternalLink` outside `.settings-about-content`: `a { cursor: default }` (`base.css:84`).
+                .cursor(rune::Cursor::Default)
                 .on_link(|s: &mut H, u: &str, tx: &mut Tx| crate::open_external(s, u, tx))
                 .wrap()
         }
@@ -203,6 +205,7 @@ fn render_entry<H: SettingsHost + 'static>(
             .color(p.text)
             .spans(vec![Span::new(0, name.len()).underline(p.text)])
             .link(Link::new(0..name.len(), href).role("link").label(name).hover(LinkPaint::new().color(p.text).underline(p.text)))
+            .cursor(rune::Cursor::Default)
             .on_link(|s: &mut H, u: &str, tx: &mut Tx| crate::open_external(s, u, tx))
             .wrap(),
         (None, Some(ver)) => text(format!("{name} {ver}")).font(COMPACT).color(p.text).wrap(),

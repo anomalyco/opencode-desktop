@@ -72,7 +72,6 @@ fn row_shell(p: &Pal, id: &str, title: String, font: TextStyle, is_active: bool,
         .gap(8.0)
         .center_y()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .fill(if is_active { lit } else { Color::TRANSPARENT })
         .child(text(title).font(font).color(p.text).truncate().grow(1.0).shrink().min_w(0.0))
 }

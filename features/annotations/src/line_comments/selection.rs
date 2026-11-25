@@ -143,7 +143,6 @@ fn button_shell(p: &Pal) -> El {
         .radius(6.0)
         .hover(p.hover)
         .press(p.pressed)
-        .cursor(rune::Cursor::Pointer)
         .child(text(label).font(UI_MED).color(p.text))
 }
 

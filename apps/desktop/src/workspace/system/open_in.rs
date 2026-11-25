@@ -10,7 +10,7 @@ pub use opencode_feature_open_in::*;
 #[cfg(not(target_arch = "wasm32"))]
 use opencode_kernel::{Feature, KernelBuilder, Slot};
 #[cfg(not(target_arch = "wasm32"))]
-use rune::{Align, Anim, Cursor, PointerPress, el, icon, row};
+use rune::{Align, Anim, PointerPress, el, icon, row};
 use rune::{El, Tx};
 #[cfg(not(target_arch = "wasm32"))]
 use rune_kit::Loader;
@@ -341,7 +341,6 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
             .key(format!("{key}-run"))
             .size(28.0, 28.0)
             .center()
-            .cursor(Cursor::Pointer)
             .hover(p.hover)
             .press(p.pressed)
             .hover_motion(Anim::INSTANT, Anim::INSTANT)
@@ -361,7 +360,6 @@ pub fn button(s: &App, p: &Pal, key: &'static str, rel: &str) -> Option<El> {
             .key(chevron_key)
             .size(20.0, 28.0)
             .center()
-            .cursor(Cursor::Pointer)
             .fill(if open { p.pressed } else { rune::Color::TRANSPARENT })
             .hover(if open { rune::Color::TRANSPARENT } else { p.hover })
             .press(if open { rune::Color::TRANSPARENT } else { p.pressed })

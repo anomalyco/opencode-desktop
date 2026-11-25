@@ -4,7 +4,7 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use rune::{
-    Anim, Color, Cursor, Drag, El, GrowthSpec, Phase, ScrollSpec, Tx, col, memo, rich, row, text,
+    Anim, Color, Drag, El, GrowthSpec, Phase, ScrollSpec, Tx, col, memo, rich, row, text,
 };
 use rune_kit::ScrollBar;
 use rune_kit::diff::Side;
@@ -212,7 +212,6 @@ fn gutter_base(l: &CodeLook, st: &CodeDocState, n: u32, fill: Color, num_color: 
         .pr(l.adv)
         .justify_end()
         .items_start()
-        .cursor(Cursor::Pointer)
         .child(text(n.to_string()).font(l.mono).color(num_color));
     // Unwrapped, the numbers hold to the left edge over the code scrolling under them.
     if !st.wrap() {

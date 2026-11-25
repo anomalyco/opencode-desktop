@@ -375,7 +375,6 @@ pub fn trigger(s: &App, p: &Pal) -> El {
         .mr(2.0)
         .radius(6.0)
         .center()
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .hover_motion(session_view::style::INSTANT, session_view::style::INSTANT)
         .child(icon(&ic::PLUS, 16.0).color(if open { p.icon } else { p.icon_muted }))
@@ -425,7 +424,6 @@ pub fn exit_shell_button(p: &Pal, wide: bool) -> El {
         .gap(6.0)
         .center_y()
         .radius(4.0)
-        .cursor(rune::Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         .focus_inset(p)
@@ -482,7 +480,6 @@ pub fn menu(s: &App, p: &Pal) -> Option<[El; 2]> {
                 .gap(8.0)
                 .center_y()
                 .radius(4.0)
-                .cursor(rune::Cursor::Pointer)
                 .fill(if active { p.hover } else { Color::TRANSPARENT })
                 .press(p.pressed)
                 .on_hover_change(move |s: &mut App, inside, tx: &mut Tx| {

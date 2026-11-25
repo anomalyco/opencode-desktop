@@ -325,7 +325,6 @@ fn card_v2_shell(host: &dyn LineCommentsHost, p: &Pal, spot: &Spot, c: &LineComm
         .elevate(p.raised)
         .hover(p.hover)
         .hover_motion(INSTANT, INSTANT)
-        .cursor(Cursor::Pointer)
         .child(
             col()
                 .key("column")
@@ -364,7 +363,6 @@ fn menu_button(host: &dyn LineCommentsHost, p: &Pal, spot: &Spot, c: &LineCommen
     let trigger = b
         .role("button")
         .label(label)
-        .cursor(Cursor::Pointer)
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT);
@@ -402,7 +400,6 @@ fn card_v1_shell(host: &dyn LineCommentsHost, p: &Pal, spot: &Spot, c: &LineComm
         .radius(8.0)
         .fill(face)
         .box_shadow(Pal::ring_out(ring))
-        .cursor(Cursor::Pointer)
         .child(
             row()
                 .key("head")
@@ -438,7 +435,7 @@ fn v1_action_shell(p: &Pal, border: Color, key: &str, label: &str, primary: bool
         .fill(fill)
         .box_shadow(Pal::ring_in(edge))
         .child(text(label.to_owned()).font(V1_ACTION).color(fg));
-    if live { b.cursor(Cursor::Pointer) } else { b.opacity(0.5) }
+    if live { b } else { b.opacity(0.5) }
 }
 
 /// The inline `LineCommentEditor`: a bordered field on `surface-base`, ringed in the focus blue

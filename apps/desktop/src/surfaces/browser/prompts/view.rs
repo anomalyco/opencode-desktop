@@ -5,7 +5,7 @@
 use browser_pane::prompts::DialogGate;
 use browser_pane::{DialogKind, PermissionDecision, PermissionKind};
 use opencode_i18n::t;
-use rune::{Cursor, El, KeyEvent, Tx, col, el, icon, row, text};
+use rune::{El, KeyEvent, Tx, col, el, icon, row, text};
 use rune_kit::{ButtonVariant, TextInput};
 use rune_theme_opencode::icons as ic;
 use session_view::palette::Elevate;
@@ -384,7 +384,6 @@ pub fn view_modal(s: &App, p: &Pal, tab_id: u64) -> Option<El> {
                 .label_static(t!("rune.browser.prompt.stop"))
                 .gap(8.0)
                 .center_y()
-                .cursor(Cursor::Pointer)
                 .on_press(|app: &mut App| {
                     let st = app.kernel.slots.get_mut(&BROWSER_PROMPTS);
                     st.stop_dialogs = !st.stop_dialogs;
@@ -584,7 +583,6 @@ fn dismiss_icon_btn(p: &Pal, key: &'static str, label: &'static str, on_press: i
         .h(24.0)
         .radius(4.0)
         .center()
-        .cursor(Cursor::Pointer)
         .hover(p.hover)
         .on_press(on_press)
         .child(icon(&ic::CLOSE, 12.0).color(p.icon_muted))
@@ -607,7 +605,6 @@ fn sized_dismiss_btn(
         .h(side)
         .radius(radius)
         .center()
-        .cursor(Cursor::Pointer)
         .hover(p.hover)
         .on_press(on_press)
         .child(icon(&ic::CLOSE, 16.0).color(p.icon_muted))

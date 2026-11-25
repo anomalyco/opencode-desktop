@@ -268,6 +268,8 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
         // Inside `.settings-section` (`gap: 16px`) plus `.settings-providers-view-all { margin-top: 20px }` (`settings.css`).
         .mt(36.0)
         .link(Link::new(0..more_words.len(), "more").role("button").label(more_words).hover(LinkPaint::new().color(p.accent_hover)))
+        // `.settings-providers-view-all`: the arrow on Desktop (`packages/desktop/src/renderer/styles.css:15`).
+        .cursor(rune::Cursor::Default)
         .on_link(|s: &mut H, _: &str, tx: &mut Tx| open_connect_from_settings(s, None, tx));
     let body = col()
         .key("settings-providers")
@@ -575,7 +577,6 @@ fn account_menu<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, provider:
         .size(32.0, 32.0)
         .radius(6.0)
         .center()
-        .cursor(Cursor::Pointer)
         .focus_default(p)
         .fill(if options_open { p.pressed } else { Color::TRANSPARENT })
         .hover(if options_open { p.pressed } else { p.hover })

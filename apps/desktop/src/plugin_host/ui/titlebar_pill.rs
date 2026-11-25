@@ -122,7 +122,7 @@ pub fn view(app: &App, p: &Pal, vertical: bool, pill: Pill, press: Option<impl F
     if busy {
         button = button.layer_opacity(0.6).disabled(true);
     } else if let Some(press) = press {
-        button = button.cursor(rune::Cursor::Pointer).on_press_tx(press);
+        button = button.on_press_tx(press);
     }
     let mut group = el()
         .key(format!("plugin-titlebar-wrap-{key}"))

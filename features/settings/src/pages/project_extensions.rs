@@ -11,7 +11,7 @@ use opencode_kit::model::{ConsoleMcp, Project, SkillInfo};
 use opencode_ui::focus::FocusExt;
 use opencode_ui::palette::Pal;
 use opencode_ui::widgets;
-use rune::{Cursor, El, Icon, TextStyle, Tx, col, icon, row, text};
+use rune::{El, Icon, TextStyle, Tx, col, icon, row, text};
 use rune_theme_opencode::icons as ic;
 use serde_json::Value;
 
@@ -363,7 +363,6 @@ fn tabs<H: SettingsHost + 'static>(p: &Pal, on: Tab) -> El {
             .label(label)
             .focus_selected(picked)
             .focus_default(p)
-            .cursor(Cursor::Pointer)
             .h(24.0)
             .px(8.0)
             .center()
@@ -420,7 +419,6 @@ fn section_with<H: SettingsHost + 'static>(
             .center_y()
             .radius(4.0)
             .self_start()
-            .cursor(Cursor::Pointer)
             .focus_default(p)
             .hover(p.layer2)
             .on_press_tx(|s: &mut H, tx: &mut Tx| toggle_shared(s, tx))

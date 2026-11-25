@@ -190,6 +190,8 @@ pub fn error<S: TimelineHost>(s: &S, p: &Pal, a: &Assistant) -> El {
             line = text(full).key("words").font(UI).color(p.muted).wrap().w_full()
                 .spans(vec![Span::new(at, full_len(&words, action)).weight(530.0).color(p.text)])
                 .link(Link::new(at..full_len(&words, action), "switch-model").role("button").label(action).hover(LinkPaint::new().underline(p.text)))
+                // A plain `<button>` (`timeline-next/row.tsx:1536`): the arrow.
+                .cursor(rune::Cursor::Default)
                 .on_link(|s: &mut S, _: &str, tx: &mut Tx| {
                     // A button: a middle click on it does nothing.
                     if tx.button() == rune::PointerButton::Middle {

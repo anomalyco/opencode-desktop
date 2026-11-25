@@ -469,7 +469,6 @@ fn option_shell(p: &Pal, e: &Entry, active: bool, shell: El) -> El {
         .pl(8.0)
         .pr(6.0)
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .fill(if active { p.hover } else { Color::TRANSPARENT })
         // A contrast theme's highlight is an edge, not only a wash it may lose.
         .border(if active && p.forced { 2.0 } else { 0.0 }, p.text)
@@ -515,7 +514,6 @@ fn unhide_button_shell(p: &Pal) -> (El, f32) {
         .px(8.0)
         .center_y()
         .radius(6.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_inset(p)
         .hover(p.hover)
         .press(p.pressed)

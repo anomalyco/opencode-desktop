@@ -13,7 +13,7 @@ use std::rc::{Rc, Weak};
 
 use opencode_ui::video_overlay::{self, Effect, Event as OverlayEvent, Overlay};
 use pulldown_cmark::{Event, Options, Parser, Tag};
-use rune::{Cursor, Direction, El, Player, PlayerState, Tx, col, el, icon, row, text};
+use rune::{Direction, El, Player, PlayerState, Tx, col, el, icon, row, text};
 
 use crate::{TimelineHost, palette::Pal};
 
@@ -206,7 +206,6 @@ impl Clips {
             .hover_motion(crate::style::INSTANT, crate::style::INSTANT)
             .border(1.0, p.border_muted)
             .center_y()
-            .cursor(Cursor::Pointer)
             .role("button")
             .focusable(true)
             .label(format!("{play}: {display_path}"))

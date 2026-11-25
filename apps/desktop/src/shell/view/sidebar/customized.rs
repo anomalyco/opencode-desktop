@@ -219,7 +219,7 @@ fn no_match(p: &Pal) -> El {
         .gap(4.0)
         .child(text(t!("sidebar.view.noMatch")).font(UI_SMALL).color(p.faint).shrink())
         .child(
-            row().key("reset").role("button").label(t!("sidebar.view.resetFilters")).cursor(rune::Cursor::Pointer).focus_inset(p).hover_group().on_press_tx(|s: &mut App, tx: &mut Tx| {
+            row().key("reset").role("button").label(t!("sidebar.view.resetFilters")).focus_inset(p).hover_group().on_press_tx(|s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 s.project_state.customize.filters = Default::default();
             }).child(text(t!("sidebar.view.resetFilters")).font(UI_SMALL).color(p.faint).group_color(p.text)),

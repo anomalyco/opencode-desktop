@@ -337,7 +337,6 @@ fn own_row<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal, server: &Serve
         .size(20.0, 20.0)
         .center()
         .radius(4.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_default(p);
     let dots = if open { dots.fill(p.pressed) } else { dots.hover(p.hover) };
     let dots = dots
@@ -454,7 +453,6 @@ fn http_row_with<H: SettingsHost + PopupHost + 'static>(p: &Pal, server: &HttpSe
         .size(20.0, 20.0)
         .center()
         .radius(4.0)
-        .cursor(rune::Cursor::Pointer)
         .focus_default(p);
     let dots = if open { dots.fill(p.pressed) } else { dots.hover(p.hover) };
     let dots = dots
