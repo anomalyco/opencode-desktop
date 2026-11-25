@@ -258,11 +258,9 @@ pub(crate) fn dispatch(host: &mut dyn SessionMenuHost, event: Event<'_>, why: Wh
                     host.menus_mut().gave_up = waiting.clone();
                     host.toast_fail(opencode_i18n::t!("common.requestFailed"), "");
                 }
-                // Not sent: Desktop rejects with an error of the same words (`tab-nav.tsx:321-327`).
-                Why::NotSent => {
-                    let failed = opencode_i18n::t!("common.requestFailed");
-                    host.toast_fail(failed, failed);
-                }
+                // Not sent: Desktop takes the description from `error.message`
+                // (`tab-nav.tsx:354-357`); ours has a real cause, no connection to a server.
+                Why::NotSent => host.toast_fail(opencode_i18n::t!("common.requestFailed"), opencode_i18n::t!("rune.send.disconnected")),
                 // A read-only build is ours alone: it says what any write says there.
                 Why::ReadOnly => host.toast_fail(opencode_i18n::t!("rune.send.nothingSent"), opencode_i18n::t!("rune.jobs.readOnly")),
                 Why::Refused => {}
