@@ -90,11 +90,21 @@ try {
         if ($symbols) { '-Cdebuginfo=line-tables-only'; '-Cstrip=none' }
     )
     if ($flags) { [Environment]::SetEnvironmentVariable($name, (@($before) + $flags | Where-Object { $_ }) -join ' ') }
+    # Windows: the linker writes its map beside each image it links (`<image>.map`): every function's
+    # name and address in this very build. MSVC's `link.exe` reads its options from the `LINK`
+    # environment variable before its command line's, so nothing the compiler is given changes.
+    $linkBefore = $env:LINK
+    if ($triple -match '-windows-msvc$') { $env:LINK = (@($linkBefore) + '/MAP' | Where-Object { $_ }) -join ' ' }
     $parts = $Cargo -split ' '
     $targetArgs = @('--target', $triple)
     $featureArgs = if ($Features) { @('--features', $Features) } else { @() }
     & $parts[0] @($parts | Select-Object -Skip 1) build --release -p $Package @targetArgs @featureArgs
     if ($LASTEXITCODE -ne 0) { throw "cargo build --release failed" }
+    if ($triple -match '-windows-msvc$') {
+        $maps = @(Get-ChildItem (Join-Path $root "target/$triple/release/deps") -Filter *.map -File -ErrorAction SilentlyContinue)
+        Write-Host "linker maps beside the images: $(($maps | ForEach-Object { "$($_.Name) ($([math]::Round($_.Length / 1MB, 1)) MiB)" }) -join ', ')"
+    }
 } finally {
+    $env:LINK = $linkBefore
     [Environment]::SetEnvironmentVariable($name, $before)
 }
