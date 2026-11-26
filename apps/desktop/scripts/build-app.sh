@@ -281,7 +281,7 @@ if [ "$LAYERS" = 1 ]; then
   echo "code libraries: ${#libraries[@]} beside an exe of $(stat -f %z "$APP/Contents/MacOS/opencode-desktop") bytes" >&2
 fi
 cp "$ICON_PATH" "$APP/Contents/Resources/icon.icns"
-if [ "${OPENCODE_RUNE_BUNDLE_CLI:-0}" = "1" ]; then
+if [ "${OPENCODE_RUNE_BUNDLE_CLI:-1}" != "0" ]; then
   cli_target=$([ "$target_triple" = "x86_64-apple-darwin" ] && echo darwin-x64 || echo darwin-arm64)
   bash "$ROOT/scripts/guardrails/run-js.sh" "$ROOT/scripts/fetch-cli.mjs" \
     --target "$cli_target" --dest "$APP/Contents/Resources" --channel "$OPENCODE_RUNE_BUILD_CHANNEL"
