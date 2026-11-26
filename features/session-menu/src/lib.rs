@@ -37,7 +37,7 @@ use rune::{El, Key, KeyEvent, PointerPress, PopupAnchor, TextEdit, Tx};
 
 pub use delete::{ask_delete, ask_delete_on, cancel_delete, delete_session, poll_delete, send_delete, undelete};
 pub use export::{export_session_on, exporting};
-pub use host::{HostAction, HostDeliverer, MenuPick, SaveFileDone, SessionMarks, SessionMenuHost, TabSummary};
+pub use host::{HostAction, HostDeliverer, MenuPick, Offered, SaveFileDone, SessionMarks, SessionMenuHost, TabSummary};
 pub use rename::{begin_rename, finish_rename, poll_rename, rename_session};
 pub use rename_dialog::{cancel as close_rename_dialog, open as open_rename_dialog};
 
@@ -496,6 +496,8 @@ pub fn session_write_replied(host: &mut dyn SessionMenuHost, data: &serde_json::
             // The reply comes in on its own server, checked out for it (`servers::runtime::poll`).
             let server = host.active_server();
             let current = host.session(&session).map(|i| i.title.clone());
+            // The server's words are shown at the end; a failure without any is the edit's to say.
+            let said = if why.is_empty() { rename::Why::Unsaid } else { rename::Why::Refused };
             // A save this window already gave up on (and said so) says nothing more when it fails late.
             if host.menus().gave_up.as_ref().is_some_and(|(s, t)| *s == session && *t == title) {
                 host.menus_mut().gave_up = None;
@@ -503,7 +505,7 @@ pub fn session_write_replied(host: &mut dyn SessionMenuHost, data: &serde_json::
                     rename::dispatch(
                         host,
                         rename::Event::Replied { session: &session, server: &server, title: &title, ok, current: current.as_deref() },
-                        why,
+                        said,
                     );
                     return;
                 }
@@ -511,7 +513,7 @@ pub fn session_write_replied(host: &mut dyn SessionMenuHost, data: &serde_json::
             rename::dispatch(
                 host,
                 rename::Event::Replied { session: &session, server: &server, title: &title, ok, current: current.as_deref() },
-                why,
+                said,
             );
             let draft = host.menus().dialog_edit.text.clone();
             rename_dialog::dispatch(
@@ -529,10 +531,11 @@ pub fn session_write_replied(host: &mut dyn SessionMenuHost, data: &serde_json::
         _ => {}
     }
     match (error, data["kind"].as_str()) {
-        // An archive and a restore go as the session's PATCH, which a rename is too: the call
-        // alone would name them a failed rename. Desktop's title for both is
-        // `common.requestFailed` (`session/commands/use-session-commands.tsx:367`, `:383`).
-        (Some(e), Some("archive" | "unarchive")) => host.toast_wire_error_titled(opencode_i18n::t!("common.requestFailed"), e),
+        // Desktop's title for a refused rename, archive or restore is `common.requestFailed`, the
+        // server's words under it (`shell/titlebar/tab-nav.tsx:354-357`, `project-session-row.tsx:
+        // 276-279`, `session/timeline/controller.tsx:480-482`,
+        // `session/commands/use-session-commands.tsx:367`, `:383`).
+        (Some(e), Some("rename" | "archive" | "unarchive")) => host.toast_wire_error_titled(opencode_i18n::t!("common.requestFailed"), e),
         (Some(e), _) => host.toast_wire_error(e),
         (None, _) => {}
     }
