@@ -257,6 +257,7 @@ pub fn build() -> Kernel<App> {
         .register_slot(&crate::app::CODE_WRAP)
         .register_slot(&crate::app::MATH)
         .register_slot(&crate::session_catalog::CATALOG)
+        .register_slot(&crate::session::meta::flags::FLAGS)
         .register_slot(&crate::events::TAIL_CHANGE)
         .register_slot(&crate::events::STREAM_GAPS)
         .register_slot(&crate::speech::SPEECH)
@@ -386,6 +387,9 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
 
     b.schedule(stage::INGEST_SESSION_PRE, "turn_errors.poll", |s, _, tx| {
         crate::turn_errors::poll(s, tx)
+    });
+    b.schedule(stage::INGEST_SESSION_PRE, "flags.poll", |s, _, _| {
+        crate::session::meta::flags::poll(s)
     });
 
     b.schedule(stage::INGEST_PAGES, "session_pages.poll", |s, _, tx| {

@@ -59,11 +59,16 @@ struct Edges {
     top: f32,
     bottom: f32,
     reports: bool,
+    /// An `AssistantPart` activity row (`timeline-next/row.tsx:806-816`, `opencode#66509`):
+    /// blocks stand `M` (20 pt) apart except before a script's own changes, which keep `S` (16 pt).
+    assistant_part: bool,
+    /// A `Calls::Files` row beginning with a script's own `Step::Change` (`TimelineRow.scriptChanges`).
+    script_changes: bool,
     footer: f32,
 }
 
 const fn edges(who: Who, item: Item, inset: f32) -> Edges {
-    Edges { who, item, top: inset, bottom: inset, reports: false, footer: 0.0 }
+    Edges { who, item, top: inset, bottom: inset, reports: false, assistant_part: false, script_changes: false, footer: 0.0 }
 }
 
 /// A 28 pt trigger around a 16 pt line.
@@ -129,7 +134,7 @@ fn prose(body: &str, turn_footer: bool, keep_bottom: bool) -> Edges {
 /// The last turn [`edges_of`] folded: a turn's rows sit together, so each turn folds once.
 type Folded<'a> = Option<((usize, usize, bool), Vec<Block<'a>>)>;
 
-fn edges_of<'a>(t: &'a Transcript, detail: &crate::detail::Detail, row: &RowContent, folded: &mut Folded<'a>) -> Option<Edges> {
+fn edges_of<'a>(t: &'a Transcript, detail: &crate::detail::Detail, script_diffs: bool, row: &RowContent, folded: &mut Folded<'a>) -> Option<Edges> {
     Some(match row {
         RowContent::User { .. } | RowContent::Pending { .. } => edges(Who::User, Item::Line, 0.0),
         RowContent::Notice(i, ..) => match &t.messages[*i] {
@@ -153,7 +158,7 @@ fn edges_of<'a>(t: &'a Transcript, detail: &crate::detail::Detail, row: &RowCont
         RowContent::Turn { start, end, block, live, .. } => {
             let turn = (*start, *end, *live);
             if folded.as_ref().is_none_or(|(at, _)| *at != turn) {
-                *folded = Some((turn, turns::fold_with(&super::entries(&t.messages[*start..*end], detail), *live, detail)));
+                *folded = Some((turn, turns::fold_with_flags(&super::entries(&t.messages[*start..*end], detail), *live, detail, script_diffs)));
             }
             match folded.as_ref().and_then(|(_, blocks)| blocks.get(*block)) {
                 Some(Block::Text { body, msg, part, live, .. }) => {
@@ -162,12 +167,23 @@ fn edges_of<'a>(t: &'a Transcript, detail: &crate::detail::Detail, row: &RowCont
                     prose(body, turn_footer, keep_bottom)
                 }
                 // Work reporting back starts a block of its own, which the reply continues.
-                Some(Block::Events { steps, .. }) => Edges { reports: steps.iter().all(|s| matches!(s, turns::Step::Notice(_))), ..edges(Who::Agent, Item::Line, LINE_INSET) },
+                Some(Block::Events { steps, .. }) => Edges {
+                    reports: steps.iter().all(|s| matches!(s, turns::Step::Notice(_))),
+                    assistant_part: true,
+                    ..edges(Who::Agent, Item::Line, LINE_INSET)
+                },
                 // A subagent's rows, its reports too, continue the reply (`spacing.ts`'s `reportsBack`
                 // counts only events rows).
-                Some(Block::Subagent { .. }) => edges(Who::Agent, Item::Line, LINE_INSET),
-                Some(Block::Group { .. } | Block::Thought { .. } | Block::Calls { .. }) => edges(Who::Agent, Item::Line, LINE_INSET),
-                Some(Block::Question { .. }) => edges(Who::Agent, Item::Line, 0.0),
+                Some(Block::Subagent { .. } | Block::Group { .. } | Block::Thought { .. }) => {
+                    Edges { assistant_part: true, ..edges(Who::Agent, Item::Line, LINE_INSET) }
+                }
+                Some(Block::Calls { kind, steps, .. }) => Edges {
+                    assistant_part: true,
+                    script_changes: *kind == turns::Calls::Files
+                        && steps.first().is_some_and(|st| matches!(st, turns::Step::Change { .. })),
+                    ..edges(Who::Agent, Item::Line, LINE_INSET)
+                },
+                Some(Block::Question { .. }) => Edges { assistant_part: true, ..edges(Who::Agent, Item::Line, 0.0) },
                 None => return None,
             }
         }
@@ -175,8 +191,21 @@ fn edges_of<'a>(t: &'a Transcript, detail: &crate::detail::Detail, row: &RowCont
     })
 }
 
-/// The gap between two rows (`spacing.ts`'s `gap`).
+/// The gap between two rows (`spacing.ts`'s `gap` + `timeline-next/row.tsx:805-816`):
+/// blocks stand `M` apart while a script stands `S` from its own file changes.
 fn gap(above: Edges, below: Edges) -> f32 {
+    if below.reports || above.who != below.who || below.who == Who::User {
+        L
+    } else if above.item == below.item {
+        if above.assistant_part && !below.script_changes { M } else { S }
+    } else {
+        M
+    }
+}
+
+/// The base gap for `Working`'s lane (`spacing.ts`'s `laneGap`, without `row.tsx`'s
+/// block-to-block override).
+fn lane_gap(above: Edges, below: Edges) -> f32 {
     if below.reports || above.who != below.who || below.who == Who::User {
         L
     } else if above.item == below.item {
@@ -188,8 +217,8 @@ fn gap(above: Edges, below: Edges) -> f32 {
 
 /// Sets the room between each row in `out` and the row above it (see the table above), which
 /// the row above holds under what it shows (`RowSpec::under`).
-pub(super) fn space(t: &Transcript, detail: &crate::detail::Detail, out: &mut [RowSpec]) {
-    space_at(t, detail, out, 0..out.len());
+pub(super) fn space(t: &Transcript, detail: &crate::detail::Detail, script_diffs: bool, out: &mut [RowSpec]) {
+    space_at(t, detail, script_diffs, out, 0..out.len());
 }
 
 /// [`space`] for rows `at` alone, from the row above them: where two spans of a projection meet
@@ -202,17 +231,17 @@ pub(super) fn space(t: &Transcript, detail: &crate::detail::Detail, out: &mut [R
 /// what is on screen. Official gives a turn's first row a turn gap row for it; here the last row
 /// of the turn above holds it, which arrives with that turn all the same. The room is whole
 /// points, as rows stack (`virtualizer.tsx:362`), so a row is as tall as before with it.
-pub(super) fn space_at(t: &Transcript, detail: &crate::detail::Detail, out: &mut [RowSpec], at: std::ops::Range<usize>) {
+pub(super) fn space_at(t: &Transcript, detail: &crate::detail::Detail, script_diffs: bool, out: &mut [RowSpec], at: std::ops::Range<usize>) {
     let mut folded: Folded = None;
     let mut above: Option<(usize, Option<Edges>)> = out[..at.start.min(out.len())].iter().enumerate().rev()
         .find(|(_, r)| !matches!(r.content, RowContent::Lane(_)))
-        .map(|(i, r)| (i, edges_of(t, detail, &r.content, &mut folded)));
+        .map(|(i, r)| (i, edges_of(t, detail, script_diffs, &r.content, &mut folded)));
     let end = at.end.min(out.len());
     for i in at.start.min(end)..end {
         if matches!(out[i].content, RowContent::Lane(_)) {
             continue;
         }
-        let here = edges_of(t, detail, &out[i].content, &mut folded);
+        let here = edges_of(t, detail, script_diffs, &out[i].content, &mut folded);
         let Some((up, prev)) = above.replace((i, here)) else { continue };
         if let (Some(prev), Some(h)) = (prev, here) {
             let room = (gap(prev, h) - prev.bottom - prev.footer - h.top).max(0.0);
@@ -247,7 +276,7 @@ pub(super) fn top_of(row: &mut RowContent) -> Option<&mut f32> {
 /// Extra bottom tail room past the 36 pt Working lane (`tailExtra` in `message-timeline.tsx:226`,
 /// `spacing.ts`'s `laneGap`): 0 (`s`), 4 (`m`), or 16 (`l`) so the Working status line keeps its
 /// clearance above the floating activity pill.
-pub(super) fn tail_extra(t: &Transcript, detail: &crate::detail::Detail, rows: &super::projection::Projection) -> f32 {
+pub(super) fn tail_extra(t: &Transcript, detail: &crate::detail::Detail, script_diffs: bool, rows: &super::projection::Projection) -> f32 {
     let mut folded: Folded = None;
     let end = (0..rows.len())
         .rev()
@@ -258,8 +287,8 @@ pub(super) fn tail_extra(t: &Transcript, detail: &crate::detail::Detail, rows: &
         if matches!(r.content, RowContent::Lane(_)) {
             return None;
         }
-        edges_of(t, detail, &r.content, &mut folded)
+        edges_of(t, detail, script_diffs, &r.content, &mut folded)
     });
     let Some(prev) = last else { return 0.0 };
-    (gap(prev, edges(Who::Agent, Item::Line, LINE_INSET)) - S).max(0.0)
+    (lane_gap(prev, edges(Who::Agent, Item::Line, LINE_INSET)) - S).max(0.0)
 }

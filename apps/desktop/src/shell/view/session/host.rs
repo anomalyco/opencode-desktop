@@ -58,6 +58,9 @@ impl session_view::TimelineHost for App {
     fn turn_diffs(&self) -> bool {
         self.settings.turn_diffs
     }
+    fn full_codemode(&self, session: &str) -> bool {
+        crate::session::meta::flags::full_codemode(self, session)
+    }
     fn wrap_code_blocks(&self) -> bool {
         self.settings.wrap_code_blocks
     }

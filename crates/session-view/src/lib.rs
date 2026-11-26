@@ -472,6 +472,11 @@ pub trait TimelineHost: Sized + 'static {
     fn turn_diffs(&self) -> bool {
         false
     }
+    /// The server's `full_codemode` flag (`GET /api/experimental/flag`, `opencode#66509`):
+    /// gates script file diffs/counts and enables the flat execute layout.
+    fn full_codemode(&self, _session: &str) -> bool {
+        false
+    }
     /// Settings › Preferences › Wrap code blocks (`general.wrapCodeBlocks`, anomalyco/opencode#64545).
     fn wrap_code_blocks(&self) -> bool {
         false

@@ -506,6 +506,10 @@ pub(super) fn spawn_workers(server: &Server, inbox_tx: &Sender<Incoming>, wake: 
                             Some(location) => send(Incoming::DefaultDirectory(location.directory)),
                             None => true,
                         },
+                        Request::Flags { directory } => {
+                            let flags = server.flags(directory.as_deref()).unwrap_or_default();
+                            send(Incoming::Flags { directory, flags })
+                        }
                         Request::Info(id) => match server.get(&format!("/api/session/{id}")) {
                             Ok(v) => send(Incoming::Info(model::parse_session(v.get("data").unwrap_or(&v)))),
                             Err(e) => send(Incoming::Failed(e)),

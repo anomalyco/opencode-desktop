@@ -10,11 +10,13 @@ use crate::activity::{event_row, events, label as activity};
 use crate::detail::Category;
 use crate::focus::FocusExt;
 use crate::palette::Pal;
-use crate::style::{HOVER_FADE, ROW_GAP, ThoughtPart, UI, arrow, reasoning};
+use crate::style::{HOVER_FADE, ThoughtPart, UI, arrow, reasoning};
 
-/// Between an open group's label and its first step, and between its steps: 16 from text to
-/// text (`--timeline-gap-s`, `--tool-content-gap`), the rows 28 tall around 16 pt lines.
-const GROUP_GAP: f32 = ROW_GAP;
+/// Between an open group's label and its first step, and between distinct steps: 20 from text to
+/// text (`--timeline-gap-m`, `timeline-next.css:453-458,487-494`, `opencode#66509`).
+const GROUP_GAP: f32 = crate::timeline::rhythm::M;
+/// Between a script and its own file changes inside an open group: 16 (`--timeline-gap-s`).
+const SCRIPT_CHANGE_GAP: f32 = crate::timeline::rhythm::S;
 
 /// The folded row (`ContextGroup`): its label, and when open, every step in order, 14 in from a
 /// line 2 in from its edge (`timeline-next.css`, nested content). Plain reads in a row share a
@@ -29,7 +31,18 @@ const GROUP_GAP: f32 = ROW_GAP;
 /// the group scrolls past. `live`: the turn is still running, so a step still under way
 /// shimmers.
 #[allow(clippy::too_many_arguments)]
-pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &[Step], at: &[Loc], turn: std::ops::Range<usize>, live: bool, fade: f32) -> El {
+pub fn group<S: TimelineHost>(
+    s: &S,
+    p: &Pal,
+    session: &str,
+    key: &str,
+    steps: &[Step],
+    at: &[Loc],
+    turn: std::ops::Range<usize>,
+    live: bool,
+    fade: f32,
+    extra_after: &std::collections::HashSet<&str>,
+) -> El {
     let open = s.expanded().contains(key);
     if steps.iter().all(|st| matches!(st, Step::Thought { .. })) {
         return thoughts(s, p, steps, live, false, fade);
@@ -99,10 +112,33 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
         let fold = crate::disclosure::fold(s.knobs());
         let edge = rune::StreamEdge { word_fade: 0.0, ..rune::edge::FEATHER };
         let items = std::rc::Rc::new(plan(steps));
+        let flat = s.full_codemode(session);
+        let placement = super::script_output_for_steps(steps, flat);
+        let after_ids: std::rc::Rc<std::collections::HashSet<String>> = std::rc::Rc::new(
+            placement.after_changes.iter().chain(extra_after.iter()).map(|id| (*id).to_owned()).collect(),
+        );
+        let output_after: std::rc::Rc<std::collections::HashMap<String, (String, String)>> = std::rc::Rc::new(
+            placement.output_after.into_iter().map(|(k, (sid, text))| (k, (sid.to_owned(), text))).collect(),
+        );
+        let row_gaps: std::rc::Rc<Vec<f32>> = std::rc::Rc::new(
+            items
+                .iter()
+                .enumerate()
+                .map(|(j, &(i, _))| {
+                    if j == 0 {
+                        0.0
+                    } else if matches!(steps.get(i), Some(Step::Change { .. })) {
+                        SCRIPT_CHANGE_GAP
+                    } else {
+                        GROUP_GAP
+                    }
+                })
+                .collect(),
+        );
         let pb = (6.0 - items.last().map_or(6.0, |&(i, n)| step_foot(s, session, live, &steps[i..i + n]))).max(0.0);
         let keys: std::rc::Rc<Vec<String>> = std::rc::Rc::new(items.iter().map(|&(i, _)| item_key(steps, i)).collect());
         let at: std::rc::Rc<[Loc]> = at.into();
-        let version = (key, &*keys);
+        let version = (key, &*keys, flat);
         let (count, session, p, group_key) = (items.len(), session.to_owned(), *p, key.to_owned());
         let (row_keys, span) = (keys.clone(), turn);
         let list = col().key("rows").w_full().transition(rune::Transition::none()).growth(rune::GrowthSpec { spring: fold, edge })
@@ -114,11 +150,11 @@ pub fn group<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: &
                     let messages = t.messages.get(span.clone())?;
                     let steps: Vec<Step> = at.get(i..i + n)?.iter().map(|l| l.step(messages)).collect::<Option<_>>()?;
                     let cx = crate::tools::Ctx { session: &session, live, sticky: top + 28.0 + GROUP_GAP };
-                    Some(step_item(s, &p, cx, &group_key, &steps, live, fade))
+                    Some(step_item(s, &p, cx, &group_key, &steps, live, fade, &after_ids, &output_after))
                 }).flatten().unwrap_or_else(col);
                 // The gap is the row's own, so the list holds rows alone.
                 let feather = s.knobs().get(&crate::disclosure::FOLD_FEATHER);
-                col().w_full().pt(if j == 0 { 0.0 } else { GROUP_GAP }).child(built).fold_glide(crate::disclosure::fold(s.knobs())).fold_feather(feather)
+                col().w_full().pt(row_gaps[j]).child(built).fold_glide(crate::disclosure::fold(s.knobs())).fold_feather(feather)
             })
             .virtual_rows_version(version);
         // Rail only collapses open groups; while `shutting` (`!open`) it stays non-interactive so
@@ -237,7 +273,18 @@ fn step_foot<S: TimelineHost>(s: &S, session: &str, live: bool, steps: &[Step]) 
 }
 
 /// One open group's row, `steps` those it draws ([`plan`]).
-fn step_item<S: TimelineHost>(s: &S, p: &Pal, cx: crate::tools::Ctx, group: &str, steps: &[Step], live: bool, fade: f32) -> El {
+#[allow(clippy::too_many_arguments)]
+fn step_item<S: TimelineHost>(
+    s: &S,
+    p: &Pal,
+    cx: crate::tools::Ctx,
+    group: &str,
+    steps: &[Step],
+    live: bool,
+    fade: f32,
+    after_ids: &std::collections::HashSet<String>,
+    output_after: &std::collections::HashMap<String, (String, String)>,
+) -> El {
     let Some(first) = steps.first() else { return col() };
     match first {
         st if is_work(st) => {
@@ -268,7 +315,7 @@ fn step_item<S: TimelineHost>(s: &S, p: &Pal, cx: crate::tools::Ctx, group: &str
             let is_card = |s: &Step| !matches!(s, Step::Change { file, .. } if !crate::tools::script::is_card(file));
             let pt = if steps.first().is_some_and(is_card) { 6.0 } else { 0.0 };
             let pb = if steps.last().is_some_and(is_card) { 6.0 } else { 0.0 };
-            file_runs(s, p, cx, steps).pt(pt).pb(pb)
+            file_runs_owned(s, p, cx, steps, output_after).pt(pt).pb(pb)
         }
         st @ Step::Tool { .. } if named_skill(st) => {
             let calls: Vec<crate::tools::Call> = steps.iter().filter_map(call).collect();
@@ -278,9 +325,10 @@ fn step_item<S: TimelineHost>(s: &S, p: &Pal, cx: crate::tools::Ctx, group: &str
             // A group shows its calls' images once under the group (`RowContent::ToolImages`),
             // not duplicated inside each grouped step (`tool-display.tsx:42`, `context-group.tsx:350`).
             let c = crate::tools::Call { id, name, status, input, metadata };
-            col().key(format!("step-{id}")).w_full().child(crate::tools::view(s, p, cx, &c))
+            let after_changes = after_ids.contains(*id);
+            col().key(format!("step-{id}")).w_full().child(crate::tools::view_with(s, p, cx, &c, after_changes))
         }
-        Step::Change { .. } => file_runs(s, p, cx, steps),
+        Step::Change { .. } => file_runs_owned(s, p, cx, steps, output_after),
     }
 }
 
@@ -339,10 +387,20 @@ pub fn events<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: 
 
 /// Calls on their own row (`AssistantContent`, `SessionReadToolGroup`, `FileGroup`), drawn as
 /// they draw in a group: one call, plain reads sharing a line, or edits sharing a file card.
-pub fn calls<S: TimelineHost>(s: &S, p: &Pal, session: &str, kind: Calls, steps: &[Step], live: bool) -> El {
+#[allow(clippy::too_many_arguments)]
+pub fn calls<S: TimelineHost>(
+    s: &S,
+    p: &Pal,
+    session: &str,
+    kind: Calls,
+    steps: &[Step],
+    live: bool,
+    after_changes: bool,
+    output_after: &std::collections::HashMap<String, (&str, String)>,
+) -> El {
     let cx = crate::tools::Ctx { session, live, sticky: crate::style::sticky_top() };
     if kind == Calls::Files {
-        return file_runs(s, p, cx, steps);
+        return file_runs(s, p, cx, steps, output_after);
     }
     let calls: Vec<crate::tools::Call> = steps.iter().filter_map(call).collect();
     let Some(first) = calls.first() else { return col() };
@@ -354,7 +412,7 @@ pub fn calls<S: TimelineHost>(s: &S, p: &Pal, session: &str, kind: Calls, steps:
                 Step::Tool { files, .. } => *files,
                 _ => &[],
             };
-            col().key(format!("step-{}", first.id)).w_full().child(crate::tools::view(s, p, cx, first))
+            col().key(format!("step-{}", first.id)).w_full().child(crate::tools::view_with(s, p, cx, first, after_changes))
                 .children(crate::images::gallery(s, p, &format!("step-images-{}", first.id), files, false, 22.0, None).map(|g| g.pl(22.0)))
         }
     }
@@ -379,7 +437,25 @@ fn file_key(st: &Step) -> String {
 /// (`session-ui/src/tools/file-runs.ts`'s `fileRuns`, `FileChangeRuns`): calls one after another
 /// share one card of files, and each script's changes follow as its own cards
 /// ([`crate::tools::script::changes`]).
-fn file_runs<S: TimelineHost>(s: &S, p: &Pal, cx: crate::tools::Ctx, steps: &[Step]) -> El {
+fn file_runs_owned<S: TimelineHost>(
+    s: &S,
+    p: &Pal,
+    cx: crate::tools::Ctx,
+    steps: &[Step],
+    output_after: &std::collections::HashMap<String, (String, String)>,
+) -> El {
+    let borrowed: std::collections::HashMap<String, (&str, String)> =
+        output_after.iter().map(|(k, (sid, txt))| (k.clone(), (sid.as_str(), txt.clone()))).collect();
+    file_runs(s, p, cx, steps, &borrowed)
+}
+
+fn file_runs<S: TimelineHost>(
+    s: &S,
+    p: &Pal,
+    cx: crate::tools::Ctx,
+    steps: &[Step],
+    output_after: &std::collections::HashMap<String, (&str, String)>,
+) -> El {
     let Some(first) = steps.first() else { return col() };
     let mut out = col().key(format!("files-{}", file_key(first))).w_full().gap(crate::tools::script::CARD_GAP);
     let mut i = 0;
@@ -392,7 +468,7 @@ fn file_runs<S: TimelineHost>(s: &S, p: &Pal, cx: crate::tools::Ctx, steps: &[St
                 Step::Change { msg, script, index, file } => Some((*msg, *script, *index, *file)),
                 _ => None,
             }).collect();
-            crate::tools::script::changes(s, p, cx, &list).key(format!("run-{}", file_key(&run[0])))
+            crate::tools::script::changes(s, p, cx, &list, output_after).key(format!("run-{}", file_key(&run[0])))
         } else {
             let calls: Vec<crate::tools::Call> = run.iter().filter_map(call).collect();
             col().key(format!("run-{}", file_key(&run[0]))).w_full().child(crate::tools::cached(s, p, cx, &calls, || crate::tools::file_group(s, p, cx, &calls)))
