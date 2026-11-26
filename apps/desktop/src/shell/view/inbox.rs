@@ -541,14 +541,20 @@ fn open_menu(s: &mut App, key: &str, archived: bool, at: rune::PointerPress, tx:
         crate::session_menu::Line::Item(i) if matches!(i.id, "read" | "unread") => Some(Item::new(i.id, i.title)),
         _ => None,
     })).flatten();
-    // `inbox.tsx` `rows`: Pin or Unpin, Rename, Export…, the read mark, then Archive and Delete….
-    let menu = Menu::new(t!("command.category.session"))
-        .item(Item::new("pin", if pinned { t!("sidebar.recent.unpin") } else { t!("sidebar.recent.pin") }))
+    // `inbox.tsx:830-845,989-998` (opencode#66576): Rename, Pin/Unpin, Mark read/unread, ---, Copy >, Export…, ---, Archive/Unarchive, Delete….
+    let copy_sub = crate::servers::runtime::with_server(s, &server, |s| crate::session_menu::copy::submenu(s, &server, &id)).flatten();
+    let mut menu = Menu::new(t!("command.category.session"))
         .item(Item::new("rename", t!("common.rename")))
+        .item(Item::new("pin", if pinned { t!("sidebar.recent.unpin") } else { t!("sidebar.recent.pin") }))
+        .items(read)
+        .separator();
+    if let Some(crate::session_menu::Line::Sub { id: sub_id, title, menu: sub }) = copy_sub {
+        menu = menu.submenu(sub_id, title, sub);
+    }
+    let menu = menu
         .item(Item::new("export", format!("{}\u{2026}", t!("common.export"))).enabled(!s.exporting(&server, &id)))
-        .items(read).separator()
-        .item(if archived { Item::new("unarchive", t!("sidebar.inbox.unarchive")) } else { Item::new("archive", t!("common.archive")) })
         .separator()
+        .item(if archived { Item::new("unarchive", t!("sidebar.inbox.unarchive")) } else { Item::new("archive", t!("common.archive")) })
         .item(Item::new("delete", format!("{}…", t!("common.delete"))));
     let key = key.to_owned();
     tx.instant();
@@ -559,6 +565,7 @@ fn open_menu(s: &mut App, key: &str, archived: bool, at: rune::PointerPress, tx:
             Some("pin") => pins::update(s, |doc| if pinned { doc.unpin(&pin) } else { doc.pin(pin) }),
             Some("rename") => s.open_rename_dialog(&target),
             Some(action @ ("export" | "read" | "unread")) => crate::session_menu::run(s, &target, action, tx),
+            Some(action) if action.starts_with("copy:") => crate::session_menu::run(s, &target, action, tx),
             Some("archive") => s.on_inbox_row(&key, |s, id| s.archive_session(id, tx)),
             Some("unarchive") => s.on_inbox_row(&key, |s, id| s.unarchive_session(id)),
             Some("delete") => {

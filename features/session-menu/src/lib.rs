@@ -17,6 +17,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod copy;
 pub mod delete;
 pub mod export;
 pub mod generate_title;
@@ -276,26 +277,43 @@ pub fn lines(host: &dyn SessionMenuHost, t: &Target) -> Vec<Line> {
                 let sep = (!extra.is_empty()).then_some(Line::Sep);
                 return extra.into_iter().chain(sep).chain(close).collect();
             }
-            let sep = (!extra.is_empty()).then_some(Line::Sep);
+            // `tab-nav.tsx:667-686` (opencode#66576): Rename, extras, Mark read/unread, ---, Copy >, Export..., ---, Close..., ---, Delete...
+            let copy_sub = copy::submenu(host, &t.server, &t.id);
             std::iter::once(item("rename", opencode_i18n::t!("common.rename"), known))
-                .chain([item("export", asks(opencode_i18n::t!("common.export")), known && !exporting(host, &t.server, &t.id))])
-                .chain(read_item)
-                .chain(sep)
                 .chain(extra)
+                .chain(read_item)
+                .chain([Line::Sep])
+                .chain(copy_sub)
+                .chain([item("export", asks(opencode_i18n::t!("common.export")), known && !exporting(host, &t.server, &t.id))])
                 .chain([Line::Sep])
                 .chain(close)
                 .chain([Line::Sep, item("delete", asks(opencode_i18n::t!("common.delete")), known)])
                 .collect()
         }
         Spot::Row | Spot::Header if known.is_none_or(|i| i.parent.is_some() && t.spot == Spot::Header) => vec![],
-        Spot::Row | Spot::Header => [
+        Spot::Header => [
             item("rename", opencode_i18n::t!("common.rename"), true),
             item("export", asks(opencode_i18n::t!("common.export")), !exporting(host, &t.server, &t.id)),
+            Line::Sep,
+            item("delete", asks(opencode_i18n::t!("common.delete")), true),
         ]
         .into_iter()
-        .chain(read_item)
-        .chain([Line::Sep, item("delete", asks(opencode_i18n::t!("common.delete")), true)])
         .collect(),
+        Spot::Row => {
+            // `home/sessions/view.tsx:924-936`, `project-session-row.tsx:214-226` (opencode#66576):
+            // Rename, Mark read/unread, ---, Copy >, Export..., ---, Delete...
+            let copy_sub = copy::submenu(host, &t.server, &t.id);
+            std::iter::once(item("rename", opencode_i18n::t!("common.rename"), true))
+                .chain(read_item)
+                .chain([Line::Sep])
+                .chain(copy_sub)
+                .chain([
+                    item("export", asks(opencode_i18n::t!("common.export")), !exporting(host, &t.server, &t.id)),
+                    Line::Sep,
+                    item("delete", asks(opencode_i18n::t!("common.delete")), true),
+                ])
+                .collect()
+        }
     }
 }
 
@@ -416,6 +434,9 @@ pub fn on_dialog<H: SessionMenuHost + 'static>(e: El, t: Target) -> El {
 
 /// Runs the menu item `id` on `t`.
 pub fn run(host: &mut dyn SessionMenuHost, t: &Target, id: &str, tx: &mut Tx) {
+    if copy::run(host, &t.server, &t.id, id, tx) {
+        return;
+    }
     if host.run_pin_menu_extra(&t.server, &t.id, id, tx) {
         return;
     }
