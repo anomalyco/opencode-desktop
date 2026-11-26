@@ -13,15 +13,31 @@ fn commit_pages_on_demand() {
         fn mi_version() -> std::ffi::c_int;
         fn mi_option_set(option: std::ffi::c_int, value: std::ffi::c_long);
     }
-    // `mi_option_page_commit_on_demand` is 40 in mimalloc 3.3's `mi_option_t` (mimalloc.h); a
-    // later mimalloc may number it otherwise, so it's only set on the version it was read from.
-    // SAFETY: plain calls into the linked mimalloc; an option set after start applies to the
-    // pages taken from then on.
+    // Verified against vendor/libmimalloc-sys/c_src/mimalloc/v3/include/mimalloc.h (3.3):
+    //   15 = mi_option_purge_delay (default 1000 ms -> 250 ms for faster OS decommit)
+    //   35 = mi_option_page_reclaim_on_free (1 = allow cross-thread reclaim of abandoned pages)
+    //   40 = mi_option_page_commit_on_demand (1 = commit pages in 16 KiB steps on demand)
+    // Guarded on mimalloc 3.3 so a later version with renumbered options is never misconfigured.
+    // SAFETY: plain calls into the linked mimalloc before worker threads spin up.
     unsafe {
         if mi_version() / 100 == 303 {
+            mi_option_set(15, 250);
+            mi_option_set(35, 1);
             mi_option_set(40, 1);
         }
     }
+}
+
+/// Collects the calling thread's mimalloc heap and purges freed arena slices back to the OS.
+/// Long-lived worker threads call this before parking so cross-thread frees don't stay pinned.
+#[cfg(not(target_arch = "wasm32"))]
+#[allow(unsafe_code)]
+pub(crate) fn collect_thread_heap() {
+    unsafe extern "C" {
+        fn mi_collect(force: bool);
+    }
+    // SAFETY: a plain call into the linked mimalloc for the calling thread's theap.
+    unsafe { mi_collect(true) }
 }
 
 /// `App::rest`: mimalloc collects this thread's heap and purges every free page now; on Windows
@@ -29,11 +45,7 @@ fn commit_pages_on_demand() {
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(unsafe_code)]
 pub(crate) fn purge_free_pages() {
-    unsafe extern "C" {
-        fn mi_collect(force: bool);
-    }
-    // SAFETY: a plain call into the linked mimalloc, on the UI thread.
-    unsafe { mi_collect(true) }
+    collect_thread_heap();
     // The process heap (UI Automation, COM, the D3D runtime and driver) keeps freed pages
     // committed; compacting it gives its large free blocks back.
     #[cfg(windows)]
