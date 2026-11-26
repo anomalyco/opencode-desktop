@@ -1,30 +1,30 @@
 {
-  "generated_at": "2026-11-25",
+  "generated_at": "2026-11-26",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "c85b83eb08c3d2666b842848215325acb282d92b",
+  "upstream_head": "f3b5e9fa0ae7fac2c5516ccb3481ecc3b3d15831",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "7d6d45518",
-  "post_1114_commit_count": 694,
+  "rune_desktop_head": "ed5744686",
+  "post_1114_commit_count": 703,
   "post_1114_in_ledger": 242,
-  "post_1114_skipped": 452,
+  "post_1114_skipped": 461,
   "post_1114_skipped_breakdown": {
-    "test-only": 28,
+    "test-only": 30,
     "ci-bench-deps": 26,
     "docs-site-data": 70,
     "tui-only": 31,
-    "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 286
+    "cli-acp-only": 12,
+    "server-core-ai-codemode-internal": 292
   },
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 263,
   "status_counts": {
-    "have it": 216,
+    "have it": 215,
     "not applicable": 37,
     "differs on purpose": 1,
-    "partly": 2,
-    "missing": 7
+    "partly": 4,
+    "missing": 6
   },
   "rows": [
     {
@@ -5861,7 +5861,7 @@
       "summary": "The elevation shadows' layers are listed in Figma's order (the 0.5 px ring first, then the soft shadows; for the contrast button the insets before the ring and the drop shadow), which changes which layer paints over which.",
       "size": "XS",
       "status": "have it",
-      "status_evidence": "By the Rune pin 5342f14d (opencode-rune #1257, affe876f), which holds rune#2187 (85466cc98): every `v2-elevation-*` token of the OpenCode theme lists its layers in official's order, the 0.5 pt ring before the drop shadows, and the kit paints a list's first layer on top, as CSS does. Official: packages/ui/src/styles/tokens/theme.css:220-234 (dark: the top line, the ring, then the two drops), :106-124 (light), commit 0c2e204eaa. Seen in the pin's walk (headless, Windows x64, the pin's build beside a build of dev without it): in the dark theme the outline of a raised surface (a Markdown table, a tooltip, a raised Settings button) is lighter on its lower and side edges and unchanged on its top edge, in 106 of the walk's 168 pictures; on one picture the sides read 42 to 47 and the bottom 32 to 40 of 255. That is the ring now painted over the drops, which fall downward: the direction and the edges are official's by its file. Not compared: the amount, with a render of official's surface beside ours. Not looked at: the light theme, where by the same file only the contrast button's opaque grey ring can differ.",
+      "status_evidence": "By the Rune pin 5342f14d (opencode-rune #1257, affe876f), which holds rune#2187 (85466cc98): every `v2-elevation-*` token of the OpenCode theme lists its layers in official's order, the 0.5 pt ring before the drop shadows, and the kit paints a list's first layer on top, as CSS does. Official: packages/ui/src/styles/tokens/theme.css:220-234 (dark: the top line, the ring, then the two drops), :106-124 (light), commit 0c2e204eaa. Seen in the pin's walk (headless, Windows x64, the pin's build beside a build of dev without it): in the dark theme the outline of a raised surface (a Markdown table, a tooltip, a raised Settings button) is lighter on its lower and side edges and unchanged on its top edge, in 106 of the walk's 168 pictures; on one picture the sides read 42 to 47 and the bottom 32 to 40 of 255. That is the ring now painted over the drops, which fall downward: the direction and the edges are official's by its file. Not compared: the amount, with a render of official's surface beside ours. In the light theme the walk's eight pictures are the same on both builds, pixel by pixel, among them a picture with the same Markdown table whose dark twin differs by the outline; not looked at there: a raised Settings button, a tooltip, and the contrast button, the one place where by official's file the order can change the light theme.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6200,8 +6200,8 @@
       ],
       "summary": "Four gaps of the Consolidated navigation: a middle click on a pinned session unpins it and closes its tab; a pin group's chevron (vertical) and, under Consolidated, a Recent group header's chevron show only on hover or keyboard focus; Home's project picker names the focused server, with the server glyph, in place of All projects when there are several servers and no project is chosen.",
       "size": "S",
-      "status": "have it",
-      "status_evidence": "Ported in opencode-rune #1144 (2e0d7d31): a middle click on a pinned session unpins it (apps/desktop/src/shell/tabs/pins.rs), a pin group's and a Recent group header's chevron show only under the pointer or keyboard focus (shell/view/sidebar/pinned_area.rs, recent.rs), Home's picker names the focused server when no project is chosen (shell/view/home/projects.rs). Run headless on its own Windows x64 CI build beside a build without it: the chevron at rest / pointer on the toggle / pointer away / keyboard focus on the toggle and on the menu button, the Recent header the same, the middle click with and without an open tab, Home's picker with one and two servers in a narrow and a 900-wide window. Not run: a real window, a pin group in top tabs under the keyboard, the Recent arrangement's own grouped header, macOS, Linux. Open differences, all four removed by Rune's rune#2231 (merged on Rune dev, not pinned yet), then one app change: (A) the chevron's fade: ours at once in and 0.1 s out, official 150 ms (packages/app/src/shell/titlebar/pinned-area.tsx:376); (B) with the pointer over the row's menu button official still shows the chevron (the row is hovered), ours does not; (C) with keyboard focus on the toggle ours also draws the toggle's hover fill, official the focus ring alone (seen in the run); (D) the menu button shows for keyboard focus anywhere in the row, official only for its own focus (pinned-area.tsx:417; recent-sessions.tsx:1225, :1231).",
+      "status": "partly",
+      "status_evidence": "Ported in opencode-rune #1144 (2e0d7d31), with its four open hover/focus/fade differences closed in #1262 (75cae151) on the Rune pin 5342f14d (rune#2231, rune#2215): a middle click on a pinned session unpins it (apps/desktop/src/shell/tabs/pins.rs), Home's picker names the focused server when no project is chosen (shell/view/home/projects.rs), and a pin group's and Recent group's header chevron and menu button follow official's hover and focus (shell/view/sidebar/pinned_area.rs, recent.rs: 150 ms chevron fade in and out, chevron stays visible while hovering the menu button, keyboard focus on the toggle shows the ring and chevron with no hover fill and no menu button, Recent header has no hover fill and turns its label to base ink on hover). Run headless on Windows x64 CI builds: #1144's middle click and Home picker ran on #1144's build; #1262's 9 cases ran on 0b4db7a00 (run 45711964463) beside before build #1271 278f9aaf38 (29 launches, exit 0), confirming 150 ms chevron fade (0.837 / 0.163 at 60 ms), pointer on menu button keeps chevron and fill, Tab on toggle shows no fill and no menu button, Recent header no fill and base ink on hover, and terminal quote icon label + tooltip. Partly because two differences remain open: (1) a Recent header's words turn to base ink while hovering its Group and sort button where official keeps them muted (packages/app/src/shell/titlebar/recent-sessions.tsx:1201): needs a Rune addition for a member naming its hover group (Rune draft owed); (2) the chevron turns at once on toggle press (0 px diff at 60 ms vs settled in case 7) because the toggle's press calls tx.instant(), where official turns over 150 ms. Not run: a real window, touch, top tabs' pin groups, the Recent arrangement's own grouped header, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6335,8 +6335,8 @@
       ],
       "summary": "The browser's import dialog in two groups: what comes over (Sign-ins, Browsing history) and from which sites: a radio choice 'All sites' (with the count) or 'Only sites I choose', which shows the search and the site list under it with nothing ticked; one box in the list's header ticks or clears every shown site (mixed when some are ticked) in place of the Select all / Select none buttons; the 'Choose sites' disclosure in the footer is gone; a profile picker ('From') shows only where the dialog has several profiles to offer, and a Settings row opens it for its own profile, named in the title with the profile as a badge; a new dialog size 'tall' (480 x 600, fixed top edge); the Settings row's button says 'Import', not 'Import...', and a browser's profile name beside it is a badge.",
       "size": "L",
-      "status": "missing",
-      "status_evidence": "Not ported yet: in work. Official: packages/gui-plugins/src/browser/site-chooser.tsx (the whole dialog), settings.tsx:71-73 (choices = [choice]), :884-896 (the badge), i18n/en.ts:204-208 and :439, packages/ui/src/overlays/dialog/dialog.css:163-180 and dialog.tsx:28 (size 'tall'). Ours: plugins/browser/settings.luau and init.luau (the dialog as it was: two boxes, a 'Choose sites' disclosure, every site ticked), opencode_ui::dialog::DialogSize (no tall preset).",
+      "status": "partly",
+      "status_evidence": "Ported in opencode-rune #1202 (56bd7bb4; plugin contract 1.11): the browser Import dialog is organized into two groups (Include: Sign-ins and Browsing history; Sites: All sites with count, or Only sites I choose with search, select-all checkbox and site list), with the profile shown as a badge beside the browser title when opened from a Settings row, and the dialog keeping its top edge when the list opens; Return on a checkbox starts the import. Two older faults were fixed in the same change: Settings > Browser now lists profiles on its first open without leaving the page, and working copies of another browser's cookie database left behind if the app ended during a read are claimed by an OS lock file and swept once after launch (official packages/gui-plugins/src/browser/profile/index.ts:102, database.ts:62-86). Official: packages/gui-plugins/src/browser/site-chooser.tsx, settings.tsx, panel.tsx. Run headless on Windows x64 CI builds under sealed scratch roots (wall clock only, every process environment verified under the root before the first tap): cases 7, 1, 2, 3 (400 sites, tall and short windows) and 6 (Return on checkbox) held on b7edbacba beside before build cc991c6505; on the merged head 0e3df708a beside before build 278f9aaf38: shared strings, press on the words of Only sites I choose (140 wide, label 116) and press beside, first-open frame check (16.9 ms before, 41.0 ms new; an earlier 2.3 s frame did not recur), sweep cases 8-10 (planted copy+lock removed; no-lock copy waits 10 min; real lock swept after quick end; mid-read Cookies copy not caught, case 8 stands for it), and all three shared-file samples (Add extension framed list, address field, /rename row). Not run: case 4 (pane offer) and case 5 (cookie import). Partly because three named differences from official remain open (follow-ups owed): (1) the From picker is a menu button rather than a select (needs a select in the plugin kit, select.css:22-45); (2) the Import button while importing uses the kit's loading look rather than a disabled primary button with a 14 pt spinner (site-chooser.tsx:682-694); (3) list rows are list items with checkboxes rather than a listbox of options (site-chooser.tsx:570-591).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
