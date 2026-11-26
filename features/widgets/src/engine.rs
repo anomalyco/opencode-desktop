@@ -85,10 +85,10 @@ pub fn compile(program: &str) -> Result<Program, String> {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn compile_as(program: &str, mode: &str, grants: Grants, offset: u32) -> Result<Compiled, LoadError> {
     let kind = if mode == "live" {
-        let program = LiveProgram::compile(program).map_err(|e| LoadError::Program(e.to_string()))?;
+        let program = LiveProgram::compile_at(program, offset).map_err(|e| LoadError::Program(e.to_string()))?;
         Kind::Live { program: std::sync::Arc::new(program), grants }
     } else {
-        Kind::Step(Box::new(compile(program).map_err(LoadError::Program)?))
+        Kind::Step(Box::new(Program::compile_at(program, offset).map_err(|e| LoadError::Program(e.to_string()))?))
     };
     Ok(Compiled { kind, offset })
 }

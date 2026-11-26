@@ -38,7 +38,11 @@ pub(super) fn runtime(link: &Arc<Link>, era: u64) -> Runtime {
         slice_ms: Some(super::SLICE_MS),
         ..Default::default()
     };
-    Runtime::make().limits(limits).translate(translate).globals(move |_run| {
+    let runtime = match link.program.lines {
+        Some((first, last)) => Runtime::make().program_lines(first, last),
+        None => Runtime::make(),
+    };
+    runtime.limits(limits).translate(translate).globals(move |_run| {
         // `gpu`: whether this client replays the program's GPU batches, and its canvas format.
         let mut input = json!({ "data": link.data });
         if let Some(gpu) = link.gpu() {
@@ -46,7 +50,7 @@ pub(super) fn runtime(link: &Arc<Link>, era: u64) -> Runtime {
         }
         let (l1, l2, l3, l4, l5) = (link.clone(), link.clone(), link.clone(), link.clone(), link.clone());
         let host = HostValue::object([
-            ("post", HostValue::Function(HostFunction::new(move |args: Vec<HostValue>, _call: &Call| post(&l1, args)))),
+            ("post", HostValue::Function(HostFunction::new(move |args: Vec<HostValue>, call: &Call| post(&l1, args, call.location())))),
             (
                 "now",
                 HostValue::Function(HostFunction::new(move |args: Vec<HostValue>, _call: &Call| -> HostResult {
@@ -127,13 +131,21 @@ impl<F: Future<Output = HostResult> + Unpin> Future for Checked<F> {
     }
 }
 
+/// What `fetch` rejects with for `e`: an error with its `kind` and `message`, located at the call;
+/// uncaught, the run's failure is a fetch error.
+fn rejected(link: &Link, e: &fetch::FetchError) -> HostValue {
+    link.lock().rejected = Some((e.kind.name(), e.message.clone()));
+    HostValue::Located(Box::new(HostError::named(e.kind.name(), e.message.as_str()).with_field("kind", HostValue::String(e.kind.name().into()))))
+}
+
 /// `__host.post(message)`: checked and handed to the client (`widgets.md`, Native hosts). A
 /// render's view is made into its tree here, and `post` says whether it has handlers; a view that
 /// breaks Keys and depth ends the run at once (phase `view`). A draw's key names a canvas of the
 /// last render: an unknown key throws. A function anywhere but a view's handler props throws. A
 /// render or draw that isn't valid (a draw without a string key too) ends the run
 /// (`widgets-live.md`). Renders and draws, checked here at once, reach the client at the post rate.
-fn post(link: &Link, mut args: Vec<HostValue>) -> HostResult {
+/// `at`: where in the program the post was made, for an invalid draw's and a GPU batch's error.
+fn post(link: &Link, mut args: Vec<HostValue>, at: Option<(u32, u32)>) -> HostResult {
     if link.lock().interrupt {
         return Err(HostValue::Interrupt);
     }
@@ -203,7 +215,7 @@ fn post(link: &Link, mut args: Vec<HostValue>) -> HostResult {
             checked("post", &args, 1)?;
             match DrawOutput::from_host(field("commands")) {
                 Ok(out) => link.counted(Post::Draw { id, commands: out.commands }, Some(key)),
-                Err(e) => return Err(link.fail_post(e)),
+                Err(e) => return Err(link.fail_draw(e, at)),
             }
             return Ok(HostValue::Undefined);
         }
@@ -211,13 +223,13 @@ fn post(link: &Link, mut args: Vec<HostValue>) -> HostResult {
         // isn't an object is none); a batch on its own (`widgets-gpu.md`, Transport).
         Some("frame") => {
             match field("gpu") {
-                Some(batch @ HostValue::Object(_)) => link.gpu_batch(batch, true),
+                Some(batch @ HostValue::Object(_)) => link.gpu_batch(batch, true, at),
                 _ => link.bare_frame(),
             }
             return Ok(HostValue::Undefined);
         }
         Some("gpu") => {
-            link.gpu_batch(message, false);
+            link.gpu_batch(message, false, at);
             return Ok(HostValue::Undefined);
         }
         Some("submit") => Post::Submit(json("value")),
@@ -384,7 +396,7 @@ impl Future for Fetch {
                 Ok(()) => Poll::Pending,
                 Err(e) => {
                     link.post(Post::Failed { phase: "fetch", message: format!("{}: {}", e.kind.name(), e.message) });
-                    Poll::Ready(Err(HostValue::from_json(&e.to_value())))
+                    Poll::Ready(Err(rejected(&link, &e)))
                 }
             };
         }
@@ -415,7 +427,7 @@ fn start(link: &Arc<Link>, st: &mut super::link::St, this: &mut Fetch, request: 
     let sent = std::thread::Builder::new().name("widget-fetch".into()).spawn(move || {
         let (result, failure) = match fetch::run(&*transport, request, &grants) {
             Ok(v) => (Ok(HostValue::from_json(&v)), None),
-            Err(e) => (Err(HostValue::from_json(&e.to_value())), Some(format!("{}: {}", e.kind.name(), e.message))),
+            Err(e) => (Err(rejected(&back, &e)), Some(format!("{}: {}", e.kind.name(), e.message))),
         };
         back.fetched(id, result, failure);
     });

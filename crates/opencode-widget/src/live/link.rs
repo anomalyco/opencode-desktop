@@ -95,6 +95,13 @@ pub(super) struct St {
     /// A post broke the rules (a view of Keys and depth, an invalid render or draw): the run was
     /// interrupted to end with it.
     pub post_failure: Option<Ended>,
+    /// The failure's phase when it isn't `main`: `fetch` (a fetch's rejection, uncaught) or `draw`
+    /// (an invalid draw).
+    pub failed_phase: Option<&'static str>,
+    /// Where in the program an invalid draw was posted.
+    pub post_at: Option<(u32, u32)>,
+    /// The last fetch rejection the program got, its kind and message.
+    pub rejected: Option<(&'static str, String)>,
 }
 
 impl St {
@@ -197,6 +204,9 @@ impl Link {
             failed_at: None,
             canvases: HashMap::new(),
             post_failure: None,
+            failed_phase: None,
+            post_at: None,
+            rejected: None,
         };
         Arc::new_cyclic(|me| Link { st: Mutex::new(st), news: AtomicBool::new(false), program, data, setup, per_second, gpu: Mutex::default(), order: Mutex::default(), me: me.clone() })
     }
@@ -239,6 +249,9 @@ impl Link {
         st.interrupt = false;
         st.suspender = None;
         st.post_failure = None;
+        st.failed_phase = None;
+        st.post_at = None;
+        st.rejected = None;
         let era = st.era;
         let spawned = std::thread::Builder::new().name("widget-live".into()).stack_size(STACK).spawn(move || run(link, era, snapshot));
         if let Err(e) = spawned {
@@ -293,7 +306,16 @@ impl Link {
         if matches!(st.run, Run::Ended(Ended::Stopped)) {
             st.waiting.clear();
         }
-        st.failed_at = at;
+        st.failed_at = at.or(st.post_at.take());
+        // A fetch's rejection, uncaught: a fetch error of its kind.
+        let st_ = &mut *st;
+        if let (Run::Ended(Ended::Failed(m)), Some((kind, message))) = (&mut st_.run, st_.rejected.take())
+            && let Some(i) = m.find(&message)
+        {
+            // Its location, if it says one, stays.
+            *m = format!("{kind}: {message}{}", &m[i + message.len()..]);
+            st_.failed_phase = Some("fetch");
+        }
         st.suspender = None;
         st.waiters.clear();
         st.timers.clear();
@@ -344,6 +366,15 @@ impl Link {
         HostValue::Interrupt
     }
 
+    /// The program posted an invalid draw (`message` says why) at `at`: a program error in phase
+    /// `draw` that ends the run at once (`widgets-live.md`). What `post` throws to stop the run.
+    pub fn fail_draw(&self, message: String, at: Option<(u32, u32)>) -> HostValue {
+        let mut st = self.lock();
+        (st.failed_phase, st.post_at) = (Some("draw"), at);
+        drop(st);
+        self.fail_post(message)
+    }
+
     /// The program posted `post`, not counted toward the post rate: it goes to the client at once,
     /// ahead of what waits for the rate. A `submit` or `dismiss` lets what waits go first; a frame
     /// request while one waits for the client changes nothing.
@@ -379,6 +410,10 @@ impl Link {
 
     pub fn failed_at(&self) -> Option<(u32, u32)> {
         self.lock().failed_at
+    }
+
+    pub fn failed_phase(&self) -> Option<&'static str> {
+        self.lock().failed_phase
     }
 
     pub fn is_paused(&self) -> bool {

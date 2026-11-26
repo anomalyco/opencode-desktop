@@ -86,7 +86,7 @@ fn drive(live: &Live, long: Duration, seen: &mut Seen) {
                     t += 1.0 / 60.0;
                     live.frame(&Frame { t, dt: 1.0 / 60.0, width: 300.0, height: 200.0, scale: 2.0, ..Default::default() });
                 }
-                Post::Gpu(e) => seen.errors.push(format!("{} {:?}", e.message, e.canvases)),
+                Post::Gpu(e, _) => seen.errors.push(format!("{} {:?}", e.message, e.canvases)),
                 Post::Render(node) => {
                     let text = format!("{node:?}");
                     if let Some(at) = text.find("heard ") {

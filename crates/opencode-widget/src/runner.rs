@@ -39,6 +39,13 @@ pub fn heap_exceeded() -> String {
 /// What runs a step after the widget template's program.
 const TAIL: &str = "\nreturn __widget_native_step(__input())";
 
+/// The lines of `program` that are the widget template's own, after its first `offset` (the
+/// preludes'), for `Runtime::program_lines`: an error the preludes raise, or a host function called
+/// from them, is located at the nearest frame of the source.
+pub fn program_lines(program: &str, offset: u32) -> (u32, u32) {
+    (offset + 1, program.matches('\n').count() as u32 + 1)
+}
+
 /// The prelude<->host contract this host implements (`widgets.md`, Protocol).
 pub const PROTOCOL: u64 = 2;
 /// Why a program built for another contract is refused: a program error for an older one, a
@@ -155,11 +162,26 @@ impl Program {
 
     /// [`Program::compile`] with a step budget of `timeout_ms` (at least 1, at most the contract's).
     pub fn compile_with(program: &str, timeout_ms: u64) -> Result<Program, Error> {
+        Program::build(program, timeout_ms, None)
+    }
+
+    /// [`Program::compile`] for a program whose widget template's source comes after its first
+    /// `offset` lines: an error in the prelude is located at the nearest line of the source
+    /// ([`program_lines`]).
+    pub fn compile_at(program: &str, offset: u32) -> Result<Program, Error> {
+        Program::build(program, STEP_TIMEOUT_MS, Some(program_lines(program, offset)))
+    }
+
+    fn build(program: &str, timeout_ms: u64, lines: Option<(u32, u32)>) -> Result<Program, Error> {
         let input: Arc<Mutex<HostValue>> = Arc::new(Mutex::new(HostValue::Null));
         let emitted: Arc<Mutex<Emitted>> = Arc::default();
         let make = |timeout_ms: u64, draws: bool| {
             let (reads, out) = (input.clone(), emitted.clone());
-            Runtime::make()
+            let runtime = match lines {
+                Some((first, last)) => Runtime::make().program_lines(first, last),
+                None => Runtime::make(),
+            };
+            runtime
                 .translate(Translate { functions: TranslateFunctions::Mark, ..Default::default() })
                 .globals(move |_run| {
                     let (reads, out) = (reads.clone(), out.clone());

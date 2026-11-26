@@ -53,6 +53,8 @@ const TAIL: &str = "\nreturn await __widget_live(__input(), true)";
 pub struct LiveProgram {
     /// `Err`: refused for its protocol, never compiled; a run of it ends at once so.
     pub(super) compiled: Result<Compiled, Ended>,
+    /// The widget template's own lines (`Runtime::program_lines`), when known.
+    pub(super) lines: Option<(u32, u32)>,
 }
 
 impl fmt::Debug for LiveProgram {
@@ -77,7 +79,14 @@ impl LiveProgram {
             Some(e) => Err(Ended::Failed(e.to_string())),
             None => Ok(Runtime::make().compile(&format!("{program}{TAIL}")).map_err(|d| Error::Compile(d.message_lossy()))?),
         };
-        Ok(LiveProgram { compiled })
+        Ok(LiveProgram { compiled, lines: None })
+    }
+
+    /// [`LiveProgram::compile`] for a program whose widget template's source comes after its first
+    /// `offset` lines: an error in the preludes, a fetch's and a GPU batch's, is located at the
+    /// nearest line of the source ([`crate::runner::program_lines`]).
+    pub fn compile_at(program: &str, offset: u32) -> Result<LiveProgram, Error> {
+        Ok(LiveProgram { lines: Some(crate::runner::program_lines(program, offset)), ..LiveProgram::compile(program)? })
     }
 }
 
@@ -98,8 +107,8 @@ pub enum Post {
     /// Something the program asked of the host failed (`phase`: `fetch`), for the agent to hear.
     Failed { phase: &'static str, message: String },
     /// A GPU batch's error (`widgets-gpu.md`): the program's (phase `gpu`, reported) or this
-    /// client's, and the canvases it stopped.
-    Gpu(psychoscript_gpu::GpuError),
+    /// client's, and the canvases it stopped; where in the program the batch was posted, when known.
+    Gpu(psychoscript_gpu::GpuError, Option<(u32, u32)>),
 }
 
 /// How a program ended.
@@ -191,6 +200,12 @@ impl Live {
     /// Where in the program it threw (1-based line and column), when it failed so.
     pub fn failed_at(&self) -> Option<(u32, u32)> {
         self.link.failed_at()
+    }
+
+    /// The phase of its failure when it isn't `main`: `fetch` (a fetch's rejection, uncaught) or
+    /// `draw` (an invalid draw).
+    pub fn failed_phase(&self) -> Option<&'static str> {
+        self.link.failed_phase()
     }
 
     /// The widget left view: the program pauses.

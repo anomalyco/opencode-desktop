@@ -23,14 +23,14 @@ url = { version = "2", optional = true }
 # `String(number)` as ECMAScript writes it, for a view key's path segment (widgets.md, Native hosts).
 ryu-js = { version = "1", optional = true }
 # PsychoScript's Rust implementation, at parity with the TypeScript reference. Pure Rust (oxc,
-# ICU4X), no platform dependencies, so it builds for iOS and Android too. From crates.io (0.1.1,
-# PsychoScript `dev` 2ef493f), the one `widget-wire` builds on, so both share one.
+# ICU4X), no platform dependencies, so it builds for iOS and Android too. From crates.io (0.1.2,
+# PsychoScript `dev` 6403924), the one `widget-wire` builds on, so both share one.
 psychoscript = { version = "0.1", optional = true }
 # GPU canvases' replay (`widgets-gpu.md`): checks and replays a live program's WebGPU batches on wgpu.
 # From crates.io (0.1.0, PsychoScript `dev` 2ef493f), as `widget-wire` takes it.
 psychoscript-gpu = { version = "0.1", optional = true }
-# The `wgsl` shorthand (`widget_wire::shorthand`): opencode `widgets` 761635c7's `packages/widgets-rs`.
-widget-wire = { git = "https://github.com/anomalyco/opencode", rev = "761635c74c52ad904f3e639ee634b307ac4fdeb3", optional = true }
+# The `wgsl` shorthand (`widget_wire::shorthand`): opencode `widgets` d8b0f68f's `packages/widgets-rs`.
+widget-wire = { git = "https://github.com/anomalyco/opencode", rev = "d8b0f68fcb1bfbafd4f55f8c656321930267aa59", optional = true }
 wgpu = { version = "30", default-features = false, optional = true }
 
 [dev-dependencies]

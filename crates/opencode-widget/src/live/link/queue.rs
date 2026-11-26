@@ -17,10 +17,10 @@ pub(in crate::live) enum Wait {
     /// A `render` (no key) or canvas key's `draw`, for a token.
     Counted(Option<String>, Post),
     /// A GPU batch, its bytes copied: it takes no token, but never overtakes a waiting post.
-    /// `frame`: it rode a frame request, which goes out after it.
-    Batch { ops: Vec<psychoscript_gpu::Arg>, bytes: Vec<u8>, frame: bool },
+    /// `frame`: it rode a frame request, which goes out after it. `at`: where it was posted.
+    Batch { ops: Vec<psychoscript_gpu::Arg>, bytes: Vec<u8>, frame: bool, at: Option<(u32, u32)> },
     /// A batch whose shape failed the host checks, with why (and its ops, when a list).
-    Refused { ops: Option<Vec<psychoscript_gpu::Arg>>, message: String, frame: bool },
+    Refused { ops: Option<Vec<psychoscript_gpu::Arg>>, message: String, frame: bool, at: Option<(u32, u32)> },
     /// A `canvas` size the program heard, for the GPU after the batches ahead of it.
     Resize(String, u32, u32),
 }
@@ -125,16 +125,17 @@ impl Link {
         let Some(gpu) = self.gpu() else { return };
         match w {
             Wait::Counted(..) => {}
-            Wait::Batch { ops, bytes, frame } => self.replayed(&gpu, gpu.apply(&ops, &bytes), frame),
-            Wait::Refused { ops, message, frame } => self.replayed(&gpu, gpu.refuse(ops.as_deref(), message), frame),
+            Wait::Batch { ops, bytes, frame, at } => self.replayed(&gpu, gpu.apply(&ops, &bytes), frame, at),
+            Wait::Refused { ops, message, frame, at } => self.replayed(&gpu, gpu.refuse(ops.as_deref(), message), frame, at),
             Wait::Resize(key, w, h) => gpu.resize(&key, w, h),
         }
     }
 
-    /// A batch replayed (or refused): its error to the client, then the frame request it rode.
-    fn replayed(&self, gpu: &RunGpu, error: Option<psychoscript_gpu::GpuError>, frame: bool) {
+    /// A batch replayed (or refused): its error to the client, located where it was posted (`at`),
+    /// then the frame request it rode.
+    fn replayed(&self, gpu: &RunGpu, error: Option<psychoscript_gpu::GpuError>, frame: bool, at: Option<(u32, u32)>) {
         if let Some(e) = error {
-            self.post(Post::Gpu(e));
+            self.post(Post::Gpu(e, at));
         }
         if frame {
             gpu.end_frame();
@@ -149,8 +150,8 @@ impl Link {
 
     /// The program posted a GPU batch (`{ ops, bytes }`; `frame`: in a frame request, which goes
     /// out after it): replayed now with its bytes in place, or, behind posts waiting for the rate,
-    /// queued with them.
-    pub fn gpu_batch(&self, batch: &HostValue, frame: bool) {
+    /// queued with them. `at`: where in the program it was posted.
+    pub fn gpu_batch(&self, batch: &HostValue, frame: bool, at: Option<(u32, u32)>) {
         let Some(gpu) = self.gpu() else {
             if frame {
                 self.post(Post::Frame);
@@ -162,15 +163,15 @@ impl Link {
         crate::live::gpu::tapped(Some(batch), frame);
         let queued = match crate::live::gpu::with_batch(batch, |ops, bytes| {
             if waits {
-                return Some(Wait::Batch { ops: ops.to_vec(), bytes: bytes.to_vec(), frame });
+                return Some(Wait::Batch { ops: ops.to_vec(), bytes: bytes.to_vec(), frame, at });
             }
-            self.replayed(&gpu, gpu.apply(ops, bytes), frame);
+            self.replayed(&gpu, gpu.apply(ops, bytes), frame, at);
             None
         }) {
             Ok(queued) => queued,
-            Err((ops, message)) if waits => Some(Wait::Refused { ops, message, frame }),
+            Err((ops, message)) if waits => Some(Wait::Refused { ops, message, frame, at }),
             Err((ops, message)) => {
-                self.replayed(&gpu, gpu.refuse(ops.as_deref(), message), frame);
+                self.replayed(&gpu, gpu.refuse(ops.as_deref(), message), frame, at);
                 None
             }
         };
@@ -212,7 +213,7 @@ impl Link {
             },
             move |stopped| {
                 if let Some(link) = also.upgrade() {
-                    link.post(Post::Gpu(stopped));
+                    link.post(Post::Gpu(stopped, None));
                 }
             },
             self.setup.notify.clone(),

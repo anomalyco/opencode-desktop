@@ -69,7 +69,7 @@ fn run(f: &Value, batches: &Arc<Mutex<Vec<Value>>>, device: &wgpu::Device) -> Ru
         for p in live.take() {
             match p {
                 Post::Frame => *wanted = true,
-                Post::Gpu(e) => errors.push(json!({ "message": e.message, "canvases": match e.canvases { Stops::All => json!("all"), Stops::Canvases(k) => json!(k) } })),
+                Post::Gpu(e, _) => errors.push(json!({ "message": e.message, "canvases": match e.canvases { Stops::All => json!("all"), Stops::Canvases(k) => json!(k) } })),
                 _ => {}
             }
         }

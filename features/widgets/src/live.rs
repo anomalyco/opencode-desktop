@@ -106,6 +106,12 @@ pub(crate) fn poll(host: &mut dyn WidgetsHost, now: f64, tx: &mut Tx) -> bool {
 #[cfg(not(target_arch = "wasm32"))]
 fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut Tx) -> bool {
     use engine::{Ended, Post};
+    // A line in the widget template's source: the program's, less the prelude's lines.
+    let offset = host.widgets().entries.get(id).and_then(|e| match host.widgets().widget_templates.get(&e.widget_template) {
+        Some(WidgetTemplate::Ready(c)) => Some(c.offset),
+        _ => None,
+    });
+    let offset = offset.unwrap_or(0);
     let Some(e) = host.widgets_mut().entries.get_mut(id) else { return false };
     let Some(live) = e.run.live.as_ref() else { return false };
     let on = visible && tx.window_visible();
@@ -117,7 +123,7 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
     // How it ended first: the posts it made before its end (those that waited for the post rate
     // too) are all there by then.
     let ended = live.ended();
-    let failed_at = live.failed_at();
+    let (failed_at, failed_phase) = (live.failed_at(), live.failed_phase());
     let posts = if live.news() || ended.is_some() { live.take() } else { Vec::new() };
     let mut changed = false;
     for post in posts {
@@ -171,9 +177,9 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
             }
             // A GPU batch's error: the program's (phase `gpu`), or this client's. The canvases it
             // stopped show their placeholder with it (their status, below).
-            Post::Gpu(e) => {
+            Post::Gpu(e, at) => {
                 match e.kind {
-                    opencode_widget::gpu::ErrorKind::Program => crate::report(host, id, "gpu", &e.message, None, 0),
+                    opencode_widget::gpu::ErrorKind::Program => crate::report(host, id, "gpu", &e.message, at, offset),
                     opencode_widget::gpu::ErrorKind::Client => crate::client_error(host, id, "gpu", &e.message),
                 }
                 continue;
@@ -183,15 +189,9 @@ fn drive(host: &mut dyn WidgetsHost, id: &str, visible: bool, now: f64, tx: &mut
         changed = true;
     }
     if let Some(end) = ended {
-        // Its line in the widget template's source: the program's, less the prelude's lines.
-        let offset = host.widgets().entries.get(id).and_then(|e| match host.widgets().widget_templates.get(&e.widget_template) {
-            Some(WidgetTemplate::Ready(c)) => Some(c.offset),
-            _ => None,
-        });
-        let offset = offset.unwrap_or(0);
         let error = match end {
             Ended::Failed(m) => {
-                crate::report(host, id, "main", &m, failed_at, offset);
+                crate::report(host, id, failed_phase.unwrap_or("main"), &m, failed_at, offset);
                 Some(crate::in_source(&m, failed_at, offset))
             }
             Ended::Broke(m) => {
