@@ -2,29 +2,29 @@
   "generated_at": "2026-11-26",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "1f66f5f4adfc602dbece7f2d37835376df5081fb",
+  "upstream_head": "44344bd22d37da2dd6098e8d4b8b0236a3e143e0",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "655f5ed3f",
-  "post_1114_commit_count": 711,
-  "post_1114_in_ledger": 243,
-  "post_1114_skipped": 468,
+  "rune_desktop_head": "a1d6a19ce",
+  "post_1114_commit_count": 721,
+  "post_1114_in_ledger": 248,
+  "post_1114_skipped": 473,
   "post_1114_skipped_breakdown": {
-    "test-only": 31,
+    "test-only": 32,
     "ci-bench-deps": 26,
-    "docs-site-data": 72,
+    "docs-site-data": 73,
     "tui-only": 31,
     "cli-acp-only": 12,
-    "server-core-ai-codemode-internal": 296
+    "server-core-ai-codemode-internal": 299
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 264,
+  "total_ledger_rows": 269,
   "status_counts": {
-    "have it": 217,
-    "not applicable": 37,
+    "have it": 218,
+    "not applicable": 38,
     "differs on purpose": 1,
     "partly": 4,
-    "missing": 5
+    "missing": 8
   },
   "rows": [
     {
@@ -6605,6 +6605,127 @@
       "size": "XL",
       "status": "have it",
       "status_evidence": "Ported in opencode-rune #1288 (655f5ed3f, head c1360881ed, CI run 45746653359 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): versioned 10-byte big-endian binary frame codec (crates/opencode-kit/src/client/browser_rpc/stream_wire.rs), non-blocking polling ClientMux + MuxStream with priority control queue, round-robin 16 KiB DATA interleaving, 512 KiB receive window / 128 KiB WINDOW_UPDATE batches, 8 MiB attachment buffer cap, heartbeats, FIN/RESET, and clean detach (stream_mux/{mod,stream,worker}.rs), authenticated WS upgrade client validating /api/experimental/browser/tunnel + protocol 1 with single-use header auth and explicit non-downgrading error classification (tunnel/client.rs, http.rs, types.rs, machine.rs), negotiated TransportController + per-origin HTTP/1.1 keep-alive pool in TunnelProxy with 407 loopback auth and OPENCODE_BROWSER_TUNNEL_TRANSPORT=legacy fallback (tunnel/{stream,pool,proxy,pump}.rs, framing.rs), desktop capability negotiation + StreamActivated/StreamEnded liveness + off-thread trusted-navigation tunnel.grant (apps/desktop/src/surfaces/browser/{mod,openers}.rs, rpc/{mod,tunnel,workers}.rs), and navigationProgressDeadline + replacementNavigation (crates/browser-pane/src/client/mod.rs, apps/desktop/src/surfaces/browser/rpc/exec/{settle,nav}.rs). Official: packages/plugin-browser/src/{stream-wire,stream-mux,proxy,rpc}.ts, packages/gui-plugins/src/browser/{tunnel-client,network,pane,pane-machine,navigation-deadline,navigation-turn,chromium}.ts. Verified live over WAN against a remote TLS badd3ea1cd server (OPENCODE_FLAGS=browser_stream_tunnel) with the Windows x64 PR build (3/3 passes exit 0): binary WS tunnel.ws.v1 upgraded GET /api/experimental/browser/tunnel -> 101 with tunnel.grant and 0 legacy tunnel.{open,read,write} calls, completing the 10 MiB + concurrent WS /echo probe in 2.88 s (29.1 Mbps, 18 echoes, median 115.3 ms) vs legacy RPC 31.04 s (2.7 Mbps, 298 echoes, median 87.9 ms, p95 244.4 ms; 10.8x speedup), and rendered the Excalidraw SPA canvas, toolbar, and fonts whole. Not run: macOS, Linux, non-downgrading blocked-upgrade error path, navigationProgressDeadline 15 s slow-subresource path, replacementNavigation ERR_ABORTED redirect path.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-244",
+      "window": "post-1120",
+      "pr": 66501,
+      "sha": "63261c1c5d",
+      "title": "feat(desktop): add opt-in install updates on quit setting",
+      "merged": "2026-11-26",
+      "packages": [
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/updater/contract.ts",
+        "packages/gui-plugins/src/updater/i18n/en.ts",
+        "packages/gui-plugins/src/updater/main.ts",
+        "packages/gui-plugins/src/updater/platform.ts",
+        "packages/gui-plugins/src/updater/renderer.tsx",
+        "packages/gui-plugins/src/updater/section.tsx"
+      ],
+      "summary": "Settings > General > Updates gains an opt-in Install updates on quit switch (off by default on all desktop platforms, disabled and shown unchecked when the updater is disabled or unavailable) that controls whether downloaded updates install automatically when OpenCode quits.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Port in draft opencode-rune #1297 (head bf0a8efd5e, CI running, not yet run): adds installOnQuit preference (default false) to features/updater/src/{lib,mac,windows,service}.rs (macOS bundle swap on quit now honors the opt-in toggle and disarms cleanly mid-session without Squirrel.Mac; Windows invokes --apply-update without --relaunch when owned and enabled), syncs plugin.updater/installOnQuit in apps/desktop/src/surfaces/updater.rs, adds the desktop-only settings-install-on-quit row to plugins/updater/{init,view}.luau, plugin.toml, locales/en.json, and apps/desktop/src/dialogs/settings/updater_fallback.rs. Official: packages/gui-plugins/src/updater/{contract,main,platform,renderer,section}.tsx, i18n/en.ts.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-245",
+      "window": "post-1120",
+      "pr": 66506,
+      "sha": "662002c557",
+      "title": "fix(desktop): smooth Windows installer progress bar with live status and throughput",
+      "merged": "2026-11-26",
+      "packages": [
+        "desktop"
+      ],
+      "main_files": [
+        "packages/desktop/resources/windows/installer.nsh",
+        "patches/app-builder-lib@26.15.7.patch"
+      ],
+      "summary": "Patches Electron's app-builder-lib NSIS Windows installer to smooth the 7-Zip extraction progress bar with live status and throughput readouts.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "Electron NSIS / app-builder-lib patch only (installer.nsh + patches/app-builder-lib@26.15.7.patch). OpenCode (Rune) ships its own custom Rust Win32 TaskDialog setup bootstrapper in apps/installer/src/{install,pages}.rs that unpacks an embedded payload.zip in a few seconds with a Win32 marquee bar.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPDATER"
+    },
+    {
+      "id": "UP-246",
+      "window": "post-1120",
+      "pr": 66519,
+      "sha": "e927e98f06",
+      "title": "fix(session-ui): keep the View code button on an open execute call's title line",
+      "merged": "2026-11-26",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/timeline-next/timeline-next.css"
+      ],
+      "summary": "Keeps the View code action button aligned to the top title line of an expanded execute tool call rather than drifting down into the gap above its expanded body.",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "Already holds by construction in crates/session-view/src/tools/mod.rs:371-376,390-398 and execute.rs:28-51,236-254: trigger() renders line at a fixed 28 pt height (h(28.0).center_y()) holding button (h(28.0)) and the 24x24 View code button, while disclosure() stacks the revealed body below line with its 4 pt top gap (body(list, false, 4.0)) strictly inside body so opening an execute call never stretches line or shifts View code off the title line. Official: packages/session-ui/src/timeline-next/timeline-next.css:384,466,494.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-247",
+      "window": "post-1120",
+      "pr": 66521,
+      "sha": "5e000543a6",
+      "title": "feat(ui): calibrate non-default GUI themes for WCAG 2.2 contrast and elevation",
+      "merged": "2026-11-26",
+      "packages": [
+        "ui"
+      ],
+      "main_files": [
+        "packages/ui/src/theme/color.ts",
+        "packages/ui/src/theme/context.tsx",
+        "packages/ui/src/theme/v2/foreground.ts",
+        "packages/ui/src/theme/v2/mapping.ts",
+        "packages/ui/src/theme/v2/resolve.ts"
+      ],
+      "summary": "Calibrates all non-default GUI themes (leaving default oc-2 untouched) for WCAG 2.2 AA contrast and consistent surface/code-block elevation across dark and light variants.",
+      "size": "L",
+      "status": "missing",
+      "status_evidence": "Port in draft opencode-rune #1296 (head 8516e08350, CI running, not yet run): calibrates all non-default theme palettes and elevation tokens against WCAG 2.2 contracts while keeping oc-2 untouched. Official: packages/ui/src/theme/{color.ts,context.tsx,v2/foreground.ts,v2/mapping.ts,v2/resolve.ts} and theme JSONs.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-248",
+      "window": "post-1120",
+      "pr": 66528,
+      "sha": "04eccc3012",
+      "title": "feat(ui): add Modus, Alabaster, VS Code, Cyberdream, Poimandres, and Oxocarbon themes",
+      "merged": "2026-11-26",
+      "packages": [
+        "ui"
+      ],
+      "main_files": [
+        "packages/ui/src/theme/context.tsx",
+        "packages/ui/src/theme/themes/alabaster.json",
+        "packages/ui/src/theme/themes/cyberdream.json",
+        "packages/ui/src/theme/themes/modus.json",
+        "packages/ui/src/theme/themes/oxocarbon.json",
+        "packages/ui/src/theme/themes/poimandres.json",
+        "packages/ui/src/theme/themes/vscode.json"
+      ],
+      "summary": "Adds six built-in GUI themes (Alabaster, Cyberdream, Modus, Oxocarbon, Poimandres, and VS Code) to the theme registry and Settings > Appearance picker.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Port in draft opencode-rune #1296 (head 8516e08350, CI running, not yet run): registers Alabaster, Cyberdream, Modus, Oxocarbon, Poimandres, and VS Code (36 -> 42 themes). Official: packages/ui/src/theme/context.tsx and themes/{alabaster,cyberdream,modus,oxocarbon,poimandres,vscode}.json.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
