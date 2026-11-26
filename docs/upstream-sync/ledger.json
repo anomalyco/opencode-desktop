@@ -2,12 +2,12 @@
   "generated_at": "2026-11-27",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "4769a48e5dbdb5c777efe6eab21504543587bb40",
+  "upstream_head": "104bda5ba3296fab7bfdec88f045faa68847acc3",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "22e723e10",
-  "post_1114_commit_count": 740,
-  "post_1114_in_ledger": 254,
+  "rune_desktop_head": "582f2f017",
+  "post_1114_commit_count": 741,
+  "post_1114_in_ledger": 255,
   "post_1114_skipped": 486,
   "post_1114_skipped_breakdown": {
     "test-only": 33,
@@ -18,13 +18,13 @@
     "server-core-ai-codemode-internal": 306
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 275,
+  "total_ledger_rows": 276,
   "status_counts": {
     "have it": 227,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 4,
-    "missing": 4
+    "missing": 5
   },
   "rows": [
     {
@@ -6873,6 +6873,33 @@
       "size": "L",
       "status": "missing",
       "status_evidence": "Not yet ported. Official: packages/app/src/automations/{format,model,route,source,view}.*, settings/experimental/experimental.tsx, shell/{routes/routes,tabs/tabs,titlebar/titlebar}.tsx, runtime/i18n/en.ts.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-255",
+      "window": "post-1120",
+      "pr": 66509,
+      "sha": "104bda5ba3",
+      "title": "feat(session-ui): flat execute layout and script diffs behind full_codemode",
+      "merged": "2026-11-26",
+      "packages": [
+        "app",
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/app/src/session/timeline/controller.tsx",
+        "packages/session-ui/src/timeline/script-output.ts",
+        "packages/session-ui/src/timeline/facts.ts",
+        "packages/session-ui/src/timeline/projection.ts",
+        "packages/session-ui/src/timeline-next/row.tsx",
+        "packages/session-ui/src/tools/tool-renderer.tsx"
+      ],
+      "summary": "Gates Code Mode execute script diffs/counts behind the server's full_codemode flag and switches execute calls under full_codemode to a flat layout that places the script's Output disclosure row after its file changes with tighter script-to-changes spacing.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Not yet ported (Rune currently shows script changes unconditionally without checking the server's full_codemode flag and keeps Output inside the execute row). Official: packages/app/src/session/timeline/{controller,message-timeline}.tsx, packages/session-ui/src/timeline/{script-output,facts,projection}.ts, timeline-next/{row,tools/context-group}.tsx, tools/tool-renderer.tsx.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
