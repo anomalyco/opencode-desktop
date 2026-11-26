@@ -4271,7 +4271,6 @@ name = "opencode-widget"
 version = "0.0.1"
 dependencies = [
  "base64 0.22.1",
- "pollster",
  "psychoscript",
  "psychoscript-gpu",
  "ryu-js",
@@ -4286,11 +4285,9 @@ dependencies = [
 name = "opencode-widget-view"
 version = "0.0.1"
 dependencies = [
- "block2 0.6.2",
  "objc2 0.6.5",
  "objc2-metal 0.3.2",
  "opencode-widget",
- "pollster",
  "rune",
  "rune-gpu",
  "rune-kit",

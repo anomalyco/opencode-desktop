@@ -33,16 +33,5 @@ psychoscript-gpu = { version = "0.1", optional = true }
 widget-wire = { git = "https://github.com/anomalyco/opencode", rev = "d8b0f68fcb1bfbafd4f55f8c656321930267aa59", optional = true }
 wgpu = { version = "30", default-features = false, optional = true }
 
-[dev-dependencies]
-# The check programs read wire fixtures of 100-level views, deeper than serde_json reads by default.
-serde_json = { workspace = true, features = ["unbounded_depth"] }
-pollster = "1"
-
-# The GPU checks replay on a real device: Vulkan here (lavapipe without a GPU), Metal on a Mac.
-[target.'cfg(target_os = "linux")'.dev-dependencies]
-wgpu = { version = "30", default-features = false, features = ["vulkan"] }
-[target.'cfg(target_os = "macos")'.dev-dependencies]
-wgpu = { version = "30", default-features = false, features = ["metal"] }
-
 [lints]
 workspace = true
