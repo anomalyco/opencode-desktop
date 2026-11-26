@@ -10,20 +10,19 @@ use crate::session_menu::{Spot, Target, preferences};
 use crate::tabs::pins::{self, HiddenMark, PinColor, PinGroup, PinItem, PinRef};
 use opencode_i18n::t;
 
-/// `sessions-stack` (`packages/ui/src/icons/catalog.ts`): Home's glyph under Consolidated.
+/// `sessions-stack` (`packages/ui/src/icons/catalog.ts:393`): Home's glyph in every layout
+/// (`packages/app/src/shell/titlebar/titlebar.tsx:427,438`, `opencode#66594`).
 pub(crate) static SESSIONS_STACK: Icon = Icon {
     name: "sessions-stack",
     view: 16.0,
     body: r#"<path d="M3.5 3.5H12.5M1.5 5.5V12.5H14.5V5.5H12.5H3.5H1.5Z" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor"/>"#,
 };
 
-/// Home's label and glyph (`homeLabel`, `homeIcon`): Sessions under Consolidated.
+/// Home's label and glyph (`homeLabel`, `titlebar.tsx:405-445`, `opencode#66594`):
+/// Sessions under Consolidated, Home otherwise; always uses `sessions-stack`.
 pub(crate) fn home_label(s: &App) -> (&'static str, &'static Icon) {
-    if s.settings.navigation_prototype() {
-        (t!("sidebar.sessions"), &SESSIONS_STACK)
-    } else {
-        (t!("home.title"), &ic::GRID_PLUS)
-    }
+    let label = if s.settings.navigation_prototype() { t!("sidebar.sessions") } else { t!("home.title") };
+    (label, &SESSIONS_STACK)
 }
 
 /// Group marker colors matching `pinned-area.css` (`--pinned-group-bg` / `--pinned-group-border`)
