@@ -28,6 +28,22 @@ pub fn is_file_tool(c: &Call) -> bool {
     *c.status != opencode_kit::model::ToolStatus::Error && matches!(c.name, "edit" | "multiedit" | "write" | "patch" | "apply_patch")
 }
 
+/// Whether file tool `c` draws a bordered file card (0 pt vertical overhang) rather than its
+/// fallback 28 pt pending trigger (cheap check without computing a diff).
+pub fn draws_card(c: &Call) -> bool {
+    if let Some(files) = c.metadata["files"].as_array().filter(|f| !f.is_empty()) {
+        return files.iter().any(|f| changed(c, f).is_some());
+    }
+    if path(c.input).is_none() {
+        return false;
+    }
+    match c.name {
+        "edit" | "multiedit" => c.input["oldString"].as_str().zip(c.input["newString"].as_str()).is_some_and(|(o, n)| o != n),
+        "write" => field(c.input, "content").is_some(),
+        _ => false,
+    }
+}
+
 /// What a file's row says it did.
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
