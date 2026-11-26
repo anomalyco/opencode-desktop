@@ -5,7 +5,7 @@
   "upstream_head": "782125f72a60220a4896490be628d16be56ac1da",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "0717b0de2",
+  "rune_desktop_head": "32c206532",
   "post_1114_commit_count": 736,
   "post_1114_in_ledger": 254,
   "post_1114_skipped": 482,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 275,
   "status_counts": {
-    "have it": 225,
+    "have it": 226,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 5,
-    "missing": 5
+    "missing": 4
   },
   "rows": [
     {
@@ -6770,8 +6770,8 @@
       ],
       "summary": "Adds a Copy submenu (Session ID, Session title when non-fallback, Project ID) to session context menus (tabs, Home rows, inbox cards, pinned sessions, project sidebar rows, and recent sessions) and standardizes item ordering across them.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Port in draft opencode-rune #1315 (head 41be48d771 after forward-merging dev; 4/4 headless cases passed on 612ea51ef5, waiting on refreshed CI): features/session-menu/src/copy.rs builds Copy submenu with is_fallback_title check and live-session copy, wired across session menus with official strings in crates/opencode-i18n/locales/official/en.json.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1315 (32c206532, head 41be48d771, CI run 45846860261 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): features/session-menu/src/copy.rs builds Copy submenu (Session ID, live Session title when non-fallback via is_fallback_title, Project ID) and copy::run, wired across tabs, Home rows, project sidebar rows, sidebar session cards, pinned sessions, and recent sessions with aligned item ordering and 4 official strings in crates/opencode-i18n/locales/official/en.json. Official: packages/app/src/session/session-copy-menu.tsx, home/sessions/view.tsx, shell/titlebar/{tab-nav,inbox,pinned-area,project-session-row,recent-sessions,sidebar-pins}.tsx. Verified headless on Windows x64 PR build (612ea51ef5, run 45836838509) beside before build (a31eac4945), all 4/4 cases pass (9/9 launches exit 0): tab, Home, Pinned, and Recent menus show Copy submenu in official order and omit Session title on fallback titles. Not run: clipboard write click, real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
