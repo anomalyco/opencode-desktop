@@ -385,6 +385,37 @@ pub fn events<S: TimelineHost>(s: &S, p: &Pal, session: &str, key: &str, steps: 
     )
 }
 
+/// Renders a non-text [`super::Block`] at `block` inside `blocks` with cross-block script output
+/// placement (`opencode#66509`).
+#[allow(clippy::too_many_arguments)]
+pub fn block_row<S: TimelineHost>(
+    s: &S,
+    p: &Pal,
+    session: &str,
+    blocks: &[super::Block<'_>],
+    block: usize,
+    turn: std::ops::Range<usize>,
+    live: bool,
+    fade: f32,
+    pt: f32,
+    flat: bool,
+) -> El {
+    let placement = super::script_output_for_blocks(blocks, flat);
+    match blocks.get(block) {
+        Some(super::Block::Group { key, steps, at }) => group(s, p, session, key, steps, at, turn, live, fade, &placement.after_changes).pt(pt),
+        Some(super::Block::Events { key, steps }) => events(s, p, session, key, steps).pt(pt),
+        Some(super::Block::Subagent { step, .. }) => subagent(s, p, session, step).pt(pt),
+        Some(super::Block::Question { id, status, input, metadata }) => crate::question_row::view(s, p, session, id, status, input, metadata).pt(pt),
+        Some(super::Block::Thought { steps, live: thinking, .. }) => thoughts(s, p, steps, live, live && *thinking, fade).pt(pt),
+        Some(super::Block::Calls { kind, steps, .. }) => {
+            let after = *kind == Calls::One
+                && matches!(steps.first(), Some(Step::Tool { id, .. }) if placement.after_changes.contains(*id));
+            calls(s, p, session, *kind, steps, live, after, &placement.output_after).pt(pt)
+        }
+        _ => col(),
+    }
+}
+
 /// Calls on their own row (`AssistantContent`, `SessionReadToolGroup`, `FileGroup`), drawn as
 /// they draw in a group: one call, plain reads sharing a line, or edits sharing a file card.
 #[allow(clippy::too_many_arguments)]

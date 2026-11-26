@@ -594,18 +594,7 @@ impl Server {
         self.get("/api/project").map(|v| model::parse_projects(&v))
     }
 
-    /// Resolved UI feature flags for `directory` (`GET /api/experimental/flag`,
-    /// `packages/protocol/src/groups/flag.ts`, `opencode#66509`). Flags not listed are off.
-    pub fn flags(&self, directory: Option<&str>) -> Result<std::collections::BTreeMap<String, bool>, WireError> {
-        let path = format!("/api/experimental/flag{}", crate::integration::location_query(directory));
-        let v = self.get(&path)?;
-        let obj = v.get("data").and_then(Value::as_object).or_else(|| v.as_object());
-        Ok(obj
-            .into_iter()
-            .flatten()
-            .filter_map(|(k, v)| v.as_bool().map(|b| (k.clone(), b)))
-            .collect())
-    }
+
 
     /// Every direct subagent session of `session`, newest first, in pages of 200 (Desktop's
     /// `listChildren`).

@@ -257,13 +257,7 @@ impl RowSpec {
                     return rune::memo(self.key.clone(), ver, || {
                         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
                         let blocks = turns::fold_with_flags(&entries(&t.messages[*start..*end], &detail), *live, &detail, script_diffs);
-                        let placement = turns::script_output_for_blocks(&blocks, script_diffs);
-                        let el = match blocks.get(*block) {
-                            Some(Block::Group { key, steps, at }) => turns::group(s, p, &t.session, key, steps, at, *start..*end, *live, fade, &placement.after_changes).pt(*pt),
-                            Some(Block::Events { key, steps }) => turns::events_row(s, p, &t.session, key, steps).pt(*pt),
-                            _ => col(),
-                        };
-                        self.wrap(s, el)
+                        self.wrap(s, turns::block_row(s, p, &t.session, &blocks, *block, *start..*end, *live, fade, *pt, script_diffs))
                     });
                 }
                 RowContent::User { message, above, below, top, fold } => {
@@ -364,18 +358,11 @@ impl RowSpec {
                 let detail = s.timeline_detail();
                 let script_diffs = s.full_codemode(&t.session);
                 let blocks = turns::fold_with_flags(&entries(&t.messages[*start..*end], &detail), *live, &detail, script_diffs);
-                let placement = turns::script_output_for_blocks(&blocks, script_diffs);
                 match blocks.get(*block) {
-                    Some(Block::Group { key, steps, at }) => turns::group(s, p, &t.session, key, steps, at, *start..*end, *live, fade, &placement.after_changes).pt(*pt),
                     Some(Block::Text { key, body, live, msg, part }) => {
-                        // `t-{message}-{n}`
                         let message = key.strip_prefix("t-").and_then(|k| k.rsplit_once('-')).map(|(id, _)| id);
                         let has_turn_footer = !*live && turn_footer_text(t, start + msg, *part);
-                        let trim_bottom = if has_turn_footer || (!*live && footer_text(t, start + msg, *part)) {
-                            0.0
-                        } else {
-                            rhythm::prose_bottom_trim(body)
-                        };
+                        let trim_bottom = if has_turn_footer || (!*live && footer_text(t, start + msg, *part)) { 0.0 } else { rhythm::prose_bottom_trim(body) };
                         let md_el = markdown_view_find(s, p, &self.key, body, fade, *live, message, prompt_dir(t, start + msg));
                         let text = col().w_full().pt(*pt).child(if trim_bottom > 0.0 { md_el.mb(-trim_bottom) } else { md_el });
                         if has_turn_footer {
@@ -383,17 +370,7 @@ impl RowSpec {
                         }
                         text
                     }
-                    Some(Block::Events { key, steps }) => turns::events_row(s, p, &t.session, key, steps).pt(*pt),
-                    Some(Block::Subagent { step, .. }) => turns::subagent_row(s, p, &t.session, step).pt(*pt),
-                    Some(Block::Question { id, status, input, metadata }) =>
-                        crate::question_row::view(s, p, &t.session, id, status, input, metadata).pt(*pt),
-                    Some(Block::Thought { steps, live: thinking, .. }) => turns::thoughts(s, p, steps, *live, *live && *thinking, fade).pt(*pt),
-                    Some(Block::Calls { kind, steps, .. }) => {
-                        let after = *kind == turns::Calls::One
-                            && matches!(steps.first(), Some(turns::Step::Tool { id, .. }) if placement.after_changes.contains(*id));
-                        turns::calls(s, p, &t.session, *kind, steps, *live, after, &placement.output_after).pt(*pt)
-                    }
-                    None => col(),
+                    _ => turns::block_row(s, p, &t.session, &blocks, *block, *start..*end, *live, fade, *pt, script_diffs),
                 }
             }
         };

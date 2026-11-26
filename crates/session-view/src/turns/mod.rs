@@ -17,7 +17,7 @@
 
 mod view;
 
-pub use view::{calls, events as events_row, group, subagent as subagent_row, thoughts};
+pub use view::{block_row, calls, events as events_row, group, subagent as subagent_row, thoughts};
 
 use opencode_kit::model::{Assistant, Attachment, Notice, Part, ToolStatus};
 
