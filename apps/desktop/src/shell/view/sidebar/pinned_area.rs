@@ -227,7 +227,8 @@ fn vertical_session(s: &App, p: &Pal, r: &PinRef, nav_order: &[String], show_hin
         .focus_selected(d.active)
         .w_full()
         .h(28.0)
-        .px(8.0)
+        .pl(8.0)
+        .pr(4.0)
         .gap(8.0)
         .center_y()
         .radius(6.0)
@@ -245,7 +246,8 @@ fn vertical_session(s: &App, p: &Pal, r: &PinRef, nav_order: &[String], show_hin
         item = item.description(super::pins::muted_description(d.status));
     }
     if let Some(m) = mark {
-        item = item.child(el().key("status").size(16.0, 16.0).center().child(m));
+        // Matches `TabNavItem` (`pinned-area.tsx:545-565`, `tab-nav.css:1-8`): 20×20 slot 4 pt from end.
+        item = item.child(el().key("status").size(20.0, 20.0).center().child(m));
     }
     item
 }

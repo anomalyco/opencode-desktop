@@ -50,7 +50,7 @@ pub(super) fn session_row(s: &App, p: &Pal, key: String, r: SessionRow) -> El {
         .w_full()
         .h(28.0)
         .pl(start)
-        .pr(8.0)
+        .pr(4.0)
         .gap(8.0)
         .center_y()
         .radius(6.0)
@@ -63,7 +63,7 @@ pub(super) fn session_row(s: &App, p: &Pal, key: String, r: SessionRow) -> El {
     if let Some(label) = r.label {
         row = row.child(text(label).key("server").font(LABEL).color(p.faint).shrink().truncate());
     }
-    row = row.child(el().key("status").size(16.0, 16.0).center().children(mark));
+    row = row.child(el().key("status").size(20.0, 20.0).center().children(mark));
     if r.open_tab {
         row = row.child(el().key("open-tab").label(t!("sidebar.organize.openTab")).pin(Some(8.0), None, None, None).size(16.0, 16.0).center().child(el().size(4.0, 4.0).radius(2.0).fill(p.icon_faint)));
     } else if let Some(proj) = r.project {
