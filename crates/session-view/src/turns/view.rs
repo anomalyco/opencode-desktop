@@ -17,6 +17,14 @@ use crate::style::{HOVER_FADE, ThoughtPart, UI, arrow, reasoning};
 const GROUP_GAP: f32 = crate::timeline::rhythm::M;
 /// Between a script and its own file changes inside an open group: 16 (`--timeline-gap-s`).
 const SCRIPT_CHANGE_GAP: f32 = crate::timeline::rhythm::S;
+/// A 28 pt trigger's empty vertical overhang on each side of its 16 pt line
+/// (`timeline-next.css:402` uses `padding-block: 6px; margin-block: -6px`; Rune keeps the 28 pt
+/// box and subtracts each row's overhang from the gap between rows).
+const TRIGGER_INSET: f32 = 6.0;
+/// Solid room below an open group's 28 pt trigger to where its first item's visible content (and
+/// any stuck file header) starts: `GROUP_GAP` less the trigger's 6 pt bottom overhang
+/// (`timeline-next.css:487-494`, `16 + 6 + 20 = 42` total below `sticky_top`).
+const HEADER_PAD: f32 = GROUP_GAP - TRIGGER_INSET;
 
 /// The folded row (`ContextGroup`): its label, and when open, every step in order, 14 in from a
 /// line 2 in from its edge (`timeline-next.css`, nested content). Plain reads in a row share a
@@ -45,7 +53,8 @@ pub fn group<S: TimelineHost>(
 ) -> El {
     let open = s.expanded().contains(key);
     if steps.iter().all(|st| matches!(st, Step::Thought { .. })) {
-        return thoughts(s, p, steps, live, false, fade);
+        let foot = thought_foot(s, live, false, steps);
+        return thoughts(s, p, steps, live, false, fade).pb((TRIGGER_INSET - foot).max(0.0));
     }
     let work = activity::work_events(steps);
     let work_only = !work.is_empty() && steps.iter().all(is_work);
@@ -87,7 +96,7 @@ pub fn group<S: TimelineHost>(
         trigger = if files {
             // A solid strip under the label, which a stuck file header meets; the soft edge would
             // wash over that header. It presses and hovers as the label does.
-            trigger.child(el().key("pad").pin(Some(0.0), Some(28.0), Some(0.0), None).h(GROUP_GAP).fill(p.bg_base))
+            trigger.child(el().key("pad").pin(Some(0.0), Some(28.0), Some(0.0), None).h(HEADER_PAD).fill(p.bg_base))
         } else {
             // Steps scroll under it and soften into its fill rather than meeting a hard edge, and
             // shutting from there they slide away under it.
@@ -114,28 +123,44 @@ pub fn group<S: TimelineHost>(
         let items = std::rc::Rc::new(plan(steps));
         let flat = s.full_codemode(session);
         let placement = super::script_output_for_steps(steps, flat);
-        let after_ids: std::rc::Rc<std::collections::HashSet<String>> = std::rc::Rc::new(
-            placement.after_changes.iter().chain(extra_after.iter()).map(|id| (*id).to_owned()).collect(),
-        );
-        let output_after: std::rc::Rc<std::collections::HashMap<String, (String, String)>> = std::rc::Rc::new(
-            placement.output_after.into_iter().map(|(k, (sid, text))| (k, (sid.to_owned(), text))).collect(),
-        );
+        let mut after_refs: std::collections::HashSet<&str> = placement.after_changes.clone();
+        after_refs.extend(extra_after.iter().copied());
+        let edges: Vec<(f32, f32)> = items
+            .iter()
+            .map(|&(i, n)| {
+                let slice = &steps[i..i + n];
+                (step_head(slice), step_foot(s, session, live, slice, &after_refs, &placement.output_after))
+            })
+            .collect();
+        let first_head = edges.first().map_or(TRIGGER_INSET, |&(h, _)| h);
+        let last_foot = edges.last().map_or(TRIGGER_INSET, |&(_, f)| f);
+        let top_gap = (GROUP_GAP - TRIGGER_INSET - first_head).max(0.0);
         let row_gaps: std::rc::Rc<Vec<f32>> = std::rc::Rc::new(
             items
                 .iter()
                 .enumerate()
                 .map(|(j, &(i, _))| {
                     if j == 0 {
-                        0.0
-                    } else if matches!(steps.get(i), Some(Step::Change { .. })) {
+                        return 0.0;
+                    }
+                    let target = if matches!(steps.get(i), Some(Step::Change { .. })) {
                         SCRIPT_CHANGE_GAP
                     } else {
                         GROUP_GAP
-                    }
+                    };
+                    (target - edges[j - 1].1 - edges[j].0).max(0.0)
                 })
                 .collect(),
         );
-        let pb = (6.0 - items.last().map_or(6.0, |&(i, n)| step_foot(s, session, live, &steps[i..i + n]))).max(0.0);
+        let pb = (TRIGGER_INSET - last_foot).max(0.0);
+        let rail_top = top_gap + first_head;
+        let rail_bottom = pb + last_foot;
+        let after_ids: std::rc::Rc<std::collections::HashSet<String>> = std::rc::Rc::new(
+            after_refs.into_iter().map(str::to_owned).collect(),
+        );
+        let output_after: std::rc::Rc<std::collections::HashMap<String, (String, String)>> = std::rc::Rc::new(
+            placement.output_after.into_iter().map(|(k, (sid, text))| (k, (sid.to_owned(), text))).collect(),
+        );
         let keys: std::rc::Rc<Vec<String>> = std::rc::Rc::new(items.iter().map(|&(i, _)| item_key(steps, i)).collect());
         let at: std::rc::Rc<[Loc]> = at.into();
         let version = (key, &*keys, flat);
@@ -149,7 +174,7 @@ pub fn group<S: TimelineHost>(
                 let built = s.with_transcript(&session, |t| {
                     let messages = t.messages.get(span.clone())?;
                     let steps: Vec<Step> = at.get(i..i + n)?.iter().map(|l| l.step(messages)).collect::<Option<_>>()?;
-                    let cx = crate::tools::Ctx { session: &session, live, sticky: top + 28.0 + GROUP_GAP };
+                    let cx = crate::tools::Ctx { session: &session, live, sticky: top + 28.0 + HEADER_PAD };
                     Some(step_item(s, &p, cx, &group_key, &steps, live, fade, &after_ids, &output_after))
                 }).flatten().unwrap_or_else(col);
                 // The gap is the row's own, so the list holds rows alone.
@@ -160,12 +185,12 @@ pub fn group<S: TimelineHost>(
         // Rail only collapses open groups; while `shutting` (`!open`) it stays non-interactive so
         // clicking or double-clicking mid-fold never re-opens the group (`nested-rail.ts`).
         let rail = if open {
-            crate::style::nested_rail(&p, GROUP_GAP + 6.0, 6.0, crate::disclosure::collapse_group::<S>(key.to_owned()))
+            crate::style::nested_rail(&p, rail_top, rail_bottom, crate::disclosure::collapse_group::<S>(key.to_owned()))
         } else {
             let line = p.border.alpha(p.border.a * 0.5);
-            el().key("rail").pin(Some(2.0), Some(GROUP_GAP + 6.0), None, Some(6.0)).w(1.0).fill(line)
+            el().key("rail").pin(Some(2.0), Some(rail_top), None, Some(rail_bottom)).w(1.0).fill(line)
         };
-        let list = col().key("steps").w_full().pt(GROUP_GAP).pb(pb).pl(14.0).transition(rune::Transition::none()).child(rail).child(list);
+        let list = col().key("steps").w_full().pt(top_gap).pb(pb).pl(14.0).transition(rune::Transition::none()).child(rail).child(list);
 
         // Shutting, the steps stay laid out below a row that's only the header, and the row's
         // clip folds them away as its height springs down to it.
@@ -248,27 +273,116 @@ fn run_events(steps: &[Step]) -> Vec<events::Event> {
     steps.iter().filter_map(activity::step_event).collect()
 }
 
-/// How far inside its box an open group's last row visually ends (`rhythm` subtracts `6` for a
-/// closed 28 pt trigger; a row ending at a card or open body has 0 overhang and keeps the 6).
-fn step_foot<S: TimelineHost>(s: &S, session: &str, live: bool, steps: &[Step]) -> f32 {
-    let Some(first) = steps.first() else { return 6.0 };
+/// Whether a `file_like` step draws a bordered file card (0 pt overhang) rather than a 28 pt
+/// trigger or `counts_row` (6 pt overhang).
+fn file_step_is_card(st: &Step) -> bool {
+    match st {
+        Step::Change { file, .. } => crate::tools::script::is_card(file),
+        Step::Tool { .. } => call(st).is_some_and(|c| crate::tools::file_draws_card(&c)),
+        _ => false,
+    }
+}
+
+/// Whether a run of `file_like` steps starts with a bordered card (0 pt top overhang).
+pub fn file_run_head_is_card(steps: &[Step]) -> bool {
+    let Some(first) = steps.first() else { return false };
+    if script_change(first) {
+        file_step_is_card(first)
+    } else {
+        steps.iter().take_while(|st| !script_change(st)).any(file_step_is_card)
+    }
+}
+
+/// Whether a run of `file_like` steps ends with a bordered card or a flat `Output` row (0 pt
+/// trigger bottom overhang).
+fn file_run_foot_is_flush(steps: &[Step], output_after: &std::collections::HashMap<String, (&str, String)>) -> bool {
+    let Some(last) = steps.last() else { return false };
+    if let Step::Change { msg, script, index, .. } = last
+        && output_after.get(&crate::tools::script::change_id(msg, script, *index)).is_some_and(|(_, t)| !t.is_empty())
+    {
+        return true;
+    }
+    if script_change(last) {
+        file_step_is_card(last)
+    } else {
+        steps.iter().rev().take_while(|st| !script_change(st)).any(file_step_is_card)
+    }
+}
+
+/// Visual bottom overhang of a thought row (`TRIGGER_INSET` while shut, prose bottom half-leading
+/// while open).
+fn thought_foot<S: TimelineHost>(s: &S, live: bool, thinking: bool, steps: &[Step]) -> f32 {
+    let Some(Step::Thought { msg, index, .. }) = steps.first() else { return TRIGGER_INSET };
+    let has_details = steps.iter().any(|st| matches!(st, Step::Thought { body, .. } if !body.trim().is_empty()));
+    let thinking = thinking || (live && unfinished(steps));
+    let open = has_details && crate::disclosure::is_open(s, &format!("r-{msg}-{index}"), thinking && s.timeline_detail().expanded(Category::Thinking));
+    if open { crate::timeline::rhythm::prose_insets().1 } else { TRIGGER_INSET }
+}
+
+/// How far inside its box an open group's row visually starts (`TRIGGER_INSET` for a 28 pt
+/// trigger, `0.0` for a bordered file card, top half-leading for commentary prose).
+fn step_head(steps: &[Step]) -> f32 {
+    let Some(first) = steps.first() else { return TRIGGER_INSET };
     match first {
-        st if is_work(st) => 6.0,
-        Step::Thought { msg, index, .. } => {
-            let open = crate::disclosure::is_open(s, &format!("r-{msg}-{index}"), live && unfinished(steps) && s.timeline_detail().expanded(Category::Thinking));
-            if open { crate::timeline::rhythm::prose_insets().1 } else { 6.0 }
-        }
-        Step::Notice(_) => 4.0,
-        Step::Text { body } => if body.trim_end().ends_with("```") { 0.0 } else { crate::timeline::rhythm::prose_insets().1 },
-        st @ Step::Tool { .. } if grouped_read(st) || named_skill(st) => 6.0,
-        // Card ends carry their own 6 pt vertical inset in `step_item`; count rows end 6 under
-        // their line like a closed trigger.
-        _ if file_like(first) => 6.0,
-        st @ Step::Tool { .. } => {
+        st if is_work(st) => TRIGGER_INSET,
+        Step::Thought { .. } | Step::Notice(_) => TRIGGER_INSET,
+        Step::Text { body } => crate::timeline::rhythm::prose_top_inset(body),
+        st @ Step::Tool { .. } if grouped_read(st) || named_skill(st) => TRIGGER_INSET,
+        _ if file_like(first) => if file_run_head_is_card(steps) { 0.0 } else { TRIGGER_INSET },
+        Step::Tool { .. } => TRIGGER_INSET,
+        Step::Change { .. } => if file_step_is_card(first) { 0.0 } else { TRIGGER_INSET },
+    }
+}
+
+/// How far inside its box an open group's row visually ends (`TRIGGER_INSET` for a closed 28 pt
+/// trigger; `0.0` for a card, flat/open execute, or open tool body; bottom half-leading for open
+/// thought or commentary prose).
+fn step_foot<S: TimelineHost>(
+    s: &S,
+    session: &str,
+    live: bool,
+    steps: &[Step],
+    after_ids: &std::collections::HashSet<&str>,
+    output_after: &std::collections::HashMap<String, (&str, String)>,
+) -> f32 {
+    let Some(first) = steps.first() else { return TRIGGER_INSET };
+    match first {
+        st if is_work(st) => TRIGGER_INSET,
+        Step::Thought { .. } => thought_foot(s, live, false, steps),
+        Step::Notice(_) => TRIGGER_INSET,
+        Step::Text { body } => crate::timeline::rhythm::prose_bottom_trim(body),
+        st @ Step::Tool { .. } if grouped_read(st) || named_skill(st) => TRIGGER_INSET,
+        _ if file_like(first) => if file_run_foot_is_flush(steps, output_after) { 0.0 } else { TRIGGER_INSET },
+        st @ Step::Tool { id, .. } => {
             let cx = crate::tools::Ctx { session, live, sticky: 0.0 };
-            if call(st).is_some_and(|c| crate::tools::shows_body(s, cx, &c)) { 0.0 } else { 6.0 }
+            if call(st).is_some_and(|c| crate::tools::shows_body_with(s, cx, &c, after_ids.contains(*id))) { 0.0 } else { TRIGGER_INSET }
         }
-        Step::Change { .. } => 0.0,
+        Step::Change { .. } => if file_run_foot_is_flush(steps, output_after) { 0.0 } else { TRIGGER_INSET },
+    }
+}
+
+/// Visual bottom overhang of a standalone `Block::Calls` row (`rhythm` expects `TRIGGER_INSET`).
+fn calls_foot<S: TimelineHost>(
+    s: &S,
+    session: &str,
+    live: bool,
+    kind: Calls,
+    steps: &[Step],
+    after_changes: bool,
+    output_after: &std::collections::HashMap<String, (&str, String)>,
+) -> f32 {
+    match kind {
+        Calls::Reads => TRIGGER_INSET,
+        Calls::Files => if file_run_foot_is_flush(steps, output_after) { 0.0 } else { TRIGGER_INSET },
+        Calls::One => {
+            let Some(first) = steps.first() else { return TRIGGER_INSET };
+            let has_images = matches!(first, Step::Tool { files, .. } if !files.is_empty());
+            if has_images {
+                return 0.0;
+            }
+            let cx = crate::tools::Ctx { session, live, sticky: 0.0 };
+            if call(first).is_some_and(|c| crate::tools::shows_body_with(s, cx, &c, after_changes)) { 0.0 } else { TRIGGER_INSET }
+        }
     }
 }
 
@@ -309,14 +423,7 @@ fn step_item<S: TimelineHost>(
             let calls: Vec<crate::tools::Call> = steps.iter().filter_map(call).collect();
             crate::tools::cached(s, p, cx, &calls, || crate::tools::read_group(s, p, cx, &calls)).key(format!("reads-{}", calls[0].id))
         }
-        st if file_like(st) => {
-            // A file card has no 6 pt text overhang of its own, so card ends pad 6 pt to keep
-            // `--timeline-gap-s` (16 pt) clear of neighbouring 28 pt text rows.
-            let is_card = |s: &Step| !matches!(s, Step::Change { file, .. } if !crate::tools::script::is_card(file));
-            let pt = if steps.first().is_some_and(is_card) { 6.0 } else { 0.0 };
-            let pb = if steps.last().is_some_and(is_card) { 6.0 } else { 0.0 };
-            file_runs_owned(s, p, cx, steps, output_after).pt(pt).pb(pb)
-        }
+        st if file_like(st) => file_runs_owned(s, p, cx, steps, output_after),
         st @ Step::Tool { .. } if named_skill(st) => {
             let calls: Vec<crate::tools::Call> = steps.iter().filter_map(call).collect();
             col().key(format!("skills-{}", calls[0].id)).w_full().child(crate::tools::cached(s, p, cx, &calls, || crate::tools::skill_group(s, p, cx, &calls)))
@@ -406,11 +513,15 @@ pub fn block_row<S: TimelineHost>(
         Some(super::Block::Events { key, steps }) => events(s, p, session, key, steps).pt(pt),
         Some(super::Block::Subagent { step, .. }) => subagent(s, p, session, step).pt(pt),
         Some(super::Block::Question { id, status, input, metadata }) => crate::question_row::view(s, p, session, id, status, input, metadata).pt(pt),
-        Some(super::Block::Thought { steps, live: thinking, .. }) => thoughts(s, p, steps, live, live && *thinking, fade).pt(pt),
+        Some(super::Block::Thought { steps, live: thinking, .. }) => {
+            let foot = thought_foot(s, live, live && *thinking, steps);
+            thoughts(s, p, steps, live, live && *thinking, fade).pt(pt).pb((TRIGGER_INSET - foot).max(0.0))
+        }
         Some(super::Block::Calls { kind, steps, .. }) => {
             let after = *kind == Calls::One
                 && matches!(steps.first(), Some(Step::Tool { id, .. }) if placement.after_changes.contains(*id));
-            calls(s, p, session, *kind, steps, live, after, &placement.output_after).pt(pt)
+            let foot = calls_foot(s, session, live, *kind, steps, after, &placement.output_after);
+            calls(s, p, session, *kind, steps, live, after, &placement.output_after).pt(pt).pb((TRIGGER_INSET - foot).max(0.0))
         }
         _ => col(),
     }
