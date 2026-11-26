@@ -61,7 +61,7 @@ pub fn group<S: TimelineHost>(
         );
     }
     let shutting = !open && crate::disclosure::is_shutting(s, key);
-    let named = activity::activity(steps);
+    let named = activity::activity_with(steps, s.full_codemode(session));
     let words_text = named.as_ref().map_or_else(|| label(steps).text(), activity::Activity::text);
     let mut trigger = row()
         .key("trigger")
