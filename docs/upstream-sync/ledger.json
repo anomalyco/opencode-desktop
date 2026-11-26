@@ -2,20 +2,20 @@
   "generated_at": "2026-11-27",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "104bda5ba3296fab7bfdec88f045faa68847acc3",
+  "upstream_head": "6c26549955966e333ae15764477c2e549776d85e",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "582f2f017",
-  "post_1114_commit_count": 741,
+  "rune_desktop_head": "15988933e",
+  "post_1114_commit_count": 743,
   "post_1114_in_ledger": 255,
-  "post_1114_skipped": 486,
+  "post_1114_skipped": 488,
   "post_1114_skipped_breakdown": {
     "test-only": 33,
     "ci-bench-deps": 26,
     "docs-site-data": 76,
     "tui-only": 32,
     "cli-acp-only": 13,
-    "server-core-ai-codemode-internal": 306
+    "server-core-ai-codemode-internal": 308
   },
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 276,
@@ -6872,7 +6872,7 @@
       "summary": "Adds an experimental Automations view (Settings > Experimental toggle + Automations sidebar/titlebar entry + /automations route) showing each server's scheduled/event automations, where they run, which session they wake, and pause/resume/delete controls.",
       "size": "L",
       "status": "missing",
-      "status_evidence": "Not yet ported. Official: packages/app/src/automations/{format,model,route,source,view}.*, settings/experimental/experimental.tsx, shell/{routes/routes,tabs/tabs,titlebar/titlebar}.tsx, runtime/i18n/en.ts.",
+      "status_evidence": "Not yet ported (also includes #66635 93e053ff89 follow-up passing the Home automations entry into projects view as props). Official: packages/app/src/automations/{format,model,route,source,view}.*, settings/experimental/experimental.tsx, shell/{routes/routes,tabs/tabs,titlebar/titlebar}.tsx, home/{route,projects/*}.tsx, runtime/i18n/en.ts.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6899,7 +6899,7 @@
       "summary": "Gates Code Mode execute script diffs/counts behind the server's full_codemode flag and switches execute calls under full_codemode to a flat layout that places the script's Output disclosure row after its file changes with tighter script-to-changes spacing.",
       "size": "M",
       "status": "missing",
-      "status_evidence": "Not yet ported (Rune currently shows script changes unconditionally without checking the server's full_codemode flag and keeps Output inside the execute row). Official: packages/app/src/session/timeline/{controller,message-timeline}.tsx, packages/session-ui/src/timeline/{script-output,facts,projection}.ts, timeline-next/{row,tools/context-group}.tsx, tools/tool-renderer.tsx.",
+      "status_evidence": "Port in draft opencode-rune #1329 (head c56158077a, CI running, not yet run): adds Server::flags (GET /api/experimental/flag), explicit per-(server, directory) LocationFlags state machine in apps/desktop/src/session/meta/flags.rs wired to TimelineHost::full_codemode, gates turns::fold_with_flags script diffs/counts behind full_codemode, switches execute calls under full_codemode to the flat locked-open layout with script_output_for_{steps,blocks} moving Output after the script's last change, updates M/S block and open-group spacing, and adds --scene tools-execute-codemode-{off,on,standalone}. Official: packages/app/src/session/timeline/{controller,message-timeline}.tsx, packages/session-ui/src/timeline/{script-output,facts,projection}.ts, timeline-next/{row,tools/context-group}.tsx, tools/tool-renderer.tsx.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
