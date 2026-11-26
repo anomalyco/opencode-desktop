@@ -16,8 +16,13 @@ impl BrowserHost {
         if let Ok(msg) = self.inbox_rx.try_recv() {
             self.held.borrow_mut().push_back(msg);
         }
+        #[cfg(feature = "engine")]
+        let needs_fresh = self.shared.lock().unwrap_or_else(PoisonError::into_inner).needs_fresh_spawn();
+        #[cfg(not(feature = "engine"))]
+        let needs_fresh = false;
         self.held.borrow().is_empty()
             && self.pending_opens.is_empty()
+            && !needs_fresh
             && self.status() == self.last_polled_status
             && self
                 .extensions
@@ -350,6 +355,15 @@ impl BrowserHost {
         }
         #[cfg(feature = "engine")]
         self.check_for_update_once();
+        #[cfg(feature = "engine")]
+        if self.shared.lock().unwrap_or_else(PoisonError::into_inner).needs_fresh_spawn() {
+            if self.has_engine_tabs() {
+                self.requeue_tabs();
+                self.connect_fresh();
+            } else {
+                self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::Shutdown);
+            }
+        }
         // An idle engine exited right as a new tab opened (before it could confirm it), or a
         // download finished while a tab waited for it: requeue unconfirmed tabs and reconnect.
         if !self.is_connected() && self.status() == EngineStatus::Installed && self.has_engine_tabs() {

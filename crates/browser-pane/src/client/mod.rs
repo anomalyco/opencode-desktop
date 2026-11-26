@@ -521,10 +521,29 @@ impl BrowserHost {
     pub(crate) fn clear_stale_fault_if_empty(&self) {
         #[cfg(feature = "engine")]
         if !self.has_engine_tabs() {
-            self.shared
+            self.clear_stale_fault();
+        }
+    }
+
+    pub(crate) fn clear_stale_fault(&self) {
+        #[cfg(feature = "engine")]
+        {
+            let effect = self
+                .shared
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .step(EngineEvent::ClearStaleFault);
+            if let EngineEffect::EndHung { kill_pid, sock, outbox } = effect {
+                if let Some(pid) = kill_pid {
+                    crate::transport::kill_pid(pid);
+                }
+                if let Some(tx) = outbox {
+                    tx.send(HostMsg::Shutdown).ok();
+                }
+                if let Some(sock) = sock.or_else(|| self.engine_socket().ok()) {
+                    std::fs::remove_file(sock).ok();
+                }
+            }
         }
     }
 
@@ -618,12 +637,10 @@ impl BrowserHost {
         t.loading = true;
         if let Some(((width_pt, height_pt), scale, _file_roots, context, agent_driven, allow_ext_pages)) = promote_open {
             if !had_engine_tabs {
-                #[cfg(feature = "engine")]
-                self.shared
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .step(EngineEvent::ClearStaleFault);
+                self.clear_stale_fault();
             }
+            let connected = self.is_connected();
+            let ready = self.status() == EngineStatus::Ready;
             self.sync_has_tabs();
             if connected && (context.is_default() || ready) {
                 self.send_open_tab_with_ext(
@@ -1009,10 +1026,16 @@ impl BrowserHost {
         self.close_extension_popup();
         let effect = self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::Shutdown);
         #[cfg(feature = "engine")]
-        if let Ok(sock) = self.engine_socket() {
-            std::fs::remove_file(sock).ok();
+        {
+            let active_sock = match &effect {
+                EngineEffect::Shutdown { sock, .. } => sock.clone(),
+                _ => None,
+            };
+            if let Some(sock) = active_sock.or_else(|| self.engine_socket().ok()) {
+                std::fs::remove_file(sock).ok();
+            }
         }
-        if let EngineEffect::Shutdown { outbox: Some(tx) } = effect {
+        if let EngineEffect::Shutdown { outbox: Some(tx), .. } = effect {
             tx.send(HostMsg::Shutdown).ok();
         }
     }
