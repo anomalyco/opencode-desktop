@@ -216,9 +216,11 @@ impl Platform for Mac {
         true
     }
 
-    /// Official installs a staged update on quit on macOS only (`platform.ts:30`).
+    /// Opt-in install-on-quit (`packages/gui-plugins/src/updater/platform.ts`, `opencode#66501`).
+    /// Because Rune swaps the signed bundle directly at quit (no Squirrel.Mac), turning the
+    /// setting off mid-session always disarms quit-install cleanly.
     fn installs_on_quit(&self) -> bool {
-        true
+        super::install_on_quit_enabled()
     }
 
     fn install_on_quit(&self) {
