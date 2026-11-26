@@ -57,11 +57,14 @@ impl BrowserHost {
     pub fn start_install(&mut self) {
         // One that stopped answering is ended: its pages open again in a new one.
         let end_hung = self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::EndHung);
-        if let EngineEffect::EndHung { kill_pid } = end_hung {
+        if let EngineEffect::EndHung { kill_pid, sock, outbox } = end_hung {
             if let Some(pid) = kill_pid {
                 crate::transport::kill_pid(pid);
             }
-            if let Ok(sock) = self.engine_socket() {
+            if let Some(tx) = outbox {
+                tx.send(crate::protocol::HostMsg::Shutdown).ok();
+            }
+            if let Some(sock) = sock.or_else(|| self.engine_socket().ok()) {
                 std::fs::remove_file(sock).ok();
             }
         }
@@ -101,8 +104,8 @@ impl BrowserHost {
                     // Hold `shared` across `remove_file` so a concurrent `open_tab` cannot observe
                     // the disconnected state and connect to the shutting-down engine's socket.
                     let mut shared = shared.lock().unwrap_or_else(PoisonError::into_inner);
-                    if let EngineEffect::Shutdown { outbox: Some(tx) } = shared.step(EngineEvent::Unprepare) {
-                        if let Some(sock) = sock {
+                    if let EngineEffect::Shutdown { outbox: Some(tx), sock: active_sock } = shared.step(EngineEvent::Unprepare) {
+                        if let Some(sock) = active_sock.or(sock) {
                             std::fs::remove_file(sock).ok();
                         }
                         rune::marks::mark("browser.engine.unprepared");
@@ -193,6 +196,7 @@ impl BrowserHost {
             waker: self.message_waker.clone().or_else(|| self.waker.clone()),
             sock: sock.clone(),
             profile: profile.clone(),
+            stderr: None,
             opens: self.pending_open_msgs(),
             extension_args,
             profile_permissions: self.site_permissions.list().to_vec(),

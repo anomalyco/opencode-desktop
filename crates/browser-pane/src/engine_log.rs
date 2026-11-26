@@ -3,34 +3,123 @@
 //! inside the engine profile directory:
 //! - `engine-host.log` (rotated to `engine-host.prev.log` at 256 KiB): host-side lifecycle,
 //!   startup timing, timeouts, exit codes, and fault transitions.
-//! - `engine-stderr.log` (rotated to `engine-stderr.prev.log` before each spawn): the sidecar's
-//!   own stderr (Rust panics, bind/init errors, Chromium fatal messages), unless
-//!   `OPENCODE_BROWSER_ENGINE_TRACE` keeps stderr inherited.
+//! - `engine-stderr.log` (rotated to `engine-stderr.prev.log` on each spawn, capped at 256 KiB
+//!   per run): drained by a host thread from a pipe so sandboxed CEF subprocesses never inherit a
+//!   writable file handle and cannot exhaust disk space; also keeps a 1 KiB in-memory tail ring
+//!   for immediate fault annotations without disk reads or Windows file-sharing races.
 
+use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::Path;
-use std::process::Stdio;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
+use std::process::{ChildStderr, Stdio};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use rune::time::{SystemTime, UNIX_EPOCH};
+
+use crate::installer::is_reparse_or_symlink;
 
 const HOST_LOG: &str = "engine-host.log";
 const HOST_LOG_PREV: &str = "engine-host.prev.log";
 const STDERR_LOG: &str = "engine-stderr.log";
 const STDERR_LOG_PREV: &str = "engine-stderr.prev.log";
-const MAX_HOST_LOG_BYTES: u64 = 256 * 1024;
+const MAX_LOG_BYTES: u64 = 256 * 1024;
 const STDERR_TAIL_BYTES: usize = 1024;
 
-/// Appends one timestamped line to `<profile>/engine-host.log`, rotating at `MAX_HOST_LOG_BYTES`.
+static LOG_LOCK: Mutex<()> = Mutex::new(());
+
+/// Bounded in-memory ring holding the last `STDERR_TAIL_BYTES` bytes of one spawned engine's stderr.
+#[derive(Clone, Default)]
+pub(crate) struct StderrTail(Arc<Mutex<VecDeque<u8>>>);
+
+impl StderrTail {
+    fn push(&self, chunk: &[u8]) {
+        let mut ring = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let tail = if chunk.len() >= STDERR_TAIL_BYTES {
+            ring.clear();
+            &chunk[chunk.len() - STDERR_TAIL_BYTES..]
+        } else {
+            let overflow = (ring.len() + chunk.len()).saturating_sub(STDERR_TAIL_BYTES);
+            ring.drain(..overflow);
+            chunk
+        };
+        ring.extend(tail);
+    }
+
+    /// Returns the buffered stderr tail as a compact single line (no disk I/O).
+    pub(crate) fn snapshot(&self) -> Option<String> {
+        let bytes: Vec<u8> = {
+            let ring = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+            if ring.is_empty() {
+                return None;
+            }
+            ring.iter().copied().collect()
+        };
+        let text = String::from_utf8_lossy(&bytes);
+        let compact = text
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        (!compact.is_empty()).then_some(compact)
+    }
+}
+
+fn ensure_private_dir(dir: &Path) -> bool {
+    if is_reparse_or_symlink(dir) {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir).is_ok()
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir_all(dir).is_ok()
+    }
+}
+
+fn open_safe_log(path: &Path, append: bool) -> Option<File> {
+    if is_reparse_or_symlink(path) {
+        return None;
+    }
+    let mut opts = OpenOptions::new();
+    opts.create(true).write(true);
+    if append {
+        opts.append(true);
+    } else {
+        opts.truncate(true);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+    }
+    let file = opts.open(path).ok()?;
+    file.metadata().ok()?.is_file().then_some(file)
+}
+
+fn rotate_if_plain(src: &Path, dst: &Path) {
+    if !is_reparse_or_symlink(src) && !is_reparse_or_symlink(dst) && src.is_file() {
+        std::fs::rename(src, dst).ok();
+    }
+}
+
+/// Appends one timestamped line to `<profile>/engine-host.log`, rotating at `MAX_LOG_BYTES`.
 /// Never panics and ignores I/O failures so logging can never disrupt engine startup.
 pub(crate) fn log(profile: Option<&Path>, message: &str) {
     let Some(dir) = profile else { return };
-    std::fs::create_dir_all(dir).ok();
-    let path = dir.join(HOST_LOG);
-    if std::fs::metadata(&path).is_ok_and(|m| m.len() >= MAX_HOST_LOG_BYTES) {
-        std::fs::rename(&path, dir.join(HOST_LOG_PREV)).ok();
+    let _guard = LOG_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+    if !ensure_private_dir(dir) {
+        return;
     }
-    let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) else {
+    let path = dir.join(HOST_LOG);
+    if !is_reparse_or_symlink(&path) && std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_file() && m.len() >= MAX_LOG_BYTES) {
+        rotate_if_plain(&path, &dir.join(HOST_LOG_PREV));
+    }
+    let Some(mut file) = open_safe_log(&path, true) else {
         return;
     };
     // Wall-clock timestamp for correlating host events with CEF's `debug.log` (native-only module).
@@ -46,46 +135,64 @@ pub(crate) fn log(profile: Option<&Path>, message: &str) {
     .ok();
 }
 
-/// Opens `<profile>/engine-stderr.log` for a freshly spawned engine (rotating any prior run's
-/// stderr to `engine-stderr.prev.log`), or inherits stderr when `OPENCODE_BROWSER_ENGINE_TRACE`
-/// is set.
-pub(crate) fn stderr_stdio(profile: &Path) -> Stdio {
+/// Returns `Stdio::inherit()` when `OPENCODE_BROWSER_ENGINE_TRACE` is set, else `Stdio::piped()`
+/// so the host drains stderr into a bounded file + in-memory ring without leaking a file handle
+/// into sandboxed Chromium subprocesses.
+pub(crate) fn stderr_stdio() -> Stdio {
     if std::env::var_os("OPENCODE_BROWSER_ENGINE_TRACE").is_some() {
-        return Stdio::inherit();
+        Stdio::inherit()
+    } else {
+        Stdio::piped()
     }
-    std::fs::create_dir_all(profile).ok();
-    let current = profile.join(STDERR_LOG);
-    if current.is_file() {
-        std::fs::rename(&current, profile.join(STDERR_LOG_PREV)).ok();
-    }
-    OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&current)
-        .map(Stdio::from)
-        .unwrap_or_else(|_| Stdio::null())
 }
 
-/// Reads the trailing portion of `<profile>/engine-stderr.log` as a single sanitized line for
-/// inclusion in `engine-host.log` when the engine fails or exits unexpectedly.
-pub(crate) fn read_stderr_tail(profile: Option<&Path>) -> Option<String> {
-    let path = profile?.join(STDERR_LOG);
-    let mut file = File::open(path).ok()?;
-    let len = file.metadata().ok()?.len();
-    if len == 0 {
-        return None;
-    }
-    let start = len.saturating_sub(STDERR_TAIL_BYTES as u64);
-    file.seek(SeekFrom::Start(start)).ok()?;
-    let mut buf = Vec::with_capacity((len - start) as usize);
-    file.read_to_end(&mut buf).ok()?;
-    let text = String::from_utf8_lossy(&buf);
-    let compact = text
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .collect::<Vec<_>>()
-        .join(" | ");
-    (!compact.is_empty()).then_some(compact)
+/// Spawns a host thread to drain `stderr` to EOF, keeping a 1 KiB in-memory tail and writing up
+/// to `MAX_LOG_BYTES` to `<profile>/engine-stderr.log` (rotating any prior log first).
+pub(crate) fn capture_stderr(mut stderr: ChildStderr, profile: PathBuf) -> StderrTail {
+    let tail = StderrTail::default();
+    let writer_tail = tail.clone();
+    std::thread::Builder::new()
+        .name("opencode-browser-stderr".into())
+        .spawn(move || {
+            let mut file = {
+                let _guard = LOG_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+                if ensure_private_dir(&profile) {
+                    let current = profile.join(STDERR_LOG);
+                    rotate_if_plain(&current, &profile.join(STDERR_LOG_PREV));
+                    open_safe_log(&current, false)
+                } else {
+                    None
+                }
+            };
+            let mut written: u64 = 0;
+            let mut buf = [0u8; 4096];
+            loop {
+                match stderr.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        let chunk = &buf[..n];
+                        writer_tail.push(chunk);
+                        if let Some(f) = file.as_mut() {
+                            let left = MAX_LOG_BYTES.saturating_sub(written) as usize;
+                            if left > 0 {
+                                let take = left.min(chunk.len());
+                                if f.write_all(&chunk[..take]).is_ok() {
+                                    written += take as u64;
+                                } else {
+                                    file = None;
+                                }
+                            } else {
+                                // Stop writing past the cap, but keep draining the pipe to EOF
+                                // so the engine can never block on stderr writes.
+                                file = None;
+                            }
+                        }
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(_) => break,
+                }
+            }
+        })
+        .ok();
+    tail
 }

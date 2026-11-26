@@ -265,6 +265,7 @@ impl BrowserHost {
             .insert(id, surface.clone());
 
         let ((width_pt, height_pt), scale) = self.last_viewport;
+        self.clear_stale_fault_if_empty();
         let connected = self.is_connected();
         let ready = !matches!(self.caps, crate::machine::EngineCaps::Unknown);
         let can_send = connected && ready;
@@ -285,10 +286,6 @@ impl BrowserHost {
         if agent_driven {
             prompts.agent_driven = true;
             prompts.driver = Some(crate::prompts::TabDriver::Agent);
-        }
-
-        if send_open || !can_send {
-            self.clear_stale_fault_if_empty();
         }
         self.tabs.push(BrowserTab {
             id,
@@ -354,7 +351,6 @@ impl BrowserHost {
         self.preview_chunk_budget.cancel_tab(tab_id);
         self.cancel_download_save_requests(tab_id);
         let focused = self.focused_tab == Some(tab_id);
-        let connected = self.is_connected();
         let ready = self.engine_caps_known();
         let proxy_err = self.resolve_remote_context(&mut context);
         let ctx_ok = !ready || context.is_supported(self.engine_partitions(), self.engine_remote_proxy());
@@ -389,6 +385,7 @@ impl BrowserHost {
         if refused.is_none() && !had_engine_tab && self.tabs.iter().filter(|t| t.has_engine_tab).count() == 1 {
             self.clear_stale_fault();
         }
+        let connected = self.is_connected();
         self.sync_has_tabs();
         let had_live_engine = had_engine_tab && !self.pending_opens.iter().any(|(id, _)| *id == tab_id);
         if refused.is_some() {
@@ -433,6 +430,7 @@ impl BrowserHost {
         self.preview_chunk_budget.cancel_tab(tab_id);
         self.cancel_download_save_requests(tab_id);
         let focused = self.focused_tab == Some(tab_id);
+        self.clear_stale_fault_if_empty();
         let connected = self.is_connected();
         let ready = self.engine_caps_known();
         let engine_preview = self.engine_preview();
@@ -454,12 +452,6 @@ impl BrowserHost {
             t.has_engine_tab = !(connected && ready && !engine_preview);
             (t.viewport_pt, t.scale, had, t.prompts.agent_driven)
         };
-        if !(connected && ready && !engine_preview)
-            && !had_engine_tab
-            && self.tabs.iter().filter(|t| t.has_engine_tab).count() == 1
-        {
-            self.clear_stale_fault();
-        }
         self.sync_has_tabs();
         let had_live_engine = had_engine_tab && !self.pending_opens.iter().any(|(id, _)| *id == tab_id);
         if connected && ready {

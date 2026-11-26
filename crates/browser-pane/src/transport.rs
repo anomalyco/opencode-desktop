@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+#[cfg(windows)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
@@ -44,6 +45,7 @@ const CONNECT_DEADLINE: Duration = Duration::from_secs(30);
 /// page that loads slowly still says at once that it's loading.
 const ANSWER_DEADLINE: Duration = Duration::from_secs(5);
 
+#[cfg(windows)]
 static SPAWN_SOCK_SEQ: AtomicU64 = AtomicU64::new(1);
 
 /// What the app shares with the threads that talk to its engine.
@@ -59,6 +61,8 @@ pub(crate) struct Link {
     pub sock: PathBuf,
     /// Profile directory holding `debug.log`, `engine-host.log`, and `engine-stderr.log`.
     pub profile: Option<PathBuf>,
+    /// In-memory tail of this spawned engine's stderr (populated on spawn; `None` for reused sockets).
+    pub stderr: Option<engine_log::StderrTail>,
     /// The tabs that waited when the connect began, by id: sent the moment the engine is
     /// connected, behind Hello, without waiting for the app's next turn (one that's busy drawing
     /// held them for 20-650 ms); stored into `Connected::early` on attach so that turn doesn't
@@ -119,9 +123,9 @@ pub(crate) fn engine_command(bin: &Path, sock: &Path, profile: &Path, extension_
     for spec in extension_args {
         cmd.arg("--extension").arg(spec);
     }
-    // Capture the engine's stderr into `<profile>/engine-stderr.log` (or inherit when tracing)
-    // so panics, bind errors, and Chromium fatal messages are preserved on disk.
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(engine_log::stderr_stdio(profile));
+    // Pipe stderr to a bounded host drain thread (or inherit when tracing) so panics, bind errors,
+    // and Chromium fatal messages are preserved without leaking a writable file handle to children.
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(engine_log::stderr_stdio());
     #[cfg(windows)]
     if let Some((high, low)) = rune::native_surface::windows::adapter_luid() {
         cmd.arg("--adapter-luid").arg(format!("{high},{low}"));
@@ -146,10 +150,17 @@ fn chromium_locale(id: &str) -> &str {
     }
 }
 
-/// Prepares the socket path for a freshly spawned engine. Normally removes `base` and reuses
-/// it so UI hot-reloads find the well-known socket; if a dying process still holds `base` in the
-/// kernel (Windows DELETE_PENDING / sharing violation), sweeps removable stale siblings and picks
-/// a fresh sibling path so `UnixListener::bind` never panics.
+/// Prepares the socket path for a freshly spawned engine. On Unix, `unlink` frees `base`
+/// immediately; on Windows, a dying engine can hold `base` in kernel teardown (`DELETE_PENDING`
+/// or sharing violation), so we sweep removable numeric sibling sockets we created and pick a
+/// fresh sibling path so `UnixListener::bind` never panics.
+#[cfg(not(windows))]
+fn prepare_spawn_socket(base: &Path, _profile: &Path) -> PathBuf {
+    std::fs::remove_file(base).ok();
+    base.to_owned()
+}
+
+#[cfg(windows)]
 fn prepare_spawn_socket(base: &Path, profile: &Path) -> PathBuf {
     std::fs::remove_file(base).ok();
     if matches!(std::fs::symlink_metadata(base), Err(e) if e.kind() == std::io::ErrorKind::NotFound) {
@@ -159,24 +170,41 @@ fn prepare_spawn_socket(base: &Path, profile: &Path) -> PathBuf {
         return base.to_owned();
     };
     let stem = base.file_stem().and_then(|s| s.to_str()).unwrap_or("browser");
-    let prefix = format!("{stem}-");
+    // Preserve the unique trailing `exe_tag` / hash component when a compact name is needed.
+    let short_stem = match stem.rsplit_once('-') {
+        Some((_, tag)) if !tag.is_empty() => format!("b-{tag}"),
+        _ => stem.chars().take(10).collect(),
+    };
+    let full_prefix = format!("{stem}-");
+    let short_prefix = format!("{short_stem}-");
+    let is_numeric_sibling = |name: &str| {
+        let Some(without_ext) = name.strip_suffix(".sock") else { return false };
+        let rest = without_ext
+            .strip_prefix(&full_prefix)
+            .or_else(|| without_ext.strip_prefix(&short_prefix));
+        rest.is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
+    };
     if let Ok(entries) = std::fs::read_dir(parent) {
         for entry in entries.flatten() {
             let name = entry.file_name();
-            if name.to_str().is_some_and(|n| n.starts_with(&prefix) && n.ends_with(".sock")) {
-                std::fs::remove_file(entry.path()).ok();
+            if name.to_str().is_some_and(is_numeric_sibling) {
+                let path = entry.path();
+                if std::fs::symlink_metadata(&path)
+                    .is_ok_and(|m| !m.is_dir() && !m.file_type().is_symlink() && m.len() == 0)
+                {
+                    std::fs::remove_file(path).ok();
+                }
             }
         }
     }
-    let max_bytes = if cfg!(target_os = "macos") { 103 } else { 107 };
+    const MAX_BYTES: usize = 107;
     for _ in 0..16 {
         let seq = SPAWN_SOCK_SEQ.fetch_add(1, Ordering::Relaxed);
         let mut candidate = parent.join(format!("{stem}-{seq}.sock"));
-        if candidate.as_os_str().len() > max_bytes {
-            let short_stem: String = stem.chars().take(12).collect();
+        if candidate.as_os_str().len() > MAX_BYTES {
             candidate = parent.join(format!("{short_stem}-{seq}.sock"));
         }
-        if candidate.as_os_str().len() <= max_bytes
+        if candidate.as_os_str().len() <= MAX_BYTES
             && matches!(std::fs::symlink_metadata(&candidate), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
         {
             engine_log::log(
@@ -229,6 +257,9 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
             return link.set(EngineStatus::Failed(fault.into()));
         }
     };
+    if let Some(stderr) = child.stderr.take() {
+        link.stderr = Some(engine_log::capture_stderr(stderr, profile.to_path_buf()));
+    }
     let Some(stdout) = child.stdout.take() else {
         engine_log::log(Some(profile), &format!("gen={} missing stdout pipe", link.generation));
         return link.set(EngineStatus::Failed(Fault::Exited(None).into()));
@@ -256,7 +287,7 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
         // It ended before it listened: its exit code says whether its files are damaged.
         Ok(false) => {
             let fault = exit_fault(&mut child);
-            let tail = engine_log::read_stderr_tail(Some(profile)).unwrap_or_default();
+            let tail = link.stderr.as_ref().and_then(engine_log::StderrTail::snapshot).unwrap_or_default();
             engine_log::log(
                 Some(profile),
                 &format!(
@@ -267,6 +298,7 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
                     if tail.is_empty() { String::new() } else { format!(" stderr={tail}") },
                 ),
             );
+            std::fs::remove_file(&spawn_sock).ok();
             if matches!(fault, Fault::Damaged(_)) {
                 discard(engine);
             }
@@ -274,7 +306,7 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
         }
         // It didn't listen in time: Retry ends it and starts a new one.
         Err(_) => {
-            let tail = engine_log::read_stderr_tail(Some(profile)).unwrap_or_default();
+            let tail = link.stderr.as_ref().and_then(engine_log::StderrTail::snapshot).unwrap_or_default();
             engine_log::log(
                 Some(profile),
                 &format!(
@@ -286,6 +318,7 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
                 ),
             );
             child.kill().ok();
+            std::fs::remove_file(&spawn_sock).ok();
             return link.set(EngineStatus::Failed(Fault::Hung.into()));
         }
     }
@@ -308,6 +341,7 @@ pub(crate) fn spawn_and_attach(engine: &Installed, sock: &Path, profile: &Path, 
             );
             if link.current() {
                 child.kill().ok();
+                std::fs::remove_file(&spawn_sock).ok();
             }
             return link.set(EngineStatus::Failed(Fault::Stopped.into()));
         }
@@ -543,7 +577,7 @@ fn lost(link: &Link, code: Option<u32>) -> bool {
             true
         }
         EngineEffect::LostFirst => {
-            let tail = engine_log::read_stderr_tail(link.profile.as_deref()).unwrap_or_default();
+            let tail = link.stderr.as_ref().and_then(engine_log::StderrTail::snapshot).unwrap_or_default();
             engine_log::log(
                 link.profile.as_deref(),
                 &format!(
@@ -696,16 +730,18 @@ impl Answers {
 
     /// Any message answers; one after the pane said the engine isn't responding takes that back.
     fn heard(&self, link: &Link) {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        match state.step(AskEvent::Heard) {
-            AskEffect::None => {}
-            AskEffect::Notify => self.changed.notify_all(),
-            AskEffect::RecoverAndNotify => {
-                engine_log::log(link.profile.as_deref(), &format!("gen={} recovered-from-hung", link.generation));
-                link.recover_hung();
+        let effect = {
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            let effect = state.step(AskEvent::Heard);
+            if matches!(effect, AskEffect::Notify | AskEffect::RecoverAndNotify) {
                 self.changed.notify_all();
             }
-            AskEffect::MarkHung { .. } => {}
+            effect
+        };
+        // Release `Answers::state` before disk I/O or acquiring `SharedEngine`.
+        if matches!(effect, AskEffect::RecoverAndNotify) {
+            engine_log::log(link.profile.as_deref(), &format!("gen={} recovered-from-hung", link.generation));
+            link.recover_hung();
         }
     }
 
@@ -718,37 +754,44 @@ impl Answers {
     /// Sleeps until a request is asked, then until it's answered or its deadline passes: the
     /// thread only runs while the app waits on the engine.
     fn watch(&self, link: &Link) {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
-            let (since, deadline) = match *state {
-                AskState::Over => return,
-                AskState::BeforeHello | AskState::Idle | AskState::Hung => {
-                    state = self.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
-                    continue;
+            let hung = {
+                let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+                loop {
+                    let (since, deadline) = match *state {
+                        AskState::Over => return,
+                        AskState::BeforeHello | AskState::Idle | AskState::Hung => {
+                            state = self.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
+                            continue;
+                        }
+                        AskState::Connecting { since } => (since, CONNECT_DEADLINE),
+                        AskState::Waiting { since } => (since, ANSWER_DEADLINE),
+                    };
+                    let left = deadline.saturating_sub(since.elapsed());
+                    if !left.is_zero() {
+                        state = self.changed.wait_timeout(state, left).unwrap_or_else(PoisonError::into_inner).0;
+                        continue;
+                    }
+                    if let AskEffect::MarkHung { startup } = state.step(AskEvent::DeadlinePassed) {
+                        break (startup, deadline);
+                    }
                 }
-                AskState::Connecting { since } => (since, CONNECT_DEADLINE),
-                AskState::Waiting { since } => (since, ANSWER_DEADLINE),
             };
-            let left = deadline.saturating_sub(since.elapsed());
-            if !left.is_zero() {
-                state = self.changed.wait_timeout(state, left).unwrap_or_else(PoisonError::into_inner).0;
-                continue;
-            }
-            if let AskEffect::MarkHung { startup } = state.step(AskEvent::DeadlinePassed) {
-                let tail = engine_log::read_stderr_tail(link.profile.as_deref()).unwrap_or_default();
-                engine_log::log(
-                    link.profile.as_deref(),
-                    &format!(
-                        "gen={} hung stage={} deadline={}s{}",
-                        link.generation,
-                        if startup { "connecting" } else { "ready" },
-                        deadline.as_secs(),
-                        if tail.is_empty() { String::new() } else { format!(" stderr={tail}") },
-                    ),
-                );
-                rune::marks::mark("browser.engine.hung");
-                link.mark_hung();
-            }
+            // Release `Answers::state` before disk I/O or acquiring `SharedEngine`.
+            let (startup, deadline) = hung;
+            let tail = link.stderr.as_ref().and_then(engine_log::StderrTail::snapshot).unwrap_or_default();
+            engine_log::log(
+                link.profile.as_deref(),
+                &format!(
+                    "gen={} hung stage={} deadline={}s{}",
+                    link.generation,
+                    if startup { "connecting" } else { "ready" },
+                    deadline.as_secs(),
+                    if tail.is_empty() { String::new() } else { format!(" stderr={tail}") },
+                ),
+            );
+            rune::marks::mark("browser.engine.hung");
+            link.mark_hung();
         }
     }
 }
@@ -795,6 +838,7 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
     let attached = link.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::Attach {
         generation: link.generation,
         origin,
+        sock: link.sock.clone(),
         outbox: tx,
         early,
     });
