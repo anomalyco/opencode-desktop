@@ -519,7 +519,7 @@ pub fn session_write_replied(host: &mut dyn SessionMenuHost, data: &serde_json::
             rename_dialog::dispatch(
                 host,
                 rename_dialog::Event::Replied { session: &session, server: &server, title: &title, ok, draft: &draft },
-                why,
+                said,
             );
         }
         Some("delete") => {

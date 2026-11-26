@@ -68,8 +68,21 @@ impl QueueHost for App {
         App::can_write(self)
     }
 
+    fn is_read_only(&self) -> bool {
+        matches!(*self.source, Source::Live { allow_send: false, .. })
+    }
+
     fn write(&mut self, write: Write) -> bool {
         App::write(self, write)
+    }
+
+    fn write_quiet(&mut self, write: Write) -> Offered {
+        use crate::session::inbox::send::Unsent;
+        match App::write_quiet(self, write) {
+            Ok(true) => Offered::Sent,
+            Ok(false) | Err(Unsent::NoWriter) => Offered::NoWriter,
+            Err(Unsent::ReadOnly) => Offered::ReadOnly,
+        }
     }
 
     fn send_write(&self, session: &str, prompt: Prompt) -> Write {

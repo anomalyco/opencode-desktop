@@ -52,6 +52,15 @@ impl PermissionHost for App {
         App::write(self, write)
     }
 
+    fn write_quiet(&mut self, write: Write) -> Offered {
+        use crate::session::inbox::send::Unsent;
+        match App::write_quiet(self, write) {
+            Ok(true) => Offered::Sent,
+            Ok(false) | Err(Unsent::NoWriter) => Offered::NoWriter,
+            Err(Unsent::ReadOnly) => Offered::ReadOnly,
+        }
+    }
+
     fn schedule_reply_timeout(&mut self, kind: ReplyTimeoutKind, id: String, attempt: Attempt, delay: Duration) {
         self.job_after(delay, move |_| {
             Box::new(move |s: &mut App, _: &mut rune::Tx| {
