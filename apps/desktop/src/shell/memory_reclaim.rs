@@ -262,8 +262,9 @@ fn sweep_current_server(s: &mut App, other_unreported: bool, full_rest: bool, is
         .collect();
     let removed = !gone.is_empty();
     if full_rest || removed {
-        s.pages.rest(&kept);
-        s.context_windows.retain(active_server.as_str(), &kept);
+        let keep_id = |id: &str| kept_ids.contains(id);
+        s.pages.rest(&keep_id);
+        s.context_windows.retain(active_server.as_str(), &keep_id);
     }
     if removed {
         let transcripts = &mut *s.transcripts;
