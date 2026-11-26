@@ -256,6 +256,8 @@ thread_local! {
 /// idle one can't hold it.
 #[cfg(not(target_arch = "wasm32"))]
 fn quit_last() {
+    // Release any threads waiting on local server startup without stopping the detached daemon.
+    servers::sidecar::dispose();
     // First, so its threads have left their writes by the time the process ends.
     browser_pane::installer::quit();
     rune::marks::mark("browser.engine.stopped");
@@ -347,8 +349,10 @@ pub fn run_native() {
         return launch::trace::finish(0);
     }
     storage::claimed();
-    // A window's first server reads, asked now (`launch::head_start`).
+    // Start/discover the local OpenCode background service (`servers::sidecar`, official
+    // `BackgroundService`) and ask for the first reads now (`launch::head_start`).
     if !headless() {
+        servers::sidecar::start();
         launch::head_start();
     }
     launch::last_exit::init_hooks();

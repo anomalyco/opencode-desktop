@@ -12,6 +12,8 @@ pub mod machine;
 pub mod pairing;
 pub mod registry;
 pub mod runtime;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod sidecar;
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
