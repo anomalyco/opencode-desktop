@@ -11,7 +11,7 @@
 //! - Every window shares the single in-flight connect/reconnect attempt and moves automatically
 //!   whenever Effect::Publish reports a new origin or password.
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 mod cli;
 mod process;

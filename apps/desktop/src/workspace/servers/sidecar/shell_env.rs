@@ -123,7 +123,7 @@ fn probe_shell(shell: &str, mode: &str) -> Probe {
         Ok(c) => c,
         Err(_) => return Probe::Unavailable,
     };
-    let Some(mut stdout) = child.stdout.take() else {
+    let Some(stdout) = child.stdout.take() else {
         let _ = child.kill();
         let _ = child.wait();
         return Probe::Unavailable;

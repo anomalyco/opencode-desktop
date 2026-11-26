@@ -591,7 +591,7 @@ fn new_half(s: &mut App, key: &ServerKey, adopt: bool) -> (Meta, Half) {
     let listed = listed().into_iter().find(|l| l.key == *key && !l.signed_out);
     let allow_send = matches!(*s.source, Source::Live { allow_send: true, .. });
     let (meta, server) = match &listed {
-        Some(l) => (Meta { listing: Listing::Listed(l.attempt), base: l.server.base.clone(), auth: l.server.auth_header() }, l.server.clone()),
+        Some(l) => (Meta { listing: Listing::Listed(l.attempt), base: l.server.base.clone(), auth: l.server.auth_header().map(str::to_owned) }, l.server.clone()),
         None if key.is_sidecar() => (Meta::default(), own_server().unwrap_or_else(|| Server::new(opencode_kit::client::DEFAULT_SERVER))),
         None => (Meta::default(), Server::new(&format!("http://{}.invalid", key.as_str().replace([':', '/'], "-"))).with_remote_files()),
     };
@@ -691,7 +691,7 @@ fn refit(s: &mut App) {
     // A server signed out has no connection: windows hold an offline half of it.
     let listed: Vec<Listed> = listed().into_iter().filter(|l| !l.signed_out).collect();
     let stale = |key: &ServerKey, meta: &Meta| match listed.iter().find(|l| l.key == *key) {
-        Some(l) => meta.base != l.server.base || meta.auth != l.server.auth_header() || matches!(meta.listing, Listing::Listed(a) if a != l.attempt),
+        Some(l) => meta.base != l.server.base || meta.auth.as_deref() != l.server.auth_header() || matches!(meta.listing, Listing::Listed(a) if a != l.attempt),
         None => meta.listing != Listing::Unlisted,
     };
     let gone: Vec<ServerKey> = s.checkout.parked.iter().filter(|(k, m, _)| stale(k, m)).map(|(k, ..)| k.clone()).collect();
@@ -735,7 +735,7 @@ fn refit(s: &mut App) {
 pub fn bind(s: &mut App, server: Server) -> Server {
     let server = own_server().unwrap_or(server);
     s.checkout.meta.base = server.base.clone();
-    s.checkout.meta.auth = server.auth_header();
+    s.checkout.meta.auth = server.auth_header().map(str::to_owned);
     set_sidecar(&server);
     server
 }
@@ -745,7 +745,7 @@ pub fn bind(s: &mut App, server: Server) -> Server {
 pub fn moved(s: &mut App, server: &Server) {
     if s.checkout.active.is_sidecar() {
         s.checkout.meta.base = server.base.clone();
-        s.checkout.meta.auth = server.auth_header();
+        s.checkout.meta.auth = server.auth_header().map(str::to_owned);
     }
     set_sidecar(server);
 }
