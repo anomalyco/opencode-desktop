@@ -263,7 +263,12 @@ impl App {
         crate::tabs::groups::remember_auto(self);
         let uid = self.tabs[i].uid();
         let shown = self.current_tab().as_deref() == Some(uid.as_str());
-        let next_visible = if shown { crate::tabs::groups::next_visible_after_closing(self, &uid) } else { None };
+        let next_visible = if shown {
+            crate::tabs::groups::next_visible_after_closing(self, &uid)
+                .or_else(|| crate::tabs::sections::next_visible_after_closing(self, &uid))
+        } else {
+            None
+        };
         let tab = self.tabs.remove(i);
         let (id, server, closed_session) = (tab.id.clone(), tab.server.clone(), tab.kind == TabKind::Session);
         match tab.kind {
@@ -407,11 +412,13 @@ impl App {
             } else {
                 // Under Settings › Group tabs, the groups' shown tabs in the groups' order: a
                 // collapsed group's hidden tabs take no key (`tab-strip.tsx:715-719`, `:916-917`).
-                let shown: Vec<usize> = match crate::tabs::auto_groups::groups(self) {
-                    Some(groups) => groups.iter().flat_map(|g| g.tabs.iter().copied()).collect(),
-                    None => (0..self.tabs.len()).filter(|&i| !crate::tabs::pins::holds(self, &self.tabs[i])).collect(),
+                let shown_uids: Vec<String> = match crate::tabs::auto_groups::groups(self) {
+                    Some(groups) => groups.iter().flat_map(|g| g.tabs.iter().copied()).map(|i| self.tabs[i].uid()).collect(),
+                    None => crate::tabs::sections::visible_uids(self).unwrap_or_else(|| {
+                        (0..self.tabs.len()).filter(|&i| !crate::tabs::pins::holds(self, &self.tabs[i])).map(|i| self.tabs[i].uid()).collect()
+                    }),
                 };
-                for uid in shown.into_iter().map(|i| self.tabs[i].uid()) {
+                for uid in shown_uids {
                     if !order.contains(&uid) {
                         order.push(uid);
                     }
