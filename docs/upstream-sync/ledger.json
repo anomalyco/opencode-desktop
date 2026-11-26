@@ -5,7 +5,7 @@
   "upstream_head": "82d8fc5bec961043e47b4d2d3fcd03667f40148a",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "99459a2c8",
+  "rune_desktop_head": "c5b343e41",
   "post_1114_commit_count": 753,
   "post_1114_in_ledger": 258,
   "post_1114_skipped": 495,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 279,
   "status_counts": {
-    "have it": 230,
+    "have it": 231,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 4,
-    "missing": 5
+    "missing": 4
   },
   "rows": [
     {
@@ -6966,8 +6966,8 @@
       ],
       "summary": "With full_codemode enabled, activity group headers count each execute script's nested steps (mapping Bun.write to edit and Bun.file to read, ignoring other Bun calls, letting edit lead only once changed files land) instead of counting the script itself as a command.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Port in draft opencode-rune #1340 (head b113398d10, CI running, not yet run): adds activity::activity_with(steps, script_steps) and script_step_calls in crates/session-view/src/activity/label.rs, passes s.full_codemode(session) in turns/view.rs, hashes metadata.toolCalls in timeline/mod.rs group_hash, and adds --scene tools-execute-codemode-bun. Official: packages/session-ui/src/timeline/facts.ts, timeline-next/tools/{activity-label.ts,context-group.tsx}, tools/{context-group-label.ts,tool-renderer.tsx}.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1340 (c5b343e41, head 9ce13a37a7, CI run 45886401880 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): adds activity::activity_with(steps, script_steps) and script_step_calls in crates/session-view/src/activity/label.rs (Bun.write -> edit, Bun.file -> read, ignores other Bun calls, non-background shells, fallback to execute when empty, edit leads only once files land), passes s.full_codemode(session) in turns/view.rs, and hashes metadata.toolCalls in timeline/mod.rs group_hash. Official: packages/session-ui/src/timeline/facts.ts, timeline-next/tools/{activity-label.ts,context-group.tsx}, tools/{context-group-label.ts,tool-renderer.tsx}. Verified headless on Windows x64 PR build (b113398d10, run 45883612173) beside before build (de9079d0a2), all 3/3 cases pass (4/4 launches exit 0): tools-execute-codemode-on reads 'Edited main.rs - 1 read' (before: 'Edited main.rs - 1 command'), tools-execute-codemode-bun reads 'Explored 1 file, 1 search', tools-execute-codemode-off reads 'Ran 1 command'. Not run: real window, macOS, Linux.",
       "depends_on": "UP-255",
       "risks": "none",
       "workstream": "UPSTREAM"
