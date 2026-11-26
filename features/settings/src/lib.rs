@@ -35,7 +35,7 @@ pub use host::{
     build_version, configure,
 };
 pub use jobs::{SettingsJob, SettingsReply, SettingsRequest, apply_reply, execute_request};
-pub use prefs::{BackgroundActivity, Choice, FollowUp, Navigation, Organize, SOUNDS, Sounds, StartIn, TabGrouping, TimelineWidth, TitlebarPosition, Worktree};
+pub use prefs::{BackgroundActivity, Choice, FollowUp, Navigation, Organize, QuestionSubmitKey, SOUNDS, Sounds, StartIn, TabGrouping, TimelineWidth, TitlebarPosition, Worktree};
 pub use types::{
     CODE_FONTS, DockPlacement, Font, NotifyKind, NotifyKinds, ReduceMotion, Scheme, TERMINAL_FONTS, TabLayout, TerminalMarkShell, TextRenderer, UI_FONTS, ZOOM_LEVELS, ZOOM_MAX, ZOOM_MIN,
     css_family, custom_name, font_index, step_zoom,
@@ -137,6 +137,8 @@ pub struct Settings {
     pub last_used: BTreeMap<String, String>,
     /// What Enter does while the agent works (`general.followUpBehavior`).
     pub follow_up: FollowUp,
+    /// The key that moves a question dock on or submits it (`general.questionSubmitKey`).
+    pub question_submit: QuestionSubmitKey,
     /// Ctrl-scroll and trackpad pinches zoom the window (Desktop's `pinchZoom`); off by default.
     pub pinch_zoom: bool,
     /// Underline misspelt words while typing (Desktop's `spellcheck`); on by default.
@@ -205,6 +207,7 @@ impl Default for Settings {
             worktree: Worktree::default(),
             last_used: BTreeMap::new(),
             follow_up: FollowUp::default(),
+            question_submit: QuestionSubmitKey::default(),
             pinch_zoom: false,
             spellcheck: true,
             spellcheck_languages: Vec::new(),
@@ -266,6 +269,7 @@ impl Settings {
             "language": self.language,
             "workspaces": { "startIn": self.start_in.name(), "worktree": self.worktree.name(), "lastUsed": self.last_used },
             "followUpBehavior": self.follow_up.name(),
+            "questionSubmitKey": self.question_submit.name(),
             "pinchZoom": self.pinch_zoom,
             "spellcheck": self.spellcheck,
             "spellcheckLanguages": self.spellcheck_languages,
@@ -344,6 +348,7 @@ impl Settings {
                 })
                 .unwrap_or_default(),
             follow_up: FollowUp::parse(v["followUpBehavior"].as_str()),
+            question_submit: QuestionSubmitKey::parse(v["questionSubmitKey"].as_str()),
             pinch_zoom: v["pinchZoom"].as_bool().unwrap_or(d.pinch_zoom),
             spellcheck: v["spellcheck"].as_bool().unwrap_or(d.spellcheck),
             mobile_diff_wrap: v["mobileDiffWrap"].as_bool().unwrap_or(d.mobile_diff_wrap),

@@ -36,6 +36,11 @@ pub trait DockHost: ComposerHost {
     fn dock_new_question_ui(&self) -> bool {
         false
     }
+    /// The key that moves the question dock on, or submits it on the last question (Desktop's
+    /// Settings › General › Submit question answers with, `general.questionSubmitKey`).
+    fn dock_question_submit(&self) -> question::SubmitKey {
+        question::SubmitKey::Enter
+    }
     /// Answers permission `id` with `decision` (`once`, `always`, `reject`).
     fn dock_reply_permission(&mut self, id: &str, decision: &str);
     /// Sends form `id`'s answer (`Dock::answer`).
