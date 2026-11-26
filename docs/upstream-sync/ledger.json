@@ -5,7 +5,7 @@
   "upstream_head": "1f66f5f4adfc602dbece7f2d37835376df5081fb",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "98f31f4f9",
+  "rune_desktop_head": "655f5ed3f",
   "post_1114_commit_count": 711,
   "post_1114_in_ledger": 243,
   "post_1114_skipped": 468,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 264,
   "status_counts": {
-    "have it": 216,
+    "have it": 217,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 4,
-    "missing": 6
+    "missing": 5
   },
   "rows": [
     {
@@ -6603,8 +6603,8 @@
       ],
       "summary": "Remote browser traffic streams over a single prewarmed, ticket-authenticated multiplexed binary WebSocket (capability tunnel.ws.v1, /api/experimental/browser/tunnel) instead of per-chunk base64 RPC polling, with fair round-robin 16 KiB DATA interleaving, bounded credit flow control, per-origin plain HTTP/1.1 keep-alive pooling, explicit tunnel.grant on trusted desktop navigations, explicit non-downgrading upgrade errors (keeping legacy RPC fallback only when tunnel.ws.v1 is unadvertised or OPENCODE_BROWSER_TUNNEL_TRANSPORT=legacy), and navigationProgressDeadline + replacementNavigation so committed slow-subresource pages return loading: true at 15 s and client redirects (ERR_ABORTED) settle on replacement commit.",
       "size": "XL",
-      "status": "missing",
-      "status_evidence": "Port in draft opencode-rune #1288 (head f98b48bdbc, CI running, not yet run live): binary frame codec (crates/opencode-kit/src/client/browser_rpc/stream_wire.rs), non-blocking polling ClientMux + MuxStream (stream_mux/{mod,stream,worker}.rs), authenticated WS upgrade client (tunnel_client.rs, http.rs tunnel.ticket/tunnel.grant, types.rs, machine.rs), negotiated TransportController + per-origin HTTP/1.1 keep-alive pool in TunnelProxy (tunnel_stream.rs, tunnel_pool.rs, tunnel_proxy.rs, tunnel_pump.rs, framing.rs), desktop capability negotiation + StreamActivated/StreamEnded liveness + trusted-navigation tunnel.grant (apps/desktop/src/surfaces/browser/{mod,openers}.rs, rpc/{mod,tunnel,workers}.rs), and navigationProgressDeadline + replacementNavigation (crates/browser-pane/src/client/mod.rs, apps/desktop/src/surfaces/browser/rpc/exec/{settle,nav}.rs). Official: packages/plugin-browser/src/{stream-wire,stream-mux,proxy,rpc}.ts, packages/gui-plugins/src/browser/{tunnel-client,network,pane,pane-machine,navigation-deadline,navigation-turn,chromium}.ts. Local guardrails (9/9) and web-clock passed; awaiting CI builds and live proof against a badd3ea1cd remote server.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1288 (655f5ed3f, head c1360881ed, CI run 45746653359 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): versioned 10-byte big-endian binary frame codec (crates/opencode-kit/src/client/browser_rpc/stream_wire.rs), non-blocking polling ClientMux + MuxStream with priority control queue, round-robin 16 KiB DATA interleaving, 512 KiB receive window / 128 KiB WINDOW_UPDATE batches, 8 MiB attachment buffer cap, heartbeats, FIN/RESET, and clean detach (stream_mux/{mod,stream,worker}.rs), authenticated WS upgrade client validating /api/experimental/browser/tunnel + protocol 1 with single-use header auth and explicit non-downgrading error classification (tunnel/client.rs, http.rs, types.rs, machine.rs), negotiated TransportController + per-origin HTTP/1.1 keep-alive pool in TunnelProxy with 407 loopback auth and OPENCODE_BROWSER_TUNNEL_TRANSPORT=legacy fallback (tunnel/{stream,pool,proxy,pump}.rs, framing.rs), desktop capability negotiation + StreamActivated/StreamEnded liveness + off-thread trusted-navigation tunnel.grant (apps/desktop/src/surfaces/browser/{mod,openers}.rs, rpc/{mod,tunnel,workers}.rs), and navigationProgressDeadline + replacementNavigation (crates/browser-pane/src/client/mod.rs, apps/desktop/src/surfaces/browser/rpc/exec/{settle,nav}.rs). Official: packages/plugin-browser/src/{stream-wire,stream-mux,proxy,rpc}.ts, packages/gui-plugins/src/browser/{tunnel-client,network,pane,pane-machine,navigation-deadline,navigation-turn,chromium}.ts. Verified live over WAN against a remote TLS badd3ea1cd server (OPENCODE_FLAGS=browser_stream_tunnel) with the Windows x64 PR build (3/3 passes exit 0): binary WS tunnel.ws.v1 upgraded GET /api/experimental/browser/tunnel -> 101 with tunnel.grant and 0 legacy tunnel.{open,read,write} calls, completing the 10 MiB + concurrent WS /echo probe in 2.88 s (29.1 Mbps, 18 echoes, median 115.3 ms) vs legacy RPC 31.04 s (2.7 Mbps, 298 echoes, median 87.9 ms, p95 244.4 ms; 10.8x speedup), and rendered the Excalidraw SPA canvas, toolbar, and fonts whole. Not run: macOS, Linux, non-downgrading blocked-upgrade error path, navigationProgressDeadline 15 s slow-subresource path, replacementNavigation ERR_ABORTED redirect path.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
