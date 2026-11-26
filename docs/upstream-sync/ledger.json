@@ -2,12 +2,12 @@
   "generated_at": "2026-11-27",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "82d8fc5bec961043e47b4d2d3fcd03667f40148a",
+  "upstream_head": "b15f4e9301676df78944d2db581bc7e454a62b9f",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "c5b343e41",
-  "post_1114_commit_count": 753,
-  "post_1114_in_ledger": 258,
+  "rune_desktop_head": "5178565e6",
+  "post_1114_commit_count": 754,
+  "post_1114_in_ledger": 259,
   "post_1114_skipped": 495,
   "post_1114_skipped_breakdown": {
     "test-only": 33,
@@ -18,13 +18,13 @@
     "server-core-ai-codemode-internal": 313
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 279,
+  "total_ledger_rows": 280,
   "status_counts": {
     "have it": 231,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 4,
-    "missing": 4
+    "missing": 5
   },
   "rows": [
     {
@@ -6970,6 +6970,34 @@
       "status_evidence": "Ported in opencode-rune #1340 (c5b343e41, head 9ce13a37a7, CI run 45886401880 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): adds activity::activity_with(steps, script_steps) and script_step_calls in crates/session-view/src/activity/label.rs (Bun.write -> edit, Bun.file -> read, ignores other Bun calls, non-background shells, fallback to execute when empty, edit leads only once files land), passes s.full_codemode(session) in turns/view.rs, and hashes metadata.toolCalls in timeline/mod.rs group_hash. Official: packages/session-ui/src/timeline/facts.ts, timeline-next/tools/{activity-label.ts,context-group.tsx}, tools/{context-group-label.ts,tool-renderer.tsx}. Verified headless on Windows x64 PR build (b113398d10, run 45883612173) beside before build (de9079d0a2), all 3/3 cases pass (4/4 launches exit 0): tools-execute-codemode-on reads 'Edited main.rs - 1 read' (before: 'Edited main.rs - 1 command'), tools-execute-codemode-bun reads 'Explored 1 file, 1 search', tools-execute-codemode-off reads 'Ran 1 command'. Not run: real window, macOS, Linux.",
       "depends_on": "UP-255",
       "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-259",
+      "window": "post-1120",
+      "pr": 64797,
+      "sha": "b15f4e9301",
+      "title": "feat(app): bundle OpenMono as the default mono font",
+      "merged": "2026-11-26",
+      "packages": [
+        "app",
+        "ui",
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/app/src/index.css",
+        "packages/app/src/settings/model.tsx",
+        "packages/app/src/settings/about/notices/notices.ts",
+        "packages/app/src/runtime/i18n/en.ts",
+        "packages/ui/src/styles/theme.css",
+        "packages/gui-plugins/src/terminal/terminal.tsx"
+      ],
+      "summary": "Replaces IBM Plex Mono and JetBrainsMono Nerd Font Mono with bundled OpenMono (Regular, Bold, Italic, and Nerd Fonts icons) as the default code and terminal mono font, updating Settings > Appearance defaults, About typeset copy, and OpenMono + Nerd Fonts third-party notices.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Not yet ported (Rune currently bundles IBM Plex Mono, CommitMono, and JetBrainsMonoNerdFontMono TTFs in apps/desktop/assets/fonts/; official ships split WOFF2 subsets + OpenMono-icons.woff2, so Rune needs TTF/OTF OpenMono Nerd faces or WOFF2 decoding plus About/notices and Settings > Appearance default updates). Official: packages/app/src/{index.css,settings/model.tsx,settings/about/notices/notices.ts,runtime/i18n/en.ts}, packages/ui/src/styles/theme.css, packages/gui-plugins/src/terminal/terminal.tsx.",
+      "depends_on": "none",
+      "risks": "Official ships split WOFF2 subsets; Rune bundles TTF/OTF fonts and needs full OpenMono Nerd TTF/OTF faces (or WOFF2 decode) without ligatures",
       "workstream": "UPSTREAM"
     }
   ],
