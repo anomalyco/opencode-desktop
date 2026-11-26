@@ -617,10 +617,22 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     true
 }
 
+/// Inserts a newline into the typed answer's field when plain Enter is the non-submitting Enter
+/// (`SubmitKey::ModEnter`): in Rune a multi-line `text_input` inserts `\n` natively only on
+/// Shift+Return, so plain Enter goes through here (`rune::el::input`).
+pub(super) fn insert_typed_newline<S: DockHost>(s: &mut S, f: &Form, tab: usize) {
+    let k = f.key(tab);
+    let d = s.dock_mut();
+    let _ = d.typed.entry(k.clone()).or_insert_with(|| TextEdit::new("")).insert("\n");
+    d.custom.insert(k.clone());
+    if !f.multi(tab) {
+        d.picks.remove(&k);
+    }
+}
+
 /// Keys in "Type your own answer": Esc leaves the field, ↑ on its first line goes to the answer
 /// above, the submit key moves on, ⌘↵ and ⌘[ as anywhere. Everything else types: the other
-/// Enter starts a new line, as the field does by itself
-/// (`session-question-dock-experimental.tsx:1363-1369`).
+/// Enter starts a new line (`session-question-dock-experimental.tsx:1363-1369`).
 fn typed_key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let Some(f) = asking(s) else { return false };
     let (tab, _) = place(s, &f);
@@ -641,12 +653,19 @@ fn typed_key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
             reveal_focus(s, tx);
             true
         }
-        Key::Enter if !m.cmd && !m.ctrl && enter(ev, s.dock_question_submit()) == Some(Enter::Submit) => {
-            if answered(s, &f, tab) {
-                next(s, &f, tx);
+        Key::Enter if !m.cmd && !m.ctrl => match enter(ev, s.dock_question_submit()) {
+            Some(Enter::Submit) => {
+                if !tx.key_repeat() && answered(s, &f, tab) {
+                    next(s, &f, tx);
+                }
+                true
             }
-            true
-        }
+            Some(Enter::Select) if !m.shift => {
+                insert_typed_newline(s, &f, tab);
+                true
+            }
+            _ => false,
+        },
         _ => key(s, ev, tx) || s.dock_shortcut(ev, tx),
     }
 }

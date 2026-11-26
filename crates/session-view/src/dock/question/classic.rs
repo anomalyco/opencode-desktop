@@ -599,10 +599,21 @@ fn typed_key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
         reveal(s, tx);
         return true;
     }
-    if !m.cmd && !m.ctrl && enter(ev, s.dock_question_submit()) == Some(Enter::Submit) {
-        dock(s, &f).keyboard = true;
-        next(s, &f, tx);
-        return true;
+    if !m.cmd && !m.ctrl {
+        match enter(ev, s.dock_question_submit()) {
+            Some(Enter::Submit) => {
+                if !tx.key_repeat() {
+                    dock(s, &f).keyboard = true;
+                    next(s, &f, tx);
+                }
+                return true;
+            }
+            Some(Enter::Select) if !m.shift => {
+                insert_typed_newline(s, &f, tab);
+                return true;
+            }
+            _ => {}
+        }
     }
     s.dock_shortcut(ev, tx)
 }
