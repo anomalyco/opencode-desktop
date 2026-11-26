@@ -86,6 +86,10 @@ impl BrowserHost {
                         0 => {}
                         s => self.send(HostMsg::SetColorScheme { dark: s == 2 }),
                     }
+                    let fps = self.display_fps.load(std::sync::atomic::Ordering::Relaxed);
+                    if fps != 0 {
+                        self.send(HostMsg::SetFrameRate { fps });
+                    }
 
                     // Tabs opened before it: their size and device emulation again
                     // (a reconnect forgets them; `notes/for-dax.md` §0).
@@ -184,6 +188,7 @@ impl BrowserHost {
                     }
                     self.pending_opens.retain(|(id, _)| *id != tab_id);
                     self.download_save_requests.retain(|r| r.tab_id != tab_id);
+                    self.scroll_cursors.remove(&tab_id);
                     let fatal_close = if let Some(pos) = self.tabs.iter().position(|t| t.id == tab_id) {
                         let removed = self.tabs.remove(pos);
                         removed.surface.clear();

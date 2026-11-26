@@ -298,7 +298,19 @@ impl crate::BrowserHost {
         for (tab_id, id) in expired {
             self.send(HostMsg::AnswerPermission { tab_id, id, allow: false, dismiss: true, persist: false });
         }
-        let next = self.tabs.iter().filter_map(|t| t.prompts.wake_at()).min();
+        for t in &mut self.tabs {
+            if let Some(sc) = self.scroll_cursors.get_mut(&t.id)
+                && let crate::scroll_cursor::ScrollCursorEffect::Apply(cursor) =
+                    sc.step(crate::scroll_cursor::ScrollCursorEvent::Tick { now })
+                && t.cursor != cursor
+            {
+                t.cursor = cursor;
+                changed = true;
+            }
+        }
+        let prompt_next = self.tabs.iter().filter_map(|t| t.prompts.wake_at()).min();
+        let cursor_next = self.scroll_cursors.values().filter_map(|sc| sc.wake_at()).min();
+        let next = prompt_next.into_iter().chain(cursor_next).min();
         (changed, next)
     }
 

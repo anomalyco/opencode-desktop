@@ -75,7 +75,7 @@ const MAX_PUMP_DELAY: Duration = Duration::from_secs(1);
 /// page's work (cefclient pumps every 33 ms for that reason, always), and with only the 1 s cap
 /// a new tab's first frame came 1.3-2.4 s after it opened instead of ~0.4 s.
 #[cfg(not(target_os = "macos"))]
-const BUSY_PUMP_DELAY: Duration = Duration::from_millis(33);
+const BUSY_PUMP_DELAY: Duration = Duration::from_millis(16);
 #[cfg(not(target_os = "macos"))]
 const BUSY_FOR: Duration = Duration::from_secs(3);
 /// macOS also pumps the AppKit run loop between CEF's work calls, every 4 ms as before.
@@ -87,7 +87,7 @@ const BUSY_PUMP_DELAY: Duration = MAX_PUMP_DELAY;
 const BUSY_FOR: Duration = Duration::ZERO;
 /// Windows: while a tab waits for the app to free a frame texture, how often it looks (Linux
 /// repaints when the app's read arrives).
-const FRAME_RETRY: Duration = Duration::from_millis(4);
+const FRAME_RETRY: Duration = Duration::from_millis(2);
 
 /// What wakes the main thread.
 pub enum Event {
@@ -208,6 +208,8 @@ pub fn run_browser(
 
     #[cfg(windows)]
     end_children_with_engine();
+    #[cfg(windows)]
+    let _high_res_timer = HighResTimerGuard::enable();
     let ext_specs: Vec<String> = args
         .windows(2)
         .filter(|w| w[0] == "--extension")
@@ -456,7 +458,17 @@ pub fn run_browser(
                     true
                 }
                 Event::Host(msg) => {
-                    busy_until = Instant::now() + BUSY_FOR;
+                    let now = Instant::now();
+                    busy_until = now + BUSY_FOR;
+                    if matches!(
+                        msg.as_ref(),
+                        HostMsg::Wheel { .. }
+                            | HostMsg::MouseMove { .. }
+                            | HostMsg::MouseButton { .. }
+                            | HostMsg::Key { .. }
+                    ) {
+                        pump_at = Some(now);
+                    }
                     if std::mem::take(&mut first_message) {
                         step("first_message");
                     }
@@ -703,6 +715,55 @@ fn default_socket_path() -> PathBuf {
     PathBuf::from(home)
         .join("Library/Caches/co.anomaly.opencode")
         .join(format!("browser-{uid}.sock"))
+}
+
+/// Opts this windowless Windows sidecar out of Windows 11's timer-resolution throttling
+/// (`PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION`) and requests a 1 ms timer tick so
+/// `recv_timeout` and CEF's OSR frame pacing are not quantized to 15.625 ms (which caps 165 Hz
+/// scrolling and causes 30 ms frame-interval spikes even at 60 Hz).
+#[cfg(windows)]
+#[allow(unsafe_code)]
+struct HighResTimerGuard(bool);
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+impl HighResTimerGuard {
+    fn enable() -> Self {
+        use windows::Win32::Media::timeBeginPeriod;
+        use windows::Win32::System::Threading::{
+            GetCurrentProcess, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+            PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION, PROCESS_POWER_THROTTLING_STATE,
+            ProcessPowerThrottling, SetProcessInformation,
+        };
+        // SAFETY: plain Win32 calls on this process handle and an owned `state` struct.
+        unsafe {
+            let state = PROCESS_POWER_THROTTLING_STATE {
+                Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+                ControlMask: PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
+                StateMask: 0,
+            };
+            let _ = SetProcessInformation(
+                GetCurrentProcess(),
+                ProcessPowerThrottling,
+                (&raw const state).cast(),
+                std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+            );
+            Self(timeBeginPeriod(1) == 0)
+        }
+    }
+}
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+impl Drop for HighResTimerGuard {
+    fn drop(&mut self) {
+        if self.0 {
+            // SAFETY: paired with `timeBeginPeriod(1)` in `enable`.
+            unsafe {
+                let _ = windows::Win32::Media::timeEndPeriod(1);
+            }
+        }
+    }
 }
 
 /// The app always passes `--socket`; this is for running the engine by hand.
