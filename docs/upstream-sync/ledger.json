@@ -5,7 +5,7 @@
   "upstream_head": "44344bd22d37da2dd6098e8d4b8b0236a3e143e0",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "a1d6a19ce",
+  "rune_desktop_head": "f237eea6d",
   "post_1114_commit_count": 721,
   "post_1114_in_ledger": 248,
   "post_1114_skipped": 473,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 269,
   "status_counts": {
-    "have it": 218,
+    "have it": 223,
     "not applicable": 38,
     "differs on purpose": 1,
     "partly": 4,
-    "missing": 8
+    "missing": 3
   },
   "rows": [
     {
@@ -6008,7 +6008,7 @@
       "summary": "A skill's file opened in the file viewer (`skill://<id>/<file>`) is read through the server (`GET /api/experimental/skill/:skillID/file/*`), which loads a file a skill serves on demand; before, the viewer took the text from the inline content of `/api/skill`, which is empty for such a skill. The server side: behind the `mcp_skills` flag, skills an MCP server offers are listed as `<server>:<skill>`.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "Ported in opencode-rune #1226 (7c3c9ed5), with the two older official changes it stands on, which ours never had (#60464 78f8dffd48, #60921 69269e4ebe): a skill's virtual file, `skill://<id>/<file>`, opens in the file tab. It is read with `GET /api/experimental/skill/<id>/file/<path>` (features/files/src/data.rs fetch_skill_file; official packages/app/src/workspaces/files/model.tsx:257-264); a link to such a path is a file link, with a line or a line range (features/files/src/links.rs Link::Skill); the tab has no Open in and no Show in folder, and the file is no row of the file tree and is not watched. Ours only: on a server that has no such route (older than 24 Nov) the read falls back to the inline body of `/api/skill`, where official itself read it before #66201; on a server with the route a skill or file the server does not have reads as not found. Run headless on its own Windows x64 CI build (head 043c15009) beside a build of dev on the same Rune pin. With a test server from before the new route: a built-in skill pressed in Details > Skills opens a tab with the skill's text (before: no tab); a reply's link with `:3` opens the tab in the source view with line 3 marked; a file that is not there gives a toast and no tab; in each the server was asked the file route once (404) and then the skills list (200), so the fallback read is proved by a run. With a fixture file and no server: the link opens the tab, with no `skill:` row in the tree and no Open in; a relative link inside a skill's file opens the skill's other file under one tab id; a missing file gives the toast. By reading only: the new route answering 200, and an MCP server's skill (its body is not in the list), since the server the cases ran on is from before df79010bc6. Seen at the server, by reading, not in a pass: in its first second for a folder the skills list is empty and the fallback reads it once, so a skill opened in that second reads as not found and opens on the next press. Not run: a real window; macOS; Linux. The server side of #66201 (the `mcp_skills` flag, the `<server>:<skill>` names) is the server's and needs nothing of ours: the lists that name skills take what `/api/skill` lists.",
+      "status_evidence": "Ported in opencode-rune #1226 (7c3c9ed5), with the two older official changes it stands on, which ours never had (#60464 78f8dffd48, #60921 69269e4ebe): a skill's virtual file, `skill://<id>/<file>`, opens in the file tab. It is read with `GET /api/experimental/skill/<id>/file/<path>` (features/files/src/data.rs fetch_skill_file; official packages/app/src/workspaces/files/model.tsx:257-264); a link to such a path is a file link, with a line or a line range (features/files/src/links.rs Link::Skill); the tab has no Open in and no Show in folder, and the file is no row of the file tree and is not watched. Ours only: on a server older than 24 Nov without the file route, the read falls back to `/api/skill`. Verified headless on Windows x64 CI builds on both an older test server (404 -> `/api/skill` 200 fallback) and a live `badd3ea1cd` server (B4/B5 PASS: `GET /api/experimental/skill/opencode/file/SKILL.md` -> 200 with 6,933 bytes and 0 fallback to `/api/skill`, source view opened with line 3 marked and `openIn=false`; missing file -> 404 toast `File not found` and no tab; Details > Skills > OpenCode -> 200 and tab opened), plus offline fixture relative-link navigation. Not run: an MCP server's skill, real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6475,8 +6475,8 @@
       ],
       "summary": "Search sessions (the titlebar's search dialog) also finds archived sessions once something is typed: their rows are dimmed (title and description at 70%) and open the session like any other; with nothing typed the recent rows never list an archived session. Each server is asked for two pages of 50, its sessions that are not archived and its archived ones, and a failed archived page drops only those rows.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "In work: draft opencode-rune #1232 (not compiled, not run). Official: packages/app/src/shell/commands/session-search.tsx:28-42 (includeArchived, the two pages), packages/app/src/shell/commands/palette.ts:272-274, :386, :401, :435-441, packages/app/src/shell/commands/dialog.tsx:261, :267 (the dim). Ours: features/switcher lists archived sessions only in a mode of its own that nothing opens any more (SwitcherMode::Archived, left from before UP-203); the session search asks for archived=false alone (features/switcher/src/poll.rs sessions_step, servers.rs run) and leaves loaded archived sessions out (session_index.rs, search_index.rs Scope::Palette).",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1232 (55186e20d, head 798e70ac3a, CI run 45766438547 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): Search sessions (and Quick Open) queries each server with two concurrent 50-row pages (`archived=false` and `archived=true`, `parentID=null`) once typed, renders archived rows dimmed at 70% (`#fafafab3` / `#808080b3`) while keeping time and badges undimmed, opens clicked archived rows in a tab without unarchiving, omits archived rows from recent/empty search, and keeps the command palette free of archived sessions (`features/switcher/src/{entries,lib,poll,quick_open,search_index,servers,session_index,view}.rs`). Official: `packages/app/src/shell/commands/{session-search.tsx:28-42,76-86,palette.ts:272-274,386,401,435-441,dialog.tsx:251-267,291}`. Verified headless on Windows x64 PR builds beside a before build (`cc991c6505`): all 6/6 cases pass (10 recent rows omit archived; typed query shows 70% dimmed row; pressing opens tab while keeping session archived; single live `badd3ea1cd` server sends 2 concurrent `archived=false`+`true` requests; two live servers query both and render both dimmed rows with the second server's tag; command palette finds no archived row). Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6547,8 +6547,8 @@
       ],
       "summary": "A shell a running Code Mode script started is kept out of the background pill by the call it names: the server puts the script's `execute` call in the shell's metadata (`callID`), and the app holds every running shell that names a running script's call, unless that shell has a running job of its own (its own call ended while it runs). A server that names no call is matched as before, by the calls the script lists.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Port in a draft, opencode-rune #1273, not run: features/subagents/src/shells/mod.rs running_for takes the shell's `metadata.callID` and holds a running shell that names a running `execute` call, unless a running shell job names that shell; the match by the script's listed calls stays for a server that names none. Official: packages/app/src/session/requests/background.ts:196-210. Before, by reading: ours matched a script's shell only by start time and the commands the script's call list shows (the same function on dev). Every case needs a server at or past dfce18305d (shells reach the app only from a server): a running script's shell stays out of the pill; a shell that names no call still shows; a shell left running by a call that timed out shows; an older server behaves as before.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1273 (f237eea6d, head 8faf5fa686, CI run 45766458823 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): `features/subagents/src/shells/mod.rs` (`Shell::call` from `metadata.callID`, `running_for`) keeps a running `execute` script's shells out of the background pill by matching `metadata.callID` against running `execute` calls while still surfacing any shell that has a running `Job.Shell` of its own (e.g. after timeout), and keeps the `toolCalls` fallback for older servers that omit `callID`. Official: `packages/app/src/session/requests/background.ts:196-210`. Verified headless on Windows x64 PR build (`6d78b81cb`) against a live `badd3ea1cd` server beside a before build (`278f9aaf38`): all 4/4 cases pass (script shell with `metadata.callID` and empty `toolCalls` hidden vs `1 shell` before; script shell + user shell without `callID` shows `1 shell` vs `2 shells` before; timed-out script shell with running `Job.Shell` shows `1 shell`; older server without `callID` uses `toolCalls` fallback and hides script shell). Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6629,8 +6629,8 @@
       ],
       "summary": "Settings > General > Updates gains an opt-in Install updates on quit switch (off by default on all desktop platforms, disabled and shown unchecked when the updater is disabled or unavailable) that controls whether downloaded updates install automatically when OpenCode quits.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Port in draft opencode-rune #1297 (head bf0a8efd5e, CI running, not yet run): adds installOnQuit preference (default false) to features/updater/src/{lib,mac,windows,service}.rs (macOS bundle swap on quit now honors the opt-in toggle and disarms cleanly mid-session without Squirrel.Mac; Windows invokes --apply-update without --relaunch when owned and enabled), syncs plugin.updater/installOnQuit in apps/desktop/src/surfaces/updater.rs, adds the desktop-only settings-install-on-quit row to plugins/updater/{init,view}.luau, plugin.toml, locales/en.json, and apps/desktop/src/dialogs/settings/updater_fallback.rs. Official: packages/gui-plugins/src/updater/{contract,main,platform,renderer,section}.tsx, i18n/en.ts.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1297 (78c3e427a, head bf0a8efd5e, CI run 45763694986 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): adds opt-in `Install updates on quit` preference defaulting to `false` in `features/updater/src/{lib,mac,windows,service}.rs` (macOS bundle swap honors toggle and disarms cleanly mid-session without Squirrel.Mac; Windows invokes `--apply-update` without `--relaunch` when owned and enabled), syncs `plugin.updater`/`installOnQuit` in `apps/desktop/src/surfaces/updater.rs`, and renders the desktop-only `settings-install-on-quit` row between `Release notes` and `Check for updates` in `plugins/updater/{init,view}.luau`, `plugin.toml`, `locales/en.json`, and `apps/desktop/src/dialogs/settings/updater_fallback.rs` (disabled and unchecked when updater is starting or disabled). Official: `packages/gui-plugins/src/updater/{contract,main,platform,renderer,section}.tsx`, `i18n/en.ts`. Verified headless on Windows x64 PR build beside a before build (`c1360881ed`): all 3/3 headless cases pass (row positioned strictly between Release notes and Check for updates with exact title/description; switch disabled and unchecked under isolated/unsigned build; Settings search finds `Install updates on quit`). Not run: live enabled/signed updater toggle persistence and quit handoff, real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6697,8 +6697,8 @@
       ],
       "summary": "Calibrates all non-default GUI themes (leaving default oc-2 untouched) for WCAG 2.2 AA contrast and consistent surface/code-block elevation across dark and light variants.",
       "size": "L",
-      "status": "missing",
-      "status_evidence": "Port in draft opencode-rune #1296 (head 8516e08350, CI running, not yet run): calibrates all non-default theme palettes and elevation tokens against WCAG 2.2 contracts while keeping oc-2 untouched. Official: packages/ui/src/theme/{color.ts,context.tsx,v2/foreground.ts,v2/mapping.ts,v2/resolve.ts} and theme JSONs.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1296 (16fe80d92, head 8516e08350, CI run 45763334613 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): calibrates all 82 non-default theme variants for WCAG 2.2 AA contrast and elevated surfaces/code blocks (`bg-layer-01`) while keeping default `oc-2` untouched. Official: `packages/ui/src/theme/{color.ts,context.tsx,v2/foreground.ts,v2/mapping.ts,v2/resolve.ts}` and theme JSONs. Verified headless on Windows x64 PR build: all 5/5 cases pass including calibrated dark themes (`everforest`, `dracula`, `tokyonight`) showing elevated code blocks and bit-identical `oc-2` light/dark PNGs. Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6724,8 +6724,8 @@
       ],
       "summary": "Adds six built-in GUI themes (Alabaster, Cyberdream, Modus, Oxocarbon, Poimandres, and VS Code) to the theme registry and Settings > Appearance picker.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Port in draft opencode-rune #1296 (head 8516e08350, CI running, not yet run): registers Alabaster, Cyberdream, Modus, Oxocarbon, Poimandres, and VS Code (36 -> 42 themes). Official: packages/ui/src/theme/context.tsx and themes/{alabaster,cyberdream,modus,oxocarbon,poimandres,vscode}.json.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1296 (16fe80d92, head 8516e08350, CI run 45763334613 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): adds Alabaster, Cyberdream, Modus, Oxocarbon, Poimandres, and VS Code themes to the registry and Settings > Appearance > Theme picker (36 -> 42 themes). Official: `packages/ui/src/theme/context.tsx` and `themes/{alabaster,cyberdream,modus,oxocarbon,poimandres,vscode}.json`. Verified headless on Windows x64 PR build: Theme picker lists all 42 themes and renders all 6 new light/dark themes accurately instead of falling back to `oc-2`. Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
