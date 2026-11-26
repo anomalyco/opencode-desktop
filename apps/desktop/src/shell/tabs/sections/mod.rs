@@ -72,10 +72,7 @@ impl Feature<App> for SidebarSectionsFeature {
             "escape.sidebar_sections",
             crate::overlays::escape_band::FALLBACK,
             |s| !state(s).selection.is_empty(),
-            |s, _, tx| {
-                tx.instant();
-                clear_selection(s);
-            },
+            |s, _, _| clear_selection(s),
         ));
     }
 }

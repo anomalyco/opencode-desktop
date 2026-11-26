@@ -1,13 +1,15 @@
 //! Shell › Whisper sections: the sidebar's tabs in Experimental › Sidebar sections, made up
 //! (the fixture's Lumen, Harbor and Tidepool projects). Variants: a section over ungrouped tabs; two tabs selected with the
 //! bar showing; a new section being named, its other names under it; a folded section whose tab
-//! works. R replays; S selects two tabs, G groups them, F folds the first section.
+//! works; and a walkthrough that plays it all through: two tabs apart picked, grouped (they glide
+//! together under a new header), named, folded, opened and ungrouped again. R replays; S selects
+//! two tabs, G groups them, F folds the first section.
 
 use super::*;
 use crate::stories::{Story, Trigger, replay, stage};
-use crate::tabs::sections::{self as sec, Section, select};
+use crate::tabs::sections::{self as sec, Section, naming, select};
 
-const VARIANTS: &[(&str, usize)] = &[("Default", 0), ("Multi-selected", 1), ("Naming new section", 2), ("Collapsed section", 3)];
+const VARIANTS: &[(&str, usize)] = &[("Default", 0), ("Multi-selected", 1), ("Naming new section", 2), ("Collapsed section", 3), ("Walkthrough", 4)];
 
 const KEYS: &[Trigger] = &[
     replay(open),
@@ -100,6 +102,61 @@ fn open(s: &mut App, play: &mut rune::Play<'_, App>) {
         _ => {}
     }
     play.instant();
+    if *s.fixture_run.variant == 4 {
+        // Harbor's two Deploy tabs two apart, so grouping them glides one past the others and
+        // offers names (Deploy, Harbor) to pick.
+        let cold = s.tabs.remove(3);
+        s.tabs.insert(5, cold);
+        walkthrough(play);
+    }
+}
+
+/// Variant 4's steps, seconds from the start: Deploy preview builds and Deploy cold starts, two
+/// tabs apart, picked one by one, grouped, named Harbor from the names offered, folded, opened,
+/// and ungrouped.
+fn walkthrough(play: &mut rune::Play<'_, App>) {
+    play.after(0.55, |s, play| pick_one(s, play, 2));
+    play.after(1.15, |s, play| pick_one(s, play, 5));
+    play.after(1.85, |s, play| {
+        play.animated();
+        let uids = sec::state(s).selection.uids().to_vec();
+        sec::create(s, &uids, play);
+    });
+    play.after(3.15, |s, play| {
+        let alt = sec::state(s).naming.editing().and_then(|(_, _, names)| names.first().cloned());
+        match alt {
+            Some(name) => sec::naming_step(s, naming::Event::Pick(&name), play),
+            None => sec::naming_step(s, naming::Event::Commit, play),
+        }
+        play.blur();
+        play.animated();
+    });
+    play.after(4.05, |s, play| fold_new(s, play));
+    play.after(5.10, |s, play| fold_new(s, play));
+    play.after(6.05, |s, play| {
+        if let Some(id) = newest(s) {
+            sec::remove_section(s, &id, play);
+        }
+        play.animated();
+    });
+}
+
+/// Tab `i` joins the selection, as a ⌘-click does.
+fn pick_one(s: &mut App, play: &mut rune::Play<'_, App>, i: usize) {
+    play.animated();
+    let u = uid(s, i);
+    sec::state_mut(s).selection.step(select::Event::Toggle(&u));
+}
+
+/// The section the walkthrough made (the last one).
+fn newest(s: &App) -> Option<String> {
+    sec::state(s).doc.sections.last().filter(|x| x.id != "story-lumen").map(|x| x.id.clone())
+}
+
+fn fold_new(s: &mut App, play: &mut rune::Play<'_, App>) {
+    if let Some(id) = newest(s) {
+        sec::toggle(s, &id, play);
+    }
 }
 
 /// The sidebar alone, as wide as the app draws it.

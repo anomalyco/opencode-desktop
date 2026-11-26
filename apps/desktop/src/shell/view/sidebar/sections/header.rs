@@ -15,6 +15,8 @@ pub(super) const LABEL: TextStyle = TextStyle::new(12.0, 500.0).lh(16.0);
 const COUNT: TextStyle = TextStyle::new(11.0, 500.0).lh(16.0).features("\"tnum\"");
 /// The other names under a new section's field.
 const CHIP: TextStyle = TextStyle::new(11.5, 460.0).lh(16.0);
+/// The disclosure triangle's quarter turn.
+const TURN: Spring = Spring::new(0.2, 0.0);
 
 /// What a folded section's tabs are doing, most pressing first.
 enum Mark {
@@ -46,6 +48,7 @@ pub(super) fn header(s: &App, p: &Pal, section: &Section, tabs: &[usize], first:
         .color(p.icon_faint)
         .group_color(p.icon_muted)
         .rotate(if collapsed { -std::f32::consts::FRAC_PI_2 } else { 0.0 })
+        .rotate_motion(TURN)
         .mirror_in_rtl();
     let slot = el().key("disclosure").size(16.0, 16.0).center().a11y_hidden().child(triangle);
     let slot = if collapsed || editing.is_some() { slot } else { session_view::style::hover_reveal(slot) };
@@ -118,7 +121,10 @@ pub(super) fn header(s: &App, p: &Pal, section: &Section, tabs: &[usize], first:
         })
         .child(slot)
         .child(label)
-        .child(end);
+        .child(end)
+        // A new section's header fades in over the tabs flying under it; a removed one's slot
+        // closes as it fades, so they glide back down without passing through it.
+        .transition(rune::Transition::opacity().springs(rune::SpringPair::new(super::GLIDE, Spring::new(0.2, 0.0))).hold_layout());
     if editing.is_none() {
         head = head
             .on_press_tx(move |s: &mut App, tx: &mut Tx| sec::toggle(s, &toggle_id, tx))
@@ -162,7 +168,10 @@ fn name_field(p: &Pal, field: &rune::TextEdit) -> El {
             tx.blur();
             true
         });
+    // On commit the field gets out of the way at once and the name fades in where it was, so two
+    // words never cross-fade in one place.
     el().key("name-field")
+        .transition(rune::Transition::opacity().springs(rune::SpringPair::new(super::GLIDE, Spring::new(0.08, 0.0))))
         .grow(1.0)
         .shrink()
         .min_w(0.0)
@@ -198,5 +207,5 @@ pub(super) fn alternates(s: &App, p: &Pal, section: &Section) -> Option<El> {
             })
             .child(text(name.clone()).font(CHIP).color(if on { p.text } else { p.faint }).group_color(p.text).truncate())
     });
-    Some(row().key(format!("sec-alts-{}", section.id)).w_full().pl(26.0).pr(4.0).pt(2.0).pb(4.0).gap(2.0).flex_wrap().children(chips))
+    Some(row().key(format!("sec-alts-{}", section.id)).w_full().pl(26.0).pr(4.0).pt(2.0).pb(4.0).gap(2.0).flex_wrap().children(chips).transition(super::fold()))
 }

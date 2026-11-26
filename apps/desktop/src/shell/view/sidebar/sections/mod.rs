@@ -16,6 +16,18 @@ use opencode_i18n::t;
 /// The space the selection bar takes at the list's foot.
 const BAR_ROOM: f32 = 52.0;
 
+/// What the list moves on: a tab gliding to its new slot (into a section, back out, past a
+/// fold), the rows a fold or a header pushes, and a pick's wash. Critical, never bouncy.
+pub(super) const GLIDE: Spring = Spring::new(0.26, 0.0);
+/// A fold opening or shutting, and what comes and goes with a header (its name's other
+/// names, the hairline): the slot closes as it wipes, so nothing below jumps.
+pub(super) fn fold() -> rune::Transition {
+    let mut t = rune::Transition::reveal(rune::Edge::Top).springs(rune::SpringPair::new(GLIDE, Spring::new(0.22, 0.0))).hold_layout();
+    let wipe = Some(rune::Reveal { edge: rune::Edge::Top, feather: 10.0 });
+    (t.insertion.reveal, t.removal.reveal) = (wipe, wipe);
+    t.combined(rune::Transition::opacity())
+}
+
 /// The side tabs in sections, with `lead` (Consolidated's pinned area) above them.
 pub(super) fn list(s: &App, p: &Pal, lead: Option<El>) -> El {
     let laid = sec::laid(s);
@@ -27,6 +39,7 @@ pub(super) fn list(s: &App, p: &Pal, lead: Option<El>) -> El {
         .role("tablist")
         .label_static(t!("settings.general.row.interfaceMode.side"))
         .w_full()
+        .motion(GLIDE)
         .children(lead)
         .on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
             tx.live_only();
@@ -40,11 +53,14 @@ pub(super) fn list(s: &App, p: &Pal, lead: Option<El>) -> El {
         }
         if !section.collapsed {
             let rows = tabs.iter().filter_map(|&i| s.tabs.get(i).map(|t| row::tab_row(s, p, t, i, &nav_order, show_hints)));
-            content = content.child(col().key(format!("sec-rows-{}", section.id)).w_full().gap(2.0).pt(2.0).children(rows));
+            // A new section's tabs fly in (matched); an opened fold wipes down from its header.
+            let new = st.naming.editing().is_some_and(|(id, _, _)| id == section.id);
+            let group = col().key(format!("sec-rows-{}", section.id)).w_full().gap(2.0).pt(2.0).children(rows);
+            content = content.child(group.transition(if new { rune::Transition::none().hold_layout() } else { fold() }));
         }
     }
     if !laid.sections.is_empty() && !laid.ungrouped.is_empty() {
-        content = content.child(el().key("sections-divider").mx(8.0).my(8.0).h(1.0).fill(p.border_muted).a11y_hidden());
+        content = content.child(el().key("sections-divider").mx(8.0).my(8.0).h(1.0).fill(p.border_muted).a11y_hidden().transition(rune::Transition::opacity().hold_layout()));
     }
     let rows = laid.ungrouped.iter().filter_map(|&i| s.tabs.get(i).map(|t| row::tab_row(s, p, t, i, &nav_order, show_hints)));
     content = content.child(col().key("sec-rows-ungrouped").w_full().gap(2.0).children(rows));

@@ -7,6 +7,10 @@ use opencode_i18n::t;
 
 const COUNT: TextStyle = TextStyle::new(12.0, 500.0).lh(16.0).features("\"tnum\"");
 const BUTTON: TextStyle = TextStyle::new(12.0, 520.0).lh(16.0);
+/// The bar rises 12 pt as it fades in with the first pick and sinks as it goes.
+const RISE: f32 = 12.0;
+const IN: Spring = Spring::new(0.24, 0.0);
+const OUT: Spring = Spring::new(0.18, 0.0);
 
 pub(super) fn bar(s: &App, p: &Pal) -> El {
     let n = sec::state(s).selection.len();
@@ -45,10 +49,7 @@ pub(super) fn bar(s: &App, p: &Pal) -> El {
         .hover(p.hover)
         .press(p.pressed)
         .hover_motion(INSTANT, INSTANT)
-        .on_press_tx(|s: &mut App, tx: &mut Tx| {
-            tx.instant();
-            sec::clear_selection(s);
-        })
+        .on_press(sec::clear_selection)
         .child(icon(&ic::XMARK_SMALL, 14.0).color(p.icon_muted));
     let mut b = row()
         .key("sections-bar")
@@ -66,6 +67,7 @@ pub(super) fn bar(s: &App, p: &Pal) -> El {
         .child(text(t!("rune.sections.selected", count = n)).key("count").font(COUNT).color(p.muted).grow(1.0).shrink().min_w(0.0).truncate())
         .child(group)
         .child(clear)
+        .transition(rune::Transition::offset(0.0, RISE).combined(rune::Transition::opacity()).springs(rune::SpringPair::new(IN, OUT)))
         .raise();
     for shadow in p.floating {
         b = b.box_shadow(shadow);

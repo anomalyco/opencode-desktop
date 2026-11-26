@@ -74,7 +74,7 @@ pub(super) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, nav_
     } else {
         Color::TRANSPARENT
     };
-    let mut r = row()
+    let r = row()
         .key(anchor)
         .role("tab")
         .label(face.title.clone())
@@ -90,6 +90,8 @@ pub(super) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, nav_
         .hover(if picked || active || lifted || marked { Color::TRANSPARENT } else { p.hover })
         .hover_group()
         .hover_motion(INSTANT, INSTANT)
+        // Into a section, back out, or past a fold: the tab glides to its slot, its wash with it.
+        .motion(super::GLIDE)
         .matched(format!("{}-{uid}", crate::view::tab_strip::MATCHED))
         .on_layout_tx(move |s: &mut App, r: [f32; 4], tx: &mut Tx| {
             tx.live_only();
@@ -112,9 +114,8 @@ pub(super) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, nav_
         .child(el().size(16.0, 16.0).center().child(avatar))
         .child(title)
         .child(tail);
-    if picked {
-        r = r.box_shadow(Pal::ring_in(p.accent.alpha(0.32)));
-    }
+    // Always drawn, clear when not picked, so the ring fades with the wash rather than popping.
+    let r = r.box_shadow(Pal::ring_in(p.accent.alpha(if picked { 0.32 } else { 0.0 })));
     match carried {
         Some(dy) if dy != 0.0 => r.raise().opacity(0.92).offset(0.0, dy).offset_motion(rune::Anim::INSTANT),
         Some(_) => r.opacity(0.4),

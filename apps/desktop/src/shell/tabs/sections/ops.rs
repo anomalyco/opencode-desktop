@@ -28,7 +28,9 @@ pub fn naming_step(s: &mut App, event: naming::Event<'_>, tx: &mut Tx) {
         naming::Effect::None => {}
         naming::Effect::Focus => tx.focus(FIELD, false),
         naming::Effect::Save { section, name } => {
-            tx.instant();
+            // A commit from the field's key or its blur would land at once: the name settles
+            // and the other names fold away on their springs.
+            tx.animated();
             update(s, |d| {
                 let name = d.unique_name(name.trim(), &section);
                 if let Some(sec) = d.get_mut(&section) {
@@ -60,7 +62,6 @@ pub fn create(s: &mut App, uids: &[String], tx: &mut Tx) {
     if uids.is_empty() {
         return;
     }
-    tx.instant();
     let names = names_for(s, &uids);
     let id = crate::windows::store::new_id();
     let mut name = String::new();
@@ -100,7 +101,7 @@ pub fn ungroup(s: &mut App, uids: &[String]) {
 }
 
 pub fn toggle(s: &mut App, id: &str, tx: &mut Tx) {
-    tx.instant();
+    tx.animated();
     update(s, |d| {
         if let Some(sec) = d.get_mut(id) {
             sec.collapsed = !sec.collapsed;
@@ -118,7 +119,7 @@ pub fn remove_section(s: &mut App, id: &str, tx: &mut Tx) {
     if before.get(id).is_none() {
         return;
     }
-    tx.instant();
+    tx.animated();
     naming_step(s, naming::Event::Gone(id), tx);
     update(s, |d| d.sections.retain(|sec| sec.id != id));
     crate::undo::offer(s, t!("rune.sections.removed"), crate::undo::Undoable::Sections(Box::new(before)));
@@ -191,7 +192,7 @@ pub fn press(s: &mut App, uid: &str, tx: &mut Tx) {
     }
     let live = s.kernel.slots.untracked(&LIVE);
     let (cmd, shift) = (live.cmd.get(), live.shift.get());
-    tx.instant();
+    // A pick washes in and the bar rises on their springs; a plain click opens at once.
     if shift {
         let order = visible_uids(s).unwrap_or_default();
         let from = s.current_tab();
@@ -202,6 +203,7 @@ pub fn press(s: &mut App, uid: &str, tx: &mut Tx) {
         state_mut(s).selection.step(select::Event::Toggle(uid));
         return;
     }
+    tx.instant();
     clear_selection(s);
     if s.current_tab().as_deref() != Some(uid) {
         s.select_tab(uid, tx);
