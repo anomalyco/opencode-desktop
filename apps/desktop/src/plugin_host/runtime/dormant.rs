@@ -30,7 +30,6 @@ use std::time::Duration;
 
 pub use opencode_plugin_runtime::dormant::{Asleep, Record, Wait, Why};
 use opencode_plugin_runtime::dormant::{Records, RecordsEffect, RecordsEvent, contribs_of, parse_records, record_kinds};
-use opencode_plugin_spec as spec;
 use rune::Tx;
 
 use super::plugin::Contribs;
@@ -182,7 +181,16 @@ pub fn sleep_unused(app: &mut App) {
         return;
     }
     let running: Vec<(usize, String)> = app.plugins.list.iter().enumerate()
-        .filter(|(_, p)| p.tier == Tier::Bundled && matches!(p.life, Life::Running(_)) && !super::boot::background(&p.manifest.id))
+        .filter(|(_, p)| {
+            // A theme this window paints with is live only while its contributor runs: asleep, the
+            // picker loses it and the palette falls back. It stays up whether it registered themes
+            // already (the live list) or only declares the kind (its source's `ctx:AddTheme`).
+            p.tier == Tier::Bundled
+                && matches!(p.life, Life::Running(_))
+                && !super::boot::background(&p.manifest.id)
+                && !super::boot::contributes_theme(&p.manifest.id, None)
+                && p.half.contribs.borrow().themes.is_empty()
+        })
         .map(|(i, p)| (i, p.manifest.id.clone()))
         .collect();
     for (i, id) in running {
@@ -193,7 +201,7 @@ pub fn sleep_unused(app: &mut App) {
         let Some(hash) = super::sources::files_hash(&id, &p.origin, p.tier) else { continue };
         let Some(record) = app.plugins.dormant.record(&id, &hash) else { continue };
         drive(app, i, LifeEvent::Sleep);
-        super::app_half::stop(&id);
+        app.plugins.shared_plugin_owners.release(&app.plugins.list[i].half.token);
         doze(app, i, record, false);
         eprintln!("plugins: {id} sleeps again (nothing shows it)");
     }
@@ -353,8 +361,10 @@ pub fn wake_kind(app: &mut App, kind: &str, fns: &[&str]) -> bool {
 /// Settings › Preferences, Shortcuts and plugin pages are complete immediately.
 pub fn wake_settings(app: &mut App) -> bool {
     super::boot::doze_owed(app);
-    let adopted = super::boot::adopt_later_kinds(app, &["Command", "Setting", "SettingsPage"]);
-    let woke = wake_owners(app, |c| !c.settings.is_empty() || !c.settings_pages.is_empty());
+    // Appearance lists the themes this window has live, so a queued theme contributor starts with
+    // Settings, before the page enumerates them.
+    let adopted = super::boot::adopt_later_kinds(app, &["Command", "Setting", "SettingsPage", "Theme"]);
+    let woke = wake_owners(app, |c| !c.settings.is_empty() || !c.settings_pages.is_empty() || !c.themes.is_empty());
     let retried = retry_timed_out_settings(app);
     adopted || woke || retried
 }

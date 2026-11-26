@@ -1,20 +1,26 @@
 //! Plugin runtime lifecycle: stepping `Life`, `Trust`, and `Hot`, starting/stopping/reloading
 //! Luau VMs, delivering host signals, and the per-frame `poll` loop.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use rune::Tx;
 use rune_luau::{Data, Script};
 
 use super::boot::save_record;
-use super::{app_half, dormant, hot, plugin, sources, vm};
+use super::{app_half, dormant, hot, plugin, sources, themes, vm};
 use crate::App;
 use crate::plugin_host::{
     FlyoutEvent, Hot, HotEffect, Life, LifeEffect, LifeEvent, Origin, Overlay, Trust, TrustEffect, TrustEvent,
-    bump, console, cx, epoch, mark, project_request, requests, server_sources, servers, services, stores, tasks,
+    bump, console, cx, epoch, machines::HotEvent, mark, project_request, requests, servers, services, stores, tasks,
 };
 
 /// Steps plugin `i`'s life with `event` and carries out what the step asks for.
 pub fn drive(app: &mut App, i: usize, event: LifeEvent) {
-    let life = std::mem::replace(&mut app.plugins.list[i].life, Life::Discovered);
+    let p = &mut app.plugins.list[i];
+    if matches!(event, LifeEvent::Disable | LifeEvent::NeedTrust | LifeEvent::Remove | LifeEvent::Sleep) && matches!(p.hot, Hot::Manual(_)) {
+        p.hot = Hot::Idle;
+    }
+    let life = std::mem::replace(&mut p.life, Life::Discovered);
     let (life, effects) = life.step(event);
     app.plugins.list[i].life = life;
     for effect in effects {
@@ -51,14 +57,18 @@ pub(super) fn start_app_half(app: &mut App, id: &str) -> bool {
     let Some(i) = app.plugins.find(id) else { return false };
     let p = &app.plugins.list[i];
     let Some(entry) = p.manifest.app.clone() else { return false };
-    if app_half::runs(id) || !stores::answers_for(id) {
+    if !stores::answers_for(id) {
         return false;
     }
     let files = p.origin.files();
+    let revision = app_half::Revision::new(&p.manifest, p.tier, &files);
+    if !app_half::available(&revision) || app_half::runs(&revision) {
+        return false;
+    }
     let catalogs = p.origin.catalogs(&files);
-    let manifest = p.manifest.clone();
-    let sources = sources::scripts(&p.origin, &files, &manifest.id, &entry);
-    app_half::ensure(app, p.tier, &manifest, &files, catalogs, sources);
+    let sources = sources::scripts(&p.origin, &files, &p.manifest.id, &entry);
+    app.plugins.shared_plugin_owners.hold(&p.half.token, &revision);
+    app_half::ensure(app, revision, &files, catalogs, sources);
     true
 }
 
@@ -75,12 +85,15 @@ fn start_loaded(app: &mut App, i: usize) {
     let files = app.plugins.list[i].origin.files();
     let p = &app.plugins.list[i];
     let (id, manifest) = (p.manifest.id.clone(), p.manifest.clone());
+    let revision = app_half::Revision::new(&manifest, p.tier, &files);
+    if !app_half::available(&revision) {
+        drive(app, i, LifeEvent::WaitForAppHalf);
+        return;
+    }
     let catalogs = p.origin.catalogs(&files);
     *p.half.catalogs.borrow_mut() = catalogs.clone();
     sources::intern_icons(&id, &files);
-    if let Some(entry) = &manifest.app {
-        app_half::ensure(app, p.tier, &manifest, &files, catalogs, sources::scripts(&p.origin, &files, &manifest.id, entry));
-    }
+    start_shared(app, p, revision, &files, catalogs);
     let folder = p
         .origin
         .dir()
@@ -112,8 +125,34 @@ fn start_loaded(app: &mut App, i: usize) {
         restart_later(app, &id);
     }
     if app.plugins.list[i].running() {
+        themes::publish(app, i);
         dormant::note_started(app, i);
     }
+}
+
+fn start_shared(app: &App, p: &crate::plugin_host::Plugin, revision: app_half::Revision, files: &[(String, String)], catalogs: crate::plugin_host::Catalogs) {
+    let owners = &app.plugins.shared_plugin_owners;
+    owners.hold(&p.half.token, &revision);
+    owners.adopt_staged(&p.half.token, &revision);
+    if let Some(entry) = &p.manifest.app {
+        app_half::ensure(app, revision, files, catalogs, sources::scripts(&p.origin, files, &p.manifest.id, entry));
+    }
+}
+
+fn poll_waiting_app_halves(app: &mut App, tx: &mut Tx) -> bool {
+    let mut waiting = app.plugins.list.iter().enumerate().filter(|(_, p)| matches!(p.life, Life::WaitingForAppHalf)).peekable();
+    if waiting.peek().is_none() {
+        return false;
+    }
+    let ready = waiting.find_map(|(i, p)| {
+        app_half::available(&app_half::Revision::new(&p.manifest, p.tier, &p.origin.files())).then_some(i)
+    });
+    tx.wake_after(std::time::Duration::from_millis(250));
+    if let Some(i) = ready {
+        drive(app, i, LifeEvent::Load);
+        return true;
+    }
+    false
 }
 
 /// How long a plugin whose start ran out of time shows its error card before it starts again, in s.
@@ -190,6 +229,8 @@ fn stop(app: &mut App, i: usize, script: Script) {
     }
     drop(script);
     *half.contribs.borrow_mut() = plugin::Contribs::default();
+    half.themes_changed.set(false);
+    themes::withdraw(app, &id);
     services::reap(&half, None);
     services::store::withdraw_owner(&half.id, plugin::Kind::Window, None);
     services::browser_contract::revoke_half(&half.token, None);
@@ -207,22 +248,22 @@ fn stop(app: &mut App, i: usize, script: Script) {
 /// hot state. A failed compile or setup keeps the running VM; a failed plugin starts again.
 pub fn reload(app: &mut App, i: usize, prepared: Option<hot::Prepared>) {
     let p = &app.plugins.list[i];
-    if !p.running() && !matches!(p.life, Life::Errored { .. }) {
+    if !p.running() && !matches!(p.life, Life::Errored { .. } | Life::AwaitingTrust | Life::WaitingForAppHalf) {
         return;
     }
     let prepared = match prepared {
         Some(prep) => prep,
         // A folder is read again on a worker, never on the app's thread.
         None if p.origin.dir().is_some() => {
+            static NEXT_RELOAD: AtomicU64 = AtomicU64::new(1);
+            let attempt = NEXT_RELOAD.fetch_add(1, Ordering::Relaxed);
             let (origin, manifest, id, deliver) = (p.origin.clone(), p.manifest.clone(), p.manifest.id.clone(), app.deliverer());
+            drive_hot(app, i, HotEvent::Manual(attempt));
             tasks::run(move || {
-                let prepared = hot::prepare(&origin, &manifest);
+                let result = hot::prepare(&origin, &manifest).map(Box::new);
                 deliver(Box::new(move |app: &mut App, tx: &mut Tx| {
-                    let Some(i) = app.plugins.find(&id) else { return };
-                    match prepared {
-                        Ok(prep) => reload(app, i, Some(prep)),
-                        Err(e) => console::push(&id, rune_luau::LogLevel::Error, &e),
-                    }
+                    let Some(i) = app.plugins.list.iter().position(|p| p.manifest.id == id && matches!(p.hot, Hot::Manual(current) if current == attempt)) else { return };
+                    drive_hot(app, i, HotEvent::ManualReady { attempt, result });
                     tx.instant();
                 }));
             });
@@ -233,23 +274,45 @@ pub fn reload(app: &mut App, i: usize, prepared: Option<hot::Prepared>) {
             Err(e) => return console::push(&p.manifest.id, rune_luau::LogLevel::Error, &e),
         },
     };
-    // A folder plugin runs from what was read now; one from outside the app runs it only under an
-    // OK for those bytes.
-    if let Origin::Dir { dir, .. } = &p.origin {
-        app.plugins.list[i].origin = Origin::Dir { dir: dir.clone(), files: prepared.files.clone().into() };
+    let replacement = if let Some(dir) = p.origin.dir() {
+        let Some(manifest) = replacement_manifest(p, &prepared) else { return };
+        Some((manifest, Origin::Dir { dir: dir.to_path_buf(), files: prepared.files.clone().into() }))
+    } else {
+        None
+    };
+    if matches!(app.plugins.list[i].life, Life::AwaitingTrust) {
+        install_source(app, i, replacement);
+        step_trust(app, i, TrustEvent::FilesChanged(prepared.hash));
+        return;
+    }
+    if matches!(app.plugins.list[i].life, Life::WaitingForAppHalf) {
+        install_source(app, i, replacement);
+        step_trust(app, i, TrustEvent::FilesChanged(prepared.hash));
+        if !app.plugins.list[i].trust.allows() {
+            drive(app, i, LifeEvent::NeedTrust);
+        }
+        return;
     }
     if app.plugins.list[i].tier.needs_trust() {
         step_trust(app, i, TrustEvent::FilesChanged(prepared.hash.clone()));
         if !app.plugins.list[i].trust.allows() {
-            app_half::stop(&app.plugins.list[i].manifest.id.clone());
-            return drive(app, i, LifeEvent::NeedTrust);
+            install_source(app, i, replacement);
+            let id = app.plugins.list[i].manifest.id.clone();
+            drive(app, i, LifeEvent::NeedTrust);
+            app.plugins.shared_plugin_owners.release(&app.plugins.list[i].half.token);
+            return;
         }
     }
     let p = &app.plugins.list[i];
     if matches!(p.life, Life::Errored { .. }) {
+        if let Some((manifest, _)) = &replacement {
+            let revision = app_half::Revision::new(manifest, p.tier, &prepared.files);
+            app.plugins.shared_plugin_owners.release_except(&p.half.token, Some(&revision));
+        }
+        install_source(app, i, replacement);
         return drive(app, i, LifeEvent::Reload);
     }
-    *p.half.catalogs.borrow_mut() = prepared.catalogs;
+    let catalogs = p.half.catalogs.replace(prepared.catalogs);
     sources::intern_icons(&p.manifest.id, &prepared.files);
     drive(app, i, LifeEvent::Reload);
     let p = &app.plugins.list[i];
@@ -260,7 +323,12 @@ pub fn reload(app: &mut App, i: usize, prepared: Option<hot::Prepared>) {
     let id = app.plugins.list[i].manifest.id.clone();
     let outcome = match result {
         Ok(report) => {
-            half.adopt(vm);
+            if half.adopt(vm) {
+                // Hot reload swaps the window VM. The process-wide app VM keeps its
+                // admitted bytes until the last owner stops.
+                install_source(app, i, replacement);
+                themes::publish(app, i);
+            }
             services::reap(&half, vm);
             services::store::withdraw_owner(&id, plugin::Kind::Window, vm);
             services::browser_contract::revoke_half(&half.token, vm);
@@ -275,11 +343,91 @@ pub fn reload(app: &mut App, i: usize, prepared: Option<hot::Prepared>) {
             Ok(())
         }
         Err(e) => {
+            half.catalogs.replace(catalogs);
             half.made.borrow_mut().take();
             Err(e.message)
         }
     };
     drive(app, i, LifeEvent::Reloaded(outcome));
+}
+
+fn install_source(app: &mut App, i: usize, source: Option<(opencode_plugin_spec::Manifest, Origin)>) {
+    if let Some((manifest, origin)) = source {
+        let p = &mut app.plugins.list[i];
+        p.manifest = manifest;
+        p.origin = origin;
+    }
+}
+
+fn removed(app: &mut App, i: usize) {
+    let p = &app.plugins.list[i];
+    let Some(dir) = p.origin.dir().map(std::path::Path::to_path_buf) else { return };
+    let id = p.manifest.id.clone();
+    dormant::forget(app, &id);
+    drive(app, i, LifeEvent::Remove);
+    app.plugins.shared_plugin_owners.release(&app.plugins.list[i].half.token);
+    let p = &mut app.plugins.list[i];
+    p.origin = Origin::Dir { dir, files: Vec::new().into() };
+    p.trust = Trust::at_launch(p.tier.needs_trust(), "", None);
+}
+
+fn replacement_manifest(p: &crate::plugin_host::Plugin, prepared: &hot::Prepared) -> Option<opencode_plugin_spec::Manifest> {
+    let (_, source) = prepared.files.iter().find(|(path, _)| path == "plugin.toml")?;
+    let manifest = opencode_plugin_runtime::sources::parse(source).ok()?;
+    // A watched slot belongs to one ID. Changing it requires a fresh discovery pass.
+    let reason = if manifest.id != p.manifest.id {
+        Some("A reload cannot change the plugin's id".to_owned())
+    } else {
+        super::boot::refusal(p.tier, &manifest)
+    };
+    if let Some(reason) = reason {
+        console::push(&p.manifest.id, rune_luau::LogLevel::Error, &reason);
+        return None;
+    }
+    Some(manifest)
+}
+
+fn rediscover(app: &mut App, i: usize, prepared: hot::Prepared) {
+    let p = &app.plugins.list[i];
+    let Some(dir) = p.origin.dir().map(std::path::Path::to_path_buf) else { return };
+    let Some(manifest) = replacement_manifest(p, &prepared) else { return };
+    let id = manifest.id.clone();
+    let trust = Trust::at_launch(p.tier.needs_trust(), &prepared.hash, app.plugins.trusted.get(&id));
+    let event = if app.plugins.disabled.contains(&id) {
+        LifeEvent::Disable
+    } else if !trust.allows() {
+        LifeEvent::NeedTrust
+    } else {
+        LifeEvent::Load
+    };
+    let p = &mut app.plugins.list[i];
+    p.manifest = manifest;
+    p.origin = Origin::Dir { dir, files: prepared.files.into() };
+    p.trust = trust;
+    p.half = plugin::Half::new(&id, plugin::Kind::Window, p.tier);
+    drive(app, i, LifeEvent::Rediscover);
+    drive(app, i, event);
+}
+
+fn drive_hot(app: &mut App, i: usize, event: HotEvent) -> bool {
+    let hot = std::mem::replace(&mut app.plugins.list[i].hot, Hot::Idle);
+    let (hot, effects) = hot.step(event);
+    app.plugins.list[i].hot = hot;
+    let changed = !effects.is_empty();
+    for effect in effects {
+        match effect {
+            HotEffect::Prewarm => {
+                if let Some(script) = app.plugins.list[i].script() {
+                    cx::enter(app, || script.prewarm());
+                }
+            }
+            HotEffect::Swap(prepared) if matches!(app.plugins.list[i].life, Life::Missing) => rediscover(app, i, *prepared),
+            HotEffect::Swap(prepared) => reload(app, i, Some(*prepared)),
+            HotEffect::Withdraw => removed(app, i),
+            HotEffect::Report(e) => console::push(&app.plugins.list[i].manifest.id, rune_luau::LogLevel::Error, &e),
+        }
+    }
+    changed
 }
 
 /// Runs what is due in every plugin: finished work, timers, process output, server events,
@@ -323,22 +471,9 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
     }
     let saves = app.plugins.watcher.as_ref().map(hot::Watcher::take).unwrap_or_default();
     for (i, event) in saves {
-        let hot = std::mem::replace(&mut app.plugins.list[i].hot, Hot::Idle);
-        let (hot, effects) = hot.step(event);
-        app.plugins.list[i].hot = hot;
-        for effect in effects {
-            match effect {
-                HotEffect::Prewarm => {
-                    if let Some(script) = app.plugins.list[i].script() {
-                        cx::enter(app, || script.prewarm());
-                    }
-                }
-                HotEffect::Swap(prepared) => reload(app, i, Some(*prepared)),
-                HotEffect::Report(e) => console::push(&app.plugins.list[i].manifest.id, rune_luau::LogLevel::Error, &e),
-            }
-            changed = true;
-        }
+        changed |= drive_hot(app, i, event);
     }
+    changed |= poll_waiting_app_halves(app, tx);
     let events = std::mem::take(&mut *app.plugins.events.borrow_mut());
     let mut delivered = false;
     for i in 0..app.plugins.list.len() {
@@ -383,6 +518,19 @@ pub fn poll(app: &mut App, fresh: bool, tx: &mut Tx) -> bool {
         changed |= half.epoch.get() != before || (!half.owns_redraw && ran);
     }
     requests::carry_out(app, tx);
+    for (i, plugin) in app.plugins.running() {
+        if plugin.half.themes_changed.get() {
+            themes::publish(app, i);
+        }
+    }
+    if app.plugins.themes.take_changed() {
+        // The open picker captured its old options; its next open reads the window's new list.
+        if app.popup.open_at("settings-theme-select-trigger") || app.popup.open_at("theme-select") {
+            crate::popup::dismiss(app, tx);
+        }
+        tx.instant();
+        changed = true;
+    }
     changed |= entry_epoch != epoch();
     // What a plugin shows lives in its VM, which `Tracked` can't see: a poll that changed what
     // plugins draw marks the host written, so the regions that show plugin surfaces build again.
@@ -432,11 +580,10 @@ pub fn toggle(app: &mut App, id: &str, tx: &mut Tx) {
     let Some(i) = app.plugins.find(id) else { return };
     let p = &app.plugins.list[i];
     match &p.life {
-        Life::Running(_) | Life::Reloading(_) | Life::Errored { .. } | Life::AwaitingTrust | Life::Dormant => {
+        Life::Running(_) | Life::Reloading(_) | Life::Errored { .. } | Life::AwaitingTrust | Life::Dormant | Life::WaitingForAppHalf => {
             dormant::forget(app, id);
             drive(app, i, LifeEvent::Disable);
-            app_half::stop(id);
-            server_sources::forget(id);
+            app.plugins.shared_plugin_owners.release(&app.plugins.list[i].half.token);
             app.plugins.disabled.insert(id.to_owned());
             // A plugin from outside the app: the OK goes with the switch, so on again asks again.
             step_trust(app, i, TrustEvent::Revoke);
@@ -451,7 +598,7 @@ pub fn toggle(app: &mut App, id: &str, tx: &mut Tx) {
                 drive(app, i, LifeEvent::NeedTrust);
             }
         }
-        Life::Discovered | Life::Loading | Life::Refused(_) => return,
+        Life::Discovered | Life::Missing | Life::Loading | Life::Refused(_) => return,
     }
     save_record(app, id, None);
 }
@@ -464,19 +611,23 @@ pub fn step_trust(app: &mut App, i: usize, event: TrustEvent) {
     let id = app.plugins.list[i].manifest.id.clone();
     for effect in effects {
         match effect {
-            TrustEffect::Save(hash) => {
-                app.plugins.disabled.remove(&id);
-                app.plugins.trusted.insert(id.clone(), hash);
+            TrustEffect::Save { hash, attempt } => {
                 let who = id.clone();
+                let granted_hash = hash.clone();
                 save_record(
                     app,
                     &id,
-                    Some(Box::new(move |app: &mut App, tx: &mut Tx, result| {
-                        if let Some(i) = app.plugins.find(&who) {
-                            step_trust(app, i, TrustEvent::Saved(result));
+                    Some((hash, Box::new(move |app: &mut App, tx: &mut Tx, result| {
+                        let Some(i) = app.plugins.list.iter().position(|p| {
+                            p.manifest.id == who && matches!(p.trust, Trust::Granting { attempt: pending, .. } if pending == attempt)
+                        }) else { return };
+                        app.plugins.disabled.remove(&who);
+                        if result.is_ok() {
+                            app.plugins.trusted.insert(who, granted_hash);
                         }
+                        step_trust(app, i, TrustEvent::Saved { attempt, result });
                         tx.instant();
-                    })),
+                    }))),
                 );
             }
             // The caller writes the record (with the switch it changed).

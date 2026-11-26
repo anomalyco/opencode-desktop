@@ -146,12 +146,31 @@ enum Timeout {
     Due { attempt: Attempt, at: f64 },
 }
 
-/// A managed server's reach, as its health says: a drop runs the plugin's `reconnect` once.
+/// A managed server's reach. A drop stays pending until a window can dispatch the reconnect.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Link {
     Unknown,
     Up,
     Down,
+    ReconnectPending,
+}
+
+enum LinkEvent {
+    Observed { managed: bool, reachable: Option<bool> },
+    Dispatched,
+}
+
+impl Link {
+    fn step(self, event: LinkEvent) -> Self {
+        match (self, event) {
+            (_, LinkEvent::Observed { reachable: Some(true), .. }) => Self::Up,
+            (Self::Up, LinkEvent::Observed { managed: true, reachable: Some(false) }) => Self::ReconnectPending,
+            (Self::ReconnectPending, LinkEvent::Observed { managed: true, .. }) => Self::ReconnectPending,
+            (_, LinkEvent::Observed { reachable: Some(false), .. })
+            | (Self::ReconnectPending, LinkEvent::Observed { managed: false, .. } | LinkEvent::Dispatched) => Self::Down,
+            (state, _) => state,
+        }
+    }
 }
 
 thread_local! {
@@ -205,23 +224,36 @@ pub fn poll_actions(app: &mut App, tx: &mut Tx) {
         run_actions(app, &key, effects.unwrap_or_default(), tx);
     }
     let managed: Vec<String> = all(app).into_iter().filter(|c| !c.by_address() && c.rec.managed && c.rec.state == ServerState::Ready).map(|c| c.key).collect();
-    let dropped: Vec<String> = ACTIONS.with_borrow_mut(|a| {
+    let dropped: Vec<(String, bool)> = ACTIONS.with_borrow_mut(|a| {
         a.iter_mut()
             .filter_map(|(key, slot)| {
                 let managed = managed.contains(key);
                 let health = crate::servers::health::get(&opencode_kit::servers::ServerKey::new(key));
-                let now = match health {
-                    Some(opencode_servers::health::Health::Probe(opencode_servers::health::ProbeResult::Healthy { .. })) => Link::Up,
-                    Some(opencode_servers::health::Health::Probe(opencode_servers::health::ProbeResult::Unreachable)) => Link::Down,
-                    _ => slot.link,
+                let reachable = match health {
+                    Some(opencode_servers::health::Health::Probe(opencode_servers::health::ProbeResult::Healthy { .. })) => Some(true),
+                    Some(opencode_servers::health::Health::Probe(opencode_servers::health::ProbeResult::Unreachable)) => Some(false),
+                    _ => None,
                 };
-                let was = std::mem::replace(&mut slot.link, now);
-                (managed && was == Link::Up && now == Link::Down).then(|| key.clone())
+                let previous = slot.link;
+                slot.link = slot.link.step(LinkEvent::Observed { managed, reachable });
+                (slot.link == Link::ReconnectPending).then(|| (key.clone(), previous != Link::ReconnectPending))
             })
             .collect()
     });
-    for key in dropped {
-        super::server_sources::call(app, &key, "reconnect", None, tx);
+    let mut wake_owners = false;
+    for (key, newly_pending) in dropped {
+        if super::server_sources::call(app, &key, "reconnect", None, tx) {
+            ACTIONS.with_borrow_mut(|a| {
+                if let Some(slot) = a.get_mut(&key) {
+                    slot.link = slot.link.step(LinkEvent::Dispatched);
+                }
+            });
+        } else {
+            wake_owners |= newly_pending;
+        }
+    }
+    if wake_owners {
+        crate::storage::wake_all();
     }
     if let Some(at) = ACTIONS.with_borrow(|a| a.values().filter_map(|s| match s.timeout {
         Timeout::Due { at, .. } => Some(at),

@@ -23,8 +23,9 @@ use crate::hot::Prepared;
 ///             ├─ Doze ─────▶ Dormant ────── Load ──┤
 ///             └─ Load ─────────────────────────────┴▶ Loading ─ Started ──▶ Running ⇄ Reloading
 ///                                                       └─ StartFailed ▶ Errored ─ Load ▶ Loading
-/// Running / Reloading / Errored / Dormant ─ Disable ▶ Disabled
-/// Running / Reloading / Errored ─ NeedTrust ▶ AwaitingTrust (its files changed)
+/// Loading ─ WaitForAppHalf ▶ WaitingForAppHalf ─ Load ▶ Loading
+/// Running / Reloading / Errored / Dormant / WaitingForAppHalf ─ Disable ▶ Disabled
+/// Running / Reloading / Errored / WaitingForAppHalf ─ NeedTrust ▶ AwaitingTrust (its files changed)
 /// ```
 ///
 /// `Loading` also covers the wait for the plugin's stored values: its scripts start once they're
@@ -34,6 +35,8 @@ use crate::hot::Prepared;
 /// then `Doze`.
 pub enum Life {
     Discovered,
+    /// Its manifest was removed; only fresh discovery can start it again.
+    Missing,
     /// Its manifest, platform or id keeps it from loading.
     Refused(String),
     /// A third-party plugin whose files the user hasn't OKed ([`Trust`]).
@@ -43,6 +46,9 @@ pub enum Life {
     Dormant,
     /// Its window half's script is being started.
     Loading,
+    /// Its window half holds its start until the previous revision's app half is gone, so two
+    /// revisions never run side by side.
+    WaitingForAppHalf,
     Running(Script),
     /// A new VM for its new files is being swapped in; the running one keeps serving until then.
     Reloading(Script),
@@ -52,6 +58,8 @@ pub enum Life {
 
 pub enum LifeEvent {
     Refuse(String),
+    Remove,
+    Rediscover,
     NeedTrust,
     Disable,
     /// It may run, and waits for its first use (`Dormant`).
@@ -60,6 +68,8 @@ pub enum LifeEvent {
     /// its script stops, and `Doze` follows with its record.
     Sleep,
     Load,
+    /// The previous revision's app half is still going: wait for it before its script starts.
+    WaitForAppHalf,
     Started(Script),
     StartFailed(Script, String),
     Reload,
@@ -81,6 +91,9 @@ impl Life {
         use LifeEffect as F;
         use LifeEvent as E;
         match (self, event) {
+            (L::Running(s) | L::Reloading(s) | L::Errored { script: s, .. }, E::Remove) => (L::Missing, vec![F::Stop(s)]),
+            (_, E::Remove) => (L::Missing, vec![]),
+            (L::Missing, E::Rediscover) => (L::Discovered, vec![]),
             (L::Discovered, E::Refuse(why)) => (L::Refused(why), vec![]),
             (L::Discovered | L::Disabled, E::NeedTrust) => (L::AwaitingTrust, vec![]),
             // Its files changed under it: it stops until the user OKs the new ones.
@@ -93,6 +106,11 @@ impl Life {
             (L::Errored { script, .. }, E::Load | E::Reload) => (L::Loading, vec![F::Stop(script), F::Start]),
             (L::Loading, E::Started(s)) => (L::Running(s), vec![]),
             (L::Loading, E::StartFailed(script, error)) => (L::Errored { error: error.clone(), script }, vec![F::Report(error)]),
+            // One app half per plugin: the new window half waits for the old one to go.
+            (L::Loading, E::WaitForAppHalf) => (L::WaitingForAppHalf, vec![]),
+            (L::WaitingForAppHalf, E::Load) => (L::Loading, vec![F::Start]),
+            (L::WaitingForAppHalf, E::Disable) => (L::Disabled, vec![]),
+            (L::WaitingForAppHalf, E::NeedTrust) => (L::AwaitingTrust, vec![]),
             (L::Running(s), E::Reload) => (L::Reloading(s), vec![]),
             (L::Reloading(s), E::Reloaded(Ok(()))) => (L::Running(s), vec![]),
             // A failed reload keeps the running VM; the console says why.
@@ -123,12 +141,14 @@ impl Life {
     pub fn label(&self) -> &str {
         match self {
             Life::Discovered => "Found",
+            Life::Missing => "Removed",
             Life::Refused(_) => "Not loaded",
             Life::AwaitingTrust => "Waiting for your OK",
             Life::Disabled => "Off",
             // On as far as the user can tell: its contributions are there, and it starts at first use.
             Life::Dormant => "On",
             Life::Loading => "Loading",
+            Life::WaitingForAppHalf => "Waiting for the previous revision",
             Life::Running(_) => "On",
             Life::Reloading(_) => "Reloading",
             Life::Errored { .. } => "Failed",
@@ -152,11 +172,16 @@ impl Life {
 /// plugin runs only once it's on disk, so a crash can't lose an answer the plugin ran under, and
 /// it's for those bytes only (a reload that reads other bytes asks again).
 ///
+/// Each `Accept` carries an `attempt` unique to that click, and `Saved` names the attempt it
+/// answers, so an answer landing after a later click (or for another window's prompt) changes
+/// nothing.
+///
 /// ```text
-/// Unknown ─ Accept ▶ Granting ─ Saved(Ok) ▶ Granted
-///                             └ Saved(Err) ▶ GrantedThisRun     Unknown ─ Later ▶ Deferred ─ Ask ▶ Unknown
+/// Unknown ─ Accept(a) ▶ Granting(a) ─ Saved(a, Ok) ▶ Granted
+///                                  └ Saved(a, Err) ▶ GrantedThisRun
+/// Unknown ─ Later ▶ Deferred ─ Ask ▶ Unknown
 /// Granting / Granted / GrantedThisRun ─ Revoke ▶ Unknown (forgotten: turned off)
-/// any but NotNeeded ─ FilesChanged(h) ▶ Unknown(h)
+/// any but NotNeeded ─ FilesChanged(h) ▶ Unknown(h), or Granting(a) kept while h is its hash
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Trust {
@@ -165,8 +190,9 @@ pub enum Trust {
     Unknown { hash: String },
     /// "Not now": no prompt again this launch unless the user turns it on.
     Deferred { hash: String },
-    /// The user said yes; the record is being made durable and the plugin waits for it.
-    Granting { hash: String },
+    /// The user said yes (`attempt` names that click); the record is being made durable and the
+    /// plugin waits for it.
+    Granting { hash: String, attempt: u64 },
     /// The user said yes, and the record is on disk.
     Granted { hash: String },
     /// The user said yes but the record couldn't be saved: it runs this launch and asks again next.
@@ -174,12 +200,13 @@ pub enum Trust {
 }
 
 pub enum TrustEvent {
-    Accept,
+    /// The user said yes; `attempt` is unique to that click.
+    Accept(u64),
     Later,
     /// The user turned it on again: ask once more.
     Ask,
-    /// The grant's record landed (or couldn't).
-    Saved(Result<(), String>),
+    /// The grant `attempt`'s record landed (or couldn't); another attempt's answer changes nothing.
+    Saved { attempt: u64, result: Result<(), String> },
     /// The user turned it off: the OK is forgotten with it.
     Revoke,
     /// Its files were read again and hash to this: an OK for other bytes doesn't hold.
@@ -187,8 +214,9 @@ pub enum TrustEvent {
 }
 
 pub enum TrustEffect {
-    /// Write `hash` as trusted for the plugin (and it on) in one durable record; answer `Saved`.
-    Save(String),
+    /// Write `hash` as trusted for the plugin (and it on) in one durable record; answer
+    /// `Saved { attempt }`.
+    Save { hash: String, attempt: u64 },
     /// Write the plugin's record without its trust.
     Forget,
     /// Load the plugin ([`LifeEvent::Load`]).
@@ -212,9 +240,11 @@ impl Trust {
         use TrustEffect as F;
         use TrustEvent as E;
         match (self, event) {
-            (T::Unknown { hash } | T::Deferred { hash }, E::Accept) => (T::Granting { hash: hash.clone() }, vec![F::Save(hash)]),
-            (T::Granting { hash }, E::Saved(Ok(()))) => (T::Granted { hash }, vec![F::Load]),
-            (T::Granting { hash }, E::Saved(Err(e))) => (
+            (T::Unknown { hash } | T::Deferred { hash }, E::Accept(attempt)) => {
+                (T::Granting { hash: hash.clone(), attempt }, vec![F::Save { hash, attempt }])
+            }
+            (T::Granting { hash, attempt: held }, E::Saved { attempt, result: Ok(()) }) if held == attempt => (T::Granted { hash }, vec![F::Load]),
+            (T::Granting { hash, attempt: held }, E::Saved { attempt, result: Err(e) }) if held == attempt => (
                 T::GrantedThisRun { hash },
                 vec![
                     F::Load,
@@ -223,8 +253,9 @@ impl Trust {
             ),
             (T::Unknown { hash }, E::Later) => (T::Deferred { hash }, vec![]),
             (T::Deferred { hash }, E::Ask) => (T::Unknown { hash }, vec![]),
-            (T::Granting { hash } | T::Granted { hash } | T::GrantedThisRun { hash }, E::Revoke) => (T::Unknown { hash }, vec![F::Forget]),
+            (T::Granting { hash, .. } | T::Granted { hash } | T::GrantedThisRun { hash }, E::Revoke) => (T::Unknown { hash }, vec![F::Forget]),
             (T::NotNeeded, E::FilesChanged(_)) => (T::NotNeeded, vec![]),
+            (T::Granting { hash: old, attempt }, E::FilesChanged(hash)) if old == hash => (T::Granting { hash, attempt }, vec![]),
             (T::Granted { hash: old }, E::FilesChanged(hash)) if old == hash => (T::Granted { hash }, vec![]),
             (T::GrantedThisRun { hash: old }, E::FilesChanged(hash)) if old == hash => (T::GrantedThisRun { hash }, vec![]),
             (_, E::FilesChanged(hash)) => (T::Unknown { hash }, vec![]),
@@ -246,10 +277,16 @@ impl Trust {
 /// ```text
 /// Idle ─ Changed ▶ Compiling + Prewarm ─ Compiled(Ok) ▶ Idle + Swap
 ///                            └ Compiled(Err) ▶ Failed + Report ─ Changed ▶ Compiling
+/// any ─ Manual(a) ▶ Manual(a) ─ ManualReady(a, Ok) ▶ Idle + Swap
+///                            └ ManualReady(a, Err) ▶ Failed + Report
+/// Manual(a) ─ ManualReady(b≠a) ▶ Manual(a) (an attempt a later one replaced)
+/// any ─ Removed ▶ Idle + Withdraw
 /// ```
 pub enum Hot {
     Idle,
     Compiling,
+    /// The user asked for a reload (`a` names that attempt); only that attempt's compile applies.
+    Manual(u64),
     /// The last save didn't compile; the running VM stays until a save that does.
     Failed(String),
 }
@@ -257,6 +294,13 @@ pub enum Hot {
 pub enum HotEvent {
     Changed,
     Compiled(Result<Box<Prepared>, String>),
+    /// The user asked for a reload; `attempt` is unique to that ask.
+    Manual(u64),
+    /// The compile `attempt` asked for finished (or failed); another attempt's answer changes
+    /// nothing.
+    ManualReady { attempt: u64, result: Result<Box<Prepared>, String> },
+    /// Its folder's `plugin.toml` is gone: what it put on screen goes with it.
+    Removed,
 }
 
 pub enum HotEffect {
@@ -264,6 +308,8 @@ pub enum HotEffect {
     Prewarm,
     Swap(Box<Prepared>),
     Report(String),
+    /// Take back what the plugin contributed, so nothing of it stays on screen.
+    Withdraw,
 }
 
 impl Hot {
@@ -272,6 +318,13 @@ impl Hot {
             (_, HotEvent::Changed) => (Hot::Compiling, vec![HotEffect::Prewarm]),
             (_, HotEvent::Compiled(Ok(p))) => (Hot::Idle, vec![HotEffect::Swap(p)]),
             (_, HotEvent::Compiled(Err(e))) => (Hot::Failed(e.clone()), vec![HotEffect::Report(e)]),
+            // A manual attempt is a fresh ask: no prewarm, the caller starts its own compile.
+            (_, HotEvent::Manual(attempt)) => (Hot::Manual(attempt), vec![]),
+            (Hot::Manual(held), HotEvent::ManualReady { attempt, result: Ok(p) }) if held == attempt => (Hot::Idle, vec![HotEffect::Swap(p)]),
+            (Hot::Manual(held), HotEvent::ManualReady { attempt, result: Err(e) }) if held == attempt => (Hot::Failed(e.clone()), vec![HotEffect::Report(e)]),
+            // An answer for an attempt a later ask (or a save) replaced.
+            (state, HotEvent::ManualReady { .. }) => (state, vec![]),
+            (_, HotEvent::Removed) => (Hot::Idle, vec![HotEffect::Withdraw]),
         }
     }
 }

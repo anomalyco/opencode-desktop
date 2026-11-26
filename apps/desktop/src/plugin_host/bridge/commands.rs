@@ -364,7 +364,7 @@ pub fn run_code_block_action(app: &mut App, key: &str, code: &str, language: &st
 /// Luau MCP tools, window and app halves', as `(name, description, input schema)`.
 pub fn mcp_tools(app: &App) -> Vec<(String, String, serde_json::Value)> {
     let window = app.plugins.listed().flat_map(|(_, p)| tools(&p.half.contribs.borrow()));
-    let app_tools = app_half::each(|a| Some(tools(&a.half.contribs.borrow()))).into_iter().flatten();
+    let app_tools = app_half::each_in(app, |a| Some(tools(&a.half.contribs.borrow()))).into_iter().flatten();
     let dormant = dormant::each_app_half(|_, c| Some(tools(c))).into_iter().flatten();
     window.chain(app_tools).chain(dormant).collect()
 }
@@ -425,9 +425,14 @@ pub fn run_menubar(app: &mut App, key: &str, tx: &mut Tx) -> bool {
         return true;
     }
     dormant::wake_owners(app, |c| c.menubar_items.iter().any(|c| c.key == key));
-    let found = app_half::each(|a| a.half.contribs.borrow().menubar_items.iter().find(|c| c.key == key).and_then(|c| c.f("run").cloned())).into_iter().next();
-    let Some(f) = found else { return false };
-    app_half::each(|a| a.half.contribs.borrow().menubar_items.iter().any(|c| c.key == key).then(|| cx::enter(app, || a.script.spawn_fn(&f, (), Some(&mut *tx)).ok())));
+    for id in app_half::each(|a| a.half.contribs.borrow().menubar_items.iter().any(|c| c.key == key).then(|| a.half.id.clone())) {
+        app_half::attach_dormant(app, &id);
+    }
+    let ran = app_half::each_in(app, |a| {
+        let f = a.half.contribs.borrow().menubar_items.iter().find(|c| c.key == key)?.f("run")?.clone();
+        cx::enter(app, || a.script.spawn_fn(&f, (), Some(&mut *tx))).ok()
+    });
+    if ran.is_empty() { return false; }
     super::requests::carry_out(app, tx);
     true
 }

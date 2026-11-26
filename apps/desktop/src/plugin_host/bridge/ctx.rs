@@ -69,6 +69,7 @@ fn add(lua: &Lua, vmx: &Rc<Vmx>, kind: ContributionKind, t: &Table) -> mlua::Res
     }
     let key = intern(&format!("{}.{id}", half.id));
     vmx.with_contribs(|c| c.add(lua, kind, t, key, &|msg| vmx.warn(msg)))?;
+    vmx.note_theme_mutation(kind);
     half.epoch.set(half.epoch.get() + 1);
     crate::plugin_host::bump();
     contribution(lua, vmx, kind, id)
@@ -82,6 +83,7 @@ fn contribution(lua: &Lua, vmx: &Rc<Vmx>, kind: ContributionKind, id: String) ->
         "Withdraw",
         lua.create_function(move |_, _: Value| {
             v.with_contribs(|c: &mut Contribs| c.withdraw(kind, &gone));
+            v.note_theme_mutation(kind);
             v.half.epoch.set(v.half.epoch.get() + 1);
             crate::plugin_host::bump();
             Ok(())

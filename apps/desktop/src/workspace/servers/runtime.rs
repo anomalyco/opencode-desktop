@@ -508,6 +508,7 @@ pub fn desired(s: &App) -> ServerKey {
 
 /// `App::turn_scope`: the turn starts checked out on the page's server.
 pub fn enter(s: &mut App) {
+    s.plugins.themes.enter(&s.settings.theme);
     let want = desired(s);
     if want != s.checkout.active && s.live() {
         peer::enter(s);
@@ -523,6 +524,7 @@ pub fn enter(s: &mut App) {
 pub fn leave(s: &mut App) {
     crate::windows::sync_shown(s);
     peer::leave(s);
+    s.plugins.themes.leave();
 }
 
 /// The window works against `key` from now on, mid-turn (a tab or a session of another server
