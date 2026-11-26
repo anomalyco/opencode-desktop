@@ -1,7 +1,8 @@
-//! A Whisper header: no box, no border, no colour; a quiet label on the tabs' own spine, its
-//! disclosure triangle where their avatars sit (shown on hover, or while folded). Folded, it
-//! counts its tabs and shows whether one works or waits. A press folds it, a double press or
-//! Rename section names it in place, and a right-click opens its menu.
+//! A Whisper header: no box, no border, no colour; a faint label on the tabs' own spine (their
+//! avatars' start edge), its disclosure triangle hung in the gutter before it (shown on hover, or
+//! while folded), so the label never moves. Folded, it counts its tabs and shows whether one works
+//! or waits, in the tabs' own end slot. A press folds it, a double press or Rename section names
+//! it in place, and a right-click opens its menu.
 
 use super::*;
 use crate::tabs::sections::{self as sec, Drop, FIELD, LIVE, SECTIONS, Section, naming};
@@ -9,33 +10,27 @@ use opencode_i18n::t;
 use rune::{Drag, Key, Phase};
 use rune_kit::shell::TabItemStatus;
 
-/// `text-[12px] font-medium`.
-pub(super) const LABEL: TextStyle = TextStyle::new(12.0, 500.0).lh(16.0);
-/// A folded section's count, `text-[11px]` in even figures.
-const COUNT: TextStyle = TextStyle::new(11.0, 500.0).lh(16.0).features("\"tnum\"");
+/// `text-[11.5px] font-medium`, a touch open: quieter than a tab's title.
+const LABEL: TextStyle = TextStyle::new(11.5, 520.0).lh(16.0).tracking(0.12);
+/// A folded section's count, in even figures.
+const COUNT: TextStyle = TextStyle::new(11.5, 500.0).lh(16.0).features("\"tnum\"");
 /// The other names under a new section's field.
-const CHIP: TextStyle = TextStyle::new(11.5, 460.0).lh(16.0);
+const CHIP: TextStyle = TextStyle::new(11.5, 480.0).lh(16.0);
 /// The disclosure triangle's quarter turn.
 const TURN: Spring = Spring::new(0.2, 0.0);
+/// The triangle coming and going with the pointer.
+const SHOW: Spring = Spring::new(0.14, 0.0);
+/// The triangle's 12 pt box, centred on the header's start edge: its ink hangs in the gutter,
+/// 6 pt clear of the label.
+const HANG: f32 = 6.0;
+/// The header's height, and the name field's inside it.
+const H: f32 = 26.0;
+const FIELD_H: f32 = 24.0;
 
 /// What a folded section's tabs are doing, most pressing first.
-enum Mark {
-    Busy,
-    Waiting,
-    Unread,
-}
-
-fn mark(s: &App, tabs: &[usize]) -> Option<Mark> {
+fn mark(s: &App, tabs: &[usize]) -> Option<TabItemStatus> {
     let statuses: Vec<TabItemStatus> = tabs.iter().filter_map(|&i| s.tabs.get(i)).filter_map(|t| crate::view::tab_strip::status(s, t)).collect();
-    if statuses.iter().any(|m| matches!(m, TabItemStatus::Busy)) {
-        Some(Mark::Busy)
-    } else if statuses.iter().any(|m| matches!(m, TabItemStatus::Attention)) {
-        Some(Mark::Waiting)
-    } else if statuses.iter().any(|m| matches!(m, TabItemStatus::Unread | TabItemStatus::Failed)) {
-        Some(Mark::Unread)
-    } else {
-        None
-    }
+    [TabItemStatus::Busy, TabItemStatus::Attention].into_iter().find(|m| statuses.contains(m)).or_else(|| (!statuses.is_empty()).then_some(TabItemStatus::Unread))
 }
 
 pub(super) fn header(s: &App, p: &Pal, section: &Section, tabs: &[usize], first: bool) -> El {
@@ -50,53 +45,8 @@ pub(super) fn header(s: &App, p: &Pal, section: &Section, tabs: &[usize], first:
         .rotate(if collapsed { -std::f32::consts::FRAC_PI_2 } else { 0.0 })
         .rotate_motion(TURN)
         .mirror_in_rtl();
-    let slot = el().key("disclosure").size(16.0, 16.0).center().a11y_hidden().child(triangle);
-    let slot = if collapsed || editing.is_some() { slot } else { session_view::style::hover_reveal(slot) };
-    let label: El = match editing {
-        Some(field) => name_field(p, field),
-        None => text(section.name.clone())
-            .key("name")
-            .font(LABEL)
-            .color(if target { p.text } else { p.muted })
-            .group_color(p.text)
-            .grow(1.0)
-            .shrink()
-            .min_w(0.0)
-            .truncate()
-            .dir(rune::Direction::Auto),
-    };
-    let mut end = row().key("end").h(20.0).min_w(20.0).gap(6.0).center_y();
-    if collapsed && editing.is_none() {
-        let meta = row()
-            .key("meta")
-            .gap(6.0)
-            .center_y()
-            .child(text(tabs.len().to_string()).key("count").font(COUNT).color(p.faint))
-            .children(mark(s, tabs).map(|m| match m {
-                Mark::Busy => activity_ring(p).key("ring"),
-                Mark::Waiting => el().key("waiting").size(6.0, 6.0).radius(3.0).fill(p.warning).a11y_hidden(),
-                Mark::Unread => el().key("unread").size(6.0, 6.0).radius(3.0).fill(p.accent).a11y_hidden(),
-            }));
-        end = end.child(meta.group_opacity(1.0, 0.0));
-    }
-    if editing.is_none() {
-        let id = section.id.clone();
-        let remove = row()
-            .key("remove")
-            .role("button")
-            .label_static(t!("rune.sections.remove"))
-            .help(t!("rune.sections.remove"))
-            .pin(None, Some(0.0), Some(0.0), None)
-            .size(20.0, 20.0)
-            .center()
-            .radius(5.0)
-            .focus_inset(p)
-            .hover(p.hover)
-            .press(p.pressed)
-            .on_press_tx(move |s: &mut App, tx: &mut Tx| sec::remove_section(s, &id, tx))
-            .child(icon(&ic::XMARK_SMALL, 14.0).color(p.icon_muted));
-        end = end.child(session_view::style::hover_reveal(remove));
-    }
+    let disclosure = el().key("disclosure").pin(Some(-HANG), Some((H - 12.0) / 2.0), None, None).size(12.0, 12.0).center().a11y_hidden().child(triangle);
+    let disclosure = if collapsed { disclosure } else { session_view::style::hover_reveal(disclosure).group_motion(SHOW, SHOW) };
     let (toggle_id, rename_id, menu_id, layout_key) = (section.id.clone(), section.id.clone(), section.id.clone(), format!("head:{}", section.id));
     let a11y = if collapsed { format!("{} ({})", section.name, tabs.len()) } else { section.name.clone() };
     let mut head = row()
@@ -105,11 +55,8 @@ pub(super) fn header(s: &App, p: &Pal, section: &Section, tabs: &[usize], first:
         .label(a11y)
         .expanded(!collapsed)
         .w_full()
-        .h(26.0)
+        .h(H)
         .mt(if first { 0.0 } else { 12.0 })
-        .pl(8.0)
-        .pr(4.0)
-        .gap(8.0)
         .center_y()
         .radius(6.0)
         .focus_inset(p)
@@ -119,28 +66,74 @@ pub(super) fn header(s: &App, p: &Pal, section: &Section, tabs: &[usize], first:
             tx.live_only();
             s.kernel.slots.untracked(&LIVE).rects.borrow_mut().insert(layout_key.clone(), r);
         })
-        .child(slot)
-        .child(label)
-        .child(end)
+        .child(disclosure)
         // A new section's header fades in over the tabs flying under it; a removed one's slot
         // closes as it fades, so they glide back down without passing through it.
         .transition(rune::Transition::opacity().springs(rune::SpringPair::new(super::GLIDE, Spring::new(0.2, 0.0))).hold_layout());
-    if editing.is_none() {
-        head = head
-            .on_press_tx(move |s: &mut App, tx: &mut Tx| sec::toggle(s, &toggle_id, tx))
-            .on_double_press_tx(move |s: &mut App, tx: &mut Tx| {
-                // The double press folded it twice: it reads as it was, and names it.
-                sec::start_rename(s, &rename_id, tx);
-            })
-            .on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| super::menu::header(s, &menu_id, press.into(), tx));
+    if let Some(field) = editing {
+        // The field takes the header's whole width, as wide as a tab's own pill, its text where
+        // the label was.
+        return head.child(name_field(p, field));
     }
+    let label = text(section.name.clone())
+        .key("name")
+        .font(LABEL)
+        .color(if target { p.text } else { p.faint })
+        .group_color(p.text)
+        .grow(1.0)
+        .shrink()
+        .min_w(0.0)
+        .truncate()
+        .dir(rune::Direction::Auto);
+    // The tabs' end slot: a folded section's mark where theirs sit, and Remove in its place under
+    // the pointer, as their close button is. The count sits beside a mark, or in the slot alone.
+    let mut slot = el().key("end").size(super::row::SLOT, super::row::SLOT);
+    let mut beside = None;
+    if collapsed {
+        let count = text(tabs.len().to_string()).key("count").font(COUNT).color(p.faint);
+        match mark(s, tabs).map(|m| super::row::status_mark(p, m)) {
+            Some(m) => {
+                beside = Some(count);
+                slot = slot.child(super::row::in_slot(m).group_opacity(1.0, 0.0));
+            }
+            None => slot = slot.child(super::row::in_slot(count).group_opacity(1.0, 0.0)),
+        }
+    }
+    let id = section.id.clone();
+    let remove = row()
+        .key("remove")
+        .role("button")
+        .label_static(t!("rune.sections.remove"))
+        .help(t!("rune.sections.remove"))
+        .absolute(0.0, 0.0)
+        .size(super::row::SLOT, super::row::SLOT)
+        .center()
+        .radius(4.0)
+        .focus_inset(p)
+        .hover(p.hover)
+        .press(p.pressed)
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| sec::remove_section(s, &id, tx))
+        .child(icon(&ic::XMARK_SMALL, 14.0).color(p.icon_muted));
+    let end = row().key("tail").gap(3.0).center_y().children(beside).child(slot.child(session_view::style::hover_reveal(remove)));
+    head = head
+        .px(8.0)
+        .gap(8.0)
+        .child(label)
+        .child(end)
+        .on_press_tx(move |s: &mut App, tx: &mut Tx| sec::toggle(s, &toggle_id, tx))
+        .on_double_press_tx(move |s: &mut App, tx: &mut Tx| {
+            // The double press folded it twice: it reads as it was, and names it.
+            sec::start_rename(s, &rename_id, tx);
+        })
+        .on_secondary_press(move |s: &mut App, press: rune::PointerPress, tx: &mut Tx| super::menu::header(s, &menu_id, press.into(), tx));
     if target {
         head = head.fill(p.accent.alpha(0.10));
     }
     head
 }
 
-/// The name field, the name selected so typing replaces it, an accent hairline under it.
+/// The name field: a quiet well the width of a tab's pill under a hairline accent ring, the name
+/// selected so typing replaces it, its text on the label's spine.
 fn name_field(p: &Pal, field: &rune::TextEdit) -> El {
     let input = session_view::style::field(field, LABEL)
         .key(FIELD)
@@ -150,7 +143,7 @@ fn name_field(p: &Pal, field: &rune::TextEdit) -> El {
         .w_full()
         .color(p.text)
         .caret(p.text, p.selection)
-        .selection_style(p.field_selection)
+        .selection_style(rune::SelectionStyle::new(p.accent.alpha(if p.dark { 0.34 } else { 0.26 })))
         .on_edit(|s: &mut App| {
             let st = s.kernel.slots.get_mut(&SECTIONS);
             match st.naming.field_mut() {
@@ -170,17 +163,23 @@ fn name_field(p: &Pal, field: &rune::TextEdit) -> El {
         });
     // On commit the field gets out of the way at once and the name fades in where it was, so two
     // words never cross-fade in one place.
-    el().key("name-field")
+    row()
+        .key("name-field")
         .transition(rune::Transition::opacity().springs(rune::SpringPair::new(super::GLIDE, Spring::new(0.08, 0.0))))
         .grow(1.0)
         .shrink()
         .min_w(0.0)
-        .h(20.0)
-        .child(row().pin(Some(0.0), Some(0.0), Some(0.0), Some(1.0)).center_y().child(input))
-        .child(el().key("underline").pin(Some(0.0), None, Some(0.0), Some(0.0)).h(1.0).fill(p.accent.alpha(0.55)).a11y_hidden())
+        .h(FIELD_H)
+        .px(8.0)
+        .center_y()
+        .radius(6.0)
+        .fill(p.hover)
+        .box_shadow(Pal::ring_in(p.accent.alpha(0.5)))
+        .child(input)
 }
 
-/// The other names offered while a new section is named, under its field: a press takes one.
+/// The other names offered while a new section is named, under its field and from its start
+/// edge: small pills, a press takes one.
 pub(super) fn alternates(s: &App, p: &Pal, section: &Section) -> Option<El> {
     let (_, field, names) = sec::state(s).naming.editing().filter(|(id, _, names)| *id == section.id && !names.is_empty())?;
     let chips = names.iter().map(|name| {
@@ -191,11 +190,15 @@ pub(super) fn alternates(s: &App, p: &Pal, section: &Section) -> Option<El> {
             .role("button")
             .label(name.clone())
             .h(20.0)
-            .px(6.0)
+            .px(8.0)
             .center_y()
             .radius(5.0)
-            .fill(if on { p.accent.alpha(0.12) } else { Color::TRANSPARENT })
-            .hover(if on { p.accent.alpha(0.12) } else { p.hover })
+            .shrink()
+            .min_w(0.0)
+            .fill(if on { p.accent.alpha(0.14) } else { p.hover })
+            .hover(if on { p.accent.alpha(0.08) } else { p.hover })
+            .press(p.pressed)
+            .box_shadow(Pal::ring_in(if on { p.accent.alpha(0.3) } else { p.border_muted }))
             .hover_group()
             .hover_motion(INSTANT, INSTANT)
             // On the press itself: the field's blur on the way up would end naming first.
@@ -205,7 +208,7 @@ pub(super) fn alternates(s: &App, p: &Pal, section: &Section) -> Option<El> {
                     tx.blur();
                 }
             })
-            .child(text(name.clone()).font(CHIP).color(if on { p.text } else { p.faint }).group_color(p.text).truncate())
+            .child(text(name.clone()).font(CHIP).color(if on { p.text } else { p.muted }).group_color(p.text).truncate())
     });
-    Some(row().key(format!("sec-alts-{}", section.id)).w_full().pl(26.0).pr(4.0).pt(2.0).pb(4.0).gap(2.0).flex_wrap().children(chips).transition(super::fold()))
+    Some(row().key(format!("sec-alts-{}", section.id)).w_full().pt(4.0).pb(4.0).gap(4.0).flex_wrap().children(chips).transition(super::fold()))
 }

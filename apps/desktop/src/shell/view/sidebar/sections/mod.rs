@@ -14,7 +14,10 @@ use crate::tabs::sections::{self as sec, Drop, LIVE};
 use opencode_i18n::t;
 
 /// The space the selection bar takes at the list's foot.
-const BAR_ROOM: f32 = 52.0;
+const BAR_ROOM: f32 = bar::H + 8.0;
+/// How far the list's clip reaches into the sidebar's start padding: a header's triangle hangs
+/// there, before its label.
+const GUTTER: f32 = 8.0;
 
 /// What the list moves on: a tab gliding to its new slot (into a section, back out, past a
 /// fold), the rows a fold or a header pushes, and a pick's wash. Critical, never bouncy.
@@ -52,9 +55,9 @@ pub(super) fn list(s: &App, p: &Pal, lead: Option<El>) -> El {
             content = content.child(alts);
         }
         if !section.collapsed {
-            let rows = tabs.iter().filter_map(|&i| s.tabs.get(i).map(|t| row::tab_row(s, p, t, i, &nav_order, show_hints)));
             // A new section's tabs fly in (matched); an opened fold wipes down from its header.
             let new = st.naming.editing().is_some_and(|(id, _, _)| id == section.id);
+            let rows = tabs.iter().filter_map(|&i| s.tabs.get(i).map(|t| row::tab_row(s, p, t, i, &nav_order, show_hints, new)));
             let group = col().key(format!("sec-rows-{}", section.id)).w_full().gap(2.0).pt(2.0).children(rows);
             content = content.child(group.transition(if new { rune::Transition::none().hold_layout() } else { fold() }));
         }
@@ -62,7 +65,7 @@ pub(super) fn list(s: &App, p: &Pal, lead: Option<El>) -> El {
     if !laid.sections.is_empty() && !laid.ungrouped.is_empty() {
         content = content.child(el().key("sections-divider").mx(8.0).my(8.0).h(1.0).fill(p.border_muted).a11y_hidden().transition(rune::Transition::opacity().hold_layout()));
     }
-    let rows = laid.ungrouped.iter().filter_map(|&i| s.tabs.get(i).map(|t| row::tab_row(s, p, t, i, &nav_order, show_hints)));
+    let rows = laid.ungrouped.iter().filter_map(|&i| s.tabs.get(i).map(|t| row::tab_row(s, p, t, i, &nav_order, show_hints, false)));
     content = content.child(col().key("sec-rows-ungrouped").w_full().gap(2.0).children(rows));
     if let Some(line) = indicator(s, p, st.drag.drop()) {
         content = content.child(line);
@@ -71,8 +74,8 @@ pub(super) fn list(s: &App, p: &Pal, lead: Option<El>) -> El {
     if picked {
         content = content.pb(BAR_ROOM);
     }
-    let viewport = col().grow(1.0).shrink().min_h(0.0).focus_inset(p);
-    let scroll = session_view::scroller::scroller("sidebar-sections-scroll").build::<App>(p, viewport, content);
+    let viewport = col().grow(1.0).shrink().min_h(0.0).ml(-GUTTER).focus_inset(p);
+    let scroll = session_view::scroller::scroller("sidebar-sections-scroll").build::<App>(p, viewport, col().key("gutter").w_full().pl(GUTTER).child(content));
     col().key("sidebar-sections-list").w_full().grow(1.0).shrink().min_h(0.0).child(scroll).children(picked.then(|| bar::bar(s, p)))
 }
 

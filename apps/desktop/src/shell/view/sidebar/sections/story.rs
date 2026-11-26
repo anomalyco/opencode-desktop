@@ -131,8 +131,8 @@ fn walkthrough(play: &mut rune::Play<'_, App>) {
         play.blur();
         play.animated();
     });
-    play.after(4.05, |s, play| fold_new(s, play));
-    play.after(5.10, |s, play| fold_new(s, play));
+    play.after(4.05, fold_new);
+    play.after(5.10, fold_new);
     play.after(6.05, |s, play| {
         if let Some(id) = newest(s) {
             sec::remove_section(s, &id, play);

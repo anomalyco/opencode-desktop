@@ -1,6 +1,7 @@
 //! A side tab in the sections list: the strip's own row (28 tall, `px-2 gap-2`, a 16 pt avatar,
 //! the title, its mark or a close button on hover), on the same spine in a section or out of one.
-//! A selected tab wears a soft accent wash and a hairline ring.
+//! A selected tab wears a soft accent wash. Each row stands on the sidebar's own ground, so two
+//! that cross as they glide never show through one another.
 
 use super::*;
 use crate::tabs::sections::{self as sec, LIVE};
@@ -8,7 +9,28 @@ use opencode_i18n::t;
 use rune::{Drag, PointerPress};
 use rune_kit::shell::TabItemStatus;
 
-pub(super) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, nav_order: &[String], show_hints: bool) -> El {
+/// The slot at a row's end, 8 pt in from it: a tab's mark, a folded section's, and the button
+/// that takes the mark's place under the pointer, all on one column down the list.
+pub(super) const SLOT: f32 = 20.0;
+
+/// `what` centred in the slot, out of flow: the button that shares the slot can't push it aside.
+pub(super) fn in_slot(what: El) -> El {
+    row().key("mark").absolute(0.0, 0.0).size(SLOT, SLOT).center().a11y_hidden().child(what)
+}
+
+/// What a status draws in the slot: the busy glyph, or a 7 pt dot.
+pub(super) fn status_mark(p: &Pal, status: TabItemStatus) -> El {
+    let dot = |key: &'static str, c: Color| el().key(key).size(7.0, 7.0).radius(3.5).fill(c).a11y_hidden();
+    match status {
+        TabItemStatus::Busy => session_view::style::tab_busy_glyph(crate::palette::kit(p), 14.0),
+        TabItemStatus::Attention => dot("attention", p.warning),
+        TabItemStatus::Unread => dot("unread", p.accent),
+        TabItemStatus::Failed => dot("failed", p.danger),
+    }
+}
+
+/// `over`: this tab flies above the others (its section was just made).
+pub(super) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, nav_order: &[String], show_hints: bool, over: bool) -> El {
     let st = sec::state(s);
     let uid = t.uid();
     let draft = t.is_draft();
@@ -36,20 +58,16 @@ pub(super) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, nav_
             .truncate_fade()
             .dir(rune::Direction::Auto),
     };
-    let status = match mark {
-        Some(TabItemStatus::Busy) => Some(session_view::style::tab_busy_glyph(crate::palette::kit(p), 14.0)),
-        Some(TabItemStatus::Attention) => Some(el().key("attention").size(7.0, 7.0).radius(3.5).fill(p.warning).a11y_hidden()),
-        Some(TabItemStatus::Unread) if !active => Some(el().key("unread").size(7.0, 7.0).radius(3.5).fill(p.accent).a11y_hidden()),
-        Some(TabItemStatus::Failed) if !active => Some(el().key("failed").size(7.0, 7.0).radius(3.5).fill(p.danger).a11y_hidden()),
-        _ => None,
-    };
+    // The open tab has been read: only what it is doing or asking shows.
+    let status = mark.filter(|m| !active || matches!(m, TabItemStatus::Busy | TabItemStatus::Attention)).map(|m| status_mark(p, m));
     let close_uid = uid.clone();
     let close = row()
         .key(format!("sec-close-{uid}"))
         .role("button")
         .label_static(t!("common.closeTab"))
         .focusable(true)
-        .size(20.0, 20.0)
+        .absolute(0.0, 0.0)
+        .size(SLOT, SLOT)
         .center()
         .radius(4.0)
         .focus_inset(p)
@@ -57,7 +75,7 @@ pub(super) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, nav_
         .press(p.pressed)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| s.close_tab(&close_uid, tx))
         .child(icon(&ic::XMARK_SMALL, 14.0).color(p.icon_muted));
-    let tail = el().key("tail").size(20.0, 20.0).center().children(status.map(|m| m.group_opacity(1.0, 0.0))).child(session_view::style::hover_reveal(close));
+    let tail = el().key("tail").size(SLOT, SLOT).children(status.map(|m| in_slot(m).group_opacity(1.0, 0.0))).child(session_view::style::hover_reveal(close));
 
     let (press_uid, middle_uid, hover_uid, drag_uid, menu_uid) = (uid.clone(), uid.clone(), uid.clone(), uid.clone(), uid.clone());
     let anchor = format!("sec-tab-{uid}");
@@ -66,7 +84,7 @@ pub(super) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, nav_
     let rename = target.clone();
     let lifted = carried.is_some_and(|dy| dy != 0.0);
     let fill = if picked {
-        p.accent.alpha(0.13)
+        p.accent.alpha(if p.dark { 0.15 } else { 0.11 })
     } else if active || lifted {
         p.pressed
     } else if marked {
@@ -90,9 +108,8 @@ pub(super) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, nav_
         .hover(if picked || active || lifted || marked { Color::TRANSPARENT } else { p.hover })
         .hover_group()
         .hover_motion(INSTANT, INSTANT)
-        // Into a section, back out, or past a fold: the tab glides to its slot, its wash with it.
+        // The wash comes and goes on the list's spring.
         .motion(super::GLIDE)
-        .matched(format!("{}-{uid}", crate::view::tab_strip::MATCHED))
         .on_layout_tx(move |s: &mut App, r: [f32; 4], tx: &mut Tx| {
             tx.live_only();
             s.kernel.slots.untracked(&LIVE).rects.borrow_mut().insert(layout_key.clone(), r);
@@ -114,11 +131,17 @@ pub(super) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, nav_
         .child(el().size(16.0, 16.0).center().child(avatar))
         .child(title)
         .child(tail);
-    // Always drawn, clear when not picked, so the ring fades with the wash rather than popping.
-    let r = r.box_shadow(Pal::ring_in(p.accent.alpha(if picked { 0.32 } else { 0.0 })));
+    // Always drawn, clear when not picked, so the edge fades with the wash rather than popping: a
+    // hairline that only firms the wash's rim, never an outline.
+    let r = r.box_shadow(Pal::ring_in(p.accent.alpha(if picked { 0.14 } else { 0.0 })));
+    // Into a section, back out, or past a fold: the tab glides to its slot on the sidebar's own
+    // ground, unseen at rest, so a tab it crosses on the way never shows through it. The tabs of
+    // a section just made fly up over the ones they pass.
+    let slot = el().key(format!("sec-slot-{uid}")).w_full().radius(6.0).fill(p.bg_deep).motion(super::GLIDE).matched(format!("{}-{uid}", crate::view::tab_strip::MATCHED)).child(r);
+    let slot = if over { slot.raise() } else { slot };
     match carried {
-        Some(dy) if dy != 0.0 => r.raise().opacity(0.92).offset(0.0, dy).offset_motion(rune::Anim::INSTANT),
-        Some(_) => r.opacity(0.4),
-        None => r,
+        Some(dy) if dy != 0.0 => slot.raise().opacity(0.96).offset(0.0, dy).offset_motion(rune::Anim::INSTANT),
+        Some(_) => slot.opacity(0.4),
+        None => slot,
     }
 }
