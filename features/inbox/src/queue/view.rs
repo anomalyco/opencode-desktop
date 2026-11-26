@@ -392,7 +392,15 @@ fn queue_row<H: QueueHost + 'static>(p: &Pal, session: &str, r: &QueueRow, ids: 
         .on_press_tx(move |s: &mut H, tx: &mut Tx| on_edit_press(s, &se, &ie, tx))
         .child(text(label.clone()).key("label").font(UI).color(color).truncate_fade())
         .child(marker(format!("edit-{}", st.index)));
-    let words = if st.editing || r.pending { words } else { words.hover(p.hover).cursor(rune::Cursor::Text) };
+    // `queue-panel.tsx:228-230`: `cursor-progress` while the message is being sent, `cursor-text`
+    // at rest, neither (the arrow) while it is open in the composer.
+    let words = if r.pending {
+        words.cursor(rune::Cursor::Progress)
+    } else if st.editing {
+        words
+    } else {
+        words.hover(p.hover).cursor(rune::Cursor::Text)
+    };
     // While the actions hide they keep their room, so the words beside them would end short of
     // the row. A copy of the words draws in their place, running to the row's right padding; it
     // takes no input and says nothing to a screen reader, and gives way to the real words (bound

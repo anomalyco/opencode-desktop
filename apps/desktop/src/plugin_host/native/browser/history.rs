@@ -153,11 +153,16 @@ pub(super) fn service_methods(lua: &Lua, vmx: &Vmx, t: &Table) -> mlua::Result<(
     })?;
     // Official's list of browsers and their profiles (`profile/sources.ts:60-143,349-423`): a
     // profile counts when it has a cookie database, named from `Local State` or `profiles.ini`.
+    // Nothing until the first listing is in, so the page can tell "not listed yet" from "none"
+    // (`jobs.ts:313` `sourcesLoaded`).
     method(lua, t, "HistoryImportSources", |lua, ()| {
         require_builtin_browser(lua, "Browser:HistoryImportSources")?;
         // Listed off the UI thread; the page draws again when a listing lands.
         cx::read(Dep::Browser);
         let sources = with_app("Browser:HistoryImportSources", |app| Ok(app.workspace_panes.browser.app_icons.sources.get((*app.waker).clone())))?;
+        let Some(sources) = sources else {
+            return Ok(Value::Nil);
+        };
         let list: Vec<Data> = sources
             .into_iter()
             .map(|b| {

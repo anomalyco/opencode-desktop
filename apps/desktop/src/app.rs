@@ -421,6 +421,8 @@ impl App {
         telemetry::startup("launch.restore_ui", || self.restore_ui(&doc, &server.base));
         launch::saved::page_tab::note(self);
         tabs::groups::restore(self);
+        tabs::auto_groups::restore(self);
+        tabs::sections::restore(self);
         *self.fixture_run.base_ms = wall_ms();
         *self.now_ms = *self.fixture_run.base_ms;
         let allow_send = !flag("--read-only") && attended();

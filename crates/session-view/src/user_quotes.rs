@@ -80,21 +80,19 @@ fn quote<S: TimelineHost>(s: &S, p: &Pal, id: &str, i: usize, q: &Quote, pending
     let ink = if pending { p.faint } else { p.muted };
     let mut words = text(quoted.to_owned()).key("text").font(BUBBLE).color(ink).wrap_anywhere();
     if let Some(glyph) = glyph {
-        words = words.inline_icon(0, rune::InlineIcon::glyph(glyph).size(ICON).gap(ICON_GAP).color(p.icon_muted));
+        // The icon carries its source's name, for assistive technology and as its tooltip
+        // (`user-message-quotes.tsx:76`: `title` and `aria-label` on the icon, `role="img"`).
+        let mut mark = rune::InlineIcon::glyph(glyph).size(ICON).gap(ICON_GAP).color(p.icon_muted);
+        if let Some(name) = q.source_label() {
+            mark = mark.label(name).help(name);
+        }
+        words = words.inline_icon(0, mark);
     }
     let mut words = readable(p, words).dir_by_paragraph().shrink().min_w(0.0);
     if !open {
         words = words.max_lines(CLAMP);
     }
-    // The source's name for assistive technology. Official names the icon itself (`aria-label`,
-    // `user-message-quotes.tsx:76`); an inline icon here has no name of its own, so the quote
-    // carries it as its description.
-    let source = glyph.and(q.source_label()).map(str::to_owned);
     if !expandable {
-        let words = match source {
-            Some(name) => words.description(name),
-            None => words,
-        };
         return Some(behind_bar(p, pending, words, lines <= 1));
     }
     // `[data-expandable]:hover, :focus-visible`: the words take the base ink.
@@ -117,10 +115,6 @@ fn quote<S: TimelineHost>(s: &S, p: &Pal, id: &str, i: usize, q: &Quote, pending
             tx.keep_on_screen(row_key.clone());
         })
         .child(words.group_color(p.text));
-    let button = match source {
-        Some(name) => button.description(name),
-        None => button,
-    };
     Some(behind_bar(p, pending, button, false))
 }
 

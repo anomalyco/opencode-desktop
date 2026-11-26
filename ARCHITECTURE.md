@@ -302,7 +302,7 @@ pwsh scripts/guardrails.ps1   # Windows PowerShell
   - `apps/desktop/src/stories/order.rs` matches every story registered in `STORY_LIST` (no duplicates, stale entries, or unordered stories).
   - `apps/desktop/src/shell/commands/order.rs` assigns a unique order constant to every registered built-in `CommandEntry` (no raw literals, duplicate values, shared slots, unused constants, or duplicate command IDs).
   - `crates/opencode-i18n/locales/rune/*.json` reports translation coverage against `rune/en.json` and fails on invalid JSON or keys present in another locale that do not exist in `rune/en.json` (permitting valid CLDR plural sibling keys).
-  - `cargo run -q -p opencode-plugin-spec -- --check` confirms all generated contract files match `crates/opencode-plugin-spec/contract.json`.
+  - `cargo run -q -p opencode-plugin-spec -- --check` confirms all generated contract files match `crates/opencode-plugin-spec/contract.json`. It is the one step that starts cargo (and a compiler when that crate changed); `OPENCODE_GUARDRAILS_NO_CARGO=1` skips it and says so, for a machine that must not compile. CI never sets it.
 
 ### Slow / compile checks (run separately)
 

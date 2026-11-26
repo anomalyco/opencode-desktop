@@ -64,6 +64,42 @@ choice! {
     FollowUp { Queue => "queue", "settings.general.row.followUpBehavior.queue", Steer => "steer", "settings.general.row.followUpBehavior.steer" } default Steer
 }
 
+/// The key that moves a question dock on, or submits it on the last question
+/// (`general.questionSubmitKey`, anomalyco/opencode#66169); the other Enter selects an answer or
+/// starts a new line in the typed one. Saved by its chord, which Settings shows as its label.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum QuestionSubmitKey {
+    #[default]
+    Enter,
+    ModEnter,
+}
+
+impl QuestionSubmitKey {
+    pub const ALL: [QuestionSubmitKey; 2] = [QuestionSubmitKey::Enter, QuestionSubmitKey::ModEnter];
+
+    /// The saved name, which is the key's chord too.
+    pub fn name(self) -> &'static str {
+        match self {
+            QuestionSubmitKey::Enter => "enter",
+            QuestionSubmitKey::ModEnter => "mod+enter",
+        }
+    }
+
+    /// Desktop's default when missing or unknown.
+    pub fn parse(name: Option<&str>) -> Self {
+        Self::ALL.into_iter().find(|c| Some(c.name()) == name).unwrap_or_default()
+    }
+
+    /// The Enter that does the other thing, as the row's description names it
+    /// (`settings/general/general.tsx:153-155`).
+    pub fn other(self) -> &'static str {
+        match self {
+            QuestionSubmitKey::Enter => "shift+enter",
+            QuestionSubmitKey::ModEnter => "enter",
+        }
+    }
+}
+
 choice! {
     /// The timeline's column (`general.timelineWidth`).
     TimelineWidth { Focused => "focused", "settings.timeline.row.width.focused", Comfortable => "comfortable", "settings.timeline.row.width.comfortable", Wide => "wide", "settings.timeline.row.width.wide" } default Comfortable
@@ -130,6 +166,12 @@ choice! {
     /// The navigation prototype's layout (`appearance.navigation`, Settings › Preferences ›
     /// Navigation, #64668): keep active sessions as tabs, or see every session in one list.
     Navigation { Tabs => "tabs", "settings.general.row.navigation.tabs", List => "list", "settings.general.row.navigation.list" } default Tabs
+}
+
+choice! {
+    /// How Consolidated's open tabs are grouped (`appearance.tabGrouping`, Settings > Preferences >
+    /// Group tabs, anomalyco/opencode#66350): not at all, by their project, or by their server.
+    TabGrouping { None => "none", "settings.general.row.tabGrouping.none", Project => "project", "settings.general.row.tabGrouping.project", Server => "server", "settings.general.row.tabGrouping.server" } default None
 }
 
 /// Desktop's sound effects (`shell/notifications/sound.ts`), by id and label key.

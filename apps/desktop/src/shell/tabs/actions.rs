@@ -334,6 +334,15 @@ impl App {
         self.save_tabs();
     }
 
+    /// Puts closed tab `target` back at its old index without showing it: the page stays where
+    /// it is.
+    pub(crate) fn put_back_closed(&mut self, target: &str) {
+        let Some(entry) = self.gestures.closed.take(&self.tabs, Some(target)) else { return };
+        let at = entry.index.min(self.tabs.len());
+        self.tabs.insert(at, entry.tab);
+        self.save_tabs();
+    }
+
     /// Whether session `id` had a prompt, so "Recently closed" lists it once closed (Desktop's
     /// `TabInfo.prompted`). One whose messages never loaded counts when the server has it.
     fn prompted(&self, id: &str) -> bool {
@@ -384,8 +393,13 @@ impl App {
                     }
                 }
             } else {
-                for tab in self.tabs.iter().filter(|t| !crate::tabs::pins::holds(self, t)) {
-                    let uid = tab.uid();
+                // Under Settings › Group tabs, the groups' shown tabs in the groups' order: a
+                // collapsed group's hidden tabs take no key (`tab-strip.tsx:715-719`, `:916-917`).
+                let shown: Vec<usize> = match crate::tabs::auto_groups::groups(self) {
+                    Some(groups) => groups.iter().flat_map(|g| g.tabs.iter().copied()).collect(),
+                    None => (0..self.tabs.len()).filter(|&i| !crate::tabs::pins::holds(self, &self.tabs[i])).collect(),
+                };
+                for uid in shown.into_iter().map(|i| self.tabs[i].uid()) {
                     if !order.contains(&uid) {
                         order.push(uid);
                     }
@@ -394,6 +408,9 @@ impl App {
             return order;
         }
         if let Some(order) = crate::tabs::groups::visible_uids(self) {
+            return order;
+        }
+        if let Some(order) = crate::tabs::sections::visible_uids(self) {
             return order;
         }
         self.tabs.iter().map(Tab::uid).collect()

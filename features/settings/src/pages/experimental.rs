@@ -18,6 +18,10 @@ fn toggle_tab_groups(s: &mut dyn SettingsHost) {
     change_settings(s, |x| x.tab_groups = Some(!x.tab_groups()));
 }
 
+fn toggle_sidebar_sections(s: &mut dyn SettingsHost) {
+    change_settings(s, |x| x.sidebar_sections = Some(!x.sidebar_sections()));
+}
+
 fn toggle_smooth_timeline(s: &mut dyn SettingsHost) {
     change_settings(s, |x| x.smooth_timeline = !x.smooth_timeline);
 }
@@ -38,6 +42,16 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                 t!("settings.experimental.row.tabGroups.title"),
                 t!("settings.experimental.row.tabGroups.description"),
                 switch(p, "tab-groups-switch", st.tab_groups()).on_press(|s: &mut H| toggle_tab_groups(s)),
+            ),
+        ),
+        (
+            "settings-sidebar-sections",
+            setting(
+                p,
+                "settings-sidebar-sections",
+                t!("rune.settings.experimental.row.sidebarSections.title"),
+                t!("rune.settings.experimental.row.sidebarSections.description"),
+                switch(p, "sidebar-sections-switch", st.sidebar_sections()).on_press(|s: &mut H| toggle_sidebar_sections(s)),
             ),
         ),
         (

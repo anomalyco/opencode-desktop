@@ -407,6 +407,11 @@ pub trait TimelineHost: Sized + 'static {
         None
     }
     fn on_timeline_selection_change(_s: &mut Self, _change: &SelectionChange, _tx: &mut Tx) {}
+    /// Key handler checked on the timeline viewport ahead of Rune's `caret_browsing` keys when
+    /// the chat timeline holds focus (`tx.focused() == Some("timeline")`).
+    fn on_timeline_key(&mut self, _ev: &rune::KeyEvent, _tx: &mut Tx) -> bool {
+        false
+    }
 
     fn find_row_version(&self, _row_key: &str) -> u64 {
         0

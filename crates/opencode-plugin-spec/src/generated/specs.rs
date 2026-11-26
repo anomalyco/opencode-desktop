@@ -412,7 +412,7 @@ pub struct DialogSpec {
     pub size: Option<DialogSize>,
     /// Which modal overlay layer the dialog draws in (`"standard"` beneath elevated recovery/server dialogs, or `"elevated"` above them). Defaults to `"elevated"`.
     pub layer: Option<DialogLayer>,
-    /// Corner radius in points. Defaults to 6 for `normal` dialogs and 12 for `large` and `x-large`.
+    /// Corner radius in points. Defaults to 6 for `normal` dialogs and 12 for `tall`, `large` and `x-large`.
     pub radius: Option<f64>,
     /// Hides the scroll bar when a `normal` dialog's content overflows, as Desktop's `dialog-content` does. Defaults to false.
     pub hide_scrollbar: Option<bool>,

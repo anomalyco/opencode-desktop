@@ -1,6 +1,6 @@
 //! Settings › Preferences (`settings/general/general.tsx`): Interface layout, Language, Default
-//! environment, Auto-accept permissions, Show agent, Follow-up behavior, Pinch to zoom and
-//! Spellcheck, this app's own rows (Terminal placement, macOS Option-as-Meta, Windows shell
+//! environment, Auto-accept permissions, Show agent, Follow-up behavior, Submit question answers
+//! with, Pinch to zoom and Spellcheck, this app's own rows (Terminal placement, macOS Option-as-Meta, Windows shell
 //! prompt marks), and the sections plugins put on the page (`PluginSettingsSections page="general"`).
 
 use opencode_i18n::t;
@@ -14,7 +14,7 @@ use opencode_ui::style::UI;
 use super::{choice, header_with, page_with, select};
 use crate::host::SettingsHost;
 use crate::types::{DockPlacement, TerminalMarkShell};
-use crate::{Choice as _, FollowUp, StartIn, TitlebarPosition, Worktree, change_settings, list, set_show_agent, set_terminal_placement, setting, setting_at, switch};
+use crate::{Choice as _, FollowUp, QuestionSubmitKey, StartIn, TitlebarPosition, Worktree, change_settings, list, set_show_agent, set_terminal_placement, setting, setting_at, switch};
 
 fn toggle_shared_side_panel(s: &mut dyn SettingsHost) {
     change_settings(s, |x| x.shared_side_panel = !x.shared_side_panel);
@@ -69,6 +69,15 @@ fn pick_follow_up(s: &mut dyn SettingsHost, id: &str, _tx: &mut Tx) {
     change_settings(s, |x| x.follow_up = FollowUp::parse(Some(id)));
 }
 
+fn pick_question_submit(s: &mut dyn SettingsHost, id: &str, _tx: &mut Tx) {
+    change_settings(s, |x| x.question_submit = QuestionSubmitKey::parse(Some(id)));
+}
+
+/// A chord as Desktop's `formatKeybind` writes it in a sentence ("Enter", "Ctrl+Enter").
+fn key_words(chord: &str) -> String {
+    rune::Keybind::new(chord).chords().first().map_or_else(String::new, |c| opencode_ui::keymap::base::sentence(*c))
+}
+
 fn toggle_pinch_zoom(s: &mut dyn SettingsHost, tx: &mut Tx) {
     let on = !s.settings().pinch_zoom;
     s.set_pinch_zoom(on, tx);
@@ -118,6 +127,9 @@ fn interface_rows<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> Vec<
         let title = t!("settings.general.row.tabPosition.title");
         let control = select(s, p, "settings-tab-position", title, crate::navigation_mode::positions(), st.tab_position().name(), crate::navigation_mode::pick_position);
         rows.push(("settings-tab-position", setting(p, "settings-tab-position", title, "", control)));
+        let title = t!("settings.general.row.tabGrouping.title");
+        let control = select(s, p, "settings-tab-grouping", title, crate::navigation_mode::groupings(), st.tab_grouping().name(), crate::navigation_mode::pick_grouping);
+        rows.push(("settings-tab-grouping", setting(p, "settings-tab-grouping", title, "", control)));
     }
     rows
 }
@@ -125,6 +137,7 @@ fn interface_rows<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> Vec<
 pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
     let st = s.settings();
     let alternate = Bind::SubmitAlternate.chord().map_or_else(String::new, opencode_ui::keymap::base::sentence);
+    let other_enter = key_words(st.question_submit.other());
     let mut rows = interface_rows(s, p);
     rows.extend([
         (
@@ -186,6 +199,26 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                 t!("settings.general.row.followUpBehavior.title"),
                 &t!("settings.general.row.followUpBehavior.description", keybind = alternate),
                 choice(s, p, "settings-follow-up-behavior-select", t!("settings.general.row.followUpBehavior.title"), st.follow_up, pick_follow_up),
+            ),
+        ),
+        // `QuestionSubmitKeySetting` (`settings/general/general.tsx:140-168`): each choice is
+        // named by its key, and the description names the Enter that does the other thing.
+        (
+            "settings-question-submit-key",
+            setting(
+                p,
+                "settings-question-submit-key",
+                t!("settings.general.row.questionSubmitKey.title"),
+                &t!("settings.general.row.questionSubmitKey.description", keybind = other_enter),
+                select(
+                    s,
+                    p,
+                    "settings-question-submit-key-select",
+                    t!("settings.general.row.questionSubmitKey.title"),
+                    QuestionSubmitKey::ALL.into_iter().map(|k| (k.name().to_owned(), key_words(k.name()))).collect(),
+                    st.question_submit.name(),
+                    pick_question_submit,
+                ),
             ),
         ),
         (

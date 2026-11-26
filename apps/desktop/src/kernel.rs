@@ -134,6 +134,7 @@ pub fn build() -> Kernel<App> {
     b.with_feature(&crate::tips::TipsFeature);
     b.with_feature(&crate::new_worktree::WorkspaceToolsFeature);
     b.with_feature(&crate::tabs::groups::TabGroupsFeature);
+    b.with_feature(&crate::tabs::sections::SidebarSectionsFeature);
     b.with_feature(&crate::plugin_host::PluginHostFeature);
     b.register_overlay(
         OverlayRegistration::<App>::new("overlay.pickers")
@@ -275,6 +276,7 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
 
     b.register_slot(&crate::tab_hints::TAB_HINTS);
     b.register_slot(&crate::tabs::pins::PINS);
+    b.register_slot(&crate::tabs::auto_groups::AUTO_GROUPS);
     b.register_slot(&crate::session_viewed::VIEWING);
     b.register_slot(&crate::tabs::navigation_switch::NAV_SWITCH);
     b.register_slot(&crate::view::sidebar::recent_view::RECENT_VIEW);
@@ -533,6 +535,9 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     .after("narrow.poll");
     b.schedule(stage::REACT_SHELL, "tab_hints.poll", |s, now, tx| {
         crate::tab_hints::poll(s, now, tx)
+    });
+    b.schedule(stage::REACT_SHELL, "auto_tab_groups.poll", |s, _, _| {
+        crate::tabs::auto_groups::poll(s)
     });
     // Known: reads `tab_layout()` and `settings_open()` settled by `layout_state.poll` -> `narrow.poll`.
     b.schedule(stage::REACT_SHELL, "session_status.poll", |s, now, tx| {
