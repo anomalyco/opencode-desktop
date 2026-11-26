@@ -141,6 +141,7 @@ impl BrowserHost {
                         t.rejected += 1;
                         changed = true;
                     }
+                    self.sync_has_tabs();
                 }
                 EngineMsg::ControlledPermissionRefused { tab_id, url } => {
                     if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
@@ -199,6 +200,7 @@ impl BrowserHost {
                     } else {
                         false
                     };
+                    self.sync_has_tabs();
                     self.closed_tabs.push_back((tab_id, fatal_close));
                 }
                 EngineMsg::InspectState { tab_id, active, picked } => {
@@ -343,8 +345,12 @@ impl BrowserHost {
         }
         #[cfg(feature = "engine")]
         self.check_for_update_once();
-        // A download finished while a tab waited for it (and one still running hurries).
-        if !self.pending_opens.is_empty()
+        // An idle engine exited right as a new tab opened (before it could confirm it), or a
+        // download finished while a tab waited for it: requeue unconfirmed tabs and reconnect.
+        if !self.is_connected() && self.status() == EngineStatus::Installed && self.has_engine_tabs() {
+            self.requeue_tabs();
+            self.ensure_connected();
+        } else if !self.pending_opens.is_empty()
             && !self.is_connected()
             && matches!(
                 self.status(),

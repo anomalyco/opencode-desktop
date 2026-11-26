@@ -287,6 +287,9 @@ impl BrowserHost {
             prompts.driver = Some(crate::prompts::TabDriver::Agent);
         }
 
+        if send_open || !can_send {
+            self.clear_stale_fault_if_empty();
+        }
         self.tabs.push(BrowserTab {
             id,
             url: initial_url,
@@ -319,6 +322,7 @@ impl BrowserHost {
             has_engine_tab: send_open || !can_send,
             engine_confirmed: false,
         });
+        self.sync_has_tabs();
         self.focused_tab = Some(id);
 
         if can_send {
@@ -382,6 +386,14 @@ impl BrowserHost {
             }
             (t.viewport_pt, t.scale, had, t.prompts.agent_driven)
         };
+        if refused.is_none() && !had_engine_tab && self.tabs.iter().filter(|t| t.has_engine_tab).count() == 1 {
+            #[cfg(feature = "engine")]
+            self.shared
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .step(crate::machine::EngineEvent::ClearStaleFault);
+        }
+        self.sync_has_tabs();
         let had_live_engine = had_engine_tab && !self.pending_opens.iter().any(|(id, _)| *id == tab_id);
         if refused.is_some() {
             self.pending_opens.retain(|(id, _)| *id != tab_id);
@@ -446,6 +458,17 @@ impl BrowserHost {
             t.has_engine_tab = !(connected && ready && !engine_preview);
             (t.viewport_pt, t.scale, had, t.prompts.agent_driven)
         };
+        if !(connected && ready && !engine_preview)
+            && !had_engine_tab
+            && self.tabs.iter().filter(|t| t.has_engine_tab).count() == 1
+        {
+            #[cfg(feature = "engine")]
+            self.shared
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .step(crate::machine::EngineEvent::ClearStaleFault);
+        }
+        self.sync_has_tabs();
         let had_live_engine = had_engine_tab && !self.pending_opens.iter().any(|(id, _)| *id == tab_id);
         if connected && ready {
             if engine_preview {

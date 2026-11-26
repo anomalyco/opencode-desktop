@@ -161,6 +161,7 @@ impl BrowserHost {
     /// Hands the connect to a thread: this app's running engine (a UI hot reload), else the
     /// installed one, started, else a download that a page waits for.
     fn connect(&mut self, start: Start) {
+        self.sync_has_tabs();
         let EngineEffect::Generation(generation) = self.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::BeginConnect) else {
             return;
         };

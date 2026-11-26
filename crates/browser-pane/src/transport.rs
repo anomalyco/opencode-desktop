@@ -419,15 +419,22 @@ fn lost(link: &Link, code: Option<u32>) -> bool {
     if !link.current() {
         return false;
     }
-    if let Some(code) = code {
-        eprintln!("browser engine: ended with exit code {code:#010x}");
-    }
     let fault = if code.is_some_and(out_of_memory) { Fault::OutOfMemory } else { Fault::Stopped };
     let effect = link.shared.lock().unwrap_or_else(PoisonError::into_inner).step(EngineEvent::Lost {
         generation: link.generation,
         fault,
     });
+    if !matches!(effect, EngineEffect::IdleLost)
+        && let Some(code) = code
+    {
+        eprintln!("browser engine: ended with exit code {code:#010x}");
+    }
     match effect {
+        EngineEffect::IdleLost => {
+            std::fs::remove_file(&link.sock).ok();
+            link.wake();
+            true
+        }
         EngineEffect::LostFirst => {
             rune::marks::mark("browser.engine.lost");
             std::fs::remove_file(&link.sock).ok();
