@@ -318,10 +318,17 @@ impl Settings {
             text_renderer: TextRenderer::parse(v["textRenderer"].as_str()),
             terminal_font: v["terminalFont"].as_u64().map_or(3, |i| (i as usize).min(TERMINAL_FONTS.len() - 1)),
             ui_font: font_index(&UI_FONTS, v["uiFont"].as_str()),
-            code_font: font_index(&CODE_FONTS, v["codeFont"].as_str()),
+            // Previous versions wrote the old default names into `settings.json` even when
+            // untouched; migrate them to the new default OpenMono (`opencode#64797`).
+            code_font: font_index(&CODE_FONTS, v["codeFont"].as_str().filter(|&s| s != "IBM Plex Mono")),
             ui_font_name: custom_name(&UI_FONTS, v["uiFont"].as_str()),
-            code_font_name: custom_name(&CODE_FONTS, v["codeFont"].as_str()),
-            terminal_font_name: v["terminalFontName"].as_str().map(str::trim).unwrap_or("").to_owned(),
+            code_font_name: custom_name(&CODE_FONTS, v["codeFont"].as_str().filter(|&s| s != "IBM Plex Mono")),
+            terminal_font_name: v["terminalFontName"]
+                .as_str()
+                .map(str::trim)
+                .filter(|&s| s != "JetBrainsMono Nerd Font Mono")
+                .unwrap_or("")
+                .to_owned(),
             record_glitches: v["developer"]["rewind"].as_bool().unwrap_or(true),
             // Files from before the setting read as Desktop's default; Desktop nests it under
             // `appearance`, which here is the colour scheme.

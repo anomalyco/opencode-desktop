@@ -125,37 +125,34 @@ pub(crate) fn init_features() {
     });
 }
 
-/// The app's fonts. Desktop sets every IBM Plex Mono weight below 600 in its Text cut and the rest
-/// in its Bold cut (`index.css`), which a Markdown heading in a diff takes, and italic Plex in its
-/// Text Italic cut (inline code in emphasis). JetBrains Mono is desktop's terminal face
-/// (`terminalDefault`), Nerd Font glyphs included for prompts.
+/// The app's fonts (`packages/app/src/index.css`, `opencode#64797`): Inter (variable) for UI,
+/// and OpenMono Regular (weights below 600), Bold (600 and up), Italic, and Nerd Fonts icons for
+/// both code and the terminal, plus optional CommitMono cuts.
 #[cfg(all(not(target_arch = "wasm32"), not(bundle_assets)))]
 const FONTS: &[&[u8]] = &[
     include_bytes!("../assets/fonts/InterVariable.ttf"),
-    include_bytes!("../assets/fonts/IBMPlexMono-Text.ttf"),
-    include_bytes!("../assets/fonts/IBMPlexMono-Bold.ttf"),
-    include_bytes!("../assets/fonts/IBMPlexMono-TextItalic.ttf"),
+    include_bytes!("../assets/fonts/OpenMono-Regular.ttf"),
+    include_bytes!("../assets/fonts/OpenMono-Bold.ttf"),
+    include_bytes!("../assets/fonts/OpenMono-Italic.ttf"),
+    include_bytes!("../assets/fonts/OpenMono-Icons.ttf"),
     include_bytes!("../assets/fonts/CommitMono-400-Regular.otf"),
     include_bytes!("../assets/fonts/CommitMono-700-Regular.otf"),
     include_bytes!("../assets/fonts/CommitMono-400-Italic.otf"),
     include_bytes!("../assets/fonts/CommitMono-700-Italic.otf"),
-    include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf"),
-    include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Bold.ttf"),
 ];
-/// A packaged macOS app's fonts are files in its bundle (`bundle`), mapped: 7.1 MiB the system does
-/// not read before the exe's first run. A font whose file is missing is left out.
+/// A packaged macOS app's fonts are files in its bundle (`bundle`), mapped so the system does not
+/// read them before the exe's first run. A font whose file is missing is left out.
 #[cfg(bundle_assets)]
 const FONT_FILES: &[&str] = &[
     "InterVariable.ttf",
-    "IBMPlexMono-Text.ttf",
-    "IBMPlexMono-Bold.ttf",
-    "IBMPlexMono-TextItalic.ttf",
+    "OpenMono-Regular.ttf",
+    "OpenMono-Bold.ttf",
+    "OpenMono-Italic.ttf",
+    "OpenMono-Icons.ttf",
     "CommitMono-400-Regular.otf",
     "CommitMono-700-Regular.otf",
     "CommitMono-400-Italic.otf",
     "CommitMono-700-Italic.otf",
-    "JetBrainsMonoNerdFontMono-Regular.ttf",
-    "JetBrainsMonoNerdFontMono-Bold.ttf",
 ];
 #[cfg(bundle_assets)]
 fn fonts() -> &'static [&'static [u8]] {
@@ -166,28 +163,29 @@ fn fonts() -> &'static [&'static [u8]] {
 fn fonts() -> &'static [&'static [u8]] {
     FONTS
 }
-/// In a browser, only the fonts the default appearance draws in: the page fetches Plex's italic and
-/// Commit Mono once its first frame is up (`LATE_FONTS`), and JetBrains Mono, the terminal's (4.8 MB), when a
-/// terminal first attaches (`TERMINAL_FONTS`).
+/// In a browser, only the fonts the default appearance draws in: the page fetches OpenMono's italic
+/// and Commit Mono once its first frame is up (`LATE_FONTS`), and OpenMono's Nerd Fonts icons
+/// (`OpenMono-Icons.ttf`) when a terminal first attaches (`TERMINAL_FONTS`).
 #[cfg(target_arch = "wasm32")]
 const FONTS: &[&[u8]] = &[
     include_bytes!("../assets/fonts/InterVariable.ttf"),
-    include_bytes!("../assets/fonts/IBMPlexMono-Text.ttf"),
-    include_bytes!("../assets/fonts/IBMPlexMono-Bold.ttf"),
+    include_bytes!("../assets/fonts/OpenMono-Regular.ttf"),
+    include_bytes!("../assets/fonts/OpenMono-Bold.ttf"),
 ];
 /// The fonts a browser fetches after its first frame, which the web build serves from `fonts/`
 /// beside the page (`scripts/web.ps1`).
 #[cfg(target_arch = "wasm32")]
 pub(crate) const LATE_FONTS: &[&str] = &[
-    "fonts/IBMPlexMono-TextItalic.ttf",
+    "fonts/OpenMono-Italic.ttf",
     "fonts/CommitMono-400-Regular.otf",
     "fonts/CommitMono-700-Regular.otf",
     "fonts/CommitMono-400-Italic.otf",
     "fonts/CommitMono-700-Italic.otf",
 ];
-/// The terminal's face, which a page fetches when its first terminal attaches (`terminal::fetch_terminal_font`).
+/// The terminal's Nerd Fonts icon face, which a page fetches when its first terminal attaches
+/// (`terminal::fetch_terminal_font`).
 #[cfg(target_arch = "wasm32")]
-pub(crate) const TERMINAL_FONTS: &[&str] = &["fonts/JetBrainsMonoNerdFontMono-Regular.ttf", "fonts/JetBrainsMonoNerdFontMono-Bold.ttf"];
+pub(crate) const TERMINAL_FONTS: &[&str] = &["fonts/OpenMono-Icons.ttf"];
 
 /// The app's spec: `init` makes its state (`App::new`, or `App::empty`).
 pub(crate) fn spec(init: fn() -> App) -> AppSpec<App> {
