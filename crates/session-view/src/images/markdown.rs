@@ -11,12 +11,12 @@ use std::sync::{Arc, Mutex};
 
 use rune::{Image, ImageCache, Pixels, Waker};
 
-use super::cache::{FAVICON_MAX_PT, MD_MAX_PT, dimensions, display_scale, load_thumb, scaled_weight};
+use super::cache::{FAVICON_MAX_PT, MD_MAX_PT, dimensions, display_scale, load_thumb, md_effective_pt, scaled_weight};
 
 /// Maximum decoded CPU pixel bytes kept in `MdStore`.
 pub(super) const MD_PIXEL_BUDGET: usize = 32 << 20;
-/// Tighter decoded pixel budget kept when resting or switching tabs.
-pub(super) const MD_REST_PIXEL_BUDGET: usize = 8 << 20;
+/// Tighter decoded pixel budget kept when resting (leaves room for active viewport markdown images).
+pub(super) const MD_REST_PIXEL_BUDGET: usize = 24 << 20;
 /// Maximum encoded bytes kept in `MdStore` across `Decoding` and `Held` slots.
 pub(super) const MD_BYTES_BUDGET: usize = 24 << 20;
 /// Maximum simultaneous markdown image fetch+decode worker tasks (bounds peak RAM).
@@ -54,7 +54,7 @@ enum Slot {
     Fetching,
     /// The decoding/decoded scaled picture and optional encoded bytes (`None` once byte budget
     /// strips them, keeping the decoded pixels alive without triggering a re-fetch loop).
-    Decoding { image: Image, bytes: Option<Arc<[u8]>>, size: Option<[u32; 2]>, weight: usize, last_used: u64 },
+    Decoding { image: Image, bytes: Option<Arc<[u8]>>, size: Option<[u32; 2]>, weight: usize, last_used: u64, last_frame: u64 },
     /// Its encoded bytes only: let go of its decoded CPU pixels (`rest` / LRU).
     /// The next ask decodes them again, with no fetch.
     Held { bytes: Arc<[u8]>, size: Option<[u32; 2]>, last_used: u64 },
@@ -140,6 +140,7 @@ pub struct MdStore {
     fetcher: RefCell<Fetcher>,
     cache: RefCell<Option<Arc<ImageCache>>>,
     tick: Cell<u64>,
+    frame: Cell<u64>,
     slots: RefCell<HashMap<Source, Slot>>,
     /// What the readers fetched, already decoding (or a failure), waiting for the view.
     fetched: Arc<Mutex<Vec<FetchedEntry>>>,
@@ -192,6 +193,11 @@ impl MdStore {
         let t = self.tick.get().wrapping_add(1);
         self.tick.set(t);
         t
+    }
+
+    pub(super) fn begin_frame(&self) {
+        let next = self.frame.get().wrapping_add(1).max(1);
+        self.frame.set(next);
     }
 
     /// The picture for markdown image `src` in a reply of a session in `directory`, once it is
@@ -272,9 +278,11 @@ impl MdStore {
     fn get(&self, source: Source, max_pt: f32) -> Option<Image> {
         self.land();
         let now = self.next_tick();
+        let cur_frame = self.frame.get();
         let held = match self.slots.borrow_mut().get_mut(&source) {
-            Some(Slot::Decoding { image, last_used, .. }) => {
+            Some(Slot::Decoding { image, last_used, last_frame, .. }) => {
                 *last_used = now;
+                *last_frame = cur_frame;
                 return Some(image.clone());
             }
             Some(Slot::Fetching | Slot::Failed(_)) => return None,
@@ -283,10 +291,11 @@ impl MdStore {
         };
         if let Some((bytes, size)) = held {
             let scale = display_scale();
+            let eff_pt = md_effective_pt(size, max_pt);
             let cache = self.cache()?;
-            let (image, max_px) = load_thumb(&cache, bytes.clone(), source_mime(&source), size, max_pt, scale);
+            let (image, max_px) = load_thumb(&cache, bytes.clone(), source_mime(&source), size, eff_pt, scale);
             let weight = scaled_weight(size, max_px);
-            self.slots.borrow_mut().insert(source.clone(), Slot::Decoding { image: image.clone(), bytes: Some(bytes), size, weight, last_used: now });
+            self.slots.borrow_mut().insert(source.clone(), Slot::Decoding { image: image.clone(), bytes: Some(bytes), size, weight, last_used: now, last_frame: cur_frame });
             self.trim_pinned(MD_PIXEL_BUDGET, MD_BYTES_BUDGET, Some(&source));
             return Some(image);
         }
@@ -332,11 +341,15 @@ impl MdStore {
             .values()
             .map(|s| match s { Slot::Decoding { weight, .. } => *weight, _ => 0 })
             .sum();
+        let cur_frame = (self.frame.get() > 0).then(|| self.frame.get());
         while pixels > pixel_budget {
             let oldest = slots
                 .iter()
                 .filter(|(k, _)| pin != Some(*k))
-                .filter_map(|(k, s)| match s { Slot::Decoding { last_used, .. } => Some((k.clone(), *last_used)), _ => None })
+                .filter_map(|(k, s)| match s {
+                    Slot::Decoding { last_used, last_frame, .. } if cur_frame != Some(*last_frame) => Some((k.clone(), *last_used)),
+                    _ => None,
+                })
                 .min_by_key(|(_, t)| *t)
                 .map(|(k, _)| k);
             let Some(k) = oldest else { break };
@@ -396,10 +409,11 @@ impl MdStore {
             return;
         }
         let now = self.next_tick();
+        let cur_frame = self.frame.get();
         let mut last = None;
         for (source, read) in fetched {
             let slot = match read {
-                Ok(l) => Slot::Decoding { image: l.image, bytes: Some(l.bytes), size: l.size, weight: l.weight, last_used: now },
+                Ok(l) => Slot::Decoding { image: l.image, bytes: Some(l.bytes), size: l.size, weight: l.weight, last_used: now, last_frame: cur_frame },
                 Err(reason) => Slot::Failed(reason),
             };
             last = Some(source.clone());
@@ -441,7 +455,15 @@ impl MdStore {
                 pool
             }
         };
+        struct ActiveGuard(ReadPool);
+        impl Drop for ActiveGuard {
+            fn drop(&mut self) {
+                let mut g = self.0.lock().unwrap_or_else(|e| e.into_inner());
+                g.1 = g.1.saturating_sub(1);
+            }
+        }
         let Some(cache) = self.cache() else { return Enqueue::Unready };
+        let key_for_rollback = source.clone();
         let mut p = pool.lock().unwrap_or_else(|e| e.into_inner());
         p.0.push_back((source, max_pt, scale));
         if p.1 >= MAX_READERS {
@@ -452,15 +474,13 @@ impl MdStore {
         let (fetched, landed, version) = (self.fetched.clone(), self.landed.clone(), self.version.clone());
         let pool_w = pool.clone();
         if rune::task::spawn("markdown-media-read", move || {
+            let _active = ActiveGuard(pool_w.clone());
             loop {
                 let next = {
                     let mut guard = pool_w.lock().unwrap_or_else(|e| e.into_inner());
                     match guard.0.pop_front() {
                         Some(item) => item,
-                        None => {
-                            guard.1 = guard.1.saturating_sub(1);
-                            return;
-                        }
+                        None => return,
                     }
                 };
                 let (source, max_pt, scale) = next;
@@ -471,7 +491,8 @@ impl MdStore {
                 let read = bytes.map(|bytes| {
                     let bytes: Arc<[u8]> = bytes.into();
                     let size = dimensions(&bytes);
-                    let (image, max_px) = load_thumb(&cache, bytes.clone(), source_mime(&source), size, max_pt, scale);
+                    let eff_pt = md_effective_pt(size, max_pt);
+                    let (image, max_px) = load_thumb(&cache, bytes.clone(), source_mime(&source), size, eff_pt, scale);
                     let weight = scaled_weight(size, max_px);
                     Landed { image, bytes, size, weight }
                 });
@@ -488,7 +509,9 @@ impl MdStore {
         let mut p = pool.lock().unwrap_or_else(|e| e.into_inner());
         p.1 = p.1.saturating_sub(1);
         if p.1 == 0 {
-            p.0.pop_back();
+            if let Some(pos) = p.0.iter().rposition(|(s, _, _)| *s == key_for_rollback) {
+                p.0.remove(pos);
+            }
             Enqueue::Failed
         } else {
             Enqueue::Queued

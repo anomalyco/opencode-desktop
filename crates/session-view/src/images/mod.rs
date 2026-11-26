@@ -53,6 +53,7 @@ pub struct MediaStore {
     pub waker: Option<Waker>,
     cache: RefCell<Option<Arc<ImageCache>>>,
     tick: Cell<u64>,
+    frame: Cell<u64>,
     /// Decoded thumbnail handles by the bytes' address, bounded by `PIXEL_BUDGET` LRU.
     images: RefCell<HashMap<(usize, usize), InlineEntry>>,
     /// Header dimensions for evicted inline thumbnails (guarded by Weak to prevent address-reuse ABA).
@@ -71,6 +72,7 @@ pub struct MediaStore {
 pub(super) struct InlineEntry {
     pub(super) prepared: PreparedImage,
     pub(super) last_used: u64,
+    pub(super) last_frame: u64,
 }
 
 /// Header dimensions are available before decode; the same handle crosses from prefetch to view.
@@ -210,6 +212,14 @@ impl MediaStore {
         t
     }
 
+    /// Advances the render-frame epoch once per view pass so eviction never drops images touched
+    /// in the current frame.
+    pub fn begin_frame(&self) {
+        let next = self.frame.get().wrapping_add(1).max(1);
+        self.frame.set(next);
+        self.markdown.begin_frame();
+    }
+
     /// Shared `rune::ImageCache` for this store and the server's page workers so identical
     /// attachment bytes decode once across prefetch and timeline (`MdStore` keeps its own cache
     /// with a version-bumping waker for markdown rows).
@@ -312,11 +322,12 @@ impl MediaStore {
         self.markdown.trim(markdown::MD_REST_PIXEL_BUDGET, markdown::MD_BYTES_BUDGET);
     }
 
-    /// Called on tab switch or tab close: closes any open lightbox (releasing its full-resolution
-    /// handle) and trims background decoded pixels immediately.
+    /// Called on tab switch or shown-tab close: closes any open lightbox (releasing its
+    /// full-resolution handle) and enforces active budgets without evicting the destination tab's
+    /// thumbnails before it renders.
     pub fn on_tab_switch(&mut self) {
         self.viewing = None;
-        self.rest();
+        self.trim_active();
     }
 
     /// Drops all decoded CPU pixels across inline attachments, `media:` refs, and markdown
@@ -361,7 +372,7 @@ impl MediaStore {
                 cap_map(&mut sizes);
                 sizes.insert(key, (Arc::downgrade(&p.bytes), sz));
             }
-            images.insert(key, InlineEntry { prepared: p, last_used: now });
+            images.insert(key, InlineEntry { prepared: p, last_used: now, last_frame: self.frame.get() });
         }
         drop(images);
         self.evict_pixels(PIXEL_BUDGET, cache::Pin::None);
@@ -429,17 +440,20 @@ impl MediaStore {
         let scale = display_scale();
         let wanted_px = target_px(max_pt, scale);
         let now = self.next_tick();
+        let cur_frame = self.frame.get();
 
         if let Some(hash) = &a.media {
             let hit = {
                 let mut refs = self.refs.borrow_mut();
                 refs.get_mut(hash).map(|slot| match slot {
-                    RefSlot::Decoded { image, max_px, last_used, .. } if *max_px >= wanted_px => {
+                    RefSlot::Decoded { image, max_px, last_used, last_frame, .. } if *max_px >= wanted_px => {
                         *last_used = now;
+                        *last_frame = cur_frame;
                         (image.clone(), false)
                     }
-                    RefSlot::Decoded { image, bytes: None, last_used, .. } => {
+                    RefSlot::Decoded { image, bytes: None, last_used, last_frame, .. } => {
                         *last_used = now;
+                        *last_frame = cur_frame;
                         (image.clone(), false)
                     }
                     RefSlot::Decoded { bytes: Some(bytes), size, .. } | RefSlot::Held { bytes, size, .. } => {
@@ -448,7 +462,7 @@ impl MediaStore {
                         let cache = self.image_cache();
                         let (img, max_px) = load_thumb(&cache, bytes.clone(), &a.mime, size, max_pt, scale);
                         let weight = scaled_weight(size, max_px);
-                        *slot = RefSlot::Decoded { image: img.clone(), bytes: Some(bytes), size, max_px, weight, last_used: now };
+                        *slot = RefSlot::Decoded { image: img.clone(), bytes: Some(bytes), size, max_px, weight, last_used: now, last_frame: cur_frame };
                         self.media.state.lock().unwrap_or_else(|e| e.into_inner()).insert(hash.clone(), Fetched::Decoded);
                         (img, true)
                     }
@@ -461,10 +475,18 @@ impl MediaStore {
                 return Some(img);
             }
             if let Some(p) = self.inline_copy(hash) {
-                self.adopt_ref(hash, p.image.clone(), p.size, p.bytes.clone(), p.max_px, p.weight(), now);
+                // Upgrade composer-sized thumbnails (160 pt) to timeline resolution when adopted.
+                let (img, max_px, weight) = if p.max_px >= wanted_px {
+                    (p.image.clone(), p.max_px, p.weight())
+                } else {
+                    let cache = self.image_cache();
+                    let (img, max_px) = load_thumb(&cache, p.bytes.clone(), &a.mime, p.size, max_pt, scale);
+                    (img, max_px, scaled_weight(p.size, max_px))
+                };
+                self.adopt_ref(hash, img.clone(), p.size, p.bytes.clone(), max_px, weight, now);
                 self.evict_pixels(PIXEL_BUDGET, cache::Pin::Ref(hash));
                 self.evict_ref_bytes(REF_BYTES_BUDGET, Some(hash));
-                return Some(p.image);
+                return Some(img);
             }
             let Fetched::Ready(bytes) = self.media.get(hash, self.waker.as_ref()) else {
                 return None;
@@ -483,6 +505,7 @@ impl MediaStore {
             && entry.prepared.max_px >= wanted_px
         {
             entry.last_used = now;
+            entry.last_frame = cur_frame;
             return Some(entry.prepared.image.clone());
         }
         let cache = self.image_cache();
@@ -493,7 +516,7 @@ impl MediaStore {
             cap_map(&mut sizes);
             sizes.insert(key, (Arc::downgrade(&prepared.bytes), sz));
         }
-        self.images.borrow_mut().insert(key, InlineEntry { prepared, last_used: now });
+        self.images.borrow_mut().insert(key, InlineEntry { prepared, last_used: now, last_frame: cur_frame });
         self.evict_pixels(PIXEL_BUDGET, cache::Pin::Inline(key));
         Some(img)
     }
@@ -510,7 +533,7 @@ impl MediaStore {
 
     #[allow(clippy::too_many_arguments)]
     fn adopt_ref(&self, hash: &str, img: Image, size: Option<[u32; 2]>, bytes: Arc<[u8]>, max_px: u32, weight: usize, now: u64) {
-        self.refs.borrow_mut().insert(hash.to_owned(), RefSlot::Decoded { image: img, bytes: Some(bytes), size, max_px, weight, last_used: now });
+        self.refs.borrow_mut().insert(hash.to_owned(), RefSlot::Decoded { image: img, bytes: Some(bytes), size, max_px, weight, last_used: now, last_frame: self.frame.get() });
         if let Some(size) = size {
             let mut sizes = self.ref_sizes.borrow_mut();
             cap_map(&mut sizes);
@@ -521,7 +544,8 @@ impl MediaStore {
 
     /// Evicts least-recently-used decoded thumbnail handles until total pixel weight fits `budget`.
     fn evict_pixels(&self, budget: usize, pin: cache::Pin<'_>) {
-        let changes = cache::evict_pixels(&mut self.images.borrow_mut(), &mut self.refs.borrow_mut(), budget, pin);
+        let cur_frame = (self.frame.get() > 0).then(|| self.frame.get());
+        let changes = cache::evict_pixels(&mut self.images.borrow_mut(), &mut self.refs.borrow_mut(), budget, pin, cur_frame);
         if !changes.is_empty() {
             let mut state = self.media.state.lock().unwrap_or_else(|e| e.into_inner());
             for change in changes {
@@ -624,6 +648,10 @@ pub fn markdown_pictures<S: TimelineHost>(p: &Pal, md: rune_kit::Markdown, m: ma
             let fallback = f.image.clone();
             let dir = m.directory.as_deref().map(str::to_owned);
             let src = f.src.to_owned();
+            let img = match m.store.natural_size(dir.as_deref(), &src) {
+                Some([natural_w, _]) if natural_w > 0 => img.max_w(natural_w as f32),
+                _ => img,
+            };
             let dragged = Dragged::Markdown { directory: dir.clone(), src: src.clone() };
             let img = menu::on_image::<S>(draggable::<S>(img, dragged.clone()), dragged.clone(), m.message.as_deref());
             el().w_full().child(

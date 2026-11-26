@@ -88,6 +88,7 @@ thread_local! {
 /// Called at the top of each view, before the timeline builds.
 pub fn prepare<S: TimelineHost>(s: &S) {
     SHOWN.set(s.diagrams().open.as_ref().map(|o| o.id));
+    s.media_store().begin_frame();
 }
 
 fn id_of(source: &str) -> u64 {

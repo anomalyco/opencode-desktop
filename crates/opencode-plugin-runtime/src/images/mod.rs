@@ -142,6 +142,13 @@ impl Images {
     }
 
     fn enqueue(&mut self, id: u32, source: Source) -> bool {
+        struct ActiveGuard(ReadPool);
+        impl Drop for ActiveGuard {
+            fn drop(&mut self) {
+                let mut g = self.0.lock().unwrap_or_else(|e| e.into_inner());
+                g.1 = g.1.saturating_sub(1);
+            }
+        }
         let StoreState::Started { cache, waker, pool } = &self.state else { return false };
         let (cache, waker, pool) = (cache.clone(), waker.clone(), pool.clone());
         let mut guard = pool.lock().unwrap_or_else(|e| e.into_inner());
@@ -154,15 +161,13 @@ impl Images {
         let fetched = self.fetched.clone();
         let pool_w = pool.clone();
         if rune::task::spawn("plugin-images-read", move || {
+            let _active = ActiveGuard(pool_w.clone());
             loop {
                 let next = {
                     let mut g = pool_w.lock().unwrap_or_else(|e| e.into_inner());
                     match g.0.pop_front() {
                         Some(item) => item,
-                        None => {
-                            g.1 = g.1.saturating_sub(1);
-                            return;
-                        }
+                        None => return,
                     }
                 };
                 let (id, source) = next;
@@ -181,7 +186,9 @@ impl Images {
         let mut g = pool.lock().unwrap_or_else(|e| e.into_inner());
         g.1 = g.1.saturating_sub(1);
         if g.1 == 0 {
-            g.0.pop_back();
+            if let Some(pos) = g.0.iter().rposition(|(queued, _)| *queued == id) {
+                g.0.remove(pos);
+            }
             return false;
         }
         true

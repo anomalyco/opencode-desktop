@@ -699,8 +699,11 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                     line.shrink_to(64 * 1024);
                 }
                 #[cfg(not(target_os = "linux"))]
-                if raw_buf.capacity() > 256 * 1024 {
-                    raw_buf.shrink_to(64 * 1024);
+                {
+                    raw_buf.clear();
+                    if raw_buf.capacity() > 256 * 1024 {
+                        raw_buf.shrink_to(64 * 1024);
+                    }
                 }
                 #[cfg(target_os = "linux")]
                 let Ok((1.., line_at)) = reader.read_line(&mut line) else { break };

@@ -24,8 +24,8 @@ pub const FAVICON_MAX_PT: f32 = 32.0;
 
 /// Maximum decoded CPU pixel bytes kept in `MediaStore` (inline + `media:` refs combined).
 pub const PIXEL_BUDGET: usize = 48 << 20;
-/// Tighter decoded pixel budget kept when resting or switching tabs.
-pub const REST_PIXEL_BUDGET: usize = 12 << 20;
+/// Tighter decoded pixel budget kept when resting (leaves room for a full 2× viewport).
+pub const REST_PIXEL_BUDGET: usize = 24 << 20;
 /// Maximum encoded `media:` ref bytes kept in `MediaStore`.
 pub const REF_BYTES_BUDGET: usize = 24 << 20;
 /// Cap on auxiliary metadata caches (`ref_sizes`, `inline_sizes`, `shas`).
@@ -80,6 +80,15 @@ fn is_animated_mime(mime: &str) -> bool {
 /// Decodes a thumbnail into `cache`, downscaling oversized rasters before mipmap generation via
 /// `ImageCache::load_scaled`. Small animated GIF/WebP/APNG images already within `max_pt * scale`
 /// keep full `load` so timeline animations continue to play without risking 256 MiB 4K loops.
+/// Effective `max_pt` for markdown images: tall portrait images (`h > w`) scale up their
+/// long-side target so their decoded width still fills the column up to `max_pt` (capped at 1440 pt).
+pub(crate) fn md_effective_pt(size: Option<[u32; 2]>, max_pt: f32) -> f32 {
+    match size {
+        Some([w, h]) if h > w && w > 0 => (max_pt * (h as f32 / w as f32)).min(1440.0),
+        _ => max_pt,
+    }
+}
+
 pub(crate) fn load_thumb(
     cache: &ImageCache,
     bytes: Arc<[u8]>,
@@ -103,7 +112,7 @@ pub(crate) enum RefSlot {
     Held { bytes: Arc<[u8]>, size: Option<[u32; 2]>, last_used: u64 },
     /// Decoded thumbnail pixels plus optional encoded bytes (`None` when byte budget stripped them
     /// so an active decoded image stays visible without triggering an HTTP re-fetch loop).
-    Decoded { image: Image, bytes: Option<Arc<[u8]>>, size: Option<[u32; 2]>, max_px: u32, weight: usize, last_used: u64 },
+    Decoded { image: Image, bytes: Option<Arc<[u8]>>, size: Option<[u32; 2]>, max_px: u32, weight: usize, last_used: u64, last_frame: u64 },
 }
 
 pub(crate) enum Demote {
@@ -134,6 +143,13 @@ impl RefSlot {
     pub(crate) fn last_used(&self) -> u64 {
         match self {
             RefSlot::Held { last_used, .. } | RefSlot::Decoded { last_used, .. } => *last_used,
+        }
+    }
+
+    pub(crate) fn last_frame(&self) -> u64 {
+        match self {
+            RefSlot::Held { .. } => 0,
+            RefSlot::Decoded { last_frame, .. } => *last_frame,
         }
     }
 
@@ -314,12 +330,14 @@ pub(crate) enum RefEvict {
 }
 
 /// Evicts least-recently-used decoded thumbnails across `images` and `refs` until total decoded
-/// pixel weight fits `budget`, never evicting `pin` (the just-inserted image).
+/// pixel weight fits `budget`, never evicting `pin` or any image touched on `cur_frame` (which
+/// prevents same-frame re-decode thrash and preserves visible images across `App::rest`).
 pub(crate) fn evict_pixels(
     images: &mut HashMap<(usize, usize), super::InlineEntry>,
     refs: &mut HashMap<String, RefSlot>,
     budget: usize,
     pin: Pin<'_>,
+    cur_frame: Option<u64>,
 ) -> Vec<RefEvict> {
     let mut total: usize = images.values().map(|e| e.prepared.weight()).sum::<usize>()
         + refs.values().map(RefSlot::pixel_weight).sum::<usize>();
@@ -331,12 +349,12 @@ pub(crate) fn evict_pixels(
     while total > budget {
         let oldest_inline = images
             .iter()
-            .filter(|(k, _)| !matches!(pin, Pin::Inline(pk) if pk == **k))
+            .filter(|(k, e)| !matches!(pin, Pin::Inline(pk) if pk == **k) && cur_frame != Some(e.last_frame))
             .min_by_key(|(_, e)| e.last_used)
             .map(|(&k, e)| (k, e.last_used));
         let oldest_ref = refs
             .iter()
-            .filter(|(k, s)| s.pixel_weight() > 0 && !matches!(pin, Pin::Ref(pr) if pr == k.as_str()))
+            .filter(|(k, s)| s.pixel_weight() > 0 && !matches!(pin, Pin::Ref(pr) if pr == k.as_str()) && cur_frame != Some(s.last_frame()))
             .min_by_key(|(_, s)| s.last_used())
             .map(|(k, s)| (k.clone(), s.last_used()));
         let victim = match (oldest_inline, oldest_ref) {

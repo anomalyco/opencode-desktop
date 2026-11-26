@@ -157,7 +157,6 @@ pub(crate) fn on_tab_closed(s: &mut App, server: &ServerKey, id: &str, was_shown
         }
         s.turn_diffs.forget(sid);
         s.timeline_fx.ends.forget(sid);
-        s.kernel.slots.get_mut(&crate::panels::SIDE).sessions.remove(sid);
     }
     if !other_unreported && !dropped_ids.is_empty() {
         retain_global_user_messages(s);
@@ -227,9 +226,6 @@ fn sweep_all(s: &mut App, full_rest: bool) {
     if full_rest || removed_any {
         s.turn_diffs.retain(&|id| all_kept_ids.contains(id));
         s.timeline_fx.ends.retain(&|id| all_kept_ids.contains(id));
-        if s.kernel.slots.get(&crate::panels::SIDE).sessions.keys().any(|id| !all_kept_ids.contains(id)) {
-            s.kernel.slots.get_mut(&crate::panels::SIDE).sessions.retain(|id, _| all_kept_ids.contains(id));
-        }
     }
 
     if !other_unreported && (full_rest || removed_any) {
