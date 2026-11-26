@@ -2,29 +2,29 @@
   "generated_at": "2026-11-27",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "8ec08f4913531a421a93a1b074ec97e163a2d38b",
+  "upstream_head": "82d8fc5bec961043e47b4d2d3fcd03667f40148a",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "3e14a988b",
-  "post_1114_commit_count": 751,
-  "post_1114_in_ledger": 257,
-  "post_1114_skipped": 494,
+  "rune_desktop_head": "99459a2c8",
+  "post_1114_commit_count": 753,
+  "post_1114_in_ledger": 258,
+  "post_1114_skipped": 495,
   "post_1114_skipped_breakdown": {
     "test-only": 33,
     "ci-bench-deps": 26,
-    "docs-site-data": 77,
+    "docs-site-data": 78,
     "tui-only": 32,
     "cli-acp-only": 13,
     "server-core-ai-codemode-internal": 313
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 278,
+  "total_ledger_rows": 279,
   "status_counts": {
     "have it": 230,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 4,
-    "missing": 4
+    "missing": 5
   },
   "rows": [
     {
@@ -6944,6 +6944,30 @@
       "size": "XS",
       "status": "have it",
       "status_evidence": "Shipped in opencode-rune #1329 (5fc2a6de9, head de9079d0a2, CI run 45866130904 green; Linux arm64 skipped): both turns::script_output_for_blocks (crates/session-view/src/turns/mod.rs) and rhythm::edges_of script_changes (crates/session-view/src/timeline/rhythm.rs) match only Block::Calls { kind: Calls::Files } and never Block::Group, so grouped changes never steal a preceding script's Output row and keep M block separation. Official: packages/session-ui/src/timeline/{script-output,timeline-row}.ts.",
+      "depends_on": "UP-255",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-258",
+      "window": "post-1120",
+      "pr": 66650,
+      "sha": "82d8fc5bec",
+      "title": "feat(session-ui): count a script's steps instead of the script with full_codemode",
+      "merged": "2026-11-26",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/timeline/facts.ts",
+        "packages/session-ui/src/timeline-next/tools/activity-label.ts",
+        "packages/session-ui/src/timeline-next/tools/context-group.tsx",
+        "packages/session-ui/src/tools/context-group-label.ts"
+      ],
+      "summary": "With full_codemode enabled, activity group headers count each execute script's nested steps (mapping Bun.write to edit and Bun.file to read, ignoring other Bun calls, letting edit lead only once changed files land) instead of counting the script itself as a command.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Port in draft opencode-rune #1340 (head b113398d10, CI running, not yet run): adds activity::activity_with(steps, script_steps) and script_step_calls in crates/session-view/src/activity/label.rs, passes s.full_codemode(session) in turns/view.rs, hashes metadata.toolCalls in timeline/mod.rs group_hash, and adds --scene tools-execute-codemode-bun. Official: packages/session-ui/src/timeline/facts.ts, timeline-next/tools/{activity-label.ts,context-group.tsx}, tools/{context-group-label.ts,tool-renderer.tsx}.",
       "depends_on": "UP-255",
       "risks": "none",
       "workstream": "UPSTREAM"
