@@ -82,6 +82,7 @@ impl MuxStream {
             if abort.is_aborted() {
                 return Err("Browser tunnel stream read was cancelled.".into());
             }
+            let credit_batch = g.cfg.credit_batch_bytes;
             let mut send_window_update = None;
             if let Some(s) = g.streams.get_mut(&id) {
                 if s.inbound_bytes > 0 {
@@ -101,7 +102,6 @@ impl MuxStream {
                     }
                     s.inbound_bytes = s.inbound_bytes.saturating_sub(copied);
                     s.consumed_since_credit = s.consumed_since_credit.saturating_add(copied as u32);
-                    let credit_batch = g.cfg.credit_batch_bytes;
                     if !s.inbound_fin_received && s.consumed_since_credit >= credit_batch {
                         let delta = s.consumed_since_credit;
                         s.consumed_since_credit = 0;

@@ -31,6 +31,7 @@ pub(crate) struct HistoryFrom {
 }
 
 /// The tab now.
+#[derive(Clone, Copy)]
 pub(crate) struct TabNow<'a> {
     pub url: &'a str,
     pub loading: bool,

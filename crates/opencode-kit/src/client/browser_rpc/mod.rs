@@ -13,15 +13,7 @@ pub mod stream_mux;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod stream_wire;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod tunnel_client;
-#[cfg(not(target_arch = "wasm32"))]
-mod tunnel_pool;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod tunnel_proxy;
-#[cfg(not(target_arch = "wasm32"))]
-mod tunnel_pump;
-#[cfg(not(target_arch = "wasm32"))]
-mod tunnel_stream;
+pub mod tunnel;
 pub mod types;
 
 pub use http::{AbortHandle, classify_attach_error, classify_error, rpc_path};
@@ -32,9 +24,13 @@ pub use stream_mux::{ClientMux, MuxConfig, MuxStream, ReadOutcome};
 #[cfg(not(target_arch = "wasm32"))]
 pub use stream_wire::{Frame, FrameType, ResetCode, WireProtocolError};
 #[cfg(not(target_arch = "wasm32"))]
-pub use tunnel_client::{open_authenticated_websocket, resolve_browser_tunnel_url};
+pub use tunnel::client as tunnel_client;
 #[cfg(not(target_arch = "wasm32"))]
-pub use tunnel_proxy::{PROXY_REALM, ProxyCredentials, TunnelProxy};
+pub use tunnel::client::{open_authenticated_websocket, resolve_browser_tunnel_url};
+#[cfg(not(target_arch = "wasm32"))]
+pub use tunnel::proxy as tunnel_proxy;
+#[cfg(not(target_arch = "wasm32"))]
+pub use tunnel::proxy::{PROXY_REALM, ProxyCredentials, TunnelProxy};
 pub use types::{
     AttachOutcome, BROWSER_TUNNEL_PATH, BrowserState, CLOSE_ATTACHMENT_CLOSED,
     CLOSE_ATTACHMENT_REPLACED, CONTROL_EVENT, Command, ControlFrame, LocationRef, MAX_FILE_BYTES,

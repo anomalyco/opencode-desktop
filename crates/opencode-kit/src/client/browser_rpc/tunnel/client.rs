@@ -16,8 +16,8 @@ use tungstenite::protocol::WebSocketConfig;
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Error as WsError, HandshakeError, WebSocket};
 
-use super::stream_wire::MAX_WS_FRAME_BYTES;
-use super::types::{
+use super::super::stream_wire::MAX_WS_FRAME_BYTES;
+use super::super::types::{
     BROWSER_TUNNEL_PATH, LocationRef, STREAM_PROTOCOL_VERSION, TunnelTicket, TunnelUpgradeError,
     TunnelUpgradeFailureKind,
 };

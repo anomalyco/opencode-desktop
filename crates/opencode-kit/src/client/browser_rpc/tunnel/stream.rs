@@ -1,5 +1,5 @@
 //! Unified upstream stream abstraction (binary WebSocket [`MuxStream`] or legacy chunked RPC)
-//! plus negotiated transport mode and per-target `tunnel.grant` barrier for [`super::tunnel_proxy::TunnelProxy`].
+//! plus negotiated transport mode and per-target `tunnel.grant` barrier for [`super::proxy::TunnelProxy`].
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -8,11 +8,11 @@ use std::time::Duration;
 
 use rune::time::Instant;
 
-use super::http::AbortHandle;
-use super::stream_mux::{ClientMux, MuxConfig, MuxStream, ReadOutcome};
-use super::stream_wire::ResetCode;
-use super::tunnel_client::{PREWARM_WAIT_TIMEOUT, open_authenticated_websocket};
-use super::types::{
+use super::super::http::AbortHandle;
+use super::super::stream_mux::{ClientMux, MuxConfig, MuxStream, ReadOutcome};
+use super::super::stream_wire::ResetCode;
+use super::client::{PREWARM_WAIT_TIMEOUT, open_authenticated_websocket};
+use super::super::types::{
     LocationRef, MuxCloseInfo, STREAM_CAPABILITY, STREAM_PROTOCOL_VERSION, TUNNEL_CHUNK_BYTES,
     TunnelTarget, TunnelUpgradeError, TunnelUpgradeFailureKind,
 };

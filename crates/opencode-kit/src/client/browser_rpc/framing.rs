@@ -363,18 +363,6 @@ pub(super) fn write_502_body(stream: &mut TcpStream, message: &str) -> std::io::
     stream.write_all(resp.as_bytes())
 }
 
-pub(super) fn write_502_body(stream: &mut TcpStream, message: &str) -> std::io::Result<()> {
-    let mut body: String = message.chars().take(256).collect();
-    if body.is_empty() {
-        body = "Bad Gateway".to_owned();
-    }
-    let resp = format!(
-        "HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\n\r\n{body}",
-        body.len()
-    );
-    stream.write_all(resp.as_bytes())
-}
-
 pub(super) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     let mut diff = a.len() ^ b.len();
     for (i, &expected) in b.iter().enumerate() {

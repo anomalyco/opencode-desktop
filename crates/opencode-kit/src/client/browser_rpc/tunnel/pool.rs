@@ -1,5 +1,5 @@
 //! Per-origin plain HTTP/1.1 keep-alive connection pool and response-framing forwarder for
-//! [`super::tunnel_proxy::TunnelProxy`] (`packages/plugin-browser/src/proxy.ts:35-360`).
+//! [`super::proxy::TunnelProxy`] (`packages/plugin-browser/src/proxy.ts:35-360`).
 //!
 //! Strictly scoped to one attachment's proxy: sockets are keyed by canonicalized `host:port`,
 //! never shared across origins or attachments, and evicted immediately on error, abort, reset,
@@ -13,11 +13,11 @@ use std::time::Duration;
 
 use rune::time::Instant;
 
-use super::framing::{ParsedHead, ProxyUrl, build_forwarded_head, client_wants_close};
-use super::http::AbortHandle;
-use super::tunnel_proxy::ProxyCtx;
-use super::tunnel_stream::UpstreamStream;
-use super::types::{TUNNEL_CHUNK_BYTES, TunnelTarget};
+use super::super::framing::{ParsedHead, ProxyUrl, build_forwarded_head, client_wants_close};
+use super::super::http::AbortHandle;
+use super::proxy::ProxyCtx;
+use super::stream::UpstreamStream;
+use super::super::types::{TUNNEL_CHUNK_BYTES, TunnelTarget};
 
 const MAX_POOLED_ORIGINS: usize = 64;
 const MAX_FREE_SOCKETS_PER_ORIGIN: usize = 6;
@@ -41,7 +41,7 @@ struct PoolInner {
     origins: BTreeMap<String, OriginBucket>,
 }
 
-/// Per-origin LIFO idle connection pool scoped to one [`super::tunnel_proxy::TunnelProxy`].
+/// Per-origin LIFO idle connection pool scoped to one [`super::proxy::TunnelProxy`].
 pub(super) struct OriginPool {
     inner: Mutex<PoolInner>,
 }

@@ -33,18 +33,18 @@ use base64::Engine;
 use rune::time::Instant;
 use socket2::{Domain, Protocol, Socket, Type};
 
-use super::framing::{
+use super::super::framing::{
     HeadReadErr, build_forwarded_head, constant_time_eq, parse_connect_authority,
     parse_content_length, parse_proxy_url, read_http_head, write_502_body, write_status,
 };
-use super::http::AbortHandle;
-use super::proxy_machine::{ProxyEffect, ProxyEvent, ProxyState};
-use super::tunnel_pool::{ForwardOutcome, OriginPool, forward_http_pooled};
-use super::tunnel_pump::{
+use super::super::http::AbortHandle;
+use super::super::proxy_machine::{ProxyEffect, ProxyEvent, ProxyState};
+use super::pool::{ForwardOutcome, OriginPool, forward_http_pooled};
+use super::pump::{
     WsHandshake, await_ws_upgrade, drain_remote_to_client, pump_bidirectional_stream,
 };
-use super::tunnel_stream::TransportController;
-use super::types::{LocationRef, MAX_TUNNELS, MuxCloseInfo, TunnelTarget, try_random_hex};
+use super::stream::TransportController;
+use super::super::types::{LocationRef, MAX_TUNNELS, MuxCloseInfo, TunnelTarget, try_random_hex};
 use crate::client::Server;
 
 pub const PROXY_REALM: &str = "OpenCode Browser Proxy";

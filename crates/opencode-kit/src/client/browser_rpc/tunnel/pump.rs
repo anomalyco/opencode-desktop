@@ -1,15 +1,15 @@
-//! Bidirectional stream & WebSocket upgrade pumping helpers for [`super::tunnel_proxy::TunnelProxy`].
+//! Bidirectional stream & WebSocket upgrade pumping helpers for [`super::proxy::TunnelProxy`].
 
 use std::io::{ErrorKind, Read, Write};
 use std::net::{Shutdown, TcpStream};
 use std::time::Duration;
 
-use super::framing::{is_http_101_response, write_status};
-use super::http::AbortHandle;
-use super::proxy_machine::{ReadEvent, ReadState};
-use super::tunnel_proxy::{MAX_WS_RESP_HEAD, POST_EOF_DRAIN_TIMEOUT, ProxyCtx};
-use super::tunnel_stream::UpstreamStream;
-use super::types::TUNNEL_CHUNK_BYTES;
+use super::super::framing::{is_http_101_response, write_status};
+use super::super::http::AbortHandle;
+use super::super::proxy_machine::{ReadEvent, ReadState};
+use super::proxy::{MAX_WS_RESP_HEAD, POST_EOF_DRAIN_TIMEOUT, ProxyCtx};
+use super::stream::UpstreamStream;
+use super::super::types::TUNNEL_CHUNK_BYTES;
 
 pub(super) enum WsHandshake {
     Upgraded,
