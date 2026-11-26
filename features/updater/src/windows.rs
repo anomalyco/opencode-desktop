@@ -243,6 +243,17 @@ impl Platform for Windows {
         self.hand_off(true)
     }
 
+    /// Opt-in install-on-quit (`packages/gui-plugins/src/updater/platform.ts`, `opencode#66501`).
+    fn installs_on_quit(&self) -> bool {
+        self.owned && super::install_on_quit_enabled()
+    }
+
+    fn install_on_quit(&self) {
+        if let Err(e) = self.hand_off(false) {
+            log(&format!("updater: couldn't install on quit: {e}"));
+        }
+    }
+
     fn take_last_error(&self) -> Option<String> {
         let installed = receipt::at(&self.root).map(|r| r.version);
         receipt::take_apply_failure(&self.engine.facts.updates, &self.version, installed.as_deref())
