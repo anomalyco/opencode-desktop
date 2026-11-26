@@ -5014,9 +5014,9 @@ dependencies = [
 
 [[package]]
 name = "psychoscript"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "659e5b08541fc7be1a8e52cf7045ed1f3fc5f87fb234f90580b3c1e399d91cd4"
+checksum = "a51c3983159fc04f0f78e13f92ff44f6aa6c1e2b45b5b129f74eda2448bae3f7"
 dependencies = [
  "fixed_decimal",
  "icu_calendar",
@@ -5051,7 +5051,8 @@ dependencies = [
 [[package]]
 name = "psychoscript-gpu"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/psychoscript?rev=2e2c0199b043ce419992211a6b63a489f4cd45d8#2e2c0199b043ce419992211a6b63a489f4cd45d8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0b893763c16cf57bb94d37ca6ba61c17bbd819354d4d6f8ce8e4285c9e62071"
 dependencies = [
  "serde_json",
  "wgpu",
@@ -7687,7 +7688,7 @@ dependencies = [
 [[package]]
 name = "widget-wire"
 version = "0.1.0"
-source = "git+https://github.com/anomalyco/opencode?rev=d63f5c5cf37d24ad992699c3a570f3436924379b#d63f5c5cf37d24ad992699c3a570f3436924379b"
+source = "git+https://github.com/anomalyco/opencode?rev=761635c74c52ad904f3e639ee634b307ac4fdeb3#761635c74c52ad904f3e639ee634b307ac4fdeb3"
 dependencies = [
  "psychoscript",
  "psychoscript-gpu",
