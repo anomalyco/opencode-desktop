@@ -541,8 +541,11 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         .pt(crate::style::timeline_top())
         .pb(((if crate::style::hover_none() { 104.0 } else { TAIL }) + tail_extra - crate::working::LANE).max(crate::jump::fade(s, 0.0)))
         // One selection across the whole timeline, as a page's: a drag runs from a prompt
-        // through tools and replies, and Cmd+A takes every message on screen.
+        // through tools and replies, Cmd+A takes every message, and caret browsing lets
+        // Shift+Arrow / Arrow / Home / End extend or move it (out of Tab order, no ring).
         .selection_group(true)
+        .caret_browsing(true)
+        .tab_index(-1).no_focus_ring()
         .on_selection_change(S::on_timeline_selection_change)
         // While a panel's spring moves the timeline's edge, rows take the width they land at,
         // so their text wraps once, and glide from where the first in view was
@@ -651,6 +654,7 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         .role("region")
         .label_static(opencode_i18n::t!("ui.scrollView.ariaLabel"))
         .no_focus_ring()
+        .on_key(S::on_timeline_key)
         // `sticky top-0 z-30` (`session-identity-header.tsx:54`). It needs no fill of its own:
         // rows under it clip at its bottom edge, where their fade starts (`below_sticky`), so
         // the panel's corners and ring show as they do without it.
