@@ -235,8 +235,10 @@ impl session_view::TimelineHost for App {
             r.send(req).ok();
         }
     }
+    /// Official `packages/app/src/session/composer/timeline-actions.ts:45`: child sessions hide
+    /// the Switch model action on error cards.
     fn can_switch_model(&self) -> bool {
-        true
+        self.subagent_page().is_none()
     }
     fn switch_model(&mut self, _tx: &mut Tx) {
         if self.composer_ext.pickers.open() != Some(pickers::Kind::Model) {

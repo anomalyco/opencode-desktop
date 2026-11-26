@@ -13,9 +13,12 @@ pub(super) mod touch;
 // Composer and status bar
 
 pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
-    let session_ver = match &*s.route {
-        Route::Session { id, .. } => Some(crate::plugin_host::services::session_version(s, id)),
-        _ => None,
+    let (session_ver, is_child) = match &*s.route {
+        Route::Session { id, .. } => (
+            Some(crate::plugin_host::services::session_version(s, id)),
+            s.session(id).is_some_and(|i| i.parent.is_some()),
+        ),
+        _ => (None, false),
     };
     let touch = session_view::style::touch_controls();
     let touch_server_ver = touch.then(|| (crate::servers::runtime::version(), crate::servers::health::version()));
@@ -29,19 +32,33 @@ pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
         crate::keymap::overrides::version(),
         crate::speech::listening(s),
         crate::plugin_host::surfaces_version(s),
-        session_ver,
+        (session_ver, is_child),
         rune::Tracked::untracked(&s.composer),
     );
     rune::region_with("composer-dock", inputs, || {
-        let (queue, status) = match &*s.route {
-            Route::Session { id, .. } => (
-                Some(col().key("queue-room").w_full().items_center().child(crate::queue::panel(s, p, id, s.busy(id)))),
-                crate::subagents::reply::status_line(s, p, id),
-            ),
-            _ => (None, None),
+        // Child/subagent sessions hide the prompt composer, queue, and free-limit panel, showing
+        // only any active question/permission dock (mb-2) above the quiet `SubagentBar`
+        // (`packages/app/src/session/composer/session-composer-region.tsx:41,68-111`).
+        if let Route::Session { id, .. } = &*s.route
+            && s.session(id).is_some_and(|i| i.parent.is_some())
+        {
+            let dock = session_view::composer::request_dock(s, p).map(|el| el.mb(8.0));
+            let status = crate::subagents::reply::status_line(s, p, id);
+            return col()
+                .key("composer-dock")
+                .w_full()
+                .center()
+                .px(crate::view::DOCK_SIDE)
+                .pb(crate::view::DOCK_SIDE)
+                .children(dock)
+                .children(status);
+        }
+        let queue = match &*s.route {
+            Route::Session { id, .. } => {
+                Some(col().key("queue-room").w_full().items_center().child(crate::queue::panel(s, p, id, s.busy(id))))
+            }
+            _ => None,
         };
-        // A subagent's page keeps its status line under the composer, in the dock's bottom inset.
-        let pb = if status.is_some() { 0.0 } else { crate::view::DOCK_SIDE };
         let body = if crate::free_limit::replaces_composer(s) {
             crate::free_limit::panel(s, p)
         } else {
@@ -52,10 +69,9 @@ pub(super) fn composer_dock(s: &App, p: &Pal) -> El {
             .w_full()
             .center()
             .px(crate::view::DOCK_SIDE)
-            .pb(pb)
+            .pb(crate::view::DOCK_SIDE)
             .children(queue)
             .child(body)
-            .children(status)
     })
 }
 
