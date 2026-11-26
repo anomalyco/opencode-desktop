@@ -191,6 +191,9 @@ impl App {
             }
             id
         } else {
+            if !agent_driven && matches!(context, browser_pane::ContextKind::RemoteServer { .. }) {
+                super::rpc::grant_remote_navigation(self, sid, &candidate);
+            }
             self.workspace_panes.browser.host.open_tab_with_context(url, Vec::new(), context, false, agent_driven)
         };
         if let Some(d) = driver {

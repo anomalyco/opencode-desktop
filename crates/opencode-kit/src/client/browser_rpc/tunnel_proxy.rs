@@ -34,20 +34,22 @@ use rune::time::Instant;
 use socket2::{Domain, Protocol, Socket, Type};
 
 use super::framing::{
-    build_forwarded_head, constant_time_eq, parse_connect_authority, parse_content_length,
-    parse_proxy_url, read_http_head, write_status,
+    HeadReadErr, build_forwarded_head, constant_time_eq, parse_connect_authority,
+    parse_content_length, parse_proxy_url, read_http_head, write_502_body, write_status,
 };
 use super::http::AbortHandle;
 use super::proxy_machine::{ProxyEffect, ProxyEvent, ProxyState};
+use super::tunnel_pool::{ForwardOutcome, OriginPool, forward_http_pooled};
 use super::tunnel_pump::{
     WsHandshake, await_ws_upgrade, drain_remote_to_client, pump_bidirectional_stream,
-    pump_exact_http_body, write_all_chunks,
 };
-use super::types::{LocationRef, MAX_TUNNELS, TunnelTarget, try_random_hex};
+use super::tunnel_stream::TransportController;
+use super::types::{LocationRef, MAX_TUNNELS, MuxCloseInfo, TunnelTarget, try_random_hex};
 use crate::client::Server;
 
 pub const PROXY_REALM: &str = "OpenCode Browser Proxy";
 const HEADER_TIMEOUT: Duration = Duration::from_secs(3);
+const KEEP_ALIVE_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 const WATCHDOG_HEAD_MARGIN: Duration = Duration::from_secs(1);
 pub(super) const MAX_WS_RESP_HEAD: usize = 64 * 1024;
 pub(super) const POST_EOF_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
@@ -130,6 +132,8 @@ pub struct TunnelProxy {
     pub port: u16,
     pub url: String,
     pub credentials: ProxyCredentials,
+    transport: Arc<TransportController>,
+    pool: Arc<OriginPool>,
     shared: Arc<Mutex<SharedProxy>>,
     watchdog_cv: Arc<Condvar>,
     listener_addr: std::net::SocketAddr,
@@ -158,6 +162,8 @@ impl TunnelProxy {
             "Basic {}",
             base64::engine::general_purpose::STANDARD.encode(format!("{username}:{password}"))
         );
+        let transport = Arc::new(TransportController::new(server, location, session_id, connection_id));
+        let pool = Arc::new(OriginPool::default());
         let shared = Arc::new(Mutex::new(SharedProxy {
             state: ProxyState::Open,
             suspended: false,
@@ -167,10 +173,8 @@ impl TunnelProxy {
         }));
         let watchdog_cv = Arc::new(Condvar::new());
         let ctx = Arc::new(ProxyCtx {
-            server,
-            location,
-            session_id,
-            connection_id,
+            transport: transport.clone(),
+            pool: pool.clone(),
             expected_auth: expected_auth.into_bytes(),
             shared: shared.clone(),
             watchdog_cv: watchdog_cv.clone(),
@@ -191,12 +195,47 @@ impl TunnelProxy {
             port,
             url: format!("http://127.0.0.1:{port}"),
             credentials: ProxyCredentials { username, password },
+            transport,
+            pool,
             shared,
             watchdog_cv,
             listener_addr,
             accept_thread: Some(accept_thread),
             watchdog_thread: Some(watchdog_thread),
         })
+    }
+
+    /// Activates negotiated transport once `attached` arrives: prewarms binary WebSocket `ClientMux`
+    /// when `tunnel.ws.v1` is advertised (unless `OPENCODE_BROWSER_TUNNEL_TRANSPORT=legacy`).
+    pub fn activate(
+        &self,
+        capabilities: &[String],
+        on_stream_ready: Box<dyn FnOnce() + Send + 'static>,
+        on_stream_closed: Box<dyn FnOnce(MuxCloseInfo) + Send + 'static>,
+    ) {
+        let pool = self.pool.clone();
+        self.transport.activate(
+            capabilities,
+            on_stream_ready,
+            on_stream_closed,
+            Arc::new(move || pool.clear()),
+        );
+    }
+
+    /// Issues `experimental.browser/tunnel.grant` for a trusted desktop navigation target when the
+    /// server advertised `tunnel.ws.v1`; no-op in legacy mode.
+    pub fn grant_private_target(&self, target: TunnelTarget, extra_ports: Vec<u16>) {
+        self.transport.grant_private_target(target, extra_ports);
+    }
+
+    /// Immediately evicts and closes all idle pooled HTTP/1.1 connections.
+    pub fn reset_pools(&self) {
+        self.pool.clear();
+    }
+
+    /// Whether a prewarmed binary WebSocket multiplexer currently owns attachment liveness.
+    pub fn stream_active(&self) -> bool {
+        self.transport.stream_active()
     }
 
     /// Temporarily suspends or resumes forwarding without closing the listener port (used during
@@ -211,6 +250,7 @@ impl TunnelProxy {
             if suspended { g.drain_all() } else { (Vec::new(), Vec::new()) }
         };
         if suspended {
+            self.pool.clear();
             self.watchdog_cv.notify_all();
         }
         for abort in aborts {
@@ -224,6 +264,8 @@ impl TunnelProxy {
     /// Closes the proxy immediately: stops accepting, aborts all in-flight `tunnel.{open,read,write}`
     /// HTTP calls, shuts down every live client socket, and joins accept and watchdog threads.
     pub fn close(&mut self) {
+        self.transport.dispose();
+        self.pool.close();
         let (clients, aborts, effect) = {
             let mut g = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
             let effect = g.state.step(ProxyEvent::Close);
@@ -306,10 +348,8 @@ fn watchdog_loop(shared: Arc<Mutex<SharedProxy>>, cv: Arc<Condvar>) {
 }
 
 pub(super) struct ProxyCtx {
-    pub(super) server: Server,
-    pub(super) location: LocationRef,
-    pub(super) session_id: String,
-    pub(super) connection_id: String,
+    pub(super) transport: Arc<TransportController>,
+    pub(super) pool: Arc<OriginPool>,
     expected_auth: Vec<u8>,
     shared: Arc<Mutex<SharedProxy>>,
     watchdog_cv: Arc<Condvar>,
@@ -364,6 +404,13 @@ impl ConnGuard {
         entry.aborts.push(abort.clone());
         true
     }
+
+    fn reset_aborts(&mut self) {
+        let mut g = self.ctx.shared.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(entry) = g.client_mut(self.client_id) {
+            entry.aborts.clear();
+        }
+    }
 }
 
 impl Drop for ConnGuard {
@@ -384,7 +431,7 @@ enum AdmitError {
 }
 
 impl ProxyCtx {
-    fn admits(&self) -> bool {
+    pub(super) fn admits(&self) -> bool {
         let g = self.shared.lock().unwrap_or_else(PoisonError::into_inner);
         g.state.admits() && !g.suspended
     }
@@ -448,12 +495,6 @@ impl ProxyCtx {
     }
 }
 
-fn close_tunnel(ctx: &ProxyCtx, tunnel_id: &str) {
-    ctx.server
-        .browser_rpc_tunnel_close(&ctx.location, &ctx.session_id, &ctx.connection_id, tunnel_id)
-        .ok();
-}
-
 fn accept_loop(listener: TcpListener, ctx: Arc<ProxyCtx>) {
     for incoming in listener.incoming() {
         let Ok(mut stream) = incoming else { break };
@@ -479,222 +520,218 @@ fn accept_loop(listener: TcpListener, ctx: Arc<ProxyCtx>) {
 
 fn handle_client(stream: TcpStream, ctx: Arc<ProxyCtx>, mut guard: ConnGuard) {
     stream.set_nodelay(true).ok();
-    let head_deadline = Instant::now() + HEADER_TIMEOUT;
-    stream.set_read_timeout(Some(HEADER_TIMEOUT)).ok();
     let mut reader = BufReader::new(stream);
-    let req = match read_http_head(&mut reader, head_deadline) {
-        Ok(r) => r,
-        Err(status) => {
-            write_status(reader.get_mut(), status).ok();
+    let mut keep_alive_iter = 0u32;
+
+    loop {
+        let timeout = if keep_alive_iter == 0 { HEADER_TIMEOUT } else { KEEP_ALIVE_IDLE_TIMEOUT };
+        let head_deadline = Instant::now() + timeout;
+        reader.get_ref().set_read_timeout(Some(timeout)).ok();
+        let req = match read_http_head(&mut reader, head_deadline) {
+            Ok(r) => r,
+            Err(HeadReadErr::CleanEof) => return,
+            Err(HeadReadErr::Status(status)) => {
+                write_status(reader.get_mut(), status).ok();
+                return;
+            }
+        };
+        if !ctx.authorized(req.header("proxy-authorization")) {
+            let resp = format!(
+                "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"{PROXY_REALM}\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            reader.get_mut().write_all(resp.as_bytes()).ok();
             return;
         }
-    };
-    if !ctx.authorized(req.header("proxy-authorization")) {
-        reader
-            .get_mut()
-            .write_all(
-                format!(
-                    "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"{PROXY_REALM}\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-                )
-                .as_bytes(),
-            )
-            .ok();
-        return;
-    }
-    match guard.promote_authenticated() {
-        Ok(()) => {}
-        Err(AdmitError::AtCapacity | AdmitError::Suspended) => {
+        if !guard.authenticated {
+            match guard.promote_authenticated() {
+                Ok(()) => {}
+                Err(AdmitError::AtCapacity | AdmitError::Suspended) => {
+                    write_status(reader.get_mut(), "503 Service Unavailable").ok();
+                    return;
+                }
+                Err(AdmitError::Closed) => return,
+            }
+        } else if !ctx.admits() {
             write_status(reader.get_mut(), "503 Service Unavailable").ok();
             return;
+        } else {
+            guard.reset_aborts();
         }
-        Err(AdmitError::Closed) => return,
-    }
 
-    let is_connect = req.method.eq_ignore_ascii_case("CONNECT");
-    let upgrade_hdr = req.header("upgrade");
-    let is_ws = !is_connect && upgrade_hdr.is_some_and(|v| v.eq_ignore_ascii_case("websocket"));
-    if is_ws && (!req.method.eq_ignore_ascii_case("GET") || req.version != "HTTP/1.1") {
-        write_status(reader.get_mut(), "400 Bad Request").ok();
-        return;
-    }
-    if !is_connect && upgrade_hdr.is_some() && !is_ws {
-        write_status(reader.get_mut(), "400 Bad Request").ok();
-        return;
-    }
-    if req.has_header("transfer-encoding") {
-        write_status(reader.get_mut(), "501 Not Implemented").ok();
-        return;
-    }
-    if req.has_header("expect") {
-        write_status(reader.get_mut(), "417 Expectation Failed").ok();
-        return;
-    }
-    let content_length = match parse_content_length(&req, is_connect || is_ws) {
-        Ok(n) => n,
-        Err(status) => {
-            write_status(reader.get_mut(), status).ok();
+        let is_connect = req.method.eq_ignore_ascii_case("CONNECT");
+        let upgrade_hdr = req.header("upgrade");
+        let is_ws = !is_connect && upgrade_hdr.is_some_and(|v| v.eq_ignore_ascii_case("websocket"));
+        if is_ws && (!req.method.eq_ignore_ascii_case("GET") || req.version != "HTTP/1.1") {
+            write_status(reader.get_mut(), "400 Bad Request").ok();
             return;
         }
-    };
-    // Refuse pipelined bytes trailing a `CONNECT` or `Upgrade: websocket` request head so a client
-    // cannot smuggle bytes into a tunnel before `200`/`101` confirmation.
-    if (is_connect || is_ws) && !reader.buffer().is_empty() {
-        write_status(reader.get_mut(), "400 Bad Request").ok();
-        return;
-    }
-
-    let parsed = if is_connect {
-        parse_connect_authority(&req.target)
-    } else {
-        parse_proxy_url(&req.target).filter(|u| {
-            if is_ws {
-                matches!(u.scheme.as_str(), "http" | "ws")
-            } else {
-                u.scheme == "http"
-            }
-        })
-    };
-    let Some(url) = parsed else {
-        write_status(reader.get_mut(), "400 Bad Request").ok();
-        return;
-    };
-    let Some(target) = TunnelTarget::parse(&url.host, url.port) else {
-        write_status(reader.get_mut(), "400 Bad Request").ok();
-        return;
-    };
-
-    let client_id = guard.client_id;
-    let plain_http = !is_connect && !is_ws;
-
-    let io_abort = AbortHandle::new();
-    if !guard.track_abort(&io_abort) {
-        return;
-    }
-    let tunnel_id = match ctx.server.browser_rpc_tunnel_open(
-        &ctx.location,
-        &ctx.session_id,
-        &ctx.connection_id,
-        &target,
-        &io_abort,
-    ) {
-        Ok(id) => id,
-        Err(_) => {
-            write_status(reader.get_mut(), "502 Bad Gateway").ok();
+        if !is_connect && upgrade_hdr.is_some() && !is_ws {
+            write_status(reader.get_mut(), "400 Bad Request").ok();
             return;
         }
-    };
-    if !ctx.admits() {
-        close_tunnel(&ctx, &tunnel_id);
-        return;
-    }
-    if is_connect {
-        if reader
-            .get_mut()
-            .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-            .is_err()
-        {
-            close_tunnel(&ctx, &tunnel_id);
+        if req.has_header("transfer-encoding") {
+            write_status(reader.get_mut(), "501 Not Implemented").ok();
             return;
         }
-    } else {
-        let head = build_forwarded_head(&req, &url, is_ws, content_length);
-        if write_all_chunks(&ctx, &tunnel_id, head.as_bytes(), false, &io_abort).is_err() {
-            write_status(reader.get_mut(), "502 Bad Gateway").ok();
-            close_tunnel(&ctx, &tunnel_id);
+        if req.has_header("expect") {
+            write_status(reader.get_mut(), "417 Expectation Failed").ok();
             return;
         }
-    }
-
-    let prebuffered = reader.buffer().to_vec();
-    let mut client_read = reader.into_inner();
-    // Bounded read slice so client read loops also poll watchdog expiry promptly on every platform.
-    client_read.set_read_timeout(Some(CLIENT_POLL_SLICE)).ok();
-    let Ok(mut client_write) = client_read.try_clone() else {
-        close_tunnel(&ctx, &tunnel_id);
-        return;
-    };
-
-    let read_abort = AbortHandle::new();
-    if !guard.track_abort(&read_abort) {
-        close_tunnel(&ctx, &tunnel_id);
-        return;
-    }
-    // For WebSocket upgrades (`GET ... HTTP/1.1 Upgrade: websocket`), wait for remote `101` BEFORE
-    // forwarding any client bytes so a rejected upgrade can never smuggle a second HTTP/1.1 request.
-    if is_ws {
-        match await_ws_upgrade(&ctx, &tunnel_id, &read_abort, &mut client_write) {
-            WsHandshake::Upgraded => {}
-            WsHandshake::RejectedNot101 => {
-                let _ = write_all_chunks(&ctx, &tunnel_id, &[], true, &io_abort);
-                drain_remote_to_client(
-                    &ctx,
-                    client_id,
-                    &tunnel_id,
-                    &read_abort,
-                    &mut client_write,
-                );
-                client_read.shutdown(Shutdown::Both).ok();
-                close_tunnel(&ctx, &tunnel_id);
+        let content_length = match parse_content_length(&req, is_connect || is_ws) {
+            Ok(n) => n,
+            Err(status) => {
+                write_status(reader.get_mut(), status).ok();
                 return;
             }
-            WsHandshake::Closed => {
-                client_read.shutdown(Shutdown::Both).ok();
-                close_tunnel(&ctx, &tunnel_id);
-                return;
-            }
+        };
+        if (is_connect || is_ws) && !reader.buffer().is_empty() {
+            write_status(reader.get_mut(), "400 Bad Request").ok();
+            return;
         }
-    }
 
-    let ctx_down = ctx.clone();
-    let tid_down = tunnel_id.clone();
-    let abort_down = read_abort.clone();
-    let down_thread = std::thread::Builder::new()
-        .name("browser-tunnel-down".into())
-        .spawn(move || {
-            drain_remote_to_client(
-                &ctx_down,
+        let parsed = if is_connect {
+            parse_connect_authority(&req.target)
+        } else {
+            parse_proxy_url(&req.target).filter(|u| {
+                if is_ws { matches!(u.scheme.as_str(), "http" | "ws") } else { u.scheme == "http" }
+            })
+        };
+        let Some(url) = parsed else {
+            write_status(reader.get_mut(), "400 Bad Request").ok();
+            return;
+        };
+        let Some(target) = TunnelTarget::parse(&url.host, url.port) else {
+            write_status(reader.get_mut(), "400 Bad Request").ok();
+            return;
+        };
+
+        let client_id = guard.client_id;
+        let io_abort = AbortHandle::new();
+        if !guard.track_abort(&io_abort) {
+            return;
+        }
+
+        if !is_connect && !is_ws {
+            let prebuffered = reader.buffer().to_vec();
+            let had_pipelined = prebuffered.len() as u64 > content_length;
+            let mut client = reader.into_inner();
+            client.set_read_timeout(Some(CLIENT_POLL_SLICE)).ok();
+            match forward_http_pooled(
+                &ctx,
                 client_id,
-                &tid_down,
-                &abort_down,
-                &mut client_write,
-            );
-        })
-        .ok();
+                &req,
+                &url,
+                &target,
+                content_length,
+                &prebuffered,
+                &mut client,
+                &io_abort,
+            ) {
+                ForwardOutcome::Done { keep_client_alive }
+                    if keep_client_alive && !had_pipelined && ctx.admits() =>
+                {
+                    keep_alive_iter = keep_alive_iter.saturating_add(1);
+                    reader = BufReader::new(client);
+                    continue;
+                }
+                ForwardOutcome::Done { .. } | ForwardOutcome::MidStreamClosed => {
+                    client.shutdown(Shutdown::Both).ok();
+                    return;
+                }
+                ForwardOutcome::BadGateway(msg) => {
+                    write_502_body(&mut client, &msg).ok();
+                    client.shutdown(Shutdown::Both).ok();
+                    return;
+                }
+            }
+        }
 
-    let clean_eof = if plain_http {
-        pump_exact_http_body(
+        let upstream = match ctx.transport.open_stream(&target, &io_abort) {
+            Ok(s) => s,
+            Err(msg) => {
+                write_502_body(reader.get_mut(), &msg).ok();
+                return;
+            }
+        };
+        if !ctx.admits() {
+            upstream.close_or_reset();
+            return;
+        }
+        if is_connect {
+            if reader.get_mut().write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n").is_err() {
+                upstream.close_or_reset();
+                return;
+            }
+        } else {
+            let head = build_forwarded_head(&req, &url, true, 0, false);
+            if upstream.write_all(head.as_bytes(), &io_abort).is_err() {
+                write_status(reader.get_mut(), "502 Bad Gateway").ok();
+                upstream.close_or_reset();
+                return;
+            }
+        }
+
+        let mut client_read = reader.into_inner();
+        client_read.set_read_timeout(Some(CLIENT_POLL_SLICE)).ok();
+        let Ok(mut client_write) = client_read.try_clone() else {
+            upstream.close_or_reset();
+            return;
+        };
+        let read_abort = AbortHandle::new();
+        if !guard.track_abort(&read_abort) {
+            upstream.close_or_reset();
+            return;
+        }
+        if is_ws {
+            match await_ws_upgrade(&upstream, &read_abort, &mut client_write) {
+                WsHandshake::Upgraded => {}
+                WsHandshake::RejectedNot101 => {
+                    let _ = upstream.finish_write(&io_abort);
+                    drain_remote_to_client(&ctx, client_id, &upstream, &read_abort, &mut client_write);
+                    client_read.shutdown(Shutdown::Both).ok();
+                    upstream.close_or_reset();
+                    return;
+                }
+                WsHandshake::Closed => {
+                    client_read.shutdown(Shutdown::Both).ok();
+                    upstream.close_or_reset();
+                    return;
+                }
+            }
+        }
+
+        let ctx_down = ctx.clone();
+        let up_down = upstream.clone();
+        let abort_down = read_abort.clone();
+        let down_thread = std::thread::Builder::new()
+            .name("browser-tunnel-down".into())
+            .spawn(move || {
+                drain_remote_to_client(&ctx_down, client_id, &up_down, &abort_down, &mut client_write);
+            })
+            .ok();
+
+        let clean_eof = pump_bidirectional_stream(
             &ctx,
             client_id,
-            &tunnel_id,
-            &prebuffered,
-            &mut client_read,
-            content_length,
-            &io_abort,
-        )
-    } else {
-        pump_bidirectional_stream(
-            &ctx,
-            client_id,
-            &tunnel_id,
+            &upstream,
             &[],
             &mut client_read,
             &io_abort,
-        )
-    };
-
-    if clean_eof {
+        );
+        if clean_eof {
+            if let Some(t) = down_thread {
+                t.join().ok();
+            }
+            client_read.shutdown(Shutdown::Both).ok();
+            upstream.close_or_reset();
+            return;
+        }
+        read_abort.abort();
+        client_read.shutdown(Shutdown::Both).ok();
+        upstream.close_or_reset();
         if let Some(t) = down_thread {
             t.join().ok();
         }
-        client_read.shutdown(Shutdown::Both).ok();
-        close_tunnel(&ctx, &tunnel_id);
-        return;
-    }
-
-    read_abort.abort();
-    client_read.shutdown(Shutdown::Both).ok();
-    close_tunnel(&ctx, &tunnel_id);
-    if let Some(t) = down_thread {
-        t.join().ok();
+        break;
     }
 }
