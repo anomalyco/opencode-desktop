@@ -1,6 +1,6 @@
 //! Memory reclamation across active and parked servers: runs on `App::rest`, immediately on
-//! tab close / tab switch, and on a quiet 30-second periodic sweep so active animations (such as
-//! the Thinking spinner or blinking caret) never block memory reclamation indefinitely.
+//! tab close / tab switch, and on a quiet 30-second periodic sweep while active so animations
+//! (such as the Thinking spinner or blinking caret) never block reclamation indefinitely.
 
 use std::collections::HashSet;
 use std::time::Duration;
@@ -9,43 +9,53 @@ use opencode_kit::servers::ServerKey;
 
 use crate::{App, Route, files, windows};
 
-/// Periodic quiet sweep cadence while animations prevent `App::on_rest` from firing.
+/// Periodic quiet sweep cadence while the window is active and `App::on_rest` cannot fire.
 const SWEEP_INTERVAL_MS: i64 = 30_000;
 const SWEEP_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Explicit state machine for the periodic quiet memory sweep.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum MemorySweep {
+    /// Window is idle/rested; no periodic timer is armed until activity resumes.
     #[default]
-    Idle,
+    Rested,
     Scheduled { due_ms: i64 },
 }
 
 enum SweepEvent {
-    Poll { now_ms: i64 },
-    Ran { now_ms: i64 },
+    Poll { now_ms: i64, active: bool },
+    Rested,
 }
 
 enum SweepEffect {
     None,
-    Schedule,
-    RunAndSchedule,
+    Schedule(Duration),
+    Run { reschedule: Option<Duration> },
 }
 
 fn step_sweep(state: &mut MemorySweep, event: SweepEvent) -> SweepEffect {
     match (*state, event) {
-        (MemorySweep::Idle, SweepEvent::Poll { now_ms }) => {
+        (MemorySweep::Rested, SweepEvent::Poll { now_ms, active: true }) => {
             *state = MemorySweep::Scheduled { due_ms: now_ms.saturating_add(SWEEP_INTERVAL_MS) };
-            SweepEffect::Schedule
+            SweepEffect::Schedule(SWEEP_INTERVAL)
         }
-        (MemorySweep::Scheduled { due_ms }, SweepEvent::Poll { now_ms }) if now_ms >= due_ms => {
-            *state = MemorySweep::Scheduled { due_ms: now_ms.saturating_add(SWEEP_INTERVAL_MS) };
-            SweepEffect::RunAndSchedule
+        (MemorySweep::Rested, SweepEvent::Poll { active: false, .. }) => SweepEffect::None,
+        (MemorySweep::Scheduled { due_ms }, SweepEvent::Poll { now_ms, active }) if now_ms >= due_ms => {
+            if active {
+                *state = MemorySweep::Scheduled { due_ms: now_ms.saturating_add(SWEEP_INTERVAL_MS) };
+                SweepEffect::Run { reschedule: Some(SWEEP_INTERVAL) }
+            } else {
+                *state = MemorySweep::Rested;
+                SweepEffect::Run { reschedule: None }
+            }
         }
-        (MemorySweep::Scheduled { .. }, SweepEvent::Poll { .. }) => SweepEffect::None,
-        (_, SweepEvent::Ran { now_ms }) => {
-            *state = MemorySweep::Scheduled { due_ms: now_ms.saturating_add(SWEEP_INTERVAL_MS) };
-            SweepEffect::Schedule
+        (MemorySweep::Scheduled { due_ms }, SweepEvent::Poll { now_ms, .. }) => {
+            let rem = (due_ms - now_ms).clamp(1, SWEEP_INTERVAL_MS) as u64;
+            SweepEffect::Schedule(Duration::from_millis(rem))
+        }
+        (_, SweepEvent::Rested) => {
+            *state = MemorySweep::Rested;
+            SweepEffect::None
         }
     }
 }
@@ -53,26 +63,28 @@ fn step_sweep(state: &mut MemorySweep, event: SweepEvent) -> SweepEffect {
 pub(crate) static SWEEP: opencode_kernel::Slot<MemorySweep> = opencode_kernel::Slot::new();
 
 /// Quiet periodic sweep called from `tick::poll`: reclaims closed sessions and enforces decoded
-/// image budgets across active and parked servers without mutating clean `Tracked` cells, forcing
-/// a redraw, or disrupting `rune`'s `on_rest` idle timer.
-pub(crate) fn poll(s: &mut App, tx: &mut rune::Tx) {
+/// image budgets across active and parked servers while active without mutating clean `Tracked`
+/// cells, forcing a redraw, or waking an idle rested window.
+pub(crate) fn poll(s: &mut App, tx: &mut rune::Tx, changed: bool) {
     let now_ms = *s.now_ms;
-    let effect = step_sweep(s.kernel.slots.get_or_default(&SWEEP), SweepEvent::Poll { now_ms });
+    let active = changed || !s.running.is_empty();
+    let effect = step_sweep(s.kernel.slots.get_or_default(&SWEEP), SweepEvent::Poll { now_ms, active });
     match effect {
         SweepEffect::None => {}
-        SweepEffect::Schedule => tx.wake_after(SWEEP_INTERVAL),
-        SweepEffect::RunAndSchedule => {
+        SweepEffect::Schedule(d) => tx.wake_after(d),
+        SweepEffect::Run { reschedule } => {
             sweep_all(s, false);
-            tx.wake_after(SWEEP_INTERVAL);
+            if let Some(d) = reschedule {
+                tx.wake_after(d);
+            }
         }
     }
 }
 
 /// `App::on_rest`: full rest across the active server and every parked server, plus registered
-/// rest hooks and `mimalloc` purging.
+/// rest hooks and `mimalloc` purging. Disarms the periodic sweep until activity resumes.
 pub(crate) fn rest_all(s: &mut App, _: &mut rune::Tx) -> bool {
-    let now_ms = *s.now_ms;
-    let _ = step_sweep(s.kernel.slots.get_or_default(&SWEEP), SweepEvent::Ran { now_ms });
+    let _ = step_sweep(s.kernel.slots.get_or_default(&SWEEP), SweepEvent::Rested);
     sweep_all(s, true);
     false
 }
@@ -84,19 +96,26 @@ pub(crate) fn on_tab_switched(s: &mut App) {
 }
 
 /// Immediate cleanup when closing a session tab: unloads its transcript, page cache, review diffs,
-/// open file previews, turn diffs, context window, and decoded pixels if no other tab, window, or
-/// running job still needs it, without waiting for 10 s of zero animation frames.
-pub(crate) fn on_tab_closed(s: &mut App, server: &ServerKey, id: &str) {
+/// open file previews, turn diffs, context window, and decoded pixels if no other tab, window,
+/// opening hold, or running job still needs it.
+pub(crate) fn on_tab_closed(s: &mut App, server: &ServerKey, id: &str, was_shown: bool) {
     let id = id.to_owned();
     let other_unreported = windows::any_other_window_unreported(&s.window.id);
     let mut dropped_ids = Vec::new();
     let _ = crate::servers::runtime::with_server(s, server, |s| {
-        s.composer_ext.attach.store.on_tab_switch();
+        if was_shown {
+            s.composer_ext.attach.store.on_tab_switch();
+        }
         let active_server = crate::servers::runtime::active(s).clone();
         let other_shown = windows::other_windows_shown(&s.window.id, &active_server);
+        let held_opening = s.opening.as_ref().and_then(|o| match &o.from {
+            Route::Session { server: srv, id: rid } if *srv == active_server => Some(rid.as_str()),
+            _ => None,
+        });
         let kept_here = |sid: &str| {
             s.tabs.iter().any(|t| !t.is_draft() && t.server == active_server && t.id == sid)
                 || matches!(&*s.route, Route::Session { server: srv, id: rid } if *srv == active_server && rid == sid)
+                || held_opening == Some(sid)
                 || s.running.iter().any(|r| r == sid)
                 || other_shown.iter().any(|r| r == sid)
         };
@@ -106,7 +125,7 @@ pub(crate) fn on_tab_closed(s: &mut App, server: &ServerKey, id: &str) {
         let subagents: Vec<String> = s
             .transcripts
             .keys()
-            .filter(|sid| *sid != &id && s.ancestors(sid).any(|a| a == id) && !kept_here(sid))
+            .filter(|sid| *sid != &id && s.ancestors(sid).any(|a| a == id) && !s.ancestors(sid).any(&kept_here))
             .cloned()
             .collect();
         for sid in std::iter::once(id.clone()).chain(subagents) {
@@ -117,12 +136,15 @@ pub(crate) fn on_tab_closed(s: &mut App, server: &ServerKey, id: &str) {
             s.context_windows.forget(active_server.as_str(), &sid);
             dropped_ids.push(sid);
         }
-        s.composer_ext.attach.store.rest();
+        if !was_shown {
+            s.composer_ext.attach.store.trim_active();
+        }
     });
     // Drop server-agnostic per-window slots only for sessions not open under another server key.
     for sid in &dropped_ids {
         let open_elsewhere = s.tabs.iter().any(|t| !t.is_draft() && t.id == *sid)
-            || matches!(&*s.route, Route::Session { id: rid, .. } if rid == sid);
+            || matches!(&*s.route, Route::Session { id: rid, .. } if rid == sid)
+            || matches!(s.opening.as_ref().map(|o| &o.from), Some(Route::Session { id: rid, .. }) if rid == sid);
         if open_elsewhere {
             continue;
         }
@@ -234,6 +256,10 @@ fn sweep_current_server(s: &mut App, other_unreported: bool, full_rest: bool, is
         Route::Session { server, id } if *server == active_server => Some(id.as_str()),
         _ => None,
     };
+    let held_opening = s.opening.as_ref().and_then(|o| match &o.from {
+        Route::Session { server, id } if *server == active_server => Some(id.as_str()),
+        _ => None,
+    });
     let any_tab_here = s.tabs.iter().any(|t| t.server == active_server);
     let draft_route_here = is_initial && matches!(&*s.route, Route::Draft(_));
     let session_tabs_here: Vec<&str> = s
@@ -246,6 +272,7 @@ fn sweep_current_server(s: &mut App, other_unreported: bool, full_rest: bool, is
         .iter()
         .copied()
         .chain(route_session)
+        .chain(held_opening)
         .chain(s.running.iter().map(String::as_str))
         .chain(other_shown.iter().map(String::as_str))
         .collect();
@@ -280,15 +307,12 @@ fn sweep_current_server(s: &mut App, other_unreported: bool, full_rest: bool, is
         .filter(|d| !d.is_empty())
         .collect();
 
-    // Active quiet sweep keeps full active viewport pixel budget on servers with open tabs;
-    // idle full rest (or servers with no open tabs) trims down to rest budgets / drops all pixels.
-    if full_rest {
-        s.composer_ext.attach.store.rest();
-        if !any_tab_here && route_session.is_none() && !draft_route_here {
-            s.composer_ext.attach.store.rest_pixels();
-        }
-    } else if !any_tab_here && route_session.is_none() && !draft_route_here {
+    // Servers with no open tabs or route drop all decoded pixels; active servers trim to rest
+    // budgets on idle full rest or keep active viewport budgets during quiet periodic sweeps.
+    if !any_tab_here && route_session.is_none() && !draft_route_here {
         s.composer_ext.attach.store.rest_pixels();
+    } else if full_rest {
+        s.composer_ext.attach.store.rest();
     } else {
         s.composer_ext.attach.store.trim_active();
     }

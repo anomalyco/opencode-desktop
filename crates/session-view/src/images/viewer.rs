@@ -225,7 +225,11 @@ pub fn viewer<S: TimelineHost>(s: &S, p: &Pal, cx: &Cx<S>) -> Vec<El> {
     let fade = SpringPair::new(Spring::new(0.15, 0.0), Spring::new(0.12, 0.0));
     let scrim = el().key("image-viewer-scrim").absolute(0.0, 0.0).w_full().h_full().fill(p.scrim).transition(Transition::opacity().springs(fade));
     let shown = v.resolution.shown();
-    let natural = shown.size().or(v.natural).map_or([1.0, 1.0], |[w, h]| [w as f32, h as f32]);
+    let natural = match &v.resolution {
+        Resolution::Decoding { fallback, .. } => v.natural.or_else(|| fallback.size()),
+        Resolution::Ready(img) => img.size().or(v.natural),
+    }
+    .map_or([1.0, 1.0], |[w, h]| [w as f32, h as f32]);
     // With its place off screen there's nothing to fly from: it fades and grows in instead.
     let arrive = Transition::scale(0.96).springs(fade);
     let image = super::menu::on_image::<S>(el(), v.dragged.clone(), None)

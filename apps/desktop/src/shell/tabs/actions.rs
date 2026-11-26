@@ -312,7 +312,7 @@ impl App {
             }
         }
         if closed_session {
-            crate::shell::memory_reclaim::on_tab_closed(self, &server, &id);
+            crate::shell::memory_reclaim::on_tab_closed(self, &server, &id, shown);
         }
         self.save_tabs();
     }

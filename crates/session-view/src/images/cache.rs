@@ -89,8 +89,11 @@ pub(crate) fn load_thumb(
     scale: f32,
 ) -> (Image, u32) {
     let max_px = target_px(max_pt, scale);
-    let keep_anim = is_animated_mime(mime) && size.is_some_and(|[w, h]| w.max(h) <= max_px);
-    let image = if keep_anim { cache.load(bytes) } else { cache.load_scaled(bytes, max_pt, scale) };
+    // Small SVGs rasterize at 2× their intrinsic size via `load` (avoiding upscaling a 24×24 SVG
+    // to 960 px), and small animated GIF/WebP/APNG within `max_px` keep playing inline.
+    let keep_native = mime == "image/svg+xml"
+        || (is_animated_mime(mime) && size.is_some_and(|[w, h]| w.max(h) <= max_px));
+    let image = if keep_native { cache.load(bytes) } else { cache.load_scaled(bytes, max_pt, scale) };
     (image, max_px)
 }
 
@@ -98,20 +101,33 @@ pub(crate) fn load_thumb(
 pub(crate) enum RefSlot {
     /// Encoded bytes kept without decoded CPU pixels; re-decodes without refetching.
     Held { bytes: Arc<[u8]>, size: Option<[u32; 2]>, last_used: u64 },
-    /// Decoded thumbnail pixels + encoded bytes.
-    Decoded { image: Image, bytes: Arc<[u8]>, size: Option<[u32; 2]>, max_px: u32, weight: usize, last_used: u64 },
+    /// Decoded thumbnail pixels plus optional encoded bytes (`None` when byte budget stripped them
+    /// so an active decoded image stays visible without triggering an HTTP re-fetch loop).
+    Decoded { image: Image, bytes: Option<Arc<[u8]>>, size: Option<[u32; 2]>, max_px: u32, weight: usize, last_used: u64 },
+}
+
+pub(crate) enum Demote {
+    Unchanged,
+    ToHeld(Arc<[u8]>, usize),
+    DropEntry(usize),
 }
 
 impl RefSlot {
-    pub(crate) fn bytes(&self) -> &Arc<[u8]> {
+    pub(crate) fn bytes(&self) -> Option<&Arc<[u8]>> {
         match self {
-            RefSlot::Held { bytes, .. } | RefSlot::Decoded { bytes, .. } => bytes,
+            RefSlot::Held { bytes, .. } => Some(bytes),
+            RefSlot::Decoded { bytes, .. } => bytes.as_ref(),
         }
+    }
+
+    pub(crate) fn bytes_len(&self) -> usize {
+        self.bytes().map_or(0, |b| b.len())
     }
 
     pub(crate) fn size(&self) -> Option<[u32; 2]> {
         match self {
-            RefSlot::Held { size, .. } | RefSlot::Decoded { size, .. } => *size,
+            RefSlot::Held { size, .. } => *size,
+            RefSlot::Decoded { size, image, .. } => (*size).or_else(|| image.size()),
         }
     }
 
@@ -128,14 +144,16 @@ impl RefSlot {
         }
     }
 
-    pub(crate) fn demote(&mut self) -> usize {
+    pub(crate) fn demote(&mut self) -> Demote {
         match self {
-            RefSlot::Held { .. } => 0,
-            RefSlot::Decoded { bytes, size, weight, last_used, .. } => {
+            RefSlot::Held { .. } => Demote::Unchanged,
+            RefSlot::Decoded { bytes: Some(bytes), size, weight, last_used, .. } => {
+                let b = bytes.clone();
                 let freed = *weight;
-                *self = RefSlot::Held { bytes: bytes.clone(), size: *size, last_used: *last_used };
-                freed
+                *self = RefSlot::Held { bytes: b.clone(), size: *size, last_used: *last_used };
+                Demote::ToHeld(b, freed)
             }
+            RefSlot::Decoded { bytes: None, weight, .. } => Demote::DropEntry(*weight),
         }
     }
 }
@@ -284,25 +302,41 @@ pub(crate) fn cap_map<K, V>(map: &mut HashMap<K, V>) {
     }
 }
 
+pub(crate) enum Pin<'a> {
+    None,
+    Inline((usize, usize)),
+    Ref(&'a str),
+}
+
+pub(crate) enum RefEvict {
+    Demoted(String, Arc<[u8]>),
+    Forgot(String),
+}
+
 /// Evicts least-recently-used decoded thumbnails across `images` and `refs` until total decoded
-/// pixel weight fits `budget`. Returns `(hash, bytes)` pairs for refs demoted back to `Held`.
+/// pixel weight fits `budget`, never evicting `pin` (the just-inserted image).
 pub(crate) fn evict_pixels(
     images: &mut HashMap<(usize, usize), super::InlineEntry>,
     refs: &mut HashMap<String, RefSlot>,
     budget: usize,
-) -> Vec<(String, Arc<[u8]>)> {
+    pin: Pin<'_>,
+) -> Vec<RefEvict> {
     let mut total: usize = images.values().map(|e| e.prepared.weight()).sum::<usize>()
         + refs.values().map(RefSlot::pixel_weight).sum::<usize>();
     if total <= budget {
         return Vec::new();
     }
     enum Victim { Inline((usize, usize)), Ref(String) }
-    let mut demoted = Vec::new();
+    let mut changes = Vec::new();
     while total > budget {
-        let oldest_inline = images.iter().min_by_key(|(_, e)| e.last_used).map(|(&k, e)| (k, e.last_used));
+        let oldest_inline = images
+            .iter()
+            .filter(|(k, _)| !matches!(pin, Pin::Inline(pk) if pk == **k))
+            .min_by_key(|(_, e)| e.last_used)
+            .map(|(&k, e)| (k, e.last_used));
         let oldest_ref = refs
             .iter()
-            .filter(|(_, s)| s.pixel_weight() > 0)
+            .filter(|(k, s)| s.pixel_weight() > 0 && !matches!(pin, Pin::Ref(pr) if pr == k.as_str()))
             .min_by_key(|(_, s)| s.last_used())
             .map(|(k, s)| (k.clone(), s.last_used()));
         let victim = match (oldest_inline, oldest_ref) {
@@ -318,19 +352,30 @@ pub(crate) fn evict_pixels(
                 }
             }
             Victim::Ref(hash) => {
-                if let Some(slot) = refs.get_mut(&hash) {
-                    total = total.saturating_sub(slot.demote());
-                    demoted.push((hash, slot.bytes().clone()));
+                let demote = refs.get_mut(&hash).map(RefSlot::demote).unwrap_or(Demote::Unchanged);
+                match demote {
+                    Demote::Unchanged => {}
+                    Demote::ToHeld(bytes, freed) => {
+                        total = total.saturating_sub(freed);
+                        changes.push(RefEvict::Demoted(hash, bytes));
+                    }
+                    Demote::DropEntry(freed) => {
+                        refs.remove(&hash);
+                        total = total.saturating_sub(freed);
+                        changes.push(RefEvict::Forgot(hash));
+                    }
                 }
             }
         }
     }
-    demoted
+    changes
 }
 
-/// Evicts oldest encoded `media:` ref entries once total cached ref bytes exceed `budget`.
-pub(crate) fn evict_ref_bytes(refs: &mut HashMap<String, RefSlot>, budget: usize) -> Vec<String> {
-    let mut total: usize = refs.values().map(|s| s.bytes().len()).sum();
+/// Evicts oldest encoded `media:` ref bytes once total cached ref bytes exceed `budget`.
+/// Drops `Held` entries completely; strips encoded `bytes` from active `Decoded` entries without
+/// deleting them so visible images never enter an HTTP re-fetch loop.
+pub(crate) fn evict_ref_bytes(refs: &mut HashMap<String, RefSlot>, budget: usize, pin: Option<&str>) -> Vec<String> {
+    let mut total: usize = refs.values().map(RefSlot::bytes_len).sum();
     if total <= budget {
         return Vec::new();
     }
@@ -338,11 +383,18 @@ pub(crate) fn evict_ref_bytes(refs: &mut HashMap<String, RefSlot>, budget: usize
     while total > budget {
         let oldest = refs
             .iter()
+            .filter(|(k, s)| s.bytes_len() > 0 && pin != Some(k.as_str()))
             .min_by_key(|(_, s)| (s.pixel_weight() > 0, s.last_used()))
-            .map(|(k, _)| k.clone());
-        let Some(hash) = oldest else { break };
-        if let Some(slot) = refs.remove(&hash) {
-            total = total.saturating_sub(slot.bytes().len());
+            .map(|(k, s)| (k.clone(), s.pixel_weight() > 0));
+        let Some((hash, is_decoded)) = oldest else { break };
+        if is_decoded {
+            if let Some(RefSlot::Decoded { bytes, .. }) = refs.get_mut(&hash)
+                && let Some(b) = bytes.take()
+            {
+                total = total.saturating_sub(b.len());
+            }
+        } else if let Some(slot) = refs.remove(&hash) {
+            total = total.saturating_sub(slot.bytes_len());
             dropped.push(hash);
         }
     }

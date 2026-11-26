@@ -52,8 +52,9 @@ fn source_mime(source: &Source) -> &'static str {
 /// Where a source's picture is.
 enum Slot {
     Fetching,
-    /// The decoding/decoded scaled picture and its encoded bytes.
-    Decoding { image: Image, bytes: Arc<[u8]>, size: Option<[u32; 2]>, weight: usize, last_used: u64 },
+    /// The decoding/decoded scaled picture and optional encoded bytes (`None` once byte budget
+    /// strips them, keeping the decoded pixels alive without triggering a re-fetch loop).
+    Decoding { image: Image, bytes: Option<Arc<[u8]>>, size: Option<[u32; 2]>, weight: usize, last_used: u64 },
     /// Its encoded bytes only: let go of its decoded CPU pixels (`rest` / LRU).
     /// The next ask decodes them again, with no fetch.
     Held { bytes: Arc<[u8]>, size: Option<[u32; 2]>, last_used: u64 },
@@ -234,7 +235,8 @@ impl MdStore {
     /// Markdown image `src`'s encoded bytes, once they've landed.
     pub fn bytes(&self, directory: Option<&str>, src: &str) -> Option<Arc<[u8]>> {
         match self.slots.borrow().get(&image_source(directory, src)?)? {
-            Slot::Decoding { bytes, .. } | Slot::Held { bytes, .. } => Some(bytes.clone()),
+            Slot::Decoding { bytes, .. } => bytes.clone(),
+            Slot::Held { bytes, .. } => Some(bytes.clone()),
             Slot::Fetching | Slot::Failed(_) => None,
         }
     }
@@ -284,8 +286,8 @@ impl MdStore {
             let cache = self.cache()?;
             let (image, max_px) = load_thumb(&cache, bytes.clone(), source_mime(&source), size, max_pt, scale);
             let weight = scaled_weight(size, max_px);
-            self.slots.borrow_mut().insert(source, Slot::Decoding { image: image.clone(), bytes, size, weight, last_used: now });
-            self.trim(MD_PIXEL_BUDGET, MD_BYTES_BUDGET);
+            self.slots.borrow_mut().insert(source.clone(), Slot::Decoding { image: image.clone(), bytes: Some(bytes), size, weight, last_used: now });
+            self.trim_pinned(MD_PIXEL_BUDGET, MD_BYTES_BUDGET, Some(&source));
             return Some(image);
         }
         let scale = display_scale();
@@ -300,16 +302,31 @@ impl MdStore {
     /// Drops all decoded CPU pixels, keeping encoded bytes within `MD_BYTES_BUDGET`.
     pub fn rest(&self) {
         self.land();
-        for slot in self.slots.borrow_mut().values_mut() {
-            if let Slot::Decoding { bytes, size, last_used, .. } = slot {
-                *slot = Slot::Held { bytes: bytes.clone(), size: *size, last_used: *last_used };
+        let mut slots = self.slots.borrow_mut();
+        let mut drop_keys = Vec::new();
+        for (k, slot) in slots.iter_mut() {
+            match slot {
+                Slot::Decoding { bytes: Some(bytes), size, last_used, .. } => {
+                    *slot = Slot::Held { bytes: bytes.clone(), size: *size, last_used: *last_used };
+                }
+                Slot::Decoding { bytes: None, .. } => drop_keys.push(k.clone()),
+                _ => {}
             }
         }
-        self.trim(0, MD_BYTES_BUDGET);
+        for k in drop_keys {
+            slots.remove(&k);
+        }
+        drop(slots);
+        self.trim_pinned(0, MD_BYTES_BUDGET, None);
     }
 
-    /// Enforces LRU budgets on decoded CPU pixels and retained encoded bytes.
     pub(super) fn trim(&self, pixel_budget: usize, bytes_budget: usize) {
+        self.trim_pinned(pixel_budget, bytes_budget, None);
+    }
+
+    /// Enforces LRU budgets on decoded CPU pixels and retained encoded bytes without deleting
+    /// active `Decoding` slots on byte-budget overflow (preventing re-fetch loops).
+    fn trim_pinned(&self, pixel_budget: usize, bytes_budget: usize, pin: Option<&Source>) {
         let mut slots = self.slots.borrow_mut();
         let mut pixels: usize = slots
             .values()
@@ -318,35 +335,55 @@ impl MdStore {
         while pixels > pixel_budget {
             let oldest = slots
                 .iter()
+                .filter(|(k, _)| pin != Some(*k))
                 .filter_map(|(k, s)| match s { Slot::Decoding { last_used, .. } => Some((k.clone(), *last_used)), _ => None })
                 .min_by_key(|(_, t)| *t)
                 .map(|(k, _)| k);
             let Some(k) = oldest else { break };
-            if let Some(slot) = slots.get_mut(&k)
-                && let Slot::Decoding { bytes, size, weight, last_used, .. } = slot
-            {
-                pixels = pixels.saturating_sub(*weight);
-                *slot = Slot::Held { bytes: bytes.clone(), size: *size, last_used: *last_used };
+            let drop_entry = match slots.get_mut(&k) {
+                Some(slot @ Slot::Decoding { bytes: Some(_), .. }) => {
+                    if let Slot::Decoding { bytes: Some(bytes), size, weight, last_used, .. } = slot {
+                        pixels = pixels.saturating_sub(*weight);
+                        *slot = Slot::Held { bytes: bytes.clone(), size: *size, last_used: *last_used };
+                    }
+                    false
+                }
+                Some(Slot::Decoding { bytes: None, weight, .. }) => {
+                    pixels = pixels.saturating_sub(*weight);
+                    true
+                }
+                _ => false,
+            };
+            if drop_entry {
+                slots.remove(&k);
             }
         }
         let mut bytes_total: usize = slots
             .values()
-            .map(|s| match s { Slot::Decoding { bytes, .. } | Slot::Held { bytes, .. } => bytes.len(), _ => 0 })
+            .map(|s| match s {
+                Slot::Decoding { bytes: Some(bytes), .. } | Slot::Held { bytes, .. } => bytes.len(),
+                _ => 0,
+            })
             .sum();
         while bytes_total > bytes_budget {
             let oldest = slots
                 .iter()
+                .filter(|(k, _)| pin != Some(*k))
                 .filter_map(|(k, s)| match s {
                     Slot::Held { last_used, .. } => Some((k.clone(), false, *last_used)),
-                    Slot::Decoding { last_used, .. } => Some((k.clone(), true, *last_used)),
+                    Slot::Decoding { bytes: Some(_), last_used, .. } => Some((k.clone(), true, *last_used)),
                     _ => None,
                 })
                 .min_by_key(|(_, active, t)| (*active, *t))
-                .map(|(k, _, _)| k);
-            let Some(k) = oldest else { break };
-            if let Some(removed) = slots.remove(&k)
-                && let Slot::Decoding { bytes, .. } | Slot::Held { bytes, .. } = removed
-            {
+                .map(|(k, active, _)| (k, active));
+            let Some((k, active)) = oldest else { break };
+            if active {
+                if let Some(Slot::Decoding { bytes, .. }) = slots.get_mut(&k)
+                    && let Some(b) = bytes.take()
+                {
+                    bytes_total = bytes_total.saturating_sub(b.len());
+                }
+            } else if let Some(Slot::Held { bytes, .. }) = slots.remove(&k) {
                 bytes_total = bytes_total.saturating_sub(bytes.len());
             }
         }
@@ -359,14 +396,16 @@ impl MdStore {
             return;
         }
         let now = self.next_tick();
+        let mut last = None;
         for (source, read) in fetched {
             let slot = match read {
-                Ok(l) => Slot::Decoding { image: l.image, bytes: l.bytes, size: l.size, weight: l.weight, last_used: now },
+                Ok(l) => Slot::Decoding { image: l.image, bytes: Some(l.bytes), size: l.size, weight: l.weight, last_used: now },
                 Err(reason) => Slot::Failed(reason),
             };
+            last = Some(source.clone());
             self.slots.borrow_mut().insert(source, slot);
         }
-        self.trim(MD_PIXEL_BUDGET, MD_BYTES_BUDGET);
+        self.trim_pinned(MD_PIXEL_BUDGET, MD_BYTES_BUDGET, last.as_ref());
     }
 
     fn cache(&self) -> Option<Arc<ImageCache>> {

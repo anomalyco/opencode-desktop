@@ -653,7 +653,7 @@ impl opencode_kernel::Feature<App> for PluginHostFeature {
                 p.half.resources.borrow_mut().retain(|key, _| {
                     let path = key.split_once('\n').map_or(key.as_str(), |(_, p)| p);
                     match path.strip_prefix("/api/session/").and_then(|r| r.split(['/', '?']).next()) {
-                        Some(sid) if !sid.is_empty() => keep(sid),
+                        Some(sid) if !sid.is_empty() && !matches!(sid, "active" | "status") => keep(sid),
                         _ => true,
                     }
                 });

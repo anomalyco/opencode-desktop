@@ -5,6 +5,7 @@
 
 pub mod load;
 
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
@@ -36,7 +37,7 @@ enum StoreState {
 #[derive(Default)]
 pub struct Images {
     state: StoreState,
-    tick: u64,
+    tick: Cell<u64>,
     /// Id → the plugin it belongs to and where it stands.
     map: HashMap<u32, Entry>,
     /// A plugin's loads by source key, so the same source is the same image.
@@ -57,13 +58,14 @@ struct Entry {
     plugin: String,
     load: Load,
     source_key: Option<String>,
-    last_used: u64,
+    last_used: Cell<u64>,
 }
 
 impl Images {
-    fn next_tick(&mut self) -> u64 {
-        self.tick = self.tick.wrapping_add(1);
-        self.tick
+    fn next_tick(&self) -> u64 {
+        let t = self.tick.get().wrapping_add(1);
+        self.tick.set(t);
+        t
     }
 
     fn cache(&self) -> Option<&Arc<ImageCache>> {
@@ -108,8 +110,8 @@ impl Images {
     pub fn load(&mut self, plugin: &str, key: String, source: impl FnOnce() -> Option<Source>) -> u32 {
         if let Some(&id) = self.by_source.get(&(plugin.to_owned(), key.clone())) {
             let now = self.next_tick();
-            if let Some(entry) = self.map.get_mut(&id) {
-                entry.last_used = now;
+            if let Some(entry) = self.map.get(&id) {
+                entry.last_used.set(now);
             }
             return id;
         }
@@ -128,14 +130,14 @@ impl Images {
         if let Err(why) = sent {
             self.step(id, LoadEvent::Fetched(Err(why.into())));
         }
-        self.trim_sources(MAX_SOURCE_ENTRIES * 2, MAX_SOURCE_PIXELS * 2);
+        self.trim_sources(MAX_SOURCE_ENTRIES * 2, MAX_SOURCE_PIXELS * 2, Some(id));
         id
     }
 
     fn insert(&mut self, plugin: &str, load: Load, source_key: Option<String>) -> u32 {
         let now = self.next_tick();
         self.next += 1;
-        self.map.insert(self.next, Entry { plugin: plugin.to_owned(), load, source_key, last_used: now });
+        self.map.insert(self.next, Entry { plugin: plugin.to_owned(), load, source_key, last_used: Cell::new(now) });
         self.next
     }
 
@@ -187,10 +189,10 @@ impl Images {
 
     /// Evicts oldest source-keyed plugin images (favicons, web/data URLs) above rest limits.
     pub fn rest(&mut self) {
-        self.trim_sources(MAX_SOURCE_ENTRIES, MAX_SOURCE_PIXELS);
+        self.trim_sources(MAX_SOURCE_ENTRIES, MAX_SOURCE_PIXELS, None);
     }
 
-    fn trim_sources(&mut self, max_entries: usize, max_pixels: usize) {
+    fn trim_sources(&mut self, max_entries: usize, max_pixels: usize, pin: Option<u32>) {
         let weight_of = |e: &Entry| match &e.load {
             Load::Loaded { size: [w, h], .. } => (*w as usize).saturating_mul(*h as usize).saturating_mul(16) / 3,
             Load::Decoding { bytes, .. } => bytes.len(),
@@ -203,12 +205,18 @@ impl Images {
             .filter(|e| e.source_key.is_some())
             .map(&weight_of)
             .sum();
-        while count > max_entries || pixels > max_pixels {
+        while count > 1 && (count > max_entries || pixels > max_pixels) {
+            let need_pixels = count <= max_entries;
             let oldest = self
                 .map
                 .iter()
-                .filter(|(_, e)| e.source_key.is_some())
-                .min_by_key(|(_, e)| e.last_used)
+                .filter(|(&id, e)| {
+                    e.source_key.is_some()
+                        && pin != Some(id)
+                        && !matches!(e.load, Load::Fetching)
+                        && (!need_pixels || weight_of(e) > 0)
+                })
+                .min_by_key(|(_, e)| e.last_used.get())
                 .map(|(&id, _)| id);
             let Some(id) = oldest else { break };
             if let Some(removed) = self.map.remove(&id) {
@@ -256,7 +264,9 @@ impl Images {
 
     /// Plugin `plugin`'s image `id`, if it has one by that id.
     pub fn get(&self, plugin: &str, id: u32) -> Option<&Load> {
-        self.map.get(&id).filter(|e| e.plugin == plugin).map(|e| &e.load)
+        let entry = self.map.get(&id).filter(|e| e.plugin == plugin)?;
+        entry.last_used.set(self.next_tick());
+        Some(&entry.load)
     }
 
     pub fn remove(&mut self, plugin: &str, id: u32) {
