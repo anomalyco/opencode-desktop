@@ -78,17 +78,6 @@ impl Sent {
     }
 }
 
-/// What became of a write offered quietly (`PermissionHost::write_quiet`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Offered {
-    /// Handed to the server's writer.
-    Sent,
-    /// The window has no writer for it.
-    NoWriter,
-    /// The build may not send.
-    ReadOnly,
-}
-
 /// Object-safe host boundary for permission and question-form reply orchestration.
 pub trait PermissionHost: opencode_kernel::AppFeedback {
     fn permission_sent(&self) -> &Sent;
@@ -122,12 +111,6 @@ pub trait PermissionHost: opencode_kernel::AppFeedback {
 
     /// Dispatches a server write; returns `false` when disconnected or unable to send.
     fn write(&mut self, write: Write) -> bool;
-
-    /// [`Self::write`] without the host's own toast when the write can't go: this machine says so
-    /// itself, once.
-    fn write_quiet(&mut self, write: Write) -> Offered {
-        if self.write(write) { Offered::Sent } else { Offered::NoWriter }
-    }
 
     /// Schedules a timeout callback after `delay` that invokes [`reply_timed_out`].
     fn schedule_reply_timeout(&mut self, kind: ReplyTimeoutKind, id: String, attempt: Attempt, delay: Duration);
@@ -293,17 +276,9 @@ fn permission_effects(host: &mut dyn PermissionHost, id: &str, effects: Effects<
                     permission_step(host, id, reply::Event::Succeeded { attempt });
                     continue;
                 }
-                // The write says nothing itself when it can't go: this machine's one toast does.
-                match host.write_quiet(Write::Permission { session, request: id.to_owned(), decision }) {
-                    Offered::Sent => {}
-                    Offered::NoWriter => {
-                        permission_step(host, id, reply::Event::Failed { attempt, error: opencode_i18n::t!("rune.send.disconnected") });
-                        continue;
-                    }
-                    Offered::ReadOnly => {
-                        permission_step(host, id, reply::Event::ReadOnly { attempt });
-                        continue;
-                    }
+                if !host.write(Write::Permission { session, request: id.to_owned(), decision }) {
+                    permission_step(host, id, reply::Event::Failed { attempt, error: opencode_i18n::t!("rune.send.disconnected") });
+                    continue;
                 }
                 host.schedule_reply_timeout(ReplyTimeoutKind::Permission, id.to_owned(), attempt, Duration::from_secs_f64(reply::TIMEOUT_S));
             }
@@ -314,9 +289,6 @@ fn permission_effects(host: &mut dyn PermissionHost, id: &str, effects: Effects<
             }
             reply::Effect::ToastFailed(error) => {
                 host.toast_fail(opencode_i18n::t!("common.requestFailed").to_owned(), error.unwrap_or_default());
-            }
-            reply::Effect::ToastReadOnly => {
-                host.toast_fail(opencode_i18n::t!("rune.send.nothingSent").to_owned(), opencode_i18n::t!("rune.jobs.readOnly").to_owned());
             }
         }
     }
@@ -348,17 +320,9 @@ fn form_effects(host: &mut dyn PermissionHost, id: &str, session: &str, effects:
                     Action::Reply(answer) => Write::Form { session: session.to_owned(), form: id.to_owned(), answer },
                     Action::Dismiss => Write::CancelForm { session: session.to_owned(), form: id.to_owned() },
                 };
-                // The write says nothing itself when it can't go: this machine's one toast does.
-                match host.write_quiet(w) {
-                    Offered::Sent => {}
-                    Offered::NoWriter => {
-                        form_step(host, id, form::Event::Failed { attempt, error: opencode_i18n::t!("rune.send.disconnected") });
-                        continue;
-                    }
-                    Offered::ReadOnly => {
-                        form_step(host, id, form::Event::ReadOnly { attempt });
-                        continue;
-                    }
+                if !host.write(w) {
+                    form_step(host, id, form::Event::Failed { attempt, error: opencode_i18n::t!("rune.send.disconnected") });
+                    continue;
                 }
                 host.schedule_reply_timeout(ReplyTimeoutKind::Form, id.to_owned(), attempt, Duration::from_secs_f64(form::TIMEOUT_S));
             }
@@ -369,9 +333,6 @@ fn form_effects(host: &mut dyn PermissionHost, id: &str, session: &str, effects:
             }
             form::Effect::ToastFailed(error) => {
                 host.toast_fail(opencode_i18n::t!("common.requestFailed").to_owned(), error.unwrap_or_default());
-            }
-            form::Effect::ToastReadOnly => {
-                host.toast_fail(opencode_i18n::t!("rune.send.nothingSent").to_owned(), opencode_i18n::t!("rune.jobs.readOnly").to_owned());
             }
         }
     }

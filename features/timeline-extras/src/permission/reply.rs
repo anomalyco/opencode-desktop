@@ -23,8 +23,6 @@ pub enum Event<'a> {
     Decide { session: &'a str, decision: &'a str },
     Succeeded { attempt: Attempt },
     Failed { attempt: Attempt, error: &'a str },
-    /// The build may not send: ours alone, so it says so in our words.
-    ReadOnly { attempt: Attempt },
     TimedOut { attempt: Attempt },
 }
 
@@ -37,7 +35,6 @@ pub enum Effect {
     /// timeout; the attempt fences that timeout here.)
     Abort,
     ToastFailed(Option<String>),
-    ToastReadOnly,
 }
 
 /// `transitionPermissionReply`.
@@ -50,7 +47,7 @@ pub fn step(state: &mut Reply, event: Event<'_>) -> Effects<Effect> {
     }
     let Reply::Responding { attempt, .. } = *state else { return Effects::none() };
     let due = match event {
-        Event::Succeeded { attempt } | Event::Failed { attempt, .. } | Event::ReadOnly { attempt } | Event::TimedOut { attempt } => attempt,
+        Event::Succeeded { attempt } | Event::Failed { attempt, .. } | Event::TimedOut { attempt } => attempt,
         Event::Decide { .. } => return Effects::none(),
     };
     if due != attempt {
@@ -64,10 +61,6 @@ pub fn step(state: &mut Reply, event: Event<'_>) -> Effects<Effect> {
         Event::Failed { error, .. } => {
             *state = Reply::Idle { attempt };
             Effects::one(Effect::ToastFailed(Some(error.to_owned())))
-        }
-        Event::ReadOnly { .. } => {
-            *state = Reply::Idle { attempt };
-            Effects::one(Effect::ToastReadOnly)
         }
         _ => {
             *state = Reply::Idle { attempt };

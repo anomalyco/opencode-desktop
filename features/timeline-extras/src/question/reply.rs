@@ -31,8 +31,6 @@ pub enum Event<'a> {
     Send(Action),
     Succeeded { attempt: Attempt },
     Failed { attempt: Attempt, error: &'a str },
-    /// The build may not send: ours alone, so it says so in our words.
-    ReadOnly { attempt: Attempt },
     TimedOut { attempt: Attempt },
 }
 
@@ -44,7 +42,6 @@ pub enum Effect {
     Abort,
     /// `toast.fail`.
     ToastFailed(Option<String>),
-    ToastReadOnly,
 }
 
 /// `transitionQuestionDock`, for the reply.
@@ -63,10 +60,6 @@ pub fn step(state: &mut Reply, event: Event<'_>) -> Effects<Effect> {
         (Reply::Sending { attempt, .. }, Event::Failed { attempt: due, error }) if *attempt == due => {
             *state = Reply::Answering { attempt: due };
             Effects::one(Effect::ToastFailed(Some(error.to_owned())))
-        }
-        (Reply::Sending { attempt, .. }, Event::ReadOnly { attempt: due }) if *attempt == due => {
-            *state = Reply::Answering { attempt: due };
-            Effects::one(Effect::ToastReadOnly)
         }
         (Reply::Sending { attempt, .. }, Event::TimedOut { attempt: due }) if *attempt == due => {
             *state = Reply::Answering { attempt: due };
