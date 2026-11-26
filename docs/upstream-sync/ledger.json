@@ -2,12 +2,12 @@
   "generated_at": "2026-11-27",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "2ae0ff000855e995b2a25642706d9cd0ca57a6f7",
+  "upstream_head": "a956150945884ed703aa363cf50e4deada9f15e1",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "0f0466522",
-  "post_1114_commit_count": 746,
-  "post_1114_in_ledger": 256,
+  "rune_desktop_head": "338973688",
+  "post_1114_commit_count": 747,
+  "post_1114_in_ledger": 257,
   "post_1114_skipped": 490,
   "post_1114_skipped_breakdown": {
     "test-only": 33,
@@ -18,13 +18,13 @@
     "server-core-ai-codemode-internal": 309
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 277,
+  "total_ledger_rows": 278,
   "status_counts": {
     "have it": 228,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 4,
-    "missing": 5
+    "missing": 6
   },
   "rows": [
     {
@@ -6923,6 +6923,28 @@
       "status": "have it",
       "status_evidence": "Already holds by construction in crates/session-view/src/turns/view.rs: nested file headers receive cx.sticky = top + 28.0 + GROUP_GAP (automatically tracking GROUP_GAP on dev and when bumped to M=20 in #1329), trigger pad matches h(GROUP_GAP), and Rune never uses the legacy CSS negative margin-block trigger hack. Official: packages/session-ui/src/components/message-part.css:2232-2235, tools/tool-renderer.tsx:507-513.",
       "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-257",
+      "window": "post-1120",
+      "pr": 66638,
+      "sha": "a956150945",
+      "title": "fix(session-ui): keep a script's Output when its changes are grouped",
+      "merged": "2026-11-26",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/timeline/script-output.ts",
+        "packages/session-ui/src/timeline/timeline-row.ts"
+      ],
+      "summary": "Restricts TimelineRow.scriptChanges to file-card rows (group.type === 'file') so a script whose changes are folded into a separate grouped summary row keeps its Output row under its steps and stands M apart from the summary group.",
+      "size": "XS",
+      "status": "missing",
+      "status_evidence": "Included by construction in draft opencode-rune #1329 (head de9079d0a2, CI run 45866130904 green, awaiting proof): both turns::script_output_for_blocks (crates/session-view/src/turns/mod.rs) and rhythm::edges_of script_changes (crates/session-view/src/timeline/rhythm.rs) match only Block::Calls { kind: Calls::Files } and never Block::Group, so grouped changes never steal a preceding script's Output row. Official: packages/session-ui/src/timeline/{script-output,timeline-row}.ts.",
+      "depends_on": "UP-255",
       "risks": "none",
       "workstream": "UPSTREAM"
     }
