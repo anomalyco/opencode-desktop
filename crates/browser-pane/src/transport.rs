@@ -694,14 +694,16 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
             #[cfg(not(target_os = "linux"))]
             let mut raw_buf: Vec<u8> = Vec::new();
             loop {
+                let shrink_line = line.len() <= 64 * 1024 && line.capacity() > 256 * 1024;
                 line.clear();
-                if line.capacity() > 256 * 1024 {
+                if shrink_line {
                     line.shrink_to(64 * 1024);
                 }
                 #[cfg(not(target_os = "linux"))]
                 {
+                    let shrink_raw = raw_buf.len() <= 64 * 1024 && raw_buf.capacity() > 256 * 1024;
                     raw_buf.clear();
-                    if raw_buf.capacity() > 256 * 1024 {
+                    if shrink_raw {
                         raw_buf.shrink_to(64 * 1024);
                     }
                 }

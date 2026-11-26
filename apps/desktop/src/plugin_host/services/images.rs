@@ -95,13 +95,10 @@ pub fn load_src(app: &App, plugin: &str, src: &str) -> u32 {
         let url = src.to_owned();
         (format!("web:{src}"), Box::new(move || Some(Source::Web(url))))
     } else if lower.starts_with("data:") {
+        use sha2::{Digest, Sha256};
         let url = src.to_owned();
-        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-        for &b in src.as_bytes() {
-            h ^= u64::from(b);
-            h = h.wrapping_mul(0x0000_0100_0000_01b3);
-        }
-        (format!("data:{h:016x}:{}", src.len()), Box::new(move || Some(Source::Data(url))))
+        let digest = Sha256::digest(src.as_bytes());
+        (format!("data:{digest:x}"), Box::new(move || Some(Source::Data(url))))
     } else if src.starts_with('/') && !src.starts_with("//") {
         let server = match &*app.source {
             crate::Source::Live { server, .. } => Some(server.clone()),

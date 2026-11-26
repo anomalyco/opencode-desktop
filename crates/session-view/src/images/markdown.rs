@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use rune::{Image, ImageCache, Pixels, Waker};
 
-use super::cache::{FAVICON_MAX_PT, MD_MAX_PT, dimensions, display_scale, load_thumb, md_effective_pt, scaled_weight};
+use super::cache::{FAVICON_MAX_PT, MD_MAX_PT, dimensions, display_scale, live_weight, load_thumb, md_effective_pt, scaled_weight};
 
 /// Maximum decoded CPU pixel bytes kept in `MdStore`.
 pub(super) const MD_PIXEL_BUDGET: usize = 32 << 20;
@@ -52,9 +52,9 @@ fn source_mime(source: &Source) -> &'static str {
 /// Where a source's picture is.
 enum Slot {
     Fetching,
-    /// The decoding/decoded scaled picture and optional encoded bytes (`None` once byte budget
-    /// strips them, keeping the decoded pixels alive without triggering a re-fetch loop).
-    Decoding { image: Image, bytes: Option<Arc<[u8]>>, size: Option<[u32; 2]>, weight: usize, last_used: u64, last_frame: u64 },
+    /// The decoding/decoded scaled picture and its encoded bytes (kept intact so lightbox/copy/drag
+    /// always work; current-frame entries are protected from eviction).
+    Decoding { image: Image, bytes: Arc<[u8]>, size: Option<[u32; 2]>, weight: usize, last_used: u64, last_frame: u64 },
     /// Its encoded bytes only: let go of its decoded CPU pixels (`rest` / LRU).
     /// The next ask decodes them again, with no fetch.
     Held { bytes: Arc<[u8]>, size: Option<[u32; 2]>, last_used: u64 },
@@ -241,8 +241,7 @@ impl MdStore {
     /// Markdown image `src`'s encoded bytes, once they've landed.
     pub fn bytes(&self, directory: Option<&str>, src: &str) -> Option<Arc<[u8]>> {
         match self.slots.borrow().get(&image_source(directory, src)?)? {
-            Slot::Decoding { bytes, .. } => bytes.clone(),
-            Slot::Held { bytes, .. } => Some(bytes.clone()),
+            Slot::Decoding { bytes, .. } | Slot::Held { bytes, .. } => Some(bytes.clone()),
             Slot::Fetching | Slot::Failed(_) => None,
         }
     }
@@ -295,7 +294,7 @@ impl MdStore {
             let cache = self.cache()?;
             let (image, max_px) = load_thumb(&cache, bytes.clone(), source_mime(&source), size, eff_pt, scale);
             let weight = scaled_weight(size, max_px);
-            self.slots.borrow_mut().insert(source.clone(), Slot::Decoding { image: image.clone(), bytes: Some(bytes), size, weight, last_used: now, last_frame: cur_frame });
+            self.slots.borrow_mut().insert(source.clone(), Slot::Decoding { image: image.clone(), bytes, size, weight, last_used: now, last_frame: cur_frame });
             self.trim_pinned(MD_PIXEL_BUDGET, MD_BYTES_BUDGET, Some(&source));
             return Some(image);
         }
@@ -311,21 +310,12 @@ impl MdStore {
     /// Drops all decoded CPU pixels, keeping encoded bytes within `MD_BYTES_BUDGET`.
     pub fn rest(&self) {
         self.land();
-        let mut slots = self.slots.borrow_mut();
-        let mut drop_keys = Vec::new();
-        for (k, slot) in slots.iter_mut() {
-            match slot {
-                Slot::Decoding { bytes: Some(bytes), size, last_used, .. } => {
-                    *slot = Slot::Held { bytes: bytes.clone(), size: *size, last_used: *last_used };
-                }
-                Slot::Decoding { bytes: None, .. } => drop_keys.push(k.clone()),
-                _ => {}
+        for slot in self.slots.borrow_mut().values_mut() {
+            if let Slot::Decoding { image, bytes, size, last_used, .. } = slot {
+                let sz = (*size).or_else(|| image.size());
+                *slot = Slot::Held { bytes: bytes.clone(), size: sz, last_used: *last_used };
             }
         }
-        for k in drop_keys {
-            slots.remove(&k);
-        }
-        drop(slots);
         self.trim_pinned(0, MD_BYTES_BUDGET, None);
     }
 
@@ -333,13 +323,13 @@ impl MdStore {
         self.trim_pinned(pixel_budget, bytes_budget, None);
     }
 
-    /// Enforces LRU budgets on decoded CPU pixels and retained encoded bytes without deleting
-    /// active `Decoding` slots on byte-budget overflow (preventing re-fetch loops).
+    /// Enforces LRU budgets on decoded CPU pixels and retained encoded bytes, never evicting
+    /// `pin` or entries touched in the current render frame.
     fn trim_pinned(&self, pixel_budget: usize, bytes_budget: usize, pin: Option<&Source>) {
         let mut slots = self.slots.borrow_mut();
         let mut pixels: usize = slots
             .values()
-            .map(|s| match s { Slot::Decoding { weight, .. } => *weight, _ => 0 })
+            .map(|s| match s { Slot::Decoding { image, weight, .. } => live_weight(image, *weight), _ => 0 })
             .sum();
         let cur_frame = (self.frame.get() > 0).then(|| self.frame.get());
         while pixels > pixel_budget {
@@ -353,30 +343,17 @@ impl MdStore {
                 .min_by_key(|(_, t)| *t)
                 .map(|(k, _)| k);
             let Some(k) = oldest else { break };
-            let drop_entry = match slots.get_mut(&k) {
-                Some(slot @ Slot::Decoding { bytes: Some(_), .. }) => {
-                    if let Slot::Decoding { bytes: Some(bytes), size, weight, last_used, .. } = slot {
-                        pixels = pixels.saturating_sub(*weight);
-                        *slot = Slot::Held { bytes: bytes.clone(), size: *size, last_used: *last_used };
-                    }
-                    false
-                }
-                Some(Slot::Decoding { bytes: None, weight, .. }) => {
-                    pixels = pixels.saturating_sub(*weight);
-                    true
-                }
-                _ => false,
-            };
-            if drop_entry {
-                slots.remove(&k);
+            if let Some(slot) = slots.get_mut(&k)
+                && let Slot::Decoding { image, bytes, size, weight, last_used, .. } = slot
+            {
+                pixels = pixels.saturating_sub(live_weight(image, *weight));
+                let sz = (*size).or_else(|| image.size());
+                *slot = Slot::Held { bytes: bytes.clone(), size: sz, last_used: *last_used };
             }
         }
         let mut bytes_total: usize = slots
             .values()
-            .map(|s| match s {
-                Slot::Decoding { bytes: Some(bytes), .. } | Slot::Held { bytes, .. } => bytes.len(),
-                _ => 0,
-            })
+            .map(|s| match s { Slot::Decoding { bytes, .. } | Slot::Held { bytes, .. } => bytes.len(), _ => 0 })
             .sum();
         while bytes_total > bytes_budget {
             let oldest = slots
@@ -384,19 +361,15 @@ impl MdStore {
                 .filter(|(k, _)| pin != Some(*k))
                 .filter_map(|(k, s)| match s {
                     Slot::Held { last_used, .. } => Some((k.clone(), false, *last_used)),
-                    Slot::Decoding { bytes: Some(_), last_used, .. } => Some((k.clone(), true, *last_used)),
+                    Slot::Decoding { last_used, last_frame, .. } if cur_frame != Some(*last_frame) => Some((k.clone(), true, *last_used)),
                     _ => None,
                 })
                 .min_by_key(|(_, active, t)| (*active, *t))
-                .map(|(k, active, _)| (k, active));
-            let Some((k, active)) = oldest else { break };
-            if active {
-                if let Some(Slot::Decoding { bytes, .. }) = slots.get_mut(&k)
-                    && let Some(b) = bytes.take()
-                {
-                    bytes_total = bytes_total.saturating_sub(b.len());
-                }
-            } else if let Some(Slot::Held { bytes, .. }) = slots.remove(&k) {
+                .map(|(k, _, _)| k);
+            let Some(k) = oldest else { break };
+            if let Some(removed) = slots.remove(&k)
+                && let Slot::Decoding { bytes, .. } | Slot::Held { bytes, .. } = removed
+            {
                 bytes_total = bytes_total.saturating_sub(bytes.len());
             }
         }
@@ -413,7 +386,7 @@ impl MdStore {
         let mut last = None;
         for (source, read) in fetched {
             let slot = match read {
-                Ok(l) => Slot::Decoding { image: l.image, bytes: Some(l.bytes), size: l.size, weight: l.weight, last_used: now, last_frame: cur_frame },
+                Ok(l) => Slot::Decoding { image: l.image, bytes: l.bytes, size: l.size, weight: l.weight, last_used: now, last_frame: cur_frame },
                 Err(reason) => Slot::Failed(reason),
             };
             last = Some(source.clone());
@@ -455,11 +428,13 @@ impl MdStore {
                 pool
             }
         };
-        struct ActiveGuard(ReadPool);
+        struct ActiveGuard { pool: ReadPool, armed: bool }
         impl Drop for ActiveGuard {
             fn drop(&mut self) {
-                let mut g = self.0.lock().unwrap_or_else(|e| e.into_inner());
-                g.1 = g.1.saturating_sub(1);
+                if self.armed {
+                    let mut g = self.pool.lock().unwrap_or_else(|e| e.into_inner());
+                    g.1 = g.1.saturating_sub(1);
+                }
             }
         }
         let Some(cache) = self.cache() else { return Enqueue::Unready };
@@ -474,13 +449,17 @@ impl MdStore {
         let (fetched, landed, version) = (self.fetched.clone(), self.landed.clone(), self.version.clone());
         let pool_w = pool.clone();
         if rune::task::spawn("markdown-media-read", move || {
-            let _active = ActiveGuard(pool_w.clone());
+            let mut active = ActiveGuard { pool: pool_w.clone(), armed: true };
             loop {
                 let next = {
                     let mut guard = pool_w.lock().unwrap_or_else(|e| e.into_inner());
                     match guard.0.pop_front() {
                         Some(item) => item,
-                        None => return,
+                        None => {
+                            guard.1 = guard.1.saturating_sub(1);
+                            active.armed = false;
+                            return;
+                        }
                     }
                 };
                 let (source, max_pt, scale) = next;

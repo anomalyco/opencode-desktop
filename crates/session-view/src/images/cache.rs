@@ -28,8 +28,12 @@ pub const PIXEL_BUDGET: usize = 48 << 20;
 pub const REST_PIXEL_BUDGET: usize = 24 << 20;
 /// Maximum encoded `media:` ref bytes kept in `MediaStore`.
 pub const REF_BYTES_BUDGET: usize = 24 << 20;
-/// Cap on auxiliary metadata caches (`ref_sizes`, `inline_sizes`, `shas`).
+/// Cap on auxiliary metadata caches (`ref_sizes`, `shas`).
 pub const MAX_META_ENTRIES: usize = 512;
+/// Maximum pixel count (width × height) for inline timeline animations kept animated via `load`.
+/// Above this (e.g. a 4K animated WebP that could allocate 256 MiB of mip frames), thumbnails
+/// decode frame 0 via `load_scaled` and full animation plays on demand in the lightbox viewer.
+const MAX_INLINE_ANIM_PIXELS: u64 = 2_000_000;
 
 /// Current display scale factor for thumbnail sizing, clamped to a safe range.
 pub(crate) fn display_scale() -> f32 {
@@ -54,7 +58,7 @@ pub(crate) fn dimensions(bytes: &[u8]) -> Option<[u32; 2]> {
 
 /// Decoded RGBA8 + linear-light mip-chain weight in bytes for an image downscaled to fit
 /// `max_px` square. Falls back to a conservative estimate when header dimensions aren't readable
-/// (e.g. SVG/AVIF) so every entry still counts against the budget.
+/// (e.g. SVG/AVIF) until `image.size()` lands.
 pub(crate) fn scaled_weight(size: Option<[u32; 2]>, max_px: u32) -> usize {
     let Some([w, h]) = size else {
         let side = max_px.min(512) as usize;
@@ -73,13 +77,62 @@ pub(crate) fn scaled_weight(size: Option<[u32; 2]>, max_px: u32) -> usize {
     (nw.saturating_mul(nh).saturating_mul(16) / 3).max(4096)
 }
 
-fn is_animated_mime(mime: &str) -> bool {
-    matches!(mime, "image/gif" | "image/webp" | "image/apng")
+/// Actual decoded pixel weight once `image` is ready (reconciles SVGs/AVIFs whose header
+/// `dimensions()` returned `None`).
+pub(crate) fn live_weight(image: &Image, fallback: usize) -> usize {
+    match image.size() {
+        Some([w, h]) if w > 0 && h > 0 => (w as usize).saturating_mul(h as usize).saturating_mul(16) / 3,
+        _ => fallback,
+    }
 }
 
-/// Decodes a thumbnail into `cache`, downscaling oversized rasters before mipmap generation via
-/// `ImageCache::load_scaled`. Small animated GIF/WebP/APNG images already within `max_pt * scale`
-/// keep full `load` so timeline animations continue to play without risking 256 MiB 4K loops.
+/// Content-sniffed SVG / SVGZ check (handles extensionless URLs like shields.io badges).
+pub(crate) fn is_svg_bytes(bytes: &[u8]) -> bool {
+    if bytes.len() >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b {
+        return true;
+    }
+    let rest = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(bytes);
+    let trimmed = match rest.iter().position(|b| !b.is_ascii_whitespace()) {
+        Some(i) => &rest[i..],
+        None => return false,
+    };
+    trimmed.starts_with(b"<")
+        && (trimmed.get(..4).is_some_and(|s| s.eq_ignore_ascii_case(b"<svg"))
+            || trimmed.get(..5).is_some_and(|s| s.eq_ignore_ascii_case(b"<?xml"))
+            || trimmed.get(..9).is_some_and(|s| s.eq_ignore_ascii_case(b"<!doctype")))
+}
+
+/// Sniffs whether `bytes` is an animated PNG (APNG `acTL` chunk before `IDAT`), animated WebP
+/// (`ANIM` chunk), or GIF (so APNGs served as `image/png` keep animating in the timeline).
+fn is_animated_bytes(bytes: &[u8], mime: &str) -> bool {
+    if matches!(mime, "image/gif" | "image/apng") || bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return true;
+    }
+    // PNG: scan chunk headers before IDAT for `acTL`.
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        let mut at = 8usize;
+        while at + 12 <= bytes.len() {
+            let len = u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]) as usize;
+            let kind = &bytes[at + 4..at + 8];
+            if kind == b"acTL" {
+                return true;
+            }
+            if kind == b"IDAT" || kind == b"IEND" {
+                return false;
+            }
+            let Some(next) = at.checked_add(12).and_then(|n| n.checked_add(len)) else { break };
+            at = next;
+        }
+        return false;
+    }
+    // WebP: check RIFF/WEBP header for `ANIM` chunk in the first 64 bytes.
+    if bytes.len() >= 20 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        let head = &bytes[12..bytes.len().min(64)];
+        return head.windows(4).any(|w| w == b"ANIM");
+    }
+    false
+}
+
 /// Effective `max_pt` for markdown images: tall portrait images (`h > w`) scale up their
 /// long-side target so their decoded width still fills the column up to `max_pt` (capped at 1440 pt).
 pub(crate) fn md_effective_pt(size: Option<[u32; 2]>, max_pt: f32) -> f32 {
@@ -89,6 +142,9 @@ pub(crate) fn md_effective_pt(size: Option<[u32; 2]>, max_pt: f32) -> f32 {
     }
 }
 
+/// Decodes a thumbnail into `cache`, downscaling oversized rasters before mipmap generation via
+/// `ImageCache::load_scaled`. SVGs (by MIME or content sniff) and animations <= 2 MP keep `load`
+/// so small badges stay at natural 2× size and normal GIF/WebP/APNG timelines animate smoothly.
 pub(crate) fn load_thumb(
     cache: &ImageCache,
     bytes: Arc<[u8]>,
@@ -98,11 +154,11 @@ pub(crate) fn load_thumb(
     scale: f32,
 ) -> (Image, u32) {
     let max_px = target_px(max_pt, scale);
-    // Small SVGs rasterize at 2× their intrinsic size via `load` (avoiding upscaling a 24×24 SVG
-    // to 960 px), and small animated GIF/WebP/APNG within `max_px` keep playing inline.
-    let keep_native = mime == "image/svg+xml"
-        || (is_animated_mime(mime) && size.is_some_and(|[w, h]| w.max(h) <= max_px));
-    let image = if keep_native { cache.load(bytes) } else { cache.load_scaled(bytes, max_pt, scale) };
+    let is_svg = mime == "image/svg+xml" || is_svg_bytes(&bytes);
+    let is_anim = !is_svg
+        && is_animated_bytes(&bytes, mime)
+        && size.is_some_and(|[w, h]| u64::from(w) * u64::from(h) <= MAX_INLINE_ANIM_PIXELS);
+    let image = if is_svg || is_anim { cache.load(bytes) } else { cache.load_scaled(bytes, max_pt, scale) };
     (image, max_px)
 }
 
@@ -110,27 +166,15 @@ pub(crate) fn load_thumb(
 pub(crate) enum RefSlot {
     /// Encoded bytes kept without decoded CPU pixels; re-decodes without refetching.
     Held { bytes: Arc<[u8]>, size: Option<[u32; 2]>, last_used: u64 },
-    /// Decoded thumbnail pixels plus optional encoded bytes (`None` when byte budget stripped them
-    /// so an active decoded image stays visible without triggering an HTTP re-fetch loop).
-    Decoded { image: Image, bytes: Option<Arc<[u8]>>, size: Option<[u32; 2]>, max_px: u32, weight: usize, last_used: u64, last_frame: u64 },
-}
-
-pub(crate) enum Demote {
-    Unchanged,
-    ToHeld(Arc<[u8]>, usize),
-    DropEntry(usize),
+    /// Decoded thumbnail pixels + encoded bytes (kept intact so lightbox/copy/drag always work).
+    Decoded { image: Image, bytes: Arc<[u8]>, size: Option<[u32; 2]>, max_px: u32, weight: usize, last_used: u64, last_frame: u64 },
 }
 
 impl RefSlot {
-    pub(crate) fn bytes(&self) -> Option<&Arc<[u8]>> {
+    pub(crate) fn bytes(&self) -> &Arc<[u8]> {
         match self {
-            RefSlot::Held { bytes, .. } => Some(bytes),
-            RefSlot::Decoded { bytes, .. } => bytes.as_ref(),
+            RefSlot::Held { bytes, .. } | RefSlot::Decoded { bytes, .. } => bytes,
         }
-    }
-
-    pub(crate) fn bytes_len(&self) -> usize {
-        self.bytes().map_or(0, |b| b.len())
     }
 
     pub(crate) fn size(&self) -> Option<[u32; 2]> {
@@ -156,20 +200,19 @@ impl RefSlot {
     pub(crate) fn pixel_weight(&self) -> usize {
         match self {
             RefSlot::Held { .. } => 0,
-            RefSlot::Decoded { weight, .. } => *weight,
+            RefSlot::Decoded { image, weight, .. } => live_weight(image, *weight),
         }
     }
 
-    pub(crate) fn demote(&mut self) -> Demote {
+    pub(crate) fn demote(&mut self) -> usize {
         match self {
-            RefSlot::Held { .. } => Demote::Unchanged,
-            RefSlot::Decoded { bytes: Some(bytes), size, weight, last_used, .. } => {
-                let b = bytes.clone();
-                let freed = *weight;
-                *self = RefSlot::Held { bytes: b.clone(), size: *size, last_used: *last_used };
-                Demote::ToHeld(b, freed)
+            RefSlot::Held { .. } => 0,
+            RefSlot::Decoded { image, bytes, size, weight, last_used, .. } => {
+                let freed = live_weight(image, *weight);
+                let sz = (*size).or_else(|| image.size());
+                *self = RefSlot::Held { bytes: bytes.clone(), size: sz, last_used: *last_used };
+                freed
             }
-            RefSlot::Decoded { bytes: None, weight, .. } => Demote::DropEntry(*weight),
         }
     }
 }
@@ -215,6 +258,12 @@ impl Media {
     pub(super) fn set_fetch(&mut self, fetch: Fetch) {
         let mut f = self.fetcher.borrow_mut();
         *f = step_fetcher(std::mem::take(&mut *f), FetcherEvent::SetFetch(fetch));
+        // Clear any in-flight `Loading` markers whose old worker was retired on reconnect so the
+        // next ask re-queues them against the new fetch callback instead of stalling forever.
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|_, v| !matches!(v, Fetched::Loading));
     }
 
     pub fn get(&self, hash: &str, waker: Option<&Waker>) -> Fetched {
@@ -273,6 +322,15 @@ impl Media {
     pub(super) fn forget(&self, hash: &str) {
         self.state.lock().unwrap_or_else(|e| e.into_inner()).remove(hash);
     }
+
+    /// Drops fetched-but-unconsumed `Fetched::Ready` bytes that never entered `refs` (for example
+    /// when a row scrolled away or a tab switched before the HTTP fetch completed).
+    pub(super) fn prune_orphaned_ready(&self, refs: &HashMap<String, RefSlot>) {
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|hash, v| !matches!(v, Fetched::Ready(_)) || refs.contains_key(hash));
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -324,28 +382,22 @@ pub(crate) enum Pin<'a> {
     Ref(&'a str),
 }
 
-pub(crate) enum RefEvict {
-    Demoted(String, Arc<[u8]>),
-    Forgot(String),
-}
-
 /// Evicts least-recently-used decoded thumbnails across `images` and `refs` until total decoded
-/// pixel weight fits `budget`, never evicting `pin` or any image touched on `cur_frame` (which
-/// prevents same-frame re-decode thrash and preserves visible images across `App::rest`).
+/// pixel weight fits `budget`, never evicting `pin` or any image touched on `cur_frame`.
 pub(crate) fn evict_pixels(
     images: &mut HashMap<(usize, usize), super::InlineEntry>,
     refs: &mut HashMap<String, RefSlot>,
     budget: usize,
     pin: Pin<'_>,
     cur_frame: Option<u64>,
-) -> Vec<RefEvict> {
-    let mut total: usize = images.values().map(|e| e.prepared.weight()).sum::<usize>()
+) -> Vec<(String, Arc<[u8]>)> {
+    let mut total: usize = images.values().map(super::InlineEntry::weight).sum::<usize>()
         + refs.values().map(RefSlot::pixel_weight).sum::<usize>();
     if total <= budget {
         return Vec::new();
     }
     enum Victim { Inline((usize, usize)), Ref(String) }
-    let mut changes = Vec::new();
+    let mut demoted = Vec::new();
     while total > budget {
         let oldest_inline = images
             .iter()
@@ -366,34 +418,29 @@ pub(crate) fn evict_pixels(
         match victim {
             Victim::Inline(k) => {
                 if let Some(removed) = images.remove(&k) {
-                    total = total.saturating_sub(removed.prepared.weight());
+                    total = total.saturating_sub(removed.weight());
                 }
             }
             Victim::Ref(hash) => {
-                let demote = refs.get_mut(&hash).map(RefSlot::demote).unwrap_or(Demote::Unchanged);
-                match demote {
-                    Demote::Unchanged => {}
-                    Demote::ToHeld(bytes, freed) => {
-                        total = total.saturating_sub(freed);
-                        changes.push(RefEvict::Demoted(hash, bytes));
-                    }
-                    Demote::DropEntry(freed) => {
-                        refs.remove(&hash);
-                        total = total.saturating_sub(freed);
-                        changes.push(RefEvict::Forgot(hash));
-                    }
+                if let Some(slot) = refs.get_mut(&hash) {
+                    total = total.saturating_sub(slot.demote());
+                    demoted.push((hash, slot.bytes().clone()));
                 }
             }
         }
     }
-    changes
+    demoted
 }
 
-/// Evicts oldest encoded `media:` ref bytes once total cached ref bytes exceed `budget`.
-/// Drops `Held` entries completely; strips encoded `bytes` from active `Decoded` entries without
-/// deleting them so visible images never enter an HTTP re-fetch loop.
-pub(crate) fn evict_ref_bytes(refs: &mut HashMap<String, RefSlot>, budget: usize, pin: Option<&str>) -> Vec<String> {
-    let mut total: usize = refs.values().map(RefSlot::bytes_len).sum();
+/// Evicts oldest encoded `media:` ref entries once total cached ref bytes exceed `budget`,
+/// preferring `Held` entries and never evicting `pin` or any entry touched on `cur_frame`.
+pub(crate) fn evict_ref_bytes(
+    refs: &mut HashMap<String, RefSlot>,
+    budget: usize,
+    pin: Option<&str>,
+    cur_frame: Option<u64>,
+) -> Vec<String> {
+    let mut total: usize = refs.values().map(|s| s.bytes().len()).sum();
     if total <= budget {
         return Vec::new();
     }
@@ -401,18 +448,12 @@ pub(crate) fn evict_ref_bytes(refs: &mut HashMap<String, RefSlot>, budget: usize
     while total > budget {
         let oldest = refs
             .iter()
-            .filter(|(k, s)| s.bytes_len() > 0 && pin != Some(k.as_str()))
+            .filter(|(k, s)| pin != Some(k.as_str()) && cur_frame != Some(s.last_frame()))
             .min_by_key(|(_, s)| (s.pixel_weight() > 0, s.last_used()))
-            .map(|(k, s)| (k.clone(), s.pixel_weight() > 0));
-        let Some((hash, is_decoded)) = oldest else { break };
-        if is_decoded {
-            if let Some(RefSlot::Decoded { bytes, .. }) = refs.get_mut(&hash)
-                && let Some(b) = bytes.take()
-            {
-                total = total.saturating_sub(b.len());
-            }
-        } else if let Some(slot) = refs.remove(&hash) {
-            total = total.saturating_sub(slot.bytes_len());
+            .map(|(k, _)| k.clone());
+        let Some(hash) = oldest else { break };
+        if let Some(slot) = refs.remove(&hash) {
+            total = total.saturating_sub(slot.bytes().len());
             dropped.push(hash);
         }
     }

@@ -90,12 +90,27 @@ impl Ends {
         self.recall.forget(id);
     }
 
-    /// Retains scroll/recall state only for sessions `keep` says remain alive.
-    pub fn retain(&mut self, keep: &dyn Fn(&str) -> bool) {
-        self.follow.retain(|id, _| keep(id));
-        self.saved.retain(|id, _| keep(id));
-        self.held.borrow_mut().retain(|id, _| keep(id));
-        self.recall.retain(keep);
+    /// Bounds scroll/recall state to active sessions plus up to `max_closed` closed sessions so
+    /// Undo Close Tab (⇧⌘T) preserves scroll position without unbounded growth.
+    pub fn retain_bounded(&mut self, keep: &dyn Fn(&str) -> bool, max_closed: usize) {
+        let mut closed: Vec<String> = self
+            .follow
+            .keys()
+            .chain(self.saved.keys())
+            .filter(|id| !keep(id))
+            .cloned()
+            .collect();
+        closed.sort();
+        closed.dedup();
+        if closed.len() <= max_closed {
+            return;
+        }
+        let keep_closed: std::collections::HashSet<&str> = closed[closed.len() - max_closed..].iter().map(String::as_str).collect();
+        let kept = |id: &str| keep(id) || keep_closed.contains(id);
+        self.follow.retain(|id, _| kept(id));
+        self.saved.retain(|id, _| kept(id));
+        self.held.borrow_mut().retain(|id, _| kept(id));
+        self.recall.retain(&kept);
     }
 
     /// Where session `id`'s timeline was read when it last showed, scrolled up: its first row

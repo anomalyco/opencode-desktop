@@ -63,8 +63,8 @@ fn step_sweep(state: &mut MemorySweep, event: SweepEvent) -> SweepEffect {
 pub(crate) static SWEEP: opencode_kernel::Slot<MemorySweep> = opencode_kernel::Slot::new();
 
 /// Quiet periodic sweep called from `tick::poll`: reclaims closed sessions and enforces decoded
-/// image budgets across active and parked servers while active without mutating clean `Tracked`
-/// cells, forcing a redraw, or waking an idle rested window.
+/// image budgets across active and parked servers while active without forcing a redraw or
+/// re-arming periodic wakes once rested.
 pub(crate) fn poll(s: &mut App, tx: &mut rune::Tx, changed: bool) {
     let now_ms = *s.now_ms;
     let active = changed || !s.running.is_empty();
@@ -156,7 +156,6 @@ pub(crate) fn on_tab_closed(s: &mut App, server: &ServerKey, id: &str, was_shown
             files::watch::forget_session(s, sid);
         }
         s.turn_diffs.forget(sid);
-        s.timeline_fx.ends.forget(sid);
     }
     if !other_unreported && !dropped_ids.is_empty() {
         retain_global_user_messages(s);
@@ -225,7 +224,7 @@ fn sweep_all(s: &mut App, full_rest: bool) {
     }
     if full_rest || removed_any {
         s.turn_diffs.retain(&|id| all_kept_ids.contains(id));
-        s.timeline_fx.ends.retain(&|id| all_kept_ids.contains(id));
+        s.timeline_fx.ends.retain_bounded(&|id| all_kept_ids.contains(id), 50);
     }
 
     if !other_unreported && (full_rest || removed_any) {
@@ -237,7 +236,7 @@ fn sweep_all(s: &mut App, full_rest: bool) {
         s.kernel.slots.get(&crate::app::MATH).rest();
     }
 
-    if has_rest_hooks && (full_rest || removed_any) {
+    if full_rest && has_rest_hooks {
         scheduler.run_rest(s, &|id| all_kept_ids.contains(id));
     }
 

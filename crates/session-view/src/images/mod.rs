@@ -56,8 +56,6 @@ pub struct MediaStore {
     frame: Cell<u64>,
     /// Decoded thumbnail handles by the bytes' address, bounded by `PIXEL_BUDGET` LRU.
     images: RefCell<HashMap<(usize, usize), InlineEntry>>,
-    /// Header dimensions for evicted inline thumbnails (guarded by Weak to prevent address-reuse ABA).
-    inline_sizes: RefCell<HashMap<(usize, usize), (std::sync::Weak<[u8]>, [u32; 2])>>,
     /// `media:<hash>` refs: fetched once, decoded to thumbnail size, bounded by LRU budgets.
     pub media: Media,
     refs: RefCell<HashMap<String, RefSlot>>,
@@ -73,6 +71,12 @@ pub(super) struct InlineEntry {
     pub(super) prepared: PreparedImage,
     pub(super) last_used: u64,
     pub(super) last_frame: u64,
+}
+
+impl InlineEntry {
+    pub(super) fn weight(&self) -> usize {
+        cache::live_weight(&self.prepared.image, self.prepared.weight())
+    }
 }
 
 /// Header dimensions are available before decode; the same handle crosses from prefetch to view.
@@ -310,6 +314,7 @@ impl MediaStore {
         self.images.borrow_mut().retain(|_, e| Arc::strong_count(&e.prepared.bytes) > 1);
         self.evict_pixels(PIXEL_BUDGET, cache::Pin::None);
         self.evict_ref_bytes(REF_BYTES_BUDGET, None);
+        self.media.prune_orphaned_ready(&self.refs.borrow());
         self.markdown.trim(markdown::MD_PIXEL_BUDGET, markdown::MD_BYTES_BUDGET);
     }
 
@@ -319,6 +324,7 @@ impl MediaStore {
         self.images.borrow_mut().retain(|_, e| Arc::strong_count(&e.prepared.bytes) > 1);
         self.evict_pixels(REST_PIXEL_BUDGET, cache::Pin::None);
         self.evict_ref_bytes(REF_BYTES_BUDGET, None);
+        self.media.prune_orphaned_ready(&self.refs.borrow());
         self.markdown.trim(markdown::MD_REST_PIXEL_BUDGET, markdown::MD_BYTES_BUDGET);
     }
 
@@ -335,24 +341,16 @@ impl MediaStore {
     pub fn rest_pixels(&self) {
         self.images.borrow_mut().clear();
         let mut refs = self.refs.borrow_mut();
-        let mut to_remove = Vec::new();
         let mut state = self.media.state.lock().unwrap_or_else(|e| e.into_inner());
         for (hash, slot) in refs.iter_mut() {
-            match slot.demote() {
-                cache::Demote::Unchanged => {}
-                cache::Demote::ToHeld(bytes, _) => { state.insert(hash.clone(), Fetched::Ready(bytes)); }
-                cache::Demote::DropEntry(_) => {
-                    state.remove(hash);
-                    to_remove.push(hash.clone());
-                }
+            if slot.demote() > 0 {
+                state.insert(hash.clone(), Fetched::Ready(slot.bytes().clone()));
             }
-        }
-        for hash in to_remove {
-            refs.remove(&hash);
         }
         drop(state);
         drop(refs);
         self.evict_ref_bytes(REF_BYTES_BUDGET, None);
+        self.media.prune_orphaned_ready(&self.refs.borrow());
         self.markdown.rest();
     }
 
@@ -367,11 +365,6 @@ impl MediaStore {
                 p.max_px = old.prepared.max_px;
             }
             let key = (p.bytes.as_ptr() as usize, p.bytes.len());
-            if let Some(sz) = p.size {
-                let mut sizes = self.inline_sizes.borrow_mut();
-                cap_map(&mut sizes);
-                sizes.insert(key, (Arc::downgrade(&p.bytes), sz));
-            }
             images.insert(key, InlineEntry { prepared: p, last_used: now, last_frame: self.frame.get() });
         }
         drop(images);
@@ -390,11 +383,11 @@ impl MediaStore {
                 .or_else(|| self.refs.borrow().get(hash).and_then(|s| s.size())),
             None => {
                 let key = (f.bytes.as_ptr() as usize, f.bytes.len());
-                self.inline_sizes
+                self.images
                     .borrow()
                     .get(&key)
-                    .and_then(|(w, sz)| w.upgrade().filter(|a| Arc::ptr_eq(a, &f.bytes)).map(|_| *sz))
-                    .or_else(|| self.images.borrow().get(&key).and_then(|e| e.prepared.size.or_else(|| e.prepared.image.size())))
+                    .and_then(|e| e.prepared.size.or_else(|| e.prepared.image.size()))
+                    .or_else(|| dimensions(&f.bytes))
             }
         };
         size.map_or((160.0, 120.0), |[w, h]| fit(w as f32 / 2.0, h as f32 / 2.0, 320.0, 240.0))
@@ -411,11 +404,10 @@ impl MediaStore {
                 .or_else(|| self.refs.borrow().get(hash).and_then(|s| s.size())),
             None => {
                 let key = (f.bytes.as_ptr() as usize, f.bytes.len());
-                self.inline_sizes
+                self.images
                     .borrow()
                     .get(&key)
-                    .and_then(|(w, sz)| w.upgrade().filter(|a| Arc::ptr_eq(a, &f.bytes)).map(|_| *sz))
-                    .or_else(|| self.images.borrow().get(&key).and_then(|e| e.prepared.size))
+                    .and_then(|e| e.prepared.size)
                     .or_else(|| dimensions(&f.bytes))
             }
         }
@@ -451,18 +443,13 @@ impl MediaStore {
                         *last_frame = cur_frame;
                         (image.clone(), false)
                     }
-                    RefSlot::Decoded { image, bytes: None, last_used, last_frame, .. } => {
-                        *last_used = now;
-                        *last_frame = cur_frame;
-                        (image.clone(), false)
-                    }
-                    RefSlot::Decoded { bytes: Some(bytes), size, .. } | RefSlot::Held { bytes, size, .. } => {
+                    RefSlot::Decoded { bytes, size, .. } | RefSlot::Held { bytes, size, .. } => {
                         let bytes = bytes.clone();
                         let size = *size;
                         let cache = self.image_cache();
                         let (img, max_px) = load_thumb(&cache, bytes.clone(), &a.mime, size, max_pt, scale);
                         let weight = scaled_weight(size, max_px);
-                        *slot = RefSlot::Decoded { image: img.clone(), bytes: Some(bytes), size, max_px, weight, last_used: now, last_frame: cur_frame };
+                        *slot = RefSlot::Decoded { image: img.clone(), bytes, size, max_px, weight, last_used: now, last_frame: cur_frame };
                         self.media.state.lock().unwrap_or_else(|e| e.into_inner()).insert(hash.clone(), Fetched::Decoded);
                         (img, true)
                     }
@@ -511,11 +498,6 @@ impl MediaStore {
         let cache = self.image_cache();
         let prepared = PreparedImage::new(&cache, a.bytes.clone(), &a.mime, max_pt, scale);
         let img = prepared.image.clone();
-        if let Some(sz) = prepared.size {
-            let mut sizes = self.inline_sizes.borrow_mut();
-            cap_map(&mut sizes);
-            sizes.insert(key, (Arc::downgrade(&prepared.bytes), sz));
-        }
         self.images.borrow_mut().insert(key, InlineEntry { prepared, last_used: now, last_frame: cur_frame });
         self.evict_pixels(PIXEL_BUDGET, cache::Pin::Inline(key));
         Some(img)
@@ -533,7 +515,7 @@ impl MediaStore {
 
     #[allow(clippy::too_many_arguments)]
     fn adopt_ref(&self, hash: &str, img: Image, size: Option<[u32; 2]>, bytes: Arc<[u8]>, max_px: u32, weight: usize, now: u64) {
-        self.refs.borrow_mut().insert(hash.to_owned(), RefSlot::Decoded { image: img, bytes: Some(bytes), size, max_px, weight, last_used: now, last_frame: self.frame.get() });
+        self.refs.borrow_mut().insert(hash.to_owned(), RefSlot::Decoded { image: img, bytes, size, max_px, weight, last_used: now, last_frame: self.frame.get() });
         if let Some(size) = size {
             let mut sizes = self.ref_sizes.borrow_mut();
             cap_map(&mut sizes);
@@ -545,21 +527,19 @@ impl MediaStore {
     /// Evicts least-recently-used decoded thumbnail handles until total pixel weight fits `budget`.
     fn evict_pixels(&self, budget: usize, pin: cache::Pin<'_>) {
         let cur_frame = (self.frame.get() > 0).then(|| self.frame.get());
-        let changes = cache::evict_pixels(&mut self.images.borrow_mut(), &mut self.refs.borrow_mut(), budget, pin, cur_frame);
-        if !changes.is_empty() {
+        let demoted = cache::evict_pixels(&mut self.images.borrow_mut(), &mut self.refs.borrow_mut(), budget, pin, cur_frame);
+        if !demoted.is_empty() {
             let mut state = self.media.state.lock().unwrap_or_else(|e| e.into_inner());
-            for change in changes {
-                match change {
-                    cache::RefEvict::Demoted(hash, bytes) => { state.insert(hash, Fetched::Ready(bytes)); }
-                    cache::RefEvict::Forgot(hash) => { state.remove(&hash); }
-                }
+            for (hash, bytes) in demoted {
+                state.insert(hash, Fetched::Ready(bytes));
             }
         }
     }
 
     /// Evicts oldest encoded `media:` ref bytes once total cached ref bytes exceed `budget`.
     fn evict_ref_bytes(&self, budget: usize, pin: Option<&str>) {
-        for hash in cache::evict_ref_bytes(&mut self.refs.borrow_mut(), budget, pin) {
+        let cur_frame = (self.frame.get() > 0).then(|| self.frame.get());
+        for hash in cache::evict_ref_bytes(&mut self.refs.borrow_mut(), budget, pin, cur_frame) {
             self.media.forget(&hash);
         }
     }
@@ -582,7 +562,7 @@ impl MediaStore {
     /// An attachment's encoded bytes: inline ones as they are, a ref's once they've landed.
     pub fn bytes(&self, a: &Attachment) -> Option<Arc<[u8]>> {
         match &a.media {
-            Some(hash) => self.refs.borrow().get(hash).and_then(|s| s.bytes().cloned()),
+            Some(hash) => self.refs.borrow().get(hash).map(|s| s.bytes().clone()),
             None => (!a.bytes.is_empty()).then(|| a.bytes.clone()),
         }
     }

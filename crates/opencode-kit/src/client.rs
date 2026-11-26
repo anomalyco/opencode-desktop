@@ -721,8 +721,9 @@ impl Server {
                 stream_step(state, StreamEvent::Closed);
                 return Ok(());
             }
+            let shrink = line.len() <= 64 * 1024 && line.capacity() > 256 * 1024;
             line.clear();
-            if line.capacity() > 64 * 1024 {
+            if shrink {
                 line.shrink_to(64 * 1024);
             }
             let limit = 32 << 20;
