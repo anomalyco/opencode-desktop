@@ -1,7 +1,7 @@
 //! The attachment's calls that run off the UI thread and answer through `WorkerMsg`: the held
-//! `attach`, and the plugin list a Location the server has only just started is asked for
-//! before the browser attaches (`packages/gui-plugins/src/browser/pane.ts` `loaded`,
-//! opencode#65720).
+//! `attach`, the plugin list a Location the server has only just started is asked for before the
+//! browser attaches (`packages/gui-plugins/src/browser/pane.ts` `loaded`, opencode#65720), and
+//! command fetches (`experimental.browser/command`).
 
 use std::sync::mpsc::Sender;
 
@@ -47,6 +47,38 @@ pub(super) fn list_plugins(att: &SessionAttachment, attempt: u64, tx: Sender<Wor
         .spawn(move || {
             let any = matches!(server.list_plugins(Some(&directory)), Ok(PluginEndpoint::Supported(plugins)) if !plugins.is_empty());
             let _ = tx.send(WorkerMsg::PluginsListed { server_key, session_id, attempt, any });
+            if let Some(w) = wake {
+                w();
+            }
+        })
+        .ok();
+}
+
+/// Fetches one command payload (`experimental.browser/command`) off the UI thread.
+pub(super) fn fetch_command(
+    att: &mut SessionAttachment,
+    connection_id: String,
+    request_id: String,
+    tx: Sender<WorkerMsg>,
+    wake: Option<Waker>,
+) {
+    let abort = AbortHandle::new();
+    att.fetch_aborts.insert(request_id.clone(), abort.clone());
+    let server = att.server.clone();
+    let location = att.location.clone();
+    let sid = att.session_id.clone();
+    let skey = att.server_key.clone();
+    std::thread::Builder::new()
+        .name("browser-rpc-cmd".into())
+        .spawn(move || {
+            let result = server.browser_rpc_command_abortable(&location, &sid, &connection_id, &request_id, &abort);
+            let _ = tx.send(WorkerMsg::CommandFetched {
+                server_key: skey,
+                session_id: sid,
+                connection_id,
+                request_id,
+                result,
+            });
             if let Some(w) = wake {
                 w();
             }

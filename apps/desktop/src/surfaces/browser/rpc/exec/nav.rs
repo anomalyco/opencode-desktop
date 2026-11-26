@@ -30,6 +30,7 @@ pub(super) struct WaitLoadState {
     pub preview_path: Option<String>,
     pub close_on_fail: bool,
     pub saw_loading: bool,
+    pub commit_base: settle::CommitBaseline,
     /// Back/forward: the page they started from, whose commit settles the wait.
     pub history_from: Option<settle::HistoryFrom>,
     /// Back/forward while extensions run: the page's own answer for a same-document entry.
@@ -37,6 +38,15 @@ pub(super) struct WaitLoadState {
     pub prev_rejected: u64,
     pub started_at: Instant,
     pub deadline: Instant,
+}
+
+fn commit_baseline(att: &SessionAttachment, app: &App, host_id: u64, is_new_tab: bool) -> settle::CommitBaseline {
+    let document = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.prompts.document);
+    let (contexts_cleared, frame_navigations) = att
+        .frames
+        .get(&host_id)
+        .map_or((0, 0), |f| (f.main_contexts_cleared, f.main_frame_navigations));
+    settle::CommitBaseline { document, contexts_cleared, frame_navigations, is_new_tab }
 }
 
 /// Dispatches navigation and tab-lifecycle actions. Returns `None` if the action belongs to
@@ -169,16 +179,10 @@ fn start_tabs_open(
     }
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
     StepOutcome::Pending(ExecPhase::WaitLoad(WaitLoadState {
-        host_id,
-        wire_tab_id,
-        preview_path: None,
-        close_on_fail: true,
+        host_id, wire_tab_id, preview_path: None, close_on_fail: true,
         saw_loading: app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.loading),
-        history_from: None,
-        same_doc: None,
-        prev_rejected,
-        started_at: now,
-        deadline: now + LOAD_TIMEOUT,
+        commit_base: commit_baseline(att, app, host_id, true),
+        history_from: None, same_doc: None, prev_rejected, started_at: now, deadline: now + LOAD_TIMEOUT,
     }))
 }
 
@@ -295,6 +299,7 @@ fn start_navigate(
     };
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     app.mark_browser_tab_unseen(host_id);
+    let commit_base = commit_baseline(att, app, host_id, false);
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
     match app.resolve_preview_target(Some(&att.session_id), &candidate, true) {
         crate::browser::preview::PreviewTarget::Preview { display_url, spec } => {
@@ -318,16 +323,9 @@ fn start_navigate(
         return StepOutcome::Done(Outcome::ok(serde_json::to_value(tab).unwrap_or(Value::Null), Vec::new()));
     }
     StepOutcome::Pending(ExecPhase::WaitLoad(WaitLoadState {
-        host_id,
-        wire_tab_id: wire_id.to_owned(),
-        preview_path: None,
-        close_on_fail: false,
+        host_id, wire_tab_id: wire_id.to_owned(), preview_path: None, close_on_fail: false,
         saw_loading: app.workspace_panes.browser.host.tab(host_id).is_some_and(|t| t.loading),
-        history_from: None,
-        same_doc: None,
-        prev_rejected,
-        started_at: now,
-        deadline: now + LOAD_TIMEOUT,
+        commit_base, history_from: None, same_doc: None, prev_rejected, started_at: now, deadline: now + LOAD_TIMEOUT,
     }))
 }
 
@@ -351,6 +349,7 @@ fn start_history(
     }
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     app.mark_browser_tab_unseen(host_id);
+    let commit_base = commit_baseline(att, app, host_id, false);
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
     // The tab's history ends are not consulted: the engine refreshes them only when loading
     // changes, so a click-made same-document entry could look absent (READER-12b, #696 F1). With
@@ -383,16 +382,9 @@ fn start_history(
         return StepOutcome::Done(Outcome::ok(serde_json::to_value(tab).unwrap_or(Value::Null), Vec::new()));
     }
     StepOutcome::Pending(ExecPhase::WaitLoad(WaitLoadState {
-        host_id,
-        wire_tab_id: wire_id.to_owned(),
-        preview_path: None,
-        close_on_fail: false,
-        saw_loading: false,
-        history_from,
-        same_doc,
-        prev_rejected,
-        started_at: now,
-        deadline: now + LOAD_TIMEOUT,
+        host_id, wire_tab_id: wire_id.to_owned(), preview_path: None, close_on_fail: false,
+        saw_loading: false, commit_base, history_from, same_doc, prev_rejected,
+        started_at: now, deadline: now + LOAD_TIMEOUT,
     }))
 }
 
@@ -415,6 +407,7 @@ fn start_reload(
     }
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
     app.mark_browser_tab_unseen(host_id);
+    let commit_base = commit_baseline(att, app, host_id, false);
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
     if ignore_cache {
         app.workspace_panes.browser.host.reload_ignore_cache(host_id);
@@ -429,16 +422,9 @@ fn start_reload(
         return StepOutcome::Done(Outcome::ok(serde_json::to_value(tab).unwrap_or(Value::Null), Vec::new()));
     }
     StepOutcome::Pending(ExecPhase::WaitLoad(WaitLoadState {
-        host_id,
-        wire_tab_id: wire_id.to_owned(),
-        preview_path: None,
-        close_on_fail: false,
-        saw_loading: false,
-        history_from: None,
-        same_doc: None,
-        prev_rejected,
-        started_at: now,
-        deadline: now + LOAD_TIMEOUT,
+        host_id, wire_tab_id: wire_id.to_owned(), preview_path: None, close_on_fail: false,
+        saw_loading: false, commit_base, history_from: None, same_doc: None, prev_rejected,
+        started_at: now, deadline: now + LOAD_TIMEOUT,
     }))
 }
 
@@ -525,16 +511,9 @@ fn start_preview(
     }
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
     StepOutcome::Pending(ExecPhase::WaitLoad(WaitLoadState {
-        host_id,
-        wire_tab_id,
-        preview_path: Some(path.to_owned()),
-        close_on_fail,
-        saw_loading: false,
-        history_from: None,
-        same_doc: None,
-        prev_rejected,
-        started_at: now,
-        deadline: now + LOAD_TIMEOUT,
+        host_id, wire_tab_id, preview_path: Some(path.to_owned()), close_on_fail, saw_loading: false,
+        commit_base: commit_baseline(att, app, host_id, close_on_fail),
+        history_from: None, same_doc: None, prev_rejected, started_at: now, deadline: now + LOAD_TIMEOUT,
     }))
 }
 
@@ -562,6 +541,7 @@ fn start_navigate_path(
         Err(msg) => return StepOutcome::Done(Outcome::fail(failure_code::PREVIEW_UNAVAILABLE, msg)),
     };
     app.workspace_panes.browser.host.set_agent_driven(host_id, true);
+    let commit_base = commit_baseline(att, app, host_id, false);
     let prev_rejected = app.workspace_panes.browser.host.tab(host_id).map_or(0, |t| t.rejected);
     app.reopen_resolved_preview_tab(host_id, Some(&att.session_id), &display_url, spec);
     att.agent_tab_id = Some(wire_id.to_owned());
@@ -576,16 +556,9 @@ fn start_navigate_path(
         ));
     }
     StepOutcome::Pending(ExecPhase::WaitLoad(WaitLoadState {
-        host_id,
-        wire_tab_id: wire_id.to_owned(),
-        preview_path: Some(path.to_owned()),
-        close_on_fail: false,
-        saw_loading: false,
-        history_from: None,
-        same_doc: None,
-        prev_rejected,
-        started_at: now,
-        deadline: now + LOAD_TIMEOUT,
+        host_id, wire_tab_id: wire_id.to_owned(), preview_path: Some(path.to_owned()), close_on_fail: false,
+        saw_loading: false, commit_base, history_from: None, same_doc: None, prev_rejected,
+        started_at: now, deadline: now + LOAD_TIMEOUT,
     }))
 }
 
@@ -682,21 +655,6 @@ pub(super) fn step_wait_load(
     if tab.loading {
         st.saw_loading = true;
     }
-    if now >= st.deadline && tab.loading && tab.load_error.is_none() {
-        // `UP-147` (`#65313`, `keepsOpenedTab`): a page still loading when the navigation deadline
-        // passes keeps its tab open so the person or agent can wait, reload, or close it.
-        let _ = att.sync_tabs(app);
-        let msg = if st.close_on_fail {
-            format!(
-                "Navigation timed out after {}s. The tab stays open as {}: use that tabID with browser.wait, browser.reload or browser.tabs.close, and do not open the address again.",
-                LOAD_TIMEOUT.as_secs(),
-                st.wire_tab_id,
-            )
-        } else {
-            format!("Navigation timed out after {}s. The page may still be loading.", LOAD_TIMEOUT.as_secs())
-        };
-        return Some(Outcome::fail(failure_code::NAVIGATION_FAILED, msg));
-    }
     let frames = att.frames.get(&st.host_id).map(|f| settle::FramesNow {
         contexts_cleared: f.main_contexts_cleared,
         frame_navigations: f.main_frame_navigations,
@@ -704,29 +662,54 @@ pub(super) fn step_wait_load(
         same_document: f.main_same_document_navigations + u64::from(st.same_doc.as_ref().is_some_and(|p| p.confirmed)),
         main_context: f.main_frame_id.as_ref().is_some_and(|id| f.main_contexts.contains_key(id)),
     });
-    let waiting = settle::Waiting {
-        history: st.history_from.as_ref(),
-        saw_loading: st.saw_loading,
-        elapsed: now.duration_since(st.started_at),
-        deadline: st.deadline.duration_since(st.started_at),
-    };
-    let extensions_active = app.workspace_panes.browser.host.extensions_active();
-    match settle::settle(&waiting, Some(settle::TabNow { url: &tab.url, loading: tab.loading }), frames, extensions_active, LOAD_SETTLE_GRACE) {
-        settle::Settle::Wait => return None,
-        settle::Settle::Closed => return Some(Outcome::fail(failure_code::NAVIGATION_FAILED, "Browser tab closed while loading.")),
-        settle::Settle::Done => {}
-    }
-    if let Some(err) = &tab.load_error {
-        let msg = format!("Page failed to load ({err}).");
-        if st.close_on_fail {
-            eprintln!(
-                "browser tab closed: its open failed (session={}, tab={}, reason={err})",
-                att.session_id, st.host_id
-            );
-            let sid = att.session_id.clone();
-            app.close_browser_tab_for_session(&sid, st.host_id, tx);
+    let tab_now = settle::TabNow { url: &tab.url, loading: tab.loading, document: tab.prompts.document };
+    if now >= st.deadline && tab.loading && tab.load_error.is_none() {
+        // `navigationProgressDeadline` (`opencode#66217`): if a document already committed while
+        // subresources keep loading, return the committed tab (`loading: true`) immediately so
+        // callers can proceed to `browser.wait`. Otherwise keep `UP-147` (`keepsOpenedTab`).
+        if settle::deadline_outcome(&st.commit_base, tab_now, frames) == settle::DeadlineOutcome::TimedOut {
+            let _ = att.sync_tabs(app);
+            let msg = if st.close_on_fail {
+                format!(
+                    "Navigation timed out after {}s. The tab stays open as {}: use that tabID with browser.wait, browser.reload or browser.tabs.close, and do not open the address again.",
+                    LOAD_TIMEOUT.as_secs(),
+                    st.wire_tab_id,
+                )
+            } else {
+                format!("Navigation timed out after {}s. The page may still be loading.", LOAD_TIMEOUT.as_secs())
+            };
+            return Some(Outcome::fail(failure_code::NAVIGATION_FAILED, msg));
         }
-        return Some(Outcome::fail(failure_code::NAVIGATION_FAILED, msg));
+    } else {
+        let waiting = settle::Waiting {
+            history: st.history_from.as_ref(),
+            saw_loading: st.saw_loading,
+            elapsed: now.duration_since(st.started_at),
+            deadline: st.deadline.duration_since(st.started_at),
+        };
+        let extensions_active = app.workspace_panes.browser.host.extensions_active();
+        match settle::settle(&waiting, Some(tab_now), frames, extensions_active, LOAD_SETTLE_GRACE) {
+            settle::Settle::Wait => return None,
+            settle::Settle::Closed => return Some(Outcome::fail(failure_code::NAVIGATION_FAILED, "Browser tab closed while loading.")),
+            settle::Settle::Done => {}
+        }
+    }
+    if let Some(err) = tab.load_error.clone() {
+        let msg = match settle::classify_load_error(&err, &st.commit_base, tab_now, frames) {
+            settle::LoadErrorDisposition::WaitReplacement if now < st.deadline => return None,
+            settle::LoadErrorDisposition::CommittedOk => None,
+            settle::LoadErrorDisposition::AbortedNoCommit | settle::LoadErrorDisposition::WaitReplacement => Some(
+                "No page committed. The navigation was cancelled, failed, or became a download. Check the tab and its downloads before navigating again.".to_owned(),
+            ),
+            settle::LoadErrorDisposition::Failed => Some(format!("Page failed to load ({err}).")),
+        };
+        if let Some(msg) = msg {
+            if st.close_on_fail {
+                let sid = att.session_id.clone();
+                app.close_browser_tab_for_session(&sid, st.host_id, tx);
+            }
+            return Some(Outcome::fail(failure_code::NAVIGATION_FAILED, msg));
+        }
     }
     let _ = att.sync_tabs(app);
     let Some(wire) = att.wire_tab(app, st.host_id) else {

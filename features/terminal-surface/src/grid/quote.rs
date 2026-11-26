@@ -26,12 +26,21 @@ pub struct QuotePlace {
 /// Where the quoted rows stood when they were read (`QuoteSource`, `quote-machine.ts:46-52`):
 /// the first row in the view, the rows scrolled above the view, the bytes written so far and
 /// the grid's size.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct QuoteSource {
     row: u16,
     offset: u64,
     written: u64,
     grid: (u16, u16),
+}
+
+impl crate::TerminalTab {
+    /// The quote last taken with its comment editor, while its rows still hold. The screen is
+    /// drawn again when it changes: the mark the editor measures from is on the screen in the
+    /// frame the editor opens, not when the shell next draws.
+    pub fn quote_source(&self) -> Option<QuoteSource> {
+        self.quote_source.get()
+    }
 }
 
 /// The selection's place in `snap`.

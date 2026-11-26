@@ -135,6 +135,15 @@ impl SessionMenuHost for App {
         App::write(self, write)
     }
 
+    fn write_server_quiet(&mut self, write: Write) -> Offered {
+        use crate::session::inbox::send::Unsent;
+        match App::write_quiet(self, write) {
+            Ok(true) => Offered::Sent,
+            Ok(false) | Err(Unsent::NoWriter) => Offered::NoWriter,
+            Err(Unsent::ReadOnly) => Offered::ReadOnly,
+        }
+    }
+
     fn mark_viewed(&mut self, root: &str) {
         crate::session_viewed::mark(self, root);
     }

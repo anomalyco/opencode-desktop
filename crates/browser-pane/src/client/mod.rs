@@ -1154,6 +1154,7 @@ impl BrowserHost {
             self.send(HostMsg::SetZoom { tab_id: snap.tab_id, factor: want_zoom });
         }
         let mut prompts = crate::prompts::TabPromptState::default();
+        prompts.document = snap.document;
         prompts.agent_driven = snap.agent_driven;
         if snap.agent_driven {
             prompts.driver = Some(crate::prompts::TabDriver::Agent);

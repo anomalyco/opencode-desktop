@@ -35,9 +35,10 @@ pub fn build(lua: &Lua, t: &Table) -> mlua::Result<()> {
     method(lua, t, "OpenDocument", |lua, path: String| {
         let (sid, path) = with_app("Workspace:OpenDocument", |app| {
             let sid = app.active_session_id().ok_or_else(|| mlua::Error::runtime("Workspace:OpenDocument: no session is open"))?.to_owned();
-            // The path the file's tab carries (`plugins/file/panel.luau` `panel.path`), by the
-            // tab's own normalizing, which keeps a skill's `skill://<id>/<file>` whole.
-            let path = crate::files::data::normalize_path(&path);
+            // The path the file's tab carries (`plugins/file/panel.luau` `panel.path`): a file
+            // outside the folder keeps the `/` its absolute path starts at, and a skill's virtual
+            // file its `skill://<id>/<file>` whole.
+            let path = crate::files::data::document_path(&path);
             // A file not read yet, one still loading with no read running (its session's folder
             // wasn't known), or one a failed refresh left stale, reads as it shows.
             let files = app.kernel.slots.get(&crate::files::FILES);

@@ -410,6 +410,9 @@ impl App {
         if let Some(order) = crate::tabs::groups::visible_uids(self) {
             return order;
         }
+        if let Some(order) = crate::tabs::sections::visible_uids(self) {
+            return order;
+        }
         self.tabs.iter().map(Tab::uid).collect()
     }
 

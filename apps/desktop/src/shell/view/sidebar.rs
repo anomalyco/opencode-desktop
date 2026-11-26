@@ -15,6 +15,7 @@ pub(crate) mod recent;
 pub(crate) mod recent_view;
 pub(crate) mod pins;
 pub(super) mod rows;
+mod sections;
 mod tab_groups;
 pub(crate) mod state;
 
@@ -273,8 +274,10 @@ fn list(s: &App, p: &Pal) -> El {
             crate::settings::Organize::Consolidated if s.settings.navigation() == crate::settings::Navigation::List => {
                 recent::recent_consolidated(s, p)
             }
+            crate::settings::Organize::Consolidated if crate::tabs::sections::on(s) => sections::list(s, p, pinned_area::vertical(s, p, true)),
             crate::settings::Organize::Consolidated => pinned_area::side_tabs(s, p),
             crate::settings::Organize::List if crate::tabs::groups::on(s) => tab_groups::list(s, p),
+            crate::settings::Organize::List | crate::settings::Organize::Projects if crate::tabs::sections::on(s) => sections::list(s, p, None),
             crate::settings::Organize::List | crate::settings::Organize::Projects => {
                 tab_strip(s, p, "tabs", TabOrientation::Vertical, None, None)
             }

@@ -295,6 +295,28 @@ fn horizontal_session(s: &App, p: &Pal, r: &PinRef, nav_order: &[String], show_h
     slot
 }
 
+/// A fold header's chevron and its turn (`transition-[transform,opacity]`: 150 ms, Tailwind's
+/// default ease).
+const CHEVRON: Curve = Curve::tween(0.15, Easing::cubic(0.4, 0.0, 0.2, 1.0));
+
+/// A header's chevron that shows with the pointer over the header's row or with the keyboard's
+/// focus on its toggle (the ancestor keyed `toggle`), fading over 150 ms, and always where the
+/// pointer cannot hover (`pinned-area.tsx:376`, `recent-sessions.tsx:1222-1225`: `opacity-0
+/// transition-[transform,opacity] group-hover/row:opacity-100
+/// group-focus-visible/toggle:opacity-100 [@media(hover:none)]:opacity-100`, opencode#66265).
+/// It turns over the same 150 ms.
+pub(super) fn group_chevron(p: &Pal, open: bool, toggle: &str) -> El {
+    let chevron = icon(&ic::FILL_TRIANGLE_DOWN, 14.0)
+        .color(p.icon_muted)
+        .rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 })
+        .mirror_in_rtl()
+        .rotate_motion(CHEVRON);
+    if session_view::style::hover_none() {
+        return chevron;
+    }
+    chevron.group_opacity(0.0, 1.0).group_focus_within(toggle.to_owned()).group_motion(CHEVRON, CHEVRON)
+}
+
 fn vertical_group(s: &App, p: &Pal, g: &PinGroup, nav_order: &[String], show_hints: bool) -> El {
     let open = !pins::state(s).doc.collapsed.get(&g.id).copied().unwrap_or(false);
     let mark = pins::hidden_mark(s, g);
@@ -316,8 +338,9 @@ fn vertical_group(s: &App, p: &Pal, g: &PinGroup, nav_order: &[String], show_hin
     let trigger_key = menu_key.clone();
     let ctx_key = menu_key.clone();
 
+    let toggle_key = format!("pin-group-trigger-{}", g.id);
     let trigger = row()
-        .key(format!("pin-group-trigger-{}", g.id))
+        .key(toggle_key.clone())
         .role("button")
         .label(g.name.clone())
         .expanded(open)
@@ -331,29 +354,30 @@ fn vertical_group(s: &App, p: &Pal, g: &PinGroup, nav_order: &[String], show_hin
         .center_y()
         .radius(6.0)
         .focus_inset(p)
-        .hover(p.hover)
-        // The toggle is the chevron's hover group: an element with a hover colour is the group of
-        // what it holds, and only a group lights for the keyboard's focus on it.
-        .hover_group()
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
             tx.instant();
             pins::update(s, |d| d.toggle_group(&toggle_id));
         })
         // A right-click opens the menu where the row's `⋯` does, as official's `Menu` (`bottom-end`).
         .on_secondary_press(move |s: &mut App, _: rune::PointerPress, tx: &mut Tx| open_group_menu(s, &ctx_id, ctx_key.clone().into(), rune::Align::End, tx))
+        // The toggle's fill follows the ROW's hover, the pointer over the row's menu button
+        // too (`pinned-area.tsx:350`: `group-hover/row:bg-v2-overlay-simple-overlay-hover`), and
+        // not the keyboard's focus, which draws the ring alone. It is a layer of the row's
+        // group: a hover colour on the toggle itself would make the toggle the group of what
+        // it holds.
+        .child(el().key("hover").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).radius(6.0).fill(p.hover).group_opacity(0.0, 1.0).a11y_hidden())
         .child(marker)
         .child(label_el)
-        // The chevron shows with the pointer over the toggle or the keyboard's focus on it
-        // (`pinned-area.tsx:376`: `opacity-0 group-hover/row:opacity-100
-        // group-focus-visible/toggle:opacity-100`, opencode#66265), and always where the
-        // pointer cannot hover. Official's also shows with the pointer over the row's menu
-        // button, and fades over 150 ms.
-        .child(session_view::style::hover_reveal(icon(&ic::FILL_TRIANGLE_DOWN, 14.0).color(p.icon_muted).rotate(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 }).mirror_in_rtl()));
+        .child(group_chevron(p, open, &toggle_key));
+
+    // The menu button shows with the pointer over the row or with focus on itself
+    // (`pinned-area.tsx:417`: `opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100`).
+    // Only the pointer lights the row, so focus on the toggle doesn't show it.
 
     let dots = super::super::home::projects::icon_button(p, &menu_key, t!("navigation.group.options"), &ic::OUTLINE_DOTS, menu_open)
         .menu_button(menu_key.clone(), move |s: &mut App, tx: &mut Tx| open_group_menu(s, &trigger_id, trigger_key.clone().into(), rune::Align::End, tx));
     let dots = el().pin(None, Some(4.0), Some(4.0), None).child(if menu_open { dots } else { session_view::style::hover_reveal(dots) });
-    let header_row = row().key(format!("pin-group-row-{}", g.id)).w_full().hover_group().child(trigger).child(dots);
+    let header_row = row().key(format!("pin-group-row-{}", g.id)).w_full().hover_group_pointer().child(trigger).child(dots);
 
     let mut group_col = col().key(format!("pin-group-{}", g.id)).w_full().gap(3.0).child(header_row);
     let visible = pins::visible_in_group(s, g);

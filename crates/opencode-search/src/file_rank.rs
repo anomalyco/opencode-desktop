@@ -7,20 +7,15 @@ use std::collections::HashMap;
 pub const OPEN_TAB_ID: &str = "open";
 pub const OPEN_TAB_KEY: &str = "file:open";
 
-/// Normalizes a workspace-relative path: backslashes become `/`, leading/trailing slashes are
-/// stripped, and repeated `/` runs collapse to a single `/`.
+/// Normalizes a path of the session's folder: backslashes become `/`, leading/trailing slashes
+/// are stripped, and repeated `/` runs collapse to a single `/`.
 ///
-/// A skill's virtual file, `skill://<id>/<file>` (official
-/// `packages/app/src/workspaces/files/model.tsx:245`), keeps its two slashes: it is no path of
-/// the folder, and a file tab's id carries it whole (`file_tab_id`, `file_tab_path`).
+/// For a path that is known to be inside the folder (a tree row, a find result, a diff's file).
+/// It keeps no root and no scheme: `/Users/kit/notes.md` gives `Users/kit/notes.md` and
+/// `skill://id/SKILL.md` gives `skill:/id/SKILL.md`. A path that may name a file outside the
+/// folder, or a skill's virtual file, goes through [`document_path`]. The one function of this
+/// name: `opencode-code-view` re-exports it.
 pub fn normalize_path(value: &str) -> String {
-    if let Some(scheme) = value.get(..8).filter(|scheme| scheme.eq_ignore_ascii_case("skill://")) {
-        return format!("{scheme}{}", segments(&value[8..]));
-    }
-    segments(value)
-}
-
-fn segments(value: &str) -> String {
     let replaced = value.replace('\\', "/");
     let trimmed = replaced.trim_matches('/');
     let mut out = String::with_capacity(trimmed.len());
@@ -39,8 +34,27 @@ fn segments(value: &str) -> String {
     out
 }
 
+/// The path a file's tab and its document go by. What it keeps that [`normalize_path`] drops:
+///
+/// - the `/` an absolute path starts at: a file outside the folder is `/Users/kit/notes.md`
+///   (a drive path, `C:/notes.md`, has none to lose);
+/// - a skill's virtual file's scheme, `skill://<id>/<file>` (official
+///   `packages/app/src/workspaces/files/model.tsx:245`): it is no path of the folder.
+///
+/// A file of the folder is its normalized path.
+pub fn document_path(value: &str) -> String {
+    if let Some(scheme) = value.get(..8).filter(|scheme| scheme.eq_ignore_ascii_case("skill://")) {
+        return format!("{scheme}{}", normalize_path(&value[8..]));
+    }
+    let path = normalize_path(value);
+    if value.starts_with('/') && !path.is_empty() { format!("/{path}") } else { path }
+}
+
+/// A file tab's id: `//` and the file's path, whole, so the path read back from it
+/// (`file_tab_path`) is the one the file was opened by: `///Users/kit/notes.md` for a file
+/// outside the folder (official `packages/gui-plugins/src/file/path.ts:9-11`).
 pub fn file_tab_id(path: &str) -> String {
-    format!("//{}", normalize_path(path))
+    format!("//{}", document_path(path))
 }
 
 pub fn file_tab_key(path: &str) -> String {
@@ -48,9 +62,8 @@ pub fn file_tab_key(path: &str) -> String {
 }
 
 pub fn file_tab_path(tab_id: &str) -> Option<String> {
-    let rest = tab_id.strip_prefix("//")?;
-    let norm = normalize_path(rest);
-    (!norm.is_empty()).then_some(norm)
+    let path = document_path(tab_id.strip_prefix("//")?);
+    (!path.is_empty()).then_some(path)
 }
 
 /// Splits `"src/net/stream.ts:24"` or `"src/net/stream.ts#L24"` into `("src/net/stream.ts", Some(24))`.

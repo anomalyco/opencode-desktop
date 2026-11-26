@@ -35,7 +35,7 @@ pub use host::{
     build_version, configure,
 };
 pub use jobs::{SettingsJob, SettingsReply, SettingsRequest, apply_reply, execute_request};
-pub use prefs::{BackgroundActivity, Choice, FollowUp, Navigation, Organize, SOUNDS, Sounds, StartIn, TabGrouping, TimelineWidth, TitlebarPosition, Worktree};
+pub use prefs::{BackgroundActivity, Choice, FollowUp, Navigation, Organize, QuestionSubmitKey, SOUNDS, Sounds, StartIn, TabGrouping, TimelineWidth, TitlebarPosition, Worktree};
 pub use types::{
     CODE_FONTS, DockPlacement, Font, NotifyKind, NotifyKinds, ReduceMotion, Scheme, TERMINAL_FONTS, TabLayout, TerminalMarkShell, TextRenderer, UI_FONTS, ZOOM_LEVELS, ZOOM_MAX, ZOOM_MIN,
     css_family, custom_name, font_index, step_zoom,
@@ -117,6 +117,9 @@ pub struct Settings {
     /// defaulting to `false` across all packaged builds (`local`, `dev`, `beta`, `prod`) to match
     /// upstream `settings/model.tsx:460-463` (`import.meta.env.DEV && VITE_OPENCODE_TEST_FIXTURES !== "1"`).
     pub tab_groups: Option<bool>,
+    /// Experimental › Sidebar sections (Rune's own, `rune.settings`): multi-select on side tabs,
+    /// batch actions and minimal collapsible section headers. `None` until toggled; off by default.
+    pub sidebar_sections: Option<bool>,
     /// Ease a live delivery into place: the Pending label, the tray's room and joined prompts.
     pub smooth_timeline: bool,
     /// macOS: Option in the terminal is Meta (Esc and the key, for a shell's word motions) instead
@@ -137,6 +140,8 @@ pub struct Settings {
     pub last_used: BTreeMap<String, String>,
     /// What Enter does while the agent works (`general.followUpBehavior`).
     pub follow_up: FollowUp,
+    /// The key that moves a question dock on or submits it (`general.questionSubmitKey`).
+    pub question_submit: QuestionSubmitKey,
     /// Ctrl-scroll and trackpad pinches zoom the window (Desktop's `pinchZoom`); off by default.
     pub pinch_zoom: bool,
     /// Underline misspelt words while typing (Desktop's `spellcheck`); on by default.
@@ -197,6 +202,7 @@ impl Default for Settings {
             shared_side_panel: false,
             new_question_ui: false,
             tab_groups: None,
+            sidebar_sections: None,
             smooth_timeline: false,
             terminal_option_meta: false,
             terminal_marks: Vec::new(),
@@ -205,6 +211,7 @@ impl Default for Settings {
             worktree: Worktree::default(),
             last_used: BTreeMap::new(),
             follow_up: FollowUp::default(),
+            question_submit: QuestionSubmitKey::default(),
             pinch_zoom: false,
             spellcheck: true,
             spellcheck_languages: Vec::new(),
@@ -231,7 +238,15 @@ impl Settings {
         if let (Some(on), Some(m)) = (self.tab_groups, v.as_object_mut()) {
             m.insert("tabGroups".into(), json!(on));
         }
+        if let (Some(on), Some(m)) = (self.sidebar_sections, v.as_object_mut()) {
+            m.insert("sidebarSections".into(), json!(on));
+        }
         v
+    }
+
+    /// Experimental › Sidebar sections: off unless turned on.
+    pub fn sidebar_sections(&self) -> bool {
+        self.sidebar_sections.unwrap_or(false)
     }
 
     /// Experimental › Tab groups (`general.tabGroups`, #64407): opt-in (`false` by default) in
@@ -266,6 +281,7 @@ impl Settings {
             "language": self.language,
             "workspaces": { "startIn": self.start_in.name(), "worktree": self.worktree.name(), "lastUsed": self.last_used },
             "followUpBehavior": self.follow_up.name(),
+            "questionSubmitKey": self.question_submit.name(),
             "pinchZoom": self.pinch_zoom,
             "spellcheck": self.spellcheck,
             "spellcheckLanguages": self.spellcheck_languages,
@@ -315,6 +331,7 @@ impl Settings {
             shared_side_panel: v["sharedSidePanel"].as_bool().unwrap_or(false),
             new_question_ui: v["newQuestionUI"].as_bool().unwrap_or(false),
             tab_groups: v["tabGroups"].as_bool(),
+            sidebar_sections: v["sidebarSections"].as_bool(),
             smooth_timeline: v["smoothTimeline"].as_bool().unwrap_or(false),
             terminal_option_meta: v["terminal"]["optionAsMeta"].as_bool().unwrap_or(false),
             terminal_marks: v["terminal"]["marks"]
@@ -344,6 +361,7 @@ impl Settings {
                 })
                 .unwrap_or_default(),
             follow_up: FollowUp::parse(v["followUpBehavior"].as_str()),
+            question_submit: QuestionSubmitKey::parse(v["questionSubmitKey"].as_str()),
             pinch_zoom: v["pinchZoom"].as_bool().unwrap_or(d.pinch_zoom),
             spellcheck: v["spellcheck"].as_bool().unwrap_or(d.spellcheck),
             mobile_diff_wrap: v["mobileDiffWrap"].as_bool().unwrap_or(d.mobile_diff_wrap),

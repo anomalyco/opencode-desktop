@@ -1,30 +1,30 @@
 {
-  "generated_at": "2026-11-25",
+  "generated_at": "2026-11-26",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "57551d990d861720a39d1aba82d43023f9fad745",
+  "upstream_head": "44344bd22d37da2dd6098e8d4b8b0236a3e143e0",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "fce76a1c8",
-  "post_1114_commit_count": 687,
-  "post_1114_in_ledger": 240,
-  "post_1114_skipped": 447,
+  "rune_desktop_head": "a1d6a19ce",
+  "post_1114_commit_count": 721,
+  "post_1114_in_ledger": 248,
+  "post_1114_skipped": 473,
   "post_1114_skipped_breakdown": {
-    "test-only": 27,
+    "test-only": 32,
     "ci-bench-deps": 26,
-    "docs-site-data": 70,
+    "docs-site-data": 73,
     "tui-only": 31,
-    "cli-acp-only": 11,
-    "server-core-ai-codemode-internal": 282
+    "cli-acp-only": 12,
+    "server-core-ai-codemode-internal": 299
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 261,
+  "total_ledger_rows": 269,
   "status_counts": {
-    "have it": 215,
-    "not applicable": 37,
+    "have it": 218,
+    "not applicable": 38,
     "differs on purpose": 1,
-    "partly": 2,
-    "missing": 6
+    "partly": 4,
+    "missing": 8
   },
   "rows": [
     {
@@ -5860,8 +5860,8 @@
       ],
       "summary": "The elevation shadows' layers are listed in Figma's order (the 0.5 px ring first, then the soft shadows; for the contrast button the insets before the ring and the drop shadow), which changes which layer paints over which.",
       "size": "XS",
-      "status": "missing",
-      "status_evidence": "Not ported, not compared. The tokens are Rune's (rune-theme-opencode): official reversed the layer lists of eight elevation tokens in both themes (raised, floating, overlay, input, button-neutral, button-contrast, switch-off, switch-on), and in Rune that is data only (themes/opencode/assets/theme.json holds each list and the kit paints a list in CSS order, the first layer on top), so the port is a Rune PR and a pin. What can differ, by reading: in the light theme black layers over black composite the same in any order, so only the contrast button (an opaque grey ring) can; in the dark theme raised, floating, overlay, button-neutral and button-contrast mix a light ring and top line with dark drops, so the 0.5 px ring of cards, popovers, menus, dialogs and neutral buttons is a little lighter where the drop lies on it (the ring now paints over the drop); dark input (its drop has no alpha) and both switches (one colour each) cannot differ. It is to ride the pin bump after the next one, alone, so that the pin's picture walk shows it as its one meant difference. 26 Nov: the Rune change is merged (rune#2187, 85466cc98) and is not in the pin of opencode-rune #1192 (d5c7a5ad): it reaches the app with the bump after it.",
+      "status": "have it",
+      "status_evidence": "By the Rune pin 5342f14d (opencode-rune #1257, affe876f), which holds rune#2187 (85466cc98): every `v2-elevation-*` token of the OpenCode theme lists its layers in official's order, the 0.5 pt ring before the drop shadows, and the kit paints a list's first layer on top, as CSS does. Official: packages/ui/src/styles/tokens/theme.css:220-234 (dark: the top line, the ring, then the two drops), :106-124 (light), commit 0c2e204eaa. Seen in the pin's walk (headless, Windows x64, the pin's build beside a build of dev without it): in the dark theme the outline of a raised surface (a Markdown table, a tooltip, a raised Settings button) is lighter on its lower and side edges and unchanged on its top edge, in 106 of the walk's 168 pictures; on one picture the sides read 42 to 47 and the bottom 32 to 40 of 255. That is the ring now painted over the drops, which fall downward: the direction and the edges are official's by its file. Not compared: the amount, with a render of official's surface beside ours. In the light theme the walk's eight pictures are the same on both builds, pixel by pixel, among them a picture with the same Markdown table whose dark twin differs by the outline; not looked at there: a raised Settings button, a tooltip, and the contrast button, the one place where by official's file the order can change the light theme.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6200,8 +6200,8 @@
       ],
       "summary": "Four gaps of the Consolidated navigation: a middle click on a pinned session unpins it and closes its tab; a pin group's chevron (vertical) and, under Consolidated, a Recent group header's chevron show only on hover or keyboard focus; Home's project picker names the focused server, with the server glyph, in place of All projects when there are several servers and no project is chosen.",
       "size": "S",
-      "status": "have it",
-      "status_evidence": "Ported in opencode-rune #1144 (2e0d7d31): a middle click on a pinned session unpins it (apps/desktop/src/shell/tabs/pins.rs), a pin group's and a Recent group header's chevron show only under the pointer or keyboard focus (shell/view/sidebar/pinned_area.rs, recent.rs), Home's picker names the focused server when no project is chosen (shell/view/home/projects.rs). Run headless on its own Windows x64 CI build beside a build without it: the chevron at rest / pointer on the toggle / pointer away / keyboard focus on the toggle and on the menu button, the Recent header the same, the middle click with and without an open tab, Home's picker with one and two servers in a narrow and a 900-wide window. Not run: a real window, a pin group in top tabs under the keyboard, the Recent arrangement's own grouped header, macOS, Linux. Open differences, all four removed by Rune's rune#2231 (merged on Rune dev, not pinned yet), then one app change: (A) the chevron's fade: ours at once in and 0.1 s out, official 150 ms (packages/app/src/shell/titlebar/pinned-area.tsx:376); (B) with the pointer over the row's menu button official still shows the chevron (the row is hovered), ours does not; (C) with keyboard focus on the toggle ours also draws the toggle's hover fill, official the focus ring alone (seen in the run); (D) the menu button shows for keyboard focus anywhere in the row, official only for its own focus (pinned-area.tsx:417; recent-sessions.tsx:1225, :1231).",
+      "status": "partly",
+      "status_evidence": "Ported in opencode-rune #1144 (2e0d7d31), with its four open hover/focus/fade differences closed in #1262 (75cae151) on the Rune pin 5342f14d (rune#2231, rune#2215): a middle click on a pinned session unpins it (apps/desktop/src/shell/tabs/pins.rs), Home's picker names the focused server when no project is chosen (shell/view/home/projects.rs), and a pin group's and Recent group's header chevron and menu button follow official's hover and focus (shell/view/sidebar/pinned_area.rs, recent.rs: 150 ms chevron fade in and out, chevron stays visible while hovering the menu button, keyboard focus on the toggle shows the ring and chevron with no hover fill and no menu button, Recent header has no hover fill and turns its label to base ink on hover). Run headless on Windows x64 CI builds: #1144's middle click and Home picker ran on #1144's build; #1262's 9 cases ran on 0b4db7a00 (run 45711964463) beside before build #1271 278f9aaf38 (29 launches, exit 0), confirming 150 ms chevron fade (0.837 / 0.163 at 60 ms), pointer on menu button keeps chevron and fill, Tab on toggle shows no fill and no menu button, Recent header no fill and base ink on hover, and terminal quote icon label + tooltip. Partly because two differences remain open: (1) a Recent header's words turn to base ink while hovering its Group and sort button where official keeps them muted (packages/app/src/shell/titlebar/recent-sessions.tsx:1201): needs a Rune addition for a member naming its hover group (Rune draft owed); (2) the chevron turns at once on toggle press (0 px diff at 60 ms vs settled in case 7) because the toggle's press calls tx.instant(), where official turns over 150 ms. Not run: a real window, touch, top tabs' pin groups, the Recent arrangement's own grouped header, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6335,8 +6335,8 @@
       ],
       "summary": "The browser's import dialog in two groups: what comes over (Sign-ins, Browsing history) and from which sites: a radio choice 'All sites' (with the count) or 'Only sites I choose', which shows the search and the site list under it with nothing ticked; one box in the list's header ticks or clears every shown site (mixed when some are ticked) in place of the Select all / Select none buttons; the 'Choose sites' disclosure in the footer is gone; a profile picker ('From') shows only where the dialog has several profiles to offer, and a Settings row opens it for its own profile, named in the title with the profile as a badge; a new dialog size 'tall' (480 x 600, fixed top edge); the Settings row's button says 'Import', not 'Import...', and a browser's profile name beside it is a badge.",
       "size": "L",
-      "status": "missing",
-      "status_evidence": "Not ported yet: in work. Official: packages/gui-plugins/src/browser/site-chooser.tsx (the whole dialog), settings.tsx:71-73 (choices = [choice]), :884-896 (the badge), i18n/en.ts:204-208 and :439, packages/ui/src/overlays/dialog/dialog.css:163-180 and dialog.tsx:28 (size 'tall'). Ours: plugins/browser/settings.luau and init.luau (the dialog as it was: two boxes, a 'Choose sites' disclosure, every site ticked), opencode_ui::dialog::DialogSize (no tall preset).",
+      "status": "partly",
+      "status_evidence": "Ported in opencode-rune #1202 (56bd7bb4; plugin contract 1.11): the browser Import dialog is organized into two groups (Include: Sign-ins and Browsing history; Sites: All sites with count, or Only sites I choose with search, select-all checkbox and site list), with the profile shown as a badge beside the browser title when opened from a Settings row, and the dialog keeping its top edge when the list opens; Return on a checkbox starts the import. Two older faults were fixed in the same change: Settings > Browser now lists profiles on its first open without leaving the page, and working copies of another browser's cookie database left behind if the app ended during a read are claimed by an OS lock file and swept once after launch (official packages/gui-plugins/src/browser/profile/index.ts:102, database.ts:62-86). Official: packages/gui-plugins/src/browser/site-chooser.tsx, settings.tsx, panel.tsx. Run headless on Windows x64 CI builds under sealed scratch roots (wall clock only, every process environment verified under the root before the first tap): cases 7, 1, 2, 3 (400 sites, tall and short windows) and 6 (Return on checkbox) held on b7edbacba beside before build cc991c6505; on the merged head 0e3df708a beside before build 278f9aaf38: shared strings, press on the words of Only sites I choose (140 wide, label 116) and press beside, first-open frame check (16.9 ms before, 41.0 ms new; an earlier 2.3 s frame did not recur), sweep cases 8-10 (planted copy+lock removed; no-lock copy waits 10 min; real lock swept after quick end; mid-read Cookies copy not caught, case 8 stands for it), and all three shared-file samples (Add extension framed list, address field, /rename row). Not run: case 4 (pane offer) and case 5 (cookie import). Partly because three named differences from official remain open (follow-ups owed): (1) the From picker is a menu button rather than a select (needs a select in the plugin kit, select.css:22-45); (2) the Import button while importing uses the kit's loading look rather than a disabled primary button with a 14 pt spinner (site-chooser.tsx:682-694); (3) list rows are list items with checkboxes rather than a listbox of options (site-chooser.tsx:570-591).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6409,7 +6409,7 @@
       "summary": "Consolidated navigation: a new setting 'Group tabs' (None, By project, By server) under the tab position. Open tabs then stand grouped by their project (or server), each group under a header that folds it to its current tab, groups in the order their first tab appears, tabs with no project last without a header; a project open on two servers names its server; the saved tab order keeps each group's tabs together. By server groups only with two servers or more.",
       "size": "L",
       "status": "have it",
-      "status_evidence": "Ported in opencode-rune #1215 (3bdfea8f): Settings has Group tabs (None, By project, By server) under Tab position, default None, for Consolidated's open tabs with navigation Tabs. Groups stand in the order their first tab appears, the tabs with no project last under no header, pinned tabs in no group; by server only with two or more servers. Side tabs get a 28 pt header a group that collapses it (the open page's tab stays; a ring or a dot says what the hidden ones do); top tabs are ordered by group with no header; a tab moves only inside its group; the tab keys and Close other tabs / Close tabs below act on the tabs the strip shows, and leave the page on the menu's tab (features/settings/src, apps/desktop/src/shell/tabs/auto_groups.rs, shell/view/sidebar/auto_sections.rs, shell/view/tab_strip.rs, shell/tabs/actions.rs nav_order, features/session-menu/src strip_tabs). Official: packages/app/src/shell/titlebar/auto-tab-groups.ts:34-88, auto-tab-sections.tsx, tab-strip.tsx:715-719, :943, :948-954, :1060-1069, settings/general/interface-mode.tsx:42-52, settings/model.tsx:159-160 and :538-543. A fault of ours fixed with it: under Consolidated, Close other tabs also closed the open tabs of pinned sessions, which the strip does not show. Run headless on its own Windows x64 CI builds beside a build of dev on the same Rune pin, scenes and the app's fixture file, no server: the Settings row, its menu and its default; side tabs by project with their sizes; collapsed groups with their marks and the tab keys; top tabs in group order and the order kept when grouping is set to None; Close other tabs and Close tabs below; three drags; By server with one server on top tabs; Close other tabs leaving a pinned session's tab. Run since, with the test server and a second server: By server with a tab on each of two servers gives two headers, each with the server glyph and the server's name; By project with one project on two servers gives a header a server, the other server's with its tag; and a fault of the port found by that run and fixed by opencode-rune #1258 (93a023b4): a draft tab lost its project, and so its group, while the page was another server's tab; official takes a draft's project from the tab's own server (packages/app/src/shell/titlebar/auto-tab-sections.tsx:39-42); with the fix the draft stays under its project's header, run on #1258's own build beside the port's. In the same server run the choice and a collapsed group were there again after a close by the close button and a new start; between the press and the new start that headless run read the list ungrouped, which has not been read to a cause. Not run yet: By server on the build with the draft-tab fix; a draft made on the second server; three servers. Not run: the chevrons under the pointer or Tab; a real window; macOS; Linux. Open differences, each in the PR's body with its official line: top tabs draw no divider between groups, a drag's look across groups, and the arrow keys stop at a group's last tab on side tabs (all three wait for the tab strip's section breaks in Rune, rune#2291, and the pin that holds them); the server's tag shrinks at the name's rate (auto-tab-sections.tsx:156); the chevron shows at once, not over 150 ms (:174); after Close other tabs from Home, Home's way back is not re-aimed at the kept tab (shell/tabs/tabs.tsx:673, :684).",
+      "status_evidence": "Ported in opencode-rune #1215 (3bdfea8f): Settings has Group tabs (None, By project, By server) under Tab position, default None, for Consolidated's open tabs with navigation Tabs. Groups stand in the order their first tab appears, the tabs with no project last under no header, pinned tabs in no group; by server only with two or more servers. Side tabs get a 28 pt header a group that collapses it (the open page's tab stays; a ring or a dot says what the hidden ones do); top tabs are ordered by group with no header; a tab moves only inside its group; the tab keys and Close other tabs / Close tabs below act on the tabs the strip shows, and leave the page on the menu's tab (features/settings/src, apps/desktop/src/shell/tabs/auto_groups.rs, shell/view/sidebar/auto_sections.rs, shell/view/tab_strip.rs, shell/tabs/actions.rs nav_order, features/session-menu/src strip_tabs). Official: packages/app/src/shell/titlebar/auto-tab-groups.ts:34-88, auto-tab-sections.tsx, tab-strip.tsx:715-719, :943, :948-954, :1060-1069, settings/general/interface-mode.tsx:42-52, settings/model.tsx:159-160 and :538-543. A fault of ours fixed with it: under Consolidated, Close other tabs also closed the open tabs of pinned sessions, which the strip does not show. Run headless on its own Windows x64 CI builds beside a build of dev on the same Rune pin, scenes and the app's fixture file, no server: the Settings row, its menu and its default; side tabs by project with their sizes; collapsed groups with their marks and the tab keys; top tabs in group order and the order kept when grouping is set to None; Close other tabs and Close tabs below; three drags; By server with one server on top tabs; Close other tabs leaving a pinned session's tab. Run since, with the test server and a second server: By server with a tab on each of two servers gives two headers, each with the server glyph and the server's name; By project with one project on two servers gives a header a server, the other server's with its tag; and a fault of the port found by that run and fixed by opencode-rune #1258 (93a023b4): a draft tab lost its project, and so its group, while the page was another server's tab; official takes a draft's project from the tab's own server (packages/app/src/shell/titlebar/auto-tab-sections.tsx:39-42); with the fix the draft stays under its project's header, run on #1258's own build beside the port's. In the same server run the choice and a collapsed group were there again after a close by the close button and a new start; between the press and the new start that headless run read the list ungrouped, which has not been read to a cause. Not run yet: By server on the build with the draft-tab fix; a draft made on the second server; three servers. Not run: the chevrons under the pointer or Tab; a real window; macOS; Linux. Follow-up opencode-rune #1279 (98f31f4f) closed the three TabStrip::breaks open differences (top divider between groups, cross-group drag visuals, arrow keys crossing group breaks on side tabs; all 9 headless cases held). Remaining open differences: the server's tag shrinks at the name's rate (auto-tab-sections.tsx:156); the chevron shows at once, not over 150 ms (:174); after Close other tabs from Home, Home's way back is not re-aimed at the kept tab (shell/tabs/tabs.tsx:673, :684).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6525,6 +6525,207 @@
       "size": "S",
       "status": "have it",
       "status_evidence": "Ported in opencode-rune #1249 (fce76a1c): `/rename` is a slash command: with words after it the open session takes them as its title once the server's rename event comes; bare, it asks the server to generate a title (an empty title in the session's update is the ask, as in official), and the header's title shimmers until the answer; a second ask for the same session does nothing meanwhile. A new command, Generate session title, does the same from the palette and is not offered on a subagent's page, while the title is edited or while a title is on its way. Rename session has official's description. One small explicit machine (features/session-menu/src/generate_title.rs); a command's `/name` can take words (crates/opencode-kernel/src/commands.rs CommandEntry::words). Official: packages/app/src/session/timeline/message-timeline.tsx:300-319, :702-704, packages/app/src/session/timeline/controller.tsx:455-494, packages/app/src/runtime/i18n/en.ts:129-131. Run headless on its own Windows x64 CI builds beside a build of dev on the same Rune pin, the app's fixture file and no server: the `/` list has `/rename` with its description and Ctrl+R (before: no such row); picking it leaves `/rename ` in the composer; the palette lists Generate session title on a session's page and not on a subagent's; a bare `/rename` leaves the title as it was with no shimmer and one toast that nothing was sent; `/rename New words` clears the composer, keeps the title in the header and the tab, and shows the same one toast (on the first head it kept the unsent words as the title: a fault of the port, corrected before the merge and run again on the merged head). Not run (each needs a server): a generated title arriving and the shimmer; Generate session title from the palette with a server; `/rename words` taken by a server; a server's refusal. Not run: a real window; macOS; Linux. Differences, each by reading: a refused `/rename words` is titled Failed to rename session where official's reads Request failed (controller.tsx:481), which a follow-up to the in-place rename's failure toast changes; a long title is not cut short while it shimmers, where official's sits in a truncating button (message-timeline.tsx:699); the place of `/rename` in the `/` list (official lists later registrations first, shell/commands/command.tsx:133-134; ours lists it after the commands whose order is known).",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-241",
+      "window": "post-1120",
+      "pr": 66402,
+      "sha": "dfce18305d",
+      "title": "fix(app): keep a running script's shells out of the background pill",
+      "merged": "2026-11-25",
+      "packages": [
+        "app",
+        "core"
+      ],
+      "main_files": [
+        "packages/app/src/session/requests/background.ts",
+        "packages/core/src/codemode/tool.ts",
+        "packages/core/src/tool/plugin/shell.ts"
+      ],
+      "summary": "A shell a running Code Mode script started is kept out of the background pill by the call it names: the server puts the script's `execute` call in the shell's metadata (`callID`), and the app holds every running shell that names a running script's call, unless that shell has a running job of its own (its own call ended while it runs). A server that names no call is matched as before, by the calls the script lists.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Port in a draft, opencode-rune #1273, not run: features/subagents/src/shells/mod.rs running_for takes the shell's `metadata.callID` and holds a running shell that names a running `execute` call, unless a running shell job names that shell; the match by the script's listed calls stays for a server that names none. Official: packages/app/src/session/requests/background.ts:196-210. Before, by reading: ours matched a script's shell only by start time and the commands the script's call list shows (the same function on dev). Every case needs a server at or past dfce18305d (shells reach the app only from a server): a running script's shell stays out of the pill; a shell that names no call still shows; a shell left running by a call that timed out shows; an older server behaves as before.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-242",
+      "window": "post-1120",
+      "pr": 66169,
+      "sha": "028cd6ce91",
+      "title": "feat(app): submit question answers with Enter, with a setting for Cmd/Ctrl+Enter",
+      "merged": "2026-11-25",
+      "packages": [
+        "app",
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/i18n/en.ts",
+        "packages/app/src/session/requests/question-keys.ts",
+        "packages/app/src/session/requests/question-submit.ts",
+        "packages/app/src/session/requests/session-question-dock-classic.tsx"
+      ],
+      "summary": "In the question dock the key that moves to the next question, or submits on the last, is Enter by default, with a setting (Settings > General, \"Submit question answers with\": Enter or Cmd/Ctrl+Enter). The other Enter selects the highlighted answer (Shift+Enter when Enter submits; Enter with or without Shift when Cmd/Ctrl+Enter submits); Cmd/Ctrl+Enter always submits. The submit key on an answer picks it first on a single-choice question. The custom answer is a field of several lines that grows with its text: the other Enter starts a new line in it, the arrow keys and End land in the field itself, and Up from its start goes back to the answers. The Next and Submit buttons show the chosen key.",
+      "size": "M",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1275 (e20c56f6): Settings > General gains Submit question answers with (Enter, the default, or Cmd/Ctrl+Enter; features/settings/src/prefs.rs QuestionSubmitKey, stored.rs, pages/general.rs, search/mod.rs; two strings in crates/opencode-i18n/locales/official/en.json, English in every language as in official, which added them to en.ts alone). In both Classic and New question docks (crates/session-view/src/dock/question/{mod,classic,face}.rs, DockHost::dock_question_submit): the submit key commits the highlighted answer and moves on (or submits on the last question), the other Enter selects (or starts a new line in the typed answer via TextEdit::insert on plain Enter under ModEnter), and Cmd/Ctrl+Enter always moves on. Both docks cap the typed answer at six 18 px lines (118 px with padding) and scroll inside themselves; in Classic, arrows and End land in the field, Up at start returns to the answers above, picked wash and hover fill swap (layer-02 / layer-01), and Next/Submit show the chosen key. El::on_key on q-options-{tab} handles Enter/Space before Rune's press-on-return handler. Official: packages/app/src/session/requests/question-keys.ts:29-37, :95-101, question-submit.ts:4-8, session-question-dock-classic.tsx:236-248, :440-457, :738-771, session-question-dock-experimental.tsx:1365-1369, packages/session-ui/src/components/question-prompt.css:361-430, question-prompt-experimental.css:392-453, packages/app/src/settings/general/general.tsx:140-168. Run headless on Windows x64 CI builds beside before build #1271 278f9aaf38 (60 launches exit 0 across 5de44ab24, 976fb91b1e, and merged head 493815678c, run 45731119759): all 14 cases hold (row, select/description, search, Classic Down+Enter / Shift+Enter, Next tip, End into field / multi-line / Up x 3 back, Enter in field, exact hover/picked swap, Ctrl+Enter setting + plain Enter newline in both Classic and New docks, New dock Enter/Shift+Enter/field, 1/2/8 lines with 118 px cap and caret in sight, sample keys). Not run: setting persistence across restart (App::persists() requires a live server), real window, macOS, Linux.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-243",
+      "window": "post-1120",
+      "pr": 66217,
+      "sha": "badd3ea1cd",
+      "title": "feat(browser): stream remote browser traffic over multiplexed binary WebSocket",
+      "merged": "2026-11-26",
+      "packages": [
+        "gui-plugins",
+        "plugin-browser",
+        "server"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/browser/chromium.ts",
+        "packages/gui-plugins/src/browser/navigation-deadline.ts",
+        "packages/gui-plugins/src/browser/navigation-turn.ts",
+        "packages/gui-plugins/src/browser/network.ts",
+        "packages/gui-plugins/src/browser/pane.ts",
+        "packages/gui-plugins/src/browser/tunnel-client.ts",
+        "packages/plugin-browser/src/proxy.ts",
+        "packages/plugin-browser/src/stream-mux.ts",
+        "packages/plugin-browser/src/stream-wire.ts"
+      ],
+      "summary": "Remote browser traffic streams over a single prewarmed, ticket-authenticated multiplexed binary WebSocket (capability tunnel.ws.v1, /api/experimental/browser/tunnel) instead of per-chunk base64 RPC polling, with fair round-robin 16 KiB DATA interleaving, bounded credit flow control, per-origin plain HTTP/1.1 keep-alive pooling, explicit tunnel.grant on trusted desktop navigations, explicit non-downgrading upgrade errors (keeping legacy RPC fallback only when tunnel.ws.v1 is unadvertised or OPENCODE_BROWSER_TUNNEL_TRANSPORT=legacy), and navigationProgressDeadline + replacementNavigation so committed slow-subresource pages return loading: true at 15 s and client redirects (ERR_ABORTED) settle on replacement commit.",
+      "size": "XL",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1288 (655f5ed3f, head c1360881ed, CI run 45746653359 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): versioned 10-byte big-endian binary frame codec (crates/opencode-kit/src/client/browser_rpc/stream_wire.rs), non-blocking polling ClientMux + MuxStream with priority control queue, round-robin 16 KiB DATA interleaving, 512 KiB receive window / 128 KiB WINDOW_UPDATE batches, 8 MiB attachment buffer cap, heartbeats, FIN/RESET, and clean detach (stream_mux/{mod,stream,worker}.rs), authenticated WS upgrade client validating /api/experimental/browser/tunnel + protocol 1 with single-use header auth and explicit non-downgrading error classification (tunnel/client.rs, http.rs, types.rs, machine.rs), negotiated TransportController + per-origin HTTP/1.1 keep-alive pool in TunnelProxy with 407 loopback auth and OPENCODE_BROWSER_TUNNEL_TRANSPORT=legacy fallback (tunnel/{stream,pool,proxy,pump}.rs, framing.rs), desktop capability negotiation + StreamActivated/StreamEnded liveness + off-thread trusted-navigation tunnel.grant (apps/desktop/src/surfaces/browser/{mod,openers}.rs, rpc/{mod,tunnel,workers}.rs), and navigationProgressDeadline + replacementNavigation (crates/browser-pane/src/client/mod.rs, apps/desktop/src/surfaces/browser/rpc/exec/{settle,nav}.rs). Official: packages/plugin-browser/src/{stream-wire,stream-mux,proxy,rpc}.ts, packages/gui-plugins/src/browser/{tunnel-client,network,pane,pane-machine,navigation-deadline,navigation-turn,chromium}.ts. Verified live over WAN against a remote TLS badd3ea1cd server (OPENCODE_FLAGS=browser_stream_tunnel) with the Windows x64 PR build (3/3 passes exit 0): binary WS tunnel.ws.v1 upgraded GET /api/experimental/browser/tunnel -> 101 with tunnel.grant and 0 legacy tunnel.{open,read,write} calls, completing the 10 MiB + concurrent WS /echo probe in 2.88 s (29.1 Mbps, 18 echoes, median 115.3 ms) vs legacy RPC 31.04 s (2.7 Mbps, 298 echoes, median 87.9 ms, p95 244.4 ms; 10.8x speedup), and rendered the Excalidraw SPA canvas, toolbar, and fonts whole. Not run: macOS, Linux, non-downgrading blocked-upgrade error path, navigationProgressDeadline 15 s slow-subresource path, replacementNavigation ERR_ABORTED redirect path.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-244",
+      "window": "post-1120",
+      "pr": 66501,
+      "sha": "63261c1c5d",
+      "title": "feat(desktop): add opt-in install updates on quit setting",
+      "merged": "2026-11-26",
+      "packages": [
+        "gui-plugins"
+      ],
+      "main_files": [
+        "packages/gui-plugins/src/updater/contract.ts",
+        "packages/gui-plugins/src/updater/i18n/en.ts",
+        "packages/gui-plugins/src/updater/main.ts",
+        "packages/gui-plugins/src/updater/platform.ts",
+        "packages/gui-plugins/src/updater/renderer.tsx",
+        "packages/gui-plugins/src/updater/section.tsx"
+      ],
+      "summary": "Settings > General > Updates gains an opt-in Install updates on quit switch (off by default on all desktop platforms, disabled and shown unchecked when the updater is disabled or unavailable) that controls whether downloaded updates install automatically when OpenCode quits.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Port in draft opencode-rune #1297 (head bf0a8efd5e, CI running, not yet run): adds installOnQuit preference (default false) to features/updater/src/{lib,mac,windows,service}.rs (macOS bundle swap on quit now honors the opt-in toggle and disarms cleanly mid-session without Squirrel.Mac; Windows invokes --apply-update without --relaunch when owned and enabled), syncs plugin.updater/installOnQuit in apps/desktop/src/surfaces/updater.rs, adds the desktop-only settings-install-on-quit row to plugins/updater/{init,view}.luau, plugin.toml, locales/en.json, and apps/desktop/src/dialogs/settings/updater_fallback.rs. Official: packages/gui-plugins/src/updater/{contract,main,platform,renderer,section}.tsx, i18n/en.ts.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-245",
+      "window": "post-1120",
+      "pr": 66506,
+      "sha": "662002c557",
+      "title": "fix(desktop): smooth Windows installer progress bar with live status and throughput",
+      "merged": "2026-11-26",
+      "packages": [
+        "desktop"
+      ],
+      "main_files": [
+        "packages/desktop/resources/windows/installer.nsh",
+        "patches/app-builder-lib@26.15.7.patch"
+      ],
+      "summary": "Patches Electron's app-builder-lib NSIS Windows installer to smooth the 7-Zip extraction progress bar with live status and throughput readouts.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "Electron NSIS / app-builder-lib patch only (installer.nsh + patches/app-builder-lib@26.15.7.patch). OpenCode (Rune) ships its own custom Rust Win32 TaskDialog setup bootstrapper in apps/installer/src/{install,pages}.rs that unpacks an embedded payload.zip in a few seconds with a Win32 marquee bar.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPDATER"
+    },
+    {
+      "id": "UP-246",
+      "window": "post-1120",
+      "pr": 66519,
+      "sha": "e927e98f06",
+      "title": "fix(session-ui): keep the View code button on an open execute call's title line",
+      "merged": "2026-11-26",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/timeline-next/timeline-next.css"
+      ],
+      "summary": "Keeps the View code action button aligned to the top title line of an expanded execute tool call rather than drifting down into the gap above its expanded body.",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "Already holds by construction in crates/session-view/src/tools/mod.rs:371-376,390-398 and execute.rs:28-51,236-254: trigger() renders line at a fixed 28 pt height (h(28.0).center_y()) holding button (h(28.0)) and the 24x24 View code button, while disclosure() stacks the revealed body below line with its 4 pt top gap (body(list, false, 4.0)) strictly inside body so opening an execute call never stretches line or shifts View code off the title line. Official: packages/session-ui/src/timeline-next/timeline-next.css:384,466,494.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-247",
+      "window": "post-1120",
+      "pr": 66521,
+      "sha": "5e000543a6",
+      "title": "feat(ui): calibrate non-default GUI themes for WCAG 2.2 contrast and elevation",
+      "merged": "2026-11-26",
+      "packages": [
+        "ui"
+      ],
+      "main_files": [
+        "packages/ui/src/theme/color.ts",
+        "packages/ui/src/theme/context.tsx",
+        "packages/ui/src/theme/v2/foreground.ts",
+        "packages/ui/src/theme/v2/mapping.ts",
+        "packages/ui/src/theme/v2/resolve.ts"
+      ],
+      "summary": "Calibrates all non-default GUI themes (leaving default oc-2 untouched) for WCAG 2.2 AA contrast and consistent surface/code-block elevation across dark and light variants.",
+      "size": "L",
+      "status": "missing",
+      "status_evidence": "Port in draft opencode-rune #1296 (head 8516e08350, CI running, not yet run): calibrates all non-default theme palettes and elevation tokens against WCAG 2.2 contracts while keeping oc-2 untouched. Official: packages/ui/src/theme/{color.ts,context.tsx,v2/foreground.ts,v2/mapping.ts,v2/resolve.ts} and theme JSONs.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-248",
+      "window": "post-1120",
+      "pr": 66528,
+      "sha": "04eccc3012",
+      "title": "feat(ui): add Modus, Alabaster, VS Code, Cyberdream, Poimandres, and Oxocarbon themes",
+      "merged": "2026-11-26",
+      "packages": [
+        "ui"
+      ],
+      "main_files": [
+        "packages/ui/src/theme/context.tsx",
+        "packages/ui/src/theme/themes/alabaster.json",
+        "packages/ui/src/theme/themes/cyberdream.json",
+        "packages/ui/src/theme/themes/modus.json",
+        "packages/ui/src/theme/themes/oxocarbon.json",
+        "packages/ui/src/theme/themes/poimandres.json",
+        "packages/ui/src/theme/themes/vscode.json"
+      ],
+      "summary": "Adds six built-in GUI themes (Alabaster, Cyberdream, Modus, Oxocarbon, Poimandres, and VS Code) to the theme registry and Settings > Appearance picker.",
+      "size": "S",
+      "status": "missing",
+      "status_evidence": "Port in draft opencode-rune #1296 (head 8516e08350, CI running, not yet run): registers Alabaster, Cyberdream, Modus, Oxocarbon, Poimandres, and VS Code (36 -> 42 themes). Official: packages/ui/src/theme/context.tsx and themes/{alabaster,cyberdream,modus,oxocarbon,poimandres,vscode}.json.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
