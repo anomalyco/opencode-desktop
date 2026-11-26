@@ -440,12 +440,33 @@ fn horizontal_group(s: &App, p: &Pal, g: &PinGroup, nav_order: &[String], show_h
 }
 
 fn open_pin_menu(s: &mut App, r: &PinRef, press: rune::PointerPress, tx: &mut Tx) {
-    let mut lines = pins::menu_lines(s, &r.server, &r.session_id);
-    lines.push(crate::session_menu::Line::Sep);
-    lines.push(crate::session_menu::Line::Extra(Item::new("rename", t!("common.rename"))));
-    let menu = crate::session_menu::menu(&lines);
+    // `pinned-area.tsx:546-559` (opencode#66576): Rename, PinMenuItems, Mark read/unread, ---, Copy >, Export….
     let target = Target::on(&r.server, &r.session_id, Spot::Row);
     let (server, id) = (r.server.clone(), r.session_id.clone());
+    let read = crate::servers::runtime::with_server(s, &server, |s| {
+        crate::session_menu::lines(s, &target).into_iter().find(|line| {
+            matches!(line, crate::session_menu::Line::Item(i) if matches!(i.id, "read" | "unread"))
+        })
+    })
+    .flatten();
+    let copy_sub = crate::servers::runtime::with_server(s, &server, |s| {
+        crate::session_menu::copy::submenu(s, &server, &id)
+    })
+    .flatten();
+    let known = copy_sub.is_some();
+    let mut lines = vec![crate::session_menu::Line::Extra(Item::new("rename", t!("common.rename")))];
+    lines.extend(pins::menu_lines(s, &server, &id));
+    if let Some(read_line) = read {
+        lines.push(read_line);
+    }
+    lines.push(crate::session_menu::Line::Sep);
+    if let Some(sub) = copy_sub {
+        lines.push(sub);
+    }
+    lines.push(crate::session_menu::Line::Extra(
+        Item::new("export", format!("{}\u{2026}", t!("common.export"))).enabled(known && !s.exporting(&server, &id)),
+    ));
+    let menu = crate::session_menu::menu(&lines);
     s.kernel.slots.get_mut(&crate::session_menu::MENUS).on = Some(target.clone());
     tx.instant();
     popup::open(s, menu, press, tx, move |s: &mut App, picked, tx| {
@@ -453,6 +474,8 @@ fn open_pin_menu(s: &mut App, r: &PinRef, press: rune::PointerPress, tx: &mut Tx
         tx.instant();
         match picked {
             Some("rename") => crate::session_menu::rename_dialog::open(s, &target),
+            Some(action @ ("export" | "read" | "unread")) => crate::session_menu::run(s, &target, action, tx),
+            Some(action) if action.starts_with("copy:") => crate::session_menu::run(s, &target, action, tx),
             Some(menu_id) => {
                 pins::run_menu(s, &server, &id, menu_id);
             }

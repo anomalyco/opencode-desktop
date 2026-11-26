@@ -127,6 +127,23 @@ impl SessionMenuHost for App {
         self.checkout.read_menu(server, id)
     }
 
+    fn session_copy_info(&self, server: &ServerKey, id: &str) -> Option<(String, String)> {
+        if *server == self.active_server() {
+            return self.session(id).map(|i| (i.title.clone(), i.project.clone()));
+        }
+        if !self.checkout.known(server, id) {
+            return None;
+        }
+        let title = self
+            .tabs
+            .iter()
+            .find(|t| !t.is_draft() && t.server == *server && t.id == id)
+            .map(|t| t.title.clone())
+            .unwrap_or_default();
+        let project = self.checkout.project(server, id).map(|p| p.id.clone()).unwrap_or_default();
+        Some((title, project))
+    }
+
     fn with_server(&mut self, server: &ServerKey, f: &mut dyn FnMut(&mut dyn SessionMenuHost)) -> bool {
         crate::servers::runtime::with_server(self, server, |s| f(s)).is_some()
     }

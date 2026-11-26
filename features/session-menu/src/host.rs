@@ -142,6 +142,14 @@ pub trait SessionMenuHost: opencode_kernel::AppEnv + opencode_kernel::AppOverlay
         let _ = (server, id);
         None
     }
+    /// Returns `(title, project_id)` for session `id` on `server` when known, for the Copy submenu
+    /// (`packages/app/src/session/session-copy-menu.tsx`, `opencode#66576`).
+    fn session_copy_info(&self, server: &ServerKey, id: &str) -> Option<(String, String)> {
+        if *server == self.active_server() {
+            return self.session(id).map(|i| (i.title.clone(), i.project.clone()));
+        }
+        None
+    }
     /// Runs `f` checked out on a parked `server`, restoring the previous checkout afterwards.
     /// Returns `false` if this window has no half of `server`. (Active-server calls run directly
     /// via `on_server` without needing this hook.)

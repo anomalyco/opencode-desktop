@@ -428,8 +428,16 @@ fn open_menu(
     press: rune::PointerPress,
     tx: &mut Tx,
 ) {
+    // `recent-sessions.tsx:1339-1372` (opencode#66576): Rename, Pin/Unpin, Mark read/unread, Mute,
+    // Hide, (Move up/down when pinned), ---, Copy >, Export…, ---, Archive, Delete….
     let target = Target::on(server, id, Spot::Row);
-    let mut menu = Menu::new(t!("command.category.session"));
+    let read = crate::session_menu::lines(s, &target).into_iter().find_map(|line| match line {
+        crate::session_menu::Line::Item(i) if matches!(i.id, "read" | "unread") => Some(Item::new(i.id, i.title)),
+        _ => None,
+    });
+    let copy_sub = crate::session_menu::copy::submenu(s, server, id);
+    let mut menu = Menu::new(t!("command.category.session"))
+        .item(Item::new("rename", t!("common.rename")));
     if consolidated {
         for line in crate::tabs::pins::menu_lines(s, server, id) {
             menu = match line {
@@ -442,20 +450,30 @@ fn open_menu(
     } else {
         menu = match pinned {
             None => menu.item(Item::new("pin", t!("sidebar.recent.pin"))),
-            Some((at, count)) => menu
-                .item(Item::new("unpin", t!("sidebar.recent.unpin")))
-                .item(Item::new("up", t!("sidebar.recent.moveUp")).enabled(at > 0))
-                .item(Item::new("down", t!("sidebar.recent.moveDown")).enabled(at + 1 < count)),
+            Some(_) => menu.item(Item::new("unpin", t!("sidebar.recent.unpin"))),
         };
     }
     let muted = preferences::muted(server, id);
     menu = menu
+        .items(read)
         .item(Item::new("mute", if muted { t!("sidebar.recent.unmute") } else { t!("sidebar.recent.mute") }))
-        .item(Item::new("hide", t!("sidebar.recent.hide")))
+        .item(Item::new("hide", t!("sidebar.recent.hide")));
+    if !consolidated
+        && let Some((at, count)) = pinned
+    {
+        menu = menu
+            .separator()
+            .item(Item::new("up", t!("sidebar.recent.moveUp")).enabled(at > 0))
+            .item(Item::new("down", t!("sidebar.recent.moveDown")).enabled(at + 1 < count));
+    }
+    menu = menu.separator();
+    if let Some(crate::session_menu::Line::Sub { id: sub_id, title, menu: sub }) = copy_sub {
+        menu = menu.submenu(sub_id, title, sub);
+    }
+    menu = menu
+        .item(Item::new("export", format!("{}\u{2026}", t!("common.export"))).enabled(!s.exporting(server, id)))
         .separator()
-        .item(Item::new("rename", t!("common.rename")))
         .item(Item::new("archive", t!("common.archive")))
-        .separator()
         .item(Item::new("delete", format!("{}\u{2026}", t!("common.delete"))).danger(true));
     s.finish_rename(true);
     s.kernel.slots.get_mut(&crate::session_menu::MENUS).on = Some(target.clone());
