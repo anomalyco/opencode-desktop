@@ -480,10 +480,26 @@ impl BrowserHost {
     pub(crate) fn clear_stale_fault_if_empty(&self) {
         #[cfg(feature = "engine")]
         if !self.has_engine_tabs() {
-            self.shared
+            self.clear_stale_fault();
+        }
+    }
+
+    pub(crate) fn clear_stale_fault(&self) {
+        #[cfg(feature = "engine")]
+        {
+            let effect = self
+                .shared
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .step(EngineEvent::ClearStaleFault);
+            if let EngineEffect::EndHung { kill_pid } = effect {
+                if let Some(pid) = kill_pid {
+                    crate::transport::kill_pid(pid);
+                }
+                if let Ok(sock) = self.engine_socket() {
+                    std::fs::remove_file(sock).ok();
+                }
+            }
         }
     }
 
@@ -577,11 +593,7 @@ impl BrowserHost {
         t.loading = true;
         if let Some(((width_pt, height_pt), scale, _file_roots, context, agent_driven, allow_ext_pages)) = promote_open {
             if !had_engine_tabs {
-                #[cfg(feature = "engine")]
-                self.shared
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .step(EngineEvent::ClearStaleFault);
+                self.clear_stale_fault();
             }
             self.sync_has_tabs();
             if connected && (context.is_default() || ready) {

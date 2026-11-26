@@ -387,11 +387,7 @@ impl BrowserHost {
             (t.viewport_pt, t.scale, had, t.prompts.agent_driven)
         };
         if refused.is_none() && !had_engine_tab && self.tabs.iter().filter(|t| t.has_engine_tab).count() == 1 {
-            #[cfg(feature = "engine")]
-            self.shared
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .step(crate::machine::EngineEvent::ClearStaleFault);
+            self.clear_stale_fault();
         }
         self.sync_has_tabs();
         let had_live_engine = had_engine_tab && !self.pending_opens.iter().any(|(id, _)| *id == tab_id);
@@ -462,11 +458,7 @@ impl BrowserHost {
             && !had_engine_tab
             && self.tabs.iter().filter(|t| t.has_engine_tab).count() == 1
         {
-            #[cfg(feature = "engine")]
-            self.shared
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .step(crate::machine::EngineEvent::ClearStaleFault);
+            self.clear_stale_fault();
         }
         self.sync_has_tabs();
         let had_live_engine = had_engine_tab && !self.pending_opens.iter().any(|(id, _)| *id == tab_id);

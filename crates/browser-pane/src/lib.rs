@@ -24,6 +24,8 @@ pub mod device;
 mod download;
 #[cfg(all(feature = "engine", target_os = "linux"))]
 mod dmabuf;
+#[cfg(feature = "engine")]
+mod engine_log;
 pub mod extensions;
 #[cfg(all(feature = "engine", target_os = "linux"))]
 mod fd_lines;
