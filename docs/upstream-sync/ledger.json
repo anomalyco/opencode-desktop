@@ -2,12 +2,12 @@
   "generated_at": "2026-11-27",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "c39ad3b75c8f8b0571305415f74172c2d7b6ba1f",
+  "upstream_head": "782125f72a60220a4896490be628d16be56ac1da",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "886bbea31",
-  "post_1114_commit_count": 735,
-  "post_1114_in_ledger": 253,
+  "rune_desktop_head": "0717b0de2",
+  "post_1114_commit_count": 736,
+  "post_1114_in_ledger": 254,
   "post_1114_skipped": 482,
   "post_1114_skipped_breakdown": {
     "test-only": 33,
@@ -18,12 +18,12 @@
     "server-core-ai-codemode-internal": 303
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 274,
+  "total_ledger_rows": 275,
   "status_counts": {
     "have it": 225,
     "not applicable": 39,
     "differs on purpose": 1,
-    "partly": 4,
+    "partly": 5,
     "missing": 5
   },
   "rows": [
@@ -6771,7 +6771,7 @@
       "summary": "Adds a Copy submenu (Session ID, Session title when non-fallback, Project ID) to session context menus (tabs, Home rows, inbox cards, pinned sessions, project sidebar rows, and recent sessions) and standardizes item ordering across them.",
       "size": "M",
       "status": "missing",
-      "status_evidence": "Port in draft opencode-rune #1315 (head 612ea51ef5, CI running, not yet run): features/session-menu/src/copy.rs builds Copy submenu with is_fallback_title check and live-session copy, wired into features/session-menu/src/{lib,host}.rs, apps/desktop/src/session/menu.rs, and apps/desktop/src/shell/view/{inbox.rs,sidebar/pinned_area.rs,sidebar/recent.rs} with official strings in crates/opencode-i18n/locales/official/en.json. Official: packages/app/src/session/session-copy-menu.tsx, home/sessions/view.tsx, shell/titlebar/{tab-nav,inbox,pinned-area,project-session-row,recent-sessions,sidebar-pins}.tsx.",
+      "status_evidence": "Port in draft opencode-rune #1315 (head 41be48d771 after forward-merging dev; 4/4 headless cases passed on 612ea51ef5, waiting on refreshed CI): features/session-menu/src/copy.rs builds Copy submenu with is_fallback_title check and live-session copy, wired across session menus with official strings in crates/opencode-i18n/locales/official/en.json.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6795,8 +6795,8 @@
       ],
       "summary": "Displays image attachments returned in tool call results as clickable 88 px 3:2 thumbnail tiles below the tool call in the timeline (fetching media: refs or inline data: images from the tool result on demand and opening the image preview on click).",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Not yet ported. Official: packages/app/src/runtime/server/tool-file.ts, packages/session-ui/src/tools/tool-result-images.tsx, tool-renderer.tsx, timeline-next/tools/{tool-display,context-group}.tsx, components/message-part.css.",
+      "status": "partly",
+      "status_evidence": "Rune already parses Part::Tool.files (inline data: and media:<hash> refs) and renders tool-result images in the timeline under folded groups (RowContent::ToolImages) and standalone calls (images::gallery bento grid + lightbox). Remaining parity fixes in draft opencode-rune #1321 (head 3d13135037, CI running, not yet run): stops duplicating group tool images inside open groups (turns/view.rs), turns failed image refs into retryable OUTLINE_PHOTO button tiles (images/mod.rs), and guards grouped_read against hiding image-returning reads without image extensions (turns/mod.rs), with --scene tool-result-images.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6845,6 +6845,34 @@
       "size": "S",
       "status": "not applicable",
       "status_evidence": "Electron/Chromium Linux command-line switch workaround (app.commandLine.appendSwitch('disable-smooth-scrolling') in packages/desktop/src/main/native/smooth-scrolling.ts). OpenCode (Rune) is a native GPU desktop app, not an Electron/Chromium shell, so the Chromium smooth-scrolling flag does not apply.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-254",
+      "window": "post-1120",
+      "pr": 66393,
+      "sha": "782125f72a",
+      "title": "feat(app): show where automations run and which session they wake",
+      "merged": "2026-11-26",
+      "packages": [
+        "app",
+        "ui",
+        "plugin"
+      ],
+      "main_files": [
+        "packages/app/src/automations/model.ts",
+        "packages/app/src/automations/route.tsx",
+        "packages/app/src/automations/source.ts",
+        "packages/app/src/automations/view.tsx",
+        "packages/app/src/settings/experimental/experimental.tsx",
+        "packages/app/src/shell/titlebar/titlebar.tsx"
+      ],
+      "summary": "Adds an experimental Automations view (Settings > Experimental toggle + Automations sidebar/titlebar entry + /automations route) showing each server's scheduled/event automations, where they run, which session they wake, and pause/resume/delete controls.",
+      "size": "L",
+      "status": "missing",
+      "status_evidence": "Not yet ported. Official: packages/app/src/automations/{format,model,route,source,view}.*, settings/experimental/experimental.tsx, shell/{routes/routes,tabs/tabs,titlebar/titlebar}.tsx, runtime/i18n/en.ts.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
