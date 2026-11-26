@@ -116,7 +116,8 @@ pub(super) fn header(s: &App, p: &Pal, section: &Section, tabs: &[usize], first:
         .child(icon(&ic::XMARK_SMALL, 14.0).color(p.icon_muted));
     let end = row().key("tail").gap(3.0).center_y().children(beside).child(slot.child(session_view::style::hover_reveal(remove)));
     head = head
-        .px(8.0)
+        .pl(8.0)
+        .pr(4.0)
         .gap(8.0)
         .child(label)
         .child(end)

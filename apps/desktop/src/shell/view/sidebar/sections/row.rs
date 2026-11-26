@@ -9,8 +9,9 @@ use opencode_i18n::t;
 use rune::{Drag, PointerPress};
 use rune_kit::shell::TabItemStatus;
 
-/// The slot at a row's end, 8 pt in from it: a tab's mark, a folded section's, and the button
-/// that takes the mark's place under the pointer, all on one column down the list.
+/// The slot at a row's end, 4 pt in from it (matching `TabStrip`, `tab-nav.css:4`): a tab's
+/// mark, a folded section's, and the button that takes the mark's place under the pointer, all
+/// on one column down the list.
 pub(super) const SLOT: f32 = 20.0;
 
 /// `what` centred in the slot, out of flow: the button that shares the slot can't push it aside.
@@ -99,7 +100,8 @@ pub(super) fn tab_row(s: &App, p: &Pal, t: &crate::tabs::Tab, index: usize, nav_
         .focus_selected(active)
         .w_full()
         .h(28.0)
-        .px(8.0)
+        .pl(8.0)
+        .pr(4.0)
         .gap(8.0)
         .center_y()
         .radius(6.0)
