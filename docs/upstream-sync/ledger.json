@@ -1,30 +1,30 @@
 {
-  "generated_at": "2026-11-26",
+  "generated_at": "2026-11-27",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "70e8a0f6f30bbe4077847a0ce0936c4b56458227",
+  "upstream_head": "586fa9038aeb4bf442b3b16a55e8ece8248700fc",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "e67b7f455",
-  "post_1114_commit_count": 727,
-  "post_1114_in_ledger": 249,
-  "post_1114_skipped": 478,
+  "rune_desktop_head": "94a7afb36",
+  "post_1114_commit_count": 732,
+  "post_1114_in_ledger": 252,
+  "post_1114_skipped": 480,
   "post_1114_skipped_breakdown": {
     "test-only": 32,
     "ci-bench-deps": 26,
     "docs-site-data": 76,
-    "tui-only": 31,
+    "tui-only": 32,
     "cli-acp-only": 12,
-    "server-core-ai-codemode-internal": 301
+    "server-core-ai-codemode-internal": 302
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 270,
+  "total_ledger_rows": 273,
   "status_counts": {
-    "have it": 223,
+    "have it": 224,
     "not applicable": 38,
     "differs on purpose": 1,
     "partly": 4,
-    "missing": 4
+    "missing": 6
   },
   "rows": [
     {
@@ -6746,8 +6746,80 @@
       ],
       "summary": "Uses the sessions-stack icon instead of grid-plus for the Home button by default across the titlebar, side-tab sidebar action, and narrow/mobile tabs trigger and drawer (label remains Home by default and Sessions under Consolidated).",
       "size": "XS",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1312 (94a7afb36, head a31eac4945, CI run 45831125330 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): apps/desktop/src/shell/view/sidebar/pinned_area.rs home_label always uses &SESSIONS_STACK while preserving Sessions/Home labels; features/narrow/src/tabs.rs narrow tabs trigger fallback and drawer Home row use SESSIONS_STACK. Official: packages/app/src/shell/titlebar/titlebar.tsx:405-445,796,879. Verified headless on Windows x64 PR build beside before build (1785b0bbdb), all 2/2 cases pass (9/9 launches exit 0): top/side tabs and narrow layout Home triggers render sessions-stack instead of grid-plus. Not run: real window, macOS, Linux.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-250",
+      "window": "post-1120",
+      "pr": 66576,
+      "sha": "6e0eda6317",
+      "title": "feat(app): add Copy submenu to session menus",
+      "merged": "2026-11-26",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/session/session-copy-menu.tsx",
+        "packages/app/src/shell/titlebar/tab-nav.tsx",
+        "packages/app/src/shell/titlebar/inbox.tsx",
+        "packages/app/src/home/sessions/view.tsx"
+      ],
+      "summary": "Adds a Copy submenu (Session ID, Session title when non-fallback, Project ID) to session context menus (tabs, Home rows, inbox cards, pinned sessions, project sidebar rows, and recent sessions) and standardizes item ordering across them.",
+      "size": "M",
       "status": "missing",
-      "status_evidence": "Port in draft opencode-rune #1312 (head a31eac4945, CI running, not yet run): apps/desktop/src/shell/view/sidebar/pinned_area.rs home_label always returns &SESSIONS_STACK; features/narrow/src/tabs.rs trigger fallback and narrow-tabs-home use SESSIONS_STACK. Official: packages/app/src/shell/titlebar/titlebar.tsx:405-445,796,879.",
+      "status_evidence": "Port in draft opencode-rune #1315 (head 612ea51ef5, CI running, not yet run): features/session-menu/src/copy.rs builds Copy submenu with is_fallback_title check and live-session copy, wired into features/session-menu/src/{lib,host}.rs, apps/desktop/src/session/menu.rs, and apps/desktop/src/shell/view/{inbox.rs,sidebar/pinned_area.rs,sidebar/recent.rs} with official strings in crates/opencode-i18n/locales/official/en.json. Official: packages/app/src/session/session-copy-menu.tsx, home/sessions/view.tsx, shell/titlebar/{tab-nav,inbox,pinned-area,project-session-row,recent-sessions,sidebar-pins}.tsx.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-251",
+      "window": "post-1120",
+      "pr": 66430,
+      "sha": "f91949daee",
+      "title": "fix(session-ui): show images tool calls return in the timeline",
+      "merged": "2026-11-26",
+      "packages": [
+        "app",
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/server/tool-file.ts",
+        "packages/session-ui/src/tools/tool-result-images.tsx",
+        "packages/session-ui/src/message/attachment-media.ts",
+        "packages/session-ui/src/components/message-part.css"
+      ],
+      "summary": "Displays image attachments returned in tool call results as clickable 88 px 3:2 thumbnail tiles below the tool call in the timeline (fetching media: refs or inline data: images from the tool result on demand and opening the image preview on click).",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Not yet ported. Official: packages/app/src/runtime/server/tool-file.ts, packages/session-ui/src/tools/tool-result-images.tsx, tool-renderer.tsx, timeline-next/tools/{tool-display,context-group}.tsx, components/message-part.css.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-252",
+      "window": "post-1120",
+      "pr": 65803,
+      "sha": "924b560240",
+      "title": "fix(app): ask before opening a folder from an opencode:// link",
+      "merged": "2026-11-26",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/deep-links/deep-links.tsx",
+        "packages/app/src/shell/deep-links/machine.ts",
+        "packages/app/src/runtime/i18n/en.ts"
+      ],
+      "summary": "Asks the user in a confirmation modal before opening a folder from an opencode:// project deep link (Cancel focused by default, warning that opening a folder runs plugins/settings, queueing multiple links one at a time) and rejects non-local, relative, traversal, UNC/network-share, and control/bidi paths.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Port in draft opencode-rune #1317 (head dfd82914dd, CI running, not yet run): adds is_local_directory validation, explicit DeepLinkConfirm state machine (Asking/Idle with queued links), and DialogOpenDeepLink modal (Cancel autofocus, Open project Contrast button, LTR mono folder badge) in apps/desktop/src/workspace/system/deep_links.rs, registered at DEEP_LINK_OVERLAY_ID in apps/desktop/src/kernel.rs, guarded in type_to_compose.rs, with 5 official strings in crates/opencode-i18n/locales/official/en.json. Official: packages/app/src/shell/deep-links/{machine.ts,deep-links.tsx}, runtime/i18n/en.ts.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
