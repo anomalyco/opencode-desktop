@@ -7,23 +7,16 @@
 use std::path::Path;
 
 use opencode_kit::model::{self, Attachment};
-use rune::{El, FileDialogOptions, Icon, SurfaceFit, Tx, el, icon, row};
+use rune::{El, FileDialogOptions, SurfaceFit, Tx, el, icon, row};
 
 use crate::TimelineHost;
 use crate::composer::attachments::{card, type_label};
-use crate::images::{Fetched, Strip, opens};
+use crate::images::{Fetched, OUTLINE_PHOTO, Strip, opens};
 use crate::palette::Pal;
 use crate::style::BUBBLE_MAX;
 
 /// All image states share one footprint (OpenCode 26f2522e60, `message-part.css`, `message-content.tsx`).
 const THUMB: (f32, f32) = (132.0, 88.0);
-
-/// `outline-photo` (`icons/catalog.ts`), which a failed image shows.
-static OUTLINE_PHOTO: Icon = Icon {
-    name: "outline-photo",
-    view: 14.0,
-    body: r#"<path d="M11.6666 11.6666L8.16663 8.16663L6.99997 9.33332L4.66663 6.99998L2.1583 9.50832M2.04163 2.04165H11.9583V11.9583H2.04163V2.04165ZM9.33332 5.24998C9.33332 5.81377 8.87629 6.27081 8.31244 6.27081C7.74866 6.27081 7.29163 5.81377 7.29163 5.24998C7.29163 4.68619 7.74866 4.22915 8.31244 4.22915C8.87629 4.22915 9.33332 4.68619 9.33332 5.24998Z" stroke="currentColor" stroke-linecap="square"/>"#,
-};
 
 /// Whether prompt `id` has anything [`view`] draws.
 pub fn any(id: &str) -> bool {
