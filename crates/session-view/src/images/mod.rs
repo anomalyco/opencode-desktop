@@ -30,6 +30,14 @@ pub const LATEST: usize = 12;
 
 const SMALL: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0);
 
+/// `outline-photo` (`icons/catalog.ts`), shown inside a failed image tile
+/// (`packages/session-ui/src/tools/tool-result-images.tsx:86-93`, `message-content.tsx`).
+pub(crate) static OUTLINE_PHOTO: rune::Icon = rune::Icon {
+    name: "outline-photo",
+    view: 14.0,
+    body: r#"<path d="M11.6666 11.6666L8.16663 8.16663L6.99997 9.33332L4.66663 6.99998L2.1583 9.50832M2.04163 2.04165H11.9583V11.9583H2.04163V2.04165ZM9.33332 5.24998C9.33332 5.81377 8.87629 6.27081 8.31244 6.27081C7.74866 6.27081 7.29163 5.81377 7.29163 5.24998C7.29163 4.68619 7.74866 4.22915 8.31244 4.22915C8.87629 4.22915 9.33332 4.68619 9.33332 5.24998Z" stroke="currentColor" stroke-linecap="square"/>"#,
+};
+
 /// Decoded image cache, `media:` ref fetcher, and active image lightbox state.
 #[derive(Default)]
 pub struct MediaStore {
@@ -501,34 +509,66 @@ pub fn gallery<S: TimelineHost>(s: &S, p: &Pal, key: &str, files: &[Attachment],
     }
     let strip: Arc<[Attachment]> = images.iter().map(|&f| f.clone()).collect();
     let store = s.media_store();
-    // Pictures (and refs still loading) go in the bento block; the rest are named chips.
+    enum TileState {
+        Ready(Image),
+        Loading,
+        Failed,
+    }
+    // Pictures (ready, loading, or failed) go in the bento block; server-unavailable placeholders
+    // show as named chips (`tool-result-images.tsx:78-94`, `message-part.css:821`).
     let mut shown = Vec::new();
     let mut chips = Vec::new();
     for (i, f) in images.into_iter().enumerate() {
         let k = format!("img-{i}");
         match store.image(f) {
-            Some(img) if img.error().is_none() => shown.push((i, k, f, Some(img))),
-            None if store.fetched(f) == Some(Fetched::Loading) => shown.push((i, format!("{k}-loading"), f, None)),
+            Some(img) if img.error().is_none() => shown.push((i, k, f, TileState::Ready(img))),
+            None if store.fetched(f) == Some(Fetched::Loading) => shown.push((i, format!("{k}-loading"), f, TileState::Loading)),
+            _ if f.is_image() && f.unavailable().is_none() => shown.push((i, format!("{k}-failed"), f, TileState::Failed)),
             _ => {
                 let label = f.unavailable().map_or_else(|| f.name.clone(), str::to_owned);
                 chips.push(row().key(k).h(32.0).px(10.0).center_y().radius(8.0).fill(p.layer2).child(text(label).font(SMALL).color(p.muted)));
             }
         }
     }
-    let sizes: Vec<_> = shown.iter().map(|(_, _, f, img)| if img.is_some() { store.thumbnail_size(f) } else { (160.0, 120.0) }).collect();
+    let sizes: Vec<_> = shown
+        .iter()
+        .map(|(_, _, f, st)| if matches!(st, TileState::Ready(_)) { store.thumbnail_size(f) } else { (160.0, 120.0) })
+        .collect();
     let ((bw, bh), tiles) = bento::tiles(&sizes, crate::genui::width(s) - inset);
     let mut block = el().key(key).size(bw, bh);
-    for ((i, k, f, img), [x, y, w, h]) in shown.into_iter().zip(tiles) {
+    for ((i, k, f, st), [x, y, w, h]) in shown.into_iter().zip(tiles) {
         let tile = el().key(k.clone()).label(f.name.clone()).size(w, h).radius(bento::RADIUS).fill(p.layer2);
-        block = block.child(match img {
-            Some(img) => {
+        block = block.child(match st {
+            TileState::Ready(img) => {
                 let held = el().key(format!("{k}-held")).size(w, h).absolute(x, y);
                 // The tile crops to its slot rather than letterboxing inside it.
                 let thumb = tile.box_shadow(Pal::ring_in(p.border_muted)).pixels_fit(img.pixels(), SurfaceFit::Fill).absolute(x, y);
-                // `[data-component="read-image"] img { cursor: zoom-in }` (`message-part.css:772`).
+                // `[data-slot="tool-result-image"] { cursor: zoom-in }` (`message-part.css:772,799`).
                 opens(s, thumb, held, Strip::new(key, strip.clone(), i), img, message).cursor(rune::Cursor::ZoomIn)
             }
-            None => tile.absolute(x, y),
+            TileState::Loading => tile.box_shadow(Pal::ring_in(p.border_muted)).absolute(x, y),
+            TileState::Failed => {
+                let err_label = opencode_i18n::t!("ui.fileMedia.state.error", kind = opencode_i18n::t!("ui.fileMedia.kind.image"));
+                let failed = tile
+                    .box_shadow(Pal::ring_in(p.border_muted))
+                    .center()
+                    .absolute(x, y)
+                    .child(rune::icon(&OUTLINE_PHOTO, 20.0).color(p.icon_faint));
+                if f.media.is_some() {
+                    let retry = f.clone();
+                    // `[data-slot="tool-result-image"][data-retry] { cursor: pointer }` (`message-part.css:821`).
+                    failed
+                        .role("button")
+                        .label(err_label)
+                        .cursor(rune::Cursor::Pointer)
+                        .on_press_tx(move |s: &mut S, tx: &mut rune::Tx| {
+                            tx.instant();
+                            s.media_store().retry(&retry);
+                        })
+                } else {
+                    failed.role("img").label(err_label)
+                }
+            }
         });
     }
     let mut out = col().w_full().pb(8.0).gap(8.0);

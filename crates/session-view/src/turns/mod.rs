@@ -589,8 +589,8 @@ fn call<'a>(st: &Step<'a>) -> Option<crate::tools::Call<'a>> {
 /// A read that shares a line with the reads beside it: not failed, not an image, and loading no
 /// instructions (`currentToolGroupedRead`).
 fn grouped_read(st: &Step) -> bool {
-    let Step::Tool { name: "read", status, input, metadata, .. } = st else { return false };
-    let image = crate::tools::path(input).is_some_and(|p| {
+    let Step::Tool { name: "read", status, input, files, metadata, .. } = st else { return false };
+    let image = crate::images::shows(files) || crate::tools::path(input).is_some_and(|p| {
         let p = p.to_ascii_lowercase();
         [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif", ".bmp", ".ico"].iter().any(|e| p.ends_with(e))
     });

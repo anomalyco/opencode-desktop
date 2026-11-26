@@ -228,10 +228,7 @@ fn step_foot<S: TimelineHost>(s: &S, session: &str, live: bool, steps: &[Step]) 
         // Card ends carry their own 6 pt vertical inset in `step_item`; count rows end 6 under
         // their line like a closed trigger.
         _ if file_like(first) => 6.0,
-        st @ Step::Tool { files, .. } => {
-            if !files.is_empty() {
-                return 0.0;
-            }
+        st @ Step::Tool { .. } => {
             let cx = crate::tools::Ctx { session, live, sticky: 0.0 };
             if call(st).is_some_and(|c| crate::tools::shows_body(s, cx, &c)) { 0.0 } else { 6.0 }
         }
@@ -277,10 +274,11 @@ fn step_item<S: TimelineHost>(s: &S, p: &Pal, cx: crate::tools::Ctx, group: &str
             let calls: Vec<crate::tools::Call> = steps.iter().filter_map(call).collect();
             col().key(format!("skills-{}", calls[0].id)).w_full().child(crate::tools::cached(s, p, cx, &calls, || crate::tools::skill_group(s, p, cx, &calls)))
         }
-        Step::Tool { id, name, status, input, metadata, files, .. } => {
+        Step::Tool { id, name, status, input, metadata, .. } => {
+            // A group shows its calls' images once under the group (`RowContent::ToolImages`),
+            // not duplicated inside each grouped step (`tool-display.tsx:42`, `context-group.tsx:350`).
             let c = crate::tools::Call { id, name, status, input, metadata };
-            let step = col().key(format!("step-{id}")).w_full().child(crate::tools::view(s, p, cx, &c));
-            step.children(crate::images::gallery(s, p, &format!("step-images-{id}"), files, false, 14.0 + 22.0, None).map(|g| g.pl(22.0)))
+            col().key(format!("step-{id}")).w_full().child(crate::tools::view(s, p, cx, &c))
         }
         Step::Change { .. } => file_runs(s, p, cx, steps),
     }

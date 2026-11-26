@@ -35,6 +35,7 @@ features/settings/src/pages/console_link.rs | Pointer | 2 | Console's name and "
 features/settings/src/pages/project.rs | Pointer | 1 | Retry after a failed save: packages/app/src/settings/workspaces/project.css:298
 features/settings/src/pages/providers.rs | Pointer | 2 | Console's provider toggle and items: packages/app/src/settings/settings.css:1138 and :1185
 features/office/src/sheet/mod.rs | Pointer | 1 | a link in a cell: packages/gui-plugins/src/microsoft-office/spreadsheet.tsx:870
+crates/session-view/src/images/mod.rs | Pointer | 1 | a failed tool-result image retry tile: packages/session-ui/src/components/message-part.css:821 pointer
 
 # Other cursors official has
 crates/session-view/src/images/mod.rs | ZoomIn | 2 | a Markdown image and a tool's image: packages/session-ui/src/components/markdown.css:604 and message-part.css:772 zoom-in
