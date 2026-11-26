@@ -369,6 +369,16 @@ fn register_core_systems(b: &mut KernelBuilder<App>) {
     let _ = speech_poll;
     // Known: requires `launch.poll` (`INGEST_SERVERS`) for `Source::Live { writes: Some(_) }`;
     // precaution: mutates `settings_open`, `route`, `tabs`, `projects`, and `composer.focused`.
+    b.register_overlay(
+        OverlayRegistration::<App>::new(crate::deep_links::DEEP_LINK_OVERLAY_ID)
+            .with_render(crate::overlays::layer::ACTION_DIALOG, |s, cx| {
+                let p = crate::palette::pal(s.dark(cx));
+                crate::deep_links::dialog(s, p, cx)
+            })
+            .above(crate::session_menu::RENAME_OVERLAY_ID)
+            .with_key(|s, ev, tx| crate::deep_links::key(s, ev, tx))
+            .with_dismiss(|s, tx| crate::deep_links::decline_current(s, tx)),
+    );
     b.schedule(stage::INGEST_DISPATCH, "deep_links.drain", |s, _, tx| {
         crate::deep_links::drain(s, tx)
     })
