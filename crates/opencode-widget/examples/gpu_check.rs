@@ -19,13 +19,13 @@ use base64::Engine;
 use opencode_widget::gpu;
 use opencode_widget::live::{Ended, Grants, Live, LiveProgram, Post, Setup};
 use opencode_widget::{Frame, WidgetEvent, fixtures};
+use psychoscript_gpu::{Arg, Stops};
 use serde_json::{Value, json};
-use widget_gpu::{Arg, Stops};
 
 fn device() -> gpu::Device {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).expect("an adapter");
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { required_limits: widget_gpu::device_limits(), ..Default::default() })).expect("a device");
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { required_limits: psychoscript_gpu::device_limits(), ..Default::default() })).expect("a device");
     gpu::Device { device, queue, format: wgpu::TextureFormat::Rgba8Unorm, handoff: None }
 }
 
@@ -75,7 +75,7 @@ fn run(f: &Value, batches: &Arc<Mutex<Vec<Value>>>, device: &wgpu::Device) -> Ru
         }
     };
     let canvas = |live: &Live, c: &Value| {
-        let (w, h) = widget_gpu::clamp_size(c["width"].as_u64().unwrap() as u32, c["height"].as_u64().unwrap() as u32);
+        let (w, h) = psychoscript_gpu::clamp_size(c["width"].as_u64().unwrap() as u32, c["height"].as_u64().unwrap() as u32);
         live.canvas(c["key"].as_str().unwrap(), w, h);
     };
     for c in f["canvases"].as_array().unwrap() {

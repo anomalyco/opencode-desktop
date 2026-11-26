@@ -1,5 +1,5 @@
 //! The GPU hang watch (`widgets-gpu.md`, GPU hang): live runs' GPU work is looked at about once a
-//! display frame (`widget_gpu::Gpu::poll`) on a thread of its own, which never submits, so a run
+//! display frame (`psychoscript_gpu::Gpu::poll`) on a thread of its own, which never submits, so a run
 //! stuck submitting or waiting while the GPU hangs can't keep it from looking. It looks only while
 //! some run's work may be unfinished, and sleeps otherwise until a run submits.
 

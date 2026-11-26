@@ -1,5 +1,5 @@
 //! A live run's GPU canvases (`widgets-gpu.md`): its batches checked and replayed with
-//! `widget-gpu` on the device the window provides ([`provide`]), one for every run, and what that
+//! `psychoscript-gpu` on the device the window provides ([`provide`]), one for every run, and what that
 //! shows published for the window ([`crate::gpu::Canvases`]).
 //!
 //! The run's thread replays a batch as it's posted, its bytes borrowed from the program in place;
@@ -11,8 +11,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, TryLockError};
 
 use psychoscript::{HostValue, TypedKind};
+use psychoscript_gpu::{Arg, Gpu, GpuError, SavedStops};
 use serde_json::json;
-use widget_gpu::{Arg, Gpu, GpuError, SavedStops};
 
 use crate::gpu::watch::Watched;
 use crate::gpu::{Canvas, Canvases, Device, Lost};
@@ -159,7 +159,7 @@ impl RunGpu {
     }
 
     /// The window's `canvas` message reaches the program: canvas `key` is `width` × `height`
-    /// physical pixels, clamped (`widget_gpu::clamp_size`).
+    /// physical pixels, clamped (`psychoscript_gpu::clamp_size`).
     pub fn resize(&self, key: &str, width: u32, height: u32) {
         let mut inner = self.lock();
         inner.sizes.insert(key.to_owned(), (width, height));
@@ -215,7 +215,7 @@ impl RunGpu {
         if let Some(gpu) = &inner.gpu {
             for (k, id) in &inner.keys {
                 if let Some(c) = gpu.canvas(k) {
-                    shown.insert(id.clone(), Canvas { texture: c.texture.clone(), opaque: c.alpha == widget_gpu::AlphaMode::Opaque, version: c.version });
+                    shown.insert(id.clone(), Canvas { texture: c.texture.clone(), opaque: c.alpha == psychoscript_gpu::AlphaMode::Opaque, version: c.version });
                 }
             }
         }
@@ -265,9 +265,10 @@ impl Lost for RunGpu {
             if inner.saved.is_some() {
                 return;
             }
-            // A loss with the run's GPU work in flight is a strike, the second within 30 s a hang
-            // (`widget_gpu::Gpu::lost`): told before the reset and the program hearing of it; its
-            // stop comes from the next poll.
+            // A loss with the run's GPU work in flight is a strike if some of its work finished since
+            // the last one (losses in a row with none in between are one reset), the second within
+            // 30 s a hang (`psychoscript_gpu::Gpu::lost`): told before the reset and the program
+            // hearing of it; its stop comes from the next poll.
             if let Some(gpu) = inner.gpu.as_mut() {
                 gpu.lost();
             }
@@ -298,7 +299,7 @@ impl Lost for RunGpu {
     }
 }
 
-/// A posted batch (`{ ops, bytes }`) read as `widget-gpu` takes it, with the host checks of its
+/// A posted batch (`{ ops, bytes }`) read as `psychoscript-gpu` takes it, with the host checks of its
 /// shape (`widgets-gpu.md`, Host checks); its bytes borrowed in place for `f`. `Err`: the message,
 /// with the ops when they were a list.
 pub fn with_batch<R>(batch: &HostValue, f: impl FnOnce(&[Arg], &[u8]) -> R) -> Result<R, (Option<Vec<Arg>>, String)> {

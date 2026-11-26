@@ -4273,12 +4273,13 @@ dependencies = [
  "base64 0.22.1",
  "pollster",
  "psychoscript",
+ "psychoscript-gpu",
  "ryu-js",
  "serde",
  "serde_json",
  "url",
  "wgpu",
- "widget-gpu",
+ "widget-wire",
 ]
 
 [[package]]
@@ -5014,13 +5015,18 @@ dependencies = [
 [[package]]
 name = "psychoscript"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "659e5b08541fc7be1a8e52cf7045ed1f3fc5f87fb234f90580b3c1e399d91cd4"
 dependencies = [
+ "fixed_decimal",
  "icu_calendar",
  "icu_collator",
  "icu_datetime",
+ "icu_decimal",
  "icu_locale_core",
  "icu_time",
  "idna_adapter",
+ "libc",
  "num-bigint",
  "num-traits",
  "oxc_allocator",
@@ -5035,11 +5041,20 @@ dependencies = [
  "regress",
  "rustc-hash 2.1.3",
  "serde_json",
- "thread-clock",
  "tz-rs",
  "unicode-normalization",
  "url",
+ "web-time",
  "writeable",
+]
+
+[[package]]
+name = "psychoscript-gpu"
+version = "0.1.0"
+source = "git+https://github.com/anomalyco/psychoscript?rev=2e2c0199b043ce419992211a6b63a489f4cd45d8#2e2c0199b043ce419992211a6b63a489f4cd45d8"
+dependencies = [
+ "serde_json",
+ "wgpu",
 ]
 
 [[package]]
@@ -6694,13 +6709,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "thread-clock"
-version = "0.1.0"
-dependencies = [
- "libc",
-]
-
-[[package]]
 name = "tiff"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7677,21 +7685,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "widget-gpu"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "wgpu",
- "widget-wire",
-]
-
-[[package]]
 name = "widget-wire"
 version = "0.1.0"
+source = "git+https://github.com/anomalyco/opencode?rev=d63f5c5cf37d24ad992699c3a570f3436924379b#d63f5c5cf37d24ad992699c3a570f3436924379b"
 dependencies = [
  "psychoscript",
+ "psychoscript-gpu",
  "serde",
  "serde_json",
+ "wgpu",
 ]
 
 [[package]]

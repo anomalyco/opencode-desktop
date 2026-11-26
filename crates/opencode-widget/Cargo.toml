@@ -13,22 +13,24 @@ default = ["runner"]
 runner = ["gpu", "dep:psychoscript", "dep:url", "dep:base64", "dep:ryu-js"]
 # GPU canvases as a window shows them (`gpu`): the device live runs replay on and what their replay
 # publishes for the compositor. Renderers enable it without the runner.
-gpu = ["dep:wgpu", "dep:widget-gpu"]
+gpu = ["dep:wgpu", "dep:psychoscript-gpu", "dep:widget-wire"]
 
 [dependencies]
 base64 = { workspace = true, optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
-# The `rust` branch of anomalyco/psychoscript: the Rust implementation, at parity with the TypeScript
-# reference. Pure Rust (oxc, ICU4X), no platform dependencies, so it builds for iOS and Android too.
 url = { version = "2", optional = true }
 # `String(number)` as ECMAScript writes it, for a view key's path segment (widgets.md, Native hosts).
 ryu-js = { version = "1", optional = true }
-# At `mobile` a77590d4, whose `psychoscript` is `rust` b30b1c2d's to the byte (the same tree): the
-# one `widget-gpu` builds on, so both share one PsychoScript.
-psychoscript = { git = "https://github.com/anomalyco/psychoscript", rev = "a77590d4bb866d7309b4d0033a55f307eabf1030", optional = true }
+# PsychoScript's Rust implementation, at parity with the TypeScript reference. Pure Rust (oxc,
+# ICU4X), no platform dependencies, so it builds for iOS and Android too. From crates.io: 0.1.0 is
+# PsychoScript `dev`'s crate to the byte, the one `widget-wire` builds on, so both share one.
+psychoscript = { version = "0.1", optional = true }
 # GPU canvases' replay (`widgets-gpu.md`): checks and replays a live program's WebGPU batches on wgpu.
-widget-gpu = { git = "https://github.com/anomalyco/psychoscript", rev = "a77590d4bb866d7309b4d0033a55f307eabf1030", optional = true }
+# PsychoScript's `gpu-split` 2e2c0199, the rev `widget-wire` takes.
+psychoscript-gpu = { git = "https://github.com/anomalyco/psychoscript", rev = "2e2c0199b043ce419992211a6b63a489f4cd45d8", optional = true }
+# The `wgsl` shorthand (`widget_wire::shorthand`): opencode `widgets` d63f5c5c's `packages/widgets-rs`.
+widget-wire = { git = "https://github.com/anomalyco/opencode", rev = "d63f5c5cf37d24ad992699c3a570f3436924379b", optional = true }
 wgpu = { version = "30", default-features = false, optional = true }
 
 [dev-dependencies]

@@ -38,7 +38,7 @@ pub(super) fn runtime(link: &Arc<Link>, era: u64) -> Runtime {
         slice_ms: Some(super::SLICE_MS),
         ..Default::default()
     };
-    Runtime::make().typed_arrays(true).limits(limits).translate(translate).globals(move |_run| {
+    Runtime::make().limits(limits).translate(translate).globals(move |_run| {
         // `gpu`: whether this client replays the program's GPU batches, and its canvas format.
         let mut input = json!({ "data": link.data });
         if let Some(gpu) = link.gpu() {

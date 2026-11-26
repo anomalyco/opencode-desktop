@@ -1,12 +1,12 @@
 //! `wgsl` canvases (`widgets-gpu.md`, The `wgsl` shorthand) on the device live runs share: each
-//! a [`widget_gpu::Shorthand`], rendered off the window's thread when the window asks, and shown
+//! a [`widget_wire::shorthand::Shorthand`], rendered off the window's thread when the window asks, and shown
 //! through the hand-off a run's canvases take ([`Canvases`]), a frame after it asked. The window
 //! decides when a canvas renders (its `fps` and `values`); the worker only renders what it's
 //! asked, and nothing when nothing is. A `Shorthand` skips a frame while its last is still
 //! drawing: the worker tries it again shortly. One too slow (over 50 ms a frame, three in a row)
 //! stops on its last frame: the window shows it frozen. One whose frame hangs (still unfinished
-//! 250 ms after its submit, `widget_gpu::HANG`, or two device losses within 30 s with a frame in
-//! flight) stops with its placeholder for good, a loss after it included: the worker looks at a
+//! 250 ms after its submit, `psychoscript_gpu::HANG`, or two device losses within 30 s with a frame in
+//! flight, each after a frame finished) stops with its placeholder for good, a loss after it included: the worker looks at a
 //! frame about once a display frame while it may still be drawing. It submits one frame at a time, so it can't be stuck submitting while the GPU hangs.
 
 use std::collections::{HashMap, HashSet};
@@ -14,7 +14,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
-use widget_gpu::{ErrorKind, HANG, Shorthand, Uniforms};
+use psychoscript_gpu::{ErrorKind, HANG};
+use widget_wire::shorthand::{Shorthand, Uniforms};
 
 use super::{Canvas, Canvases, Device, Lost};
 
@@ -182,7 +183,7 @@ fn work(shared: &Arc<Shared>) {
         let (mut failed, mut frozen) = (Vec::new(), Vec::new());
         if let Some(next) = lost {
             // A loss with a frame in flight is a strike, the second within 30 s a hang
-            // (`widget_gpu::Shorthand::lost`): told before the reset, its stop comes from the next poll.
+            // (`widget_wire::shorthand::Shorthand::lost`): told before the reset, its stop comes from the next poll.
             for s in slots.values_mut().filter_map(|s| s.shorthand.as_mut()) {
                 s.lost();
             }

@@ -99,7 +99,7 @@ pub enum Post {
     Failed { phase: &'static str, message: String },
     /// A GPU batch's error (`widgets-gpu.md`): the program's (phase `gpu`, reported) or this
     /// client's, and the canvases it stopped.
-    Gpu(widget_gpu::GpuError),
+    Gpu(psychoscript_gpu::GpuError),
 }
 
 /// How a program ended.
@@ -157,7 +157,7 @@ impl Live {
     }
 
     /// Tells the program GPU canvas `key`'s size, in physical pixels clamped to the texture limit
-    /// (`widget_gpu::clamp_size`), before the frame after it changed (`widgets-gpu.md`).
+    /// (`psychoscript_gpu::clamp_size`), before the frame after it changed (`widgets-gpu.md`).
     pub fn canvas(&self, key: &str, width: u32, height: u32) {
         self.link.deliver(json!({ "type": "canvas", "key": key, "width": width, "height": height }));
     }

@@ -18,9 +18,9 @@ pub(in crate::live) enum Wait {
     Counted(Option<String>, Post),
     /// A GPU batch, its bytes copied: it takes no token, but never overtakes a waiting post.
     /// `frame`: it rode a frame request, which goes out after it.
-    Batch { ops: Vec<widget_gpu::Arg>, bytes: Vec<u8>, frame: bool },
+    Batch { ops: Vec<psychoscript_gpu::Arg>, bytes: Vec<u8>, frame: bool },
     /// A batch whose shape failed the host checks, with why (and its ops, when a list).
-    Refused { ops: Option<Vec<widget_gpu::Arg>>, message: String, frame: bool },
+    Refused { ops: Option<Vec<psychoscript_gpu::Arg>>, message: String, frame: bool },
     /// A `canvas` size the program heard, for the GPU after the batches ahead of it.
     Resize(String, u32, u32),
 }
@@ -132,7 +132,7 @@ impl Link {
     }
 
     /// A batch replayed (or refused): its error to the client, then the frame request it rode.
-    fn replayed(&self, gpu: &RunGpu, error: Option<widget_gpu::GpuError>, frame: bool) {
+    fn replayed(&self, gpu: &RunGpu, error: Option<psychoscript_gpu::GpuError>, frame: bool) {
         if let Some(e) = error {
             self.post(Post::Gpu(e));
         }

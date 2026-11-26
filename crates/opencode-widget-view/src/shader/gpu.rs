@@ -1,6 +1,6 @@
 //! GPU canvases on the window's GPU, for the host's compositor. Before the frame records, each
 //! `wgsl` canvas on screen that is due asks for a frame at the size it shows at
-//! ([`opencode_widget::gpu::Shorthands`]: `widget_gpu`'s shorthand, rendered off this thread on
+//! ([`opencode_widget::gpu::Shorthands`]: `widget_wire`'s shorthand, rendered off this thread on
 //! the device live runs share); each canvas, `wgsl` or a live run's, gets its latest finished
 //! frame (`live`), which is drawn at the slot's place in Rune's pass, clipped as Rune clips. A
 //! `wgsl` canvas is due again at its `fps`; with `fps: 0` only when its `values` change or it's

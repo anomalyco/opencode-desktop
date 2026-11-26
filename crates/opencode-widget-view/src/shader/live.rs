@@ -79,7 +79,7 @@ pub(super) fn provide<S>(provided: &mut Option<DeviceKey>, f: &Frame<'_, S>) {
     }
 }
 
-/// The canvas format a backend's surfaces prefer (`widget_gpu::preferred_format`).
+/// The canvas format a backend's surfaces prefer (`psychoscript_gpu::preferred_format`).
 fn widget_gpu_format(backend: wgpu::Backend) -> wgpu::TextureFormat {
     match backend {
         wgpu::Backend::Metal | wgpu::Backend::Dx12 => wgpu::TextureFormat::Bgra8Unorm,
