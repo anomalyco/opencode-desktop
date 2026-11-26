@@ -18,8 +18,8 @@
 #                                 from a branch with "thin-build" in its name builds release-thin)
 #   OPENCODE_RUNE_SYMBOLS        (folder for opencode-desktop.dSYM.zip; default: $RUNNER_TEMP/macos, else OUT)
 #   OPENCODE_RUNE_KEEP_SYMBOLS   (1 ships the exe with its symbol names and writes no dSYM)
-#   OPENCODE_RUNE_BUNDLE_CLI     (1 bundles Contents/Resources/opencode-cli + opencode-cli.version from npm;
-#                                 0 until .github/release/opencode-rune-sign-macos.sh allows and signs it)
+#   OPENCODE_RUNE_BUNDLE_CLI     (0 skips bundling Contents/Resources/opencode-cli + opencode-cli.version from npm;
+#                                 default 1, matching official Desktop)
 #   OPENCODE_RUNE_OFFICE_LIBRARY (1 ships the office viewer's engines as Contents/Frameworks/libopencode_office.dylib,
 #                                 loaded at the first office file, instead of in the exe; so does a pull request
 #                                 from a branch with "office-library" in its name. 0 until the release's signing
