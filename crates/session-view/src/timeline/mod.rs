@@ -247,21 +247,17 @@ impl RowSpec {
                 {
                     let fold = crate::disclosure::fold(k).duration.to_bits();
                     let detail = s.timeline_detail();
+                    let script_diffs = s.full_codemode(&t.session);
                     // A group of thoughts alone is a thought row (`turns::group`), which opens by
                     // its first thought's key and not by the group's: the row is shut as a
                     // group and may be open as a thought, so the thoughts' toggles are part of it.
                     let thoughts = s.expanded().stamp("r-");
                     let look = (p.theme, p.generation, p.dark, opencode_i18n::locale().id(), crate::style::hover_none());
-                    let ver = (&t.session, group_hash(&t.messages[*start..*end], &detail), *block, *live, [pt.to_bits(), self.room_under(s).to_bits()], look, self.streaming, (fold, crate::style::content_w().to_bits(), crate::scroller::device_scale().to_bits(), detail, s.shell_output_version(), crate::style::sticky_top().to_bits(), s.reduced_motion(), thoughts));
+                    let ver = (&t.session, group_hash(&t.messages[*start..*end], &detail, script_diffs), *block, *live, [pt.to_bits(), self.room_under(s).to_bits()], look, self.streaming, (fold, crate::style::content_w().to_bits(), crate::scroller::device_scale().to_bits(), detail, script_diffs, s.shell_output_version(), crate::style::sticky_top().to_bits(), s.reduced_motion(), thoughts));
                     return rune::memo(self.key.clone(), ver, || {
                         ROW_BUILDS.set(ROW_BUILDS.get() + 1);
-                        let blocks = turns::fold_with(&entries(&t.messages[*start..*end], &detail), *live, &detail);
-                        let el = match blocks.get(*block) {
-                            Some(Block::Group { key, steps, at }) => turns::group(s, p, &t.session, key, steps, at, *start..*end, *live, fade).pt(*pt),
-                            Some(Block::Events { key, steps }) => turns::events_row(s, p, &t.session, key, steps).pt(*pt),
-                            _ => col(),
-                        };
-                        self.wrap(s, el)
+                        let blocks = turns::fold_with_flags(&entries(&t.messages[*start..*end], &detail), *live, &detail, script_diffs);
+                        self.wrap(s, turns::block_row(s, p, &t.session, &blocks, *block, *start..*end, *live, fade, *pt, script_diffs))
                     });
                 }
                 RowContent::User { message, above, below, top, fold } => {
@@ -360,18 +356,13 @@ impl RowSpec {
             },
             RowContent::Turn { start, end, block, live, pt } => {
                 let detail = s.timeline_detail();
-                let blocks = turns::fold_with(&entries(&t.messages[*start..*end], &detail), *live, &detail);
+                let script_diffs = s.full_codemode(&t.session);
+                let blocks = turns::fold_with_flags(&entries(&t.messages[*start..*end], &detail), *live, &detail, script_diffs);
                 match blocks.get(*block) {
-                    Some(Block::Group { key, steps, at }) => turns::group(s, p, &t.session, key, steps, at, *start..*end, *live, fade).pt(*pt),
                     Some(Block::Text { key, body, live, msg, part }) => {
-                        // `t-{message}-{n}`
                         let message = key.strip_prefix("t-").and_then(|k| k.rsplit_once('-')).map(|(id, _)| id);
                         let has_turn_footer = !*live && turn_footer_text(t, start + msg, *part);
-                        let trim_bottom = if has_turn_footer || (!*live && footer_text(t, start + msg, *part)) {
-                            0.0
-                        } else {
-                            rhythm::prose_bottom_trim(body)
-                        };
+                        let trim_bottom = if has_turn_footer || (!*live && footer_text(t, start + msg, *part)) { 0.0 } else { rhythm::prose_bottom_trim(body) };
                         let md_el = markdown_view_find(s, p, &self.key, body, fade, *live, message, prompt_dir(t, start + msg));
                         let text = col().w_full().pt(*pt).child(if trim_bottom > 0.0 { md_el.mb(-trim_bottom) } else { md_el });
                         if has_turn_footer {
@@ -379,13 +370,7 @@ impl RowSpec {
                         }
                         text
                     }
-                    Some(Block::Events { key, steps }) => turns::events_row(s, p, &t.session, key, steps).pt(*pt),
-                    Some(Block::Subagent { step, .. }) => turns::subagent_row(s, p, &t.session, step).pt(*pt),
-                    Some(Block::Question { id, status, input, metadata }) =>
-                        crate::question_row::view(s, p, &t.session, id, status, input, metadata).pt(*pt),
-                    Some(Block::Thought { steps, live: thinking, .. }) => turns::thoughts(s, p, steps, *live, *live && *thinking, fade).pt(*pt),
-                    Some(Block::Calls { kind, steps, .. }) => turns::calls(s, p, &t.session, *kind, steps, *live).pt(*pt),
-                    None => col(),
+                    _ => turns::block_row(s, p, &t.session, &blocks, *block, *start..*end, *live, fade, *pt, script_diffs),
                 }
             }
         };
@@ -405,10 +390,10 @@ pub fn entries<'a>(messages: &'a [Message], detail: &crate::detail::Detail) -> V
     }).collect()
 }
 
-fn group_hash(messages: &[Message], detail: &crate::detail::Detail) -> u64 {
+fn group_hash(messages: &[Message], detail: &crate::detail::Detail, script_diffs: bool) -> u64 {
     use std::hash::{DefaultHasher, Hash, Hasher};
     let mut h = DefaultHasher::new();
-    let edits = detail.placement(crate::detail::Category::Edit) != crate::detail::Placement::Hidden;
+    let edits = script_diffs && detail.placement(crate::detail::Category::Edit) != crate::detail::Placement::Hidden;
     for m in messages {
         if let Message::Notice(n) = m {
             (3u8, &n.id).hash(&mut h);
@@ -532,7 +517,7 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         rows: t.map(|t| rows(s, t)).unwrap_or_default(),
         lane: (t.is_some() && lane > 0.0).then(|| std::rc::Rc::new(RowSpec { key: "pill-lane".into(), content: RowContent::Lane(lane), streaming: false, under: 0.0, divider: None })),
     };
-    let tail_extra = t.map_or(0.0, |t| rhythm::tail_extra(t, &s.timeline_detail(), &specs.rows));
+    let tail_extra = t.map_or(0.0, |t| rhythm::tail_extra(t, &s.timeline_detail(), s.full_codemode(&t.session), &specs.rows));
     let mut stack = col()
         .key("timeline")
         .w_full()
@@ -732,8 +717,8 @@ pub fn part_gap(prev: Option<bool>, tool: bool) -> f32 {
 
 /// A turn's rows, `steps` being its messages `start..end` one for one. `live`: these steps end
 /// the transcript and the last one is still running.
-pub fn turn_rows(out: &mut Vec<RowSpec>, steps: &[Entry], start: usize, end: usize, live: bool, detail: &crate::detail::Detail) {
-    let blocks = turns::fold_with(steps, live, detail);
+pub fn turn_rows(out: &mut Vec<RowSpec>, steps: &[Entry], start: usize, end: usize, live: bool, detail: &crate::detail::Detail, script_diffs: bool) {
+    let blocks = turns::fold_with_flags(steps, live, detail, script_diffs);
     // Whether the row above was a tool; `None` above the turn's first row.
     let mut prev: Option<bool> = None;
     for (i, b) in blocks.into_iter().enumerate() {

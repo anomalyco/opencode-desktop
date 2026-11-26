@@ -66,6 +66,8 @@ pub enum Incoming {
     /// The folder the server was started in, its default location (the reply to
     /// `Request::DefaultDirectory`).
     DefaultDirectory(String),
+    /// Resolved UI feature flags for `directory` (the reply to `Request::Flags`).
+    Flags { directory: Option<String>, flags: std::collections::BTreeMap<String, bool> },
     /// A folder resolved and registered as a project (`Write::OpenProject`), with the updated
     /// project list and, when `start_session` was set, the new session opened in it.
     ProjectOpened { location: model::LocationInfo, projects: Vec<model::Project>, session: Option<SessionInfo> },
@@ -113,6 +115,9 @@ pub enum Request {
     /// The server's default location (`GET /api/location` with no directory), replied as
     /// `Incoming::DefaultDirectory`; a failed read stays quiet.
     DefaultDirectory,
+    /// Resolved UI feature flags for `directory` (`GET /api/experimental/flag`,
+    /// `packages/protocol/src/groups/flag.ts`), replied as `Incoming::Flags`.
+    Flags { directory: Option<String> },
     /// One session's info (`time.idle`/`time.viewed` after it finishes or someone views it).
     Info(String),
     /// [`Request::Info`] for a session named in a message, which may not exist: replied as

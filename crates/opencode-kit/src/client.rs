@@ -594,6 +594,8 @@ impl Server {
         self.get("/api/project").map(|v| model::parse_projects(&v))
     }
 
+
+
     /// Every direct subagent session of `session`, newest first, in pages of 200 (Desktop's
     /// `listChildren`).
     pub fn children(&self, session: &str) -> Result<Vec<model::SessionInfo>, WireError> {
