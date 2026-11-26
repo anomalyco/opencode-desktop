@@ -2,12 +2,12 @@
   "generated_at": "2026-11-27",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "6c26549955966e333ae15764477c2e549776d85e",
+  "upstream_head": "9f49f9e37ae0f4fc5c795a986440d00c1f63924a",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "15988933e",
-  "post_1114_commit_count": 743,
-  "post_1114_in_ledger": 255,
+  "rune_desktop_head": "46dee81d2",
+  "post_1114_commit_count": 744,
+  "post_1114_in_ledger": 256,
   "post_1114_skipped": 488,
   "post_1114_skipped_breakdown": {
     "test-only": 33,
@@ -18,9 +18,9 @@
     "server-core-ai-codemode-internal": 308
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 276,
+  "total_ledger_rows": 277,
   "status_counts": {
-    "have it": 227,
+    "have it": 228,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 4,
@@ -6899,7 +6899,29 @@
       "summary": "Gates Code Mode execute script diffs/counts behind the server's full_codemode flag and switches execute calls under full_codemode to a flat layout that places the script's Output disclosure row after its file changes with tighter script-to-changes spacing.",
       "size": "M",
       "status": "missing",
-      "status_evidence": "Port in draft opencode-rune #1329 (head c56158077a, CI running, not yet run): adds Server::flags (GET /api/experimental/flag), explicit per-(server, directory) LocationFlags state machine in apps/desktop/src/session/meta/flags.rs wired to TimelineHost::full_codemode, gates turns::fold_with_flags script diffs/counts behind full_codemode, switches execute calls under full_codemode to the flat locked-open layout with script_output_for_{steps,blocks} moving Output after the script's last change, updates M/S block and open-group spacing, and adds --scene tools-execute-codemode-{off,on,standalone}. Official: packages/app/src/session/timeline/{controller,message-timeline}.tsx, packages/session-ui/src/timeline/{script-output,facts,projection}.ts, timeline-next/{row,tools/context-group}.tsx, tools/tool-renderer.tsx.",
+      "status_evidence": "Port in draft opencode-rune #1329 (head de9079d0a2, CI running, not yet run): adds Server::flags (GET /api/experimental/flag), explicit per-(server, directory) LocationFlags state machine in apps/desktop/src/session/meta/flags.rs wired to TimelineHost::full_codemode, gates turns::fold_with_flags script diffs/counts behind full_codemode, switches execute calls under full_codemode to the flat locked-open layout with script_output_for_{steps,blocks} moving Output after the script's last change, updates M/S block and open-group spacing, and adds --scene tools-execute-codemode-{off,on,standalone}. Official: packages/app/src/session/timeline/{controller,message-timeline}.tsx, packages/session-ui/src/timeline/{script-output,facts,projection}.ts, timeline-next/{row,tools/context-group}.tsx, tools/tool-renderer.tsx.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-256",
+      "window": "post-1120",
+      "pr": 66637,
+      "sha": "9f49f9e37a",
+      "title": "fix(session-ui): keep sticky file headers under the taller group header",
+      "merged": "2026-11-26",
+      "packages": [
+        "session-ui"
+      ],
+      "main_files": [
+        "packages/session-ui/src/components/message-part.css",
+        "packages/session-ui/src/tools/tool-renderer.tsx"
+      ],
+      "summary": "Keeps nested sticky file headers below the taller expanded context-group header (--sticky-accordion-top) and accounts for trigger marginTop when collapsing a stuck legacy group header.",
+      "size": "XS",
+      "status": "have it",
+      "status_evidence": "Already holds by construction in crates/session-view/src/turns/view.rs: nested file headers receive cx.sticky = top + 28.0 + GROUP_GAP (automatically tracking GROUP_GAP on dev and when bumped to M=20 in #1329), trigger pad matches h(GROUP_GAP), and Rune never uses the legacy CSS negative margin-block trigger hack. Official: packages/session-ui/src/components/message-part.css:2232-2235, tools/tool-renderer.tsx:507-513.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
