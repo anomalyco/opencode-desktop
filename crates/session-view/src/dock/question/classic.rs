@@ -88,7 +88,16 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
     // Folded, the answers close to nothing but keep their place, and the body's gap above them.
     let folded = minimized.then(|| el().key("q-folded").w_full().h(0.0));
     let options = (!minimized).then(|| {
-        let mut answers = col().key(format!("q-options-{tab}")).w_full().gap(6.0).role(if multi { "group" } else { "radiogroup" });
+        // Answer cards are focusable `on_press` elements, so under `web_focus` Rune activates
+        // their `on_press` on unmodified Enter/Space before the window's `on_key` sees it.
+        // Handling option keys on the group lets Enter submit (or select per setting) first;
+        // Rune skips `El::on_key` while the typed-answer text field `q-input` has focus.
+        let mut answers = col()
+            .key(format!("q-options-{tab}"))
+            .w_full()
+            .gap(6.0)
+            .role(if multi { "group" } else { "radiogroup" })
+            .on_key(|s: &mut S, ev, tx| super::key(s, ev, tx));
         for (i, (value, label, desc)) in list.iter().enumerate() {
             let picked = picks.contains(value);
             let card = card(p, picked, ring && focus == i, d.keyboard)
@@ -383,7 +392,7 @@ fn custom<S: DockHost>(s: &S, p: &Pal, f: &Form, tab: usize, multi: bool, editin
     };
     let keyboard = s.dock().keyboard;
     // `question-custom-toggle`: 4 under the row's top, level with the field's first line.
-    let mark_el = mark(p, multi, on, keyboard).mt(4.0).role(if multi { "checkbox" } else { "radio" }).label(custom_label());
+    let mark_el = mark(p, multi, on, keyboard).key("q-custom-mark").mt(4.0).role(if multi { "checkbox" } else { "radio" }).label(custom_label());
     let mark_el = if live {
         mark_el.cursor(rune::Cursor::Pointer).on_press_tx(|s: &mut S, _: &mut Tx| {
             let Some(f) = asking(s) else { return };
@@ -443,6 +452,7 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let (tab, focus) = place(s, &f);
     let field = &f.fields[tab];
     let n = rows(field).len();
+    let focus = focused_option(tx.focused(), n, has_custom(field)).unwrap_or(focus);
     let count = count(field);
     let minimized = s.dock().minimized;
     // A reply on its way: Esc, Back and the advance key do nothing, and the rest aren't the dock's.
@@ -521,6 +531,9 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     let enter = enter(ev, s.dock_question_submit());
     if !space && enter.is_none() {
         return false;
+    }
+    if tx.key_repeat() {
+        return true;
     }
     dock(s, &f).keyboard = true;
     match enter {

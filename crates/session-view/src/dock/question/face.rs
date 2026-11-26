@@ -114,7 +114,14 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         .child(readable(p, text(text_of.clone()).key("q-text").font(STRONG).color(p.text).wrap()))
         .children(multi.then(|| text(opencode_i18n::t!("ui.question.multiHint")).key("q-hint").font(HINT).color(p.faint)));
 
-    let mut answers = col().key(format!("q-options-{tab}")).w_full().gap(2.0).role(if multi { "group" } else { "radiogroup" });
+    // Same as `classic::face`: handle Enter/Space on focused options before `web_focus`
+    // activates `on_press`; skipped automatically while `q-input` has focus.
+    let mut answers = col()
+        .key(format!("q-options-{tab}"))
+        .w_full()
+        .gap(2.0)
+        .role(if multi { "group" } else { "radiogroup" })
+        .on_key(|s: &mut S, ev, tx| super::key(s, ev, tx));
     for (i, (value, label, desc)) in list.iter().enumerate() {
         let picked = picks.contains(value);
         let opt = row()
@@ -194,7 +201,7 @@ pub fn face<S: DockHost>(s: &S, p: &Pal) -> Option<Vec<El>> {
         let input = crate::scroller::scroller(format!("q-input-scroll-{tab}")).build::<S>(p, col().grow(1.0).min_w(0.0).max_h(FIELD_MAX_H), input);
         let input = row().key("q-field").grow(1.0).min_w(0.0).min_h(28.0).pt(5.0).pb(5.0).child(input);
         // `question-custom-toggle`: 4 under the row's top, level with the field's first line.
-        let mark_el = mark(p, multi, on, i).mt(4.0).role(if multi { "checkbox" } else { "radio" }).label(custom_label());
+        let mark_el = mark(p, multi, on, i).key("q-custom-mark").mt(4.0).role(if multi { "checkbox" } else { "radio" }).label(custom_label());
         let mark_el = if live {
             mark_el.cursor(rune::Cursor::Pointer).on_press_tx(|s: &mut S, tx: &mut Tx| {
                 let Some(f) = asking(s) else { return };

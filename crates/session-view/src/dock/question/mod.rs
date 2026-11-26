@@ -156,8 +156,17 @@ pub(super) fn focus_in_dock(focused: Option<&str>) -> bool {
 /// header/footer button like Dismiss, Back, Next/Submit, Minimize, or progress segments).
 pub(super) fn focus_in_options(focused: Option<&str>) -> bool {
     match focused {
-        None | Some("q-custom" | "q-input") => true,
+        None | Some("q-custom" | "q-custom-mark" | "q-input") => true,
         Some(k) => k.starts_with("q-opt-"),
+    }
+}
+
+/// The answer index a focused option key names, so Tab + Enter acts on the focused row.
+pub(super) fn focused_option(focused: Option<&str>, n: usize, has_custom: bool) -> Option<usize> {
+    match focused {
+        Some("q-custom" | "q-custom-mark") if has_custom => Some(n),
+        Some(k) => k.strip_prefix("q-opt-").and_then(|s| s.parse::<usize>().ok()).filter(|&i| i < n),
+        None => None,
     }
 }
 
@@ -535,6 +544,7 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
     let field = &f.fields[tab];
     let n = rows(field).len();
+    let focus = focused_option(tx.focused(), n, has_custom(field)).unwrap_or(focus);
     let zone = if editing_here {
         Zone::Input
     } else if !focus_in_options(tx.focused()) {
@@ -567,7 +577,12 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
                 jump(s, &f, tab - 1, tx);
             }
         }
-        Intent::Commit => commit(s, &f, tx),
+        Intent::Commit => {
+            if !tx.key_repeat() {
+                dock(s, &f).focus = focus;
+                commit(s, &f, tx);
+            }
+        }
         Intent::Type(c) => {
             tx.instant();
             let t = s.dock_mut().typed_mut(&f.id, &field.key);
@@ -584,8 +599,10 @@ pub fn key<S: DockHost>(s: &mut S, ev: &KeyEvent, tx: &mut Tx) -> bool {
             }
         }
         Intent::Activate => {
-            tx.instant();
-            if focus >= n { toggle_custom(s, &f, tab) } else { select(s, &f, tab, focus) }
+            if !tx.key_repeat() {
+                tx.instant();
+                if focus >= n { toggle_custom(s, &f, tab) } else { select(s, &f, tab, focus) }
+            }
         }
         Intent::Move(step) => {
             tx.instant();
