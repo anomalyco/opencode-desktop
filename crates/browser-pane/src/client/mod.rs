@@ -34,6 +34,8 @@ pub struct BrowserTab {
     pub can_go_forward: bool,
     pub zoom: f64,
     pub cursor: CursorKind,
+    /// Wheel-scroll cursor deferral state machine (avoids full-window UI rebuilds on scroll).
+    pub(crate) scroll_cursor: crate::scroll_cursor::ScrollCursor,
     /// Why the page shows no document (`TabSnapshot::load_error`).
     pub load_error: Option<String>,
     /// Site favicon as a bounded `data:image/png;base64,...` data URL (`UP-109` `#65094`).
@@ -176,9 +178,6 @@ pub struct BrowserHost {
     color_scheme: std::sync::atomic::AtomicU8,
     /// Target OSR frame rate matching the window's display refresh rate in Hz (0 = not given yet).
     display_fps: std::sync::atomic::AtomicU32,
-    /// Per-tab wheel-scroll cursor deferral state machine (avoids full-window UI rebuilds on
-    /// Chromium's scroll-time cursor changes).
-    pub(crate) scroll_cursors: HashMap<u64, crate::scroll_cursor::ScrollCursor>,
     /// The last laid-out page size, so a new tab opens at it instead of 800 × 600 and a resize.
     pub(crate) last_viewport: ((f32, f32), f32),
     #[cfg(all(feature = "engine", target_os = "macos"))]
@@ -254,7 +253,6 @@ impl BrowserHost {
             keep_engine: false,
             color_scheme: std::sync::atomic::AtomicU8::new(0),
             display_fps: std::sync::atomic::AtomicU32::new(0),
-            scroll_cursors: HashMap::new(),
             last_viewport: ((800.0, 600.0), 2.0),
             #[cfg(all(feature = "engine", target_os = "macos"))]
             mach: None,
@@ -298,10 +296,15 @@ impl BrowserHost {
     /// Notes active wheel scrolling on `tab_id` so cursor-only `TabUpdate`s defer until settle.
     pub(crate) fn note_wheel_scroll(&mut self, tab_id: u64) {
         let now = rune::time::Instant::now();
-        self.scroll_cursors
-            .entry(tab_id)
-            .or_default()
-            .step(crate::scroll_cursor::ScrollCursorEvent::Wheel { now });
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+            t.scroll_cursor.step(crate::scroll_cursor::ScrollCursorEvent::Wheel { now });
+        }
+    }
+
+    /// Earliest deadline at which a deferred scroll-time cursor must settle (used by `browser_waker`
+    /// to arm `tx.wake_after` when `poll()` returns `false`).
+    pub fn scroll_cursor_wake_at(&self) -> Option<rune::time::Instant> {
+        self.tabs.iter().filter_map(|t| t.scroll_cursor.wake_at()).min()
     }
 
     /// Leaves the engine running when the last tab closes, so the next page skips its start and
@@ -478,7 +481,6 @@ impl BrowserHost {
     pub fn close_tab(&mut self, id: u64) {
         self.preview_chunk_budget.cancel_tab(id);
         self.tab_favicons.remove(&id);
-        self.scroll_cursors.remove(&id);
         if let Some(pos) = self.tabs.iter().position(|t| t.id == id) {
             let removed = self.tabs.remove(pos);
             removed.surface.clear();
@@ -1173,20 +1175,20 @@ impl BrowserHost {
                 || !cancel_perms.is_empty()
                 || !cancel_auth.is_empty();
             let cursor_changed = if non_cursor_changed {
-                if let Some(sc) = self.scroll_cursors.get_mut(&snap.tab_id) {
-                    sc.step(crate::scroll_cursor::ScrollCursorEvent::CoalescedCommit);
-                }
+                t.scroll_cursor.step(crate::scroll_cursor::ScrollCursorEvent::CoalescedCommit);
                 let diff = t.cursor != snap.cursor;
                 t.cursor = snap.cursor;
                 diff
-            } else if t.cursor != snap.cursor || self.scroll_cursors.contains_key(&snap.tab_id) {
+            } else if t.scroll_cursor == crate::scroll_cursor::ScrollCursor::Idle {
+                let diff = t.cursor != snap.cursor;
+                t.cursor = snap.cursor;
+                diff
+            } else {
                 let now = rune::time::Instant::now();
-                let effect = self
-                    .scroll_cursors
-                    .entry(snap.tab_id)
-                    .or_default()
-                    .step(crate::scroll_cursor::ScrollCursorEvent::CursorChanged { cursor: snap.cursor, now });
-                match effect {
+                match t.scroll_cursor.step(crate::scroll_cursor::ScrollCursorEvent::CursorChanged {
+                    cursor: snap.cursor,
+                    now,
+                }) {
                     crate::scroll_cursor::ScrollCursorEffect::Apply(c) => {
                         let diff = t.cursor != c;
                         t.cursor = c;
@@ -1194,8 +1196,6 @@ impl BrowserHost {
                     }
                     crate::scroll_cursor::ScrollCursorEffect::None => false,
                 }
-            } else {
-                false
             };
             let changed = non_cursor_changed || cursor_changed;
             if clear_refusal {
@@ -1281,6 +1281,7 @@ impl BrowserHost {
             can_go_forward: snap.can_go_forward,
             zoom: if is_site { want_zoom } else { snap.zoom },
             cursor: snap.cursor,
+            scroll_cursor: Default::default(),
             load_error: snap.load_error,
             favicon: snap.favicon,
             preview: snap.preview,

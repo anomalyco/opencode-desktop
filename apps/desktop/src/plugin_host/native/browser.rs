@@ -598,7 +598,7 @@ pub fn version(app: &App) -> u64 {
     app.workspace_panes.browser.cookies.counted().hash(&mut h);
     for t in app.workspace_panes.browser.host.tabs() {
         if let Some(d) = &t.device { (&d.preset, d.width, d.height, d.scale.map(f32::to_bits)).hash(&mut h); }
-        (t.id, &t.url, &t.title, t.loading, t.can_go_back, t.can_go_forward, t.zoom.to_bits(), t.inspecting, &t.load_error, &t.favicon, &t.refusal, t.rejected).hash(&mut h);
+        (t.id, &t.url, &t.title, t.loading, t.can_go_back, t.can_go_forward, t.zoom.to_bits(), t.cursor as u8, t.inspecting, &t.load_error, &t.favicon, &t.refusal, t.rejected).hash(&mut h);
         t.preview.map(|p| p as u8).hash(&mut h);
         t.prompts.hash_state(&mut h);
         t.find.hash_state(&mut h);

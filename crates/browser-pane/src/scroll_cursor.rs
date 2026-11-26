@@ -64,13 +64,9 @@ impl ScrollCursor {
                     ScrollCursorEffect::None
                 }
             }
-            (Self::Scrolling { until }, ScrollCursorEvent::CoalescedCommit) => {
+            (Self::Scrolling { until } | Self::Deferred { until, .. }, ScrollCursorEvent::CoalescedCommit) => {
                 *self = Self::Scrolling { until };
                 ScrollCursorEffect::None
-            }
-            (Self::Deferred { until, pending }, ScrollCursorEvent::CoalescedCommit) => {
-                *self = Self::Scrolling { until };
-                ScrollCursorEffect::Apply(pending)
             }
             (Self::Idle, ScrollCursorEvent::CoalescedCommit | ScrollCursorEvent::Tick { .. }) => {
                 ScrollCursorEffect::None

@@ -29,7 +29,7 @@ use windows::Win32::Graphics::Dxgi::{
     CreateDXGIFactory1, DXGI_SHARED_RESOURCE_READ, DXGI_SHARED_RESOURCE_WRITE, IDXGIAdapter, IDXGIFactory4,
     IDXGIResource1,
 };
-use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
+use windows::Win32::System::Threading::{CreateEventW, ResetEvent, WaitForSingleObject};
 use windows::core::{HSTRING, Interface};
 
 /// Shared texture ring depth per tab: 5 absorbs high-refresh (165-240 Hz) swap-chain + IPC jitter
@@ -55,8 +55,9 @@ pub struct Gpu {
     sync: CopySync,
 }
 
-// SAFETY: D3D11 devices are free-threaded; the immediate context and query are used only on CEF's
-// UI thread (`OnAcceleratedPaint` and the engine's message loop), never concurrently.
+// SAFETY: D3D11 devices are free-threaded; the immediate context and `sync` (`context4`,
+// `fence`, `event`, and fallback `query`) are used only on CEF's UI thread (`OnAcceleratedPaint`
+// and the engine's message loop), never concurrently.
 unsafe impl Send for Gpu {}
 unsafe impl Sync for Gpu {}
 
@@ -122,13 +123,35 @@ impl Gpu {
                         return false;
                     }
                     self.context.Flush();
-                    if fence.GetCompletedValue() >= next {
+                    let completed = fence.GetCompletedValue();
+                    // `u64::MAX` signals device removal / TDR (ID3D11Fence::GetCompletedValue).
+                    if completed == u64::MAX {
+                        return false;
+                    }
+                    if completed >= next {
                         return true;
                     }
+                    // Clear any stale signal left by a previously timed-out wait before re-arming.
+                    let _ = ResetEvent(event.0);
                     if fence.SetEventOnCompletion(next, event.0).is_err() {
                         return false;
                     }
-                    WaitForSingleObject(event.0, 1000) == WAIT_OBJECT_0
+                    let deadline = Instant::now() + Duration::from_secs(1);
+                    loop {
+                        let completed = fence.GetCompletedValue();
+                        if completed == u64::MAX {
+                            return false;
+                        }
+                        if completed >= next {
+                            return true;
+                        }
+                        let Some(rem) = deadline.checked_duration_since(Instant::now()) else {
+                            return false;
+                        };
+                        if WaitForSingleObject(event.0, rem.as_millis().clamp(1, 1000) as u32) != WAIT_OBJECT_0 {
+                            return false;
+                        }
+                    }
                 }
             }
             CopySync::Query(query) => {

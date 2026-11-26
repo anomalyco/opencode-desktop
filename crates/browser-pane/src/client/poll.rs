@@ -78,6 +78,7 @@ impl BrowserHost {
                     for t in &mut self.tabs {
                         t.files.clear();
                         t.prompts.reset_for_engine();
+                        t.scroll_cursor = Default::default();
                         t.find.step(crate::find::FindEvent::DocumentChanged);
                     }
                     rune::marks::mark("browser.engine.ready");
@@ -188,7 +189,6 @@ impl BrowserHost {
                     }
                     self.pending_opens.retain(|(id, _)| *id != tab_id);
                     self.download_save_requests.retain(|r| r.tab_id != tab_id);
-                    self.scroll_cursors.remove(&tab_id);
                     let fatal_close = if let Some(pos) = self.tabs.iter().position(|t| t.id == tab_id) {
                         let removed = self.tabs.remove(pos);
                         removed.surface.clear();

@@ -430,6 +430,7 @@ impl crate::BrowserHost {
             can_go_forward: false,
             zoom: 1.0,
             cursor: crate::protocol::CursorKind::Default,
+            scroll_cursor: Default::default(),
             load_error: None,
             favicon: None,
             preview: None,

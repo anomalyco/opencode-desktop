@@ -37,7 +37,7 @@ fn query_default_fps() -> i32 {
     // SAFETY: plain Win32 query filling our owned `DEVMODEW` with its size initialized.
     let ok = unsafe { EnumDisplaySettingsW(windows::core::PCWSTR::null(), ENUM_CURRENT_SETTINGS, &mut mode) }.as_bool();
     if ok && mode.dmDisplayFrequency >= MIN_PANE_FPS as u32 {
-        (mode.dmDisplayFrequency as i32).clamp(MIN_PANE_FPS, MAX_PANE_FPS)
+        mode.dmDisplayFrequency.clamp(MIN_PANE_FPS as u32, MAX_PANE_FPS as u32) as i32
     } else {
         MIN_PANE_FPS
     }
@@ -64,7 +64,7 @@ pub fn pane_fps() -> i32 {
 /// Updates the pane frame rate from the host app's window display refresh rate. Returns
 /// `Some(fps)` when the clamped target changed.
 pub fn set_pane_fps(fps: u32) -> Option<i32> {
-    let clamped = (fps as i32).clamp(MIN_PANE_FPS, MAX_PANE_FPS);
+    let clamped = fps.clamp(MIN_PANE_FPS as u32, MAX_PANE_FPS as u32) as i32;
     let prev = PANE_FPS.swap(clamped, Ordering::Relaxed);
     (prev != clamped).then_some(clamped)
 }

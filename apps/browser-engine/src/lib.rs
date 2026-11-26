@@ -209,7 +209,7 @@ pub fn run_browser(
     #[cfg(windows)]
     end_children_with_engine();
     #[cfg(windows)]
-    let _high_res_timer = HighResTimerGuard::enable();
+    let mut high_res_timer = HighResTimer::new();
     let ext_specs: Vec<String> = args
         .windows(2)
         .filter(|w| w[0] == "--extension")
@@ -565,6 +565,12 @@ pub fn run_browser(
             .flatten()
             .min()
             .unwrap_or(now + MAX_PUMP_DELAY);
+        #[cfg(windows)]
+        high_res_timer.sync(
+            now < busy_until
+                || manager.waits_for_texture()
+                || pump_at.is_some_and(|at| at.saturating_duration_since(now) < Duration::from_millis(50)),
+        );
         let event = match rx.recv_timeout(wake.saturating_duration_since(now)) {
             Ok(event) => event,
             Err(RecvTimeoutError::Timeout) => {
@@ -717,52 +723,95 @@ fn default_socket_path() -> PathBuf {
         .join(format!("browser-{uid}.sock"))
 }
 
-/// Opts this windowless Windows sidecar out of Windows 11's timer-resolution throttling
-/// (`PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION`) and requests a 1 ms timer tick so
-/// `recv_timeout` and CEF's OSR frame pacing are not quantized to 15.625 ms (which caps 165 Hz
-/// scrolling and causes 30 ms frame-interval spikes even at 60 Hz).
+/// Explicit state machine scoping Windows' 1 ms timer period (`timeBeginPeriod(1)`) to active
+/// interaction, frame retries, and short pump intervals so idle tabs / laptops do not burn 1 kHz
+/// timer interrupts. On startup it opts this windowless sidecar out of Windows 11's
+/// `PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION` so active 1 ms requests are honored.
 #[cfg(windows)]
-#[allow(unsafe_code)]
-struct HighResTimerGuard(bool);
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum HighResTimerState {
+    #[default]
+    Inactive,
+    Active,
+}
 
 #[cfg(windows)]
-#[allow(unsafe_code)]
-impl HighResTimerGuard {
-    fn enable() -> Self {
-        use windows::Win32::Media::timeBeginPeriod;
-        use windows::Win32::System::Threading::{
-            GetCurrentProcess, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
-            PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION, PROCESS_POWER_THROTTLING_STATE,
-            ProcessPowerThrottling, SetProcessInformation,
-        };
-        // SAFETY: plain Win32 calls on this process handle and an owned `state` struct.
-        unsafe {
-            let state = PROCESS_POWER_THROTTLING_STATE {
-                Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
-                ControlMask: PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
-                StateMask: 0,
-            };
-            let _ = SetProcessInformation(
-                GetCurrentProcess(),
-                ProcessPowerThrottling,
-                (&raw const state).cast(),
-                std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
-            );
-            Self(timeBeginPeriod(1) == 0)
+enum HighResTimerEffect {
+    Begin,
+    End,
+}
+
+#[cfg(windows)]
+impl HighResTimerState {
+    fn step(&mut self, want_active: bool) -> Option<HighResTimerEffect> {
+        match (*self, want_active) {
+            (Self::Inactive, true) => {
+                *self = Self::Active;
+                Some(HighResTimerEffect::Begin)
+            }
+            (Self::Active, false) => {
+                *self = Self::Inactive;
+                Some(HighResTimerEffect::End)
+            }
+            _ => None,
         }
     }
 }
 
 #[cfg(windows)]
 #[allow(unsafe_code)]
-impl Drop for HighResTimerGuard {
-    fn drop(&mut self) {
-        if self.0 {
-            // SAFETY: paired with `timeBeginPeriod(1)` in `enable`.
-            unsafe {
-                let _ = windows::Win32::Media::timeEndPeriod(1);
-            }
+struct HighResTimer(HighResTimerState);
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+impl HighResTimer {
+    fn new() -> Self {
+        use windows::Win32::System::Threading::{
+            GetCurrentProcess, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+            PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION, PROCESS_POWER_THROTTLING_STATE,
+            ProcessPowerThrottling, SetProcessInformation,
+        };
+        let state = PROCESS_POWER_THROTTLING_STATE {
+            Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+            ControlMask: PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
+            StateMask: 0,
+        };
+        // SAFETY: plain Win32 call on this process handle and an owned `state` struct.
+        unsafe {
+            let _ = SetProcessInformation(
+                GetCurrentProcess(),
+                ProcessPowerThrottling,
+                (&raw const state).cast(),
+                std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+            );
         }
+        Self(HighResTimerState::Inactive)
+    }
+
+    fn sync(&mut self, want_active: bool) {
+        match self.0.step(want_active) {
+            Some(HighResTimerEffect::Begin) => {
+                // SAFETY: paired with `timeEndPeriod(1)` on transition to `Inactive` or `Drop`.
+                if unsafe { windows::Win32::Media::timeBeginPeriod(1) } != 0 {
+                    self.0 = HighResTimerState::Inactive;
+                }
+            }
+            Some(HighResTimerEffect::End) => {
+                // SAFETY: paired with the prior `timeBeginPeriod(1)` that entered `Active`.
+                unsafe {
+                    let _ = windows::Win32::Media::timeEndPeriod(1);
+                }
+            }
+            None => {}
+        }
+    }
+}
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+impl Drop for HighResTimer {
+    fn drop(&mut self) {
+        self.sync(false);
     }
 }
 
