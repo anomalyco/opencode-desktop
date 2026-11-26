@@ -5,7 +5,7 @@
   "upstream_head": "a956150945884ed703aa363cf50e4deada9f15e1",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "338973688",
+  "rune_desktop_head": "5fc2a6de9",
   "post_1114_commit_count": 747,
   "post_1114_in_ledger": 257,
   "post_1114_skipped": 490,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 278,
   "status_counts": {
-    "have it": 228,
+    "have it": 230,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 4,
-    "missing": 6
+    "missing": 4
   },
   "rows": [
     {
@@ -6898,8 +6898,8 @@
       ],
       "summary": "Gates Code Mode execute script diffs/counts behind the server's full_codemode flag and switches execute calls under full_codemode to a flat layout that places the script's Output disclosure row after its file changes with tighter script-to-changes spacing.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Port in draft opencode-rune #1329 (head de9079d0a2, CI running, not yet run): adds Server::flags (GET /api/experimental/flag), explicit per-(server, directory) LocationFlags state machine in apps/desktop/src/session/meta/flags.rs wired to TimelineHost::full_codemode, gates turns::fold_with_flags script diffs/counts behind full_codemode, switches execute calls under full_codemode to the flat locked-open layout with script_output_for_{steps,blocks} moving Output after the script's last change, updates M/S block and open-group spacing, and adds --scene tools-execute-codemode-{off,on,standalone}. Official: packages/app/src/session/timeline/{controller,message-timeline}.tsx, packages/session-ui/src/timeline/{script-output,facts,projection}.ts, timeline-next/{row,tools/context-group}.tsx, tools/tool-renderer.tsx.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1329 (5fc2a6de9, head de9079d0a2, CI run 45866130904 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): adds Server::flags (GET /api/experimental/flag), explicit per-(server, directory) LocationFlags state machine in apps/desktop/src/session/meta/flags.rs wired to TimelineHost::full_codemode, gates turns::fold_with_flags script diffs/counts behind full_codemode, switches execute calls under full_codemode to the flat locked-open layout with script_output_for_{steps,blocks} moving Output after the script's last file change, and updates M/S block and open-group spacing. Official: packages/app/src/session/timeline/{controller,message-timeline}.tsx, packages/session-ui/src/timeline/{script-output,facts,projection}.ts, timeline-next/{row,tools/context-group}.tsx, tools/tool-renderer.tsx. Verified headless on Windows x64 PR build (--scene tools-execute-codemode-{off,on,standalone}), all 3/3 cases pass (4/4 launches exit 0): full_codemode=false hides script diffs and keeps collapsible Execute; full_codemode=true grouped and standalone render locked-open flat Execute, script diff card, and Output 16 px after diff card with interactive console expansion. Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
@@ -6942,8 +6942,8 @@
       ],
       "summary": "Restricts TimelineRow.scriptChanges to file-card rows (group.type === 'file') so a script whose changes are folded into a separate grouped summary row keeps its Output row under its steps and stands M apart from the summary group.",
       "size": "XS",
-      "status": "missing",
-      "status_evidence": "Included by construction in draft opencode-rune #1329 (head de9079d0a2, CI run 45866130904 green, awaiting proof): both turns::script_output_for_blocks (crates/session-view/src/turns/mod.rs) and rhythm::edges_of script_changes (crates/session-view/src/timeline/rhythm.rs) match only Block::Calls { kind: Calls::Files } and never Block::Group, so grouped changes never steal a preceding script's Output row. Official: packages/session-ui/src/timeline/{script-output,timeline-row}.ts.",
+      "status": "have it",
+      "status_evidence": "Shipped in opencode-rune #1329 (5fc2a6de9, head de9079d0a2, CI run 45866130904 green; Linux arm64 skipped): both turns::script_output_for_blocks (crates/session-view/src/turns/mod.rs) and rhythm::edges_of script_changes (crates/session-view/src/timeline/rhythm.rs) match only Block::Calls { kind: Calls::Files } and never Block::Group, so grouped changes never steal a preceding script's Output row and keep M block separation. Official: packages/session-ui/src/timeline/{script-output,timeline-row}.ts.",
       "depends_on": "UP-255",
       "risks": "none",
       "workstream": "UPSTREAM"
