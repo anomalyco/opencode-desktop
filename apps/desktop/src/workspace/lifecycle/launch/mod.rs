@@ -16,6 +16,7 @@ pub mod image_pages;
 pub mod io_trace;
 pub mod last_exit;
 mod network;
+mod onboarding;
 pub mod saved;
 mod shifts;
 pub mod trace;
@@ -381,6 +382,7 @@ pub fn setup(s: &mut App) {
             beta_tabs,
             fallback_fixture,
             grace,
+            false,
             Some(std::sync::Arc::new(move || {
                 if let Some(wake) = late.get() {
                     wake();
@@ -488,6 +490,10 @@ pub fn browser_waker(handle: rune::AppHandle<App>) -> rune::Waker {
 pub fn ready(s: &mut App, tx: &mut Tx) -> bool {
     if s.live() {
         s.launch.network_change = (*s.waker).clone().and_then(network::subscribe);
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(wake) = s.launch.inbox_wake.clone().or_else(|| (*s.waker).clone()) {
+            crate::servers::sidecar::register_wake(wake);
+        }
     }
     // The dormant built-ins' app menu rows and keys, before the menu bar lists them.
     crate::plugin_host::doze_owed(s);
@@ -564,7 +570,7 @@ fn step(s: &mut App, event: LaunchEvent, tx: &mut Tx) -> bool {
                 let early = if again.is_none() { take_early(s, beta_tabs, fallback_fixture, grace, tx) } else { None };
                 #[cfg(target_arch = "wasm32")]
                 let early = None;
-                let (rx, accepted) = early.unwrap_or_else(|| boot::spawn_probe(s, beta_tabs, fallback_fixture, grace));
+                let (rx, accepted) = early.unwrap_or_else(|| boot::spawn_probe(s, beta_tabs, fallback_fixture, grace, again.is_some()));
                 s.launch.set_phase(&server, Phase::Probing { rx, again, accepted, defer_plugins: false });
             }
             LaunchEffect::Connect => boot::connect(s, tx),

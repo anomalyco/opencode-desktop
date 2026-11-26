@@ -60,6 +60,8 @@ struct Runtime {
     /// What the last sync listed, to step the controllers only on a change.
     inputs: Vec<(ServerConn, String)>,
     version: u64,
+    #[cfg(not(target_arch = "wasm32"))]
+    sidecar_published: u64,
 }
 
 thread_local! {
@@ -194,7 +196,7 @@ fn sync(s: &App) {
             let key = conn.key();
             let Some(l) = r.listed.iter_mut().find(|l| l.key == key) else { continue };
             let server = server_for(conn, &own);
-            if server.base != l.server.base {
+            if server.base != l.server.base || server.auth_header() != l.server.auth_header() {
                 r.peers.remove(&key);
             }
             l.server = server;
@@ -276,6 +278,7 @@ enum Listing {
 struct Meta {
     listing: Listing,
     base: String,
+    auth: Option<String>,
 }
 
 /// A window's own part of one server, checked out into its plain fields while it works against
@@ -588,7 +591,7 @@ fn new_half(s: &mut App, key: &ServerKey, adopt: bool) -> (Meta, Half) {
     let listed = listed().into_iter().find(|l| l.key == *key && !l.signed_out);
     let allow_send = matches!(*s.source, Source::Live { allow_send: true, .. });
     let (meta, server) = match &listed {
-        Some(l) => (Meta { listing: Listing::Listed(l.attempt), base: l.server.base.clone() }, l.server.clone()),
+        Some(l) => (Meta { listing: Listing::Listed(l.attempt), base: l.server.base.clone(), auth: l.server.auth_header() }, l.server.clone()),
         None if key.is_sidecar() => (Meta::default(), own_server().unwrap_or_else(|| Server::new(opencode_kit::client::DEFAULT_SERVER))),
         None => (Meta::default(), Server::new(&format!("http://{}.invalid", key.as_str().replace([':', '/'], "-"))).with_remote_files()),
     };
@@ -636,6 +639,16 @@ pub fn poll(s: &mut App, tx: &mut Tx) -> bool {
     if !s.live() {
         return false;
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    if super::sidecar::managed() {
+        let pv = super::sidecar::published_version();
+        if pv != RUNTIME.with_borrow(|r| r.sidecar_published) {
+            RUNTIME.with_borrow_mut(|r| r.sidecar_published = pv);
+            if let Some(actual) = super::sidecar::current() {
+                set_sidecar(&actual);
+            }
+        }
+    }
     sync(s);
     if s.checkout.synced != version() {
         s.checkout.synced = version();
@@ -678,7 +691,7 @@ fn refit(s: &mut App) {
     // A server signed out has no connection: windows hold an offline half of it.
     let listed: Vec<Listed> = listed().into_iter().filter(|l| !l.signed_out).collect();
     let stale = |key: &ServerKey, meta: &Meta| match listed.iter().find(|l| l.key == *key) {
-        Some(l) => meta.base != l.server.base || matches!(meta.listing, Listing::Listed(a) if a != l.attempt),
+        Some(l) => meta.base != l.server.base || meta.auth != l.server.auth_header() || matches!(meta.listing, Listing::Listed(a) if a != l.attempt),
         None => meta.listing != Listing::Unlisted,
     };
     let gone: Vec<ServerKey> = s.checkout.parked.iter().filter(|(k, m, _)| stale(k, m)).map(|(k, ..)| k.clone()).collect();
@@ -722,6 +735,7 @@ fn refit(s: &mut App) {
 pub fn bind(s: &mut App, server: Server) -> Server {
     let server = own_server().unwrap_or(server);
     s.checkout.meta.base = server.base.clone();
+    s.checkout.meta.auth = server.auth_header();
     set_sidecar(&server);
     server
 }
@@ -731,6 +745,7 @@ pub fn bind(s: &mut App, server: Server) -> Server {
 pub fn moved(s: &mut App, server: &Server) {
     if s.checkout.active.is_sidecar() {
         s.checkout.meta.base = server.base.clone();
+        s.checkout.meta.auth = server.auth_header();
     }
     set_sidecar(server);
 }

@@ -36,6 +36,12 @@ if [[ -z $scheme ]]; then
 fi
 scheme=${scheme,,}
 install -Dm755 "$bin" "$root/usr/bin/opencode-rune"
+cli_rpm_files=""
+if [ "${OPENCODE_RUNE_BUNDLE_CLI:-1}" != "0" ]; then
+  bash "$repo_root/scripts/guardrails/run-js.sh" "$repo_root/scripts/fetch-cli.mjs" \
+    --target "linux-$arch" --dest "$root/usr/share/opencode-rune" --channel "$OPENCODE_RUNE_BUILD_CHANNEL"
+  cli_rpm_files=$'/usr/share/opencode-rune/opencode-cli\n/usr/share/opencode-rune/opencode-cli.version'
+fi
 install -Dm644 "$(dirname "$0")/../assets/icon/icon-1024.png" "$root/usr/$icon"
 install -Dm644 "$repo_root/LICENSE" "$root/usr/$doc/LICENSE"
 install -Dm644 "$repo_root/THIRD_PARTY_NOTICES.md" "$root/usr/$doc/THIRD_PARTY_NOTICES.md"
@@ -109,6 +115,7 @@ cp -a "$root/usr" "%{buildroot}/"
 /usr/$doc/LICENSE
 /usr/$doc/THIRD_PARTY_NOTICES.md
 /usr/$apparmor_src
+$cli_rpm_files
 
 %post
 if command -v apparmor_status >/dev/null 2>&1 && apparmor_status --enabled >/dev/null 2>&1; then
@@ -131,7 +138,8 @@ if [ "\$1" = "0" ] && [ -f /etc/apparmor.d/opencode-rune-browser-engine ]; then
   rm -f /etc/apparmor.d/opencode-rune-browser-engine
 fi
 EOF
-rpmbuild -bb --define "_topdir $work/rpm" --define 'debug_package %{nil}' "$work/app.spec"
+# Keep __strip a no-op: opencode-cli is a Bun single-file executable whose payload sits at EOF.
+rpmbuild -bb --define "_topdir $work/rpm" --define 'debug_package %{nil}' --define '__strip /bin/true' "$work/app.spec"
 cp "$work/rpm/RPMS/$machine/"*.rpm "$stem.rpm"
 rpm -qp --list "$stem.rpm" | grep -Fx /usr/bin/opencode-rune
 
