@@ -2,29 +2,29 @@
   "generated_at": "2026-11-27",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "18c4f551181c9de1e947212eb48283d973c84f9a",
+  "upstream_head": "7290a572ccc3b05e0b758481cb4ae39075d1e815",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "1c3a8eab8",
-  "post_1114_commit_count": 765,
+  "rune_desktop_head": "d1489639c",
+  "post_1114_commit_count": 766,
   "post_1114_in_ledger": 260,
-  "post_1114_skipped": 505,
+  "post_1114_skipped": 506,
   "post_1114_skipped_breakdown": {
     "test-only": 34,
     "ci-bench-deps": 26,
     "docs-site-data": 83,
     "tui-only": 32,
-    "cli-acp-only": 13,
+    "cli-acp-only": 14,
     "server-core-ai-codemode-internal": 317
   },
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 281,
   "status_counts": {
-    "have it": 232,
+    "have it": 233,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 4,
-    "missing": 5
+    "missing": 4
   },
   "rows": [
     {
@@ -7022,8 +7022,8 @@
       ],
       "summary": "Adds five new built-in themes (Sakura, Espresso, Witch Hazel, E-Ink, and Dune), updates the Poimandres light palette, and refines the v2 light neutral scale and monochrome hue-scale resolver.",
       "size": "S",
-      "status": "missing",
-      "status_evidence": "Port in draft opencode-rune #1357 (head 5a027d8785, CI running, not yet run): regenerated apps/desktop/assets/themes.json (47 themes total) via apps/desktop/tools/themes.ts against official d382c66c6d packages/ui/src/theme. Official: packages/ui/src/theme/{context.tsx,v2/resolve.ts,themes/{dune,eink,espresso,poimandres,sakura,witchhazel}.json}.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1357 (d1489639c, head 46a8006530, CI run 45904428317 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): regenerated apps/desktop/assets/themes.json (47 themes total) via apps/desktop/tools/themes.ts against official d382c66c6d packages/ui/src/theme, adding Dune, E-Ink, Espresso, Sakura, and Witch Hazel, updating Poimandres light palette, and applying v2/resolve.ts light neutral & monochrome hue scales. Official: packages/ui/src/theme/{context.tsx,v2/resolve.ts,themes/{dune,eink,espresso,poimandres,sakura,witchhazel}.json}. Verified headless on Windows x64 PR build (5a027d8785, run 45901077585) beside before build (14fec3dcb2), all 2/2 cases pass (11/11 launches exit 0): Theme picker lists 47 items (OpenCode first, rest alphabetical) including all 5 new themes (before: 42 items), and all 5 new palettes plus updated Poimandres light render distinctly while oc-2 dark stays unchanged. Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
