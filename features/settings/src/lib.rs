@@ -117,6 +117,9 @@ pub struct Settings {
     /// defaulting to `false` across all packaged builds (`local`, `dev`, `beta`, `prod`) to match
     /// upstream `settings/model.tsx:460-463` (`import.meta.env.DEV && VITE_OPENCODE_TEST_FIXTURES !== "1"`).
     pub tab_groups: Option<bool>,
+    /// Experimental › Sidebar sections (Rune's own, `rune.settings`): multi-select on side tabs,
+    /// batch actions and minimal collapsible section headers. `None` until toggled; off by default.
+    pub sidebar_sections: Option<bool>,
     /// Ease a live delivery into place: the Pending label, the tray's room and joined prompts.
     pub smooth_timeline: bool,
     /// macOS: Option in the terminal is Meta (Esc and the key, for a shell's word motions) instead
@@ -199,6 +202,7 @@ impl Default for Settings {
             shared_side_panel: false,
             new_question_ui: false,
             tab_groups: None,
+            sidebar_sections: None,
             smooth_timeline: false,
             terminal_option_meta: false,
             terminal_marks: Vec::new(),
@@ -234,7 +238,15 @@ impl Settings {
         if let (Some(on), Some(m)) = (self.tab_groups, v.as_object_mut()) {
             m.insert("tabGroups".into(), json!(on));
         }
+        if let (Some(on), Some(m)) = (self.sidebar_sections, v.as_object_mut()) {
+            m.insert("sidebarSections".into(), json!(on));
+        }
         v
+    }
+
+    /// Experimental › Sidebar sections: off unless turned on.
+    pub fn sidebar_sections(&self) -> bool {
+        self.sidebar_sections.unwrap_or(false)
     }
 
     /// Experimental › Tab groups (`general.tabGroups`, #64407): opt-in (`false` by default) in
@@ -319,6 +331,7 @@ impl Settings {
             shared_side_panel: v["sharedSidePanel"].as_bool().unwrap_or(false),
             new_question_ui: v["newQuestionUI"].as_bool().unwrap_or(false),
             tab_groups: v["tabGroups"].as_bool(),
+            sidebar_sections: v["sidebarSections"].as_bool(),
             smooth_timeline: v["smoothTimeline"].as_bool().unwrap_or(false),
             terminal_option_meta: v["terminal"]["optionAsMeta"].as_bool().unwrap_or(false),
             terminal_marks: v["terminal"]["marks"]

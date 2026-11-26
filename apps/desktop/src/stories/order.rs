@@ -22,6 +22,7 @@ pub(crate) const ORDER: &[&str] = &[
     "Sidebar/Rename and menus",
     "Sidebar/Project icons",
     "Sidebar/Peek",
+    "Shell/Whisper sections",
     "Home/Session search",
     "Home/No server",
     "Components/Odometer",
