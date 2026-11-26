@@ -14,8 +14,9 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::types::{
-    AttachOutcome, BrowserState, Command, LocationRef, Outcome, PROTOCOL_VERSION, RPC_ID,
-    RpcCallError, TUNNEL_CHUNK_BYTES, TunnelRead, TunnelTarget, WireFile,
+    AttachOutcome, BROWSER_TUNNEL_PATH, BrowserState, Command, LocationRef, Outcome,
+    PROTOCOL_VERSION, RPC_ID, RpcCallError, STREAM_PROTOCOL_VERSION, TUNNEL_CHUNK_BYTES,
+    TunnelRead, TunnelTarget, TunnelTicket, TunnelUpgradeError, TunnelUpgradeFailureKind, WireFile,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use crate::client::http;
@@ -298,6 +299,107 @@ impl Server {
             "outcome": outcome,
         });
         self.browser_rpc_call("result", location, &input, Some(SHORT_TIMEOUT))
+            .map(|_| ())
+    }
+
+    /// Requests a short-lived single-use upgrade ticket for the binary WebSocket tunnel
+    /// (`experimental.browser/tunnel.ticket`, `packages/gui-plugins/src/browser/network.ts:125-130`).
+    /// Strictly validates `protocol == 1` and `path == "/api/experimental/browser/tunnel"`.
+    pub fn browser_rpc_tunnel_ticket(
+        &self,
+        location: &LocationRef,
+        session_id: &str,
+        connection_id: &str,
+        protocol: u8,
+        abort: &AbortHandle,
+    ) -> Result<TunnelTicket, TunnelUpgradeError> {
+        let path = rpc_path("tunnel.ticket", location);
+        let payload = serde_json::to_vec(&json!({
+            "input": {
+                "sessionID": session_id,
+                "connectionID": connection_id,
+                "protocol": protocol,
+            }
+        }))
+        .map_err(|e| TunnelUpgradeError::new(TunnelUpgradeFailureKind::Ticket, e.to_string()))?;
+        let (status, body) = self
+            .abortable_post(&path, &payload, abort, Some(TUNNEL_OPEN_TIMEOUT))
+            .map_err(|e| classify_ticket_error(&e.to_string(), None))?;
+        if status >= 300 {
+            let err = classify_error("tunnel.ticket", &path, status, &body);
+            return Err(classify_ticket_error(&err.to_string(), Some(status)));
+        }
+        let val: Value = serde_json::from_slice(&body).map_err(|e| {
+            TunnelUpgradeError::new(
+                TunnelUpgradeFailureKind::Protocol,
+                format!("Invalid JSON from tunnel.ticket: {e}"),
+            )
+        })?;
+        let out = val.get("output").unwrap_or(&Value::Null);
+        let ticket = out
+            .get("ticket")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                TunnelUpgradeError::new(
+                    TunnelUpgradeFailureKind::Protocol,
+                    "tunnel.ticket did not return a ticket.",
+                )
+            })?
+            .to_owned();
+        let expires_in = out.get("expiresIn").and_then(Value::as_u64).unwrap_or(0);
+        let proto = out
+            .get("protocol")
+            .and_then(Value::as_u64)
+            .and_then(|v| u8::try_from(v).ok())
+            .unwrap_or(0);
+        if proto != STREAM_PROTOCOL_VERSION {
+            return Err(TunnelUpgradeError::new(
+                TunnelUpgradeFailureKind::Protocol,
+                format!("Unsupported browser stream tunnel protocol: {proto}."),
+            ));
+        }
+        let reply_path = out
+            .get("path")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned();
+        if reply_path != BROWSER_TUNNEL_PATH {
+            let clipped: String = reply_path.chars().take(128).collect();
+            return Err(TunnelUpgradeError::new(
+                TunnelUpgradeFailureKind::Protocol,
+                format!("Refused unexpected browser tunnel upgrade path: {clipped}"),
+            ));
+        }
+        Ok(TunnelTicket { ticket, expires_in, protocol: proto, path: reply_path })
+    }
+
+    /// Explicitly grants a private preview target for this attachment via trusted desktop RPC
+    /// (`experimental.browser/tunnel.grant`, `packages/gui-plugins/src/browser/network.ts:195-217`).
+    pub fn browser_rpc_tunnel_grant(
+        &self,
+        location: &LocationRef,
+        session_id: &str,
+        connection_id: &str,
+        target: &TunnelTarget,
+        extra_ports: &[u16],
+    ) -> Result<(), RpcCallError> {
+        let input = if extra_ports.is_empty() {
+            json!({
+                "sessionID": session_id,
+                "connectionID": connection_id,
+                "target": target,
+            })
+        } else {
+            json!({
+                "sessionID": session_id,
+                "connectionID": connection_id,
+                "target": target,
+                "ports": extra_ports,
+            })
+        };
+        self.browser_rpc_call("tunnel.grant", location, &input, Some(TUNNEL_CLOSE_TIMEOUT))
             .map(|_| ())
     }
 
@@ -584,6 +686,39 @@ impl Server {
             )));
         }
         Ok((ans.status, ans.body))
+    }
+}
+
+fn classify_ticket_error(message: &str, status: Option<u16>) -> TunnelUpgradeError {
+    let lower = message.to_ascii_lowercase();
+    if matches!(status, Some(401 | 403))
+        || lower.contains("401")
+        || lower.contains("403")
+        || lower.contains("unauthor")
+        || lower.contains("forbid")
+    {
+        let msg = format!("Browser stream ticket request failed authentication: {message}");
+        return match status {
+            Some(s) => TunnelUpgradeError::with_status(TunnelUpgradeFailureKind::Auth, msg, s),
+            None => TunnelUpgradeError::new(TunnelUpgradeFailureKind::Auth, msg),
+        };
+    }
+    if lower.contains("cert")
+        || lower.contains("ssl")
+        || lower.contains("tls")
+        || lower.contains("self-signed")
+        || lower.contains("self_signed")
+        || lower.contains("unable to verify")
+    {
+        return TunnelUpgradeError::new(
+            TunnelUpgradeFailureKind::Tls,
+            format!("Browser stream ticket request failed TLS verification: {message}"),
+        );
+    }
+    let msg = format!("Could not obtain browser stream upgrade ticket: {message}");
+    match status {
+        Some(s) => TunnelUpgradeError::with_status(TunnelUpgradeFailureKind::Ticket, msg, s),
+        None => TunnelUpgradeError::new(TunnelUpgradeFailureKind::Ticket, msg),
     }
 }
 

@@ -19,7 +19,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 
 use opencode_kernel::{Feature, KernelBuilder, Slot};
 use opencode_kit::browser_rpc::{
-    AbortHandle, AttachEffect, AttachEvent, AttachOutcome, Command, LocationRef, Outcome,
+    AttachEffect, AttachEvent, AttachOutcome, Command, LocationRef, Outcome,
     RpcCallError, decode_control, failure_code,
 };
 use opencode_kit::client::Server;
@@ -29,6 +29,7 @@ use serde_json::Value;
 
 pub use self::comes_back::person_came;
 use self::session::SessionAttachment;
+pub use self::tunnel::grant_remote_navigation;
 use self::start_gate::{StartWaiter, drain_start_waiters};
 pub use self::start_gate::{hold_start_gate, release_start_waiters};
 use self::suppression::{maybe_start_capability_probe, server_suppressed, sync_mcp_suppression};
@@ -65,6 +66,10 @@ pub(super) enum WorkerMsg {
     },
     /// The session's Location answered its plugin list (`AttachEffect::ListPlugins`): `any` when it names a plugin.
     PluginsListed { server_key: ServerKey, session_id: String, attempt: u64, any: bool },
+    /// Prewarmed binary WebSocket stream connected and now owns attachment liveness (`opencode#66217`).
+    StreamActivated { server_key: ServerKey, session_id: String, attempt: u64 },
+    /// Liveness-owning binary WebSocket stream closed or was replaced (`opencode#66217`).
+    StreamEnded { server_key: ServerKey, session_id: String, attempt: u64, replaced: bool, reason: String },
     CommandFetched {
         server_key: ServerKey,
         session_id: String,
@@ -352,6 +357,23 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
                 let st = app.kernel.slots.get_mut(&BROWSER_RPC);
                 if let Some(att) = st.sessions.get_mut(&key) {
                     let effs = att.attach.step(AttachEvent::PluginsListed { attempt, any }, now);
+                    if !effs.is_empty() {
+                        pending_effects.push((key, effs));
+                    }
+                }
+            }
+            WorkerMsg::StreamActivated { server_key, session_id, attempt } => {
+                let key = (server_key, session_id);
+                let st = app.kernel.slots.get_mut(&BROWSER_RPC);
+                if let Some(att) = st.sessions.get_mut(&key) {
+                    let _ = att.attach.step(AttachEvent::StreamActivated { attempt }, now);
+                }
+            }
+            WorkerMsg::StreamEnded { server_key, session_id, attempt, replaced, reason } => {
+                let key = (server_key, session_id);
+                let st = app.kernel.slots.get_mut(&BROWSER_RPC);
+                if let Some(att) = st.sessions.get_mut(&key) {
+                    let effs = att.attach.step(AttachEvent::StreamEnded { attempt, replaced, reason }, now);
                     if !effs.is_empty() {
                         pending_effects.push((key, effs));
                     }
@@ -719,36 +741,7 @@ fn apply_batch_effects(
                     att.enqueue_state(&connection_id, inv, hash);
                 }
                 AttachEffect::FetchCommand { connection_id, request_id } => {
-                    let abort = AbortHandle::new();
-                    att.fetch_aborts.insert(request_id.clone(), abort.clone());
-                    let server = att.server.clone();
-                    let location = att.location.clone();
-                    let sid = att.session_id.clone();
-                    let skey = att.server_key.clone();
-                    let tx = worker_tx.clone();
-                    let wake = waker.clone();
-                    std::thread::Builder::new()
-                        .name("browser-rpc-cmd".into())
-                        .spawn(move || {
-                            let result = server.browser_rpc_command_abortable(
-                                &location,
-                                &sid,
-                                &connection_id,
-                                &request_id,
-                                &abort,
-                            );
-                            let _ = tx.send(WorkerMsg::CommandFetched {
-                                server_key: skey,
-                                session_id: sid,
-                                connection_id,
-                                request_id,
-                                result,
-                            });
-                            if let Some(w) = wake {
-                                w();
-                            }
-                        })
-                        .ok();
+                    workers::fetch_command(att, connection_id, request_id, worker_tx.clone(), waker.clone());
                 }
                 AttachEffect::CancelCommands { request_ids } => {
                     for id in &request_ids {
@@ -765,7 +758,8 @@ fn apply_batch_effects(
                     }
                     att.active_commands = kept;
                 }
-                AttachEffect::ScheduleTimer { .. }
+                AttachEffect::ActivateTunnel { .. }
+                | AttachEffect::ScheduleTimer { .. }
                 | AttachEffect::SettlePromptGates
                 | AttachEffect::SetMcpSuppressed { .. } => {}
             }
