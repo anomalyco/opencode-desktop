@@ -2,12 +2,12 @@
   "generated_at": "2026-11-26",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "697db192101b3b3d3f576b826287b48fcf96a73b",
+  "upstream_head": "dc390b6a040ed9ea241599f25f51ddfd8a61734e",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "987d4752e",
-  "post_1114_commit_count": 725,
-  "post_1114_in_ledger": 248,
+  "rune_desktop_head": "a5bbc28e0",
+  "post_1114_commit_count": 726,
+  "post_1114_in_ledger": 249,
   "post_1114_skipped": 477,
   "post_1114_skipped_breakdown": {
     "test-only": 32,
@@ -18,13 +18,13 @@
     "server-core-ai-codemode-internal": 300
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 269,
+  "total_ledger_rows": 270,
   "status_counts": {
     "have it": 223,
     "not applicable": 38,
     "differs on purpose": 1,
     "partly": 4,
-    "missing": 3
+    "missing": 4
   },
   "rows": [
     {
@@ -6726,6 +6726,28 @@
       "size": "S",
       "status": "have it",
       "status_evidence": "Ported in opencode-rune #1296 (16fe80d92, head 8516e08350, CI run 45763334613 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): adds Alabaster, Cyberdream, Modus, Oxocarbon, Poimandres, and VS Code themes to the registry and Settings > Appearance > Theme picker (36 -> 42 themes). Official: `packages/ui/src/theme/context.tsx` and `themes/{alabaster,cyberdream,modus,oxocarbon,poimandres,vscode}.json`. Verified headless on Windows x64 PR build: Theme picker lists all 42 themes and renders all 6 new light/dark themes accurately instead of falling back to `oc-2`. Not run: real window, macOS, Linux.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-249",
+      "window": "post-1120",
+      "pr": 66594,
+      "sha": "dc390b6a04",
+      "title": "fix(app): use sessions-stack icon for Home by default",
+      "merged": "2026-11-26",
+      "packages": [
+        "app"
+      ],
+      "main_files": [
+        "packages/app/src/shell/titlebar/titlebar.tsx",
+        "packages/app/src/components-lab/focus-visibility.stories.tsx"
+      ],
+      "summary": "Uses the sessions-stack icon instead of grid-plus for the Home button by default across the titlebar, side-tab sidebar action, and narrow/mobile tabs trigger and drawer (label remains Home by default and Sessions under Consolidated).",
+      "size": "XS",
+      "status": "missing",
+      "status_evidence": "Port in draft opencode-rune #1312 (head a31eac4945, CI running, not yet run): apps/desktop/src/shell/view/sidebar/pinned_area.rs home_label always returns &SESSIONS_STACK; features/narrow/src/tabs.rs trigger fallback and narrow-tabs-home use SESSIONS_STACK. Official: packages/app/src/shell/titlebar/titlebar.tsx:405-445,796,879.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
