@@ -2,15 +2,15 @@
   "generated_at": "2026-11-27",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "3c019e91991a473ceb7bd8424660f2f405fc3170",
+  "upstream_head": "c39ad3b75c8f8b0571305415f74172c2d7b6ba1f",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "1e866ffb3",
-  "post_1114_commit_count": 733,
-  "post_1114_in_ledger": 252,
-  "post_1114_skipped": 481,
+  "rune_desktop_head": "886bbea31",
+  "post_1114_commit_count": 735,
+  "post_1114_in_ledger": 253,
+  "post_1114_skipped": 482,
   "post_1114_skipped_breakdown": {
-    "test-only": 32,
+    "test-only": 33,
     "ci-bench-deps": 26,
     "docs-site-data": 76,
     "tui-only": 32,
@@ -18,13 +18,13 @@
     "server-core-ai-codemode-internal": 303
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 273,
+  "total_ledger_rows": 274,
   "status_counts": {
-    "have it": 224,
-    "not applicable": 38,
+    "have it": 225,
+    "not applicable": 39,
     "differs on purpose": 1,
     "partly": 4,
-    "missing": 6
+    "missing": 5
   },
   "rows": [
     {
@@ -6818,8 +6818,33 @@
       ],
       "summary": "Asks the user in a confirmation modal before opening a folder from an opencode:// project deep link (Cancel focused by default, warning that opening a folder runs plugins/settings, queueing multiple links one at a time) and rejects non-local, relative, traversal, UNC/network-share, and control/bidi paths.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Port in draft opencode-rune #1317 (head dfd82914dd, CI running, not yet run): adds is_local_directory validation, explicit DeepLinkConfirm state machine (Asking/Idle with queued links), and DialogOpenDeepLink modal (Cancel autofocus, Open project Contrast button, LTR mono folder badge) in apps/desktop/src/workspace/system/deep_links.rs, registered at DEEP_LINK_OVERLAY_ID in apps/desktop/src/kernel.rs, guarded in type_to_compose.rs, with 5 official strings in crates/opencode-i18n/locales/official/en.json. Official: packages/app/src/shell/deep-links/{machine.ts,deep-links.tsx}, runtime/i18n/en.ts.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1317 (886bbea31, head dfd82914dd, CI run 45840207387 green across guardrails + macOS/Win x64/Win arm64/Linux x64; Linux arm64 skipped): adds is_local_directory validation, explicit DeepLinkConfirm state machine (Asking/Idle with queued links), and Cancel-autofocused DialogOpenDeepLink modal (DialogSize::Normal, Fit::Content, LTR mono folder badge, warning text, Open project Contrast button) in apps/desktop/src/workspace/system/deep_links.rs, registered at DEEP_LINK_OVERLAY_ID in apps/desktop/src/kernel.rs, guarded in type_to_compose.rs, with 5 official strings in crates/opencode-i18n/locales/official/en.json. Official: packages/app/src/shell/deep-links/{machine.ts,deep-links.tsx}, runtime/i18n/en.ts. Verified headless on Windows x64 PR build (--scene deep-link-confirm), all 3/3 cases pass (6/6 launches exit 0): modal renders with Cancel focused by default, stray Enter and Escape decline and advance queued links, Open project accepts. Not run: OS URL scheme handoff in a real window, macOS, Linux.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
+    },
+    {
+      "id": "UP-253",
+      "window": "post-1120",
+      "pr": 66622,
+      "sha": "c39ad3b75c",
+      "title": "feat(desktop): add smooth scrolling setting on linux",
+      "merged": "2026-11-26",
+      "packages": [
+        "app",
+        "desktop"
+      ],
+      "main_files": [
+        "packages/desktop/src/main/native/smooth-scrolling.ts",
+        "packages/desktop/src/main/lifecycle/configure.ts",
+        "packages/app/src/settings/general/general.tsx",
+        "packages/app/src/runtime/i18n/en.ts"
+      ],
+      "summary": "Adds a Linux-only Settings > General > Smooth scrolling switch (off by default, applies after restart) controlling Electron's Chromium --disable-smooth-scrolling command-line switch so mouse-wheel scrolling matches native Linux apps.",
+      "size": "S",
+      "status": "not applicable",
+      "status_evidence": "Electron/Chromium Linux command-line switch workaround (app.commandLine.appendSwitch('disable-smooth-scrolling') in packages/desktop/src/main/native/smooth-scrolling.ts). OpenCode (Rune) is a native GPU desktop app, not an Electron/Chromium shell, so the Chromium smooth-scrolling flag does not apply.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
