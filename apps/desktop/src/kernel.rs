@@ -263,7 +263,8 @@ pub fn build() -> Kernel<App> {
         .register_slot(&crate::speech::SPEECH)
         .register_slot(&crate::crash_notice::CRASH_NOTICE)
         .register_slot(&crate::key_sequence::SEQUENCE)
-        .register_slot(&crate::servers::dialog::DIALOG);
+        .register_slot(&crate::servers::dialog::DIALOG)
+        .register_slot(&crate::shell::memory_reclaim::SWEEP);
     let kernel = b.build();
     crate::shortcuts::validate(&kernel.commands);
     kernel

@@ -60,6 +60,7 @@ mod web {
 
     impl BrowserHost {
         pub fn set_color_scheme(&self, _: bool) {}
+        pub fn set_display_hz(&self, _: f64) {}
     }
 
     #[derive(Default)]

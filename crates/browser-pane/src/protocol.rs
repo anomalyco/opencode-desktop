@@ -243,6 +243,11 @@ pub enum HostMsg {
     SetColorScheme {
         dark: bool,
     },
+    /// The window's display refresh rate in Hz (clamped by the engine to 60..=240). An engine
+    /// from before it ignores the line.
+    SetFrameRate {
+        fps: u32,
+    },
     Resize {
         tab_id: u64,
         width_pt: f32,

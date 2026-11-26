@@ -482,10 +482,9 @@ impl EngineManager {
             // context's Chrome colour scheme doesn't reach windowless pages, DevTools emulation does.
             HostMsg::SetColorScheme { dark } => {
                 self.dark = Some(dark);
-                for t in self.tabs.values() {
-                    self.send_color_scheme(&t.host, dark);
-                }
+                for t in self.tabs.values() { self.send_color_scheme(&t.host, dark); }
             }
+            HostMsg::SetFrameRate { fps } => self.set_frame_rate(fps),
             HostMsg::Emulate { tab_id, device, scale } => {
                 if let Some(t) = self.tabs.get(&tab_id)
                     && self.contexts.is_tab_ready(tab_id)
