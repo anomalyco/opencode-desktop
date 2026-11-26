@@ -2,29 +2,29 @@
   "generated_at": "2026-11-26",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "f3b5e9fa0ae7fac2c5516ccb3481ecc3b3d15831",
+  "upstream_head": "d09b189ba1ebf3c1db540262133606a4deddd896",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "ed5744686",
-  "post_1114_commit_count": 703,
+  "rune_desktop_head": "e20c56f63",
+  "post_1114_commit_count": 707,
   "post_1114_in_ledger": 242,
-  "post_1114_skipped": 461,
+  "post_1114_skipped": 465,
   "post_1114_skipped_breakdown": {
-    "test-only": 30,
+    "test-only": 31,
     "ci-bench-deps": 26,
     "docs-site-data": 70,
     "tui-only": 31,
     "cli-acp-only": 12,
-    "server-core-ai-codemode-internal": 292
+    "server-core-ai-codemode-internal": 295
   },
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 263,
   "status_counts": {
-    "have it": 215,
+    "have it": 216,
     "not applicable": 37,
     "differs on purpose": 1,
     "partly": 4,
-    "missing": 6
+    "missing": 5
   },
   "rows": [
     {
@@ -6572,8 +6572,8 @@
       ],
       "summary": "In the question dock the key that moves to the next question, or submits on the last, is Enter by default, with a setting (Settings > General, \"Submit question answers with\": Enter or Cmd/Ctrl+Enter). The other Enter selects the highlighted answer (Shift+Enter when Enter submits; Enter with or without Shift when Cmd/Ctrl+Enter submits); Cmd/Ctrl+Enter always submits. The submit key on an answer picks it first on a single-choice question. The custom answer is a field of several lines that grows with its text: the other Enter starts a new line in it, the arrow keys and End land in the field itself, and Up from its start goes back to the answers. The Next and Submit buttons show the chosen key.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Port in a draft, opencode-rune #1275, not run: the setting (Settings > General, Submit question answers with: Enter or Cmd/Ctrl+Enter; features/settings/src/prefs.rs QuestionSubmitKey, pages/general.rs), the key rule (crates/session-view/src/dock/question/mod.rs enter, intent: the submit key commits and moves on, the other Enter marks, Cmd/Ctrl+Enter always moves on), the default dock's answers, mark and typed answer (classic.rs: the submit key on an answer picks it first on a single choice; the typed answer is a field of several lines, the other Enter a new line, Up at its start back to the answers, arrows and End land in the field; the picked wash and the hover fill change places), the typed answer's cap in both docks (six 18 px lines, then it scrolls inside itself), the new dock's 18 px lines, and the buttons' key. Official: packages/app/src/session/requests/question-keys.ts:29-37, :95-101, question-submit.ts:4-8, session-question-dock-classic.tsx:236-248, :440-457, :738-771, session-question-dock-experimental.tsx:1365-1369, packages/session-ui/src/components/question-prompt.css:361-430, question-prompt-experimental.css:392-453, packages/app/src/settings/general/general.tsx:140-168. The two new strings are English in every language, as in official (en.ts alone holds them). By reading no difference is left; not checked: that the field keeps the caret's line in sight once it scrolls. Fourteen cases with no server are in the draft; none has run.",
+      "status": "have it",
+      "status_evidence": "Ported in opencode-rune #1275 (e20c56f6): Settings > General gains Submit question answers with (Enter, the default, or Cmd/Ctrl+Enter; features/settings/src/prefs.rs QuestionSubmitKey, stored.rs, pages/general.rs, search/mod.rs; two strings in crates/opencode-i18n/locales/official/en.json, English in every language as in official, which added them to en.ts alone). In both Classic and New question docks (crates/session-view/src/dock/question/{mod,classic,face}.rs, DockHost::dock_question_submit): the submit key commits the highlighted answer and moves on (or submits on the last question), the other Enter selects (or starts a new line in the typed answer via TextEdit::insert on plain Enter under ModEnter), and Cmd/Ctrl+Enter always moves on. Both docks cap the typed answer at six 18 px lines (118 px with padding) and scroll inside themselves; in Classic, arrows and End land in the field, Up at start returns to the answers above, picked wash and hover fill swap (layer-02 / layer-01), and Next/Submit show the chosen key. El::on_key on q-options-{tab} handles Enter/Space before Rune's press-on-return handler. Official: packages/app/src/session/requests/question-keys.ts:29-37, :95-101, question-submit.ts:4-8, session-question-dock-classic.tsx:236-248, :440-457, :738-771, session-question-dock-experimental.tsx:1365-1369, packages/session-ui/src/components/question-prompt.css:361-430, question-prompt-experimental.css:392-453, packages/app/src/settings/general/general.tsx:140-168. Run headless on Windows x64 CI builds beside before build #1271 278f9aaf38 (60 launches exit 0 across 5de44ab24, 976fb91b1e, and merged head 493815678c, run 45731119759): all 14 cases hold (row, select/description, search, Classic Down+Enter / Shift+Enter, Next tip, End into field / multi-line / Up x 3 back, Enter in field, exact hover/picked swap, Ctrl+Enter setting + plain Enter newline in both Classic and New docks, New dock Enter/Shift+Enter/field, 1/2/8 lines with 118 px cap and caret in sight, sample keys). Not run: setting persistence across restart (App::persists() requires a live server), real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM"
