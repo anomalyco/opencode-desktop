@@ -86,6 +86,16 @@ impl Ends {
     pub fn forget(&mut self, id: &str) {
         self.follow.remove(id);
         self.saved.remove(id);
+        self.held.borrow_mut().remove(id);
+        self.recall.forget(id);
+    }
+
+    /// Retains scroll/recall state only for sessions `keep` says remain alive.
+    pub fn retain(&mut self, keep: &dyn Fn(&str) -> bool) {
+        self.follow.retain(|id, _| keep(id));
+        self.saved.retain(|id, _| keep(id));
+        self.held.borrow_mut().retain(|id, _| keep(id));
+        self.recall.retain(keep);
     }
 
     /// Where session `id`'s timeline was read when it last showed, scrolled up: its first row

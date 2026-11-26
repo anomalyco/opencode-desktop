@@ -106,6 +106,12 @@ impl Diagrams {
     pub fn hidden_in(&self, body: &str) -> Option<u64> {
         self.open.as_ref().filter(|o| body.contains(&*o.seen.source)).map(|o| o.id)
     }
+
+    /// Releases cached diagram snapshots; visible cards re-register on the next view pass.
+    pub fn rest(&mut self) {
+        let open_id = self.open.as_ref().map(|o| o.id);
+        self.seen.retain(|id, _| open_id == Some(*id));
+    }
 }
 
 /// Opens diagram `id` full size, from where the reply last laid it out. False when no card of
