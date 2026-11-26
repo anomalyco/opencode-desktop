@@ -78,6 +78,7 @@ impl BrowserHost {
                     for t in &mut self.tabs {
                         t.files.clear();
                         t.prompts.reset_for_engine();
+                        t.scroll_cursor = Default::default();
                         t.find.step(crate::find::FindEvent::DocumentChanged);
                     }
                     rune::marks::mark("browser.engine.ready");
@@ -85,6 +86,10 @@ impl BrowserHost {
                     match self.color_scheme.load(std::sync::atomic::Ordering::Relaxed) {
                         0 => {}
                         s => self.send(HostMsg::SetColorScheme { dark: s == 2 }),
+                    }
+                    let fps = self.display_fps.load(std::sync::atomic::Ordering::Relaxed);
+                    if fps != 0 {
+                        self.send(HostMsg::SetFrameRate { fps });
                     }
 
                     // Tabs opened before it: their size and device emulation again

@@ -34,6 +34,8 @@ pub struct BrowserTab {
     pub can_go_forward: bool,
     pub zoom: f64,
     pub cursor: CursorKind,
+    /// Wheel-scroll cursor deferral state machine (avoids full-window UI rebuilds on scroll).
+    pub(crate) scroll_cursor: crate::scroll_cursor::ScrollCursor,
     /// Why the page shows no document (`TabSnapshot::load_error`).
     pub load_error: Option<String>,
     /// Site favicon as a bounded `data:image/png;base64,...` data URL (`UP-109` `#65094`).
@@ -103,6 +105,17 @@ pub struct CdpEvent {
 /// Bounded queue capacity for unconsumed CDP events so diagnostics never grow unboundedly.
 const MAX_QUEUED_CDP_EVENTS: usize = 2_048;
 
+/// Result of forwarding a keyboard event to a browser tab.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum KeyForward {
+    /// Not handled by the browser surface (e.g. a shell shortcut or blocked by a modal).
+    Ignored,
+    /// Sent directly to the browser engine; no Rune view state changed (`tx.live_only()`).
+    Forwarded,
+    /// Mutated browser-pane UI state (zoom, inspect, reload); requires a Rune view commit.
+    StateChanged,
+}
+
 pub struct BrowserHost {
     pub(crate) tabs: Vec<BrowserTab>,
     pub(crate) focused_tab: Option<u64>,
@@ -163,6 +176,8 @@ pub struct BrowserHost {
     pub(crate) keep_engine: bool,
     /// The scheme pages draw in: 0 not given yet, 1 light, 2 dark.
     color_scheme: std::sync::atomic::AtomicU8,
+    /// Target OSR frame rate matching the window's display refresh rate in Hz (0 = not given yet).
+    display_fps: std::sync::atomic::AtomicU32,
     /// The last laid-out page size, so a new tab opens at it instead of 800 × 600 and a resize.
     pub(crate) last_viewport: ((f32, f32), f32),
     #[cfg(all(feature = "engine", target_os = "macos"))]
@@ -237,6 +252,7 @@ impl BrowserHost {
             site_zoom: SiteZoom::default(),
             keep_engine: false,
             color_scheme: std::sync::atomic::AtomicU8::new(0),
+            display_fps: std::sync::atomic::AtomicU32::new(0),
             last_viewport: ((800.0, 600.0), 2.0),
             #[cfg(all(feature = "engine", target_os = "macos"))]
             mach: None,
@@ -264,6 +280,31 @@ impl BrowserHost {
         if self.color_scheme.swap(want, std::sync::atomic::Ordering::Relaxed) != want {
             self.send(HostMsg::SetColorScheme { dark });
         }
+    }
+
+    /// Matches off-screen browser rendering to the window's display refresh rate (60..=240 Hz).
+    pub fn set_display_hz(&self, hz: f64) {
+        if !hz.is_finite() || hz < 30.0 {
+            return;
+        }
+        let fps = (hz.round() as u32).clamp(60, 240);
+        if self.display_fps.swap(fps, std::sync::atomic::Ordering::Relaxed) != fps {
+            self.send(HostMsg::SetFrameRate { fps });
+        }
+    }
+
+    /// Notes active wheel scrolling on `tab_id` so cursor-only `TabUpdate`s defer until settle.
+    pub(crate) fn note_wheel_scroll(&mut self, tab_id: u64) {
+        let now = rune::time::Instant::now();
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) {
+            t.scroll_cursor.step(crate::scroll_cursor::ScrollCursorEvent::Wheel { now });
+        }
+    }
+
+    /// Earliest deadline at which a deferred scroll-time cursor must settle (used by `browser_waker`
+    /// to arm `tx.wake_after` when `poll()` returns `false`).
+    pub fn scroll_cursor_wake_at(&self) -> Option<rune::time::Instant> {
+        self.tabs.iter().filter_map(|t| t.scroll_cursor.wake_at()).min()
     }
 
     /// Leaves the engine running when the last tab closes, so the next page skips its start and
@@ -976,9 +1017,9 @@ impl BrowserHost {
         }
     }
 
-    pub(crate) fn forward_key(&mut self, tab_id: u64, ev: &KeyEvent, down: bool) -> bool {
+    pub(crate) fn forward_key(&mut self, tab_id: u64, ev: &KeyEvent, down: bool) -> KeyForward {
         if self.tab(tab_id).is_some_and(|t| t.prompts.has_blocking_modal()) {
-            return false;
+            return KeyForward::Ignored;
         }
         if ev.key == Key::Escape
             && !(ev.mods.ctrl || ev.mods.cmd || ev.mods.alt || ev.mods.shift)
@@ -986,17 +1027,19 @@ impl BrowserHost {
         {
             if down {
                 self.toggle_inspect(tab_id);
+                return KeyForward::StateChanged;
             }
-            return true;
+            return KeyForward::Forwarded;
         }
         if self.shell_shortcut.map_or_else(|| is_shell_shortcut(ev), |f| f(ev)) {
-            return false;
+            return KeyForward::Ignored;
         }
         if let Some(dir) = page_zoom_dir(ev) {
             if down {
                 self.step_zoom(tab_id, dir);
+                return KeyForward::StateChanged;
             }
-            return true;
+            return KeyForward::Forwarded;
         }
         if down && let Key::Command(c) = ev.key {
             let cmd = match c {
@@ -1008,22 +1051,22 @@ impl BrowserHost {
                 'z' => Some("undo"),
                 'r' if ev.mods.shift => {
                     self.reload_ignore_cache(tab_id);
-                    return true;
+                    return KeyForward::StateChanged;
                 }
                 'r' => {
                     self.reload(tab_id);
-                    return true;
+                    return KeyForward::StateChanged;
                 }
                 _ => None,
             };
             if let Some(cmd) = cmd {
                 self.send(HostMsg::EditCmd { tab_id, cmd: cmd.into() });
-                return true;
+                return KeyForward::Forwarded;
             }
         }
         if down && !cfg!(target_os = "macos") && ev.mods.ctrl && !ev.mods.alt && !ev.mods.cmd && ev.key == Key::Function(5) {
             self.reload_ignore_cache(tab_id);
-            return true;
+            return KeyForward::StateChanged;
         }
         // Every other chord and the function keys go to the page, as official leaves them there
         // (`keys.ts` `pageShortcut` forwards only the shell's own): Ctrl+P / S / U, Ctrl+Shift+I,
@@ -1036,7 +1079,7 @@ impl BrowserHost {
             other => (None, named_key_str(other).map(str::to_owned)),
         };
         if text.is_none() && named.is_none() {
-            return false;
+            return KeyForward::Ignored;
         }
         self.send(HostMsg::Key {
             tab_id,
@@ -1045,7 +1088,7 @@ impl BrowserHost {
             named,
             mods: pack_mods(ev.mods),
         });
-        true
+        KeyForward::Forwarded
     }
 
     pub(crate) fn alloc_tab_id(&mut self) -> u64 {
@@ -1120,18 +1163,41 @@ impl BrowserHost {
                 }
                 url_favs.insert(snap.url.clone(), fav.clone());
             }
-            let changed = url_changed
+            let non_cursor_changed = url_changed
                 || t.title != snap.title
                 || t.loading != snap.loading
                 || t.can_go_back != snap.can_go_back
                 || t.can_go_forward != snap.can_go_forward
                 || (t.zoom - snap.zoom).abs() > 0.001
-                || t.cursor != snap.cursor
                 || t.load_error != snap.load_error
                 || t.favicon != resolved_favicon
                 || clear_refusal
                 || !cancel_perms.is_empty()
                 || !cancel_auth.is_empty();
+            let cursor_changed = if non_cursor_changed {
+                t.scroll_cursor.step(crate::scroll_cursor::ScrollCursorEvent::CoalescedCommit);
+                let diff = t.cursor != snap.cursor;
+                t.cursor = snap.cursor;
+                diff
+            } else if t.scroll_cursor == crate::scroll_cursor::ScrollCursor::Idle {
+                let diff = t.cursor != snap.cursor;
+                t.cursor = snap.cursor;
+                diff
+            } else {
+                let now = rune::time::Instant::now();
+                match t.scroll_cursor.step(crate::scroll_cursor::ScrollCursorEvent::CursorChanged {
+                    cursor: snap.cursor,
+                    now,
+                }) {
+                    crate::scroll_cursor::ScrollCursorEffect::Apply(c) => {
+                        let diff = t.cursor != c;
+                        t.cursor = c;
+                        diff
+                    }
+                    crate::scroll_cursor::ScrollCursorEffect::None => false,
+                }
+            };
+            let changed = non_cursor_changed || cursor_changed;
             if clear_refusal {
                 t.refusal = None;
             }
@@ -1144,7 +1210,6 @@ impl BrowserHost {
             t.can_go_back = snap.can_go_back;
             t.can_go_forward = snap.can_go_forward;
             t.zoom = snap.zoom;
-            t.cursor = snap.cursor;
             let keep_artifact_missing = t.load_error.as_deref() == Some("browser.artifact.missing")
                 && (t.preview == Some(crate::protocol::PreviewKindTag::Artifact)
                     || snap.preview == Some(crate::protocol::PreviewKindTag::Artifact));
@@ -1216,6 +1281,7 @@ impl BrowserHost {
             can_go_forward: snap.can_go_forward,
             zoom: if is_site { want_zoom } else { snap.zoom },
             cursor: snap.cursor,
+            scroll_cursor: Default::default(),
             load_error: snap.load_error,
             favicon: snap.favicon,
             preview: snap.preview,

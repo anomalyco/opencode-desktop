@@ -414,6 +414,8 @@ pub fn run_native() {
     let handle = app.handle();
     let mut motion_log = motion_log::Log::default();
     let (encoded, drawn) = (diagnostics.clone(), diagnostics.clone());
+    let display_hz = std::rc::Rc::new(std::cell::Cell::new(None::<f64>));
+    let display_hz_enc = display_hz.clone();
     let app = app
         .on_ready(move |_| {
             storage::presented();
@@ -426,11 +428,13 @@ pub fn run_native() {
             });
         })
         .on_frame_encoded(move |f| {
+            if let Some(hz) = f.refresh_hz() { display_hz_enc.set(Some(hz)); }
             encoded.encoded(f);
             telemetry::encoded(f);
             files::trace::frame(f);
         })
         .on_frame_drawn(move |rt| {
+            if let Some(hz) = display_hz.get() { rt.state.workspace_panes.browser.host.set_display_hz(hz); }
             drawn.drawn(rt);
             if let Some(frame) = telemetry::last_frame() { telemetry::drawn(rt.state.painted_session(), frame); }
             motion_log.frame(rt);

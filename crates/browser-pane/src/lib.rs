@@ -45,6 +45,7 @@ pub mod preview;
 pub mod profile;
 pub mod prompts;
 pub mod protocol;
+mod scroll_cursor;
 #[cfg(feature = "engine")]
 mod sidecar;
 mod site_zoom;
