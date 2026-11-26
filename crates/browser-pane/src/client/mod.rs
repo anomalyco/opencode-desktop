@@ -458,10 +458,41 @@ impl BrowserHost {
                     self.send(HostMsg::FocusTab { tab_id: next_id });
                 }
             }
+            self.sync_has_tabs();
             if self.tabs.is_empty() && !self.keep_engine {
                 self.shutdown_sidecar();
             }
         }
+    }
+
+    pub(crate) fn has_engine_tabs(&self) -> bool {
+        self.tabs.iter().any(|t| t.has_engine_tab)
+    }
+
+    pub(crate) fn sync_has_tabs(&self) {
+        #[cfg(feature = "engine")]
+        self.shared
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .step(EngineEvent::SetHasTabs(self.has_engine_tabs()));
+    }
+
+    pub(crate) fn clear_stale_fault_if_empty(&self) {
+        #[cfg(feature = "engine")]
+        if !self.has_engine_tabs() {
+            self.shared
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .step(EngineEvent::ClearStaleFault);
+        }
+    }
+
+    pub(crate) fn note_tab_confirmed(&self) {
+        #[cfg(feature = "engine")]
+        self.shared
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .step(EngineEvent::TabConfirmed);
     }
 
     pub fn navigate(&mut self, tab_id: u64, raw_url: &str) {
@@ -478,6 +509,7 @@ impl BrowserHost {
         let engine_partitions = self.engine_partitions();
         let engine_remote_proxy = self.engine_remote_proxy();
         let loaded_ext = self.is_loaded_extension_url(&url) && (self.engine_extensions() || !connected);
+        let had_engine_tabs = self.has_engine_tabs();
         let remote_proxies = &self.remote_proxies;
         let Some(t) = self.tabs.iter_mut().find(|t| t.id == tab_id) else {
             return;
@@ -544,6 +576,14 @@ impl BrowserHost {
         }
         t.loading = true;
         if let Some(((width_pt, height_pt), scale, _file_roots, context, agent_driven, allow_ext_pages)) = promote_open {
+            if !had_engine_tabs {
+                #[cfg(feature = "engine")]
+                self.shared
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .step(EngineEvent::ClearStaleFault);
+            }
+            self.sync_has_tabs();
             if connected && (context.is_default() || ready) {
                 self.send_open_tab_with_ext(
                     tab_id,
@@ -718,7 +758,7 @@ impl BrowserHost {
     #[cfg_attr(not(feature = "engine"), allow(dead_code))]
     pub(crate) fn requeue_tabs(&mut self) {
         for t in &self.tabs {
-            if !self.pending_opens.iter().any(|(id, _)| *id == t.id) {
+            if t.has_engine_tab && !self.pending_opens.iter().any(|(id, _)| *id == t.id) {
                 self.pending_opens.push((t.id, t.url.clone()));
             }
         }
@@ -899,6 +939,7 @@ impl BrowserHost {
             }
         }
         self.pending_opens = deferred;
+        self.sync_has_tabs();
     }
 
     pub fn ime(&mut self, ime: &Ime) -> bool {
@@ -1134,6 +1175,8 @@ impl BrowserHost {
             for id in cancel_auth {
                 self.send(HostMsg::AnswerAuth { tab_id: snap.tab_id, id, username: None, password: None });
             }
+            self.sync_has_tabs();
+            self.note_tab_confirmed();
             return changed;
         }
         let surface = self.surfaces.lock().unwrap_or_else(PoisonError::into_inner).entry(snap.tab_id).or_default().clone();
@@ -1196,6 +1239,8 @@ impl BrowserHost {
             has_engine_tab: true,
             engine_confirmed: true,
         });
+        self.sync_has_tabs();
+        self.note_tab_confirmed();
         true
     }
 }

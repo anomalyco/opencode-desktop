@@ -416,6 +416,9 @@ impl crate::BrowserHost {
             self.site_zoom.prepare();
         }
         let ((width_pt, height_pt), scale) = self.last_viewport;
+        if can_open_in_engine {
+            self.clear_stale_fault_if_empty();
+        }
         let mut prompts = crate::prompts::TabPromptState::default();
         prompts.agent_driven = agent_driven;
         self.tabs.push(crate::client::BrowserTab {
@@ -451,6 +454,7 @@ impl crate::BrowserHost {
             has_engine_tab: can_open_in_engine,
             engine_confirmed: false,
         });
+        self.sync_has_tabs();
         self.focused_tab = Some(id);
 
         if can_open_in_engine {

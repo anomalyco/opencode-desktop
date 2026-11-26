@@ -71,6 +71,14 @@ pub(crate) enum EnginePhase {
 pub(crate) struct SharedEngine {
     pub(crate) generation: u64,
     pub(crate) phase: EnginePhase,
+    /// Whether the host currently holds at least one backing engine tab.
+    #[cfg(feature = "engine")]
+    pub(crate) has_tabs: bool,
+    /// True while a ready engine has sat idle with zero tabs and has not yet confirmed a newly
+    /// opened tab. A clean `EMPTY_GRACE` exit while idle — even racing with a brand-new `OpenTab`
+    /// — returns to `Installed` instead of `Fault::Stopped`.
+    #[cfg(feature = "engine")]
+    pub(crate) idle_ready: bool,
 }
 
 pub(crate) enum EngineEvent {
@@ -109,6 +117,12 @@ pub(crate) enum EngineEvent {
     Recovered { generation: u64 },
     #[cfg(feature = "engine")]
     Lost { generation: u64, fault: crate::installer::Fault },
+    #[cfg(feature = "engine")]
+    SetHasTabs(bool),
+    #[cfg(feature = "engine")]
+    TabConfirmed,
+    #[cfg(feature = "engine")]
+    ClearStaleFault,
 }
 
 pub(crate) enum EngineEffect {
@@ -125,11 +139,21 @@ pub(crate) enum EngineEffect {
     Wake,
     #[cfg(feature = "engine")]
     LostFirst,
+    /// Ready engine exited while idle (zero tabs, or unconfirmed race right at `EMPTY_GRACE`).
+    #[cfg(feature = "engine")]
+    IdleLost,
 }
 
 impl SharedEngine {
     pub(crate) fn new(initial: EngineStatus) -> Self {
-        Self { generation: 0, phase: EnginePhase::Disconnected(initial) }
+        Self {
+            generation: 0,
+            phase: EnginePhase::Disconnected(initial),
+            #[cfg(feature = "engine")]
+            has_tabs: false,
+            #[cfg(feature = "engine")]
+            idle_ready: false,
+        }
     }
 
     pub(crate) fn status(&self) -> EngineStatus {
@@ -207,6 +231,7 @@ impl SharedEngine {
                 #[cfg(feature = "engine")]
                 EnginePhase::Connected { stage, .. } => {
                     *stage = LiveStage::Ready;
+                    self.idle_ready = !self.has_tabs;
                     EngineEffect::ReadyApplied
                 }
                 EnginePhase::Captured { status, .. } => {
@@ -220,6 +245,10 @@ impl SharedEngine {
             EngineEvent::Shutdown => {
                 #[cfg(feature = "engine")]
                 let prev_gen = self.generation;
+                #[cfg(feature = "engine")]
+                {
+                    self.idle_ready = false;
+                }
                 self.generation = self.generation.wrapping_add(1);
                 let prev = std::mem::replace(&mut self.phase, EnginePhase::Disconnected(EngineStatus::Unsupported));
                 let (next_phase, outbox) = match prev {
@@ -255,35 +284,40 @@ impl SharedEngine {
             }
             #[cfg(feature = "engine")]
             EngineEvent::BeginConnect => {
+                self.idle_ready = false;
                 self.generation = self.generation.wrapping_add(1);
                 self.phase = EnginePhase::Disconnected(EngineStatus::Connecting);
                 EngineEffect::Generation(self.generation)
             }
             #[cfg(feature = "engine")]
-            EngineEvent::EndHung => match &self.phase {
-                EnginePhase::Connected { stage: LiveStage::Hung { .. }, pid, .. } => {
-                    let kill_pid = *pid;
-                    self.generation = self.generation.wrapping_add(1);
-                    self.phase = EnginePhase::Disconnected(EngineStatus::Failed(crate::installer::Fault::Hung.into()));
-                    EngineEffect::EndHung { kill_pid }
+            EngineEvent::EndHung => {
+                self.idle_ready = false;
+                match &self.phase {
+                    EnginePhase::Connected { stage: LiveStage::Hung { .. }, pid, .. } => {
+                        let kill_pid = *pid;
+                        self.generation = self.generation.wrapping_add(1);
+                        self.phase = EnginePhase::Disconnected(EngineStatus::Failed(crate::installer::Fault::Hung.into()));
+                        EngineEffect::EndHung { kill_pid }
+                    }
+                    EnginePhase::HungDetached { pid, .. } => {
+                        let kill_pid = Some(*pid);
+                        self.phase = EnginePhase::Disconnected(EngineStatus::Failed(crate::installer::Fault::Hung.into()));
+                        EngineEffect::EndHung { kill_pid }
+                    }
+                    EnginePhase::Disconnected(s) if s.is_hung() => EngineEffect::EndHung { kill_pid: None },
+                    EnginePhase::Captured { status, .. } if status.is_hung() => {
+                        self.phase = EnginePhase::Disconnected(EngineStatus::Failed(crate::installer::Fault::Hung.into()));
+                        EngineEffect::EndHung { kill_pid: None }
+                    }
+                    _ => EngineEffect::None,
                 }
-                EnginePhase::HungDetached { pid, .. } => {
-                    let kill_pid = Some(*pid);
-                    self.phase = EnginePhase::Disconnected(EngineStatus::Failed(crate::installer::Fault::Hung.into()));
-                    EngineEffect::EndHung { kill_pid }
-                }
-                EnginePhase::Disconnected(s) if s.is_hung() => EngineEffect::EndHung { kill_pid: None },
-                EnginePhase::Captured { status, .. } if status.is_hung() => {
-                    self.phase = EnginePhase::Disconnected(EngineStatus::Failed(crate::installer::Fault::Hung.into()));
-                    EngineEffect::EndHung { kill_pid: None }
-                }
-                _ => EngineEffect::None,
-            },
+            }
             #[cfg(feature = "engine")]
             EngineEvent::Unprepare => {
                 if !self.is_connected() {
                     return EngineEffect::None;
                 }
+                self.idle_ready = false;
                 let prev_gen = self.generation;
                 self.generation = self.generation.wrapping_add(1);
                 let prev = std::mem::replace(&mut self.phase, EnginePhase::Disconnected(EngineStatus::Unsupported));
@@ -312,6 +346,7 @@ impl SharedEngine {
                 if self.generation != generation {
                     return EngineEffect::Rejected;
                 }
+                self.idle_ready = false;
                 self.phase = EnginePhase::Connected { stage: LiveStage::Connecting, outbox, pid: None, early };
                 EngineEffect::Wake
             }
@@ -420,7 +455,21 @@ impl SharedEngine {
                     return EngineEffect::None;
                 }
                 match &self.phase {
+                    // The engine exited after its idle minute (`EMPTY_GRACE`) with no tabs open,
+                    // or right as a brand-new tab was sent before it could confirm it. Return to
+                    // `Installed` so the next tab starts a fresh engine instead of showing a
+                    // stale crash banner.
+                    EnginePhase::Connected { stage: LiveStage::Ready, .. }
+                        if !self.has_tabs
+                            || (self.idle_ready && fault == crate::installer::Fault::Stopped) =>
+                    {
+                        self.generation = self.generation.wrapping_add(1);
+                        self.idle_ready = false;
+                        self.phase = EnginePhase::Disconnected(EngineStatus::Installed);
+                        EngineEffect::IdleLost
+                    }
                     EnginePhase::Connected { .. } | EnginePhase::Disconnected(EngineStatus::Connecting) => {
+                        self.idle_ready = false;
                         self.phase = EnginePhase::Disconnected(EngineStatus::Failed(fault.into()));
                         EngineEffect::LostFirst
                     }
@@ -432,6 +481,42 @@ impl SharedEngine {
                     }
                     _ => EngineEffect::None,
                 }
+            }
+            #[cfg(feature = "engine")]
+            EngineEvent::SetHasTabs(has_tabs) => {
+                self.has_tabs = has_tabs;
+                if !has_tabs {
+                    if matches!(self.phase, EnginePhase::Connected { stage: LiveStage::Ready, .. }) {
+                        self.idle_ready = true;
+                    } else if matches!(
+                        &self.phase,
+                        EnginePhase::Disconnected(EngineStatus::Failed(f))
+                            if matches!(f.fault, crate::installer::Fault::Stopped | crate::installer::Fault::OutOfMemory)
+                    ) {
+                        self.phase = EnginePhase::Disconnected(EngineStatus::Installed);
+                    }
+                }
+                EngineEffect::None
+            }
+            #[cfg(feature = "engine")]
+            EngineEvent::TabConfirmed => {
+                if self.has_tabs {
+                    self.idle_ready = false;
+                }
+                EngineEffect::None
+            }
+            #[cfg(feature = "engine")]
+            EngineEvent::ClearStaleFault => {
+                if !self.has_tabs
+                    && matches!(
+                        &self.phase,
+                        EnginePhase::Disconnected(EngineStatus::Failed(f))
+                            if matches!(f.fault, crate::installer::Fault::Stopped | crate::installer::Fault::OutOfMemory)
+                    )
+                {
+                    self.phase = EnginePhase::Disconnected(EngineStatus::Installed);
+                }
+                EngineEffect::None
             }
         }
     }
