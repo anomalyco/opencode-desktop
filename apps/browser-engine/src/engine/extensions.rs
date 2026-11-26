@@ -883,6 +883,7 @@ impl EngineManager {
             | M::CancelExtensionOpenTab { .. }
             | M::ExtensionMetrics { .. }
             | M::SetColorScheme { .. }
+            | M::SetFrameRate { .. }
             | M::SetPartitionProxy { .. }
             | M::DropContext { .. }
             | M::DmabufFailed { .. }
