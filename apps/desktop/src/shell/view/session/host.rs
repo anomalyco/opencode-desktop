@@ -318,6 +318,9 @@ impl session_view::TimelineHost for App {
     fn on_timeline_selection_change(s: &mut Self, change: &rune::SelectionChange, tx: &mut Tx) {
         quote::selection_changed(s, change, tx);
     }
+    fn on_timeline_key(&mut self, ev: &rune::KeyEvent, tx: &mut Tx) -> bool {
+        crate::keys::timeline_key(self, ev, tx)
+    }
     fn find_row_version(&self, row_key: &str) -> u64 {
         self.kernel.slots.get(&crate::find::FIND).row_version(row_key)
     }
