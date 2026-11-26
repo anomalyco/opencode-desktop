@@ -55,7 +55,7 @@ pub(super) fn header(s: &App, p: &Pal, info: Option<&SessionInfo>, t: Option<&Tr
             let dir = s.queue.starts.directory(&i.id).unwrap_or(&i.directory);
             let trail: Vec<_> = ancestors(s, i).into_iter().map(|a| (a.id.clone(), a.title.clone())).collect();
             let generating = s.kernel.slots.get(&crate::session_menu::MENUS).generating(crate::servers::runtime::active(s), &i.id);
-            (i.id.clone(), i.title.clone(), dir.to_owned(), i.project.clone(), trail, crate::plugin_host::services::session_version(s, &i.id), generating)
+            (i.id.clone(), i.parent.clone(), i.title.clone(), dir.to_owned(), i.project.clone(), trail, crate::plugin_host::services::session_version(s, &i.id), generating)
         }),
         crate::plugin_host::surfaces_version(s),
     );
