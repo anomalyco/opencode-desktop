@@ -1,5 +1,6 @@
 # Written by scripts/guardrails/engine-revision.mjs --write: the engine's inputs at this ENGINE_REVISION.
 # Inputs: apps/browser-engine, crates/browser-policy, crates/browser-pane/src/device.rs
+# same-revision: fix #1363 missing HostMsg::SetFrameRate match arm before revision 24 is published
 revision 24
 0a006ceedcb72b86a2aa4d7497ff9a21fddfd428 apps/browser-engine/Cargo.lock
 931b2a947cc75a343a0577a9e903596a6c147ee0 apps/browser-engine/Cargo.toml
@@ -16,7 +17,7 @@ dd3064014c9a9eddda7f7f3faaa7ced684ace92e apps/browser-engine/src/bin/opencode_br
 4ed333cb2a76c058e1818d15a116f7b796d68c06 apps/browser-engine/src/cef_runtime.rs
 b58a42fb56a761fc9fc7b64343c3be78f7831b8f apps/browser-engine/src/clear_storage.rs
 8b6d9ce4a899b03e3a53364add8c8fd221e7fec9 apps/browser-engine/src/clipboard_gate.rs
-c92188335c2dfb4739e550eae18a5e9f8d8f99ff apps/browser-engine/src/context.rs
+7dfe5dc769e5f571a6918f28e42d22bd6f8d35fe apps/browser-engine/src/context.rs
 2470fa0979751c67220010b3cfb8d38b6f0d9956 apps/browser-engine/src/cookies.rs
 b355b386817012d76d94668a3c415e3b70de0910 apps/browser-engine/src/d3d_frames.rs
 28ee51e2c48eb44b7a02101aa0c1c8550891a537 apps/browser-engine/src/diagnostics.rs
@@ -25,7 +26,7 @@ b355b386817012d76d94668a3c415e3b70de0910 apps/browser-engine/src/d3d_frames.rs
 721f998f461086c07a53cdaec93140a78fbda73f apps/browser-engine/src/downloads.rs
 9fd2eefecb179334458b9e0943164d6b83b82978 apps/browser-engine/src/engine.rs
 48671e17e89e28f8fbc679c6cde73e671482525b apps/browser-engine/src/engine/emulation.rs
-2eeb4649ee5848c61998d8f203ca433addc447e4 apps/browser-engine/src/engine/extensions.rs
+c88cbd6398ca8263523b2758ea7c8c958503f8e9 apps/browser-engine/src/engine/extensions.rs
 21030903da3198346d54f79afaada7e30a41c3fd apps/browser-engine/src/engine/frames.rs
 bfd20043c6e6cb3ccafc1adca97bfeabc3f5305f apps/browser-engine/src/engine/picks.rs
 aca1409aedd0a611e27c396526e639256224ebaa apps/browser-engine/src/engine/profile_cookies.rs
