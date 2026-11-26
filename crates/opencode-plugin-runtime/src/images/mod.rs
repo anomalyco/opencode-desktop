@@ -210,9 +210,9 @@ impl Images {
             let oldest = self
                 .map
                 .iter()
-                .filter(|(&id, e)| {
+                .filter(|(id, e)| {
                     e.source_key.is_some()
-                        && pin != Some(id)
+                        && pin != Some(**id)
                         && !matches!(e.load, Load::Fetching)
                         && (!need_pixels || weight_of(e) > 0)
                 })
