@@ -22,6 +22,10 @@ fn toggle_sidebar_sections(s: &mut dyn SettingsHost) {
     change_settings(s, |x| x.sidebar_sections = Some(!x.sidebar_sections()));
 }
 
+fn toggle_pin_sync(s: &mut dyn SettingsHost) {
+    change_settings(s, |x| x.pin_sync = Some(!x.pin_sync()));
+}
+
 fn toggle_smooth_timeline(s: &mut dyn SettingsHost) {
     change_settings(s, |x| x.smooth_timeline = !x.smooth_timeline);
 }
@@ -72,6 +76,16 @@ pub fn view<H: SettingsHost + PopupHost + 'static>(s: &H, p: &Pal) -> El {
                 t!("settings.experimental.row.newQuestionUI.title"),
                 t!("settings.experimental.row.newQuestionUI.description"),
                 switch(p, "new-question-ui-switch", st.new_question_ui).on_press(|s: &mut H| toggle_new_question_ui(s)),
+            ),
+        ),
+        (
+            "settings-pin-sync",
+            setting(
+                p,
+                "settings-pin-sync",
+                t!("rune.settings.experimental.row.pinSync.title"),
+                t!("rune.settings.experimental.row.pinSync.description"),
+                switch(p, "pin-sync-switch", st.pin_sync()).on_press(|s: &mut H| toggle_pin_sync(s)),
             ),
         ),
         (

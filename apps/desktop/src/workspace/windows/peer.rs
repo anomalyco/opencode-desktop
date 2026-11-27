@@ -185,6 +185,13 @@ impl ServerPeer {
             .chain(vault.data.inboxes.values().flat_map(|i| i.items.iter().map(|it| it.id.clone())))
             .collect()
     }
+
+    /// Follows space `name` of `server` over this server's stream, waking all its windows.
+    pub fn space(&self, server: opencode_kit::client::Server, name: &str) -> opencode_kit::client::Space {
+        let all = self.wakers.clone();
+        let wake: rune::Waker = Arc::new(move || all.lock().unwrap_or_else(|e| e.into_inner()).iter().for_each(|(_, w)| w()));
+        opencode_kit::client::Space::open(server, name, &self.stream.hub, wake)
+    }
 }
 
 /// Whether a window's turn changed the copy from what only it heard.

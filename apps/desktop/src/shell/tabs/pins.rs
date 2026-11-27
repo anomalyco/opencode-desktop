@@ -426,6 +426,17 @@ fn save(s: &App) {
 }
 
 pub fn update(s: &mut App, f: impl FnOnce(&mut PinsDoc) -> bool) {
+    let before = super::pin_sync::before(s);
+    if f(&mut state_mut(s).doc) {
+        save(s);
+        if let Some(before) = before {
+            super::pin_sync::changed(s, before);
+        }
+    }
+}
+
+/// [`update`] with what a server's pins space says (`pin_sync`): nothing goes back to it.
+pub(super) fn follow(s: &mut App, f: impl FnOnce(&mut PinsDoc) -> bool) {
     if f(&mut state_mut(s).doc) {
         save(s);
     }

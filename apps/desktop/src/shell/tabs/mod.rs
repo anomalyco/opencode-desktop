@@ -13,6 +13,7 @@ pub mod badges;
 pub mod groups;
 pub mod hints;
 pub mod navigation_switch;
+pub mod pin_sync;
 pub mod pins;
 pub mod recently_closed;
 pub mod sections;
