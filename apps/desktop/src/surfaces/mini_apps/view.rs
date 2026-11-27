@@ -7,7 +7,8 @@ use std::rc::Rc;
 use opencode_i18n::t;
 use opencode_kit::model::{WidgetInstance, WidgetStatus};
 use opencode_ui::widgets::{BODY, LABEL};
-use rune::{Drag, El, Phase, ScrollSpec, Spring, TextStyle, Tx, col, el, icon, row, text};
+use opencode_ui::scroller::scroller;
+use rune::{Drag, El, Phase, Spring, TextStyle, Tx, col, el, icon, row, text};
 use rune_kit::{ButtonVariant, SegmentedControl};
 use rune_theme_opencode::icons as ic;
 
@@ -150,7 +151,8 @@ fn dashboard(s: &App, p: &Pal) -> El {
         })
         .children(target)
         .children(m.board.tiles.iter().map(|t| tile(s, p, &metrics, t)));
-    col().key("mini-apps-dashboard").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec::default()).child(col().key("mini-apps-pad").w_full().px(20.0).pt(4.0).child(grid))
+    let viewport = col().w_full().grow(1.0).min_h(0.0);
+    scroller("mini-apps-dashboard").build::<App>(p, viewport, col().key("mini-apps-pad").w_full().px(20.0).pt(4.0).child(grid))
 }
 
 /// Where the tile under the pointer draws: picked up and moved by the pointer's travel, or its
@@ -177,7 +179,7 @@ fn tile(s: &App, p: &Pal, metrics: &Metrics, t: &Tile) -> El {
         let words = if s.widgets().instances.read() { t!("rune.miniApps.gone") } else { t!("rune.miniApps.loading") };
         text(words).font(BODY).color(p.muted).padding(16.0)
     });
-    let body = col().key("body").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec::default()).child(widget);
+    let body = scroller(format!("tile-body-{}", t.key)).build::<App>(p, col().w_full().grow(1.0).min_h(0.0), widget);
     let body = if editing { body.inert() } else { body };
     let mut tile = col()
         .key(format!("tile-{}", t.key))
@@ -281,7 +283,7 @@ fn list(s: &App, p: &Pal) -> El {
         .growth(rune::GrowthSpec::default())
         .virtual_rows(keys.len(), PREVIEW_H + 72.0, move |_: &App, i| by_key[i].clone().into(), move |s: &App, i| list_row(s, &pal, &built[i]))
         .virtual_rows_version((store.revision(), s.kernel.slots.get(&MINI_APPS).board.tiles.len()));
-    col().key("mini-apps-list").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec::default()).child(rows)
+    scroller("mini-apps-list").build::<App>(p, col().w_full().grow(1.0).min_h(0.0), rows)
 }
 
 fn list_row(s: &App, p: &Pal, key: &str) -> El {
