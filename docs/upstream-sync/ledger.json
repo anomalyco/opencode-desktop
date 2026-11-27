@@ -5,7 +5,7 @@
   "upstream_head": "df6ccc7202eb1366b242e86478291b7f6b944ae0",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "8b2d35fa58",
+  "rune_desktop_head": "2e6dc21b72",
   "post_1114_commit_count": 811,
   "post_1114_in_ledger": 272,
   "post_1114_skipped": 539,
@@ -20,11 +20,11 @@
   "pre_1114_carryover_rows": 15,
   "total_ledger_rows": 293,
   "status_counts": {
-    "have it": 251,
+    "have it": 252,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 1,
-    "missing": 1
+    "missing": 0
   },
   "rows": [
     {
@@ -7331,13 +7331,20 @@
       ],
       "summary": "Adds the browser address bar and recent pages list directly inside the side panel New tab view so users can type/pick a URL or reopen recent pages without opening a blank browser tab first.",
       "size": "M",
-      "status": "missing",
-      "status_evidence": "Open PR #1416 (head 8603620ea2, CI running, contract 1.13): adds browser address bar and recent pages slots to the side panel New tab view.",
+      "status": "have it",
+      "status_evidence": "Merged in #1416 (dev 2e6dc21b72, CI run 46029446644 green, contract 1.13): adds session.panel.new and session.panel.new.list slots, pins browser address bar at top of side panel New tab, lists recent pages below launchers above recently closed, and removes the standalone Browser launcher row and mod+t browser newTab override. Verified headless on Windows x64 PR build (4/4 cases PASS: --scene side-new-tab bar/recent layout, address editing, suggestions dropdown, and opening a browser tab replacing New tab). Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
       "pr_refs": [
         1416
+      ],
+      "rune_files": [
+        "crates/opencode-plugin-spec/contract.json",
+        "features/panels/src/menus.rs",
+        "apps/desktop/src/plugin_host/ui/surfaces.rs",
+        "plugins/browser/init.luau",
+        "plugins/browser/panel.luau"
       ]
     },
     {
