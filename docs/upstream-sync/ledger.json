@@ -2,12 +2,12 @@
   "generated_at": "2026-11-28",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "31a291bd03a554f1dd9c74009b5d4c0b7a8ae281",
+  "upstream_head": "98bc68625268c44aca1ef71bdd097e4842de22d9",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "32c394e814",
-  "post_1114_commit_count": 803,
-  "post_1114_in_ledger": 269,
+  "rune_desktop_head": "bded6f8d0",
+  "post_1114_commit_count": 804,
+  "post_1114_in_ledger": 270,
   "post_1114_skipped": 534,
   "post_1114_skipped_breakdown": {
     "test-only": 35,
@@ -18,13 +18,13 @@
     "server-core-ai-codemode-internal": 339
   },
   "pre_1114_carryover_rows": 15,
-  "total_ledger_rows": 290,
+  "total_ledger_rows": 291,
   "status_counts": {
     "have it": 243,
     "not applicable": 39,
     "differs on purpose": 1,
     "partly": 1,
-    "missing": 6
+    "missing": 7
   },
   "rows": [
     {
@@ -7054,7 +7054,7 @@
       "summary": "Aligns desktop provider catalog and Connect dialog provider ordering with TUI and CLI auth login.",
       "size": "XS",
       "status": "have it",
-      "status_evidence": "Merged in #1399 (dev 366cdf7df8, CI run 46008899849 green): aligned canonical POPULAR provider order (opencode-go, opencode, openai, anthropic, claude-agent, github-copilot, google, openrouter, vercel) across pickers, Settings > Models, Settings > Providers, and Connect dialog. Post-merge bulk headless verification queued.",
+      "status_evidence": "Merged in #1399 (dev 366cdf7df8, CI run 46008899849 green): aligned canonical POPULAR provider order (opencode-go, opencode, openai, anthropic, claude-agent, github-copilot, google, openrouter, vercel) across pickers, Settings > Models, Settings > Providers, and Connect dialog. Post-merge verified headless on Windows x64 PR build (run 46008899849, 6/6 passes exit 0, peak <= 0.67 GiB): Settings > Models provider order matches canonical OpenAI -> Anthropic -> Google, and Settings > Providers + Model picker smoke passes exit 0. Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
@@ -7086,7 +7086,7 @@
       "summary": "After archiving the currently open session from the sidebar inbox list, selects and opens the next row below it (or above if last) instead of jumping away.",
       "size": "S",
       "status": "missing",
-      "status_evidence": "Open PR #1403 (head 5c35d0501a, CI running): opens the nearest visible row below (or above if last) after archiving or deleting the open sidebar session.",
+      "status_evidence": "Open PR #1403 (head 14f4e7218f, CI running): opens the nearest visible row below (or above if last) after archiving or deleting the open sidebar session.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
@@ -7110,7 +7110,7 @@
       "summary": "Keeps the active/selected session row visible inside the collapsed Working section of the sidebar inbox list rather than hiding it.",
       "size": "XS",
       "status": "missing",
-      "status_evidence": "Open PR #1403 (head 5c35d0501a, CI running): keeps the selected session visible in the collapsed Working section (inline, shelf, and keyboard nav).",
+      "status_evidence": "Open PR #1403 (head 14f4e7218f, CI running): keeps the selected session visible in the collapsed Working section (inline, shelf, and keyboard nav).",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
@@ -7136,7 +7136,7 @@
       "summary": "Prevents the sidebar inbox list from jumping scroll position when a focused session moves between inbox sections.",
       "size": "S",
       "status": "missing",
-      "status_evidence": "Open PR #1403 (head 5c35d0501a, CI running): keeps list scroll in place and follows focus key across shelf remounts when a focused session changes section.",
+      "status_evidence": "Open PR #1403 (head 14f4e7218f, CI running): keeps list scroll in place and follows focus key across shelf remounts when a focused session changes section.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
@@ -7164,10 +7164,13 @@
       "summary": "Shows a first-quit notice explaining that OpenCode's background service keeps running after quit, and adds a Settings > General toggle to stop the background service on quit.",
       "size": "M",
       "status": "missing",
-      "status_evidence": "Handed to UPSTREAM-g. Official: packages/app/src/settings/general/general.tsx, runtime/i18n/{en,desktop-native}.ts, packages/desktop/src/main/{lifecycle/background-notice*.ts,service/keep-running.ts}.",
+      "status_evidence": "Open PR #1408 (head 3a60ec5592, UPSTREAM-g, CI running): first-quit background-service notice modal, Settings > General Keep running in the background toggle, and sidecar stop-on-quit.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "pr_refs": [
+        1408
+      ]
     },
     {
       "id": "UP-266",
@@ -7185,7 +7188,7 @@
       "summary": "Restores the Recent section header in the sidebar inbox list when Recent sessions are shown.",
       "size": "XS",
       "status": "missing",
-      "status_evidence": "Open PR #1403 (head 5c35d0501a, CI running): restores the visible Recent section header in the sidebar.",
+      "status_evidence": "Open PR #1403 (head 14f4e7218f, CI running): restores the visible Recent section header in the sidebar.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
@@ -7210,7 +7213,7 @@
       "summary": "Groups a Code Mode execute script's multiple file changes into a single patch group card matching direct multi-file patches.",
       "size": "S",
       "status": "have it",
-      "status_evidence": "Merged in #1402 (dev 32c394e814, CI run 46010205048 green): groups consecutive diff-bearing script file changes into one stacked patch group (stacked_group with shared outer corners, -1 pt border overlap, per-file disclosure keyed by first change id, scriptChangeRuns) while keeping direct edits as separated cards. Post-merge bulk headless verification queued.",
+      "status_evidence": "Merged in #1402 (dev 32c394e814, CI run 46010205048 green): groups consecutive diff-bearing script file changes into one stacked patch group (stacked_group with shared outer corners, -1 pt border overlap, per-file disclosure keyed by first change id, scriptChangeRuns) while keeping direct edits as separated cards. Post-merge verified headless on Windows x64 PR build (run 46010205048, peak <= 0.54 GiB, exit 0): tools-execute-codemode-on, standalone, and tools-edit render stacked script file changes with script-output preserved. Not run: real window, macOS, Linux.",
       "depends_on": "UP-255",
       "risks": "none",
       "workstream": "UPSTREAM",
@@ -7239,7 +7242,7 @@
       "summary": "Updates tooltip line-height for readability and adds tone/colored tooltip text styling.",
       "size": "XS",
       "status": "have it",
-      "status_evidence": "Merged in #1401 (dev 26ad040cab, CI run 46009928636 green): adds opencode_ui::tooltip (COMPACT_PADDING 4px 6px, COMPACT_LINE_HEIGHT 16px, TooltipTextVariant base/muted/faint/accent/warning, tooltip_text) and applies compact tooltip padding and line-height on HelpLook. Post-merge bulk headless verification queued.",
+      "status_evidence": "Merged in #1401 (dev 26ad040cab, CI run 46009928636 green): adds opencode_ui::tooltip (COMPACT_PADDING 4px 6px, COMPACT_LINE_HEIGHT 16px, TooltipTextVariant base/muted/faint/accent/warning, tooltip_text) and applies compact tooltip padding and line-height on HelpLook. Post-merge verified headless on Windows x64 PR build (run 46009928636, peak <= 0.54 GiB, exit 0): compact tooltip renders cleanly with COMPACT_PADDING/COMPACT_LINE_HEIGHT and opencode_ui::tooltip exported. Not run: real window, macOS, Linux.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
@@ -7272,13 +7275,40 @@
       "summary": "Replaces the post-connect provider models grid with a searchable model list allowing direct model selection after connecting a provider.",
       "size": "M",
       "status": "missing",
-      "status_evidence": "Open PR #1400 (head cba2de894b, UPSTREAM-g, CI running): replaces post-connect models grid with searchable model list.",
+      "status_evidence": "Open PR #1400 (head cba2de894b, UPSTREAM-g, CI run 46009596535 green): replaces post-connect models grid with searchable model list.",
       "depends_on": "none",
       "risks": "none",
       "workstream": "UPSTREAM",
       "pr_refs": [
         1400
       ]
+    },
+    {
+      "id": "UP-270",
+      "window": "post-1120",
+      "pr": 66818,
+      "sha": "98bc686252",
+      "title": "feat(app): browser address bar and recent pages in the side panel New tab",
+      "merged": "2026-11-27",
+      "packages": [
+        "app",
+        "gui-plugins",
+        "plugin"
+      ],
+      "main_files": [
+        "packages/app/src/runtime/plugin/new-tab-machine.ts",
+        "packages/app/src/runtime/plugin/side-region.tsx",
+        "packages/gui-plugins/src/browser/address-field.tsx",
+        "packages/gui-plugins/src/browser/new-tab.tsx",
+        "packages/plugin/src/gui/builtin.ts"
+      ],
+      "summary": "Adds the browser address bar and recent pages list directly inside the side panel New tab view so users can type/pick a URL or reopen recent pages without opening a blank browser tab first.",
+      "size": "M",
+      "status": "missing",
+      "status_evidence": "Claimed by UPSTREAM-f. Official: packages/app/src/runtime/plugin/{new-tab-machine,panels,side-region}.*, packages/gui-plugins/src/browser/{address-field,address-machine,model,new-tab,panel,renderer}.*, packages/plugin/src/gui/builtin.ts.",
+      "depends_on": "none",
+      "risks": "none",
+      "workstream": "UPSTREAM"
     }
   ],
   "browser_security_review": {
