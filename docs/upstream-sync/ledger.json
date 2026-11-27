@@ -2,15 +2,15 @@
   "generated_at": "2026-11-28",
   "upstream_repo": "anomalyco/opencode",
   "upstream_reference_base": "f6e0c2d0833ffe772035f221fed923e1cd5fb408",
-  "upstream_head": "9dff0b82550eae0f0e933db5b39c02fecedb2a1a",
+  "upstream_head": "f2a9ebb46244b7ae6286bffc729c1c8530dc2f63",
   "upstream_pre_window_base": "3751be8138ebcf33343eb3f3d011b32fc814103c",
   "rune_desktop_repo": "anomalyco/opencode-rune",
-  "rune_desktop_head": "e9ea53d0ad",
-  "post_1114_commit_count": 807,
+  "rune_desktop_head": "43a75bd8c4",
+  "post_1114_commit_count": 808,
   "post_1114_in_ledger": 272,
-  "post_1114_skipped": 535,
+  "post_1114_skipped": 536,
   "post_1114_skipped_breakdown": {
-    "test-only": 35,
+    "test-only": 36,
     "ci-bench-deps": 27,
     "docs-site-data": 84,
     "tui-only": 35,
@@ -7327,10 +7327,13 @@
       "summary": "Adds the browser address bar and recent pages list directly inside the side panel New tab view so users can type/pick a URL or reopen recent pages without opening a blank browser tab first.",
       "size": "M",
       "status": "missing",
-      "status_evidence": "In progress. Official: packages/app/src/runtime/plugin/{new-tab-machine,panels,side-region}.*, packages/gui-plugins/src/browser/{address-field,address-machine,model,new-tab,panel,renderer}.*, packages/plugin/src/gui/builtin.ts.",
+      "status_evidence": "Open PR #1416 (head 8603620ea2, CI running, contract 1.13): adds browser address bar and recent pages slots to the side panel New tab view.",
       "depends_on": "none",
       "risks": "none",
-      "workstream": "UPSTREAM"
+      "workstream": "UPSTREAM",
+      "pr_refs": [
+        1416
+      ]
     },
     {
       "id": "UP-271",
