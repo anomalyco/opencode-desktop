@@ -4,8 +4,8 @@
 //! `confirm`) and their fixture data. Variants: each built-in, one another client already
 //! answered (read-only, its final view and answer), a widget template whose `init` throws (the error
 //! card), the `chart` canvas (bars, and a line you can choose a point on), the `backdrop`
-//! shader (plasma, aurora), a shader whose WGSL doesn't compile, and live programs, each on a
-//! thread of its own. R replays; E answers it from another client, D dismisses it from one. Pictures
+//! shader (plasma, aurora), a shader whose WGSL doesn't compile, live programs, each on a
+//! thread of its own, and a native table over a Markdown one. R replays; E answers it from another client, D dismisses it from one. Pictures
 //! come from the storybook, never the web.
 
 use std::sync::Arc;
@@ -52,6 +52,7 @@ pub const VARIANTS: &[(&str, usize)] = &[
     ("GPU maze, HUD in a stack", 31),
     ("Backdrop, still", 32),
     ("Heavy shader, stopped", 33),
+    ("Native table", 34),
 ];
 pub const KEYS: &[Trigger] = &[
     replay(open),
@@ -328,6 +329,43 @@ function draw(state, data, frame) {
   return g
 }
 "##;
+/// A native `table` (`widgets.md`, Table) that sorts and selects, over a Markdown table of the
+/// same rows, so the two read alike.
+const TABLE: &str = "story-table";
+const TABLE_SOURCE: &str = r##"const ROWS = [
+  ["v1.4.1", "Nov 14", 1290, "stable"],
+  ["v1.4.0", "Nov 7", 87.5, "yanked"],
+  ["v1.3.8-beta.2", "Oct 22", 9],
+]
+
+function init(data) {
+  return { column: 2, descending: true, selected: "v1.4.1" }
+}
+
+function sorted(state) {
+  return ROWS.slice().sort((a, b) => {
+    const x = a[state.column] ?? "", y = b[state.column] ?? ""
+    const c = x < y ? -1 : x > y ? 1 : 0
+    return state.descending ? -c : c
+  })
+}
+
+function view(state, data) {
+  const rows = sorted(state)
+  const at = rows.findIndex((row) => row[0] === state.selected)
+  return ui.column({ gap: 2 }, [
+    ui.text("Releases", { style: "title" }),
+    ui.table(["Version", "Date", { label: "Downloads", align: "end" }, "Channel"], rows, {
+      sort: { column: state.column, descending: state.descending },
+      selected: at < 0 ? undefined : at,
+      onPress: (state, row) => ({ ...state, selected: rows[row][0] }),
+      onSort: (state, column) => ({ ...state, column, descending: state.column === column ? !state.descending : false }),
+    }),
+    ui.text("Press a row to select it, a header to sort by it.", { style: "caption", tone: "muted" }),
+    ui.markdown("The same rows as Markdown:\n\n| Version | Date | Downloads | Channel |\n|---|---|--:|---|\n" + rows.map((row) => "| " + [0, 1, 2, 3].map((i) => row[i] ?? "").join(" | ") + " |").join("\n")),
+  ])
+}
+"##;
 /// Where the story's pictures say they are; [`serve`] answers for them.
 const PICTURES: &str = "https://pictures.story.example/";
 
@@ -361,6 +399,7 @@ fn widget_template(v: usize) -> &'static str {
         28..=31 => GPU[v - 28].0,
         32 => STILL,
         33 => HEAVY_SHADER,
+        34 => TABLE,
         _ => "suggestions",
     }
 }
@@ -438,6 +477,7 @@ fn data(v: usize) -> (&'static str, Value) {
         31 => ("Maze", json!({})),
         32 => ("Aurora, still", json!({ "title": "Northern lights", "text": "A shader drawn once: its speed is 0.", "preset": "aurora" })),
         33 => ("Heavy shader", json!({})),
+        34 => ("Releases", json!({})),
         16 => ("Delete the branch", json!({ "title": "Delete feature/reconnect-backoff?", "message": "The branch is merged into `main`." })),
         _ => ("Pick a hero image", json!({
             "title": "Which hero image should the landing page use?",
@@ -504,6 +544,7 @@ fn open(s: &mut App, tx: &mut Play<App>) {
     preload(s, DRAG, &version(DRAG), &fixtures::served("live", DRAG_SOURCE), "live", &Value::Null);
     preload(s, FAILING, &version(FAILING), &fixtures::served("live", FAILING_SOURCE), "live", &Value::Null);
     preload(s, FULLSCREEN, &version(FULLSCREEN), &format!("{}\n{FULLSCREEN_SOURCE}", fixtures::PRELUDE), "step", &Value::Null);
+    preload(s, TABLE, &version(TABLE), &fixtures::served("step", TABLE_SOURCE), "step", &Value::Null);
     tx.after(0.3, |s, tx| post(s, tx));
     if *s.fixture_run.variant == 3 {
         tx.after(0.9, |s, tx| answer_elsewhere(s, tx));

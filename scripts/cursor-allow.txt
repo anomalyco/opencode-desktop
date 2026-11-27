@@ -36,6 +36,7 @@ features/settings/src/pages/project.rs | Pointer | 1 | Retry after a failed save
 features/settings/src/pages/providers.rs | Pointer | 2 | Console's provider toggle and items: packages/app/src/settings/settings.css:1138 and :1185
 features/office/src/sheet/mod.rs | Pointer | 1 | a link in a cell: packages/gui-plugins/src/microsoft-office/spreadsheet.tsx:870
 crates/session-view/src/images/mod.rs | Pointer | 1 | a failed tool-result image retry tile: packages/session-ui/src/components/message-part.css:821 pointer
+crates/opencode-widget-view/src/table.rs | Pointer | 2 | a widget table's pressable rows and sortable headers: packages/widgets-rs/web/src/styles.ts:116 .pw-table .pw-press
 
 # Other cursors official has
 crates/session-view/src/images/mod.rs | ZoomIn | 2 | a Markdown image and a tool's image: packages/session-ui/src/components/markdown.css:604 and message-part.css:772 zoom-in

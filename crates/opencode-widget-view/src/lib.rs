@@ -19,6 +19,7 @@ mod face;
 pub mod local;
 mod nodes;
 pub mod shader;
+mod table;
 
 use std::rc::Rc;
 

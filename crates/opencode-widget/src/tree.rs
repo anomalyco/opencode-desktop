@@ -18,7 +18,8 @@ pub const KEY: &str = "A node's key must be a string, a number or a boolean";
 #[derive(Debug, Default)]
 pub struct Tree {
     pub view: HostValue,
-    /// The ids whose node has a handler, with its event (`press`, `change` or `pointer`).
+    /// The ids whose node has a handler, with its event (`press`, `change` or `pointer`; a
+    /// table's `press` with an `onPress`, else `change` for its `onSort`).
     pub handlers: HashMap<String, &'static str>,
     /// The first canvas with each `String(key)`: its id, and what draws it.
     pub canvases: HashMap<String, (String, Drawn)>,
@@ -46,10 +47,10 @@ pub enum Fail {
 }
 
 /// The node types that take events: their event, handler prop, and whether they always get an id
-/// (`always`) or get one for a `key` alone (`keyed`).
+/// (`always`) or get one for a `key` alone (`keyed`). A table also takes `change` from `onSort`.
 fn control(t: &str) -> Option<(&'static str, &'static str, bool, bool)> {
     Some(match t {
-        "button" => ("press", "onPress", true, false),
+        "button" | "table" => ("press", "onPress", t == "button", false),
         "card" => ("press", "onPress", false, false),
         "checkbox" | "slider" | "select" | "input" => ("change", "onChange", true, false),
         "carousel" => ("change", "onChange", false, false),
@@ -157,15 +158,17 @@ fn object(v: &HostValue) -> bool {
 }
 
 /// A node at `level` as clients get it: its props in order without `key`, `id`, `pointer`,
-/// `onPress`, `onChange`, `onPointer` and `children`, then its `id` (when it takes events),
-/// `pointer` (a canvas with a handler) and `children` (flattened). Its key is checked first, then
-/// its props, then its children.
+/// `selectable`, `sortable`, `onPress`, `onChange`, `onPointer`, `onSort` and `children`, then its
+/// `id` (when it takes events), `pointer` (a canvas with a handler), `selectable` and `sortable`
+/// (a table with an `onPress`, an `onSort`) and `children` (flattened), as the TypeScript host's
+/// `packages/widget/src/tree.ts`. Its key is checked first, then its props, then its children.
 fn node(v: HostValue, path: &str, level: usize, label: &str, tree: &mut Tree) -> Result<HostValue, Fail> {
     let HostValue::Object(fields) = v else { return Ok(v) };
     let key_of = key(&fields)?.cloned();
     let mut ty = None;
+    let mut table = false;
     let mut children = None;
-    let mut handled: [bool; 3] = [false; 3];
+    let mut handled: [bool; 4] = [false; 4];
     let mut drawn = Drawn::Commands;
     let mut out = Vec::with_capacity(fields.len() + 2);
     for (k, v) in fields {
@@ -174,7 +177,7 @@ fn node(v: HostValue, path: &str, level: usize, label: &str, tree: &mut Tree) ->
                 children = Some(v);
                 continue;
             }
-            Some(h @ ("onPress" | "onChange" | "onPointer")) => {
+            Some(h @ ("onPress" | "onChange" | "onPointer" | "onSort")) => {
                 if matches!(v, HostValue::FunctionMarker) {
                     handled[handler(h)] = true;
                 }
@@ -189,9 +192,10 @@ fn node(v: HostValue, path: &str, level: usize, label: &str, tree: &mut Tree) ->
                     HostValue::String(s) => s.as_str().and_then(control),
                     _ => None,
                 };
+                table = matches!(&v, HostValue::String(s) if s.as_str() == Some("table"));
                 out.push((k, v));
             }
-            Some("key" | "id" | "pointer") => {}
+            Some("key" | "id" | "pointer" | "selectable" | "sortable") => {}
             Some("wgsl") => {
                 if matches!(v, HostValue::String(_)) {
                     drawn = Drawn::Wgsl;
@@ -208,15 +212,22 @@ fn node(v: HostValue, path: &str, level: usize, label: &str, tree: &mut Tree) ->
         }
     }
     if let Some((event, name, always, keyed)) = ty {
+        let sorted = table && handled[handler("onSort")];
         let handled = handled[handler(name)];
         let keyed = keyed && key_of.is_some();
-        if handled || always || keyed {
+        if handled || sorted || always || keyed {
             out.push(("id".into(), HostValue::String(path.into())));
-            if handled {
-                tree.handlers.insert(path.to_owned(), event);
+            if handled || sorted {
+                tree.handlers.insert(path.to_owned(), if handled { event } else { "change" });
             }
             if event == "pointer" && handled {
                 out.push(("pointer".into(), HostValue::Bool(true)));
+            }
+            if table && handled {
+                out.push(("selectable".into(), HostValue::Bool(true)));
+            }
+            if sorted {
+                out.push(("sortable".into(), HostValue::Bool(true)));
             }
             if keyed && let Some(k) = &key_of {
                 let name = match k {
@@ -249,7 +260,8 @@ fn handler(name: &str) -> usize {
     match name {
         "onPress" => 0,
         "onChange" => 1,
-        _ => 2,
+        "onPointer" => 2,
+        _ => 3,
     }
 }
 

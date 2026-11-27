@@ -63,6 +63,11 @@ impl WidgetEvent {
         WidgetEvent { id: id.into(), kind: EventKind::Press, value: None, close: None }
     }
 
+    /// A table row's press: `press` with the row's index into `rows`.
+    pub fn press_row(id: impl Into<String>, row: usize) -> WidgetEvent {
+        WidgetEvent { id: id.into(), kind: EventKind::Press, value: Some(row.into()), close: None }
+    }
+
     /// A control's new value: a checkbox's bool, a slider's number, a select's string (or list),
     /// an input's text, a carousel's page.
     pub fn change(id: impl Into<String>, value: impl Into<Value>) -> WidgetEvent {

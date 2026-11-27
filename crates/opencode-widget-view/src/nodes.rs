@@ -1,5 +1,5 @@
-//! Layout and content nodes: column, row, text, markdown, image, card, divider; the controls
-//! and the carousel live in their own modules.
+//! Layout and content nodes: column, row, text, markdown, image, card, divider; the controls,
+//! the carousel and the table live in their own modules.
 
 use opencode_widget::{Align, Layers, Node, Place, TextStyle, Tone, WidgetEvent};
 use rune::{Color, El, SurfaceFit, Tx, col, el, icon, row, text};
@@ -45,6 +45,7 @@ pub(crate) fn node<S: 'static>(cx: &Cx<S>, n: &Node, path: &str) -> El {
         Node::Select { id, label, options, value, multiple } => controls::select(cx, id, label.as_deref(), options, value.as_ref(), *multiple),
         Node::Input { id, label, placeholder, multiline, .. } => controls::input(cx, id, label.as_deref(), placeholder.as_deref(), *multiline),
         Node::Divider => rune::rule(1.0, k.c.border_weak).w_full(),
+        Node::Table { .. } => crate::table::view(cx, n),
         // Only a canvas with `pointer: true` sends events; without it, its id is for drawing.
         // A live program's GPU canvas: drawn by its `widget.gpu` batches.
         Node::Canvas { id, height, width, alt, fill, wgsl: None, gpu: true, poster, pointer, .. } => {

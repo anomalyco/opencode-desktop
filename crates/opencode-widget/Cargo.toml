@@ -10,7 +10,7 @@ publish = false
 default = ["runner"]
 # The step runner over the Rust PsychoScript (`Program`, `step_json`). Off, the crate is the contract's
 # types and the lifecycle machine alone: what a renderer needs, without the interpreter.
-runner = ["gpu", "dep:psychoscript", "dep:url", "dep:base64", "dep:ryu-js"]
+runner = ["gpu", "dep:psychoscript", "dep:url", "dep:base64"]
 # GPU canvases as a window shows them (`gpu`): the device live runs replay on and what their replay
 # publishes for the compositor. Renderers enable it without the runner.
 gpu = ["dep:wgpu", "dep:psychoscript-gpu", "dep:widget-wire"]
@@ -20,8 +20,9 @@ base64 = { workspace = true, optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 url = { version = "2", optional = true }
-# `String(number)` as ECMAScript writes it, for a view key's path segment (widgets.md, Native hosts).
-ryu-js = { version = "1", optional = true }
+# `String(number)` as ECMAScript writes it, for a view key's path segment (widgets.md, Native hosts)
+# and a table's number cells (widgets.md, Table).
+ryu-js = "1"
 # PsychoScript's Rust implementation, at parity with the TypeScript reference. Pure Rust (oxc,
 # ICU4X), no platform dependencies, so it builds for iOS and Android too. From crates.io (0.1.2,
 # PsychoScript `dev` 6403924), the one `widget-wire` builds on, so both share one.

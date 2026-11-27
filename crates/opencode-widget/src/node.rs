@@ -61,6 +61,82 @@ pub struct SelectOption {
     pub description: Option<String>,
 }
 
+/// Where a table column's cells sit: `start` by default, `end` for numbers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ColumnAlign {
+    End,
+    #[default]
+    #[serde(other)]
+    Start,
+}
+
+/// A table's column: its header's label and where its cells sit.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Column {
+    pub label: String,
+    #[serde(default)]
+    pub align: ColumnAlign,
+}
+
+/// A table cell: a string, or a number shown as JavaScript's `String(number)`.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum Cell {
+    Text(String),
+    Number(f64),
+}
+
+impl<'de> Deserialize<'de> for Cell {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct Visit;
+        impl serde::de::Visitor<'_> for Visit {
+            type Value = Cell;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a table cell that is a string or a number")
+            }
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Cell, E> {
+                Ok(Cell::Text(v.to_owned()))
+            }
+            fn visit_string<E: serde::de::Error>(self, v: String) -> Result<Cell, E> {
+                Ok(Cell::Text(v))
+            }
+            fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Cell, E> {
+                Ok(Cell::Number(v as f64))
+            }
+            fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Cell, E> {
+                Ok(Cell::Number(v as f64))
+            }
+            fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<Cell, E> {
+                Ok(Cell::Number(v))
+            }
+        }
+        d.deserialize_any(Visit)
+    }
+}
+
+impl Cell {
+    /// The cell's text: a number as `String(number)` writes it.
+    pub fn text(&self) -> std::borrow::Cow<'_, str> {
+        match self {
+            Cell::Text(s) => s.as_str().into(),
+            Cell::Number(n) => ryu_js::Buffer::new().format(*n).to_owned().into(),
+        }
+    }
+}
+
+/// The column whose header shows the sort indicator (the program sorts the rows itself).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Sort {
+    pub column: i64,
+    #[serde(default)]
+    pub descending: bool,
+}
+
+/// A table's most columns and rows (`widgets.md`, Table).
+pub const TABLE_COLUMNS: usize = 16;
+pub const TABLE_ROWS: usize = 500;
+
 /// A select's value: one option's, or several when `multiple`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -221,6 +297,24 @@ pub enum Node {
         multiline: bool,
     },
     Divider,
+    /// A grid of text with a header row (`widgets.md`, Table): 1 to 16 columns, at most 500 rows
+    /// of at most that many cells (fewer leave the rest empty).
+    Table {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        columns: Vec<Column>,
+        rows: Vec<Vec<Cell>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sort: Option<Sort>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selected: Option<i64>,
+        /// Its rows take presses (the prelude sets it with `onPress`): `press` with the row.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        selectable: bool,
+        /// Its headers take presses (the prelude sets it with `onSort`): `change` with the column.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        sortable: bool,
+    },
     /// A drawing surface, full width unless `width`, drawn one way, never both: in 2D by the
     /// widget template's `draw` (see [`crate::draw`]), or, with `wgsl`, on the GPU by that
     /// fragment shader (see [`crate::shader`]).
@@ -360,7 +454,7 @@ impl Node {
     pub fn id(&self) -> Option<&str> {
         match self {
             Node::Button { id, .. } | Node::Checkbox { id, .. } | Node::Slider { id, .. } | Node::Select { id, .. } | Node::Input { id, .. } => Some(id),
-            Node::Carousel { id, .. } | Node::Card { id, .. } | Node::Canvas { id, .. } => id.as_deref(),
+            Node::Carousel { id, .. } | Node::Card { id, .. } | Node::Canvas { id, .. } | Node::Table { id, .. } => id.as_deref(),
             _ => None,
         }
     }
@@ -379,7 +473,7 @@ impl Node {
     }
 
     /// A view as read, or why it's invalid all the same: a canvas with `values` but no `wgsl`, or
-    /// more than 16 KB of it.
+    /// more than 16 KB of it; a table outside its limits (`widgets.md`, Table).
     fn checked(node: Node) -> Result<Node, String> {
         let mut bad = None;
         node.walk(&mut |n| {
@@ -392,6 +486,21 @@ impl Node {
                 }
                 if let Some(w) = wgsl.as_ref().filter(|w| w.len() > crate::shader::MAX_SOURCE) {
                     bad.get_or_insert(format!("a canvas's wgsl is {} bytes, over the limit of {}", w.len(), crate::shader::MAX_SOURCE));
+                }
+            }
+            // The TypeScript host's checks (`packages/widget/src/node.ts`, the `table` schema).
+            if let Node::Table { columns, rows, sort, selected, .. } = n {
+                let within = |i: i64, n: usize| usize::try_from(i).is_ok_and(|i| i < n);
+                if columns.is_empty() || columns.len() > TABLE_COLUMNS {
+                    bad.get_or_insert(format!("a table has 1 to {TABLE_COLUMNS} columns, not {}", columns.len()));
+                } else if rows.len() > TABLE_ROWS {
+                    bad.get_or_insert(format!("a table has at most {TABLE_ROWS} rows, not {}", rows.len()));
+                } else if rows.iter().any(|r| r.len() > columns.len()) {
+                    bad.get_or_insert("a row has more cells than there are columns".to_owned());
+                } else if sort.is_some_and(|s| !within(s.column, columns.len())) {
+                    bad.get_or_insert("`sort.column` must be one of the columns".to_owned());
+                } else if selected.is_some_and(|i| !within(i, rows.len())) {
+                    bad.get_or_insert("`selected` must be one of the rows".to_owned());
                 }
             }
         });
@@ -417,6 +526,10 @@ impl Node {
             Node::Button { label, .. } | Node::Checkbox { label, .. } => out.push(label.clone()),
             Node::Slider { label: Some(label), .. } | Node::Select { label: Some(label), .. } | Node::Input { label: Some(label), .. } => out.push(label.clone()),
             Node::Image { alt: Some(alt), .. } | Node::Canvas { alt: Some(alt), .. } => out.push(alt.clone()),
+            Node::Table { columns, rows, .. } => {
+                out.push(columns.iter().map(|c| c.label.as_str()).collect::<Vec<_>>().join("\t"));
+                out.extend(rows.iter().map(|r| r.iter().map(|c| c.text()).collect::<Vec<_>>().join("\t")));
+            }
             _ => {}
         });
         out.join("\n")

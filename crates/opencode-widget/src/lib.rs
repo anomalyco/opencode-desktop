@@ -37,7 +37,7 @@ pub mod step;
 pub mod tree;
 
 pub use machine::{Closed, Effect, Event, Face, Mode, Phase, RespondError, Status, Widget};
-pub use node::{Align, ButtonVariant, Inset, Layer, Layers, Node, Place, SelectOption, SelectValue, TextStyle, Tone};
+pub use node::{Align, ButtonVariant, Cell, Column, ColumnAlign, Inset, Layer, Layers, Node, Place, SelectOption, SelectValue, Sort, TextStyle, Tone};
 #[cfg(feature = "runner")]
 pub use runner::{Error, Program, STEP_TIMEOUT_MS, step_json};
 pub use draw::{Command, DrawOutput, Frame, Paint, Rect};
