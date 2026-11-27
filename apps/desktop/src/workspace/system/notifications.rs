@@ -69,6 +69,10 @@ impl NotificationsHost for App {
         }
     }
 
+    fn is_window_focused(&self) -> bool {
+        crate::windows::app_focused(self)
+    }
+
     fn window_id(&self) -> &str {
         &self.window.id
     }
@@ -127,6 +131,23 @@ impl NotificationsHost for App {
 
     fn read_requests(&mut self, session_id: &str) {
         App::read_requests(self, session_id);
+    }
+
+    fn activate_window(&mut self, token: Option<&str>) {
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(handle) = crate::windows::handle(&self.window.id) {
+                match token.filter(|t| !t.is_empty()) {
+                    Some(token) => handle.activate(token),
+                    None => handle.focus(),
+                }
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = token;
+            rune_notify::bring_to_front();
+        }
     }
 
     fn open_session_from_notification(&mut self, server: &ServerKey, session_id: &str, tx: &mut Tx) {

@@ -64,6 +64,8 @@ impl App {
             CloseWindow::Hide => match self.app_handle() {
                 Some(app) => {
                     self.window.hidden = true;
+                    self.window.focused = false;
+                    super::set_focused(&self.window.id, false);
                     self.sync_visible_browser_tabs();
                     app.hide();
                 }
@@ -83,6 +85,8 @@ impl App {
         match self.app_handle() {
             Some(app) if cfg!(target_os = "macos") && !rune::quitting() => {
                 self.window.hidden = true;
+                self.window.focused = false;
+                super::set_focused(&self.window.id, false);
                 self.sync_visible_browser_tabs();
                 app.hide();
             }
