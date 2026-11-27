@@ -213,6 +213,23 @@ impl PanelsHost for App {
         crate::plugin_host::panels::launchers(self, ctx)
     }
 
+    fn panel_new_tab_slots(
+        &self,
+        p: &Pal,
+        slot: &str,
+        session_id: &str,
+        pane: SessionPane,
+        width: f32,
+        focus_token: Option<u64>,
+    ) -> Vec<El> {
+        let slug = match pane {
+            SessionPane::Side => "side",
+            SessionPane::Split => "split",
+            SessionPane::Bottom => "bottom",
+        };
+        crate::plugin_host::surfaces::new_tab_slot(self, p, slot, session_id, slug, width, focus_token)
+    }
+
     fn open_panel_entry(&mut self, plugin: &str, id: &str, pane: SessionPane, tx: &mut Tx) {
         crate::plugin_host::panels::open_entry(self, plugin, id, pane, tx);
     }

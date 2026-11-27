@@ -1,4 +1,4 @@
-# OpenCode plugin API reference (contract 1.12)
+# OpenCode plugin API reference (contract 1.13)
 
 > Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit. For a walkthrough, read [Writing a plugin](writing-a-plugin.md).
 
@@ -6,7 +6,7 @@ Contents: [Versioning](#versioning) · [Modules and globals](#modules-and-global
 
 ## Versioning
 
-Contract versions are `MAJOR.MINOR`. This is contract `1.12`.
+Contract versions are `MAJOR.MINOR`. This is contract `1.13`.
 
 - A plugin names the contract it targets in plugin.toml: `contract = "1.0"`.
 - Minor versions (1.1, 1.2, …) only add: new optional properties on `ui.*` nodes and specs, new semantic tokens (each with a 1.0 fallback token), new services, methods, signals, contribution kinds and enum values. A plugin that targets 1.0 runs unchanged on every 1.x host.
@@ -783,6 +783,8 @@ A fixed place in the app's shell that a slot fills.
 | `"session.header"` | The end of the session header, before the usage numbers. |
 | `"session.location.menu"` | Rows in the session's project and location menu. |
 | `"session.panel.end"` | The actions after the side panel's tabs. |
+| `"session.panel.new"` | The top of the side panel's New tab view, above its launchers. |
+| `"session.panel.new.list"` | Below the launchers of the side panel's New tab view, before Recently closed. |
 
 ### HostSettingsPage
 
@@ -2824,6 +2826,7 @@ A page to open.
 | `url` | `string` | The URL, or a local `:port`. Defaults to `about:blank`. |
 | `sessionId` | `string?` | The session whose side region gets the page's tab. Defaults to the routed session. |
 | `background` | `boolean?` | Opens the tab without moving the keyboard: focus stays where it is. |
+| `pane` | `string?` | The side-region pane (`side`, `split`, or `bottom`) to open the page's tab in. |
 
 ### BrowserShowOptions
 
@@ -3407,6 +3410,9 @@ What a slot's render receives.
 | `active` | `boolean?` | `session.header`: the timeline is on screen. |
 | `compact` | `boolean?` | `session.header`: the title needs the room, so draw the compact form. |
 | `shown` | `boolean?` | `session.location.menu`: the menu is open. |
+| `pane` | `string?` | New tab slots: the pane (`side`, `split`, or `bottom`). |
+| `width` | `number?` | New tab slots: the pane's available width in points. |
+| `focusToken` | `number?` | New tab slots: incremented when the user explicitly asked for this New tab, so its first field takes focus once. |
 
 ### SlotSpec
 

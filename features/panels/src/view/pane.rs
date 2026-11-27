@@ -73,7 +73,7 @@ pub(crate) fn pane_box<H: PanelsHost + 'static>(
     });
 
     let content = if shown_new.is_some() {
-        new_tab_view(host, p, reg, pane)
+        new_tab_view(host, p, reg, pane, pane_size.0)
     } else if let Some(selected) = held.or_else(|| pane_active.as_deref().and_then(|k| reg.entry(k))) {
         render_selected_panel(host, p, reg, pane, pane_size, env_scale, selected)
     } else if !stored.all.is_empty() && routed_unlisted(host) {
