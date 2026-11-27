@@ -71,9 +71,6 @@ pub enum RowContent {
     /// `from`, which changed `files`.
     /// `pt`: the room over Changed files (`pt-4`, less what the reply's footer leaves under it).
     TurnDiff { idle: usize, from: String, files: Vec<String>, pt: f32 },
-    /// Room at the timeline's end for the pills' lane, so its last row stands clear over them
-    /// (t1129); a row, so the pinned timeline glides up as it opens rather than jumping.
-    Lane(f32),
 }
 
 impl RowSpec {
@@ -333,7 +330,6 @@ impl RowSpec {
             },
             RowContent::CompactionQueued(run) => crate::compaction::queued(s, p, *run),
             RowContent::TurnDivider(run) => crate::compaction::divider_of(s, p, text(opencode_i18n::t!("ui.message.interrupted")).key("label").font(UI).color(p.faint), *run),
-            RowContent::Lane(h) => el().w_full().h(*h),
             RowContent::TurnDiff { idle, from, files, pt } => crate::turn_diff::view(s, p, &t.session, t.messages[*idle].id(), from, files, *pt),
             // Held room keeps a line of room over Working, which streaming text draws into (#304).
             RowContent::Actions { message, busy, asking, last } => col().w_full().pt(crate::line_reveal::room(s)).child(turn_actions(s, p, *busy, *asking, *last, &t.session, *message, &t.messages[*message])),
@@ -440,28 +436,11 @@ pub fn timeline_row_builds() -> usize {
     ROW_BUILDS.get()
 }
 
-/// Desktop's `tailSize`, the room under the timeline's last row (`virtualizer.tsx:152`, its
-/// `paddingEnd`): the Working lane at its top, then the gap over the composer. The turn's
-/// actions row (`parts::turn_actions`) holds that lane, so the padding is the rest, and stays
-/// put: steers waiting under the actions row end the timeline with the gap alone.
+/// Desktop's `tailSize`, the room under the timeline's last row (`virtualizer.tsx:156-160`, its
+/// `paddingEnd`): 36 pt Working lane, 14 pt gap, 32 pt activity pill (44 on touch) and 10 pt
+/// composer gap. The turn's actions row (`parts::turn_actions`) holds the Working lane, and
+/// activity pills float inside the rest so they never push rows above or double-count the lane.
 const TAIL: f32 = 92.0;
-
-/// The timeline's rows: the projection's, then the pills' lane under them while it shows.
-#[derive(Clone)]
-struct Shown {
-    rows: std::rc::Rc<projection::Projection>,
-    lane: Option<std::rc::Rc<RowSpec>>,
-}
-
-impl Shown {
-    fn len(&self) -> usize {
-        self.rows.len() + self.lane.is_some() as usize
-    }
-
-    fn get(&self, i: usize) -> Option<&RowSpec> {
-        self.rows.get(i).or_else(|| (i == self.rows.len()).then_some(self.lane.as_deref()).flatten())
-    }
-}
 
 /// The timeline, running down to the composer under the pills' `lane` (`jump::over`): at its end
 /// its last row stands over the lane, clear of the fade into the composer. A session `header`
@@ -479,19 +458,17 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
     // Held room's streaming text draws past its row's edge into the room over Working.
     let held_room = crate::line_reveal::reveal(s.knobs()) == crate::line_reveal::Reveal::HeldRoom;
     let e = rune::growth::StreamEdge { overflow: held_room, ..edge::FEATHER };
-    // The pills' lane ends the rows, apart from the projection it doesn't change.
-    let specs = Shown {
-        rows: t.map(|t| rows(s, t)).unwrap_or_default(),
-        lane: (t.is_some() && lane > 0.0).then(|| std::rc::Rc::new(RowSpec { key: "pill-lane".into(), content: RowContent::Lane(lane), streaming: false, under: 0.0, divider: None })),
-    };
-    let tail_extra = t.map_or(0.0, |t| rhythm::tail_extra(t, &s.timeline_detail(), s.full_codemode(&t.session), &specs.rows));
+    let specs = t.map(|t| rows(s, t)).unwrap_or_default();
+    let tail_extra = t.map_or(0.0, |t| rhythm::tail_extra(t, &s.timeline_detail(), s.full_codemode(&t.session), &specs));
+    let working_foot = crate::working::LANE - crate::working::LANE_TEXT_TOP - crate::working::LINE;
+    let fade_floor = (crate::jump::fade(s, lane) - working_foot).max(crate::jump::fade(s, 0.0));
     let mut stack = col()
         .key("timeline")
         .w_full()
         .center()
         .px(crate::style::sides() / 2.0)
         .pt(crate::style::timeline_top())
-        .pb(((if crate::style::hover_none() { 104.0 } else { TAIL }) + tail_extra - crate::working::LANE).max(crate::jump::fade(s, 0.0)))
+        .pb(((if crate::style::hover_none() { 104.0 } else { TAIL }) + tail_extra - crate::working::LANE).max(fade_floor))
         // One selection across the whole timeline, as a page's: a drag runs from a prompt
         // through tools and replies, Cmd+A takes every message, and caret browsing lets
         // Shift+Arrow / Arrow / Home / End extend or move it (out of Tab order, no ring).
@@ -530,7 +507,7 @@ pub fn timeline<S: TimelineHost>(s: &S, p: &Pal, id: &str, t: Option<&Transcript
         let marks = marks.clone();
         // A projection kept from the last build has the keys it had: the list needn't ask each
         // row's again.
-        let version = (specs.rows.generation, specs.lane.is_some());
+        let version = specs.generation;
         stack = stack.virtual_rows(
             n,
             80.0,
@@ -642,7 +619,7 @@ pub fn row_message<S: TimelineHost>(s: &S, t: &Transcript, key: &str) -> Option<
         RowContent::Turn { start, .. } | RowContent::ToolImages { start, .. } => Some(*start),
         RowContent::TurnDiff { idle, .. } => Some(*idle),
         RowContent::UserImages { id, .. } => t.messages.iter().position(|m| m.id() == id),
-        RowContent::Pending { .. } | RowContent::PendingNotice(..) | RowContent::CompactionQueued(_) | RowContent::TurnDivider(_) | RowContent::Lane(_) => None,
+        RowContent::Pending { .. } | RowContent::PendingNotice(..) | RowContent::CompactionQueued(_) | RowContent::TurnDivider(_) => None,
     }
 }
 
