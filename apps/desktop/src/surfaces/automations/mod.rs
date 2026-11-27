@@ -149,6 +149,10 @@ pub fn open_new_automation(s: &mut App, prompt: &str, tx: &mut Tx) {
     tx.focus("prompt", false);
 }
 
+pub fn delete_modal_open(s: &App) -> bool {
+    !matches!(s.kernel.slots.get(&AUTOMATIONS).delete_modal, DeleteModal::Closed)
+}
+
 pub fn ask_delete(s: &mut App, key: String, server: ServerKey, id: String, name: String) {
     s.kernel.slots.get_mut(&AUTOMATIONS).delete_modal = DeleteModal::Confirm { key, server, id, name };
 }
