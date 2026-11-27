@@ -37,6 +37,13 @@ impl TabResidency {
             _ => None,
         }
     }
+
+    pub fn inactive_since(self) -> Option<Instant> {
+        match self {
+            Self::Hidden { since } | Self::Frozen { since } => Some(since),
+            _ => None,
+        }
+    }
 }
 
 /// Inputs driving [`step`].
@@ -82,8 +89,8 @@ pub fn step(state: &mut TabResidency, event: ResidencyEvent) -> ResidencyEffects
             *state = TabResidency::Hidden { since: now };
             ResidencyEffects::default()
         }
-        (TabResidency::Hidden { .. }, ResidencyEvent::SetFrozen { frozen: true, now }) => {
-            *state = TabResidency::Frozen { since: now };
+        (TabResidency::Hidden { since }, ResidencyEvent::SetFrozen { frozen: true, .. }) => {
+            *state = TabResidency::Frozen { since };
             ResidencyEffects { send_freeze: Some(true), send_hibernate: false }
         }
         (TabResidency::Frozen { .. }, ResidencyEvent::SetFrozen { frozen: false, now }) => {
@@ -114,8 +121,10 @@ pub fn step(state: &mut TabResidency, event: ResidencyEvent) -> ResidencyEffects
             };
             ResidencyEffects::default()
         }
+        // Keep `Waking` intact across `EngineReset` so `flush_pending_opens` +
+        // `EngineConfirmed` / `WakeFailed` owns the wake completion transition.
         (
-            TabResidency::Frozen { .. } | TabResidency::Waking,
+            TabResidency::Frozen { .. },
             ResidencyEvent::EngineReset { has_engine_tab: true, awake, now },
         ) => {
             *state = if awake {

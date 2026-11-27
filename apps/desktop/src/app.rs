@@ -517,6 +517,7 @@ impl App {
     /// reader's cache, and the images only those held. A session opened again is read again,
     /// as one opened for the first time is. Nothing on screen changes.
     pub(crate) fn rest(s: &mut App, tx: &mut rune::Tx) -> bool {
+        s.hibernate_orphaned_browser_tabs();
         crate::shell::memory_reclaim::rest_all(s, tx)
     }
 

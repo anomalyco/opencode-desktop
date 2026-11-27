@@ -233,7 +233,7 @@ pub enum HostMsg {
         active: bool,
     },
     /// Freezes (`frozen: true`) or unfreezes (`frozen: false`) a hidden tab via Chromium Page
-    /// Lifecycle (`Page.setWebLifecycleState` + `Memory.simulatePressureNotification`).
+    /// Lifecycle (`Page.setWebLifecycleState("frozen")`).
     FreezeTab {
         tab_id: u64,
         frozen: bool,
