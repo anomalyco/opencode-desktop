@@ -72,6 +72,8 @@ pub(crate) struct Link {
     pub extension_args: Vec<String>,
     pub profile_permissions: Vec<crate::prompts::SiteDecision>,
     pub preview_chunk_budget: Arc<crate::preview::PreviewChunkBudget>,
+    #[cfg(target_os = "linux")]
+    pub dmabuf_pools: Arc<Mutex<Option<Arc<Mutex<crate::dmabuf::Pools>>>>>,
 }
 
 impl Link {
@@ -819,6 +821,7 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
         prompts: true,
         extensions: true,
         download_save: true,
+        tab_lifecycle: true,
     })
     .ok();
     let mut early = EarlyOpensMap::new();
@@ -890,7 +893,14 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
             #[cfg(not(target_os = "linux"))]
             let mut reader = BufReader::new(reader_stream);
             #[cfg(target_os = "linux")]
-            let (mut pools, mut frames) = (crate::dmabuf::Pools::new(frames_tx), crate::dmabuf::Frames::None);
+            let (pools, mut frames) = (
+                Arc::new(Mutex::new(crate::dmabuf::Pools::new(frames_tx))),
+                crate::dmabuf::Frames::None,
+            );
+            #[cfg(target_os = "linux")]
+            {
+                *link.dmabuf_pools.lock().unwrap_or_else(PoisonError::into_inner) = Some(pools.clone());
+            }
             let mut line = String::new();
             #[cfg(not(target_os = "linux"))]
             let mut raw_buf: Vec<u8> = Vec::new();
@@ -934,7 +944,7 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                     #[cfg(target_os = "linux")]
                     {
                         frames.step(crate::dmabuf::Frames::Bgra);
-                        pools.forget(paint.tab_id);
+                        pools.lock().unwrap_or_else(PoisonError::into_inner).forget(paint.tab_id);
                     }
                     paint.push(&link.surfaces);
                     continue;
@@ -951,22 +961,22 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                 match msg {
                     EngineMsg::DmabufPool { tab_id, pool, buffers, width, height, stride, offset, modifier } => {
                         let info = crate::dmabuf::PoolInfo { tab_id, pool, buffers, size: [width, height], stride, offset, modifier };
-                        pools.add(info, reader.take_fds(line_at));
+                        pools.lock().unwrap_or_else(PoisonError::into_inner).add(info, reader.take_fds(line_at));
                         continue;
                     }
                     EngineMsg::DmabufFrame { tab_id, frame_id, pool, slot } => {
                         frames.step(crate::dmabuf::Frames::Dmabuf);
                         paint_event(PaintEvent::Frame);
                         let surface = link.surfaces.lock().unwrap_or_else(PoisonError::into_inner).get(&tab_id).cloned();
-                        pools.show(surface.as_ref(), tab_id, frame_id, pool, slot);
+                        pools.lock().unwrap_or_else(PoisonError::into_inner).show(surface.as_ref(), tab_id, frame_id, pool, slot);
                         continue;
                     }
-                    EngineMsg::TabClosed { tab_id } => pools.forget(tab_id),
+                    EngineMsg::TabClosed { tab_id } => pools.lock().unwrap_or_else(PoisonError::into_inner).close(tab_id),
                     _ => {}
                 }
                 if let EngineMsg::CpuFrame { tab_id, frame_id, width, height, bgra_b64 } = msg {
                     #[cfg(target_os = "linux")]
-                    pools.forget(tab_id);
+                    pools.lock().unwrap_or_else(PoisonError::into_inner).forget(tab_id);
                     WirePaint { tab_id, frame_id, width, height, bgra_b64: &bgra_b64 }.push(&link.surfaces);
                     continue;
                 }
@@ -997,6 +1007,13 @@ pub(crate) fn wire_stream(stream: UnixStream, mach_service: Option<String>, link
                 }
                 link.inbox_tx.send(msg).ok();
                 link.wake();
+            }
+            #[cfg(target_os = "linux")]
+            {
+                let mut slot = link.dmabuf_pools.lock().unwrap_or_else(PoisonError::into_inner);
+                if slot.as_ref().is_some_and(|p| Arc::ptr_eq(p, &pools)) {
+                    *slot = None;
+                }
             }
             link.preview_chunk_budget.reset();
             answers.end();

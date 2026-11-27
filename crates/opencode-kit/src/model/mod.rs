@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use serde_json::Value;
 
 mod attachment;
+mod automation;
 mod background_result;
 mod catalog;
 mod compaction;
@@ -24,6 +25,7 @@ mod transcript;
 pub mod turn;
 
 pub use attachment::{Attachment, base64_decode, media_hash, parse_attachment, prompt_extras_generation, set_user_files, user_files};
+pub use automation::{AutomationAction, AutomationInfo, AutomationOutcome, AutomationStatus, AutomationTarget, AutomationTime, AutomationTrigger, parse_automation, parse_automations};
 pub use background_result::{BackgroundResult, BackgroundResultKind, parse_background_result};
 pub use catalog::{AttachmentInput, Model, Speed};
 pub(crate) use attachment::extras_changed;

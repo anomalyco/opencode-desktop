@@ -343,6 +343,7 @@ impl App {
     /// Reads where the window is (`placement`); the frame to save, unless it's minimized.
     fn window_frame(&mut self) -> Option<store::Frame> {
         let p = handle(&self.window.id)?.placement()?;
+        self.set_browser_window_minimized(p.minimized);
         let (next, frame) = self.window.placement.step(p);
         if self.window.placement != next {
             self.window.placement = next;

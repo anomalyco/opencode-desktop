@@ -695,6 +695,7 @@ pub fn poll(app: &mut App, tx: &mut Tx) -> bool {
     if let Some(next) = app.workspace_panes.browser.devtools.values().map(|p| p.deadline).min() { tx.wake_after(next.saturating_duration_since(now).max(Duration::from_millis(25))); }
     // A cookie import or Clear browsing data fails at its deadline even when nothing else wakes the app.
     if let Some(next) = app.cookie_jobs_deadline() { tx.wake_after(next.saturating_duration_since(now).max(Duration::from_millis(25))); }
+    if let Some(next) = app.browser_visibility_wake() { tx.wake_after(next.saturating_duration_since(now).max(Duration::from_millis(25))); }
     let picks: Vec<_> = if app.workspace_panes.browser.host.has_picked() { app.workspace_panes.browser.host.drain_picked_elements().collect() } else { Vec::new() };
     for pick in picks {
         app.open_browser_element_comment(pick.clone());

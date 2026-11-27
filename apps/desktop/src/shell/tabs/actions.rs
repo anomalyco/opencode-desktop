@@ -378,7 +378,7 @@ impl App {
                 let root = self.root_of(id);
                 self.tabs.iter().find(|t| t.id == root && !t.is_draft() && t.server == *server).map(Tab::uid)
             }
-            Route::Home => None,
+            Route::Home | Route::Automations => None,
         }
     }
 

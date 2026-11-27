@@ -636,7 +636,7 @@ impl App {
             match &*self.route {
                 Route::Session { id, .. } => self.session(id).map(|s| s.directory.clone()),
                 Route::Draft(_) => Some(self.draft_dir().to_owned()),
-                Route::Home => None,
+                Route::Home | Route::Automations => None,
             }
         };
         let dir = start_location::resolve(self, here);

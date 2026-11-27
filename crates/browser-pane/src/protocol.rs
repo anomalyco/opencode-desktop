@@ -112,6 +112,9 @@ pub struct TabSnapshot {
     /// Counts main-frame document loads (`on_load_start`); unchanged by same-document URL changes.
     #[serde(default)]
     pub document: u64,
+    /// Whether this tab is currently producing audible audio (reserved for Phase 2 hibernation protection).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub audible: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -164,6 +167,9 @@ pub enum HostMsg {
         /// This app handles `EngineMsg::DownloadSaveRequest` via a native OS Save dialog.
         #[serde(default)]
         download_save: bool,
+        /// This app manages multi-pane tab visibility via `SetVisibleTabs` and `SetTabUnthrottled`.
+        #[serde(default)]
+        tab_lifecycle: bool,
     },
     OpenTab {
         tab_id: u64,
@@ -215,6 +221,15 @@ pub enum HostMsg {
     },
     FocusTab {
         tab_id: u64,
+    },
+    /// Exact set of currently visible pane tabs (`vec![]` when panel closed, on Home/Settings, or hidden).
+    SetVisibleTabs {
+        tab_ids: Vec<u64>,
+    },
+    /// Explicit agent RPC unthrottle hold, decoupled from security-sticky `agent_driven`.
+    SetTabUnthrottled {
+        tab_id: u64,
+        active: bool,
     },
     Navigate {
         tab_id: u64,
@@ -556,6 +571,9 @@ pub enum EngineMsg {
         /// The engine supports Copy image, spellcheck toggle, and spellcheck languages in page menus.
         #[serde(default)]
         menu_extras: bool,
+        /// The engine supports `SetVisibleTabs` and `SetTabUnthrottled` tab visibility lifecycle.
+        #[serde(default)]
+        tab_lifecycle: bool,
     },
     ProfileCookies {
         request_id: u64,

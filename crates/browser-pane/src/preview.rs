@@ -292,6 +292,7 @@ impl BrowserHost {
             url: initial_url,
             title: String::new(),
             loading,
+            audible: false,
             can_go_back: false,
             can_go_forward: false,
             zoom: 1.0,
@@ -415,6 +416,7 @@ impl BrowserHost {
                 None,
                 agent_driven,
             );
+            self.replay_tab_lifecycle(tab_id);
         } else {
             if connected && had_live_engine {
                 *self.reopening_tabs.entry(tab_id).or_default() += 1;
@@ -474,6 +476,7 @@ impl BrowserHost {
                     Some(spec),
                     agent_driven,
                 );
+                self.replay_tab_lifecycle(tab_id);
             } else {
                 if had_live_engine {
                     *self.reopening_tabs.entry(tab_id).or_default() += 1;
@@ -529,6 +532,7 @@ impl BrowserHost {
             url: "about:blank".into(),
             title: String::new(),
             loading: false,
+            audible: false,
             can_go_back: false,
             can_go_forward: false,
             zoom: 1.0,
@@ -634,6 +638,7 @@ impl BrowserHost {
             url: url.to_owned(),
             title: title.to_owned(),
             loading: false,
+            audible: false,
             can_go_back: true,
             can_go_forward: false,
             zoom: 1.0,
