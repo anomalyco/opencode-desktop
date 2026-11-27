@@ -10,6 +10,9 @@
 //! The clip streams through Rune's `Player`: a file on this machine's server is read where it
 //! lies, a remote one over the server's file route. Nothing of it is downloaded first.
 
+use std::cell::Cell;
+use std::hash::{Hash, Hasher};
+
 use rune::{
     Anim, Color, Curve, Easing, El, Family, Icon, Phase, Player, PlayerState, Shadow,
     SurfaceFit, TextStyle, Tx, el, icon, row, text,
@@ -92,7 +95,7 @@ impl AuthVideoDownloads {
         waker: Option<rune::Waker>,
     ) {
         let key = (sid.to_owned(), path.to_owned());
-        if !self.in_flight.insert(key) {
+        if !self.in_flight.insert(key.clone()) {
             return;
         }
         let srv = server.clone();
@@ -100,7 +103,7 @@ impl AuthVideoDownloads {
         let sid = sid.to_owned();
         let path = path.to_owned();
         let tx = self.tx.clone();
-        std::thread::Builder::new()
+        if std::thread::Builder::new()
             .name("opencode-auth-video".into())
             .spawn(move || {
                 let res = srv.download_media_temp(&req, &ext);
@@ -109,7 +112,18 @@ impl AuthVideoDownloads {
                     w();
                 }
             })
-            .ok();
+            .is_err()
+        {
+            self.in_flight.remove(&key);
+        }
+    }
+
+    pub(crate) fn is_idle(&self) -> bool {
+        self.in_flight.is_empty()
+    }
+
+    pub(crate) fn is_loading(&self, sid: &str, path: &str) -> bool {
+        self.in_flight.iter().any(|(s, p)| s == sid && p == path)
     }
 
     pub(crate) fn drain(&mut self) -> Vec<AuthVideoDone> {
@@ -141,7 +155,11 @@ const TIME: TextStyle = TextStyle::new(14.0, 400.0)
 /// A video file's player and its controls' state.
 pub struct FileVideo {
     pub player: Player,
-    pub overlay: Overlay,
+    /// Control visibility machine (`Overlay`), stored in a `Cell` so timer renewals on pointer
+    /// move don't bump the `FILES` slot or trigger panel rebuilds when visibility didn't change.
+    overlay: Cell<Overlay>,
+    /// Last quarter-second `timeupdate` bucket shown while controls were visible.
+    shown_tick: Cell<Option<u64>>,
     /// The timeline under a drag: the clip time it points at.
     pub scrub: Scrub,
     /// It can't play, and the file was read as any other instead (`poll`).
@@ -162,7 +180,8 @@ impl FileVideo {
         player.preload();
         FileVideo {
             player,
-            overlay: Overlay::default(),
+            overlay: Cell::default(),
+            shown_tick: Cell::default(),
             scrub: Scrub::Idle,
             read_instead: false,
             #[cfg(not(target_arch = "wasm32"))]
@@ -183,42 +202,77 @@ impl FileVideo {
         matches!(self.player.state(), PlayerState::Failed(_))
     }
 
+    pub fn is_loading(&self) -> bool {
+        self.overlay.get() == Overlay::Loading
+    }
+
     /// Chromium's controls show (and so does Desktop's expand button).
-    fn controls_shown(&self) -> bool {
-        self.overlay.shown() || self.scrub != Scrub::Idle
+    pub fn controls_shown(&self) -> bool {
+        self.overlay.get().shown() || self.scrub != Scrub::Idle
+    }
+
+    /// Hashes only visible video presentation state (excluding idle-timer deadlines and hidden
+    /// playback timestamps) so pointer moves and hidden playback don't rebuild the panel.
+    pub fn version_hash(&self, h: &mut impl Hasher) {
+        let p = &self.player;
+        let shown = self.controls_shown();
+        let scrub_bits = match self.scrub {
+            Scrub::Idle => None,
+            Scrub::Dragging { at, .. } => Some(at.to_bits()),
+        };
+        let tick = shown.then(|| (p.time() * 4.0) as u64);
+        (
+            std::mem::discriminant(&p.state()),
+            self.is_loading(),
+            shown,
+            scrub_bits,
+            p.is_playing(),
+            p.muted(),
+            p.has_sound(),
+            p.natural_size(),
+            p.duration().map(f64::to_bits),
+            tick,
+        )
+            .hash(h);
+    }
+
+    fn step_overlay(&self, event: Event, tx: &mut Tx) -> bool {
+        let mut state = self.overlay.get();
+        let was_shown = state.shown();
+        let was_loading = state == Overlay::Loading;
+        if let Some(Effect::WakeAt(due)) = step(&mut state, event) {
+            tx.wake_at(due);
+        }
+        self.overlay.set(state);
+        was_shown != state.shown() || was_loading != (state == Overlay::Loading)
     }
 }
 
-/// The timeline's drag (Chromium's range input): where it points, and whether the clip played
-/// when it started, so it plays on once let go.
+/// The timeline's drag (Chromium's range input): where it points, where it started (for cancel),
+/// and whether the clip played when it started, so it plays on once let go.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Scrub {
     #[default]
     Idle,
-    Dragging { at: f64, resume: bool },
+    Dragging { at: f64, origin: f64, resume: bool },
 }
 
-/// The open video's state, for the stage's handlers: the active file tab's.
-fn active(host: &mut dyn FilesHost) -> Option<&mut FileVideo> {
-    let (sid, path) = host.active_file_tab()?;
-    host.files_mut().sessions.get_mut(&sid)?.videos.get_mut(&path?)
+fn video_ref<'a>(host: &'a dyn FilesHost, sid: &str, path: &str) -> Option<&'a FileVideo> {
+    host.files().sessions.get(sid)?.videos.get(path)
 }
 
-fn apply(effect: Option<Effect>, tx: &mut Tx) {
-    if let Some(Effect::WakeAt(due)) = effect {
-        tx.wake_at(due);
-    }
-    tx.animated();
+fn video_mut<'a>(host: &'a mut dyn FilesHost, sid: &str, path: &str) -> Option<&'a mut FileVideo> {
+    host.files_mut().sessions.get_mut(sid)?.videos.get_mut(path)
 }
 
 /// Folds each open video's playback into its overlay, and moves a playing one's time on.
 pub fn poll(host: &mut dyn FilesHost, tx: &mut Tx) -> bool {
-    let mut changed = false;
+    let mut instant_changed = false;
     #[cfg(not(target_arch = "wasm32"))]
-    {
+    if !host.files().auth_videos.is_idle() {
         let finished = host.files_mut().auth_videos.drain();
         for (sid, path, res) in finished {
-            changed = true;
+            instant_changed = true;
             let waker = host.files().waker.clone();
             let wrap = host.files().wrap;
             match res.ok().and_then(|temp| FileVideo::with_temp(temp, waker)) {
@@ -239,124 +293,192 @@ pub fn poll(host: &mut dyn FilesHost, tx: &mut Tx) -> bool {
         }
     }
     if host.files().sessions.values().all(|ws| ws.videos.is_empty()) {
-        if changed {
+        if instant_changed {
             tx.instant();
         }
-        return changed;
+        return instant_changed;
     }
     let now = tx.clock();
-    let mut playing = false;
+    let mut overlay_changed = false;
+    let mut tick_changed = false;
     let mut read = Vec::new();
-    for (sid, ws) in host.files_mut().sessions.iter_mut() {
-        for (path, v) in ws.videos.iter_mut() {
+    for (sid, ws) in host.files().sessions.iter() {
+        for (path, v) in ws.videos.iter() {
             if v.failed() && !v.read_instead {
-                v.read_instead = true;
                 read.push((sid.clone(), path.clone()));
             }
             let paused = !v.player.is_playing();
-            let before = v.overlay;
-            let event = match (v.overlay, v.player.state()) {
+            let event = match (v.overlay.get(), v.player.state()) {
                 (Overlay::Loading, PlayerState::Loading) => None,
                 (Overlay::Loading, _) => Some(Event::Loaded { paused, now }),
                 _ => Some(Event::Playback { paused, now }),
             };
-            if let Some(event) = event
-                && let Some(Effect::WakeAt(due)) = step(&mut v.overlay, event)
-            {
-                tx.wake_at(due);
+            if let Some(event) = event {
+                overlay_changed |= v.step_overlay(event, tx);
             }
-            if let Some(Effect::WakeAt(due)) = step(&mut v.overlay, Event::Tick { now }) {
-                tx.wake_at(due);
+            overlay_changed |= v.step_overlay(Event::Tick { now }, tx);
+            if !paused && v.controls_shown() {
+                let tick = (v.player.time() * 4.0) as u64;
+                if v.shown_tick.replace(Some(tick)) != Some(tick) {
+                    tick_changed = true;
+                }
+                tx.wake_at(now + TICK);
+            } else if !v.controls_shown() {
+                v.shown_tick.set(None);
             }
-            changed |= v.overlay != before;
-            playing |= !paused;
         }
     }
     // A clip that can't play is read as the file it is, as Desktop shows a failed decode.
     for (sid, path) in read {
         if let Some(ws) = host.files_mut().sessions.get_mut(&sid) {
+            if let Some(v) = ws.videos.get_mut(&path) {
+                v.read_instead = true;
+            }
             ws.docs.remove(&path);
         }
         crate::ops::ensure_file_loaded(host, &sid, &path);
-        changed = true;
+        instant_changed = true;
     }
-    if playing {
-        tx.wake_at(now + TICK);
-        changed = true;
+    if overlay_changed || tick_changed {
+        host.touch_files();
     }
-    if changed {
+    if overlay_changed {
         tx.animated();
+    } else if tick_changed || instant_changed {
+        tx.instant();
     }
-    changed
+    overlay_changed || tick_changed || instant_changed
 }
 
-fn on_stage_press(host: &mut dyn FilesHost, tx: &mut Tx) {
-    if let Some(v) = active(host) {
-        if v.player.is_playing() {
-            v.player.pause();
-        } else {
-            v.player.play();
-        }
-        let now = tx.clock();
-        let paused = !v.player.is_playing();
-        apply(step(&mut v.overlay, Event::Playback { paused, now }), tx);
+/// Toggles play/pause for the video at `(sid, path)`; returns `true` if a video was toggled.
+pub(crate) fn toggle_play(host: &mut dyn FilesHost, sid: &str, path: &str, tx: &mut Tx) -> bool {
+    let Some(v) = video_ref(host, sid, path) else { return false };
+    if v.player.is_playing() {
+        v.player.pause();
+    } else {
+        v.player.play();
     }
-}
-
-fn on_stage_pointer_move(host: &mut dyn FilesHost, tx: &mut Tx) {
     let now = tx.clock();
-    if let Some(v) = active(host) {
-        let effect = step(&mut v.overlay, Event::Moved { now });
-        if effect.is_some() {
-            apply(effect, tx);
-        }
+    let paused = !v.player.is_playing();
+    let vis_changed = v.step_overlay(Event::Playback { paused, now }, tx);
+    if !paused && v.controls_shown() {
+        v.shown_tick.set(Some((v.player.time() * 4.0) as u64));
+        tx.wake_at(now + TICK);
     }
-}
-
-fn on_stage_hover_change(host: &mut dyn FilesHost, inside: bool, tx: &mut Tx) {
-    if !inside
-        && let Some(v) = active(host)
-        && step(&mut v.overlay, Event::Left).is_none()
-        && v.overlay == Overlay::Idle
-    {
+    host.touch_files();
+    if vis_changed {
         tx.animated();
+    } else {
+        tx.instant();
+    }
+    true
+}
+
+fn on_stage_press(host: &mut dyn FilesHost, sid: &str, path: &str, tx: &mut Tx) {
+    toggle_play(host, sid, path, tx);
+}
+
+fn on_stage_pointer_move(host: &mut dyn FilesHost, sid: &str, path: &str, tx: &mut Tx) {
+    let now = tx.clock();
+    let Some(v) = video_ref(host, sid, path) else {
+        tx.live_only();
+        return;
+    };
+    if v.step_overlay(Event::Moved { now }, tx) {
+        if v.player.is_playing() && v.controls_shown() {
+            v.shown_tick.set(Some((v.player.time() * 4.0) as u64));
+            tx.wake_at(now + TICK);
+        }
+        host.touch_files();
+        tx.animated();
+    } else {
+        tx.live_only();
     }
 }
 
-fn on_button_press(host: &mut dyn FilesHost, press: fn(&mut FileVideo), tx: &mut Tx) {
-    if let Some(v) = active(host) {
+fn on_stage_hover_change(host: &mut dyn FilesHost, sid: &str, path: &str, inside: bool, tx: &mut Tx) {
+    if !inside
+        && let Some(v) = video_ref(host, sid, path)
+        && v.step_overlay(Event::Left, tx)
+    {
+        v.shown_tick.set(None);
+        host.touch_files();
+        tx.animated();
+    } else {
+        tx.live_only();
+    }
+}
+
+fn on_button_press(host: &mut dyn FilesHost, sid: &str, path: &str, press: fn(&mut FileVideo), tx: &mut Tx) {
+    if let Some(v) = video_mut(host, sid, path) {
         press(v);
         let now = tx.clock();
         let paused = !v.player.is_playing();
-        apply(step(&mut v.overlay, Event::Playback { paused, now }), tx);
-        tx.animated();
+        let mut vis_changed = v.step_overlay(Event::Playback { paused, now }, tx);
+        if !paused {
+            vis_changed |= v.step_overlay(Event::Moved { now }, tx);
+            if v.controls_shown() {
+                v.shown_tick.set(Some((v.player.time() * 4.0) as u64));
+                tx.wake_at(now + TICK);
+            }
+        }
+        if vis_changed {
+            tx.animated();
+        } else {
+            tx.instant();
+        }
     }
 }
 
-fn on_timeline_drag(host: &mut dyn FilesHost, x: f32, phase: Phase, track: f32, tx: &mut Tx) {
-    let Some(v) = active(host) else { return };
+fn on_timeline_drag(
+    host: &mut dyn FilesHost,
+    sid: &str,
+    path: &str,
+    x: f32,
+    phase: Phase,
+    cancelled: bool,
+    track: f32,
+    tx: &mut Tx,
+) {
+    let Some(v) = video_mut(host, sid, path) else { return };
     let duration = v.player.duration().unwrap_or(0.0);
     let at = ((x - TRACK_INSET) / track.max(1.0)).clamp(0.0, 1.0) as f64 * duration;
-    v.scrub = match (v.scrub, phase == Phase::Up) {
-        (_, true) => {
-            if let Scrub::Dragging { resume: true, .. } = v.scrub {
+    match (v.scrub, phase) {
+        (Scrub::Dragging { origin, resume, .. }, Phase::Up) => {
+            let target = if cancelled { origin } else { at };
+            v.scrub = Scrub::Idle;
+            v.player.seek(target);
+            if resume {
                 v.player.play();
             }
-            Scrub::Idle
+            let now = tx.clock();
+            let paused = !v.player.is_playing();
+            v.step_overlay(Event::Playback { paused, now }, tx);
+            if !paused {
+                v.step_overlay(Event::Moved { now }, tx);
+                tx.wake_at(now + TICK);
+            }
         }
-        (Scrub::Idle, false) => {
+        (Scrub::Idle, Phase::Up) => {
+            v.player.seek(at);
+        }
+        (Scrub::Idle, _) => {
             let resume = v.player.is_playing();
+            let origin = v.player.time();
             v.player.pause();
-            Scrub::Dragging { at, resume }
+            v.scrub = Scrub::Dragging { at, origin, resume };
+            v.player.seek(at);
         }
-        (Scrub::Dragging { resume, .. }, false) => Scrub::Dragging { at, resume },
-    };
-    v.player.seek(at);
+        (Scrub::Dragging { origin, resume, .. }, _) => {
+            v.scrub = Scrub::Dragging { at, origin, resume };
+            v.player.seek_fast(at);
+        }
+    }
     tx.instant();
 }
 
 /// The stage for `v`, filling the panel under the toolbar.
-pub fn stage<H: FilesHost + 'static>(s: &H, p: &Pal, v: &FileVideo) -> El {
+pub fn stage<H: FilesHost + 'static>(s: &H, p: &Pal, session_id: &str, path: &str, v: &FileVideo) -> El {
     let [w, h] = s.files().stage_size.get();
     let (nw, nh) = v.player.natural_size().unwrap_or((16, 9));
     // `w-full` in the `p-6` frame, its height from the clip's shape, at most the frame's
@@ -364,7 +486,8 @@ pub fn stage<H: FilesHost + 'static>(s: &H, p: &Pal, v: &FileVideo) -> El {
     let box_w = (w - 48.0).max(0.0);
     let box_h = (box_w * nh as f32 / nw.max(1) as f32).min((h - 48.0).max(0.0)).round();
     let shown = v.controls_shown();
-    let loading = v.overlay == Overlay::Loading;
+    let loading = v.is_loading();
+    let (press_sid, press_path) = (session_id.to_owned(), path.to_owned());
     let picture = el()
         .key("artifact-media")
         .w(box_w)
@@ -380,10 +503,13 @@ pub fn stage<H: FilesHost + 'static>(s: &H, p: &Pal, v: &FileVideo) -> El {
             color: p.text.alpha(0.25),
             ..Shadow::default()
         })
-        .on_press_tx(|s: &mut H, tx: &mut Tx| on_stage_press(s, tx))
+        .on_press_tx(move |s: &mut H, tx: &mut Tx| on_stage_press(s, &press_sid, &press_path, tx))
         .video(&v.player, SurfaceFit::Fit)
-        .children((!loading).then(|| controls::<H>(v, box_w, box_h, shown)));
-    let expand = expand_button(p, shown).absolute(box_w - 96.0, box_h - 72.0);
+        .children((!loading).then(|| controls::<H>(session_id, path, v, box_w, box_h, shown)));
+    let mut expand = expand_button(p, shown).absolute(box_w - 96.0, box_h - 72.0);
+    if !shown {
+        expand = expand.inert();
+    }
     let frame = el()
         .key("artifact-video-frame")
         .w(box_w)
@@ -391,6 +517,8 @@ pub fn stage<H: FilesHost + 'static>(s: &H, p: &Pal, v: &FileVideo) -> El {
         .child(picture)
         .child(expand);
     let sizer = s.files().stage_size.clone();
+    let (move_sid, move_path) = (session_id.to_owned(), path.to_owned());
+    let (hover_sid, hover_path) = (session_id.to_owned(), path.to_owned());
     el().key("artifact-stage")
         .grow(1.0)
         .min_h(0.0)
@@ -407,20 +535,21 @@ pub fn stage<H: FilesHost + 'static>(s: &H, p: &Pal, v: &FileVideo) -> El {
                 tx.live_only();
             }
         })
-        .on_pointer_move_local(|s: &mut H, _, tx| on_stage_pointer_move(s, tx))
-        .on_hover_change(|s: &mut H, inside, tx| on_stage_hover_change(s, inside, tx))
+        .on_pointer_move_local(move |s: &mut H, _, tx| on_stage_pointer_move(s, &move_sid, &move_path, tx))
+        .on_hover_change(move |s: &mut H, inside, tx| on_stage_hover_change(s, &hover_sid, &hover_path, inside, tx))
         .child(frame)
         .children(loading.then(|| {
             // `MediaLoading`: Desktop's Loader at 16 pt in `text-weak`, over the stage.
             el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
                 .center()
+                .inert()
                 .child(rune_kit::Loader::new().size(16.0).build(kit(p)))
         }))
 }
 
 /// Chromium's controls over a `w` x `h` clip: the scrim, the button row and the timeline. They
 /// fade out over 1 s when the clip plays on with the pointer resting, and back in at once.
-fn controls<H: FilesHost + 'static>(v: &FileVideo, w: f32, h: f32, shown: bool) -> El {
+fn controls<H: FilesHost + 'static>(sid: &str, path: &str, v: &FileVideo, w: f32, h: f32, shown: bool) -> El {
     let player = &v.player;
     let duration = player.duration().unwrap_or(0.0);
     let time = match v.scrub {
@@ -432,6 +561,7 @@ fn controls<H: FilesHost + 'static>(v: &FileVideo, w: f32, h: f32, shown: bool) 
     let scrim = el()
         .pin(Some(0.0), None, Some(0.0), Some(0.0))
         .h(SCRIM.min(h))
+        .inert()
         .linear_gradient(std::f32::consts::PI, SCRIM_STOPS.map(|(at, a)| (at, Color::BLACK.alpha(a))));
     let buttons = row()
         .key("media-buttons")
@@ -439,6 +569,8 @@ fn controls<H: FilesHost + 'static>(v: &FileVideo, w: f32, h: f32, shown: bool) 
         .h(BUTTON)
         .center_y()
         .child(button::<H>(
+            sid,
+            path,
             "media-play",
             if playing { &PAUSE } else { &PLAY },
             if playing { "Pause" } else { "Play" },
@@ -453,6 +585,8 @@ fn controls<H: FilesHost + 'static>(v: &FileVideo, w: f32, h: f32, shown: bool) 
         .child(match player.has_sound() {
             Some(false) => disabled_button("media-mute", &SOUND, "Mute"),
             _ => button::<H>(
+                sid,
+                path,
                 "media-mute",
                 if player.muted() { &MUTED } else { &SOUND },
                 if player.muted() { "Unmute" } else { "Mute" },
@@ -461,14 +595,19 @@ fn controls<H: FilesHost + 'static>(v: &FileVideo, w: f32, h: f32, shown: bool) 
         })
         // Chromium's fullscreen button keeps its place, hidden; Desktop's expand button lies over it.
         .child(el().w(BUTTON).h(BUTTON))
-        .child(button::<H>("media-more", &MORE, "Show more media controls", |_| {}));
-    el().key("media-controls")
+        .child(button::<H>(sid, path, "media-more", &MORE, "Show more media controls", |_| {}));
+    let mut bar = el()
+        .key("media-controls")
         .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
         .opacity(if shown { 1.0 } else { 0.0 })
         .opacity_motion(Anim::new(fade))
         .child(scrim)
         .child(buttons)
-        .child(timeline::<H>(v, w, time, duration))
+        .child(timeline::<H>(sid, path, v, w, time, duration));
+    if !shown {
+        bar = bar.inert();
+    }
+    bar
 }
 
 /// The scrim's stops, bottom (1) to top (0): Chromium's eased black.
@@ -524,13 +663,16 @@ fn button_shell(key: &'static str, glyph: &'static Icon, label: &'static str) ->
 
 /// A 48 pt control with its 20 pt glyph, white, and the hover disc behind it.
 fn button<H: FilesHost + 'static>(
+    sid: &str,
+    path: &str,
     key: &'static str,
     glyph: &'static Icon,
     label: &'static str,
     press: fn(&mut FileVideo),
 ) -> El {
+    let (sid, path) = (sid.to_owned(), path.to_owned());
     button_shell(key, glyph, label)
-        .on_press_tx(move |s: &mut H, tx: &mut Tx| on_button_press(s, press, tx))
+        .on_press_tx(move |s: &mut H, tx: &mut Tx| on_button_press(s, &sid, &path, press, tx))
 }
 
 /// A control Chromium disables (`:disabled`): its glyph at 40 % opacity, no hover disc, no press.
@@ -571,7 +713,7 @@ fn timeline_shell(track: f32, played: f32, scrubbing: bool) -> El {
 /// The timeline: the track 16 pt in from each side along the top of the bottom 24 pt, white
 /// where it played, 54 % white what's loaded (all of it, from a file), 30 % white the rest.
 /// A drag scrubs, and the clip plays on from where it's let go if it was playing.
-fn timeline<H: FilesHost + 'static>(v: &FileVideo, w: f32, time: f64, duration: f64) -> El {
+fn timeline<H: FilesHost + 'static>(sid: &str, path: &str, v: &FileVideo, w: f32, time: f64, duration: f64) -> El {
     let track = (w - 2.0 * TRACK_INSET).max(0.0);
     let played = if duration > 0.0 {
         (time / duration).clamp(0.0, 1.0) as f32 * track
@@ -579,8 +721,9 @@ fn timeline<H: FilesHost + 'static>(v: &FileVideo, w: f32, time: f64, duration: 
         0.0
     };
     let scrubbing = v.scrub != Scrub::Idle;
+    let (sid, path) = (sid.to_owned(), path.to_owned());
     timeline_shell(track, played, scrubbing)
-        .on_drag(move |s: &mut H, d, tx: &mut Tx| on_timeline_drag(s, d.x, d.phase, track, tx))
+        .on_drag(move |s: &mut H, d, tx: &mut Tx| on_timeline_drag(s, &sid, &path, d.x, d.phase, d.cancelled(), track, tx))
 }
 
 /// Desktop's expand button (`artifact-video-fullscreen`): a 48 pt hit area 96 in from the clip's

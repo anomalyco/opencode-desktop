@@ -47,6 +47,8 @@ pub(crate) enum ReadEvent {
     Outdated,
     /// The read `attempt` came back.
     Landed { attempt: u64 },
+    /// A non-read loader (such as a streaming video player) handled the stale file.
+    Cleared,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,6 +83,8 @@ pub(crate) fn step(state: Option<Read>, event: ReadEvent, next: u64) -> (Option<
             Then::Done => (None, ReadEffect::Show),
         },
         (state, ReadEvent::Landed { .. }) => (state, ReadEffect::Drop),
+        (Some(Read::Stale), ReadEvent::Cleared) => (None, ReadEffect::Nothing),
+        (state, ReadEvent::Cleared) => (state, ReadEffect::Nothing),
     }
 }
 
@@ -182,6 +186,11 @@ impl Reads {
     /// the next ask reads.
     pub(crate) fn outdate(&mut self, sid: &str, path: &str) {
         self.step(sid, path, ReadEvent::Outdated);
+    }
+
+    /// Marks a stale file as handled by a non-read loader (e.g., streaming video player).
+    pub(crate) fn clear_stale(&mut self, sid: &str, path: &str) {
+        self.step(sid, path, ReadEvent::Cleared);
     }
 
     /// `sid`'s files whose text is outdated.

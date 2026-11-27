@@ -122,11 +122,13 @@ pub fn reload(host: &mut dyn FilesHost, sid: &str, path: &str) {
         return;
     }
     super::trace::changed(sid, path);
-    if super::video::is_video(path)
-        && let Some(ws) = host.files_mut().sessions.get_mut(sid)
-        && ws.videos.remove(path).is_some()
-    {
-        ws.docs.remove(path);
+    if super::video::is_video(path) {
+        let pane = host.files_mut();
+        pane.reads.clear_stale(sid, path);
+        if let Some(ws) = pane.sessions.get_mut(sid) {
+            ws.videos.remove(path);
+            ws.docs.remove(path);
+        }
         crate::ops::ensure_file_loaded(host, sid, path);
         return;
     }

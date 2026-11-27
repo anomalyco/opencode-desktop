@@ -216,6 +216,7 @@ pub fn ensure_file_loaded(host: &mut dyn FilesHost, session_id: &str, path: &str
         };
         if let Some(source) = video_dir.as_deref().and_then(|d| video::source(Some(&server), d, path)) {
             let pane = host.files_mut();
+            pane.reads.clear_stale(session_id, path);
             let wrap = pane.wrap;
             let clip = video::FileVideo::new(&source, pane.waker.clone());
             let ws = pane.sessions.entry(session_id.to_owned()).or_default();
@@ -228,6 +229,7 @@ pub fn ensure_file_loaded(host: &mut dyn FilesHost, session_id: &str, path: &str
         // On a local server, `source() == None` means confinement refused a symlink/junction or
         // missing file: never fall back to `/api/fs/read/...`.
         if server.is_local() {
+            host.files_mut().reads.clear_stale(session_id, path);
             return;
         }
         // Password-protected remote server: never put `auth_token` in a URL; download via
@@ -237,6 +239,7 @@ pub fn ensure_file_loaded(host: &mut dyn FilesHost, session_id: &str, path: &str
             && let Some(dir) = video_dir
         {
             let pane = host.files_mut();
+            pane.reads.clear_stale(session_id, path);
             let wrap = pane.wrap;
             let waker = pane.waker.clone();
             let ws = pane.sessions.entry(session_id.to_owned()).or_default();

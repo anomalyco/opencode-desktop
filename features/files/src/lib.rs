@@ -436,6 +436,18 @@ impl FilesPane {
         self.replies.retain(keep);
     }
 
+    pub fn video_loading(&self, sid: &str, path: &str) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.auth_videos.is_loading(sid, path)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (sid, path);
+            false
+        }
+    }
+
     pub fn set_waker(&mut self, waker: Waker) {
         self.dir_fetch.set_waker(waker.clone());
         self.reads.set_waker(waker.clone());
