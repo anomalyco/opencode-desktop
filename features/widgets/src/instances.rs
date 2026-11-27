@@ -168,7 +168,7 @@ impl Instances {
     }
 
     fn reindex(&mut self) {
-        self.list.sort_by(|a, b| b.updated.cmp(&a.updated));
+        self.list.sort_by_key(|i| std::cmp::Reverse(i.updated));
         self.index = self.list.iter().enumerate().map(|(n, i)| (i.state.instance_key(), n)).collect();
         self.revision += 1;
     }

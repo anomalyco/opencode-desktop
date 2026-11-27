@@ -64,7 +64,7 @@ pub(super) fn titlebar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     // Consolidated navigation searches inline on Home (`titlebar.tsx`, #64668).
     let proto = s.settings.navigation_prototype();
     let search = (!proto).then(|| search_button(p));
-    let nav = row().key("titlebar-nav").gap(2.0).mr(-2.0).center_y().child(home_button(s, p)).children(search);
+    let nav = row().key("titlebar-nav").gap(2.0).mr(-2.0).center_y().child(home_button(s, p)).children(search).child(mini_apps_button(s, p));
     let pinned_bar = super::sidebar::pinned_area::horizontal(s, p);
     // Under Settings › Group tabs each project's or server's tabs stand together, the tabs with
     // no project after them (`grouped.horizontal()`, `titlebar.tsx:922`), a 16 × 1 divider
@@ -140,7 +140,7 @@ fn nav_button(p: &Pal, key: &str, label: &str, glyph: &'static Icon, pressed: bo
 }
 
 fn home_button(s: &App, p: &Pal) -> El {
-    let home = s.route == Route::Home && !s.settings_open();
+    let home = s.route == Route::Home && !s.settings_open() && crate::surfaces::mini_apps::shown(s).is_none();
     let (label, glyph) = super::sidebar::pinned_area::home_label(s);
     nav_button(p, "home", label, glyph, home)
         .help(label).help_keys(crate::keymap::Bind::Home.keycaps())
@@ -158,6 +158,14 @@ fn search_button(p: &Pal) -> El {
             s.close_settings();
             s.open_session_search(tx)
         })
+}
+
+/// Mini apps, beside Search as in the sidebar: the server's widgets outside their sessions.
+fn mini_apps_button(s: &App, p: &Pal) -> El {
+    let label = t!("rune.miniApps.title");
+    nav_button(p, "mini-apps", label, &ic::DOT_GRID, crate::surfaces::mini_apps::shown(s).is_some())
+        .help(label)
+        .on_press_tx(|s: &mut App, tx: &mut Tx| crate::surfaces::mini_apps::toggle(s, tx))
 }
 
 /// `+` after the last tab (`RecentlyClosedTabsMenu`'s trigger, 28 × 28): a new session tab, and

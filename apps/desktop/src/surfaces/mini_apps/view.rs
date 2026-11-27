@@ -32,7 +32,7 @@ const SMALL: TextStyle = TextStyle::new(12.0, 440.0).lh(16.0).tracking(-0.04);
 pub fn page(s: &App, p: &Pal) -> El {
     let view = super::shown(s).unwrap_or(View::Dashboard);
     col()
-        .key("mini-apps")
+        .key("mini-apps-page")
         .role("region")
         .label(t!("rune.miniApps.title").to_owned())
         .w_full()
@@ -139,10 +139,13 @@ fn dashboard(s: &App, p: &Pal) -> El {
         .key("mini-apps-grid")
         .w_full()
         .h(height + 24.0)
-        .on_layout(|s: &mut App, r: [f32; 4]| {
+        // Scrolling moves it without changing its width: only a new width builds again.
+        .on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
             let m = s.kernel.slots.get_mut(&MINI_APPS);
             if (m.width - r[2]).abs() > 0.5 {
                 m.width = r[2];
+            } else {
+                tx.live_only();
             }
         })
         .children(target)
@@ -188,10 +191,10 @@ fn tile(s: &App, p: &Pal, metrics: &Metrics, t: &Tile) -> El {
         tile = tile.radius(14.0).outline(1.0, 2.0, if held_here.is_some() { p.accent } else { p.border });
         // The whole tile is the handle; its corner resizes it; the cross takes it off.
         let key = t.key.clone();
-        tile = tile.child(el().key("handle").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).role("button").label(t!("rune.miniApps.move").to_owned()).on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| gesture(s, &key, false, d, tx)));
+        tile = tile.child(el().key(format!("move-{key}")).pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).role("button").label(t!("rune.miniApps.move").to_owned()).on_drag(move |s: &mut App, d: &mut Drag, tx: &mut Tx| gesture(s, &key, false, d, tx)));
         let key = t.key.clone();
         tile = tile.child(
-            el().key("resize")
+            el().key(format!("resize-{key}"))
                 .pin(None, None, Some(-4.0), Some(-4.0))
                 .size(20.0, 20.0)
                 .center()
@@ -202,7 +205,7 @@ fn tile(s: &App, p: &Pal, metrics: &Metrics, t: &Tile) -> El {
         );
         let key = t.key.clone();
         tile = tile.child(
-            el().key("remove")
+            el().key(format!("remove-{key}"))
                 .pin(None, Some(0.0), Some(0.0), None)
                 .size(24.0, 24.0)
                 .radius(6.0)
@@ -285,6 +288,7 @@ fn list_row(s: &App, p: &Pal, key: &str) -> El {
     let Some(i) = s.widgets().instances.resolve(key) else { return el().key(key.to_owned()) };
     let on = super::on_dashboard(s, key);
     let toggle = {
+        let id = format!("add-{key}");
         let key = key.to_owned();
         let (label, variant) = if on { (t!("rune.miniApps.added"), ButtonVariant::Ghost) } else { (t!("rune.miniApps.add"), ButtonVariant::Neutral) };
         #[allow(deprecated)]
@@ -298,7 +302,7 @@ fn list_row(s: &App, p: &Pal, key: &str) -> El {
             tx.settle();
         })
         .build(kit(p))
-        .key("toggle")
+        .key(id)
     };
     let status = match (&i.state.status, &i.state.failure) {
         (WidgetStatus::Open, Some(_)) => t!("rune.miniApps.status.failed"),
@@ -329,11 +333,13 @@ fn list_row(s: &App, p: &Pal, key: &str) -> El {
                 tx.wake_at(tx.clock());
             }
         })
-        .on_layout(|s: &mut App, r: [f32; 4]| {
+        .on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
             // The dashboard's width stands in for the list's until the dashboard lays out.
             let m = s.kernel.slots.get_mut(&MINI_APPS);
             if m.width == 0.0 {
                 m.width = r[2];
+            } else {
+                tx.live_only();
             }
         })
         .child(

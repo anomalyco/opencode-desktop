@@ -82,24 +82,30 @@ impl Metrics {
     }
 }
 
-/// `tiles` with `moving` at its place: the tiles it overlaps go down below it, and every other
-/// tile rises as far as it can without overlapping one placed before it, top to bottom.
+/// `tiles` with `moving` at its target: the tiles it overlaps go down below it, and those they
+/// then overlap below them in turn (`moveElement`); then every tile, the moving one too, rises as
+/// far as it can, top to bottom (`compact`), the moving one first among those on its row.
 pub fn arrange(tiles: &[Tile], moving: &Tile) -> Vec<Tile> {
-    let mut placed = vec![moving.clone()];
-    let mut rest: Vec<Tile> = tiles.iter().filter(|t| t.key != moving.key).cloned().collect();
-    rest.sort_by_key(|t| (t.y, t.x));
-    for t in rest {
-        let t = settle(&placed, t);
-        placed.push(t);
+    let mut all: Vec<Tile> = tiles.iter().map(|t| if t.key == moving.key { moving.clone() } else { t.clone() }).collect();
+    let mut pushers = vec![moving.clone()];
+    while let Some(p) = pushers.pop() {
+        for t in all.iter_mut().filter(|t| t.key != moving.key && t.overlaps(&p)) {
+            t.y = p.y + p.h;
+            pushers.push(t.clone());
+        }
     }
-    // In the order they came, so the view's keys keep their order.
-    tiles.iter().filter_map(|t| placed.iter().find(|p| p.key == t.key).cloned()).collect()
+    compact_first(&all, Some(&moving.key))
 }
 
 /// Every tile risen as far as it can, top to bottom (gravity), none overlapping.
 pub fn compact(tiles: &[Tile]) -> Vec<Tile> {
+    compact_first(tiles, None)
+}
+
+/// [`compact`], with tile `first` ahead of the others on its row.
+fn compact_first(tiles: &[Tile], first: Option<&str>) -> Vec<Tile> {
     let mut order: Vec<Tile> = tiles.to_vec();
-    order.sort_by_key(|t| (t.y, t.x));
+    order.sort_by_key(|t| (t.y, Some(t.key.as_str()) != first, t.x));
     let mut placed: Vec<Tile> = Vec::new();
     for t in order {
         let t = settle(&placed, t);
