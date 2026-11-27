@@ -33,7 +33,7 @@ pub(super) fn titlebar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
         .key("titlebar")
         .height(chrome.row_h)
         .top_padding(chrome.row_pad)
-        .leading_padding(leading_pad(top, insets.leading, *s.zoom))
+        .leading_padding(leading_pad(top, chrome.caption_row, insets.leading, *s.zoom))
         .fill(p.bg_deep)
         // Right to left the row runs from the caption buttons, which stay on the right
         // (`titlebar.tsx:192`), as the traffic lights stay on the left.
@@ -66,17 +66,29 @@ pub(super) fn titlebar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
     let search = (!proto).then(|| search_button(p));
     let nav = row().key("titlebar-nav").gap(2.0).mr(-2.0).center_y().child(home_button(s, p)).children(search);
     let pinned_bar = super::sidebar::pinned_area::horizontal(s, p);
-    let visible_indices: Vec<usize> = if proto {
-        s.tabs.iter().enumerate().filter(|(_, t)| !crate::tabs::pins::holds(s, t)).map(|(i, _)| i).collect()
-    } else {
-        (0..s.tabs.len()).collect()
+    // Under Settings › Group tabs each project's or server's tabs stand together, the tabs with
+    // no project after them (`grouped.horizontal()`, `titlebar.tsx:922`), a 16 × 1 divider
+    // between two groups (`tab-strip.tsx:1060-1068`).
+    let mut sections = super::tab_strip::Sections::default();
+    let visible_indices: Vec<usize> = match crate::tabs::auto_groups::groups(s) {
+        Some(groups) => groups.iter().filter(|g| !g.tabs.is_empty()).fold(vec![], |mut shown, g| {
+            if !shown.is_empty() {
+                let line = el().key("auto-group-divider").size(1.0, 16.0).fill(p.border_muted).a11y_hidden();
+                sections.breaks.push(rune_kit::shell::TabBreak::new(format!("divider-{}", g.key), shown.len(), line, 1.0));
+            }
+            shown.extend(&g.tabs);
+            shown
+        }),
+        None if proto => s.tabs.iter().enumerate().filter(|(_, t)| !crate::tabs::pins::holds(s, t)).map(|(i, _)| i).collect(),
+        None => (0..s.tabs.len()).collect(),
     };
     // The strip's width matters only while the tabs can't all have their full 224 pt: below
     // that the tabs share it. Read through `layout_with`, a resize where every tab keeps its
     // full width runs no view; the strip only lays out again.
-    let fits = full_strip_w(visible_indices.len());
+    // A divider takes its point and one more gap of the row.
+    let fits = full_strip_w(visible_indices.len()) + sections.breaks.len() as f32 * 7.0;
     let viewport = cx.layout_with(STRIP, move |r| (r[2] < fits).then_some(r[2])).flatten();
-    let strip = super::tab_strip::tab_strip_filtered(s, p, STRIP, TabOrientation::Horizontal, viewport, Some(new_button(p)), &visible_indices);
+    let strip = super::tab_strip::tab_strip_filtered(s, p, STRIP, TabOrientation::Horizontal, viewport, Some(new_button(p)), &visible_indices, sections);
     let bar = bar.leading(nav);
     let mut bar = match pinned_bar {
         Some(pins) => bar.leading(pins),
@@ -94,11 +106,12 @@ pub(super) fn titlebar(s: &App, p: &Pal, cx: &mut Cx<App>) -> Option<El> {
 
 /// Points before the row's first control: `ps-3.5` on Windows, `ps-[sidebar-inset - 2]` beside
 /// side tabs (so the menu's glyph lines up with the sidebar's icons), past the traffic lights'
-/// 74pt and `pl-2.5` on macOS, and `px-2` elsewhere and in full screen.
-fn leading_pad(top: bool, lights: f32, zoom: f32) -> f32 {
+/// 74pt and `pl-2.5` on macOS, and `px-2` elsewhere and in full screen. Linux's row under Rune's
+/// own frame (`caption_row`) is Windows'.
+fn leading_pad(top: bool, caption_row: bool, lights: f32, zoom: f32) -> f32 {
     match () {
-        _ if cfg!(target_os = "windows") && top => 14.0,
-        _ if cfg!(target_os = "windows") => INSET_START - 2.0,
+        _ if caption_row && top => 14.0,
+        _ if caption_row => INSET_START - 2.0,
         // `WindowTitlebar` already keeps the lights' own width clear; `lights` is in the
         // view's points, the lights' 74 in the window's.
         _ if lights > 0.0 => (LIGHTS_W / zoom - lights).max(0.0) + 10.0,

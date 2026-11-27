@@ -188,6 +188,9 @@ pub fn markdown_styled_wrap<S: TimelineHost, H: rune_kit::markdown::HighlightIte
         .streaming(streaming)
         .selectable(true)
         .scroll_wide(true)
+        // Official Markdown sets `overflow-wrap: break-word` (`packages/session-ui/src/components/markdown.css:54`)
+        // so long URLs wrap inside the column while `scroll_wide(true)` keeps code and tables scrolling.
+        .wrap_anywhere(true)
         .wrap_code(wrap_default)
         .diagram_frame(move |card, d| crate::diagram::frame::<S>(&pal, card, d, &full))
         .code_frame(move |card, c| code_card::<S>(&pal, card, c, &copied, wrap_default, &wrap_scope))

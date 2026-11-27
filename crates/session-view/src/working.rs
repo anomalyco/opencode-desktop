@@ -80,7 +80,7 @@ pub fn thinking<S: TimelineHost>(s: &S, session: &str) -> bool {
         // The turn's work: what follows the last message that is neither a step nor a notice.
         let start = t.messages.iter().rposition(|m| !matches!(m, Message::Assistant(_) | Message::Notice(_))).map_or(0, |i| i + 1);
         let entries = crate::timeline::entries(&t.messages[start..], &detail);
-        matches!(crate::turns::fold_with(&entries, true, &detail).last(), Some(crate::turns::Block::Thought { live: true, .. }))
+        matches!(crate::turns::fold_with_flags(&entries, true, &detail, s.full_codemode(session)).last(), Some(crate::turns::Block::Thought { live: true, .. }))
     }) == Some(true)
 }
 

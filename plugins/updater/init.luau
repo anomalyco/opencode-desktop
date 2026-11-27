@@ -14,6 +14,7 @@ local whatsnew = require("@self/whatsnew")
 local view = require("@self/view")
 
 type ReleaseNotes = { enabled: boolean }
+type InstallOnQuit = { enabled: boolean }
 type Seen = { version: string? }
 
 return plugin.defineWindow(function(ctx)
@@ -28,6 +29,7 @@ return plugin.defineWindow(function(ctx)
     local Images = ctx:GetService("Images")
     local Theme = ctx:GetService("Theme")
     local releaseNotes = Store:Value("releaseNotes", { enabled = true }) :: StoreValue<ReleaseNotes>
+    local installOnQuit = Store:Value("installOnQuit", { enabled = false }) :: StoreValue<InstallOnQuit>
     local seen = Store:Value("seen", {} :: Seen) :: StoreValue<Seen>
     local changed = ctx:CreateSignal()
 
@@ -159,36 +161,54 @@ return plugin.defineWindow(function(ctx)
         end,
     })
 
+    local isDesktop = App.Platform ~= "web"
+    local settingsEntries = {
+        { id = "settings-release-notes", title = I18n:T("releaseNotes.title") },
+    }
+    if isDesktop then
+        table.insert(settingsEntries, { id = "settings-install-on-quit", title = I18n:T("installOnQuit.title") })
+    end
+    table.insert(settingsEntries, { id = "settings-check-updates", title = I18n:T("check.title") })
+
     ctx:AddSettingsPage({
         id = "updates",
         page = "general",
         title = I18n:T("section.title"),
-        entries = {
-            { id = "settings-release-notes", title = I18n:T("releaseNotes.title") },
-            { id = "settings-check-updates", title = I18n:T("check.title") },
-        },
+        entries = settingsEntries,
         render = function(v)
             local state = Updater:State()
             local current = action(state, windowState)
             local enabled = asTable(releaseNotes:Get()).enabled ~= false
-            return v:Memo("updates", `{current.label}:{current.description or ""}:{current.run or ""}:{enabled}:{changed:Version()}:{I18n:Locale().id}`, function()
-                return view.section(I18n, v, {
-                    releaseNotes = enabled,
-                    label = current.label,
-                    description = current.description,
-                    -- Disabled while the action runs, or with no updater in this build.
-                    enabled = current.run ~= nil and state ~= nil,
-                    toggle = function(on)
-                        releaseNotes:Set({ enabled = on })
-                    end,
-                    run = function()
-                        local run = action(Updater:State(), windowState).run
-                        if run then
-                            act(run)
-                        end
-                    end,
-                })
-            end)
+            local updaterDisabled = state == nil or state.phase == "disabled"
+            local quitOn = asTable(installOnQuit:Get()).enabled == true
+            return v:Memo(
+                "updates",
+                `{current.label}:{current.description or ""}:{current.run or ""}:{enabled}:{updaterDisabled}:{quitOn}:{changed:Version()}:{I18n:Locale().id}`,
+                function()
+                    return view.section(I18n, v, {
+                        releaseNotes = enabled,
+                        showInstallOnQuit = isDesktop,
+                        installOnQuit = quitOn,
+                        installOnQuitDisabled = updaterDisabled,
+                        label = current.label,
+                        description = current.description,
+                        -- Disabled while the action runs, or with no updater in this build.
+                        enabled = current.run ~= nil and state ~= nil,
+                        toggle = function(on)
+                            releaseNotes:Set({ enabled = on })
+                        end,
+                        toggleInstallOnQuit = function(on)
+                            installOnQuit:Set({ enabled = on })
+                        end,
+                        run = function()
+                            local run = action(Updater:State(), windowState).run
+                            if run then
+                                act(run)
+                            end
+                        end,
+                    })
+                end
+            )
         end,
     })
 

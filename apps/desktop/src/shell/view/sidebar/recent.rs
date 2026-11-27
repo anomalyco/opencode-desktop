@@ -267,8 +267,9 @@ fn group_header(
 
     let heading = if collapsible {
         let toggle_key = group_key.to_owned();
+        let button_key = format!("recent-header-{group_key}");
         let mut btn = row()
-            .key(format!("recent-header-{group_key}"))
+            .key(button_key.clone())
             .role("button")
             .label(label.to_owned())
             .expanded(!collapsed)
@@ -282,15 +283,15 @@ fn group_header(
             .center_y()
             .radius(6.0)
             .focus_inset(p)
-            .hover(p.hover)
-            // The header's button is its chevron's hover group, so the keyboard's focus on it
-            // shows the chevron as the pointer does.
-            .hover_group()
             .on_press_tx(move |s: &mut App, tx: &mut Tx| {
                 tx.instant();
                 recent_view::toggle_collapsed(s, &toggle_key);
             })
-            .child(text(label.to_owned()).font(UI_MED).color(p.muted).shrink().truncate());
+            // The button has no fill of its own; its words take the base ink under the pointer
+            // (`recent-sessions.tsx:1201`: `text-v2-text-text-muted hover:text-v2-text-text-base`).
+            // They follow the header's hover here, so they are also in the base ink with the
+            // pointer on the Group and sort button, where official's stay muted.
+            .child(text(label.to_owned()).font(UI_MED).color(p.muted).group_color(p.text).shrink().truncate());
         if let Some(n) = count {
             btn = btn.child(text(n.to_string()).font(UI_SMALL).color(p.faint));
         }
@@ -298,11 +299,14 @@ fn group_header(
             let dot_color = if m == RecentStatus::Attention { p.warning } else { p.accent };
             btn = btn.child(el().key("group-dot").size(6.0, 6.0).radius(3.0).fill(dot_color).a11y_hidden());
         }
-        let chevron = icon(&ic::FILL_TRIANGLE_DOWN, 14.0).color(p.icon_muted).rotate(if collapsed { -std::f32::consts::FRAC_PI_2 } else { 0.0 }).mirror_in_rtl();
-        // Under Consolidated the chevron shows with the pointer over the header's button or the
-        // keyboard's focus on it (`recent-sessions.tsx:1225`, `GroupHeader`'s `hoverReveal`,
-        // opencode#66265).
-        btn.child(if s.settings.navigation_prototype() { session_view::style::hover_reveal(chevron) } else { chevron })
+        // Under Consolidated the chevron shows with the pointer over the header or the keyboard's
+        // focus on the header's button, on a 150 ms fade (`recent-sessions.tsx:1222-1225`,
+        // `GroupHeader`'s `hoverReveal`, opencode#66265); otherwise it always shows.
+        btn.child(if s.settings.navigation_prototype() {
+            super::pinned_area::group_chevron(p, !collapsed, &button_key)
+        } else {
+            icon(&ic::FILL_TRIANGLE_DOWN, 14.0).color(p.icon_muted).rotate(if collapsed { -std::f32::consts::FRAC_PI_2 } else { 0.0 }).mirror_in_rtl()
+        })
     } else {
         row()
             .key(format!("recent-header-{group_key}"))
@@ -315,7 +319,10 @@ fn group_header(
             .center_y()
             .child(text(label.to_owned()).font(UI_MED).color(p.muted).shrink().truncate())
     };
-    row().key(format!("recent-head-row-{group_key}")).w_full().h(24.0).center_y().hover_group().child(heading).child(sliders)
+    // Only the pointer lights the header (`group-hover/header`): the Group and sort button shows
+    // for the header's hover or its own focus (`recent-sessions.tsx:1231`), not for focus on
+    // the header's button.
+    row().key(format!("recent-head-row-{group_key}")).w_full().h(24.0).center_y().hover_group_pointer().child(heading).child(sliders)
 }
 
 /// One section's rows, drawn as side tabs (`TabNavItem`, vertical): `pins` makes them the pinned
@@ -421,8 +428,16 @@ fn open_menu(
     press: rune::PointerPress,
     tx: &mut Tx,
 ) {
+    // `recent-sessions.tsx:1339-1372` (opencode#66576): Rename, Pin/Unpin, Mark read/unread, Mute,
+    // Hide, (Move up/down when pinned), ---, Copy >, Export…, ---, Archive, Delete….
     let target = Target::on(server, id, Spot::Row);
-    let mut menu = Menu::new(t!("command.category.session"));
+    let read = crate::session_menu::lines(s, &target).into_iter().find_map(|line| match line {
+        crate::session_menu::Line::Item(i) if matches!(i.id, "read" | "unread") => Some(Item::new(i.id, i.title)),
+        _ => None,
+    });
+    let copy_sub = crate::session_menu::copy::submenu(s, server, id);
+    let mut menu = Menu::new(t!("command.category.session"))
+        .item(Item::new("rename", t!("common.rename")));
     if consolidated {
         for line in crate::tabs::pins::menu_lines(s, server, id) {
             menu = match line {
@@ -435,20 +450,30 @@ fn open_menu(
     } else {
         menu = match pinned {
             None => menu.item(Item::new("pin", t!("sidebar.recent.pin"))),
-            Some((at, count)) => menu
-                .item(Item::new("unpin", t!("sidebar.recent.unpin")))
-                .item(Item::new("up", t!("sidebar.recent.moveUp")).enabled(at > 0))
-                .item(Item::new("down", t!("sidebar.recent.moveDown")).enabled(at + 1 < count)),
+            Some(_) => menu.item(Item::new("unpin", t!("sidebar.recent.unpin"))),
         };
     }
     let muted = preferences::muted(server, id);
     menu = menu
+        .items(read)
         .item(Item::new("mute", if muted { t!("sidebar.recent.unmute") } else { t!("sidebar.recent.mute") }))
-        .item(Item::new("hide", t!("sidebar.recent.hide")))
+        .item(Item::new("hide", t!("sidebar.recent.hide")));
+    if !consolidated
+        && let Some((at, count)) = pinned
+    {
+        menu = menu
+            .separator()
+            .item(Item::new("up", t!("sidebar.recent.moveUp")).enabled(at > 0))
+            .item(Item::new("down", t!("sidebar.recent.moveDown")).enabled(at + 1 < count));
+    }
+    menu = menu.separator();
+    if let Some(crate::session_menu::Line::Sub { id: sub_id, title, menu: sub }) = copy_sub {
+        menu = menu.submenu(sub_id, title, sub);
+    }
+    menu = menu
+        .item(Item::new("export", format!("{}\u{2026}", t!("common.export"))).enabled(!s.exporting(server, id)))
         .separator()
-        .item(Item::new("rename", t!("common.rename")))
         .item(Item::new("archive", t!("common.archive")))
-        .separator()
         .item(Item::new("delete", format!("{}\u{2026}", t!("common.delete"))).danger(true));
     s.finish_rename(true);
     s.kernel.slots.get_mut(&crate::session_menu::MENUS).on = Some(target.clone());

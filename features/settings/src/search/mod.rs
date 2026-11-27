@@ -245,6 +245,14 @@ pub fn index(s: &dyn SettingsHost) -> Vec<Entry> {
                 None,
                 "top side tabs position vertical horizontal",
             );
+            add(
+                Page::General,
+                "settings-tab-grouping",
+                key!("settings.general.row.tabGrouping.title"),
+                None,
+                None,
+                "group tabs project server none",
+            );
         }
     }
     if cfg!(target_os = "macos") {
@@ -370,10 +378,12 @@ const ROWS: &[Row] = &[
     (Page::General, "settings-wrap-code-blocks", key!("settings.timeline.row.wrapCodeBlocks.title"), TIMELINE, Some(key!("settings.timeline.row.wrapCodeBlocks.description")), "code wrap lines horizontal scroll"),
     (Page::General, "settings-show-custom-agents", key!("settings.general.row.showCustomAgents.title"), Some(key!("settings.general.section.general")), None, ""),
     (Page::General, "settings-follow-up-behavior", key!("settings.general.row.followUpBehavior.title"), None, None, "queue steer follow up"),
+    (Page::General, "settings-question-submit-key", key!("settings.general.row.questionSubmitKey.title"), None, None, "question answer enter shift submit send keyboard newline multiline custom"),
     (Page::General, "settings-pinch-zoom", key!("settings.general.row.pinchZoom.title"), None, None, ""),
     (Page::General, "settings-spellcheck", key!("settings.general.row.spellcheck.title"), None, None, "spelling spell check dictionary"),
     (Page::General, "settings-mobile-diff-wrap", key!("plugin.review.settings.wrapLines.title"), None, None, "diff wrap lines"),
     (Page::Experimental, "settings-tab-groups", key!("settings.experimental.row.tabGroups.title"), None, Some(key!("settings.experimental.row.tabGroups.description")), "tab groups server project colors drag organize search sessions"),
+    (Page::Experimental, "settings-sidebar-sections", key!("rune.settings.experimental.row.sidebarSections.title"), None, Some(key!("rune.settings.experimental.row.sidebarSections.description")), "sections select multiple batch group headers collapse side tabs"),
     (Page::Experimental, "settings-new-question-ui", key!("settings.experimental.row.newQuestionUI.title"), None, Some(key!("settings.experimental.row.newQuestionUI.description")), "question answers keyboard dock redesign"),
     (Page::Experimental, "settings-smooth-timeline", key!("rune.settings.experimental.row.smoothTimeline.title"), None, Some(key!("rune.settings.experimental.row.smoothTimeline.description")), "motion animation pending working queue steer tray delivery"),
     (Page::Experimental, "settings-sidebar-organize", key!("settings.experimental.row.sidebarOrganize.title"), None, Some(key!("settings.experimental.row.sidebarOrganize.description")), "vertical side tabs projects recents organize sidebar"),

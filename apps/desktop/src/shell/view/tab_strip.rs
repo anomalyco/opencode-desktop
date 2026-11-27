@@ -3,7 +3,7 @@
 //! over one tab store, so a tab is the same element in either place and flies between them
 //! when the layout changes (`El::matched`, `shell-tab-{id}`).
 
-use rune_kit::shell::{TabItem, TabItemStatus, TabOrientation, TabSlot, TabStrip, TearOutSpec};
+use rune_kit::shell::{TabBreak, TabItem, TabItemStatus, TabOrientation, TabSlot, TabStrip, TearOutSpec};
 
 use super::*;
 use crate::session_menu::{Spot, Target};
@@ -20,11 +20,23 @@ pub(crate) static DRAFT_PENCIL: Icon = Icon {
     body: r#"<path d="M9.00002 13.5H14M2.60419 10.9167V13.3958H5.08335L13.3959 5.08333L10.9167 2.60416L2.60419 10.9167Z" stroke="currentColor"/>"#,
 };
 
+/// What Consolidated's Group tabs adds to a strip (`TabStripSection`, `tab-strip.tsx:642-658`):
+/// what stands between its tabs, and which of them a header names.
+#[derive(Default)]
+pub(crate) struct Sections {
+    /// A group's header down the sidebar, a divider between two groups: each before a tab, by
+    /// its place in the strip. A drag stays between two of them (`tab-strip.tsx:1205-1206`).
+    pub breaks: Vec<TabBreak>,
+    /// For each tab of the strip, whether its group's header names its project, so the tab
+    /// leaves out its avatar (`hideAvatars`).
+    pub bare: Vec<bool>,
+}
+
 /// The strip keyed `key`, running `orientation`. A horizontal one shares `viewport` points
 /// (its width at the last layout) and keeps `trailing` (the `+` button) after its last tab.
 pub(crate) fn tab_strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Option<f32>, trailing: Option<El>) -> El {
     let all: Vec<usize> = (0..s.tabs.len()).collect();
-    tab_strip_filtered(s, p, key, orientation, viewport, trailing, &all)
+    tab_strip_filtered(s, p, key, orientation, viewport, trailing, &all, Sections::default())
 }
 
 /// [`tab_strip`] over a subset of tab indices (e.g. unpinned top tabs under Consolidated), keeping
@@ -37,8 +49,9 @@ pub(crate) fn tab_strip_filtered(
     viewport: Option<f32>,
     trailing: Option<El>,
     indices: &[usize],
+    sections: Sections,
 ) -> El {
-    strip(s, p, key, orientation, viewport, trailing, indices, false).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
+    strip(s, p, key, orientation, viewport, trailing, indices, false, sections).on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| {
         tx.live_only();
         s.strip_laid_out(r);
     })
@@ -48,11 +61,18 @@ pub(crate) fn tab_strip_filtered(
 /// draw theirs (`verticalTabStrip(…, grouped)`, `sidebar-customized.tsx`). A drag reorders them
 /// among themselves; `hide_avatars` drops their project avatars under a project's header.
 pub(crate) fn section_strip(s: &App, p: &Pal, key: &str, indices: &[usize], hide_avatars: bool) -> El {
-    strip(s, p, key, TabOrientation::Vertical, None, None, indices, hide_avatars)
+    strip(s, p, key, TabOrientation::Vertical, None, None, indices, hide_avatars, Sections::default())
+}
+
+/// The side strip of Consolidated's tabs under Group tabs
+/// (`shell/titlebar/auto-tab-sections.tsx:197-204`, anomalyco/opencode#66350): every group's
+/// shown tabs in one list, each group's header before its first tab (`tab-strip.tsx:1052-1073`).
+pub(crate) fn grouped_strip(s: &App, p: &Pal, key: &str, indices: &[usize], sections: Sections) -> El {
+    strip(s, p, key, TabOrientation::Vertical, None, None, indices, false, sections)
 }
 
 #[allow(clippy::too_many_arguments)]
-fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Option<f32>, trailing: Option<El>, indices: &[usize], hide_avatars: bool) -> El {
+fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Option<f32>, trailing: Option<El>, indices: &[usize], hide_avatars: bool, sections: Sections) -> El {
     // Every server's tabs mix in one strip, each named by its `Tab::uid`.
     let current = if s.settings_open() { None } else { s.current_tab() };
     let vertical = orientation == TabOrientation::Vertical;
@@ -79,10 +99,11 @@ fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Opt
         .map(|uid| nav_order.iter().position(|u| u == uid).filter(|&i| i < 9).map(|i| i + 1))
         .collect();
     let order: Vec<usize> = indices.to_vec();
+    let bare = sections.bare;
     let mut strip = TabStrip::new(key, orientation)
         .words(tab_words())
         .lazy_tabs(slots, move |index| {
-            item(s, p, built_tabs[index], built_uids[index].clone(), index, nav_ids.clone(), hide_avatars, shortcuts[index], show_hints)
+            item(s, p, built_tabs[index], built_uids[index].clone(), index, nav_ids.clone(), hide_avatars || bare.get(index).copied().unwrap_or(false), shortcuts[index], show_hints)
         })
         .active(current.as_deref())
         .viewport_width(viewport)
@@ -93,6 +114,7 @@ fn strip(s: &App, p: &Pal, key: &str, orientation: TabOrientation, viewport: Opt
         .busy_indicator(|k| session_view::style::tab_busy_glyph(k, 14.0))
         .matched_prefix(Some(MATCHED))
         .label(if vertical { opencode_i18n::t!("settings.general.row.interfaceMode.side") } else { opencode_i18n::t!("titlebar.tabs") })
+        .breaks(sections.breaks)
         .drag_state(&s.gestures.tab_drag, |s: &mut App| &mut s.gestures.tab_drag)
         // A mouse selects a tab as its button goes down, top or side, as Desktop's do
         // (`tab-nav.tsx`'s `onMouseDown`); a finger only on a tap, so a long press opens the

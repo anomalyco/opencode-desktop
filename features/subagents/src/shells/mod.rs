@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::time::Duration;
 
 use opencode_kit::client::{JobEndpoint, Server};
-use opencode_kit::model::{Assistant, JobInfo, JobListQuery, JobTracker, Message, Part, ToolStatus};
+use opencode_kit::model::{Assistant, JobInfo, JobKind, JobListQuery, JobTracker, Message, Part, ToolStatus};
 use rune::Tx;
 use serde_json::Value;
 
@@ -29,6 +29,9 @@ use crate::{SubagentsHost, running_subagents};
 pub struct Shell {
     pub id: String,
     pub session: String,
+    /// The call in the transcript that started it (`metadata.callID`): for a script's shell, the
+    /// script's `execute` call. Empty from a server that names none.
+    pub call: String,
     pub command: String,
     /// When it started, epoch ms.
     pub started: i64,
@@ -144,19 +147,33 @@ pub fn running_for<'a>(host: &'a dyn SubagentsHost, id: &str) -> Vec<&'a Shell> 
     let reply = host.transcript(id).and_then(|t| t.open_reply());
     let running = || {
         reply.into_iter().flat_map(|a| a.parts.iter()).filter_map(|p| match p {
-            Part::Tool { name, status: ToolStatus::Running, input, metadata, .. } => Some((name.as_str(), input, metadata)),
+            Part::Tool { id, name, status: ToolStatus::Running, input, metadata, .. } => Some((id.as_str(), name.as_str(), input, metadata)),
             _ => None,
         })
     };
     let held: Vec<(Option<&str>, &str)> = running()
-        .filter(|(name, ..)| *name == "shell")
-        .map(|(_, input, metadata)| (metadata["shellID"].as_str(), input["command"].as_str().unwrap_or("")))
+        .filter(|(_, name, ..)| *name == "shell")
+        .map(|(_, _, input, metadata)| (metadata["shellID"].as_str(), input["command"].as_str().unwrap_or("")))
         .collect();
-    let scripts: Vec<(i64, Vec<&str>)> = running()
-        .filter(|(name, ..)| *name == "execute")
-        .map(|(_, _, metadata)| (opencode_kit::model::tool_ran(metadata).unwrap_or(0), jobs::script_shell_commands(metadata)))
+    let scripts: Vec<(&str, i64, Vec<&str>)> = running()
+        .filter(|(_, name, ..)| *name == "execute")
+        .map(|(call, _, _, metadata)| (call, opencode_kit::model::tool_ran(metadata).unwrap_or(0), jobs::script_shell_commands(metadata)))
         .collect();
-    let by_script = |sh: &Shell| scripts.iter().any(|(started, commands)| sh.started >= *started && commands.contains(&sh.command.as_str()));
+    // A shell whose call ended while it runs has a running job (`background.ts:196-199`,
+    // anomalyco/opencode#66402): the script no longer holds it.
+    let moved: HashSet<&str> = jobs::running(host)
+        .filter_map(|j| match &j.kind {
+            JobKind::Shell { shell_id, .. } => Some(shell_id.as_str()),
+            _ => None,
+        })
+        .collect();
+    // A script's shell names its `execute` call. A server that names none is matched by the
+    // calls the script lists (`background.ts:208-210`).
+    let by_script = |sh: &Shell| {
+        scripts.iter().any(|(call, started, commands)| {
+            (!sh.call.is_empty() && sh.call == *call && !moved.contains(sh.id.as_str())) || (sh.started >= *started && commands.contains(&sh.command.as_str()))
+        })
+    };
     let mut out: Vec<&Shell> = host
         .shells()
         .running
@@ -556,6 +573,7 @@ fn parse(info: &Value, directory: &str) -> Option<Shell> {
     Some(Shell {
         id: info["id"].as_str()?.to_owned(),
         session: info["metadata"]["sessionID"].as_str().unwrap_or("").to_owned(),
+        call: info["metadata"]["callID"].as_str().unwrap_or("").to_owned(),
         command: info["command"].as_str().unwrap_or("").to_owned(),
         started: info["time"]["started"].as_i64().unwrap_or(0),
         directory: directory.to_owned(),

@@ -206,6 +206,10 @@ impl App {
     /// page.
     pub fn select_tab(&mut self, key: &str, tx: &mut Tx) {
         let Some(tab) = self.tab(key).cloned() else { return self.open(key, tx) };
+        let changing = self.current_tab().as_deref() != Some(tab.uid().as_str());
+        if changing && (tab.is_draft() || tab.server != *crate::servers::runtime::active(self)) {
+            crate::shell::memory_reclaim::on_tab_switched(self);
+        }
         // The window works against the tab's server from here on (`servers::runtime`).
         crate::servers::runtime::switch(self, &tab.server);
         if !tab.is_draft() {
@@ -261,7 +265,7 @@ impl App {
         let shown = self.current_tab().as_deref() == Some(uid.as_str());
         let next_visible = if shown { crate::tabs::groups::next_visible_after_closing(self, &uid) } else { None };
         let tab = self.tabs.remove(i);
-        let (id, server) = (tab.id.clone(), tab.server.clone());
+        let (id, server, closed_session) = (tab.id.clone(), tab.server.clone(), tab.kind == TabKind::Session);
         match tab.kind {
             TabKind::Session => {
                 // Its history goes where its server's sessions are known: the window's own fields
@@ -307,6 +311,9 @@ impl App {
                 }
             }
         }
+        if closed_session {
+            crate::shell::memory_reclaim::on_tab_closed(self, &server, &id, shown);
+        }
         self.save_tabs();
     }
 
@@ -331,6 +338,15 @@ impl App {
         self.tabs.insert(at, entry.tab);
         // A draft comes back with what it held (its words and the rest stayed parked).
         if draft { self.select_tab(&uid, tx) } else { self.open(&id, tx) }
+        self.save_tabs();
+    }
+
+    /// Puts closed tab `target` back at its old index without showing it: the page stays where
+    /// it is.
+    pub(crate) fn put_back_closed(&mut self, target: &str) {
+        let Some(entry) = self.gestures.closed.take(&self.tabs, Some(target)) else { return };
+        let at = entry.index.min(self.tabs.len());
+        self.tabs.insert(at, entry.tab);
         self.save_tabs();
     }
 
@@ -384,8 +400,13 @@ impl App {
                     }
                 }
             } else {
-                for tab in self.tabs.iter().filter(|t| !crate::tabs::pins::holds(self, t)) {
-                    let uid = tab.uid();
+                // Under Settings › Group tabs, the groups' shown tabs in the groups' order: a
+                // collapsed group's hidden tabs take no key (`tab-strip.tsx:715-719`, `:916-917`).
+                let shown: Vec<usize> = match crate::tabs::auto_groups::groups(self) {
+                    Some(groups) => groups.iter().flat_map(|g| g.tabs.iter().copied()).collect(),
+                    None => (0..self.tabs.len()).filter(|&i| !crate::tabs::pins::holds(self, &self.tabs[i])).collect(),
+                };
+                for uid in shown.into_iter().map(|i| self.tabs[i].uid()) {
                     if !order.contains(&uid) {
                         order.push(uid);
                     }
@@ -394,6 +415,9 @@ impl App {
             return order;
         }
         if let Some(order) = crate::tabs::groups::visible_uids(self) {
+            return order;
+        }
+        if let Some(order) = crate::tabs::sections::visible_uids(self) {
             return order;
         }
         self.tabs.iter().map(Tab::uid).collect()

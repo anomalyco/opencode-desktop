@@ -18,6 +18,8 @@
 #                                 from a branch with "thin-build" in its name builds release-thin)
 #   OPENCODE_RUNE_SYMBOLS        (folder for opencode-desktop.dSYM.zip; default: $RUNNER_TEMP/macos, else OUT)
 #   OPENCODE_RUNE_KEEP_SYMBOLS   (1 ships the exe with its symbol names and writes no dSYM)
+#   OPENCODE_RUNE_BUNDLE_CLI     (0 skips bundling Contents/Resources/opencode-cli + opencode-cli.version from npm;
+#                                 default 1, matching official Desktop)
 #   OPENCODE_RUNE_OFFICE_LIBRARY (1 ships the office viewer's engines as Contents/Frameworks/libopencode_office.dylib,
 #                                 loaded at the first office file, instead of in the exe; so does a pull request
 #                                 from a branch with "office-library" in its name. 0 until the release's signing
@@ -279,6 +281,11 @@ if [ "$LAYERS" = 1 ]; then
   echo "code libraries: ${#libraries[@]} beside an exe of $(stat -f %z "$APP/Contents/MacOS/opencode-desktop") bytes" >&2
 fi
 cp "$ICON_PATH" "$APP/Contents/Resources/icon.icns"
+if [ "${OPENCODE_RUNE_BUNDLE_CLI:-1}" != "0" ]; then
+  cli_target=$([ "$target_triple" = "x86_64-apple-darwin" ] && echo darwin-x64 || echo darwin-arm64)
+  bash "$ROOT/scripts/guardrails/run-js.sh" "$ROOT/scripts/fetch-cli.mjs" \
+    --target "$cli_target" --dest "$APP/Contents/Resources" --channel "$OPENCODE_RUNE_BUILD_CHANNEL"
+fi
 cp -R "$ROOT/apps/desktop/assets/fonts" "$ROOT/apps/desktop/assets/sounds" "$APP/Contents/Resources/"
 # Every language but English: the i18n crate's build wrote them beside the exe (crates/opencode-i18n/build.rs).
 rm -rf "$APP/Contents/Resources/i18n"

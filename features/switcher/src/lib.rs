@@ -60,6 +60,8 @@ pub const RESTORE_TIMEOUT: f64 = 15.0;
 pub enum SwitcherMode {
     #[default]
     All,
+    /// Search sessions (`DialogSessionSearch`): every server's sessions, and once something is
+    /// typed its archived ones too, dimmed (`shell/commands/session-search.tsx:28-42`).
     Sessions,
     /// Search commands: commands only.
     Commands,

@@ -15,6 +15,8 @@ impl App {
         let mut changed = !self.workspace_panes.browser.host.quiet() && self.workspace_panes.browser.host.poll();
         changed |= self.pump_preview_fetches();
         changed |= self.pump_cookie_import();
+        // Another browser's icon or the browsers' list, read off this thread, is in.
+        changed |= self.workspace_panes.browser.app_icons.take_landed();
         let fallback_sources = self.workspace_panes.browser.host.drain_unsupported_local_previews();
         for (tab_id, doc) in fallback_sources {
             // Non-agent local HTML clicks on an older engine (`!Ready.preview`) open in the

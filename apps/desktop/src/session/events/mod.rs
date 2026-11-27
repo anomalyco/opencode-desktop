@@ -341,6 +341,19 @@ impl App {
             session.title = title.to_owned();
             done.renamed = true;
         }
+        // The session runs in another folder now, and maybe another project (`session.moved` in
+        // `packages/client/src/solid/data.ts`): its header, its panels and its location card follow.
+        if ty == "session.moved" && let Some(directory) = data["location"]["directory"].as_str()
+            && let Some(session) = self.sessions.iter_mut().find(|s| s.id == sid) {
+            if session.directory != directory {
+                session.directory = directory.to_owned();
+                done.info = true;
+            }
+            if let Some(project) = data["projectID"].as_str().filter(|p| !p.is_empty() && *p != session.project) {
+                session.project = project.to_owned();
+                done.info = true;
+            }
+        }
         // A desktop attached to the session's browser, or the last one let it go (`data.ts`).
         if ty == "session.permissions"
             && let Some(session) = self.sessions.iter_mut().find(|s| s.id == sid) {
@@ -372,6 +385,7 @@ impl App {
                     self.fetch_info(&missing);
                 }
                 self.stops.forget(sid);
+                crate::rewind::take_back::forget(self, sid);
                 // The run's start, as the server stamps `time.busy`: the inbox's Working age.
                 if let Some(s) = self.sessions.iter_mut().find(|s| s.id == sid) {
                     s.busy = Some(data["eventCreated"].as_i64().unwrap_or(*self.now_ms));
@@ -382,6 +396,7 @@ impl App {
                 self.stops.active_sync.note_execution(sid, false);
                 let was = self.running.remove(sid);
                 crate::stop::confirmed(self, sid);
+                crate::rewind::take_back::run_ended(self, sid);
                 if ty == "session.execution.interrupted" && data["reason"] == "shutdown" {
                     return was;
                 }
@@ -486,6 +501,8 @@ impl App {
             self.selected_landed(&sid, selected);
         }
         changed |= done.info;
+        // What the tab saved of its session (its folder) follows the move.
+        if ty == "session.moved" && done.info { self.note_tab_titles(); }
         if matches!(ty, "session.archived" | "session.unarchived") { self.session_search.invalidate(); }
         if ty == "session.text.delta" && self.shows_transcript(&sid) {
             crate::telemetry::streamed(&self.window.id, &sid, data);

@@ -243,6 +243,17 @@ impl Platform for Windows {
         self.hand_off(true)
     }
 
+    /// Opt-in install-on-quit (`packages/gui-plugins/src/updater/platform.ts`, `opencode#66501`).
+    fn installs_on_quit(&self) -> bool {
+        self.owned && super::install_on_quit_enabled()
+    }
+
+    fn install_on_quit(&self) {
+        if let Err(e) = self.hand_off(false) {
+            log(&format!("updater: couldn't install on quit: {e}"));
+        }
+    }
+
     fn take_last_error(&self) -> Option<String> {
         let installed = receipt::at(&self.root).map(|r| r.version);
         receipt::take_apply_failure(&self.engine.facts.updates, &self.version, installed.as_deref())
@@ -301,16 +312,22 @@ impl Windows {
     /// Starts the staged version's executable as the helper, which swaps the folders once this
     /// process exits.
     fn hand_off(&self, relaunch: bool) -> Result<(), String> {
+        // The marks time each step between the click and a started helper, the wait a person
+        // has before the app even starts to quit (310-665 ms in nine real updates of 25 Nov,
+        // no step named): `--launch-trace` writes them with the process's other marks.
+        rune::marks::mark("update.handoff.start");
         let staged = self.staged.lock().ok().and_then(|s| s.as_ref().map(|s| (s.version.clone(), s.sha256.clone(), s.dir.clone()))).ok_or_else(|| "No staged update ready to install.".to_owned())?;
         let (version, sha256, dir) = staged;
         if receipt::at(&self.root).is_some_and(|r| r.version == version && r.sha256 == sha256) {
             return Ok(());
         }
         self.verify_quick(&dir)?;
+        rune::marks::mark("update.handoff.verified");
         // The swap replaces the whole folder, so the setup's receipt goes into the next version.
         if self.root.join(win_install::RECEIPT).is_file() {
             std::fs::copy(self.root.join(win_install::RECEIPT), dir.join(win_install::RECEIPT)).map_err(|e| format!("could not carry the install receipt: {e}"))?;
         }
+        rune::marks::mark("update.handoff.receipt");
         let updates = &self.engine.facts.updates;
         let helper = updates.join(format!("opencode-update-helper-{}.exe", std::process::id()));
         // A hard link to the staged executable, not a copy of it: the helper is then the new
@@ -325,6 +342,7 @@ impl Windows {
         std::fs::hard_link(dir.join(EXE), &helper)
             .or_else(|_| std::fs::copy(dir.join(EXE), &helper).map(drop))
             .map_err(|e| format!("could not prepare the update: {e}"))?;
+        rune::marks::mark("update.handoff.linked");
         let mut cmd = Command::new(&helper);
         cmd.arg("--apply-update")
             .arg("--wait")
@@ -351,6 +369,7 @@ impl Windows {
         // Out of any job the app runs in, so the helper outlives it.
         let flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW;
         let child = cmd.creation_flags(flags | CREATE_BREAKAWAY_FROM_JOB).spawn().or_else(|_| cmd.creation_flags(flags).spawn()).map_err(|e| format!("could not start the update: {e}"))?;
+        rune::marks::mark("update.handoff.spawned");
         log(&format!("updater: helper {} (pid {}) installs {version} after this process exits{}", helper.display(), child.id(), if relaunch { ", then restarts" } else { "" }));
         Ok(())
     }

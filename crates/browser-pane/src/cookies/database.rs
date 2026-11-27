@@ -42,8 +42,38 @@ fn live_remove(dir: &Path) {
     }
 }
 
-/// Another process's copy is swept only once it is this old (its process may still be reading it).
+/// A copy whose maker left no claim (a build from before the claim) is swept only once it is this
+/// old: its process may still be reading it.
 const FOREIGN_SNAPSHOT_AGE: Duration = Duration::from_secs(600);
+
+/// This process's claim on its copies: an OS lock on `opencode-browser-import-<pid>.lock` in the
+/// scratch directory, taken before its first copy and held until the process ends, however it
+/// ends (the system closes the handle). A sweep that can take another process's lock knows that
+/// process is gone, and removes what it left at once.
+static CLAIM: Mutex<Option<File>> = Mutex::new(None);
+
+fn claim_path(scratch: &Path, pid: &str) -> PathBuf {
+    scratch.join(format!("{PREFIX}{pid}.lock"))
+}
+
+fn claim(scratch: &SnapshotScratch) {
+    let Ok(mut held) = CLAIM.lock() else { return };
+    if held.is_some() {
+        return;
+    }
+    let path = claim_path(&scratch.directory, &std::process::id().to_string());
+    if let Ok(file) = OpenOptions::new().read(true).write(true).create(true).truncate(false).open(path)
+        && file.try_lock().is_ok()
+    {
+        *held = Some(file);
+    }
+}
+
+/// Whether the process `pid` that named a copy has ended: its claim is there and nobody holds it.
+/// A copy with no claim file says nothing (`FOREIGN_SNAPSHOT_AGE` decides).
+fn maker_gone(scratch: &Path, pid: &str) -> bool {
+    OpenOptions::new().read(true).write(true).open(claim_path(scratch, pid)).is_ok_and(|file| file.try_lock().is_ok())
+}
 
 impl SnapshotScratch {
     pub fn new(directory: PathBuf) -> Self {
@@ -149,6 +179,7 @@ where
     F: FnOnce(&Connection) -> Result<T, rusqlite::Error>,
 {
     create_private_dir(&scratch.directory).map_err(|e| io_failure(&e))?;
+    claim(scratch);
     sweep_snapshots(scratch);
 
     let seq = NEXT_SNAP_ID.fetch_add(1, Ordering::Relaxed);
@@ -190,6 +221,7 @@ pub fn snapshot_directory<T>(
     read: impl FnOnce(&Path) -> Result<T, ImportFailure>,
 ) -> Result<T, ImportFailure> {
     create_private_dir(&scratch.directory).map_err(|e| io_failure(&e))?;
+    claim(scratch);
     sweep_snapshots(scratch);
     let seq = NEXT_SNAP_ID.fetch_add(1, Ordering::Relaxed);
     let dir = scratch.directory.join(format!("{PREFIX}{}-{seq}", std::process::id()));
@@ -235,24 +267,43 @@ fn listing(directory: &Path) -> Result<Vec<(std::ffi::OsString, u64)>, ImportFai
     Ok(files)
 }
 
-/// Sweeps any stale non-symlink snapshot directories left behind by a crashed process.
+/// Sweeps the non-symlink copies no read uses, left behind by a process that ended during a read
+/// (`profile/database.ts:62-86` `sweepSnapshots`): this process's own, those of a process whose
+/// claim is free, and those with no claim once they are old. Then the claims of processes that
+/// are gone. It touches nothing but entries of the copies' own name in `scratch`. The app runs it
+/// once after its launch too, as Desktop does at its start (`profile/index.ts:102`).
 pub fn sweep_snapshots(scratch: &SnapshotScratch) {
     let Ok(entries) = fs::read_dir(&scratch.directory) else {
         return;
     };
     let live: HashSet<PathBuf> = LIVE.lock().ok().and_then(|g| g.clone()).unwrap_or_default();
-    let ours = format!("{PREFIX}{}-", std::process::id());
+    let pid = std::process::id().to_string();
+    let ours = format!("{PREFIX}{pid}-");
+    let mut claims: Vec<(PathBuf, String)> = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
         let Some(name) = entry.file_name().to_str().map(str::to_owned) else { continue };
+        let Some(rest) = name.strip_prefix(PREFIX) else { continue };
         let meta = fs::symlink_metadata(&path);
+        if meta.as_ref().is_ok_and(|m| !m.file_type().is_symlink() && m.is_file()) {
+            if let Some(maker) = rest.strip_suffix(".lock").filter(|maker| *maker != pid) {
+                claims.push((path, maker.to_owned()));
+            }
+            continue;
+        }
         let real_dir = meta.as_ref().is_ok_and(|m| !m.file_type().is_symlink() && m.is_dir());
-        if !name.starts_with(PREFIX) || !real_dir || live.contains(&path) {
+        if !real_dir || live.contains(&path) {
             continue;
         }
         let old = meta.ok().and_then(|m| m.modified().ok()).and_then(|t| t.elapsed().ok()).is_some_and(|age| age >= FOREIGN_SNAPSHOT_AGE);
-        if name.starts_with(&ours) || old {
+        let maker = rest.split('-').next().unwrap_or_default();
+        if name.starts_with(&ours) || old || maker_gone(&scratch.directory, maker) {
             remove_dir_retry(&path);
+        }
+    }
+    for (path, maker) in claims {
+        if maker_gone(&scratch.directory, &maker) {
+            fs::remove_file(path).ok();
         }
     }
 }

@@ -308,7 +308,7 @@ pub fn check_code_paths(host: &mut dyn FilesHost, sid: &str, path: &str) {
         for code in todo {
             let target = match classify(&code, &base, &dir, &home) {
                 Link::Inside { path, .. } => Some(path),
-                Link::Web(_) | Link::Heading(_) | Link::Outside { .. } => None,
+                Link::Web(_) | Link::Heading(_) | Link::Outside { .. } | Link::Skill { .. } => None,
             };
             let known_exists = target.as_ref().is_some_and(|t| ws.known_files.contains(t));
             let checks = ws.code_paths.entry(path.to_owned()).or_default();

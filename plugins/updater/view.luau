@@ -7,14 +7,25 @@ local whatsnew = require("./whatsnew")
 
 local view = {}
 
--- Preferences > Updates: the Release notes switch and Check for updates with the one action
--- the state offers.
+-- Preferences > Updates: Release notes, desktop opt-in Install updates on quit (opencode#66501),
+-- and Check for updates with the one action the state offers.
 function view.section(
     i18n: I18n,
     v: View,
-    input: { releaseNotes: boolean, label: string, description: string?, enabled: boolean, toggle: (on: boolean) -> (), run: () -> () }
+    input: {
+        releaseNotes: boolean,
+        showInstallOnQuit: boolean,
+        installOnQuit: boolean,
+        installOnQuitDisabled: boolean,
+        label: string,
+        description: string?,
+        enabled: boolean,
+        toggle: (on: boolean) -> (),
+        toggleInstallOnQuit: (on: boolean) -> (),
+        run: () -> (),
+    }
 ): UiNode
-    return ui.settingsList({ key = "settings-updates", title = i18n:T("section.title") }, {
+    local rows: { UiNode } = {
         ui.settingsRow(
             { id = "settings-release-notes", title = i18n:T("releaseNotes.title"), description = i18n:T("releaseNotes.description") },
             ui.switch({
@@ -26,6 +37,26 @@ function view.section(
                 end),
             })
         ),
+    }
+    if input.showInstallOnQuit then
+        table.insert(
+            rows,
+            ui.settingsRow(
+                { id = "settings-install-on-quit", title = i18n:T("installOnQuit.title"), description = i18n:T("installOnQuit.description") },
+                ui.switch({
+                    key = "install-on-quit-switch",
+                    label = i18n:T("installOnQuit.title"),
+                    disabled = input.installOnQuitDisabled,
+                    checked = if input.installOnQuitDisabled then false else input.installOnQuit,
+                    onChange = v:Handler(function(event)
+                        input.toggleInstallOnQuit((event :: any).checked == true)
+                    end),
+                })
+            )
+        )
+    end
+    table.insert(
+        rows,
         ui.settingsRow(
             { id = "settings-check-updates", title = i18n:T("check.title"), description = i18n:T(input.description or "check.description") },
             ui.button({
@@ -34,8 +65,9 @@ function view.section(
                 disabled = not input.enabled,
                 onPress = v:Handler(input.run),
             })
-        ),
-    })
+        )
+    )
+    return ui.settingsList({ key = "settings-updates", title = i18n:T("section.title") }, rows)
 end
 
 -- The release highlights after an update: one at a time, Next until the

@@ -48,7 +48,8 @@ pub(super) fn session_body(s: &App, p: &Pal, id: &str, page: El, with_header: bo
             let child = s.session(id).is_some_and(|i| i.parent.is_some());
             // Pills sit outside `"timeline-area"` so job updates and activity ticks never dirty
             // the timeline region while `has_pills` stays the same (`ours.md` §3.2).
-            let pill_list = if child { Vec::new() } else { pills(s, p, id) };
+            // Nor does a session whose folder is gone (`region.tsx`: `above` hides while `missing()`).
+            let pill_list = if child || crate::location_missing::replaces_composer(s) { Vec::new() } else { pills(s, p, id) };
             let has_pills = !pill_list.is_empty();
             // A long transcript's projection fills in above its newest rows on the frame after its first.
             let inputs = (
@@ -159,7 +160,7 @@ pub(crate) fn story_header(s: &App, p: &Pal) -> El {
 
 pub(crate) fn story_composer(s: &App, p: &Pal) -> El {
     let Route::Session { id, .. } = &*s.route else { return composer_dock(s, p) };
-    let pills = pills(s, p, id);
+    let pills = if s.session(id).is_some_and(|i| i.parent.is_some()) { Vec::new() } else { pills(s, p, id) };
     col().key("session")
         .w_full()
         .children((!pills.is_empty()).then(|| col().key("activity").w_full().center().px(DOCK_SIDE).pb(8.0)
