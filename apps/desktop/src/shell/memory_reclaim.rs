@@ -129,11 +129,11 @@ pub(crate) fn on_tab_closed(s: &mut App, server: &ServerKey, id: &str, was_shown
             .cloned()
             .collect();
         for sid in std::iter::once(id.clone()).chain(subagents) {
-            s.pages.forget(&sid);
             if !other_unreported {
+                s.pages.forget(&sid);
                 s.transcripts.remove(&sid);
+                s.context_windows.forget(active_server.as_str(), &sid);
             }
-            s.context_windows.forget(active_server.as_str(), &sid);
             dropped_ids.push(sid);
         }
         if !was_shown {
@@ -284,7 +284,12 @@ fn sweep_current_server(s: &mut App, other_unreported: bool, full_rest: bool, is
         .collect();
     let removed = !gone.is_empty();
     if full_rest || removed {
-        let keep_id = |id: &str| kept_ids.contains(id);
+        let keep_pages: HashSet<String> = kept_ids
+            .iter()
+            .cloned()
+            .chain(s.transcripts.keys().filter(|id| other_unreported || kept(id)).cloned())
+            .collect();
+        let keep_id = |id: &str| keep_pages.contains(id);
         s.pages.rest(&keep_id);
         s.context_windows.retain(active_server.as_str(), &keep_id);
     }
