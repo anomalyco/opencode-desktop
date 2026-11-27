@@ -7,7 +7,7 @@ use opencode_ui::popover::{self, MENU, Opt};
 use opencode_ui::style::{UI, UI_SMALL};
 
 use crate::host::PanelsHost;
-use crate::state::{NewTabFocus, ResolvedRegion, SideMenu, close_side_tab, reopen_closed_side_tab, resolve_side_region};
+use crate::state::{NewTabFocus, ResolvedRegion, SideMenu, close_side_tab, release_strip_width_holds, reopen_closed_side_tab, resolve_side_region};
 use crate::tabs::{ClosedSideTab, split_panel_key};
 use crate::{Launch, PanelLauncherDesc, SessionPane};
 
@@ -396,12 +396,14 @@ fn on_tab_menu_copy_url(host: &mut dyn PanelsHost, url: Option<&str>, tx: &mut T
 }
 
 fn on_tab_menu_close(host: &mut dyn PanelsHost, key: &str, tx: &mut Tx) {
+    release_strip_width_holds(host);
     host.side_mut().menu = SideMenu::Closed;
     close_side_tab(host, key, tx);
 }
 
 fn on_tab_menu_close_list(host: &mut dyn PanelsHost, keys: &[String], tx: &mut Tx) {
     tx.instant();
+    release_strip_width_holds(host);
     host.side_mut().menu = SideMenu::Closed;
     for k in keys {
         close_side_tab(host, k, tx);

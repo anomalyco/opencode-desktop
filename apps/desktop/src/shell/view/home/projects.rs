@@ -14,6 +14,7 @@ use opencode_i18n::t;
 fn add_project(s: &mut App, tx: &mut Tx) {
     let key = crate::servers::runtime::active(s).clone();
     super::servers::choose_project(s, &key, tx);
+    super::picked(s, tx);
 }
 
 /// `HomeProjectsPanel`. Wide: 280 pt, 56 down and sticking there (`lg:sticky lg:top-14 lg:mt-14`),
