@@ -256,6 +256,11 @@ impl crate::BrowserHost {
         self.copied_images.drain(..)
     }
 
+    /// Host-bridged text copy/cut results from the engine, for the app's clipboard (#1308).
+    pub fn drain_copied_texts(&mut self) -> impl Iterator<Item = String> + '_ {
+        self.copied_texts.drain(..)
+    }
+
     /// Tabs whose first navigation became the person's download and has its place.
     pub fn drain_download_only_tabs(&mut self) -> impl Iterator<Item = u64> + '_ {
         self.download_only_tabs.drain(..)
@@ -509,6 +514,13 @@ impl crate::BrowserHost {
                 // Only for a tab this app opened; at most a few waiting (each is one person's click).
                 if self.tabs.iter().any(|t| t.id == tab_id) && self.copied_images.len() < 4 {
                     self.copied_images.push_back(png_b64);
+                }
+                true
+            }
+            EngineMsg::CopiedText { tab_id, text } => {
+                let known = self.tabs.iter().any(|t| t.id == tab_id) || self.popup_tab_id() == Some(tab_id);
+                if known && !text.is_empty() && self.copied_texts.len() < 8 {
+                    self.copied_texts.push_back(text);
                 }
                 true
             }

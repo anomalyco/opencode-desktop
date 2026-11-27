@@ -972,6 +972,8 @@ impl EngineManager {
             | M::Wheel { .. }
             | M::Key { .. }
             | M::EditCmd { .. }
+            | M::CopySelection { .. }
+            | M::PasteText { .. }
             | M::Ime { .. }
             | M::FrameRead { .. }
             | M::AnswerDialog { .. }

@@ -317,6 +317,18 @@ pub enum HostMsg {
         tab_id: u64,
         cmd: String,
     },
+    /// Reads the focused frame's selected text (and deletes it when `cut` and editable) without
+    /// touching CEF's OS clipboard; emits `EngineMsg::CopiedText` (#1308).
+    CopySelection {
+        tab_id: u64,
+        cut: bool,
+    },
+    /// Inserts plain text from the host clipboard into the focused frame without reading CEF's
+    /// OS clipboard (#1308).
+    PasteText {
+        tab_id: u64,
+        text: String,
+    },
     Ime {
         tab_id: u64,
         commit: Option<String>,
@@ -589,6 +601,13 @@ pub enum EngineMsg {
         /// The engine supports `FreezeTab`, `HibernateTab`, and `ExtensionWakeTab`.
         #[serde(default)]
         tab_hibernation: bool,
+        /// The engine supports host-bridged text copy/cut/paste (`CopySelection`, `PasteText`,
+        /// `CopiedText`, and `ContextMenuCommand::{CopyToHost, CutToHost}`).
+        #[serde(default)]
+        host_clipboard: bool,
+        /// Linux: CEF initialized with X11 Ozone (`ozone-platform=x11`), whose clipboard is X11.
+        #[serde(default)]
+        x11_clipboard: bool,
     },
     ProfileCookies {
         request_id: u64,
@@ -699,6 +718,11 @@ pub enum EngineMsg {
     CopiedImage {
         tab_id: u64,
         png_b64: String,
+    },
+    /// Selected text copied or cut by the user for the host app's clipboard (#1308).
+    CopiedText {
+        tab_id: u64,
+        text: String,
     },
     /// A tab whose first navigation became the person's download, now placed (or cancelled).
     DownloadOnlyTab {
@@ -1185,6 +1209,10 @@ pub enum ContextMenuCommand {
     HardReload,
     Cut,
     Copy,
+    /// Cut routed through the host clipboard (`CopiedText` + `frame.del()`, never touching X11).
+    CutToHost,
+    /// Copy routed through the host clipboard (`CopiedText`, never touching X11).
+    CopyToHost,
     Paste,
     PastePlain,
     SelectAll,
