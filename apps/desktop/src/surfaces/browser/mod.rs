@@ -104,6 +104,12 @@ mod web {
         pub fn browser_agent_pages_enabled(&self) -> bool {
             true
         }
+
+        pub fn sync_visible_browser_tabs(&mut self) {}
+
+        pub fn set_browser_window_minimized(&mut self, _: bool) {}
+
+        pub fn close_browser_tabs_for_session(&mut self, _: &str, _: Option<&mut Tx>) {}
     }
 }
 
@@ -175,6 +181,8 @@ mod native {
         pub site_detailed: bool,
         /// Live Shift key state tracked in `home_modifiers` for synchronous Shift+Click checks.
         pub shift_held: bool,
+        /// Window visibility and close-slide grace state for multi-pane browser throttling.
+        pub visibility: super::poll::BrowserVisibilityState,
     }
 
     pub use super::keys::claims_app_shortcut;
@@ -716,6 +724,28 @@ mod native {
                 s.close_guard.step(crate::panels::CloseTabGuardEvent::Emptied);
             } else {
                 self.kernel.slots.get_mut(&crate::panels::SIDE).focus.restore(side);
+            }
+        }
+
+        /// Closes every live browser tab owned by session `sid` (used on permanent session
+        /// deletion and cross-window tab tear-out so CEF renderer processes never leak).
+        pub fn close_browser_tabs_for_session(&mut self, sid: &str, mut tx: Option<&mut Tx>) {
+            let ids = self.workspace_panes.browser.session_tabs.remove(sid).unwrap_or_default();
+            for id in ids {
+                if let Some(tx) = tx.as_deref_mut() {
+                    self.close_browser_tab_for_session(sid, id, tx);
+                } else {
+                    let key = panel_key(PLUGIN, &id.to_string());
+                    let root = self.panel_root(sid).to_owned();
+                    let side = self.kernel.slots.get_mut(&crate::panels::SIDE);
+                    if let Some(st) = side.sessions.get_mut(&root) {
+                        st.tab_state = crate::panels::tabs::close_session_tab(&st.tab_state, &key);
+                        if st.tab_state.tabs.all.is_empty() {
+                            st.visibility.step(false);
+                        }
+                    }
+                    self.forget_browser_tab(id);
+                }
             }
         }
 

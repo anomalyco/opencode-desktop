@@ -269,6 +269,26 @@ impl App {
         let Some(i) = self.tab_at(key) else { return };
         let shown = self.current_tab() == Some(self.tabs[i].uid());
         let id = self.tabs.remove(i).id;
+        // Tear-out `Seed` does not transfer live CEF browser tabs; close any tabs owned by the
+        // moved-out session (and its non-tabbed subagents) so renderer processes never leak.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let moved_sids: Vec<String> = self
+                .workspace_panes
+                .browser
+                .session_tabs
+                .keys()
+                .filter(|sid| {
+                    sid.as_str() == id.as_str()
+                        || (crate::launch::saved::page_tab::root_of(self, sid) == id.as_str()
+                            && !self.tabs.iter().any(|t| !t.is_draft() && t.id == **sid))
+                })
+                .cloned()
+                .collect();
+            for sid in moved_sids {
+                self.close_browser_tabs_for_session(&sid, Some(tx));
+            }
+        }
         let r = self.kernel.slots.get_mut(&crate::restore::RESTORE);
         r.drafts.remove(&id);
         r.parked.remove(&id);

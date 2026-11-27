@@ -201,6 +201,8 @@ impl BrowserHost {
             extension_args,
             profile_permissions: self.site_permissions.list().to_vec(),
             preview_chunk_budget: self.preview_chunk_budget.clone(),
+            #[cfg(target_os = "linux")]
+            dmabuf_pools: self.dmabuf_pools.clone(),
         };
         let prefetch = self.prefetch.clone();
         let spawned = std::thread::Builder::new().name("opencode-browser-connect".into()).spawn(move || {

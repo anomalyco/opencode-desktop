@@ -287,6 +287,14 @@ impl TabFrames {
         }
     }
 
+    /// Drops every shared D3D11 texture while a tab is hidden to release GPU/shared memory.
+    /// The next `copy()` allocates a fresh generation so named shared handles never collide.
+    pub fn release_slots(&mut self) {
+        self.slots.clear();
+        self.size = (0, 0);
+        self.dropped = false;
+    }
+
     fn resize(&mut self, width: u32, height: u32) -> Option<()> {
         self.slots.clear();
         self.generation += 1;

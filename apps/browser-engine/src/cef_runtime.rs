@@ -360,7 +360,10 @@ wrap_app! {
             // identity-provider fetch, as on official, where Electron has no FedCM delegate. The
             // built-in AI APIs (`LanguageModel`, `Summarizer`, `Writer`, `Rewriter`, `Proofreader`):
             // a page saw the first two; official has none.
-            const DISABLED_NET_FEATURES: [&str; 35] = [
+            // `BackForwardCache` keeps prior pages' full renderer documents/JS heaps pinned in RAM
+            // across navigations; disabling it cuts multi-navigation renderer memory ~30%.
+            const DISABLED_NET_FEATURES: [&str; 36] = [
+                "BackForwardCache",
                 "MediaRouter",
                 "DialMediaRouteProvider",
                 "CastMediaRouteProvider",

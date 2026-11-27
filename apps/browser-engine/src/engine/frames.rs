@@ -15,7 +15,9 @@ impl EngineManager {
     pub(super) fn set_frame_rate(&self, fps: u32) {
         let Some(clamped) = crate::input_fps::set_pane_fps(fps) else { return };
         for (&tab_id, t) in &self.tabs {
-            if !crate::input_fps::is_boosted(tab_id) {
+            if t.awake_state == super::lifecycle::TabAwakeState::Awake
+                && !crate::input_fps::is_boosted(tab_id)
+            {
                 t.host.set_windowless_frame_rate(clamped);
             }
         }
