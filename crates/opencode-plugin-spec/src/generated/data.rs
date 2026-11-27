@@ -885,8 +885,10 @@ pub struct BrowserOpenSpec {
     pub session_id: Option<String>,
     /// Opens the tab without moving the keyboard: focus stays where it is.
     pub background: Option<bool>,
+    /// The side-region pane (`side`, `split`, or `bottom`) to open the page's tab in.
+    pub pane: Option<String>,
 }
-impl_record!(BrowserOpenSpec, ["url", "sessionId", "background"], [], []);
+impl_record!(BrowserOpenSpec, ["url", "sessionId", "background", "pane"], [], []);
 
 /// Where to show a page's tab.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

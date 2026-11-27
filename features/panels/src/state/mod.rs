@@ -90,6 +90,14 @@ impl Visibility {
     }
 }
 
+/// Explicit autofocus request for a side-panel New tab view (`new-tab-machine.ts`, opencode#66818).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NewTabFocus {
+    #[default]
+    Idle,
+    Requested { pane: SessionPane, token: u64 },
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct NewTabEntry {
     pub id: String,
@@ -539,6 +547,7 @@ pub struct SideState {
     pub sessions: HashMap<String, SessionSideState>,
     pub adding: Vec<NewTabEntry>,
     pub chosen_new_tab: HashMap<SessionPane, String>,
+    pub new_tab_focus: NewTabFocus,
     pub(crate) next_new_serial: u64,
     /// The last [`resolve_side_region`]: the plugins' surface versions and the `Tracked`
     /// state it read, and what it resolved.
@@ -576,6 +585,7 @@ impl Default for SideState {
             sessions: HashMap::new(),
             adding: Vec::new(),
             chosen_new_tab: HashMap::new(),
+            new_tab_focus: NewTabFocus::Idle,
             next_new_serial: 1,
         }
     }

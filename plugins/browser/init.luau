@@ -78,10 +78,20 @@ return plugin.defineWindow(function(ctx)
     local unseenTabs: { [string]: boolean } = {}
     local revealUntil: { [string]: number } = {}
     local panelHandle: Contribution? = nil
+    local newTabBarHandle: Contribution? = nil
+    local newTabRecentHandle: Contribution? = nil
+    local newTabTarget: { sessionId: string?, pane: string? } = { sessionId = nil, pane = nil }
+    local lastFocusToken: number? = nil
 
     local function refresh()
         if panelHandle then
             panelHandle:Refresh()
+        end
+        if newTabBarHandle then
+            newTabBarHandle:Refresh()
+        end
+        if newTabRecentHandle then
+            newTabRecentHandle:Refresh()
         end
     end
 
@@ -204,9 +214,25 @@ return plugin.defineWindow(function(ctx)
         syncingEditor = false
     end
 
+    local function editingNewTab(): boolean
+        local e = state.edit
+        return e.status == "editing" and e.tab == address.NEW_TAB_ID
+    end
+
     local function editing(): BrowserTab?
         local e = state.edit
-        return if e.status == "editing" then Browser:Get(e.tab) else nil
+        return if e.status == "editing" and e.tab ~= address.NEW_TAB_ID then Browser:Get(e.tab) else nil
+    end
+
+    local function editingEpoch(): (string?, address.Epoch?)
+        if editingNewTab() then
+            return address.NEW_TAB_ID, address.BLANK_EPOCH
+        end
+        local tab = editing()
+        if tab then
+            return tab.Id, epoch(tab)
+        end
+        return nil, nil
     end
 
     local dispatch: (event: address.Event) -> ()

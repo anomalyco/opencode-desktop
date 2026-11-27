@@ -1,4 +1,4 @@
--- OpenCode plugin contract 1.12: global types for luau-lsp.
+-- OpenCode plugin contract 1.13: global types for luau-lsp.
 -- Generated from crates/opencode-plugin-spec/contract.json by `cargo run -p opencode-plugin-spec -- --write`. Do not edit.
 -- Load it with `luau-lsp analyze --definitions=@opencode=plugins/opencode.d.luau`.
 
@@ -91,7 +91,7 @@ export type MenuName = "session.panel" | "server.add" | "server.row"
 export type MenubarMenu = "app" | "file" | "edit" | "view" | "go" | "window" | "help"
 
 --- A fixed place in the app's shell that a slot fills.
-export type SlotName = "window.bottom" | "session.header" | "session.location.menu" | "session.panel.end"
+export type SlotName = "window.bottom" | "session.header" | "session.location.menu" | "session.panel.end" | "session.panel.new" | "session.panel.new.list"
 
 --- A host settings page a settings page can add a section to.
 export type HostSettingsPage = "general" | "servers"
@@ -4798,6 +4798,8 @@ export type BrowserOpenSpec = {
     sessionId: string?,
     --- Opens the tab without moving the keyboard: focus stays where it is.
     background: boolean?,
+    --- The side-region pane (`side`, `split`, or `bottom`) to open the page's tab in.
+    pane: string?,
 }
 
 --- Where to show a page's tab.
@@ -5514,6 +5516,12 @@ export type SlotProps = {
     compact: boolean?,
     --- `session.location.menu`: the menu is open.
     shown: boolean?,
+    --- New tab slots: the pane (`side`, `split`, or `bottom`).
+    pane: string?,
+    --- New tab slots: the pane's available width in points.
+    width: number?,
+    --- New tab slots: incremented when the user explicitly asked for this New tab, so its first field takes focus once.
+    focusToken: number?,
 }
 
 --- Content for one of the shell's slots. Desktop's plugin API calls it `Slot`.
